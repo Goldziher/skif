@@ -17,6 +17,10 @@ readme = "../../README.md"
 pkg-url = "{ repo }/releases/download/v{ version }/skif-{ target }{ archive-suffix }"
 bin-dir = "{ bin }{ binary-ext }"
 
+[lib]
+name = "skif_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "skif"
 path = "src/main.rs"
