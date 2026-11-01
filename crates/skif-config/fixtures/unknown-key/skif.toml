@@ -1,0 +1,3 @@
+[lint]
+fail-on-warnings = true
+fail-on-warning = true
