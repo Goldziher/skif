@@ -20,6 +20,16 @@ impl Display for AutofixSelect {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Format {
+    /// Human-readable output.
+    #[default]
+    Human,
+    /// Machine-readable JSON on stdout.
+    Json,
+}
+
 #[derive(Debug, Parser, Deserialize, Clone)]
 #[command(version)]
 pub struct Args {
@@ -43,6 +53,10 @@ pub struct Args {
     #[arg(long)]
     pub fail_on_warnings: bool,
 
+    /// Output format.
+    #[arg(long, value_enum)]
+    pub format: Option<Format>,
+
     /// Ignore the `multiple-dependency-versions` rule for the given dependency name and/or version.
     #[arg(long, short)]
     pub ignore_dependency: Vec<String>,
@@ -64,6 +78,7 @@ impl From<Args> for Config {
             select: args.select,
             no_install: args.no_install,
             fail_on_warnings: args.fail_on_warnings,
+            format: args.format.unwrap_or_default(),
             ignore_dependency: args.ignore_dependency,
             ignore_package: args.ignore_package,
             ignore_rule: args.ignore_rule,

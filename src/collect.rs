@@ -582,6 +582,7 @@ mod test {
             ignore_rule: Vec::new(),
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
+            format: None,
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -621,6 +622,7 @@ mod test {
             ignore_rule: Vec::new(),
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
+            format: None,
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -642,6 +644,7 @@ mod test {
             ignore_rule: Vec::new(),
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
+            format: None,
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -663,6 +666,7 @@ mod test {
             ignore_rule: Vec::new(),
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
+            format: None,
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -684,6 +688,7 @@ mod test {
             ignore_rule: Vec::new(),
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
+            format: None,
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -714,6 +719,7 @@ mod test {
             ignore_rule: Vec::new(),
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
+            format: None,
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -754,6 +760,7 @@ mod test {
             ignore_rule: Vec::new(),
             ignore_package: Vec::new(),
             ignore_dependency: vec!["next@4.5.6".to_string(), "*eslint*".to_string()],
+            format: None,
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -782,6 +789,7 @@ mod test {
             ignore_rule: Vec::new(),
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
+            format: None,
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -814,6 +822,7 @@ mod test {
             ignore_rule: Vec::new(),
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
+            format: None,
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -849,6 +858,7 @@ mod test {
             ignore_rule: Vec::new(),
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
+            format: None,
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -871,6 +881,7 @@ mod test {
             ignore_rule: Vec::new(),
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
+            format: None,
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -907,6 +918,7 @@ mod test {
             ignore_rule: Vec::new(),
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
+            format: None,
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
