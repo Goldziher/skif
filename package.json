@@ -18,7 +18,7 @@
   "homepage": "https://github.com/QuiiBz/sherif#readme",
   "license": "MIT",
   "type": "module",
-  "packageManager": "pnpm@10.34.6",
+  "packageManager": "pnpm@12.15.0",
   "scripts": {
     "action": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit"
