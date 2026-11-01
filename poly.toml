@@ -11,7 +11,7 @@ exclude = [
   "**/package-lock.json",
   "**/pnpm-lock.yaml",
   "target/**",
-  "fixtures/**",
+  "**/fixtures/**",
   "**/node_modules/**",
   ".ai-rulez/**",
   ".agents/**",
@@ -72,11 +72,11 @@ preserve_patterns = [
 [lint.typos]
 # `sherif` is the upstream project credited in ATTRIBUTIONS.md and the README. `existant` and `accidentaly` appear in rule names and sources until the rules are renamed.
 extend_words = { sherif = "sherif", skif = "skif", Skif = "Skif", adr = "adr", adrlint = "adrlint", madr = "madr", existant = "existant", Existant = "Existant", accidentaly = "accidentaly" }
-extend_exclude = ["fixtures/**"]
+extend_exclude = ["**/fixtures/**"]
 
 [per-file-ignores]
 # Fixture trees are deliberate fakes: data, not source.
-"fixtures/**" = ["comment", "doc-comment"]
+"**/fixtures/**" = ["comment", "doc-comment"]
 "**/generated/**" = ["comment", "doc-comment"]
 "**/*.generated.*" = ["comment", "doc-comment"]
 
@@ -99,7 +99,7 @@ lint = { exclude = [
   "**/package-lock.json",
   "**/pnpm-lock.yaml",
   "target/**",
-  "fixtures/**",
+  "**/fixtures/**",
   "**/node_modules/**",
 ] }
 fmt = { exclude = [
@@ -108,7 +108,7 @@ fmt = { exclude = [
   "**/package-lock.json",
   "**/pnpm-lock.yaml",
   "target/**",
-  "fixtures/**",
+  "**/fixtures/**",
   "**/node_modules/**",
 ] }
 commit = { stages = ["commit-msg"] }
@@ -118,7 +118,7 @@ file_safety = { exclude = [
   "**/package-lock.json",
   "**/pnpm-lock.yaml",
   "target/**",
-  "fixtures/**",
+  "**/fixtures/**",
   "**/node_modules/**",
 ] }
 cargo = true
