@@ -13,10 +13,7 @@ pub struct TypesInDependenciesIssue {
 
 impl TypesInDependenciesIssue {
     pub fn new(packages: Vec<String>) -> Box<Self> {
-        Box::new(Self {
-            packages,
-            fixed: false,
-        })
+        Box::new(Self { packages, fixed: false })
     }
 }
 
@@ -91,10 +88,7 @@ impl Issue for TypesInDependenciesIssue {
             let root = json::object_mut(&mut value, "package.json")?;
             let mut dependencies_to_add = IndexMap::new();
 
-            if let Some(dependencies) = root
-                .get_mut("dependencies")
-                .and_then(serde_json::Value::as_object_mut)
-            {
+            if let Some(dependencies) = root.get_mut("dependencies").and_then(serde_json::Value::as_object_mut) {
                 for package in &self.packages {
                     if let Some(version) = dependencies.remove(package) {
                         dependencies_to_add.insert(package.clone(), version);
@@ -129,17 +123,13 @@ mod test {
 
     #[test]
     fn test() {
-        let issue =
-            TypesInDependenciesIssue::new(vec!["@types/react".into(), "@types/react-dom".into()]);
+        let issue = TypesInDependenciesIssue::new(vec!["@types/react".into(), "@types/react-dom".into()]);
 
         assert_eq!(issue.name(), "types-in-dependencies");
         assert_eq!(issue.level(), IssueLevel::Error);
 
         colored::control::set_override(false);
         insta::assert_snapshot!(issue.message());
-        assert_eq!(
-            issue.why(),
-            "Private packages shouldn't have @types/* in dependencies."
-        );
+        assert_eq!(issue.why(), "Private packages shouldn't have @types/* in dependencies.");
     }
 }

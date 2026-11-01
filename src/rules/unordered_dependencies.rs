@@ -34,8 +34,7 @@ impl UnorderedDependenciesIssue {
                 sorted.insert(key.clone(), dependency_field[key].clone());
             }
 
-            json::object_mut(&mut value, "package.json")?
-                .insert(dependency, serde_json::Value::Object(sorted));
+            json::object_mut(&mut value, "package.json")?.insert(dependency, serde_json::Value::Object(sorted));
 
             let value = json::serialize(&value, &indent, lineending)?;
             fs::write(path, value)?;
@@ -76,10 +75,7 @@ impl Issue for UnorderedDependenciesIssue {
     }
 
     fn why(&self) -> Cow<'static, str> {
-        Cow::Owned(format!(
-            "{} should be ordered alphabetically.",
-            self.dependency_kind
-        ))
+        Cow::Owned(format!("{} should be ordered alphabetically.", self.dependency_kind))
     }
 
     fn fix(&mut self, package_type: &PackageType) -> Result<()> {
@@ -105,10 +101,7 @@ mod test {
 
         assert_eq!(issue.name(), "unordered-dependencies");
         assert_eq!(issue.level(), IssueLevel::Error);
-        assert_eq!(
-            issue.why(),
-            "dependencies should be ordered alphabetically."
-        );
+        assert_eq!(issue.why(), "dependencies should be ordered alphabetically.");
     }
 
     #[test]

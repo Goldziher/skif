@@ -1,4 +1,5 @@
 /target
+node_modules/
 /dist
 
 # poly (polylint) local cache

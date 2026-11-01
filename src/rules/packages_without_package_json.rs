@@ -14,10 +14,7 @@ pub struct PackagesWithoutPackageJsonIssue {
 
 impl PackagesWithoutPackageJsonIssue {
     pub fn new(package: String) -> Box<Self> {
-        Box::new(Self {
-            package,
-            fixed: false,
-        })
+        Box::new(Self { package, fixed: false })
     }
 }
 

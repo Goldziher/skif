@@ -57,7 +57,7 @@ empty-dependencies = "off"
 ## Status
 
 skif is a clean rebuild of a monorepo linter, restructured as a library-first workspace. Design
-decisions are recorded as architecture decision records in [`adrs/`](adrs/).
+decisions are recorded as architecture decision records in [`adrs/`](adrs/index.md).
 
 ## License
 

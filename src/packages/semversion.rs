@@ -53,10 +53,7 @@ impl SemVersion {
     pub fn major(&self) -> u64 {
         match self {
             Self::Exact(version) => version.major,
-            Self::Range(version) => version
-                .comparators
-                .first()
-                .map_or(0, |comparator| comparator.major),
+            Self::Range(version) => version.comparators.first().map_or(0, |comparator| comparator.major),
         }
     }
 

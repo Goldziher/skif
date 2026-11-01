@@ -4,12 +4,8 @@ use crate::{
     rules::{
         BoxIssue,
         empty_dependencies::{DependencyKind, EmptyDependenciesIssue},
-        incompatible_peer_dependencies::{
-            IncompatiblePeerDependenciesIssue, IncompatiblePeerDependency,
-        },
-        local_path_dependencies::{
-            LocalPathDependenciesIssue, LocalPathDependency, is_local_path_specifier,
-        },
+        incompatible_peer_dependencies::{IncompatiblePeerDependenciesIssue, IncompatiblePeerDependency},
+        local_path_dependencies::{LocalPathDependenciesIssue, LocalPathDependency, is_local_path_specifier},
         member_toolchain_fields::MemberToolchainFieldsIssue,
         unordered_dependencies::UnorderedDependenciesIssue,
     },
@@ -229,10 +225,7 @@ impl Package {
             Err(err) => return Err(anyhow!("Error while parsing {package_path:?}: {err}")),
         };
 
-        Ok(Self {
-            path,
-            inner: package,
-        })
+        Ok(Self { path, inner: package })
     }
 
     pub fn get_name(&self) -> Option<&String> {
@@ -276,25 +269,12 @@ impl Package {
     ) -> Option<BoxIssue> {
         let dependencies = [
             (DependencyKind::Dependencies, &self.inner.dependencies),
-            (
-                DependencyKind::DevDependencies,
-                &self.inner.dev_dependencies,
-            ),
-            (
-                DependencyKind::PeerDependencies,
-                &self.inner.peer_dependencies,
-            ),
-            (
-                DependencyKind::OptionalDependencies,
-                &self.inner.optional_dependencies,
-            ),
+            (DependencyKind::DevDependencies, &self.inner.dev_dependencies),
+            (DependencyKind::PeerDependencies, &self.inner.peer_dependencies),
+            (DependencyKind::OptionalDependencies, &self.inner.optional_dependencies),
         ]
         .into_iter()
-        .filter_map(|(kind, dependencies)| {
-            dependencies
-                .as_ref()
-                .map(|dependencies| (kind, dependencies))
-        })
+        .filter_map(|(kind, dependencies)| dependencies.as_ref().map(|dependencies| (kind, dependencies)))
         .flat_map(|(kind, dependencies)| {
             dependencies
                 .iter()
@@ -317,11 +297,7 @@ impl Package {
         }
     }
 
-    pub fn check_member_toolchain(
-        &self,
-        root: &Package,
-        member_toolchain: MemberToolchain,
-    ) -> Option<BoxIssue> {
+    pub fn check_member_toolchain(&self, root: &Package, member_toolchain: MemberToolchain) -> Option<BoxIssue> {
         let forbid = member_toolchain == MemberToolchain::Forbid;
         let mut fields = Vec::new();
 
@@ -344,10 +320,7 @@ impl Package {
         }
     }
 
-    fn check_deps(
-        deps: Option<&IndexMap<String, String>>,
-        dependency_kind: DependencyKind,
-    ) -> Option<BoxIssue> {
+    fn check_deps(deps: Option<&IndexMap<String, String>>, dependency_kind: DependencyKind) -> Option<BoxIssue> {
         if let Some(dependencies) = deps {
             if dependencies.is_empty() {
                 return Some(EmptyDependenciesIssue::new(dependency_kind));
@@ -365,24 +338,15 @@ impl Package {
     }
 
     pub fn check_dependencies(&self) -> Option<BoxIssue> {
-        Self::check_deps(
-            self.inner.dependencies.as_ref(),
-            DependencyKind::Dependencies,
-        )
+        Self::check_deps(self.inner.dependencies.as_ref(), DependencyKind::Dependencies)
     }
 
     pub fn check_dev_dependencies(&self) -> Option<BoxIssue> {
-        Self::check_deps(
-            self.inner.dev_dependencies.as_ref(),
-            DependencyKind::DevDependencies,
-        )
+        Self::check_deps(self.inner.dev_dependencies.as_ref(), DependencyKind::DevDependencies)
     }
 
     pub fn check_peer_dependencies(&self) -> Option<BoxIssue> {
-        Self::check_deps(
-            self.inner.peer_dependencies.as_ref(),
-            DependencyKind::PeerDependencies,
-        )
+        Self::check_deps(self.inner.peer_dependencies.as_ref(), DependencyKind::PeerDependencies)
     }
 
     pub fn check_optional_dependencies(&self) -> Option<BoxIssue> {
@@ -403,19 +367,14 @@ impl Package {
         catalogs.resolve(name, version).unwrap_or(version)
     }
 
-    fn get_deps(
-        deps: Option<&IndexMap<String, String>>,
-        catalogs: &Catalogs,
-    ) -> Option<IndexMap<String, SemVersion>> {
+    fn get_deps(deps: Option<&IndexMap<String, String>>, catalogs: &Catalogs) -> Option<IndexMap<String, SemVersion>> {
         deps.map(|dependencies| {
             dependencies
                 .iter()
                 .filter_map(|(name, version)| {
                     let version = Self::resolve_version(catalogs, name, version);
 
-                    SemVersion::parse(version)
-                        .ok()
-                        .map(|version| (name.clone(), version))
+                    SemVersion::parse(version).ok().map(|version| (name.clone(), version))
                 })
                 .collect()
         })
@@ -427,15 +386,11 @@ impl Package {
 
     /// The `devDependencies` versions, without the ones also declared in `peerDependencies`:
     /// those test the lowest supported peer range and are not meant to match other packages.
-    pub fn get_dev_dependencies(
-        &self,
-        catalogs: &Catalogs,
-    ) -> Option<IndexMap<String, SemVersion>> {
+    pub fn get_dev_dependencies(&self, catalogs: &Catalogs) -> Option<IndexMap<String, SemVersion>> {
         let peer_dependencies = self.inner.peer_dependencies.as_ref();
 
         Self::get_deps(self.inner.dev_dependencies.as_ref(), catalogs).map(|mut dependencies| {
-            dependencies
-                .retain(|name, _| !peer_dependencies.is_some_and(|peers| peers.contains_key(name)));
+            dependencies.retain(|name, _| !peer_dependencies.is_some_and(|peers| peers.contains_key(name)));
             dependencies
         })
     }
@@ -472,8 +427,7 @@ impl Package {
                 if ignored_package.ends_with('*') {
                     let ignored_package = ignored_package.trim_end_matches('*');
 
-                    name.starts_with(ignored_package)
-                        || self.get_path().starts_with(ignored_package)
+                    name.starts_with(ignored_package) || self.get_path().starts_with(ignored_package)
                 } else {
                     ignored_package == name || ignored_package == &self.get_path()
                 }
@@ -509,19 +463,13 @@ mod test {
         let catalogs = catalogs();
 
         assert_eq!(catalogs.resolve("typescript", "catalog:"), Some("5.9.3"));
-        assert_eq!(
-            catalogs.resolve("typescript", "catalog:default"),
-            Some("5.9.3")
-        );
+        assert_eq!(catalogs.resolve("typescript", "catalog:default"), Some("5.9.3"));
         assert_eq!(catalogs.resolve("react", "catalog:"), Some("19.0.0"));
     }
 
     #[test]
     fn resolve_named_catalog() {
-        assert_eq!(
-            catalogs().resolve("typescript", "catalog:ts6"),
-            Some("6.0.3")
-        );
+        assert_eq!(catalogs().resolve("typescript", "catalog:ts6"), Some("6.0.3"));
     }
 
     #[test]

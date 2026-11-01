@@ -1,9 +1,12 @@
-# 0009 — Version and Catalog Policies: syncpack Semantics, Few Stable Rule IDs
+---
+status: accepted
+date: 2026-11-01
+decision-makers: ["Na'aman Hirschfeld"]
+---
 
-* Status: Accepted
-* Date: 2026-11-01
+# Version and Catalog Policies: syncpack Semantics, Few Stable Rule IDs
 
-## Context
+## Context and Problem Statement
 
 sherif enforces one version policy, hard-coded: `multiple-dependency-versions` reports a dependency
 declared with more than one version across the workspace, and `unsync-similar-dependencies` reports
@@ -25,18 +28,34 @@ pnpm, bun and yarn catalogs add a second source of truth for versions, and the `
 a third for internal packages. syncpack's state machine is the most complete specification of how
 these interact.
 
-## Decision
+## Decision Drivers
+
+* sherif's two hard-coded version rules cannot be scoped, pinned or relaxed
+* syncpack's model of version groups, semver groups and instance states is well understood by its users
+* Catalogs and the `workspace:` protocol add further sources of truth for versions
+* Rule IDs are public API, so the set must stay small and stable
+
+## Considered Options
+
+* Re-implement syncpack's group semantics in Rust, mapped onto a few stable rule IDs
+* One rule ID per syncpack state
+* Keep sherif's fixed rules and add options
+* Run syncpack's Rust core as a library
+
+## Decision Outcome
+
+Chosen option: "Re-implement syncpack's group semantics in Rust, mapped onto a few stable rule IDs", because syncpack users find the model they know, sherif's default check survives as a configurable catch-all, and a handful of rule IDs keeps configuration usable while `detail` keeps full precision.
 
 `skif-rules/policy` **re-implements syncpack's semantics** in Rust on skif's own model. syncpack is
 the specification, not a dependency: behaviour is taken from its documentation and observed
-results, and the table tests derived from it credit syncpack as their source (ADR 0015). The one
+results, and the table tests derived from it credit syncpack as their source ([ADR 0015](0015-attribution-and-vendoring.md)). The one
 vendored part is syncpack's `pattern_matcher` for selector globs, alongside the specifier model
-(ADR 0006).
+([ADR 0006](0006-specifier-and-semver-model.md)).
 
 ### Version groups
 
-`[[version-groups]]` in `skif.toml` (ADR 0004) are evaluated **in file order, first match wins**,
-over the `DependencyInstance`s from discovery (ADR 0005). Selectors: `dependencies`,
+`[[version-groups]]` in `skif.toml` ([ADR 0004](0004-configuration-model.md)) are evaluated **in file order, first match wins**,
+over the `DependencyInstance`s from discovery ([ADR 0005](0005-workspace-discovery.md)). Selectors: `dependencies`,
 `dependency-types`, `packages`, `specifier-types`, with negation; `$LOCAL` selects dependencies that
 are themselves workspace packages. Policies: `pinned`, `banned`, `ignored`, `same-range`,
 `same-minor`, `snapped-to`, `preferred-semver` (with `[policy] prefer = "highest" | "lowest"`).
@@ -67,7 +86,7 @@ sherif's default behaviour; a workspace with groups gets it only for what its gr
 ### States map to a few rule IDs
 
 syncpack distinguishes dozens of instance states. skif maps them onto the **small, stable set of
-rule IDs above** (ADR 0007) and carries the exact state in `Diagnostic.detail`:
+rule IDs above** ([ADR 0007](0007-rule-and-diagnostic-model.md)) and carries the exact state in `Diagnostic.detail`:
 
 ```json
 { "rule": "version-mismatch",
@@ -79,31 +98,47 @@ When two policies require incompatible outcomes for one instance — a pinned ve
 enforced catalog entry that disagree — skif reports `policy-conflict` once instead of two diagnostics
 whose fixes would undo each other.
 
-Fixes are `Unsafe` (ADR 0008): they change what gets installed.
+Fixes are `Unsafe` ([ADR 0008](0008-fix-and-edit-model.md)): they change what gets installed.
 
-## Consequences
+### Consequences
 
-Positive:
-
-* syncpack users find the model they know, configured in TOML; `mise run diff:syncpack` compares
+* Good, because syncpack users find the model they know, configured in TOML; `mise run diff:syncpack` compares
   skif's states with syncpack's on the corpus and turns parity into a measured number.
-* sherif's default check survives as a configurable catch-all rather than a special case.
-* A handful of rule IDs keeps `[rules]` and `[[ignore]]` usable while `detail` keeps full precision.
-
-Negative / risks:
-
-* Re-implementing a state machine from a specification means matching its edge cases one by one.
+* Good, because sherif's default check survives as a configurable catch-all rather than a special case.
+* Good, because A handful of rule IDs keeps `[rules]` and `[[ignore]]` usable while `detail` keeps full precision.
+* Bad, because re-implementing a state machine from a specification means matching its edge cases one by one.
   The table tests are the defence and must cover every state skif claims to emit.
-* First-match-wins is order-sensitive; a group placed too early silently claims instances. `skif`
+* Bad, because first-match-wins is order-sensitive; a group placed too early silently claims instances. `skif`
   reports a configured group that matches nothing as a warning.
-* State names in `detail` follow syncpack's and become part of the JSON contract (ADR 0012), so a
+* Bad, because state names in `detail` follow syncpack's and become part of the JSON contract ([ADR 0012](0012-reporting.md)), so a
   syncpack rename does not propagate automatically.
 
-## Alternatives considered
+### Confirmation
 
-* **One rule ID per syncpack state:** rejected — dozens of IDs, most of which nobody would configure
-  individually, and each a permanent public name.
-* **Keep sherif's fixed rules and add options:** rejected — every option would be a partial
-  re-invention of version groups.
-* **Run syncpack's Rust core as a library:** rejected — it is a CLI crate with its own config
-  loading, output and process model, and the parts skif needs are exactly the ones it vendors.
+* Table tests derived from syncpack cover every state skif claims to emit and credit syncpack as their source ([ADR 0015](0015-attribution-and-vendoring.md)).
+* `mise run diff:syncpack` compares skif's states with syncpack's on the corpus and turns parity into a measured number.
+* skif reports a configured group that matches nothing as a warning.
+
+## Pros and Cons of the Options
+
+### Re-implement syncpack's group semantics in Rust, mapped onto a few stable rule IDs
+
+* Good, because it satisfies the decision drivers above; the benefits are listed under Consequences.
+
+### One rule ID per syncpack state
+
+* Bad, because it creates dozens of IDs, most of which nobody would configure individually, and each a permanent public name.
+
+### Keep sherif's fixed rules and add options
+
+* Bad, because every option would be a partial re-invention of version groups.
+
+### Run syncpack's Rust core as a library
+
+* Bad, because it is a CLI crate with its own config loading, output and process model, and the parts skif needs are exactly the ones it vendors.
+
+## More Information
+
+* Related decisions: [ADR 0004](0004-configuration-model.md), [ADR 0005](0005-workspace-discovery.md), [ADR 0006](0006-specifier-and-semver-model.md), [ADR 0007](0007-rule-and-diagnostic-model.md), [ADR 0008](0008-fix-and-edit-model.md), [ADR 0012](0012-reporting.md), [ADR 0015](0015-attribution-and-vendoring.md)
+* Upstream: [syncpack](https://github.com/JamieMason/syncpack)
+* See the [ADR index](index.md).

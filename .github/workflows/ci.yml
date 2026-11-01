@@ -31,6 +31,8 @@ jobs:
     uses: xberg-io/actions/.github/workflows/reusable-validate.yml@v1
     with:
       setup-rust: true
+      check-adrs: true
+      lint-action-pins: true
 
   lint:
     name: Lint
@@ -122,6 +124,18 @@ jobs:
 
   # Runs the built binary against real workspaces installed by each package manager, so the
   # fixtures prove skif's view of a monorepo matches what npm, pnpm, yarn and bun actually accept.
+  scripts:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shopt -s globstar nullglob
+          shellcheck scripts/**/*.sh
+
   e2e:
     name: E2E (${{ matrix.package-manager }})
     runs-on: ubuntu-latest

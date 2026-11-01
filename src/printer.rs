@@ -148,8 +148,7 @@ pub fn get_render_config() -> RenderConfig<'static> {
 mod test {
     use super::*;
     use crate::rules::{
-        non_existant_packages::NonExistantPackagesIssue,
-        root_package_dependencies::RootPackageDependenciesIssue,
+        non_existant_packages::NonExistantPackagesIssue, root_package_dependencies::RootPackageDependenciesIssue,
         root_package_manager_field::RootPackageManagerFieldIssue,
     };
     use serde_json::{Value, json};

@@ -1,7 +1,5 @@
 use super::{Issue, IssueLevel, PackageType};
-use crate::{
-    args::AutofixSelect, json, packages::semversion::SemVersion, printer::get_render_config,
-};
+use crate::{args::AutofixSelect, json, packages::semversion::SemVersion, printer::get_render_config};
 use anyhow::Result;
 use colored::Colorize;
 use indexmap::IndexMap;
@@ -17,11 +15,7 @@ pub struct MultipleDependencyVersionsIssue {
 }
 
 impl MultipleDependencyVersionsIssue {
-    pub fn new(
-        name: String,
-        mut versions: IndexMap<String, SemVersion>,
-        select: Option<AutofixSelect>,
-    ) -> Box<Self> {
+    pub fn new(name: String, mut versions: IndexMap<String, SemVersion>, select: Option<AutofixSelect>) -> Box<Self> {
         versions.sort_by(|_, a, _, b| b.cmp(a));
 
         Box::new(Self {
@@ -38,12 +32,8 @@ impl MultipleDependencyVersionsIssue {
 
         if let Some(select) = &self.select {
             let autofix_version = match select {
-                AutofixSelect::Highest => sorted_versions
-                    .first()
-                    .map(std::string::ToString::to_string),
-                AutofixSelect::Lowest => {
-                    sorted_versions.last().map(std::string::ToString::to_string)
-                }
+                AutofixSelect::Highest => sorted_versions.first().map(std::string::ToString::to_string),
+                AutofixSelect::Lowest => sorted_versions.last().map(std::string::ToString::to_string),
             };
             Ok(autofix_version)
         } else {
@@ -88,11 +78,7 @@ impl MultipleDependencyVersionsIssue {
     }
 }
 
-fn format_version(
-    version: &SemVersion,
-    versions: &IndexMap<String, SemVersion>,
-    skip_version_color: bool,
-) -> String {
+fn format_version(version: &SemVersion, versions: &IndexMap<String, SemVersion>, skip_version_color: bool) -> String {
     let (version, indicator) = if versions.first().is_some_and(|(_, first)| version == first) {
         (version.to_string().green(), "↑ highest".green())
     } else if versions.last().is_some_and(|(_, last)| version == last) {
@@ -100,11 +86,7 @@ fn format_version(
     } else {
         (version.to_string().yellow(), "∼ between".yellow())
     };
-    let version = if skip_version_color {
-        version.clear()
-    } else {
-        version
-    };
+    let version = if skip_version_color { version.clear() } else { version };
 
     format!("{version}   {indicator}")
 }
@@ -160,12 +142,7 @@ impl Issue for MultipleDependencyVersionsIssue {
 
                 group = common_path;
 
-                format!(
-                    "      {}{}{}",
-                    end.bright_black(),
-                    version_pad,
-                    formatted_version
-                )
+                format!("      {}{}{}", end.bright_black(), version_pad, formatted_version)
             })
             .collect::<Vec<String>>()
             .join("\n")
@@ -183,8 +160,7 @@ impl Issue for MultipleDependencyVersionsIssue {
             for package in self.versions.keys() {
                 let path = PathBuf::from(package).join("package.json");
                 let value = fs::read_to_string(&path)?;
-                let (mut value, indent, lineending) =
-                    json::deserialize::<serde_json::Value>(&value)?;
+                let (mut value, indent, lineending) = json::deserialize::<serde_json::Value>(&value)?;
 
                 for kind in ["dependencies", "devDependencies"] {
                     if let Some(dependency) = value

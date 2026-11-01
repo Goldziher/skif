@@ -79,9 +79,7 @@ impl Issue for IncompatiblePeerDependenciesIssue {
     }
 
     fn why(&self) -> Cow<'static, str> {
-        Cow::Borrowed(
-            "A dependency in devDependencies should satisfy the range declared in peerDependencies.",
-        )
+        Cow::Borrowed("A dependency in devDependencies should satisfy the range declared in peerDependencies.")
     }
 }
 

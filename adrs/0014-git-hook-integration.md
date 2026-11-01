@@ -1,9 +1,12 @@
-# 0014 — Git Hook Integration: pre-commit Launcher, poly Catalog, Lefthook Docs
+---
+status: accepted
+date: 2026-11-01
+decision-makers: ["Na'aman Hirschfeld"]
+---
 
-* Status: Accepted
-* Date: 2026-11-01
+# Git Hook Integration: pre-commit Launcher, poly Catalog, Lefthook Docs
 
-## Context
+## Context and Problem Statement
 
 A dependency linter belongs in a pre-commit hook: the developer has just edited a `package.json`,
 and a mismatched version or an unsorted dependency map is cheapest to fix before it is committed.
@@ -19,9 +22,24 @@ pre-commit `cargo install` the crate from the pinned revision — simple, but ev
 Rust toolchain and pays a full compile. ai-rulez uses `language: script` with a launcher,
 `scripts/pre-commit/run-ai-rulez.sh`, that takes an explicit `AI_RULEZ_BINARY`, else an `ai-rulez`
 on `PATH`, else downloads the pinned release into `~/.cache/ai-rulez/pre-commit`. skif's users are
-JavaScript developers (ADR 0013), so requiring Rust is not acceptable.
+JavaScript developers ([ADR 0013](0013-distribution-and-naming.md)), so requiring Rust is not acceptable.
 
-## Decision
+## Decision Drivers
+
+* A dependency linter belongs in a pre-commit hook
+* skif's users are JavaScript developers, so requiring a Rust toolchain is not acceptable
+* pre-commit, poly and Lefthook discover hooks in three different ways
+
+## Considered Options
+
+* A script-language pre-commit launcher, a poly hook catalog and documented Lefthook configuration
+* `language: rust` (adrlint's choice)
+* `language: node` installing the npm package
+* Shipping a Lefthook config file
+
+## Decision Outcome
+
+Chosen option: "A script-language pre-commit launcher, a poly hook catalog and documented Lefthook configuration", because the launcher brings the binary without Rust or Node, prefers an installed `skif`, and the poly catalog pins the same hooks per release.
 
 ### pre-commit / prek
 
@@ -58,37 +76,49 @@ hook, following adrlint's and voom's catalogs:
 | `npm` | `command -v pnpm` | `pnpm dlx skif@X.Y.Z` |
 
 The npm channel is **pinned to the exact release version**, so `poly-hooks.toml` is a release
-surface rewritten by the bump script (ADR 0013).
+surface rewritten by the bump script ([ADR 0013](0013-distribution-and-naming.md)).
 
 ### Lefthook
 
 Lefthook needs nothing from the producer. The README documents a `lefthook.yml` snippet that runs
 `skif` on `pre-commit` with a `glob` over the manifest files; there is no shipped config.
 
-## Consequences
+### Consequences
 
-Positive:
-
-* pre-commit users need neither Rust nor Node; the launcher brings the binary.
-* An installed `skif` (from npm, Homebrew or Cargo) is used directly and versions stay under the
+* Good, because pre-commit users need neither Rust nor Node; the launcher brings the binary.
+* Good, because an installed `skif` (from npm, Homebrew or Cargo) is used directly and versions stay under the
   user's control; the download is only a fallback.
-* poly users get the same hooks through the catalog they already use, pinned per release.
-
-Negative / risks:
-
-* The launcher is a shell script, so the pre-commit hooks need a POSIX shell; on Windows that is Git
+* Good, because poly users get the same hooks through the catalog they already use, pinned per release.
+* Bad, because the launcher is a shell script, so the pre-commit hooks need a POSIX shell; on Windows that is Git
   Bash, which Git for Windows ships.
-* The download fallback needs network on first use and fails in isolated environments; `SKIF_BINARY`
+* Bad, because the download fallback needs network on first use and fails in isolated environments; `SKIF_BINARY`
   is the escape hatch.
-* The launcher's pinned version, `poly-hooks.toml` and the release must agree; the version check in
+* Bad, because the launcher's pinned version, `poly-hooks.toml` and the release must agree; the version check in
   CI covers all three.
 
-## Alternatives considered
+### Confirmation
 
-* **`language: rust`** (adrlint's choice): rejected — requires a Rust toolchain and a multi-minute
-  compile for a JavaScript audience.
-* **`language: node` installing the npm package:** rejected — pre-commit's Node support builds its own
-  environment and ignores the project's package manager and lockfile; the launcher already prefers an
-  installed `skif` on `PATH`.
-* **Shipping a Lefthook config file:** rejected — Lefthook has no producer-side discovery, so a file in
-  this repository would be copied, not consumed.
+The version check in CI covers the launcher's pinned version, `poly-hooks.toml` and the release.
+
+## Pros and Cons of the Options
+
+### A script-language pre-commit launcher, a poly hook catalog and documented Lefthook configuration
+
+* Good, because it satisfies the decision drivers above; the benefits are listed under Consequences.
+
+### `language: rust` (adrlint's choice)
+
+* Bad, because it requires a Rust toolchain and a multi-minute compile for a JavaScript audience.
+
+### `language: node` installing the npm package
+
+* Bad, because pre-commit's Node support builds its own environment and ignores the project's package manager and lockfile; the launcher already prefers an installed `skif` on `PATH`.
+
+### Shipping a Lefthook config file
+
+* Bad, because Lefthook has no producer-side discovery, so a file in this repository would be copied, not consumed.
+
+## More Information
+
+* Related decisions: [ADR 0013](0013-distribution-and-naming.md)
+* See the [ADR index](index.md).
