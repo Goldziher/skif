@@ -178,6 +178,7 @@ fn reference(root: &Value, path: &[PathSeg], action: &JsonAction) -> Value {
             list.sort_by(|a, b| a.0.cmp(&b.0));
             *target = from_entries(list);
         }
+        _ => unreachable!("the generator covers every action"),
     }
     result
 }

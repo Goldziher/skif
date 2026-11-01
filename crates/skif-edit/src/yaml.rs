@@ -82,6 +82,7 @@ fn apply_one(document: &Document, path: &[PathSeg], action: &YamlAction) -> Resu
             }
             _ => return Err("path not found in document".to_owned()),
         },
+        _ => return Err("unsupported yaml action".to_owned()),
     };
     apply_yaml_patches(document, &[step]).map_err(|error| error.to_string())
 }

@@ -44,7 +44,11 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
         .output()
         .with_context(|| format!("running git {}", args.join(" ")))?;
     if !output.status.success() {
-        bail!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim());
+        bail!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
