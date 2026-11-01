@@ -147,7 +147,8 @@ impl Manifest {
     /// [`WorkspaceError::InvalidManifest`] with the 1-based line and column of the problem.
     pub fn parse(path: PathBuf, source: Arc<str>) -> Result<(Self, Vec<DependencyEntry>), WorkspaceError> {
         let line_index = Arc::new(LineIndex::new(&source));
-        let (root, bom) = parse_ast(&source).map_err(|(offset, message)| invalid(&path, &line_index, offset, message))?;
+        let (root, bom) =
+            parse_ast(&source).map_err(|(offset, message)| invalid(&path, &line_index, offset, message))?;
         let ast::Value::Object(object) = &root else {
             return Err(invalid(
                 &path,
@@ -200,7 +201,11 @@ impl Manifest {
         for segment in pointer {
             match (segment, current) {
                 (PathSeg::Key(key), ast::Value::Object(object)) => {
-                    let prop = object.properties.iter().rev().find(|prop| prop_name(&prop.name) == key.as_str())?;
+                    let prop = object
+                        .properties
+                        .iter()
+                        .rev()
+                        .find(|prop| prop_name(&prop.name) == key.as_str())?;
                     range = Range::new(prop.name.range().start, prop.value.range().end);
                     current = &prop.value;
                 }

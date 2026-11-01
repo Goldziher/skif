@@ -80,7 +80,11 @@ impl Pattern {
 }
 
 fn join(dir: &str, name: &str) -> String {
-    if dir.is_empty() { name.to_owned() } else { format!("{dir}/{name}") }
+    if dir.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{dir}/{name}")
+    }
 }
 
 pub(crate) struct Expander<'a> {
@@ -90,7 +94,11 @@ pub(crate) struct Expander<'a> {
 
 impl Expander<'_> {
     fn absolute(&self, dir: &str) -> PathBuf {
-        if dir.is_empty() { self.root.to_path_buf() } else { self.root.join(dir) }
+        if dir.is_empty() {
+            self.root.to_path_buf()
+        } else {
+            self.root.join(dir)
+        }
     }
 
     pub(crate) fn has_manifest(&self, dir: &str) -> bool {

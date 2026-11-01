@@ -128,8 +128,9 @@ impl FileSystem for MemoryFs {
     }
 
     fn is_dir(&self, path: &Path) -> bool {
-        self.files
-            .keys()
-            .any(|file| file.strip_prefix(path).is_ok_and(|rest| rest.components().next().is_some()))
+        self.files.keys().any(|file| {
+            file.strip_prefix(path)
+                .is_ok_and(|rest| rest.components().next().is_some())
+        })
     }
 }

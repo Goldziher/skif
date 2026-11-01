@@ -48,7 +48,11 @@ pub(crate) fn parse(path: &Path, source: &str) -> Result<PnpmWorkspace, Workspac
         Some(_) => return Err(invalid("`packages` must be a list of strings".to_owned())),
     };
     let catalogs = catalogs::from_json(document.get("catalog"), document.get("catalogs"));
-    let catalogs = if catalogs.is_empty() { Catalogs::default() } else { catalogs.with_source(path) };
+    let catalogs = if catalogs.is_empty() {
+        Catalogs::default()
+    } else {
+        catalogs.with_source(path)
+    };
     Ok(PnpmWorkspace { packages, catalogs })
 }
 
