@@ -1,5 +1,4 @@
-# Versions follow the xberg-io/toolchains baseline named in toolchains.toml. Rust has no
-# rust-toolchain.toml here and follows the stable channel. ~keep
+# Every tool the project needs, locally and in CI, is installed from here. ~keep
 [settings]
 lockfile = true
 lockfile_platforms = ["linux-x64", "linux-arm64", "macos-arm64", "windows-x64"]
@@ -7,6 +6,10 @@ lockfile_platforms = ["linux-x64", "linux-arm64", "macos-arm64", "windows-x64"]
 task.run_auto_install = false
 
 [tools]
+rust = { version = "stable", components = "clippy,rustfmt" }
+"aqua:EmbarkStudios/cargo-deny" = "0.20.2"
+"cargo:cargo-edit" = "0.13.14"
+"aqua:cross-rs/cross" = "0.2.5"
 "github:Goldziher/poly" = "0.32.1"
 node = "26.12.1"
 pnpm = "12.15.0"
@@ -18,6 +21,14 @@ run = ["mise install", "cargo fetch", "pnpm install --frozen-lockfile", "poly ho
 [tasks.build]
 description = "Build the sherif binary"
 run = "cargo build --release --locked"
+
+[tasks.check-rust]
+description = "Cargo check, formatting and clippy (what the CI check job runs)"
+run = [
+  "cargo check --locked --all-targets",
+  "cargo fmt --all -- --check",
+  "cargo clippy --locked --all-targets -- -D warnings",
+]
 
 [tasks.test]
 description = "Run all tests"
@@ -60,6 +71,17 @@ run = ["cargo update", "pnpm update"]
 [tasks.upgrade]
 description = "Upgrade dependencies to latest, including incompatible bumps (rewrites manifests)"
 run = ["cargo upgrade --incompatible", "cargo update", "pnpm up --latest"]
+
+[tasks."release:build"]
+description = "Build a release binary for a target triple (cross on Linux, cargo elsewhere)"
+usage = 'arg "<target>" help="Rust target triple, e.g. x86_64-unknown-linux-musl"'
+run = '''
+rustup target add "$usage_target"
+case "$usage_target" in
+  *-linux-*) cross build --release --locked --target "$usage_target" ;;
+  *) cargo build --release --locked --target "$usage_target" ;;
+esac
+'''
 
 [tasks.clean]
 description = "Clean build artifacts"
