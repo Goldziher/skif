@@ -18,62 +18,38 @@ jobs:
       fail-fast: false
       matrix:
         build:
-          - {
-              NAME: linux-x64,
-              OS: ubuntu-22.04,
-              TOOLCHAIN: stable,
-              TARGET: x86_64-unknown-linux-gnu,
-              BIN: sherif
-            }
+          - { NAME: linux-x64, OS: ubuntu-22.04, TOOLCHAIN: stable, TARGET: x86_64-unknown-linux-gnu, BIN: sherif }
           - {
               NAME: linux-x64-musl,
               OS: ubuntu-22.04,
               TOOLCHAIN: stable,
               TARGET: x86_64-unknown-linux-musl,
-              BIN: sherif
+              BIN: sherif,
             }
-          - {
-              NAME: linux-arm64,
-              OS: ubuntu-22.04,
-              TOOLCHAIN: stable,
-              TARGET: aarch64-unknown-linux-gnu,
-              BIN: sherif
-            }
+          - { NAME: linux-arm64, OS: ubuntu-22.04, TOOLCHAIN: stable, TARGET: aarch64-unknown-linux-gnu, BIN: sherif }
           - {
               NAME: linux-arm64-musl,
               OS: ubuntu-22.04,
               TOOLCHAIN: stable,
               TARGET: aarch64-unknown-linux-musl,
-              BIN: sherif
+              BIN: sherif,
             }
           - {
               NAME: win32-x64-msvc,
               OS: windows-2022,
               TOOLCHAIN: stable,
               TARGET: x86_64-pc-windows-msvc,
-              BIN: sherif.exe
+              BIN: sherif.exe,
             }
           - {
               NAME: win32-arm64-msvc,
               OS: windows-2022,
               TOOLCHAIN: stable,
               TARGET: aarch64-pc-windows-msvc,
-              BIN: sherif.exe
+              BIN: sherif.exe,
             }
-          - {
-              NAME: darwin-x64,
-              OS: macos-15,
-              TOOLCHAIN: stable,
-              TARGET: x86_64-apple-darwin,
-              BIN: sherif
-            }
-          - {
-              NAME: darwin-arm64,
-              OS: macos-15,
-              TOOLCHAIN: stable,
-              TARGET: aarch64-apple-darwin,
-              BIN: sherif
-            }
+          - { NAME: darwin-x64, OS: macos-15, TOOLCHAIN: stable, TARGET: x86_64-apple-darwin, BIN: sherif }
+          - { NAME: darwin-arm64, OS: macos-15, TOOLCHAIN: stable, TARGET: aarch64-apple-darwin, BIN: sherif }
     steps:
       - name: Checkout
         uses: actions/checkout@v4
