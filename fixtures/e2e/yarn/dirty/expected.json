@@ -1,8 +1,9 @@
 {
   "exit_code": 1,
   "rules": [
-    "local-path-dependencies",
-    "multiple-dependency-versions"
+    "local-path-dependency",
+    "root-package-private-field",
+    "version-mismatch"
   ],
   "rules_after_fix": [],
   "_note": "Yarn rewrites manifests on install and drops empty dependency objects, so this scenario plants a link: workspace dependency instead of an empty devDependencies."

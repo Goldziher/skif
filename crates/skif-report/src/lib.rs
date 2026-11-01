@@ -14,7 +14,7 @@ use std::io::{self, Write};
 use skif_core::Report;
 
 pub use human::render_human;
-pub use json::{SCHEMA_VERSION, render_json, render_json_error};
+pub use json::{ErrorInfo, SCHEMA_VERSION, render_json, render_json_error, render_json_error_info, render_json_with};
 pub use options::RenderOptions;
 
 /// Output format.

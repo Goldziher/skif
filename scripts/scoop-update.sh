@@ -17,8 +17,14 @@ sums_file="$2"
 release_repo="${3:-Goldziher/skif}"
 base_url="https://github.com/${release_repo}/releases/download"
 
-command -v jq >/dev/null 2>&1 || { echo "error: jq is required" >&2; exit 1; }
-[ -f "$sums_file" ] || { echo "error: no such checksums file: ${sums_file}" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || {
+  echo "error: jq is required" >&2
+  exit 1
+}
+[ -f "$sums_file" ] || {
+  echo "error: no such checksums file: ${sums_file}" >&2
+  exit 1
+}
 
 hash_for() {
   local asset="$1" hash
@@ -67,8 +73,17 @@ manifest="$(jq -n -a --indent 4 \
     }
   }')"
 
-[ "$(printf '%s' "$manifest" | jq -r '.version')" = "$version" ] || { echo "error: version did not land in the manifest" >&2; exit 1; }
-[ "$(printf '%s' "$manifest" | jq -r '.architecture["64bit"].hash')" = "$x64_hash" ] || { echo "error: x64 hash did not land in the manifest" >&2; exit 1; }
-[ "$(printf '%s' "$manifest" | jq -r '.architecture.arm64.hash')" = "$arm64_hash" ] || { echo "error: arm64 hash did not land in the manifest" >&2; exit 1; }
+[ "$(printf '%s' "$manifest" | jq -r '.version')" = "$version" ] || {
+  echo "error: version did not land in the manifest" >&2
+  exit 1
+}
+[ "$(printf '%s' "$manifest" | jq -r '.architecture["64bit"].hash')" = "$x64_hash" ] || {
+  echo "error: x64 hash did not land in the manifest" >&2
+  exit 1
+}
+[ "$(printf '%s' "$manifest" | jq -r '.architecture.arm64.hash')" = "$arm64_hash" ] || {
+  echo "error: arm64 hash did not land in the manifest" >&2
+  exit 1
+}
 
 printf '%s\n' "$manifest"
