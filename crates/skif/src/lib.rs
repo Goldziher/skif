@@ -29,10 +29,10 @@
 //! | `manifest` | yes | the manifest rules |
 //! | `policy` | yes | version, semver and catalog policies |
 //! | `js-analysis` | no | reserved for the oxc based analysis |
-//! | `fix` | no | [`apply_fixes`] and [`FixPlan`] |
+//! | `fix` | no | `apply_fixes` and `FixPlan` |
 //! | `yaml-fix` | no | YAML edits for `pnpm-workspace.yaml` (implies `fix`) |
-//! | `report` | no | the human and JSON renderers, as [`render`] |
-//! | `schema` | no | [`config_schema`] |
+//! | `report` | no | the human and JSON renderers, as `skif::render` |
+//! | `schema` | no | `config_schema` |
 //!
 //! No `oxc`, `serde_json::Value`, `toml::Value`, `nodejs_semver` or `rayon` type appears in a public signature.
 
@@ -49,7 +49,7 @@ pub use linter::{Linter, RunOptions, builtin_providers};
 pub use root::{find_workspace_root, load_config};
 
 pub use skif_config::{
-    Config, ConfigError, ConfigOverrides, IgnoreEntry, Level, PackageManager, Prefer, RuleConfig, Selector,
+    CONFIG_FILE_NAMES, Config, ConfigError, ConfigOverrides, IgnoreEntry, Level, PackageManager, Prefer, RuleConfig, Selector,
 };
 pub use skif_core::{
     Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixSafety, Fixability,
