@@ -18,21 +18,17 @@ name = "skif"
 path = "src/main.rs"
 
 [dependencies]
-anyhow.workspace = true
 clap.workspace = true
-colored.workspace = true
-detect-indent.workspace = true
-detect-newline-style.workspace = true
-indexmap.workspace = true
 inquire.workspace = true
-semver.workspace = true
 serde.workspace = true
-serde-saphyr.workspace = true
 serde_json.workspace = true
+skif = { workspace = true, features = ["manifest", "policy", "js-analysis", "fix", "yaml-fix", "report", "schema"] }
+which.workspace = true
 
 [dev-dependencies]
-debugless-unwrap.workspace = true
+assert_cmd.workspace = true
 insta.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

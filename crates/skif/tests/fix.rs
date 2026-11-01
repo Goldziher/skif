@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use serde_json::json;
 use skif::{
@@ -377,7 +377,6 @@ fn run_with_restricts_rules_and_honours_cancellation() {
     assert!(matches!(error, skif::Error::UnknownRule(_)), "{error}");
 
     let cancel = AtomicBool::new(true);
-    cancel.store(true, Ordering::Relaxed);
     let error = linter
         .run_with(&workspace, &RunOptions::default().with_cancel(&cancel))
         .unwrap_err();
