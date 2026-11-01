@@ -8,7 +8,7 @@ export default defineConfig({
     target: "node24",
     minify: false,
     rollupOptions: {
-      output: { format: "cjs", entryFileNames: "index.js" },
+      output: { format: "es", entryFileNames: "index.js" },
     },
   },
   ssr: { noExternal: true, target: "node" },
