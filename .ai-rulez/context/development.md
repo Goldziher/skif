@@ -12,23 +12,19 @@ x-ai-rulez:
 
 ## Commands
 
-Every tool (Rust stable with clippy and rustfmt, cargo-deny, cargo-edit, cross, poly, Node, pnpm) is declared in `mise.toml` and locked in `mise.lock`. Local development and CI both go through `mise` and its tasks; do not call tools that mise does not provide.
+Tools (poly, adrlint, Node, pnpm, actionlint) are declared in `mise.toml` and locked in `mise.lock`; their
+versions follow the xberg-io/toolchains baseline in `toolchains.toml`. Rust is installed by `rustup` locally and
+by `dtolnay/rust-toolchain` in CI. Shared tasks (`governance:*`) come from `mise-tasks/shared.toml`, which is
+generated; do not edit it.
 
-- Set up (tools, dependencies, git hooks): `mise run setup`
+- Set up (tools, crates, git hooks): `mise run setup`
 - Build: `mise run build`
-- Test: `mise run test` (runs `cargo test -- --test-threads=1`; tests share fixture directories)
-- Lint: `mise run lint` (clippy with `-D warnings` plus `poly lint`)
+- Test: `mise run test` (`mise run test:verbose` shows output)
+- Lint: `mise run lint` (clippy with `-D warnings`, then `poly lint`)
 - Format: `mise run format`, verify with `mise run format:check`
-- Advisories and licenses: `mise run deny`
+- Advisories and licenses: `mise run deny` (needs `cargo-deny` installed)
+- Architecture decision records: `mise run adr:lint`
 - Full gate before pushing: `mise run check`
-- Rebuild the Action bundle: `mise run action`
 - Update or upgrade dependencies: `mise run update` / `mise run upgrade`
+- Regenerate or check AI governance outputs: `mise run governance:generate` / `mise run governance:check`
 - Review snapshot changes: `cargo insta review`
-
-## CI
-
-`.github/workflows/ci.yml` installs tools with `jdx/mise-action` and runs `mise run` tasks: check (cargo check, rustfmt, clippy `-D warnings`), test, deny, poly lint and format, and a freshness check of the committed `action/index.js`. Releases build with `mise run release:build <target>`.
-
-## Versioning
-
-The version lives in both `Cargo.toml` and `package.json`; bump them together.

@@ -1,6 +1,39 @@
 version = "5.0"
-name = "sherif"
-description = "Opinionated, zero-config linter for TypeScript & JavaScript monorepos (Rust CLI + GitHub Action)."
+default_layers = ["plugins"]
+name = "skif"
+description = "Rust dependency linter for JavaScript and TypeScript monorepos: workspace, manifest and version-policy rules with fixes, built library-first."
 gitignore = true
+
 presets = ["claude", "codex", "opencode"]
-builtins = ["rust", "security", "git-workflow", "code-quality", "testing", "cicd", "default-commands"]
+
+# `testing` is auto-included and explicitly excluded here. Its six rules restate the
+# hand-written `tdd-and-hooks` rule, which carries this project's actual testing policy, and
+# its `tdd-workflow` ("wrote production code before the test? delete it, start over — no
+# exceptions") contradicts `minimal-changes` and `incremental-approach` in this same set.
+# What those six said that `tdd-and-hooks` did not — independence, naming, exact assertions,
+# a test that can fail — was folded into `tdd-and-hooks` before the exclusion landed.
+builtins = ["rust", "security", "git-workflow", "code-quality", "!testing", "documentation", "default-commands"]
+
+# OpenCode reads a bare alias such as `sonnet` as a provider with no model, so its agents get a
+# provider-qualified model; every other preset keeps the agents' own `model`.
+[defaults.model_by_preset]
+opencode = "anthropic/claude-sonnet-5-5"
+
+[[mcp_servers]]
+name = "poly"
+description = "Lint, format, and cache over MCP — the poly binary's stdio server."
+command = "poly"
+args = ["mcp"]
+package = "pkg:github/Goldziher/poly@v0.31.2"
+
+[mcp]
+self_server_command = ["npx", "-y", "ai-rulez@latest", "mcp"]
+
+[lock]
+include_outputs = false
+
+[codex]
+project_doc_max_bytes = 65536
+
+[lint.load_budgets]
+codex-agents-chain = 65536

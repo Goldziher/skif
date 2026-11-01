@@ -10,21 +10,41 @@ x-ai-rulez:
 
 # Architecture
 
-sherif is a Rust CLI that lints package.json files in npm/yarn/pnpm/bun monorepos. It is distributed as a binary via npm (`npm/`) and a GitHub Action (`action/`).
+skif is a Rust dependency linter for npm, yarn, pnpm and bun monorepos. Authoritative design decisions
+live in `adrs/`; read them before changing structure.
 
-## Layout
+## Current state
 
-- `src/main.rs`, `src/args.rs`: entry point and clap argument parsing; CLI args merge over the `sherif` config in the root `package.json`.
-- `src/collect.rs`: discovers workspace packages (`workspaces` or `pnpm-workspace.yaml`) and runs every rule to collect issues.
-- `src/packages/`: root and workspace package models, semver parsing (`semversion.rs`).
-- `src/rules/`: one module per rule; each defines an issue type implementing the shared issue trait in `rules/mod.rs`. Snapshots live in `src/rules/snapshots/` (insta).
-- `src/printer.rs`, `src/json.rs`, `src/plural.rs`: output, JSON preservation (indent and newline style), pluralisation.
-- `src/install.rs`: the `--install` helper that runs the detected package manager.
-- `fixtures/`: sample monorepos exercised by the tests, one directory per scenario.
-- `action/`: TypeScript GitHub Action, bundled to `action/index.js` with `pnpm action` (ncc). Commit the rebuilt bundle with source changes.
-- `npm/`: templates for the per-platform npm packages.
+The code is still a single crate: `src/main.rs`, `src/args.rs`, `src/collect.rs`, `src/packages/`,
+`src/rules/` (one module per rule, insta snapshots in `src/rules/snapshots/`), `src/printer.rs`,
+`src/json.rs`, `src/install.rs`, with sample monorepos in `fixtures/`. It is being replaced by the
+workspace below.
+
+## Target: library-first workspace
+
+All crates publish to crates.io as `skif-*`. `skif` is the embeddable facade; the binary lives in
+`skif-cli`.
+
+| Crate | Responsibility |
+| --- | --- |
+| `skif-core` | Plain data: diagnostics, spans, fixes, rule metadata, reports. No I/O. |
+| `skif-specifier` | Vendored syncpack-specifier, thread-safe, with attribution headers. |
+| `skif-config` | Typed config (TOML + builder), discovery, per-rule options, JSON Schema. |
+| `skif-edit` | Format-preserving edits from fix operations (package.json, pnpm-workspace.yaml). |
+| `skif-workspace` | Package manager and workspace discovery, packages, catalogs, dependency instances, `FileSystem` trait. |
+| `skif-lint` | `Rule`, `RuleProvider`, `Registry`, `LintContext`, central ignores and severity, deterministic order. |
+| `skif-rules` | `manifest/` (ported rules) and `policy/` (version groups, semver groups, catalogs, workspace protocol). |
+| `skif-js-syntax` | The oxc boundary: file to module info. No oxc types exported. |
+| `skif-js-plugins` | Plugin trait and declarative plugin table. |
+| `skif-js` | Module graph and JavaScript analysis rules. |
+| `skif-report` | human, json, sarif and github renderers. |
+| `skif-cli` | The `skif` binary: clap, terminal output, file writes, exit codes. |
+| `skif-testing` | Dev-only fixture and redaction helpers (`publish = false`). |
+
+Library crates do no I/O beyond the `FileSystem` trait; reading, writing and terminal output belong to
+`skif-cli`.
 
 ## Rules
 
-- Rule names are kebab-case and are the public contract (`--ignore-rule`, config files, docs in README).
-- Rules report `Error` or `Warning`; fixable rules also implement the fix path used by `--fix`. Fixes must preserve file indentation and newline style.
+Rule IDs are kebab-case and are the public contract (`--ignore-rule`, config files, docs). Rules report
+`Error` or `Warning`; fixable rules also emit fix operations. Fixes preserve indentation and newline style.

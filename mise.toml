@@ -1,4 +1,5 @@
-# Every tool the project needs, locally and in CI, is installed from here. ~keep
+# Versions follow the xberg-io/toolchains baseline named in toolchains.toml. CI installs Rust with
+# dtolnay/rust-toolchain; it is not pinned here. ~keep
 [settings]
 lockfile = true
 lockfile_platforms = ["linux-x64", "linux-arm64", "macos-arm64", "windows-x64"]
@@ -6,37 +7,23 @@ lockfile_platforms = ["linux-x64", "linux-arm64", "macos-arm64", "windows-x64"]
 task.run_auto_install = false
 
 [tools]
-rust = { version = "stable", components = "clippy,rustfmt" }
-"aqua:EmbarkStudios/cargo-deny" = "0.20.2"
-"cargo:cargo-edit" = "0.13.14"
-"aqua:cross-rs/cross" = "0.2.5"
-"github:Goldziher/poly" = "0.32.1"
+"github:Goldziher/poly" = "0.31.2"
+"github:Goldziher/adrlint" = "0.4.1"
 node = "26.12.1"
 pnpm = "12.15.0"
+actionlint = "1.7.12"
 
 [tasks.setup]
 description = "Install all dependencies and the git hooks. Idempotent."
-run = ["mise install", "cargo fetch", "pnpm install --frozen-lockfile", "poly hooks install"]
+run = ["mise install", "cargo fetch", { task = "governance:hooks:install" }]
 
 [tasks.build]
-description = "Build the sherif binary"
-run = "cargo build --release --locked"
-
-[tasks.check-rust]
-description = "Cargo check, formatting and clippy (what the CI check job runs)"
-run = [
-  "cargo check --locked --all-targets",
-  "cargo fmt --all -- --check",
-  "cargo clippy --locked --all-targets -- -D warnings",
-]
-
-[tasks.test]
-description = "Run all tests"
-run = "cargo test --locked --no-fail-fast -- --test-threads=1"
+description = "Build the skif binary"
+run = "cargo build --workspace --release --locked"
 
 [tasks.lint]
 description = "Clippy (deny warnings) plus poly's lint over the repo"
-run = ["cargo clippy --locked --all-targets -- -D warnings", "poly lint ."]
+run = ["cargo clippy --workspace --all-targets --locked -- -D warnings", "poly lint ."]
 
 [tasks.format]
 description = "Format Rust with rustfmt and the rest of the tree with poly"
@@ -46,43 +33,43 @@ run = ["cargo fmt --all", "poly fmt --fix ."]
 [tasks."format:check"]
 description = "Verify formatting without writing changes"
 alias = ["fmt:check"]
-run = ["cargo fmt --all -- --check", "poly fmt ."]
+run = ["cargo fmt --all -- --check", "poly fmt --check ."]
+
+[tasks.test]
+description = "Run all tests"
+run = "cargo test --workspace --locked --no-fail-fast"
+
+[tasks."test:verbose"]
+description = "Run all tests with output shown"
+run = "cargo test --workspace --locked --no-fail-fast -- --nocapture"
 
 [tasks.deny]
-description = "Check advisories, licenses, bans and sources"
+description = "Check advisories, licenses, bans and sources (cargo-deny comes from the environment or the CI action)"
 run = "cargo deny check"
 
-[tasks.hooks]
-description = "Run the full pre-commit hook stage from poly.toml over all files"
-run = "poly hooks run pre-commit --all-files"
-
-[tasks.action]
-description = "Typecheck and bundle the GitHub Action into action/index.js"
-run = "pnpm action"
+[tasks."adr:lint"]
+description = "Lint the architecture decision records"
+run = "adrlint lint adrs"
 
 [tasks.check]
-description = "Full local gate (format check, lint, test, deny) — run before pushing"
-run = [{ task = "format:check" }, { task = "lint" }, { task = "test" }, { task = "deny" }]
-
-[tasks.update]
-description = "Update dependencies (compatible versions only — no manifest edits)"
-run = ["cargo update", "pnpm update"]
-
-[tasks.upgrade]
-description = "Upgrade dependencies to latest, including incompatible bumps (rewrites manifests)"
-run = ["cargo upgrade --incompatible", "cargo update", "pnpm up --latest"]
-
-[tasks."release:build"]
-description = "Build a release binary for a target triple (cross on Linux, cargo elsewhere)"
-usage = 'arg "<target>" help="Rust target triple, e.g. x86_64-unknown-linux-musl"'
-run = '''
-rustup target add "$usage_target"
-case "$usage_target" in
-  *-linux-*) cross build --release --locked --target "$usage_target" ;;
-  *) cargo build --release --locked --target "$usage_target" ;;
-esac
-'''
+description = "Full local gate: format check, lint, test"
+run = [{ task = "format:check" }, { task = "lint" }, { task = "test" }]
 
 [tasks.clean]
 description = "Clean build artifacts"
 run = "cargo clean"
+
+[tasks.update]
+description = "Update dependencies (compatible versions only, no manifest edits)"
+run = "cargo update"
+
+[tasks.upgrade]
+description = "Upgrade dependencies to latest, including incompatible bumps (rewrites manifests)"
+run = ["cargo upgrade --incompatible", "cargo update"]
+
+[tasks."governance:generate"]
+description = "Generate native AI governance outputs"
+run = "npx -y ai-rulez@latest generate --no-local --strict-config"
+
+[task_config]
+includes = ["mise-tasks", "mise-tasks/shared.toml"]

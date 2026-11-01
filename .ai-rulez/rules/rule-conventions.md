@@ -10,9 +10,15 @@ x-ai-rulez:
 
 # Rule Conventions
 
-- Every lint rule lives in its own module under `src/rules/`, is registered in `src/rules/mod.rs` and `src/collect.rs`, and is documented in the README rules table.
-- New or changed rules need a fixture in `fixtures/` and an insta snapshot test; never edit `.snap` files by hand.
-- Fixers must keep the original indentation and newline style of the edited `package.json`.
-- Never panic on malformed user input; return `anyhow` errors with the offending path.
-- Keep output deterministic: use `IndexMap` and sorted iteration, never `HashMap` iteration order.
-- When `action/index.ts` changes, regenerate and commit `action/index.js`.
+- Every rule has a stable kebab-case ID. IDs are the public contract (`--ignore-rule`, config files,
+  docs); changing one is a breaking change that needs an ADR amendment and a changelog entry.
+- Every rule is registered in the rule registry, whose constructor rejects duplicate IDs, and is
+  documented in the generated rules reference.
+- New or changed rules need a fixture under `fixtures/` and an insta snapshot test of the diagnostics; never
+  edit `.snap` files by hand.
+- Fixers keep the original indentation and newline style of the edited file, and a fix applied then re-linted
+  leaves no fixable diagnostic.
+- Library crates do no I/O: file access goes through the `FileSystem` trait, and printing, writing and exit
+  codes live in the CLI crate.
+- Never panic on malformed user input; return a typed error naming the offending path.
+- Keep output deterministic: sorted iteration and ordered maps, never `HashMap` iteration order.
