@@ -150,6 +150,15 @@ sherif -p @repo/tools
 sherif -p "./integrations/*"
 ```
 
+You can ignore a single rule for specific packages with `--ignore-rule-for-package <rule>:<package>` (the string is split on the first `:`, and `<package>` is a name or path matched like `--ignore-package`, including a trailing `*`). The flag can be repeated:
+
+```bash
+# Ignore `unordered-dependencies` only in `@repo/tools`, and `empty-dependencies` in `./integrations/*`
+sherif --ignore-rule-for-package unordered-dependencies:@repo/tools --ignore-rule-for-package "empty-dependencies:./integrations/*"
+```
+
+This works for every rule reported against a single package, and for `unsync-similar-dependencies`. For `multiple-dependency-versions`, the ignored package's versions are left out of the comparison, so it neither causes nor is blamed for a mismatch; the other packages are still compared with each other. Rules that aren't tied to a package (`packages-without-package-json`, `non-existant-packages`) and the root `package.json` rules aren't affected.
+
 #### `empty-dependencies` ❌
 
 `package.json` files should not have empty dependencies fields.
@@ -157,6 +166,22 @@ sherif -p "./integrations/*"
 #### `incompatible-peer-dependencies` ⚠️
 
 When a dependency is declared in both `peerDependencies` and `devDependencies`, the version in `devDependencies` should satisfy the range in `peerDependencies`. Specifiers that aren't semver (e.g. `workspace:*`, git URLs) are skipped.
+
+#### `member-toolchain-fields` ⚠️
+
+Member packages shouldn't declare `packageManager` or `engines`: the root `package.json` owns the toolchain. Autofix removes the fields from the member `package.json`.
+
+By default any such field is reported (`"forbid"`). To allow member packages that repeat exactly the root's values, set `memberToolchain` in the `sherif` configuration:
+
+```jsonc
+{
+  "sherif": {
+    "memberToolchain": "match-root", // "forbid" (default) | "match-root"
+  },
+}
+```
+
+Use `ignorePackage` / `--ignore-package` to exempt a package entirely, or `--ignore-rule-for-package member-toolchain-fields:<package>` to exempt it from this rule only.
 
 #### `multiple-dependency-versions` ❌
 
@@ -238,11 +263,17 @@ When using many CLI arguments, it might be easier to move to the configuration f
     "ignoreDependency": [], // string[]
     "ignorePackage": [], // string[]
     "ignoreRule": [], // string[]
+    "ignoreRuleForPackage": {}, // { [rule: string]: string[] }, e.g. { "unordered-dependencies": ["@repo/tools"] }
+    "memberToolchain": "forbid", // "forbid" | "match-root"
   },
 }
 ```
 
 When using both the configuration in the root `package.json` and CLI arguments, the CLI arguments will take precedence.
+
+### Config file with comments
+
+The same options (the object itself, without the `sherif` wrapper) can instead live in `sherif.config.jsonc` or `.sherifrc.jsonc` next to the root `package.json` (the first one found is used). These files may contain `//` and `/* */` comments and trailing commas. Their options are layered over the `sherif` field of `package.json`: flags and `select` / `memberToolchain` from the file win, and the ignore lists are combined.
 
 ## Custom binary
 

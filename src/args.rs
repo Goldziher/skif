@@ -68,20 +68,24 @@ pub struct Args {
     /// Ignore the given rule.
     #[arg(long, short = 'r')]
     pub ignore_rule: Vec<String>,
+
+    /// Ignore a rule for the given package name or path, as `<rule>:<package>`.
+    #[arg(long, value_name = "RULE:PACKAGE", value_parser = parse_rule_for_package)]
+    pub ignore_rule_for_package: Vec<String>,
+}
+
+fn parse_rule_for_package(value: &str) -> Result<String, String> {
+    match value.split_once(':') {
+        Some((rule, package)) if !rule.is_empty() && !package.is_empty() => Ok(value.to_string()),
+        _ => Err("expected `<rule>:<package>`".to_string()),
+    }
 }
 
 #[cfg(test)]
 impl From<Args> for Config {
     fn from(args: Args) -> Self {
-        Config {
-            fix: args.fix,
-            select: args.select,
-            no_install: args.no_install,
-            fail_on_warnings: args.fail_on_warnings,
-            format: args.format.unwrap_or_default(),
-            ignore_dependency: args.ignore_dependency,
-            ignore_package: args.ignore_package,
-            ignore_rule: args.ignore_rule,
-        }
+        let mut config = Config::default();
+        config.merge(args);
+        config
     }
 }
