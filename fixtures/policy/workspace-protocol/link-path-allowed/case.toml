@@ -1,0 +1,4 @@
+description = "allow-local-paths = true accepts a link: path that resolves to the workspace package."
+source = "skif"
+tags = ["workspace-protocol", "link", "local-paths"]
+valid-states = ["SatisfiesLocal"]

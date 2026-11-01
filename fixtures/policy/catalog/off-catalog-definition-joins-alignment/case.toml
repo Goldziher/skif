@@ -1,0 +1,4 @@
+description = "Catalog definitions take part in highest-version alignment: a plain instance below the catalog entry is a version mismatch."
+source = "syncpack:src/version_group/catalog_defs_test.rs::defensive_catalog_def_short_circuit_in_preferred_semver"
+tags = ["catalog", "mode-off", "highest", "fix"]
+valid-states = ["IsCatalogDefinition"]
