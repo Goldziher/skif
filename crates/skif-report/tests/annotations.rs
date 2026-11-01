@@ -60,6 +60,7 @@ fn diag(rule: &'static str, severity: Severity, path: &str, span: Option<Span>, 
         },
         related: Vec::new(),
         package: None,
+        package_id: None,
         dependency: None,
         detail: None,
         fixes: Vec::new(),
@@ -94,7 +95,13 @@ fn rich() -> Report {
         "lodash is never imported 日本語",
     );
     unused.fixes = vec![fix("Remove lodash", FixSafety::Safe)];
-    let info = diag("sorted-keys", Severity::Info, "package.json", None, "keys are not sorted");
+    let info = diag(
+        "sorted-keys",
+        Severity::Info,
+        "package.json",
+        None,
+        "keys are not sorted",
+    );
     Report::new(vec![unused, info, mismatch], 3)
 }
 
@@ -141,7 +148,8 @@ fn sarif_structure() {
         .iter()
         .map(|r| r["level"].as_str().unwrap())
         .collect();
-    assert_eq!(levels, ["error", "warning", "note"]);
+    // Results follow the report's order: by path, then by position.
+    assert_eq!(levels, ["note", "warning", "error"]);
     for result in run["results"].as_array().unwrap() {
         let index = usize::try_from(result["ruleIndex"].as_u64().unwrap()).unwrap();
         assert_eq!(rules[index]["id"], result["ruleId"]);
@@ -153,7 +161,13 @@ fn sarif_structure() {
             result["locations"][0]["physicalLocation"]["artifactLocation"]["uriBaseId"],
             "%SRCROOT%"
         );
-        assert_eq!(result["partialFingerprints"]["skifFingerprint/v1"].as_str().unwrap().len(), 16);
+        assert_eq!(
+            result["partialFingerprints"]["skifFingerprint/v1"]
+                .as_str()
+                .unwrap()
+                .len(),
+            16
+        );
     }
 }
 
@@ -162,8 +176,11 @@ fn sarif_regions_use_scalar_columns_and_skip_missing_spans() {
     let log = sarif(&rich(), &options());
     let results = log["runs"][0]["results"].as_array().unwrap();
     let mismatch = results.iter().find(|r| r["ruleId"] == "version-mismatch").unwrap();
-    // `"réact": ` is 10 scalar values (11 UTF-8 bytes) after a 4-space indent.
-    assert_eq!(mismatch["locations"][0]["physicalLocation"]["region"]["startColumn"], 15);
+    // `"réact": ` is 9 scalar values (10 UTF-8 bytes) after a 4-space indent, so the value starts at 14.
+    assert_eq!(
+        mismatch["locations"][0]["physicalLocation"]["region"]["startColumn"],
+        14
+    );
     let info = results.iter().find(|r| r["ruleId"] == "sorted-keys").unwrap();
     assert!(info["locations"][0]["physicalLocation"].get("region").is_none());
 }
@@ -183,7 +200,10 @@ fn sarif_unknown_rules_are_appended_and_disabled_rules_marked() {
 #[test]
 fn sarif_fingerprints_ignore_position_and_differ_by_message() {
     let at = |span, message: &str| {
-        let report = Report::new(vec![diag("unused-dependency", Severity::Warning, "a.json", span, message)], 1);
+        let report = Report::new(
+            vec![diag("unused-dependency", Severity::Warning, "a.json", span, message)],
+            1,
+        );
         sarif(&report, &options())["runs"][0]["results"][0]["partialFingerprints"]["skifFingerprint/v1"].clone()
     };
     assert_eq!(at(None, "m"), at(Some(span_of("\"lodash\"")), "m"));

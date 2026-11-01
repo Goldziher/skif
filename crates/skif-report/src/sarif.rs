@@ -7,7 +7,9 @@
 use std::io::{self, Write};
 
 use serde::Serialize;
-use skif_core::{Category, Diagnostic, Fix, FixSafety, Fixability, Location, Related, Report, RuleMeta, Severity, Span};
+use skif_core::{
+    Category, Diagnostic, Fix, FixSafety, Fixability, Location, Related, Report, RuleMeta, Severity, Span,
+};
 
 use crate::options::RenderOptions;
 
@@ -218,9 +220,7 @@ fn related<'a>(index: usize, related: &'a Related, options: &RenderOptions) -> S
     SarifLocation {
         id: Some(index),
         physical_location: physical(&related.location, options),
-        message: Some(Text {
-            text: &related.message,
-        }),
+        message: Some(Text { text: &related.message }),
     }
 }
 
