@@ -47,9 +47,7 @@ fn strip_comments(input: &str) -> String {
         }
 
         match (char, chars.peek()) {
-            ('/', Some('/')) => {
-                while chars.next_if(|next| *next != '\n').is_some() {}
-            }
+            ('/', Some('/')) => while chars.next_if(|next| *next != '\n').is_some() {},
             ('/', Some('*')) => {
                 chars.next();
 
