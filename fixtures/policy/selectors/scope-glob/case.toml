@@ -1,0 +1,3 @@
+description = "A scope glob matches every dependency in the scope and nothing else."
+source = "syncpack:src/group_selector/pattern_matcher_test.rs::prefix_match"
+tags = ["selectors", "glob", "fix"]

@@ -1,0 +1,3 @@
+description = "With two or more catalogs and the dependency in none of them, skif does not pick one: unfixable."
+source = "syncpack:src/version_group/catalog_test.rs::ambiguous_catalog::catalog_group_dep_not_in_any_of_multiple_catalogs"
+tags = ["catalog", "prefer", "named-catalog", "unfixable"]

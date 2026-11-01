@@ -1,0 +1,3 @@
+[[semver-groups]]
+dependency-types = ["dev"]
+range = "~"

@@ -1,0 +1,3 @@
+description = "Identical non-semver specifiers are moved into the catalog verbatim."
+source = "syncpack:src/version_group/catalog_test.rs::missing_from_catalog::catalog_group_zero_catalogs_pnpm_all_identical_non_semver_fixable"
+tags = ["catalog", "prefer", "unsupported", "fix", "creates-entry"]

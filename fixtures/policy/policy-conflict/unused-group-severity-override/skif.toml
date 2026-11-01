@@ -1,0 +1,6 @@
+[rules]
+policy-conflict = "error"
+
+[[version-groups]]
+dependencies = ["legacy-lib"]
+policy = "banned"

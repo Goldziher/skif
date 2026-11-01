@@ -1,0 +1,3 @@
+description = "catalog: (default) for a dependency defined only in a named catalog is unresolved."
+source = "syncpack:src/version_group/catalog_test.rs::missing_catalog_definition_reference::catalog_group_depends_on_missing_catalog_definition_dep_in_other_catalog"
+tags = ["catalog", "unresolved", "named-catalog"]

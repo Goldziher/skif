@@ -1,0 +1,4 @@
+description = "A semver group also governs catalog entries: a tilde entry under a caret group is a SemverRangeMismatch on the workspace file."
+source = "syncpack:src/version_group/catalog_defs_test.rs::defensive_catalog_def_short_circuit_in_preferred_semver"
+tags = ["catalog", "semver-groups", "fix", "assumption"]
+valid-states = ["IsCatalog"]

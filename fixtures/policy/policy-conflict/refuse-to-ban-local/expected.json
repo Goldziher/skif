@@ -1,0 +1,20 @@
+[
+  {
+    "rule": "banned-dependency",
+    "severity": "error",
+    "package": "app",
+    "dependency": "lib",
+    "detail": "IsBanned",
+    "path": "packages/app/package.json",
+    "fixable": true
+  },
+  {
+    "rule": "policy-conflict",
+    "severity": "warning",
+    "package": "lib",
+    "dependency": "lib",
+    "detail": "RefuseToBanLocal",
+    "path": "packages/lib/package.json",
+    "fixable": false
+  }
+]

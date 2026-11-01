@@ -1,0 +1,3 @@
+description = "[rules] policy-conflict = \"error\" raises the severity of UnusedGroup diagnostics."
+source = "skif"
+tags = ["unused-group", "severity-override", "emitter"]
