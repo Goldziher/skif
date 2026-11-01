@@ -87,7 +87,10 @@ impl RootPackage {
         self.0.get_dependencies(catalogs)
     }
 
-    pub fn get_dev_dependencies(&self, catalogs: &Catalogs) -> Option<IndexMap<String, SemVersion>> {
+    pub fn get_dev_dependencies(
+        &self,
+        catalogs: &Catalogs,
+    ) -> Option<IndexMap<String, SemVersion>> {
         self.0.get_dev_dependencies(catalogs)
     }
 
