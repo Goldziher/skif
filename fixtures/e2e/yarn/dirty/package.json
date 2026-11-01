@@ -1,7 +1,6 @@
 {
   "name": "e2e-yarn-dirty",
   "version": "0.0.0",
-  "private": true,
   "packageManager": "yarn@4.9.2",
   "workspaces": [
     "packages/*"
