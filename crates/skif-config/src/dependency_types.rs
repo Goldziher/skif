@@ -56,7 +56,11 @@ impl DependencyTypes {
     /// Whether `kind` is selected.
     #[must_use]
     pub fn matches(&self, kind: DependencyKind) -> bool {
-        let named = |negated: bool| self.entries.iter().any(|&(entry, entry_negated)| entry == kind && entry_negated == negated);
+        let named = |negated: bool| {
+            self.entries
+                .iter()
+                .any(|&(entry, entry_negated)| entry == kind && entry_negated == negated)
+        };
         let has_plain = self.entries.iter().any(|&(_, negated)| !negated);
         !named(true) && (!has_plain || named(false))
     }
@@ -97,7 +101,10 @@ mod tests {
 
     fn kinds(tokens: &[&str]) -> Vec<bool> {
         let types = DependencyTypes::new(tokens.iter().copied()).unwrap();
-        DependencyKind::ALL.into_iter().map(|kind| types.matches(kind)).collect()
+        DependencyKind::ALL
+            .into_iter()
+            .map(|kind| types.matches(kind))
+            .collect()
     }
 
     #[test]

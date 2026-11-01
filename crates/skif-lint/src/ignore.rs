@@ -67,9 +67,7 @@ impl Suppressions {
             .package
             .as_deref()
             .and_then(|name| self.by_name.get(name))
-            .is_some_and(|ids| {
-                !ids.is_empty() && ids.iter().all(|id| flags.get(id.index()).copied().unwrap_or(false))
-            })
+            .is_some_and(|ids| !ids.is_empty() && ids.iter().all(|id| flags.get(id.index()).copied().unwrap_or(false)))
     }
 
     fn entry_matches(&self, entry: &Entry, diagnostic: &Diagnostic) -> bool {
@@ -179,7 +177,11 @@ mod tests {
         ];
         for (pattern, dependency, expected) in cases {
             let toml = format!("[[ignore]]\ndependencies = [\"{pattern}\"]\n");
-            assert_eq!(suppresses(&toml, None, Some(dependency)), expected, "{pattern} vs {dependency}");
+            assert_eq!(
+                suppresses(&toml, None, Some(dependency)),
+                expected,
+                "{pattern} vs {dependency}"
+            );
         }
     }
 
@@ -217,9 +219,21 @@ mod tests {
 
     #[test]
     fn a_name_shared_by_packages_is_suppressed_only_when_all_of_them_are() {
-        assert!(!suppresses("[workspace]\nignore-packages = [\"p/dup1\"]\n", Some("dup"), None));
-        assert!(suppresses("[workspace]\nignore-packages = [\"dup\"]\n", Some("dup"), None));
-        assert!(suppresses("[workspace]\nignore-packages = [\"p/dup*\"]\n", Some("dup"), None));
+        assert!(!suppresses(
+            "[workspace]\nignore-packages = [\"p/dup1\"]\n",
+            Some("dup"),
+            None
+        ));
+        assert!(suppresses(
+            "[workspace]\nignore-packages = [\"dup\"]\n",
+            Some("dup"),
+            None
+        ));
+        assert!(suppresses(
+            "[workspace]\nignore-packages = [\"p/dup*\"]\n",
+            Some("dup"),
+            None
+        ));
     }
 
     #[test]

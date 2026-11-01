@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::io;
+use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -100,7 +101,7 @@ impl MemoryFs {
     /// The files strictly below `dir`.
     fn below<'a>(&'a self, dir: &'a Path) -> impl Iterator<Item = &'a PathBuf> + 'a {
         self.files
-            .range::<Path, _>(dir..)
+            .range::<Path, _>((Bound::Included(dir), Bound::Unbounded))
             .map(|(path, _)| path)
             .take_while(move |path| path.starts_with(dir))
             .filter(move |path| path.as_path() != dir)
@@ -165,7 +166,13 @@ mod tests {
     fn names(entries: &[DirEntry]) -> Vec<(String, bool, bool)> {
         entries
             .iter()
-            .map(|e| (e.path.file_name().unwrap().to_string_lossy().into_owned(), e.is_dir, e.is_file))
+            .map(|e| {
+                (
+                    e.path.file_name().unwrap().to_string_lossy().into_owned(),
+                    e.is_dir,
+                    e.is_file,
+                )
+            })
             .collect()
     }
 

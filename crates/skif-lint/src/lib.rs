@@ -17,8 +17,8 @@ pub use context::{EnabledRules, LintContext};
 pub use emitter::Emitter;
 pub use provider::{ProviderError, Rule, RuleProvider, RulesProvider};
 pub use registry::{Registry, RegistryError};
-pub use skif_core::{DiagnosticBuilder, diagnostic};
 pub use runner::{LintError, RunOptions, run, run_unsorted};
+pub use skif_core::{DiagnosticBuilder, diagnostic};
 
 const _: () = {
     fn assert_send_sync<T: Send + Sync>() {}

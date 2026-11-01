@@ -94,7 +94,7 @@ fn io_error(path: &Path, source: std::io::Error) -> WorkspaceError {
 
 /// The outcome of loading one selected directory.
 enum Member {
-    Loaded(Package),
+    Loaded(Box<Package>),
     /// A non-empty directory without a `package.json`.
     NoManifest(PathBuf),
     /// An empty directory; those linger after switching git branches and are not worth reporting.
@@ -113,7 +113,7 @@ fn load_member(fs: &dyn FileSystem, root: &Path, dir: &str) -> Member {
     }
     match fs.read_to_string(&manifest) {
         Ok(text) => match Package::parse(PathBuf::from(dir), text, false) {
-            Ok(package) => Member::Loaded(package),
+            Ok(package) => Member::Loaded(Box::new(package)),
             Err(error) => Member::Failed(error),
         },
         Err(error) => Member::Failed(io_error(&manifest, error)),
@@ -271,10 +271,7 @@ impl Workspace {
         }
 
         let dirs: Vec<&String> = selected.iter().collect();
-        let members: Vec<Member> = dirs
-            .par_iter()
-            .map(|dir| load_member(fs, &root, dir))
-            .collect();
+        let members: Vec<Member> = dirs.par_iter().map(|dir| load_member(fs, &root, dir)).collect();
         let mut packages = Vec::new();
         let mut dirs_without_manifest = Vec::new();
         let mut manifest_errors = Vec::new();
@@ -282,7 +279,7 @@ impl Workspace {
             match member {
                 Member::Loaded(package) => {
                     let id = PackageId::from_index(packages.len() + 1);
-                    packages.push(package.with_id(id));
+                    packages.push((*package).with_id(id));
                 }
                 Member::NoManifest(dir) => dirs_without_manifest.push(dir),
                 Member::Empty => {}

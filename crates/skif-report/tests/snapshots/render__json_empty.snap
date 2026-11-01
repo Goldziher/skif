@@ -1,0 +1,16 @@
+---
+source: crates/skif-report/tests/render.rs
+expression: "run(&Report::new(Vec::new(), 2), Format::Json, &options(false))"
+---
+{
+  "version": 1,
+  "skif": "0.1.0",
+  "summary": {
+    "errors": 0,
+    "warnings": 0,
+    "infos": 0,
+    "fixable": 0,
+    "packages": 2
+  },
+  "diagnostics": []
+}

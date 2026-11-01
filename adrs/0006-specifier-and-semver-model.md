@@ -55,16 +55,28 @@ skif **vendors `syncpack-specifier` at upstream commit `958d306`** into the `ski
 crate, with these modifications and no others:
 
 * `Rc` → `Arc`, so specifiers can be shared across rayon workers.
-* Thread-local caches → a caller-owned `SpecifierCache` passed explicitly (one per lint run, held
-  by the `LintContext`, [ADR 0007](0007-rule-and-diagnostic-model.md)). No global or thread-local state remains ([ADR 0003](0003-library-first-embedding.md)).
+* Thread-local caches → a caller-owned `SpecifierCache`, passed explicitly by whoever needs one (the
+  lint run creates one and holds it in the `LintContext`, [ADR 0007](0007-rule-and-diagnostic-model.md)); the crate keeps no
+  global or thread-local state ([ADR 0003](0003-library-first-embedding.md)). The cache holds **only derived specifiers**
+  (the results of `with_range`, `with_node_version` and similar rewrites that rules compute while
+  comparing), keyed by raw string. It does not hold the specifiers of manifest entries: those are
+  parsed once, during discovery, and shared as `Arc<Specifier>` ([ADR 0005](0005-workspace-discovery.md)). A shared `RwLock` cache
+  under rayon was measured slower than parsing again, so the hot path takes no lock.
 * `node-semver` → `nodejs-semver`, a fork of `node-semver` with the same npm range semantics
   (`||`, hyphen ranges, x-ranges, npm prerelease matching).
+* `Specifier::create` validates eagerly: a version number that does not fit its integer type
+  (`99999999999999999999`, `^9999…`) yields `Unsupported` instead of panicking in a getter, so no
+  user input can panic the parser.
+* `Ord` ties are broken on the raw string, so `Ord` agrees with `Eq` (upstream orders `1.2.3` and
+  `=1.2.3` as equal while they are not `==`): equal versions and ranges compare by greediness first,
+  then by raw text, which makes sorting and `BTreeSet` use deterministic.
 * `Send + Sync` asserted at compile time for the public types.
 * An attribution header on every vendored file and a syncpack section in `ATTRIBUTIONS.md` with
   the upstream URL, commit, license text and a `### Modifications` list ([ADR 0015](0015-attribution-and-vendoring.md)).
 
-`skif-specifier` is the only place specifiers are parsed. `skif-workspace` attaches a parsed
-`Specifier` to every `DependencyInstance` ([ADR 0005](0005-workspace-discovery.md)), and every rule that compares versions goes
+`skif-specifier` is the only place specifiers are parsed. `skif-workspace` parses each entry once
+during discovery and attaches an `Arc<Specifier>` to every `DependencyInstance`
+([ADR 0005](0005-workspace-discovery.md)), and every rule that compares versions goes
 through it. No crate depends on the `semver` crate for npm specifiers.
 
 Upstream changes are pulled deliberately: a re-vendor is a single commit that moves the recorded
@@ -82,31 +94,39 @@ commit, re-applies the modification list, and updates the attribution.
 * Bad, because `nodejs-semver` and `node-semver` may diverge in edge cases; the vendored tests run against
   `nodejs-semver` and any behavioural difference is recorded in the modification list.
 * Bad, because `Arc` costs an atomic increment where `Rc` did not. Specifiers are created once per dependency
-  instance and cached, so the cost is per distinct specifier, not per comparison.
+  instance during discovery, so the cost is per entry, not per comparison.
+* Bad, because the raw-string tie-break in `Ord` is a deliberate difference from upstream: sort order of
+  specifiers that upstream treats as equal can differ from syncpack's, which the modification list records.
 
 ### Confirmation
 
-* The vendored tests run against `nodejs-semver`, and any behavioural difference is recorded in the modification list.
-* `Send + Sync` is asserted at compile time for the public types.
-* `mise run diff:syncpack` compares skif's results with syncpack's directly.
-* Every vendored file carries an attribution header and `ATTRIBUTIONS.md` lists the modifications ([ADR 0015](0015-attribution-and-vendoring.md)).
+* `cargo test -p skif-specifier` runs the vendored test modules against `nodejs-semver`; each behavioural difference from upstream is an `#[ignore]`d or adapted test with a reason, and is listed under `### Modifications` in `ATTRIBUTIONS.md`.
+* A property test in `skif-specifier` asserts that `create` on any string followed by every getter never panics, plus fixed cases for the overflow inputs `99999999999999999999`, `^99999999999999999999` and `~1.99999999999999999999`.
+* A property test asserts that `Ord` agrees with `Eq` and is a total order on generated specifiers, with `1.2.3` and `=1.2.3` as an explicit case.
+* A compile-time assertion in `skif-specifier` covers `Send + Sync` for `Specifier` and `SpecifierCache`.
+* `mise run diff:syncpack` compares skif's classification with syncpack's on the corpus.
+* The `consistency` job fails when a vendored file lacks its attribution header or `ATTRIBUTIONS.md` lacks the syncpack section ([ADR 0015](0015-attribution-and-vendoring.md)).
 
 ## Pros and Cons of the Options
 
 ### Vendor syncpack-specifier at commit 958d306 into skif-specifier, on nodejs-semver
 
-* Good, because it satisfies the decision drivers above; the benefits are listed under Consequences.
+* Good, because the classification matches syncpack's exactly, with npm range semantics (`||`, hyphen and x-ranges, prerelease matching), at the cost of a small, listed set of modifications.
+* Bad, because skif then maintains the vendored code, re-vendoring has to re-apply the modifications, and `nodejs-semver` can diverge from `node-semver` in edge cases.
 
 ### Keep the `semver` crate and pre-process npm syntax
 
+* Good, because it adds no vendored code and no new dependency.
 * Bad, because translating `||`, hyphen ranges and bare-version semantics into Cargo's grammar is a parser in itself, and gets prerelease matching wrong anyway.
 
 ### Depend on `syncpack-specifier` from crates.io
 
+* Good, because upstream fixes would arrive with a version bump and nothing would be vendored.
 * Bad, because the `Rc` and thread-local design is incompatible with [ADR 0003](0003-library-first-embedding.md), and the changes are not upstream concerns for a single-threaded CLI. Vendoring is the smaller fork.
 
 ### Write a new specifier parser
 
+* Good, because the model could be shaped for skif's concurrency from the start, with no attribution burden.
 * Bad, because syncpack's classification is the specification the policies follow; re-deriving it would introduce differences for no gain.
 
 ## More Information

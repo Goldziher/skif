@@ -21,11 +21,11 @@ mod workspace;
 pub use catalogs::Catalogs;
 pub use detect::package_manager_from_manifest;
 pub use error::WorkspaceError;
-pub use skif_core::{DependencyKind, DirEntry, FileSystem, MemoryFs, OsFs};
 pub use manifest::{DependencyEntry, Manifest};
 pub use package::{Package, PackageId};
 pub use pnpm::YamlSource;
 pub use skif_config::PackageManager;
+pub use skif_core::{DependencyKind, DirEntry, FileSystem, MemoryFs, OsFs};
 pub use workspace::{DiscoveryFacts, PatternFact, Workspace, WorkspaceSource};
 
 const _: () = {
