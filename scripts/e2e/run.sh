@@ -4,8 +4,8 @@
 # Usage: scripts/e2e/run.sh <npm|pnpm|yarn|bun> <path-to-skif-binary>
 #
 # For each scenario under fixtures/e2e/<pm>/ the fixture is copied to a temp dir, installed with
-# the real package manager, linted, and (for scenarios expecting issues) fixed, re-installed and
-# re-linted. Expectations live in each scenario's expected.json.
+# the real package manager, linted, and (for scenarios expecting issues) fixed from another working
+# directory, re-installed and re-linted. Expectations live in each scenario's expected.json.
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
@@ -64,7 +64,7 @@ lint() {
 check() {
   local label="$1" want_code="$2" want_rules="$3"
   local got_rules
-  if ! got_rules="$(jq -c '[.issues[].rule] | sort' <<<"$skif_out")"; then
+  if ! got_rules="$(jq -c '[.diagnostics[].rule] | sort' <<<"$skif_out")"; then
     fail "$label: skif did not print valid JSON: $skif_out"
     return
   fi
@@ -103,8 +103,13 @@ for fixture in "$fixtures"/*/; do
   check "lint" "$want_code" "$want_rules"
 
   if [[ "$want_code" -ne 0 ]]; then
-    # skif refuses --fix when CI is set.
-    env -u CI "$skif" --fix --select highest --no-install "$dir" >/dev/null || fail "--fix exited non-zero"
+    # Fix from a directory that is not the workspace: every write must land under the workspace root, and
+    # nothing may be created in the current directory. skif refuses --fix when CI is truthy.
+    elsewhere="$(mktemp -d "$work_root/cwd.XXXXXX")"
+    (cd "$elsewhere" && env -u CI "$skif" --fix-unsafe --select highest --no-install "$dir" >/dev/null) ||
+      fail "--fix exited non-zero"
+    [[ -z "$(ls -A "$elsewhere")" ]] || fail "--fix created files in the current directory: $(ls -A "$elsewhere")"
+    jq -e '.private == true' "$dir/package.json" >/dev/null || fail "--fix did not fix the root package.json"
     install "$dir" || fail "$pm install failed on the fixed manifests"
     lint "$dir"
     check "lint after fix" 0 "$want_rules_after_fix"

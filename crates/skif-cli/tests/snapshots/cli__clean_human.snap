@@ -1,0 +1,5 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: "redact(&human.stdout, dir.path())"
+---
+No issues found in 3 packages
