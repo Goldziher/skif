@@ -1,0 +1,66 @@
+# Versions follow the xberg-io/toolchains baseline named in toolchains.toml. Rust has no
+# rust-toolchain.toml here and follows the stable channel. ~keep
+[settings]
+lockfile = true
+lockfile_platforms = ["linux-x64", "linux-arm64", "macos-arm64", "windows-x64"]
+# CI installs only the tools a job needs; `mise run` must not install the rest behind its back. ~keep
+task.run_auto_install = false
+
+[tools]
+"github:Goldziher/poly" = "0.32.1"
+node = "26.12.1"
+pnpm = "12.15.0"
+
+[tasks.setup]
+description = "Install all dependencies and the git hooks. Idempotent."
+run = ["mise install", "cargo fetch", "pnpm install --frozen-lockfile", "poly hooks install"]
+
+[tasks.build]
+description = "Build the sherif binary"
+run = "cargo build --release --locked"
+
+[tasks.test]
+description = "Run all tests"
+run = "cargo test --locked --no-fail-fast -- --test-threads=1"
+
+[tasks.lint]
+description = "Clippy (deny warnings) plus poly's lint over the repo"
+run = ["cargo clippy --locked --all-targets -- -D warnings", "poly lint ."]
+
+[tasks.format]
+description = "Format Rust with rustfmt and the rest of the tree with poly"
+alias = ["fmt"]
+run = ["cargo fmt --all", "poly fmt --fix ."]
+
+[tasks."format:check"]
+description = "Verify formatting without writing changes"
+alias = ["fmt:check"]
+run = ["cargo fmt --all -- --check", "poly fmt ."]
+
+[tasks.deny]
+description = "Check advisories, licenses, bans and sources"
+run = "cargo deny check"
+
+[tasks.hooks]
+description = "Run the full pre-commit hook stage from poly.toml over all files"
+run = "poly hooks run pre-commit --all-files"
+
+[tasks.action]
+description = "Typecheck and bundle the GitHub Action into action/index.js"
+run = "pnpm action"
+
+[tasks.check]
+description = "Full local gate (format check, lint, test, deny) — run before pushing"
+run = [{ task = "format:check" }, { task = "lint" }, { task = "test" }, { task = "deny" }]
+
+[tasks.update]
+description = "Update dependencies (compatible versions only — no manifest edits)"
+run = ["cargo update", "pnpm update"]
+
+[tasks.upgrade]
+description = "Upgrade dependencies to latest, including incompatible bumps (rewrites manifests)"
+run = ["cargo upgrade --incompatible", "cargo update", "pnpm up --latest"]
+
+[tasks.clean]
+description = "Clean build artifacts"
+run = "cargo clean"
