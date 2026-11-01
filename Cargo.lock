@@ -1915,10 +1915,13 @@ name = "skif-lint"
 version = "0.0.0"
 dependencies = [
  "rayon",
+ "serde",
+ "serde_json",
  "skif-config",
  "skif-core",
  "skif-workspace",
  "thiserror",
+ "toml",
 ]
 
 [[package]]
@@ -1936,6 +1939,7 @@ name = "skif-rules"
 version = "0.0.0"
 dependencies = [
  "insta",
+ "serde",
  "serde_json",
  "skif-config",
  "skif-core",
@@ -1943,6 +1947,7 @@ dependencies = [
  "skif-lint",
  "skif-specifier",
  "skif-workspace",
+ "toml",
 ]
 
 [[package]]

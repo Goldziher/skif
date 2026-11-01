@@ -229,7 +229,10 @@ fn run_fails_on_invalid_options() {
     let ws = workspace(&cfg);
     let err = run(&registry, &ws, &cfg, &RunOptions::default()).unwrap_err();
     assert!(matches!(err, LintError::Config(_)), "{err}");
-    assert!(err.to_string().contains("with-options") && err.to_string().contains("deph"), "{err}");
+    assert!(
+        err.to_string().contains("with-options") && err.to_string().contains("deph"),
+        "{err}"
+    );
 }
 
 #[test]

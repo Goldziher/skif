@@ -258,7 +258,10 @@ mod tests {
         };
         assert!(suppressions.suppresses(&with_id(id_of("p/dup1"))));
         assert!(!suppressions.suppresses(&with_id(id_of("p/dup2"))));
-        assert!(!suppressions.suppresses(&make(Some("dup"), None)), "name alone stays ambiguous");
+        assert!(
+            !suppressions.suppresses(&make(Some("dup"), None)),
+            "name alone stays ambiguous"
+        );
     }
 
     #[test]
@@ -266,7 +269,10 @@ mod tests {
         let config = Config::from_toml_str("[workspace]\nignore-packages = [\"a\"]\n").unwrap();
         let workspace = workspace(&config);
         let suppressions = Suppressions::new(&workspace, &config);
-        let (id, _) = workspace.iter().find(|(_, package)| package.display_name() == "a").unwrap();
+        let (id, _) = workspace
+            .iter()
+            .find(|(_, package)| package.display_name() == "a")
+            .unwrap();
         let mut diagnostic = make(Some("something-else"), None);
         diagnostic.package_id = Some(id);
         assert!(suppressions.suppresses(&diagnostic));
