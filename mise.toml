@@ -38,7 +38,10 @@ run = ["cargo fmt --all -- --check", "poly fmt --check ."]
 
 [tasks.bench]
 description = "Build skif in release mode and benchmark it with hyperfine (needs hyperfine; sherif, syncpack and knip are used when installed)"
-run = ["cargo build --release --locked -p skif-cli", "cargo run --release --locked -p skif-bench -- run --skif target/release/skif"]
+run = [
+  "cargo build --release --locked -p skif-cli",
+  "cargo run --release --locked -p skif-bench -- run --skif target/release/skif",
+]
 
 [tasks."bench:micro"]
 description = "Run the criterion micro-benchmarks"
