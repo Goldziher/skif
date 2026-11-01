@@ -1,6 +1,6 @@
 use self::semversion::SemVersion;
 use crate::{
-    args::{Args, AutofixSelect},
+    args::{Args, AutofixSelect, Format},
     rules::{
         BoxIssue,
         empty_dependencies::{DependencyKind, EmptyDependenciesIssue},
@@ -39,6 +39,7 @@ pub struct Config {
     pub select: Option<AutofixSelect>,
     pub no_install: bool,
     pub fail_on_warnings: bool,
+    pub format: Format,
     pub ignore_dependency: Vec<String>,
     pub ignore_package: Vec<String>,
     pub ignore_rule: Vec<String>,
@@ -60,6 +61,10 @@ impl Config {
 
         if args.fail_on_warnings {
             self.fail_on_warnings = true;
+        }
+
+        if let Some(format) = args.format {
+            self.format = format;
         }
 
         if !args.ignore_dependency.is_empty() {
