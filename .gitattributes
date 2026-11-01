@@ -1,4 +1,4 @@
 * text=auto eol=lf
 
 # Fixtures are byte-exact inputs; their line endings and indentation are part of what is tested.
-fixtures/** -text
+**/fixtures/** -text
