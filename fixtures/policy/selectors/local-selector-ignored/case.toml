@@ -1,0 +1,4 @@
+description = "$LOCAL selects dependencies that are workspace packages; here they are exempted from alignment."
+source = "syncpack:src/group_selector/group_selector_test.rs::local_keyword_includes_local_deps"
+tags = ["selectors", "$LOCAL", "local"]
+valid-states = ["IsIgnored"]

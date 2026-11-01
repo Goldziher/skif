@@ -16,10 +16,11 @@ categories = ["development-tools", "parser-implementations"]
 name = "skif_js_plugins"
 
 [dependencies]
-indexmap = "2"
+indexmap.workspace = true
+skif-config.workspace = true
 
 [dev-dependencies]
-proptest = "1"
+proptest.workspace = true
 
 [lints]
 workspace = true

@@ -1,0 +1,4 @@
+description = "With internal = true, a dependency on a workspace package must use the workspace: protocol."
+source = "skif"
+tags = ["workspace-protocol", "internal"]
+valid-states = ["IsIdenticalToLocal"]

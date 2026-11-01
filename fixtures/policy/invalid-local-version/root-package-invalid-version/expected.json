@@ -1,0 +1,11 @@
+[
+  {
+    "rule": "invalid-local-version",
+    "severity": "error",
+    "package": "monorepo",
+    "dependency": "monorepo",
+    "detail": "InvalidLocalVersion",
+    "path": "package.json",
+    "fixable": false
+  }
+]

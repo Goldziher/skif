@@ -1,0 +1,4 @@
+[[version-groups]]
+packages = ["lib"]
+dependencies = ["moment"]
+policy = "banned"

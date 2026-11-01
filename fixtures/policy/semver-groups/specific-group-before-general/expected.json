@@ -1,0 +1,38 @@
+[
+  {
+    "rule": "semver-range-mismatch",
+    "severity": "error",
+    "package": "app",
+    "dependency": "react",
+    "detail": "SemverRangeMismatch",
+    "path": "packages/app/package.json",
+    "fixable": true
+  },
+  {
+    "rule": "semver-range-mismatch",
+    "severity": "error",
+    "package": "app",
+    "dependency": "typescript",
+    "detail": "SemverRangeMismatch",
+    "path": "packages/app/package.json",
+    "fixable": true
+  },
+  {
+    "rule": "semver-range-mismatch",
+    "severity": "error",
+    "package": "lib",
+    "dependency": "react",
+    "detail": "SemverRangeMismatch",
+    "path": "packages/lib/package.json",
+    "fixable": true
+  },
+  {
+    "rule": "semver-range-mismatch",
+    "severity": "error",
+    "package": "lib",
+    "dependency": "typescript",
+    "detail": "SemverRangeMismatch",
+    "path": "packages/lib/package.json",
+    "fixable": true
+  }
+]

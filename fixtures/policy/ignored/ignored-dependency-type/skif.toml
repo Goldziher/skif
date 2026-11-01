@@ -1,0 +1,3 @@
+[[version-groups]]
+dependency-types = ["dev"]
+policy = "ignored"

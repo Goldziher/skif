@@ -1,0 +1,4 @@
+description = "A link: path to a workspace package is not the workspace: protocol and is reported unless allow-local-paths is set."
+source = "skif"
+tags = ["workspace-protocol", "link", "local-paths"]
+valid-states = ["SatisfiesLocal"]

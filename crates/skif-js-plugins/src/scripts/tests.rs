@@ -101,7 +101,13 @@ fn deps_of(info: &ScriptInfo) -> Vec<String> {
     sorted(
         info.dependencies
             .iter()
-            .map(|d| if d.ephemeral { format!("{}:eph", d.name) } else { d.name.clone() })
+            .map(|d| {
+                if d.ephemeral {
+                    format!("{}:eph", d.name)
+                } else {
+                    d.name.clone()
+                }
+            })
             .collect(),
     )
 }
@@ -133,7 +139,11 @@ fn table() {
         bins("NODE_ENV=production webpack", &["webpack"]),
         bins("FOO=bar BAZ=\"a b\" vite build", &["vite"]),
         bins("FOO=1", &[]),
-        files("cross-env NODE_ENV=x tsx src/a.ts", &["cross-env", "tsx"], &["src/a.ts"]),
+        files(
+            "cross-env NODE_ENV=x tsx src/a.ts",
+            &["cross-env", "tsx"],
+            &["src/a.ts"],
+        ),
         files(
             "cross-env NODE_OPTIONS=--require=./r.js jest",
             &["cross-env", "jest"],
@@ -177,7 +187,10 @@ fn table() {
         bins("echo $(vite", &["vite"]),
         bins("vite )) ((", &["vite"]),
         // Unicode.
-        bins("echo \"h\u{e9}llo \u{2713}\" && prettier --write \"src/**/\u{fc}.ts\"", &["prettier"]),
+        bins(
+            "echo \"h\u{e9}llo \u{2713}\" && prettier --write \"src/**/\u{fc}.ts\"",
+            &["prettier"],
+        ),
         files("node ./scripts/\u{fc}n\u{ef}.js", &[], &["./scripts/\u{fc}n\u{ef}.js"]),
         // Paths.
         bins("./node_modules/.bin/eslint .", &["eslint"]),
@@ -190,29 +203,66 @@ fn table() {
         // node.
         files("node ./scripts/a.js --foo bar", &[], &["./scripts/a.js"]),
         deps("node --import tsx ./scripts/a.ts", &[], &["./scripts/a.ts"], &["tsx"]),
-        deps("node -r ts-node/register src/index.js", &[], &["src/index.js"], &["ts-node"]),
+        deps(
+            "node -r ts-node/register src/index.js",
+            &[],
+            &["src/index.js"],
+            &["ts-node"],
+        ),
         deps("node --require=dotenv/config app.js", &[], &["app.js"], &["dotenv"]),
         deps("node --loader ts-node/esm x.ts", &[], &["x.ts"], &["ts-node"]),
-        deps("node --import @swc-node/register/esm-register app.ts", &[], &["app.ts"], &["@swc-node/register"]),
+        deps(
+            "node --import @swc-node/register/esm-register app.ts",
+            &[],
+            &["app.ts"],
+            &["@swc-node/register"],
+        ),
         files("node -r ./register.js app.js", &[], &["./register.js", "app.js"]),
         files("node --env-file=.env server.js", &[], &["server.js"]),
         files("node --experimental-strip-types src/a.ts", &[], &["src/a.ts"]),
         files("node -e \"console.log(1)\"", &[], &[]),
         files("node --import node:module ./a.mjs", &[], &["./a.mjs"]),
         // Runners.
-        deps("ts-node -r tsconfig-paths/register src/main.ts", &["ts-node"], &["src/main.ts"], &["tsconfig-paths"]),
+        deps(
+            "ts-node -r tsconfig-paths/register src/main.ts",
+            &["ts-node"],
+            &["src/main.ts"],
+            &["tsconfig-paths"],
+        ),
         files("tsx watch src/server.ts", &["tsx"], &["src/server.ts"]),
         files("tsx --tsconfig tsconfig.build.json src/a.ts", &["tsx"], &["src/a.ts"]),
         files("nodemon src/server.ts", &["nodemon"], &["src/server.ts"]),
-        files("nodemon --exec \"ts-node src/a.ts\" --watch src", &["nodemon", "ts-node"], &["src/a.ts"]),
+        files(
+            "nodemon --exec \"ts-node src/a.ts\" --watch src",
+            &["nodemon", "ts-node"],
+            &["src/a.ts"],
+        ),
         files("ts-node-dev --respawn src/a.ts", &["ts-node-dev"], &["src/a.ts"]),
         files("vite-node scripts/seed.ts", &["vite-node"], &["scripts/seed.ts"]),
         files("zx scripts/a.mjs", &["zx"], &["scripts/a.mjs"]),
-        deps("babel-node -r dotenv/config src/a.js", &["babel-node"], &["src/a.js"], &["dotenv"]),
-        files("esbuild src/index.ts --bundle --outfile=dist/out.js", &["esbuild"], &["src/index.ts"]),
-        deps("mocha --require ts-node/register 'test/**/*.spec.ts'", &["mocha"], &["test/**/*.spec.ts"], &["ts-node"]),
+        deps(
+            "babel-node -r dotenv/config src/a.js",
+            &["babel-node"],
+            &["src/a.js"],
+            &["dotenv"],
+        ),
+        files(
+            "esbuild src/index.ts --bundle --outfile=dist/out.js",
+            &["esbuild"],
+            &["src/index.ts"],
+        ),
+        deps(
+            "mocha --require ts-node/register 'test/**/*.spec.ts'",
+            &["mocha"],
+            &["test/**/*.spec.ts"],
+            &["ts-node"],
+        ),
         deps("mocha -r ts-node/register", &["mocha"], &[], &["ts-node"]),
-        files("jest --config jest.config.js src/a.test.ts", &["jest"], &["src/a.test.ts"]),
+        files(
+            "jest --config jest.config.js src/a.test.ts",
+            &["jest"],
+            &["src/a.test.ts"],
+        ),
         files("vitest run src/a.test.ts", &["vitest"], &["src/a.test.ts"]),
         files("playwright test e2e/a.spec.ts", &["playwright"], &["e2e/a.spec.ts"]),
         // Wrappers.
@@ -225,9 +275,19 @@ fn table() {
         bins("npx tsc --noEmit", &["tsc:npx"]),
         bins("npx --no-install tsc", &["tsc:npx"]),
         bins("npx -c \"vitest run\"", &["vitest"]),
-        deps("npx -y create-react-app@latest my-app", &[], &[], &["create-react-app:eph"]),
+        deps(
+            "npx -y create-react-app@latest my-app",
+            &[],
+            &[],
+            &["create-react-app:eph"],
+        ),
         deps("npx -p typescript tsc --init", &["tsc:npx"], &[], &["typescript:eph"]),
-        deps("npx --package=@scope/pkg@1 bin-name", &["bin-name:npx"], &[], &["@scope/pkg:eph"]),
+        deps(
+            "npx --package=@scope/pkg@1 bin-name",
+            &["bin-name:npx"],
+            &[],
+            &["@scope/pkg:eph"],
+        ),
         deps("npx @angular/cli new app", &[], &[], &["@angular/cli:eph"]),
         files("npx ./scripts/run.js", &[], &["./scripts/run.js"]),
         files("npx tsx watch src/a.ts", &["tsx:npx"], &["src/a.ts"]),
@@ -241,7 +301,12 @@ fn table() {
         // npm.
         bins("npm install", &[]),
         bins("npm exec -- vitest run", &["vitest:npm-exec"]),
-        deps("npm exec --package=typescript -- tsc", &["tsc:npm-exec"], &[], &["typescript:eph"]),
+        deps(
+            "npm exec --package=typescript -- tsc",
+            &["tsc:npm-exec"],
+            &[],
+            &["typescript:eph"],
+        ),
         bins("npm run lint --workspace=web", &[]),
         bins("npm -w web run build", &[]),
         // pnpm.
@@ -273,9 +338,30 @@ fn table() {
         bins("corepack pnpm exec vitest", &["vitest:pnpm-exec"]),
         bins("corepack enable", &[]),
         // Script references.
-        with_scripts("npm run build", &[("build", "tsc && vite build")], &["tsc", "vite"], &[], &[], &["build"]),
-        with_scripts("npm run build -- --watch", &[("build", "tsc")], &["tsc"], &[], &[], &["build"]),
-        with_scripts("npm run-script build", &[("build", "tsc")], &["tsc"], &[], &[], &["build"]),
+        with_scripts(
+            "npm run build",
+            &[("build", "tsc && vite build")],
+            &["tsc", "vite"],
+            &[],
+            &[],
+            &["build"],
+        ),
+        with_scripts(
+            "npm run build -- --watch",
+            &[("build", "tsc")],
+            &["tsc"],
+            &[],
+            &[],
+            &["build"],
+        ),
+        with_scripts(
+            "npm run-script build",
+            &[("build", "tsc")],
+            &["tsc"],
+            &[],
+            &[],
+            &["build"],
+        ),
         with_scripts("npm test", &[("test", "jest")], &["jest"], &[], &[], &["test"]),
         with_scripts("npm t", &[("test", "jest")], &["jest"], &[], &[], &["test"]),
         with_scripts("npm run missing", &[], &[], &[], &[], &["missing"]),
@@ -360,14 +446,26 @@ fn table() {
             &[],
             &["clean", "build"],
         ),
-        with_scripts("turbo run build --filter=web", &[("build", "turbo run build")], &["turbo"], &[], &[], &[]),
+        with_scripts(
+            "turbo run build --filter=web",
+            &[("build", "turbo run build")],
+            &["turbo"],
+            &[],
+            &[],
+            &[],
+        ),
     ];
     for case in cases {
         let info = parse_script(case.script, &context(case.scripts));
         assert_eq!(binaries_of(&info), expected(case.bins), "binaries of {:?}", case.script);
         assert_eq!(files_of(&info), expected(case.files), "files of {:?}", case.script);
         assert_eq!(deps_of(&info), expected(case.deps), "dependencies of {:?}", case.script);
-        assert_eq!(sorted(info.run_scripts.clone()), expected(case.runs), "scripts run by {:?}", case.script);
+        assert_eq!(
+            sorted(info.run_scripts.clone()),
+            expected(case.runs),
+            "scripts run by {:?}",
+            case.script
+        );
     }
 }
 
@@ -375,7 +473,15 @@ fn table() {
 fn table_is_broad() {
     // Guards against the table above shrinking below the agreed coverage.
     let source = include_str!("tests.rs");
-    let rows = source.lines().filter(|l| l.trim_start().starts_with("bins(") || l.trim_start().starts_with("files(") || l.trim_start().starts_with("deps(") || l.trim_start().starts_with("with_scripts(")).count();
+    let rows = source
+        .lines()
+        .filter(|l| {
+            l.trim_start().starts_with("bins(")
+                || l.trim_start().starts_with("files(")
+                || l.trim_start().starts_with("deps(")
+                || l.trim_start().starts_with("with_scripts(")
+        })
+        .count();
     assert!(rows >= 60, "only {rows} table rows");
 }
 
@@ -434,7 +540,9 @@ fn current_script_breaks_cycles() {
 
 #[test]
 fn ignored_binaries() {
-    for name in ["cd", "echo", "rm", "cp", "mkdir", "exit", "test", "[", "true", "false", "git"] {
+    for name in [
+        "cd", "echo", "rm", "cp", "mkdir", "exit", "test", "[", "true", "false", "git",
+    ] {
         assert!(is_ignored_binary(name), "{name}");
     }
     for name in ["node", "tsc", "vite", "rimraf"] {

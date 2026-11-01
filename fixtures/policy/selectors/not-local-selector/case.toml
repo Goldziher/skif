@@ -1,0 +1,4 @@
+description = "!$LOCAL leaves workspace packages to later groups: local mismatches are reported while externals are exempted."
+source = "syncpack:src/group_selector/group_selector_test.rs::not_local_keyword_excludes_local_deps"
+tags = ["selectors", "$LOCAL", "negation", "fix"]
+valid-states = ["IsIgnored", "IsLocalAndValid"]

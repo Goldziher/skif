@@ -1,0 +1,3 @@
+description = "Different minors without a preferred direction are reported as an unfixable SameMinorMismatch."
+source = "syncpack:src/version_group/same_minor_test.rs::has_different_minor_and_no_prefer_version"
+tags = ["same-minor", "unfixable"]

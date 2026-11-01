@@ -1,0 +1,3 @@
+description = "Same version number: the greediest range (caret over tilde) is the highest, so the tilde instance differs."
+source = "syncpack:crates/syncpack-specifier/src/ordering_test.rs::range_greediness_tiebreaker_for_equal_versions"
+tags = ["highest", "range-greediness", "fix"]

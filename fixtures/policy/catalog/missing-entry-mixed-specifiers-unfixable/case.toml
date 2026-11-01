@@ -1,0 +1,3 @@
+description = "Mixed semver and non-semver specifiers cannot be merged into one entry: unfixable, reported not dropped."
+source = "syncpack:src/version_group/catalog_test.rs::missing_from_catalog::catalog_group_zero_catalogs_pnpm_conflict_mixed"
+tags = ["catalog", "prefer", "unsupported", "unfixable"]

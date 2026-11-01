@@ -1,0 +1,3 @@
+description = "A prerelease sorts below the release of the same version, so the prerelease instance is the one reported."
+source = "syncpack:crates/syncpack-specifier/src/ordering_test.rs::prerelease_versions_sort_correctly"
+tags = ["prerelease", "highest", "fix"]

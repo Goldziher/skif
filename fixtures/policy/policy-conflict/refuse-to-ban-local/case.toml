@@ -1,0 +1,3 @@
+description = "A banned group that selects a workspace package refuses to ban its own version; dependents' entries are removed."
+source = "syncpack:src/version_group/banned_test.rs::refuses_to_ban_local_version"
+tags = ["banned", "local", "refuse-local", "fix"]

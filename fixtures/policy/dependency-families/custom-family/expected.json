@@ -1,0 +1,11 @@
+[
+  {
+    "rule": "unsynced-dependency-family",
+    "severity": "error",
+    "package": "app",
+    "dependency": "@babel/preset-env",
+    "detail": null,
+    "path": "packages/app/package.json",
+    "fixable": false
+  }
+]

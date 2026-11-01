@@ -1,0 +1,7 @@
+[[version-groups]]
+dependencies = ["lodash"]
+policy = "ignored"
+
+[[semver-groups]]
+dependencies = ["lodash"]
+range = "^"

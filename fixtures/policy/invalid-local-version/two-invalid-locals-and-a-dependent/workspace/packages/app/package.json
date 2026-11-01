@@ -1,0 +1,9 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "lib": "1.0.0",
+    "tool": "2.0.0"
+  }
+}
