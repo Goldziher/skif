@@ -1,0 +1,3 @@
+description = "A npm workspace declared through the workspaces field behaves like the pnpm layout for alignment."
+source = "skif"
+tags = ["highest", "npm", "fix"]

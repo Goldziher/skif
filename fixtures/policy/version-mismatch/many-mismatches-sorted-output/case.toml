@@ -1,0 +1,3 @@
+description = "Several mismatched dependencies in one manifest are reported sorted by dependency name, not declaration order."
+source = "syncpack:src/version_group/preferred_semver_test.rs::highest_or_lowest::reports_many_highest_version_mismatches_in_one_file"
+tags = ["highest", "ordering", "fix"]
