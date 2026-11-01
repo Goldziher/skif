@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "tools/*"]
 
 [workspace.package]
 version = "0.0.0"
@@ -68,3 +68,9 @@ lto = "thin"
 codegen-units = 1
 strip = "symbols"
 panic = "abort"
+
+# Release build with symbols for flamegraphs and profilers: `cargo build --profile profiling`.
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
