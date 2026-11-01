@@ -9,7 +9,6 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 use skif_core::RuleMeta;
-use skif_lint::RuleProvider;
 
 fn name(value: &impl Serialize) -> String {
     serde_json::to_value(value)
