@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use skif_config::{
     Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, ForbidMode, IgnoreEntry, Level,
     MemberToolchainFieldsOptions, PackageManager, PluginConfig, Prefer, RuleConfig, RuleOptions, SemverRange,
-    VersionPolicy, discover,
+    Selector, VersionPolicy, discover,
 };
 use skif_core::Severity;
 
@@ -28,7 +28,59 @@ fn discovers_basic_fixture() {
 
 #[test]
 fn discovers_nothing_in_an_empty_directory() {
-    assert!(discover(&fixture("basic").join("missing")).unwrap().is_none());
+    let empty = tempfile::tempdir().unwrap();
+    assert!(empty.path().is_dir());
+    assert!(discover(empty.path()).unwrap().is_none());
+}
+
+#[test]
+fn discovery_finds_a_config_that_was_not_there_before() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(discover(dir.path()).unwrap().is_none());
+    std::fs::write(dir.path().join("skif.toml"), "[lint]\nfail-on-warnings = true\n").unwrap();
+    let (path, config) = discover(dir.path()).unwrap().unwrap();
+    assert_eq!(path, dir.path().join("skif.toml"));
+    assert!(config.lint.fail_on_warnings);
+}
+
+#[test]
+fn invalid_selectors_and_dependency_types_are_parse_errors_naming_the_value() {
+    let cases = [
+        ("[workspace]\nignore-packages = [\"a[\"]\n", "\"a[\""),
+        ("[[ignore]]\npackages = [\"{x\"]\n", "\"{x\""),
+        ("[[version-groups]]\ndependencies = [\"b[\"]\n", "\"b[\""),
+        ("[[semver-groups]]\npackages = [\"c[\"]\nrange = \"^\"\n", "\"c[\""),
+        ("[policy]\ndependency-types = [\"bundled\"]\n", "\"bundled\""),
+    ];
+    for (toml, needle) in cases {
+        let error = Config::from_toml_str(toml).unwrap_err();
+        assert!(matches!(error, ConfigError::Parse { .. }), "{toml}: {error:?}");
+        assert!(error.to_string().contains(needle), "{toml}: {error}");
+    }
+}
+
+#[test]
+fn invalid_cli_ignore_patterns_leave_the_config_untouched() {
+    let mut config = full();
+    let overrides = ConfigOverrides {
+        rules: [("version-mismatch".to_string(), Level::Error)].into_iter().collect(),
+        ignore_packages: vec!["bad[".into()],
+        ..ConfigOverrides::default()
+    };
+    let error = config.apply(&overrides).unwrap_err();
+    assert!(error.to_string().contains("\"bad[\""), "{error}");
+    assert_eq!(config, full());
+}
+
+#[test]
+fn selectors_in_the_config_are_compiled() {
+    let config = full();
+    assert!(config.workspace.ignore_packages.matches("legacy-core", false));
+    assert!(!config.workspace.ignore_packages.matches("core", false));
+    let group = &config.version_groups[0];
+    assert!(group.packages.matches("@scope/app", true) && !group.packages.matches("@scope/legacy", true));
+    assert!(group.dependency_types.matches(skif_config::DependencyKind::Dependencies));
+    assert!(!group.dependency_types.matches(skif_config::DependencyKind::PeerDependencies));
 }
 
 #[test]
@@ -200,8 +252,8 @@ fn full_fixture_sections() {
         config.ignore,
         [IgnoreEntry {
             rules: vec!["unused-dependencies".into()],
-            packages: vec!["@scope/docs".into()],
-            dependencies: vec!["typescript".into()],
+            packages: Selector::new(["@scope/docs"]).unwrap(),
+            dependencies: Selector::new(["typescript"]).unwrap(),
         }]
     );
     assert_eq!(config.policy.prefer, Prefer::Lowest);
@@ -344,7 +396,7 @@ fn cli_overrides_win_over_file_and_defaults() {
         production: Some(false),
         no_js: true,
     };
-    config.apply(&overrides);
+    config.apply(&overrides).unwrap();
 
     assert_eq!(config.rule("version-mismatch").unwrap().severity, Some(Level::Error));
     assert_eq!(config.rule("brand-new").unwrap().severity, Some(Level::Warn));
@@ -366,7 +418,7 @@ fn cli_overrides_win_over_file_and_defaults() {
 #[test]
 fn empty_overrides_change_nothing() {
     let mut config = full();
-    config.apply(&ConfigOverrides::default());
+    config.apply(&ConfigOverrides::default()).unwrap();
     assert_eq!(config, full());
 }
 

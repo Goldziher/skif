@@ -2,9 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-use skif_config::Config;
+use skif_config::{Config, Selector};
 use skif_core::PathSeg;
-use skif_workspace::{DependencyKind, MemoryFs, PackageManager, Workspace, WorkspaceError};
+use skif_workspace::{DependencyKind, MemoryFs, PackageId, PackageManager, Workspace, WorkspaceError};
 
 fn memory(files: &[(&str, &str)]) -> MemoryFs {
     let mut fs = MemoryFs::new();
@@ -416,14 +416,15 @@ fn package_matching_and_ignore() {
     let ignored: Vec<&str> = workspace
         .packages
         .iter()
-        .filter(|p| workspace.is_ignored(p))
+        .filter(|p| workspace.is_ignored(p.id))
         .map(skif_workspace::Package::display_name)
         .collect();
     assert_eq!(ignored, ["@repo/legacy-a", "beta", "tools/old"]);
     assert_eq!(workspace.all_packages().count(), 6);
     assert!(workspace.all_packages().next().unwrap().is_root);
     assert!(workspace.package_by_name("@repo/c").is_some());
-    assert!(workspace.packages[0].matches("pkgs/**"));
+    assert!(workspace.packages[0].is_selected_by(&Selector::new(["pkgs/**"]).unwrap()));
+    assert!(!workspace.packages[0].is_selected_by(&Selector::new(["tools/**"]).unwrap()));
 }
 
 #[test]
@@ -440,4 +441,140 @@ fn private_and_version() {
     assert_eq!(workspace.root_package.display_name(), ".");
     assert_eq!(workspace.packages[0].version.as_deref(), Some("1.2.3"));
     assert!(!workspace.packages[0].private);
+}
+
+fn text_of(manifest: &skif_workspace::Manifest, pointer: &[PathSeg]) -> Option<String> {
+    let span = manifest.field_span(pointer)?;
+    Some(manifest.source[span.start as usize..span.end as usize].to_owned())
+}
+
+fn key(name: &str) -> PathSeg {
+    PathSeg::Key(name.into())
+}
+
+#[test]
+fn span_table_covers_sections_entries_and_the_whole_document() {
+    let source = r#"{
+  "name": "r",
+  "workspaces": ["a"],
+  "dependencies": { "react": "18", "react": "19" },
+  "pnpm": { "overrides": { "x": "1" }, "deep": { "deeper": { "deepest": 1 } } }
+}"#;
+    let workspace = discover(
+        &[("package.json", source), ("a/package.json", "{}")],
+        &Config::default(),
+    )
+    .unwrap();
+    let manifest = &workspace.root_package.manifest;
+    let cases: Vec<(Vec<PathSeg>, Option<&str>)> = vec![
+        (vec![], Some(source)),
+        (vec![key("name")], Some("\"name\": \"r\"")),
+        (
+            vec![key("dependencies")],
+            Some("\"dependencies\": { \"react\": \"18\", \"react\": \"19\" }"),
+        ),
+        (vec![key("dependencies"), key("react")], Some("\"react\": \"19\"")),
+        (vec![key("workspaces"), PathSeg::Index(0)], Some("\"a\"")),
+        (vec![key("pnpm"), key("overrides"), key("x")], Some("\"x\": \"1\"")),
+        (vec![key("pnpm"), key("deep"), key("deeper"), key("deepest")], None),
+        (vec![key("workspaces"), PathSeg::Index(1)], None),
+    ];
+    for (pointer, expected) in cases {
+        assert_eq!(text_of(manifest, &pointer).as_deref(), expected, "{pointer:?}");
+    }
+}
+
+#[test]
+fn span_lookup_does_not_depend_on_reparsing_the_source() {
+    let workspace = discover(
+        &[("package.json", r#"{"workspaces":["a"],"name":"r"}"#), ("a/package.json", "{}")],
+        &Config::default(),
+    )
+    .unwrap();
+    let mut manifest = workspace.root_package.manifest.clone();
+    manifest.source = std::sync::Arc::from("not json at all");
+    assert!(manifest.field_span(&[key("name")]).is_some());
+}
+
+#[test]
+fn dependency_entries_carry_their_parsed_specifier() {
+    let workspace = discover(
+        &[
+            ("package.json", r#"{"workspaces":["a"]}"#),
+            (
+                "a/package.json",
+                r#"{"name":"a","dependencies":{"b":"workspace:*","c":"^1.2.3","d":"file:../d"}}"#,
+            ),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    let entries = &workspace.packages[0].dependencies;
+    let parsed: Vec<(&str, bool)> = entries
+        .iter()
+        .map(|entry| (entry.parsed.get_raw(), entry.parsed.is_workspace_protocol()))
+        .collect();
+    assert_eq!(parsed, [("workspace:*", true), ("^1.2.3", false), ("file:../d", false)]);
+    assert_eq!(entries[1].parsed.get_semver_number(), Some("1.2.3"));
+    assert_eq!(entries[2].parsed.get_semver_number(), None);
+}
+
+#[test]
+fn package_ids_are_dense_and_follow_directory_order_even_with_broken_members() {
+    let mut files = vec![("package.json".to_owned(), r#"{"name":"root","workspaces":["p/*"]}"#.to_owned())];
+    for index in (0..40).rev() {
+        let body = if index % 7 == 3 {
+            "{ broken".to_owned()
+        } else {
+            format!(r#"{{"name":"p{index:02}"}}"#)
+        };
+        files.push((format!("p/d{index:02}/package.json"), body));
+    }
+    files.push(("p/empty-dir/placeholder.txt".to_owned(), String::new()));
+    let borrowed: Vec<(&str, &str)> = files.iter().map(|(p, c)| (p.as_str(), c.as_str())).collect();
+    let larger: Vec<(String, String)> = (0..50)
+        .map(|index| (format!("p/e{index:02}/package.json"), "{}".to_owned()))
+        .chain([("package.json".to_owned(), r#"{"workspaces":["p/*"]}"#.to_owned())])
+        .collect();
+    let larger: Vec<(&str, &str)> = larger.iter().map(|(p, c)| (p.as_str(), c.as_str())).collect();
+    let foreign = discover(&larger, &Config::default()).unwrap().package_ids().last().unwrap();
+    for _ in 0..5 {
+        let workspace = discover(&borrowed, &Config::default()).unwrap();
+        let names: Vec<&str> = workspace.packages.iter().filter_map(|p| p.name.as_deref()).collect();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        assert_eq!(names, sorted);
+        assert_eq!(workspace.manifest_errors.len(), 6);
+        assert_eq!(workspace.packages.len(), 34);
+        assert_eq!(workspace.root_package.id, PackageId::ROOT);
+        let ids: Vec<usize> = workspace.package_ids().map(PackageId::index).collect();
+        assert_eq!(ids, (0..=34).collect::<Vec<_>>());
+        for (id, package) in workspace.iter() {
+            assert_eq!(package.id, id);
+            assert_eq!(workspace.package(id).map(|p| p.dir.clone()), Some(package.dir.clone()));
+        }
+        assert!(workspace.package(foreign).is_none());
+    }
+}
+
+#[test]
+fn ignore_packages_is_resolved_per_id() {
+    let config = Config::from_toml_str("[workspace]\nignore-packages = [\"@repo/*\", \"!@repo/keep\"]\n").unwrap();
+    let workspace = discover(
+        &[
+            ("package.json", r#"{"name":"root","workspaces":["p/*"]}"#),
+            ("p/a/package.json", r#"{"name":"@repo/a"}"#),
+            ("p/keep/package.json", r#"{"name":"@repo/keep"}"#),
+            ("p/x/package.json", r#"{"name":"x"}"#),
+        ],
+        &config,
+    )
+    .unwrap();
+    let ignored: Vec<&str> = workspace
+        .iter()
+        .filter(|(id, _)| workspace.is_ignored(*id))
+        .map(|(_, package)| package.display_name())
+        .collect();
+    assert_eq!(ignored, ["@repo/a"]);
+    assert!(!workspace.is_ignored(PackageId::ROOT));
 }
