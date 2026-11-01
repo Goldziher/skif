@@ -6,37 +6,10 @@ use std::sync::Arc;
 use serde_json::{Map, Value};
 use skif_config::Selector;
 use skif_core::DependencyKind;
+pub use skif_core::PackageId;
 
 use crate::error::WorkspaceError;
 use crate::manifest::{DependencyEntry, Manifest};
-
-/// Identifies a package within one [`Workspace`](crate::Workspace): its index among all packages, the root first.
-///
-/// Ids are only meaningful for the workspace that issued them; they are cheap to copy, hash and compare, so
-/// per-package facts live in vectors indexed by id instead of maps keyed by name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct PackageId(u32);
-
-impl PackageId {
-    /// The id of the root package.
-    pub const ROOT: Self = Self(0);
-
-    /// Position of the package among all packages, the root being 0.
-    #[must_use]
-    pub const fn index(self) -> usize {
-        self.0 as usize
-    }
-
-    pub(crate) fn from_index(index: usize) -> Self {
-        Self(u32::try_from(index).unwrap_or(u32::MAX))
-    }
-}
-
-impl std::fmt::Display for PackageId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "#{}", self.0)
-    }
-}
 
 /// One `package.json` of the workspace.
 #[derive(Debug, Clone)]

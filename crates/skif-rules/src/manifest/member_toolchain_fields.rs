@@ -82,6 +82,7 @@ impl Rule for MemberToolchainFields {
                 out.emit(
                     diagnostic(&META, message, field_location(package, &[key(field)]))
                         .package(package.display_name())
+                        .package_id(package.id)
                         .help(format!(
                             "remove `{field}` from this package.json and declare it once in the root"
                         ))
