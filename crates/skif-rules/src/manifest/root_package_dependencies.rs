@@ -39,6 +39,7 @@ impl Rule for RootPackageDependencies {
             field_location(root, &section(DependencyKind::Dependencies)),
         )
         .package(root.display_name())
+        .package_id(root.id)
         .help("declare dependencies in the packages that use them, or move them to `devDependencies`");
         for entry in root
             .dependencies

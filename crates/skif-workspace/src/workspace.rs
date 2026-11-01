@@ -33,6 +33,9 @@ pub enum WorkspaceSource {
 /// What one workspace pattern matched.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PatternFact {
+    /// Position of the pattern in its declared list: the array index in `package.json`, or the position among the
+    /// `packages:` entries of `pnpm-workspace.yaml`. Usable directly as the last segment of a fix path.
+    pub index: usize,
     /// The pattern as written, including a leading `!` for negations.
     pub pattern: String,
     /// Whether the pattern is a negation.
@@ -82,7 +85,7 @@ pub struct Workspace {
 struct Declared {
     source: WorkspaceSource,
     file: PathBuf,
-    patterns: Vec<(String, Option<Span>)>,
+    patterns: Vec<(usize, String, Option<Span>)>,
 }
 
 fn io_error(path: &Path, source: std::io::Error) -> WorkspaceError {
@@ -140,7 +143,11 @@ fn json_patterns(root_package: &Package) -> Option<Declared> {
         .filter_map(|(index, item)| {
             let mut pointer = base.clone();
             pointer.push(PathSeg::Index(index));
-            Some((item.as_str()?.to_owned(), root_package.manifest.field_span(&pointer)))
+            Some((
+                index,
+                item.as_str()?.to_owned(),
+                root_package.manifest.field_span(&pointer),
+            ))
         })
         .collect();
     Some(Declared {
@@ -210,8 +217,10 @@ impl Workspace {
             file: yaml.path.clone(),
             patterns: packages
                 .iter()
-                .map(|pattern| {
+                .enumerate()
+                .map(|(index, pattern)| {
                     (
+                        index,
                         pattern.clone(),
                         pnpm::pattern_span(&yaml.source, &yaml.line_index, pattern),
                     )
@@ -239,7 +248,7 @@ impl Workspace {
         let mut facts = Vec::new();
         let mut candidates = BTreeSet::new();
         let mut negations = Vec::new();
-        for (raw, span) in &declared.patterns {
+        for (index, raw, span) in &declared.patterns {
             let negated = raw.trim_start().starts_with('!');
             let matched = if negated {
                 negations.push((facts.len(), pattern::negation(raw)));
@@ -251,6 +260,7 @@ impl Workspace {
                 count
             };
             facts.push(PatternFact {
+                index: *index,
                 pattern: raw.clone(),
                 negated,
                 matched,
