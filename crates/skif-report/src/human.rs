@@ -53,7 +53,11 @@ fn write_diagnostic(
     diagnostic: &Diagnostic,
 ) -> io::Result<()> {
     let span = diagnostic.location.span;
-    let frame = span.and_then(|span| source.and_then(|text| line_of(text, span.start_line)).map(|line| (span, line)));
+    let frame = span.and_then(|span| {
+        source
+            .and_then(|text| line_of(text, span.start_line))
+            .map(|line| (span, line))
+    });
     let width = span.map_or(1, |span| digits(span.start_line));
     let pad = " ".repeat(width);
     let bar = paint.dim("|");
@@ -95,7 +99,10 @@ fn write_diagnostic(
         }
     }
     for related in &diagnostic.related {
-        let at = location_text(&options.display_path(&related.location.path), related.location.span.as_ref());
+        let at = location_text(
+            &options.display_path(&related.location.path),
+            related.location.span.as_ref(),
+        );
         note(out, "note", &format!("{} ({at})", related.message))?;
     }
     for fix in &diagnostic.fixes {
@@ -139,7 +146,9 @@ fn underline_width(span: &Span, line: &str) -> usize {
     let end = if span.end_line == span.start_line {
         span.end_col
     } else {
-        u32::try_from(line.chars().count()).unwrap_or(u32::MAX).saturating_add(1)
+        u32::try_from(line.chars().count())
+            .unwrap_or(u32::MAX)
+            .saturating_add(1)
     };
     to_usize(end.saturating_sub(span.start_col)).max(1)
 }

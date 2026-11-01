@@ -1,0 +1,92 @@
+---
+source: crates/skif-report/tests/render.rs
+expression: "run(&rich(), Format::Json, &options(false))"
+---
+{
+  "version": 1,
+  "skif": "0.1.0",
+  "summary": {
+    "errors": 1,
+    "warnings": 1,
+    "infos": 1,
+    "fixable": 2,
+    "packages": 3
+  },
+  "diagnostics": [
+    {
+      "rule": "sorted-keys",
+      "severity": "info",
+      "message": "keys are not sorted",
+      "location": {
+        "path": "package.json"
+      },
+      "related": [],
+      "fixes": []
+    },
+    {
+      "rule": "unused-dependency",
+      "severity": "warning",
+      "message": "lodash is never imported 日本語",
+      "location": {
+        "path": "packages/web/package.json",
+        "span": {
+          "start": 68,
+          "end": 76,
+          "startLine": 5,
+          "startCol": 5,
+          "endLine": 5,
+          "endCol": 13
+        }
+      },
+      "related": [],
+      "fixes": [
+        {
+          "title": "Remove lodash",
+          "safety": "safe"
+        }
+      ]
+    },
+    {
+      "rule": "version-mismatch",
+      "severity": "error",
+      "message": "réact is declared with 2 different versions",
+      "help": "align on ^18.3.1",
+      "location": {
+        "path": "packages/web/package.json",
+        "span": {
+          "start": 53,
+          "end": 62,
+          "startLine": 4,
+          "startCol": 14,
+          "endLine": 4,
+          "endCol": 23
+        }
+      },
+      "related": [
+        {
+          "message": "other declaration",
+          "location": {
+            "path": "packages/api/package.json",
+            "span": {
+              "start": 78,
+              "end": 86,
+              "startLine": 5,
+              "startCol": 15,
+              "endLine": 5,
+              "endCol": 23
+            }
+          }
+        }
+      ],
+      "package": "web",
+      "dependency": "réact",
+      "detail": "DiffersToHighestOrLowestSemver",
+      "fixes": [
+        {
+          "title": "Use ^18.3.1",
+          "safety": "unsafe"
+        }
+      ]
+    }
+  ]
+}

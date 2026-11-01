@@ -1,0 +1,5 @@
+---
+source: crates/skif-report/tests/render.rs
+expression: "run(&Report::new(Vec::new(), 2), Format::Human, &options(false))"
+---
+No issues found in 2 packages
