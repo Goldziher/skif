@@ -21,14 +21,7 @@ use indexmap::IndexMap;
 
 pub use tables::{IGNORED_BINARIES, is_ignored_binary};
 
-/// The package manager declared by the package, if known.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PackageManager {
-    Npm,
-    Pnpm,
-    Yarn,
-    Bun,
-}
+pub use skif_config::PackageManager;
 
 /// What the parser knows about the package that owns the script.
 #[derive(Debug, Clone, Default)]
