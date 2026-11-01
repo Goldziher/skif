@@ -110,7 +110,7 @@ fn human_underline_uses_character_columns() {
     let frame = rendered.lines().find(|line| line.contains("\"réact\"")).unwrap();
     let underline = rendered.lines().skip_while(|line| *line != frame).nth(1).unwrap();
     let col = |s: &str, marker: char| s.chars().position(|c| c == marker).unwrap();
-    assert_eq!(col(underline, '^'), col(frame, '"') + "\"réact\": ".chars().count() - 1);
+    assert_eq!(col(underline, '^'), col(frame, '"') + "\"réact\": ".chars().count());
 }
 
 #[test]
