@@ -13,6 +13,10 @@ keywords = ["monorepo", "linter", "dependencies", "pnpm", "javascript"]
 categories = ["development-tools", "command-line-utilities"]
 readme = "../../README.md"
 
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/skif-{ target }{ archive-suffix }"
+bin-dir = "{ bin }{ binary-ext }"
+
 [[bin]]
 name = "skif"
 path = "src/main.rs"
