@@ -220,7 +220,10 @@ fn rule_tables_keep_raw_options() {
     let toolchain = config.rule("member-toolchain-fields").unwrap();
     assert_eq!(toolchain.severity, Some(Level::Error));
     assert_eq!(toolchain.options.len(), 1);
-    assert_eq!(toolchain.options.get("mode"), Some(&toml::Value::String("match-root".into())));
+    assert_eq!(
+        toolchain.options.get("mode"),
+        Some(&toml::Value::String("match-root".into()))
+    );
     let exports = config.rule("unused-exports").unwrap();
     assert_eq!(exports.severity, Some(Level::Warn));
     assert_eq!(

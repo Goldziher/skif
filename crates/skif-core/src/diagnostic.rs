@@ -189,7 +189,10 @@ mod tests {
         let mut with_id = diagnostic();
         with_id.package_id = Some(PackageId::from_index(2));
         let value = serde_json::to_value(&with_id).unwrap();
-        assert!(value.get("package-id").is_none() && value.get("package_id").is_none(), "{value}");
+        assert!(
+            value.get("package-id").is_none() && value.get("package_id").is_none(),
+            "{value}"
+        );
         assert_eq!(value, serde_json::to_value(diagnostic()).unwrap());
         let back: Diagnostic = serde_json::from_value(value).unwrap();
         assert_eq!(back.package_id, None);
