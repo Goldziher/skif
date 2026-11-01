@@ -13,11 +13,11 @@ keywords = ["monorepo", "linter", "dependencies", "rules"]
 categories = ["development-tools"]
 
 [dependencies]
-rayon = "1.11"
-skif-config = { path = "../skif-config", version = "0.0.0" }
-skif-core = { path = "../skif-core", version = "0.0.0" }
-skif-workspace = { path = "../skif-workspace", version = "0.0.0" }
-thiserror = "2.0.21"
+rayon.workspace = true
+skif-config.workspace = true
+skif-core.workspace = true
+skif-workspace.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

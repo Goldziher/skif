@@ -8,6 +8,7 @@ use crate::provider::RuleProvider;
 
 /// Two rules share an ID.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum RegistryError {
     #[error("rule id \"{id}\" is registered more than once")]
     DuplicateRule { id: String },

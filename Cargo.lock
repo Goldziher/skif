@@ -1326,12 +1326,14 @@ dependencies = [
 name = "skif-config"
 version = "0.0.0"
 dependencies = [
+ "globset",
  "indexmap",
  "schemars",
  "serde",
  "serde_json",
  "skif-core",
  "strsim",
+ "tempfile",
  "thiserror",
  "toml",
 ]
@@ -1345,6 +1347,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
 ]
 
@@ -1399,6 +1402,7 @@ dependencies = [
  "globset",
  "indexmap",
  "jsonc-parser",
+ "rayon",
  "serde",
  "serde-saphyr",
  "serde_json",
