@@ -96,6 +96,11 @@ JavaScript monorepos.
    `is_complex_range` accepts unspaced `||` unions, prerelease tags and x-range operands
    (`1.x || 2.x`), and only a bare `*`, `x` or `X` is `Latest` (`*foo` is `Unsupported`, `xyz` is
    a `Tag`). Property tests cover panic freedom and the `Ord`/`Eq` law.
+7. The version-group state machine in `crates/skif-rules/src/policy/visit.rs` is a Rust re-implementation of
+   the visitors in syncpack's `src/version_group/*.rs` (preferred-semver, pinned, banned, ignored, same-range,
+   same-minor, snapped-to) at the same commit, on skif's own instance model; no syncpack code is copied. It differs
+   in having no strict mode, leaving `catalog:` references to the catalog rules, and treating specifiers that
+   cannot carry a semver range as having no preferred range.
 
 ### License Compatibility
 
