@@ -1,0 +1,6 @@
+version = "5.0"
+name = "sherif"
+description = "Opinionated, zero-config linter for TypeScript & JavaScript monorepos (Rust CLI + GitHub Action)."
+gitignore = true
+presets = ["claude", "codex", "opencode"]
+builtins = ["rust", "security", "git-workflow", "code-quality", "testing", "cicd", "default-commands"]

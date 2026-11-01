@@ -57,8 +57,8 @@ jobs:
       - uses: QuiiBz/sherif@v1
         # Optionally, you can specify a version and arguments to run Sherif with:
         # with:
-          # version: 'v1.13.0'
-          # args: '--ignore-rule root-package-manager-field'
+        # version: 'v1.13.0'
+        # args: '--ignore-rule root-package-manager-field'
 
 # Using `npx` to run Sherif
 name: Sherif
@@ -208,8 +208,8 @@ When using many CLI arguments, it might be easier to move to the configuration f
     "failOnWarnings": false,
     "ignoreDependency": [], // string[]
     "ignorePackage": [], // string[]
-    "ignoreRule": [] // string[]
-  }
+    "ignoreRule": [], // string[]
+  },
 }
 ```
 

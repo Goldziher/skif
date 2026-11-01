@@ -1,0 +1,35 @@
+[defaults]
+line_ending = "lf"
+final_newline = true
+trim_trailing_whitespace = true
+
+[discovery]
+exclude = [
+  ".ai-rulez/**",
+  "**/*.lock",
+  "**/package-lock.json",
+  "**/pnpm-lock.yaml",
+  "action/index.js",
+  "assets/**",
+  "fixtures/**",
+  "node_modules/**",
+  "target/**",
+  "tsconfig.json",
+]
+
+[lint.typos]
+# `sherif` is the project name; `existant` is part of the public rule name `non-existant-packages`.
+extend_words = { sherif = "sherif", Sherif = "Sherif", existant = "existant", Existant = "Existant", accidentaly = "accidentaly" }
+
+[lint.markdown.rumdl]
+disable = ["MD001", "MD033", "MD041"]
+
+[hooks]
+stages = ["pre-commit"]
+
+[hooks.builtin]
+lint = true
+fmt = true
+commit = { stages = ["commit-msg"] }
+file_safety = { exclude = ["npm/app/index.js"] }
+cargo = true
