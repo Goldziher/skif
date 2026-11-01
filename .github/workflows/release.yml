@@ -52,7 +52,7 @@ jobs:
           - { NAME: darwin-arm64, OS: macos-15, TOOLCHAIN: stable, TARGET: aarch64-apple-darwin, BIN: sherif }
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set the release version
         shell: bash
@@ -73,7 +73,7 @@ jobs:
           use-cross: ${{ matrix.build.OS == 'ubuntu-22.04' }} # use `cross` for Linux builds
 
       - name: Install node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
@@ -120,7 +120,7 @@ jobs:
           npm publish --access public
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sherif-${{ matrix.build.TARGET }}
           path: target/${{ matrix.build.TARGET }}/release/${{ matrix.build.BIN }}
@@ -131,10 +131,10 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
