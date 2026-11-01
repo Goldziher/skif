@@ -132,5 +132,9 @@ pub(crate) fn from_package_json(manifest: &Value, source: &Path) -> Catalogs {
     if let Some(workspaces) = manifest.get("workspaces").filter(|value| value.is_object()) {
         catalogs.merge(from_json(workspaces.get("catalog"), workspaces.get("catalogs")));
     }
-    if catalogs.is_empty() { Catalogs::default() } else { catalogs.with_source(source) }
+    if catalogs.is_empty() {
+        Catalogs::default()
+    } else {
+        catalogs.with_source(source)
+    }
 }

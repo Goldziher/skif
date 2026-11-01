@@ -14,7 +14,11 @@ fn discover(name: &str) -> Workspace {
 }
 
 fn dirs(workspace: &Workspace) -> Vec<String> {
-    workspace.packages.iter().map(|p| p.dir.to_str().unwrap().to_owned()).collect()
+    workspace
+        .packages
+        .iter()
+        .map(|p| p.dir.to_str().unwrap().to_owned())
+        .collect()
 }
 
 fn names(workspace: &Workspace) -> Vec<String> {
@@ -53,7 +57,7 @@ fn basic() {
     assert_eq!(dirs(&workspace), ["docs", "packages/abc", "packages/def"]);
     assert_eq!(workspace.facts.source, WorkspaceSource::PackageJsonWorkspaces);
     assert_eq!(unmatched(&workspace), ["examples/*", "website"]);
-    assert!(workspace.facts.dirs_without_manifest.is_empty());
+    assert_eq!(workspace.facts.dirs_without_manifest, [] as [std::path::PathBuf; 0]);
     assert!(workspace.root.is_absolute());
 }
 
@@ -106,8 +110,8 @@ fn empty_directories_are_skipped() {
 
     let workspace = result.unwrap();
     assert_eq!(dirs(&workspace), ["packages/abc"]);
-    assert!(workspace.facts.dirs_without_manifest.is_empty());
-    assert!(unmatched(&workspace).is_empty());
+    assert_eq!(workspace.facts.dirs_without_manifest, [] as [std::path::PathBuf; 0]);
+    assert_eq!(unmatched(&workspace), [] as [&str; 0]);
 }
 
 #[test]
@@ -122,22 +126,25 @@ fn negations_use_whole_paths() {
         .filter(|fact| fact.negated)
         .map(|fact| (fact.pattern.as_str(), fact.matched))
         .collect();
-    assert_eq!(negations, [("!packages/abc", 1), ("!packages/d*", 1), ("!packages/a/*", 0)]);
+    assert_eq!(
+        negations,
+        [("!packages/abc", 1), ("!packages/d*", 1), ("!packages/a/*", 0)]
+    );
 }
 
 #[test]
 fn pnpm_glob_with_prefix_and_hidden_dirs() {
     let workspace = discover("pnpm-glob");
     assert_eq!(dirs(&workspace), ["@ui", "@web"]);
-    assert!(unmatched(&workspace).is_empty());
+    assert_eq!(unmatched(&workspace), [] as [&str; 0]);
 }
 
 #[test]
 fn root_star_matches_direct_children_with_manifest() {
     let workspace = discover("root-star-pnpm");
     assert_eq!(names(&workspace), ["pk-a", "tool"]);
-    assert!(unmatched(&workspace).is_empty());
-    assert!(workspace.facts.dirs_without_manifest.is_empty());
+    assert_eq!(unmatched(&workspace), [] as [&str; 0]);
+    assert_eq!(workspace.facts.dirs_without_manifest, [] as [std::path::PathBuf; 0]);
 }
 
 #[test]
@@ -171,7 +178,10 @@ fn pnpm_catalogs() {
 fn package_json_catalogs() {
     let workspace = discover("catalogs-package-json");
     assert_eq!(workspace.catalogs.resolve("typescript", "catalog:"), Some("5.9.3"));
-    assert_eq!(workspace.catalogs.resolve("typescript", "catalog:legacy"), Some("5.8.0"));
+    assert_eq!(
+        workspace.catalogs.resolve("typescript", "catalog:legacy"),
+        Some("5.8.0")
+    );
     assert_eq!(workspace.catalogs.source(), Some(Path::new("package.json")));
 }
 
@@ -188,7 +198,10 @@ fn dependency_spans_in_fixture() {
     let a = workspace.package_by_name("a").unwrap();
     let entry = a.dependencies.iter().find(|d| d.name == "typescript").unwrap();
     let source = &a.manifest.source;
-    assert_eq!(&source[entry.value_span.start as usize..entry.value_span.end as usize], "\"catalog:\"");
+    assert_eq!(
+        &source[entry.value_span.start as usize..entry.value_span.end as usize],
+        "\"catalog:\""
+    );
     assert_eq!(a.manifest.path, PathBuf::from("a/package.json"));
 }
 

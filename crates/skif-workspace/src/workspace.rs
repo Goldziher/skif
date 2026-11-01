@@ -93,7 +93,11 @@ fn io_error(path: &Path, source: std::io::Error) -> WorkspaceError {
 
 fn json_patterns(root_package: &Package) -> Option<Declared> {
     let (source, base, items) = match root_package.manifest.value.get("workspaces")? {
-        Value::Array(items) => (WorkspaceSource::PackageJsonWorkspaces, vec![PathSeg::Key("workspaces".into())], items),
+        Value::Array(items) => (
+            WorkspaceSource::PackageJsonWorkspaces,
+            vec![PathSeg::Key("workspaces".into())],
+            items,
+        ),
         Value::Object(object) => (
             WorkspaceSource::YarnNohoistWorkspaces,
             vec![PathSeg::Key("workspaces".into()), PathSeg::Key("packages".into())],
@@ -123,15 +127,14 @@ impl Workspace {
     /// # Errors
     /// See [`WorkspaceError`]; a broken member manifest is not an error but is listed in `manifest_errors`.
     pub fn discover(root: &Path, config: &Config) -> Result<Self, WorkspaceError> {
-        Self::discover_with_fs(root, config, Arc::new(OsFs))
+        Self::discover_with_fs(root, config, &OsFs)
     }
 
     /// Discovers the workspace at `root` through `fs`.
     ///
     /// # Errors
     /// See [`WorkspaceError`]; a broken member manifest is not an error but is listed in `manifest_errors`.
-    pub fn discover_with_fs(root: &Path, config: &Config, fs: Arc<dyn FileSystem>) -> Result<Self, WorkspaceError> {
-        let fs = fs.as_ref();
+    pub fn discover_with_fs(root: &Path, config: &Config, fs: &dyn FileSystem) -> Result<Self, WorkspaceError> {
         let root = std::path::absolute(root).map_err(|error| io_error(root, error))?;
         if !fs.is_dir(&root) {
             return Err(WorkspaceError::NotADirectory(root));
@@ -140,12 +143,16 @@ impl Workspace {
         if !fs.is_file(&manifest_path) {
             return Err(WorkspaceError::MissingRootManifest(root));
         }
-        let source = fs.read_to_string(&manifest_path).map_err(|error| io_error(&manifest_path, error))?;
+        let source = fs
+            .read_to_string(&manifest_path)
+            .map_err(|error| io_error(&manifest_path, error))?;
         let root_package = Package::parse(PathBuf::new(), Arc::from(source), true)?;
 
         let yaml_path = root.join(PNPM_WORKSPACE);
         let (pnpm_workspace, pnpm_config) = if fs.is_file(&yaml_path) {
-            let text = fs.read_to_string(&yaml_path).map_err(|error| io_error(&yaml_path, error))?;
+            let text = fs
+                .read_to_string(&yaml_path)
+                .map_err(|error| io_error(&yaml_path, error))?;
             let parsed = pnpm::parse(Path::new(PNPM_WORKSPACE), &text)?;
             let source: Arc<str> = Arc::from(text);
             let line_index = Arc::new(LineIndex::new(&source));
@@ -161,7 +168,13 @@ impl Workspace {
             (None, None)
         };
 
-        let package_manager = detect::detect(fs, &root, config, &root_package.manifest.value, pnpm_workspace.is_some());
+        let package_manager = detect::detect(
+            fs,
+            &root,
+            config,
+            &root_package.manifest.value,
+            pnpm_workspace.is_some(),
+        );
 
         let from_json = json_patterns(&root_package);
         let from_yaml = |yaml: &YamlSource, packages: &[String]| Declared {
@@ -170,7 +183,10 @@ impl Workspace {
             patterns: packages
                 .iter()
                 .map(|pattern| {
-                    (pattern.clone(), pnpm::pattern_span(&yaml.source, &yaml.line_index, pattern))
+                    (
+                        pattern.clone(),
+                        pnpm::pattern_span(&yaml.source, &yaml.line_index, pattern),
+                    )
                 })
                 .collect(),
         };
@@ -186,7 +202,10 @@ impl Workspace {
         let declared = chosen.ok_or_else(|| WorkspaceError::NoWorkspaces(root.clone()))?;
 
         let mut catalogs = pnpm_config.map(|parsed| parsed.catalogs).unwrap_or_default();
-        catalogs.merge(catalogs::from_package_json(&root_package.manifest.value, &root_package.manifest.path));
+        catalogs.merge(catalogs::from_package_json(
+            &root_package.manifest.value,
+            &root_package.manifest.path,
+        ));
 
         let expander = Expander { fs, root: &root };
         let mut facts = Vec::new();
@@ -269,7 +288,8 @@ impl Workspace {
     /// Looks a package up by its `name`.
     #[must_use]
     pub fn package_by_name(&self, name: &str) -> Option<&Package> {
-        self.all_packages().find(|package| package.name.as_deref() == Some(name))
+        self.all_packages()
+            .find(|package| package.name.as_deref() == Some(name))
     }
 
     /// Whether `[workspace] ignore-packages` excludes `package`.
