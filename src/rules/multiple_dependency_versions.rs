@@ -186,21 +186,13 @@ impl Issue for MultipleDependencyVersionsIssue {
                 let (mut value, indent, lineending) =
                     json::deserialize::<serde_json::Value>(&value)?;
 
-                if let Some(dependencies) = value
-                    .get_mut("dependencies")
-                    .and_then(serde_json::Value::as_object_mut)
-                {
-                    if let Some(dependency) = dependencies.get_mut(&self.name) {
+                for kind in ["dependencies", "devDependencies"] {
+                    if let Some(dependency) = value
+                        .get_mut(kind)
+                        .and_then(serde_json::Value::as_object_mut)
+                        .and_then(|dependencies| dependencies.get_mut(&self.name))
+                    {
                         *dependency = serde_json::Value::String(autofix_version.clone());
-                    }
-                }
-
-                if let Some(dev_dependencies) = value
-                    .get_mut("devDependencies")
-                    .and_then(serde_json::Value::as_object_mut)
-                {
-                    if let Some(dev_dependency) = dev_dependencies.get_mut(&self.name) {
-                        *dev_dependency = serde_json::Value::String(autofix_version.clone());
                     }
                 }
 
