@@ -163,7 +163,10 @@ mod tests {
     #[test]
     fn rule_id_serde_is_transparent() {
         let id = RuleId::from_static("unused-dependency");
-        assert_eq!(serde_json::to_value(&id).unwrap(), serde_json::json!("unused-dependency"));
+        assert_eq!(
+            serde_json::to_value(&id).unwrap(),
+            serde_json::json!("unused-dependency")
+        );
         let back: RuleId = serde_json::from_str("\"unused-dependency\"").unwrap();
         assert_eq!(back, id);
     }
@@ -172,7 +175,10 @@ mod tests {
     fn severity_orders_info_below_error() {
         assert!(Severity::Info < Severity::Warning);
         assert!(Severity::Warning < Severity::Error);
-        assert_eq!(serde_json::to_value(Severity::Warning).unwrap(), serde_json::json!("warning"));
+        assert_eq!(
+            serde_json::to_value(Severity::Warning).unwrap(),
+            serde_json::json!("warning")
+        );
     }
 
     #[test]
