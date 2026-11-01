@@ -41,6 +41,7 @@ fn main() {
         }
     };
 
+    let root = args.path.clone();
     let mut config = Config::default();
     config.merge(args);
 
@@ -50,10 +51,7 @@ fn main() {
     }
 
     if config.fix && is_ci() {
-        print_error(
-            "Failed to fix issues",
-            "Cannot fix issues inside a CI environment",
-        );
+        print_error("Failed to fix issues", "Cannot fix issues inside a CI environment");
         std::process::exit(1);
     }
 
@@ -94,7 +92,7 @@ fn main() {
     if config.fix
         && !config.no_install
         && fixed > 0
-        && let Err(error) = install::install(json_output)
+        && let Err(error) = install::install(&root, json_output)
     {
         print_error("Failed to install packages", error.to_string().as_str());
         std::process::exit(1);

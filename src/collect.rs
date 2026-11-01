@@ -6,9 +6,7 @@ use crate::rules::multiple_dependency_versions::MultipleDependencyVersionsIssue;
 use crate::rules::non_existant_packages::NonExistantPackagesIssue;
 use crate::rules::packages_without_package_json::PackagesWithoutPackageJsonIssue;
 use crate::rules::types_in_dependencies::TypesInDependenciesIssue;
-use crate::rules::unsync_similar_dependencies::{
-    SimilarDependency, UnsyncSimilarDependenciesIssue,
-};
+use crate::rules::unsync_similar_dependencies::{SimilarDependency, UnsyncSimilarDependenciesIssue};
 use crate::rules::{BoxIssue, IssuesList, PackageType};
 use anyhow::{Result, anyhow};
 use indexmap::IndexMap;
@@ -43,10 +41,7 @@ fn find_nested_packages(dir: &Path) -> Vec<PathBuf> {
 
     entries
         .flatten()
-        .filter(|entry| {
-            entry.path().is_dir()
-                && !is_ignored_directory_name(&entry.file_name().to_string_lossy())
-        })
+        .filter(|entry| entry.path().is_dir() && !is_ignored_directory_name(&entry.file_name().to_string_lossy()))
         .flat_map(|entry| find_nested_packages(&entry.path()))
         .collect()
 }
@@ -63,11 +58,7 @@ fn is_root_star_package(entry: &fs::DirEntry) -> bool {
 
 /// Expands the nested packages of a `dir/**` (or `dir/**/*`, which excludes `dir` itself)
 /// pattern into root-relative paths.
-fn expand_nested_star(
-    root: &Path,
-    directory: &str,
-    include_directory: bool,
-) -> Option<Vec<String>> {
+fn expand_nested_star(root: &Path, directory: &str, include_directory: bool) -> Option<Vec<String>> {
     let start_dir = root.join(directory);
 
     if !start_dir.is_dir() {
@@ -158,9 +149,7 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
             Ok(package) => packages.push(package),
             Err(error) => {
                 if error.to_string().contains("not found") {
-                    packages_issues.push(PackagesWithoutPackageJsonIssue::new(
-                        path.to_string_lossy().to_string(),
-                    ));
+                    packages_issues.push(PackagesWithoutPackageJsonIssue::new(path.to_string_lossy().to_string()));
                 } else {
                     print_error("Failed to collect package", &error.to_string());
                     std::process::exit(1);
@@ -202,9 +191,7 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
             let nested = if let Some(directory) = package.strip_suffix("/**/*") {
                 Some((directory, false))
             } else {
-                package
-                    .strip_suffix("/**")
-                    .map(|directory| (directory, true))
+                package.strip_suffix("/**").map(|directory| (directory, true))
             };
 
             if let Some((directory, include_directory)) = nested {
@@ -294,13 +281,8 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
                                         return is_root_star_package(package);
                                     }
 
-                                    return package
-                                        .file_type()
-                                        .is_ok_and(|file_type| file_type.is_dir())
-                                        && package
-                                            .file_name()
-                                            .to_string_lossy()
-                                            .starts_with(directory_match);
+                                    return package.file_type().is_ok_and(|file_type| file_type.is_dir())
+                                        && package.file_name().to_string_lossy().starts_with(directory_match);
                                 }
 
                                 true
@@ -412,10 +394,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
     issues.add(PackageType::Root, root_package.check_dependencies());
     issues.add(PackageType::Root, root_package.check_dev_dependencies());
     issues.add(PackageType::Root, root_package.check_peer_dependencies());
-    issues.add(
-        PackageType::Root,
-        root_package.check_optional_dependencies(),
-    );
+    issues.add(PackageType::Root, root_package.check_optional_dependencies());
     issues.add(
         PackageType::Root,
         root_package.check_incompatible_peer_dependencies(&catalogs),
@@ -475,10 +454,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
             package.check_optional_dependencies(),
             package.check_incompatible_peer_dependencies(&catalogs),
             package.check_local_path_dependencies(&workspace_packages, workspace_specifier),
-            package.check_member_toolchain(
-                root_package.as_package(),
-                config.member_toolchain.unwrap_or_default(),
-            ),
+            package.check_member_toolchain(root_package.as_package(), config.member_toolchain.unwrap_or_default()),
         ] {
             add_for_package(&mut issues, config, &package, package_type.clone(), issue);
         }
@@ -530,9 +506,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
 
                 similar_dependencies_by_package
                     .entry(path.clone())
-                    .or_insert_with(
-                        IndexMap::<SimilarDependency, IndexMap<SemVersion, String>>::new,
-                    )
+                    .or_insert_with(IndexMap::<SimilarDependency, IndexMap<SemVersion, String>>::new)
                     .entry(similar_dependency.clone())
                     .or_insert_with(IndexMap::new)
                     .insert(version.clone(), name.clone());
@@ -542,11 +516,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
         let mut filtered_versions = versions
             .iter()
             .filter(|(path, _)| !multiple_versions_ignored_paths.contains(path.as_str()))
-            .filter(|(_, version)| {
-                !config
-                    .ignore_dependency
-                    .contains(&format!("{name}@{version}"))
-            })
+            .filter(|(_, version)| !config.ignore_dependency.contains(&format!("{name}@{version}")))
             .map(|(path, version)| (path.clone(), version.clone()))
             .collect::<IndexMap<_, _>>();
 
@@ -560,8 +530,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
             && !config.ignore_dependency.iter().any(|dependency| {
                 if dependency.ends_with('*') {
                     if dependency.starts_with('*') {
-                        return name
-                            .contains(dependency.trim_start_matches('*').trim_end_matches('*'));
+                        return name.contains(dependency.trim_start_matches('*').trim_end_matches('*'));
                     }
                     return name.starts_with(dependency.trim_end_matches('*'));
                 } else if dependency.starts_with('*') {
@@ -574,11 +543,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
 
             issues.add_raw(
                 PackageType::None,
-                MultipleDependencyVersionsIssue::new(
-                    name,
-                    filtered_versions,
-                    config.select.clone(),
-                ),
+                MultipleDependencyVersionsIssue::new(name, filtered_versions, config.select.clone()),
             );
         }
     }
@@ -751,9 +716,7 @@ mod test {
 
         assert!(result.is_ok());
         let PackagesList {
-            root_package,
-            packages,
-            ..
+            root_package, packages, ..
         } = result.unwrap();
 
         assert_eq!(root_package.get_name(), "ignore-paths");
@@ -806,10 +769,7 @@ mod test {
             issues.get(&PackageType::Root).unwrap()[2].name(),
             "root-package-dependencies"
         );
-        assert_eq!(
-            issues.get(&PackageType::Root).unwrap()[3].name(),
-            "empty-dependencies"
-        );
+        assert_eq!(issues.get(&PackageType::Root).unwrap()[3].name(), "empty-dependencies");
     }
 
     #[test]
@@ -897,10 +857,7 @@ mod test {
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
-        assert_eq!(
-            packages_list.root_package.get_name(),
-            "dev-engines-no-package-manager"
-        );
+        assert_eq!(packages_list.root_package.get_name(), "dev-engines-no-package-manager");
 
         let config = args.into();
         let issues = collect_issues(&config, packages_list);
@@ -1035,10 +992,7 @@ mod test {
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
-        assert_eq!(
-            packages_list.root_package.get_name(),
-            "dependencies-nested-star"
-        );
+        assert_eq!(packages_list.root_package.get_name(), "dependencies-nested-star");
 
         let config = args.into();
         let issues = collect_issues(&config, packages_list);
@@ -1113,12 +1067,7 @@ mod test {
 
         assert_eq!(
             names,
-            vec![
-                "@repo/level1",
-                "@repo/level2",
-                "@repo/level3",
-                "@repo/level4"
-            ]
+            vec!["@repo/level1", "@repo/level2", "@repo/level3", "@repo/level4"]
         );
     }
 
@@ -1146,14 +1095,8 @@ mod test {
             expand_nested_star(root, "packages/level1", true),
             Some(vec!["packages/level1".to_string()])
         );
-        assert_eq!(
-            expand_nested_star(root, "packages/level1", false),
-            Some(Vec::new())
-        );
-        assert_eq!(
-            expand_nested_star(root, "packages", false).unwrap().len(),
-            4
-        );
+        assert_eq!(expand_nested_star(root, "packages/level1", false), Some(Vec::new()));
+        assert_eq!(expand_nested_star(root, "packages", false).unwrap().len(), 4);
         assert_eq!(expand_nested_star(root, "missing", true), None);
     }
 
@@ -1222,9 +1165,7 @@ mod test {
 
         assert_eq!(
             issues
-                .get(&PackageType::Package(
-                    "fixtures/unsync/packages/def".to_string()
-                ))
+                .get(&PackageType::Package("fixtures/unsync/packages/def".to_string()))
                 .unwrap()[0]
                 .name(),
             "unsync-similar-dependencies"
@@ -1239,10 +1180,7 @@ mod test {
             no_install: true,
             fail_on_warnings: false,
             ignore_rule: Vec::new(),
-            ignore_package: ignore_package
-                .iter()
-                .map(|value| (*value).to_string())
-                .collect(),
+            ignore_package: ignore_package.iter().map(|value| (*value).to_string()).collect(),
             ignore_dependency: Vec::new(),
             ignore_rule_for_package: ignore_rule_for_package
                 .iter()
@@ -1252,10 +1190,7 @@ mod test {
         }
     }
 
-    fn issues_by_package(
-        config: &Config,
-        path: &str,
-    ) -> IndexMap<PackageType, Vec<crate::rules::BoxIssue>> {
+    fn issues_by_package(config: &Config, path: &str) -> IndexMap<PackageType, Vec<crate::rules::BoxIssue>> {
         let packages_list = collect_packages(Path::new(path)).unwrap();
 
         collect_issues(config, packages_list)
@@ -1274,8 +1209,7 @@ mod test {
 
         assert_eq!(issues.len(), 2);
         for path in ["a", "b"] {
-            let issue =
-                &issues[&package_type(&format!("fixtures/member-toolchain/packages/{path}"))][0];
+            let issue = &issues[&package_type(&format!("fixtures/member-toolchain/packages/{path}"))][0];
 
             assert_eq!(issue.name(), "member-toolchain-fields");
             assert_eq!(issue.level(), crate::rules::IssueLevel::Warning);
@@ -1324,40 +1258,22 @@ mod test {
         ));
         assert!(issues_by_package(&config, "fixtures/member-toolchain").is_empty());
 
-        let config = Config::from(args_for(
-            "fixtures/member-toolchain",
-            &[],
-            &["empty-dependencies:a"],
-        ));
-        assert_eq!(
-            issues_by_package(&config, "fixtures/member-toolchain").len(),
-            2
-        );
+        let config = Config::from(args_for("fixtures/member-toolchain", &[], &["empty-dependencies:a"]));
+        assert_eq!(issues_by_package(&config, "fixtures/member-toolchain").len(), 2);
     }
 
     #[test]
     fn collect_ignore_rule_for_package_unsync_similar_dependencies() {
-        let config = Config::from(args_for(
-            "fixtures/unsync",
-            &[],
-            &["unsync-similar-dependencies:def"],
-        ));
+        let config = Config::from(args_for("fixtures/unsync", &[], &["unsync-similar-dependencies:def"]));
         let issues = issues_by_package(&config, "fixtures/unsync");
 
         assert_eq!(issues.len(), 1);
-        assert_eq!(
-            issues[&PackageType::None][0].name(),
-            "multiple-dependency-versions"
-        );
+        assert_eq!(issues[&PackageType::None][0].name(), "multiple-dependency-versions");
     }
 
     #[test]
     fn collect_ignore_rule_for_package_multiple_dependency_versions() {
-        let config = Config::from(args_for(
-            "fixtures/unsync",
-            &[],
-            &["multiple-dependency-versions:abc"],
-        ));
+        let config = Config::from(args_for("fixtures/unsync", &[], &["multiple-dependency-versions:abc"]));
         let issues = issues_by_package(&config, "fixtures/unsync");
 
         assert_eq!(issues.len(), 1);
@@ -1369,11 +1285,7 @@ mod test {
 
     #[test]
     fn config_merge_splits_on_first_colon() {
-        let config = Config::from(args_for(
-            "fixtures/basic",
-            &[],
-            &["rule:pkg:with:colons", "rule:b"],
-        ));
+        let config = Config::from(args_for("fixtures/basic", &[], &["rule:pkg:with:colons", "rule:b"]));
 
         assert_eq!(
             config.ignore_rule_for_package.get("rule"),
@@ -1395,10 +1307,7 @@ mod test {
     fn collect_packages_pnpm_catalogs() {
         let packages_list = collect_packages(Path::new("fixtures/catalogs")).unwrap();
 
-        assert_eq!(
-            packages_list.catalogs.resolve("typescript", "catalog:"),
-            Some("5.9.3")
-        );
+        assert_eq!(packages_list.catalogs.resolve("typescript", "catalog:"), Some("5.9.3"));
         assert_eq!(
             packages_list.catalogs.resolve("typescript", "catalog:ts6"),
             Some("6.0.3")

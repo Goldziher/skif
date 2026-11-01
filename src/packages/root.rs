@@ -1,8 +1,7 @@
 use super::{Catalogs, Package, Workspaces, semversion::SemVersion};
 use crate::rules::{
     BoxIssue, root_package_dependencies::RootPackageDependenciesIssue,
-    root_package_manager_field::RootPackageManagerFieldIssue,
-    root_package_private_field::RootPackagePrivateFieldIssue,
+    root_package_manager_field::RootPackageManagerFieldIssue, root_package_private_field::RootPackagePrivateFieldIssue,
 };
 use anyhow::Result;
 use indexmap::IndexMap;
@@ -88,10 +87,7 @@ impl RootPackage {
         self.0.get_dependencies(catalogs)
     }
 
-    pub fn get_dev_dependencies(
-        &self,
-        catalogs: &Catalogs,
-    ) -> Option<IndexMap<String, SemVersion>> {
+    pub fn get_dev_dependencies(&self, catalogs: &Catalogs) -> Option<IndexMap<String, SemVersion>> {
         self.0.get_dev_dependencies(catalogs)
     }
 }

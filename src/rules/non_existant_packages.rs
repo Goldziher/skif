@@ -141,8 +141,7 @@ impl Issue for NonExistantPackagesIssue {
             } else {
                 let path = PathBuf::from("package.json");
                 let value = fs::read_to_string(&path)?;
-                let (mut value, indent, lineending) =
-                    json::deserialize::<serde_json::Value>(&value)?;
+                let (mut value, indent, lineending) = json::deserialize::<serde_json::Value>(&value)?;
 
                 self.retain_existing(&mut value, "workspaces")?;
 
@@ -165,12 +164,7 @@ mod test {
     fn test() {
         let issue = NonExistantPackagesIssue::new(
             true,
-            vec![
-                "apps/*".into(),
-                "packages/*".into(),
-                "empty/*".into(),
-                "docs".into(),
-            ],
+            vec!["apps/*".into(), "packages/*".into(), "empty/*".into(), "docs".into()],
             vec!["empty/*".into(), "docs".into()],
         );
 
@@ -186,12 +180,7 @@ mod test {
     fn test_pnpm_workspace() {
         let issue = NonExistantPackagesIssue::new(
             true,
-            vec![
-                "apps/*".into(),
-                "packages/*".into(),
-                "empty/*".into(),
-                "docs".into(),
-            ],
+            vec!["apps/*".into(), "packages/*".into(), "empty/*".into(), "docs".into()],
             vec!["empty/*".into(), "docs".into()],
         );
 
@@ -203,12 +192,7 @@ mod test {
     fn test_package_workspace() {
         let issue = NonExistantPackagesIssue::new(
             false,
-            vec![
-                "apps/*".into(),
-                "packages/*".into(),
-                "empty/*".into(),
-                "docs".into(),
-            ],
+            vec!["apps/*".into(), "packages/*".into(), "empty/*".into(), "docs".into()],
             vec!["empty/*".into(), "docs".into()],
         );
 

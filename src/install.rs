@@ -79,10 +79,6 @@ impl PackageManager {
         }
     }
 
-    pub fn resolve() -> Result<Self> {
-        Self::resolve_in(Path::new("."))
-    }
-
     fn resolve_in(dir: &Path) -> Result<Self> {
         let declared = fs::read_to_string(dir.join("package.json"))
             .ok()
@@ -92,13 +88,12 @@ impl PackageManager {
             return Ok(package_manager);
         }
 
-        let package_manager =
-            Select::new("Select a package manager to use", PACKAGE_MANAGERS.to_vec())
-                .with_render_config(get_render_config())
-                .with_vim_mode(true)
-                .without_filtering()
-                .with_help_message("Enter to select")
-                .prompt();
+        let package_manager = Select::new("Select a package manager to use", PACKAGE_MANAGERS.to_vec())
+            .with_render_config(get_render_config())
+            .with_vim_mode(true)
+            .without_filtering()
+            .with_help_message("Enter to select")
+            .prompt();
 
         package_manager
             .ok()
@@ -118,10 +113,10 @@ impl Display for PackageManager {
     }
 }
 
-/// Runs the package manager's `install` command. When `quiet`, nothing is written
+/// Runs the package manager's `install` command in `root`. When `quiet`, nothing is written
 /// to stdout (the note goes to stderr and the command's stdout is redirected there too).
-pub fn install(quiet: bool) -> Result<()> {
-    let package_manager = PackageManager::resolve()?;
+pub fn install(root: &Path, quiet: bool) -> Result<()> {
+    let package_manager = PackageManager::resolve_in(root)?;
 
     let note = format!(
         " {}",
@@ -143,6 +138,7 @@ pub fn install(quiet: bool) -> Result<()> {
 
     let mut command = Command::new(package_manager.program(cfg!(windows)))
         .arg("install")
+        .current_dir(root)
         .stdout(stdout)
         .stderr(Stdio::inherit())
         .spawn()?;
@@ -190,15 +186,8 @@ mod test {
     fn test_package_manager_field_beats_lockfile() {
         let dir = temp_dir("field");
         fs::File::create(dir.join("package-lock.json")).unwrap();
-        fs::write(
-            dir.join("package.json"),
-            r#"{ "packageManager": "pnpm@10.0.0" }"#,
-        )
-        .unwrap();
-        assert_eq!(
-            PackageManager::resolve_in(&dir).unwrap(),
-            PackageManager::Pnpm
-        );
+        fs::write(dir.join("package.json"), r#"{ "packageManager": "pnpm@10.0.0" }"#).unwrap();
+        assert_eq!(PackageManager::resolve_in(&dir).unwrap(), PackageManager::Pnpm);
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -207,20 +196,14 @@ mod test {
         let dir = temp_dir("nofield");
         fs::File::create(dir.join("yarn.lock")).unwrap();
         fs::write(dir.join("package.json"), r#"{ "name": "x" }"#).unwrap();
-        assert_eq!(
-            PackageManager::resolve_in(&dir).unwrap(),
-            PackageManager::Yarn
-        );
+        assert_eq!(PackageManager::resolve_in(&dir).unwrap(), PackageManager::Yarn);
         fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn test_from_package_json() {
         for (json, expected) in [
-            (
-                r#"{ "packageManager": "pnpm@10.0.0" }"#,
-                Some(PackageManager::Pnpm),
-            ),
+            (r#"{ "packageManager": "pnpm@10.0.0" }"#, Some(PackageManager::Pnpm)),
             (
                 r#"{ "packageManager": "yarn@4.1.0+sha512.abc" }"#,
                 Some(PackageManager::Yarn),
@@ -272,14 +255,11 @@ mod test {
         let root = Path::new("fixtures/install");
         let _ = collect_packages(root);
 
-        std::env::set_current_dir("fixtures/install").unwrap();
-        super::install(false).unwrap();
+        super::install(root, false).unwrap();
 
-        // Test if the previously empty package-lock.json now contains the "install" name to indicate that the install command was run
-        let file = fs::File::open("package-lock.json");
+        // The previously empty package-lock.json now contains the "install" name, so the install command ran in `root`.
+        let file = fs::File::open(root.join("package-lock.json"));
         let json: Result<Value, serde_json::Error> = serde_json::from_reader(file.unwrap());
         assert_eq!(json.unwrap()["name"], "install");
-
-        std::env::set_current_dir("../../").unwrap();
     }
 }

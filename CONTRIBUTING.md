@@ -3,7 +3,7 @@
 Thanks for helping out. skif is a Rust dependency linter for JavaScript and TypeScript monorepos. Its
 diagnostics gate other people's CI, so a false positive or an unstable rule ID is a regression.
 
-Read the records in [`adrs/`](adrs/) before your first change. They are short and they explain most of
+Read the records in [`adrs/`](adrs/index.md) before your first change. They are short and they explain most of
 the design.
 
 ## Setup
@@ -38,7 +38,7 @@ the same checks on commit; do not commit with `--no-verify`. Commits are convent
 
 ## Architecture decisions
 
-Substantive design changes get an ADR in [`adrs/`](adrs/), linted with [adrlint](https://github.com/Goldziher/adrlint)
+Substantive design changes get an ADR in [`adrs/`](adrs/index.md), linted with [adrlint](https://github.com/Goldziher/adrlint)
 (`mise run adr:lint`). Amend an existing ADR in place when a decision evolves; write a new one only when a
 decision is replaced.
 

@@ -49,11 +49,9 @@ impl TryFrom<&str> for SimilarDependency {
             | "@next/mdx"
             | "next"
             | "@next/third-parties" => Ok(Self::NextJS),
-            "eslint-config-turbo"
-            | "eslint-plugin-turbo"
-            | "@turbo/gen"
-            | "turbo-ignore"
-            | "turbo" => Ok(Self::Turborepo),
+            "eslint-config-turbo" | "eslint-plugin-turbo" | "@turbo/gen" | "turbo-ignore" | "turbo" => {
+                Ok(Self::Turborepo)
+            }
             "sb"
             | "storybook"
             | "@storybook/codemod"
@@ -152,9 +150,9 @@ impl TryFrom<&str> for SimilarDependency {
             | "@prisma/adapter-libsql"
             | "@prisma/adapter-pg-worker"
             | "@prisma/pg-worker" => Ok(Self::Prisma),
-            "typescript-eslint"
-            | "@typescript-eslint/eslint-plugin"
-            | "@typescript-eslint/parser" => Ok(Self::TypescriptEslint),
+            "typescript-eslint" | "@typescript-eslint/eslint-plugin" | "@typescript-eslint/parser" => {
+                Ok(Self::TypescriptEslint)
+            }
             "@stylistic/eslint-plugin-js"
             | "@stylistic/eslint-plugin-ts"
             | "@stylistic/eslint-plugin-migrate"
@@ -281,10 +279,7 @@ mod tests {
         assert_eq!(issue.name(), "unsync-similar-dependencies");
         assert_eq!(issue.level(), IssueLevel::Error);
         assert_eq!(issue.versions.len(), 2);
-        assert_eq!(
-            issue.why(),
-            "Similar React dependencies should use the same version."
-        );
+        assert_eq!(issue.why(), "Similar React dependencies should use the same version.");
     }
 
     #[test]

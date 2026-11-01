@@ -77,18 +77,13 @@ impl Issue for LocalPathDependenciesIssue {
                         replacement.white(),
                         "← use the workspace protocol instead.".green(),
                     ),
-                    None => format!(
-                        "{removed}   {}",
-                        "← local path outside the workspace packages.".red()
-                    ),
+                    None => format!("{removed}   {}", "← local path outside the workspace packages.".red()),
                 }
             })
             .collect::<Vec<_>>()
             .join("\n");
 
-        format!("  │ {{\n{lines}\n  │ }}")
-            .bright_black()
-            .to_string()
+        format!("  │ {{\n{lines}\n  │ }}").bright_black().to_string()
     }
 
     fn why(&self) -> Cow<'static, str> {
@@ -200,10 +195,7 @@ mod test {
 
     #[test]
     fn fix_rewrites_workspace_links_only() {
-        let dir = std::env::temp_dir().join(format!(
-            "skif-local-path-dependencies-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("skif-local-path-dependencies-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let package_json = dir.join("package.json");
         fs::write(

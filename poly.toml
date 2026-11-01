@@ -12,7 +12,7 @@ exclude = [
   "**/pnpm-lock.yaml",
   "target/**",
   "fixtures/**",
-  "assets/**",
+  "**/node_modules/**",
   ".ai-rulez/**",
   ".agents/**",
   ".claude/**",
@@ -70,8 +70,8 @@ preserve_patterns = [
 ]
 
 [lint.typos]
-# `existant` and `accidentaly` appear in rule names and sources until the rules are renamed.
-extend_words = { skif = "skif", Skif = "Skif", adr = "adr", adrlint = "adrlint", madr = "madr", existant = "existant", Existant = "Existant", accidentaly = "accidentaly" }
+# `sherif` is the upstream project credited in ATTRIBUTIONS.md and the README. `existant` and `accidentaly` appear in rule names and sources until the rules are renamed.
+extend_words = { sherif = "sherif", skif = "skif", Skif = "Skif", adr = "adr", adrlint = "adrlint", madr = "madr", existant = "existant", Existant = "Existant", accidentaly = "accidentaly" }
 extend_exclude = ["fixtures/**"]
 
 [per-file-ignores]
@@ -100,7 +100,7 @@ lint = { exclude = [
   "**/pnpm-lock.yaml",
   "target/**",
   "fixtures/**",
-  "assets/**",
+  "**/node_modules/**",
 ] }
 fmt = { exclude = [
   "**/*.lock",
@@ -109,7 +109,7 @@ fmt = { exclude = [
   "**/pnpm-lock.yaml",
   "target/**",
   "fixtures/**",
-  "assets/**",
+  "**/node_modules/**",
 ] }
 commit = { stages = ["commit-msg"] }
 file_safety = { exclude = [
@@ -119,7 +119,7 @@ file_safety = { exclude = [
   "**/pnpm-lock.yaml",
   "target/**",
   "fixtures/**",
-  "assets/**",
+  "**/node_modules/**",
 ] }
 cargo = true
 

@@ -12,10 +12,7 @@ pub struct MemberToolchainFieldsIssue {
 
 impl MemberToolchainFieldsIssue {
     pub fn new(fields: Vec<&'static str>) -> Box<Self> {
-        Box::new(Self {
-            fields,
-            fixed: false,
-        })
+        Box::new(Self { fields, fixed: false })
     }
 }
 
@@ -47,9 +44,7 @@ impl Issue for MemberToolchainFieldsIssue {
             .collect::<Vec<_>>()
             .join("\n");
 
-        format!("  │ {{\n{fields}\n  │ }}")
-            .bright_black()
-            .to_string()
+        format!("  │ {{\n{fields}\n  │ }}").bright_black().to_string()
     }
 
     fn why(&self) -> Cow<'static, str> {
@@ -116,8 +111,7 @@ mod test {
 
     #[test]
     fn fix_removes_fields_and_keeps_formatting() {
-        let directory =
-            std::env::temp_dir().join(format!("skif-member-toolchain-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("skif-member-toolchain-{}", std::process::id()));
         fs::create_dir_all(&directory).unwrap();
         fs::write(
             directory.join("package.json"),
@@ -127,19 +121,14 @@ mod test {
 
         let mut issue = MemberToolchainFieldsIssue::new(vec!["packageManager", "engines"]);
         issue
-            .fix(&PackageType::Package(
-                directory.to_string_lossy().to_string(),
-            ))
+            .fix(&PackageType::Package(directory.to_string_lossy().to_string()))
             .unwrap();
 
         let result = fs::read_to_string(directory.join("package.json")).unwrap();
         fs::remove_dir_all(&directory).unwrap();
 
         assert_eq!(issue.level(), IssueLevel::Fixed);
-        assert_eq!(
-            result,
-            "{\n    \"name\": \"member\",\n    \"version\": \"1.0.0\"\n}\n"
-        );
+        assert_eq!(result, "{\n    \"name\": \"member\",\n    \"version\": \"1.0.0\"\n}\n");
     }
 
     #[test]

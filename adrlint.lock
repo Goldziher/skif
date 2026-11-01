@@ -1,0 +1,77 @@
+version = 1
+canonical = 1
+
+[adrs."adrs/0001-mission-and-scope.md"]
+number = 1
+status = "accepted"
+blake3 = "31f6206914e00c454d7d7181b888f9919d13720aa511246749ac1c2458cbb5cc"
+
+[adrs."adrs/0002-crate-layout-and-publishing.md"]
+number = 2
+status = "accepted"
+blake3 = "cf83c88d13e3796314837d8b1b44e6c33d3de36f26aea33fd27612dc05216834"
+
+[adrs."adrs/0003-library-first-embedding.md"]
+number = 3
+status = "accepted"
+blake3 = "d6a8fecfb5fc72cb63695a1b19dd96ca817b3016e510e4a6cc724f13b1d6313a"
+
+[adrs."adrs/0004-configuration-model.md"]
+number = 4
+status = "accepted"
+blake3 = "e0bfada4a08902dc66bf7c3181182a62cba4dab97918ab3537124e62213b2dff"
+
+[adrs."adrs/0005-workspace-discovery.md"]
+number = 5
+status = "accepted"
+blake3 = "db81e388ba43a0b410d68d129dc6a183440b604df3002d9bd60173bfed41b228"
+
+[adrs."adrs/0006-specifier-and-semver-model.md"]
+number = 6
+status = "accepted"
+blake3 = "385c3642e8480f8f961f522916b3fa866482c21000c2fce008904b19090d5ede"
+
+[adrs."adrs/0007-rule-and-diagnostic-model.md"]
+number = 7
+status = "accepted"
+blake3 = "afa2433aa163959ff82e3da06275c6be66a140dc8b2cbce46761bedd7cec737c"
+
+[adrs."adrs/0008-fix-and-edit-model.md"]
+number = 8
+status = "accepted"
+blake3 = "6937fe23aa93c12fc01e32ee9e91eb824de1037ce29e8b45beb6c3921c606603"
+
+[adrs."adrs/0009-version-and-catalog-policies.md"]
+number = 9
+status = "accepted"
+blake3 = "030fa0188b7a21e409899e60da95e31f0bb5c539b5fe90e8dea57af9ef32d93e"
+
+[adrs."adrs/0010-js-analysis-on-oxc.md"]
+number = 10
+status = "accepted"
+blake3 = "16c78349d51a4eb63b00fa29d0a0c58fb20e9088943005986414704f5c799cdb"
+
+[adrs."adrs/0011-plugin-model.md"]
+number = 11
+status = "accepted"
+blake3 = "c6145d11f340b0a1e6cb505d64bb02fe44d97cfb8704d9c26d018774e9872efc"
+
+[adrs."adrs/0012-reporting.md"]
+number = 12
+status = "accepted"
+blake3 = "1c435fba43c7cf760b99eca3a127029365f481032d4d6a193ea3c0486e5561a5"
+
+[adrs."adrs/0013-distribution-and-naming.md"]
+number = 13
+status = "accepted"
+blake3 = "08f31c7c5ef478426968bf7025d777303b5f94f1b5f7078f4d7f65553d48962a"
+
+[adrs."adrs/0014-git-hook-integration.md"]
+number = 14
+status = "accepted"
+blake3 = "834cd34ec39a7d9505e5fa87a01958bc7cd26b76eb02f096106addf5cc6302ae"
+
+[adrs."adrs/0015-attribution-and-vendoring.md"]
+number = 15
+status = "accepted"
+blake3 = "ff80abcf78f25cdf07b64b371073a3e0826641139e95db1879ca0618e7343755"

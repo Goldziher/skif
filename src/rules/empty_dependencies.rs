@@ -104,10 +104,7 @@ mod test {
 
         assert_eq!(issue.name(), "empty-dependencies");
         assert_eq!(issue.level(), IssueLevel::Error);
-        assert_eq!(
-            issue.why(),
-            "package.json should not have empty dependencies fields."
-        );
+        assert_eq!(issue.why(), "package.json should not have empty dependencies fields.");
     }
 
     #[test]

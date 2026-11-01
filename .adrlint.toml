@@ -36,13 +36,3 @@ enabled = true
 MD013 = "off"
 # Decision records legitimately embed HTML tables and other inline markup.
 MD033 = "off"
-
-# Per-rule severity for MADR and ADR codes. Keys match by longest prefix.
-[rules]
-# This log uses the lightweight MADR variant shared with voom and poly: `## Context`,
-# `## Decision`, `## Consequences` and an optional `## Alternatives considered`, all at level 2.
-# The full template's `Considered Options` / `Decision Outcome` sections and the level-3
-# `Consequences` it nests under them are therefore not required.
-MADR01c = "off"
-MADR01d = "off"
-MADR06 = "off"
