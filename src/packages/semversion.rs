@@ -1,5 +1,5 @@
 use anyhow::{Result, anyhow};
-use semver::{Prerelease, Version, VersionReq};
+use semver::{BuildMetadata, Op, Prerelease, Version, VersionReq};
 use std::{cmp::Ordering, fmt::Display};
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -94,5 +94,83 @@ impl SemVersion {
             Self::Exact(_) => true,
             Self::Range(version) => !version.comparators.is_empty(),
         }
+    }
+
+    /// Whether the lowest version allowed by `self` satisfies the `peer` range.
+    /// Returns `None` when this cannot be determined, e.g. for upper-bounded ranges.
+    pub fn satisfies(&self, peer: &Self) -> Option<bool> {
+        let requirement = match peer {
+            Self::Exact(version) => {
+                let mut version = version.clone();
+                version.build = BuildMetadata::EMPTY;
+
+                VersionReq::parse(&format!("={version}")).ok()?
+            }
+            Self::Range(requirement) => requirement.clone(),
+        };
+
+        Some(requirement.matches(&self.lowest_version()?))
+    }
+
+    fn lowest_version(&self) -> Option<Version> {
+        match self {
+            Self::Exact(version) => Some(version.clone()),
+            Self::Range(requirement) => {
+                let comparator = requirement.comparators.first()?;
+
+                match comparator.op {
+                    Op::Exact | Op::Caret | Op::Tilde | Op::GreaterEq | Op::Wildcard => {
+                        let mut version = Version::new(
+                            comparator.major,
+                            comparator.minor.unwrap_or(0),
+                            comparator.patch.unwrap_or(0),
+                        );
+                        version.pre = comparator.pre.clone();
+
+                        Some(version)
+                    }
+                    _ => None,
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn satisfies(version: &str, peer: &str) -> Option<bool> {
+        SemVersion::parse(version)
+            .unwrap()
+            .satisfies(&SemVersion::parse(peer).unwrap())
+    }
+
+    #[test]
+    fn satisfies_exact_versions() {
+        assert_eq!(satisfies("3.45.1-build2", "3.45.1-build2"), Some(true));
+        assert_eq!(satisfies("3.45.3-build2", "3.45.1-build2"), Some(false));
+        assert_eq!(satisfies("1.2.4", "1.2.3"), Some(false));
+    }
+
+    #[test]
+    fn satisfies_peer_ranges() {
+        assert_eq!(satisfies("18.2.0", "^18.0.0"), Some(true));
+        assert_eq!(satisfies("17.0.2", "^18.0.0"), Some(false));
+        assert_eq!(satisfies("16.8.0", ">=16.8.0"), Some(true));
+        assert_eq!(satisfies("1.2.3", "*"), Some(true));
+    }
+
+    #[test]
+    fn satisfies_dev_ranges_by_lowest_version() {
+        assert_eq!(satisfies("^18.2.0", "^18.0.0"), Some(true));
+        assert_eq!(satisfies("~17.0.0", "^18.0.0"), Some(false));
+        assert_eq!(satisfies(">=16.8.0", ">=16.8.0"), Some(true));
+    }
+
+    #[test]
+    fn satisfies_is_unknown_without_a_lower_bound() {
+        assert_eq!(satisfies("<2.0.0", "^1.0.0"), None);
+        assert_eq!(satisfies("*", "^1.0.0"), None);
     }
 }
