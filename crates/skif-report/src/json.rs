@@ -3,6 +3,7 @@
 use std::io::{self, Write};
 
 use serde::Serialize;
+use serde_json::{Map, Value};
 use skif_core::{Diagnostic, Fix, FixSafety, Location, Related, Report, Severity, Span, Summary};
 
 use crate::options::RenderOptions;
@@ -17,6 +18,8 @@ struct Document<'a> {
     skif: Option<&'a str>,
     summary: JsonSummary,
     diagnostics: Vec<JsonDiagnostic<'a>>,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
 }
 
 #[derive(Serialize)]
@@ -84,7 +87,54 @@ struct ErrorDocument<'a> {
 
 #[derive(Serialize)]
 struct ErrorBody<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<&'a str>,
     message: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    column: Option<u32>,
+}
+
+/// A failure to run, as reported in the `error` document.
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct ErrorInfo<'a> {
+    /// Machine-readable category, such as `config` or `workspace`.
+    pub kind: &'a str,
+    /// Human-readable description.
+    pub message: &'a str,
+    /// File the failure concerns, when known.
+    pub path: Option<&'a str>,
+    /// 1-based line, when known.
+    pub line: Option<u32>,
+    /// 1-based column, when known.
+    pub column: Option<u32>,
+}
+
+impl<'a> ErrorInfo<'a> {
+    /// An error of `kind` with `message` and no location.
+    #[must_use]
+    pub const fn new(kind: &'a str, message: &'a str) -> Self {
+        Self {
+            kind,
+            message,
+            path: None,
+            line: None,
+            column: None,
+        }
+    }
+
+    /// Attaches the file and, when known, the position the failure concerns.
+    #[must_use]
+    pub const fn at(mut self, path: &'a str, line: Option<u32>, column: Option<u32>) -> Self {
+        self.path = Some(path);
+        self.line = line;
+        self.column = column;
+        self
+    }
 }
 
 fn location(location: &Location, options: &RenderOptions) -> JsonLocation {
@@ -158,11 +208,27 @@ fn write_document(document: &impl Serialize, out: &mut dyn Write) -> io::Result<
 ///
 /// Returns any error produced by writing to `out`.
 pub fn render_json(report: &Report, options: &RenderOptions, out: &mut dyn Write) -> io::Result<()> {
+    render_json_with(report, options, Map::new(), out)
+}
+
+/// Renders `report` like [`render_json`] and adds the top-level `extra` members (such as the `fix` and `install`
+/// objects of a fix run) after `diagnostics`.
+///
+/// # Errors
+///
+/// Returns any error produced by writing to `out`.
+pub fn render_json_with(
+    report: &Report,
+    options: &RenderOptions,
+    extra: Map<String, Value>,
+    out: &mut dyn Write,
+) -> io::Result<()> {
     let document = Document {
         version: SCHEMA_VERSION,
         skif: options.tool_version.as_deref(),
         summary: summary(&report.summary),
         diagnostics: report.diagnostics.iter().map(|d| diagnostic(d, options)).collect(),
+        extra,
     };
     write_document(&document, out)
 }
@@ -176,7 +242,34 @@ pub fn render_json_error(message: &str, out: &mut dyn Write) -> io::Result<()> {
     write_document(
         &ErrorDocument {
             version: SCHEMA_VERSION,
-            error: ErrorBody { message },
+            error: ErrorBody {
+                kind: None,
+                message,
+                path: None,
+                line: None,
+                column: None,
+            },
+        },
+        out,
+    )
+}
+
+/// Renders a failure as `{"version": 1, "error": {"kind", "message", "path"?, "line"?, "column"?}}`.
+///
+/// # Errors
+///
+/// Returns any error produced by writing to `out`.
+pub fn render_json_error_info(info: &ErrorInfo<'_>, out: &mut dyn Write) -> io::Result<()> {
+    write_document(
+        &ErrorDocument {
+            version: SCHEMA_VERSION,
+            error: ErrorBody {
+                kind: Some(info.kind),
+                message: info.message,
+                path: info.path,
+                line: info.line,
+                column: info.column,
+            },
         },
         out,
     )

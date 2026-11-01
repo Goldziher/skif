@@ -1,0 +1,39 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: "redact(&result.stdout, dir.path())"
+---
+{
+  "version": 1,
+  "skif": "0.0.0",
+  "summary": {
+    "errors": 0,
+    "warnings": 0,
+    "infos": 0,
+    "fixable": 0,
+    "packages": 3
+  },
+  "diagnostics": [],
+  "fix": {
+    "applied": [
+      {
+        "rule": "root-package-private-field",
+        "message": "the root package is not marked private",
+        "title": "Set `private` to `true`"
+      },
+      {
+        "rule": "empty-dependencies",
+        "message": "`devDependencies` is empty",
+        "title": "Remove the empty `devDependencies` field"
+      }
+    ],
+    "skipped": [],
+    "changed": [
+      "package.json",
+      "packages/a/package.json"
+    ],
+    "install": {
+      "status": "skipped",
+      "reason": "--no-install was given"
+    }
+  }
+}

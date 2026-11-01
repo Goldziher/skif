@@ -174,3 +174,30 @@ fn json_error_document() {
     render_json_error("bad \"config\"", &mut out).unwrap();
     insta::assert_snapshot!(String::from_utf8(out).unwrap());
 }
+
+#[test]
+fn detailed_error_document_carries_kind_and_location() {
+    let info = skif_report::ErrorInfo::new("config", "bad key").at("skif.toml", Some(3), Some(5));
+    let mut out = Vec::new();
+    skif_report::render_json_error_info(&info, &mut out).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "version": 1,
+            "error": {"kind": "config", "message": "bad key", "path": "skif.toml", "line": 3, "column": 5}
+        })
+    );
+}
+
+#[test]
+fn extra_members_follow_the_diagnostics() {
+    let report = Report::new(Vec::new(), 2);
+    let mut extra = serde_json::Map::new();
+    extra.insert("fix".to_owned(), serde_json::json!({"changed": ["package.json"]}));
+    let mut out = Vec::new();
+    skif_report::render_json_with(&report, &RenderOptions::default(), extra, &mut out).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(value["fix"]["changed"][0], "package.json");
+    assert_eq!(value["summary"]["packages"], 2);
+}
