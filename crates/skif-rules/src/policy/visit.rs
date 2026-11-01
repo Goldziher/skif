@@ -1,0 +1,681 @@
+//! The state machine of every version-group policy: which [`State`] each instance of a dependency ends in.
+//!
+//! The behaviour follows syncpack's version-group visitors (`src/version_group/*.rs`, commit 958d306, MIT,
+//! Copyright (c) 2017-2023 Jamie Mason; see `ATTRIBUTIONS.md`). Differences from syncpack:
+//!
+//! * there is no strict mode: a `workspace:` specifier on a workspace package is always valid;
+//! * instances using the `catalog:` protocol are left to the catalog rules: they never get a state here, and a
+//!   dependency one of whose instances uses it is not aligned by a preferred-semver group;
+//! * a specifier that cannot carry a semver group's range (a git URL, `file:`, `latest`...) has no preferred range,
+//!   where syncpack would fail when asked to rewrite it;
+//! * specifiers that are byte-identical count as having the same version number, which keeps `latest` valid next to
+//!   `latest`.
+
+use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
+
+use skif_config::Prefer;
+use skif_specifier::Specifier;
+use skif_specifier::semver_range::SemverRange;
+
+use super::groups::{Assignment, Policy};
+use super::instances::{InstanceId, Instances};
+use super::state::{State, Verdict};
+
+/// A state together with the specifier the instance should have.
+type Outcome = Option<(State, Option<Arc<Specifier>>)>;
+
+pub(super) struct Visitor<'a, 'w> {
+    instances: &'a Instances<'w>,
+    assignment: &'a Assignment<'a>,
+    verdicts: Vec<Option<Verdict>>,
+}
+
+impl<'a, 'w> Visitor<'a, 'w> {
+    pub(super) fn new(instances: &'a Instances<'w>, assignment: &'a Assignment<'a>) -> Self {
+        Self {
+            instances,
+            assignment,
+            verdicts: (0..instances.len()).map(|_| None).collect(),
+        }
+    }
+
+    /// The verdict of every instance, `None` where the instance is valid.
+    pub(super) fn into_verdicts(self) -> Vec<Option<Verdict>> {
+        self.verdicts
+    }
+
+    /// Applies `policy` to the instances `ids` of one dependency.
+    pub(super) fn visit(&mut self, policy: &Policy, ids: &[InstanceId]) {
+        match policy {
+            Policy::Ignored => {}
+            Policy::Banned => self.banned(ids),
+            Policy::Pinned(pin) => self.pinned(ids, pin),
+            Policy::SameRange => self.same_range(ids),
+            Policy::SameMinor => self.same_minor(ids),
+            Policy::SnappedTo(packages) => self.snapped_to(ids, packages),
+            Policy::PreferredSemver(prefer) => self.preferred_semver(ids, *prefer),
+        }
+    }
+
+    fn spec(&self, id: InstanceId) -> &Arc<Specifier> {
+        &self.instances.get(id).specifier
+    }
+
+    fn is_own_version(&self, id: InstanceId) -> bool {
+        self.instances.get(id).is_own_version()
+    }
+
+    fn mark(&mut self, id: InstanceId, state: State, target: Option<Arc<Specifier>>) {
+        self.verdicts[id.index()] = Some(Verdict { state, target });
+    }
+
+    fn mark_outcome(&mut self, id: InstanceId, outcome: Outcome) {
+        if let Some((state, target)) = outcome {
+            self.mark(id, state, target);
+        }
+    }
+
+    /// The instances the policies align: those not using the `catalog:` protocol.
+    fn members(&self, ids: &[InstanceId]) -> Vec<InstanceId> {
+        ids.iter()
+            .copied()
+            .filter(|&id| !self.spec(id).is_catalog())
+            .collect()
+    }
+
+    fn equals(&self, id: InstanceId, other: &Specifier) -> bool {
+        self.spec(id).get_raw() == other.get_raw()
+    }
+
+    fn same_version(&self, id: InstanceId, other: &Specifier) -> bool {
+        self.spec(id).has_same_version_number_as(other) || self.equals(id, other)
+    }
+
+    fn preferred(&self, id: InstanceId) -> Option<&SemverRange> {
+        self.assignment.preferred(id)
+    }
+
+    /// Whether the instance already uses the range its semver group asks for.
+    fn matches_preferred(&self, id: InstanceId) -> bool {
+        self.preferred(id)
+            .is_some_and(|range| self.spec(id).get_semver_range().as_ref() == Some(range))
+    }
+
+    /// Whether the semver group asks for a range other than `range`.
+    fn prefers_other_than(&self, id: InstanceId, range: &SemverRange) -> bool {
+        self.preferred(id).is_some_and(|preferred| preferred != range)
+    }
+
+    /// The instance's specifier rewritten to its semver group's range.
+    fn with_preferred(&self, id: InstanceId) -> Option<Arc<Specifier>> {
+        self.spec(id).with_range(self.preferred(id)?)
+    }
+
+    /// Whether the semver group's range would accept `other`.
+    fn preferred_satisfies(&self, id: InstanceId, other: &Specifier) -> bool {
+        self.with_preferred(id)
+            .and_then(|specifier| specifier.get_node_range())
+            .zip(other.get_node_range())
+            .is_some_and(|(ours, theirs)| ours.allows_any(&theirs))
+    }
+
+    /// The outcome of an instance on its semver group's range when it already has the required version number but
+    /// the group wants a range other than `target`'s: the group wins unless it cannot accept `target`.
+    fn range_against_group(&self, id: InstanceId, target: &Specifier, conflicts: [State; 2]) -> Outcome {
+        let satisfies = self.preferred_satisfies(id, target);
+        match (self.matches_preferred(id), satisfies) {
+            (true, true) => None,
+            (true, false) => Some((conflicts[0], None)),
+            (false, true) => Some((State::SemverRangeMismatch, self.with_preferred(id))),
+            (false, false) => Some((conflicts[1], None)),
+        }
+    }
+
+    fn banned(&mut self, ids: &[InstanceId]) {
+        for &id in ids {
+            let state = if self.is_own_version(id) {
+                State::RefuseToBanLocal
+            } else {
+                State::IsBanned
+            };
+            self.mark(id, state, None);
+        }
+    }
+
+    fn pinned(&mut self, ids: &[InstanceId], pin: &Arc<Specifier>) {
+        for id in self.members(ids) {
+            let state = if self.is_own_version(id) {
+                State::RefuseToPinLocal
+            } else if self.equals(id, pin) {
+                continue;
+            } else if !self.same_version(id, pin) {
+                State::DiffersToPin
+            } else if pin
+                .get_semver_range()
+                .is_some_and(|range| self.prefers_other_than(id, &range))
+            {
+                if self.matches_preferred(id) {
+                    State::PinOverridesSemverRange
+                } else {
+                    State::PinOverridesSemverRangeMismatch
+                }
+            } else {
+                State::DiffersToPin
+            };
+            self.mark(id, state, Some(Arc::clone(pin)));
+        }
+    }
+
+    fn same_range(&mut self, ids: &[InstanceId]) {
+        let members = self.members(ids);
+        let specifiers: Vec<Arc<Specifier>> = members.iter().map(|&id| Arc::clone(self.spec(id))).collect();
+        for id in members {
+            if !self.spec(id).satisfies_all(&specifiers) {
+                self.mark(id, State::SameRangeMismatch, None);
+            } else if self.preferred(id).is_some() && !self.matches_preferred(id) {
+                let target = self.with_preferred(id);
+                self.mark(id, State::SemverRangeMismatch, target);
+            }
+        }
+    }
+
+    fn same_minor(&mut self, ids: &[InstanceId]) {
+        let members = self.members(ids);
+        let versions: Vec<Option<(u64, u64)>> = members
+            .iter()
+            .map(|&id| self.spec(id).get_node_version().map(|v| (v.major(), v.minor())))
+            .collect();
+        if versions.iter().all(Option::is_none) {
+            self.without_semver(&members);
+            return;
+        }
+        let Some(first) = versions.first().copied().flatten() else {
+            self.mark_all(&members, State::SameMinorHasMajorMismatch);
+            return;
+        };
+        let same = |matching: fn(&(u64, u64), &(u64, u64)) -> bool| {
+            versions.iter().all(|version| version.as_ref().is_some_and(|v| matching(v, &first)))
+        };
+        if !same(|a, b| a.0 == b.0) {
+            self.mark_all(&members, State::SameMinorHasMajorMismatch);
+        } else if !same(|a, b| a == b) {
+            self.mark_all(&members, State::SameMinorMismatch);
+        } else {
+            for id in members {
+                let outcome = self.at_correct_minor(id);
+                self.mark_outcome(id, outcome);
+            }
+        }
+    }
+
+    /// A same-minor group forbids ranges wider than a tilde, and keeps a semver group's range when that is safe.
+    fn at_correct_minor(&self, id: InstanceId) -> Outcome {
+        let is_safe = |range: &SemverRange| matches!(range, SemverRange::Exact | SemverRange::Patch);
+        let tilde = || self.spec(id).with_range(&SemverRange::Patch);
+        match self.preferred(id) {
+            Some(preferred) if is_safe(preferred) => {
+                if self.matches_preferred(id) {
+                    None
+                } else {
+                    Some((State::SemverRangeMismatch, self.with_preferred(id)))
+                }
+            }
+            Some(_) => {
+                let state = if self.matches_preferred(id) {
+                    State::SameMinorOverridesSemverRange
+                } else {
+                    State::SameMinorOverridesSemverRangeMismatch
+                };
+                Some((state, tilde()))
+            }
+            None => match self.spec(id).get_semver_range() {
+                Some(range) if !is_safe(&range) => Some((State::SameMinorOverridesSemverRange, tilde())),
+                _ => None,
+            },
+        }
+    }
+
+    fn snapped_to(&mut self, ids: &[InstanceId], packages: &[String]) {
+        let Some(&first) = ids.first() else { return };
+        let target = self
+            .instances
+            .named(&self.instances.get(first).name)
+            .iter()
+            .find(|&&id| {
+                let name = self.instances.get(id).package.name.as_deref();
+                name.is_some_and(|name| packages.iter().any(|package| package == name))
+            })
+            .map(|&id| Arc::clone(self.spec(id)));
+        let Some(target) = target else {
+            for id in self.members(ids) {
+                self.mark(id, State::DependsOnMissingSnapTarget, None);
+            }
+            return;
+        };
+        if target.is_catalog() {
+            return;
+        }
+        for id in self.members(ids) {
+            let outcome = self.snap_state(id, &target);
+            self.mark_outcome(id, outcome);
+        }
+    }
+
+    fn snap_state(&self, id: InstanceId, target: &Arc<Specifier>) -> Outcome {
+        let own = self.is_own_version(id);
+        if own && !self.equals(id, target) {
+            return Some((State::RefuseToSnapLocal, Some(Arc::clone(target))));
+        }
+        if !self.same_version(id, target) {
+            let fix = self
+                .preferred(id)
+                .and_then(|range| target.with_range(range))
+                .unwrap_or_else(|| Arc::clone(target));
+            return Some((State::DiffersToSnapTarget, Some(fix)));
+        }
+        let wants_other_range = target
+            .get_semver_range()
+            .is_some_and(|range| self.prefers_other_than(id, &range));
+        if wants_other_range {
+            return self.range_against_group(
+                id,
+                target,
+                [State::MatchConflictsWithSnapTarget, State::MismatchConflictsWithSnapTarget],
+            );
+        }
+        (!self.equals(id, target)).then(|| (State::DiffersToSnapTarget, Some(Arc::clone(target))))
+    }
+
+    fn preferred_semver(&mut self, ids: &[InstanceId], prefer: Prefer) {
+        if let Some(local) = ids.iter().rev().copied().find(|&id| self.is_own_version(id)) {
+            if matches!(**self.spec(local), Specifier::Exact(_)) {
+                self.align_with_local(ids, local);
+            } else {
+                self.reject_invalid_local(ids);
+            }
+            return;
+        }
+        let members = self.members(ids);
+        if members.len() == ids.len() {
+            self.align_to_extreme(&members, prefer);
+        }
+    }
+
+    /// The package's own version is not an exact version: nothing can be aligned with it.
+    fn reject_invalid_local(&mut self, ids: &[InstanceId]) {
+        for id in self.members(ids) {
+            let state = if self.is_own_version(id) {
+                State::InvalidLocalVersion
+            } else {
+                State::DependsOnInvalidLocalPackage
+            };
+            self.mark(id, state, None);
+        }
+    }
+
+    /// Every dependent of a workspace package must use the version the package declares.
+    fn align_with_local(&mut self, ids: &[InstanceId], local: InstanceId) {
+        let local_specifier = Arc::clone(self.spec(local));
+        for id in self.members(ids) {
+            if !self.is_own_version(id) {
+                let outcome = self.local_state(id, local, &local_specifier);
+                self.mark_outcome(id, outcome);
+            }
+        }
+    }
+
+    fn local_state(&self, id: InstanceId, local: InstanceId, local_specifier: &Arc<Specifier>) -> Outcome {
+        let differs = || Some((State::DiffersToLocal, Some(Arc::clone(local_specifier))));
+        let specifier = self.spec(id);
+        if specifier.is_link() {
+            return if self.link_resolves_to(id, local) { None } else { differs() };
+        }
+        if specifier.is_workspace_protocol() {
+            return None;
+        }
+        if !self.same_version(id, local_specifier) {
+            return differs();
+        }
+        if self.prefers_other_than(id, &SemverRange::Exact) {
+            return self.range_against_group(
+                id,
+                local_specifier,
+                [State::MatchConflictsWithLocal, State::MismatchConflictsWithLocal],
+            );
+        }
+        if self.equals(id, local_specifier) { None } else { differs() }
+    }
+
+    /// Whether the `link:` path of `id`, resolved from its package's directory, is the directory of `local`'s package.
+    fn link_resolves_to(&self, id: InstanceId, local: InstanceId) -> bool {
+        let raw = self.spec(id).get_raw();
+        let target = raw.strip_prefix("link:").unwrap_or(raw);
+        let from = self.instances.get(id).package.dir.join(target);
+        normalized(&from) == normalized(&self.instances.get(local).package.dir)
+    }
+
+    /// Aligns every instance on the highest (or lowest) version in use, each carrying its own semver group's range.
+    fn align_to_extreme(&mut self, ids: &[InstanceId], prefer: Prefer) {
+        let target = {
+            let candidates = ids
+                .iter()
+                .copied()
+                .filter(|&id| self.spec(id).get_node_version().is_some())
+                .map(|id| self.with_preferred(id).unwrap_or_else(|| Arc::clone(self.spec(id))));
+            match prefer {
+                Prefer::Highest => candidates.max(),
+                Prefer::Lowest => candidates.min(),
+            }
+        };
+        let Some(target) = target else {
+            self.without_semver(ids);
+            return;
+        };
+        for &id in ids {
+            let outcome = self.extreme_state(id, &target);
+            self.mark_outcome(id, outcome);
+        }
+    }
+
+    fn extreme_state(&self, id: InstanceId, target: &Arc<Specifier>) -> Outcome {
+        if !self.same_version(id, target) {
+            let fix = self
+                .preferred(id)
+                .and_then(|range| target.with_range(range))
+                .unwrap_or_else(|| Arc::clone(target));
+            return Some((State::DiffersToHighestOrLowestSemver, Some(fix)));
+        }
+        let wants_other_range = target
+            .get_semver_range()
+            .is_some_and(|range| self.prefers_other_than(id, &range));
+        if wants_other_range {
+            return self.range_against_group(
+                id,
+                target,
+                [
+                    State::MatchConflictsWithHighestOrLowestSemver,
+                    State::MismatchConflictsWithHighestOrLowestSemver,
+                ],
+            );
+        }
+        if self.preferred(id).is_some() && !self.matches_preferred(id) {
+            return self
+                .preferred_satisfies(id, target)
+                .then(|| (State::SemverRangeMismatch, self.with_preferred(id)));
+        }
+        (!self.equals(id, target)).then(|| (State::DiffersToHighestOrLowestSemver, Some(Arc::clone(target))))
+    }
+
+    /// No instance has a semver version: identical specifiers are fine, differing ones cannot be ranked.
+    fn without_semver(&mut self, ids: &[InstanceId]) {
+        let identical = ids
+            .first()
+            .is_none_or(|&first| ids.iter().all(|&id| self.equals(id, self.spec(first))));
+        if !identical {
+            self.mark_all(ids, State::NonSemverMismatch);
+        }
+    }
+
+    fn mark_all(&mut self, ids: &[InstanceId], state: State) {
+        for &id in ids {
+            self.mark(id, state, None);
+        }
+    }
+}
+
+/// `path` with `.` and `..` components resolved lexically.
+fn normalized(path: &Path) -> PathBuf {
+    let mut resolved = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            other => resolved.push(other),
+        }
+    }
+    resolved
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::policy::analysis::Analysis;
+    use crate::testing::{config, workspace};
+
+    const ROOT: &str = r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"]}"#;
+
+    /// `(package, dependency, state)` of every verdict, for a workspace of `members` and a configuration.
+    fn states(toml: &str, members: &[(&str, &str)]) -> Vec<(String, String, &'static str)> {
+        let config = config(toml);
+        let mut files = vec![("package.json".to_owned(), ROOT.to_owned())];
+        files.extend(
+            members
+                .iter()
+                .map(|(name, manifest)| (format!("packages/{name}/package.json"), (*manifest).to_owned())),
+        );
+        let borrowed: Vec<(&str, &str)> = files.iter().map(|(p, c)| (p.as_str(), c.as_str())).collect();
+        let workspace = workspace(&borrowed, &config);
+        let analysis = Analysis::run(&workspace, &config);
+        analysis
+            .instances
+            .iter()
+            .filter_map(|(id, instance)| {
+                let verdict = analysis.verdicts[id.index()].as_ref()?;
+                Some((
+                    instance.package.display_name().to_owned(),
+                    instance.name.clone(),
+                    verdict.state.name(),
+                ))
+            })
+            .collect()
+    }
+
+    fn one(package: &str, dependency: &str, state: &'static str) -> (String, String, &'static str) {
+        (package.to_owned(), dependency.to_owned(), state)
+    }
+
+    fn manifest(name: &str, version: &str, dependencies: &str) -> String {
+        format!(r#"{{"name":"{name}","version":"{version}","dependencies":{{{dependencies}}}}}"#)
+    }
+
+    #[test]
+    fn the_highest_version_wins_and_the_lowest_on_request() {
+        let app = manifest("app", "1.0.0", r#""react":"^18.2.0""#);
+        let lib = manifest("lib", "1.0.0", r#""react":"^18.3.1""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str())];
+        assert_eq!(
+            states("", &members),
+            [one("app", "react", "DiffersToHighestOrLowestSemver")]
+        );
+        assert_eq!(
+            states("[policy]\nprefer = \"lowest\"\n", &members),
+            [one("lib", "react", "DiffersToHighestOrLowestSemver")]
+        );
+    }
+
+    #[test]
+    fn local_packages_win_over_higher_versions() {
+        let app = manifest("app", "1.0.0", r#""lib":"^1.0.0""#);
+        let tool = manifest("tool", "1.0.0", r#""lib":"workspace:*""#);
+        let lib = manifest("lib", "1.0.0", "");
+        let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
+        assert_eq!(states("", &members), [one("app", "lib", "DiffersToLocal")]);
+    }
+
+    #[test]
+    fn links_are_compared_by_resolved_directory() {
+        let good = manifest("good", "1.0.0", r#""lib":"link:../lib""#);
+        let bad = manifest("bad", "1.0.0", r#""lib":"link:../other""#);
+        let lib = manifest("lib", "1.0.0", "");
+        let other = manifest("other", "1.0.0", "");
+        let members = [
+            ("bad", bad.as_str()),
+            ("good", good.as_str()),
+            ("lib", lib.as_str()),
+            ("other", other.as_str()),
+        ];
+        assert_eq!(states("", &members), [one("bad", "lib", "DiffersToLocal")]);
+    }
+
+    #[test]
+    fn invalid_local_versions_block_dependents() {
+        let lib = manifest("lib", "^1.0.0", "");
+        let app = manifest("app", "1.0.0", r#""lib":"workspace:*""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str())];
+        assert_eq!(
+            states("", &members),
+            [
+                one("app", "lib", "DependsOnInvalidLocalPackage"),
+                one("lib", "lib", "InvalidLocalVersion"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_package_without_a_version_is_not_a_local_instance() {
+        let lib = r#"{"name":"lib"}"#;
+        let app = manifest("app", "1.0.0", r#""lib":"workspace:*""#);
+        let members = [("app", app.as_str()), ("lib", lib)];
+        assert!(states("", &members).is_empty());
+    }
+
+    #[test]
+    fn pinned_groups_report_deviations_and_refuse_local_packages() {
+        let app = manifest("app", "1.0.0", r#""lib":"1.1.0""#);
+        let lib = manifest("lib", "1.0.0", "");
+        let members = [("app", app.as_str()), ("lib", lib.as_str())];
+        let toml = "[[version-groups]]\ndependencies = [\"lib\"]\npolicy = \"pinned\"\npin = \"1.2.0\"\n";
+        assert_eq!(
+            states(toml, &members),
+            [one("app", "lib", "DiffersToPin"), one("lib", "lib", "RefuseToPinLocal")]
+        );
+    }
+
+    #[test]
+    fn a_pin_beats_a_semver_group() {
+        let app = manifest("app", "1.0.0", r#""react":"^18.3.1","zod":"~3.0.0""#);
+        let lib = manifest("lib", "1.0.0", r#""react":"~18.3.1","zod":"3.0.0""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str())];
+        let toml = "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"18.3.1\"\n\n\
+                    [[semver-groups]]\ndependencies = [\"react\"]\nrange = \"^\"\n";
+        assert_eq!(
+            states(toml, &members),
+            [
+                one("app", "react", "PinOverridesSemverRange"),
+                one("lib", "react", "PinOverridesSemverRangeMismatch"),
+                one("lib", "zod", "DiffersToHighestOrLowestSemver"),
+            ]
+        );
+    }
+
+    #[test]
+    fn banned_groups_ban_dependencies_but_not_workspace_packages() {
+        let app = manifest("app", "1.0.0", r#""lib":"1.0.0""#);
+        let lib = manifest("lib", "1.0.0", "");
+        let members = [("app", app.as_str()), ("lib", lib.as_str())];
+        let toml = "[[version-groups]]\ndependencies = [\"lib\"]\npolicy = \"banned\"\n";
+        assert_eq!(
+            states(toml, &members),
+            [one("app", "lib", "IsBanned"), one("lib", "lib", "RefuseToBanLocal")]
+        );
+    }
+
+    #[test]
+    fn same_range_groups_flag_every_instance_when_one_is_disjoint() {
+        let app = manifest("app", "1.0.0", r#""react":"^18.0.0""#);
+        let lib = manifest("lib", "1.0.0", r#""react":"^18.2.0""#);
+        let tool = manifest("tool", "1.0.0", r#""react":"^17.0.0""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
+        let toml = "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"same-range\"\n";
+        assert_eq!(
+            states(toml, &members),
+            [
+                one("app", "react", "SameRangeMismatch"),
+                one("lib", "react", "SameRangeMismatch"),
+                one("tool", "react", "SameRangeMismatch"),
+            ]
+        );
+    }
+
+    #[test]
+    fn same_minor_groups_compare_major_before_minor() {
+        let toml = "[[version-groups]]\ndependencies = [\"ts\"]\npolicy = \"same-minor\"\n";
+        let cases: [(&str, &str, &[&'static str]); 5] = [
+            ("~5.4.2", "5.4.9", &[]),
+            ("~5.4.2", "~5.5.0", &["SameMinorMismatch", "SameMinorMismatch"]),
+            ("~5.4.2", "~4.9.0", &["SameMinorHasMajorMismatch", "SameMinorHasMajorMismatch"]),
+            ("^5.4.2", "~5.4.2", &["SameMinorOverridesSemverRange"]),
+            (
+                "git+https://x.test/ts.git#a",
+                "git+https://x.test/ts.git#b",
+                &["NonSemverMismatch", "NonSemverMismatch"],
+            ),
+        ];
+        for (first, second, expected) in cases {
+            let app = manifest("app", "1.0.0", &format!(r#""ts":"{first}""#));
+            let lib = manifest("lib", "1.0.0", &format!(r#""ts":"{second}""#));
+            let members = [("app", app.as_str()), ("lib", lib.as_str())];
+            let actual: Vec<&str> = states(toml, &members).into_iter().map(|(_, _, state)| state).collect();
+            assert_eq!(actual, expected, "{first} {second}");
+        }
+    }
+
+    #[test]
+    fn snapped_to_groups_follow_the_target_package() {
+        let app = manifest("app", "1.0.0", r#""react":"^18.2.0""#);
+        let lib = manifest("lib", "1.0.0", r#""react":"^18.3.1""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str())];
+        let snapped = |target: &str| {
+            format!(
+                "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"snapped-to\"\nsnap-to = [\"{target}\"]\n"
+            )
+        };
+        assert_eq!(
+            states(&snapped("app"), &members),
+            [one("lib", "react", "DiffersToSnapTarget")]
+        );
+        assert_eq!(
+            states(&snapped("ghost"), &members),
+            [
+                one("app", "react", "DependsOnMissingSnapTarget"),
+                one("lib", "react", "DependsOnMissingSnapTarget"),
+            ]
+        );
+    }
+
+    #[test]
+    fn semver_groups_conflict_with_the_aligned_version() {
+        let app = manifest("app", "1.0.0", r#""tiny":"1.0.0""#);
+        let lib = manifest("lib", "1.0.0", r#""tiny":"<1.0.0""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str())];
+        let toml = "[[semver-groups]]\npackages = [\"lib\"]\nrange = \"<\"\n";
+        assert_eq!(
+            states(toml, &members),
+            [one("lib", "tiny", "MatchConflictsWithHighestOrLowestSemver")]
+        );
+    }
+
+    #[test]
+    fn catalog_references_are_left_to_the_catalog_rules() {
+        let app = manifest("app", "1.0.0", r#""react":"catalog:""#);
+        let lib = manifest("lib", "1.0.0", r#""react":"^18.3.1""#);
+        let tool = manifest("tool", "1.0.0", r#""react":"^17.0.0""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
+        assert!(states("", &members).is_empty());
+        let pinned = "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"18.3.1\"\n";
+        assert_eq!(
+            states(pinned, &members),
+            [one("lib", "react", "DiffersToPin"), one("tool", "react", "DiffersToPin")]
+        );
+    }
+
+    #[test]
+    fn lexical_normalization_resolves_dots() {
+        assert_eq!(normalized(Path::new("packages/app/../lib/./x")), Path::new("packages/lib/x"));
+        assert_eq!(normalized(Path::new("")), Path::new(""));
+        assert_eq!(normalized(Path::new("a/../..")), Path::new(""));
+    }
+}
