@@ -1,0 +1,99 @@
+name: skif
+description: >-
+  Lint the dependencies of a JavaScript or TypeScript monorepo: workspace rules, version and catalog
+  policies, and unused or unlisted dependencies.
+author: Goldziher
+branding:
+  icon: package
+  color: orange
+
+inputs:
+  version:
+    description: >-
+      skif version to install, with or without a leading `v` (e.g. "0.1.0"). Defaults to the tag this
+      action is pinned to (`github.action_ref`) - a full release or a floating major tag such as `v1`,
+      which resolves to the newest 1.x release - otherwise the latest GitHub release.
+    required: false
+    default: ""
+  args:
+    description: >-
+      Arguments to pass to skif, as a single space-separated string (e.g. "--format sarif --output
+      skif.sarif"). Ignored when install-only is true.
+    required: false
+    default: ""
+  working-directory:
+    description: Directory to run skif in.
+    required: false
+    default: "."
+  fail-on-warnings:
+    description: Exit non-zero when skif reports any warning (adds `--fail-on-warnings`).
+    required: false
+    default: "false"
+  install-only:
+    description: Install skif and put it on PATH, but do not run it.
+    required: false
+    default: "false"
+  token:
+    description: >-
+      Token used to query the GitHub API and download release assets. Defaults to the workflow's
+      GITHUB_TOKEN, which is enough for a public repository.
+    required: false
+    default: ${{ github.token }}
+  repository:
+    description: "Advanced: override the owner/repo release assets are downloaded from."
+    required: false
+    default: "Goldziher/skif"
+
+outputs:
+  version:
+    description: The skif version that was installed (without the leading v).
+    value: ${{ steps.install.outputs.version }}
+  path:
+    description: Absolute path to the installed skif binary.
+    value: ${{ steps.install.outputs.path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve version and release asset
+      id: resolve
+      shell: bash
+      env:
+        VERSION_INPUT: ${{ inputs.version }}
+        ACTION_REF: ${{ github.action_ref }}
+        REPOSITORY: ${{ inputs.repository }}
+        GH_TOKEN: ${{ inputs.token }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/scripts/gh-action-resolve.sh"
+
+    - name: Cache skif binary
+      id: cache
+      uses: actions/cache@v6
+      with:
+        path: ${{ steps.resolve.outputs.bin-dir }}
+        key: skif-${{ steps.resolve.outputs.tag }}-${{ runner.os }}-${{ runner.arch }}
+
+    - name: Install skif
+      id: install
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+        REPO: ${{ steps.resolve.outputs.repo }}
+        TAG: ${{ steps.resolve.outputs.tag }}
+        ASSET: ${{ steps.resolve.outputs.asset }}
+        EXT: ${{ steps.resolve.outputs.ext }}
+        CHECKSUMS: ${{ steps.resolve.outputs.checksums }}
+        BIN_DIR: ${{ steps.resolve.outputs.bin-dir }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: bash "$ACTION_PATH/scripts/gh-action-install.sh"
+
+    - name: Run skif
+      if: inputs.install-only != 'true'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        ARGS: ${{ inputs.args }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        FAIL_ON_WARNINGS: ${{ inputs.fail-on-warnings }}
+      run: bash "$ACTION_PATH/scripts/gh-action-run.sh"
