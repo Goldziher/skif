@@ -1,0 +1,8 @@
+{
+  "name": "cli-dirty",
+  "version": "0.0.0",
+  "packageManager": "npm@11.6.2",
+  "workspaces": [
+    "packages/*"
+  ]
+}
