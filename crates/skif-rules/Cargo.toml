@@ -1,0 +1,28 @@
+[package]
+name = "skif-rules"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Built-in manifest rules for skif."
+documentation = "https://docs.rs/skif-rules"
+keywords = ["monorepo", "linter", "package-json", "rules"]
+categories = ["development-tools"]
+
+[dependencies]
+serde_json.workspace = true
+skif-config.workspace = true
+skif-core.workspace = true
+skif-lint.workspace = true
+skif-specifier.workspace = true
+skif-workspace.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+skif-edit = { workspace = true, features = ["yaml"] }
+
+[lints]
+workspace = true
