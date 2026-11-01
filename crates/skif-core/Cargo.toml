@@ -1,0 +1,31 @@
+[package]
+name = "skif-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Core diagnostic, fix and report types for skif."
+documentation = "https://docs.rs/skif-core"
+keywords = ["monorepo", "linter", "dependencies", "diagnostics"]
+categories = ["development-tools"]
+readme = "README.md"
+
+[features]
+default = []
+schema = ["dep:schemars"]
+
+[dependencies]
+schemars = { version = "1", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[dev-dependencies]
+insta = "1.49"
+proptest = "1"
+
+[lints]
+workspace = true
