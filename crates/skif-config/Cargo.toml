@@ -25,7 +25,7 @@ serde_json = { workspace = true, optional = true }
 skif-core = { path = "../skif-core", version = "0.0.0" }
 strsim = "0.11.1"
 thiserror = "2.0.21"
-toml = "1.1.8"
+toml = { version = "1.1.8", features = ["preserve_order"] }
 
 [lints]
 workspace = true

@@ -17,9 +17,8 @@ pub use builder::ConfigBuilder;
 pub use discover::{CONFIG_FILE_NAMES, discover};
 pub use error::ConfigError;
 pub use model::{
-    Catalog, CatalogMode, Config, DependencyFamily, IgnoreEntry, Js, JsWorkspace, Lint, PackageManager,
-    PluginConfig, PluginOptions, Policy, Prefer, SemverGroup, SemverRange, VersionGroup, VersionPolicy, Workspace,
-    WorkspaceProtocol,
+    Catalog, CatalogMode, Config, DependencyFamily, IgnoreEntry, Js, JsWorkspace, Lint, PackageManager, PluginConfig,
+    PluginOptions, Policy, Prefer, SemverGroup, SemverRange, VersionGroup, VersionPolicy, Workspace, WorkspaceProtocol,
 };
 pub use overrides::ConfigOverrides;
 pub use rules::{ForbidMode, Level, MemberToolchainFieldsOptions, RuleConfig, RuleOptions, UnusedExportsOptions};

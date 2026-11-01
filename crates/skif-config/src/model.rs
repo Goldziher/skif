@@ -45,8 +45,10 @@ impl Config {
     /// # Errors
     /// [`ConfigError::Io`] when the file cannot be read, otherwise as [`Config::from_toml_str`].
     pub fn from_toml_file(path: &Path) -> Result<Self, ConfigError> {
-        let source =
-            std::fs::read_to_string(path).map_err(|source| ConfigError::Io { path: path.to_path_buf(), source })?;
+        let source = std::fs::read_to_string(path).map_err(|source| ConfigError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
         Self::parse(&source, Some(path))
     }
 
@@ -102,7 +104,10 @@ impl Config {
         let ignored = self.ignore.iter().flat_map(|entry| entry.rules.iter());
         for id in configured.chain(ignored) {
             if !known.contains(&id.as_str()) {
-                return Err(ConfigError::UnknownRule { rule: id.clone(), suggestion: closest(id, known) });
+                return Err(ConfigError::UnknownRule {
+                    rule: id.clone(),
+                    suggestion: closest(id, known),
+                });
             }
         }
         Ok(())
@@ -340,7 +345,12 @@ pub struct Catalog {
 
 impl Default for Catalog {
     fn default() -> Self {
-        Self { mode: CatalogMode::Off, min_packages: 2, exclude: Vec::new(), report_unused_entries: false }
+        Self {
+            mode: CatalogMode::Off,
+            min_packages: 2,
+            exclude: Vec::new(),
+            report_unused_entries: false,
+        }
     }
 }
 

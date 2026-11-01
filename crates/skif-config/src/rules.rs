@@ -59,7 +59,7 @@ pub struct MemberToolchainFieldsOptions {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 pub struct UnusedExportsOptions {
-    /// JSDoc tags (for example `public`) that exempt an export.
+    /// `JSDoc` tags (for example `public`) that exempt an export.
     pub ignore_tags: Vec<String>,
 }
 
@@ -84,7 +84,10 @@ pub struct RuleConfig {
 impl RuleConfig {
     #[must_use]
     pub const fn level(level: Level) -> Self {
-        Self { severity: Some(level), options: RuleOptions::None }
+        Self {
+            severity: Some(level),
+            options: RuleOptions::None,
+        }
     }
 
     /// Parses the value of `[rules] <id>`: a level string or a table.
@@ -101,13 +104,22 @@ impl RuleConfig {
                     None => None,
                     Some(toml::Value::String(text)) => Some(Level::parse(&text).ok_or_else(|| bad_level(id, &text))?),
                     Some(other) => {
-                        return Err(format!("rule \"{id}\": severity must be a string, found {}", other.type_str()));
+                        return Err(format!(
+                            "rule \"{id}\": severity must be a string, found {}",
+                            other.type_str()
+                        ));
                     }
                 };
                 let options = parse_options(id, table)?;
-                Ok(Self { severity: level, options })
+                Ok(Self {
+                    severity: level,
+                    options,
+                })
             }
-            other => Err(format!("rule \"{id}\": expected a level string or a table, found {}", other.type_str())),
+            other => Err(format!(
+                "rule \"{id}\": expected a level string or a table, found {}",
+                other.type_str()
+            )),
         }
     }
 
@@ -171,7 +183,9 @@ pub(crate) mod rules_map {
         map.serialize(serializer)
     }
 
-    pub fn deserialize<'de, De: Deserializer<'de>>(deserializer: De) -> Result<IndexMap<String, RuleConfig>, De::Error> {
+    pub fn deserialize<'de, De: Deserializer<'de>>(
+        deserializer: De,
+    ) -> Result<IndexMap<String, RuleConfig>, De::Error> {
         let raw = IndexMap::<String, toml::Value>::deserialize(deserializer)?;
         raw.into_iter()
             .map(|(id, value)| match RuleConfig::from_value(&id, value) {
