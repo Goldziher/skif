@@ -1,0 +1,3 @@
+description = "Listing the negation before the inclusion gives the same result: exclusions always win."
+source = "syncpack:src/group_selector/group_selector_test.rs::not_local_excludes_even_if_named_pattern_matches"
+tags = ["selectors", "negation", "glob", "ordering", "fix"]
