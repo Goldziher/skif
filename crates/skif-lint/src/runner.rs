@@ -34,7 +34,7 @@ pub enum LintError {
     Cancelled,
 }
 
-/// Runs every enabled rule and returns the diagnostics in deterministic order.
+/// Runs every enabled rule and returns the sorted [`Report`].
 ///
 /// # Errors
 /// [`LintError::Config`] for unknown rule IDs in `config`, [`LintError::Provider`] when a provider
@@ -45,6 +45,23 @@ pub fn run(
     config: &Config,
     options: &RunOptions<'_>,
 ) -> Result<Report, LintError> {
+    let diagnostics = run_unsorted(registry, workspace, config, options)?;
+    Ok(Report::new(diagnostics, workspace.all_packages().count()))
+}
+
+/// Runs every enabled rule and returns the diagnostics in merge order, before [`Report`] sorting: providers in
+/// registration order, rules in registration order within a provider, each rule's diagnostics in emission order.
+///
+/// The order does not depend on scheduling, which is what makes the sorted report reproducible.
+///
+/// # Errors
+/// As [`run`].
+pub fn run_unsorted(
+    registry: &Registry,
+    workspace: &Workspace,
+    config: &Config,
+    options: &RunOptions<'_>,
+) -> Result<Vec<Diagnostic>, LintError> {
     registry.validate_config(config)?;
     let enabled = registry.enabled(config);
     let cx = LintContext {
@@ -53,11 +70,10 @@ pub fn run(
         enabled: &enabled,
     };
     let job = || execute(registry, &cx, options);
-    let diagnostics = match options.pool {
+    match options.pool {
         Some(pool) => pool.install(job),
         None => job(),
-    }?;
-    Ok(Report::new(diagnostics, workspace.all_packages().count()))
+    }
 }
 
 fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) -> Result<Vec<Diagnostic>, LintError> {

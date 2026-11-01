@@ -18,4 +18,15 @@ pub use emitter::Emitter;
 pub use provider::{ProviderError, Rule, RuleProvider, RulesProvider};
 pub use registry::{Registry, RegistryError};
 pub use skif_core::{DiagnosticBuilder, diagnostic};
-pub use runner::{LintError, RunOptions, run};
+pub use runner::{LintError, RunOptions, run, run_unsorted};
+
+const _: () = {
+    fn assert_send_sync<T: Send + Sync>() {}
+    let _ = assert_send_sync::<Registry>;
+    let _ = assert_send_sync::<EnabledRules>;
+    let _ = assert_send_sync::<Emitter<'static>>;
+    let _ = assert_send_sync::<RulesProvider>;
+    let _ = assert_send_sync::<ProviderError>;
+    let _ = assert_send_sync::<LintError>;
+    let _ = assert_send_sync::<RegistryError>;
+};
