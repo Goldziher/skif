@@ -201,7 +201,7 @@ mod test {
     #[test]
     fn fix_rewrites_workspace_links_only() {
         let dir = std::env::temp_dir().join(format!(
-            "sherif-local-path-dependencies-{}",
+            "skif-local-path-dependencies-{}",
             std::process::id()
         ));
         fs::create_dir_all(&dir).unwrap();

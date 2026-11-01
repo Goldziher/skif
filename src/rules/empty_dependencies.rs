@@ -76,11 +76,12 @@ impl Issue for EmptyDependenciesIssue {
             let (mut value, indent, lineending) = json::deserialize::<serde_json::Value>(&value)?;
             let dependency = self.dependency_kind.to_string();
 
-            if let Some(dependency_field) = value.get(&dependency)
-                && dependency_field.is_object()
-                && dependency_field.as_object().unwrap().is_empty()
+            if value
+                .get(&dependency)
+                .and_then(serde_json::Value::as_object)
+                .is_some_and(serde_json::Map::is_empty)
             {
-                value.as_object_mut().unwrap().remove(&dependency);
+                json::object_mut(&mut value, "package.json")?.remove(&dependency);
 
                 let value = json::serialize(&value, &indent, lineending)?;
                 fs::write(path, value)?;

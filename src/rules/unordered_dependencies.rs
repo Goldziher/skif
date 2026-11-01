@@ -24,13 +24,9 @@ impl UnorderedDependenciesIssue {
         let dependency = self.dependency_kind.to_string();
 
         if let Some(dependency_field) = value.get(&dependency)
-            && dependency_field.is_object()
+            && let Some(dependency_object) = dependency_field.as_object()
         {
-            let mut keys = dependency_field
-                .as_object()
-                .unwrap()
-                .keys()
-                .collect::<Vec<_>>();
+            let mut keys = dependency_object.keys().collect::<Vec<_>>();
             keys.sort();
 
             let mut sorted = serde_json::Map::new();
@@ -38,9 +34,7 @@ impl UnorderedDependenciesIssue {
                 sorted.insert(key.clone(), dependency_field[key].clone());
             }
 
-            value
-                .as_object_mut()
-                .unwrap()
+            json::object_mut(&mut value, "package.json")?
                 .insert(dependency, serde_json::Value::Object(sorted));
 
             let value = json::serialize(&value, &indent, lineending)?;

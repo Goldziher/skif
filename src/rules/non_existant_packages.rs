@@ -1,6 +1,6 @@
 use super::{Issue, IssueLevel, PackageType};
 use crate::json;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use colored::Colorize;
 use std::{borrow::Cow, fs, path::PathBuf};
 
@@ -20,6 +20,22 @@ impl NonExistantPackagesIssue {
             paths,
             fixed: false,
         })
+    }
+
+    /// Drops the non-existent paths from the `field` array of the workspace definition `value`.
+    fn retain_existing(&self, value: &mut serde_json::Value, field: &str) -> Result<()> {
+        let packages = value
+            .get_mut(field)
+            .and_then(serde_json::Value::as_array_mut)
+            .ok_or_else(|| anyhow!("Expected `{field}` to be an array"))?;
+
+        packages.retain(|package| {
+            package
+                .as_str()
+                .is_none_or(|package| !self.paths.iter().any(|path| path == package))
+        });
+
+        Ok(())
     }
 
     fn pnpm_message(&self) -> String {
@@ -116,16 +132,7 @@ impl Issue for NonExistantPackagesIssue {
                 let value = fs::read_to_string(&path)?;
                 let mut value = serde_saphyr::from_str::<serde_json::Value>(&value)?;
 
-                value
-                    .get_mut("packages")
-                    .unwrap()
-                    .as_array_mut()
-                    .unwrap()
-                    .retain(|package| {
-                        let package = package.as_str().unwrap().to_string();
-
-                        !self.paths.contains(&package)
-                    });
+                self.retain_existing(&mut value, "packages")?;
 
                 let value = serde_saphyr::to_string(&value)?;
                 fs::write(path, value)?;
@@ -137,16 +144,7 @@ impl Issue for NonExistantPackagesIssue {
                 let (mut value, indent, lineending) =
                     json::deserialize::<serde_json::Value>(&value)?;
 
-                value
-                    .get_mut("workspaces")
-                    .unwrap()
-                    .as_array_mut()
-                    .unwrap()
-                    .retain(|package| {
-                        let package = package.as_str().unwrap().to_string();
-
-                        !self.paths.contains(&package)
-                    });
+                self.retain_existing(&mut value, "workspaces")?;
 
                 let value = json::serialize(&value, &indent, lineending)?;
                 fs::write(path, value)?;

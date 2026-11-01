@@ -80,8 +80,7 @@ impl MultipleDependencyVersionsIssue {
             let autofix_version = autofix_version.map(|select| {
                 select
                     .split_once(' ')
-                    .expect("Please report this as a bug")
-                    .0
+                    .map_or(select.as_str(), |(version, _)| version)
                     .to_string()
             });
             Ok(autofix_version)
@@ -94,9 +93,9 @@ fn format_version(
     versions: &IndexMap<String, SemVersion>,
     skip_version_color: bool,
 ) -> String {
-    let (version, indicator) = if version == versions.first().unwrap().1 {
+    let (version, indicator) = if versions.first().is_some_and(|(_, first)| version == first) {
         (version.to_string().green(), "↑ highest".green())
-    } else if version == versions.last().unwrap().1 {
+    } else if versions.last().is_some_and(|(_, last)| version == last) {
         (version.to_string().red(), "↓ lowest".red())
     } else {
         (version.to_string().yellow(), "∼ between".yellow())
@@ -130,7 +129,7 @@ impl Issue for MultipleDependencyVersionsIssue {
             .iter()
             .map(|(package, version)| {
                 let mut common_path = package.split('/').collect::<Vec<_>>();
-                let mut end = common_path.pop().unwrap();
+                let mut end = common_path.pop().unwrap_or_default();
 
                 if end == "." {
                     end = "./";
@@ -187,17 +186,19 @@ impl Issue for MultipleDependencyVersionsIssue {
                 let (mut value, indent, lineending) =
                     json::deserialize::<serde_json::Value>(&value)?;
 
-                if let Some(dependencies) = value.get_mut("dependencies") {
-                    let dependencies = dependencies.as_object_mut().unwrap();
-
+                if let Some(dependencies) = value
+                    .get_mut("dependencies")
+                    .and_then(serde_json::Value::as_object_mut)
+                {
                     if let Some(dependency) = dependencies.get_mut(&self.name) {
                         *dependency = serde_json::Value::String(autofix_version.clone());
                     }
                 }
 
-                if let Some(dev_dependencies) = value.get_mut("devDependencies") {
-                    let dev_dependencies = dev_dependencies.as_object_mut().unwrap();
-
+                if let Some(dev_dependencies) = value
+                    .get_mut("devDependencies")
+                    .and_then(serde_json::Value::as_object_mut)
+                {
                     if let Some(dev_dependency) = dev_dependencies.get_mut(&self.name) {
                         *dev_dependency = serde_json::Value::String(autofix_version.clone());
                     }

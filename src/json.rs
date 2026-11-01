@@ -1,8 +1,18 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use detect_indent::{Indent, detect_indent};
 use detect_newline_style::LineEnding;
 use serde::{Deserialize, Serialize};
 use serde_json::ser::PrettyFormatter;
+
+/// Returns the JSON object behind `value`, or an error naming `what` when it is another JSON type.
+pub fn object_mut<'a>(
+    value: &'a mut serde_json::Value,
+    what: &str,
+) -> Result<&'a mut serde_json::Map<String, serde_json::Value>> {
+    value
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("Expected {what} to be a JSON object"))
+}
 
 pub fn deserialize<'a, T>(value: &'a str) -> Result<(T, Indent, LineEnding)>
 where

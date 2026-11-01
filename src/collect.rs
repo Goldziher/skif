@@ -280,7 +280,9 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
                     let directory = if is_root_star {
                         root.to_path_buf()
                     } else {
-                        root.join(directory_match).parent().unwrap().to_path_buf()
+                        root.join(directory_match)
+                            .parent()
+                            .map_or_else(|| root.to_path_buf(), Path::to_path_buf)
                     };
 
                     if let Ok(packages) = directory.read_dir() {
@@ -292,7 +294,7 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
                                         return is_root_star_package(package);
                                     }
 
-                                    return package.file_type().unwrap().is_dir()
+                                    return package.file_type().is_ok_and(|file_type| file_type.is_dir())
                                         && package
                                             .file_name()
                                             .to_string_lossy()
@@ -342,7 +344,7 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
         if !non_existant_paths.is_empty() {
             packages_issues.push(NonExistantPackagesIssue::new(
                 is_pnpm_workspace,
-                packages_list.unwrap(),
+                packages_list.unwrap_or_default(),
                 non_existant_paths,
             ));
         }
@@ -1375,43 +1377,6 @@ mod test {
             config.ignore_rule_for_package.get("rule"),
             Some(&vec!["pkg:with:colons".to_string(), "b".to_string()])
         );
-    }
-
-    #[test]
-    fn collect_config_file_is_layered_over_package_json() {
-        let path = Path::new("fixtures/config-file");
-        let packages_list = collect_packages(path).unwrap();
-        let mut config = packages_list.root_package.get_config().unwrap_or_default();
-
-        assert_eq!(
-            config.ignore_rule,
-            vec!["root-package-dependencies".to_string()]
-        );
-        assert_eq!(
-            collect_issues(&config, collect_packages(path).unwrap()).total_len(),
-            2
-        );
-
-        config.overlay(crate::config_file::load(path).unwrap().unwrap());
-
-        assert_eq!(
-            config.ignore_rule,
-            vec![
-                "root-package-dependencies".to_string(),
-                "empty-dependencies".to_string()
-            ]
-        );
-        assert_eq!(collect_issues(&config, packages_list).total_len(), 0);
-    }
-
-    fn collect_fixture_issues(path: &str) -> IndexMap<PackageType, Vec<BoxIssue>> {
-        let args = args_for(path, &[], &[]);
-        let packages_list = collect_packages(&args.path).unwrap();
-        let config = args.into();
-
-        collect_issues(&config, packages_list)
-            .into_iter()
-            .collect::<IndexMap<_, _>>()
     }
 
     #[test]

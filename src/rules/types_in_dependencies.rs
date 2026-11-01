@@ -88,33 +88,26 @@ impl Issue for TypesInDependenciesIssue {
             let value = fs::read_to_string(&path)?;
             let (mut value, indent, lineending) = json::deserialize::<serde_json::Value>(&value)?;
 
-            let dependencies = value
-                .get_mut("dependencies")
-                .unwrap()
-                .as_object_mut()
-                .unwrap();
+            let root = json::object_mut(&mut value, "package.json")?;
             let mut dependencies_to_add = IndexMap::new();
 
-            for package in &self.packages {
-                if let Some(version) = dependencies.remove(package) {
-                    dependencies_to_add.insert(package.clone(), version);
+            if let Some(dependencies) = root
+                .get_mut("dependencies")
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                for package in &self.packages {
+                    if let Some(version) = dependencies.remove(package) {
+                        dependencies_to_add.insert(package.clone(), version);
+                    }
                 }
             }
 
             // The package.json file might not have a devDependencies field.
-            let dev_dependencies = if let Some(dev_dependencies) = value.get_mut("devDependencies")
-            {
-                dev_dependencies
-            } else {
-                value.as_object_mut().unwrap().insert(
-                    "devDependencies".into(),
-                    serde_json::Value::Object(serde_json::Map::new()),
-                );
-
-                value.get_mut("devDependencies").unwrap()
-            };
-
-            let dev_dependencies = dev_dependencies.as_object_mut().unwrap();
+            let dev_dependencies = json::object_mut(
+                root.entry("devDependencies")
+                    .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new())),
+                "devDependencies",
+            )?;
 
             for (package, version) in dependencies_to_add {
                 dev_dependencies.insert(package, version);
