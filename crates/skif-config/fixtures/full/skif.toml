@@ -1,0 +1,92 @@
+[workspace]
+ignore-packages = ["legacy-*", "@scope/tmp"]
+package-manager = "pnpm"
+
+[lint]
+fail-on-warnings = true
+
+[rules]
+version-mismatch = "warn"
+unused-files = "off"
+member-toolchain-fields = { severity = "error", mode = "match-root" }
+unused-exports = { severity = "warn", ignore-tags = ["public", "internal"] }
+unlisted-dependencies = { level = "error" }
+
+[[ignore]]
+rules = ["unused-dependencies"]
+packages = ["@scope/docs"]
+dependencies = ["typescript"]
+
+[policy]
+prefer = "lowest"
+dependency-types = ["prod", "dev", "peer"]
+
+[[version-groups]]
+label = "react is pinned"
+dependencies = ["react", "react-dom"]
+packages = ["!@scope/legacy"]
+dependency-types = ["prod", "!peer"]
+specifier-types = ["exact", "range"]
+policy = "pinned"
+pin = "18.3.1"
+
+[[version-groups]]
+dependencies = ["left-pad"]
+policy = "banned"
+
+[[version-groups]]
+dependencies = ["$LOCAL"]
+policy = "snapped-to"
+snap-to = ["@scope/core"]
+
+[[version-groups]]
+dependencies = ["lodash"]
+policy = "preferred-semver"
+prefer = "lowest"
+
+[[semver-groups]]
+label = "libraries use caret"
+packages = ["@scope/lib-*"]
+dependency-types = ["prod"]
+range = "^"
+
+[[semver-groups]]
+dependencies = ["typescript"]
+range = ""
+
+[catalog]
+mode = "prefer"
+min-packages = 3
+exclude = ["react"]
+report-unused-entries = true
+
+[workspace-protocol]
+internal = true
+allow-local-paths = true
+
+[[dependency-families]]
+name = "babel"
+packages = ["@babel/*"]
+
+[[dependency-families]]
+name = "jest"
+enabled = false
+
+[js]
+enabled = true
+entry = ["src/index.ts"]
+project = ["src/**/*.ts"]
+ignore = ["**/generated/**"]
+ignore-dependencies = ["@types/*"]
+ignore-binaries = ["tsc"]
+production = true
+include-entry-exports = true
+
+[js.workspaces."packages/app"]
+entry = ["src/main.tsx"]
+ignore-binaries = ["vite"]
+
+[js.plugins]
+vitest = true
+storybook = false
+eslint = { enabled = true, config = ["eslint.config.mjs"], entry = ["lint/*.js"] }
