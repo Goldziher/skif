@@ -69,10 +69,11 @@ impl Entry {
                 .is_some_and(|package| packages.contains(package))
         });
         let dependency_ok = self.dependencies.is_empty()
-            || diagnostic
-                .dependency
-                .as_deref()
-                .is_some_and(|dependency| self.dependencies.iter().any(|pattern| dependency_matches(pattern, dependency)));
+            || diagnostic.dependency.as_deref().is_some_and(|dependency| {
+                self.dependencies
+                    .iter()
+                    .any(|pattern| dependency_matches(pattern, dependency))
+            });
         rule_ok && package_ok && dependency_ok
     }
 }

@@ -44,10 +44,7 @@ impl ProviderError {
     }
 
     #[must_use]
-    pub fn with_source(
-        message: impl Into<String>,
-        source: impl std::error::Error + Send + Sync + 'static,
-    ) -> Self {
+    pub fn with_source(message: impl Into<String>, source: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self {
             message: message.into(),
             source: Some(Box::new(source)),

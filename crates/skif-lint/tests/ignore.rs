@@ -49,15 +49,27 @@ fn ignore_matching_table() {
             &["m2", "m4", "m5"],
         ),
         ("[[ignore]]\ndependencies = [\"react\"]\n", &["m3", "m4", "m5", "m6"]),
-        ("[[ignore]]\ndependencies = [\"react@18\"]\n", &["m1", "m3", "m4", "m5", "m6"]),
+        (
+            "[[ignore]]\ndependencies = [\"react@18\"]\n",
+            &["m1", "m3", "m4", "m5", "m6"],
+        ),
         (
             "[[ignore]]\ndependencies = [\"react@17\"]\n",
             &["m1", "m2", "m3", "m4", "m5", "m6"],
         ),
-        ("[[ignore]]\ndependencies = [\"lod*\"]\n", &["m1", "m2", "m4", "m5", "m6"]),
+        (
+            "[[ignore]]\ndependencies = [\"lod*\"]\n",
+            &["m1", "m2", "m4", "m5", "m6"],
+        ),
         ("[[ignore]]\ndependencies = [\"*act\"]\n", &["m3", "m4", "m5", "m6"]),
-        ("[[ignore]]\ndependencies = [\"*od*\"]\n", &["m1", "m2", "m4", "m5", "m6"]),
-        ("[[ignore]]\ndependencies = [\"@scope/*\"]\n", &["m1", "m2", "m3", "m4", "m5"]),
+        (
+            "[[ignore]]\ndependencies = [\"*od*\"]\n",
+            &["m1", "m2", "m4", "m5", "m6"],
+        ),
+        (
+            "[[ignore]]\ndependencies = [\"@scope/*\"]\n",
+            &["m1", "m2", "m3", "m4", "m5"],
+        ),
         (
             "[[ignore]]\npackages = [\"a\"]\ndependencies = [\"react\"]\n",
             &["m2", "m3", "m4", "m5", "m6"],

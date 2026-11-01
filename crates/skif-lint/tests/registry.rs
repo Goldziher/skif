@@ -23,7 +23,8 @@ fn provider(id: &'static str, rule_ids: &[&str]) -> Box<dyn RuleProvider> {
 
 #[test]
 fn duplicate_rule_ids_are_rejected() {
-    let cases: [(Vec<Box<dyn RuleProvider>>, Option<&str>); 4] = [
+    type Case = (Vec<Box<dyn RuleProvider>>, Option<&'static str>);
+    let cases: [Case; 4] = [
         (vec![provider("p", &["a", "b"])], None),
         (vec![provider("p", &["a"]), provider("q", &["b"])], None),
         (vec![provider("p", &["a", "a"])], Some("a")),

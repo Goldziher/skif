@@ -3,7 +3,6 @@ use skif_core::{Diagnostic, Fix, Location, Related, RuleId, RuleMeta, Severity};
 /// Builds a [`Diagnostic`] for `meta`.
 ///
 /// The severity is a placeholder; the [`Emitter`](crate::Emitter) sets the effective one.
-#[must_use]
 pub fn diagnostic(meta: &'static RuleMeta, message: impl Into<String>, location: Location) -> DiagnosticBuilder {
     DiagnosticBuilder {
         inner: Diagnostic {

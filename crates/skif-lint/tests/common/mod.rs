@@ -1,7 +1,6 @@
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use skif_config::Config;
 use skif_core::{Category, Fixability, Location, RuleMeta, Severity};
@@ -32,7 +31,7 @@ pub fn workspace(config: &Config) -> Workspace {
         )
         .with_file("/ws/packages/a/package.json", r#"{"name":"a","version":"1.0.0"}"#)
         .with_file("/ws/packages/b/package.json", r#"{"name":"b","version":"1.0.0"}"#);
-    Workspace::discover_with_fs(Path::new("/ws"), config, Arc::new(fs)).unwrap()
+    Workspace::discover_with_fs(Path::new("/ws"), config, &fs).unwrap()
 }
 
 pub fn location() -> Location {
