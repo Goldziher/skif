@@ -1,0 +1,606 @@
+name: Publish Packages
+
+on:
+  push:
+    tags:
+      - v[0-9]+.*
+  pull_request:
+    paths:
+      - .github/workflows/publish.yaml
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g., v0.1.0)"
+        required: false
+        type: string
+      dry-run:
+        description: "Build the eight targets and verify the release assets, but publish nothing"
+        type: boolean
+        default: false
+
+concurrency:
+  # Keyed on the resolved release tag so a tag push and a dispatch for the same tag cannot race.
+  # A publish is never cancelled mid-flight: cargo publish and release promotion are irreversible.
+  group: publish-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+# Least privilege at the workflow level. The registry jobs add `id-token: write` themselves,
+# because trusted publishing mints its credential from that claim.
+permissions:
+  contents: write
+
+jobs:
+  meta:
+    name: Resolve release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      dry_run: ${{ steps.version.outputs.dry_run }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      release_complete: ${{ steps.release.outputs.release_complete }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Resolve version, tag and mode
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry-run }}
+        run: |
+          set -euo pipefail
+          workspace_version="$(awk '/^\[workspace\.package\]/{p=1;next} /^\[/{p=0} p && /^version *= *"/{gsub(/"/,"",$3);print $3;exit}' Cargo.toml)"
+          dry_run=false
+          case "$EVENT_NAME" in
+          push) tag="${GITHUB_REF#refs/tags/}" ;;
+          pull_request)
+            dry_run=true
+            tag="v${workspace_version}"
+            ;;
+          *)
+            tag="$INPUT_TAG"
+            [ "$INPUT_DRY_RUN" = "true" ] && dry_run=true
+            if [ -z "$tag" ]; then
+              if [ "$dry_run" = "true" ]; then
+                tag="v${workspace_version}"
+              else
+                echo "::error::The tag input is required unless dry-run is set"
+                exit 1
+              fi
+            fi
+            ;;
+          esac
+          version="${tag#v}"
+          prerelease=false
+          case "$version" in *-*) prerelease=true ;; esac
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "dry_run=$dry_run"
+            echo "prerelease=$prerelease"
+          } >>"$GITHUB_OUTPUT"
+          echo "tag=$tag version=$version dry_run=$dry_run prerelease=$prerelease"
+
+      - name: Verify version consistency
+        run: scripts/check-versions.sh "${{ steps.version.outputs.version }}"
+
+      - name: Detect a complete GitHub release
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          DRY_RUN: ${{ steps.version.outputs.dry_run }}
+        run: |
+          set -euo pipefail
+          complete=false
+          if [ "$DRY_RUN" != "true" ] && gh release view "$TAG" >/dev/null 2>&1; then
+            draft="$(gh release view "$TAG" --json isDraft -q '.isDraft')"
+            if [ "$draft" != "true" ] && gh release view "$TAG" --json assets -q '.assets[].name' | grep -qx 'checksums.txt'; then
+              complete=true
+            fi
+          fi
+          echo "release_complete=$complete" >>"$GITHUB_OUTPUT"
+          echo "GitHub release complete? $complete"
+
+  create_release:
+    name: Create draft GitHub release
+    needs: meta
+    if: needs.meta.outputs.dry_run != 'true' && needs.meta.outputs.release_complete != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Ensure the draft release exists
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists."
+            if [ "$(gh release view "$TAG" --json isDraft -q '.isDraft')" != "true" ]; then
+              echo "::warning::release $TAG is published but incomplete; reverting to draft until its assets are complete"
+              gh release edit "$TAG" --draft=true
+            fi
+          else
+            flag=""
+            [ "$PRERELEASE" = "true" ] && flag="--prerelease"
+            # shellcheck disable=SC2086
+            gh release create "$TAG" --title "$TAG" --notes "Release $TAG" --verify-tag --draft $flag
+          fi
+
+  build:
+    name: Build / ${{ matrix.target }}
+    needs: [meta, create_release]
+    if: >-
+      always() && needs.meta.result == 'success'
+      && needs.create_release.result != 'failure' && needs.create_release.result != 'cancelled'
+      && needs.meta.outputs.release_complete != 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            alpine: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+            alpine: true
+          - target: x86_64-apple-darwin
+            os: macos-26-intel
+          - target: aarch64-apple-darwin
+            os: macos-26
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Setup Rust
+        if: ${{ !matrix.alpine }}
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Setup cache
+        if: ${{ !matrix.alpine }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build binary
+        if: ${{ !matrix.alpine }}
+        run: cargo build --release --locked -p skif-cli --target ${{ matrix.target }}
+        shell: bash
+
+      - name: Build binary (musl, Alpine container)
+        if: ${{ matrix.alpine }}
+        run: |
+          set -euo pipefail
+          # The image's host target is the musl triple being released, so the build is host-native.
+          docker run --rm -v "$PWD":/work -w /work -e CARGO_TARGET_DIR=/work/target rust:alpine sh -c '
+            set -e
+            apk add --no-cache build-base musl-dev git perl
+            cargo build --release --locked -p skif-cli
+            mkdir -p "target/${{ matrix.target }}/release"
+            cp target/release/skif "target/${{ matrix.target }}/release/skif"
+            strip "target/${{ matrix.target }}/release/skif"
+          '
+        shell: bash
+
+      - name: Strip binary
+        if: ${{ !matrix.alpine && runner.os != 'Windows' }}
+        run: strip "target/${{ matrix.target }}/release/skif" || true
+        shell: bash
+
+      - name: Package archive
+        run: |
+          set -euo pipefail
+          stage="$(mktemp -d)"
+          cp LICENSE "$stage/"
+          case "${{ matrix.target }}" in
+          *windows*)
+            cp "target/${{ matrix.target }}/release/skif.exe" "$stage/"
+            (cd "$stage" && 7z a -tzip "$GITHUB_WORKSPACE/skif-${{ matrix.target }}.zip" skif.exe LICENSE)
+            ;;
+          *)
+            cp "target/${{ matrix.target }}/release/skif" "$stage/"
+            tar czf "skif-${{ matrix.target }}.tar.gz" -C "$stage" skif LICENSE
+            ;;
+          esac
+        shell: bash
+
+      - name: Smoke test the binary
+        if: ${{ !startsWith(matrix.target, 'aarch64-pc-windows') }}
+        run: |
+          set -euo pipefail
+          case "${{ matrix.target }}" in
+          *windows*) "target/${{ matrix.target }}/release/skif.exe" --version ;;
+          *) "target/${{ matrix.target }}/release/skif" --version ;;
+          esac
+        shell: bash
+
+      - name: Save archive for checksums
+        uses: actions/upload-artifact@v7
+        with:
+          name: archive-${{ matrix.target }}
+          path: |
+            skif-${{ matrix.target }}.tar.gz
+            skif-${{ matrix.target }}.zip
+          if-no-files-found: error
+
+      - name: Upload archive to the draft release
+        if: needs.meta.outputs.dry_run != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: gh release upload "$TAG" skif-${{ matrix.target }}.* --clobber
+        shell: bash
+
+  checksums:
+    name: Generate checksums
+    needs: [meta, build]
+    if: needs.meta.outputs.release_complete != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Download all archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: archive-*
+          merge-multiple: true
+          path: artifacts
+
+      - name: Verify the archive set
+        run: |
+          set -euo pipefail
+          expected="$(scripts/release-assets.sh | grep -vx 'checksums.txt' | sort)"
+          actual="$(cd artifacts && find . -maxdepth 1 -type f -printf '%f\n' | sort)"
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::archive set differs from the expected eight archives"
+            diff <(echo "$expected") <(echo "$actual") || true
+            exit 1
+          fi
+          echo "All eight archives are present"
+
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          (cd artifacts && LC_ALL=C sha256sum skif-* | LC_ALL=C sort -k2) >checksums.txt
+          cat checksums.txt
+          (cd artifacts && sha256sum -c ../checksums.txt)
+
+      - name: Save checksums
+        uses: actions/upload-artifact@v7
+        with:
+          name: checksums
+          path: checksums.txt
+          if-no-files-found: error
+
+      - name: Upload checksums to the draft release
+        if: needs.meta.outputs.dry_run != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: gh release upload "$TAG" checksums.txt --clobber
+
+  finalize_release:
+    name: Publish GitHub release
+    needs: [meta, checksums]
+    if: needs.meta.outputs.dry_run != 'true' && needs.checksums.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Promote the draft once the asset set is exact
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          expected="$(scripts/release-assets.sh | sort)"
+          actual="$(gh release view "$TAG" --json assets -q '.assets[].name' | sort)"
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::release $TAG asset list differs from the expected eight archives plus checksums.txt; leaving it as a draft"
+            diff <(echo "$expected") <(echo "$actual") || true
+            exit 1
+          fi
+          gh release edit "$TAG" --draft=false
+          echo "Published $TAG"
+
+  publish_crates:
+    name: Publish crates.io
+    needs: [meta, finalize_release]
+    if: >-
+      always() && needs.meta.result == 'success'
+      && (needs.meta.outputs.dry_run == 'true'
+          || needs.finalize_release.result == 'success'
+          || needs.meta.outputs.release_complete == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Authenticate to crates.io
+        if: needs.meta.outputs.dry_run != 'true'
+        uses: rust-lang/crates-io-auth-action@v1
+        id: crates_auth
+
+      - name: Publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_auth.outputs.token }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          DRY_RUN: ${{ needs.meta.outputs.dry_run }}
+        run: scripts/publish-crates.sh
+
+  verify_binstall:
+    name: Verify cargo binstall
+    needs: [meta, publish_crates]
+    if: needs.meta.outputs.dry_run != 'true' && needs.publish_crates.result == 'success'
+    permissions:
+      contents: read
+    uses: xberg-io/actions/.github/workflows/reusable-binstall-verify.yml@v1
+    with:
+      package-name: skif-cli
+      binary-name: skif
+      manifest-path: crates/skif-cli
+      checkout-ref: ${{ needs.meta.outputs.tag }}
+      targets: |
+        [
+          {"os": "ubuntu-latest", "target": "x86_64-unknown-linux-gnu"},
+          {"os": "macos-26", "target": "aarch64-apple-darwin"},
+          {"os": "windows-latest", "target": "x86_64-pc-windows-msvc"}
+        ]
+      smoke-command: |
+        skif --version
+
+  publish_npm:
+    name: Publish npm (skif)
+    needs: [meta, checksums, finalize_release]
+    if: >-
+      always() && needs.meta.result == 'success'
+      && (needs.meta.outputs.dry_run == 'true'
+          || needs.finalize_release.result == 'success'
+          || needs.meta.outputs.release_complete == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Mints the OIDC token npm trusted publishing exchanges for a publish credential.
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Setup Node.js and pnpm
+        uses: xberg-io/actions/setup-mise@v1
+        with:
+          config-ref: ${{ github.sha }}
+          tools: node pnpm
+
+      - name: Download the built archives (dry run)
+        if: needs.meta.outputs.dry_run == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: "{archive-*,checksums}"
+          merge-multiple: true
+          path: artifacts
+
+      - name: Download the published release archives
+        if: needs.meta.outputs.dry_run != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'skif-*' --pattern 'checksums.txt' --dir artifacts --clobber
+
+      - name: Verify the archives against the release checksums
+        run: cd artifacts && sha256sum -c checksums.txt
+
+      - name: Stage the release binaries into the platform packages
+        run: npm-package/stage-binaries.sh --artifacts artifacts
+
+      - name: Publish to npm
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+          DRY_RUN: ${{ needs.meta.outputs.dry_run }}
+        run: |
+          set -euo pipefail
+          npm_tag=latest
+          [ "$PRERELEASE" = "true" ] && npm_tag=next
+
+          publish_one() {
+            local dir="$1" name
+            name="$(jq -r '.name' "$dir/package.json")"
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "dry run: packing ${name}@${VERSION}"
+              (cd "$dir" && pnpm pack --pack-destination "$RUNNER_TEMP")
+              return 0
+            fi
+            if [ -n "$(npm view "${name}@${VERSION}" version 2>/dev/null)" ]; then
+              echo "${name}@${VERSION} is already published; skipping"
+              return 0
+            fi
+            echo "publishing ${name}@${VERSION} (--tag ${npm_tag})"
+            (cd "$dir" && pnpm publish --no-git-checks --provenance --access public --tag "$npm_tag")
+          }
+
+          # Platform packages first: the umbrella must never list a package that does not exist.
+          platforms=(npm-package/platforms/*/)
+          expected="$(jq -er '.optionalDependencies | length | select(. > 0)' npm-package/package.json)"
+          [ "${#platforms[@]}" -eq "$expected" ] || { echo "::error::npm platform inventory is incomplete"; exit 1; }
+          for dir in "${platforms[@]}"; do
+            publish_one "${dir%/}"
+          done
+          publish_one npm-package
+
+  verify_npm:
+    name: Verify npx skif
+    needs: [meta, publish_npm]
+    if: needs.meta.outputs.dry_run != 'true' && needs.publish_npm.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Setup Node.js
+        uses: xberg-io/actions/setup-mise@v1
+        with:
+          config-ref: ${{ github.sha }}
+          tools: node
+
+      - name: Run the published package
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if out="$(npm exec --yes "skif@${VERSION}" -- --version 2>&1)" && grep -qF "$VERSION" <<<"$out"; then
+              echo "$out"
+              exit 0
+            fi
+            echo "attempt ${attempt}: ${out}"
+            sleep 15
+          done
+          echo "::error::npx skif@${VERSION} did not print the released version"
+          exit 1
+
+  publish_homebrew:
+    name: Update Homebrew formula
+    needs: [meta, verify_binstall, verify_npm]
+    if: needs.meta.outputs.prerelease != 'true' && needs.verify_binstall.result == 'success' && needs.verify_npm.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+
+      - name: Update tap formula
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOMEBREW_TOKEN:-}" ]; then
+            echo "::error::HOMEBREW_TOKEN is not set, so the Homebrew tap cannot be updated"
+            exit 1
+          fi
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern checksums.txt --dir sums --clobber
+          scripts/homebrew-update.sh "$VERSION" sums/checksums.txt "$GITHUB_REPOSITORY" >skif.rb
+
+          git clone --depth 1 "https://x-access-token:${HOMEBREW_TOKEN}@github.com/Goldziher/homebrew-tap.git" tap
+          cp skif.rb tap/Formula/skif.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/skif.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date."
+          else
+            git commit -m "skif ${VERSION}"
+            git push
+          fi
+
+  publish_scoop:
+    name: Update Scoop bucket
+    needs: [meta, verify_binstall, verify_npm]
+    if: needs.meta.outputs.prerelease != 'true' && needs.verify_binstall.result == 'success' && needs.verify_npm.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+
+      - name: Update bucket manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOMEBREW_TOKEN:-}" ]; then
+            echo "::error::HOMEBREW_TOKEN is not set, so Goldziher/scoop-bucket cannot be updated"
+            exit 1
+          fi
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern checksums.txt --dir sums --clobber
+          scripts/scoop-update.sh "$VERSION" sums/checksums.txt "$GITHUB_REPOSITORY" >skif.json
+
+          git clone --depth 1 "https://x-access-token:${HOMEBREW_TOKEN}@github.com/Goldziher/scoop-bucket.git" bucket
+          cp skif.json bucket/bucket/skif.json
+          cd bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bucket/skif.json
+          if git diff --cached --quiet; then
+            echo "Manifest already up to date."
+          else
+            git commit -m "skif ${VERSION}"
+            git push
+          fi
+
+  update_major_tag:
+    name: Move the major version tag
+    needs: [meta, verify_binstall, verify_npm]
+    if: needs.meta.outputs.prerelease != 'true' && needs.verify_binstall.result == 'success' && needs.verify_npm.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.meta.outputs.tag }}
+
+      - name: Move the major tag to this release
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          major="v${VERSION%%.*}"
+          sha="$(git rev-list -n1 "$TAG")"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f "$major" "$sha"
+          git push -f origin "refs/tags/${major}"
+          echo "Moved ${major} to ${TAG} (${sha})"
