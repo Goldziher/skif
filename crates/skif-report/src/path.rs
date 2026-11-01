@@ -20,7 +20,9 @@ pub(crate) fn relativize(path: &Path, root: Option<&Path>) -> String {
                 .map(|rest| rest.trim_start_matches('/').to_owned())
         })
         .unwrap_or(full);
-    stripped.strip_prefix("./").map_or_else(|| stripped.clone(), str::to_owned)
+    stripped
+        .strip_prefix("./")
+        .map_or_else(|| stripped.clone(), str::to_owned)
 }
 
 #[cfg(test)]
@@ -40,7 +42,11 @@ mod tests {
             ("a/b.json", Some(""), "a/b.json"),
         ];
         for (path, root, expected) in cases {
-            assert_eq!(relativize(Path::new(path), root.map(Path::new)), expected, "{path} {root:?}");
+            assert_eq!(
+                relativize(Path::new(path), root.map(Path::new)),
+                expected,
+                "{path} {root:?}"
+            );
         }
     }
 }

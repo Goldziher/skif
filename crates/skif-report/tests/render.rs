@@ -1,11 +1,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use skif_core::{
-    Diagnostic, Fix, FixOp, FixSafety, LineIndex, Location, Related, Report, RuleId, Severity, Span,
-};
+use skif_core::{Diagnostic, Fix, FixOp, FixSafety, LineIndex, Location, Related, Report, RuleId, Severity, Span};
 use skif_report::{Format, RenderOptions, render, render_json_error};
 
-const MANIFEST: &str = "{\n  \"name\": \"web\",\n  \"dependencies\": {\n    \"réact\": \"^18.0.0\",\n    \"lodash\": \"^4.0.0\"\n  }\n}\n";
+const MANIFEST: &str =
+    "{\n  \"name\": \"web\",\n  \"dependencies\": {\n    \"réact\": \"^18.0.0\",\n    \"lodash\": \"^4.0.0\"\n  }\n}\n";
 
 fn span_of(needle: &str) -> Span {
     let start = u32::try_from(MANIFEST.find(needle).unwrap()).unwrap();
@@ -27,7 +26,10 @@ fn diag(rule: &'static str, severity: Severity, path: &str, span: Option<Span>, 
         severity,
         message: message.to_owned(),
         help: None,
-        location: Location { path: path.into(), span },
+        location: Location {
+            path: path.into(),
+            span,
+        },
         related: Vec::new(),
         package: None,
         dependency: None,
@@ -64,7 +66,13 @@ fn rich() -> Report {
         "lodash is never imported 日本語",
     );
     unused.fixes = vec![fix("Remove lodash", FixSafety::Safe)];
-    let info = diag("sorted-keys", Severity::Info, "package.json", None, "keys are not sorted");
+    let info = diag(
+        "sorted-keys",
+        Severity::Info,
+        "package.json",
+        None,
+        "keys are not sorted",
+    );
     Report::new(vec![unused, info, mismatch], 3)
 }
 
@@ -146,7 +154,13 @@ fn json_is_deterministic() {
 #[test]
 fn json_paths_are_relativised_to_root() {
     let report = Report::new(
-        vec![diag("sorted-keys", Severity::Info, "C:\\repo\\pkg\\package.json", None, "m")],
+        vec![diag(
+            "sorted-keys",
+            Severity::Info,
+            "C:\\repo\\pkg\\package.json",
+            None,
+            "m",
+        )],
         1,
     );
     let rendered = run(&report, Format::Json, &RenderOptions::default().with_root("C:\\repo"));
