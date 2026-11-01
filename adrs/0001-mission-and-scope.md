@@ -66,10 +66,14 @@ compatibility. Code is ported only where it is still the best implementation, an
 Explicitly **out** of scope:
 
 * **Registry updates and an interactive upgrade TUI** (syncpack's `update`). skif reads the
-  workspace and never contacts a package registry.
+  workspace and never contacts a package registry: it opens no network connection and resolves no
+  version. The one process the CLI may spawn is the user's own package manager, to refresh the
+  lockfile after `--fix`; that is the package manager talking to its registry, not skif, it can be
+  turned off, and the library never does it ([ADR 0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md)).
 * **Formatting `package.json`** beyond the edits a fix makes. Key order outside dependency maps,
   indentation and whitespace belong to a formatter; fixes preserve them ([ADR 0008](0008-fix-and-edit-model.md)).
-* **Lockfile analysis.** skif reasons about declared specifiers, not resolved trees.
+* **Lockfile analysis.** skif reasons about declared specifiers, not resolved trees. Lockfiles are
+  read only for their presence, to detect the package manager ([ADR 0005](0005-workspace-discovery.md)).
 * **Executing user JavaScript.** Tool configuration such as `vite.config.ts` is read by static AST
   extraction only ([ADR 0010](0010-js-analysis-on-oxc.md)). skif never spawns Node, never `require`s a config, and never runs a
   package script.
@@ -104,30 +108,37 @@ JS analysis and the first plugin set ([ADR 0011](0011-plugin-model.md)).
 
 ### Confirmation
 
-* `mise run bench` (criterion plus hyperfine) measures the performance targets in the table above.
-* `mise run parity` and `mise run diff:syncpack` compare skif with knip and syncpack on the corpus and measure drift instead of assuming parity.
+* `mise run bench` (criterion plus hyperfine) measures every row of the performance table above; a row that regresses past its target fails the benchmark job.
+* `mise run parity` and `mise run diff:syncpack` compare skif with knip and syncpack on the pinned corpus (`scripts/corpus.toml`) and print the per-repository differences, so drift is a number rather than an assumption.
+* A CLI integration test runs `skif` without `--fix` with a package-manager shim first on `PATH` that records every invocation, and asserts the shim was never called; the `--fix` install step is covered separately in [ADR 0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md).
+* A CLI integration test lints a fixture whose `vite.config.ts` writes a marker file if it is evaluated, and asserts the marker is absent afterwards.
 
 ## Pros and Cons of the Options
 
 ### One Rust dependency linter covering manifest rules, version policy and JS usage analysis
 
-* Good, because it satisfies the decision drivers above; the benefits are listed under Consequences.
+* Good, because one workspace discovery, one specifier model, one configuration and one fix pipeline serve all three kinds of check, so a rule written for any of them is configured, suppressed and fixed the same way.
+* Good, because a single native binary can parallelise across checks and files, which the performance targets need.
+* Bad, because the scope is large: it takes on two moving upstream specifications and a plugin ecosystem, and the first release (0.1.0) deliberately ships only two of the three parts.
 
 ### Keep shipping sherif and add features to it
 
+* Good, because it keeps existing sherif users and their configuration working.
 * Bad, because the rules own IO, prompts and process exit, so every new capability would inherit the cwd bug class and the lack of an embeddable API. Fixing that is the rebuild.
 
 ### Wrap syncpack and knip (spawn them and merge their output)
 
+* Good, because it reuses two mature tools and their full plugin and policy coverage on day one.
 * Bad, because it requires Node, pays two process start-ups and knip's config execution on every run, and cannot meet the performance targets or be embedded.
 
 ### Three separate Rust tools (one per kind of check)
 
+* Good, because each tool stays small and can ship on its own schedule.
 * Bad, because the checks share workspace discovery, specifier parsing, configuration, diagnostics and fixes; splitting them would duplicate all of it and give the user three configs again.
 
 ## More Information
 
-* Related decisions: [ADR 0003](0003-library-first-embedding.md), [ADR 0004](0004-configuration-model.md), [ADR 0005](0005-workspace-discovery.md), [ADR 0006](0006-specifier-and-semver-model.md), [ADR 0007](0007-rule-and-diagnostic-model.md), [ADR 0008](0008-fix-and-edit-model.md), [ADR 0009](0009-version-and-catalog-policies.md), [ADR 0010](0010-js-analysis-on-oxc.md), [ADR 0011](0011-plugin-model.md), [ADR 0013](0013-distribution-and-naming.md), [ADR 0015](0015-attribution-and-vendoring.md)
+* Related decisions: [ADR 0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md), [ADR 0003](0003-library-first-embedding.md), [ADR 0004](0004-configuration-model.md), [ADR 0005](0005-workspace-discovery.md), [ADR 0006](0006-specifier-and-semver-model.md), [ADR 0007](0007-rule-and-diagnostic-model.md), [ADR 0008](0008-fix-and-edit-model.md), [ADR 0009](0009-version-and-catalog-policies.md), [ADR 0010](0010-js-analysis-on-oxc.md), [ADR 0011](0011-plugin-model.md), [ADR 0013](0013-distribution-and-naming.md), [ADR 0015](0015-attribution-and-vendoring.md)
 * Upstream: [sherif](https://github.com/QuiiBz/sherif)
 * Upstream: [syncpack](https://github.com/JamieMason/syncpack)
 * Upstream: [knip](https://github.com/webpro-nl/knip)

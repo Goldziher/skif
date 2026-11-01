@@ -41,13 +41,13 @@ virtual root manifest that owns `[workspace.package]`, `[workspace.dependencies]
 
 | Crate | Responsibility |
 | --- | --- |
-| `skif-core` | Plain data: `Diagnostic`, `Span`, `Fix`, `FixOp`, `TextEdit`, `FileChange`, `RuleMeta`, `Report`. No IO. |
+| `skif-core` | Plain data (`Diagnostic`, `Span`, `Fix`, `FixOp`, `TextEdit`, `FileChange`, `FixPlan`, `RuleMeta`, `Report`) and the `FileSystem` trait with its `MemoryFs` and `OsFs` implementations. `OsFs` is the only type in the library crates that touches `std::fs` ([ADR 0003](0003-library-first-embedding.md)). |
 | `skif-specifier` | Vendored syncpack specifier parser ([ADR 0006](0006-specifier-and-semver-model.md)). |
-| `skif-config` | Typed `Config`, file discovery, per-rule options, CLI overrides, JSON Schema ([ADR 0004](0004-configuration-model.md)). |
+| `skif-config` | Typed, rule-agnostic `Config`, the compiled `Selector`, configuration loading and discovery through `FileSystem`, CLI overrides, JSON Schema ([ADR 0004](0004-configuration-model.md)). |
 | `skif-edit` | `FixOp` → `TextEdit` with format-preserving JSON and YAML editing ([ADR 0008](0008-fix-and-edit-model.md)). |
-| `skif-workspace` | Package-manager detection, workspace discovery, catalogs, the `FileSystem` trait ([ADR 0005](0005-workspace-discovery.md)). |
-| `skif-lint` | `Rule`, `RuleProvider`, `Registry`, `LintContext`, `Emitter`, parallel run ([ADR 0007](0007-rule-and-diagnostic-model.md)). |
-| `skif-rules` | `manifest/` rules and `policy/` rules ([ADR 0009](0009-version-and-catalog-policies.md)). |
+| `skif-workspace` | Package-manager detection, workspace-root and workspace discovery, catalogs, packages addressed by `PackageId`, dependency entries with pre-parsed specifiers ([ADR 0005](0005-workspace-discovery.md)). |
+| `skif-lint` | `Rule`, `RuleProvider`, `Registry` (which validates rule options), `LintContext`, `Emitter`, parallel run ([ADR 0007](0007-rule-and-diagnostic-model.md)). |
+| `skif-rules` | `manifest/` rules and `policy/` rules, each rule with its own option type ([ADR 0009](0009-version-and-catalog-policies.md)). |
 | `skif-js-syntax` | The oxc boundary: source file → `ModuleInfo` ([ADR 0010](0010-js-analysis-on-oxc.md)). |
 | `skif-js-plugins` | `Plugin` trait, declarative plugin table, AST config resolvers ([ADR 0011](0011-plugin-model.md)). |
 | `skif-js` | Module graph and the JS rules as a `RuleProvider` ([ADR 0010](0010-js-analysis-on-oxc.md)). |
@@ -76,21 +76,32 @@ The dependency graph is acyclic and layered. Direct workspace dependencies:
 | `skif-testing` | `skif-core`, `skif-workspace` (dev-dependency only) |
 
 Rules return fixes as `FixOp` values defined in `skif-core`; only the facade's `fix` feature pulls
-in `skif-edit` to turn them into text edits ([ADR 0008](0008-fix-and-edit-model.md)), so no rule crate depends on an editor.
+in `skif-edit` to turn them into text edits and a `FixPlan` ([ADR 0008](0008-fix-and-edit-model.md)), so no rule crate depends on an editor.
+Because `FileSystem` lives in `skif-core`, `skif-config` can load and discover configuration through
+it without depending on `skif-workspace`, and `skif-workspace` can read the configuration's
+`Selector`s without a cycle.
 
 Rules for the graph:
 
-* **`skif-core` depends on nothing in the workspace** and on nothing that does IO. Every other
-  crate can name its types without pulling in a parser.
+* **`skif-core` depends on nothing in the workspace** and on no parser. Every other crate can name
+  its types and read files through `FileSystem` without pulling in a parser.
+* **Public enums that will grow are `#[non_exhaustive]`** (`FixOp`, `Category`, `Fixability`,
+  `FileChange`, `JsonAction`, `YamlAction`, `PackageManager`, `DependencyKind` and the error enums), so adding a variant is not a breaking
+  change of an internal crate, and every public type is `Send + Sync` by a compile-time assertion
+  ([ADR 0003](0003-library-first-embedding.md)).
 * **oxc is reachable only through `skif-js-syntax`, `skif-js-plugins` and `skif-js`.** No other
   crate lists an `oxc_*` dependency; the `js-analysis` feature of the facade is the single switch
   that brings them in ([ADR 0003](0003-library-first-embedding.md), [ADR 0010](0010-js-analysis-on-oxc.md)).
 * **Terminal concerns live only in `skif-cli`**: clap, colour, prompts, file writes, exit codes.
 
-Every internal dependency is declared once in `[workspace.dependencies]` with **both `path` and
-`version`** (`skif-core = { path = "crates/skif-core", version = "=0.1.0" }`), so a local build uses
-the path and the published crate resolves the exact sibling version. All crates share one version
-([ADR 0013](0013-distribution-and-naming.md)).
+**Every dependency, external and internal, is declared once in `[workspace.dependencies]`** and
+referenced as `dep.workspace = true`; no crate names a version or feature set of its own. Internal
+dependencies carry **both `path` and an exact `version`**
+(`skif-core = { path = "crates/skif-core", version = "=0.1.0" }`), so a local build uses the path and
+a published crate resolves exactly the sibling version it was built with; `cargo package` requires a
+`version` on every path dependency. Feature sets such as `serde_json`'s `preserve_order` therefore
+apply to every crate that uses the dependency, not only to the ones that remembered to ask. All
+crates share one version ([ADR 0013](0013-distribution-and-naming.md)).
 
 **All crates except `skif-testing` are published to crates.io**, leaves first in topological
 order: `skif-specifier`, `skif-core`, `skif-config`, `skif-edit`, `skif-workspace`, `skif-lint`,
@@ -124,26 +135,33 @@ and the installed executable is named `skif`.
 
 ### Confirmation
 
-* Exact `=` version pins between sibling crates keep a mismatched set from resolving.
-* The ordered, idempotent publish job ([ADR 0013](0013-distribution-and-naming.md)) probes crates.io before each crate and backs off on HTTP 429.
-* Workspace inheritance of package metadata, lints and dependencies is mandatory for every crate, and the dependency-graph rules are checked in review.
+* The `consistency` job in `.github/workflows/ci.yml` (repository checks implemented by scripts under `scripts/`, added with the workspace refactor) runs a check that every `Cargo.toml` under `crates/` declares dependencies only as `dep.workspace = true` and that every internal path dependency in the root `Cargo.toml` has an exact `=` version.
+* The `build` job runs `cargo package --workspace --locked`, which fails for a path dependency without a `version`.
+* The `deny` job (`mise run deny`) fails on a duplicate or banned dependency, and the `consistency` job ([ADR 0013](0013-distribution-and-naming.md)) fails when two crate versions disagree.
+* `cargo tree -p skif --no-default-features -e normal` contains no `oxc_*` crate, and `cargo tree -p skif-core -e normal` lists no workspace crate; both are asserted by a script in the `consistency` job.
+* The publish job ([ADR 0013](0013-distribution-and-naming.md)) probes crates.io before each crate and backs off on HTTP 429; its dry run on a pull request is the check that the publish order matches the dependency graph above.
 
 ## Pros and Cons of the Options
 
 ### A fourteen-crate Cargo workspace with one semver-stable facade
 
-* Good, because it satisfies the decision drivers above; the benefits are listed under Consequences.
+* Good, because every boundary maps to a real pressure: a consumer that wants only manifest rules compiles no oxc, vendored code is isolated to one directory, and the CLI's terminal dependencies stay out of the library.
+* Good, because one stability promise on `skif` leaves the internal crates free to refactor.
+* Bad, because thirteen published crates are a slow first release, a permanent publishing matrix and thirteen `Cargo.toml` files to keep consistent.
 
 ### One library crate plus a binary
 
+* Good, because it is the least to build, publish and version.
 * Bad, because oxc would be a dependency of every consumer, and feature flags inside one crate do not stop internal modules from depending on each other in ways that later make the split impossible.
 
 ### Unpublished internal crates with everything re-exported from `skif`
 
+* Good, because only one crate would carry a public name and a stability promise.
 * Bad, because crates.io does not allow a published crate to depend on an unpublished path dependency.
 
 ### Binary in the `skif` crate
 
+* Good, because `cargo install skif` would install the binary, the most obvious command.
 * Bad, because a library consumer would pull clap, a terminal UI and a prompt library to get the rules. `cargo install skif` installing nothing is the cost; the README names `skif-cli` as the install target.
 
 ## More Information
