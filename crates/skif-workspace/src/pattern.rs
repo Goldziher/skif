@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use globset::{GlobBuilder, GlobMatcher};
 
-use crate::fs::FileSystem;
+use skif_core::FileSystem;
 
 const MANIFEST: &str = "package.json";
 const GLOB_CHARS: [char; 4] = ['*', '?', '[', '{'];

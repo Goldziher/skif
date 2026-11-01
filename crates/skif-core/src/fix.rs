@@ -56,6 +56,7 @@ pub enum InsertPosition {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub enum JsonAction {
     /// Replace the node with a value.
     Set(serde_json::Value),
@@ -80,6 +81,7 @@ pub enum JsonAction {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub enum YamlAction {
     /// Replace the node with a value.
     Set(serde_json::Value),
@@ -93,6 +95,7 @@ pub enum YamlAction {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub enum FixOp {
     /// Structured edit of a JSON file.
     Json {
@@ -150,6 +153,7 @@ pub struct TextEdit {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", rename_all_fields = "kebab-case")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub enum FileChange {
     /// An existing file is modified.
     Modify {
@@ -176,6 +180,7 @@ pub enum FileChange {
 
 /// Reason a set of [`TextEdit`]s cannot be applied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum EditError {
     /// An edit reaches past the end of the source, or ends before it starts.
     #[error("edit {start}..{end} is out of bounds for source of {len} bytes")]
