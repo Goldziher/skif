@@ -1,0 +1,5 @@
+[lint]
+fail-on-warnings = true
+
+[rules]
+unused-exports = "off"

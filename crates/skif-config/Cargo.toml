@@ -1,0 +1,31 @@
+[package]
+name = "skif-config"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Configuration model and skif.toml loading for skif."
+documentation = "https://docs.rs/skif-config"
+keywords = ["monorepo", "linter", "dependencies", "configuration", "toml"]
+categories = ["development-tools", "config"]
+readme = "../../README.md"
+
+[features]
+default = []
+schema = ["dep:schemars", "dep:serde_json", "skif-core/schema"]
+
+[dependencies]
+indexmap.workspace = true
+schemars = { version = "1.2.3", optional = true, features = ["indexmap2"] }
+serde.workspace = true
+serde_json = { workspace = true, optional = true }
+skif-core = { path = "../skif-core", version = "0.0.0" }
+strsim = "0.11.1"
+thiserror = "2.0.21"
+toml = "1.1.8"
+
+[lints]
+workspace = true
