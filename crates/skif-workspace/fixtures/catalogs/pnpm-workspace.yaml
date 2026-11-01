@@ -1,0 +1,11 @@
+packages:
+  - a
+  - b
+  - c
+
+catalog:
+  typescript: 5.9.3
+
+catalogs:
+  ts6:
+    typescript: 6.0.3
