@@ -130,9 +130,13 @@ sherif -p "./integrations/*"
 
 `package.json` files should not have empty dependencies fields.
 
+#### `incompatible-peer-dependencies` ⚠️
+
+When a dependency is declared in both `peerDependencies` and `devDependencies`, the version in `devDependencies` should satisfy the range in `peerDependencies`. Specifiers that aren't semver (e.g. `workspace:*`, git URLs) are skipped.
+
 #### `multiple-dependency-versions` ❌
 
-A given dependency should use the same version across the monorepo.
+A given dependency should use the same version across the monorepo. pnpm `catalog:` specifiers are resolved from `pnpm-workspace.yaml` (or the root `package.json`) before comparing. A dependency also declared in `peerDependencies` is ignored in `devDependencies`, since it tests the lowest supported peer range.
 
 You can ignore this rule for a specific dependency and version or all versions of a dependency if it's expected in your monorepo by using `--ignore-dependency <name@version>` / `--ignore-dependency <name>` (or `-i <name@version>` / `-i <name>`):
 

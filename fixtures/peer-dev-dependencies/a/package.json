@@ -1,0 +1,9 @@
+{
+  "name": "a",
+  "devDependencies": {
+    "react": "16.8.0"
+  },
+  "peerDependencies": {
+    "react": ">=16.8.0"
+  }
+}

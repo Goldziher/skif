@@ -1,0 +1,11 @@
+{
+  "name": "b",
+  "devDependencies": {
+    "react": "16.8.0",
+    "vue": "git+https://github.com/vuejs/core.git"
+  },
+  "peerDependencies": {
+    "react": ">=16.8.0",
+    "vue": "^3.0.0"
+  }
+}
