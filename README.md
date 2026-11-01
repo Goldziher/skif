@@ -167,6 +167,10 @@ This works for every rule reported against a single package, and for `unsync-sim
 
 When a dependency is declared in both `peerDependencies` and `devDependencies`, the version in `devDependencies` should satisfy the range in `peerDependencies`. Specifiers that aren't semver (e.g. `workspace:*`, git URLs) are skipped.
 
+#### `local-path-dependencies` ❌
+
+Dependencies shouldn't point at relative paths (`link:`, `file:`, `portal:`, `./`, `../` or absolute paths). A path to another workspace package should use the workspace protocol (`workspace:*`, or `*` when the root `packageManager` is npm); autofix rewrites those. Paths to anything else (tarballs, folders outside the workspace) are reported but not fixed: publish or vendor them instead.
+
 #### `member-toolchain-fields` ⚠️
 
 Member packages shouldn't declare `packageManager` or `engines`: the root `package.json` owns the toolchain. Autofix removes the fields from the member `package.json`.

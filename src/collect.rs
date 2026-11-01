@@ -384,7 +384,26 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
         issues.add_raw(PackageType::None, package_issue);
     }
 
+    let workspace_packages = packages
+        .iter()
+        .filter_map(|package| package.get_name().cloned())
+        .collect::<HashSet<_>>();
+    let workspace_specifier = if root_package.as_package().uses_npm() {
+        "*"
+    } else {
+        "workspace:*"
+    };
+
     issues.add(PackageType::Root, root_package.check_private());
+    add_for_package(
+        &mut issues,
+        config,
+        root_package.as_package(),
+        PackageType::Root,
+        root_package
+            .as_package()
+            .check_local_path_dependencies(&workspace_packages, workspace_specifier),
+    );
     issues.add(PackageType::Root, root_package.check_package_manager());
     issues.add(PackageType::Root, root_package.check_dependencies());
     issues.add(PackageType::Root, root_package.check_dev_dependencies());
@@ -451,6 +470,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
             package.check_peer_dependencies(),
             package.check_optional_dependencies(),
             package.check_incompatible_peer_dependencies(&catalogs),
+            package.check_local_path_dependencies(&workspace_packages, workspace_specifier),
             package.check_member_toolchain(
                 root_package.as_package(),
                 config.member_toolchain.unwrap_or_default(),
@@ -1470,5 +1490,29 @@ mod test {
         assert!(message.contains(r#""lib": "3.45.3-build2","#));
         assert!(!message.contains("react"));
         assert!(!message.contains("@scope/shared"));
+    }
+
+    #[test]
+    fn collect_local_path_dependencies() {
+        let issues = collect_fixture_issues("fixtures/local-path-dependencies");
+
+        let root = issues.get(&PackageType::Root).unwrap();
+        assert_eq!(root.len(), 1);
+        assert_eq!(root[0].name(), "local-path-dependencies");
+
+        let web = issues
+            .get(&PackageType::Package(
+                "fixtures/local-path-dependencies/apps/web".to_string(),
+            ))
+            .unwrap();
+        assert_eq!(web.len(), 1);
+        assert_eq!(web[0].name(), "local-path-dependencies");
+        assert_eq!(web[0].level(), IssueLevel::Error);
+
+        colored::control::set_override(false);
+        let message = web[0].message();
+        assert!(message.contains(r#""@repo/ui": "workspace:*""#));
+        assert!(message.contains("file:./vendor/vendored.tgz"));
+        assert!(!message.contains("@repo/ui-tooling"));
     }
 }

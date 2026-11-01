@@ -1,0 +1,9 @@
+{
+  "name": "local-path-dependencies",
+  "private": true,
+  "packageManager": "pnpm@10.0.0",
+  "workspaces": ["packages/*", "apps/*"],
+  "devDependencies": {
+    "@repo/ui": "link:packages/ui"
+  }
+}

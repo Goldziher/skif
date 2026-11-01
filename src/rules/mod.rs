@@ -9,6 +9,7 @@ use std::{
 
 pub mod empty_dependencies;
 pub mod incompatible_peer_dependencies;
+pub mod local_path_dependencies;
 pub mod member_toolchain_fields;
 pub mod multiple_dependency_versions;
 pub mod non_existant_packages;

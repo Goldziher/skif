@@ -4,7 +4,7 @@ use anyhow::Result;
 use colored::Colorize;
 use std::{borrow::Cow, fmt::Display, fs, path::PathBuf};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DependencyKind {
     Dependencies,
     DevDependencies,
