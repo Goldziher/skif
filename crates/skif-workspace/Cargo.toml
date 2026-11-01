@@ -13,16 +13,17 @@ keywords = ["monorepo", "workspace", "npm", "pnpm", "package-json"]
 categories = ["development-tools"]
 
 [dependencies]
-globset = "0.4.21"
+globset.workspace = true
 indexmap.workspace = true
-jsonc-parser = "0.34.0"
+jsonc-parser.workspace = true
+rayon.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true
 serde_json.workspace = true
-skif-config = { path = "../skif-config", version = "0.0.0" }
-skif-core = { path = "../skif-core", version = "0.0.0" }
-skif-specifier = { path = "../skif-specifier", version = "0.0.0" }
-thiserror = "2.0.21"
+skif-config.workspace = true
+skif-core.workspace = true
+skif-specifier.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

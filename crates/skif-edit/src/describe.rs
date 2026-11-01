@@ -13,6 +13,7 @@ pub(crate) fn op(op: &FixOp) -> String {
                 JsonAction::Insert { .. } => "insert into",
                 JsonAction::SortKeys => "sort keys of",
                 JsonAction::RenameKey(_) => "rename",
+                _ => "edit",
             };
             format!("json {verb} {}", pointer_text(pointer))
         }
@@ -21,12 +22,14 @@ pub(crate) fn op(op: &FixOp) -> String {
                 YamlAction::Set(_) => "set",
                 YamlAction::Remove => "remove",
                 YamlAction::Append(_) => "append to",
+                _ => "edit",
             };
             format!("yaml {verb} {}", pointer_text(route))
         }
         FixOp::Text { path, edit } => format!("text edit {}..{} in {}", edit.start, edit.end, path.display()),
         FixOp::CreateFile { path, .. } => format!("create {}", path.display()),
         FixOp::DeleteFile { path } => format!("delete {}", path.display()),
+        _ => "unknown operation".to_owned(),
     }
 }
 

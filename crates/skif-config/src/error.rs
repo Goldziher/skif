@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 /// Everything that can go wrong while locating, reading, parsing or validating configuration.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ConfigError {
     /// The TOML is malformed, has an unknown key, or a value of the wrong type.
     #[error("{}", render(.path.as_deref(), .line.as_ref(), .column.as_ref(), .message))]

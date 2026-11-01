@@ -5,7 +5,7 @@ use std::path::Path;
 use serde_json::Value;
 use skif_config::{Config, PackageManager};
 
-use crate::fs::FileSystem;
+use skif_core::FileSystem;
 
 fn from_name(name: &str) -> Option<PackageManager> {
     match name {

@@ -34,7 +34,10 @@ fn key(name: &str) -> PathSeg {
 
 fn bench_json_edit(c: &mut Criterion) {
     let source = package_json();
-    let set = op(vec![key("dependencies"), key("dep-0250")], JsonAction::Set(json!("^9.9.9")));
+    let set = op(
+        vec![key("dependencies"), key("dep-0250")],
+        JsonAction::Set(json!("^9.9.9")),
+    );
     let remove = op(vec![key("dependencies"), key("dep-0100")], JsonAction::Remove);
     let insert = op(
         vec![key("dependencies")],
@@ -45,10 +48,18 @@ fn bench_json_edit(c: &mut Criterion) {
         },
     );
     let sort = op(vec![key("dependencies")], JsonAction::SortKeys);
-    let rename = op(vec![key("dependencies"), key("dep-0300")], JsonAction::RenameKey("dep-renamed".to_owned()));
+    let rename = op(
+        vec![key("dependencies"), key("dep-0300")],
+        JsonAction::RenameKey("dep-renamed".to_owned()),
+    );
     let many_sets: Vec<FixOp> = (0..DEPENDENCIES)
         .step_by(5)
-        .map(|i| op(vec![key("dependencies"), key(&format!("dep-{i:04}"))], JsonAction::Set(json!("^2.0.0"))))
+        .map(|i| {
+            op(
+                vec![key("dependencies"), key(&format!("dep-{i:04}"))],
+                JsonAction::Set(json!("^2.0.0")),
+            )
+        })
         .collect();
 
     let cases: Vec<(&str, Vec<&FixOp>)> = vec![
@@ -62,7 +73,10 @@ fn bench_json_edit(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("skif-edit/json_500_deps");
     for (name, ops) in &cases {
-        assert!(apply(&source, FileKind::Json, ops).is_ok(), "{name} must be a valid edit");
+        assert!(
+            apply(&source, FileKind::Json, ops).is_ok(),
+            "{name} must be a valid edit"
+        );
         group.bench_function(format!("apply/{name}"), |b| {
             b.iter(|| black_box(apply(black_box(&source), FileKind::Json, black_box(ops))));
         });

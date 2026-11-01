@@ -1,6 +1,7 @@
 //! Runs hyperfine for skif and the optional comparison tools, then writes the summary.
 
 use std::env;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -132,7 +133,13 @@ fn quote(argument: &str) -> String {
 }
 
 fn skif_command(skif: &Path, extra: &[String], no_js: bool) -> String {
-    let mut parts = vec![quote(&skif.to_string_lossy()), ".".to_owned(), "--format".into(), "json".into(), "--no-install".into()];
+    let mut parts = vec![
+        quote(&skif.to_string_lossy()),
+        ".".to_owned(),
+        "--format".into(),
+        "json".into(),
+        "--no-install".into(),
+    ];
     if no_js {
         parts.push("--no-js".into());
     }
@@ -186,7 +193,7 @@ fn read_results(export: &Path) -> Result<Vec<HyperfineResult>> {
         .results)
 }
 
-fn tool_results(results: Vec<HyperfineResult>) -> Vec<ToolResult> {
+fn tool_results(results: &[HyperfineResult]) -> Vec<ToolResult> {
     let mean_of = |label: &str| results.iter().find(|r| r.command == label).map(|r| r.mean);
     let manifest_mean = mean_of(Tool::SkifManifest.label());
     let full_mean = mean_of(Tool::Skif.label());
@@ -221,7 +228,10 @@ fn checks(targets: &[TargetResult]) -> Vec<TargetCheck> {
         {
             out.push(TargetCheck {
                 target: target.target.clone(),
-                description: format!("manifest and policy rules < {MANIFEST_TARGET_MS} ms (measured {:.1} ms)", skif.mean_ms),
+                description: format!(
+                    "manifest and policy rules < {MANIFEST_TARGET_MS} ms (measured {:.1} ms)",
+                    skif.mean_ms
+                ),
                 passed: skif.mean_ms < MANIFEST_TARGET_MS,
             });
         }
@@ -240,45 +250,57 @@ fn checks(targets: &[TargetResult]) -> Vec<TargetCheck> {
 }
 
 fn format_ms(value: f64) -> String {
-    if value >= 100.0 { format!("{value:.0}") } else { format!("{value:.1}") }
+    if value >= 100.0 {
+        format!("{value:.0}")
+    } else {
+        format!("{value:.1}")
+    }
 }
 
 fn markdown(summary: &Summary) -> String {
     let mut out = String::from("# skif benchmark results\n\n");
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "hyperfine `{}`, {} warmup runs, {} measured runs. Times are wall clock, warm file cache.\n\n",
         summary.hyperfine, summary.warmup, summary.runs
-    ));
+    );
     if !summary.skipped_tools.is_empty() {
-        out.push_str(&format!("Skipped (not installed): {}.\n\n", summary.skipped_tools.join(", ")));
+        let _ = write!(
+            out,
+            "Skipped (not installed): {}.\n\n",
+            summary.skipped_tools.join(", ")
+        );
     }
     for target in &summary.targets {
-        out.push_str(&format!("## {}\n\n", target.target));
+        let _ = write!(out, "## {}\n\n", target.target);
         out.push_str("| Tool | Mean (ms) | Std dev (ms) | Median (ms) | Min (ms) | Max (ms) | vs skif |\n");
         out.push_str("| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n");
         for r in &target.results {
-            out.push_str(&format!(
-                "| {} | {} | {} | {} | {} | {} | {} |\n",
+            let _ = writeln!(
+                out,
+                "| {} | {} | {} | {} | {} | {} | {} |",
                 r.tool,
                 format_ms(r.mean_ms),
                 r.stddev_ms.map_or_else(|| "-".to_owned(), format_ms),
                 format_ms(r.median_ms),
                 format_ms(r.min_ms),
                 format_ms(r.max_ms),
-                r.relative_to_skif.map_or_else(|| "-".to_owned(), |x| format!("{x:.1}x")),
-            ));
+                r.relative_to_skif
+                    .map_or_else(|| "-".to_owned(), |x| format!("{x:.1}x")),
+            );
         }
         out.push('\n');
     }
     if !summary.adr_0001_checks.is_empty() {
         out.push_str("## ADR 0001 targets\n\n| Target | Check | Result |\n| --- | --- | --- |\n");
         for check in &summary.adr_0001_checks {
-            out.push_str(&format!(
-                "| {} | {} | {} |\n",
+            let _ = writeln!(
+                out,
+                "| {} | {} | {} |",
                 check.target,
                 check.description,
                 if check.passed { "pass" } else { "FAIL" }
-            ));
+            );
         }
         out.push('\n');
     }
@@ -313,8 +335,12 @@ fn available_tools(skipped: &mut Vec<String>) -> Vec<Tool> {
 /// Fails when hyperfine or skif is missing, the corpus cannot be fetched, or a measurement fails.
 pub fn run(options: &RunOptions) -> Result<()> {
     let version = hyperfine_version()?;
-    let skif = fs::canonicalize(&options.skif)
-        .with_context(|| format!("skif binary not found at {} (build it or pass --skif)", options.skif.display()))?;
+    let skif = fs::canonicalize(&options.skif).with_context(|| {
+        format!(
+            "skif binary not found at {} (build it or pass --skif)",
+            options.skif.display()
+        )
+    })?;
     let raw = options.out.join("raw");
     fs::create_dir_all(&raw).with_context(|| format!("creating {}", raw.display()))?;
 
@@ -323,7 +349,9 @@ pub fn run(options: &RunOptions) -> Result<()> {
 
     let mut targets = Vec::new();
     for &size in &options.sizes {
-        let dir = options.generated_dir.join(format!("{}-{size}", options.package_manager.as_str()));
+        let dir = options
+            .generated_dir
+            .join(format!("{}-{size}", options.package_manager.as_str()));
         if dir.exists() {
             fs::remove_dir_all(&dir).with_context(|| format!("cleaning {}", dir.display()))?;
         }
@@ -372,7 +400,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
             target: target.name.clone(),
             kind: target.kind,
             packages: target.packages,
-            results: tool_results(read_results(&export)?),
+            results: tool_results(&read_results(&export)?),
         });
     }
 
@@ -384,7 +412,10 @@ pub fn run(options: &RunOptions) -> Result<()> {
         adr_0001_checks: checks(&measured),
         targets: measured,
     };
-    fs::write(options.out.join("summary.json"), serde_json::to_string_pretty(&summary)? + "\n")?;
+    fs::write(
+        options.out.join("summary.json"),
+        serde_json::to_string_pretty(&summary)? + "\n",
+    )?;
     let table = markdown(&summary);
     fs::write(options.out.join("summary.md"), &table)?;
     println!("{table}");
@@ -416,7 +447,7 @@ mod tests {
 
     #[test]
     fn relative_times_use_the_matching_skif_row() {
-        let rows = tool_results(vec![
+        let rows = tool_results(&[
             result("skif", 0.1),
             result("skif --no-js", 0.02),
             result("sherif", 0.04),

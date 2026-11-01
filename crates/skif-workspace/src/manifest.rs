@@ -1,57 +1,23 @@
-//! `package.json` parsing: one pass produces the JSON value, the line index and every dependency span.
+//! `package.json` parsing: one pass produces the JSON value, the line index, the span table and every dependency
+//! entry with its parsed specifier.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use jsonc_parser::ast::{self, ObjectPropName};
 use jsonc_parser::common::{Range, Ranged};
 use jsonc_parser::{CollectOptions, ParseOptions, parse_to_ast};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use skif_core::{LineIndex, PathSeg, Span};
+use skif_core::{DependencyKind, LineIndex, PathSeg, Span};
+use skif_specifier::Specifier;
 
 use crate::error::WorkspaceError;
 
 const BOM: char = '\u{feff}';
 
-/// The dependency sections of a `package.json`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum DependencyKind {
-    /// `dependencies`
-    Dependencies,
-    /// `devDependencies`
-    DevDependencies,
-    /// `peerDependencies`
-    PeerDependencies,
-    /// `optionalDependencies`
-    OptionalDependencies,
-}
-
-impl DependencyKind {
-    /// Every kind, in the order manifests conventionally list them.
-    pub const ALL: [Self; 4] = [
-        Self::Dependencies,
-        Self::DevDependencies,
-        Self::PeerDependencies,
-        Self::OptionalDependencies,
-    ];
-
-    /// The `package.json` field name, e.g. `"devDependencies"`.
-    #[must_use]
-    pub const fn field(self) -> &'static str {
-        match self {
-            Self::Dependencies => "dependencies",
-            Self::DevDependencies => "devDependencies",
-            Self::PeerDependencies => "peerDependencies",
-            Self::OptionalDependencies => "optionalDependencies",
-        }
-    }
-
-    fn from_field(field: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|kind| kind.field() == field)
-    }
-}
+/// Pointers up to this many segments long are recorded in the span table.
+const SPAN_DEPTH: usize = 3;
 
 /// One `"name": "specifier"` entry of a dependency section.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +28,8 @@ pub struct DependencyEntry {
     pub name: String,
     /// The specifier exactly as written.
     pub specifier: String,
+    /// The specifier parsed once during discovery.
+    pub parsed: Arc<Specifier>,
     /// Span of the key string, quotes included.
     pub key_span: Span,
     /// Span of the value string, quotes included.
@@ -79,6 +47,7 @@ pub struct Manifest {
     pub line_index: Arc<LineIndex>,
     /// The parsed document; key order is preserved.
     pub value: Value,
+    spans: HashMap<Box<[PathSeg]>, Span>,
 }
 
 pub(crate) fn to_u32(n: usize) -> u32 {
@@ -137,6 +106,45 @@ fn shift(range: Range, bom: usize, line_index: &LineIndex) -> Span {
     line_index.span(to_u32(range.start + bom), to_u32(range.end + bom))
 }
 
+struct Spans<'a> {
+    bom: usize,
+    line_index: &'a LineIndex,
+    path: Vec<PathSeg>,
+    table: HashMap<Box<[PathSeg]>, Span>,
+}
+
+impl Spans<'_> {
+    fn insert(&mut self, range: Range) {
+        let span = shift(range, self.bom, self.line_index);
+        self.table.insert(self.path.as_slice().into(), span);
+    }
+
+    fn record(&mut self, value: &ast::Value<'_>) {
+        if self.path.len() >= SPAN_DEPTH {
+            return;
+        }
+        match value {
+            ast::Value::Object(object) => {
+                for prop in &object.properties {
+                    self.path.push(PathSeg::Key(prop_name(&prop.name).to_owned()));
+                    self.insert(Range::new(prop.name.range().start, prop.value.range().end));
+                    self.record(&prop.value);
+                    self.path.pop();
+                }
+            }
+            ast::Value::Array(array) => {
+                for (index, element) in array.elements.iter().enumerate() {
+                    self.path.push(PathSeg::Index(index));
+                    self.insert(element.range());
+                    self.record(element);
+                    self.path.pop();
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 impl Manifest {
     /// Parses a manifest and collects its dependency entries in file order.
     ///
@@ -172,12 +180,23 @@ impl Manifest {
                         kind,
                         name: prop_name(&dependency.name).to_owned(),
                         specifier: specifier.value.to_string(),
+                        parsed: Specifier::new(&specifier.value),
                         key_span: shift(dependency.name.range(), bom, &line_index),
                         value_span: shift(specifier.range, bom, &line_index),
                     });
                 }
             }
         }
+
+        let mut spans = Spans {
+            bom,
+            line_index: &line_index,
+            path: Vec::new(),
+            table: HashMap::new(),
+        };
+        spans.insert(root.range());
+        spans.record(&root);
+        let spans = spans.table;
 
         let value = to_json(&root);
         Ok((
@@ -186,37 +205,20 @@ impl Manifest {
                 source,
                 line_index,
                 value,
+                spans,
             },
             entries,
         ))
     }
 
     /// The span of the node at `pointer`: for an object key, the whole entry from the key through its value; for an
-    /// array index, the element; for an empty pointer, the whole document. `None` when the path does not exist.
+    /// array index, the element; for an empty pointer, the whole document. `None` when the path does not exist or is
+    /// longer than three segments.
+    ///
+    /// A lookup in the table recorded while parsing; the file is not parsed again. With duplicate keys the last one
+    /// wins, as in the JSON value.
     #[must_use]
     pub fn field_span(&self, pointer: &[PathSeg]) -> Option<Span> {
-        let (root, bom) = parse_ast(&self.source).ok()?;
-        let mut current = &root;
-        let mut range = root.range();
-        for segment in pointer {
-            match (segment, current) {
-                (PathSeg::Key(key), ast::Value::Object(object)) => {
-                    let prop = object
-                        .properties
-                        .iter()
-                        .rev()
-                        .find(|prop| prop_name(&prop.name) == key.as_str())?;
-                    range = Range::new(prop.name.range().start, prop.value.range().end);
-                    current = &prop.value;
-                }
-                (PathSeg::Index(index), ast::Value::Array(array)) => {
-                    let element = array.elements.get(*index)?;
-                    range = element.range();
-                    current = element;
-                }
-                _ => return None,
-            }
-        }
-        Some(shift(range, bom, &self.line_index))
+        self.spans.get(pointer).copied()
     }
 }

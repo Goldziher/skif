@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use {
     criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main},
     skif_core::{Diagnostic, LineIndex, Location, Report, RuleId, Severity},
@@ -9,9 +10,9 @@ fn document(lines: usize, utf8: bool) -> String {
     let mut out = String::with_capacity(lines * 48);
     for i in 0..lines {
         if utf8 && i % 3 == 0 {
-            out.push_str(&format!("  \"description-{i}\": \"naïve café – 日本語 🚀 entry\",\n"));
+            let _ = writeln!(out, "  \"description-{i}\": \"naïve café – 日本語 🚀 entry\",");
         } else {
-            out.push_str(&format!("  \"@scope/package-{i}\": \"^{}.{}.{}\",\n", i % 20, i % 30, i % 40));
+            let _ = writeln!(out, "  \"@scope/package-{i}\": \"^{}.{}.{}\",", i % 20, i % 30, i % 40);
         }
     }
     out
@@ -94,7 +95,11 @@ fn bench_report(c: &mut Criterion) {
     let mut group = c.benchmark_group("Report");
     group.sample_size(30);
     group.bench_function("new_10k", |b| {
-        b.iter_batched(|| diagnostics(10_000), |input| Report::new(input, 500), BatchSize::LargeInput);
+        b.iter_batched(
+            || diagnostics(10_000),
+            |input| Report::new(input, 500),
+            BatchSize::LargeInput,
+        );
     });
     group.finish();
 }
