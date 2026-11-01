@@ -55,31 +55,40 @@ Library crates **must**:
 * return `Result` with typed errors (`thiserror`) at every fallible boundary;
 * make all public types that cross a thread boundary `Send + Sync`, asserted by a compile-time
   test per crate (`const _: fn() = || { fn assert<T: Send + Sync>() {} assert::<Linter>(); };`);
-* read files only through the `FileSystem` trait in `skif-workspace` ([ADR 0005](0005-workspace-discovery.md)), with an OS
-  implementation as the default and an in-memory one for tests and for hosts that hold unsaved
-  buffers;
+* read files only through the `FileSystem` trait defined in `skif-core`, with `OsFs` as the default
+  and `MemoryFs` for tests and for hosts that hold unsaved buffers. This covers workspace discovery
+  ([ADR 0005](0005-workspace-discovery.md)) and configuration loading and discovery
+  ([ADR 0004](0004-configuration-model.md)); `OsFs` is the only type in the library crates that
+  touches `std::fs`;
 * run parallel work on a caller-supplied rayon `ThreadPool` when one is given (`Linter::run_with`),
   and on the global pool otherwise.
 
 **Fixes are data.** A rule returns `Fix` values; `skif::apply_fixes` turns the selected fixes into a
-`FixPlan` of `FileChange { path, edits: Vec<TextEdit> }` ([ADR 0008](0008-fix-and-edit-model.md)) and returns it. Writing the plan
+`FixPlan` of `FileChange` values (modify, create or delete a file, [ADR 0008](0008-fix-and-edit-model.md)) and returns it. Writing the plan
 to disk is the CLI's job, or the host's. An interactive choice between fix alternatives is a CLI
 feature built on the alternatives a rule returns, not a prompt inside the rule.
 
 **No oxc type appears in a public signature.** `skif-js-syntax` converts oxc's AST and module record
 into skif-owned `ModuleInfo` values before returning ([ADR 0010](0010-js-analysis-on-oxc.md)). Spans cross the boundary as
-`skif_core::Span` (byte offsets plus 1-based line and column), which is the shape poly's own `Span`
-uses, so a host maps them without re-reading the file.
+`skif_core::Span` (`u32` UTF-8 byte offsets plus 1-based line and column, [ADR 0007](0007-rule-and-diagnostic-model.md)), which is the shape poly's own `Span`
+uses, so a host maps them without re-reading the file. **No `serde_json::Value`, `toml::Value`,
+`nodejs_semver` or `rayon` type appears in the facade's public signatures** either: option values,
+JSON edits and version ranges cross the API as skif-owned types, so a dependency upgrade is not a
+breaking change of `skif`.
 
 The facade `skif` exposes the embedding surface:
 
 ```rust
-let config = skif::load_config(root, overrides)?;
-let workspace = skif::Workspace::discover_with_fs(root, &config, fs)?;
-let linter = skif::Linter::new(&config)?;
+let root = skif::find_workspace_root(start, &fs)?;           // nearest ancestor that declares a workspace
+let config = skif::load_config(&root, &fs, overrides)?;      // skif.toml / .skif.toml through the FileSystem
+let workspace = skif::Workspace::discover_with_fs(&root, &config, &fs)?;
+let linter = skif::Linter::new(&config)?;                    // registry validates every rule's options
 let report = linter.run_with(&workspace, &pool)?;
 let plan = skif::apply_fixes(&workspace, &report, &selection)?;
 ```
+
+`Linter::new` fails with a configuration error when a `[rules]` table holds an unknown option for
+its rule ([ADR 0004](0004-configuration-model.md)); a host never sees an option error at lint time.
 
 Cargo features on `skif` select what is compiled:
 
@@ -112,26 +121,33 @@ own oxc; a host turns it on only when it can accept skif's pinned oxc.
 
 ### Confirmation
 
-* A compile-time test per crate asserts `Send + Sync` for the public types that cross a thread boundary.
-* Tests run every rule against the in-memory `FileSystem` implementation.
-* Reviewers reject library code that calls `std::process::exit`, prints, prompts, reads the environment or cwd, or writes files.
+* Each library crate has a `const _: fn() = || { ... }` test asserting `Send + Sync` for its public types; `cargo test --workspace` fails to compile without it.
+* The rule, workspace and config tests run against `MemoryFs`; a `cargo test -p skif-workspace` case discovers a workspace with no file on disk.
+* `clippy.toml` lists `std::process::exit`, `std::env::var`, `std::env::current_dir` and `std::fs::*` under `disallowed-methods` (and `clippy::print_stdout`, `clippy::print_stderr` are denied in `[workspace.lints]`); only `skif-cli` and `OsFs` opt out with a scoped `#[allow]`, and `clippy -D warnings` in the `lint` job fails the build on any other use.
+* A `skif` facade test runs the embedding example above end to end against `MemoryFs` and asserts that `apply_fixes` returns a `FixPlan` while the file system is unchanged.
+* A rustdoc-JSON test over `skif` (run by `mise run test`) asserts that no `oxc_*`, `serde_json::Value`, `toml::Value`, `nodejs_semver` or `rayon` path appears in a public signature.
 
 ## Pros and Cons of the Options
 
 ### Pure-function library crates, with the CLI as one consumer of the library
 
-* Good, because it satisfies the decision drivers above; the benefits are listed under Consequences.
+* Good, because the host controls IO, threads, caching and printing, and tests need no process or temporary directory.
+* Good, because the cwd-relative fix bug class cannot be reintroduced: no library code knows what the cwd is.
+* Bad, because every capability that is a line in a CLI (read an environment variable, print a warning) must be threaded through a type, and the `FileSystem` indirection is public API.
 
 ### Embed by spawning the CLI with `--format json`
 
+* Good, because it needs no library API and works from any language.
 * Bad, because it costs a process per run, a binary version that can drift from the host, and no access to edits or to in-memory buffers.
 
 ### Expose oxc's `Program` and `ModuleRecord` to hosts that already use oxc
 
+* Good, because a host that already holds a parsed program would not parse twice.
 * Bad, because it ties skif's semver to oxc's weekly breaking releases and breaks the moment the host's oxc revision differs from skif's.
 
 ### A callback-based reporter instead of a returned `Report`
 
+* Good, because diagnostics could stream to the user as rules finish.
 * Bad, because a returned value is deterministic, sortable and trivially testable; streaming can be layered on later without changing the rules. (rejected for the primary API)
 
 ## More Information
