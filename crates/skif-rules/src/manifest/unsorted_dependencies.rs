@@ -42,6 +42,7 @@ impl Rule for UnsortedDependencies {
                 out.emit(
                     diagnostic(&META, format!("`{field}` is not sorted alphabetically"), location)
                         .package(package.display_name())
+                        .package_id(package.id)
                         .dependency(keys[first])
                         .help(format!(
                             "sort the keys of `{field}`; `{}` should come before `{}`",

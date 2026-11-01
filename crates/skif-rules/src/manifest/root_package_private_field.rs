@@ -44,6 +44,7 @@ impl Rule for RootPackagePrivateField {
         out.emit(
             diagnostic(&META, message, location)
                 .package(root.display_name())
+                .package_id(root.id)
                 .help("set `\"private\": true` in the root package.json to prevent publishing it to a registry")
                 .fix(Fix {
                     title: "Set `private` to `true`".to_owned(),

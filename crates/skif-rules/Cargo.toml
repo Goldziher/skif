@@ -13,12 +13,14 @@ keywords = ["linter", "monorepo", "package-json", "rules", "skif"]
 categories = ["development-tools"]
 
 [dependencies]
+serde.workspace = true
 serde_json.workspace = true
 skif-config.workspace = true
 skif-core.workspace = true
 skif-lint.workspace = true
 skif-specifier.workspace = true
 skif-workspace.workspace = true
+toml.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
