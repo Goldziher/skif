@@ -103,7 +103,9 @@ mod tests {
         assert_eq!(built.rule.as_str(), "demo");
         assert_eq!(built.severity, Severity::Warning);
         assert_eq!(built.message, "message");
-        assert!(built.help.is_none() && built.package.is_none() && built.dependency.is_none() && built.detail.is_none());
+        assert!(
+            built.help.is_none() && built.package.is_none() && built.dependency.is_none() && built.detail.is_none()
+        );
         assert!(built.related.is_empty() && built.fixes.is_empty());
         assert!(!built.is_fixable());
     }

@@ -689,6 +689,7 @@ checksum = "b67d3d2e287e4b86c10b3f3b641033d1f89b74bdb39d05f34952e2b9a6fe21cd"
 dependencies = [
  "console",
  "once_cell",
+ "serde",
  "similar",
  "tempfile",
 ]
@@ -1325,12 +1326,14 @@ dependencies = [
 name = "skif-config"
 version = "0.0.0"
 dependencies = [
+ "globset",
  "indexmap",
  "schemars",
  "serde",
  "serde_json",
  "skif-core",
  "strsim",
+ "tempfile",
  "thiserror",
  "toml",
 ]
@@ -1344,6 +1347,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
 ]
 
@@ -1373,11 +1377,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "skif-report"
+version = "0.0.0"
+dependencies = [
+ "insta",
+ "serde",
+ "serde_json",
+ "skif-core",
+]
+
+[[package]]
 name = "skif-specifier"
 version = "0.0.0"
 dependencies = [
  "criterion",
  "nodejs-semver",
+ "proptest",
 ]
 
 [[package]]
@@ -1387,6 +1402,7 @@ dependencies = [
  "globset",
  "indexmap",
  "jsonc-parser",
+ "rayon",
  "serde",
  "serde-saphyr",
  "serde_json",

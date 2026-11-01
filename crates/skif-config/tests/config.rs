@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use skif_config::{
     Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, ForbidMode, IgnoreEntry, Level,
-    MemberToolchainFieldsOptions, PackageManager, PluginConfig, Prefer, RuleConfig, RuleOptions, SemverRange,
-    Selector, VersionPolicy, discover,
+    MemberToolchainFieldsOptions, PackageManager, PluginConfig, Prefer, RuleConfig, RuleOptions, Selector, SemverRange,
+    VersionPolicy, discover,
 };
 use skif_core::Severity;
 
@@ -79,8 +79,16 @@ fn selectors_in_the_config_are_compiled() {
     assert!(!config.workspace.ignore_packages.matches("core", false));
     let group = &config.version_groups[0];
     assert!(group.packages.matches("@scope/app", true) && !group.packages.matches("@scope/legacy", true));
-    assert!(group.dependency_types.matches(skif_config::DependencyKind::Dependencies));
-    assert!(!group.dependency_types.matches(skif_config::DependencyKind::PeerDependencies));
+    assert!(
+        group
+            .dependency_types
+            .matches(skif_config::DependencyKind::Dependencies)
+    );
+    assert!(
+        !group
+            .dependency_types
+            .matches(skif_config::DependencyKind::PeerDependencies)
+    );
 }
 
 #[test]

@@ -13,7 +13,7 @@ skif draws on four upstream projects in four different ways:
 | Project | License | Relationship |
 | --- | --- | --- |
 | sherif (QuiiBz/sherif) | MIT, © 2023 Tom Lienard | this repository is a fork; some rule logic and fixtures are ported |
-| syncpack (JamieMason/syncpack) | MIT, © 2017-2023 Jamie Mason | `syncpack-specifier` and `pattern_matcher` vendored ([ADR 0006](0006-specifier-and-semver-model.md), [ADR 0009](0009-version-and-catalog-policies.md)); group semantics re-implemented |
+| syncpack (JamieMason/syncpack) | MIT, © 2017-2023 Jamie Mason | `syncpack-specifier` vendored ([ADR 0006](0006-specifier-and-semver-model.md)); group semantics, instance states and selector matching re-implemented from the specification ([ADR 0009](0009-version-and-catalog-policies.md)) |
 | knip (webpro-nl/knip) | ISC, © 2022-2026 Lars Kappert | semantics re-implemented as a specification ([ADR 0010](0010-js-analysis-on-oxc.md), [ADR 0011](0011-plugin-model.md)); fixtures may be adapted |
 | fallow (fallow-rs/fallow) | MIT | design reference only |
 
@@ -98,26 +98,32 @@ they cover.
 
 ### Confirmation
 
-* Reviewers check headers and modification lists on every vendor or re-vendor.
-* `ATTRIBUTIONS.md` gets a section in the same commit that first copies code or data from an upstream, and a release ships it.
-* Boundaries between ported and rewritten code are judged in review.
+* The `consistency` job fails when a file under `crates/skif-specifier/src/` lacks the vendored-from header, or when `ATTRIBUTIONS.md` lacks a section for an upstream named in the table above or lacks the `### Modifications` list and full license text in a section.
+* The same job fails when a header names a commit that differs from the one recorded in `ATTRIBUTIONS.md` for that upstream.
+* A test fixture adapted from knip carries its header or sibling `ATTRIBUTION` note; the job lists fixture directories without one and fails on the first.
+* `cargo package --list` in the `build` job shows `LICENSE` and `ATTRIBUTIONS.md` in every published crate's archive (each crate's `include` names them), so a release ships the notices.
+* Review still judges the boundary between ported and rewritten sherif code; that part is not mechanically checkable, so the pull request that ports code lists the ported files in its description.
 
 ## Pros and Cons of the Options
 
 ### Depend, vendor, re-implement or reference only, with per-file headers and ATTRIBUTIONS.md
 
-* Good, because it satisfies the decision drivers above; the benefits are listed under Consequences.
+* Good, because each upstream gets one concrete question, every copied line is traceable from the file itself, and one auditable file meets the MIT and ISC obligations.
+* Bad, because headers and modification lists have to be maintained on every re-vendor, the ported-versus-rewritten boundary is a judgement, and "reference only" relies on discipline rather than tooling.
 
 ### Keep upstream notices in `LICENSE`
 
+* Good, because there is one license file to read.
 * Bad, because it conflates skif's license with the notices of code it contains, and grows unreadable as upstreams are added.
 
 ### A `third_party/` directory for all vendored code
 
+* Good, because all vendored code would be in one obvious place.
 * Bad, because vendored code must sit in the crate that compiles it ([ADR 0002](0002-crate-layout-and-publishing.md)); headers plus `ATTRIBUTIONS.md` give the same traceability.
 
 ### Depend on syncpack's crates and patch them with `[patch]`
 
+* Good, because it avoids copying code at all.
 * Bad, because a patched dependency cannot be published to crates.io, which every skif crate is ([ADR 0002](0002-crate-layout-and-publishing.md)).
 
 ## More Information

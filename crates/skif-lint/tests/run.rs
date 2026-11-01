@@ -3,8 +3,8 @@
 mod common;
 
 use std::sync::Arc;
-use std::time::Duration;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::Duration;
 
 use common::{FixedRule, config, item, leak_meta, location, workspace};
 use skif_core::{Report, RuleMeta, Severity};
@@ -45,14 +45,18 @@ fn many_rules() -> Registry {
             let rules: Vec<Box<dyn Rule>> = (0..RULES)
                 .map(|i| {
                     let meta = leak_meta(&format!("p{p}-rule-{i}"), Some(Severity::Warning));
-                    let items = (0..PER_RULE).rev().map(|j| item(&message(p, i, j), None, None)).collect();
+                    let items = (0..PER_RULE)
+                        .rev()
+                        .map(|j| item(&message(p, i, j), None, None))
+                        .collect();
                     Box::new(Jittery {
                         inner: FixedRule { meta, items },
                         delay: Duration::from_millis(u64::try_from(RULES - i).unwrap() * 2),
                     }) as Box<dyn Rule>
                 })
                 .collect();
-            Box::new(RulesProvider::new(Box::leak(format!("p{p}").into_boxed_str()), rules)) as Box<dyn skif_lint::RuleProvider>
+            Box::new(RulesProvider::new(Box::leak(format!("p{p}").into_boxed_str()), rules))
+                as Box<dyn skif_lint::RuleProvider>
         })
         .collect();
     Registry::new(providers).unwrap()
@@ -79,7 +83,10 @@ fn merge_order_is_providers_then_rules_then_emission_regardless_of_scheduling() 
     let expected = merge_order();
     let mut sorted = expected.clone();
     sorted.sort();
-    assert_ne!(expected, sorted, "the expectation must differ from a sorted list to detect merge bugs");
+    assert_ne!(
+        expected, sorted,
+        "the expectation must differ from a sorted list to detect merge bugs"
+    );
 
     let pools = pools();
     let messages = |options: &RunOptions<'_>| -> Vec<String> {
@@ -108,7 +115,10 @@ fn report_is_the_sorted_merge_and_identical_across_runs_and_pools() {
     let ws = workspace(&cfg);
     let unsorted = run_unsorted(&registry, &ws, &cfg, &RunOptions::default()).unwrap();
     let expected = Report::new(unsorted.clone(), ws.all_packages().count());
-    assert_ne!(expected.diagnostics, unsorted, "sorting must change the merge order for this to mean anything");
+    assert_ne!(
+        expected.diagnostics, unsorted,
+        "sorting must change the merge order for this to mean anything"
+    );
     let pools = pools();
     for _ in 0..5 {
         assert_eq!(run(&registry, &ws, &cfg, &RunOptions::default()).unwrap(), expected);

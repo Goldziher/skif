@@ -80,8 +80,8 @@ impl Selector {
                 }
                 continue;
             }
-            let glob = Glob::new(body)
-                .map_err(|error| format!("invalid selector pattern \"{pattern}\": {}", error.kind()))?;
+            let glob =
+                Glob::new(body).map_err(|error| format!("invalid selector pattern \"{pattern}\": {}", error.kind()))?;
             if negated {
                 exclude.add(glob);
             } else {
@@ -200,7 +200,11 @@ mod tests {
             (&["x", "$LOCAL"],          "y",           true,  true),
         ];
         for &(patterns, name, local, expected) in cases {
-            assert_eq!(selector(patterns).matches(name, local), expected, "{patterns:?} vs {name} local={local}");
+            assert_eq!(
+                selector(patterns).matches(name, local),
+                expected,
+                "{patterns:?} vs {name} local={local}"
+            );
         }
     }
 
@@ -229,7 +233,10 @@ mod tests {
         for pattern in ["a[", "!{a", "", "!"] {
             let error = Selector::new([pattern]).unwrap_err();
             assert!(matches!(error, ConfigError::Invalid { .. }), "{pattern}");
-            assert!(error.to_string().contains(&format!("\"{pattern}\"")), "{pattern}: {error}");
+            assert!(
+                error.to_string().contains(&format!("\"{pattern}\"")),
+                "{pattern}: {error}"
+            );
         }
     }
 

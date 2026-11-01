@@ -3,10 +3,6 @@
     clippy::match_same_arms,
     reason = "parser arms are grouped by leading byte with explanatory comments; merging them would hide the dispatch table"
 )]
-#![allow(
-    clippy::missing_panics_doc,
-    reason = "the only panics are expects on values the parser validated before constructing the variant"
-)]
 
 use {
     crate::{
@@ -31,9 +27,13 @@ mod get_node_range_test;
 mod get_semver_number_test;
 pub mod git;
 #[cfg(test)]
+mod hardening_test;
+#[cfg(test)]
 mod has_same_release_channel_as_test;
 #[cfg(test)]
 mod has_same_version_number_as_test;
+#[cfg(test)]
+mod proptest_test;
 
 #[cfg(test)]
 mod is_eligible_update_for_test;
@@ -205,7 +205,13 @@ impl Specifier {
                 }
             }
             // Star/latest
-            Some(b'*') => Latest::create(value),
+            Some(b'*') => {
+                if value == "*" {
+                    Latest::create(value)
+                } else {
+                    Self::Unsupported(value.to_string())
+                }
+            }
             // Workspace protocol
             Some(b'w') => {
                 if value.starts_with("workspace:") {
@@ -278,11 +284,11 @@ impl Specifier {
                     Self::Unsupported(value.to_string())
                 }
             }
-            // "x" is latest
-            Some(b'x') => Latest::create(value),
-            // Any other alphabetic char → tag
+            // Any other alphabetic char → tag, except the "x"/"X" wildcard
             Some(b) if b.is_ascii_alphabetic() => {
-                if parser::is_tag(value) {
+                if matches!(value, "x" | "X") {
+                    Latest::create(value)
+                } else if parser::is_tag(value) {
                     Tag::create(value)
                 } else {
                     Self::Unsupported(value.to_string())
@@ -302,6 +308,7 @@ impl Specifier {
     /// - "npm:lodash@^4.17.21" -> "alias"
     /// - "^16.11.10" -> "range"
     /// - ""1.2.3" -> "exact"
+    #[must_use]
     pub fn get_config_identifier(&self) -> &'static str {
         match self {
             Self::Alias(_) => ALIAS,
@@ -332,6 +339,7 @@ impl Specifier {
     /// - "npm:lodash@^4.17.21" -> Some("4.17.21")
     /// - ">=16.11.10" -> Some("16.11.10")
     /// - "npm:express" -> None
+    #[must_use]
     pub fn get_semver_number(&self) -> Option<&str> {
         match self {
             Self::Alias(s) => s.inner_specifier.get_semver_number(),
@@ -364,6 +372,7 @@ impl Specifier {
     /// Examples:
     /// - "1.2.3" → Arc(Version("1.2.3"))
     /// - "^1.2.3" → Arc(Version("1.2.3"))
+    #[must_use]
     pub fn get_node_version(&self) -> Option<Arc<nodejs_semver::Version>> {
         match self {
             Self::Alias(s) => s.inner_specifier.get_node_version(),
@@ -396,6 +405,7 @@ impl Specifier {
     /// Examples:
     /// - "1.2.3" → Arc(Range("1.2.3"))
     /// - "^1.2.3" → Arc(Range("^1.2.3"))
+    #[must_use]
     pub fn get_node_range(&self) -> Option<Arc<nodejs_semver::Range>> {
         match self {
             Self::Alias(s) => s.inner_specifier.get_node_range(),
@@ -430,7 +440,7 @@ impl Specifier {
             }
             Self::Major(m) => {
                 // "1" → ">=1.0.0 <2.0.0"
-                let range_str = format!(">={}.0.0 <{}.0.0", m.raw, m.raw.parse::<u64>().ok()? + 1);
+                let range_str = format!(">={}.0.0 <{}.0.0", m.raw, m.raw.parse::<u64>().ok()?.checked_add(1)?);
                 Self::new_node_range(&range_str)
             }
             Self::Minor(m) => {
@@ -440,8 +450,8 @@ impl Specifier {
                     return None;
                 }
                 let major = parts[0];
-                let minor = parts[1].parse::<u64>().ok()?;
-                let range_str = format!(">={}.0 <{}.{}.0", m.raw, major, minor + 1);
+                let minor = parts[1].parse::<u64>().ok()?.checked_add(1)?;
+                let range_str = format!(">={}.0 <{}.{}.0", m.raw, major, minor);
                 Self::new_node_range(&range_str)
             }
             Self::Catalog(_)
@@ -455,6 +465,7 @@ impl Specifier {
     }
 
     /// Returns the type of semver range used in the specifier, if one exists.
+    #[must_use]
     pub fn get_semver_range(&self) -> Option<SemverRange> {
         match self {
             Self::Alias(s) => s.inner_specifier.get_semver_range(),
@@ -480,6 +491,7 @@ impl Specifier {
     }
 
     /// Get the raw specifier string that was used to create this Specifier.
+    #[must_use]
     pub fn get_raw(&self) -> &str {
         match self {
             Self::Alias(s) => &s.raw,
@@ -521,6 +533,7 @@ impl Specifier {
     /// - "npm:foo@^1" + "*" → "npm:foo"
     /// - "workspace:^1" + "*" → "workspace:*"
     /// - "git@github.com:npm/cli.git#^1" + "*" → "git@github.com:npm/cli.git"
+    #[must_use]
     pub fn with_range(&self, range: &SemverRange) -> Option<Arc<Self>> {
         if matches!(range, SemverRange::Any) {
             return match self {
@@ -629,6 +642,7 @@ impl Specifier {
     /// - "*" + "1.2.3" -> None
     /// - "npm:@scope/package@1.2.3" + "2.3.4" → Some("npm:@scope/package@2.3.4")
     /// - "npm:@scope/package@~1.2.3" + "2.3.4" → Some("npm:@scope/package@~2.3.4")
+    #[must_use]
     pub fn with_node_version(&self, node_version: &nodejs_semver::Version) -> Option<Arc<Self>> {
         let version_str = node_version.to_string();
 
@@ -755,6 +769,7 @@ impl Specifier {
     /// - "1.2.3-alpha.1" and "1.2.4-alpha.2" → true
     /// - "1.2.3-alpha.1" and "1.2.4-beta.1" → false
     /// - "1.2.3" and "1.2.4" → true (both stable)
+    #[must_use]
     pub fn has_same_release_channel_as(&self, other: &Self) -> bool {
         if !self.has_comparable_version() || !other.has_comparable_version() {
             return false;
@@ -796,6 +811,7 @@ impl Specifier {
     /// - "^1.4.1" and "~1.4.1" → true
     /// - "1.4.1" and "^1.4.1" → true
     /// - "1.4.1" and "1.4.2" → false
+    #[must_use]
     pub fn has_same_version_number_as(&self, other: &Self) -> bool {
         // Special case: unresolved workspace protocols with identical raw strings
         // should be considered equal (e.g., "workspace:*" == "workspace:*")
@@ -823,6 +839,7 @@ impl Specifier {
     /// - "1.1.0" can update "1.0.0" with `UpdateTarget::Minor` → true
     /// - "2.0.0" can update "1.0.0" with `UpdateTarget::Minor` → false
     /// - "1.2.3" can update "1.2.2" with `UpdateTarget::Patch` → true
+    #[must_use]
     pub fn is_eligible_update_for(&self, other: &Self, target: &UpdateTarget) -> bool {
         // Both must have comparable versions (excludes Latest)
         if !self.has_comparable_version() || !other.has_comparable_version() {
@@ -857,15 +874,18 @@ impl Specifier {
     /// - "workspace:^1.0.0" → true
     /// - "workspace:*" → true
     /// - "^1.0.0" → false
+    #[must_use]
     pub fn is_workspace_protocol(&self) -> bool {
         matches!(self, Self::WorkspaceProtocol(_))
     }
 
+    #[must_use]
     pub fn is_link(&self) -> bool {
         matches!(self, Self::Link(_))
     }
 
     /// Check if this specifier is a catalog protocol
+    #[must_use]
     pub fn is_catalog(&self) -> bool {
         matches!(self, Self::Catalog(_))
     }
@@ -883,6 +903,7 @@ impl Specifier {
     /// - "^1.0.0" satisfies `["^1.0.0", "~1.2.0"]` → true (range intersection)
     /// - ">1.4.2" satisfies `["1.4.2"]` → false (ranges don't intersect)
     /// - ">=1.4.2" satisfies `["1.4.2"]` → true (ranges intersect)
+    #[must_use]
     pub fn satisfies_all(&self, others: &[Arc<Specifier>]) -> bool {
         if let Specifier::None = self {
             false
@@ -920,9 +941,16 @@ impl Specifier {
 
 impl Ord for Specifier {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let semantic = self.cmp_semantic(other);
+        // Tie-break on the raw string so that `cmp == Equal` holds exactly when `==` does
+        semantic.then_with(|| self.get_raw().cmp(other.get_raw()))
+    }
+}
+
+impl Specifier {
+    fn cmp_semantic(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
 
-        // Extract version and range from both specifiers
         let self_version = self.get_node_version();
         let other_version = other.get_node_version();
 

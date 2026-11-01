@@ -487,7 +487,10 @@ fn span_table_covers_sections_entries_and_the_whole_document() {
 #[test]
 fn span_lookup_does_not_depend_on_reparsing_the_source() {
     let workspace = discover(
-        &[("package.json", r#"{"workspaces":["a"],"name":"r"}"#), ("a/package.json", "{}")],
+        &[
+            ("package.json", r#"{"workspaces":["a"],"name":"r"}"#),
+            ("a/package.json", "{}"),
+        ],
         &Config::default(),
     )
     .unwrap();
@@ -521,7 +524,10 @@ fn dependency_entries_carry_their_parsed_specifier() {
 
 #[test]
 fn package_ids_are_dense_and_follow_directory_order_even_with_broken_members() {
-    let mut files = vec![("package.json".to_owned(), r#"{"name":"root","workspaces":["p/*"]}"#.to_owned())];
+    let mut files = vec![(
+        "package.json".to_owned(),
+        r#"{"name":"root","workspaces":["p/*"]}"#.to_owned(),
+    )];
     for index in (0..40).rev() {
         let body = if index % 7 == 3 {
             "{ broken".to_owned()
@@ -537,7 +543,11 @@ fn package_ids_are_dense_and_follow_directory_order_even_with_broken_members() {
         .chain([("package.json".to_owned(), r#"{"workspaces":["p/*"]}"#.to_owned())])
         .collect();
     let larger: Vec<(&str, &str)> = larger.iter().map(|(p, c)| (p.as_str(), c.as_str())).collect();
-    let foreign = discover(&larger, &Config::default()).unwrap().package_ids().last().unwrap();
+    let foreign = discover(&larger, &Config::default())
+        .unwrap()
+        .package_ids()
+        .last()
+        .unwrap();
     for _ in 0..5 {
         let workspace = discover(&borrowed, &Config::default()).unwrap();
         let names: Vec<&str> = workspace.packages.iter().filter_map(|p| p.name.as_deref()).collect();
