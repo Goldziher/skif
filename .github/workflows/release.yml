@@ -59,18 +59,20 @@ jobs:
         run: echo "RELEASE_VERSION=${GITHUB_REF:11}" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: ${{ matrix.build.TOOLCHAIN }}
-          target: ${{ matrix.build.TARGET }}
-          override: true
+        run: rustup toolchain install ${{ matrix.build.TOOLCHAIN }} --profile minimal --target ${{ matrix.build.TARGET }}
+
+      - name: Install cross
+        if: runner.os == 'Linux'
+        uses: taiki-e/install-action@cross
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --locked --target ${{ matrix.build.TARGET }}
-          use-cross: ${{ matrix.build.OS == 'ubuntu-22.04' }} # use `cross` for Linux builds
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            cross build --release --locked --target ${{ matrix.build.TARGET }}
+          else
+            cargo build --release --locked --target ${{ matrix.build.TARGET }}
+          fi
 
       - name: Install node
         uses: actions/setup-node@v7
