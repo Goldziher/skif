@@ -1,5 +1,6 @@
-use crate::printer::print_success;
-use crate::rules::IssueLevel;
+use crate::args::Format;
+use crate::printer::{build_report, print_json, print_success};
+use crate::rules::{IssueLevel, IssuesList};
 use crate::{args::Args, printer::print_error};
 use clap::Parser;
 use collect::{collect_issues, collect_packages};
@@ -20,6 +21,13 @@ fn is_ci() -> bool {
     std::env::var("CI").is_ok()
 }
 
+fn print_report(issues: IssuesList, total_packages: usize) {
+    if let Err(error) = print_json(&build_report(issues, total_packages)) {
+        print_error("Failed to print issues", error.to_string().as_str());
+        std::process::exit(1);
+    }
+}
+
 fn main() {
     let now = Instant::now();
     let args = Args::parse();
@@ -35,6 +43,11 @@ fn main() {
     let mut config = packages_list.root_package.get_config().unwrap_or_default();
     config.merge(args);
 
+    let json_output = config.format == Format::Json;
+    if json_output {
+        colored::control::set_override(false);
+    }
+
     if config.fix && is_ci() {
         print_error(
             "Failed to fix issues",
@@ -47,7 +60,7 @@ fn main() {
     let mut issues = collect_issues(&config, packages_list);
 
     if config.fix {
-        if let Some(autofix_select) = &config.select {
+        if let Some(autofix_select) = config.select.as_ref().filter(|_| !json_output) {
             println!(
                 " {}",
                 format!("Note: automatically selecting {autofix_select} dependencies for `multiple-dependency-versions` rule...").bright_black(),
@@ -64,7 +77,11 @@ fn main() {
     let total_issues = issues.total_len();
 
     if total_issues == 0 {
-        print_success();
+        if json_output {
+            print_report(issues, total_packages);
+        } else {
+            print_success();
+        }
         return;
     }
 
@@ -76,18 +93,22 @@ fn main() {
     if config.fix
         && !config.no_install
         && fixed > 0
-        && let Err(error) = install::install()
+        && let Err(error) = install::install(json_output)
     {
         print_error("Failed to install packages", error.to_string().as_str());
         std::process::exit(1);
     }
 
-    if let Err(error) = print_issues(issues) {
-        print_error("Failed to print issues", error.to_string().as_str());
-        std::process::exit(1);
-    }
+    if json_output {
+        print_report(issues, total_packages);
+    } else {
+        if let Err(error) = print_issues(issues) {
+            print_error("Failed to print issues", error.to_string().as_str());
+            std::process::exit(1);
+        }
 
-    print_footer(total_issues, total_packages, warnings, errors, fixed, now);
+        print_footer(total_issues, total_packages, warnings, errors, fixed, now);
+    }
 
     if errors > 0 || (config.fail_on_warnings && warnings > 0) {
         std::process::exit(1);

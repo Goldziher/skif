@@ -1,6 +1,7 @@
 use anyhow::{Result, anyhow};
 use colored::Colorize;
 use indexmap::IndexMap;
+use serde::Serialize;
 use std::{
     borrow::Cow,
     fmt::{Debug, Display},
@@ -22,7 +23,8 @@ pub const ERROR: &str = "⨯";
 pub const WARNING: &str = "⚠️";
 pub const SUCCESS: &str = "✓";
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum IssueLevel {
     Error,
     Warning,

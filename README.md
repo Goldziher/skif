@@ -104,6 +104,30 @@ If you don't want Sherif to run your packager manager's `install` command after 
 sherif --fix --no-install
 ```
 
+## JSON output
+
+Use `--format json` to print a machine-readable report on stdout instead of the human-readable output (default: `--format human`). Nothing else is printed on stdout, and the exit code is unchanged.
+
+```bash
+sherif --format json
+```
+
+```json
+{
+  "summary": { "errors": 1, "warnings": 0, "fixed": 0, "packages": 3 },
+  "issues": [
+    {
+      "rule": "root-package-manager-field",
+      "level": "error",
+      "package": "./package.json",
+      "message": "..."
+    }
+  ]
+}
+```
+
+`level` is `"error"`, `"warning"` or `"fixed"`, and `package` is `null` for issues that don't belong to a `package.json`.
+
 ## Exit code
 
 By default, Sherif will exit with code `1` if any error issues are found. If you only have warning issues or no issues at all, Sherif will exit with code `0`. You can change this behavior to always exit with code `1` if any issues are found, including warnings, by using the `--fail-on-warnings` option.
@@ -210,6 +234,7 @@ When using many CLI arguments, it might be easier to move to the configuration f
     "select": "highest", // "highest" | "lowest"
     "noInstall": false,
     "failOnWarnings": false,
+    "format": "human", // "human" | "json"
     "ignoreDependency": [], // string[]
     "ignorePackage": [], // string[]
     "ignoreRule": [], // string[]
@@ -218,6 +243,14 @@ When using many CLI arguments, it might be easier to move to the configuration f
 ```
 
 When using both the configuration in the root `package.json` and CLI arguments, the CLI arguments will take precedence.
+
+## Custom binary
+
+The npm package runs the prebuilt binary of your platform. On systems where it can't run (for example NixOS), set the `SHERIF_BINARY` environment variable to the path of a `sherif` binary you built or installed, and the launcher will run it instead:
+
+```bash
+SHERIF_BINARY=/path/to/sherif npx sherif
+```
 
 ## Credits
 

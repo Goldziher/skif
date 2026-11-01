@@ -71,11 +71,20 @@ function getExePath() {
 }
 
 /**
+ * Returns the binary to run: the path in `SHERIF_BINARY` when set (e.g. on NixOS,
+ * where the bundled binary can't run), otherwise the platform package binary.
+ */
+function resolveBinary() {
+  const custom = process.env.SHERIF_BINARY;
+  return custom ? custom : getExePath();
+}
+
+/**
  * Runs the application with args using nodejs spawn
  */
 function run() {
   const args = process.argv.slice(2);
-  const processResult = spawnSync(getExePath(), args, { stdio: "inherit" });
+  const processResult = spawnSync(resolveBinary(), args, { stdio: "inherit" });
 
   if (processResult.error) {
     console.error(`Failed to execute sherif: ${processResult.error.message}`);
