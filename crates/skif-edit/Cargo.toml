@@ -1,0 +1,33 @@
+[package]
+name = "skif-edit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Format-preserving JSON and YAML edits for skif fixes."
+documentation = "https://docs.rs/skif-edit"
+keywords = ["json", "yaml", "edit", "format-preserving", "monorepo"]
+categories = ["development-tools", "text-processing"]
+
+[features]
+default = []
+yaml = ["dep:yamlpatch", "dep:yamlpath", "dep:yaml_serde"]
+
+[dependencies]
+jsonc-parser = "0.34"
+serde_json = "1"
+skif-core = { path = "../skif-core", version = "0.0.0" }
+thiserror = "2"
+yaml_serde = { version = "0.10", optional = true }
+yamlpatch = { version = "1.31", optional = true }
+yamlpath = { version = "1.31", optional = true }
+
+[dev-dependencies]
+proptest = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[lints]
+workspace = true
