@@ -1362,6 +1362,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "skif-lint"
+version = "0.0.0"
+dependencies = [
+ "rayon",
+ "skif-config",
+ "skif-core",
+ "skif-workspace",
+ "thiserror",
+]
+
+[[package]]
 name = "skif-specifier"
 version = "0.0.0"
 dependencies = [

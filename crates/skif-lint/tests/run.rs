@@ -2,8 +2,8 @@
 
 mod common;
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use common::{FixedRule, config, item, leak_meta, location, workspace};
 use skif_core::{RuleMeta, Severity};
