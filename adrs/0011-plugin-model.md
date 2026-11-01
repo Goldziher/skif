@@ -42,9 +42,20 @@ equivalent.
 Chosen option: "A declarative plugin table with optional AST config resolvers", because most plugins are a few lines of data, reviewable without reading code and free at runtime unless enabled, while the resolver hook covers config-driven plugins without executing anything.
 
 A skif plugin is a **row in a declarative table** in `skif-js-plugins`, with an optional AST
-resolver:
+resolver, and is exposed through one trait:
 
 ```rust
+pub trait Plugin: Send + Sync {
+    /// The declarative row: enablers, config, entry, production and project patterns.
+    fn spec(&self) -> &'static PluginSpec;
+
+    /// Reads the plugin's parsed config file and returns what it references. The default
+    /// returns nothing, which is all a purely declarative plugin needs.
+    fn resolve_config(&self, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        Vec::new()
+    }
+}
+
 pub struct PluginSpec {
     pub id: &'static str,                 // "vitest"
     pub enablers: &'static [Enabler],     // dependency names or regexes
@@ -54,27 +65,32 @@ pub struct PluginSpec {
     pub production: &'static [&'static str],
     pub project: &'static [&'static str],
     pub package_json_key: Option<&'static str>,
-    pub resolver: Option<&'static dyn ConfigResolver>,
 }
 
-pub trait ConfigResolver: Send + Sync {
-    fn resolve(&self, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput>;
+pub enum PluginInput {                    // #[non_exhaustive]
+    Entry(String), Dependency(String), Binary(String), ConfigFile(String),
 }
 ```
+
+The table is a `&'static [&'static dyn Plugin]`; a declarative plugin is a unit struct that
+implements `spec` only. `ConfigAst` is skif's view of the parsed config ([ADR 0010](0010-js-analysis-on-oxc.md)); it holds no oxc
+type ([ADR 0003](0003-library-first-embedding.md)).
 
 * A plugin is **enabled** for a workspace when an enabler matches one of its dependencies, or when
   `[js.plugins] <id> = true` forces it; `<id> = false` disables it.
 * `config`, `entry`, `production` and `project` patterns apply without any code.
-* A `ConfigResolver` receives the parsed config file ([ADR 0010](0010-js-analysis-on-oxc.md)'s static extraction, with constants
+* `Plugin::resolve_config` receives the parsed config file ([ADR 0010](0010-js-analysis-on-oxc.md)'s static extraction, with constants
   inlined) and returns `PluginInput`s: extra entries, dependencies, binaries, and further config
   files. It never sees an evaluated module. It corresponds to knip's `resolveFromAST`, and replaces
   `resolveConfig` where the information is statically reachable.
 * Users override any plugin's patterns per workspace in `[js.workspaces."<dir>"]` ([ADR 0004](0004-configuration-model.md)).
 
-The **first set** — the plugins 0.2.0 ships, each with at least one fixture — is:
-typescript, eslint, prettier, vite, vitest, jest, next, storybook, playwright, tailwind, postcss,
-babel, webpack, rollup, tsup, turbo, husky, lint-staged, commitlint, changesets, github-actions.
-All exist in knip under the same names, which keeps the parity comparison direct.
+The **first set of 21** — the plugins 0.2.0 ships, each with at least one fixture — is the twenty
+most common tools plus the CI workflow reader: typescript, eslint, prettier, vite, vitest, jest,
+next, storybook, playwright, tailwind, postcss, babel, webpack, rollup, tsup, turbo, husky,
+lint-staged, commitlint, changesets, and github-actions. All 21 exist in knip under the same
+names (checked at commit `da07b6e9887f9a1eb08545da29755b7f9d309bca`), which keeps the parity
+comparison direct.
 
 A plugin is **added** when:
 
@@ -93,7 +109,7 @@ count; they are blocked on regressions in that diff.
   runtime unless enabled.
 * Good, because the resolver hook covers the plugins whose value is in their config (Vitest setup files, ESLint
   plugins and parsers) without executing anything.
-* Good, because A user can patch a missing plugin's effect with `entry` and `ignore-dependencies` until a plugin
+* Good, because a user can patch a missing plugin's effect with `entry` and `ignore-dependencies` until a plugin
   lands.
 * Bad, because twenty-one plugins against 202 means real repositories will see false positives that knip would
   not report. The fixed first list targets the most common tools; `[js] ignore-dependencies`,
@@ -105,30 +121,37 @@ count; they are blocked on regressions in that diff.
 
 ### Confirmation
 
-* Every plugin in the first set ships with at least one fixture, and a new plugin ships with a fixture that fails without it and passes with it.
-* `mise run parity` reports the per-repository diff against knip; releases are blocked on regressions in that diff, not on a plugin count.
-* The table records the knip commit each plugin was checked against, so drift is visible.
+* A `skif-js-plugins` test asserts that the plugin table contains exactly the 21 IDs listed above, that IDs are unique, and that every plugin has a fixture directory `fixtures/js/plugins/<id>/`.
+* Each plugin's fixture test fails without the plugin and passes with it: the test runs the fixture with `[js.plugins] <id> = false` and expects the false positives, then with the plugin enabled and expects none.
+* A test asserts that enabling and disabling through `[js.plugins]` overrides the enabler match, and that a per-workspace `[js.workspaces."<dir>"]` pattern replaces the plugin's default.
+* A compile-time assertion covers `Send + Sync` for `Plugin` implementors, and a rustdoc-JSON check covers that `ConfigAst` exposes no oxc type.
+* `mise run parity` reports the per-repository diff against knip; a release is blocked on a regression of that diff against the committed baseline, not on a plugin count.
+* The plugin table stores the knip commit each plugin was checked against, and a `consistency` job fails when a row lacks one.
 
 ## Pros and Cons of the Options
 
 ### A declarative plugin table with optional AST config resolvers
 
-* Good, because it satisfies the decision drivers above; the benefits are listed under Consequences.
+* Good, because most plugins are a few lines of data, reviewable without reading code, and cost nothing at runtime unless enabled; the resolver hook covers config-driven plugins without executing anything.
+* Bad, because 21 plugins against 202 means real repositories see false positives knip would not report, and plugins whose knowledge only exists in an evaluated config degrade to their static patterns.
 
 ### Port all of knip's plugins before release
 
+* Good, because parity would be as close as the semantics allow on day one.
 * Bad, because it means months of work for a long tail of tools few repositories use, before anyone can use the analysis.
 
 ### Plugins as dynamically loaded libraries or WASM
 
+* Good, because third parties could add plugins without a skif release.
 * Bad, because a plugin ABI is a large public surface for a table that is mostly static data; contributions go upstream instead.
 
 ### User-defined plugins in `skif.toml`
 
-* Neutral, because the per-workspace `entry`, `project` and ignore options cover the need until a declarative user plugin format proves necessary. (deferred)
+* Good, because users could cover their own tools without waiting for a release.
+* Bad, because a declarative user format is a second plugin definition to design and support while the per-workspace `entry`, `project` and ignore options already cover the need. (deferred)
 
 ## More Information
 
-* Related decisions: [ADR 0004](0004-configuration-model.md), [ADR 0010](0010-js-analysis-on-oxc.md)
+* Related decisions: [ADR 0003](0003-library-first-embedding.md), [ADR 0004](0004-configuration-model.md), [ADR 0010](0010-js-analysis-on-oxc.md)
 * Upstream: [knip](https://github.com/webpro-nl/knip)
 * See the [ADR index](index.md).
