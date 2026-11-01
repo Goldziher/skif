@@ -4,15 +4,15 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use rayon::prelude::*;
 use serde_json::Value;
 use skif_config::{Config, PackageManager};
-use skif_core::{LineIndex, PathSeg, Span};
+use skif_core::{FileSystem, LineIndex, OsFs, PathSeg, Span};
 
 use crate::catalogs::{self, Catalogs};
 use crate::detect;
 use crate::error::WorkspaceError;
-use crate::fs::{FileSystem, OsFs};
-use crate::package::Package;
+use crate::package::{Package, PackageId};
 use crate::pattern::{self, Expander, Pattern};
 use crate::pnpm::{self, YamlSource};
 
@@ -75,7 +75,8 @@ pub struct Workspace {
     pub pnpm_workspace: Option<YamlSource>,
     /// Members whose manifest could not be read or parsed; the rest of the workspace is still discovered.
     pub manifest_errors: Vec<WorkspaceError>,
-    ignore_packages: Vec<String>,
+    /// Indexed by [`PackageId`]: whether `[workspace] ignore-packages` excludes the package.
+    ignored: Vec<bool>,
 }
 
 struct Declared {
@@ -88,6 +89,34 @@ fn io_error(path: &Path, source: std::io::Error) -> WorkspaceError {
     WorkspaceError::Io {
         path: path.to_path_buf(),
         source,
+    }
+}
+
+/// The outcome of loading one selected directory.
+enum Member {
+    Loaded(Package),
+    /// A non-empty directory without a `package.json`.
+    NoManifest(PathBuf),
+    /// An empty directory; those linger after switching git branches and are not worth reporting.
+    Empty,
+    Failed(WorkspaceError),
+}
+
+fn load_member(fs: &dyn FileSystem, root: &Path, dir: &str) -> Member {
+    let manifest = root.join(dir).join(MANIFEST);
+    if !fs.is_file(&manifest) {
+        return if fs.read_dir(&root.join(dir)).is_ok_and(|entries| !entries.is_empty()) {
+            Member::NoManifest(PathBuf::from(dir))
+        } else {
+            Member::Empty
+        };
+    }
+    match fs.read_to_string(&manifest) {
+        Ok(text) => match Package::parse(PathBuf::from(dir), text, false) {
+            Ok(package) => Member::Loaded(package),
+            Err(error) => Member::Failed(error),
+        },
+        Err(error) => Member::Failed(io_error(&manifest, error)),
     }
 }
 
@@ -146,7 +175,7 @@ impl Workspace {
         let source = fs
             .read_to_string(&manifest_path)
             .map_err(|error| io_error(&manifest_path, error))?;
-        let root_package = Package::parse(PathBuf::new(), Arc::from(source), true)?;
+        let root_package = Package::parse(PathBuf::new(), source, true)?;
 
         let yaml_path = root.join(PNPM_WORKSPACE);
         let (pnpm_workspace, pnpm_config) = if fs.is_file(&yaml_path) {
@@ -154,12 +183,11 @@ impl Workspace {
                 .read_to_string(&yaml_path)
                 .map_err(|error| io_error(&yaml_path, error))?;
             let parsed = pnpm::parse(Path::new(PNPM_WORKSPACE), &text)?;
-            let source: Arc<str> = Arc::from(text);
-            let line_index = Arc::new(LineIndex::new(&source));
+            let line_index = Arc::new(LineIndex::new(&text));
             (
                 Some(YamlSource {
                     path: PathBuf::from(PNPM_WORKSPACE),
-                    source,
+                    source: text,
                     line_index,
                 }),
                 Some(parsed),
@@ -242,26 +270,30 @@ impl Workspace {
             }
         }
 
+        let dirs: Vec<&String> = selected.iter().collect();
+        let members: Vec<Member> = dirs
+            .par_iter()
+            .map(|dir| load_member(fs, &root, dir))
+            .collect();
         let mut packages = Vec::new();
         let mut dirs_without_manifest = Vec::new();
         let mut manifest_errors = Vec::new();
-        for dir in &selected {
-            let manifest = root.join(dir).join(MANIFEST);
-            if !fs.is_file(&manifest) {
-                // Empty directories linger after switching git branches; they are not worth reporting.
-                if fs.read_dir(&root.join(dir)).is_ok_and(|entries| !entries.is_empty()) {
-                    dirs_without_manifest.push(PathBuf::from(dir));
+        for member in members {
+            match member {
+                Member::Loaded(package) => {
+                    let id = PackageId::from_index(packages.len() + 1);
+                    packages.push(package.with_id(id));
                 }
-                continue;
-            }
-            match fs.read_to_string(&manifest) {
-                Ok(text) => match Package::parse(PathBuf::from(dir), Arc::from(text), false) {
-                    Ok(package) => packages.push(package),
-                    Err(error) => manifest_errors.push(error),
-                },
-                Err(error) => manifest_errors.push(io_error(&manifest, error)),
+                Member::NoManifest(dir) => dirs_without_manifest.push(dir),
+                Member::Empty => {}
+                Member::Failed(error) => manifest_errors.push(error),
             }
         }
+        let ignore = &config.workspace.ignore_packages;
+        let ignored: Vec<bool> = std::iter::once(&root_package)
+            .chain(&packages)
+            .map(|package| package.is_selected_by(ignore))
+            .collect();
 
         Ok(Self {
             root,
@@ -276,13 +308,32 @@ impl Workspace {
             },
             pnpm_workspace,
             manifest_errors,
-            ignore_packages: config.workspace.ignore_packages.clone(),
+            ignored,
         })
     }
 
     /// The root first, then the members.
     pub fn all_packages(&self) -> impl Iterator<Item = &Package> {
         std::iter::once(&self.root_package).chain(self.packages.iter())
+    }
+
+    /// The ids of every package, the root first.
+    pub fn package_ids(&self) -> impl Iterator<Item = PackageId> + use<> {
+        (0..=self.packages.len()).map(PackageId::from_index)
+    }
+
+    /// Every package with its id, the root first.
+    pub fn iter(&self) -> impl Iterator<Item = (PackageId, &Package)> {
+        self.all_packages().map(|package| (package.id, package))
+    }
+
+    /// The package with `id`, or `None` for an id from another workspace.
+    #[must_use]
+    pub fn package(&self, id: PackageId) -> Option<&Package> {
+        match id.index() {
+            0 => Some(&self.root_package),
+            index => self.packages.get(index - 1),
+        }
     }
 
     /// Looks a package up by its `name`.
@@ -292,9 +343,9 @@ impl Workspace {
             .find(|package| package.name.as_deref() == Some(name))
     }
 
-    /// Whether `[workspace] ignore-packages` excludes `package`.
+    /// Whether `[workspace] ignore-packages` excludes the package with `id`.
     #[must_use]
-    pub fn is_ignored(&self, package: &Package) -> bool {
-        self.ignore_packages.iter().any(|pattern| package.matches(pattern))
+    pub fn is_ignored(&self, id: PackageId) -> bool {
+        self.ignored.get(id.index()).copied().unwrap_or(false)
     }
 }
