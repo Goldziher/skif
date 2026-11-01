@@ -111,7 +111,7 @@ pub fn extract_config_object(source: &str, path: &Path) -> Option<ConfigValue> {
             ..OxcParseOptions::default()
         })
         .parse();
-    if ret.panicked || ret.diagnostics.errors().next().is_some() {
+    if ret.diagnostics.errors().next().is_some() {
         return None;
     }
     let program = &ret.program;
@@ -124,7 +124,7 @@ fn top_level_consts<'p, 'a>(program: &'p Program<'a>) -> HashMap<String, &'p Exp
     let mut map = HashMap::new();
     for stmt in &program.body {
         let decl = match stmt {
-            Statement::ExportNamedDeclaration(e) => e.declaration.as_ref(),
+            Statement::ExportDeclaration(e) => Some(&e.declaration),
             other => other.as_declaration(),
         };
         if let Some(Declaration::VariableDeclaration(v)) = decl
@@ -185,10 +185,12 @@ impl Evaluator<'_, '_, '_> {
             Expression::StringLiteral(_) | Expression::TemplateLiteral(_) => {
                 static_string(inner).map_or(ConfigValue::Unknown, ConfigValue::String)
             }
-            Expression::UnaryExpression(u) if u.operator == UnaryOperator::UnaryNegation => match self.expr(&u.argument, depth) {
-                ConfigValue::Number(n) => ConfigValue::Number(-n),
-                _ => ConfigValue::Unknown,
-            },
+            Expression::UnaryExpression(u) if u.operator == UnaryOperator::UnaryNegation => {
+                match self.expr(&u.argument, depth) {
+                    ConfigValue::Number(n) => ConfigValue::Number(-n),
+                    _ => ConfigValue::Unknown,
+                }
+            }
             Expression::ArrayExpression(a) => self.array(&a.elements, depth),
             Expression::ObjectExpression(o) => self.object(&o.properties, depth),
             Expression::Identifier(id) => self
@@ -196,7 +198,12 @@ impl Evaluator<'_, '_, '_> {
                 .get(id.name.as_str())
                 .map_or(ConfigValue::Unknown, |init| self.expr(init, depth)),
             Expression::CallExpression(c) => self.call(c, depth),
-            Expression::ArrowFunctionExpression(f) => self.returned(&f.body.statements, depth),
+            Expression::ArrowFunctionExpression(f) => match f.get_expression() {
+                Some(body) => self.expr(body, depth),
+                None => f
+                    .get_function_body()
+                    .map_or(ConfigValue::Unknown, |b| self.returned(&b.statements, depth)),
+            },
             Expression::FunctionExpression(f) => f
                 .body
                 .as_ref()
@@ -238,7 +245,11 @@ impl Evaluator<'_, '_, '_> {
                     ConfigValue::Array(items) => out.extend(items),
                     _ => out.push(ConfigValue::Unknown),
                 },
-                other => out.push(other.as_expression().map_or(ConfigValue::Unknown, |e| self.expr(e, depth))),
+                other => out.push(
+                    other
+                        .as_expression()
+                        .map_or(ConfigValue::Unknown, |e| self.expr(e, depth)),
+                ),
             }
         }
         ConfigValue::Array(out)
@@ -262,7 +273,7 @@ impl Evaluator<'_, '_, '_> {
                     } else {
                         self.expr(&p.value, depth)
                     };
-                    out.push((key.to_string(), value));
+                    out.push((crate::js_string(key.as_js_str()), value));
                 }
             }
         }

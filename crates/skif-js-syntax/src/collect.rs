@@ -3,8 +3,9 @@
 use std::collections::HashMap;
 
 use oxc_ast::ast::{
-    BindingPattern, Declaration, ExportDefaultDeclarationKind, ImportDeclarationSpecifier, ModuleExportName, Program,
-    Statement, TSEnumMemberName, TSModuleDeclarationBody, TSModuleDeclarationName,
+    BindingPattern, Declaration, ExportDefaultDeclarationKind, ExportSpecifier, ImportDeclarationSpecifier,
+    ImportOrExportKind, ModuleExportName, Program, Statement, StringLiteral, TSEnumMemberName,
+    TSNamespaceDeclarationBody,
 };
 use oxc_span::Span as OxcSpan;
 use skif_core::{LineIndex, Span};
@@ -68,7 +69,7 @@ pub(crate) fn module_export_name(name: &ModuleExportName<'_>) -> String {
     match name {
         ModuleExportName::IdentifierName(i) => i.name.as_str().to_string(),
         ModuleExportName::IdentifierReference(i) => i.name.as_str().to_string(),
-        ModuleExportName::StringLiteral(s) => s.value.as_str().to_string(),
+        ModuleExportName::StringLiteral(s) => crate::js_string(s.value),
     }
 }
 
@@ -114,7 +115,7 @@ pub(crate) fn binding_ids(pattern: &BindingPattern<'_>, out: &mut Vec<(String, O
 fn enum_member_name(id: &TSEnumMemberName<'_>) -> Option<String> {
     match id {
         TSEnumMemberName::Identifier(i) => Some(i.name.as_str().to_string()),
-        TSEnumMemberName::String(s) | TSEnumMemberName::ComputedString(s) => Some(s.value.as_str().to_string()),
+        TSEnumMemberName::String(s) | TSEnumMemberName::ComputedString(s) => Some(crate::js_string(s.value)),
         TSEnumMemberName::ComputedTemplateString(t) if t.expressions.is_empty() => {
             t.quasis.first().map(|q| q.value.raw.as_str().to_string())
         }
@@ -133,16 +134,16 @@ fn declared(ctx: &Ctx<'_>, decl: &Declaration<'_>) -> Vec<Declared> {
                 .map(|(name, span)| Declared::simple(&name, span, ExportKind::Value, false))
                 .collect()
         }
-        Declaration::FunctionDeclaration(f) => f
-            .id
-            .iter()
-            .map(|id| Declared::simple(id.name.as_str(), id.span, ExportKind::Function, false))
-            .collect(),
-        Declaration::ClassDeclaration(c) => c
-            .id
-            .iter()
-            .map(|id| Declared::simple(id.name.as_str(), id.span, ExportKind::Class, false))
-            .collect(),
+        Declaration::FunctionDeclaration(f) => {
+            f.id.iter()
+                .map(|id| Declared::simple(id.name.as_str(), id.span, ExportKind::Function, false))
+                .collect()
+        }
+        Declaration::ClassDeclaration(c) => {
+            c.id.iter()
+                .map(|id| Declared::simple(id.name.as_str(), id.span, ExportKind::Class, false))
+                .collect()
+        }
         Declaration::TSTypeAliasDeclaration(t) => {
             vec![Declared::simple(t.id.name.as_str(), t.id.span, ExportKind::Type, true)]
         }
@@ -165,27 +166,23 @@ fn declared(ctx: &Ctx<'_>, decl: &Declaration<'_>) -> Vec<Declared> {
                 .collect();
             vec![d]
         }
-        Declaration::TSModuleDeclaration(m) => match &m.id {
-            TSModuleDeclarationName::Identifier(id) => {
-                let mut d = Declared::simple(id.name.as_str(), id.span, ExportKind::Namespace, false);
-                d.namespace_members = namespace_members(ctx, m.body.as_ref());
-                vec![d]
-            }
-            TSModuleDeclarationName::StringLiteral(_) => Vec::new(),
-        },
+        Declaration::TSNamespaceDeclaration(m) => {
+            let mut d = Declared::simple(m.id.name.as_str(), m.id.span, ExportKind::Namespace, false);
+            d.namespace_members = namespace_members(ctx, &m.body);
+            vec![d]
+        }
         #[allow(unreachable_patterns)]
         _ => Vec::new(),
     }
 }
 
-fn namespace_members(ctx: &Ctx<'_>, body: Option<&TSModuleDeclarationBody<'_>>) -> Vec<Member> {
+fn namespace_members(ctx: &Ctx<'_>, body: &TSNamespaceDeclarationBody<'_>) -> Vec<Member> {
     let mut out = Vec::new();
     match body {
-        Some(TSModuleDeclarationBody::TSModuleBlock(block)) => {
+        TSNamespaceDeclarationBody::TSModuleBlock(block) => {
             for stmt in &block.body {
-                if let Statement::ExportNamedDeclaration(e) = stmt
-                    && let Some(decl) = &e.declaration
-                {
+                if let Statement::ExportDeclaration(e) = stmt {
+                    let decl = &e.declaration;
                     for d in declared(ctx, decl) {
                         out.push(Member {
                             name: d.name,
@@ -196,23 +193,20 @@ fn namespace_members(ctx: &Ctx<'_>, body: Option<&TSModuleDeclarationBody<'_>>) 
                 }
             }
         }
-        Some(TSModuleDeclarationBody::TSModuleDeclaration(inner)) => {
-            if let TSModuleDeclarationName::Identifier(id) = &inner.id {
-                out.push(Member {
-                    name: id.name.as_str().to_string(),
-                    span: ctx.span(id.span),
-                    tags: Vec::new(),
-                });
-            }
+        TSNamespaceDeclarationBody::TSNamespaceDeclaration(inner) => {
+            out.push(Member {
+                name: inner.id.name.as_str().to_string(),
+                span: ctx.span(inner.id.span),
+                tags: Vec::new(),
+            });
         }
-        None => {}
     }
     out
 }
 
 /// Range of a statement extended over one trailing line break (absolute offsets).
 fn statement_range(ctx: &Ctx<'_>, span: OxcSpan) -> (u32, u32) {
-    let rest = ctx.src[span.end as usize..].as_bytes();
+    let rest = &ctx.src.as_bytes()[span.end as usize..];
     let mut i = 0;
     while i < rest.len() && (rest[i] == b' ' || rest[i] == b'\t') {
         i += 1;
@@ -224,7 +218,10 @@ fn statement_range(ctx: &Ctx<'_>, span: OxcSpan) -> (u32, u32) {
     } else {
         0
     };
-    (ctx.off(span.start), ctx.off(span.end) + u32::try_from(extra).unwrap_or(0))
+    (
+        ctx.off(span.start),
+        ctx.off(span.end) + u32::try_from(extra).unwrap_or(0),
+    )
 }
 
 /// Range of the `export` (or `export default`) keyword and the whitespace after it (absolute offsets).
@@ -299,7 +296,7 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
     let mut local_decls: HashMap<String, Declared> = HashMap::new();
     for stmt in &program.body {
         let decl = match stmt {
-            Statement::ExportNamedDeclaration(e) => e.declaration.as_ref(),
+            Statement::ExportDeclaration(e) => Some(&e.declaration),
             other => other.as_declaration(),
         };
         if let Some(decl) = decl {
@@ -313,15 +310,42 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
     for stmt in &program.body {
         match stmt {
             Statement::ImportDeclaration(d) => collect_import(ctx, d, info),
+            Statement::ExportDeclaration(e) => {
+                let named = NamedExport {
+                    span: e.span,
+                    declaration: Some(&e.declaration),
+                    specifiers: &[],
+                    source: None,
+                    export_kind: ImportOrExportKind::Value,
+                };
+                collect_named_export(ctx, &named, &local_decls, info, &mut export_clause_spans);
+            }
             Statement::ExportNamedDeclaration(e) => {
-                collect_named_export(ctx, e, &local_decls, info, &mut export_clause_spans);
+                let named = NamedExport {
+                    span: e.span,
+                    declaration: None,
+                    specifiers: &e.specifiers,
+                    source: None,
+                    export_kind: e.export_kind,
+                };
+                collect_named_export(ctx, &named, &local_decls, info, &mut export_clause_spans);
+            }
+            Statement::ExportFromDeclaration(e) => {
+                let named = NamedExport {
+                    span: e.span,
+                    declaration: None,
+                    specifiers: &e.specifiers,
+                    source: Some(&e.source),
+                    export_kind: e.export_kind,
+                };
+                collect_named_export(ctx, &named, &local_decls, info, &mut export_clause_spans);
             }
             Statement::ExportDefaultDeclaration(e) => {
                 collect_default_export(ctx, e, info, &mut export_clause_spans);
             }
             Statement::ExportAllDeclaration(e) => {
                 let span = ctx.span(e.span);
-                let from = e.source.value.as_str().to_string();
+                let from = crate::js_string(e.source.value);
                 let name = e.exported.as_ref().map_or_else(|| "*".to_string(), module_export_name);
                 let is_type = e.export_kind.is_type();
                 let mut export = Export::bare(name, ExportKind::StarReExport, span);
@@ -394,22 +418,32 @@ fn collect_import(ctx: &Ctx<'_>, d: &oxc_ast::ast::ImportDeclaration<'_>, info: 
         ImportKind::Static
     };
     info.imports.push(Import {
-        specifier: d.source.value.as_str().to_string(),
+        specifier: crate::js_string(d.source.value),
         kind,
         names,
         span: ctx.span(d.span),
     });
 }
 
+/// The parts shared by `export <declaration>`, `export { a }` and `export { a } from "m"`, which oxc
+/// models as three node types.
+struct NamedExport<'n, 'a> {
+    span: OxcSpan,
+    declaration: Option<&'n Declaration<'a>>,
+    specifiers: &'n [ExportSpecifier<'a>],
+    source: Option<&'n StringLiteral<'a>>,
+    export_kind: ImportOrExportKind,
+}
+
 fn collect_named_export(
     ctx: &Ctx<'_>,
-    e: &oxc_ast::ast::ExportNamedDeclaration<'_>,
+    e: &NamedExport<'_, '_>,
     local_decls: &HashMap<String, Declared>,
     info: &mut ModuleInfo,
     clause_spans: &mut Vec<OxcSpan>,
 ) {
     let stmt_tags = ctx.tags_at(e.span.start);
-    if let Some(decl) = &e.declaration {
+    if let Some(decl) = e.declaration {
         let items = declared(ctx, decl);
         let siblings = items.len();
         let kind = if siblings > 1 {
@@ -445,13 +479,17 @@ fn collect_named_export(
         } else {
             (ctx.off(e.specifiers[i - 1].span.end), ctx.off(s.span.end))
         };
-        let kind = if count == 1 { RemovalKind::Statement } else { RemovalKind::Specifier };
+        let kind = if count == 1 {
+            RemovalKind::Statement
+        } else {
+            RemovalKind::Specifier
+        };
         let rem = removal(ctx, e.span, range, kind, count);
 
-        if let Some(source) = &e.source {
+        if let Some(source) = e.source {
             let mut export = Export::bare(exported, ExportKind::ReExport, ctx.span(s.span));
             export.is_type = is_type;
-            export.from = Some(source.value.as_str().to_string());
+            export.from = Some(crate::js_string(source.value));
             export.imported_name = Some(local.clone());
             export.tags = tags;
             export.removal = Some(rem);
@@ -466,7 +504,11 @@ fn collect_named_export(
         } else {
             clause_spans.push(module_export_span(&s.local));
             let decl = local_decls.get(&local);
-            let mut export = Export::bare(exported.clone(), decl.map_or(ExportKind::Value, |d| d.kind), ctx.span(s.span));
+            let mut export = Export::bare(
+                exported.clone(),
+                decl.map_or(ExportKind::Value, |d| d.kind),
+                ctx.span(s.span),
+            );
             export.is_type = is_type || decl.is_some_and(|d| d.is_type);
             if exported == "default" {
                 export.kind = ExportKind::Default;
@@ -481,9 +523,9 @@ fn collect_named_export(
             info.exports.push(export);
         }
     }
-    if let Some(source) = &e.source {
+    if let Some(source) = e.source {
         info.imports.push(Import {
-            specifier: source.value.as_str().to_string(),
+            specifier: crate::js_string(source.value),
             kind: ImportKind::ExportFrom,
             names: from_names,
             span: ctx.span(e.span),

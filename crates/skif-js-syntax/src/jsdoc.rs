@@ -1,6 +1,6 @@
-//! JSDoc tag extraction by text, so it does not depend on the parser's comment attachment.
+//! `JSDoc` tag extraction by text, so it does not depend on the parser's comment attachment.
 
-/// Tag names (without `@`) of the JSDoc blocks that end directly before `start`, nearest block first.
+/// Tag names (without `@`) of the `JSDoc` blocks that end directly before `start`, nearest block first.
 pub(crate) fn leading_tags(source: &str, start: usize) -> Vec<String> {
     let mut tags = Vec::new();
     let mut end = start.min(source.len());
@@ -20,9 +20,7 @@ pub(crate) fn leading_tags(source: &str, start: usize) -> Vec<String> {
 }
 
 fn parse_tags(block: &str, tags: &mut Vec<String>) {
-    let inner = block
-        .trim_start_matches("/**")
-        .trim_end_matches("*/");
+    let inner = block.trim_start_matches("/**").trim_end_matches("*/");
     for line in inner.lines() {
         let line = line.trim().trim_start_matches('*').trim_start();
         let Some(rest) = line.strip_prefix('@') else { continue };
@@ -44,7 +42,10 @@ mod tests {
     fn extracts_tags_from_blocks_above() {
         let cases: &[(&str, &[&str])] = &[
             ("/** @public */\nexport const a = 1;", &["public"]),
-            ("/**\n * Docs.\n * @internal\n * @alias foo\n */\nexport const a = 1;", &["internal", "alias"]),
+            (
+                "/**\n * Docs.\n * @internal\n * @alias foo\n */\nexport const a = 1;",
+                &["internal", "alias"],
+            ),
             ("/* @public */\nexport const a = 1;", &[]),
             ("const x = 1;\nexport const a = 1;", &[]),
             ("/** see {@link x} */\nexport const a = 1;", &[]),

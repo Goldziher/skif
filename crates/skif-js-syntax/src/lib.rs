@@ -59,7 +59,7 @@ pub fn parse_module(path: &Path, source: &str, options: &ParseOptions) -> Result
                 };
                 let source_type = SourceType::from_path(name).map_err(|_| unsupported(&extension))?;
                 let base = u32::try_from(block.start).unwrap_or(u32::MAX);
-                let part = parse_block(&source[block.start..block.end], base, source_type, &lines, options)?;
+                let part = parse_block(&source[block.start..block.end], base, source_type, &lines, *options)?;
                 info.merge(part);
             }
             Ok(info)
@@ -67,7 +67,7 @@ pub fn parse_module(path: &Path, source: &str, options: &ParseOptions) -> Result
         "mdx" => Err(unsupported(&extension)),
         _ => {
             let source_type = SourceType::from_path(path).map_err(|_| unsupported(&extension))?;
-            parse_block(source, 0, source_type, &lines, options)
+            parse_block(source, 0, source_type, &lines, *options)
         }
     }
 }
@@ -80,10 +80,7 @@ fn unsupported(extension: &str) -> SyntaxError {
 
 fn jsx_import_source(source: &str) -> Option<String> {
     let rest = source.split_once("@jsxImportSource")?.1.trim_start();
-    let value: String = rest
-        .chars()
-        .take_while(|c| !c.is_whitespace() && *c != '*')
-        .collect();
+    let value: String = rest.chars().take_while(|c| !c.is_whitespace() && *c != '*').collect();
     (!value.is_empty()).then_some(value)
 }
 
@@ -92,7 +89,7 @@ fn parse_block(
     base: u32,
     source_type: SourceType,
     lines: &LineIndex,
-    options: &ParseOptions,
+    options: ParseOptions,
 ) -> Result<ModuleInfo, SyntaxError> {
     let allocator = Allocator::default();
     let parser_options = OxcParseOptions {
@@ -107,7 +104,7 @@ fn parse_block(
             .labels
             .as_slice()
             .first()
-            .map_or((0, 0), |l| (u32::try_from(l.offset()).unwrap_or(0), u32::try_from(l.len()).unwrap_or(0)));
+            .map_or((0, 0), |l| (l.offset(), l.len()));
         return Err(SyntaxError::Parse {
             message: diagnostic.message.to_string(),
             span: lines.span(base + offset, base + offset + len),
@@ -139,16 +136,21 @@ fn mark_in_file_references(program: &oxc_ast::ast::Program<'_>, excluded: &[oxc_
     let wanted: HashSet<String> = info
         .exports
         .iter()
-        .filter(|e| !matches!(e.kind, ExportKind::ReExport | ExportKind::StarReExport | ExportKind::Default))
+        .filter(|e| {
+            !matches!(
+                e.kind,
+                ExportKind::ReExport | ExportKind::StarReExport | ExportKind::Default
+            )
+        })
         .filter_map(|e| e.local_name.clone())
         .collect();
     let referenced = semantic::referenced_locals(program, &wanted, excluded);
     for export in &mut info.exports {
-        let used = export
-            .local_name
-            .as_ref()
-            .is_some_and(|l| referenced.contains(l))
-            && !matches!(export.kind, ExportKind::ReExport | ExportKind::StarReExport | ExportKind::Default);
+        let used = export.local_name.as_ref().is_some_and(|l| referenced.contains(l))
+            && !matches!(
+                export.kind,
+                ExportKind::ReExport | ExportKind::StarReExport | ExportKind::Default
+            );
         export.referenced_in_file = used;
         if used {
             info.in_file_references.push(export.name.clone());
@@ -156,4 +158,12 @@ fn mark_in_file_references(program: &oxc_ast::ast::Program<'_>, excluded: &[oxc_
     }
     info.in_file_references.sort();
     info.in_file_references.dedup();
+}
+
+/// An oxc string as an owned Rust string. Lone surrogates, which only escaped JS strings can hold,
+/// are replaced rather than dropped.
+pub(crate) fn js_string(value: oxc_str::JSStr<'_>) -> String {
+    value
+        .as_str()
+        .map_or_else(|| value.display().to_string(), str::to_owned)
 }

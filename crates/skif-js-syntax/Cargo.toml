@@ -14,19 +14,19 @@ categories = ["development-tools", "parser-implementations"]
 readme = "README.md"
 
 [dependencies]
-# Pinned exactly (ADR 0010); the workspace moves these to [workspace.dependencies].
-oxc_allocator = "=0.156.0"
-oxc_ast = "=0.156.0"
-oxc_ast_visit = "=0.156.0"
-oxc_parser = "=0.156.0"
-oxc_semantic = "=0.156.0"
-oxc_span = "=0.156.0"
-serde = { version = "1", features = ["derive"] }
-skif-core = { path = "../skif-core", version = "0.0.0" }
-thiserror = "2"
+oxc_allocator.workspace = true
+oxc_ast.workspace = true
+oxc_ast_visit.workspace = true
+oxc_parser.workspace = true
+oxc_semantic.workspace = true
+oxc_span.workspace = true
+oxc_str.workspace = true
+serde.workspace = true
+skif-core.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
-serde_json = "1"
+serde_json.workspace = true
 
 [lints]
 workspace = true

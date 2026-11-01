@@ -31,7 +31,9 @@ pub(crate) fn script_blocks(source: &str, astro: bool) -> Vec<ScriptBlock> {
             cursor = after_name;
             continue;
         }
-        let Some(tag_end) = tag_close(source, after_name) else { break };
+        let Some(tag_end) = tag_close(source, after_name) else {
+            break;
+        };
         let attrs = &source[after_name..tag_end];
         let self_closing = attrs.trim_end().ends_with('/');
         let body_start = tag_end + 1;
@@ -39,7 +41,9 @@ pub(crate) fn script_blocks(source: &str, astro: bool) -> Vec<ScriptBlock> {
             cursor = body_start;
             continue;
         }
-        let Some(close) = source[body_start..].find("</script") else { break };
+        let Some(close) = source[body_start..].find("</script") else {
+            break;
+        };
         let body_end = body_start + close;
         let lang = attribute(attrs, "lang").unwrap_or_default();
         blocks.push(ScriptBlock {
@@ -59,10 +63,9 @@ fn tag_close(source: &str, from: usize) -> Option<usize> {
     for (i, c) in source[from..].char_indices() {
         match (quote, c) {
             (Some(q), c) if c == q => quote = None,
-            (Some(_), _) => {}
             (None, '"' | '\'') => quote = Some(c),
             (None, '>') => return Some(from + i),
-            (None, _) => {}
+            _ => {}
         }
     }
     None
@@ -112,14 +115,21 @@ mod tests {
     fn finds_script_bodies() {
         let cases: &[(&str, bool, &[&str])] = &[
             ("<template/><script>let a</script>", false, &["let a"]),
-            ("<script lang=\"ts\" setup>let b</script><script>let c</script>", false, &["let b", "let c"]),
+            (
+                "<script lang=\"ts\" setup>let b</script><script>let c</script>",
+                false,
+                &["let b", "let c"],
+            ),
             ("<script src=\"./x.js\"/>", false, &[]),
             ("<scripty>no</scripty>", false, &[]),
             ("---\nimport a from 'a'\n---\n<div/>", true, &["\nimport a from 'a'\n"]),
             ("<script attr=\"a>b\">x</script>", false, &["x"]),
         ];
         for (src, astro, expected) in cases {
-            let got: Vec<&str> = script_blocks(src, *astro).iter().map(|b| &src[b.start..b.end]).collect();
+            let got: Vec<&str> = script_blocks(src, *astro)
+                .iter()
+                .map(|b| &src[b.start..b.end])
+                .collect();
             assert_eq!(&got, expected, "{src}");
         }
     }

@@ -30,7 +30,10 @@ fn shapes() {
                 ("b", s("x")),
                 ("c", ConfigValue::Bool(true)),
                 ("d", ConfigValue::Null),
-                ("e", ConfigValue::Array(vec![ConfigValue::Number(1.0), ConfigValue::Number(-2.0)])),
+                (
+                    "e",
+                    ConfigValue::Array(vec![ConfigValue::Number(1.0), ConfigValue::Number(-2.0)]),
+                ),
                 ("f-g", obj(vec![("h", s("t"))])),
             ])),
         ),
@@ -40,7 +43,10 @@ fn shapes() {
             "import { defineConfig } from 'vite';\nexport default defineConfig({ plugins: [react()], test: { setupFiles: ['./setup.ts'] } }) satisfies unknown;",
             Some(obj(vec![
                 ("plugins", ConfigValue::Array(vec![ConfigValue::Unknown])),
-                ("test", obj(vec![("setupFiles", ConfigValue::Array(vec![s("./setup.ts")]))])),
+                (
+                    "test",
+                    obj(vec![("setupFiles", ConfigValue::Array(vec![s("./setup.ts")]))]),
+                ),
             ])),
         ),
         (
@@ -93,11 +99,21 @@ fn shapes() {
                 ("e", ConfigValue::Number(1.0)),
             ])),
         ),
-        ("let is not inlined", "c.js", "let c = {};\nexport default c;", Some(ConfigValue::Unknown)),
+        (
+            "let is not inlined",
+            "c.js",
+            "let c = {};\nexport default c;",
+            Some(ConfigValue::Unknown),
+        ),
         ("no export", "c.js", "const c = {};", None),
         ("syntax error", "c.js", "export default {", None),
         ("unknown extension", "c.txt", "export default {}", None),
-        ("cyclic constants stay finite", "c.js", "const a = b; const b = a; export default a;", Some(ConfigValue::Unknown)),
+        (
+            "cyclic constants stay finite",
+            "c.js",
+            "const a = b; const b = a; export default a;",
+            Some(ConfigValue::Unknown),
+        ),
     ];
     for (name, path, source, expected) in cases {
         assert_eq!(extract(path, source), expected, "{name}");
@@ -107,7 +123,14 @@ fn shapes() {
 #[test]
 fn accessors() {
     let value = extract("c.js", "export default { a: { b: ['x'] }, c: true, d: foo() };").unwrap();
-    assert_eq!(value.get("a").and_then(|a| a.get("b")).and_then(ConfigValue::as_array).map(<[_]>::len), Some(1));
+    assert_eq!(
+        value
+            .get("a")
+            .and_then(|a| a.get("b"))
+            .and_then(ConfigValue::as_array)
+            .map(<[_]>::len),
+        Some(1)
+    );
     assert_eq!(value.get("c").and_then(ConfigValue::as_bool), Some(true));
     assert!(value.has_unknown());
     assert!(!value.get("a").unwrap().has_unknown());
