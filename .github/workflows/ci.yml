@@ -134,7 +134,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y shellcheck
           shopt -s globstar nullglob
-          shellcheck scripts/**/*.sh
+          shellcheck scripts/**/*.sh mise-tasks/**/*.sh
 
   e2e:
     name: E2E (${{ matrix.package-manager }})
@@ -157,9 +157,12 @@ jobs:
           tools: node pnpm
       - uses: oven-sh/setup-bun@v2
         if: matrix.package-manager == 'bun'
+      # ~keep Node 25+ no longer bundles corepack, so yarn's corepack shim is installed explicitly.
       - name: Enable corepack
         if: matrix.package-manager == 'yarn'
-        run: corepack enable
+        run: |
+          npm install --global corepack@latest
+          corepack enable
       - name: Build skif
         run: cargo build --locked
       - name: Run end-to-end tests
