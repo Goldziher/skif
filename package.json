@@ -17,6 +17,7 @@
   },
   "homepage": "https://github.com/QuiiBz/sherif#readme",
   "license": "MIT",
+  "type": "module",
   "scripts": {
     "action": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit"
