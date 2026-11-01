@@ -32,10 +32,10 @@ expression: "run(&rich(), Format::Json, &options(false))"
         "span": {
           "start": 68,
           "end": 76,
-          "startLine": 5,
-          "startCol": 5,
-          "endLine": 5,
-          "endCol": 13
+          "start-line": 5,
+          "start-col": 5,
+          "end-line": 5,
+          "end-col": 13
         }
       },
       "related": [],
@@ -56,10 +56,10 @@ expression: "run(&rich(), Format::Json, &options(false))"
         "span": {
           "start": 53,
           "end": 62,
-          "startLine": 4,
-          "startCol": 14,
-          "endLine": 4,
-          "endCol": 23
+          "start-line": 4,
+          "start-col": 14,
+          "end-line": 4,
+          "end-col": 23
         }
       },
       "related": [
@@ -70,10 +70,10 @@ expression: "run(&rich(), Format::Json, &options(false))"
             "span": {
               "start": 78,
               "end": 86,
-              "startLine": 5,
-              "startCol": 15,
-              "endLine": 5,
-              "endCol": 23
+              "start-line": 5,
+              "start-col": 15,
+              "end-line": 5,
+              "end-col": 23
             }
           }
         }

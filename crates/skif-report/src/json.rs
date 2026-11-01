@@ -54,7 +54,7 @@ struct JsonLocation {
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "kebab-case")]
 struct JsonSpan {
     start: u32,
     end: u32,

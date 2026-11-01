@@ -29,7 +29,7 @@ render(report, Format::Json, &RenderOptions::default(), &mut out)?;
       "message": "...",
       "help": "...",
       "location": { "path": "packages/web/package.json",
-                    "span": { "start": 120, "end": 137, "startLine": 7, "startCol": 5, "endLine": 7, "endCol": 22 } },
+                    "span": { "start": 120, "end": 137, "start-line": 7, "start-col": 5, "end-line": 7, "end-col": 22 } },
       "related": [ { "message": "...", "location": { "path": "..." } } ],
       "package": "web",
       "dependency": "react",
