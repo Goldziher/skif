@@ -16,10 +16,10 @@ categories = ["parser-implementations"]
 name = "skif_specifier"
 
 [dependencies]
-nodejs-semver = "7.0.0"
+nodejs-semver.workspace = true
 
 [dev-dependencies]
-criterion = { version = "0.8.2", features = ["html_reports"] }
+criterion.workspace = true
 
 [[bench]]
 name = "specifier_parsing"

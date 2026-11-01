@@ -17,17 +17,16 @@ default = []
 yaml = ["dep:yamlpatch", "dep:yamlpath", "dep:yaml_serde"]
 
 [dependencies]
-jsonc-parser = "0.34"
-serde_json = "1"
-skif-core = { path = "../skif-core", version = "0.0.0" }
-thiserror = "2"
-yaml_serde = { version = "0.10", optional = true }
-yamlpatch = { version = "1.31", optional = true }
-yamlpath = { version = "1.31", optional = true }
+jsonc-parser.workspace = true
+serde_json.workspace = true
+skif-core.workspace = true
+thiserror.workspace = true
+yaml_serde = { workspace = true, optional = true }
+yamlpatch = { workspace = true, optional = true }
+yamlpath = { workspace = true, optional = true }
 
 [dev-dependencies]
-proptest = "1"
-serde_json = { version = "1", features = ["preserve_order"] }
+proptest.workspace = true
 
 [lints]
 workspace = true
