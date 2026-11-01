@@ -119,3 +119,34 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
+
+  # Runs the built binary against real workspaces installed by each package manager, so the
+  # fixtures prove skif's view of a monorepo matches what npm, pnpm, yarn and bun actually accept.
+  e2e:
+    name: E2E (${{ matrix.package-manager }})
+    runs-on: ubuntu-latest
+    strategy:
+      # fail-fast stays off so one package manager's failure does not hide the others.
+      fail-fast: false
+      matrix:
+        package-manager: [npm, pnpm, yarn, bun]
+    steps:
+      - uses: actions/checkout@v7
+      # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      # node serves npm, yarn (through corepack) and pnpm's own runtime; pnpm is pinned in mise.toml.
+      - uses: xberg-io/actions/setup-mise@v1
+        with:
+          tools: node pnpm
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.package-manager == 'bun'
+      - name: Enable corepack
+        if: matrix.package-manager == 'yarn'
+        run: corepack enable
+      - name: Build skif
+        run: cargo build --locked
+      - name: Run end-to-end tests
+        run: scripts/e2e/run.sh ${{ matrix.package-manager }} target/debug/skif

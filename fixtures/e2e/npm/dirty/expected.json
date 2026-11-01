@@ -1,0 +1,8 @@
+{
+  "exit_code": 1,
+  "rules": [
+    "empty-dependencies",
+    "multiple-dependency-versions"
+  ],
+  "rules_after_fix": []
+}
