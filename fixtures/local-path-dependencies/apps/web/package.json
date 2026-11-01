@@ -1,0 +1,11 @@
+{
+  "name": "web",
+  "private": true,
+  "dependencies": {
+    "@repo/ui": "link:../../packages/ui",
+    "vendored": "file:./vendor/vendored.tgz"
+  },
+  "devDependencies": {
+    "@repo/ui-tooling": "workspace:*"
+  }
+}

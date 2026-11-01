@@ -7,6 +7,9 @@ use crate::{
         incompatible_peer_dependencies::{
             IncompatiblePeerDependenciesIssue, IncompatiblePeerDependency,
         },
+        local_path_dependencies::{
+            LocalPathDependenciesIssue, LocalPathDependency, is_local_path_specifier,
+        },
         member_toolchain_fields::MemberToolchainFieldsIssue,
         unordered_dependencies::UnorderedDependenciesIssue,
     },
@@ -15,7 +18,7 @@ use anyhow::{Result, anyhow};
 use indexmap::IndexMap;
 use root::RootPackage;
 use serde::Deserialize;
-use std::{fs, path::PathBuf};
+use std::{collections::HashSet, fs, path::PathBuf};
 
 pub mod root;
 pub mod semversion;
@@ -279,6 +282,65 @@ impl Package {
         match &self.inner.dev_engines {
             Some(dev_engines) => dev_engines.package_manager.is_some(),
             None => false,
+        }
+    }
+
+    /// Whether the workspace uses npm, which links workspace packages with `*` instead of the
+    /// `workspace:` protocol.
+    pub fn uses_npm(&self) -> bool {
+        self.inner
+            .package_manager
+            .as_ref()
+            .is_some_and(|package_manager| package_manager.starts_with("npm@"))
+    }
+
+    /// Reports dependencies that point at local paths. Those naming a workspace package can be
+    /// replaced by `workspace_specifier`.
+    pub fn check_local_path_dependencies(
+        &self,
+        workspace_packages: &HashSet<String>,
+        workspace_specifier: &str,
+    ) -> Option<BoxIssue> {
+        let dependencies = [
+            (DependencyKind::Dependencies, &self.inner.dependencies),
+            (
+                DependencyKind::DevDependencies,
+                &self.inner.dev_dependencies,
+            ),
+            (
+                DependencyKind::PeerDependencies,
+                &self.inner.peer_dependencies,
+            ),
+            (
+                DependencyKind::OptionalDependencies,
+                &self.inner.optional_dependencies,
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(kind, dependencies)| {
+            dependencies
+                .as_ref()
+                .map(|dependencies| (kind, dependencies))
+        })
+        .flat_map(|(kind, dependencies)| {
+            dependencies
+                .iter()
+                .filter(|(_, specifier)| is_local_path_specifier(specifier))
+                .map(move |(name, specifier)| LocalPathDependency {
+                    kind,
+                    name: name.clone(),
+                    specifier: specifier.clone(),
+                    replacement: workspace_packages
+                        .contains(name)
+                        .then(|| workspace_specifier.to_string()),
+                })
+        })
+        .collect::<Vec<_>>();
+
+        if dependencies.is_empty() {
+            None
+        } else {
+            Some(LocalPathDependenciesIssue::new(dependencies))
         }
     }
 
