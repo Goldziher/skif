@@ -40,7 +40,13 @@ impl Report {
     #[must_use]
     pub fn new(mut diagnostics: Vec<Diagnostic>, packages: usize) -> Self {
         diagnostics.sort_by(compare);
-        let summary = diagnostics.iter().fold(Summary { packages, ..Summary::default() }, count);
+        let summary = diagnostics.iter().fold(
+            Summary {
+                packages,
+                ..Summary::default()
+            },
+            count,
+        );
         Self { diagnostics, summary }
     }
 }
@@ -77,9 +83,20 @@ mod tests {
     use crate::span::{Location, Span};
 
     fn diag(rule: &'static str, severity: Severity, path: &str, start: Option<u32>, fixable: bool) -> Diagnostic {
-        let span = start.map(|s| Span { start: s, end: s + 1, start_line: 1, start_col: s + 1, end_line: 1, end_col: s + 2 });
+        let span = start.map(|s| Span {
+            start: s,
+            end: s + 1,
+            start_line: 1,
+            start_col: s + 1,
+            end_line: 1,
+            end_col: s + 2,
+        });
         let fixes = if fixable {
-            vec![Fix { title: "f".into(), safety: FixSafety::Safe, ops: vec![FixOp::DeleteFile { path: path.into() }] }]
+            vec![Fix {
+                title: "f".into(),
+                safety: FixSafety::Safe,
+                ops: vec![FixOp::DeleteFile { path: path.into() }],
+            }]
         } else {
             Vec::new()
         };
@@ -88,7 +105,10 @@ mod tests {
             severity,
             message: rule.to_owned(),
             help: None,
-            location: Location { path: path.into(), span },
+            location: Location {
+                path: path.into(),
+                span,
+            },
             related: Vec::new(),
             package: None,
             dependency: None,
@@ -140,20 +160,38 @@ mod tests {
     fn counts_summary() {
         assert_eq!(
             Report::new(input(), 3).summary,
-            Summary { errors: 3, warnings: 1, infos: 1, fixable: 2, packages: 3 }
+            Summary {
+                errors: 3,
+                warnings: 1,
+                infos: 1,
+                fixable: 2,
+                packages: 3
+            }
         );
     }
 
     #[test]
     fn empty_report_has_zero_counts() {
         let report = Report::new(Vec::new(), 7);
-        assert!(report.diagnostics.is_empty());
-        assert_eq!(report.summary, Summary { packages: 7, ..Summary::default() });
+        assert_eq!(report.diagnostics, Vec::new());
+        assert_eq!(
+            report.summary,
+            Summary {
+                packages: 7,
+                ..Summary::default()
+            }
+        );
     }
 
     #[test]
     fn summary_serializes_kebab_case() {
-        let summary = Summary { errors: 1, warnings: 2, infos: 3, fixable: 4, packages: 5 };
+        let summary = Summary {
+            errors: 1,
+            warnings: 2,
+            infos: 3,
+            fixable: 4,
+            packages: 5,
+        };
         assert_eq!(
             serde_json::to_value(summary).unwrap(),
             serde_json::json!({ "errors": 1, "warnings": 2, "infos": 3, "fixable": 4, "packages": 5 })

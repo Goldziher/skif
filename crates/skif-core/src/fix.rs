@@ -226,13 +226,19 @@ fn validated<'a>(source: &str, edits: &'a [TextEdit]) -> Result<Vec<&'a TextEdit
     edits.iter().try_for_each(|edit| check_bounds(source, edit))?;
     let mut ordered: Vec<&TextEdit> = edits.iter().collect();
     ordered.sort_by_key(|edit| (edit.start, edit.end));
-    ordered.windows(2).try_for_each(|pair| check_disjoint(pair[0], pair[1]))?;
+    ordered
+        .windows(2)
+        .try_for_each(|pair| check_disjoint(pair[0], pair[1]))?;
     Ok(ordered)
 }
 
 fn check_bounds(source: &str, edit: &TextEdit) -> Result<(), EditError> {
     if edit.start > edit.end || edit.end as usize > source.len() {
-        return Err(EditError::OutOfBounds { start: edit.start, end: edit.end, len: source.len() });
+        return Err(EditError::OutOfBounds {
+            start: edit.start,
+            end: edit.end,
+            len: source.len(),
+        });
     }
     [edit.start, edit.end]
         .into_iter()
@@ -242,7 +248,10 @@ fn check_bounds(source: &str, edit: &TextEdit) -> Result<(), EditError> {
 
 fn check_disjoint(first: &TextEdit, second: &TextEdit) -> Result<(), EditError> {
     if second.start < first.end {
-        Err(EditError::Overlap { first: (first.start, first.end), second: (second.start, second.end) })
+        Err(EditError::Overlap {
+            first: (first.start, first.end),
+            second: (second.start, second.end),
+        })
     } else {
         Ok(())
     }
@@ -256,7 +265,11 @@ mod tests {
     use super::*;
 
     fn edit(start: u32, end: u32, replacement: &str) -> TextEdit {
-        TextEdit { start, end, replacement: replacement.to_owned() }
+        TextEdit {
+            start,
+            end,
+            replacement: replacement.to_owned(),
+        }
     }
 
     #[test]
@@ -300,14 +313,55 @@ mod tests {
             (
                 "abcdef",
                 vec![edit(0, 4, "x"), edit(2, 5, "y")],
-                EditError::Overlap { first: (0, 4), second: (2, 5) },
+                EditError::Overlap {
+                    first: (0, 4),
+                    second: (2, 5),
+                },
             ),
-            ("abcdef", vec![edit(1, 3, "x"), edit(2, 2, "y")], EditError::Overlap { first: (1, 3), second: (2, 2) }),
-            ("abcdef", vec![edit(2, 4, "x"), edit(2, 4, "y")], EditError::Overlap { first: (2, 4), second: (2, 4) }),
-            ("abc", vec![edit(2, 9, "x")], EditError::OutOfBounds { start: 2, end: 9, len: 3 }),
-            ("abc", vec![edit(3, 2, "x")], EditError::OutOfBounds { start: 3, end: 2, len: 3 }),
-            ("a\u{e9}", vec![edit(2, 3, "x")], EditError::NotCharBoundary { offset: 2 }),
-            ("\u{1F600}", vec![edit(1, 4, "x")], EditError::NotCharBoundary { offset: 1 }),
+            (
+                "abcdef",
+                vec![edit(1, 3, "x"), edit(2, 2, "y")],
+                EditError::Overlap {
+                    first: (1, 3),
+                    second: (2, 2),
+                },
+            ),
+            (
+                "abcdef",
+                vec![edit(2, 4, "x"), edit(2, 4, "y")],
+                EditError::Overlap {
+                    first: (2, 4),
+                    second: (2, 4),
+                },
+            ),
+            (
+                "abc",
+                vec![edit(2, 9, "x")],
+                EditError::OutOfBounds {
+                    start: 2,
+                    end: 9,
+                    len: 3,
+                },
+            ),
+            (
+                "abc",
+                vec![edit(3, 2, "x")],
+                EditError::OutOfBounds {
+                    start: 3,
+                    end: 2,
+                    len: 3,
+                },
+            ),
+            (
+                "a\u{e9}",
+                vec![edit(2, 3, "x")],
+                EditError::NotCharBoundary { offset: 2 },
+            ),
+            (
+                "\u{1F600}",
+                vec![edit(1, 4, "x")],
+                EditError::NotCharBoundary { offset: 1 },
+            ),
         ];
         for (source, edits, expected) in cases {
             assert_eq!(apply_text_edits(source, &edits), Err(expected), "source {source:?}");
@@ -332,12 +386,17 @@ mod tests {
 
     fn build_edits(source: &str, cuts: &[usize], replacements: &[String], rotation: usize) -> Vec<TextEdit> {
         let boundaries: Vec<usize> = source.char_indices().map(|(i, _)| i).chain([source.len()]).collect();
-        let mut offsets: Vec<u32> = cuts.iter().map(|c| u32::try_from(boundaries[c % boundaries.len()]).unwrap()).collect();
+        let mut offsets: Vec<u32> = cuts
+            .iter()
+            .map(|c| u32::try_from(boundaries[c % boundaries.len()]).unwrap())
+            .collect();
         offsets.sort_unstable();
         let mut edits: Vec<TextEdit> = offsets
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .zip(replacements)
-            .map(|(pair, rep)| edit(pair[0], pair[1], rep))
+            .map(|(&[start, end], rep)| edit(start, end, rep))
             .collect();
         if !edits.is_empty() {
             let len = edits.len();

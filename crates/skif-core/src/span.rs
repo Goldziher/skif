@@ -77,7 +77,13 @@ impl LineIndex {
     #[must_use]
     pub fn new(source: &str) -> Self {
         let line_starts = std::iter::once(0)
-            .chain(source.bytes().enumerate().filter(|&(_, b)| b == b'\n').map(|(i, _)| to_u32(i + 1)))
+            .chain(
+                source
+                    .bytes()
+                    .enumerate()
+                    .filter(|&(_, b)| b == b'\n')
+                    .map(|(i, _)| to_u32(i + 1)),
+            )
             .collect();
         let wide_chars = source
             .char_indices()
@@ -88,7 +94,10 @@ impl LineIndex {
                 utf16_len: to_u32(c.len_utf16()),
             })
             .collect();
-        Self { line_starts, wide_chars }
+        Self {
+            line_starts,
+            wide_chars,
+        }
     }
 
     /// 1-based `(line, column)` of a byte offset; the column counts Unicode scalar values.
@@ -104,7 +113,14 @@ impl LineIndex {
     pub fn span(&self, start: u32, end: u32) -> Span {
         let (start_line, start_col) = self.line_col(start);
         let (end_line, end_col) = self.line_col(end);
-        Span { start, end, start_line, start_col, end_line, end_col }
+        Span {
+            start,
+            end,
+            start_line,
+            start_col,
+            end_line,
+            end_col,
+        }
     }
 
     /// 1-based column of a byte offset counted in UTF-16 code units, as SARIF requires.
@@ -117,14 +133,24 @@ impl LineIndex {
 
     fn line_of(&self, offset: u32) -> (u32, u32) {
         let line = self.line_starts.partition_point(|&start| start <= offset);
-        let start = line.checked_sub(1).and_then(|i| self.line_starts.get(i)).copied().unwrap_or(0);
+        let start = line
+            .checked_sub(1)
+            .and_then(|i| self.line_starts.get(i))
+            .copied()
+            .unwrap_or(0);
         (to_u32(line.max(1)), start)
     }
 
     fn skipped_bytes(&self, line_start: u32, offset: u32, weight: impl Fn(WideChar) -> u32) -> u32 {
         let lo = self.wide_chars.partition_point(|w| w.offset < line_start);
         let hi = self.wide_chars.partition_point(|w| w.end() <= offset).max(lo);
-        self.wide_chars.get(lo..hi).unwrap_or_default().iter().copied().map(weight).sum()
+        self.wide_chars
+            .get(lo..hi)
+            .unwrap_or_default()
+            .iter()
+            .copied()
+            .map(weight)
+            .sum()
     }
 }
 
@@ -143,7 +169,15 @@ mod tests {
     #[test]
     fn multi_line_and_line_ends() {
         let index = LineIndex::new("ab\ncd\n\nef");
-        let cases = [(0, (1, 1)), (2, (1, 3)), (3, (2, 1)), (5, (2, 3)), (6, (3, 1)), (7, (4, 1)), (9, (4, 3))];
+        let cases = [
+            (0, (1, 1)),
+            (2, (1, 3)),
+            (3, (2, 1)),
+            (5, (2, 3)),
+            (6, (3, 1)),
+            (7, (4, 1)),
+            (9, (4, 3)),
+        ];
         for (offset, expected) in cases {
             assert_eq!(index.line_col(offset), expected, "offset {offset}");
         }
@@ -192,7 +226,14 @@ mod tests {
         let index = LineIndex::new("ab\ncd");
         assert_eq!(
             index.span(1, 4),
-            Span { start: 1, end: 4, start_line: 1, start_col: 2, end_line: 2, end_col: 2 }
+            Span {
+                start: 1,
+                end: 4,
+                start_line: 1,
+                start_col: 2,
+                end_line: 2,
+                end_col: 2
+            }
         );
     }
 
@@ -200,7 +241,13 @@ mod tests {
     fn empty_source_and_location_serde() {
         let index = LineIndex::new("");
         assert_eq!(index.line_col(0), (1, 1));
-        let location = Location { path: "a/package.json".into(), span: None };
-        assert_eq!(serde_json::to_value(&location).unwrap_or_default(), serde_json::json!({ "path": "a/package.json" }));
+        let location = Location {
+            path: "a/package.json".into(),
+            span: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&location).unwrap_or_default(),
+            serde_json::json!({ "path": "a/package.json" })
+        );
     }
 }

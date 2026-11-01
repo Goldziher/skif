@@ -70,9 +70,21 @@ mod tests {
         vec![
             json_op(JsonAction::Set(json!(1))),
             json_op(JsonAction::Remove),
-            json_op(JsonAction::Insert { key: "k".into(), value: json!("v"), position: InsertPosition::Start }),
-            json_op(JsonAction::Insert { key: "k".into(), value: json!(null), position: InsertPosition::End }),
-            json_op(JsonAction::Insert { key: "k".into(), value: json!([1]), position: InsertPosition::Sorted }),
+            json_op(JsonAction::Insert {
+                key: "k".into(),
+                value: json!("v"),
+                position: InsertPosition::Start,
+            }),
+            json_op(JsonAction::Insert {
+                key: "k".into(),
+                value: json!(null),
+                position: InsertPosition::End,
+            }),
+            json_op(JsonAction::Insert {
+                key: "k".into(),
+                value: json!([1]),
+                position: InsertPosition::Sorted,
+            }),
             json_op(JsonAction::SortKeys),
             json_op(JsonAction::RenameKey("new".into())),
             yaml_op(YamlAction::Set(json!({ "a": true }))),
@@ -80,9 +92,16 @@ mod tests {
             yaml_op(YamlAction::Append(json!("x"))),
             FixOp::Text {
                 path: "a.txt".into(),
-                edit: TextEdit { start: 0, end: 1, replacement: "z".into() },
+                edit: TextEdit {
+                    start: 0,
+                    end: 1,
+                    replacement: "z".into(),
+                },
             },
-            FixOp::CreateFile { path: "new.txt".into(), contents: "hi".into() },
+            FixOp::CreateFile {
+                path: "new.txt".into(),
+                contents: "hi".into(),
+            },
             FixOp::DeleteFile { path: "old.txt".into() },
         ]
     }
@@ -95,13 +114,24 @@ mod tests {
             help: Some("remove it".into()),
             location: Location {
                 path: "package.json".into(),
-                span: Some(Span { start: 0, end: 3, start_line: 1, start_col: 1, end_line: 1, end_col: 4 }),
+                span: Some(Span {
+                    start: 0,
+                    end: 3,
+                    start_line: 1,
+                    start_col: 1,
+                    end_line: 1,
+                    end_col: 4,
+                }),
             },
             related: Vec::new(),
             package: Some("pkg".into()),
             dependency: None,
             detail: None,
-            fixes: vec![Fix { title: "apply".into(), safety: FixSafety::Unsafe, ops: all_ops() }],
+            fixes: vec![Fix {
+                title: "apply".into(),
+                safety: FixSafety::Unsafe,
+                ops: all_ops(),
+            }],
         }
     }
 
