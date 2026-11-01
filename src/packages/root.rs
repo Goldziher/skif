@@ -26,6 +26,10 @@ impl RootPackage {
         self.0.get_name().cloned().unwrap_or_default()
     }
 
+    pub fn as_package(&self) -> &Package {
+        &self.0
+    }
+
     pub fn get_path(&self) -> String {
         self.0.get_path()
     }

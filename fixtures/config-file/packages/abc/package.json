@@ -1,0 +1,8 @@
+{
+  "name": "abc",
+  "dependencies": {
+    "zod": "3.0.0",
+    "react": "18.0.0"
+  },
+  "devDependencies": {}
+}

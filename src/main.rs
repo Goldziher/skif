@@ -9,6 +9,7 @@ use std::time::Instant;
 
 mod args;
 mod collect;
+mod config_file;
 mod install;
 mod json;
 mod packages;
@@ -33,6 +34,16 @@ fn main() {
     };
 
     let mut config = packages_list.root_package.get_config().unwrap_or_default();
+
+    match config_file::load(&args.path) {
+        Ok(Some(file_config)) => config.overlay(file_config),
+        Ok(None) => {}
+        Err(error) => {
+            print_error("Failed to load config file", error.to_string().as_str());
+            std::process::exit(1);
+        }
+    }
+
     config.merge(args);
 
     if config.fix && is_ci() {
