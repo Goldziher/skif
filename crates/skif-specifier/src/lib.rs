@@ -3,10 +3,6 @@
     clippy::match_same_arms,
     reason = "parser arms are grouped by leading byte with explanatory comments; merging them would hide the dispatch table"
 )]
-#![allow(
-    clippy::missing_panics_doc,
-    reason = "the only panics are expects on values the parser validated before constructing the variant"
-)]
 
 use {
     crate::{
@@ -27,6 +23,10 @@ pub mod link;
 
 #[cfg(test)]
 mod get_node_range_test;
+#[cfg(test)]
+mod hardening_test;
+#[cfg(test)]
+mod proptest_test;
 #[cfg(test)]
 mod get_semver_number_test;
 pub mod git;
@@ -205,7 +205,13 @@ impl Specifier {
                 }
             }
             // Star/latest
-            Some(b'*') => Latest::create(value),
+            Some(b'*') => {
+                if value == "*" {
+                    Latest::create(value)
+                } else {
+                    Self::Unsupported(value.to_string())
+                }
+            }
             // Workspace protocol
             Some(b'w') => {
                 if value.starts_with("workspace:") {
@@ -278,11 +284,11 @@ impl Specifier {
                     Self::Unsupported(value.to_string())
                 }
             }
-            // "x" is latest
-            Some(b'x') => Latest::create(value),
-            // Any other alphabetic char → tag
+            // Any other alphabetic char → tag, except the "x"/"X" wildcard
             Some(b) if b.is_ascii_alphabetic() => {
-                if parser::is_tag(value) {
+                if matches!(value, "x" | "X") {
+                    Latest::create(value)
+                } else if parser::is_tag(value) {
                     Tag::create(value)
                 } else {
                     Self::Unsupported(value.to_string())
@@ -430,7 +436,7 @@ impl Specifier {
             }
             Self::Major(m) => {
                 // "1" → ">=1.0.0 <2.0.0"
-                let range_str = format!(">={}.0.0 <{}.0.0", m.raw, m.raw.parse::<u64>().ok()? + 1);
+                let range_str = format!(">={}.0.0 <{}.0.0", m.raw, m.raw.parse::<u64>().ok()?.checked_add(1)?);
                 Self::new_node_range(&range_str)
             }
             Self::Minor(m) => {
@@ -440,8 +446,8 @@ impl Specifier {
                     return None;
                 }
                 let major = parts[0];
-                let minor = parts[1].parse::<u64>().ok()?;
-                let range_str = format!(">={}.0 <{}.{}.0", m.raw, major, minor + 1);
+                let minor = parts[1].parse::<u64>().ok()?.checked_add(1)?;
+                let range_str = format!(">={}.0 <{}.{}.0", m.raw, major, minor);
                 Self::new_node_range(&range_str)
             }
             Self::Catalog(_)
@@ -920,9 +926,16 @@ impl Specifier {
 
 impl Ord for Specifier {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let semantic = self.cmp_semantic(other);
+        // Tie-break on the raw string so that `cmp == Equal` holds exactly when `==` does
+        semantic.then_with(|| self.get_raw().cmp(other.get_raw()))
+    }
+}
+
+impl Specifier {
+    fn cmp_semantic(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
 
-        // Extract version and range from both specifiers
         let self_version = self.get_node_version();
         let other_version = other.get_node_version();
 

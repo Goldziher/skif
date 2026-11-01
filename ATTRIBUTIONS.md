@@ -88,6 +88,14 @@ JavaScript monorepos.
    code where avoidable); two crate-level lint allowances and a per-function `expect_used`
    allowance are documented in place. The code is formatted with the workspace `rustfmt.toml`,
    and the benchmark crate name is updated.
+6. Hardening: `Major`, `Minor`, `RangeMajor`, `RangeMinor` and `Latest` parse their padded
+   versions and ranges eagerly (no `OnceLock`, no `expect`); numbers that `nodejs-semver` rejects
+   (for example `99999999999999999999`, above 2^53 - 1) now yield `Specifier::Unsupported`
+   instead of panicking later. `Ord` breaks semantic ties on the raw string so that
+   `cmp == Equal` exactly when `==` does (`1.2.3` and `=1.2.3` no longer compare equal).
+   `is_complex_range` accepts unspaced `||` unions, prerelease tags and x-range operands
+   (`1.x || 2.x`), and only a bare `*`, `x` or `X` is `Latest` (`*foo` is `Unsupported`, `xyz` is
+   a `Tag`). Property tests cover panic freedom and the `Ord`/`Eq` law.
 
 ### License Compatibility
 
