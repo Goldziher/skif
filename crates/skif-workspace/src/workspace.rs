@@ -143,7 +143,11 @@ fn json_patterns(root_package: &Package) -> Option<Declared> {
         .filter_map(|(index, item)| {
             let mut pointer = base.clone();
             pointer.push(PathSeg::Index(index));
-            Some((index, item.as_str()?.to_owned(), root_package.manifest.field_span(&pointer)))
+            Some((
+                index,
+                item.as_str()?.to_owned(),
+                root_package.manifest.field_span(&pointer),
+            ))
         })
         .collect();
     Some(Declared {

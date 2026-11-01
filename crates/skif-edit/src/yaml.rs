@@ -34,9 +34,8 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
             op: describe::op(op),
             message,
         };
-        let shifted = shift_past_removals(route, &removed).ok_or_else(|| {
-            fail("path was removed by an earlier operation on the same document".to_owned())
-        })?;
+        let shifted = shift_past_removals(route, &removed)
+            .ok_or_else(|| fail("path was removed by an earlier operation on the same document".to_owned()))?;
         document = apply_one(&document, &shifted, action).map_err(fail)?;
         if matches!(action, YamlAction::Remove) && matches!(route.last(), Some(PathSeg::Index(_))) {
             removed.push(route);

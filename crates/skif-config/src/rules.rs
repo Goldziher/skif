@@ -51,7 +51,7 @@ pub struct RuleConfig {
 
 impl RuleConfig {
     #[must_use]
-    pub const fn level(level: Level) -> Self {
+    pub fn level(level: Level) -> Self {
         Self {
             severity: Some(level),
             options: RuleOptions::new(),
