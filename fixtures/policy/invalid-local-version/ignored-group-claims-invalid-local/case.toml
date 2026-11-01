@@ -1,0 +1,4 @@
+description = "An ignored group that selects the package takes precedence: its instances are IsIgnored and nothing is reported."
+source = "skif"
+tags = ["local", "invalid", "ignored", "precedence"]
+valid-states = ["IsIgnored"]

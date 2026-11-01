@@ -1,0 +1,11 @@
+[
+  {
+    "rule": "invalid-local-version",
+    "severity": "error",
+    "package": "lib",
+    "dependency": "lib",
+    "detail": "InvalidLocalVersion",
+    "path": "packages/lib/package.json",
+    "fixable": false
+  }
+]

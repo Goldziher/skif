@@ -26,7 +26,12 @@ yamlpatch = { workspace = true, optional = true }
 yamlpath = { workspace = true, optional = true }
 
 [dev-dependencies]
+criterion.workspace = true
 proptest.workspace = true
+
+[[bench]]
+name = "json_edit"
+harness = false
 
 [lints]
 workspace = true

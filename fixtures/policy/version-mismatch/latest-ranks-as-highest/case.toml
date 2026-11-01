@@ -1,0 +1,4 @@
+description = "The latest/* wildcard ranks above every concrete version (syncpack quirk), so concrete ranges are fixed to it."
+source = "syncpack:crates/syncpack-specifier/src/latest.rs (HUGE ordering version)"
+tags = ["unsupported", "latest", "highest", "syncpack-quirk", "fix"]
+valid-states = ["IsHighestOrLowestSemver"]

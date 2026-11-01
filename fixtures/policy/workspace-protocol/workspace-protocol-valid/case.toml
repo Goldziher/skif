@@ -1,0 +1,4 @@
+description = "workspace:* and workspace:^ specifiers satisfy the rule."
+source = "skif"
+tags = ["workspace-protocol", "internal"]
+valid-states = ["SatisfiesLocal"]

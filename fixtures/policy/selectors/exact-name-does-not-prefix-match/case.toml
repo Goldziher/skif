@@ -1,0 +1,3 @@
+description = "A name without wildcards matches only that exact dependency."
+source = "syncpack:src/group_selector/pattern_matcher_test.rs::exact_match"
+tags = ["selectors", "exact", "fix"]

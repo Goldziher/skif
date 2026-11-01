@@ -1,0 +1,8 @@
+[[version-groups]]
+dependencies = ["tiny-invariant"]
+policy = "snapped-to"
+snap-to = ["app"]
+
+[[semver-groups]]
+packages = ["lib"]
+range = "<"

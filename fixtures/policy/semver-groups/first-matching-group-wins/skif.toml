@@ -1,0 +1,6 @@
+[[semver-groups]]
+dependencies = ["react"]
+range = "~"
+
+[[semver-groups]]
+range = "^"

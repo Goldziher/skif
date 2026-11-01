@@ -1,0 +1,32 @@
+[package]
+name = "skif-js-syntax"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "JavaScript and TypeScript module facts and static config extraction for skif, built on oxc."
+documentation = "https://docs.rs/skif-js-syntax"
+keywords = ["javascript", "typescript", "oxc", "imports", "exports"]
+categories = ["development-tools", "parser-implementations"]
+readme = "README.md"
+
+[dependencies]
+oxc_allocator.workspace = true
+oxc_ast.workspace = true
+oxc_ast_visit.workspace = true
+oxc_parser.workspace = true
+oxc_semantic.workspace = true
+oxc_span.workspace = true
+oxc_str.workspace = true
+serde.workspace = true
+skif-core.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

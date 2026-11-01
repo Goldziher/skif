@@ -1,0 +1,3 @@
+description = "[policy] dependency-types limits the policies to the listed sections; a divergent peer range is then not reported."
+source = "skif"
+tags = ["dependency-types", "peer"]

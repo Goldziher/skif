@@ -1,0 +1,4 @@
+description = "A dependency used in fewer packages than min-packages is not suggested for the catalog."
+source = "skif"
+tags = ["catalog", "prefer", "min-packages"]
+valid-states = ["IsCatalogDefinition"]

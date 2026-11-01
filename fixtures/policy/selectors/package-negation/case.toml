@@ -1,0 +1,3 @@
+description = "!pkg excludes a package from a group."
+source = "syncpack:src/group_selector/group_selector_test.rs::packages_negation"
+tags = ["selectors", "packages", "negation", "fix"]

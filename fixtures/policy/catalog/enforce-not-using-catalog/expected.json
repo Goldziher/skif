@@ -1,0 +1,20 @@
+[
+  {
+    "rule": "catalog-not-used",
+    "severity": "error",
+    "package": "app",
+    "dependency": "react",
+    "detail": "NotUsingCatalog",
+    "path": "packages/app/package.json",
+    "fixable": true
+  },
+  {
+    "rule": "catalog-not-used",
+    "severity": "error",
+    "package": "lib",
+    "dependency": "react",
+    "detail": "NotUsingCatalog",
+    "path": "packages/lib/package.json",
+    "fixable": true
+  }
+]

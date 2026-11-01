@@ -1,0 +1,9 @@
+{
+  "name": "tool",
+  "version": "1.0.0",
+  "private": true,
+  "peerDependencies": {
+    "left-pad": "*",
+    "react": "^18.3.1"
+  }
+}

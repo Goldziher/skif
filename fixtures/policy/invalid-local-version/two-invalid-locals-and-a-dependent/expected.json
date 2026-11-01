@@ -1,0 +1,38 @@
+[
+  {
+    "rule": "invalid-local-version",
+    "severity": "error",
+    "package": "app",
+    "dependency": "lib",
+    "detail": "DependsOnInvalidLocalPackage",
+    "path": "packages/app/package.json",
+    "fixable": false
+  },
+  {
+    "rule": "invalid-local-version",
+    "severity": "error",
+    "package": "app",
+    "dependency": "tool",
+    "detail": "DependsOnInvalidLocalPackage",
+    "path": "packages/app/package.json",
+    "fixable": false
+  },
+  {
+    "rule": "invalid-local-version",
+    "severity": "error",
+    "package": "lib",
+    "dependency": "lib",
+    "detail": "InvalidLocalVersion",
+    "path": "packages/lib/package.json",
+    "fixable": false
+  },
+  {
+    "rule": "invalid-local-version",
+    "severity": "error",
+    "package": "tool",
+    "dependency": "tool",
+    "detail": "InvalidLocalVersion",
+    "path": "packages/tool/package.json",
+    "fixable": false
+  }
+]

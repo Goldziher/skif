@@ -1,0 +1,3 @@
+[[version-groups]]
+dependencies = ["!@acme/internal", "@acme/*"]
+policy = "banned"
