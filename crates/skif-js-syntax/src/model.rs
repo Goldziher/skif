@@ -99,7 +99,7 @@ pub struct Member {
     pub name: String,
     /// Location of the member name.
     pub span: Span,
-    /// JSDoc tag names (without `@`) on the member.
+    /// `JSDoc` tag names (without `@`) on the member.
     pub tags: Vec<String>,
 }
 
@@ -151,7 +151,7 @@ pub struct Export {
     pub from: Option<String>,
     /// Name taken from the source module of a re-export (`*` for a star re-export).
     pub imported_name: Option<String>,
-    /// JSDoc tag names (without `@`) in the comment directly above, such as `public`, `internal`, `alias`.
+    /// `JSDoc` tag names (without `@`) in the comment directly above, such as `public`, `internal`, `alias`.
     pub tags: Vec<String>,
     /// Location of the exported name (the statement for star re-exports).
     pub span: Span,

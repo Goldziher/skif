@@ -1,4 +1,4 @@
-//! Nested module references: `require`, dynamic `import()`, `import.meta.glob`, `import x = require()`, CommonJS
+//! Nested module references: `require`, dynamic `import()`, `import.meta.glob`, `import x = require()`, `CommonJS`
 //! exports and JSX.
 
 use std::collections::HashMap;
@@ -46,10 +46,12 @@ fn escaping_namespace() -> Vec<ImportedName> {
 /// Constant string value of an expression: a string literal or a template without expressions.
 pub(crate) fn static_string(expr: &Expression<'_>) -> Option<String> {
     match expr.get_inner_expression() {
-        Expression::StringLiteral(s) => Some(s.value.as_str().to_string()),
-        Expression::TemplateLiteral(t) if t.expressions.is_empty() => {
-            t.quasis.first().map(|q| q.value.cooked.as_ref().unwrap_or(&q.value.raw).as_str().to_string())
-        }
+        Expression::StringLiteral(s) => Some(crate::js_string(s.value)),
+        Expression::TemplateLiteral(t) if t.expressions.is_empty() => t.quasis.first().map(|q| {
+            q.value
+                .cooked
+                .map_or_else(|| q.value.raw.as_str().to_owned(), crate::js_string)
+        }),
         _ => None,
     }
 }
@@ -59,7 +61,7 @@ fn is_ident(expr: &Expression<'_>, wanted: &str) -> bool {
 }
 
 fn is_import_meta(expr: &Expression<'_>) -> bool {
-    matches!(expr, Expression::MetaProperty(m) if m.meta.name.as_str() == "import" && m.property.name.as_str() == "meta")
+    matches!(expr, Expression::ImportMeta(_))
 }
 
 fn is_module_exports(member: &StaticMemberExpression<'_>) -> bool {
@@ -103,7 +105,7 @@ fn bindings_for_pattern(pattern: &BindingPattern<'_>) -> Vec<ImportedName> {
                 let kind = if key == "default" {
                     ImportedKind::Default
                 } else {
-                    ImportedKind::Named(key.to_string())
+                    ImportedKind::Named(crate::js_string(key.as_js_str()))
                 };
                 let target = match &p.value {
                     BindingPattern::AssignmentPattern(a) => &a.left,
@@ -139,7 +141,7 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
             let kind = if key == "default" {
                 ImportedKind::Default
             } else {
-                ImportedKind::Named(key.to_string())
+                ImportedKind::Named(key.to_owned())
             };
             self.pending.insert(start, vec![name(kind, None, false)]);
         }
@@ -170,7 +172,7 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
             let mut bound = name(ImportedKind::Namespace, Some(it.id.name.as_str()), false);
             bound.is_type = it.import_kind.is_type();
             self.info.imports.push(Import {
-                specifier: reference.expression.value.as_str().to_string(),
+                specifier: crate::js_string(reference.expression.value),
                 kind: if it.import_kind.is_type() {
                     ImportKind::TypeOnly
                 } else {

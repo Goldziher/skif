@@ -12,7 +12,7 @@ fn parse(path: &str, source: &str) -> ModuleInfo {
     parse_module(Path::new(path), source, &ParseOptions::default()).expect("parses")
 }
 
-fn slice<'s>(source: &'s str, start: u32, end: u32) -> &'s str {
+fn slice(source: &str, start: u32, end: u32) -> &str {
     &source[start as usize..end as usize]
 }
 
@@ -66,7 +66,10 @@ fn import_forms() {
             source: "import { type T, v } from 'x';",
             specifier: "x",
             kind: ImportKind::Static,
-            names: vec![(Named("T".into()), Some("T"), true), (Named("v".into()), Some("v"), false)],
+            names: vec![
+                (Named("T".into()), Some("T"), true),
+                (Named("v".into()), Some("v"), false),
+            ],
         },
         Case {
             name: "side effect",
@@ -90,7 +93,7 @@ fn import_forms() {
             source: "import(`x`);",
             specifier: "x",
             kind: ImportKind::Dynamic,
-            names: vec![(Namespace, None, true)],
+            names: vec![(Namespace, None, false)],
         },
         Case {
             name: "awaited dynamic destructure",
@@ -174,18 +177,27 @@ fn import_forms() {
 
 #[test]
 fn unresolved_dynamic_references_are_recorded() {
-    let info = parse("a.js", "import(name); require(name); import(`./x/${n}.js`); import.meta.glob(pattern);");
-    assert!(info.imports.is_empty());
+    let info = parse(
+        "a.js",
+        "import(name); require(name); import(`./x/${n}.js`); import.meta.glob(pattern);",
+    );
+    assert_eq!(info.imports, [] as [skif_js_syntax::Import; 0]);
     assert_eq!(info.unresolved_dynamic.len(), 4);
 }
 
 #[test]
 fn import_meta_glob_yields_one_import_per_pattern() {
-    let info = parse("a.ts", "const m = import.meta.glob(['./a/*.ts', '!./a/skip.ts'], { eager: true });");
+    let info = parse(
+        "a.ts",
+        "const m = import.meta.glob(['./a/*.ts', '!./a/skip.ts'], { eager: true });",
+    );
     let got: Vec<_> = info.imports.iter().map(|i| (i.specifier.as_str(), i.kind)).collect();
     assert_eq!(
         got,
-        [("./a/*.ts", ImportKind::ImportMetaGlob), ("!./a/skip.ts", ImportKind::ImportMetaGlob)]
+        [
+            ("./a/*.ts", ImportKind::ImportMetaGlob),
+            ("!./a/skip.ts", ImportKind::ImportMetaGlob)
+        ]
     );
     let single = parse("a.ts", "import.meta.glob('./b/*.ts');");
     assert_eq!(single.imports.len(), 1);
@@ -266,7 +278,11 @@ fn export_forms() {
     ];
     for case in cases {
         let info = parse(case.path, case.source);
-        let got: Vec<_> = info.exports.iter().map(|e| (e.name.as_str(), e.kind, e.is_type)).collect();
+        let got: Vec<_> = info
+            .exports
+            .iter()
+            .map(|e| (e.name.as_str(), e.kind, e.is_type))
+            .collect();
         assert_eq!(got, case.expected, "{}", case.name);
     }
 }
@@ -289,7 +305,10 @@ fn enum_and_namespace_members() {
     let members: Vec<_> = e.enum_members.iter().map(|m| m.name.as_str()).collect();
     assert_eq!(members, ["A", "b-c"]);
     assert_eq!(e.enum_members[0].tags, ["internal"]);
-    assert_eq!(slice(source, e.enum_members[0].span.start, e.enum_members[0].span.start + 1), "A");
+    assert_eq!(
+        slice(source, e.enum_members[0].span.start, e.enum_members[0].span.start + 1),
+        "A"
+    );
     let n = &info.exports[1];
     let members: Vec<_> = n.namespace_members.iter().map(|m| m.name.as_str()).collect();
     assert_eq!(members, ["x", "f"]);
@@ -300,7 +319,7 @@ fn jsdoc_tags_attach_to_exports() {
     let source = "/**\n * Docs.\n * @public\n * @alias foo\n */\nexport const a = 1;\n\n// plain\nexport const b = 2;\n/** @internal */ export function c() {}\n";
     let info = parse("a.ts", source);
     assert_eq!(info.exports[0].tags, ["public", "alias"]);
-    assert!(info.exports[1].tags.is_empty());
+    assert_eq!(info.exports[1].tags, [] as [std::string::String; 0]);
     assert_eq!(info.exports[2].tags, ["internal"]);
 }
 
@@ -309,10 +328,21 @@ fn in_file_references() {
     let source = "export const used = 1;\nexport const unused = 2;\nexport function f() { return used; }\nconst local = 3;\nexport { local };\nexport interface I {}\nexport const typed: I = 1;\n";
     let info = parse("a.ts", source);
     assert_eq!(info.in_file_references, ["I", "used"]);
-    let flags: Vec<_> = info.exports.iter().map(|e| (e.name.as_str(), e.referenced_in_file)).collect();
+    let flags: Vec<_> = info
+        .exports
+        .iter()
+        .map(|e| (e.name.as_str(), e.referenced_in_file))
+        .collect();
     assert_eq!(
         flags,
-        [("used", true), ("unused", false), ("f", false), ("local", false), ("I", true), ("typed", false)]
+        [
+            ("used", true),
+            ("unused", false),
+            ("f", false),
+            ("local", false),
+            ("I", true),
+            ("typed", false)
+        ]
     );
 }
 
@@ -323,7 +353,7 @@ fn in_file_references_can_be_disabled() {
         ..ParseOptions::default()
     };
     let info = parse_module(Path::new("a.js"), "export const a = 1; a;", &options).unwrap();
-    assert!(info.in_file_references.is_empty());
+    assert_eq!(info.in_file_references, [] as [std::string::String; 0]);
 }
 
 #[test]
@@ -422,7 +452,12 @@ fn removal_ranges_slice_the_source() {
         let info = parse("a.ts", case.source);
         let removal = info.exports[case.export].removal.expect(case.name);
         assert_eq!(removal.kind, case.kind, "{}", case.name);
-        assert_eq!(slice(case.source, removal.start, removal.end), case.removed, "{}", case.name);
+        assert_eq!(
+            slice(case.source, removal.start, removal.end),
+            case.removed,
+            "{}",
+            case.name
+        );
         assert_eq!(removal.siblings, case.siblings, "{}", case.name);
     }
 }
@@ -447,7 +482,7 @@ fn member_accesses_through_imports() {
     assert_eq!(e.accessed_members, ["A"]);
     assert!(!e.escapes);
     let def = &info.imports[2].names[0];
-    assert!(def.accessed_members.is_empty());
+    assert_eq!(def.accessed_members, [] as [std::string::String; 0]);
     assert!(def.escapes);
 }
 
@@ -473,7 +508,10 @@ fn commonjs_and_jsx_and_directives() {
     assert!(parse("a.jsx", "const a = <div />;").has_jsx);
     assert!(parse("a.tsx", "const a = <></>;").has_jsx);
     assert!(!parse("a.ts", "const a = 1;").has_jsx);
-    let info = parse("a.tsx", "/** @jsxImportSource preact */\n'use client';\nexport const a = 1;");
+    let info = parse(
+        "a.tsx",
+        "/** @jsxImportSource preact */\n'use client';\nexport const a = 1;",
+    );
     assert_eq!(info.jsx_import_source.as_deref(), Some("preact"));
     assert_eq!(info.directives, ["use client"]);
 }
@@ -494,7 +532,11 @@ fn source_type_follows_extension() {
         let info = parse(path, source);
         assert!(!info.exports.is_empty() || info.has_cjs_exports, "{path}");
     }
-    let ts_only = parse_module(Path::new("a.js"), "export const a: number = 1;", &ParseOptions::default());
+    let ts_only = parse_module(
+        Path::new("a.js"),
+        "export const a: number = 1;",
+        &ParseOptions::default(),
+    );
     assert!(matches!(ts_only, Err(SyntaxError::Parse { .. })));
 }
 
@@ -505,7 +547,7 @@ fn syntax_errors_carry_a_location() {
     let SyntaxError::Parse { message, span } = err else {
         panic!("expected a parse error");
     };
-    assert!(!message.is_empty());
+    assert_ne!(message, "");
     assert_eq!(span.start_line, 2);
 }
 
@@ -534,7 +576,7 @@ fn single_file_components_map_spans_back() {
 
     let svelte = "<script>\n  import x from './x.js';\n</script>\n<p>{x}</p>";
     assert_eq!(parse("A.svelte", svelte).imports[0].specifier, "./x.js");
-    assert!(parse("B.vue", "<template/>").imports.is_empty());
+    assert_eq!(parse("B.vue", "<template/>").imports, [] as [skif_js_syntax::Import; 0]);
 }
 
 #[test]

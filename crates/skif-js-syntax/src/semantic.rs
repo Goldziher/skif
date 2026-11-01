@@ -16,7 +16,7 @@ pub(crate) fn referenced_locals(
     if wanted.is_empty() {
         return referenced;
     }
-    let semantic = SemanticBuilder::new().build(program).semantic;
+    let semantic = SemanticBuilder::new().with_build_nodes(true).build(program).semantic;
     let scoping = semantic.scoping();
     let root = scoping.root_scope_id();
     for symbol in scoping.symbol_ids() {

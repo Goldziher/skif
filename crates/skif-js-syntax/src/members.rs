@@ -49,8 +49,9 @@ impl<'a> Visit<'a> for Tracker {
     fn visit_computed_member_expression(&mut self, it: &ComputedMemberExpression<'a>) {
         if let Expression::Identifier(id) = &it.object
             && let Expression::StringLiteral(s) = &it.expression
+            && let Some(member) = s.value.as_str()
         {
-            self.member(id.name.as_str(), s.value.as_str());
+            self.member(id.name.as_str(), member);
         }
         walk::walk_computed_member_expression(self, it);
     }
@@ -70,13 +71,13 @@ impl<'a> Visit<'a> for Tracker {
             let keys: Option<Vec<String>> = pattern
                 .properties
                 .iter()
-                .map(|p| p.key.static_name().map(|k| k.to_string()))
+                .map(|p| p.key.static_name().map(|k| crate::js_string(k.as_js_str())))
                 .collect();
-            if let Some(keys) = keys {
-                if let Some(slot) = self.slots.get_mut(id.name.as_str()) {
-                    slot.members.extend(keys);
-                    slot.member_uses += 1;
-                }
+            if let Some(keys) = keys
+                && let Some(slot) = self.slots.get_mut(id.name.as_str())
+            {
+                slot.members.extend(keys);
+                slot.member_uses += 1;
             }
         }
         walk::walk_variable_declarator(self, it);
