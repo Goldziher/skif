@@ -1,0 +1,4 @@
+description = "Same version number as the target, using a different but compatible semver group range: valid."
+source = "syncpack:src/version_group/snapped_to_test.rs::instance_has_same_version_number_as_snapped_to_but_matches_a_different_but_compatible_semver_group"
+tags = ["snapped-to", "semver-groups"]
+valid-states = ["SatisfiesSnapTarget", "IsIdenticalToSnapTarget"]

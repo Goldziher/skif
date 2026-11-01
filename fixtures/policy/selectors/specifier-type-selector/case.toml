@@ -1,0 +1,3 @@
+description = "specifier-types selects instances by the kind of their specifier, independent of the dependency name."
+source = "syncpack:src/group_selector/group_selector_test.rs::specifier_types"
+tags = ["selectors", "specifier-types", "git", "fix"]

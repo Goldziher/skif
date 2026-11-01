@@ -1,0 +1,9 @@
+{
+  "name": "lib",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "moment": "^2.30.1",
+    "dayjs": "^1.11.10"
+  }
+}

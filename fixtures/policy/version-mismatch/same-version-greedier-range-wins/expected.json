@@ -1,0 +1,11 @@
+[
+  {
+    "rule": "version-mismatch",
+    "severity": "error",
+    "package": "lib",
+    "dependency": "react",
+    "detail": "DiffersToHighestOrLowestSemver",
+    "path": "packages/lib/package.json",
+    "fixable": true
+  }
+]

@@ -6,7 +6,6 @@
 //!
 //! The crate performs no I/O, printing or process control and keeps no global state.
 
-mod builder;
 mod context;
 mod emitter;
 mod ignore;
@@ -14,9 +13,20 @@ mod provider;
 mod registry;
 mod runner;
 
-pub use builder::{DiagnosticBuilder, diagnostic};
 pub use context::{EnabledRules, LintContext};
 pub use emitter::Emitter;
 pub use provider::{ProviderError, Rule, RuleProvider, RulesProvider};
 pub use registry::{Registry, RegistryError};
-pub use runner::{LintError, RunOptions, run};
+pub use runner::{LintError, RunOptions, run, run_unsorted};
+pub use skif_core::{DiagnosticBuilder, diagnostic};
+
+const _: () = {
+    fn assert_send_sync<T: Send + Sync>() {}
+    let _ = assert_send_sync::<Registry>;
+    let _ = assert_send_sync::<EnabledRules>;
+    let _ = assert_send_sync::<Emitter<'static>>;
+    let _ = assert_send_sync::<RulesProvider>;
+    let _ = assert_send_sync::<ProviderError>;
+    let _ = assert_send_sync::<LintError>;
+    let _ = assert_send_sync::<RegistryError>;
+};

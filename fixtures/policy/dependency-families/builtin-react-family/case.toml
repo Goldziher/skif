@@ -1,0 +1,3 @@
+description = "The built-in React family reports react-dom declared on an older version than react in the same package."
+source = "skif (sherif unsync-similar-dependencies parity)"
+tags = ["families", "builtin"]

@@ -1,0 +1,3 @@
+description = "A semver group restricted to devDependencies leaves production dependencies untouched."
+source = "skif"
+tags = ["semver-groups", "selectors", "dependency-types", "fix"]

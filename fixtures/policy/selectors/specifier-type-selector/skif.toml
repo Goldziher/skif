@@ -1,0 +1,3 @@
+[[version-groups]]
+specifier-types = ["git"]
+policy = "banned"

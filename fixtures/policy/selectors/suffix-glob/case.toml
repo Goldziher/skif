@@ -1,0 +1,4 @@
+description = "A leading-wildcard glob matches by suffix."
+source = "syncpack:src/group_selector/pattern_matcher_test.rs::suffix_match"
+tags = ["selectors", "glob", "fix"]
+valid-states = ["IsIgnored"]

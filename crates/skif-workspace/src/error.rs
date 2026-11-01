@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 /// Everything that can stop workspace discovery. Discovery never prints and never exits.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum WorkspaceError {
     /// The workspace root is not a directory.
     #[error("path {0:?} is not a directory")]

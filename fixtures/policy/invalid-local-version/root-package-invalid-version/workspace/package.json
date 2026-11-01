@@ -1,0 +1,6 @@
+{
+  "name": "monorepo",
+  "version": "workspace",
+  "private": true,
+  "packageManager": "pnpm@9.15.0"
+}

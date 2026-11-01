@@ -1,0 +1,11 @@
+[
+  {
+    "rule": "version-mismatch",
+    "severity": "error",
+    "package": "monorepo",
+    "dependency": "typescript",
+    "detail": "DiffersToHighestOrLowestSemver",
+    "path": "package.json",
+    "fixable": true
+  }
+]

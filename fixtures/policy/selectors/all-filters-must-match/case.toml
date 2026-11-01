@@ -1,0 +1,3 @@
+description = "Dependency, package and dependency-type filters combine with AND."
+source = "syncpack:src/group_selector/group_selector_test.rs::can_add"
+tags = ["selectors", "combined", "fix"]

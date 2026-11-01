@@ -1,0 +1,4 @@
+[[version-groups]]
+dependencies = ["internal-ui"]
+policy = "pinned"
+pin = "workspace:*"

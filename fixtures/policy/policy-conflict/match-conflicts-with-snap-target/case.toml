@@ -1,0 +1,4 @@
+description = "An instance on its semver group's range that cannot satisfy the snap target is an unfixable conflict."
+source = "syncpack:src/version_group/snapped_to_test.rs::instance_has_same_version_number_as_snapped_to_but_matches_a_different_but_incompatible_semver_group"
+tags = ["semver-groups", "snapped-to", "conflict"]
+valid-states = ["IsIdenticalToSnapTarget"]

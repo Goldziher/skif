@@ -3,9 +3,11 @@ use std::path::Path;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
+use crate::dependency_types::DependencyTypes;
 use crate::error::ConfigError;
 use crate::overrides::ConfigOverrides;
 use crate::rules::{Level, RuleConfig, rules_map};
+use crate::selector::Selector;
 
 #[cfg(feature = "schema")]
 use crate::schema::RuleConfigSchema;
@@ -120,19 +122,25 @@ impl Config {
     }
 
     /// Layers CLI overrides over this configuration (defaults < file < CLI).
-    pub fn apply(&mut self, overrides: &ConfigOverrides) {
+    ///
+    /// # Errors
+    /// [`ConfigError::Invalid`] when an ignore pattern in `overrides` is not a valid selector; the configuration is
+    /// left unchanged.
+    pub fn apply(&mut self, overrides: &ConfigOverrides) -> Result<(), ConfigError> {
+        let ignore_packages = Selector::new(overrides.ignore_packages.iter().cloned())?;
+        let ignore_dependencies = Selector::new(overrides.ignore_dependencies.iter().cloned())?;
         for (id, level) in &overrides.rules {
             self.rules.entry(id.clone()).or_default().severity = Some(*level);
         }
         for id in &overrides.ignore_rules {
             self.rules.entry(id.clone()).or_default().severity = Some(Level::Off);
         }
-        if !overrides.ignore_packages.is_empty() {
-            self.workspace.ignore_packages.clone_from(&overrides.ignore_packages);
+        if !ignore_packages.is_empty() {
+            self.workspace.ignore_packages = ignore_packages;
         }
-        if !overrides.ignore_dependencies.is_empty() {
+        if !ignore_dependencies.is_empty() {
             self.ignore.push(IgnoreEntry {
-                dependencies: overrides.ignore_dependencies.clone(),
+                dependencies: ignore_dependencies,
                 ..IgnoreEntry::default()
             });
         }
@@ -145,6 +153,7 @@ impl Config {
         if overrides.no_js {
             self.js.enabled = false;
         }
+        Ok(())
     }
 }
 
@@ -162,6 +171,7 @@ fn closest(id: &str, known: &[&str]) -> Option<String> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum PackageManager {
     Npm,
     Pnpm,
@@ -175,7 +185,8 @@ pub enum PackageManager {
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 pub struct Workspace {
     /// Package names or globs excluded from every check.
-    pub ignore_packages: Vec<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub ignore_packages: Selector,
     /// Overrides package-manager detection.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub package_manager: Option<PackageManager>,
@@ -196,8 +207,12 @@ pub struct Lint {
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 pub struct IgnoreEntry {
     pub rules: Vec<String>,
-    pub packages: Vec<String>,
-    pub dependencies: Vec<String>,
+    /// Package names or directories; an empty selector matches every package.
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub packages: Selector,
+    /// Dependency names; an empty selector matches every dependency.
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub dependencies: Selector,
 }
 
 /// Which version `preferred-semver` favours.
@@ -217,7 +232,8 @@ pub enum Prefer {
 pub struct Policy {
     pub prefer: Prefer,
     /// Dependency types the policies apply to; empty means all.
-    pub dependency_types: Vec<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub dependency_types: DependencyTypes,
 }
 
 /// The policy of a version group.
@@ -242,9 +258,12 @@ pub enum VersionPolicy {
 pub struct VersionGroup {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    pub dependencies: Vec<String>,
-    pub packages: Vec<String>,
-    pub dependency_types: Vec<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub dependencies: Selector,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub packages: Selector,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub dependency_types: DependencyTypes,
     pub specifier_types: Vec<String>,
     pub policy: VersionPolicy,
     /// Required by `pinned`.
@@ -310,11 +329,14 @@ pub struct SemverGroup {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(default)]
-    pub dependencies: Vec<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub dependencies: Selector,
     #[serde(default)]
-    pub packages: Vec<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub packages: Selector,
     #[serde(default)]
-    pub dependency_types: Vec<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub dependency_types: DependencyTypes,
     #[serde(default)]
     pub specifier_types: Vec<String>,
     pub range: SemverRange,

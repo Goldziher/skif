@@ -1,0 +1,4 @@
+packages:
+  - "packages/*"
+catalog:
+  "internal-fork": "git+https://github.com/acme/internal-fork.git#main"

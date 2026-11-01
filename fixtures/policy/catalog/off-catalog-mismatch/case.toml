@@ -1,0 +1,4 @@
+description = "Even with mode off, an instance that does not use catalog: while a sibling does differs to the catalog."
+source = "syncpack:src/version_group/preferred_semver_test.rs (catalog: protocol wins over semver branch)"
+tags = ["catalog", "mode-off", "fix"]
+valid-states = ["IsCatalog", "IsCatalogDefinition"]

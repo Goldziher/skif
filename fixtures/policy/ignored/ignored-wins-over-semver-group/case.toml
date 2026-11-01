@@ -1,0 +1,4 @@
+description = "An ignored instance is not subject to semver groups: no range mismatch is reported."
+source = "syncpack:src/version_group/ignored_test.rs::all_instances_are_ignored"
+tags = ["ignored", "semver-groups"]
+valid-states = ["IsIgnored"]

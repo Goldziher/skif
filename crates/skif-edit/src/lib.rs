@@ -131,3 +131,9 @@ fn ensure_disjoint(sorted: &[Planned], ops: &[&FixOp]) -> Result<(), EditPlanErr
     }
     Ok(())
 }
+
+const _: () = {
+    fn assert_send_sync<T: Send + Sync>() {}
+    let _ = assert_send_sync::<EditPlanError>;
+    let _ = assert_send_sync::<FileKind>;
+};
