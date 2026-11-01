@@ -1,0 +1,3 @@
+[[semver-groups]]
+dependencies = ["$LOCAL"]
+range = "^"

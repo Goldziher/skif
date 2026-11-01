@@ -1,0 +1,3 @@
+[[version-groups]]
+dependencies = ["eslint"]
+policy = "banned"

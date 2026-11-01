@@ -1,0 +1,9 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "eslint-plugin-react": "^7.34.0",
+    "typescript": "^5.4.5"
+  }
+}
