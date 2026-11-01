@@ -18,14 +18,18 @@ default = []
 schema = ["dep:schemars", "dep:serde_json", "skif-core/schema"]
 
 [dependencies]
+globset.workspace = true
 indexmap.workspace = true
-schemars = { version = "1.2.3", optional = true, features = ["indexmap2"] }
+schemars = { workspace = true, optional = true }
 serde.workspace = true
 serde_json = { workspace = true, optional = true }
-skif-core = { path = "../skif-core", version = "0.0.0" }
-strsim = "0.11.1"
-thiserror = "2.0.21"
-toml = { version = "1.1.8", features = ["preserve_order"] }
+skif-core.workspace = true
+strsim.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true
