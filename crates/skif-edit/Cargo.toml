@@ -9,7 +9,7 @@ homepage.workspace = true
 repository.workspace = true
 description = "Format-preserving JSON and YAML edits used by skif autofixes."
 documentation = "https://docs.rs/skif-edit"
-keywords = ["json","yaml","edit","format-preserving","skif"]
+keywords = ["json", "yaml", "edit", "format-preserving", "skif"]
 categories = ["development-tools", "text-processing"]
 
 [features]

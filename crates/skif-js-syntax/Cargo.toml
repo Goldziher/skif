@@ -9,7 +9,7 @@ homepage.workspace = true
 repository.workspace = true
 description = "oxc-based JS/TS module facts and static config extraction for skif; never executes code."
 documentation = "https://docs.rs/skif-js-syntax"
-keywords = ["javascript","typescript","oxc","imports","skif"]
+keywords = ["javascript", "typescript", "oxc", "imports", "skif"]
 categories = ["development-tools", "parser-implementations"]
 readme = "README.md"
 

@@ -9,7 +9,7 @@ homepage.workspace = true
 repository.workspace = true
 description = "Workspace discovery for npm, pnpm, yarn and bun: packages, manifests and catalogs, for skif."
 documentation = "https://docs.rs/skif-workspace"
-keywords = ["monorepo","workspace","pnpm","package-json","skif"]
+keywords = ["monorepo", "workspace", "pnpm", "package-json", "skif"]
 categories = ["development-tools"]
 
 [dependencies]

@@ -9,7 +9,7 @@ homepage.workspace = true
 repository.workspace = true
 description = "skif.toml model, loading, CLI overrides and JSON Schema for skif."
 documentation = "https://docs.rs/skif-config"
-keywords = ["linter","configuration","toml","monorepo","skif"]
+keywords = ["linter", "configuration", "toml", "monorepo", "skif"]
 categories = ["development-tools", "config"]
 readme = "../../README.md"
 

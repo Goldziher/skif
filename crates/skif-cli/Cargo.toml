@@ -9,7 +9,7 @@ homepage.workspace = true
 repository.workspace = true
 description = "Command-line interface for skif, a dependency and package-manager linter for JS/TS monorepos."
 documentation = "https://docs.rs/skif-cli"
-keywords = ["linter","monorepo","package-json","pnpm","cli"]
+keywords = ["linter", "monorepo", "package-json", "pnpm", "cli"]
 categories = ["development-tools", "command-line-utilities"]
 readme = "../../README.md"
 
