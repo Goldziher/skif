@@ -41,11 +41,20 @@ impl ConfigError {
             let (line, column) = line_column(source, range.start);
             (Some(line), Some(column))
         });
-        Self::Parse { path: path.map(Path::to_path_buf), message: err.message().to_string(), span, line, column }
+        Self::Parse {
+            path: path.map(Path::to_path_buf),
+            message: err.message().to_string(),
+            span,
+            line,
+            column,
+        }
     }
 
     pub(crate) fn invalid(path: Option<&Path>, message: impl Into<String>) -> Self {
-        Self::Invalid { path: path.map(Path::to_path_buf), message: message.into() }
+        Self::Invalid {
+            path: path.map(Path::to_path_buf),
+            message: message.into(),
+        }
     }
 }
 
@@ -58,14 +67,12 @@ fn line_column(source: &str, offset: usize) -> (usize, usize) {
 }
 
 fn render(path: Option<&Path>, line: Option<&usize>, column: Option<&usize>, message: &str) -> String {
-    let mut out = path.map_or_else(|| "skif config".to_string(), |p| p.display().to_string());
-    if let Some(line) = line {
-        out.push_str(&format!(":{line}"));
-        if let Some(column) = column {
-            out.push_str(&format!(":{column}"));
-        }
+    let location = path.map_or_else(|| "skif config".to_string(), |p| p.display().to_string());
+    match (line, column) {
+        (Some(line), Some(column)) => format!("{location}:{line}:{column}: {message}"),
+        (Some(line), None) => format!("{location}:{line}: {message}"),
+        _ => format!("{location}: {message}"),
     }
-    format!("{out}: {message}")
 }
 
 fn suggestion_hint(suggestion: Option<&str>) -> String {

@@ -2,6 +2,8 @@ use crate::model::Config;
 use crate::rules::{ForbidMode, Level};
 
 /// Schema stand-in for a `[rules]` value: a level string or a table of severity plus options.
+/// It only describes the shape for the JSON Schema and is never constructed.
+#[allow(dead_code)]
 #[derive(schemars::JsonSchema)]
 #[serde(untagged)]
 pub enum RuleConfigSchema {
@@ -10,6 +12,7 @@ pub enum RuleConfigSchema {
 }
 
 /// Table form of a rule entry; the options present depend on the rule.
+#[allow(dead_code)]
 #[derive(schemars::JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct RuleTableSchema {

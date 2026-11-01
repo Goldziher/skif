@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::path::{Path, PathBuf};
 
 use skif_config::{
@@ -49,7 +51,9 @@ fn both_files_is_ambiguous() {
 #[test]
 fn unknown_key_reports_path_and_line() {
     let err = discover(&fixture("unknown-key")).unwrap_err();
-    let ConfigError::Parse { line, column, .. } = &err else { panic!("expected parse error, got {err:?}") };
+    let ConfigError::Parse { line, column, .. } = &err else {
+        panic!("expected parse error, got {err:?}")
+    };
     assert_eq!(*line, Some(3));
     assert_eq!(*column, Some(1));
     let message = err.to_string();
@@ -60,21 +64,31 @@ fn unknown_key_reports_path_and_line() {
 #[test]
 fn syntax_error_without_path_reports_line() {
     let err = Config::from_toml_str("[lint]\nfail-on-warnings = \n").unwrap_err();
-    let ConfigError::Parse { path, line, .. } = &err else { panic!("expected parse error") };
+    let ConfigError::Parse { path, line, .. } = &err else {
+        panic!("expected parse error")
+    };
     assert_eq!(*path, None);
     assert_eq!(*line, Some(2));
 }
 
 #[test]
 fn unknown_top_level_section_fails() {
-    assert!(matches!(Config::from_toml_str("[lnt]\n"), Err(ConfigError::Parse { .. })));
+    assert!(matches!(
+        Config::from_toml_str("[lnt]\n"),
+        Err(ConfigError::Parse { .. })
+    ));
 }
 
 #[test]
 fn invalid_rule_suggests_closest_id() {
     let (_, config) = discover(&fixture("invalid-rule")).unwrap().unwrap();
-    let err = config.validate_rules(&["unused-exports", "unused-files", "version-mismatch"]).unwrap_err();
-    assert_eq!(err.to_string(), "unknown rule \"unused-exportz\"; did you mean \"unused-exports\"?");
+    let err = config
+        .validate_rules(&["unused-exports", "unused-files", "version-mismatch"])
+        .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "unknown rule \"unused-exportz\"; did you mean \"unused-exports\"?"
+    );
 }
 
 #[test]
@@ -127,7 +141,10 @@ fn bad_rule_levels_fail_with_a_message() {
         ("version-mismatch = \"fatal\"", "invalid level \"fatal\""),
         ("version-mismatch = 3", "expected a level string or a table"),
         ("version-mismatch = { severity = 1 }", "severity must be a string"),
-        ("version-mismatch = { severity = \"warn\", level = \"warn\" }", "not both"),
+        (
+            "version-mismatch = { severity = \"warn\", level = \"warn\" }",
+            "not both",
+        ),
         ("member-toolchain-fields = { mode = \"sometimes\" }", "sometimes"),
         ("member-toolchain-fields = { moed = \"forbid\" }", "moed"),
         ("unused-exports = { ignore-tag = [] }", "ignore-tag"),
@@ -147,20 +164,27 @@ fn rule_tables_keep_typed_options() {
         config.rule("member-toolchain-fields"),
         Some(&RuleConfig {
             severity: Some(Level::Error),
-            options: RuleOptions::MemberToolchainFields(MemberToolchainFieldsOptions { mode: ForbidMode::MatchRoot }),
+            options: RuleOptions::MemberToolchainFields(MemberToolchainFieldsOptions {
+                mode: ForbidMode::MatchRoot
+            }),
         })
     );
     let RuleOptions::UnusedExports(options) = &config.rule("unused-exports").unwrap().options else {
         panic!("expected unused-exports options")
     };
     assert_eq!(options.ignore_tags, ["public", "internal"]);
-    assert_eq!(config.rule("unlisted-dependencies"), Some(&RuleConfig::level(Level::Error)));
+    assert_eq!(
+        config.rule("unlisted-dependencies"),
+        Some(&RuleConfig::level(Level::Error))
+    );
 }
 
 #[test]
 fn options_of_rules_without_typed_options_are_kept_raw() {
     let config = Config::from_toml_str("[rules]\nsome-rule = { severity = \"warn\", depth = 2 }\n").unwrap();
-    let RuleOptions::Other(map) = &config.rule("some-rule").unwrap().options else { panic!("expected raw options") };
+    let RuleOptions::Other(map) = &config.rule("some-rule").unwrap().options else {
+        panic!("expected raw options")
+    };
     assert_eq!(map.get("depth"), Some(&toml::Value::Integer(2)));
 }
 
@@ -189,10 +213,19 @@ fn full_fixture_sections() {
     assert_eq!(groups[0].packages, ["!@scope/legacy"]);
     assert_eq!(groups[0].dependency_types, ["prod", "!peer"]);
     assert_eq!(groups[0].specifier_types, ["exact", "range"]);
-    assert_eq!((groups[0].policy, groups[0].pin.as_deref()), (VersionPolicy::Pinned, Some("18.3.1")));
+    assert_eq!(
+        (groups[0].policy, groups[0].pin.as_deref()),
+        (VersionPolicy::Pinned, Some("18.3.1"))
+    );
     assert_eq!(groups[1].policy, VersionPolicy::Banned);
-    assert_eq!((groups[2].policy, groups[2].snap_to.as_slice()), (VersionPolicy::SnappedTo, ["@scope/core".to_string()].as_slice()));
-    assert_eq!((groups[3].policy, groups[3].prefer), (VersionPolicy::PreferredSemver, Some(Prefer::Lowest)));
+    assert_eq!(
+        (groups[2].policy, groups[2].snap_to.as_slice()),
+        (VersionPolicy::SnappedTo, ["@scope/core".to_string()].as_slice())
+    );
+    assert_eq!(
+        (groups[3].policy, groups[3].prefer),
+        (VersionPolicy::PreferredSemver, Some(Prefer::Lowest))
+    );
 
     assert_eq!(config.semver_groups.len(), 2);
     assert_eq!(config.semver_groups[0].range, SemverRange::Caret);
@@ -224,7 +257,9 @@ fn full_fixture_sections() {
     assert_eq!(js.workspaces["packages/app"].ignore_binaries, ["vite"]);
     assert_eq!(js.plugins["vitest"], PluginConfig::Enabled(true));
     assert_eq!(js.plugins["storybook"], PluginConfig::Enabled(false));
-    let PluginConfig::Options(eslint) = &js.plugins["eslint"] else { panic!("expected plugin table") };
+    let PluginConfig::Options(eslint) = &js.plugins["eslint"] else {
+        panic!("expected plugin table")
+    };
     assert_eq!(eslint.enabled, Some(true));
     assert_eq!(eslint.config, ["eslint.config.mjs"]);
     assert_eq!(eslint.entry, ["lint/*.js"]);
@@ -251,11 +286,26 @@ fn defaults_are_sensible() {
 #[test]
 fn inconsistent_groups_are_rejected() {
     let cases = [
-        ("policy = \"pinned\"", "version-groups[0]: policy `pinned` requires `pin`"),
-        ("policy = \"snapped-to\"", "version-groups[0]: policy `snapped-to` requires `snap-to`"),
-        ("policy = \"banned\"\npin = \"1.0.0\"", "`pin` is only valid with policy `pinned`"),
-        ("policy = \"banned\"\nprefer = \"lowest\"", "`prefer` is only valid with policy `preferred-semver`"),
-        ("policy = \"banned\"\nsnap-to = [\"a\"]", "`snap-to` is only valid with policy `snapped-to`"),
+        (
+            "policy = \"pinned\"",
+            "version-groups[0]: policy `pinned` requires `pin`",
+        ),
+        (
+            "policy = \"snapped-to\"",
+            "version-groups[0]: policy `snapped-to` requires `snap-to`",
+        ),
+        (
+            "policy = \"banned\"\npin = \"1.0.0\"",
+            "`pin` is only valid with policy `pinned`",
+        ),
+        (
+            "policy = \"banned\"\nprefer = \"lowest\"",
+            "`prefer` is only valid with policy `preferred-semver`",
+        ),
+        (
+            "policy = \"banned\"\nsnap-to = [\"a\"]",
+            "`snap-to` is only valid with policy `snapped-to`",
+        ),
     ];
     for (body, expected) in cases {
         let err = Config::from_toml_str(&format!("[[version-groups]]\n{body}\n")).unwrap_err();
@@ -281,9 +331,12 @@ fn file_errors_carry_the_path() {
 fn cli_overrides_win_over_file_and_defaults() {
     let mut config = full();
     let overrides = ConfigOverrides {
-        rules: [("version-mismatch".to_string(), Level::Error), ("brand-new".to_string(), Level::Warn)]
-            .into_iter()
-            .collect(),
+        rules: [
+            ("version-mismatch".to_string(), Level::Error),
+            ("brand-new".to_string(), Level::Warn),
+        ]
+        .into_iter()
+        .collect(),
         ignore_rules: vec!["unused-exports".into()],
         ignore_packages: vec!["cli-only".into()],
         ignore_dependencies: vec!["left-pad".into()],
@@ -297,11 +350,14 @@ fn cli_overrides_win_over_file_and_defaults() {
     assert_eq!(config.rule("brand-new").unwrap().severity, Some(Level::Warn));
     let exports = config.rule("unused-exports").unwrap();
     assert_eq!(exports.severity, Some(Level::Off));
-    assert!(matches!(exports.options, RuleOptions::UnusedExports(_)), "options survive a level override");
+    assert!(
+        matches!(exports.options, RuleOptions::UnusedExports(_)),
+        "options survive a level override"
+    );
     assert_eq!(config.workspace.ignore_packages, ["cli-only"]);
     assert_eq!(config.ignore.len(), 2);
     assert_eq!(config.ignore[1].dependencies, ["left-pad"]);
-    assert!(config.ignore[1].rules.is_empty());
+    assert_eq!(config.ignore[1].rules, Vec::<String>::new());
     assert!(!config.lint.fail_on_warnings);
     assert!(!config.js.production);
     assert!(!config.js.enabled);
@@ -327,7 +383,10 @@ fn builder_matches_equivalent_toml() {
 
 #[test]
 fn builder_validates() {
-    let group = skif_config::VersionGroup { policy: VersionPolicy::Pinned, ..Default::default() };
+    let group = skif_config::VersionGroup {
+        policy: VersionPolicy::Pinned,
+        ..Default::default()
+    };
     assert!(ConfigBuilder::new().version_group(group).build().is_err());
 }
 
@@ -337,8 +396,17 @@ fn schema_lists_every_section() {
     let schema = skif_config::json_schema();
     let properties = schema["properties"].as_object().unwrap();
     for key in [
-        "workspace", "lint", "rules", "ignore", "policy", "version-groups", "semver-groups", "catalog",
-        "workspace-protocol", "dependency-families", "js",
+        "workspace",
+        "lint",
+        "rules",
+        "ignore",
+        "policy",
+        "version-groups",
+        "semver-groups",
+        "catalog",
+        "workspace-protocol",
+        "dependency-families",
+        "js",
     ] {
         assert!(properties.contains_key(key), "{key}");
     }
