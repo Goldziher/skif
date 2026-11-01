@@ -89,7 +89,7 @@ mod tests {
         let json = root("");
         let member = r#"{"name":"a","dependencies":{"x":"1"}}"#;
         let files = [("package.json", json.as_str()), ("packages/a/package.json", member)];
-        assert!(lint(META.id, &files, &config("")).is_empty());
+        assert_eq!(lint(META.id, &files, &config("")), [] as [skif_core::Diagnostic; 0]);
     }
 
     #[test]
@@ -112,7 +112,10 @@ mod tests {
         let files = [("package.json", json.as_str()), ("packages/a/package.json", MEMBER)];
         assert_fixes_clear(META.id, &files, &config(""));
         let fixed = testing::fixed_json(META.id, &files, &config(""), "package.json");
-        assert_eq!(fixed["devDependencies"], serde_json::json!({"x": "^1", "y": "catalog:"}));
+        assert_eq!(
+            fixed["devDependencies"],
+            serde_json::json!({"x": "^1", "y": "catalog:"})
+        );
         assert!(fixed.get("dependencies").is_none());
     }
 
@@ -150,6 +153,6 @@ mod tests {
         let files = [("package.json", conflict.as_str()), ("packages/a/package.json", MEMBER)];
         let diagnostics = lint(META.id, &files, &config(""));
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].fixes.is_empty());
+        assert_eq!(diagnostics[0].fixes, [] as [skif_core::Fix; 0]);
     }
 }

@@ -49,7 +49,9 @@ impl Rule for MemberToolchainFields {
                 out.emit(
                     diagnostic(&META, message, field_location(package, &[key(field)]))
                         .package(package.display_name())
-                        .help(format!("remove `{field}` from this package.json and declare it once in the root"))
+                        .help(format!(
+                            "remove `{field}` from this package.json and declare it once in the root"
+                        ))
                         .fix(Fix {
                             title: format!("Remove `{field}`"),
                             safety: FixSafety::Unsafe,
@@ -76,16 +78,27 @@ mod tests {
         let cases = [
             ("none", r#"{"name":"a"}"#, vec![]),
             ("engines", r#"{"name":"a","engines":{"node":">=20"}}"#, vec!["engines"]),
-            ("packageManager", r#"{"name":"a","packageManager":"pnpm@9.0.0"}"#, vec!["packageManager"]),
+            (
+                "packageManager",
+                r#"{"name":"a","packageManager":"pnpm@9.0.0"}"#,
+                vec!["packageManager"],
+            ),
             (
                 "both",
                 r#"{"name":"a","packageManager":"pnpm@9.0.0","engines":{"node":">=20"}}"#,
                 vec!["packageManager", "engines"],
             ),
-            ("empty engines still declared", r#"{"name":"a","engines":{}}"#, vec!["engines"]),
+            (
+                "empty engines still declared",
+                r#"{"name":"a","engines":{}}"#,
+                vec!["engines"],
+            ),
         ];
         for (name, member, expected) in cases {
-            let files = [("package.json", root_json.as_str()), ("packages/a/package.json", member)];
+            let files = [
+                ("package.json", root_json.as_str()),
+                ("packages/a/package.json", member),
+            ];
             let found: Vec<String> = lint(META.id, &files, &config(""))
                 .iter()
                 .map(|diagnostic| diagnostic.message.clone())
@@ -101,39 +114,53 @@ mod tests {
     fn match_root_mode_allows_equal_values_only() {
         let root_json = root(ROOT_TOOLCHAIN);
         let cases = [
-            ("equal", r#"{"name":"a","engines":{"node":">=20"},"packageManager":"pnpm@9.0.0"}"#, 0),
+            (
+                "equal",
+                r#"{"name":"a","engines":{"node":">=20"},"packageManager":"pnpm@9.0.0"}"#,
+                0,
+            ),
             ("different engines", r#"{"name":"a","engines":{"node":">=22"}}"#, 1),
             ("different manager", r#"{"name":"a","packageManager":"pnpm@10.0.0"}"#, 1),
             ("equal manager only", r#"{"name":"a","packageManager":"pnpm@9.0.0"}"#, 0),
         ];
         for (name, member, expected) in cases {
-            let files = [("package.json", root_json.as_str()), ("packages/a/package.json", member)];
+            let files = [
+                ("package.json", root_json.as_str()),
+                ("packages/a/package.json", member),
+            ];
             assert_eq!(lint(META.id, &files, &config(MATCH_ROOT)).len(), expected, "{name}");
         }
     }
 
     #[test]
     fn match_root_flags_a_field_the_root_does_not_declare() {
-        let root_json = format!(
-            r#"{{"name":"root","private":true,"workspaces":["packages/*"]{ROOT_TOOLCHAIN}}}"#
-        );
+        let root_json = format!(r#"{{"name":"root","private":true,"workspaces":["packages/*"]{ROOT_TOOLCHAIN}}}"#);
         let member = r#"{"name":"a","packageManager":"pnpm@9.0.0"}"#;
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", member)];
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", member),
+        ];
         assert_eq!(lint(META.id, &files, &config(MATCH_ROOT)).len(), 1);
     }
 
     #[test]
     fn the_root_itself_is_never_reported() {
         let root_json = root(ROOT_TOOLCHAIN);
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", r#"{"name":"a"}"#)];
-        assert!(lint(META.id, &files, &config("")).is_empty());
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", r#"{"name":"a"}"#),
+        ];
+        assert_eq!(lint(META.id, &files, &config("")), [] as [skif_core::Diagnostic; 0]);
     }
 
     #[test]
     fn spans_cover_the_field_entry() {
         let root_json = root("");
         let member = r#"{"name":"a","engines":{"node":">=20"}}"#;
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", member)];
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", member),
+        ];
         let diagnostics = lint(META.id, &files, &config(""));
         assert_eq!(located(&files, &diagnostics[0]), r#""engines":{"node":">=20"}"#);
         assert_eq!(diagnostics[0].package.as_deref(), Some("a"));
@@ -143,19 +170,32 @@ mod tests {
     fn ignored_packages_are_skipped() {
         let root_json = root("");
         let member = r#"{"name":"a","engines":{}}"#;
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", member)];
-        assert!(lint(META.id, &files, &config("[workspace]\nignore-packages = [\"a\"]\n")).is_empty());
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", member),
+        ];
+        assert_eq!(
+            lint(META.id, &files, &config("[workspace]\nignore-packages = [\"a\"]\n")),
+            [] as [skif_core::Diagnostic; 0]
+        );
     }
 
     #[test]
     fn fix_removes_the_fields_and_leaves_the_rest() {
         let root_json = root(ROOT_TOOLCHAIN);
         let member = r#"{"name":"a","packageManager":"pnpm@9.0.0","version":"1.0.0","engines":{"node":">=20"}}"#;
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", member)];
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", member),
+        ];
         assert_fixes_clear(META.id, &files, &config(""));
         let fixed = testing::fixed_json(META.id, &files, &config(""), "packages/a/package.json");
         assert_eq!(fixed, serde_json::json!({"name": "a", "version": "1.0.0"}));
         let diagnostics = lint(META.id, &files, &config(""));
-        assert!(diagnostics.iter().all(|d| d.fixes[0].safety == skif_core::FixSafety::Unsafe));
+        assert!(
+            diagnostics
+                .iter()
+                .all(|d| d.fixes[0].safety == skif_core::FixSafety::Unsafe)
+        );
     }
 }

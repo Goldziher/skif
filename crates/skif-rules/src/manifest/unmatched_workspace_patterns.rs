@@ -1,5 +1,8 @@
 use serde_json::Value;
-use skif_core::{Category, Fix, FixOp, FixSafety, Fixability, JsonAction, Location, PathSeg, RuleMeta, Severity, YamlAction, diagnostic};
+use skif_core::{
+    Category, Fix, FixOp, FixSafety, Fixability, JsonAction, Location, PathSeg, RuleMeta, Severity, YamlAction,
+    diagnostic,
+};
 use skif_lint::{Emitter, LintContext, Rule};
 use skif_workspace::{PatternFact, Workspace, WorkspaceSource};
 
@@ -25,20 +28,27 @@ fn pointer(workspace: &Workspace, position: usize) -> Option<Vec<PathSeg>> {
     let base = match workspace.facts.source {
         WorkspaceSource::PnpmWorkspaceYaml => vec![key("packages")],
         WorkspaceSource::YarnNohoistWorkspaces => vec![key("workspaces"), key("packages")],
-        _ => vec![key("workspaces")],
+        WorkspaceSource::PackageJsonWorkspaces => vec![key("workspaces")],
     };
-    let index = match workspace.facts.source {
-        WorkspaceSource::PnpmWorkspaceYaml => Some(position),
-        _ => {
-            let items = base.iter().try_fold(&workspace.root_package.manifest.value, |value, seg| match seg {
+    let index = if workspace.facts.source == WorkspaceSource::PnpmWorkspaceYaml {
+        Some(position)
+    } else {
+        let items = base
+            .iter()
+            .try_fold(&workspace.root_package.manifest.value, |value, seg| match seg {
                 PathSeg::Key(name) => value.get(name),
                 PathSeg::Index(index) => value.get(*index),
             });
-            items
-                .and_then(Value::as_array)
-                .and_then(|items| items.iter().enumerate().filter(|(_, item)| item.is_string()).nth(position))
-                .map(|(index, _)| index)
-        }
+        items
+            .and_then(Value::as_array)
+            .and_then(|items| {
+                items
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| item.is_string())
+                    .nth(position)
+            })
+            .map(|(index, _)| index)
     };
     index.map(|index| base.into_iter().chain([PathSeg::Index(index)]).collect())
 }
@@ -110,12 +120,23 @@ mod tests {
             ("missing directory", r#"["packages/a","docs"]"#, vec!["docs"]),
             ("missing glob", r#"["packages/*","apps/*"]"#, vec!["apps/*"]),
             ("two missing", r#"["x","packages/*","y/*"]"#, vec!["x", "y/*"]),
-            ("negation that removes nothing is fine", r#"["packages/*","!nothing/*"]"#, vec![]),
-            ("deep glob with no match", r#"["packages/*","tools/**"]"#, vec!["tools/**"]),
+            (
+                "negation that removes nothing is fine",
+                r#"["packages/*","!nothing/*"]"#,
+                vec![],
+            ),
+            (
+                "deep glob with no match",
+                r#"["packages/*","tools/**"]"#,
+                vec!["tools/**"],
+            ),
         ];
         for (name, workspaces, expected) in cases {
             let root_json = root_with(workspaces);
-            let files = [("package.json", root_json.as_str()), ("packages/a/package.json", MEMBER)];
+            let files = [
+                ("package.json", root_json.as_str()),
+                ("packages/a/package.json", MEMBER),
+            ];
             let found: Vec<String> = lint(META.id, &files, &config(""))
                 .iter()
                 .map(|d| located(&files, d).trim_matches('"').to_owned())
@@ -132,13 +153,16 @@ mod tests {
             ("packages/a/package.json", MEMBER),
             ("bare/README.md", "hi"),
         ];
-        assert!(lint(META.id, &files, &config("")).is_empty());
+        assert_eq!(lint(META.id, &files, &config("")), [] as [skif_core::Diagnostic; 0]);
     }
 
     #[test]
     fn the_span_covers_the_pattern_string_in_the_root_manifest() {
         let root_json = root_with(r#"["packages/*","docs"]"#);
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", MEMBER)];
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", MEMBER),
+        ];
         let diagnostics = lint(META.id, &files, &config(""));
         assert_eq!(located(&files, &diagnostics[0]), r#""docs""#);
         assert_eq!(diagnostics[0].location.path.to_str(), Some("package.json"));
@@ -163,7 +187,10 @@ mod tests {
     #[test]
     fn json_fix_removes_every_unmatched_pattern() {
         let root_json = root_with(r#"["x","packages/*","y/*","!z"]"#);
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", MEMBER)];
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", MEMBER),
+        ];
         assert_fixes_clear(META.id, &files, &config(""));
         let fixed = testing::fixed_json(META.id, &files, &config(""), "package.json");
         assert_eq!(fixed["workspaces"], serde_json::json!(["packages/*", "!z"]));
@@ -197,7 +224,10 @@ mod tests {
     #[test]
     fn fixes_address_the_workspace_files_not_the_working_directory() {
         let root_json = root_with(r#"["gone","packages/*"]"#);
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", MEMBER)];
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", MEMBER),
+        ];
         let diagnostics = lint(META.id, &files, &config(""));
         let FixOp::Json { path, pointer, .. } = &diagnostics[0].fixes[0].ops[0] else {
             panic!("expected a JSON operation");

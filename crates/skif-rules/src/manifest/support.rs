@@ -36,10 +36,12 @@ pub fn field_location(package: &Package, pointer: &[PathSeg]) -> Location {
 
 /// The opening brace of the manifest: the anchor for a field that is missing.
 pub fn document_location(package: &Package) -> Location {
-    let span = package
-        .manifest
-        .field_span(&[])
-        .map(|root| package.manifest.line_index.span(root.start, root.start.saturating_add(1)));
+    let span = package.manifest.field_span(&[]).map(|root| {
+        package
+            .manifest
+            .line_index
+            .span(root.start, root.start.saturating_add(1))
+    });
     Location {
         path: package.manifest.path.clone(),
         span,
@@ -134,22 +136,31 @@ pub fn move_to_dev_dependencies(package: &Package, names: &[&str]) -> Option<Vec
                     JsonAction::Set(Value::Object(sorted(moved.clone()))),
                 ));
             } else {
-                ops.extend(moved.iter().filter(|(name, _)| !dev.contains_key(*name)).map(|(name, value)| {
-                    json_op(
-                        package,
-                        section(DependencyKind::DevDependencies),
-                        JsonAction::Insert {
-                            key: name.clone(),
-                            value: value.clone(),
-                            position: InsertPosition::Sorted,
-                        },
-                    )
-                }));
+                ops.extend(
+                    moved
+                        .iter()
+                        .filter(|(name, _)| !dev.contains_key(*name))
+                        .map(|(name, value)| {
+                            json_op(
+                                package,
+                                section(DependencyKind::DevDependencies),
+                                JsonAction::Insert {
+                                    key: name.clone(),
+                                    value: value.clone(),
+                                    position: InsertPosition::Sorted,
+                                },
+                            )
+                        }),
+                );
             }
         }
     }
     if all {
-        ops.push(json_op(package, section(DependencyKind::Dependencies), JsonAction::Remove));
+        ops.push(json_op(
+            package,
+            section(DependencyKind::Dependencies),
+            JsonAction::Remove,
+        ));
     } else {
         ops.extend(moved.keys().map(|name| {
             json_op(

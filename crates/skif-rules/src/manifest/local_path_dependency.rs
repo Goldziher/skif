@@ -71,8 +71,14 @@ impl Rule for LocalPathDependency {
         let workspace = cx.workspace;
         let replacement = workspace_specifier(workspace);
         for package in active_packages(workspace) {
-            for entry in package.dependencies.iter().filter(|entry| is_local_path(&entry.specifier)) {
-                let target = workspace.package_by_name(&entry.name).filter(|target| target.id != package.id);
+            for entry in package
+                .dependencies
+                .iter()
+                .filter(|entry| is_local_path(&entry.specifier))
+            {
+                let target = workspace
+                    .package_by_name(&entry.name)
+                    .filter(|target| target.id != package.id);
                 let mut builder = diagnostic(
                     &META,
                     format!("`{}` points at the local path `{}`", entry.name, entry.specifier),
@@ -151,9 +157,7 @@ mod tests {
 
     #[test]
     fn every_dependency_section_and_the_root_are_checked() {
-        let root_json = format!(
-            r#"{{"name":"root","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"],"devDependencies":{{"x":"link:./x"}}}}"#
-        );
+        let root_json = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"],"devDependencies":{"x":"link:./x"}}"#.to_string();
         let a = r#"{"name":"a","dependencies":{"p":"file:../p"},"peerDependencies":{"q":"../q"},"optionalDependencies":{"r":"link:../r"}}"#;
         let files = [("package.json", root_json.as_str()), ("packages/a/package.json", a)];
         let diagnostics = lint(META.id, &files, &config(""));
@@ -214,7 +218,7 @@ mod tests {
         ];
         let diagnostics = lint(META.id, &files, &config(""));
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].fixes.is_empty());
+        assert_eq!(diagnostics[0].fixes, [] as [skif_core::Fix; 0]);
     }
 
     #[test]
@@ -241,7 +245,10 @@ mod tests {
             ("packages/b/package.json", B),
         ];
         let diagnostics = lint(META.id, &files, &config(""));
-        let fixable: Vec<_> = diagnostics.iter().map(|d| (d.dependency.clone().unwrap(), d.is_fixable())).collect();
+        let fixable: Vec<_> = diagnostics
+            .iter()
+            .map(|d| (d.dependency.clone().unwrap(), d.is_fixable()))
+            .collect();
         assert_eq!(fixable, [("@scope/b".to_owned(), true), ("vendored".to_owned(), false)]);
     }
 
@@ -286,9 +293,7 @@ mod tests {
 
     #[test]
     fn a_root_dependency_is_fixed_in_the_root_manifest() {
-        let root_json = format!(
-            r#"{{"name":"root","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"],"devDependencies":{{"@scope/b":"link:./packages/b"}}}}"#
-        );
+        let root_json = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"],"devDependencies":{"@scope/b":"link:./packages/b"}}"#.to_string();
         let files = [("package.json", root_json.as_str()), ("packages/b/package.json", B)];
         let diagnostics = lint(META.id, &files, &config(""));
         assert_eq!(diagnostics[0].fixes[0].safety, FixSafety::Safe);
@@ -306,6 +311,6 @@ mod tests {
             ("packages/b/package.json", B),
         ];
         let ignored = config("[[ignore]]\nrules = [\"local-path-dependency\"]\ndependencies = [\"@scope/*\"]\n");
-        assert!(lint(META.id, &files, &ignored).is_empty());
+        assert_eq!(lint(META.id, &files, &ignored), [] as [skif_core::Diagnostic; 0]);
     }
 }

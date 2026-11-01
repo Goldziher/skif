@@ -23,9 +23,7 @@ pub struct IncompatiblePeerDependencies;
 /// The specifier an entry stands for, following `catalog:` references; `None` for an unresolvable reference.
 fn resolve(catalogs: &Catalogs, entry: &DependencyEntry) -> Option<Arc<Specifier>> {
     if entry.parsed.is_catalog() {
-        catalogs
-            .resolve(&entry.name, &entry.specifier)
-            .map(Specifier::new)
+        catalogs.resolve(&entry.name, &entry.specifier).map(Specifier::new)
     } else {
         Some(Arc::clone(&entry.parsed))
     }
@@ -67,7 +65,8 @@ impl Rule for IncompatiblePeerDependencies {
     fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>) {
         let catalogs = &cx.workspace.catalogs;
         for package in active_packages(cx.workspace) {
-            let of_kind = move |kind: DependencyKind| package.dependencies.iter().filter(move |entry| entry.kind == kind);
+            let of_kind =
+                move |kind: DependencyKind| package.dependencies.iter().filter(move |entry| entry.kind == kind);
             for peer in of_kind(DependencyKind::PeerDependencies) {
                 let Some(dev) = of_kind(DependencyKind::DevDependencies).find(|entry| entry.name == peer.name) else {
                     continue;
@@ -134,7 +133,10 @@ mod tests {
         ];
         for (name, peer, dev, expected) in cases {
             let json = member(peer, dev);
-            let files = [("package.json", root_json.as_str()), ("packages/a/package.json", json.as_str())];
+            let files = [
+                ("package.json", root_json.as_str()),
+                ("packages/a/package.json", json.as_str()),
+            ];
             assert_eq!(!lint(META.id, &files, &config("")).is_empty(), expected, "{name}");
         }
     }
@@ -144,26 +146,35 @@ mod tests {
         let root_json = root("");
         let json = r#"{"name":"a","peerDependencies":{"react":"^18"},"devDependencies":{"vue":"^1"}}"#;
         let files = [("package.json", root_json.as_str()), ("packages/a/package.json", json)];
-        assert!(lint(META.id, &files, &config("")).is_empty());
+        assert_eq!(lint(META.id, &files, &config("")), [] as [skif_core::Diagnostic; 0]);
     }
 
     #[test]
     fn reports_on_the_peer_entry_and_relates_the_dev_entry() {
         let root_json = root("");
         let json = member("^18.2.0", "^17.0.0");
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", json.as_str())];
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", json.as_str()),
+        ];
         let diagnostics = lint(META.id, &files, &config(""));
         assert_eq!(subjects(&diagnostics), [("a".to_owned(), Some("react".to_owned()))]);
         assert_eq!(located(&files, &diagnostics[0]), r#""react":"^18.2.0""#);
         let related = &diagnostics[0].related[0];
-        assert_eq!(slice(&files, "packages/a/package.json", related.location.span.unwrap()), r#""react":"^17.0.0""#);
-        assert!(diagnostics[0].fixes.is_empty());
+        assert_eq!(
+            slice(&files, "packages/a/package.json", related.location.span.unwrap()),
+            r#""react":"^17.0.0""#
+        );
+        assert_eq!(diagnostics[0].fixes, [] as [skif_core::Fix; 0]);
     }
 
     #[test]
     fn the_root_is_checked_too() {
         let root_json = root(r#","peerDependencies":{"react":"^18.2.0"},"devDependencies":{"react":"^17.0.0"}"#);
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", r#"{"name":"a"}"#)];
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", r#"{"name":"a"}"#),
+        ];
         assert_eq!(lint(META.id, &files, &config("")).len(), 1);
     }
 
@@ -174,10 +185,17 @@ mod tests {
             ("dev via catalog violates", member("^18.0.0", "catalog:"), true),
             ("peer via catalog violates", member("catalog:", "^18.0.0"), true),
             ("satisfied via catalog", member("^17.0.0", "catalog:"), false),
-            ("missing catalog entry is not judged", member("^18.0.0", "catalog:missing"), false),
+            (
+                "missing catalog entry is not judged",
+                member("^18.0.0", "catalog:missing"),
+                false,
+            ),
         ];
         for (name, json, expected) in cases {
-            let files = [("package.json", root_json.as_str()), ("packages/a/package.json", json.as_str())];
+            let files = [
+                ("package.json", root_json.as_str()),
+                ("packages/a/package.json", json.as_str()),
+            ];
             assert_eq!(!lint(META.id, &files, &config("")).is_empty(), expected, "{name}");
         }
     }
@@ -186,8 +204,11 @@ mod tests {
     fn ignored_dependencies_are_suppressed() {
         let root_json = root("");
         let json = member("^18.2.0", "^17.0.0");
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", json.as_str())];
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", json.as_str()),
+        ];
         let ignored = config("[[ignore]]\nrules = [\"incompatible-peer-dependencies\"]\ndependencies = [\"react\"]\n");
-        assert!(lint(META.id, &files, &ignored).is_empty());
+        assert_eq!(lint(META.id, &files, &ignored), [] as [skif_core::Diagnostic; 0]);
     }
 }

@@ -27,7 +27,10 @@ impl Rule for MissingPackageManifest {
             let manifest = dir.join("package.json");
             let mut builder = diagnostic(
                 &META,
-                format!("`{}` matches a workspace pattern but has no package.json", dir.display()),
+                format!(
+                    "`{}` matches a workspace pattern but has no package.json",
+                    dir.display()
+                ),
                 Location {
                     path: dir.clone(),
                     span: None,
@@ -67,7 +70,11 @@ mod tests {
     fn directory_table() {
         let root_json = root("");
         let cases = [
-            ("every directory has one", vec![("packages/a/package.json", MEMBER)], vec![]),
+            (
+                "every directory has one",
+                vec![("packages/a/package.json", MEMBER)],
+                vec![],
+            ),
             (
                 "non-empty without manifest",
                 vec![("packages/a/package.json", MEMBER), ("packages/b/index.js", "")],
@@ -75,7 +82,11 @@ mod tests {
             ),
             (
                 "several, sorted",
-                vec![("packages/z/x", ""), ("packages/a/package.json", MEMBER), ("packages/m/x", "")],
+                vec![
+                    ("packages/z/x", ""),
+                    ("packages/a/package.json", MEMBER),
+                    ("packages/m/x", ""),
+                ],
                 vec!["packages/m", "packages/z"],
             ),
             (
@@ -125,8 +136,14 @@ mod tests {
         let diagnostics = lint(META.id, &files, &config(""));
         assert_eq!(diagnostics[0].fixes[0].safety, FixSafety::Unsafe);
         let fixed = testing::apply_fixes(&files, &diagnostics);
-        let (_, text) = fixed.iter().find(|(path, _)| path == "packages/b/package.json").unwrap();
+        let (_, text) = fixed
+            .iter()
+            .find(|(path, _)| path == "packages/b/package.json")
+            .unwrap();
         let value: serde_json::Value = serde_json::from_str(text).unwrap();
-        assert_eq!(value, serde_json::json!({"name": "b", "version": "0.0.0", "private": true}));
+        assert_eq!(
+            value,
+            serde_json::json!({"name": "b", "version": "0.0.0", "private": true})
+        );
     }
 }

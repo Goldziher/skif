@@ -46,7 +46,9 @@ impl Rule for TypesInDependencies {
             )
             .package(package.display_name())
             .dependency(first.name.clone())
-            .help("move `@types/*` packages to `devDependencies`; a private package is never installed as a dependency");
+            .help(
+                "move `@types/*` packages to `devDependencies`; a private package is never installed as a dependency",
+            );
             for entry in rest {
                 builder = builder.related(Related {
                     message: format!("`{}` is also a type package in `dependencies`", entry.name),
@@ -78,14 +80,46 @@ mod tests {
     fn detection_table() {
         let root_json = root("");
         let cases = [
-            ("private with types", r#"{"name":"a","private":true,"dependencies":{"@types/node":"1"}}"#, 1),
-            ("public with types", r#"{"name":"a","dependencies":{"@types/node":"1"}}"#, 0),
-            ("private in dev", r#"{"name":"a","private":true,"devDependencies":{"@types/node":"1"}}"#, 0),
-            ("private in peer", r#"{"name":"a","private":true,"peerDependencies":{"@types/node":"1"}}"#, 0),
-            ("private without types", r#"{"name":"a","private":true,"dependencies":{"x":"1"}}"#, 0),
-            ("lookalike scope", r#"{"name":"a","private":true,"dependencies":{"@typesafe/x":"1","types":"1"}}"#, 0),
-            ("private false", r#"{"name":"a","private":false,"dependencies":{"@types/node":"1"}}"#, 0),
-            ("several stay one diagnostic", r#"{"name":"a","private":true,"dependencies":{"@types/a":"1","@types/b":"2"}}"#, 1),
+            (
+                "private with types",
+                r#"{"name":"a","private":true,"dependencies":{"@types/node":"1"}}"#,
+                1,
+            ),
+            (
+                "public with types",
+                r#"{"name":"a","dependencies":{"@types/node":"1"}}"#,
+                0,
+            ),
+            (
+                "private in dev",
+                r#"{"name":"a","private":true,"devDependencies":{"@types/node":"1"}}"#,
+                0,
+            ),
+            (
+                "private in peer",
+                r#"{"name":"a","private":true,"peerDependencies":{"@types/node":"1"}}"#,
+                0,
+            ),
+            (
+                "private without types",
+                r#"{"name":"a","private":true,"dependencies":{"x":"1"}}"#,
+                0,
+            ),
+            (
+                "lookalike scope",
+                r#"{"name":"a","private":true,"dependencies":{"@typesafe/x":"1","types":"1"}}"#,
+                0,
+            ),
+            (
+                "private false",
+                r#"{"name":"a","private":false,"dependencies":{"@types/node":"1"}}"#,
+                0,
+            ),
+            (
+                "several stay one diagnostic",
+                r#"{"name":"a","private":true,"dependencies":{"@types/a":"1","@types/b":"2"}}"#,
+                1,
+            ),
             ("empty", r#"{"name":"a","private":true,"dependencies":{}}"#, 0),
         ];
         for (name, member, expected) in cases {
@@ -98,7 +132,7 @@ mod tests {
     fn the_root_is_not_checked_by_this_rule() {
         let root_json = root(r#","dependencies":{"@types/node":"1"}"#);
         let files = files_with(&root_json, r#"{"name":"a"}"#);
-        assert!(lint(META.id, &files, &config("")).is_empty());
+        assert_eq!(lint(META.id, &files, &config("")), [] as [skif_core::Diagnostic; 0]);
     }
 
     #[test]
@@ -131,9 +165,16 @@ mod tests {
         let root_json = root("");
         let member = r#"{"name":"a","private":true,"dependencies":{"@types/a":"1"}}"#;
         let files = files_with(&root_json, member);
-        assert!(lint(META.id, &files, &config("[workspace]\nignore-packages = [\"packages/*\"]\n")).is_empty());
+        assert_eq!(
+            lint(
+                META.id,
+                &files,
+                &config("[workspace]\nignore-packages = [\"packages/*\"]\n")
+            ),
+            [] as [skif_core::Diagnostic; 0]
+        );
         let by_rule = config("[[ignore]]\nrules = [\"types-in-dependencies\"]\npackages = [\"a\"]\n");
-        assert!(lint(META.id, &files, &by_rule).is_empty());
+        assert_eq!(lint(META.id, &files, &by_rule), [] as [skif_core::Diagnostic; 0]);
     }
 
     #[test]
