@@ -810,6 +810,7 @@ mod test {
             ignore_rule: Vec::new(),
             ignore_package: Vec::new(),
             ignore_dependency: vec!["next@4.5.6".to_string(), "*eslint*".to_string()],
+            ignore_rule_for_package: Vec::new(),
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -999,7 +1000,10 @@ mod test {
             no_install: true,
             fail_on_warnings: false,
             ignore_rule: Vec::new(),
-            ignore_package: ignore_package.iter().map(|value| (*value).to_string()).collect(),
+            ignore_package: ignore_package
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
             ignore_dependency: Vec::new(),
             ignore_rule_for_package: ignore_rule_for_package
                 .iter()
@@ -1030,9 +1034,8 @@ mod test {
 
         assert_eq!(issues.len(), 2);
         for path in ["a", "b"] {
-            let issue = &issues[&package_type(&format!(
-                "fixtures/member-toolchain/packages/{path}"
-            ))][0];
+            let issue =
+                &issues[&package_type(&format!("fixtures/member-toolchain/packages/{path}"))][0];
 
             assert_eq!(issue.name(), "member-toolchain-fields");
             assert_eq!(issue.level(), crate::rules::IssueLevel::Warning);
