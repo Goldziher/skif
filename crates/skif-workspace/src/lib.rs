@@ -21,7 +21,7 @@ mod workspace;
 pub use catalogs::Catalogs;
 pub use detect::package_manager_from_manifest;
 pub use error::WorkspaceError;
-pub use manifest::{DependencyEntry, Manifest};
+pub use manifest::{DependencyEntry, FieldSpans, Manifest};
 pub use package::{Package, PackageId};
 pub use pnpm::YamlSource;
 pub use skif_config::PackageManager;
