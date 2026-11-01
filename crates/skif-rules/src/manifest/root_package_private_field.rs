@@ -1,7 +1,5 @@
 use serde_json::Value;
-use skif_core::{
-    Category, Fix, FixSafety, Fixability, InsertPosition, JsonAction, RuleMeta, Severity, diagnostic,
-};
+use skif_core::{Category, Fix, FixSafety, Fixability, InsertPosition, JsonAction, RuleMeta, Severity, diagnostic};
 use skif_lint::{Emitter, LintContext, Rule};
 
 use super::support::{document_location, field_location, json_op, key};
@@ -96,7 +94,7 @@ mod tests {
     fn members_are_never_checked() {
         let json = root_json(r#","private":true"#);
         let files = [("package.json", json.as_str()), ("packages/a/package.json", MEMBER)];
-        assert!(lint(META.id, &files, &config("")).is_empty());
+        assert_eq!(lint(META.id, &files, &config("")), [] as [skif_core::Diagnostic; 0]);
     }
 
     #[test]
@@ -135,7 +133,9 @@ mod tests {
         let files = [("package.json", json.as_str()), ("packages/a/package.json", MEMBER)];
         let diagnostics = lint(META.id, &files, &config(""));
         for op in &diagnostics[0].fixes[0].ops {
-            let skif_core::FixOp::Json { path, .. } = op else { panic!("unexpected op {op:?}") };
+            let skif_core::FixOp::Json { path, .. } = op else {
+                panic!("unexpected op {op:?}")
+            };
             assert_eq!(path.to_str(), Some("package.json"));
         }
     }

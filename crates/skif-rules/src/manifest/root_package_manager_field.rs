@@ -63,12 +63,28 @@ mod tests {
         let cases = [
             ("none", "", true),
             ("packageManager", r#","packageManager":"pnpm@9.0.0""#, false),
-            ("devEngines object", r#","devEngines":{"packageManager":{"name":"pnpm","version":"9"}}"#, false),
-            ("devEngines array", r#","devEngines":{"packageManager":[{"name":"npm"},{"name":"pnpm"}]}"#, false),
-            ("devEngines without manager", r#","devEngines":{"runtime":{"name":"node"}}"#, true),
+            (
+                "devEngines object",
+                r#","devEngines":{"packageManager":{"name":"pnpm","version":"9"}}"#,
+                false,
+            ),
+            (
+                "devEngines array",
+                r#","devEngines":{"packageManager":[{"name":"npm"},{"name":"pnpm"}]}"#,
+                false,
+            ),
+            (
+                "devEngines without manager",
+                r#","devEngines":{"runtime":{"name":"node"}}"#,
+                true,
+            ),
             ("devEngines empty", r#","devEngines":{}"#, true),
             ("null field", r#","packageManager":null"#, true),
-            ("unknown manager is still a declaration", r#","packageManager":"deno@2""#, false),
+            (
+                "unknown manager is still a declaration",
+                r#","packageManager":"deno@2""#,
+                false,
+            ),
         ];
         for (name, extra, expected) in cases {
             let json = root_json(extra);
@@ -84,7 +100,7 @@ mod tests {
         let diagnostics = lint(META.id, &files, &config(""));
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(located(&files, &diagnostics[0]), "{");
-        assert!(diagnostics[0].fixes.is_empty());
+        assert_eq!(diagnostics[0].fixes, [] as [skif_core::Fix; 0]);
         assert!(diagnostics[0].help.is_some());
     }
 
@@ -93,6 +109,6 @@ mod tests {
         let json = root_json("");
         let files = [("package.json", json.as_str()), ("packages/a/package.json", MEMBER)];
         let ignored = config("[workspace]\nignore-packages = [\"root\"]\n");
-        assert!(lint(META.id, &files, &ignored).is_empty());
+        assert_eq!(lint(META.id, &files, &ignored), [] as [skif_core::Diagnostic; 0]);
     }
 }

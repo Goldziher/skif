@@ -43,8 +43,15 @@ fn lint_fixture(name: &str) -> skif_core::Report {
 fn provider_ids_and_rule_set_are_stable() {
     assert_eq!(manifest_provider().id(), "manifest");
     let all = providers();
-    assert_eq!(all.iter().map(|provider| provider.id()).collect::<Vec<_>>(), ["manifest"]);
-    let ids: Vec<&str> = all.iter().flat_map(|provider| provider.rules()).map(|meta| meta.id).collect();
+    assert_eq!(
+        all.iter().map(|provider| provider.id()).collect::<Vec<_>>(),
+        ["manifest"]
+    );
+    let ids: Vec<&str> = all
+        .iter()
+        .flat_map(|provider| provider.rules())
+        .map(|meta| meta.id)
+        .collect();
     assert_eq!(ids, EXPECTED);
 }
 
@@ -69,7 +76,10 @@ fn categories_and_fixability_follow_the_adr() {
     for id in ["unmatched-workspace-patterns", "missing-package-manifest"] {
         assert_eq!(by_id(id).category, Category::Workspace, "{id}");
     }
-    for id in EXPECTED.iter().filter(|id| !id.contains("workspace-patterns") && !id.contains("package-manifest")) {
+    for id in EXPECTED
+        .iter()
+        .filter(|id| !id.contains("workspace-patterns") && !id.contains("package-manifest"))
+    {
         assert_eq!(by_id(id).category, Category::Manifest, "{id}");
     }
     for id in ["root-package-manager-field", "incompatible-peer-dependencies"] {
@@ -89,7 +99,11 @@ fn a_clean_workspace_reports_nothing() {
 #[test]
 fn every_rule_fires_on_the_dirty_workspace() {
     let report = lint_fixture("dirty");
-    let fired: HashSet<&str> = report.diagnostics.iter().map(|diagnostic| diagnostic.rule.as_str()).collect();
+    let fired: HashSet<&str> = report
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.rule.as_str())
+        .collect();
     for id in EXPECTED {
         assert!(fired.contains(id), "{id} did not fire on the dirty fixture");
     }
@@ -109,6 +123,11 @@ fn rules_can_be_turned_off_and_ignored_through_configuration() {
     .unwrap();
     let workspace = Workspace::discover(&fixture("dirty"), &config).unwrap();
     let report = run(&registry(), &workspace, &config, &RunOptions::default()).unwrap();
-    assert!(report.diagnostics.iter().all(|d| !matches!(d.rule.as_str(), "unsorted-dependencies" | "types-in-dependencies")));
-    assert!(!report.diagnostics.is_empty());
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .all(|d| !matches!(d.rule.as_str(), "unsorted-dependencies" | "types-in-dependencies"))
+    );
+    assert_ne!(report.diagnostics, [] as [skif_core::Diagnostic; 0]);
 }

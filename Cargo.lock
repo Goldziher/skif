@@ -1914,6 +1914,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "skif-rules"
+version = "0.0.0"
+dependencies = [
+ "insta",
+ "serde_json",
+ "skif-config",
+ "skif-core",
+ "skif-edit",
+ "skif-lint",
+ "skif-specifier",
+ "skif-workspace",
+]
+
+[[package]]
 name = "skif-specifier"
 version = "0.0.0"
 dependencies = [

@@ -30,7 +30,11 @@ impl Rule for UnsortedDependencies {
                 let keys: Vec<&str> = map.keys().map(String::as_str).collect();
                 let mut sorted = keys.clone();
                 sorted.sort_unstable();
-                let Some(first) = keys.iter().zip(&sorted).position(|(actual, expected)| actual != expected) else {
+                let Some(first) = keys
+                    .iter()
+                    .zip(&sorted)
+                    .position(|(actual, expected)| actual != expected)
+                else {
                     continue;
                 };
                 let field = kind.field();
@@ -39,7 +43,10 @@ impl Rule for UnsortedDependencies {
                     diagnostic(&META, format!("`{field}` is not sorted alphabetically"), location)
                         .package(package.display_name())
                         .dependency(keys[first])
-                        .help(format!("sort the keys of `{field}`; `{}` should come before `{}`", sorted[first], keys[first]))
+                        .help(format!(
+                            "sort the keys of `{field}`; `{}` should come before `{}`",
+                            sorted[first], keys[first]
+                        ))
                         .fix(Fix {
                             title: format!("Sort `{field}`"),
                             safety: FixSafety::Safe,
@@ -65,10 +72,26 @@ mod tests {
             ("unsorted", r#"{"name":"a","dependencies":{"b":"1","a":"1"}}"#, 1),
             ("empty", r#"{"name":"a","dependencies":{}}"#, 0),
             ("single", r#"{"name":"a","dependencies":{"a":"1"}}"#, 0),
-            ("scoped sorts before plain", r#"{"name":"a","dependencies":{"@b/x":"1","a":"1"}}"#, 0),
-            ("plain before scoped", r#"{"name":"a","dependencies":{"a":"1","@b/x":"1"}}"#, 1),
-            ("uppercase before lowercase", r#"{"name":"a","dependencies":{"B":"1","a":"1"}}"#, 0),
-            ("lowercase before uppercase", r#"{"name":"a","dependencies":{"a":"1","B":"1"}}"#, 1),
+            (
+                "scoped sorts before plain",
+                r#"{"name":"a","dependencies":{"@b/x":"1","a":"1"}}"#,
+                0,
+            ),
+            (
+                "plain before scoped",
+                r#"{"name":"a","dependencies":{"a":"1","@b/x":"1"}}"#,
+                1,
+            ),
+            (
+                "uppercase before lowercase",
+                r#"{"name":"a","dependencies":{"B":"1","a":"1"}}"#,
+                0,
+            ),
+            (
+                "lowercase before uppercase",
+                r#"{"name":"a","dependencies":{"a":"1","B":"1"}}"#,
+                1,
+            ),
             ("unicode", r#"{"name":"a","dependencies":{"é":"1","z":"1"}}"#, 1),
             (
                 "two sections",
@@ -78,7 +101,10 @@ mod tests {
             ("not an object", r#"{"name":"a","dependencies":["b","a"]}"#, 0),
         ];
         for (name, member, expected) in cases {
-            let files = [("package.json", root_json.as_str()), ("packages/a/package.json", member)];
+            let files = [
+                ("package.json", root_json.as_str()),
+                ("packages/a/package.json", member),
+            ];
             assert_eq!(lint(META.id, &files, &config("")).len(), expected, "{name}");
         }
     }
@@ -87,7 +113,10 @@ mod tests {
     fn reports_the_first_misplaced_entry() {
         let root_json = root("");
         let member = r#"{"name":"a","dependencies":{"a":"1","c":"1","b":"1"}}"#;
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", member)];
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", member),
+        ];
         let diagnostics = lint(META.id, &files, &config(""));
         assert_eq!(subjects(&diagnostics), [("a".to_owned(), Some("c".to_owned()))]);
         assert_eq!(located(&files, &diagnostics[0]), r#""c":"1""#);
@@ -96,7 +125,10 @@ mod tests {
     #[test]
     fn the_root_is_checked() {
         let root_json = root(r#","devDependencies":{"b":"1","a":"1"}"#);
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", r#"{"name":"a"}"#)];
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", r#"{"name":"a"}"#),
+        ];
         let diagnostics = lint(META.id, &files, &config(""));
         assert_eq!(diagnostics[0].package.as_deref(), Some("root"));
         assert_eq!(diagnostics[0].location.path.to_str(), Some("package.json"));
@@ -106,7 +138,10 @@ mod tests {
     fn fix_is_a_single_sort_keys_operation() {
         let root_json = root("");
         let member = r#"{"name":"a","dependencies":{"b":"^1","a":"catalog:","c":"workspace:*"}}"#;
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", member)];
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", member),
+        ];
         let diagnostics = lint(META.id, &files, &config(""));
         let ops = &diagnostics[0].fixes[0].ops;
         assert_eq!(ops.len(), 1);
@@ -116,15 +151,24 @@ mod tests {
         ));
         assert_fixes_clear(META.id, &files, &config(""));
         let fixed = testing::apply_fixes(&files, &diagnostics);
-        let (_, text) = fixed.iter().find(|(path, _)| path == "packages/a/package.json").unwrap();
-        assert_eq!(text, r#"{"name":"a","dependencies":{"a":"catalog:","b":"^1","c":"workspace:*"}}"#);
+        let (_, text) = fixed
+            .iter()
+            .find(|(path, _)| path == "packages/a/package.json")
+            .unwrap();
+        assert_eq!(
+            text,
+            r#"{"name":"a","dependencies":{"a":"catalog:","b":"^1","c":"workspace:*"}}"#
+        );
     }
 
     #[test]
     fn fixes_every_section_of_every_package() {
         let root_json = root(r#","devDependencies":{"z":"1","y":"1"}"#);
         let member = r#"{"name":"a","dependencies":{"b":"1","a":"1"},"optionalDependencies":{"q":"1","p":"1"}}"#;
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", member)];
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", member),
+        ];
         assert_fixes_clear(META.id, &files, &config(""));
     }
 
@@ -132,7 +176,13 @@ mod tests {
     fn ignored_packages_are_skipped() {
         let root_json = root("");
         let member = r#"{"name":"a","dependencies":{"b":"1","a":"1"}}"#;
-        let files = [("package.json", root_json.as_str()), ("packages/a/package.json", member)];
-        assert!(lint(META.id, &files, &config("[workspace]\nignore-packages = [\"a\"]\n")).is_empty());
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", member),
+        ];
+        assert_eq!(
+            lint(META.id, &files, &config("[workspace]\nignore-packages = [\"a\"]\n")),
+            [] as [skif_core::Diagnostic; 0]
+        );
     }
 }

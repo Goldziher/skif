@@ -18,9 +18,9 @@ pub fn config(toml: &str) -> Config {
 }
 
 pub fn workspace(files: Files<'_>, config: &Config) -> Workspace {
-    let fs = files
-        .iter()
-        .fold(MemoryFs::new(), |fs, (path, content)| fs.with_file(Path::new("/ws").join(path), content));
+    let fs = files.iter().fold(MemoryFs::new(), |fs, (path, content)| {
+        fs.with_file(Path::new("/ws").join(path), content)
+    });
     Workspace::discover_with_fs(Path::new("/ws"), config, &fs).unwrap()
 }
 
@@ -81,7 +81,10 @@ pub fn apply_fixes(files: Files<'_>, diagnostics: &[Diagnostic]) -> Vec<(String,
 }
 
 pub fn borrowed(files: &[(String, String)]) -> Vec<(&str, &str)> {
-    files.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect()
+    files
+        .iter()
+        .map(|(path, text)| (path.as_str(), text.as_str()))
+        .collect()
 }
 
 /// The content of `path` after applying every fix of `rule`, parsed as JSON.
@@ -96,7 +99,10 @@ pub fn fixed_json(rule: &str, files: Files<'_>, config: &Config, path: &str) -> 
 pub fn assert_fixes_clear(rule: &str, files: Files<'_>, config: &Config) {
     let before = lint(rule, files, config);
     assert!(!before.is_empty(), "{rule} reported nothing to fix");
-    assert!(before.iter().all(Diagnostic::is_fixable), "{rule} has an unfixable diagnostic");
+    assert!(
+        before.iter().all(Diagnostic::is_fixable),
+        "{rule} has an unfixable diagnostic"
+    );
     let fixed = apply_fixes(files, &before);
     let after = lint(rule, &borrowed(&fixed), config);
     assert!(after.is_empty(), "{rule} still reports after fixing: {after:#?}");
@@ -106,7 +112,12 @@ pub fn assert_fixes_clear(rule: &str, files: Files<'_>, config: &Config) {
 pub fn subjects(diagnostics: &[Diagnostic]) -> Vec<(String, Option<String>)> {
     diagnostics
         .iter()
-        .map(|diagnostic| (diagnostic.package.clone().unwrap_or_default(), diagnostic.dependency.clone()))
+        .map(|diagnostic| {
+            (
+                diagnostic.package.clone().unwrap_or_default(),
+                diagnostic.dependency.clone(),
+            )
+        })
         .collect()
 }
 
