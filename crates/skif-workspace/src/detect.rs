@@ -1,0 +1,71 @@
+//! Package-manager detection: the single source of truth for every rule and fix.
+
+use std::path::Path;
+
+use serde_json::Value;
+use skif_config::{Config, PackageManager};
+
+use crate::fs::FileSystem;
+
+fn from_name(name: &str) -> Option<PackageManager> {
+    match name {
+        "npm" => Some(PackageManager::Npm),
+        "pnpm" => Some(PackageManager::Pnpm),
+        "yarn" => Some(PackageManager::Yarn),
+        "bun" => Some(PackageManager::Bun),
+        _ => None,
+    }
+}
+
+fn from_dev_engine(entry: &Value) -> Option<PackageManager> {
+    from_name(entry.get("name")?.as_str()?)
+}
+
+/// The package manager a root `package.json` declares: the `packageManager` field (`pnpm@9.12.0`), then
+/// `devEngines.packageManager` (an object or a list; the first known entry wins).
+#[must_use]
+pub fn package_manager_from_manifest(manifest: &Value) -> Option<PackageManager> {
+    if let Some(field) = manifest.get("packageManager").and_then(Value::as_str) {
+        let name = field.split('@').next().unwrap_or(field);
+        if let Some(package_manager) = from_name(name) {
+            return Some(package_manager);
+        }
+    }
+    match manifest.get("devEngines")?.get("packageManager")? {
+        Value::Array(entries) => entries.iter().find_map(from_dev_engine),
+        entry => from_dev_engine(entry),
+    }
+}
+
+fn from_lockfile(fs: &dyn FileSystem, root: &Path) -> Option<PackageManager> {
+    let exists = |name: &str| fs.is_file(&root.join(name));
+    if exists("pnpm-lock.yaml") {
+        Some(PackageManager::Pnpm)
+    } else if exists("bun.lock") || exists("bun.lockb") {
+        Some(PackageManager::Bun)
+    } else if exists("yarn.lock") {
+        Some(PackageManager::Yarn)
+    } else if exists("package-lock.json") {
+        Some(PackageManager::Npm)
+    } else {
+        None
+    }
+}
+
+/// Detects the package manager, first match wins: `[workspace] package-manager` in the config, the manifest
+/// declaration, a lockfile (`pnpm-lock.yaml`, `bun.lock`/`bun.lockb`, `yarn.lock`, `package-lock.json`), then the
+/// presence of `pnpm-workspace.yaml`. `None` when nothing indicates a manager.
+pub(crate) fn detect(
+    fs: &dyn FileSystem,
+    root: &Path,
+    config: &Config,
+    manifest: &Value,
+    has_pnpm_workspace: bool,
+) -> Option<PackageManager> {
+    config
+        .workspace
+        .package_manager
+        .or_else(|| package_manager_from_manifest(manifest))
+        .or_else(|| from_lockfile(fs, root))
+        .or_else(|| has_pnpm_workspace.then_some(PackageManager::Pnpm))
+}
