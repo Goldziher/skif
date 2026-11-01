@@ -26,21 +26,24 @@ impl NonExistantPackagesIssue {
         let workspaces = self
             .packages_list
             .iter()
-            .map(|package| match self.paths.contains(package) {
-                true => format!(
-                    "  {}  - '{}'   {}",
-                    "-".red(),
-                    package.white(),
-                    "← but this one doesn't match any package".red(),
-                ),
-                false => format!("  │  - '{}'", package),
+            .map(|package| {
+                if self.paths.contains(package) {
+                    format!(
+                        "  {}  - '{}'   {}",
+                        "-".red(),
+                        package.white(),
+                        "← but this one doesn't match any package".red(),
+                    )
+                } else {
+                    format!("  │  - '{package}'")
+                }
             })
             .collect::<Vec<String>>()
             .join("\n");
 
         format!(
-            r#"  │ packages:   {}
-{}"#,
+            r"  │ packages:   {}
+{}",
             "← Workspace has paths defined...".blue(),
             workspaces,
         )
@@ -52,14 +55,17 @@ impl NonExistantPackagesIssue {
         let workspaces = self
             .packages_list
             .iter()
-            .map(|package| match self.paths.contains(package) {
-                true => format!(
-                    r#"  {}     "{}",   {}"#,
-                    "-".red(),
-                    package.white(),
-                    "← but this one doesn't match any package".red(),
-                ),
-                false => format!(r#"  │     "{}","#, package),
+            .map(|package| {
+                if self.paths.contains(package) {
+                    format!(
+                        r#"  {}     "{}",   {}"#,
+                        "-".red(),
+                        package.white(),
+                        "← but this one doesn't match any package".red(),
+                    )
+                } else {
+                    format!(r#"  │     "{package}","#)
+                }
             })
             .collect::<Vec<String>>()
             .join("\n");
@@ -79,21 +85,23 @@ impl NonExistantPackagesIssue {
 }
 
 impl Issue for NonExistantPackagesIssue {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "non-existant-packages"
     }
 
     fn level(&self) -> IssueLevel {
-        match self.fixed {
-            true => IssueLevel::Fixed,
-            false => IssueLevel::Warning,
+        if self.fixed {
+            IssueLevel::Fixed
+        } else {
+            IssueLevel::Warning
         }
     }
 
     fn message(&self) -> String {
-        match self.pnpm_workspace {
-            true => self.pnpm_message(),
-            false => self.package_message(),
+        if self.pnpm_workspace {
+            self.pnpm_message()
+        } else {
+            self.package_message()
         }
     }
 
@@ -103,50 +111,47 @@ impl Issue for NonExistantPackagesIssue {
 
     fn fix(&mut self, package_type: &PackageType) -> Result<()> {
         if let PackageType::None = package_type {
-            match self.pnpm_workspace {
-                true => {
-                    let path = PathBuf::from("pnpm-workspace.yaml");
-                    let value = fs::read_to_string(&path)?;
-                    let mut value = serde_yaml::from_str::<serde_yaml::Value>(&value)?;
+            if self.pnpm_workspace {
+                let path = PathBuf::from("pnpm-workspace.yaml");
+                let value = fs::read_to_string(&path)?;
+                let mut value = serde_saphyr::from_str::<serde_json::Value>(&value)?;
 
-                    value
-                        .get_mut("packages")
-                        .unwrap()
-                        .as_sequence_mut()
-                        .unwrap()
-                        .retain(|package| {
-                            let package = package.as_str().unwrap().to_string();
+                value
+                    .get_mut("packages")
+                    .unwrap()
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|package| {
+                        let package = package.as_str().unwrap().to_string();
 
-                            !self.paths.contains(&package)
-                        });
+                        !self.paths.contains(&package)
+                    });
 
-                    let value = serde_yaml::to_string(&value)?;
-                    fs::write(path, value)?;
+                let value = serde_saphyr::to_string(&value)?;
+                fs::write(path, value)?;
 
-                    self.fixed = true;
-                }
-                false => {
-                    let path = PathBuf::from("package.json");
-                    let value = fs::read_to_string(&path)?;
-                    let (mut value, indent, lineending) =
-                        json::deserialize::<serde_json::Value>(&value)?;
+                self.fixed = true;
+            } else {
+                let path = PathBuf::from("package.json");
+                let value = fs::read_to_string(&path)?;
+                let (mut value, indent, lineending) =
+                    json::deserialize::<serde_json::Value>(&value)?;
 
-                    value
-                        .get_mut("workspaces")
-                        .unwrap()
-                        .as_array_mut()
-                        .unwrap()
-                        .retain(|package| {
-                            let package = package.as_str().unwrap().to_string();
+                value
+                    .get_mut("workspaces")
+                    .unwrap()
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|package| {
+                        let package = package.as_str().unwrap().to_string();
 
-                            !self.paths.contains(&package)
-                        });
+                        !self.paths.contains(&package)
+                    });
 
-                    let value = json::serialize(&value, indent, lineending)?;
-                    fs::write(path, value)?;
+                let value = json::serialize(&value, &indent, lineending)?;
+                fs::write(path, value)?;
 
-                    self.fixed = true;
-                }
+                self.fixed = true;
             }
         }
 

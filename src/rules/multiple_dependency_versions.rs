@@ -38,8 +38,12 @@ impl MultipleDependencyVersionsIssue {
 
         if let Some(select) = &self.select {
             let autofix_version = match select {
-                AutofixSelect::Highest => sorted_versions.first().map(|v| v.to_string()),
-                AutofixSelect::Lowest => sorted_versions.last().map(|v| v.to_string()),
+                AutofixSelect::Highest => sorted_versions
+                    .first()
+                    .map(std::string::ToString::to_string),
+                AutofixSelect::Lowest => {
+                    sorted_versions.last().map(std::string::ToString::to_string)
+                }
             };
             Ok(autofix_version)
         } else {
@@ -50,15 +54,13 @@ impl MultipleDependencyVersionsIssue {
                     let packages = self
                         .versions
                         .iter()
-                        .filter_map(|(package, curr_version)| match *version == curr_version {
-                            true => {
+                        .filter_map(|(package, curr_version)| {
+                            if *version == curr_version {
                                 let path = package.as_str();
-                                match path == "." {
-                                    true => Some("./"),
-                                    false => Some(path),
-                                }
+                                if path == "." { Some("./") } else { Some(path) }
+                            } else {
+                                None
                             }
-                            false => None,
                         })
                         .collect::<Vec<_>>()
                         .join(", ");
@@ -99,23 +101,25 @@ fn format_version(
     } else {
         (version.to_string().yellow(), "∼ between".yellow())
     };
-    let version = match skip_version_color {
-        true => version.clear(),
-        false => version,
+    let version = if skip_version_color {
+        version.clear()
+    } else {
+        version
     };
 
-    format!("{}   {}", version, indicator)
+    format!("{version}   {indicator}")
 }
 
 impl Issue for MultipleDependencyVersionsIssue {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "multiple-dependency-versions"
     }
 
     fn level(&self) -> IssueLevel {
-        match self.fixed {
-            true => IssueLevel::Fixed,
-            false => IssueLevel::Error,
+        if self.fixed {
+            IssueLevel::Fixed
+        } else {
+            IssueLevel::Error
         }
     }
 
@@ -142,7 +146,7 @@ impl Issue for MultipleDependencyVersionsIssue {
                     if group.len() == 1 && group[0] == "." {
                         let root = format!("{}{}", "./".bright_black(), end.bright_black());
 
-                        return format!("  {}  {}{}", root, version_pad, formatted_version);
+                        return format!("  {root}  {version_pad}{formatted_version}");
                     }
 
                     return format!(
@@ -199,7 +203,7 @@ impl Issue for MultipleDependencyVersionsIssue {
                     }
                 }
 
-                let value = json::serialize(&value, indent, lineending)?;
+                let value = json::serialize(&value, &indent, lineending)?;
                 fs::write(path, value)?;
             }
 

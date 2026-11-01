@@ -5,8 +5,8 @@ pub trait Pluralize {
 impl Pluralize for &'static str {
     fn plural(&self, count: usize) -> String {
         match count {
-            1 => format!("{} {}", count, self),
-            _ => format!("{} {}s", count, self),
+            1 => format!("{count} {self}"),
+            _ => format!("{count} {self}s"),
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::printer::get_render_config;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use colored::Colorize;
 use inquire::Select;
 use std::{fmt::Display, fs, process::Command, process::Stdio};
@@ -60,7 +60,7 @@ pub fn install() -> Result<()> {
 
     println!(
         " {}",
-        format!("Note: running install command using {}...", package_manager).bright_black(),
+        format!("Note: running install command using {package_manager}...").bright_black(),
     );
     println!();
 

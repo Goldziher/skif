@@ -21,14 +21,15 @@ impl TypesInDependenciesIssue {
 }
 
 impl Issue for TypesInDependenciesIssue {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "types-in-dependencies"
     }
 
     fn level(&self) -> IssueLevel {
-        match self.fixed {
-            true => IssueLevel::Fixed,
-            false => IssueLevel::Error,
+        if self.fixed {
+            IssueLevel::Fixed
+        } else {
+            IssueLevel::Error
         }
     }
 
@@ -101,16 +102,16 @@ impl Issue for TypesInDependenciesIssue {
             }
 
             // The package.json file might not have a devDependencies field.
-            let dev_dependencies = match value.get_mut("devDependencies") {
-                Some(dev_dependencies) => dev_dependencies,
-                None => {
-                    value.as_object_mut().unwrap().insert(
-                        "devDependencies".into(),
-                        serde_json::Value::Object(serde_json::Map::new()),
-                    );
+            let dev_dependencies = if let Some(dev_dependencies) = value.get_mut("devDependencies")
+            {
+                dev_dependencies
+            } else {
+                value.as_object_mut().unwrap().insert(
+                    "devDependencies".into(),
+                    serde_json::Value::Object(serde_json::Map::new()),
+                );
 
-                    value.get_mut("devDependencies").unwrap()
-                }
+                value.get_mut("devDependencies").unwrap()
             };
 
             let dev_dependencies = dev_dependencies.as_object_mut().unwrap();
@@ -119,7 +120,7 @@ impl Issue for TypesInDependenciesIssue {
                 dev_dependencies.insert(package, version);
             }
 
-            let value = json::serialize(&value, indent, lineending)?;
+            let value = json::serialize(&value, &indent, lineending)?;
             fs::write(path, value)?;
 
             self.fixed = true;

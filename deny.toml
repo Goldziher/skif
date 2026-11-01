@@ -1,0 +1,14 @@
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  "BlueOak-1.0.0",
+  "ISC",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+confidence-threshold = 0.8
+exceptions = [{ allow = ["MPL-2.0"], crate = "colored" }]

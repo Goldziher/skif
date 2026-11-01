@@ -1,4 +1,4 @@
-use super::{empty_dependencies::DependencyKind, Issue, IssueLevel, PackageType};
+use super::{Issue, IssueLevel, PackageType, empty_dependencies::DependencyKind};
 use crate::json;
 use anyhow::Result;
 use colored::Colorize;
@@ -23,30 +23,30 @@ impl UnorderedDependenciesIssue {
         let (mut value, indent, lineending) = json::deserialize::<serde_json::Value>(&value)?;
         let dependency = self.dependency_kind.to_string();
 
-        if let Some(dependency_field) = value.get(&dependency) {
-            if dependency_field.is_object() {
-                let mut keys = dependency_field
-                    .as_object()
-                    .unwrap()
-                    .keys()
-                    .collect::<Vec<_>>();
-                keys.sort();
+        if let Some(dependency_field) = value.get(&dependency)
+            && dependency_field.is_object()
+        {
+            let mut keys = dependency_field
+                .as_object()
+                .unwrap()
+                .keys()
+                .collect::<Vec<_>>();
+            keys.sort();
 
-                let mut sorted = serde_json::Map::new();
-                for key in keys {
-                    sorted.insert(key.to_string(), dependency_field[key].clone());
-                }
-
-                value
-                    .as_object_mut()
-                    .unwrap()
-                    .insert(dependency, serde_json::Value::Object(sorted));
-
-                let value = json::serialize(&value, indent, lineending)?;
-                fs::write(path, value)?;
-
-                self.fixed = true;
+            let mut sorted = serde_json::Map::new();
+            for key in keys {
+                sorted.insert(key.clone(), dependency_field[key].clone());
             }
+
+            value
+                .as_object_mut()
+                .unwrap()
+                .insert(dependency, serde_json::Value::Object(sorted));
+
+            let value = json::serialize(&value, &indent, lineending)?;
+            fs::write(path, value)?;
+
+            self.fixed = true;
         }
 
         Ok(())
@@ -54,14 +54,15 @@ impl UnorderedDependenciesIssue {
 }
 
 impl Issue for UnorderedDependenciesIssue {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "unordered-dependencies"
     }
 
     fn level(&self) -> IssueLevel {
-        match self.fixed {
-            true => IssueLevel::Fixed,
-            false => IssueLevel::Error,
+        if self.fixed {
+            IssueLevel::Fixed
+        } else {
+            IssueLevel::Error
         }
     }
 

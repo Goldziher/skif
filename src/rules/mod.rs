@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use colored::Colorize;
 use indexmap::IndexMap;
 use std::{
@@ -21,7 +21,7 @@ pub const ERROR: &str = "⨯";
 pub const WARNING: &str = "⚠️";
 pub const SUCCESS: &str = "✓";
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IssueLevel {
     Error,
     Warning,
@@ -29,7 +29,7 @@ pub enum IssueLevel {
 }
 
 impl IssueLevel {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             IssueLevel::Error => "⨯ error",
             IssueLevel::Warning => "⚠️ warning",
@@ -75,7 +75,7 @@ impl Display for PackageType {
         match self {
             PackageType::None => write!(f, "./"),
             PackageType::Root => write!(f, "./package.json"),
-            PackageType::Package(name) => write!(f, "{}/package.json", name),
+            PackageType::Package(name) => write!(f, "{name}/package.json"),
         }
     }
 }
@@ -120,10 +120,10 @@ impl<'a> IssuesList<'a> {
     }
 
     pub fn fix(&mut self) -> Result<()> {
-        for (package_type, issues) in self.issues.iter_mut() {
+        for (package_type, issues) in &mut self.issues {
             for issue in issues {
                 if let Err(error) = issue.fix(package_type) {
-                    return Err(anyhow!("Error while fixing {}: {}", package_type, error));
+                    return Err(anyhow!("Error while fixing {package_type}: {error}"));
                 }
             }
         }
