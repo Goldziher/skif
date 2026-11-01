@@ -58,27 +58,12 @@ jobs:
         shell: bash
         run: echo "RELEASE_VERSION=${GITHUB_REF:11}" >> $GITHUB_ENV
 
-      - name: Install Rust toolchain
-        run: rustup toolchain install ${{ matrix.build.TOOLCHAIN }} --profile minimal --target ${{ matrix.build.TARGET }}
-
-      - name: Install cross
-        if: runner.os == 'Linux'
-        uses: taiki-e/install-action@cross
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust cross node
 
       - name: Build
-        shell: bash
-        run: |
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            cross build --release --locked --target ${{ matrix.build.TARGET }}
-          else
-            cargo build --release --locked --target ${{ matrix.build.TARGET }}
-          fi
-
-      - name: Install node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          registry-url: "https://registry.npmjs.org"
+        run: mise run release:build ${{ matrix.build.TARGET }}
 
       - name: Publish to NPM
         shell: bash
@@ -135,11 +120,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Install node
-        uses: actions/setup-node@v7
+      - uses: jdx/mise-action@v5
         with:
-          node-version: 24
-          registry-url: "https://registry.npmjs.org"
+          install_args: node
 
       - name: Publish the package
         shell: bash

@@ -12,7 +12,7 @@ x-ai-rulez:
 
 ## Commands
 
-Tool versions (Node, pnpm, poly) are pinned in `mise.toml` and locked in `mise.lock`; `toolchains.toml` names the xberg-io/toolchains baseline. Rust follows the stable channel.
+Every tool (Rust stable with clippy and rustfmt, cargo-deny, cargo-edit, cross, poly, Node, pnpm) is declared in `mise.toml` and locked in `mise.lock`. Local development and CI both go through `mise` and its tasks; do not call tools that mise does not provide.
 
 - Set up (tools, dependencies, git hooks): `mise run setup`
 - Build: `mise run build`
@@ -27,7 +27,7 @@ Tool versions (Node, pnpm, poly) are pinned in `mise.toml` and locked in `mise.l
 
 ## CI
 
-`.github/workflows/ci.yml` runs check, test, clippy (`-D warnings`) and rustfmt. All four must pass.
+`.github/workflows/ci.yml` installs tools with `jdx/mise-action` and runs `mise run` tasks: check (cargo check, rustfmt, clippy `-D warnings`), test, deny, poly lint and format, and a freshness check of the committed `action/index.js`. Releases build with `mise run release:build <target>`.
 
 ## Versioning
 
