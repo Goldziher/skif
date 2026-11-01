@@ -6,7 +6,6 @@
 //!
 //! The crate performs no I/O, printing or process control and keeps no global state.
 
-mod builder;
 mod context;
 mod emitter;
 mod ignore;
@@ -14,9 +13,9 @@ mod provider;
 mod registry;
 mod runner;
 
-pub use builder::{DiagnosticBuilder, diagnostic};
 pub use context::{EnabledRules, LintContext};
 pub use emitter::Emitter;
 pub use provider::{ProviderError, Rule, RuleProvider, RulesProvider};
 pub use registry::{Registry, RegistryError};
+pub use skif_core::{DiagnosticBuilder, diagnostic};
 pub use runner::{LintError, RunOptions, run};
