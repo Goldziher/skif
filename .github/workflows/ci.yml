@@ -14,7 +14,7 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Check
         uses: actions-rs/cargo@v1
         with:
@@ -28,7 +28,7 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Test
         uses: actions-rs/cargo@v1
         with:
@@ -44,7 +44,7 @@ jobs:
         with:
           components: clippy
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Lint
         uses: actions-rs/cargo@v1
         with:
@@ -60,7 +60,7 @@ jobs:
         with:
           components: rustfmt
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Format
         uses: actions-rs/cargo@v1
         with:
