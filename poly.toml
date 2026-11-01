@@ -1,35 +1,136 @@
 [defaults]
+line_length = 120
 line_ending = "lf"
 final_newline = true
 trim_trailing_whitespace = true
 
 [discovery]
 exclude = [
-  ".ai-rulez/**",
   "**/*.lock",
+  "**/Cargo.lock",
   "**/package-lock.json",
   "**/pnpm-lock.yaml",
-  "action/index.js",
-  "assets/**",
-  "fixtures/**",
-  "node_modules/**",
   "target/**",
-  "tsconfig.json",
+  "fixtures/**",
+  "assets/**",
+  ".ai-rulez/**",
+  ".agents/**",
+  ".claude/**",
+  ".codex/**",
+  ".opencode/**",
+  ".mcp.json",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "opencode.json",
+]
+
+[lint.markdown.rumdl]
+disable = ["MD013", "MD024", "MD025", "MD033", "MD036", "MD041"]
+
+[fmt.markdown.rumdl]
+disable = ["MD013", "MD024", "MD025", "MD033", "MD036", "MD041"]
+
+[lint.uncomment]
+enabled = true
+remove_todos = false
+remove_fixme = false
+remove_docs = false
+use_default_ignores = true
+preserve_patterns = [
+  "SAFETY",
+  "HACK",
+  "WORKAROUND",
+  "NOTE",
+  "Copyright",
+  "Licensed",
+  "License",
+  "SPDX",
+  "Apache",
+  "MIT",
+  "WITHOUT WARRANTIES",
+  "limitations under the License",
+  "copyright",
+  "licensed",
+  "license",
+  "apache",
+  "you may not use this file except in compliance",
+  "You may obtain a copy of the License",
+  "you may obtain a copy of the license",
+  "http://www.apache.org/licenses/LICENSE-2.0",
+  "http://www.apache.org/licenses/license-2.0",
+  "Unless required by applicable law",
+  "unless required by applicable law",
+  "distributed under the License",
+  "distributed under the license",
+  "AS IS",
+  "as is",
+  "without warranties",
+  "specific language governing permissions",
+  "limitations under the license",
 ]
 
 [lint.typos]
-# `sherif` is the project name; `existant` is part of the public rule name `non-existant-packages`.
-extend_words = { sherif = "sherif", Sherif = "Sherif", existant = "existant", Existant = "Existant", accidentaly = "accidentaly" }
+# `existant` and `accidentaly` appear in rule names and sources until the rules are renamed.
+extend_words = { skif = "skif", Skif = "Skif", adr = "adr", adrlint = "adrlint", madr = "madr", existant = "existant", Existant = "Existant", accidentaly = "accidentaly" }
+extend_exclude = ["fixtures/**"]
 
-[lint.markdown.rumdl]
-disable = ["MD001", "MD033", "MD041"]
+[per-file-ignores]
+# Fixture trees are deliberate fakes: data, not source.
+"fixtures/**" = ["comment", "doc-comment"]
+"**/generated/**" = ["comment", "doc-comment"]
+"**/*.generated.*" = ["comment", "doc-comment"]
+
+[tools.shfmt]
+enabled = true
+
+[tools.shellcheck]
+enabled = true
+
+[tools.actionlint]
+enabled = true
 
 [hooks]
 stages = ["pre-commit"]
 
 [hooks.builtin]
-lint = true
-fmt = true
+lint = { exclude = [
+  "**/*.lock",
+  "**/Cargo.lock",
+  "**/package-lock.json",
+  "**/pnpm-lock.yaml",
+  "target/**",
+  "fixtures/**",
+  "assets/**",
+] }
+fmt = { exclude = [
+  "**/*.lock",
+  "**/Cargo.lock",
+  "**/package-lock.json",
+  "**/pnpm-lock.yaml",
+  "target/**",
+  "fixtures/**",
+  "assets/**",
+] }
 commit = { stages = ["commit-msg"] }
-file_safety = { exclude = ["npm/app/index.js"] }
+file_safety = { exclude = [
+  "**/*.lock",
+  "**/Cargo.lock",
+  "**/package-lock.json",
+  "**/pnpm-lock.yaml",
+  "target/**",
+  "fixtures/**",
+  "assets/**",
+] }
 cargo = true
+
+[[hooks.sources]]
+id = "ai-rulez"
+git = "https://github.com/Goldziher/ai-rulez.git"
+revision = "v5"
+hooks = ["ai-rulez-validate"]
+
+[[hooks.sources]]
+id = "adrlint"
+git = "https://github.com/Goldziher/adrlint.git"
+revision = "v0.4.1"
+hooks = ["adrlint-lint", "adrlint-format-check", "adrlint-lock-check"]

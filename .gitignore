@@ -1,8 +1,39 @@
-target/
-node_modules/
+/target
+/dist
 
+# poly (polylint) local cache
+/.polylint
+
+# Machine-local poly settings (hook channel preferences)
+poly.local.toml
+
+# Editor scratch
+*.swp
 .DS_Store
 *.log
+
+# Local secrets, never commit
+.env
+.env.*
+!.env.example
+*token*.txt
+
+# ai-rulez harness outputs for presets this repo does not generate.
+# Every file here carries the "AI-RULEZ :: GENERATED FILE" header, derived from
+# .ai-rulez/, regenerable, and machine-local, so it stays out of git like the rest of
+# the generated harness surface.
+.cline/
+.clinerules/
+.continue/
+.cursor/
+.gemini/
+.junie/
+.windsurf/
+GEMINI.md
+.github/copilot-instructions.md
+.github/agents/
+.github/commands/
+.github/skills/
 
 # BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
 .agents/skills/
