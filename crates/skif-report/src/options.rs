@@ -3,6 +3,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use skif_core::RuleMeta;
+
 use crate::path::relativize;
 
 /// Configuration for every renderer; the caller decides colour, root and sources.
@@ -15,6 +17,7 @@ pub struct RenderOptions {
     pub root: Option<PathBuf>,
     /// Version of the tool, reported as `skif` in JSON output.
     pub tool_version: Option<String>,
+    rules: Vec<&'static RuleMeta>,
     sources: BTreeMap<String, String>,
 }
 
@@ -40,6 +43,13 @@ impl RenderOptions {
         self
     }
 
+    /// Sets the rule metadata listed by the SARIF renderer.
+    #[must_use]
+    pub fn with_rules(mut self, rules: impl IntoIterator<Item = &'static RuleMeta>) -> Self {
+        self.rules = rules.into_iter().collect();
+        self
+    }
+
     /// Registers the text of a file so that the human format can show a code frame for it.
     ///
     /// The report does not carry source text; without this, frames are skipped.
@@ -53,6 +63,11 @@ impl RenderOptions {
     /// Path as displayed: relative to the root, with `/` separators.
     pub(crate) fn display_path(&self, path: &Path) -> String {
         relativize(path, self.root.as_deref())
+    }
+
+    /// Rule metadata supplied through [`Self::with_rules`].
+    pub(crate) fn rules(&self) -> &[&'static RuleMeta] {
+        &self.rules
     }
 
     /// Source text registered for an already displayed path.
