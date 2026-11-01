@@ -1,0 +1,25 @@
+- id: skif
+  name: skif
+  description: Lint JavaScript and TypeScript workspace manifests (JS analysis is off in the hook)
+  entry: scripts/pre-commit/run-skif.sh
+  args:
+    - --no-js
+  language: script
+  files: '(^|/)(package\.json|pnpm-workspace\.yaml|\.?skif\.toml)$'
+  pass_filenames: false
+  require_serial: true
+  minimum_pre_commit_version: "2.9.0"
+
+- id: skif-fix
+  name: skif (fix)
+  description: Apply safe skif fixes to workspace manifests (local only; refused when CI is set)
+  entry: scripts/pre-commit/run-skif.sh
+  args:
+    - --fix
+    - --no-install
+    - --no-js
+  language: script
+  files: '(^|/)(package\.json|pnpm-workspace\.yaml|\.?skif\.toml)$'
+  pass_filenames: false
+  require_serial: true
+  minimum_pre_commit_version: "2.9.0"
