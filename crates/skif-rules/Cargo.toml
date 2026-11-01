@@ -7,9 +7,9 @@ license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "Built-in manifest rules for skif."
+description = "Built-in manifest and workspace rules for skif."
 documentation = "https://docs.rs/skif-rules"
-keywords = ["monorepo", "linter", "package-json", "rules"]
+keywords = ["linter", "monorepo", "package-json", "rules", "skif"]
 categories = ["development-tools"]
 
 [dependencies]
