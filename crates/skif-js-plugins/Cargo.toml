@@ -1,0 +1,25 @@
+[package]
+name = "skif-js-plugins"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "JavaScript and TypeScript tool knowledge for skif: package.json script parsing today, the plugin table later."
+documentation = "https://docs.rs/skif-js-plugins"
+keywords = ["npm", "scripts", "dependencies", "monorepo"]
+categories = ["development-tools", "parser-implementations"]
+
+[lib]
+name = "skif_js_plugins"
+
+[dependencies]
+indexmap = "2"
+
+[dev-dependencies]
+proptest = "1"
+
+[lints]
+workspace = true
