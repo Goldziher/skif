@@ -44,7 +44,8 @@ fn find_nested_packages(dir: &Path) -> Vec<PathBuf> {
     entries
         .flatten()
         .filter(|entry| {
-            entry.path().is_dir() && !is_ignored_directory_name(&entry.file_name().to_string_lossy())
+            entry.path().is_dir()
+                && !is_ignored_directory_name(&entry.file_name().to_string_lossy())
         })
         .flat_map(|entry| find_nested_packages(&entry.path()))
         .collect()
@@ -62,7 +63,11 @@ fn is_root_star_package(entry: &fs::DirEntry) -> bool {
 
 /// Expands the nested packages of a `dir/**` (or `dir/**/*`, which excludes `dir` itself)
 /// pattern into root-relative paths.
-fn expand_nested_star(root: &Path, directory: &str, include_directory: bool) -> Option<Vec<String>> {
+fn expand_nested_star(
+    root: &Path,
+    directory: &str,
+    include_directory: bool,
+) -> Option<Vec<String>> {
     let start_dir = root.join(directory);
 
     if !start_dir.is_dir() {
@@ -177,7 +182,9 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
             let nested = if let Some(directory) = package.strip_suffix("/**/*") {
                 Some((directory, false))
             } else {
-                package.strip_suffix("/**").map(|directory| (directory, true))
+                package
+                    .strip_suffix("/**")
+                    .map(|directory| (directory, true))
             };
 
             if let Some((directory, include_directory)) = nested {
@@ -980,7 +987,12 @@ mod test {
 
         assert_eq!(
             names,
-            vec!["@repo/level1", "@repo/level2", "@repo/level3", "@repo/level4"]
+            vec![
+                "@repo/level1",
+                "@repo/level2",
+                "@repo/level3",
+                "@repo/level4"
+            ]
         );
     }
 
@@ -1012,7 +1024,10 @@ mod test {
             expand_nested_star(root, "packages/level1", false),
             Some(Vec::new())
         );
-        assert_eq!(expand_nested_star(root, "packages", false).unwrap().len(), 4);
+        assert_eq!(
+            expand_nested_star(root, "packages", false).unwrap().len(),
+            4
+        );
         assert_eq!(expand_nested_star(root, "missing", true), None);
     }
 
