@@ -13,6 +13,7 @@ use crate::rules::{BoxIssue, IssuesList, PackageType};
 use anyhow::{Result, anyhow};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs::{self};
 use std::path::{Path, PathBuf};
 
@@ -21,6 +22,65 @@ const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PnpmWorkspace {
     pub packages: Vec<String>,
+}
+
+/// Hidden directories and `node_modules` are never workspace packages.
+fn is_ignored_directory_name(name: &str) -> bool {
+    name.starts_with('.') || name == "node_modules"
+}
+
+/// Finds packages below `dir` like pnpm's `**` segments do: a directory containing a
+/// `package.json` is a package and is not traversed further, otherwise its subdirectories
+/// are searched at any depth.
+fn find_nested_packages(dir: &Path) -> Vec<PathBuf> {
+    if dir.join("package.json").is_file() {
+        return vec![dir.to_path_buf()];
+    }
+
+    let Ok(entries) = dir.read_dir() else {
+        return Vec::new();
+    };
+
+    entries
+        .flatten()
+        .filter(|entry| {
+            entry.path().is_dir() && !is_ignored_directory_name(&entry.file_name().to_string_lossy())
+        })
+        .flat_map(|entry| find_nested_packages(&entry.path()))
+        .collect()
+}
+
+/// Whether a direct child of the root matched by a bare `*` pattern is a package: it must be a
+/// non-ignored directory containing a `package.json`.
+fn is_root_star_package(entry: &fs::DirEntry) -> bool {
+    let path = entry.path();
+
+    path.is_dir()
+        && !is_ignored_directory_name(&entry.file_name().to_string_lossy())
+        && path.join("package.json").is_file()
+}
+
+/// Expands the nested packages of a `dir/**` (or `dir/**/*`, which excludes `dir` itself)
+/// pattern into root-relative paths.
+fn expand_nested_star(root: &Path, directory: &str, include_directory: bool) -> Option<Vec<String>> {
+    let start_dir = root.join(directory);
+
+    if !start_dir.is_dir() {
+        return None;
+    }
+
+    Some(
+        find_nested_packages(&start_dir)
+            .into_iter()
+            .filter(|found| include_directory || *found != start_dir)
+            .filter_map(|found| {
+                found
+                    .strip_prefix(root)
+                    .ok()
+                    .map(|relative| relative.to_string_lossy().to_string())
+            })
+            .collect(),
+    )
 }
 
 pub fn collect_packages(root: &Path) -> Result<PackagesList> {
@@ -48,6 +108,7 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
     }
 
     let mut packages_issues: Vec<BoxIssue> = Vec::new();
+    let mut seen_paths: HashSet<PathBuf> = HashSet::new();
 
     let mut add_package = |packages_issues: &mut Vec<BoxIssue>, path: PathBuf| {
         // Ignore hidden directories, e.g. `.npm`, `.react-email`
@@ -55,6 +116,11 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
             && let Some(stem) = stem.to_str()
             && stem.starts_with('.')
         {
+            return;
+        }
+
+        // Ignore paths already collected through another, overlapping pattern.
+        if !seen_paths.insert(path.clone()) {
             return;
         }
 
@@ -108,7 +174,18 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
         let mut expanded_packages = Vec::new();
 
         for package in packages {
-            if let Some((directory, subdirectory)) = package.split_once("/*/") {
+            let nested = if let Some(directory) = package.strip_suffix("/**/*") {
+                Some((directory, false))
+            } else {
+                package.strip_suffix("/**").map(|directory| (directory, true))
+            };
+
+            if let Some((directory, include_directory)) = nested {
+                match expand_nested_star(root, directory, include_directory) {
+                    Some(found) => expanded_packages.extend(found),
+                    None => non_existant_paths.push(package.clone()),
+                }
+            } else if let Some((directory, subdirectory)) = package.split_once("/*/") {
                 let directory = root.join(directory);
 
                 if let Ok(expanded_folders) = directory.read_dir() {
@@ -170,14 +247,24 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
                         continue;
                     }
                 } else {
-                    let directory = root.join(directory_match);
-                    let directory = directory.parent().unwrap().to_path_buf();
+                    // A bare `*` matches the root's direct children: `root.join("")` would
+                    // resolve to the root's parent.
+                    let is_root_star = directory_match.is_empty();
+                    let directory = if is_root_star {
+                        root.to_path_buf()
+                    } else {
+                        root.join(directory_match).parent().unwrap().to_path_buf()
+                    };
 
                     if let Ok(packages) = directory.read_dir() {
                         packages
                             .into_iter()
                             .filter(|package| {
                                 if let Ok(package) = package {
+                                    if is_root_star {
+                                        return is_root_star_package(package);
+                                    }
+
                                     return package.file_type().unwrap().is_dir()
                                         && package
                                             .file_name()
@@ -858,6 +945,86 @@ mod test {
         let config = args.into();
         let issues = collect_issues(&config, packages_list);
         assert_eq!(issues.total_len(), 0);
+    }
+
+    #[test]
+    fn collect_packages_root_star_pnpm() {
+        let packages_list = collect_packages(Path::new("fixtures/root-star-pnpm")).unwrap();
+
+        assert_eq!(packages_list.root_package.get_name(), "root-star-pnpm");
+        assert!(packages_list.packages_issues.is_empty());
+
+        let mut names = packages_list
+            .packages
+            .iter()
+            .map(|package| package.get_name().unwrap().clone())
+            .collect::<Vec<_>>();
+        names.sort();
+
+        assert_eq!(names, vec!["pk-a", "tool"]);
+    }
+
+    #[test]
+    fn collect_packages_deeply_nested_double_star() {
+        let packages_list = collect_packages(Path::new("fixtures/nested-star")).unwrap();
+
+        assert_eq!(packages_list.root_package.get_name(), "nested-star");
+        assert!(packages_list.packages_issues.is_empty());
+
+        let mut names = packages_list
+            .packages
+            .iter()
+            .map(|package| package.get_name().unwrap().clone())
+            .collect::<Vec<_>>();
+        names.sort();
+
+        assert_eq!(
+            names,
+            vec!["@repo/level1", "@repo/level2", "@repo/level3", "@repo/level4"]
+        );
+    }
+
+    #[test]
+    fn find_nested_packages_at_any_depth() {
+        let mut found = find_nested_packages(Path::new("fixtures/nested-star/packages"));
+        found.sort();
+
+        assert_eq!(
+            found,
+            vec![
+                PathBuf::from("fixtures/nested-star/packages/level1"),
+                PathBuf::from("fixtures/nested-star/packages/level2/level2"),
+                PathBuf::from("fixtures/nested-star/packages/level3/level3/level3"),
+                PathBuf::from("fixtures/nested-star/packages/level4/level4/level4/level4"),
+            ]
+        );
+    }
+
+    #[test]
+    fn find_nested_packages_skips_hidden_directories() {
+        assert!(find_nested_packages(Path::new("fixtures/root-star-pnpm/.hidden")).len() == 1);
+        assert!(
+            !find_nested_packages(Path::new("fixtures/root-star-pnpm/scripts"))
+                .iter()
+                .any(|path| path.ends_with(".hidden"))
+        );
+        assert!(find_nested_packages(Path::new("fixtures/root-star-pnpm/scripts")).is_empty());
+    }
+
+    #[test]
+    fn expand_nested_star_excludes_directory_itself() {
+        let root = Path::new("fixtures/nested-star");
+
+        assert_eq!(
+            expand_nested_star(root, "packages/level1", true),
+            Some(vec!["packages/level1".to_string()])
+        );
+        assert_eq!(
+            expand_nested_star(root, "packages/level1", false),
+            Some(Vec::new())
+        );
+        assert_eq!(expand_nested_star(root, "packages", false).unwrap().len(), 4);
+        assert_eq!(expand_nested_star(root, "missing", true), None);
     }
 
     #[test]
