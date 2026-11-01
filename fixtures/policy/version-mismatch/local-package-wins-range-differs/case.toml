@@ -1,0 +1,4 @@
+description = "A dependency on a workspace package must equal the local package version; a caret range on the same number differs to local."
+source = "syncpack:src/version_group/preferred_semver_test.rs::local::instance_has_same_version_number_as_local_package_but_a_different_range_and_has_no_semver_group"
+tags = ["local", "fix"]
+valid-states = ["IsLocalAndValid"]

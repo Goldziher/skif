@@ -1,0 +1,3 @@
+description = "Dependencies outside the pinned group still fall through to the catch-all preferred-semver group."
+source = "syncpack:src/version_group/pinned_test.rs::normal::a_pinned_version_will_replace_anything_different"
+tags = ["pinned", "catch-all", "fix"]

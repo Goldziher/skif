@@ -1,0 +1,20 @@
+[
+  {
+    "rule": "catalog-missing-entry",
+    "severity": "warning",
+    "package": "app",
+    "dependency": "zod",
+    "detail": "CannotInferCatalogFile",
+    "path": "packages/app/package.json",
+    "fixable": false
+  },
+  {
+    "rule": "catalog-missing-entry",
+    "severity": "warning",
+    "package": "lib",
+    "dependency": "zod",
+    "detail": "CannotInferCatalogFile",
+    "path": "packages/lib/package.json",
+    "fixable": false
+  }
+]

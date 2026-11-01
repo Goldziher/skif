@@ -1,0 +1,3 @@
+description = "Two different exact versions do not overlap: every instance is reported as an unfixable SameRangeMismatch."
+source = "syncpack:src/version_group/same_range_test.rs::exact_pinned_versions_that_differ_do_not_overlap"
+tags = ["same-range", "unfixable"]

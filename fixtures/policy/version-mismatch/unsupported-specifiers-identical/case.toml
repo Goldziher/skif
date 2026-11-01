@@ -1,0 +1,4 @@
+description = "Non-semver specifiers (git URLs) that are byte-identical are valid."
+source = "syncpack:src/version_group/preferred_semver_test.rs::non_semver::link_specifiers_without_local_instance_are_identical"
+tags = ["unsupported", "git"]
+valid-states = ["IsNonSemverButIdentical"]

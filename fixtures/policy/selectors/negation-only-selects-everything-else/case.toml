@@ -1,0 +1,4 @@
+description = "A selector made only of negations matches every dependency except the negated ones."
+source = "syncpack:src/group_selector/group_selector_test.rs::empty_includes_with_not_local_includes_non_local_excludes_local"
+tags = ["selectors", "negation", "fix"]
+valid-states = ["IsIgnored"]

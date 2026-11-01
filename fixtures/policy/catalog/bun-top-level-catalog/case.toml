@@ -1,0 +1,4 @@
+description = "Bun top-level package.json catalog is discovered; plain instances are reported against it."
+source = "syncpack:src/version_group/bun_catalog_test.rs::bun_top_level_catalog_definition_emits_instance"
+tags = ["catalog", "prefer", "bun", "fix"]
+valid-states = ["IsCatalogDefinition"]

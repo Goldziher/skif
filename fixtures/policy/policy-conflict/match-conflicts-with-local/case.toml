@@ -1,0 +1,4 @@
+description = "A dependency on a workspace package using a group range that excludes the local version is an unfixable conflict."
+source = "syncpack:src/version_group/preferred_semver_test.rs::local::instance_has_same_version_number_as_local_package_but_matches_a_different_but_incompatible_semver_group"
+tags = ["semver-groups", "local", "conflict"]
+valid-states = ["IsLocalAndValid"]

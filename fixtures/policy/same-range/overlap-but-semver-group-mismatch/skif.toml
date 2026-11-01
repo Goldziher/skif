@@ -1,0 +1,7 @@
+[[version-groups]]
+dependencies = ["react"]
+policy = "same-range"
+
+[[semver-groups]]
+dependencies = ["react"]
+range = "^"

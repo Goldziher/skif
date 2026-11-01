@@ -1,0 +1,4 @@
+description = "A workspace: specifier on a workspace package satisfies the local version without being range-checked."
+source = "skif"
+tags = ["semver-groups", "workspace-protocol", "local"]
+valid-states = ["SatisfiesLocal"]

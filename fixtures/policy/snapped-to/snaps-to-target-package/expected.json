@@ -1,0 +1,20 @@
+[
+  {
+    "rule": "version-mismatch",
+    "severity": "error",
+    "package": "lib",
+    "dependency": "react",
+    "detail": "DiffersToSnapTarget",
+    "path": "packages/lib/package.json",
+    "fixable": true
+  },
+  {
+    "rule": "version-mismatch",
+    "severity": "error",
+    "package": "tool",
+    "dependency": "react",
+    "detail": "DiffersToSnapTarget",
+    "path": "packages/tool/package.json",
+    "fixable": true
+  }
+]

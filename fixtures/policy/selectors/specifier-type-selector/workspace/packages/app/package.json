@@ -1,0 +1,9 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "x-fork": "git+https://github.com/acme/x-fork.git#main",
+    "zod": "^3.23.8"
+  }
+}

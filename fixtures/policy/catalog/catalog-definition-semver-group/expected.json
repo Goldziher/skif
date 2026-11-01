@@ -1,0 +1,11 @@
+[
+  {
+    "rule": "semver-range-mismatch",
+    "severity": "error",
+    "package": null,
+    "dependency": "react",
+    "detail": "SemverRangeMismatch",
+    "path": "pnpm-workspace.yaml",
+    "fixable": true
+  }
+]

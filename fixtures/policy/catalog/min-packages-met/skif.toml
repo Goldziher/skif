@@ -1,0 +1,3 @@
+[catalog]
+mode = "prefer"
+min-packages = 3
