@@ -1,0 +1,4 @@
+# A panic in a test is the failure report; library and CLI code must return errors instead.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
