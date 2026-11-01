@@ -117,7 +117,7 @@ mod test {
     #[test]
     fn fix_removes_fields_and_keeps_formatting() {
         let directory =
-            std::env::temp_dir().join(format!("sherif-member-toolchain-{}", std::process::id()));
+            std::env::temp_dir().join(format!("skif-member-toolchain-{}", std::process::id()));
         fs::create_dir_all(&directory).unwrap();
         fs::write(
             directory.join("package.json"),

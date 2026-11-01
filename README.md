@@ -1,302 +1,65 @@
-<p align="center">
-  <picture>
-    <img alt="" height="200px" src="https://github.com/QuiiBz/sherif/blob/main/assets/logo.png" />
-  </picture>
-  <br />
-  <b>Sherif</b>: Opinionated, zero-config linter for TypeScript & JavaScript monorepos
-</p>
+<!-- markdownlint-disable MD033 MD041 -->
+<div align="center">
+
+# skif
+
+**A fast dependency linter for JavaScript and TypeScript monorepos.**
+
+Workspace rules, version and catalog policies, and unused or unlisted dependencies, in one
+single-binary CLI that is also an embeddable Rust library.
+
+[![crates.io](https://img.shields.io/crates/v/skif?style=flat-square)](https://crates.io/crates/skif)
+[![npm](https://img.shields.io/npm/v/skif?style=flat-square)](https://www.npmjs.com/package/skif)
+[![CI](https://img.shields.io/github/actions/workflow/status/Goldziher/skif/ci.yml?style=flat-square)](https://github.com/Goldziher/skif/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+
+</div>
 
 ---
 
-![Cover](https://github.com/QuiiBz/sherif/blob/main/assets/cover.png)
+> **Pre-release.** skif is under active development and has not been published yet. The
+> workspace rules below work today; the version policies, catalog policies, and JavaScript analysis
+> are planned. Nothing here is stable until the first release.
 
-## About
+## What you get
 
-Sherif is an opinionated, zero-config linter for TypeScript & JavaScript monorepos. It runs fast in any monorepo and enforces rules to provide a better, standardized DX.
-
-## Features
-
-- ✨ **PNPM, Bun, NPM, Yarn...**: sherif works with all package managers
-- 🔎 **Zero-config**: it just works and prevents regressions
-- ⚡ **Fast**: doesn't need `node_modules` installed, written in 🦀 Rust
+| Capability | What it does | Status |
+|---|---|---|
+| **Workspace rules** | Checks the root and member `package.json` files of npm, yarn, and pnpm workspaces: empty or unsorted dependency fields, `@types/*` in dependencies, local path dependencies, unmatched workspace patterns, incompatible peer dependencies, and more. Many rules have autofixes. | Available |
+| **Version and catalog policies** | Version groups, semver range policies, and pnpm, package.json, and bun catalog enforcement across packages. | Planned |
+| **Unused and unlisted dependencies, dead code** | Finds dependencies that are declared but never imported, imports that are never declared, and unused files and exports, by analysing JavaScript and TypeScript sources. | Planned |
 
 ## Installation
 
-Run `sherif` in the root of your monorepo to list the found issues. By default, any error will cause Sherif to [exit with a code 1](#exit-code):
+skif is not published yet. The first release will provide:
 
 ```bash
-# PNPM
-pnpm dlx sherif@latest
-# Bun
-bunx sherif@latest
-# NPM
-npx sherif@latest
-# Yarn
-yarn dlx sherif@latest
+cargo install skif-cli
+cargo binstall skif-cli
+npm install --save-dev skif
 ```
 
-We recommend running Sherif in your CI once [all errors are fixed](#autofix). Run it by **specifying a version instead of latest**. This is useful to prevent regressions (e.g. when adding a library to a package but forgetting to update the version in other packages of the monorepo).
-
-When using the GitHub Action, it will search for a `sherif` script in the root `package.json` and use the same arguments automatically to avoid repeating them twice. You can override this behaviour with the `args` parameter.
-
-<details>
-
-<summary>GitHub Actions example</summary>
-
-```yaml
-# Using the `QuiiBz/sherif` action
-name: Sherif
-on:
-  pull_request:
-jobs:
-  check:
-    name: Run Sherif
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: QuiiBz/sherif@v1
-        # Optionally, you can specify a version and arguments to run Sherif with:
-        # with:
-        # version: 'v1.13.0'
-        # args: '--ignore-rule root-package-manager-field'
-
-# Using `npx` to run Sherif
-name: Sherif
-on:
-  pull_request:
-jobs:
-  check:
-    name: Run Sherif
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v3
-        with:
-          node-version: 24
-      - run: npx sherif@1.13.0
-```
-
-</details>
-
-## Autofix
-
-Most issues can be automatically fixed by using the `--fix` (or `-f`) flag. Sherif will automatically run your package manager's `install` command (see [No-install mode](#no-install-mode) to disable this behavior) to update the lockfile. Note that autofix is disabled in CI environments (when `$CI` is set):
-
-```bash
-sherif --fix
-```
-
-### Autofixing the [`multiple-dependency-versions`](#multiple-dependency-versions-) rule
-
-By default, running `--fix` with the `multiple-dependency-versions` rule will ask you to select which version to use for each dependency with multiple versions across the monorepo. If that doesn't work for you (e.g., you are running Sherif in a non-interactive environment), you can use the `--select` (of `-s`) flag to automatically select the highest or lowest version of every dependency:
-
-```bash
-# Autofix and select the highest version for each dependency matching the `multiple-dependency-versions` rule
-sherif --fix --select highest
-```
-
-### No-install mode
-
-If you don't want Sherif to run your packager manager's `install` command after running autofix, you can use the `--no-install` flag:
-
-```bash
-# Autofix without running the package manager's install command
-sherif --fix --no-install
-```
-
-## JSON output
-
-Use `--format json` to print a machine-readable report on stdout instead of the human-readable output (default: `--format human`). Nothing else is printed on stdout, and the exit code is unchanged.
-
-```bash
-sherif --format json
-```
-
-```json
-{
-  "summary": { "errors": 1, "warnings": 0, "fixed": 0, "packages": 3 },
-  "issues": [
-    {
-      "rule": "root-package-manager-field",
-      "level": "error",
-      "package": "./package.json",
-      "message": "..."
-    }
-  ]
-}
-```
-
-`level` is `"error"`, `"warning"` or `"fixed"`, and `package` is `null` for issues that don't belong to a `package.json`.
-
-## Exit code
-
-By default, Sherif will exit with code `1` if any error issues are found. If you only have warning issues or no issues at all, Sherif will exit with code `0`. You can change this behavior to always exit with code `1` if any issues are found, including warnings, by using the `--fail-on-warnings` option.
-
-## Rules
-
-You can ignore a specific rule by using `--ignore-rule <name>` (or `-r <name>`):
-
-```bash
-# Ignore both rules
-sherif -r packages-without-package-json -r root-package-manager-field
-```
-
-You can ignore all issues in a package by using `--ignore-package <pathOrName>` (or `-p <pathOrName>`):
-
-```bash
-# Ignore all issues in the `@repo/tools` package
-sherif -p @repo/tools
-# Ignore all issues for packages inside `./integrations/*`
-sherif -p "./integrations/*"
-```
-
-You can ignore a single rule for specific packages with `--ignore-rule-for-package <rule>:<package>` (the string is split on the first `:`, and `<package>` is a name or path matched like `--ignore-package`, including a trailing `*`). The flag can be repeated:
-
-```bash
-# Ignore `unordered-dependencies` only in `@repo/tools`, and `empty-dependencies` in `./integrations/*`
-sherif --ignore-rule-for-package unordered-dependencies:@repo/tools --ignore-rule-for-package "empty-dependencies:./integrations/*"
-```
-
-This works for every rule reported against a single package, and for `unsync-similar-dependencies`. For `multiple-dependency-versions`, the ignored package's versions are left out of the comparison, so it neither causes nor is blamed for a mismatch; the other packages are still compared with each other. Rules that aren't tied to a package (`packages-without-package-json`, `non-existant-packages`) and the root `package.json` rules aren't affected.
-
-#### `empty-dependencies` ❌
-
-`package.json` files should not have empty dependencies fields.
-
-#### `incompatible-peer-dependencies` ⚠️
-
-When a dependency is declared in both `peerDependencies` and `devDependencies`, the version in `devDependencies` should satisfy the range in `peerDependencies`. Specifiers that aren't semver (e.g. `workspace:*`, git URLs) are skipped.
-
-#### `local-path-dependencies` ❌
-
-Dependencies shouldn't point at relative paths (`link:`, `file:`, `portal:`, `./`, `../` or absolute paths). A path to another workspace package should use the workspace protocol (`workspace:*`, or `*` when the root `packageManager` is npm); autofix rewrites those. Paths to anything else (tarballs, folders outside the workspace) are reported but not fixed: publish or vendor them instead.
-
-#### `member-toolchain-fields` ⚠️
-
-Member packages shouldn't declare `packageManager` or `engines`: the root `package.json` owns the toolchain. Autofix removes the fields from the member `package.json`.
-
-By default any such field is reported (`"forbid"`). To allow member packages that repeat exactly the root's values, set `memberToolchain` in the `sherif` configuration:
-
-```jsonc
-{
-  "sherif": {
-    "memberToolchain": "match-root", // "forbid" (default) | "match-root"
-  },
-}
-```
-
-Use `ignorePackage` / `--ignore-package` to exempt a package entirely, or `--ignore-rule-for-package member-toolchain-fields:<package>` to exempt it from this rule only.
-
-#### `multiple-dependency-versions` ❌
-
-A given dependency should use the same version across the monorepo. pnpm `catalog:` specifiers are resolved from `pnpm-workspace.yaml` (or the root `package.json`) before comparing. A dependency also declared in `peerDependencies` is ignored in `devDependencies`, since it tests the lowest supported peer range.
-
-You can ignore this rule for a specific dependency and version or all versions of a dependency if it's expected in your monorepo by using `--ignore-dependency <name@version>` / `--ignore-dependency <name>` (or `-i <name@version>` / `-i <name>`):
-
-```bash
-# Ignore only the specific dependency version mismatch
-sherif -i react@17.0.2 -i next@13.2.4
-
-# Ignore all versions mismatch of dependencies that start with @next/
-sherif -i @next/*
-
-# Completely ignore all versions mismatch of these dependencies
-sherif -i react -i next
-```
-
-#### `unsync-similar-dependencies` ❌
-
-Similar dependencies in a given `package.json` should use the same version. For example, if you use both `react` and `react-dom` dependencies in the same `package.json`, this rule will enforce that they use the same version.
-
-<details>
-
-<summary>List of detected similar dependencies</summary>
-
-- `react`, `react-dom`
-- `eslint-config-next`, `@next/eslint-plugin-next`, `@next/font` `@next/bundle-analyzer`, `@next/third-parties`, `@next/mdx`, `next`
-- `@trpc/client`, `@trpc/server`, `@trpc/next`, `@trpc/react-query`
-- `eslint-config-turbo`, `eslint-plugin-turbo`, `@turbo/gen`, `turbo-ignore`, `turbo`
-- `sb`, `storybook`, `@storybook/codemod`, `@storybook/cli`, `@storybook/channels`, `@storybook/addon-actions`, `@storybook/addon-links`, `@storybook/react`, `@storybook/react-native`, `@storybook/components`, `@storybook/addon-backgrounds`, `@storybook/addon-viewport`, `@storybook/angular`, `@storybook/addon-a11y`, `@storybook/addon-jest`, `@storybook/client-logger`, `@storybook/node-logger`, `@storybook/core`, `@storybook/addon-storysource`, `@storybook/html`, `@storybook/core-events`, `@storybook/svelte`, `@storybook/ember`, `@storybook/addon-ondevice-backgrounds`, `@storybook/addon-ondevice-notes`, `@storybook/preact`, `@storybook/theming`, `@storybook/router`, `@storybook/addon-docs`, `@storybook/addon-ondevice-actions`, `@storybook/source-loader`, `@storybook/preset-create-react-app`, `@storybook/web-components`, `@storybook/addon-essentials`, `@storybook/server`, `@storybook/addon-toolbars`, `@storybook/addon-controls`, `@storybook/core-common`, `@storybook/builder-webpack5`, `@storybook/core-server`, `@storybook/csf-tools`, `@storybook/addon-measure`, `@storybook/addon-outline`, `@storybook/addon-ondevice-controls`, `@storybook/instrumenter`, `@storybook/addon-interactions`, `@storybook/docs-tools`, `@storybook/builder-vite`, `@storybook/telemetry`, `@storybook/core-webpack`, `@storybook/preset-html-webpack`, `@storybook/preset-preact-webpack`, `@storybook/preset-svelte-webpack`, `@storybook/preset-react-webpack`, `@storybook/html-webpack5`, `@storybook/preact-webpack5`, `@storybook/svelte-webpack5`, `@storybook/web-components-webpack5`, `@storybook/preset-server-webpack`, `@storybook/react-webpack5`, `@storybook/server-webpack5`, `@storybook/addon-highlight`, `@storybook/blocks`, `@storybook/builder-manager`, `@storybook/react-vite`, `@storybook/svelte-vite`, `@storybook/web-components-vite`, `@storybook/nextjs`, `@storybook/types`, `@storybook/manager`, `@storybook/csf-plugin`, `@storybook/preview`, `@storybook/manager-api`, `@storybook/preview-api`, `@storybook/html-vite`, `@storybook/sveltekit`, `@storybook/preact-vite`, `@storybook/addon-mdx-gfm`, `@storybook/react-dom-shim`, `create-storybook`, `@storybook/addon-onboarding`, `@storybook/react-native-theming`, `@storybook/addon-themes`, `@storybook/test`, `@storybook/react-native-ui`, `@storybook/experimental-nextjs-vite`, `@storybook/experimental-addon-test`, `@storybook/react-native-web-vite`
-- `prisma`, `@prisma/client`, `@prisma/instrumentation`
-- `typescript-eslint`, `@typescript-eslint/eslint-plugin`, `@typescript-eslint/parser`
-- `@stylistic/eslint-plugin-js`, `@stylistic/eslint-plugin-ts`, `@stylistic/eslint-plugin-migrate`, `@stylistic/eslint-plugin`, `@stylistic/eslint-plugin-jsx`, `@stylistic/eslint-plugin-plus`
-- `playwright`, `@playwright/test`
-
-</details>
-
-#### `non-existant-packages` ⚠️
-
-All paths defined in the workspace (the root `package.json`' `workspaces` field or `pnpm-workspace.yaml`) should match at least one package.
-
-#### `packages-without-package-json` ⚠️
-
-All packages matching the workspace (the root `package.json`' `workspaces` field or `pnpm-workspace.yaml`) should have a `package.json` file.
-
-#### `root-package-dependencies` ⚠️
-
-The root `package.json` is private, so making a distinction between `dependencies` and `devDependencies` is useless - only use `devDependencies`.
-
-#### `root-package-manager-field` ❌
-
-The root `package.json` should specify the package manager and version to use, either via the `packageManager` field or the `devEngines.packageManager` field. Useful for tools like corepack.
-
-#### `root-package-private-field` ❌
-
-The root `package.json` should be private to prevent accidentaly publishing it to a registry.
-
-#### `types-in-dependencies` ❌
-
-Private packages shouldn't have `@types/*` in `dependencies`, since they don't need it at runtime. Move them to `devDependencies`.
-
-#### `unordered-dependencies` ❌
-
-Dependencies should be ordered alphabetically to prevent complex diffs when installing a new dependency via a package manager.
+Until then, build from source with `cargo build --release`.
 
 ## Configuration
 
-When using many CLI arguments, it might be easier to move to the configuration format. In your root `package.json`, add a `sherif` field containing the same options as the CLI, but in camelCase. Default values are shown below:
+skif reads its configuration from `skif.toml` or `.skif.toml` in the workspace root. The
+file format is planned and arrives in a later release; today only CLI flags are supported.
+The intended shape:
 
-```jsonc
-{
-  "sherif": {
-    "fix": false,
-    "select": "highest", // "highest" | "lowest"
-    "noInstall": false,
-    "failOnWarnings": false,
-    "format": "human", // "human" | "json"
-    "ignoreDependency": [], // string[]
-    "ignorePackage": [], // string[]
-    "ignoreRule": [], // string[]
-    "ignoreRuleForPackage": {}, // { [rule: string]: string[] }, e.g. { "unordered-dependencies": ["@repo/tools"] }
-    "memberToolchain": "forbid", // "forbid" | "match-root"
-  },
-}
+```toml
+[rules]
+unsorted-dependencies = "warn"
+types-in-dependencies = "error"
+empty-dependencies = "off"
 ```
 
-When using both the configuration in the root `package.json` and CLI arguments, the CLI arguments will take precedence.
+## Status
 
-### Config file with comments
-
-The same options (the object itself, without the `sherif` wrapper) can instead live in `sherif.config.jsonc` or `.sherifrc.jsonc` next to the root `package.json` (the first one found is used). These files may contain `//` and `/* */` comments and trailing commas. Their options are layered over the `sherif` field of `package.json`: flags and `select` / `memberToolchain` from the file win, and the ignore lists are combined.
-
-## Custom binary
-
-The npm package runs the prebuilt binary of your platform. On systems where it can't run (for example NixOS), set the `SHERIF_BINARY` environment variable to the path of a `sherif` binary you built or installed, and the launcher will run it instead:
-
-```bash
-SHERIF_BINARY=/path/to/sherif npx sherif
-```
-
-## Credits
-
-- [dedubcheck](https://github.com/innovatrics/dedubcheck) that given me the idea for Sherif
-- [Manypkg](https://github.com/Thinkmill/manypkg) for some of their rules
-- [This article](https://blog.orhun.dev/packaging-rust-for-npm/) for the Rust releases on NPM
-
-## Sponsors
-
-![Sponsors](https://github.com/QuiiBz/dotfiles/blob/main/sponsors.png?raw=true)
+skif is a clean rebuild of a monorepo linter, restructured as a library-first workspace. Design
+decisions are recorded as architecture decision records in [`adrs/`](adrs/).
 
 ## License
 
-[MIT](./LICENSE)
+MIT, see [LICENSE](LICENSE). Code derived from other projects, including the sherif rules this
+project started from, is credited in [ATTRIBUTIONS.md](ATTRIBUTIONS.md).

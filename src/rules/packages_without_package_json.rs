@@ -1,6 +1,10 @@
 use super::{Issue, IssueLevel, PackageType};
-use anyhow::Result;
-use std::{borrow::Cow, fs, path::PathBuf};
+use anyhow::{Result, anyhow};
+use std::{
+    borrow::Cow,
+    fs,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug)]
 pub struct PackagesWithoutPackageJsonIssue {
@@ -40,13 +44,10 @@ impl Issue for PackagesWithoutPackageJsonIssue {
 
     fn fix(&mut self, _package_type: &PackageType) -> Result<()> {
         let path = PathBuf::from(&self.package).join("package.json");
-        let package_name = path
-            .parent()
-            .unwrap()
+        let package_name = Path::new(&self.package)
             .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap();
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| anyhow!("Cannot derive a package name from {:?}", self.package))?;
 
         let value = serde_json::json!({
             "name": package_name,

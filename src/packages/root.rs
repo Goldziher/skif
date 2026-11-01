@@ -1,6 +1,5 @@
 use super::{Catalogs, Package, Workspaces, semversion::SemVersion};
 use crate::{
-    packages::Config,
     rules::{
         BoxIssue, root_package_dependencies::RootPackageDependenciesIssue,
         root_package_manager_field::RootPackageManagerFieldIssue,
@@ -96,9 +95,5 @@ impl RootPackage {
         catalogs: &Catalogs,
     ) -> Option<IndexMap<String, SemVersion>> {
         self.0.get_dev_dependencies(catalogs)
-    }
-
-    pub fn get_config(&self) -> Option<Config> {
-        self.0.inner.sherif.clone()
     }
 }

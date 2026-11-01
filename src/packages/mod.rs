@@ -160,32 +160,6 @@ impl Config {
         }
     }
 
-    /// Layers `other` over `self`: flags and scalars set in `other` win, lists are appended.
-    pub fn overlay(&mut self, other: Config) {
-        self.fix |= other.fix;
-        self.no_install |= other.no_install;
-        self.fail_on_warnings |= other.fail_on_warnings;
-
-        if other.select.is_some() {
-            self.select = other.select;
-        }
-
-        if other.member_toolchain.is_some() {
-            self.member_toolchain = other.member_toolchain;
-        }
-
-        self.ignore_dependency.extend(other.ignore_dependency);
-        self.ignore_package.extend(other.ignore_package);
-        self.ignore_rule.extend(other.ignore_rule);
-
-        for (rule, packages) in other.ignore_rule_for_package {
-            self.ignore_rule_for_package
-                .entry(rule)
-                .or_default()
-                .extend(packages);
-        }
-    }
-
     /// Whether issues of `rule` are ignored for `package` via `ignoreRuleForPackage`.
     pub fn ignores_rule_for(&self, rule: &str, package: &Package) -> bool {
         self.ignore_rule_for_package
@@ -229,7 +203,6 @@ struct PackageInner {
     optional_dependencies: Option<IndexMap<String, String>>,
     catalog: Option<CatalogEntries>,
     catalogs: Option<IndexMap<String, CatalogEntries>>,
-    sherif: Option<Config>,
 }
 
 #[derive(Debug)]

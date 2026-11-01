@@ -692,8 +692,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "sherif"
-version = "1.13.0"
+name = "skif"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",

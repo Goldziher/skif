@@ -1,7 +1,0 @@
-{
-  // Comments and trailing commas are allowed here.
-  "ignoreRule": ["empty-dependencies"], /* block */
-  "ignoreRuleForPackage": {
-    "unordered-dependencies": ["abc"],
-  },
-}
