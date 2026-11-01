@@ -1,0 +1,4 @@
+[[version-groups]]
+label = "ban legacy"
+dependencies = ["legacy-lib"]
+policy = "banned"

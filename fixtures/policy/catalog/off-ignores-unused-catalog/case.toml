@@ -1,0 +1,4 @@
+description = "With mode off (the default) a catalog nobody references does not change reporting."
+source = "syncpack:src/version_group/catalog_defs_test.rs::catalog_defs_catch_all_marks_defs_valid"
+tags = ["catalog", "mode-off"]
+valid-states = ["IsCatalogDefinition"]

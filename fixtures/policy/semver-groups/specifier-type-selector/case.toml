@@ -1,0 +1,4 @@
+description = "specifier-types limits a group to exact specifiers; range specifiers are left alone."
+source = "skif"
+tags = ["semver-groups", "selectors", "specifier-types", "fix"]
+valid-states = ["IsHighestOrLowestSemver"]

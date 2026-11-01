@@ -5,6 +5,7 @@
 //! [`ConfigOverrides`] on top.
 
 mod builder;
+mod dependency_types;
 mod discover;
 mod error;
 mod model;
@@ -12,8 +13,10 @@ mod overrides;
 mod rules;
 #[cfg(feature = "schema")]
 mod schema;
+mod selector;
 
 pub use builder::ConfigBuilder;
+pub use dependency_types::DependencyTypes;
 pub use discover::{CONFIG_FILE_NAMES, discover};
 pub use error::ConfigError;
 pub use model::{
@@ -24,3 +27,15 @@ pub use overrides::ConfigOverrides;
 pub use rules::{ForbidMode, Level, MemberToolchainFieldsOptions, RuleConfig, RuleOptions, UnusedExportsOptions};
 #[cfg(feature = "schema")]
 pub use schema::json_schema;
+pub use selector::{LOCAL, Selector};
+pub use skif_core::DependencyKind;
+
+const _: () = {
+    fn assert_send_sync<T: Send + Sync>() {}
+    let _ = assert_send_sync::<Config>;
+    let _ = assert_send_sync::<ConfigError>;
+    let _ = assert_send_sync::<ConfigOverrides>;
+    let _ = assert_send_sync::<ConfigBuilder>;
+    let _ = assert_send_sync::<Selector>;
+    let _ = assert_send_sync::<DependencyTypes>;
+};

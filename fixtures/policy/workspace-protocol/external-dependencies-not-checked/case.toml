@@ -1,0 +1,4 @@
+description = "Only dependencies on workspace packages are subject to the rule."
+source = "skif"
+tags = ["workspace-protocol", "internal"]
+valid-states = ["SatisfiesLocal"]

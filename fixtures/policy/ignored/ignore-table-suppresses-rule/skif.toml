@@ -1,0 +1,3 @@
+[[ignore]]
+rules = ["version-mismatch"]
+packages = ["lib"]

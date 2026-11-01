@@ -1,0 +1,3 @@
+[[dependency-families]]
+name = "babel"
+packages = ["@babel/*"]

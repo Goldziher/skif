@@ -12,7 +12,6 @@
 mod catalogs;
 mod detect;
 mod error;
-mod fs;
 mod manifest;
 mod package;
 mod pattern;
@@ -22,9 +21,20 @@ mod workspace;
 pub use catalogs::Catalogs;
 pub use detect::package_manager_from_manifest;
 pub use error::WorkspaceError;
-pub use fs::{DirEntry, FileSystem, MemoryFs, OsFs};
-pub use manifest::{DependencyEntry, DependencyKind, Manifest};
-pub use package::Package;
+pub use manifest::{DependencyEntry, Manifest};
+pub use package::{Package, PackageId};
 pub use pnpm::YamlSource;
 pub use skif_config::PackageManager;
+pub use skif_core::{DependencyKind, DirEntry, FileSystem, MemoryFs, OsFs};
 pub use workspace::{DiscoveryFacts, PatternFact, Workspace, WorkspaceSource};
+
+const _: () = {
+    fn assert_send_sync<T: Send + Sync>() {}
+    let _ = assert_send_sync::<Workspace>;
+    let _ = assert_send_sync::<Package>;
+    let _ = assert_send_sync::<PackageId>;
+    let _ = assert_send_sync::<Manifest>;
+    let _ = assert_send_sync::<DependencyEntry>;
+    let _ = assert_send_sync::<Catalogs>;
+    let _ = assert_send_sync::<WorkspaceError>;
+};

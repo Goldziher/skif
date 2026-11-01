@@ -1,0 +1,4 @@
+description = "An exact version inside another instance's range intersects it and is valid."
+source = "syncpack:src/version_group/same_range_test.rs::instance_in_a_same_range_group_satisfies_every_other_and_there_are_no_semver_groups"
+tags = ["same-range"]
+valid-states = ["SatisfiesSameRangeGroup"]

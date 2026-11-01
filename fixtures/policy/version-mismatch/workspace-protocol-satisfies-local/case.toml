@@ -1,0 +1,4 @@
+description = "A workspace: specifier on a workspace package satisfies the local version (no strict mode in skif)."
+source = "syncpack:src/version_group/preferred_semver_test.rs::non_semver::workspace_protocol_version_differs_to_local_version_is_valid_by_default"
+tags = ["workspace-protocol", "local"]
+valid-states = ["SatisfiesLocal", "IsLocalAndValid"]

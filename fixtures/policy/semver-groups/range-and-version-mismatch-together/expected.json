@@ -1,0 +1,20 @@
+[
+  {
+    "rule": "version-mismatch",
+    "severity": "error",
+    "package": "app",
+    "dependency": "react",
+    "detail": "DiffersToHighestOrLowestSemver",
+    "path": "packages/app/package.json",
+    "fixable": true
+  },
+  {
+    "rule": "semver-range-mismatch",
+    "severity": "error",
+    "package": "lib",
+    "dependency": "react",
+    "detail": "SemverRangeMismatch",
+    "path": "packages/lib/package.json",
+    "fixable": true
+  }
+]

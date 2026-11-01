@@ -1,0 +1,6 @@
+[[semver-groups]]
+dependencies = ["typescript"]
+range = ""
+
+[[semver-groups]]
+range = "^"

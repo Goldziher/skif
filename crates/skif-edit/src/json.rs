@@ -169,7 +169,7 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
                     edit.replacement.clone(),
                 )]
             }
-            FixOp::Yaml { .. } | FixOp::CreateFile { .. } | FixOp::DeleteFile { .. } => {
+            _ => {
                 return Err(EditPlanError::Unsupported {
                     op: describe::op(op),
                     kind: FileKind::Json,
@@ -222,10 +222,6 @@ impl<'a> Doc<'_, 'a> {
         let target = locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: op.to_owned() })?;
         match action {
             JsonAction::Set(value) => Ok(vec![self.set(target.value, value)]),
-            JsonAction::Remove => Err(EditPlanError::Unsupported {
-                op: op.to_owned(),
-                kind: FileKind::Json,
-            }),
             JsonAction::Insert { key, value, position } => {
                 let holder = container(target.value)
                     .filter(|holder| holder.is_object)
@@ -245,6 +241,11 @@ impl<'a> Doc<'_, 'a> {
                 Ok(self.sort_keys(&holder))
             }
             JsonAction::RenameKey(new_key) => Self::rename(op, target, new_key),
+            // `Remove` and any action added later have no in-place JSON edit.
+            _ => Err(EditPlanError::Unsupported {
+                op: op.to_owned(),
+                kind: FileKind::Json,
+            }),
         }
     }
 

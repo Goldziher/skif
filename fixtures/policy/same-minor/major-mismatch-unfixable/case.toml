@@ -1,0 +1,3 @@
+description = "Different majors are reported as SameMinorHasMajorMismatch before minors are compared."
+source = "syncpack:src/version_group/same_minor_test.rs::major_mismatch_marks_all_unfixable"
+tags = ["same-minor", "unfixable"]

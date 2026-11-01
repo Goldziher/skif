@@ -1,0 +1,4 @@
+description = "Peer dependencies use caret while production and dev use exact; each section is fixed to its own group's range."
+source = "skif"
+tags = ["semver-groups", "dependency-types", "peer", "precedence", "fix"]
+valid-states = ["SatisfiesHighestOrLowestSemver"]

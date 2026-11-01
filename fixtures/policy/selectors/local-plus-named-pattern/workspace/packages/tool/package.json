@@ -1,0 +1,9 @@
+{
+  "name": "tool",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "left-pad": "^1.2.0",
+    "zod": "^3.23.8"
+  }
+}

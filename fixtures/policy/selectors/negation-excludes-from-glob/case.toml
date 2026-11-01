@@ -1,0 +1,3 @@
+description = "A negated name removes a match from a glob selector."
+source = "syncpack:src/group_selector/group_selector_test.rs::not_local_excludes_even_if_named_pattern_matches"
+tags = ["selectors", "negation", "glob", "fix"]

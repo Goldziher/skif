@@ -1,0 +1,4 @@
+[[version-groups]]
+dependencies = ["react"]
+policy = "snapped-to"
+snap-to = ["app"]

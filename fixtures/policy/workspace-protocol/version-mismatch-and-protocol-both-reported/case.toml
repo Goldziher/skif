@@ -1,0 +1,3 @@
+description = "A wrong range on a workspace package yields both a version-mismatch (DiffersToLocal) and a workspace-protocol diagnostic."
+source = "skif"
+tags = ["workspace-protocol", "local", "two-rules", "fix"]

@@ -1,0 +1,3 @@
+description = "A package version that is not semver at all is reported on the package itself."
+source = "syncpack:src/version_group/preferred_semver_test.rs::local::instance_depends_on_local_version_which_is_missing"
+tags = ["local", "invalid"]
