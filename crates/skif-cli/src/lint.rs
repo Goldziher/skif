@@ -18,7 +18,7 @@ const PROBLEMS: u8 = 1;
 const COULD_NOT_RUN: u8 = 2;
 
 /// Runs the lint command and returns the process exit code.
-pub fn run(args: &LintArgs, env: &Env) -> u8 {
+pub fn run(args: &LintArgs, env: Env) -> u8 {
     match execute(args, env) {
         Ok(code) => code,
         Err(error) => {
@@ -95,12 +95,12 @@ fn install_step(args: &LintArgs, changed: &[&Path], workspace: &Workspace) -> In
     }
 }
 
-fn color_enabled(args: &LintArgs, env: &Env) -> bool {
+fn color_enabled(args: &LintArgs, env: Env) -> bool {
     args.format() == Format::Human
         && match args.color {
             ColorChoice::Always => true,
             ColorChoice::Never => false,
-            _ => env.stdout_tty && !env.no_color && args.output.is_none(),
+            ColorChoice::Auto => env.stdout_tty && !env.no_color && args.output.is_none(),
         }
 }
 
@@ -112,7 +112,7 @@ fn exit_code(report: &Report, max_warnings: Option<usize>) -> u8 {
     }
 }
 
-fn execute(args: &LintArgs, env: &Env) -> Result<u8, CliError> {
+fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     let fs = OsFs;
     if args.fixing() && env.ci {
         return Err(CliError::ci_refusal());

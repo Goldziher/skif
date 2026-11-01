@@ -1,0 +1,4 @@
+description = "Three ranges that all overlap pairwise are valid."
+source = "syncpack:src/version_group/same_range_test.rs::three_ranges_all_overlap_pairwise"
+tags = ["same-range"]
+valid-states = ["SatisfiesSameRangeGroup"]

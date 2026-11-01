@@ -34,7 +34,7 @@ fn run() -> u8 {
         Err(error) => return usage(&raw, &error),
     };
     match cli.command {
-        None => lint::run(&cli.lint, &Env::detect()),
+        None => lint::run(&cli.lint, Env::detect()),
         Some(Command::Rules(args)) => commands::rules(&args),
         Some(Command::Schema) => commands::schema(),
         Some(Command::Init(args)) => commands::init(&args),

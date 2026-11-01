@@ -1,0 +1,4 @@
+description = "Group order decides ownership: a later group whose instances were all claimed by an earlier group is unused."
+source = "skif (ADR 0009 confirmation)"
+tags = ["unused-group", "precedence"]
+valid-states = ["IsIgnored"]

@@ -1,0 +1,10 @@
+{
+  "name": "clean-root",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": ["packages/*"],
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "zod": "^3.0.0"
+  }
+}

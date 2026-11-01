@@ -1,0 +1,3 @@
+[[version-groups]]
+dependencies = ["$LOCAL", "left-pad"]
+policy = "ignored"

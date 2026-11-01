@@ -1,0 +1,4 @@
+description = "With report-unused-entries, catalog entries no manifest references (default or named catalog) are reported on the workspace file."
+source = "skif"
+tags = ["catalog", "unused-entries", "named-catalog"]
+valid-states = ["IsCatalog"]

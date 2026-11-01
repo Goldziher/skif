@@ -1,0 +1,4 @@
+[[version-groups]]
+dependencies = ["left-pad"]
+dependency-types = ["peer"]
+policy = "banned"

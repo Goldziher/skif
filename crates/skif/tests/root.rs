@@ -11,7 +11,12 @@ fn finds_the_nearest_declaring_ancestor() {
         .with_file("/outer/inner/package.json", r#"{"workspaces": ["pkgs/*"]}"#)
         .with_file("/outer/inner/pkgs/a/package.json", r#"{"name": "a"}"#)
         .with_file("/outer/inner/pkgs/a/src/index.ts", "");
-    for start in ["/outer/inner/pkgs/a", "/outer/inner/pkgs/a/src", "/outer/inner/pkgs/a/src/index.ts", "/outer/inner"] {
+    for start in [
+        "/outer/inner/pkgs/a",
+        "/outer/inner/pkgs/a/src",
+        "/outer/inner/pkgs/a/src/index.ts",
+        "/outer/inner",
+    ] {
         assert_eq!(
             find_workspace_root(Path::new(start), &fs).unwrap(),
             Path::new("/outer/inner"),

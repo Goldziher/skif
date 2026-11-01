@@ -105,11 +105,10 @@ fn write_report(
 
 /// Sends the rendering to `--output` when given, stdout otherwise.
 pub fn emit(bytes: &[u8], output: Option<&Path>) -> Result<(), CliError> {
-    match output {
-        Some(path) => fs::write(path, bytes).map_err(|error| CliError::io("cannot write", path, &error)),
-        None => {
-            write_stdout(bytes);
-            Ok(())
-        }
+    if let Some(path) = output {
+        fs::write(path, bytes).map_err(|error| CliError::io("cannot write", path, &error))
+    } else {
+        write_stdout(bytes);
+        Ok(())
     }
 }

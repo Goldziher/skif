@@ -1,0 +1,4 @@
+description = "Instances on the same major.minor with safe ranges (exact or tilde) are valid."
+source = "syncpack:src/version_group/same_minor_test.rs::all_same_minor_different_patches_all_valid"
+tags = ["same-minor"]
+valid-states = ["SatisfiesSameMinorGroup"]

@@ -1,0 +1,4 @@
+[[version-groups]]
+dependencies = ["lib"]
+policy = "pinned"
+pin = "1.2.0"

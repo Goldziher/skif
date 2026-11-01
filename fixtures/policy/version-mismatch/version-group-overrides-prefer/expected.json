@@ -1,0 +1,20 @@
+[
+  {
+    "rule": "version-mismatch",
+    "severity": "error",
+    "package": "app",
+    "dependency": "react",
+    "detail": "DiffersToHighestOrLowestSemver",
+    "path": "packages/app/package.json",
+    "fixable": true
+  },
+  {
+    "rule": "version-mismatch",
+    "severity": "error",
+    "package": "lib",
+    "dependency": "lodash",
+    "detail": "DiffersToHighestOrLowestSemver",
+    "path": "packages/lib/package.json",
+    "fixable": true
+  }
+]

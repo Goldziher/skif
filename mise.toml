@@ -12,6 +12,7 @@ task.run_auto_install = false
 node = "26.12.1"
 pnpm = "12.15.0"
 actionlint = "1.7.12"
+hyperfine = "1.20.0"
 
 [tasks.setup]
 description = "Install all dependencies and the git hooks. Idempotent."
@@ -34,6 +35,25 @@ run = ["cargo fmt --all", "poly fmt --fix ."]
 description = "Verify formatting without writing changes"
 alias = ["fmt:check"]
 run = ["cargo fmt --all -- --check", "poly fmt --check ."]
+
+[tasks.bench]
+description = "Build skif in release mode and benchmark it with hyperfine (needs hyperfine; sherif, syncpack and knip are used when installed)"
+run = [
+  "cargo build --release --locked -p skif-cli",
+  "cargo run --release --locked -p skif-bench -- run --skif target/release/skif",
+]
+
+[tasks."bench:micro"]
+description = "Run the criterion micro-benchmarks"
+run = "cargo bench --workspace --locked"
+
+[tasks."bench:generate"]
+description = "Generate a synthetic monorepo: mise run bench:generate -- --packages 500 --out target/bench-generated/demo"
+run = "cargo run --release --locked -p skif-bench -- generate"
+
+[tasks."bench:corpus"]
+description = "Fetch the pinned benchmark corpus into target/bench-corpus"
+run = "cargo run --release --locked -p skif-bench -- corpus fetch"
 
 [tasks.test]
 description = "Run all tests"

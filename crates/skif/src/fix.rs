@@ -159,11 +159,7 @@ impl FixPlan {
 
     /// The workspace-relative path each change touches.
     pub fn paths(&self) -> impl Iterator<Item = &Path> {
-        self.changes.iter().map(|change| match change {
-            FileChange::Modify { path, .. } | FileChange::Create { path, .. } | FileChange::Delete { path } => {
-                path.as_path()
-            }
-        })
+        self.changes.iter().map(FileChange::path)
     }
 }
 
@@ -315,7 +311,9 @@ impl<'a> Planner<'a> {
                 Entry::Delete => FileChange::Delete { path: path.clone() },
                 Entry::Edit(ops) => {
                     let edits = self.plan(&path, &ops).map_err(plan_error)?;
-                    let source = self.source(&path).map_err(|message| plan_error(PlanFailure::Other(message)))?;
+                    let source = self
+                        .source(&path)
+                        .map_err(|message| plan_error(PlanFailure::Other(message)))?;
                     let new_contents = apply_text_edits(&source, &edits).map_err(|error| FixError::Plan {
                         path: path.clone(),
                         message: error.to_string(),

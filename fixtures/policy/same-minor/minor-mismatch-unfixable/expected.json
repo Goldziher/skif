@@ -1,0 +1,20 @@
+[
+  {
+    "rule": "version-mismatch",
+    "severity": "error",
+    "package": "app",
+    "dependency": "typescript",
+    "detail": "SameMinorMismatch",
+    "path": "packages/app/package.json",
+    "fixable": false
+  },
+  {
+    "rule": "version-mismatch",
+    "severity": "error",
+    "package": "lib",
+    "dependency": "typescript",
+    "detail": "SameMinorMismatch",
+    "path": "packages/lib/package.json",
+    "fixable": false
+  }
+]

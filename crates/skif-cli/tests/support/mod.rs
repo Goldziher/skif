@@ -44,7 +44,10 @@ pub fn run(command: &mut Command) -> Run {
 
 /// A temporary copy of `tests/fixtures/<name>`.
 pub fn fixture(name: &str) -> TempDir {
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join(name);
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join(name);
     let dir = tempfile::tempdir().unwrap();
     copy_dir(&source, dir.path());
     dir
@@ -71,7 +74,10 @@ pub fn tree(dir: &Path) -> BTreeMap<PathBuf, String> {
             if path.is_dir() {
                 walk(base, &path, out);
             } else {
-                out.insert(path.strip_prefix(base).unwrap().to_path_buf(), fs::read_to_string(&path).unwrap());
+                out.insert(
+                    path.strip_prefix(base).unwrap().to_path_buf(),
+                    fs::read_to_string(&path).unwrap(),
+                );
             }
         }
     }

@@ -1,0 +1,48 @@
+{
+  "name": "skif",
+  "version": "0.0.0",
+  "description": "A fast dependency linter for JavaScript and TypeScript monorepos. Installs the prebuilt skif binary and puts `skif` on PATH.",
+  "keywords": [
+    "linter",
+    "monorepo",
+    "dependencies",
+    "pnpm",
+    "workspace",
+    "catalog",
+    "rust"
+  ],
+  "homepage": "https://github.com/Goldziher/skif#readme",
+  "bugs": {
+    "url": "https://github.com/Goldziher/skif/issues"
+  },
+  "license": "MIT",
+  "author": "Na'aman Hirschfeld <nhirschfeld@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Goldziher/skif.git",
+    "directory": "npm-package"
+  },
+  "bin": {
+    "skif": "bin/skif.js"
+  },
+  "main": "index.js",
+  "files": [
+    "LICENSE",
+    "README.md",
+    "index.js",
+    "bin/skif.js"
+  ],
+  "optionalDependencies": {
+    "skif-darwin-arm64": "0.0.0",
+    "skif-darwin-x64": "0.0.0",
+    "skif-linux-arm64-gnu": "0.0.0",
+    "skif-linux-arm64-musl": "0.0.0",
+    "skif-linux-x64-gnu": "0.0.0",
+    "skif-linux-x64-musl": "0.0.0",
+    "skif-win32-arm64": "0.0.0",
+    "skif-win32-x64": "0.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

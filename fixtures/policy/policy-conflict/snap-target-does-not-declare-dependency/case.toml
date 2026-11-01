@@ -1,0 +1,3 @@
+description = "When the snap target package does not declare the dependency, every instance depends on a missing snap target."
+source = "syncpack:src/version_group/snapped_to_test.rs::instance_cannot_find_a_snapped_to_version"
+tags = ["snapped-to", "missing-target"]

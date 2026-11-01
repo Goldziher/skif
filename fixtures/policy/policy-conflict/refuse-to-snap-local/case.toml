@@ -1,0 +1,4 @@
+description = "A snapped-to group refuses to change a workspace package's own version to match a dependent's."
+source = "syncpack:src/version_group/snapped_to_test.rs::refuses_to_snap_local_version_to_another_target"
+tags = ["snapped-to", "local", "refuse-local", "fix"]
+valid-states = ["IsIdenticalToSnapTarget"]

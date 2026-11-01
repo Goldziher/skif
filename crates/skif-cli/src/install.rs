@@ -19,12 +19,6 @@ pub enum InstallStatus {
     Failed { command: String, message: String },
 }
 
-impl InstallStatus {
-    pub const fn is_failure(&self) -> bool {
-        matches!(self, Self::Failed { .. })
-    }
-}
-
 /// The executable name of `manager`.
 pub const fn program(manager: PackageManager) -> Option<&'static str> {
     match manager {
