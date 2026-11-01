@@ -1,0 +1,983 @@
+// Vendored from syncpack crates/syncpack-specifier/src/lib.rs @958d306 (MIT, Copyright (c) 2017-2023 Jamie Mason). Modified for skif; see ATTRIBUTIONS.md.
+#![allow(
+    clippy::match_same_arms,
+    reason = "parser arms are grouped by leading byte with explanatory comments; merging them would hide the dispatch table"
+)]
+#![allow(
+    clippy::missing_panics_doc,
+    reason = "the only panics are expects on values the parser validated before constructing the variant"
+)]
+
+use {
+    crate::{
+        alias::Alias, catalog::Catalog, complex_semver::ComplexSemver, exact::Exact, git::Git, latest::Latest,
+        link::Link, major::Major, minor::Minor, range::Range, range_major::RangeMajor, range_minor::RangeMinor,
+        semver_range::SemverRange, tag::Tag, update_target::UpdateTarget, workspace_protocol::WorkspaceProtocol,
+    },
+    std::sync::Arc,
+};
+
+pub mod alias;
+mod cache;
+pub mod catalog;
+pub mod complex_semver;
+pub mod exact;
+pub mod file;
+pub mod link;
+
+#[cfg(test)]
+mod get_node_range_test;
+#[cfg(test)]
+mod get_semver_number_test;
+pub mod git;
+#[cfg(test)]
+mod has_same_release_channel_as_test;
+#[cfg(test)]
+mod has_same_version_number_as_test;
+
+#[cfg(test)]
+mod is_eligible_update_for_test;
+#[cfg(test)]
+mod new_test;
+
+#[cfg(test)]
+mod eq_hash_test;
+pub mod latest;
+pub mod major;
+pub mod minor;
+#[cfg(test)]
+mod ordering_test;
+pub mod parser;
+pub mod range;
+pub mod range_major;
+pub mod range_minor;
+
+#[cfg(test)]
+mod satisfies_all_test;
+
+pub mod semver_range;
+pub mod tag;
+pub mod update_target;
+pub mod url;
+#[cfg(test)]
+mod with_node_version_test;
+#[cfg(test)]
+mod with_range_test;
+pub mod workspace_protocol;
+
+#[cfg(test)]
+mod test_faker;
+pub mod workspace_specifier;
+
+pub use cache::SpecifierCache;
+
+const ALIAS: &str = "alias";
+const CATALOG: &str = "catalog";
+const RANGE_COMPLEX: &str = "range-complex";
+const EXACT: &str = "exact";
+const FILE: &str = "file";
+const LINK: &str = "link";
+const GIT: &str = "git";
+const LATEST: &str = "latest";
+const MAJOR: &str = "major";
+const MINOR: &str = "minor";
+const MISSING: &str = "missing";
+const RANGE: &str = "range";
+const RANGE_MAJOR: &str = "range-major";
+const RANGE_MINOR: &str = "range-minor";
+const TAG: &str = "tag";
+const UNSUPPORTED: &str = "unsupported";
+const URL: &str = "url";
+const WORKSPACE_PROTOCOL: &str = "workspace-protocol";
+
+/// A huge number used to complete shorthand semver versions during ordering and
+/// comparison, such as:
+///
+/// Examples:
+/// - "1" -> "1.999999.999999"
+/// - "1.2" -> "1.2.999999"
+pub const HUGE: u64 = 999_999;
+
+/// Remove semver range characters from the start of a semver version number
+#[must_use]
+pub fn strip_semver_range(value: &str) -> &str {
+    ["^", "~", ">=", "<=", ">", "<"]
+        .into_iter()
+        .find_map(|prefix| value.strip_prefix(prefix))
+        .unwrap_or(value)
+}
+
+#[derive(Debug)]
+pub enum Specifier {
+    Alias(alias::Alias),                                      // "npm:foo@1.2.3"
+    Catalog(catalog::Catalog),                                // "catalog:", "catalog:react18"
+    ComplexSemver(complex_semver::ComplexSemver),             // ">=1.2.3 <2.0.0"
+    Exact(exact::Exact),                                      // "1.2.3"
+    File(file::File),                                         // "file:../path"
+    Link(link::Link),                                         // "link:../path"
+    Git(git::Git),                                            // "github:user/repo#v1.2.3"
+    Latest(latest::Latest),                                   // "latest", "*"
+    Major(major::Major),                                      // "1"
+    Minor(minor::Minor),                                      // "1.2"
+    None,                                                     // Missing .version property
+    Range(range::Range),                                      // "~1.2.3"
+    RangeMajor(range_major::RangeMajor),                      // "^1"
+    RangeMinor(range_minor::RangeMinor),                      // "~1.2"
+    Tag(tag::Tag),                                            // "alpha", "beta"
+    Unsupported(String),                                      // "}wat{"
+    Url(url::Url),                                            // "https://example.com/package.tgz"
+    WorkspaceProtocol(workspace_protocol::WorkspaceProtocol), // "workspace:^", "workspace:*", "workspace:~", "workspace:^1.2.3"
+}
+
+// Creation Methods
+impl Specifier {
+    /// Parse a version string into a shared Specifier without any caching. Use
+    /// [`SpecifierCache::get_or_parse`] to deduplicate repeated inputs.
+    #[must_use]
+    pub fn new(value: &str) -> Arc<Self> {
+        Arc::new(Self::create(value))
+    }
+
+    /// Parse a version string into a `nodejs_semver::Version`, if valid.
+    pub fn new_node_version(value: &str) -> Option<Arc<nodejs_semver::Version>> {
+        nodejs_semver::Version::parse(value).ok().map(Arc::new)
+    }
+
+    /// Parse a version string into a `nodejs_semver::Range`, if valid.
+    pub fn new_node_range(value: &str) -> Option<Arc<nodejs_semver::Range>> {
+        nodejs_semver::Range::parse(value).ok().map(Arc::new)
+    }
+
+    /// Create a new Specifier for the given version string
+    #[must_use]
+    pub fn create(value: &str) -> Self {
+        let bytes = value.as_bytes();
+        match bytes.first() {
+            None => Self::None,
+            // Digit: exact (1.2.3), major (1), minor (1.2), or complex range (1.0.0 || 2.0.0)
+            Some(b'0'..=b'9') => {
+                if parser::is_exact(value) {
+                    Exact::create(value)
+                } else if parser::is_minor(value) {
+                    Minor::create(value)
+                } else if parser::is_major(value) {
+                    Major::create(value)
+                } else if parser::is_complex_range(value) {
+                    ComplexSemver::create(value)
+                } else {
+                    Self::Unsupported(value.to_string())
+                }
+            }
+            // Range prefix: range (^1.2.3), range_major (^1), range_minor (^1.2), or complex
+            Some(b'^' | b'~') => {
+                if parser::is_range(value) {
+                    Range::create(value)
+                } else if parser::is_range_minor(value) {
+                    RangeMinor::create(value)
+                } else if parser::is_range_major(value) {
+                    RangeMajor::create(value)
+                } else if parser::is_complex_range(value) {
+                    ComplexSemver::create(value)
+                } else {
+                    Self::Unsupported(value.to_string())
+                }
+            }
+            // Comparison operators: range, range_major, range_minor, or complex
+            Some(b'>' | b'<') => {
+                if parser::is_range(value) {
+                    Range::create(value)
+                } else if parser::is_range_minor(value) {
+                    RangeMinor::create(value)
+                } else if parser::is_range_major(value) {
+                    RangeMajor::create(value)
+                } else if parser::is_complex_range(value) {
+                    ComplexSemver::create(value)
+                } else {
+                    Self::Unsupported(value.to_string())
+                }
+            }
+            // Equals prefix: exact (=1.2.3)
+            Some(b'=') => {
+                if parser::is_exact(value) {
+                    Exact::create(value)
+                } else {
+                    Self::Unsupported(value.to_string())
+                }
+            }
+            // Star/latest
+            Some(b'*') => Latest::create(value),
+            // Workspace protocol
+            Some(b'w') => {
+                if value.starts_with("workspace:") {
+                    WorkspaceProtocol::create(value)
+                } else if parser::is_tag(value) {
+                    Tag::create(value)
+                } else {
+                    Self::Unsupported(value.to_string())
+                }
+            }
+            // Catalog
+            Some(b'c') => {
+                if value.starts_with("catalog:") {
+                    Catalog::create(value)
+                } else if parser::is_tag(value) {
+                    Tag::create(value)
+                } else {
+                    Self::Unsupported(value.to_string())
+                }
+            }
+            // npm alias
+            Some(b'n') => {
+                if value.starts_with("npm:") {
+                    Alias::create(value)
+                } else if parser::is_tag(value) {
+                    Tag::create(value)
+                } else {
+                    Self::Unsupported(value.to_string())
+                }
+            }
+            // Git
+            Some(b'g') => {
+                if parser::is_git(value) {
+                    Git::create(value)
+                } else if parser::is_tag(value) {
+                    Tag::create(value)
+                } else {
+                    Self::Unsupported(value.to_string())
+                }
+            }
+            // File
+            Some(b'f') => {
+                if value.starts_with("file:") {
+                    file::File::create(value)
+                } else if parser::is_tag(value) {
+                    Tag::create(value)
+                } else {
+                    Self::Unsupported(value.to_string())
+                }
+            }
+            // Link
+            Some(b'l') => {
+                if value.starts_with("link:") {
+                    Link::create(value)
+                } else if value == "latest" {
+                    Latest::create(value)
+                } else if parser::is_tag(value) {
+                    Tag::create(value)
+                } else {
+                    Self::Unsupported(value.to_string())
+                }
+            }
+            // HTTP/HTTPS URL
+            Some(b'h') => {
+                if value.starts_with("http://") || value.starts_with("https://") {
+                    url::Url::create(value)
+                } else if parser::is_tag(value) {
+                    Tag::create(value)
+                } else {
+                    Self::Unsupported(value.to_string())
+                }
+            }
+            // "x" is latest
+            Some(b'x') => Latest::create(value),
+            // Any other alphabetic char → tag
+            Some(b) if b.is_ascii_alphabetic() => {
+                if parser::is_tag(value) {
+                    Tag::create(value)
+                } else {
+                    Self::Unsupported(value.to_string())
+                }
+            }
+            // Everything else
+            _ => Self::Unsupported(value.to_string()),
+        }
+    }
+}
+
+// Getters
+impl Specifier {
+    /// Get the "specifier type" name as used in config files.
+    ///
+    /// Examples:
+    /// - "npm:lodash@^4.17.21" -> "alias"
+    /// - "^16.11.10" -> "range"
+    /// - ""1.2.3" -> "exact"
+    pub fn get_config_identifier(&self) -> &'static str {
+        match self {
+            Self::Alias(_) => ALIAS,
+            Self::Catalog(_) => CATALOG,
+            Self::ComplexSemver(_) => RANGE_COMPLEX,
+            Self::Exact(_) => EXACT,
+            Self::File(_) => FILE,
+            Self::Link(_) => LINK,
+            Self::Git(_) => GIT,
+            Self::Latest(_) => LATEST,
+            Self::Major(_) => MAJOR,
+            Self::Minor(_) => MINOR,
+            Self::None => MISSING,
+            Self::Range(_) => RANGE,
+            Self::RangeMajor(_) => RANGE_MAJOR,
+            Self::RangeMinor(_) => RANGE_MINOR,
+            Self::Tag(_) => TAG,
+            Self::Unsupported(_) => UNSUPPORTED,
+            Self::Url(_) => URL,
+            Self::WorkspaceProtocol(_) => WORKSPACE_PROTOCOL,
+        }
+    }
+
+    /// Returns the semver version number of the specifier, if it exists. Only the
+    /// version number is returned, WITHOUT semver range characters.
+    ///
+    /// Examples:
+    /// - "npm:lodash@^4.17.21" -> Some("4.17.21")
+    /// - ">=16.11.10" -> Some("16.11.10")
+    /// - "npm:express" -> None
+    pub fn get_semver_number(&self) -> Option<&str> {
+        match self {
+            Self::Alias(s) => s.inner_specifier.get_semver_number(),
+            Self::Exact(s) => Some(&s.raw),
+            Self::Major(s) => Some(&s.raw),
+            Self::Minor(s) => Some(&s.raw),
+            Self::Range(s) => Some(strip_semver_range(&s.raw)),
+            Self::RangeMajor(s) => Some(strip_semver_range(&s.raw)),
+            Self::RangeMinor(s) => Some(strip_semver_range(&s.raw)),
+            Self::WorkspaceProtocol(s) => s
+                .as_resolved()
+                .and_then(|spec: &Arc<Specifier>| spec.get_semver_number()),
+            Self::Git(s) => s.semver_number.as_deref(),
+            Self::Catalog(_)
+            | Self::ComplexSemver(_)
+            | Self::File(_)
+            | Self::Link(_)
+            | Self::Latest(_)
+            | Self::None
+            | Self::Tag(_)
+            | Self::Unsupported(_)
+            | Self::Url(_) => None,
+        }
+    }
+
+    /// Get or create a reference to a single `nodejs_semver::Version` created from
+    /// the semver version number of the specifier, WITHOUT semver range
+    /// characters.
+    ///
+    /// Examples:
+    /// - "1.2.3" → Arc(Version("1.2.3"))
+    /// - "^1.2.3" → Arc(Version("1.2.3"))
+    pub fn get_node_version(&self) -> Option<Arc<nodejs_semver::Version>> {
+        match self {
+            Self::Alias(s) => s.inner_specifier.get_node_version(),
+            Self::Git(s) => s.node_version.clone(),
+            Self::Exact(s) => Some(s.node_version.clone()),
+            Self::Latest(s) => Some(s.get_node_version()),
+            Self::Major(s) => Some(s.get_node_version()),
+            Self::Minor(s) => Some(s.get_node_version()),
+            Self::Range(s) => Some(s.node_version.clone()),
+            Self::RangeMajor(s) => Some(s.get_node_version()),
+            Self::RangeMinor(s) => Some(s.get_node_version()),
+            Self::WorkspaceProtocol(s) => s
+                .as_resolved()
+                .and_then(|spec: &Arc<Specifier>| spec.get_node_version()),
+            Self::Catalog(_)
+            | Self::ComplexSemver(_)
+            | Self::File(_)
+            | Self::Link(_)
+            | Self::None
+            | Self::Tag(_)
+            | Self::Unsupported(_)
+            | Self::Url(_) => None,
+        }
+    }
+
+    /// Get or create a reference to a single `nodejs_semver::Range` created from
+    /// the semver version number of the specifier, WITH semver range
+    /// characters.
+    ///
+    /// Examples:
+    /// - "1.2.3" → Arc(Range("1.2.3"))
+    /// - "^1.2.3" → Arc(Range("^1.2.3"))
+    pub fn get_node_range(&self) -> Option<Arc<nodejs_semver::Range>> {
+        match self {
+            Self::Alias(s) => s.inner_specifier.get_node_range(),
+            Self::ComplexSemver(s) => Some(s.node_range.clone()),
+            Self::Git(s) => s.node_range.clone(),
+            Self::Range(s) => Some(s.node_range.clone()),
+            Self::RangeMajor(s) => Some(s.get_node_range()),
+            Self::RangeMinor(s) => Some(s.get_node_range()),
+            Self::WorkspaceProtocol(s) => {
+                // Try resolved specifier first, otherwise check for "*" (RangeOnly(Any))
+                s.as_resolved()
+                    .and_then(|spec: &Arc<Specifier>| spec.get_node_range())
+                    .or_else(|| {
+                        use crate::{semver_range::SemverRange, workspace_specifier::WorkspaceSpecifier};
+                        match &s.inner_specifier {
+                            WorkspaceSpecifier::RangeOnly(SemverRange::Any) => {
+                                // "workspace:*" → ">=0.0.0 <=999999.999999.999999"
+                                let huge = HUGE.to_string();
+                                let range_str = format!(">=0.0.0 <={huge}.{huge}.{huge}");
+                                Self::new_node_range(&range_str)
+                            }
+                            _ => None,
+                        }
+                    })
+            }
+            Self::Exact(s) => Some(s.node_range.clone()),
+            Self::Latest(_) => {
+                // "*", "latest", "x" → ">=0.0.0 <=999999.999999.999999"
+                let huge = HUGE.to_string();
+                let range_str = format!(">=0.0.0 <={huge}.{huge}.{huge}");
+                Self::new_node_range(&range_str)
+            }
+            Self::Major(m) => {
+                // "1" → ">=1.0.0 <2.0.0"
+                let range_str = format!(">={}.0.0 <{}.0.0", m.raw, m.raw.parse::<u64>().ok()? + 1);
+                Self::new_node_range(&range_str)
+            }
+            Self::Minor(m) => {
+                // "1.2" → ">=1.2.0 <1.3.0"
+                let parts: Vec<&str> = m.raw.split('.').collect();
+                if parts.len() != 2 {
+                    return None;
+                }
+                let major = parts[0];
+                let minor = parts[1].parse::<u64>().ok()?;
+                let range_str = format!(">={}.0 <{}.{}.0", m.raw, major, minor + 1);
+                Self::new_node_range(&range_str)
+            }
+            Self::Catalog(_)
+            | Self::File(_)
+            | Self::Link(_)
+            | Self::None
+            | Self::Tag(_)
+            | Self::Unsupported(_)
+            | Self::Url(_) => None,
+        }
+    }
+
+    /// Returns the type of semver range used in the specifier, if one exists.
+    pub fn get_semver_range(&self) -> Option<SemverRange> {
+        match self {
+            Self::Alias(s) => s.inner_specifier.get_semver_range(),
+            Self::Git(s) => s.semver_range.clone(),
+            Self::Latest(s) => Some(s.semver_range.clone()),
+            Self::Range(s) => Some(s.semver_range.clone()),
+            Self::RangeMajor(s) => Some(s.semver_range.clone()),
+            Self::RangeMinor(s) => Some(s.semver_range.clone()),
+            Self::WorkspaceProtocol(s) => match &s.inner_specifier {
+                workspace_specifier::WorkspaceSpecifier::RangeOnly(r) => Some(r.clone()),
+                workspace_specifier::WorkspaceSpecifier::Resolved(spec) => spec.get_semver_range(),
+            },
+            Self::Exact(_) | Self::Major(_) | Self::Minor(_) => Some(SemverRange::Exact),
+            Self::Catalog(_)
+            | Self::ComplexSemver(_)
+            | Self::File(_)
+            | Self::Link(_)
+            | Self::None
+            | Self::Tag(_)
+            | Self::Unsupported(_)
+            | Self::Url(_) => None,
+        }
+    }
+
+    /// Get the raw specifier string that was used to create this Specifier.
+    pub fn get_raw(&self) -> &str {
+        match self {
+            Self::Alias(s) => &s.raw,
+            Self::Catalog(s) => &s.raw,
+            Self::ComplexSemver(s) => &s.raw,
+            Self::Exact(s) => &s.raw,
+            Self::File(s) => &s.raw,
+            Self::Git(s) => &s.raw,
+            Self::Latest(s) => &s.raw,
+            Self::Major(s) => &s.raw,
+            Self::Minor(s) => &s.raw,
+            Self::None => "",
+            Self::Range(s) => &s.raw,
+            Self::RangeMajor(s) => &s.raw,
+            Self::RangeMinor(s) => &s.raw,
+            Self::Tag(s) => &s.raw,
+            Self::Url(s) => &s.raw,
+            Self::Link(s) => &s.raw,
+            Self::WorkspaceProtocol(s) => &s.raw,
+            Self::Unsupported(s) => s,
+        }
+    }
+}
+
+// Mapping Methods
+impl Specifier {
+    /// Get or create a reference to a single Specifier which represents the
+    /// semver version number of this Specifier with the given semver range
+    /// applied to it, if a valid semver version number is present and the given
+    /// range is compatible with the current specifier type.
+    ///
+    /// Examples:
+    /// - "^1.2.3" + "" → Some("1.2.3")
+    /// - "1.2.3" + "^" → Some("^1.2.3")
+    /// - "npm:@scope/package@1.2.3" + "^" → Some("npm:@scope/package@^1.2.3")
+    /// - "*" + "^" → None
+    /// - "npm:@scope/package@1.2.3" + "*" → Some("npm:@scope/package")
+    /// - "^1" + "*" → "*"
+    /// - "npm:foo@^1" + "*" → "npm:foo"
+    /// - "workspace:^1" + "*" → "workspace:*"
+    /// - "git@github.com:npm/cli.git#^1" + "*" → "git@github.com:npm/cli.git"
+    pub fn with_range(&self, range: &SemverRange) -> Option<Arc<Self>> {
+        if matches!(range, SemverRange::Any) {
+            return match self {
+                Self::Exact(_)
+                | Self::Major(_)
+                | Self::Minor(_)
+                | Self::Range(_)
+                | Self::RangeMajor(_)
+                | Self::RangeMinor(_) => Some(Self::new("*")),
+                Self::WorkspaceProtocol(_) => Some(Self::new("workspace:*")),
+                Self::Alias(s) => {
+                    if s.inner_specifier.get_semver_number().is_some() {
+                        Some(Self::new(&format!("npm:{}", s.name)))
+                    } else {
+                        None
+                    }
+                }
+                Self::Git(s) => s.semver_number.as_ref().map(|_| Self::new(&s.origin)),
+                Self::Catalog(_)
+                | Self::ComplexSemver(_)
+                | Self::File(_)
+                | Self::Link(_)
+                | Self::Latest(_)
+                | Self::None
+                | Self::Tag(_)
+                | Self::Unsupported(_)
+                | Self::Url(_) => None,
+            };
+        }
+
+        let range_str = range.unwrap();
+
+        match self {
+            Self::Exact(s) => {
+                // Use node_version to get clean version without = prefix
+                let new_specifier = format!("{}{}", range_str, s.node_version);
+                Some(Self::new(&new_specifier))
+            }
+            Self::Major(s) => {
+                let new_specifier = format!("{}{}", range_str, s.raw);
+                Some(Self::new(&new_specifier))
+            }
+            Self::Minor(s) => {
+                let new_specifier = format!("{}{}", range_str, s.raw);
+                Some(Self::new(&new_specifier))
+            }
+            Self::Range(s) => {
+                let new_specifier = format!("{}{}", range_str, s.semver_number);
+                Some(Self::new(&new_specifier))
+            }
+            Self::RangeMajor(s) => {
+                let new_specifier = format!("{}{}", range_str, s.semver_number);
+                Some(Self::new(&new_specifier))
+            }
+            Self::RangeMinor(s) => {
+                let new_specifier = format!("{}{}", range_str, s.semver_number);
+                Some(Self::new(&new_specifier))
+            }
+            Self::Alias(s) => s
+                .inner_specifier
+                .with_range(range)
+                .map(|new_inner| Self::new(&format!("npm:{}@{}", s.name, new_inner.get_raw()))),
+            Self::WorkspaceProtocol(s) => {
+                // If resolved, use the resolved specifier's version
+                if let Some(resolved) = s.as_resolved() {
+                    if let Some(semver_number) = resolved.get_semver_number() {
+                        Some(Self::new(&format!("workspace:{range_str}{semver_number}")))
+                    } else {
+                        // Resolved but no version number (e.g., Latest)
+                        Some(Self::new(&format!("workspace:{range_str}")))
+                    }
+                } else {
+                    // RangeOnly - just use the range prefix
+                    Some(Self::new(&format!("workspace:{range_str}")))
+                }
+            }
+            Self::Git(s) => s.semver_number.as_ref().map(|semver_number| {
+                if range_str.is_empty() {
+                    // Exact version: use #version
+                    Self::new(&format!("{}#{}", s.origin, semver_number))
+                } else {
+                    // Range: use #semver:range+version
+                    Self::new(&format!("{}#semver:{}{}", s.origin, range_str, semver_number))
+                }
+            }),
+            Self::Catalog(_)
+            | Self::ComplexSemver(_)
+            | Self::File(_)
+            | Self::Link(_)
+            | Self::Latest(_)
+            | Self::None
+            | Self::Tag(_)
+            | Self::Unsupported(_)
+            | Self::Url(_) => None,
+        }
+    }
+
+    /// Get or create a reference to a single Specifier which represents the
+    /// semver range and specifier type of this Specifier with the given semver
+    /// version number applied to it, if such a combination is valid and
+    /// compatible.
+    ///
+    /// Examples:
+    /// - "workspace:^1.2.3" + "2.3.4" -> Some("workspace:^2.3.4")
+    /// - "^1.2.3" + "2.3.4" -> Some("^2.3.4")
+    /// - "*" + "1.2.3" -> None
+    /// - "npm:@scope/package@1.2.3" + "2.3.4" → Some("npm:@scope/package@2.3.4")
+    /// - "npm:@scope/package@~1.2.3" + "2.3.4" → Some("npm:@scope/package@~2.3.4")
+    pub fn with_node_version(&self, node_version: &nodejs_semver::Version) -> Option<Arc<Self>> {
+        let version_str = node_version.to_string();
+
+        // Check if this is a padded HUGE value (999999) and omit it from output
+        let is_huge_minor = node_version.minor() == HUGE;
+        let is_huge_patch = node_version.patch() == HUGE;
+
+        match self {
+            Self::Exact(_) => Some(Self::new(&version_str)),
+
+            Self::Major(_) => {
+                // Extract just major, omit .999999.999999
+                Some(Self::new(&format!("{}", node_version.major())))
+            }
+
+            Self::Minor(_) => {
+                // Extract major.minor, omit .999999
+                Some(Self::new(&format!("{}.{}", node_version.major(), node_version.minor())))
+            }
+
+            Self::Range(r) => Some(Self::new(&format!("{}{}", r.semver_range.unwrap(), version_str))),
+
+            Self::RangeMajor(r) => {
+                // For ^1 or ~1, extract major only, omit .999999.999999
+                Some(Self::new(&format!(
+                    "{}{}",
+                    r.semver_range.unwrap(),
+                    node_version.major()
+                )))
+            }
+
+            Self::RangeMinor(r) => {
+                // For ^1.2 or ~1.2, extract major.minor, omit .999999
+                Some(Self::new(&format!(
+                    "{}{}.{}",
+                    r.semver_range.unwrap(),
+                    node_version.major(),
+                    node_version.minor()
+                )))
+            }
+
+            Self::Alias(a) => a
+                .inner_specifier
+                .with_node_version(node_version)
+                .map(|new_inner| Self::new(&format!("npm:{}@{}", a.name, new_inner.get_raw()))),
+
+            Self::WorkspaceProtocol(wp) => {
+                // Only works if there's a resolved specifier with version
+                wp.as_resolved().and_then(|resolved: &Arc<Specifier>| {
+                    resolved.get_semver_number().map(|semver_number| {
+                        let range_str = resolved.get_semver_range().map(|r| r.unwrap()).unwrap_or_default();
+
+                        // Check if original was shorthand
+                        let original_parts: Vec<&str> = semver_number.split('.').collect();
+                        let formatted_version = match original_parts.len() {
+                            1 if is_huge_minor && is_huge_patch => node_version.major().to_string(),
+                            2 if is_huge_patch => {
+                                format!("{}.{}", node_version.major(), node_version.minor())
+                            }
+                            _ => version_str.clone(),
+                        };
+
+                        Self::new(&format!("workspace:{range_str}{formatted_version}"))
+                    })
+                })
+            }
+
+            Self::Git(g) => {
+                // Only works if there's a semver tag
+                g.semver_number.as_ref().map(|semver_number| {
+                    let range_str = g
+                        .semver_range
+                        .as_ref()
+                        .map_or_else(String::new, semver_range::SemverRange::unwrap);
+
+                    // Check if original was shorthand
+                    let original_parts: Vec<&str> = semver_number.split('.').collect();
+                    let formatted_version = match original_parts.len() {
+                        1 if is_huge_minor && is_huge_patch => node_version.major().to_string(),
+                        2 if is_huge_patch => {
+                            format!("{}.{}", node_version.major(), node_version.minor())
+                        }
+                        _ => version_str.clone(),
+                    };
+
+                    // Rebuild git URL with new version
+                    // Note: Output format is always origin#range+version, not
+                    // origin#semver:range+version
+                    Self::new(&format!("{}#{}{}", g.origin, range_str, formatted_version))
+                })
+            }
+
+            // These types don't have semver versions, return None
+            Self::Catalog(_)
+            | Self::ComplexSemver(_)
+            | Self::File(_)
+            | Self::Link(_)
+            | Self::Latest(_)
+            | Self::None
+            | Self::Tag(_)
+            | Self::Unsupported(_)
+            | Self::Url(_) => None,
+        }
+    }
+}
+
+// Comparison Methods
+impl Specifier {
+    /// Check if this specifier has a version that should be used for comparison.
+    /// Returns false for Latest (which has HUGE version only for sorting purposes).
+    fn has_comparable_version(&self) -> bool {
+        match self {
+            Self::Latest(_) => false,
+            Self::Alias(a) => {
+                !matches!(&*a.inner_specifier, Self::Latest(_)) && a.inner_specifier.get_node_version().is_some()
+            }
+            _ => self.get_node_version().is_some(),
+        }
+    }
+
+    /// Check if this specifier and another have the same pre-release channel.
+    ///
+    /// Examples:
+    /// - "1.2.3-alpha.1" and "1.2.4-alpha.2" → true
+    /// - "1.2.3-alpha.1" and "1.2.4-beta.1" → false
+    /// - "1.2.3" and "1.2.4" → true (both stable)
+    pub fn has_same_release_channel_as(&self, other: &Self) -> bool {
+        if !self.has_comparable_version() || !other.has_comparable_version() {
+            return false;
+        }
+        let (Some(self_version), Some(other_version)) = (self.get_node_version(), other.get_node_version()) else {
+            return false;
+        };
+
+        // Get the prerelease identifiers from both versions
+        let self_prerelease = &self_version.pre_release();
+        let other_prerelease = &other_version.pre_release();
+
+        // Both stable (no prerelease) → same channel
+        if self_prerelease.is_empty() && other_prerelease.is_empty() {
+            return true;
+        }
+
+        // One stable, one prerelease → different channels
+        if self_prerelease.is_empty() || other_prerelease.is_empty() {
+            return false;
+        }
+
+        // Both have prerelease - compare the first identifier segment
+        // Prerelease identifiers are stored as a Vec of Identifiers
+        // We need to compare the first element as a string
+        match (self_prerelease.first(), other_prerelease.first()) {
+            (Some(self_first), Some(other_first)) => {
+                // Convert to string and compare
+                self_first.to_string() == other_first.to_string()
+            }
+            _ => false,
+        }
+    }
+
+    /// Regardless of the range, does this specifier and the other both have the
+    /// same version number (e.g. "1.4.1")?
+    ///
+    /// Examples:
+    /// - "^1.4.1" and "~1.4.1" → true
+    /// - "1.4.1" and "^1.4.1" → true
+    /// - "1.4.1" and "1.4.2" → false
+    pub fn has_same_version_number_as(&self, other: &Self) -> bool {
+        // Special case: unresolved workspace protocols with identical raw strings
+        // should be considered equal (e.g., "workspace:*" == "workspace:*")
+        if let (Self::WorkspaceProtocol(left), Self::WorkspaceProtocol(right)) = (self, other)
+            && left.needs_resolution()
+            && right.needs_resolution()
+        {
+            return left.raw == right.raw;
+        }
+
+        if !self.has_comparable_version() || !other.has_comparable_version() {
+            return false;
+        }
+        match (self.get_node_version(), other.get_node_version()) {
+            (Some(left), Some(right)) => left == right,
+            _ => false,
+        }
+    }
+
+    /// Is this specifier eligible to update the given specifier based on the
+    /// given target constraint?
+    ///
+    /// Examples:
+    /// - "2.0.0" can update "1.0.0" with `UpdateTarget::Latest` → true
+    /// - "1.1.0" can update "1.0.0" with `UpdateTarget::Minor` → true
+    /// - "2.0.0" can update "1.0.0" with `UpdateTarget::Minor` → false
+    /// - "1.2.3" can update "1.2.2" with `UpdateTarget::Patch` → true
+    pub fn is_eligible_update_for(&self, other: &Self, target: &UpdateTarget) -> bool {
+        // Both must have comparable versions (excludes Latest)
+        if !self.has_comparable_version() || !other.has_comparable_version() {
+            return false;
+        }
+        let (Some(self_version), Some(other_version)) = (self.get_node_version(), other.get_node_version()) else {
+            return false;
+        };
+
+        // Must be newer
+        if self_version <= other_version {
+            return false;
+        }
+
+        match target {
+            UpdateTarget::Latest => true,
+            UpdateTarget::Minor => self_version.major() == other_version.major(),
+            UpdateTarget::Patch => {
+                // HUGE (999999) is a wildcard placeholder for unspecified version components.
+                // Shorthand versions like "1" (1.999999.999999) or "1.4" (1.4.999999) use HUGE
+                // to indicate "accept anything" in that position. For example, "1.4" (1.4.HUGE)
+                // is eligible as a Patch update for "1.4.0" because it potentially matches
+                // 1.4.1 and everything above it in the 1.4.* range.
+                self_version.major() == other_version.major() && self_version.minor() == other_version.minor()
+            }
+        }
+    }
+
+    /// Check if this specifier uses the workspace protocol.
+    ///
+    /// Examples:
+    /// - "workspace:^1.0.0" → true
+    /// - "workspace:*" → true
+    /// - "^1.0.0" → false
+    pub fn is_workspace_protocol(&self) -> bool {
+        matches!(self, Self::WorkspaceProtocol(_))
+    }
+
+    pub fn is_link(&self) -> bool {
+        matches!(self, Self::Link(_))
+    }
+
+    /// Check if this specifier is a catalog protocol
+    pub fn is_catalog(&self) -> bool {
+        matches!(self, Self::Catalog(_))
+    }
+
+    /// Check if this specifier satisfies all other specifiers.
+    ///
+    /// Handles both:
+    /// - Range-intersects-ranges: self and others are Ranges (checked first)
+    /// - Version-satisfies-ranges: self is Version only, others are Ranges
+    ///
+    /// Accepts slice of `Arc<Specifier>` for consistency with codebase patterns.
+    ///
+    /// Examples:
+    /// - "1.2.3" satisfies `["^1.0.0", "~1.2.0"]` → true
+    /// - "^1.0.0" satisfies `["^1.0.0", "~1.2.0"]` → true (range intersection)
+    /// - ">1.4.2" satisfies `["1.4.2"]` → false (ranges don't intersect)
+    /// - ">=1.4.2" satisfies `["1.4.2"]` → true (ranges intersect)
+    pub fn satisfies_all(&self, others: &[Arc<Specifier>]) -> bool {
+        if let Specifier::None = self {
+            false
+        } else {
+            // Check range intersection FIRST (even if self also has a version)
+            // This is critical: ">1.4.2" has both a range AND a version (1.4.2),
+            // but we need to check range intersection, not version satisfaction
+            if let Some(self_range) = self.get_node_range() {
+                return others.iter().all(|other| {
+                    // Deref Arc to access Specifier
+                    match other.get_node_range() {
+                        Some(other_range) => self_range.allows_any(&other_range),
+                        None => false,
+                    }
+                });
+            }
+
+            // Fallback: If self has version but no range, check version satisfies all ranges
+            // (This case may not actually occur in practice)
+            if let Some(self_version) = self.get_node_version() {
+                return others.iter().all(|other| match other.get_node_range() {
+                    Some(range) => range.satisfies(&self_version),
+                    None => false,
+                });
+            }
+
+            false
+        }
+    }
+}
+
+// =============================================================================
+// Ordering Traits
+// =============================================================================
+
+impl Ord for Specifier {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+
+        // Extract version and range from both specifiers
+        let self_version = self.get_node_version();
+        let other_version = other.get_node_version();
+
+        match (self_version, other_version) {
+            // Both have versions: compare by version first, then by range greediness
+            (Some(self_ver), Some(other_ver)) => {
+                match self_ver.cmp(&other_ver) {
+                    Ordering::Equal => {
+                        // Same version, use range greediness as tiebreaker
+                        let self_range = self.get_semver_range();
+                        let other_range = other.get_semver_range();
+
+                        match (self_range, other_range) {
+                            (Some(self_r), Some(other_r)) => self_r.cmp(&other_r),
+                            (Some(self_r), None) => {
+                                // self has range, other doesn't (treat other as Exact)
+                                // Get the greediness of self and compare with Exact (rank 2)
+                                self_r.get_greediness_ranking().cmp(&2)
+                            }
+                            (None, Some(other_r)) => {
+                                // self has no range (treat as Exact), other has range
+                                2.cmp(&other_r.get_greediness_ranking())
+                            }
+                            (None, None) => Ordering::Equal,
+                        }
+                    }
+                    ordering => ordering,
+                }
+            }
+            // Only self has version: self is greater
+            (Some(_), None) => Ordering::Greater,
+            // Only other has version: other is greater
+            (None, Some(_)) => Ordering::Less,
+            // Neither has version: they are equal
+            (None, None) => Ordering::Equal,
+        }
+    }
+}
+
+impl PartialOrd for Specifier {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for Specifier {
+    fn eq(&self, other: &Self) -> bool {
+        self.get_raw() == other.get_raw()
+    }
+}
+
+impl Eq for Specifier {}
+
+impl std::hash::Hash for Specifier {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.get_raw().hash(state);
+    }
+}
