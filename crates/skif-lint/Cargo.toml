@@ -7,9 +7,9 @@ license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "Rule engine for skif: registry, emitter and parallel runner."
+description = "Rule engine for skif: rule registry, diagnostic emitter and parallel runner."
 documentation = "https://docs.rs/skif-lint"
-keywords = ["monorepo", "linter", "dependencies", "rules"]
+keywords = ["linter","monorepo","rules","engine","skif"]
 categories = ["development-tools"]
 
 [dependencies]

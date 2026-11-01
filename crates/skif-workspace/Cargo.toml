@@ -7,9 +7,9 @@ license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "Workspace discovery, manifests and catalogs for skif."
+description = "Workspace discovery for npm, pnpm, yarn and bun: packages, manifests and catalogs, for skif."
 documentation = "https://docs.rs/skif-workspace"
-keywords = ["monorepo", "workspace", "npm", "pnpm", "package-json"]
+keywords = ["monorepo","workspace","pnpm","package-json","skif"]
 categories = ["development-tools"]
 
 [dependencies]

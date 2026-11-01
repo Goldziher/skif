@@ -7,9 +7,9 @@ license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "npm dependency specifier parsing and comparison for skif (vendored from syncpack)."
+description = "npm dependency specifier parsing and comparison for skif, vendored from syncpack."
 documentation = "https://docs.rs/skif-specifier"
-keywords = ["npm", "semver", "specifier", "monorepo"]
+keywords = ["npm","semver","specifier","monorepo","skif"]
 categories = ["parser-implementations"]
 
 [lib]

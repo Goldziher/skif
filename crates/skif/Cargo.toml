@@ -7,9 +7,9 @@ license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "Embeddable dependency linter for JavaScript and TypeScript monorepos: discover, lint and plan fixes without printing, prompting or writing."
+description = "Embeddable facade for skif: discover a JS/TS workspace, lint it and plan fixes without IO side effects."
 documentation = "https://docs.rs/skif"
-keywords = ["monorepo", "linter", "dependencies", "pnpm", "javascript"]
+keywords = ["linter","monorepo","package-json","dependencies","pnpm"]
 categories = ["development-tools"]
 readme = "../../README.md"
 
