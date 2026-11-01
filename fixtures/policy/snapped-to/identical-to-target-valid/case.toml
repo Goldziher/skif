@@ -1,0 +1,4 @@
+description = "Instances identical to the snap target are valid, including the target itself."
+source = "syncpack:src/version_group/snapped_to_test.rs::instance_identical_to_snapped_to_and_has_no_semver_group"
+tags = ["snapped-to"]
+valid-states = ["IsIdenticalToSnapTarget"]

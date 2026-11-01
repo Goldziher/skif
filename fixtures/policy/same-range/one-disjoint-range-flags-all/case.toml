@@ -1,0 +1,3 @@
+description = "When one range is disjoint from the others, every instance that fails against any other is reported."
+source = "syncpack:src/version_group/same_range_test.rs::three_ranges_where_one_does_not_overlap_with_others"
+tags = ["same-range", "unfixable"]
