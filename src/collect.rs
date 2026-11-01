@@ -1,6 +1,6 @@
 use crate::packages::root::RootPackage;
 use crate::packages::semversion::SemVersion;
-use crate::packages::{Config, Package, PackagesList};
+use crate::packages::{Catalogs, Config, Package, PackagesList};
 use crate::printer::print_error;
 use crate::rules::multiple_dependency_versions::MultipleDependencyVersionsIssue;
 use crate::rules::non_existant_packages::NonExistantPackagesIssue;
@@ -23,8 +23,28 @@ pub struct PnpmWorkspace {
     pub packages: Vec<String>,
 }
 
+/// Catalogs defined in `pnpm-workspace.yaml`, which can exist even when `workspaces` is used.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct PnpmCatalogs {
+    catalog: IndexMap<String, String>,
+    catalogs: IndexMap<String, IndexMap<String, String>>,
+}
+
+fn collect_catalogs(root: &Path, root_package: &RootPackage) -> Catalogs {
+    let mut catalogs = fs::read_to_string(root.join(PNPM_WORKSPACE))
+        .ok()
+        .and_then(|workspace| serde_saphyr::from_str::<PnpmCatalogs>(&workspace).ok())
+        .map(|workspace| Catalogs::new(workspace.catalog, workspace.catalogs))
+        .unwrap_or_default();
+
+    catalogs.merge(root_package.get_catalogs());
+    catalogs
+}
+
 pub fn collect_packages(root: &Path) -> Result<PackagesList> {
     let root_package = RootPackage::new(root)?;
+    let catalogs = collect_catalogs(root, &root_package);
     let mut packages = Vec::new();
     let mut packages_list = root_package.get_workspaces();
     let mut excluded_paths = Vec::new();
@@ -238,6 +258,7 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
         root_package,
         packages,
         packages_issues,
+        catalogs,
     })
 }
 
@@ -248,6 +269,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
         root_package,
         packages,
         packages_issues,
+        catalogs,
     } = packages_list;
 
     for package_issue in packages_issues {
@@ -263,16 +285,20 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
         PackageType::Root,
         root_package.check_optional_dependencies(),
     );
+    issues.add(
+        PackageType::Root,
+        root_package.check_incompatible_peer_dependencies(&catalogs),
+    );
 
     let mut all_dependencies = IndexMap::new();
     let mut joined_dependencies = IndexMap::new();
     let mut similar_dependencies_by_package = IndexMap::new();
 
-    if let Some(dependencies) = root_package.get_dependencies() {
+    if let Some(dependencies) = root_package.get_dependencies(&catalogs) {
         joined_dependencies.extend(dependencies);
     }
 
-    if let Some(dev_dependencies) = root_package.get_dev_dependencies() {
+    if let Some(dev_dependencies) = root_package.get_dev_dependencies(&catalogs) {
         joined_dependencies.extend(dev_dependencies);
     }
 
@@ -296,10 +322,14 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
         issues.add(package_type.clone(), package.check_dev_dependencies());
         issues.add(package_type.clone(), package.check_peer_dependencies());
         issues.add(package_type.clone(), package.check_optional_dependencies());
+        issues.add(
+            package_type.clone(),
+            package.check_incompatible_peer_dependencies(&catalogs),
+        );
 
         let mut joined_dependencies = IndexMap::new();
 
-        if let Some(dependencies) = package.get_dependencies() {
+        if let Some(dependencies) = package.get_dependencies(&catalogs) {
             if package.is_private() {
                 let types_in_dependencies = dependencies
                     .iter()
@@ -318,7 +348,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
             joined_dependencies.extend(dependencies);
         }
 
-        if let Some(dev_dependencies) = package.get_dev_dependencies() {
+        if let Some(dev_dependencies) = package.get_dev_dependencies(&catalogs) {
             joined_dependencies.extend(dev_dependencies);
         }
 
@@ -407,6 +437,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
 mod test {
     use super::*;
     use crate::args::Args;
+    use crate::rules::IssueLevel;
     use debugless_unwrap::DebuglessUnwrapErrExt;
 
     #[test]
@@ -443,6 +474,7 @@ mod test {
             root_package,
             packages,
             packages_issues,
+            ..
         } = result.unwrap();
 
         assert_eq!(root_package.get_name(), "basic");
@@ -461,6 +493,7 @@ mod test {
             root_package,
             packages,
             packages_issues,
+            ..
         } = result.unwrap();
 
         assert_eq!(root_package.get_name(), "pnpm");
@@ -479,6 +512,7 @@ mod test {
             root_package,
             packages,
             packages_issues,
+            ..
         } = result.unwrap();
 
         assert_eq!(root_package.get_name(), "yarn-nohoist");
@@ -509,6 +543,7 @@ mod test {
             root_package,
             packages,
             packages_issues,
+            ..
         } = result.unwrap();
 
         assert_eq!(root_package.get_name(), "without-package-json");
@@ -535,6 +570,7 @@ mod test {
             root_package,
             packages,
             packages_issues,
+            ..
         } = result.unwrap();
 
         assert_eq!(root_package.get_name(), "empty-package-directories");
@@ -928,5 +964,103 @@ mod test {
                 .name(),
             "unsync-similar-dependencies"
         );
+    }
+
+    fn collect_fixture_issues(path: &str) -> IndexMap<PackageType, Vec<BoxIssue>> {
+        let args = Args {
+            path: path.into(),
+            fix: false,
+            select: None,
+            no_install: true,
+            fail_on_warnings: false,
+            ignore_rule: Vec::new(),
+            ignore_package: Vec::new(),
+            ignore_dependency: Vec::new(),
+        };
+
+        let packages_list = collect_packages(&args.path).unwrap();
+        let config = args.into();
+
+        collect_issues(&config, packages_list)
+            .into_iter()
+            .collect::<IndexMap<_, _>>()
+    }
+
+    #[test]
+    fn collect_packages_pnpm_catalogs() {
+        let packages_list = collect_packages(Path::new("fixtures/catalogs")).unwrap();
+
+        assert_eq!(
+            packages_list.catalogs.resolve("typescript", "catalog:"),
+            Some("5.9.3")
+        );
+        assert_eq!(
+            packages_list.catalogs.resolve("typescript", "catalog:ts6"),
+            Some("6.0.3")
+        );
+    }
+
+    #[test]
+    fn collect_catalogs_dependencies() {
+        colored::control::set_override(false);
+        let issues = collect_fixture_issues("fixtures/catalogs");
+
+        assert_eq!(issues.len(), 1);
+        let issues = issues.get(&PackageType::None).unwrap();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].name(), "multiple-dependency-versions");
+        assert_eq!(
+            issues[0].why(),
+            "Dependency typescript has multiple versions defined in the workspace."
+        );
+
+        let message = issues[0].message();
+        assert!(message.contains("5.9.3"));
+        assert!(message.contains("6.0.3"));
+        assert!(message.contains("5.8.0"));
+    }
+
+    #[test]
+    fn collect_catalogs_in_package_json() {
+        colored::control::set_override(false);
+        let issues = collect_fixture_issues("fixtures/catalogs-package-json");
+
+        assert_eq!(issues.len(), 1);
+        let issues = issues.get(&PackageType::None).unwrap();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].name(), "multiple-dependency-versions");
+
+        let message = issues[0].message();
+        assert!(message.contains("5.9.3"));
+        assert!(message.contains("5.8.0"));
+    }
+
+    #[test]
+    fn collect_dev_dependencies_skip_peer_dependencies() {
+        let issues = collect_fixture_issues("fixtures/peer-dev-dependencies");
+
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn collect_incompatible_peer_dependencies() {
+        colored::control::set_override(false);
+        let issues = collect_fixture_issues("fixtures/incompatible-peer-dependencies");
+
+        assert_eq!(issues.len(), 1);
+        let issues = issues
+            .get(&PackageType::Package(
+                "fixtures/incompatible-peer-dependencies/a".to_string(),
+            ))
+            .unwrap();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].name(), "incompatible-peer-dependencies");
+        assert_eq!(issues[0].level(), IssueLevel::Warning);
+
+        let message = issues[0].message();
+        assert!(message.contains(r#""lib": "3.45.1-build2","#));
+        assert!(message.contains(r#""lib": "3.45.3-build2","#));
+        assert!(!message.contains("react"));
+        assert!(!message.contains("@scope/shared"));
     }
 }

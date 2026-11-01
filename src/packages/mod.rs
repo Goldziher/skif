@@ -4,6 +4,9 @@ use crate::{
     rules::{
         BoxIssue,
         empty_dependencies::{DependencyKind, EmptyDependenciesIssue},
+        incompatible_peer_dependencies::{
+            IncompatiblePeerDependenciesIssue, IncompatiblePeerDependency,
+        },
         unordered_dependencies::UnorderedDependenciesIssue,
     },
 };
@@ -20,6 +23,57 @@ pub struct PackagesList {
     pub root_package: RootPackage,
     pub packages: Vec<Package>,
     pub packages_issues: Vec<BoxIssue>,
+    pub catalogs: Catalogs,
+}
+
+type CatalogEntries = IndexMap<String, String>;
+
+/// The dependency catalogs of a workspace, used to resolve `catalog:` specifiers.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Catalogs {
+    default: CatalogEntries,
+    named: IndexMap<String, CatalogEntries>,
+}
+
+impl Catalogs {
+    /// `catalogs.default` is an alias of the top-level `catalog`; the latter wins on conflicts.
+    pub fn new(mut default: CatalogEntries, mut named: IndexMap<String, CatalogEntries>) -> Self {
+        if let Some(explicit_default) = named.shift_remove("default") {
+            for (name, version) in explicit_default {
+                default.entry(name).or_insert(version);
+            }
+        }
+
+        Self { default, named }
+    }
+
+    /// Adds the entries of `other` that are not already defined.
+    pub fn merge(&mut self, other: Self) {
+        for (name, version) in other.default {
+            self.default.entry(name).or_insert(version);
+        }
+
+        for (catalog, entries) in other.named {
+            let existing = self.named.entry(catalog).or_default();
+
+            for (name, version) in entries {
+                existing.entry(name).or_insert(version);
+            }
+        }
+    }
+
+    /// Resolves a `catalog:` or `catalog:<name>` specifier of `dependency` to its version.
+    /// Returns `None` for other specifiers and for references missing from the catalogs.
+    pub fn resolve(&self, dependency: &str, specifier: &str) -> Option<&str> {
+        let catalog = specifier.strip_prefix("catalog:")?.trim();
+        let entries = if catalog.is_empty() || catalog == "default" {
+            &self.default
+        } else {
+            self.named.get(catalog)?
+        };
+
+        entries.get(dependency).map(String::as_str)
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -108,6 +162,8 @@ struct PackageInner {
     dev_dependencies: Option<IndexMap<String, String>>,
     peer_dependencies: Option<IndexMap<String, String>>,
     optional_dependencies: Option<IndexMap<String, String>>,
+    catalog: Option<CatalogEntries>,
+    catalogs: Option<IndexMap<String, CatalogEntries>>,
     sherif: Option<Config>,
 }
 
@@ -212,29 +268,76 @@ impl Package {
         )
     }
 
-    fn get_deps(deps: Option<&IndexMap<String, String>>) -> Option<IndexMap<String, SemVersion>> {
-        if let Some(dependencies) = deps {
-            let mut versioned_dependencies =
-                IndexMap::<String, SemVersion>::with_capacity(dependencies.len());
+    pub fn get_catalogs(&self) -> Catalogs {
+        Catalogs::new(
+            self.inner.catalog.clone().unwrap_or_default(),
+            self.inner.catalogs.clone().unwrap_or_default(),
+        )
+    }
 
-            for (name, version) in dependencies {
-                if let Ok(version) = SemVersion::parse(version) {
-                    versioned_dependencies.insert(name.clone(), version);
-                }
-            }
+    fn resolve_version<'a>(catalogs: &'a Catalogs, name: &str, version: &'a str) -> &'a str {
+        catalogs.resolve(name, version).unwrap_or(version)
+    }
 
-            return Some(versioned_dependencies);
+    fn get_deps(
+        deps: Option<&IndexMap<String, String>>,
+        catalogs: &Catalogs,
+    ) -> Option<IndexMap<String, SemVersion>> {
+        deps.map(|dependencies| {
+            dependencies
+                .iter()
+                .filter_map(|(name, version)| {
+                    let version = Self::resolve_version(catalogs, name, version);
+
+                    SemVersion::parse(version)
+                        .ok()
+                        .map(|version| (name.clone(), version))
+                })
+                .collect()
+        })
+    }
+
+    pub fn get_dependencies(&self, catalogs: &Catalogs) -> Option<IndexMap<String, SemVersion>> {
+        Self::get_deps(self.inner.dependencies.as_ref(), catalogs)
+    }
+
+    /// The `devDependencies` versions, without the ones also declared in `peerDependencies`:
+    /// those test the lowest supported peer range and are not meant to match other packages.
+    pub fn get_dev_dependencies(&self, catalogs: &Catalogs) -> Option<IndexMap<String, SemVersion>> {
+        let peer_dependencies = self.inner.peer_dependencies.as_ref();
+
+        Self::get_deps(self.inner.dev_dependencies.as_ref(), catalogs).map(|mut dependencies| {
+            dependencies.retain(|name, _| {
+                !peer_dependencies.is_some_and(|peers| peers.contains_key(name))
+            });
+            dependencies
+        })
+    }
+
+    pub fn check_incompatible_peer_dependencies(&self, catalogs: &Catalogs) -> Option<BoxIssue> {
+        let peer_dependencies = self.inner.peer_dependencies.as_ref()?;
+        let dev_dependencies = self.inner.dev_dependencies.as_ref()?;
+
+        let incompatible = peer_dependencies
+            .iter()
+            .filter_map(|(name, peer)| {
+                let dev = dev_dependencies.get(name)?;
+                let peer = SemVersion::parse(Self::resolve_version(catalogs, name, peer)).ok()?;
+                let dev = SemVersion::parse(Self::resolve_version(catalogs, name, dev)).ok()?;
+
+                (dev.satisfies(&peer) == Some(false)).then(|| IncompatiblePeerDependency {
+                    name: name.clone(),
+                    peer,
+                    dev,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        if incompatible.is_empty() {
+            None
+        } else {
+            Some(IncompatiblePeerDependenciesIssue::new(incompatible))
         }
-
-        None
-    }
-
-    pub fn get_dependencies(&self) -> Option<IndexMap<String, SemVersion>> {
-        Self::get_deps(self.inner.dependencies.as_ref())
-    }
-
-    pub fn get_dev_dependencies(&self) -> Option<IndexMap<String, SemVersion>> {
-        Self::get_deps(self.inner.dev_dependencies.as_ref())
     }
 
     pub fn is_ignored(&self, ignored_packages: &[String]) -> bool {
@@ -251,5 +354,71 @@ impl Package {
             }),
             None => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn entries(pairs: &[(&str, &str)]) -> CatalogEntries {
+        pairs
+            .iter()
+            .map(|(name, version)| ((*name).to_string(), (*version).to_string()))
+            .collect()
+    }
+
+    fn catalogs() -> Catalogs {
+        Catalogs::new(
+            entries(&[("typescript", "5.9.3")]),
+            IndexMap::from([
+                ("ts6".to_string(), entries(&[("typescript", "6.0.3")])),
+                ("default".to_string(), entries(&[("react", "19.0.0")])),
+            ]),
+        )
+    }
+
+    #[test]
+    fn resolve_default_catalog() {
+        let catalogs = catalogs();
+
+        assert_eq!(catalogs.resolve("typescript", "catalog:"), Some("5.9.3"));
+        assert_eq!(
+            catalogs.resolve("typescript", "catalog:default"),
+            Some("5.9.3")
+        );
+        assert_eq!(catalogs.resolve("react", "catalog:"), Some("19.0.0"));
+    }
+
+    #[test]
+    fn resolve_named_catalog() {
+        assert_eq!(
+            catalogs().resolve("typescript", "catalog:ts6"),
+            Some("6.0.3")
+        );
+    }
+
+    #[test]
+    fn resolve_unresolvable() {
+        let catalogs = catalogs();
+
+        assert_eq!(catalogs.resolve("typescript", "catalog:missing"), None);
+        assert_eq!(catalogs.resolve("vite", "catalog:"), None);
+        assert_eq!(catalogs.resolve("typescript", "5.8.0"), None);
+        assert_eq!(Catalogs::default().resolve("typescript", "catalog:"), None);
+    }
+
+    #[test]
+    fn merge_keeps_existing_entries() {
+        let mut catalogs = catalogs();
+        catalogs.merge(Catalogs::new(
+            entries(&[("typescript", "1.0.0"), ("vite", "7.0.0")]),
+            IndexMap::from([("ts6".to_string(), entries(&[("vite", "6.0.0")]))]),
+        ));
+
+        assert_eq!(catalogs.resolve("typescript", "catalog:"), Some("5.9.3"));
+        assert_eq!(catalogs.resolve("vite", "catalog:"), Some("7.0.0"));
+        assert_eq!(catalogs.resolve("typescript", "catalog:ts6"), Some("6.0.3"));
+        assert_eq!(catalogs.resolve("vite", "catalog:ts6"), Some("6.0.0"));
     }
 }

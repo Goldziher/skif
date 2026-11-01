@@ -1,0 +1,7 @@
+{
+  "name": "a",
+  "devDependencies": {
+    "left-pad": "catalog:missing",
+    "typescript": "catalog:"
+  }
+}
