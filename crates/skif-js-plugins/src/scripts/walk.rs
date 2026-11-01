@@ -82,7 +82,8 @@ fn valid_binary(name: &str) -> bool {
         Some(first) if !matches!(first, '-' | '$' | '.' | '=') => {}
         _ => return false,
     }
-    name.chars().all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | '@' | '+'))
+    name.chars()
+        .all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | '@' | '+'))
 }
 
 fn classify(text: &str) -> Target<'_> {
@@ -91,7 +92,11 @@ fn classify(text: &str) -> Target<'_> {
         .map(|i| &text[i + "/.bin/".len()..])
         .or_else(|| text.strip_prefix(".bin/"));
     if let Some(name) = bin_dir {
-        return if valid_binary(name) { Target::Bin(name) } else { Target::Skip };
+        return if valid_binary(name) {
+            Target::Bin(name)
+        } else {
+            Target::Skip
+        };
     }
     if text.starts_with('/') || text.starts_with('~') || text == "." || text == ".." {
         return Target::Skip;
@@ -99,7 +104,11 @@ fn classify(text: &str) -> Target<'_> {
     if text.contains('/') {
         return Target::File(text);
     }
-    if valid_binary(text) { Target::Bin(text) } else { Target::Skip }
+    if valid_binary(text) {
+        Target::Bin(text)
+    } else {
+        Target::Skip
+    }
 }
 
 /// The package name of a module specifier, without version or subpath. `None` for paths, URLs
@@ -347,12 +356,36 @@ impl<'c> Walker<'c> {
         match name {
             "node" | "nodejs" => self.node_args(args, frame, st, true),
             "npm" => self.npm(args, frame, st),
-            "npx" => self.exec_like(args, frame, St { via: BinaryVia::Npx, ..st }, true),
-            "pnpx" => self.exec_like(args, frame, St { via: BinaryVia::Dlx, ..st }, false),
+            "npx" => self.exec_like(
+                args,
+                frame,
+                St {
+                    via: BinaryVia::Npx,
+                    ..st
+                },
+                true,
+            ),
+            "pnpx" => self.exec_like(
+                args,
+                frame,
+                St {
+                    via: BinaryVia::Dlx,
+                    ..st
+                },
+                false,
+            ),
             "pnpm" => self.pnpm(args, frame, st),
             "yarn" | "yarnpkg" => self.yarn(args, frame, st),
             "bun" => self.bun(args, frame, st),
-            "bunx" => self.exec_like(args, frame, St { via: BinaryVia::Bunx, ..st }, false),
+            "bunx" => self.exec_like(
+                args,
+                frame,
+                St {
+                    via: BinaryVia::Bunx,
+                    ..st
+                },
+                false,
+            ),
             "corepack" => self.corepack(args, frame, st),
             "concurrently" | "conc" => {
                 self.bin(name, span, st);
@@ -366,7 +399,10 @@ impl<'c> Walker<'c> {
                 self.bin(name, span, st);
                 self.turbo(args);
             }
-            "command" if args.iter().any(|a| a.text.starts_with("-v") || a.text.starts_with("-V")) => {}
+            "command"
+                if args
+                    .iter()
+                    .any(|a| a.text.starts_with("-v") || a.text.starts_with("-V")) => {}
             n if tables::PASSTHROUGH.contains(&n) => self.passthrough(args, frame, st),
             n if tables::SHELLS.contains(&n) => self.shell(args, frame, st),
             n if is_ignored_binary(n) => {}
@@ -435,7 +471,11 @@ impl<'c> Walker<'c> {
                 i += 1;
             } else if let Some(flag) = text.strip_prefix('-').filter(|f| !f.is_empty()) {
                 let name = flag.trim_start_matches('-');
-                i += if !text.contains('=') && wrapper.value_flags.contains(&name) { 2 } else { 1 };
+                i += if !text.contains('=') && wrapper.value_flags.contains(&name) {
+                    2
+                } else {
+                    1
+                };
             } else {
                 command = Some(i);
                 break;
@@ -467,7 +507,11 @@ impl<'c> Walker<'c> {
     /// `npx`, `npm exec`, `pnpm dlx`, `yarn dlx` and `bunx`: run a package binary, possibly fetched
     /// on demand. `args` start after the command name.
     fn exec_like(&mut self, args: &[Word], frame: &Frame, st: St, call: bool) {
-        let flags = if call { tables::EXEC_VALUE_FLAGS } else { tables::DLX_VALUE_FLAGS };
+        let flags = if call {
+            tables::EXEC_VALUE_FLAGS
+        } else {
+            tables::DLX_VALUE_FLAGS
+        };
         let parsed = args::parse(args, flags, true);
         let mut explicit = false;
         let mut called = false;
@@ -522,7 +566,10 @@ impl<'c> Walker<'c> {
                 }
             }
             "exec" | "x" => {
-                let st = St { filtered, via: BinaryVia::NpmExec };
+                let st = St {
+                    filtered,
+                    via: BinaryVia::NpmExec,
+                };
                 self.exec_like(after, frame, st, true);
             }
             "start" | "stop" | "restart" | "test" => {
@@ -568,16 +615,38 @@ impl<'c> Walker<'c> {
             "exec" => {
                 let inner = args::parse(after, tables::PNPM_VALUE_FLAGS, true);
                 let command = command_words(after, &inner);
-                self.command_or_string(command, frame, St { filtered, via: BinaryVia::PnpmExec });
+                self.command_or_string(
+                    command,
+                    frame,
+                    St {
+                        filtered,
+                        via: BinaryVia::PnpmExec,
+                    },
+                );
             }
-            "dlx" => self.exec_like(after, frame, St { filtered, via: BinaryVia::Dlx }, false),
+            "dlx" => self.exec_like(
+                after,
+                frame,
+                St {
+                    filtered,
+                    via: BinaryVia::Dlx,
+                },
+                false,
+            ),
             _ => {
                 let name = if matches!(cmd, "t" | "tst") { "test" } else { cmd };
                 if self.ctx.scripts.contains_key(name) {
                     let map = Map::Fixed(frame.span(&args[ci].span));
                     self.run_script_name(name, &map, filtered);
                 } else if !filtered && !tables::PNPM_COMMANDS.contains(&cmd) && !tables::LIFECYCLE.contains(&cmd) {
-                    self.command(&args[ci..], frame, St { filtered, via: BinaryVia::PnpmExec });
+                    self.command(
+                        &args[ci..],
+                        frame,
+                        St {
+                            filtered,
+                            via: BinaryVia::PnpmExec,
+                        },
+                    );
                 }
             }
         }
@@ -600,12 +669,34 @@ impl<'c> Walker<'c> {
                     if self.ctx.scripts.contains_key(&after[i].text) {
                         self.run_script_word(&after[i], frame, filtered);
                     } else {
-                        self.command(&after[i..], frame, St { filtered, via: BinaryVia::YarnRun });
+                        self.command(
+                            &after[i..],
+                            frame,
+                            St {
+                                filtered,
+                                via: BinaryVia::YarnRun,
+                            },
+                        );
                     }
                 }
             }
-            "dlx" => self.exec_like(after, frame, St { filtered, via: BinaryVia::Dlx }, false),
-            "exec" => self.command_or_string(after, frame, St { filtered, via: BinaryVia::YarnExec }),
+            "dlx" => self.exec_like(
+                after,
+                frame,
+                St {
+                    filtered,
+                    via: BinaryVia::Dlx,
+                },
+                false,
+            ),
+            "exec" => self.command_or_string(
+                after,
+                frame,
+                St {
+                    filtered,
+                    via: BinaryVia::YarnExec,
+                },
+            ),
             "node" => self.node_args(after, frame, St { filtered, ..st }, true),
             "workspace" => {
                 if after.len() > 1 {
@@ -626,7 +717,14 @@ impl<'c> Walker<'c> {
                     let map = Map::Fixed(frame.span(&args[ci].span));
                     self.run_script_name(cmd, &map, filtered);
                 } else if !filtered && !tables::YARN_COMMANDS.contains(&cmd) && !tables::LIFECYCLE.contains(&cmd) {
-                    self.command(&args[ci..], frame, St { filtered, via: BinaryVia::YarnRun });
+                    self.command(
+                        &args[ci..],
+                        frame,
+                        St {
+                            filtered,
+                            via: BinaryVia::YarnRun,
+                        },
+                    );
                 }
             }
         }
@@ -644,7 +742,15 @@ impl<'c> Walker<'c> {
         let after = &args[parsed.rest..];
         let cmd = args[ci].text.as_str();
         match cmd {
-            "x" => self.exec_like(after, frame, St { filtered, via: BinaryVia::Bunx }, false),
+            "x" => self.exec_like(
+                after,
+                frame,
+                St {
+                    filtered,
+                    via: BinaryVia::Bunx,
+                },
+                false,
+            ),
             "run" => {
                 let inner = args::parse(after, tables::BUN_VALUE_FLAGS, false);
                 filtered |= inner.has(&["filter"]);
@@ -673,7 +779,14 @@ impl<'c> Walker<'c> {
         } else if is_path_like(&word.text) {
             self.file(&word.text, frame.span(&word.span));
         } else if !filtered {
-            self.command(from, frame, St { filtered, via: BinaryVia::BunRun });
+            self.command(
+                from,
+                frame,
+                St {
+                    filtered,
+                    via: BinaryVia::BunRun,
+                },
+            );
         }
     }
 
@@ -695,15 +808,12 @@ impl<'c> Walker<'c> {
         for &i in &parsed.positionals {
             let word = &args[i];
             let text = word.text.trim();
-            match text.split_once(':') {
-                Some((manager, rest)) if matches!(manager, "npm" | "pnpm" | "yarn" | "bun") => {
-                    let name = rest.split_whitespace().next().unwrap_or("");
-                    self.script_pattern(name, word, frame);
-                }
-                _ => {
-                    let map = frame.child(word);
-                    self.run_text(&word.text, &map, St::default());
-                }
+            if let Some(("npm" | "pnpm" | "yarn" | "bun", rest)) = text.split_once(':') {
+                let name = rest.split_whitespace().next().unwrap_or("");
+                self.script_pattern(name, word, frame);
+            } else {
+                let map = frame.child(word);
+                self.run_text(&word.text, &map, St::default());
             }
         }
     }
@@ -736,8 +846,13 @@ impl<'c> Walker<'c> {
     }
 
     fn runner(&mut self, runner: &Runner, args: &[Word], frame: &Frame, st: St) {
-        let value_flags: Vec<&str> = [runner.value_flags, runner.dep_flags, runner.file_flags, runner.exec_flags]
-            .concat();
+        let value_flags: Vec<&str> = [
+            runner.value_flags,
+            runner.dep_flags,
+            runner.file_flags,
+            runner.exec_flags,
+        ]
+        .concat();
         let stop = matches!(runner.files, Files::First);
         let mut rest = args;
         let mut parsed = args::parse(rest, &value_flags, stop);
@@ -779,7 +894,14 @@ impl<'c> Walker<'c> {
                 self.file(text, frame.span(span));
             } else if runner.exec_flags.contains(&name) {
                 let map = Map::Fixed(frame.span(span));
-                self.run_text(text, &map, St { via: BinaryVia::Direct, ..st });
+                self.run_text(
+                    text,
+                    &map,
+                    St {
+                        via: BinaryVia::Direct,
+                        ..st
+                    },
+                );
             }
         }
     }
