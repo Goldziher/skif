@@ -1,15 +1,18 @@
 {
   "name": "skif",
   "version": "0.0.0",
-  "description": "A fast dependency linter for JavaScript and TypeScript monorepos. Installs the prebuilt skif binary and puts `skif` on PATH.",
+  "description": "A dependency and package-manager linter, auditor and enforcer for JavaScript and TypeScript, with first-class monorepo support.",
   "keywords": [
+    "dependencies",
     "linter",
     "monorepo",
-    "dependencies",
+    "workspaces",
     "pnpm",
-    "workspace",
+    "npm",
+    "yarn",
+    "bun",
     "catalog",
-    "rust"
+    "audit"
   ],
   "homepage": "https://github.com/Goldziher/skif#readme",
   "bugs": {
@@ -22,27 +25,50 @@
     "url": "git+https://github.com/Goldziher/skif.git",
     "directory": "npm-package"
   },
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "skif": "bin/skif.js"
   },
-  "main": "index.js",
   "files": [
     "LICENSE",
     "README.md",
     "index.js",
+    "index.d.ts",
     "bin/skif.js"
   ],
-  "optionalDependencies": {
-    "skif-darwin-arm64": "0.0.0",
-    "skif-darwin-x64": "0.0.0",
-    "skif-linux-arm64-gnu": "0.0.0",
-    "skif-linux-arm64-musl": "0.0.0",
-    "skif-linux-x64-gnu": "0.0.0",
-    "skif-linux-x64-musl": "0.0.0",
-    "skif-win32-arm64": "0.0.0",
-    "skif-win32-x64": "0.0.0"
+  "napi": {
+    "binaryName": "skif",
+    "targets": [
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-musl"
+    ]
+  },
+  "scripts": {
+    "build": "napi build --platform --release --esm --manifest-path ../crates/skif-node/Cargo.toml --output-dir . --package skif-node",
+    "build:debug": "napi build --platform --esm --manifest-path ../crates/skif-node/Cargo.toml --output-dir . --package skif-node",
+    "version": "napi version"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.0.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

@@ -5,8 +5,7 @@
 #
 #   Cargo.toml                              [workspace.package] version and internal dependency pins
 #   crates/*/Cargo.toml                     internal dependency pins
-#   npm-package/package.json                version and every optionalDependencies pin
-#   npm-package/platforms/*/package.json    version
+#   npm-package/package.json                version (the platform packages take it from `napi version`)
 #   poly-hooks.toml                         pinned npm channel version
 #   scripts/pre-commit/run-skif.sh          SKIF_VERSION default
 #
@@ -47,12 +46,10 @@ for manifest in Cargo.toml crates/*/Cargo.toml; do
 done
 
 echo "npm-package -> ${version}"
-for manifest in npm-package/package.json npm-package/platforms/*/package.json; do
-  tmp="$(mktemp)"
-  jq --arg v "$version" '.version = $v | if has("optionalDependencies") then .optionalDependencies |= with_entries(.value = $v) else . end' "$manifest" >"$tmp"
-  cat "$tmp" >"$manifest"
-  rm -f "$tmp"
-done
+tmp="$(mktemp)"
+jq --arg v "$version" '.version = $v' npm-package/package.json >"$tmp"
+cat "$tmp" >npm-package/package.json
+rm -f "$tmp"
 
 echo "poly-hooks.toml, scripts/pre-commit/run-skif.sh -> ${version}"
 rewrite poly-hooks.toml "s/(skif@)[0-9][^ \"]*/\1${version}/g"
