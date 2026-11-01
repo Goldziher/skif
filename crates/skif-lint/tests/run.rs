@@ -4,53 +4,130 @@ mod common;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::Duration;
 
 use common::{FixedRule, config, item, leak_meta, location, workspace};
-use skif_core::{RuleMeta, Severity};
-use skif_lint::{Emitter, LintContext, LintError, Registry, Rule, RulesProvider, RunOptions, diagnostic, run};
+use skif_core::{Report, RuleMeta, Severity};
+use skif_lint::{
+    Emitter, LintContext, LintError, Registry, Rule, RulesProvider, RunOptions, diagnostic, run, run_unsorted,
+};
 
-const RULES: usize = 8;
-const PER_RULE: usize = 6;
+const PROVIDERS: usize = 2;
+const RULES: usize = 6;
+const PER_RULE: usize = 5;
 
+/// Sleeps longer for earlier rules so that, under parallel scheduling, they finish last.
+struct Jittery {
+    inner: FixedRule,
+    delay: Duration,
+}
+
+impl Rule for Jittery {
+    fn meta(&self) -> &'static RuleMeta {
+        self.inner.meta()
+    }
+
+    fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>) {
+        std::thread::sleep(self.delay);
+        self.inner.check(cx, out);
+    }
+}
+
+fn message(provider: usize, rule: usize, item: usize) -> String {
+    format!("m-{provider}-{rule}-{item}")
+}
+
+/// Providers of interleaving rules; each rule emits its items in descending order, so neither the merge order nor
+/// the sorted order equals the other.
 fn many_rules() -> Registry {
-    let rules: Vec<Box<dyn Rule>> = (0..RULES)
-        .map(|i| {
-            let meta = leak_meta(&format!("rule-{i}"), Some(Severity::Warning));
-            Box::new(FixedRule {
-                meta,
-                items: (0..PER_RULE)
-                    .rev()
-                    .map(|j| item(&format!("m-{i}-{j}"), None, None))
-                    .collect(),
-            }) as Box<dyn Rule>
+    let providers = (0..PROVIDERS)
+        .map(|p| {
+            let rules: Vec<Box<dyn Rule>> = (0..RULES)
+                .map(|i| {
+                    let meta = leak_meta(&format!("p{p}-rule-{i}"), Some(Severity::Warning));
+                    let items = (0..PER_RULE)
+                        .rev()
+                        .map(|j| item(&message(p, i, j), None, None))
+                        .collect();
+                    Box::new(Jittery {
+                        inner: FixedRule { meta, items },
+                        delay: Duration::from_millis(u64::try_from(RULES - i).unwrap() * 2),
+                    }) as Box<dyn Rule>
+                })
+                .collect();
+            Box::new(RulesProvider::new(Box::leak(format!("p{p}").into_boxed_str()), rules))
+                as Box<dyn skif_lint::RuleProvider>
         })
         .collect();
-    Registry::new(vec![Box::new(RulesProvider::new("p", rules))]).unwrap()
+    Registry::new(providers).unwrap()
+}
+
+fn merge_order() -> Vec<String> {
+    (0..PROVIDERS)
+        .flat_map(|p| (0..RULES).flat_map(move |i| (0..PER_RULE).rev().map(move |j| message(p, i, j))))
+        .collect()
+}
+
+fn pools() -> Vec<rayon::ThreadPool> {
+    [1, 2, 4, 8]
+        .into_iter()
+        .map(|n| rayon::ThreadPoolBuilder::new().num_threads(n).build().unwrap())
+        .collect()
 }
 
 #[test]
-fn report_order_is_deterministic_across_runs_and_pools() {
+fn merge_order_is_providers_then_rules_then_emission_regardless_of_scheduling() {
     let registry = many_rules();
     let cfg = config("");
     let ws = workspace(&cfg);
-    let expected: Vec<String> = (0..RULES)
-        .flat_map(|i| (0..PER_RULE).map(move |j| format!("m-{i}-{j}")))
-        .collect();
-    let pools: Vec<rayon::ThreadPool> = [1, 4, 8]
-        .into_iter()
-        .map(|n| rayon::ThreadPoolBuilder::new().num_threads(n).build().unwrap())
-        .collect();
-    let first = run(&registry, &ws, &cfg, &RunOptions::default()).unwrap();
-    let got: Vec<String> = first.diagnostics.iter().map(|d| d.message.clone()).collect();
-    assert_eq!(got, expected);
-    for _ in 0..20 {
-        assert_eq!(run(&registry, &ws, &cfg, &RunOptions::default()).unwrap(), first);
+    let expected = merge_order();
+    let mut sorted = expected.clone();
+    sorted.sort();
+    assert_ne!(
+        expected, sorted,
+        "the expectation must differ from a sorted list to detect merge bugs"
+    );
+
+    let pools = pools();
+    let messages = |options: &RunOptions<'_>| -> Vec<String> {
+        run_unsorted(&registry, &ws, &cfg, options)
+            .unwrap()
+            .into_iter()
+            .map(|d| d.message)
+            .collect()
+    };
+    for _ in 0..10 {
+        assert_eq!(messages(&RunOptions::default()), expected);
         for pool in &pools {
             let options = RunOptions {
                 pool: Some(pool),
                 cancel: None,
             };
-            assert_eq!(run(&registry, &ws, &cfg, &options).unwrap(), first);
+            assert_eq!(messages(&options), expected);
+        }
+    }
+}
+
+#[test]
+fn report_is_the_sorted_merge_and_identical_across_runs_and_pools() {
+    let registry = many_rules();
+    let cfg = config("");
+    let ws = workspace(&cfg);
+    let unsorted = run_unsorted(&registry, &ws, &cfg, &RunOptions::default()).unwrap();
+    let expected = Report::new(unsorted.clone(), ws.all_packages().count());
+    assert_ne!(
+        expected.diagnostics, unsorted,
+        "sorting must change the merge order for this to mean anything"
+    );
+    let pools = pools();
+    for _ in 0..5 {
+        assert_eq!(run(&registry, &ws, &cfg, &RunOptions::default()).unwrap(), expected);
+        for pool in &pools {
+            let options = RunOptions {
+                pool: Some(pool),
+                cancel: None,
+            };
+            assert_eq!(run(&registry, &ws, &cfg, &options).unwrap(), expected);
         }
     }
 }

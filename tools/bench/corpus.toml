@@ -1,0 +1,32 @@
+# Pinned benchmark corpus: real monorepos at fixed commits, so results are comparable between runs and machines.
+# Fetch with `skif-bench corpus fetch` (or `mise run bench:corpus`).
+
+[[repo]]
+name = "create-t3-turbo"
+url = "https://github.com/t3-oss/create-t3-turbo.git"
+rev = "8f945b7bb3bfb3ca8358d48b1ff0214079bc11ee"
+package-manager = "pnpm"
+
+[[repo]]
+name = "vue-core"
+url = "https://github.com/vuejs/core.git"
+rev = "24c9d0bffb2299635b8112a978d74a38723aaa10"
+package-manager = "pnpm"
+
+[[repo]]
+name = "tanstack-query"
+url = "https://github.com/TanStack/query.git"
+rev = "73c5686de77b3d6767e853d2d623453c477d3b88"
+package-manager = "pnpm"
+
+[[repo]]
+name = "babel"
+url = "https://github.com/babel/babel.git"
+rev = "7750b3d6912344e8a621a99a393cc2f5d3f4d2db"
+package-manager = "yarn"
+
+[[repo]]
+name = "npm-cli"
+url = "https://github.com/npm/cli.git"
+rev = "fc517df18fb59a33b39d383c6766690bc427ac06"
+package-manager = "npm"
