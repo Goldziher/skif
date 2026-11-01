@@ -123,7 +123,10 @@ impl Display for PackageManager {
 pub fn install(quiet: bool) -> Result<()> {
     let package_manager = PackageManager::resolve()?;
 
-    let note = format!(" {}", format!("Note: running install command using {package_manager}...").bright_black());
+    let note = format!(
+        " {}",
+        format!("Note: running install command using {package_manager}...").bright_black()
+    );
     if quiet {
         eprintln!("{note}");
         eprintln!();
@@ -161,7 +164,8 @@ mod test {
     use crate::collect::collect_packages;
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("sherif-install-{}-{name}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("sherif-install-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -187,8 +191,15 @@ mod test {
     fn test_package_manager_field_beats_lockfile() {
         let dir = temp_dir("field");
         fs::File::create(dir.join("package-lock.json")).unwrap();
-        fs::write(dir.join("package.json"), r#"{ "packageManager": "pnpm@10.0.0" }"#).unwrap();
-        assert_eq!(PackageManager::resolve_in(&dir).unwrap(), PackageManager::Pnpm);
+        fs::write(
+            dir.join("package.json"),
+            r#"{ "packageManager": "pnpm@10.0.0" }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            PackageManager::resolve_in(&dir).unwrap(),
+            PackageManager::Pnpm
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -197,15 +208,24 @@ mod test {
         let dir = temp_dir("nofield");
         fs::File::create(dir.join("yarn.lock")).unwrap();
         fs::write(dir.join("package.json"), r#"{ "name": "x" }"#).unwrap();
-        assert_eq!(PackageManager::resolve_in(&dir).unwrap(), PackageManager::Yarn);
+        assert_eq!(
+            PackageManager::resolve_in(&dir).unwrap(),
+            PackageManager::Yarn
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn test_from_package_json() {
         for (json, expected) in [
-            (r#"{ "packageManager": "pnpm@10.0.0" }"#, Some(PackageManager::Pnpm)),
-            (r#"{ "packageManager": "yarn@4.1.0+sha512.abc" }"#, Some(PackageManager::Yarn)),
+            (
+                r#"{ "packageManager": "pnpm@10.0.0" }"#,
+                Some(PackageManager::Pnpm),
+            ),
+            (
+                r#"{ "packageManager": "yarn@4.1.0+sha512.abc" }"#,
+                Some(PackageManager::Yarn),
+            ),
             (r#"{ "packageManager": "bun" }"#, Some(PackageManager::Bun)),
             (r#"{ "packageManager": "deno@2.0.0" }"#, None),
             (
