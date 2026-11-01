@@ -134,7 +134,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y shellcheck
           shopt -s globstar nullglob
-          shellcheck scripts/**/*.sh npm-package/*.sh mise-tasks/**/*.sh
+          shellcheck scripts/**/*.sh mise-tasks/**/*.sh
 
   consistency:
     name: Version consistency
@@ -143,6 +143,37 @@ jobs:
       - uses: actions/checkout@v7
       - name: Check that every release surface agrees on one version
         run: scripts/check-versions.sh
+
+  npm-addon:
+    name: npm addon (${{ matrix.runtime }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # node-24 is the engines floor; node and bun are the versions pinned in mise.toml.
+        runtime: [node-24, node, bun]
+    steps:
+      - uses: actions/checkout@v7
+      # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: xberg-io/actions/setup-mise@v1
+        with:
+          tools: node pnpm bun
+      - name: Build the addon for the host
+        working-directory: npm-package
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Smoke-test import, lint() and the skif bin
+        run: |
+          set -euo pipefail
+          case "${{ matrix.runtime }}" in
+            node-24) mise exec node@24 -- bash scripts/npm-smoke.sh node ;;
+            *) bash scripts/npm-smoke.sh "${{ matrix.runtime }}" ;;
+          esac
 
   e2e:
     name: E2E (${{ matrix.package-manager }})
