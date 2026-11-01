@@ -9,7 +9,7 @@ homepage.workspace = true
 repository.workspace = true
 description = "Diagnostic, fix, report and filesystem types shared by the skif crates."
 documentation = "https://docs.rs/skif-core"
-keywords = ["linter","diagnostics","monorepo","package-json","skif"]
+keywords = ["linter", "diagnostics", "monorepo", "package-json", "skif"]
 categories = ["development-tools"]
 readme = "README.md"
 

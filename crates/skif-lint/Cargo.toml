@@ -9,7 +9,7 @@ homepage.workspace = true
 repository.workspace = true
 description = "Rule engine for skif: rule registry, diagnostic emitter and parallel runner."
 documentation = "https://docs.rs/skif-lint"
-keywords = ["linter","monorepo","rules","engine","skif"]
+keywords = ["linter", "monorepo", "rules", "engine", "skif"]
 categories = ["development-tools"]
 
 [dependencies]

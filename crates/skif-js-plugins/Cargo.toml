@@ -9,7 +9,7 @@ homepage.workspace = true
 repository.workspace = true
 description = "JS/TS tooling knowledge for skif: package.json script parsing today, the plugin table later."
 documentation = "https://docs.rs/skif-js-plugins"
-keywords = ["npm","scripts","dependencies","monorepo","skif"]
+keywords = ["npm", "scripts", "dependencies", "monorepo", "skif"]
 categories = ["development-tools", "parser-implementations"]
 
 [lib]
