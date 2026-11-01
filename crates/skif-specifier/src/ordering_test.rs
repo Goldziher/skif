@@ -194,15 +194,15 @@ fn non_version_specifiers_sort_before_versioned() {
 }
 
 #[test]
-fn non_version_specifiers_are_equal_to_each_other() {
+fn non_version_specifiers_tie_break_on_raw_string() {
     let file = Specifier::new("file:../path");
     let url = Specifier::new("https://example.com/package.tgz");
     let tag = Specifier::new("alpha");
 
-    // Non-version specifiers compare equal (no version to compare)
-    assert_eq!(file.cmp(&url), Ordering::Equal);
-    assert_eq!(file.cmp(&tag), Ordering::Equal);
-    assert_eq!(url.cmp(&tag), Ordering::Equal);
+    // Non-version specifiers have no version to compare, so the raw string decides
+    assert_eq!(file.cmp(&url), Ordering::Less);
+    assert_eq!(file.cmp(&tag), Ordering::Greater);
+    assert_eq!(url.cmp(&tag), Ordering::Greater);
 }
 
 #[test]
@@ -217,10 +217,10 @@ fn sorting_non_version_specifiers() {
 
     specifiers.sort();
 
-    // Non-version specifiers should come first (order among them preserved by stable sort)
+    // Non-version specifiers should come first (ordered by raw string among themselves)
     // Then versioned specifiers in order
-    assert_eq!(specifiers[0], Specifier::new("file:../path"));
-    assert_eq!(specifiers[1], Specifier::new("alpha"));
+    assert_eq!(specifiers[0], Specifier::new("alpha"));
+    assert_eq!(specifiers[1], Specifier::new("file:../path"));
     assert_eq!(specifiers[2], Specifier::new("workspace:^"));
     assert_eq!(specifiers[3], Specifier::new("1.0.0"));
     assert_eq!(specifiers[4], Specifier::new("2.0.0"));
@@ -255,8 +255,9 @@ fn workspace_protocol_with_embedded_version_sorts_normally() {
     let minor = Specifier::new("^1.5.0");
 
     // workspace:^1.5.0 should behave like ^1.5.0
-    // Both should be equal (same version, same range)
-    assert_eq!(workspace.cmp(&minor), Ordering::Equal);
+    // Same version and same range, so only the raw string tie-break separates them
+    assert_eq!(workspace.cmp(&minor), Ordering::Greater);
+    assert_ne!(workspace, minor);
 
     // workspace:^1.5.0 > 1.5.0 (minor > exact)
     assert_eq!(workspace.cmp(&exact), Ordering::Greater);
@@ -581,21 +582,22 @@ fn comprehensive_sorting() {
 
     // Expected order after sorting:
     // 1. Non-version specifiers (file, url, tag, workspace without version, git without version, alias without version, none, complex,
-    //    unsupported) - all compare as Equal
+    //    unsupported) - all compare as Equal semantically, so the raw string orders them
     // 2. Versioned specifiers sorted by: a) Version number (ascending) b) Range greediness (for same version): Lt < Lte < Exact < Patch <
     //    Minor < Gte < Gt < Any
     // 3. Latest (*) sorts last due to HUGE version (999999.999999.999999)
     let expected = vec![
         // Non-version specifiers come first
-        Specifier::new("github:user/repo"),                // Git without version
-        Specifier::new("file:../local"),                   // File
-        Specifier::new("https://example.com/package.tgz"), // Url
-        Specifier::new("alpha"),                           // Tag
-        Specifier::new("beta"),                            // Tag
-        Specifier::new("workspace:^"),                     // Workspace without version
-        Specifier::new("workspace:*"),                     // Workspace without version
+        // (all compare Equal semantically, so they are ordered by raw string)
         Specifier::new(""),                                // None
         Specifier::new(">=1.0.0 <2.0.0"),                  // Complex semver
+        Specifier::new("alpha"),                           // Tag
+        Specifier::new("beta"),                            // Tag
+        Specifier::new("file:../local"),                   // File
+        Specifier::new("github:user/repo"),                // Git without version
+        Specifier::new("https://example.com/package.tgz"), // Url
+        Specifier::new("workspace:*"),                     // Workspace without version
+        Specifier::new("workspace:^"),                     // Workspace without version
         Specifier::new("}invalid{"),                       // Unsupported
         // Versioned specifiers sorted by version then range greediness
         Specifier::new("1.0.0-alpha"),                    // Prerelease < stable
@@ -603,8 +605,8 @@ fn comprehensive_sorting() {
         Specifier::new("<1.0.0"),                         // Lt (rank 0)
         Specifier::new("<=1.0.0"),                        // Lte (rank 1)
         Specifier::new("1.0.0"),                          // Exact (rank 2)
-        Specifier::new("npm:react@1.0.0"),                // Exact (rank 2)
         Specifier::new("github:user/repo#1.0.0"),         // Exact (rank 2)
+        Specifier::new("npm:react@1.0.0"),                // Exact (rank 2)
         Specifier::new("~1.0.0"),                         // Patch (rank 3)
         Specifier::new("^1.0.0"),                         // Minor (rank 4)
         Specifier::new("1.2"),                            // Minor shorthand (1.2.999999)
@@ -701,6 +703,80 @@ fn unsupported_specifiers_sort_consistently() {
     assert_eq!(unsupported1.cmp(&versioned), Ordering::Less);
     assert_eq!(unsupported2.cmp(&versioned), Ordering::Less);
 
-    // Unsupported specifiers compare equal to each other
-    assert_eq!(unsupported1.cmp(&unsupported2), Ordering::Equal);
+    // Unsupported specifiers are ordered by raw string
+    assert_eq!(unsupported1.cmp(&unsupported2), Ordering::Greater);
+}
+
+// =============================================================================
+// Ord / Eq consistency and prerelease ordering
+// =============================================================================
+
+const ORD_FIXTURES: &[&str] = &[
+    "",
+    "1.2.3",
+    "=1.2.3",
+    "1.2.3-beta.1",
+    "=1.2.3-beta.1",
+    "^1.2.3",
+    "workspace:^1.2.3",
+    "npm:foo@^1.2.3",
+    "1",
+    "1.2",
+    "^1",
+    "~1.2",
+    "*",
+    "x",
+    "latest",
+    "alpha",
+    "file:../a",
+    "file:../b",
+    "workspace:*",
+    "workspace:^",
+    ">=1.0.0 <2.0.0",
+    "1.0.0 || 2.0.0",
+    "1.x",
+    "}invalid{",
+    "99999999999999999999",
+    "github:user/repo#1.2.3",
+];
+
+#[test]
+fn cmp_is_equal_exactly_when_eq_over_fixtures() {
+    for left in ORD_FIXTURES {
+        for right in ORD_FIXTURES {
+            let a = Specifier::new(left);
+            let b = Specifier::new(right);
+            assert_eq!(
+                a.cmp(&b) == Ordering::Equal,
+                a == b,
+                "cmp/eq disagree for {left:?} vs {right:?}"
+            );
+            assert_eq!(a.cmp(&b), b.cmp(&a).reverse(), "cmp not antisymmetric for {left:?} vs {right:?}");
+        }
+    }
+}
+
+#[test]
+fn exact_with_and_without_equals_prefix_are_ordered_not_equal() {
+    let plain = Specifier::new("1.2.3");
+    let prefixed = Specifier::new("=1.2.3");
+    assert_ne!(plain, prefixed);
+    assert_ne!(plain.cmp(&prefixed), Ordering::Equal);
+    assert_eq!(plain.cmp(&prefixed), prefixed.cmp(&plain).reverse());
+}
+
+#[test]
+fn prerelease_of_higher_major_orders_above_lower_stable() {
+    let cases = [
+        ("1.0.0", "2.0.0-beta.1"),
+        ("1.9.9", "2.0.0-alpha"),
+        ("^1.0.0", "^2.0.0-beta.1"),
+        ("1.0.0", "=2.0.0-beta.1"),
+    ];
+    for (lower, higher) in cases {
+        let a = Specifier::new(lower);
+        let b = Specifier::new(higher);
+        assert_eq!(a.cmp(&b), Ordering::Less, "Expected {lower} < {higher}");
+        assert_eq!(b.cmp(&a), Ordering::Greater, "Expected {higher} > {lower}");
+    }
 }
