@@ -1,0 +1,11 @@
+[
+  {
+    "rule": "banned-dependency",
+    "severity": "error",
+    "package": "app",
+    "dependency": "@acme/old",
+    "detail": "IsBanned",
+    "path": "packages/app/package.json",
+    "fixable": true
+  }
+]

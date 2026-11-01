@@ -1,0 +1,8 @@
+{
+  "name": "lib",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "@typescript/native-preview": "^7.0.0-dev.20260117.1"
+  }
+}

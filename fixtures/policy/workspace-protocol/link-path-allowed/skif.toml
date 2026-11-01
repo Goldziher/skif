@@ -1,0 +1,3 @@
+[workspace-protocol]
+internal = true
+allow-local-paths = true

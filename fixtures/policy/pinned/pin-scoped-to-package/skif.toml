@@ -1,0 +1,5 @@
+[[version-groups]]
+packages = ["app"]
+dependencies = ["react"]
+policy = "pinned"
+pin = "18.2.0"

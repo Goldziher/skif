@@ -1,0 +1,11 @@
+[
+  {
+    "rule": "policy-conflict",
+    "severity": "warning",
+    "package": "app",
+    "dependency": "react",
+    "detail": "PinOverridesSemverRange",
+    "path": "packages/app/package.json",
+    "fixable": true
+  }
+]

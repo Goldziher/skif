@@ -87,7 +87,9 @@ pub(super) fn parse(words: &[Word], value_flags: &[&str], stop_at_positional: bo
             i += 1;
             continue;
         }
-        let short = text.strip_prefix('-').filter(|s| !s.is_empty() && !s.chars().all(|c| c.is_ascii_digit()));
+        let short = text
+            .strip_prefix('-')
+            .filter(|s| !s.is_empty() && !s.chars().all(|c| c.is_ascii_digit()));
         if let Some(short) = short {
             let first = short.chars().next().map_or(0, char::len_utf8);
             let (head, tail) = short.split_at(first);

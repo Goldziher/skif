@@ -1,0 +1,9 @@
+{
+  "name": "lib",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "react": "catalog:",
+    "zod": "^3.23.8"
+  }
+}

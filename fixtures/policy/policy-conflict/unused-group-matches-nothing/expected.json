@@ -1,0 +1,11 @@
+[
+  {
+    "rule": "policy-conflict",
+    "severity": "warning",
+    "package": null,
+    "dependency": null,
+    "detail": "UnusedGroup",
+    "path": "skif.toml",
+    "fixable": false
+  }
+]

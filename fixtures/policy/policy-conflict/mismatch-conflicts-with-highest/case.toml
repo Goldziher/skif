@@ -1,0 +1,4 @@
+description = "An instance outside its semver group's range, where the group's range could not satisfy the highest version, is an unfixable conflict."
+source = "syncpack:src/version_group/preferred_semver_test.rs::highest_or_lowest::instance_has_same_version_number_as_highest_semver_but_mismatches_a_different_but_incompatible_semver_group"
+tags = ["semver-groups", "highest", "conflict"]
+valid-states = ["IsHighestOrLowestSemver"]

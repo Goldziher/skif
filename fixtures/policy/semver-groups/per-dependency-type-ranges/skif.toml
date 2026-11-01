@@ -1,0 +1,7 @@
+[[semver-groups]]
+dependency-types = ["peer"]
+range = "^"
+
+[[semver-groups]]
+dependency-types = ["prod", "dev"]
+range = ""

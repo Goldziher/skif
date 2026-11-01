@@ -1,0 +1,3 @@
+description = "Differing non-semver specifiers cannot be ranked: every instance is reported (not dropped) as unfixable."
+source = "syncpack:src/version_group/preferred_semver_test.rs::non_semver::link_specifiers_without_local_instance_differ"
+tags = ["unsupported", "git", "reported-not-dropped"]

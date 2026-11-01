@@ -1,0 +1,3 @@
+description = "[workspace] ignore-packages excludes a package from every check, including as the owner of an invalid local version."
+source = "skif"
+tags = ["ignore-packages", "invalid-local-version"]

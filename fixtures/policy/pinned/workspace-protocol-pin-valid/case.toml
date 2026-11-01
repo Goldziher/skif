@@ -1,0 +1,4 @@
+description = "A dependency already pinned to a workspace: protocol specifier is valid."
+source = "syncpack:src/version_group/pinned_test.rs::normal::an_already_pinned_workspace_protocol_version_is_valid"
+tags = ["pinned", "workspace-protocol"]
+valid-states = ["IsIdenticalToPin"]

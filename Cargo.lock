@@ -1379,6 +1379,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "skif-js-plugins"
+version = "0.0.0"
+dependencies = [
+ "indexmap",
+ "proptest",
+ "skif-config",
+]
+
+[[package]]
 name = "skif-lint"
 version = "0.0.0"
 dependencies = [

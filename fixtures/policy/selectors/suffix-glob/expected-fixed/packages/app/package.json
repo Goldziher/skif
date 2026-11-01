@@ -1,0 +1,10 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "css-loader": "^6.0.0",
+    "babel-loader": "^9.1.0",
+    "zod": "^3.23.8"
+  }
+}

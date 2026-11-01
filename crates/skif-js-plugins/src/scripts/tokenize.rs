@@ -154,7 +154,11 @@ impl Lexer<'_> {
                 },
                 '|' => {
                     self.end_segment();
-                    self.i += if matches!(self.at(self.i + 1), Some('|' | '&')) { 2 } else { 1 };
+                    self.i += if matches!(self.at(self.i + 1), Some('|' | '&')) {
+                        2
+                    } else {
+                        1
+                    };
                 }
                 '<' | '>' => self.redirect_op(),
                 _ => {
