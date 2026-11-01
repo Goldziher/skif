@@ -303,13 +303,15 @@ impl Package {
 
     /// The `devDependencies` versions, without the ones also declared in `peerDependencies`:
     /// those test the lowest supported peer range and are not meant to match other packages.
-    pub fn get_dev_dependencies(&self, catalogs: &Catalogs) -> Option<IndexMap<String, SemVersion>> {
+    pub fn get_dev_dependencies(
+        &self,
+        catalogs: &Catalogs,
+    ) -> Option<IndexMap<String, SemVersion>> {
         let peer_dependencies = self.inner.peer_dependencies.as_ref();
 
         Self::get_deps(self.inner.dev_dependencies.as_ref(), catalogs).map(|mut dependencies| {
-            dependencies.retain(|name, _| {
-                !peer_dependencies.is_some_and(|peers| peers.contains_key(name))
-            });
+            dependencies
+                .retain(|name, _| !peer_dependencies.is_some_and(|peers| peers.contains_key(name)));
             dependencies
         })
     }
