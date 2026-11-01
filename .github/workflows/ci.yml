@@ -1,74 +1,121 @@
 name: CI
 
 on:
-  pull_request:
   push:
-    branches:
-      - main
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Check
+  toolchain:
+    name: Toolchain baseline
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5
-        with:
-          install_args: rust
-      - uses: Swatinem/rust-cache@v2
-      - run: mise run check-rust
+      - uses: xberg-io/actions/check-toolchain@v1
 
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5
-        with:
-          install_args: rust
-      - uses: Swatinem/rust-cache@v2
-      - run: mise run test
-
-  deny:
-    name: Deny
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5
-        with:
-          install_args: rust cargo-deny
-      - run: mise run deny
+  # The shared org gate (poly fmt --check + poly lint over the whole repo), same as
+  # basemind and uncomment run. `setup-rust` is required because poly.toml enables the
+  # cargo/clippy hook. It needs no permissions beyond the workflow-level `contents: read`.
+  validate:
+    uses: xberg-io/actions/.github/workflows/reusable-validate.yml@v1
+    with:
+      setup-rust: true
 
   lint:
-    name: Poly
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5
+      # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
+      - uses: dtolnay/rust-toolchain@v1
         with:
-          install_args: poly
-      - run: mise run format:check
-      - run: poly lint --no-workspace .
+          toolchain: stable
+          components: clippy, rustfmt
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - uses: Swatinem/rust-cache@v2
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-  action:
-    name: Action bundle
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # fail-fast stays off so one platform's failure does not cancel the others.
+      fail-fast: false
+      matrix:
+        # Windows is a shipped target and the only place the suite runs on a real Windows host.
+        os: [ubuntu-latest, macos-26, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests
+        run: cargo test --workspace --locked --no-fail-fast
+
+  # The workspace Cargo.toml advertises a `rust-version`; published crates are resolved against it, so
+  # it has to be true. The version is read out of the manifest rather than written here —
+  # a hardcoded number is one more surface to bump, and this repo has several version surfaces.
+  # Library and binary only, deliberately not `--all-targets`: dev-dependencies are not
+  # bound by the crate's MSRV, and compiling them here would fail the job for a version
+  # constraint that no consumer of the published crate is ever subject to.
+  msrv:
+    name: MSRV
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5
+      - name: Resolve MSRV from Cargo.toml
+        id: msrv
+        run: |
+          set -euo pipefail
+          version="$(awk '/^\[(workspace\.)?package\]/{p=1;next} /^\[/{p=0} p && /^rust-version *= *"/{gsub(/"/,"",$3);print $3;exit}' Cargo.toml)"
+          [[ -n "$version" ]] || { echo "::error::Cargo.toml declares no rust-version"; exit 1; }
+          echo "MSRV: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
+      - uses: dtolnay/rust-toolchain@v1
         with:
-          install_args: node pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: mise run action
-      - name: Verify the committed bundle is current
-        run: git diff --exit-code action/index.js
+          toolchain: stable
+      - name: Install the MSRV toolchain
+        run: rustup toolchain install "${{ steps.msrv.outputs.version }}" --profile minimal --no-self-update
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv-${{ steps.msrv.outputs.version }}
+      - name: Check against the MSRV
+        run: cargo "+${{ steps.msrv.outputs.version }}" check --workspace --locked
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release
+        run: cargo build --workspace --locked
+      - name: Verify the publishable crates
+        run: cargo package --workspace --locked
+
+  deny:
+    name: Licences and advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: EmbarkStudios/cargo-deny-action@v2
