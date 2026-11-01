@@ -18,7 +18,7 @@
   "homepage": "https://github.com/QuiiBz/sherif#readme",
   "license": "MIT",
   "scripts": {
-    "action": "tsc --noEmit && esbuild action/index.ts --bundle --platform=node --target=node24 --format=cjs --outfile=action/index.js",
+    "action": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -29,7 +29,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "esbuild": "^0.28.2",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
   }
 }
