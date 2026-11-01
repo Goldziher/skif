@@ -135,7 +135,7 @@ fn monorepo_dependencies() {
     );
     assert_eq!(
         found(&diagnostics, "unused-dev-dependencies"),
-        ["packages/app/package.json: @types/unused-thing", "package.json: left-over"]
+        ["package.json: left-over", "packages/app/package.json: @types/unused-thing"]
     );
     assert_eq!(
         found(&diagnostics, "unlisted-dependencies"),
@@ -295,7 +295,6 @@ impl InputSource for Seam {
             },
             Some("fx-root") => WorkspaceInputs {
                 dependencies: vec!["left-over".to_owned()],
-                binaries: vec!["eslint".to_owned()],
                 ..WorkspaceInputs::default()
             },
             _ => WorkspaceInputs::default(),
