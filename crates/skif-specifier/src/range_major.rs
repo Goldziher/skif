@@ -38,7 +38,8 @@ impl RangeMajor {
         let semver_range = SemverRange::parse(raw);
         let semver_number = strip_semver_range(raw).to_string();
         let node_version = Specifier::new_node_version(&format!("{semver_number}.{HUGE}.{HUGE}"))?;
-        let node_range = Specifier::new_node_range(&format!("{}{}.{HUGE}.{HUGE}", semver_range.unwrap(), semver_number))?;
+        let node_range =
+            Specifier::new_node_range(&format!("{}{}.{HUGE}.{HUGE}", semver_range.unwrap(), semver_number))?;
         Some(Self {
             raw: raw.to_string(),
             node_range,
@@ -49,7 +50,11 @@ impl RangeMajor {
     }
 
     #[cfg(test)]
-    #[allow(clippy::expect_used, reason = "test fixtures are valid by construction")]
+    #[allow(
+        clippy::expect_used,
+        clippy::missing_panics_doc,
+        reason = "test fixtures are valid by construction"
+    )]
     #[must_use]
     pub fn create_test(raw: &str) -> Self {
         Self::try_new(raw).expect("valid test fixture")
