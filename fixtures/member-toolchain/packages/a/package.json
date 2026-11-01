@@ -1,0 +1,7 @@
+{
+  "name": "a",
+  "packageManager": "pnpm@8.0.0",
+  "engines": {
+    "node": ">=18"
+  }
+}

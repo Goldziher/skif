@@ -356,6 +356,20 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
     })
 }
 
+fn add_for_package(
+    issues: &mut IssuesList,
+    config: &Config,
+    package: &Package,
+    package_type: PackageType,
+    issue: Option<BoxIssue>,
+) {
+    if let Some(issue) = issue
+        && !config.ignores_rule_for(issue.name(), package)
+    {
+        issues.add_raw(package_type, issue);
+    }
+}
+
 pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesList<'_> {
     let mut issues = IssuesList::new(&config.ignore_rule);
 
@@ -387,6 +401,17 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
     let mut all_dependencies = IndexMap::new();
     let mut joined_dependencies = IndexMap::new();
     let mut similar_dependencies_by_package = IndexMap::new();
+    // Paths of the packages excluded from the dependency-wide rules via `ignoreRuleForPackage`.
+    let mut multiple_versions_ignored_paths = HashSet::new();
+    let mut unsync_similar_ignored_paths = HashSet::new();
+
+    if config.ignores_rule_for("multiple-dependency-versions", root_package.as_package()) {
+        multiple_versions_ignored_paths.insert(root_package.get_path());
+    }
+
+    if config.ignores_rule_for("unsync-similar-dependencies", root_package.as_package()) {
+        unsync_similar_ignored_paths.insert(root_package.get_path());
+    }
 
     if let Some(dependencies) = root_package.get_dependencies(&catalogs) {
         joined_dependencies.extend(dependencies);
@@ -412,14 +437,27 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
 
         let package_type = PackageType::Package(package.get_path());
 
-        issues.add(package_type.clone(), package.check_dependencies());
-        issues.add(package_type.clone(), package.check_dev_dependencies());
-        issues.add(package_type.clone(), package.check_peer_dependencies());
-        issues.add(package_type.clone(), package.check_optional_dependencies());
-        issues.add(
-            package_type.clone(),
+        if config.ignores_rule_for("multiple-dependency-versions", &package) {
+            multiple_versions_ignored_paths.insert(package.get_path());
+        }
+
+        if config.ignores_rule_for("unsync-similar-dependencies", &package) {
+            unsync_similar_ignored_paths.insert(package.get_path());
+        }
+
+        for issue in [
+            package.check_dependencies(),
+            package.check_dev_dependencies(),
+            package.check_peer_dependencies(),
+            package.check_optional_dependencies(),
             package.check_incompatible_peer_dependencies(&catalogs),
-        );
+            package.check_member_toolchain(
+                root_package.as_package(),
+                config.member_toolchain.unwrap_or_default(),
+            ),
+        ] {
+            add_for_package(&mut issues, config, &package, package_type.clone(), issue);
+        }
 
         let mut joined_dependencies = IndexMap::new();
 
@@ -432,9 +470,12 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
                     .collect::<Vec<_>>();
 
                 if !types_in_dependencies.is_empty() {
-                    issues.add_raw(
+                    add_for_package(
+                        &mut issues,
+                        config,
+                        &package,
                         package_type.clone(),
-                        TypesInDependenciesIssue::new(types_in_dependencies),
+                        Some(TypesInDependenciesIssue::new(types_in_dependencies)),
                     );
                 }
             }
@@ -459,6 +500,10 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
     for (name, versions) in all_dependencies {
         if let Ok(similar_dependency) = SimilarDependency::try_from(name.as_str()) {
             for (path, version) in &versions {
+                if unsync_similar_ignored_paths.contains(path) {
+                    continue;
+                }
+
                 similar_dependencies_by_package
                     .entry(path.clone())
                     .or_insert_with(
@@ -472,6 +517,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
 
         let mut filtered_versions = versions
             .iter()
+            .filter(|(path, _)| !multiple_versions_ignored_paths.contains(path.as_str()))
             .filter(|(_, version)| {
                 !config
                     .ignore_dependency
@@ -713,6 +759,7 @@ mod test {
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
             format: None,
+            ignore_rule_for_package: Vec::new(),
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -753,6 +800,7 @@ mod test {
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
             format: None,
+            ignore_rule_for_package: Vec::new(),
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -775,6 +823,7 @@ mod test {
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
             format: None,
+            ignore_rule_for_package: Vec::new(),
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -797,6 +846,7 @@ mod test {
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
             format: None,
+            ignore_rule_for_package: Vec::new(),
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -819,6 +869,7 @@ mod test {
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
             format: None,
+            ignore_rule_for_package: Vec::new(),
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -850,6 +901,7 @@ mod test {
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
             format: None,
+            ignore_rule_for_package: Vec::new(),
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -891,6 +943,7 @@ mod test {
             ignore_package: Vec::new(),
             ignore_dependency: vec!["next@4.5.6".to_string(), "*eslint*".to_string()],
             format: None,
+            ignore_rule_for_package: Vec::new(),
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -920,6 +973,7 @@ mod test {
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
             format: None,
+            ignore_rule_for_package: Vec::new(),
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -953,6 +1007,7 @@ mod test {
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
             format: None,
+            ignore_rule_for_package: Vec::new(),
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -989,6 +1044,7 @@ mod test {
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
             format: None,
+            ignore_rule_for_package: Vec::new(),
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -1089,6 +1145,7 @@ mod test {
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
             format: None,
+            ignore_rule_for_package: Vec::new(),
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -1126,6 +1183,7 @@ mod test {
             ignore_package: Vec::new(),
             ignore_dependency: Vec::new(),
             format: None,
+            ignore_rule_for_package: Vec::new(),
         };
 
         let packages_list = collect_packages(&args.path).unwrap();
@@ -1149,18 +1207,185 @@ mod test {
         );
     }
 
-    fn collect_fixture_issues(path: &str) -> IndexMap<PackageType, Vec<BoxIssue>> {
-        let args = Args {
+    fn args_for(path: &str, ignore_package: &[&str], ignore_rule_for_package: &[&str]) -> Args {
+        Args {
             path: path.into(),
             fix: false,
             select: None,
             no_install: true,
             fail_on_warnings: false,
             ignore_rule: Vec::new(),
-            ignore_package: Vec::new(),
+            ignore_package: ignore_package
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
             ignore_dependency: Vec::new(),
-        };
+            ignore_rule_for_package: ignore_rule_for_package
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
+            format: None,
+        }
+    }
 
+    fn issues_by_package(
+        config: &Config,
+        path: &str,
+    ) -> IndexMap<PackageType, Vec<crate::rules::BoxIssue>> {
+        let packages_list = collect_packages(Path::new(path)).unwrap();
+
+        collect_issues(config, packages_list)
+            .into_iter()
+            .collect::<IndexMap<_, _>>()
+    }
+
+    fn package_type(path: &str) -> PackageType {
+        PackageType::Package(path.to_string())
+    }
+
+    #[test]
+    fn collect_member_toolchain_forbid() {
+        let config = Config::from(args_for("fixtures/member-toolchain", &[], &[]));
+        let issues = issues_by_package(&config, "fixtures/member-toolchain");
+
+        assert_eq!(issues.len(), 2);
+        for path in ["a", "b"] {
+            let issue =
+                &issues[&package_type(&format!("fixtures/member-toolchain/packages/{path}"))][0];
+
+            assert_eq!(issue.name(), "member-toolchain-fields");
+            assert_eq!(issue.level(), crate::rules::IssueLevel::Warning);
+        }
+    }
+
+    #[test]
+    fn collect_member_toolchain_match_root() {
+        let mut config = Config::from(args_for("fixtures/member-toolchain", &[], &[]));
+        config.member_toolchain = Some(crate::packages::MemberToolchain::MatchRoot);
+
+        let issues = issues_by_package(&config, "fixtures/member-toolchain");
+
+        assert_eq!(issues.len(), 1);
+        assert!(issues.contains_key(&package_type("fixtures/member-toolchain/packages/a")));
+    }
+
+    #[test]
+    fn collect_member_toolchain_ignore_package() {
+        let config = Config::from(args_for("fixtures/member-toolchain", &["a"], &[]));
+        let issues = issues_by_package(&config, "fixtures/member-toolchain");
+
+        assert_eq!(issues.len(), 1);
+        assert!(issues.contains_key(&package_type("fixtures/member-toolchain/packages/b")));
+    }
+
+    #[test]
+    fn collect_ignore_rule_for_package() {
+        let config = Config::from(args_for(
+            "fixtures/member-toolchain",
+            &[],
+            &["member-toolchain-fields:a"],
+        ));
+        let issues = issues_by_package(&config, "fixtures/member-toolchain");
+
+        assert_eq!(issues.len(), 1);
+        assert!(issues.contains_key(&package_type("fixtures/member-toolchain/packages/b")));
+    }
+
+    #[test]
+    fn collect_ignore_rule_for_package_glob_and_other_rule() {
+        let config = Config::from(args_for(
+            "fixtures/member-toolchain",
+            &[],
+            &["member-toolchain-fields:fixtures/member-toolchain/packages/*"],
+        ));
+        assert!(issues_by_package(&config, "fixtures/member-toolchain").is_empty());
+
+        let config = Config::from(args_for(
+            "fixtures/member-toolchain",
+            &[],
+            &["empty-dependencies:a"],
+        ));
+        assert_eq!(
+            issues_by_package(&config, "fixtures/member-toolchain").len(),
+            2
+        );
+    }
+
+    #[test]
+    fn collect_ignore_rule_for_package_unsync_similar_dependencies() {
+        let config = Config::from(args_for(
+            "fixtures/unsync",
+            &[],
+            &["unsync-similar-dependencies:def"],
+        ));
+        let issues = issues_by_package(&config, "fixtures/unsync");
+
+        assert_eq!(issues.len(), 1);
+        assert_eq!(
+            issues[&PackageType::None][0].name(),
+            "multiple-dependency-versions"
+        );
+    }
+
+    #[test]
+    fn collect_ignore_rule_for_package_multiple_dependency_versions() {
+        let config = Config::from(args_for(
+            "fixtures/unsync",
+            &[],
+            &["multiple-dependency-versions:abc"],
+        ));
+        let issues = issues_by_package(&config, "fixtures/unsync");
+
+        assert_eq!(issues.len(), 1);
+        assert_eq!(
+            issues[&package_type("fixtures/unsync/packages/def")][0].name(),
+            "unsync-similar-dependencies"
+        );
+    }
+
+    #[test]
+    fn config_merge_splits_on_first_colon() {
+        let config = Config::from(args_for(
+            "fixtures/basic",
+            &[],
+            &["rule:pkg:with:colons", "rule:b"],
+        ));
+
+        assert_eq!(
+            config.ignore_rule_for_package.get("rule"),
+            Some(&vec!["pkg:with:colons".to_string(), "b".to_string()])
+        );
+    }
+
+    #[test]
+    fn collect_config_file_is_layered_over_package_json() {
+        let path = Path::new("fixtures/config-file");
+        let packages_list = collect_packages(path).unwrap();
+        let mut config = packages_list.root_package.get_config().unwrap_or_default();
+
+        assert_eq!(
+            config.ignore_rule,
+            vec!["root-package-dependencies".to_string()]
+        );
+        assert_eq!(
+            collect_issues(&config, collect_packages(path).unwrap()).total_len(),
+            2
+        );
+
+        config.overlay(crate::config_file::load(path).unwrap().unwrap());
+
+        assert_eq!(
+            config.ignore_rule,
+            vec![
+                "root-package-dependencies".to_string(),
+                "empty-dependencies".to_string()
+            ]
+        );
+        assert_eq!(collect_issues(&config, packages_list).total_len(), 0);
+    }
+
+    fn collect_fixture_issues(path: &str) -> IndexMap<PackageType, Vec<BoxIssue>> {
+        let args = args_for(path, &[], &[]);
         let packages_list = collect_packages(&args.path).unwrap();
         let config = args.into();
 
