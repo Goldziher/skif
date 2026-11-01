@@ -1,0 +1,8 @@
+{
+  "name": "@e2e/b",
+  "version": "0.0.0",
+  "dependencies": {
+    "@e2e/a": "link:../a",
+    "is-number": "6.0.0"
+  }
+}
