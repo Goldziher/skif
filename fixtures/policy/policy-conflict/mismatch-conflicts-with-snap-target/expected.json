@@ -1,0 +1,11 @@
+[
+  {
+    "rule": "policy-conflict",
+    "severity": "warning",
+    "package": "lib",
+    "dependency": "tiny-invariant",
+    "detail": "MismatchConflictsWithSnapTarget",
+    "path": "packages/lib/package.json",
+    "fixable": false
+  }
+]

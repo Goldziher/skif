@@ -1,0 +1,8 @@
+[[version-groups]]
+dependencies = ["react"]
+policy = "pinned"
+pin = "18.3.1"
+
+[[semver-groups]]
+dependencies = ["react"]
+range = "^"

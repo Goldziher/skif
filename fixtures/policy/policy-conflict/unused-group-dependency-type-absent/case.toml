@@ -1,0 +1,3 @@
+description = "A group restricted to a dependency type that no package uses for its dependencies matches nothing."
+source = "skif (ADR 0009 confirmation)"
+tags = ["unused-group", "dependency-types"]

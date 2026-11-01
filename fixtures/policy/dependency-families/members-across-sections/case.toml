@@ -1,0 +1,3 @@
+description = "Family members are compared across dependencies and devDependencies of one package."
+source = "skif"
+tags = ["families", "builtin", "dependency-types"]
