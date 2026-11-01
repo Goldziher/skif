@@ -31,15 +31,121 @@ single-binary CLI that is also an embeddable Rust library.
 
 ## Installation
 
-skif is not published yet. The first release will provide:
+skif has not been released yet. Every channel below is available from the first release; until then,
+build from source with `cargo build --release`.
 
 ```bash
+# Rust toolchain
 cargo install skif-cli
 cargo binstall skif-cli
-npm install --save-dev skif
+
+# npm (JavaScript projects); the package is `skif`, with prebuilt per-platform binaries
+pnpm add -D skif        # or: npm install -D skif / yarn add -D skif / bun add -D skif
+pnpm dlx skif           # run without installing; also: npx skif / yarn dlx skif / bunx skif
+
+# Homebrew (macOS and Linux)
+brew install goldziher/tap/skif
+
+# Scoop (Windows)
+scoop bucket add goldziher https://github.com/Goldziher/scoop-bucket
+scoop install skif
 ```
 
-Until then, build from source with `cargo build --release`.
+`cargo install skif` installs the library crate, not the binary; the command-line tool is `skif-cli`.
+
+### GitHub Action
+
+```yaml
+- uses: actions/checkout@v7
+- uses: Goldziher/skif@v1
+  with:
+    fail-on-warnings: true
+```
+
+Inputs: `version` (defaults to the action's own tag), `args` (extra skif arguments), `working-directory`,
+`fail-on-warnings`, and `install-only` to put `skif` on `PATH` without running it. The action downloads
+the release archive for the runner and verifies it against the release's `checksums.txt`.
+
+### Prebuilt binaries
+
+Each release attaches one archive per target, plus `checksums.txt`:
+
+| Target | Archive |
+| --- | --- |
+| macOS, Apple silicon / Intel | `skif-aarch64-apple-darwin.tar.gz`, `skif-x86_64-apple-darwin.tar.gz` |
+| Linux x64 / arm64, glibc | `skif-x86_64-unknown-linux-gnu.tar.gz`, `skif-aarch64-unknown-linux-gnu.tar.gz` |
+| Linux x64 / arm64, musl (static, Alpine) | `skif-x86_64-unknown-linux-musl.tar.gz`, `skif-aarch64-unknown-linux-musl.tar.gz` |
+| Windows x64 / arm64 | `skif-x86_64-pc-windows-msvc.zip`, `skif-aarch64-pc-windows-msvc.zip` |
+
+Each archive holds the `skif` binary (`skif.exe` on Windows) and the licence. Verify a download with
+`sha256sum --check --ignore-missing checksums.txt`.
+
+## Git hooks
+
+skif belongs in a pre-commit hook: a mismatched version or an unsorted dependency map is cheapest to fix
+before it is committed. Both hooks lint the whole workspace (`pass_filenames: false`) and pass `--no-js`,
+because JavaScript analysis reads every source file and belongs in CI. The fix hook also passes
+`--no-install`, so a commit never runs a package manager, and it is refused when `CI` is set. Hooks are
+available from the first release.
+
+<details>
+<summary><strong>pre-commit / prek</strong></summary>
+
+Add to `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/Goldziher/skif
+    rev: v0.1.0 # use the latest release tag
+    hooks:
+      - id: skif       # skif --no-js
+      - id: skif-fix   # skif --fix --no-install --no-js (opt-in, rewrites manifests)
+```
+
+Both hooks run `scripts/pre-commit/run-skif.sh`, which needs neither Rust nor Node. It uses, in order:
+`SKIF_BINARY` (an error if it is not executable), `skif` on `PATH`, then the release pinned by the hook
+revision, downloaded once into `~/.cache/skif/pre-commit` and verified against `checksums.txt`.
+
+</details>
+
+<details>
+<summary><strong>Poly</strong></summary>
+
+Add skif as a managed source in your `poly.toml`:
+
+```toml
+[[hooks.sources]]
+id = "skif"
+git = "https://github.com/Goldziher/skif.git"
+revision = "v0.1.0" # use the latest release tag
+hooks = ["skif"]
+```
+
+`poly-hooks.toml` also provides `skif-fix`. Each hook has a `system` channel (`skif` on `PATH`) and an
+`npm` channel pinned to the release version (`pnpm dlx skif@<version>`). Then:
+
+```bash
+poly hooks update
+git add poly.toml poly-hooks.lock
+poly hooks install
+```
+
+</details>
+
+<details>
+<summary><strong>Lefthook</strong></summary>
+
+Lefthook is configured on the consumer side, so nothing ships from this repository. Add to `lefthook.yml`:
+
+```yaml
+pre-commit:
+  commands:
+    skif:
+      glob: "{package.json,**/package.json,pnpm-workspace.yaml,skif.toml,.skif.toml}"
+      run: skif --no-js
+```
+
+</details>
 
 ## Configuration
 
