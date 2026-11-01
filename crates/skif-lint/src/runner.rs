@@ -20,6 +20,7 @@ pub struct RunOptions<'a> {
 
 /// A lint run failed.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum LintError {
     #[error(transparent)]
     Config(#[from] ConfigError),

@@ -169,7 +169,7 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
                     edit.replacement.clone(),
                 )]
             }
-            FixOp::Yaml { .. } | FixOp::CreateFile { .. } | FixOp::DeleteFile { .. } => {
+            _ => {
                 return Err(EditPlanError::Unsupported {
                     op: describe::op(op),
                     kind: FileKind::Json,
@@ -245,6 +245,10 @@ impl<'a> Doc<'_, 'a> {
                 Ok(self.sort_keys(&holder))
             }
             JsonAction::RenameKey(new_key) => Self::rename(op, target, new_key),
+            _ => Err(EditPlanError::Unsupported {
+                op: op.to_owned(),
+                kind: FileKind::Json,
+            }),
         }
     }
 

@@ -65,6 +65,7 @@ pub struct UnusedExportsOptions {
 
 /// Typed per-rule options. Rules without declared options keep their raw table in [`RuleOptions::Other`].
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub enum RuleOptions {
     #[default]
     None,

@@ -162,6 +162,7 @@ fn closest(id: &str, known: &[&str]) -> Option<String> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum PackageManager {
     Npm,
     Pnpm,
