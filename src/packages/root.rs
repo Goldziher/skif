@@ -1,4 +1,4 @@
-use super::{Package, Workspaces, semversion::SemVersion};
+use super::{Catalogs, Package, Workspaces, semversion::SemVersion};
 use crate::{
     packages::Config,
     rules::{
@@ -75,12 +75,23 @@ impl RootPackage {
         self.0.check_optional_dependencies()
     }
 
-    pub fn get_dependencies(&self) -> Option<IndexMap<String, SemVersion>> {
-        self.0.get_dependencies()
+    pub fn check_incompatible_peer_dependencies(&self, catalogs: &Catalogs) -> Option<BoxIssue> {
+        self.0.check_incompatible_peer_dependencies(catalogs)
     }
 
-    pub fn get_dev_dependencies(&self) -> Option<IndexMap<String, SemVersion>> {
-        self.0.get_dev_dependencies()
+    pub fn get_catalogs(&self) -> Catalogs {
+        self.0.get_catalogs()
+    }
+
+    pub fn get_dependencies(&self, catalogs: &Catalogs) -> Option<IndexMap<String, SemVersion>> {
+        self.0.get_dependencies(catalogs)
+    }
+
+    pub fn get_dev_dependencies(
+        &self,
+        catalogs: &Catalogs,
+    ) -> Option<IndexMap<String, SemVersion>> {
+        self.0.get_dev_dependencies(catalogs)
     }
 
     pub fn get_config(&self) -> Option<Config> {
