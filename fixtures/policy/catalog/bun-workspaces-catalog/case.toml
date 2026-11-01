@@ -1,0 +1,4 @@
+description = "Bun catalogs declared under the root workspaces object are discovered the same way."
+source = "syncpack:src/version_group/bun_catalog_test.rs::bun_workspaces_catalog_definition_emits_instance"
+tags = ["catalog", "prefer", "bun", "fix"]
+valid-states = ["IsCatalogDefinition"]

@@ -1,0 +1,4 @@
+packages:
+  - "packages/*"
+catalog:
+  "zod": "^3.23.8"

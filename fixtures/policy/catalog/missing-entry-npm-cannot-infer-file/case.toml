@@ -1,0 +1,3 @@
+description = "npm has no catalogs: with no catalog anywhere the target file cannot be inferred, so the diagnostic is unfixable."
+source = "syncpack:src/version_group/catalog_test.rs::cannot_infer_catalog_file::catalog_group_zero_catalogs_npm"
+tags = ["catalog", "prefer", "npm", "unfixable"]
