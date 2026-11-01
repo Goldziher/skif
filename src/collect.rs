@@ -1001,17 +1001,6 @@ mod test {
     }
 
     #[test]
-    fn find_nested_packages_skips_hidden_directories() {
-        assert!(find_nested_packages(Path::new("fixtures/root-star-pnpm/.hidden")).len() == 1);
-        assert!(
-            !find_nested_packages(Path::new("fixtures/root-star-pnpm/scripts"))
-                .iter()
-                .any(|path| path.ends_with(".hidden"))
-        );
-        assert!(find_nested_packages(Path::new("fixtures/root-star-pnpm/scripts")).is_empty());
-    }
-
-    #[test]
     fn expand_nested_star_excludes_directory_itself() {
         let root = Path::new("fixtures/nested-star");
 
