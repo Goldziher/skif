@@ -36,6 +36,7 @@ impl Rule for EmptyDependencies {
                         field_location(package, &section(kind)),
                     )
                     .package(package.display_name())
+                    .package_id(package.id)
                     .help(format!("remove the empty `{field}` field"))
                     .fix(Fix {
                         title: format!("Remove the empty `{field}` field"),

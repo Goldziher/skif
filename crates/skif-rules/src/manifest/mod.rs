@@ -16,7 +16,7 @@ mod unsorted_dependencies;
 pub use empty_dependencies::EmptyDependencies;
 pub use incompatible_peer_dependencies::IncompatiblePeerDependencies;
 pub use local_path_dependency::LocalPathDependency;
-pub use member_toolchain_fields::MemberToolchainFields;
+pub use member_toolchain_fields::{ForbidMode, MemberToolchainFields, MemberToolchainFieldsOptions};
 pub use missing_package_manifest::MissingPackageManifest;
 pub use root_package_dependencies::RootPackageDependencies;
 pub use root_package_manager_field::RootPackageManagerField;

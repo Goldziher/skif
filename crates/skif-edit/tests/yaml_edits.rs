@@ -91,3 +91,75 @@ fn yaml_errors() {
         EditPlanError::Parse { .. }
     ));
 }
+
+const SEQUENCE: &str = "items:\n  - a\n  - b\n  - c\n  - d\n  - e\nother: 1\n";
+
+#[test]
+fn removals_in_one_sequence_address_the_original_document() {
+    let cases: [(&str, Vec<FixOp>, &str); 6] = [
+        (
+            "two removals ascending",
+            vec![
+                yaml_op(&["items", "#0"], YamlAction::Remove),
+                yaml_op(&["items", "#2"], YamlAction::Remove),
+            ],
+            "items:\n  - b\n  - d\n  - e\nother: 1\n",
+        ),
+        (
+            "two removals descending",
+            vec![
+                yaml_op(&["items", "#2"], YamlAction::Remove),
+                yaml_op(&["items", "#0"], YamlAction::Remove),
+            ],
+            "items:\n  - b\n  - d\n  - e\nother: 1\n",
+        ),
+        (
+            "three removals including the last",
+            vec![
+                yaml_op(&["items", "#1"], YamlAction::Remove),
+                yaml_op(&["items", "#3"], YamlAction::Remove),
+                yaml_op(&["items", "#4"], YamlAction::Remove),
+            ],
+            "items:\n  - a\n  - c\nother: 1\n",
+        ),
+        (
+            "adjacent removals",
+            vec![
+                yaml_op(&["items", "#1"], YamlAction::Remove),
+                yaml_op(&["items", "#2"], YamlAction::Remove),
+            ],
+            "items:\n  - a\n  - d\n  - e\nother: 1\n",
+        ),
+        (
+            "set after a removal targets the original element",
+            vec![
+                yaml_op(&["items", "#0"], YamlAction::Remove),
+                yaml_op(&["items", "#3"], YamlAction::Set(json!("D"))),
+            ],
+            "items:\n  - b\n  - c\n  - D\n  - e\nother: 1\n",
+        ),
+        (
+            "removing a key does not shift indices",
+            vec![
+                yaml_op(&["other"], YamlAction::Remove),
+                yaml_op(&["items", "#4"], YamlAction::Remove),
+            ],
+            "items:\n  - a\n  - b\n  - c\n  - d\n",
+        ),
+    ];
+    for (name, ops, expected) in cases {
+        let refs: Vec<&FixOp> = ops.iter().collect();
+        let actual = apply(SEQUENCE, FileKind::Yaml, &refs).unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert_eq!(actual, expected, "case `{name}`");
+    }
+}
+
+#[test]
+fn removing_the_same_element_twice_is_an_error() {
+    let first = yaml_op(&["items", "#1"], YamlAction::Remove);
+    let again = yaml_op(&["items", "#1"], YamlAction::Remove);
+    assert!(matches!(
+        plan_edits(SEQUENCE, FileKind::Yaml, &[&first, &again]).unwrap_err(),
+        EditPlanError::Yaml { .. }
+    ));
+}

@@ -7,9 +7,9 @@ license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "Command-line interface for skif, the fast dependency linter for JavaScript and TypeScript monorepos."
+description = "Command-line interface for skif, a dependency and package-manager linter for JS/TS monorepos."
 documentation = "https://docs.rs/skif-cli"
-keywords = ["monorepo", "linter", "dependencies", "pnpm", "javascript"]
+keywords = ["linter", "monorepo", "package-json", "pnpm", "cli"]
 categories = ["development-tools", "command-line-utilities"]
 readme = "../../README.md"
 
@@ -22,21 +22,17 @@ name = "skif"
 path = "src/main.rs"
 
 [dependencies]
-anyhow.workspace = true
 clap.workspace = true
-colored.workspace = true
-detect-indent.workspace = true
-detect-newline-style.workspace = true
-indexmap.workspace = true
 inquire.workspace = true
-semver.workspace = true
 serde.workspace = true
-serde-saphyr.workspace = true
 serde_json.workspace = true
+skif = { workspace = true, features = ["manifest", "policy", "js-analysis", "fix", "yaml-fix", "report", "schema"] }
+which.workspace = true
 
 [dev-dependencies]
-debugless-unwrap.workspace = true
+assert_cmd.workspace = true
 insta.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

@@ -1,6 +1,6 @@
-use skif_config::{ForbidMode, RuleOptions};
+use serde::Deserialize;
 use skif_core::{Category, Fix, FixSafety, Fixability, JsonAction, RuleMeta, Severity, diagnostic};
-use skif_lint::{Emitter, LintContext, Rule};
+use skif_lint::{Emitter, LintContext, OptionsError, Rule, parse_options};
 
 use super::support::{active_members, field_location, json_op, key};
 
@@ -16,6 +16,25 @@ pub static META: RuleMeta = RuleMeta {
 /// The toolchain fields only the root should declare.
 const FIELDS: [&str; 2] = ["packageManager", "engines"];
 
+/// How `member-toolchain-fields` treats toolchain fields in member manifests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ForbidMode {
+    /// Members must not declare toolchain fields.
+    #[default]
+    Forbid,
+    /// Members may declare them only when they equal the root's.
+    MatchRoot,
+}
+
+/// Options of `member-toolchain-fields`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+pub struct MemberToolchainFieldsOptions {
+    /// Whether members may repeat the root's value.
+    pub mode: ForbidMode,
+}
+
 /// Reports toolchain fields in member manifests.
 ///
 /// Options (`[rules.member-toolchain-fields] mode`): `forbid` (default) reports every declaration, `match-root`
@@ -28,11 +47,25 @@ impl Rule for MemberToolchainFields {
         &META
     }
 
+    fn options_schema(&self) -> Option<serde_json::Value> {
+        Some(serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": { "mode": { "enum": ["forbid", "match-root"], "default": "forbid" } },
+        }))
+    }
+
+    fn validate_options(&self, options: &toml::Table) -> Result<(), OptionsError> {
+        parse_options::<MemberToolchainFieldsOptions>(options).map(|_| ())
+    }
+
     fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>) {
-        let mode = match cx.config.rule(META.id).map(|rule| &rule.options) {
-            Some(RuleOptions::MemberToolchainFields(options)) => options.mode,
-            _ => ForbidMode::default(),
-        };
+        let mode = cx
+            .config
+            .rule(META.id)
+            .and_then(|rule| parse_options::<MemberToolchainFieldsOptions>(&rule.options).ok())
+            .unwrap_or_default()
+            .mode;
         let root = &cx.workspace.root_package.manifest.value;
         for package in active_members(cx.workspace) {
             for field in FIELDS {
@@ -49,6 +82,7 @@ impl Rule for MemberToolchainFields {
                 out.emit(
                     diagnostic(&META, message, field_location(package, &[key(field)]))
                         .package(package.display_name())
+                        .package_id(package.id)
                         .help(format!(
                             "remove `{field}` from this package.json and declare it once in the root"
                         ))
@@ -178,6 +212,37 @@ mod tests {
             lint(META.id, &files, &config("[workspace]\nignore-packages = [\"a\"]\n")),
             [] as [skif_core::Diagnostic; 0]
         );
+    }
+
+    #[test]
+    fn options_are_validated_by_the_rule() {
+        let cases = [
+            ("", true, None),
+            ("mode = \"forbid\"", true, None),
+            ("mode = \"match-root\"", true, None),
+            ("moed = \"forbid\"", false, Some("moed")),
+            ("mode = \"sometimes\"", false, Some("mode")),
+        ];
+        for (text, ok, key) in cases {
+            let options: toml::Table = text.parse().unwrap();
+            let result = MemberToolchainFields.validate_options(&options);
+            assert_eq!(result.is_ok(), ok, "{text}");
+            if let Err(err) = result {
+                assert_eq!(err.key(), key, "{text}: {err}");
+            }
+        }
+    }
+
+    #[test]
+    fn registry_rejects_bad_options_naming_rule_and_key() {
+        let registry = skif_lint::Registry::new(vec![Box::new(crate::manifest_provider())]).unwrap();
+        let bad = config("[rules]\nmember-toolchain-fields = { moed = \"x\" }\n");
+        let err = registry.validate_config(&bad).unwrap_err().to_string();
+        assert!(err.contains("member-toolchain-fields") && err.contains("moed"), "{err}");
+        let good = config("[rules]\nmember-toolchain-fields = { severity = \"info\", mode = \"match-root\" }\n");
+        registry.validate_config(&good).unwrap();
+        assert!(registry.options_schema("member-toolchain-fields").is_some());
+        assert!(registry.options_schema("empty-dependencies").is_none());
     }
 
     #[test]
