@@ -1,10 +1,8 @@
 use super::{Catalogs, Package, Workspaces, semversion::SemVersion};
-use crate::{
-    rules::{
-        BoxIssue, root_package_dependencies::RootPackageDependenciesIssue,
-        root_package_manager_field::RootPackageManagerFieldIssue,
-        root_package_private_field::RootPackagePrivateFieldIssue,
-    },
+use crate::rules::{
+    BoxIssue, root_package_dependencies::RootPackageDependenciesIssue,
+    root_package_manager_field::RootPackageManagerFieldIssue,
+    root_package_private_field::RootPackagePrivateFieldIssue,
 };
 use anyhow::Result;
 use indexmap::IndexMap;

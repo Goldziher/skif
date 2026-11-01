@@ -294,7 +294,9 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
                                         return is_root_star_package(package);
                                     }
 
-                                    return package.file_type().is_ok_and(|file_type| file_type.is_dir())
+                                    return package
+                                        .file_type()
+                                        .is_ok_and(|file_type| file_type.is_dir())
                                         && package
                                             .file_name()
                                             .to_string_lossy()
@@ -1377,6 +1379,16 @@ mod test {
             config.ignore_rule_for_package.get("rule"),
             Some(&vec!["pkg:with:colons".to_string(), "b".to_string()])
         );
+    }
+
+    fn collect_fixture_issues(path: &str) -> IndexMap<PackageType, Vec<BoxIssue>> {
+        let args = args_for(path, &[], &[]);
+        let packages_list = collect_packages(&args.path).unwrap();
+        let config = args.into();
+
+        collect_issues(&config, packages_list)
+            .into_iter()
+            .collect::<IndexMap<_, _>>()
     }
 
     #[test]
