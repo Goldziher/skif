@@ -1,0 +1,7 @@
+baseline = "v1.12.4"
+task_sets = ["governance", "governance-check", "lint-format"]
+
+[task_overrides]
+lint = "Rust is gated by clippy with warnings denied before poly lints the rest of the tree."
+format = "Rust is formatted by rustfmt before poly formats the rest of the tree."
+"format:check" = "Rust formatting is verified by rustfmt before poly checks the rest of the tree."
