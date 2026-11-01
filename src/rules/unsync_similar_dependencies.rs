@@ -210,14 +210,15 @@ impl UnsyncSimilarDependenciesIssue {
 }
 
 impl Issue for UnsyncSimilarDependenciesIssue {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "unsync-similar-dependencies"
     }
 
     fn level(&self) -> super::IssueLevel {
-        match self.fixed {
-            true => super::IssueLevel::Fixed,
-            false => super::IssueLevel::Error,
+        if self.fixed {
+            super::IssueLevel::Fixed
+        } else {
+            super::IssueLevel::Error
         }
     }
 

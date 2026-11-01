@@ -12,7 +12,7 @@ impl RootPackageDependenciesIssue {
 }
 
 impl Issue for RootPackageDependenciesIssue {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "root-package-dependencies"
     }
 
@@ -52,7 +52,9 @@ impl Issue for RootPackageDependenciesIssue {
     }
 
     fn why(&self) -> Cow<'static, str> {
-        Cow::Borrowed("The root package.json is private and should only have devDependencies. Declare dependencies in each package.")
+        Cow::Borrowed(
+            "The root package.json is private and should only have devDependencies. Declare dependencies in each package.",
+        )
     }
 }
 

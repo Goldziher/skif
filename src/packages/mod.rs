@@ -2,12 +2,12 @@ use self::semversion::SemVersion;
 use crate::{
     args::{Args, AutofixSelect},
     rules::{
+        BoxIssue,
         empty_dependencies::{DependencyKind, EmptyDependenciesIssue},
         unordered_dependencies::UnorderedDependenciesIssue,
-        BoxIssue,
     },
 };
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use indexmap::IndexMap;
 use root::RootPackage;
 use serde::Deserialize;
@@ -26,7 +26,7 @@ pub struct PackagesList {
 #[serde(untagged)]
 pub enum Workspaces {
     Default(Vec<String>),
-    /// https://classic.yarnpkg.com/blog/2018/02/15/nohoist
+    /// <https://classic.yarnpkg.com/blog/2018/02/15/nohoist>
     Yarn {
         packages: Vec<String>,
     },
@@ -120,19 +120,19 @@ pub struct Package {
 impl Package {
     pub fn new(path: PathBuf) -> Result<Self> {
         if !path.is_dir() {
-            return Err(anyhow!("Path {:?} is not a directory", path));
+            return Err(anyhow!("Path {path:?} is not a directory"));
         }
 
         let package_path = path.join("package.json");
 
         if !package_path.is_file() {
-            return Err(anyhow!("`package.json` not found in {:?}", path));
+            return Err(anyhow!("`package.json` not found in {path:?}"));
         }
 
         let root_package = fs::read_to_string(&package_path)?;
         let package: PackageInner = match serde_json::from_str(&root_package) {
             Ok(package) => package,
-            Err(err) => return Err(anyhow!("Error while parsing {:?}: {}", package_path, err)),
+            Err(err) => return Err(anyhow!("Error while parsing {package_path:?}: {err}")),
         };
 
         Ok(Self {
@@ -141,8 +141,8 @@ impl Package {
         })
     }
 
-    pub fn get_name(&self) -> &Option<String> {
-        &self.inner.name
+    pub fn get_name(&self) -> Option<&String> {
+        self.inner.name.as_ref()
     }
 
     pub fn get_path(&self) -> String {
@@ -165,8 +165,7 @@ impl Package {
     }
 
     fn check_deps(
-        &self,
-        deps: &Option<IndexMap<String, String>>,
+        deps: Option<&IndexMap<String, String>>,
         dependency_kind: DependencyKind,
     ) -> Option<BoxIssue> {
         if let Some(dependencies) = deps {
@@ -186,34 +185,34 @@ impl Package {
     }
 
     pub fn check_dependencies(&self) -> Option<BoxIssue> {
-        self.check_deps(&self.inner.dependencies, DependencyKind::Dependencies)
+        Self::check_deps(
+            self.inner.dependencies.as_ref(),
+            DependencyKind::Dependencies,
+        )
     }
 
     pub fn check_dev_dependencies(&self) -> Option<BoxIssue> {
-        self.check_deps(
-            &self.inner.dev_dependencies,
+        Self::check_deps(
+            self.inner.dev_dependencies.as_ref(),
             DependencyKind::DevDependencies,
         )
     }
 
     pub fn check_peer_dependencies(&self) -> Option<BoxIssue> {
-        self.check_deps(
-            &self.inner.peer_dependencies,
+        Self::check_deps(
+            self.inner.peer_dependencies.as_ref(),
             DependencyKind::PeerDependencies,
         )
     }
 
     pub fn check_optional_dependencies(&self) -> Option<BoxIssue> {
-        self.check_deps(
-            &self.inner.optional_dependencies,
+        Self::check_deps(
+            self.inner.optional_dependencies.as_ref(),
             DependencyKind::OptionalDependencies,
         )
     }
 
-    fn get_deps(
-        &self,
-        deps: &Option<IndexMap<String, String>>,
-    ) -> Option<IndexMap<String, SemVersion>> {
+    fn get_deps(deps: Option<&IndexMap<String, String>>) -> Option<IndexMap<String, SemVersion>> {
         if let Some(dependencies) = deps {
             let mut versioned_dependencies =
                 IndexMap::<String, SemVersion>::with_capacity(dependencies.len());
@@ -231,24 +230,23 @@ impl Package {
     }
 
     pub fn get_dependencies(&self) -> Option<IndexMap<String, SemVersion>> {
-        self.get_deps(&self.inner.dependencies)
+        Self::get_deps(self.inner.dependencies.as_ref())
     }
 
     pub fn get_dev_dependencies(&self) -> Option<IndexMap<String, SemVersion>> {
-        self.get_deps(&self.inner.dev_dependencies)
+        Self::get_deps(self.inner.dev_dependencies.as_ref())
     }
 
     pub fn is_ignored(&self, ignored_packages: &[String]) -> bool {
         match self.get_name() {
             Some(name) => ignored_packages.iter().any(|ignored_package| {
-                match ignored_package.ends_with('*') {
-                    true => {
-                        let ignored_package = ignored_package.trim_end_matches('*');
+                if ignored_package.ends_with('*') {
+                    let ignored_package = ignored_package.trim_end_matches('*');
 
-                        name.starts_with(ignored_package)
-                            || self.get_path().starts_with(ignored_package)
-                    }
-                    false => ignored_package == name || ignored_package == &self.get_path(),
+                    name.starts_with(ignored_package)
+                        || self.get_path().starts_with(ignored_package)
+                } else {
+                    ignored_package == name || ignored_package == &self.get_path()
                 }
             }),
             None => false,

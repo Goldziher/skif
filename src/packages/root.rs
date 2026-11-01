@@ -1,10 +1,10 @@
-use super::{semversion::SemVersion, Package, Workspaces};
+use super::{Package, Workspaces, semversion::SemVersion};
 use crate::{
     packages::Config,
     rules::{
-        root_package_dependencies::RootPackageDependenciesIssue,
+        BoxIssue, root_package_dependencies::RootPackageDependenciesIssue,
         root_package_manager_field::RootPackageManagerFieldIssue,
-        root_package_private_field::RootPackagePrivateFieldIssue, BoxIssue,
+        root_package_private_field::RootPackagePrivateFieldIssue,
     },
 };
 use anyhow::Result;
@@ -23,7 +23,7 @@ impl RootPackage {
 
     #[cfg(test)]
     pub fn get_name(&self) -> String {
-        self.0.get_name().clone().unwrap_or_default()
+        self.0.get_name().cloned().unwrap_or_default()
     }
 
     pub fn get_path(&self) -> String {
@@ -48,16 +48,18 @@ impl RootPackage {
     }
 
     pub fn check_package_manager(&self) -> Option<BoxIssue> {
-        match self.0.has_package_manager() {
-            true => None,
-            false => Some(RootPackageManagerFieldIssue::new()),
+        if self.0.has_package_manager() {
+            None
+        } else {
+            Some(RootPackageManagerFieldIssue::new())
         }
     }
 
     pub fn check_dependencies(&self) -> Option<BoxIssue> {
-        match self.0.inner.dependencies.is_some() {
-            true => Some(RootPackageDependenciesIssue::new()),
-            false => self.0.check_dependencies(),
+        if self.0.inner.dependencies.is_some() {
+            Some(RootPackageDependenciesIssue::new())
+        } else {
+            self.0.check_dependencies()
         }
     }
 

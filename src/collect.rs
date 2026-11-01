@@ -10,7 +10,7 @@ use crate::rules::unsync_similar_dependencies::{
     SimilarDependency, UnsyncSimilarDependenciesIssue,
 };
 use crate::rules::{BoxIssue, IssuesList, PackageType};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::fs::{self};
@@ -36,13 +36,12 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
 
         if !pnpm_workspace.is_file() {
             return Err(anyhow!(
-                    "No `workspaces` field in the root `package.json`, or `pnpm-workspace.yaml` file not found in {:?}",
-                    root
-                ));
+                "No `workspaces` field in the root `package.json`, or `pnpm-workspace.yaml` file not found in {root:?}"
+            ));
         }
 
         let root_package = fs::read_to_string(pnpm_workspace)?;
-        let workspace: PnpmWorkspace = serde_yaml::from_str(&root_package)?;
+        let workspace: PnpmWorkspace = serde_saphyr::from_str(&root_package)?;
 
         packages_list = Some(workspace.packages);
         is_pnpm_workspace = true;
@@ -52,12 +51,11 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
 
     let mut add_package = |packages_issues: &mut Vec<BoxIssue>, path: PathBuf| {
         // Ignore hidden directories, e.g. `.npm`, `.react-email`
-        if let Some(stem) = path.file_stem() {
-            if let Some(stem) = stem.to_str() {
-                if stem.starts_with('.') {
-                    return;
-                }
-            }
+        if let Some(stem) = path.file_stem()
+            && let Some(stem) = stem.to_str()
+            && stem.starts_with('.')
+        {
+            return;
         }
 
         // Ignore empty directories, which can linger after switching branches in git, for example.
@@ -113,55 +111,47 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
             if let Some((directory, subdirectory)) = package.split_once("/*/") {
                 let directory = root.join(directory);
 
-                match directory.read_dir() {
-                    Ok(expanded_folders) => {
-                        for expanded_folder in expanded_folders.flatten() {
-                            let expanded_folder = expanded_folder.path();
+                if let Ok(expanded_folders) = directory.read_dir() {
+                    for expanded_folder in expanded_folders.flatten() {
+                        let expanded_folder = expanded_folder.path();
 
-                            if expanded_folder.is_dir() {
-                                let path = expanded_folder
-                                    .to_string_lossy()
-                                    .to_string()
-                                    .replace(&(root.to_string_lossy().to_string() + "/"), "")
-                                    + "/"
-                                    + subdirectory;
+                        if expanded_folder.is_dir() {
+                            let path = expanded_folder
+                                .to_string_lossy()
+                                .to_string()
+                                .replace(&(root.to_string_lossy().to_string() + "/"), "")
+                                + "/"
+                                + subdirectory;
 
-                                expanded_packages.push(path);
-                            }
+                            expanded_packages.push(path);
                         }
                     }
-                    Err(_) => {
-                        non_existant_paths.push(package.to_string());
-                        continue;
-                    }
+                } else {
+                    non_existant_paths.push(package.clone());
                 }
             } else if let Some((directory, subdirectory)) = package.split_once("/**/") {
                 let directory = root.join(directory);
 
-                match directory.read_dir() {
-                    Ok(expanded_folders) => {
-                        for expanded_folder in expanded_folders.flatten() {
-                            let expanded_folder = expanded_folder.path();
+                if let Ok(expanded_folders) = directory.read_dir() {
+                    for expanded_folder in expanded_folders.flatten() {
+                        let expanded_folder = expanded_folder.path();
 
-                            if expanded_folder.is_dir() {
-                                let path = expanded_folder
-                                    .to_string_lossy()
-                                    .to_string()
-                                    .replace(&(root.to_string_lossy().to_string() + "/"), "")
-                                    + "/"
-                                    + subdirectory;
+                        if expanded_folder.is_dir() {
+                            let path = expanded_folder
+                                .to_string_lossy()
+                                .to_string()
+                                .replace(&(root.to_string_lossy().to_string() + "/"), "")
+                                + "/"
+                                + subdirectory;
 
-                                expanded_packages.push(path);
-                            }
+                            expanded_packages.push(path);
                         }
                     }
-                    Err(_) => {
-                        non_existant_paths.push(package.to_string());
-                        continue;
-                    }
+                } else {
+                    non_existant_paths.push(package.clone());
                 }
             } else {
-                expanded_packages.push(package.to_string());
+                expanded_packages.push(package.clone());
             }
         }
 
@@ -169,43 +159,38 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
             if package.ends_with('*') {
                 let directory_match = package.trim_end_matches('*');
 
-                let packages = match directory_match.ends_with('/') {
-                    true => {
-                        let directory = directory_match.trim_end_matches('/');
-                        let directory = root.join(directory);
+                let packages = if directory_match.ends_with('/') {
+                    let directory = directory_match.trim_end_matches('/');
+                    let directory = root.join(directory);
 
-                        match directory.read_dir() {
-                            Ok(packages) => packages.into_iter().collect::<Result<Vec<_>, _>>()?,
-                            Err(_) => {
-                                non_existant_paths.push(package.to_string());
-                                continue;
-                            }
-                        }
+                    if let Ok(packages) = directory.read_dir() {
+                        packages.into_iter().collect::<Result<Vec<_>, _>>()?
+                    } else {
+                        non_existant_paths.push(package.clone());
+                        continue;
                     }
-                    false => {
-                        let directory = root.join(directory_match);
-                        let directory = directory.parent().unwrap().to_path_buf();
+                } else {
+                    let directory = root.join(directory_match);
+                    let directory = directory.parent().unwrap().to_path_buf();
 
-                        match directory.read_dir() {
-                            Ok(packages) => packages
-                                .into_iter()
-                                .filter(|package| {
-                                    if let Ok(package) = package {
-                                        return package.file_type().unwrap().is_dir()
-                                            && package
-                                                .file_name()
-                                                .to_string_lossy()
-                                                .starts_with(directory_match);
-                                    }
+                    if let Ok(packages) = directory.read_dir() {
+                        packages
+                            .into_iter()
+                            .filter(|package| {
+                                if let Ok(package) = package {
+                                    return package.file_type().unwrap().is_dir()
+                                        && package
+                                            .file_name()
+                                            .to_string_lossy()
+                                            .starts_with(directory_match);
+                                }
 
-                                    true
-                                })
-                                .collect::<Result<Vec<_>, _>>()?,
-                            Err(_) => {
-                                non_existant_paths.push(package.to_string());
-                                continue;
-                            }
-                        }
+                                true
+                            })
+                            .collect::<Result<Vec<_>, _>>()?
+                    } else {
+                        non_existant_paths.push(package.clone());
+                        continue;
                     }
                 };
 
@@ -232,9 +217,10 @@ pub fn collect_packages(root: &Path) -> Result<PackagesList> {
             } else {
                 let path = root.join(package);
 
-                match path.is_dir() {
-                    true => add_package(&mut packages_issues, path),
-                    false => non_existant_paths.push(package.to_string()),
+                if path.is_dir() {
+                    add_package(&mut packages_issues, path);
+                } else {
+                    non_existant_paths.push(package.clone());
                 }
             }
         }
@@ -318,7 +304,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
                 let types_in_dependencies = dependencies
                     .iter()
                     .filter(|(name, _)| name.starts_with("@types/"))
-                    .map(|(name, _)| name.to_string())
+                    .map(|(name, _)| name.clone())
                     .collect::<Vec<_>>();
 
                 if !types_in_dependencies.is_empty() {
@@ -348,7 +334,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
 
     for (name, versions) in all_dependencies {
         if let Ok(similar_dependency) = SimilarDependency::try_from(name.as_str()) {
-            for (path, version) in versions.iter() {
+            for (path, version) in &versions {
                 similar_dependencies_by_package
                     .entry(path.clone())
                     .or_insert_with(
@@ -365,7 +351,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
             .filter(|(_, version)| {
                 !config
                     .ignore_dependency
-                    .contains(&format!("{}@{}", name, version))
+                    .contains(&format!("{name}@{version}"))
             })
             .map(|(path, version)| (path.clone(), version.clone()))
             .collect::<IndexMap<_, _>>();
@@ -421,7 +407,7 @@ pub fn collect_issues(config: &Config, packages_list: PackagesList) -> IssuesLis
 mod test {
     use super::*;
     use crate::args::Args;
-    use debugless_unwrap::DebuglessUnwrapErr;
+    use debugless_unwrap::DebuglessUnwrapErrExt;
 
     #[test]
     fn collect_packages_unknown_dir() {
@@ -462,7 +448,7 @@ mod test {
         assert_eq!(root_package.get_name(), "basic");
         assert_eq!(packages.len(), 3);
         assert_eq!(packages_issues.len(), 1);
-        assert!(packages_issues[0].name() == "non-existant-packages");
+        assert_eq!(packages_issues[0].name(), "non-existant-packages");
     }
 
     #[test]
@@ -480,7 +466,7 @@ mod test {
         assert_eq!(root_package.get_name(), "pnpm");
         assert_eq!(packages.len(), 3);
         assert_eq!(packages_issues.len(), 1);
-        assert!(packages_issues[0].name() == "non-existant-packages");
+        assert_eq!(packages_issues[0].name(), "non-existant-packages");
     }
 
     #[test]
@@ -498,7 +484,7 @@ mod test {
         assert_eq!(root_package.get_name(), "yarn-nohoist");
         assert_eq!(packages.len(), 3);
         assert_eq!(packages_issues.len(), 1);
-        assert!(packages_issues[0].name() == "non-existant-packages");
+        assert_eq!(packages_issues[0].name(), "non-existant-packages");
     }
 
     #[test]
@@ -575,7 +561,7 @@ mod test {
 
         let mut packages = packages
             .into_iter()
-            .map(|package| package.get_name().clone().unwrap().to_string())
+            .map(|package| package.get_name().cloned().unwrap())
             .collect::<Vec<_>>();
         packages.sort();
 

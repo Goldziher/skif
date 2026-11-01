@@ -50,7 +50,7 @@ fn main() {
         if let Some(autofix_select) = &config.select {
             println!(
                 " {}",
-                format!("Note: automatically selecting {} dependencies for `multiple-dependency-versions` rule...", autofix_select).bright_black(),
+                format!("Note: automatically selecting {autofix_select} dependencies for `multiple-dependency-versions` rule...").bright_black(),
             );
             println!();
         }
@@ -73,11 +73,13 @@ fn main() {
     let fixed = issues.len_by_level(IssueLevel::Fixed);
 
     // Only run the install command if we allow it and we fixed some issues.
-    if config.fix && !config.no_install && fixed > 0 {
-        if let Err(error) = install::install() {
-            print_error("Failed to install packages", error.to_string().as_str());
-            std::process::exit(1);
-        }
+    if config.fix
+        && !config.no_install
+        && fixed > 0
+        && let Err(error) = install::install()
+    {
+        print_error("Failed to install packages", error.to_string().as_str());
+        std::process::exit(1);
     }
 
     if let Err(error) = print_issues(issues) {

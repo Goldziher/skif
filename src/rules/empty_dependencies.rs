@@ -39,14 +39,15 @@ impl EmptyDependenciesIssue {
 }
 
 impl Issue for EmptyDependenciesIssue {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "empty-dependencies"
     }
 
     fn level(&self) -> IssueLevel {
-        match self.fixed {
-            true => IssueLevel::Fixed,
-            false => IssueLevel::Error,
+        if self.fixed {
+            IssueLevel::Fixed
+        } else {
+            IssueLevel::Error
         }
     }
 
@@ -75,16 +76,16 @@ impl Issue for EmptyDependenciesIssue {
             let (mut value, indent, lineending) = json::deserialize::<serde_json::Value>(&value)?;
             let dependency = self.dependency_kind.to_string();
 
-            if let Some(dependency_field) = value.get(&dependency) {
-                if dependency_field.is_object() && dependency_field.as_object().unwrap().is_empty()
-                {
-                    value.as_object_mut().unwrap().remove(&dependency);
+            if let Some(dependency_field) = value.get(&dependency)
+                && dependency_field.is_object()
+                && dependency_field.as_object().unwrap().is_empty()
+            {
+                value.as_object_mut().unwrap().remove(&dependency);
 
-                    let value = json::serialize(&value, indent, lineending)?;
-                    fs::write(path, value)?;
+                let value = json::serialize(&value, &indent, lineending)?;
+                fs::write(path, value)?;
 
-                    self.fixed = true;
-                }
+                self.fixed = true;
             }
         }
 

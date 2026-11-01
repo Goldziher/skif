@@ -16,14 +16,15 @@ impl RootPackagePrivateFieldIssue {
 }
 
 impl Issue for RootPackagePrivateFieldIssue {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "root-package-private-field"
     }
 
     fn level(&self) -> IssueLevel {
-        match self.fixed {
-            true => IssueLevel::Fixed,
-            false => IssueLevel::Error,
+        if self.fixed {
+            IssueLevel::Fixed
+        } else {
+            IssueLevel::Error
         }
     }
 
@@ -42,7 +43,9 @@ impl Issue for RootPackagePrivateFieldIssue {
     }
 
     fn why(&self) -> Cow<'static, str> {
-        Cow::Borrowed("The root package.json should be private to prevent accidentaly publishing it to a registry.")
+        Cow::Borrowed(
+            "The root package.json should be private to prevent accidentaly publishing it to a registry.",
+        )
     }
 
     fn fix(&mut self, package_type: &PackageType) -> Result<()> {
@@ -56,7 +59,7 @@ impl Issue for RootPackagePrivateFieldIssue {
                 .unwrap()
                 .insert("private".to_string(), serde_json::Value::Bool(true));
 
-            let value = json::serialize(&value, indent, lineending)?;
+            let value = json::serialize(&value, &indent, lineending)?;
             fs::write(path, value)?;
 
             self.fixed = true;
@@ -85,7 +88,10 @@ mod test {
         colored::control::set_override(false);
         insta::assert_snapshot!(issue.message());
 
-        assert_eq!(issue.why(), "The root package.json should be private to prevent accidentaly publishing it to a registry.");
+        assert_eq!(
+            issue.why(),
+            "The root package.json should be private to prevent accidentaly publishing it to a registry."
+        );
     }
 
     #[test]
@@ -94,6 +100,9 @@ mod test {
 
         colored::control::set_override(false);
         insta::assert_snapshot!(issue.message());
-        assert_eq!(issue.why(), "The root package.json should be private to prevent accidentaly publishing it to a registry.");
+        assert_eq!(
+            issue.why(),
+            "The root package.json should be private to prevent accidentaly publishing it to a registry."
+        );
     }
 }

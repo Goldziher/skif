@@ -18,14 +18,15 @@ impl PackagesWithoutPackageJsonIssue {
 }
 
 impl Issue for PackagesWithoutPackageJsonIssue {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "packages-without-package-json"
     }
 
     fn level(&self) -> IssueLevel {
-        match self.fixed {
-            true => IssueLevel::Fixed,
-            false => IssueLevel::Warning,
+        if self.fixed {
+            IssueLevel::Fixed
+        } else {
+            IssueLevel::Warning
         }
     }
 

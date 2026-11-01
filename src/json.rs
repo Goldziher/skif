@@ -1,5 +1,5 @@
 use anyhow::Result;
-use detect_indent::{detect_indent, Indent};
+use detect_indent::{Indent, detect_indent};
 use detect_newline_style::LineEnding;
 use serde::{Deserialize, Serialize};
 use serde_json::ser::PrettyFormatter;
@@ -15,7 +15,7 @@ where
     Ok((json, indent, lineending))
 }
 
-pub fn serialize<T>(value: &T, indent: Indent, lineending: LineEnding) -> Result<String>
+pub fn serialize<T>(value: &T, indent: &Indent, lineending: LineEnding) -> Result<String>
 where
     T: Serialize,
 {
@@ -26,9 +26,9 @@ where
     value.serialize(&mut serializer)?;
     let mut json = String::from_utf8(buf)?;
     json += match lineending {
-        LineEnding::CR => "\r",
-        LineEnding::LF => "\n",
-        LineEnding::CRLF => "\r\n",
+        LineEnding::Cr => "\r",
+        LineEnding::Lf => "\n",
+        LineEnding::Crlf => "\r\n",
     };
 
     Ok(json)

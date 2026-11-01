@@ -1,37 +1,46 @@
 [package]
 name = "sherif"
 version = "1.13.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.89"
 license = "MIT"
 authors = ["Tom Lienard"]
 description = "Opinionated, zero-config linter for TypeScript & JavaScript monorepos."
 homepage = "https://github.com/QuiiBz/sherif"
 repository = "https://github.com/QuiiBz/sherif"
-keywords = [
-	"cli",
-	"javascript",
-	"monorepo",
-	"linter",
-]
+keywords = ["cli", "javascript", "monorepo", "linter"]
 categories = ["development-tools"]
 readme = "./README.md"
 
 [dependencies]
-anyhow = "1.0.75"
-clap = { version = "4.5.40", features = ["derive"] }
-colored = "2.0.4"
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+colored = "3.1.1"
 detect-indent = "0.1.0"
-detect-newline-style = "0.1.2"
-indexmap = { version = "2.0.0", features = ["serde"] }
-inquire = "0.9.1"
-semver = "1.0.18"
-serde = { version = "1.0.188", features = ["derive"] }
-serde_json = { version = "1.0.107", features = ["preserve_order"] }
-serde_yaml = "0.9.25"
+detect-newline-style = "1.0.0"
+indexmap = { version = "2.14.2", features = ["serde"] }
+inquire = "0.9.4"
+semver = "1.0.28"
+serde = { version = "1.0.229", features = ["derive"] }
+serde-saphyr = "2.0.0"
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
 
 [dev-dependencies]
-debugless-unwrap = "0.0.4"
-insta = "1.32.0"
+debugless-unwrap = "1.0.0"
+insta = "1.49.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+# Error messages quote paths with `{:?}`; snapshots and tests depend on that format.
+unnecessary_debug_formatting = "allow"
+# The collectors and rule checkers are long linear passes over the workspace.
+too_many_lines = "allow"
+# Issues are returned boxed as trait objects by design.
+unnecessary_box_returns = "allow"
 
 [profile.release]
 strip = "symbols"

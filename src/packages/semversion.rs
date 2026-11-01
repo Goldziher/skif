@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use semver::{Prerelease, Version, VersionReq};
 use std::{cmp::Ordering, fmt::Display};
 
@@ -27,7 +27,7 @@ impl SemVersion {
             return Ok(Self::Range(version));
         }
 
-        Err(anyhow!("Invalid version: {}", version))
+        Err(anyhow!("Invalid version: {version}"))
     }
 
     pub fn patch(&self) -> u64 {
