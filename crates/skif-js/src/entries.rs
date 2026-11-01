@@ -1,10 +1,10 @@
 //! Entry files: configured and default globs, what `package.json` publishes, and what scripts run.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use skif_core::FileSystem;
-use skif_workspace::Workspace;
+use skif_workspace::{PackageId, Workspace};
 
 use crate::discover::{Candidate, relative};
 use crate::globs::Globs;
@@ -24,12 +24,7 @@ pub(crate) fn entry_files(
         let Some(package_setup) = setup.package(id) else {
             continue;
         };
-        let owned = || {
-            candidates
-                .iter()
-                .filter(|candidate| candidate.owner == id)
-                .filter_map(|candidate| Some((candidate, relative(&candidate.abs, &package_setup.dir)?)))
-        };
+        let owned = || owned_by(candidates, id, &package_setup.dir);
         for (candidate, rel) in owned() {
             if package_setup.entry.is_match(&rel) {
                 entries.insert(candidate.abs.clone());
@@ -57,6 +52,18 @@ pub(crate) fn entry_files(
         }
     }
     entries.into_iter().collect()
+}
+
+/// The candidates owned by package `id`, with their path relative to the package directory.
+fn owned_by<'a>(
+    candidates: &'a [Candidate],
+    id: PackageId,
+    dir: &'a Path,
+) -> impl Iterator<Item = (&'a Candidate, String)> + 'a {
+    candidates
+        .iter()
+        .filter(move |candidate| candidate.owner == id)
+        .filter_map(move |candidate| Some((candidate, relative(&candidate.abs, dir)?)))
 }
 
 fn script_files(fs: &dyn FileSystem, package_setup: &PackageSetup) -> Vec<PathBuf> {
