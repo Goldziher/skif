@@ -1,0 +1,3 @@
+description = "A banned group restricted by packages leaves the same dependency alone elsewhere."
+source = "syncpack:src/version_group/banned_test.rs::removes_instance_with_versions_by_name_strategy"
+tags = ["banned", "selectors", "fix"]

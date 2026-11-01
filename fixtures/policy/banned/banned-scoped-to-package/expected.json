@@ -1,0 +1,11 @@
+[
+  {
+    "rule": "banned-dependency",
+    "severity": "error",
+    "package": "lib",
+    "dependency": "moment",
+    "detail": "IsBanned",
+    "path": "packages/lib/package.json",
+    "fixable": true
+  }
+]

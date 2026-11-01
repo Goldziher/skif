@@ -1,0 +1,4 @@
+description = "An exact dependency identical to the local package version produces no diagnostic."
+source = "syncpack:src/version_group/preferred_semver_test.rs::local::instance_identical_to_local_package_and_has_no_semver_group"
+tags = ["local"]
+valid-states = ["IsLocalAndValid", "IsIdenticalToLocal"]
