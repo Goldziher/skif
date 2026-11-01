@@ -3,17 +3,46 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use globset::Glob;
 use serde_json::{Map, Value};
+use skif_config::Selector;
+use skif_core::DependencyKind;
 
 use crate::error::WorkspaceError;
-use crate::manifest::{DependencyEntry, DependencyKind, Manifest};
+use crate::manifest::{DependencyEntry, Manifest};
 
-const GLOB_CHARS: [char; 4] = ['*', '?', '[', '{'];
+/// Identifies a package within one [`Workspace`](crate::Workspace): its index among all packages, the root first.
+///
+/// Ids are only meaningful for the workspace that issued them; they are cheap to copy, hash and compare, so
+/// per-package facts live in vectors indexed by id instead of maps keyed by name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PackageId(u32);
+
+impl PackageId {
+    /// The id of the root package.
+    pub const ROOT: Self = Self(0);
+
+    /// Position of the package among all packages, the root being 0.
+    #[must_use]
+    pub const fn index(self) -> usize {
+        self.0 as usize
+    }
+
+    pub(crate) fn from_index(index: usize) -> Self {
+        Self(u32::try_from(index).unwrap_or(u32::MAX))
+    }
+}
+
+impl std::fmt::Display for PackageId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#{}", self.0)
+    }
+}
 
 /// One `package.json` of the workspace.
 #[derive(Debug, Clone)]
 pub struct Package {
+    /// Identifies the package in its workspace; [`PackageId::ROOT`] for a package parsed on its own.
+    pub id: PackageId,
     /// The `name` field.
     pub name: Option<String>,
     /// The `version` field.
@@ -33,6 +62,8 @@ pub struct Package {
 impl Package {
     /// Parses the manifest of the package in `dir` (workspace-relative, `/`-separated, empty for the root).
     ///
+    /// The package gets [`PackageId::ROOT`]; discovery assigns the real id with [`Package::with_id`].
+    ///
     /// # Errors
     /// [`WorkspaceError::InvalidManifest`] when the JSON is invalid.
     pub fn parse(dir: PathBuf, source: Arc<str>, is_root: bool) -> Result<Self, WorkspaceError> {
@@ -44,6 +75,7 @@ impl Package {
         let (manifest, dependencies) = Manifest::parse(manifest_path, source)?;
         let text = |field: &str| manifest.value.get(field).and_then(Value::as_str).map(str::to_owned);
         Ok(Self {
+            id: PackageId::ROOT,
             name: text("name"),
             version: text("version"),
             private: manifest.value.get("private").and_then(Value::as_bool).unwrap_or(false),
@@ -52,6 +84,13 @@ impl Package {
             dependencies,
             is_root,
         })
+    }
+
+    /// The same package with `id`.
+    #[must_use]
+    pub fn with_id(mut self, id: PackageId) -> Self {
+        self.id = id;
+        self
     }
 
     /// The name, or the directory (`.` for an unnamed root).
@@ -69,27 +108,16 @@ impl Package {
         self.manifest.value.get(kind.field())?.as_object()
     }
 
-    /// Whether `pattern` selects this package by name or directory: an exact match, a trailing-`*` prefix (`@repo/*`,
-    /// `legacy-*`), or any glob.
+    /// Whether `selector` selects this package by its name or its directory. A workspace package is `$LOCAL`.
     #[must_use]
-    pub fn matches(&self, pattern: &str) -> bool {
+    pub fn is_selected_by(&self, selector: &Selector) -> bool {
         let dir = self.dir.to_string_lossy();
-        let candidates: Vec<&str> = [self.name.as_deref(), Some(dir.as_ref())]
+        let names = self
+            .name
+            .as_deref()
             .into_iter()
-            .flatten()
-            .filter(|candidate| !candidate.is_empty())
-            .collect();
-        if let Some(prefix) = pattern.strip_suffix('*')
-            && !prefix.contains(GLOB_CHARS)
-        {
-            return candidates.iter().any(|candidate| candidate.starts_with(prefix));
-        }
-        if candidates.contains(&pattern) {
-            return true;
-        }
-        Glob::new(pattern).is_ok_and(|glob| {
-            let matcher = glob.compile_matcher();
-            candidates.iter().any(|candidate| matcher.is_match(candidate))
-        })
+            .chain(Some(&*dir))
+            .filter(|name| !name.is_empty());
+        selector.matches_any(names, true)
     }
 }

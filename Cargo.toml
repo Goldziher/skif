@@ -15,16 +15,38 @@ repository = "https://github.com/Goldziher/skif"
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
 colored = "3.1.1"
+criterion = { version = "0.8.2", features = ["html_reports"] }
 debugless-unwrap = "1.0.0"
 detect-indent = "0.1.0"
 detect-newline-style = "1.0.0"
+globset = "0.4.21"
 indexmap = { version = "2.14.2", features = ["serde"] }
 inquire = "0.9.4"
 insta = "1.49.0"
+jsonc-parser = "0.34.0"
+nodejs-semver = "7.0.0"
+proptest = "1.12.0"
+rayon = "1.12.0"
+schemars = { version = "1.2.3", features = ["indexmap2"] }
 semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = "2.0.0"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+strsim = "0.11.1"
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+toml = { version = "1.1.8", features = ["preserve_order"] }
+yaml_serde = "0.10"
+yamlpatch = "1.31"
+yamlpath = "1.31"
+
+skif-config = { path = "crates/skif-config", version = "=0.0.0" }
+skif-core = { path = "crates/skif-core", version = "=0.0.0" }
+skif-edit = { path = "crates/skif-edit", version = "=0.0.0" }
+skif-lint = { path = "crates/skif-lint", version = "=0.0.0" }
+skif-report = { path = "crates/skif-report", version = "=0.0.0" }
+skif-specifier = { path = "crates/skif-specifier", version = "=0.0.0" }
+skif-workspace = { path = "crates/skif-workspace", version = "=0.0.0" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
