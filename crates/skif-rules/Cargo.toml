@@ -22,7 +22,9 @@ skif-workspace.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+serde-saphyr.workspace = true
 skif-edit = { workspace = true, features = ["yaml"] }
+toml.workspace = true
 
 [lints]
 workspace = true
