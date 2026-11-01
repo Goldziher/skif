@@ -1,15 +1,14 @@
-// Vendored from syncpack crates/syncpack-specifier/src/latest.rs @958d306 (MIT, Copyright (c) 2017-2023 Jamie Mason). Modified for skif; see ATTRIBUTIONS.md.
 use {
     crate::{HUGE, Specifier, semver_range::SemverRange},
-    std::sync::{Arc, OnceLock},
+    std::sync::Arc,
 };
 
 #[derive(Debug)]
 pub struct Latest {
     /// "*", "latest", "x"
     pub raw: String,
-    /// Lazily parsed HUGE version for ordering (999999.999999.999999)
-    node_version: OnceLock<Arc<nodejs_semver::Version>>,
+    /// HUGE version for ordering (999999.999999.999999)
+    node_version: Arc<nodejs_semver::Version>,
     /// The semver range is always Any for Latest
     pub semver_range: SemverRange,
 }
@@ -23,34 +22,25 @@ impl PartialEq for Latest {
 impl Latest {
     #[must_use]
     pub fn create(raw: &str) -> Specifier {
-        Specifier::Latest(Self {
+        Specifier::Latest(Self::new(raw))
+    }
+
+    fn new(raw: &str) -> Self {
+        Self {
             raw: raw.to_string(),
-            node_version: OnceLock::new(),
+            node_version: Arc::new(nodejs_semver::Version::new(HUGE, HUGE, HUGE, Vec::new(), Vec::new())),
             semver_range: SemverRange::Any,
-        })
+        }
     }
 
     #[cfg(test)]
     #[must_use]
     pub fn create_test(raw: &str) -> Self {
-        Self {
-            raw: raw.to_string(),
-            node_version: OnceLock::new(),
-            semver_range: SemverRange::Any,
-        }
+        Self::new(raw)
     }
 
-    #[allow(
-        clippy::expect_used,
-        reason = "the raw value was validated by the parser before this variant was built"
-    )]
+    #[must_use]
     pub fn get_node_version(&self) -> Arc<nodejs_semver::Version> {
-        self.node_version
-            .get_or_init(|| {
-                let huge = HUGE.to_string();
-                let huge_version = format!("{huge}.{huge}.{huge}");
-                Specifier::new_node_version(&huge_version).expect("HUGE version is always valid")
-            })
-            .clone()
+        self.node_version.clone()
     }
 }
