@@ -144,27 +144,47 @@ pub fn is_range_minor(s: &str) -> bool {
     is_minor_version(bytes, start)
 }
 
-/// Is this a semver range containing multiple parts?
-/// Such as OR (" || ") or AND (" ") or hyphen range (" - ")
+/// "1.x", "1.2.*", "1.X.x": a partial version whose trailing components are
+/// wildcards. Only meaningful as a part of a complex range; on its own it is
+/// classified as unsupported.
 #[must_use]
-pub fn is_complex_range(specifier: &str) -> bool {
-    // Quick reject: must contain a space
-    if !specifier.contains(' ') {
+pub fn is_x_range(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() > 3 || parts[0].is_empty() || !parts[0].bytes().all(|b| b.is_ascii_digit()) {
         return false;
     }
-    // Split on " || " first (OR conditions), then each part is space-separated AND conditions
-    let or_parts = specifier.split(" || ");
+    let is_wildcard = |p: &str| matches!(p, "x" | "X" | "*");
+    let is_number = |p: &str| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit());
+    let first_wildcard = parts.iter().position(|p| is_wildcard(p));
+    match first_wildcard {
+        None => false,
+        Some(index) => parts[..index].iter().all(|p| is_number(p)) && parts[index..].iter().all(|p| is_wildcard(p)),
+    }
+}
+
+/// Is this a semver range containing multiple parts?
+/// Such as OR ("||"), AND (" ") or hyphen range (" - ")
+#[must_use]
+pub fn is_complex_range(specifier: &str) -> bool {
+    // Quick reject: must contain a space or an OR operator
+    if !specifier.contains(' ') && !specifier.contains("||") {
+        return false;
+    }
+    // Split on "||" first (OR conditions), then each part is whitespace-separated
+    // AND conditions; a lone "-" is the hyphen range operator.
     let mut total_parts = 0;
-    for or_part in or_parts {
-        let tokens: Vec<_> = or_part
-            .split([' ', '-'])
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .collect();
-        total_parts += tokens.len();
-        if !tokens.iter().all(|s| is_simple_semver(s)) {
+    for or_part in specifier.split("||") {
+        let mut tokens = 0;
+        for token in or_part.split_whitespace().filter(|token| *token != "-") {
+            if !is_simple_semver(token) && !is_x_range(token) {
+                return false;
+            }
+            tokens += 1;
+        }
+        if tokens == 0 {
             return false;
         }
+        total_parts += tokens;
     }
     total_parts > 1
 }
