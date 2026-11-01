@@ -1,0 +1,93 @@
+//! YAML edit tests: comments and layout outside the change survive.
+
+#![cfg(feature = "yaml")]
+
+mod common;
+
+use common::yaml_op;
+use serde_json::json;
+use skif_core::{FixOp, YamlAction};
+use skif_edit::{EditPlanError, FileKind, apply, plan_edits};
+
+const WORKSPACE: &str = "# workspace\npackages:\n  - 'apps/*' # apps\n  - 'libs/*'\n\ncatalog:\n  react: ^18.0.0 # pinned\n  vue: ^3.0.0\n# end\n";
+
+fn run(cases: Vec<(&str, Vec<FixOp>, &str)>) {
+    for (name, ops, expected) in cases {
+        let refs: Vec<&FixOp> = ops.iter().collect();
+        let actual = apply(WORKSPACE, FileKind::Yaml, &refs).unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert_eq!(actual, expected, "case `{name}`");
+    }
+}
+
+#[test]
+fn yaml_edits_keep_comments() {
+    run(vec![
+        (
+            "set existing value",
+            vec![yaml_op(&["catalog", "react"], YamlAction::Set(json!("^19.0.0")))],
+            "# workspace\npackages:\n  - 'apps/*' # apps\n  - 'libs/*'\n\ncatalog:\n  react: ^19.0.0 # pinned\n  vue: ^3.0.0\n# end\n",
+        ),
+        (
+            "set adds a missing key",
+            vec![yaml_op(&["catalog", "zod"], YamlAction::Set(json!("^3.0.0")))],
+            "# workspace\npackages:\n  - 'apps/*' # apps\n  - 'libs/*'\n\ncatalog:\n  react: ^18.0.0 # pinned\n  vue: ^3.0.0\n  zod: ^3.0.0\n# end\n",
+        ),
+        (
+            "remove a key",
+            vec![yaml_op(&["catalog", "vue"], YamlAction::Remove)],
+            "# workspace\npackages:\n  - 'apps/*' # apps\n  - 'libs/*'\n\ncatalog:\n  react: ^18.0.0 # pinned\n# end\n",
+        ),
+        (
+            "remove a sequence item",
+            vec![yaml_op(&["packages", "#1"], YamlAction::Remove)],
+            "# workspace\npackages:\n  - 'apps/*' # apps\n\ncatalog:\n  react: ^18.0.0 # pinned\n  vue: ^3.0.0\n# end\n",
+        ),
+        (
+            "append to a sequence",
+            vec![yaml_op(&["packages"], YamlAction::Append(json!("tools/*")))],
+            "# workspace\npackages:\n  - 'apps/*' # apps\n  - 'libs/*'\n  - tools/*\n\ncatalog:\n  react: ^18.0.0 # pinned\n  vue: ^3.0.0\n# end\n",
+        ),
+        (
+            "several ops see each other's results",
+            vec![
+                yaml_op(&["catalog", "react"], YamlAction::Set(json!("^19.0.0"))),
+                yaml_op(&["catalog", "vue"], YamlAction::Remove),
+                yaml_op(&["packages"], YamlAction::Append(json!("tools/*"))),
+            ],
+            "# workspace\npackages:\n  - 'apps/*' # apps\n  - 'libs/*'\n  - tools/*\n\ncatalog:\n  react: ^19.0.0 # pinned\n# end\n",
+        ),
+    ]);
+}
+
+#[test]
+fn the_plan_is_one_minimal_edit() {
+    let op = yaml_op(&["catalog", "react"], YamlAction::Set(json!("^19.0.0")));
+    let edits = plan_edits(WORKSPACE, FileKind::Yaml, &[&op]).unwrap();
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0].replacement, "9");
+    let none = plan_edits(WORKSPACE, FileKind::Yaml, &[]).unwrap();
+    assert_eq!(none.len(), 0);
+}
+
+#[test]
+fn yaml_errors() {
+    let missing = yaml_op(&["nope", "x"], YamlAction::Set(json!(1)));
+    assert!(matches!(
+        plan_edits(WORKSPACE, FileKind::Yaml, &[&missing]).unwrap_err(),
+        EditPlanError::Yaml { .. }
+    ));
+    let root = yaml_op(&[], YamlAction::Set(json!(1)));
+    assert!(matches!(
+        plan_edits(WORKSPACE, FileKind::Yaml, &[&root]).unwrap_err(),
+        EditPlanError::Yaml { .. }
+    ));
+    let json = common::set(&["a"], json!(1));
+    assert!(matches!(
+        plan_edits(WORKSPACE, FileKind::Yaml, &[&json]).unwrap_err(),
+        EditPlanError::Unsupported { .. }
+    ));
+    assert!(matches!(
+        plan_edits("a: [", FileKind::Yaml, &[&missing]).unwrap_err(),
+        EditPlanError::Parse { .. }
+    ));
+}
