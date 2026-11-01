@@ -1,0 +1,10 @@
+[[version-groups]]
+label = "react is free"
+dependencies = ["react"]
+policy = "ignored"
+
+[[version-groups]]
+label = "react is pinned"
+dependencies = ["react"]
+policy = "pinned"
+pin = "18.3.1"

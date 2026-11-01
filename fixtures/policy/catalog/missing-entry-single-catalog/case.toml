@@ -1,0 +1,3 @@
+description = "With exactly one catalog and the dependency absent from it, the fix adds the entry to that catalog."
+source = "syncpack:src/version_group/catalog_test.rs::missing_from_catalog::catalog_group_missing_single_catalog_fixable"
+tags = ["catalog", "prefer", "fix", "creates-entry"]

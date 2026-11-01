@@ -49,7 +49,8 @@ pub use linter::{Linter, RunOptions, builtin_providers};
 pub use root::{find_workspace_root, load_config};
 
 pub use skif_config::{
-    CONFIG_FILE_NAMES, Config, ConfigError, ConfigOverrides, IgnoreEntry, Level, PackageManager, Prefer, RuleConfig, Selector,
+    CONFIG_FILE_NAMES, Config, ConfigError, ConfigOverrides, IgnoreEntry, Level, PackageManager, Prefer, RuleConfig,
+    Selector,
 };
 pub use skif_core::{
     Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixSafety, Fixability,

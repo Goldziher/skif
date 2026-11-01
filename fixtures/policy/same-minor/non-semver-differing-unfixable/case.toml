@@ -1,0 +1,3 @@
+description = "Differing non-semver specifiers in a same-minor group are reported, not dropped."
+source = "syncpack:src/version_group/same_minor_test.rs::non_semver_differing"
+tags = ["same-minor", "unsupported", "unfixable"]

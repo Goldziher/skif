@@ -1,0 +1,4 @@
+description = "A prerelease version is a valid local version; a dependent on the identical prerelease is valid."
+source = "skif"
+tags = ["local", "prerelease"]
+valid-states = ["IsLocalAndValid", "IsIdenticalToLocal"]

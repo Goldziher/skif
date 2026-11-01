@@ -57,6 +57,10 @@ pub enum Select {
 }
 
 #[derive(Debug, clap::Args)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent command-line switch"
+)]
 pub struct LintArgs {
     /// A path inside the monorepo; the workspace root is the nearest ancestor that declares a workspace.
     #[arg(default_value = ".")]

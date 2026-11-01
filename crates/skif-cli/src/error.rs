@@ -90,9 +90,7 @@ impl From<ConfigError> for CliError {
     fn from(error: ConfigError) -> Self {
         let mut cli = Self::new(Kind::Config, error.to_string());
         match &error {
-            ConfigError::Parse {
-                path, line, column, ..
-            } => {
+            ConfigError::Parse { path, line, column, .. } => {
                 cli.path = path.as_deref().map(display);
                 cli.line = position(*line);
                 cli.column = position(*column);
@@ -113,9 +111,7 @@ impl From<WorkspaceError> for CliError {
     fn from(error: WorkspaceError) -> Self {
         let mut cli = Self::new(Kind::Workspace, error.to_string());
         match &error {
-            WorkspaceError::InvalidManifest {
-                path, line, column, ..
-            } => {
+            WorkspaceError::InvalidManifest { path, line, column, .. } => {
                 cli.path = Some(display(path));
                 cli.line = Some(*line);
                 cli.column = Some(*column);

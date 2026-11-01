@@ -1,0 +1,5 @@
+[[version-groups]]
+dependencies = ["react"]
+packages = ["app"]
+dependency-types = ["dev"]
+policy = "banned"

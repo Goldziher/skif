@@ -36,7 +36,7 @@ const fn allows(ceiling: FixSafety, safety: FixSafety) -> bool {
 /// Builds the selection for this run. Alternatives are put to the user only when stdin is a terminal, the format is
 /// `human` and `--select` did not already decide; otherwise the rule's configured preference (its first alternative)
 /// is taken.
-pub fn selection(args: &LintArgs, env: &Env, report: &Report) -> Result<FixSelection, CliError> {
+pub fn selection(args: &LintArgs, env: Env, report: &Report) -> Result<FixSelection, CliError> {
     let safety = if args.fix_unsafe {
         FixSafety::Unsafe
     } else {
@@ -131,11 +131,7 @@ impl FixRun {
     /// A short account of the fix run for terminals.
     pub fn write_human(&self, out: &mut dyn Write) -> io::Result<()> {
         let files = self.plan.changes.len();
-        writeln!(
-            out,
-            "Fixed {} issue(s) in {files} file(s).",
-            self.plan.applied.len()
-        )?;
+        writeln!(out, "Fixed {} issue(s) in {files} file(s).", self.plan.applied.len())?;
         for path in self.plan.paths() {
             writeln!(out, "  fixed {}", slash(path))?;
         }
@@ -146,7 +142,11 @@ impl FixRun {
             } else {
                 format!(": {detail}")
             };
-            writeln!(out, "  skipped [{}] {} ({reason}{detail})", skipped.rule, skipped.message)?;
+            writeln!(
+                out,
+                "  skipped [{}] {} ({reason}{detail})",
+                skipped.rule, skipped.message
+            )?;
         }
         writeln!(out)
     }

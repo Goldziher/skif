@@ -1,0 +1,4 @@
+description = "A same-minor group of identical non-semver specifiers is valid."
+source = "syncpack:src/version_group/same_minor_test.rs::non_semver_all_identical"
+tags = ["same-minor", "unsupported"]
+valid-states = ["IsNonSemverButIdentical"]

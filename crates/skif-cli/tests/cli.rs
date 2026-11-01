@@ -1,5 +1,7 @@
 //! End-to-end tests of the `skif` binary against the contract in ADR 0016.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod support;
 
 use std::collections::BTreeSet;
@@ -121,7 +123,7 @@ fn a_directory_without_a_workspace_exits_two() {
     assert_eq!(json.json()["error"]["kind"], "workspace");
     let human = run(skif().arg(dir.path()));
     assert_eq!(human.code, 2);
-    assert!(human.stdout.is_empty());
+    assert_eq!(human.stdout, "");
     assert!(human.stderr.starts_with("error:"), "{}", human.stderr);
 }
 
@@ -129,7 +131,7 @@ fn a_directory_without_a_workspace_exits_two() {
 fn usage_errors_exit_two_and_are_json_in_json_mode() {
     let human = run(skif().arg("--no-such-flag"));
     assert_eq!(human.code, 2);
-    assert!(human.stdout.is_empty());
+    assert_eq!(human.stdout, "");
 
     let json = run(skif().args(["--format", "json", "--no-such-flag"]));
     assert_eq!(json.code, 2);
@@ -154,7 +156,10 @@ fn output_writes_the_file_and_keeps_stdout_empty() {
     let dir = fixture("dirty");
     let out = tempfile::tempdir().unwrap();
     let target = out.path().join("report.json");
-    let result = run(skif().args(["--format", "json", "--output"]).arg(&target).arg(dir.path()));
+    let result = run(skif()
+        .args(["--format", "json", "--output"])
+        .arg(&target)
+        .arg(dir.path()));
     assert_eq!(result.code, 1);
     assert!(result.stdout.is_empty(), "{}", result.stdout);
     let document: Value = serde_json::from_str(&fs::read_to_string(&target).unwrap()).unwrap();
@@ -165,7 +170,10 @@ fn output_writes_the_file_and_keeps_stdout_empty() {
 fn failing_run_does_not_write_output_and_reports_on_stdout() {
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join("report.json");
-    let result = run(skif().args(["--format", "json", "--output"]).arg(&target).arg(dir.path()));
+    let result = run(skif()
+        .args(["--format", "json", "--output"])
+        .arg(&target)
+        .arg(dir.path()));
     assert_eq!(result.code, 2);
     assert!(!target.exists());
     assert_eq!(result.json()["error"]["kind"], "workspace");
@@ -192,7 +200,12 @@ fn max_warnings_decides_between_zero_and_one() {
 fn rule_levels_and_ignores_change_the_outcome() {
     let dir = fixture("dirty");
     let ignored = run(skif()
-        .args(["--rule", "root-package-private-field=off", "--ignore-rule", "empty-dependencies"])
+        .args([
+            "--rule",
+            "root-package-private-field=off",
+            "--ignore-rule",
+            "empty-dependencies",
+        ])
         .arg(dir.path()));
     assert_eq!(ignored.code, 0, "{}{}", ignored.stdout, ignored.stderr);
 
@@ -202,7 +215,12 @@ fn rule_levels_and_ignores_change_the_outcome() {
     assert_eq!(package.code, 0, "{}{}", package.stdout, package.stderr);
 
     let scoped = run(skif()
-        .args(["--rule", "root-package-private-field=off", "--ignore-rule-for-package", "empty-dependencies:@cli/a"])
+        .args([
+            "--rule",
+            "root-package-private-field=off",
+            "--ignore-rule-for-package",
+            "empty-dependencies:@cli/a",
+        ])
         .arg(dir.path()));
     assert_eq!(scoped.code, 0, "{}{}", scoped.stdout, scoped.stderr);
 
@@ -223,8 +241,14 @@ fn fix_from_another_directory_writes_root_relative_files_only() {
     assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
 
     let after = tree(dir.path());
-    assert_eq!(changed(&before, &after).into_iter().collect::<BTreeSet<_>>(), expected_fixed());
-    assert!(tree(elsewhere.path()).is_empty(), "files leaked into the current directory");
+    assert_eq!(
+        changed(&before, &after).into_iter().collect::<BTreeSet<_>>(),
+        expected_fixed()
+    );
+    assert!(
+        tree(elsewhere.path()).is_empty(),
+        "files leaked into the current directory"
+    );
 
     let root: Value = serde_json::from_str(&after[Path::new("package.json")]).unwrap();
     assert_eq!(root["private"], true);
@@ -244,7 +268,10 @@ fn fix_started_inside_a_member_still_fixes_the_root() {
     let before = tree(dir.path());
     let result = run(skif().current_dir(&member).args(["--fix", "--no-install"]));
     assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
-    assert_eq!(changed(&before, &tree(dir.path())).into_iter().collect::<BTreeSet<_>>(), expected_fixed());
+    assert_eq!(
+        changed(&before, &tree(dir.path())).into_iter().collect::<BTreeSet<_>>(),
+        expected_fixed()
+    );
     assert!(tree(&member).keys().all(|path| path == Path::new("package.json")));
 }
 
@@ -266,7 +293,9 @@ fn fix_is_refused_only_when_ci_is_truthy() {
         let dir = fixture("dirty");
         let before = tree(dir.path());
         let mut command = skif();
-        command.args(["--fix", "--no-install", "--format", "json"]).arg(dir.path());
+        command
+            .args(["--fix", "--no-install", "--format", "json"])
+            .arg(dir.path());
         if let Some(value) = ci {
             command.env("CI", value);
         }
@@ -330,7 +359,10 @@ fn install_is_not_run_without_fix_without_changes_or_with_no_install() {
     let lint_only = run(skif().env("PATH", bin.path()).arg(dirty.path()));
     assert_eq!(lint_only.code, 1);
 
-    let opted_out = run(skif().env("PATH", bin.path()).args(["--fix", "--no-install"]).arg(dirty.path()));
+    let opted_out = run(skif()
+        .env("PATH", bin.path())
+        .args(["--fix", "--no-install"])
+        .arg(dirty.path()));
     assert_eq!(opted_out.code, 0);
 
     let clean = fixture("clean");
@@ -347,7 +379,9 @@ fn install_is_skipped_when_no_package_manager_is_detected() {
     let bin = shim("npm", &record, 0);
     let dir = fixture("dirty");
     let manifest = dir.path().join("package.json");
-    let without_manager = fs::read_to_string(&manifest).unwrap().replace("  \"packageManager\": \"npm@11.6.2\",\n", "");
+    let without_manager = fs::read_to_string(&manifest)
+        .unwrap()
+        .replace("  \"packageManager\": \"npm@11.6.2\",\n", "");
     fs::write(&manifest, without_manager).unwrap();
 
     let result = run(skif()
@@ -355,7 +389,7 @@ fn install_is_skipped_when_no_package_manager_is_detected() {
         .args(["--fix", "--format", "json"])
         .arg(dir.path()));
     assert_eq!(result.json()["fix"]["install"]["status"], "skipped");
-    assert!(invocations(&record).is_empty());
+    assert_eq!(invocations(&record).len(), 0);
 }
 
 #[test]
@@ -399,7 +433,7 @@ fn rules_lists_the_registry() {
     assert_eq!(json.code, 0);
     let document = json.json();
     let rules = document["rules"].as_array().unwrap();
-    assert!(!rules.is_empty());
+    assert_ne!(rules.len(), 0);
     for rule in rules {
         for key in ["id", "category", "default", "fixable", "summary"] {
             assert!(rule.get(key).is_some(), "{rule} lacks {key}");
@@ -430,7 +464,11 @@ fn init_writes_a_starter_config_and_refuses_to_overwrite() {
     insta::assert_snapshot!("init_config", starter);
 
     let linted = run(skif().arg(dir.path()));
-    assert_eq!(linted.code, 0, "the starter config must be valid: {}{}", linted.stdout, linted.stderr);
+    assert_eq!(
+        linted.code, 0,
+        "the starter config must be valid: {}{}",
+        linted.stdout, linted.stderr
+    );
 
     fs::write(&target, "# mine\n").unwrap();
     let refused = run(skif().arg("init").arg(dir.path()));

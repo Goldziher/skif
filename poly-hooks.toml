@@ -1,0 +1,37 @@
+version = 1
+
+[[hooks]]
+id = "skif"
+stages = ["pre-commit"]
+args = ["--no-js"]
+files = ["**/package.json", "**/pnpm-workspace.yaml", "**/skif.toml", "**/.skif.toml"]
+workspace = true
+pass_filenames = false
+
+[[hooks.paths]]
+channel = "system"
+check = "command -v skif"
+run = "skif"
+
+[[hooks.paths]]
+channel = "npm"
+check = "command -v pnpm"
+run = "pnpm dlx skif@0.0.0"
+
+[[hooks]]
+id = "skif-fix"
+stages = ["pre-commit"]
+args = ["--fix", "--no-install", "--no-js"]
+files = ["**/package.json", "**/pnpm-workspace.yaml", "**/skif.toml", "**/.skif.toml"]
+workspace = true
+pass_filenames = false
+
+[[hooks.paths]]
+channel = "system"
+check = "command -v skif"
+run = "skif"
+
+[[hooks.paths]]
+channel = "npm"
+check = "command -v pnpm"
+run = "pnpm dlx skif@0.0.0"

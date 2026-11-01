@@ -1,0 +1,7 @@
+[policy]
+prefer = "highest"
+
+[[version-groups]]
+dependencies = ["react"]
+policy = "preferred-semver"
+prefer = "lowest"

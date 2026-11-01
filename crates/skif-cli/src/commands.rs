@@ -1,5 +1,6 @@
 //! The `rules`, `schema` and `init` subcommands.
 
+use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Write};
 
@@ -52,18 +53,29 @@ fn label<T: Serialize>(value: &T) -> String {
 }
 
 fn rules_table(metas: &[&'static RuleMeta]) -> String {
-    let width = metas.iter().map(|meta| meta.id.len()).max().unwrap_or(0).max("RULE".len());
-    let mut table = format!("{:<width$}  {:<9}  {:<7}  {:<9}  SUMMARY\n", "RULE", "CATEGORY", "DEFAULT", "FIXABLE");
+    let width = metas
+        .iter()
+        .map(|meta| meta.id.len())
+        .max()
+        .unwrap_or(0)
+        .max("RULE".len());
+    let mut table = format!(
+        "{:<width$}  {:<9}  {:<7}  {:<9}  SUMMARY\n",
+        "RULE", "CATEGORY", "DEFAULT", "FIXABLE"
+    );
     for meta in metas {
-        let default = meta.default.map_or_else(|| "off".to_owned(), |severity| label(&severity));
-        table.push_str(&format!(
-            "{:<width$}  {:<9}  {:<7}  {:<9}  {}\n",
+        let default = meta
+            .default
+            .map_or_else(|| "off".to_owned(), |severity| label(&severity));
+        let _ = writeln!(
+            table,
+            "{:<width$}  {:<9}  {:<7}  {:<9}  {}",
             meta.id,
             label(&meta.category),
             default,
             label(&meta.fixable),
             meta.summary
-        ));
+        );
     }
     table
 }
@@ -98,7 +110,11 @@ fn write_starter(args: &InitArgs) -> Result<(), CliError> {
     if !dir.is_dir() {
         return Err(CliError::new(Kind::Io, format!("{} is not a directory", dir.display())));
     }
-    if let Some(existing) = CONFIG_FILE_NAMES.iter().map(|name| dir.join(name)).find(|path| path.exists()) {
+    if let Some(existing) = CONFIG_FILE_NAMES
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|path| path.exists())
+    {
         return Err(CliError {
             path: Some(display(&existing)),
             ..CliError::new(

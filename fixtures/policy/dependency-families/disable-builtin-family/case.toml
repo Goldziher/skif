@@ -1,0 +1,3 @@
+description = "enabled = false switches a built-in family off."
+source = "skif"
+tags = ["families", "builtin", "disable", "assumption"]

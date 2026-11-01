@@ -5,9 +5,9 @@ use std::sync::atomic::AtomicBool;
 
 use serde_json::json;
 use skif::{
-    Alternatives, Category, ConfigOverrides, Diagnostic, FileChange, FileSystem, Fix, FixOp, FixSafety, FixSelection,
-    Fixability, Emitter, InsertPosition, JsonAction, LintContext, Linter, Location, MemoryFs, PathSeg, Report, Rule,
-    RuleMeta, RulesProvider, RunOptions, Severity, SkipReason, Workspace, apply_fixes, diagnostic, load_config,
+    Alternatives, Category, ConfigOverrides, Diagnostic, Emitter, FileChange, FileSystem, Fix, FixOp, FixSafety,
+    FixSelection, Fixability, InsertPosition, JsonAction, LintContext, Linter, Location, MemoryFs, PathSeg, Report,
+    Rule, RuleMeta, RulesProvider, RunOptions, Severity, SkipReason, Workspace, apply_fixes, diagnostic, load_config,
 };
 
 const ROOT_MANIFEST: &str = "{\n  \"name\": \"root\",\n  \"workspaces\": [\"packages/*\"]\n}\n";
@@ -142,25 +142,21 @@ fn report(fs: &MemoryFs) -> (Workspace, Report) {
 }
 
 fn index_of(report: &Report, rule: &str) -> usize {
-    report
-        .diagnostics
-        .iter()
-        .position(|d| d.rule.as_str() == rule)
-        .unwrap()
+    report.diagnostics.iter().position(|d| d.rule.as_str() == rule).unwrap()
 }
 
-fn modified<'a>(changes: &'a [FileChange], path: &str) -> &'a str {
+fn modified<'a>(changes: &'a [FileChange], wanted: &str) -> &'a str {
     changes
         .iter()
         .find_map(|change| match change {
             FileChange::Modify {
-                path: changed,
+                path: file,
                 new_contents,
                 ..
-            } if changed == Path::new(path) => Some(new_contents.as_str()),
+            } if file == Path::new(wanted) => Some(new_contents.as_str()),
             _ => None,
         })
-        .unwrap_or_else(|| panic!("no modification of {path}"))
+        .unwrap_or_else(|| panic!("no modification of {wanted}"))
 }
 
 #[test]
@@ -173,13 +169,19 @@ fn plan_is_data_and_leaves_the_file_system_untouched() {
     let paths: Vec<&Path> = plan.paths().collect();
     assert_eq!(paths, [Path::new("package.json"), Path::new("packages/a/package.json")]);
     let root: serde_json::Value = serde_json::from_str(modified(&plan.changes, "package.json")).unwrap();
-    assert_eq!(root, json!({"name": "root", "workspaces": ["packages/*"], "private": true}));
+    assert_eq!(
+        root,
+        json!({"name": "root", "workspaces": ["packages/*"], "private": true})
+    );
     assert!(modified(&plan.changes, "package.json").starts_with("{\n  \"name\": \"root\","));
     assert_eq!(
         modified(&plan.changes, "packages/a/package.json"),
         "{\n  \"name\": \"a\",\n  \"version\": \"2.0.0\"\n}\n"
     );
-    assert_eq!(&*fs.read_to_string(Path::new("/ws/package.json")).unwrap(), ROOT_MANIFEST);
+    assert_eq!(
+        &*fs.read_to_string(Path::new("/ws/package.json")).unwrap(),
+        ROOT_MANIFEST
+    );
     assert_eq!(
         &*fs.read_to_string(Path::new("/ws/packages/a/package.json")).unwrap(),
         MEMBER_MANIFEST
@@ -199,7 +201,11 @@ fn overlapping_fix_is_skipped_and_the_earlier_one_wins() {
         panic!("expected one skipped fix, got {:?}", plan.skipped);
     };
     assert_eq!(skipped.rule.as_str(), "demo-conflict");
-    assert!(matches!(skipped.reason, SkipReason::Conflict(_)), "{:?}", skipped.reason);
+    assert!(
+        matches!(skipped.reason, SkipReason::Conflict(_)),
+        "{:?}",
+        skipped.reason
+    );
 }
 
 #[test]
@@ -278,7 +284,7 @@ fn rule_filter_limits_the_plan() {
     let plan = apply_fixes(&workspace, &report, &selection, &fs).unwrap();
 
     assert_eq!(plan.paths().collect::<Vec<_>>(), [Path::new("package.json")]);
-    assert!(plan.skipped.is_empty());
+    assert_eq!(plan.skipped.len(), 0);
 }
 
 #[test]
@@ -406,9 +412,7 @@ fn configuration_errors_carry_the_file() {
 
 #[test]
 fn both_configuration_files_are_ambiguous() {
-    let fs = fs()
-        .with_file("/ws/skif.toml", "")
-        .with_file("/ws/.skif.toml", "");
+    let fs = fs().with_file("/ws/skif.toml", "").with_file("/ws/.skif.toml", "");
     let error = load_config(Path::new("/ws"), &fs, &ConfigOverrides::default()).unwrap_err();
     assert!(matches!(error, skif::ConfigError::Ambiguous { .. }), "{error}");
 }

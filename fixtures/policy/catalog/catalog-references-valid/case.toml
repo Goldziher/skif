@@ -1,0 +1,4 @@
+description = "Instances already using catalog: against an existing entry are valid under enforce and are never rewritten."
+source = "syncpack:src/version_group/catalog_test.rs::definition_and_consumer::catalog_group_definition_valid"
+tags = ["catalog", "enforce", "never-rewrite"]
+valid-states = ["IsCatalog", "IsCatalogDefinition"]

@@ -1,0 +1,3 @@
+[[version-groups]]
+packages = ["legacy"]
+policy = "ignored"

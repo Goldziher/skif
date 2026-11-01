@@ -4,6 +4,10 @@ use std::io::IsTerminal;
 
 /// Facts about the invoking environment that change behaviour.
 #[derive(Debug, Clone, Copy)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent yes/no facts about the environment"
+)]
 pub struct Env {
     /// `CI` is truthy: set, non-empty after trimming, and not `0`, `false`, `no` or `off` in any case.
     pub ci: bool,
@@ -30,7 +34,9 @@ impl Env {
 pub fn is_truthy(value: Option<&str>) -> bool {
     match value.map(str::trim) {
         None | Some("") => false,
-        Some(text) => !["0", "false", "no", "off"].iter().any(|falsy| text.eq_ignore_ascii_case(falsy)),
+        Some(text) => !["0", "false", "no", "off"]
+            .iter()
+            .any(|falsy| text.eq_ignore_ascii_case(falsy)),
     }
 }
 

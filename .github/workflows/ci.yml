@@ -134,7 +134,15 @@ jobs:
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y shellcheck
           shopt -s globstar nullglob
-          shellcheck scripts/**/*.sh mise-tasks/**/*.sh
+          shellcheck scripts/**/*.sh npm-package/*.sh mise-tasks/**/*.sh
+
+  consistency:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check that every release surface agrees on one version
+        run: scripts/check-versions.sh
 
   e2e:
     name: E2E (${{ matrix.package-manager }})

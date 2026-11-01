@@ -1,0 +1,4 @@
+description = "Ranges overlap and every instance already uses its semver group's range: valid."
+source = "syncpack:src/version_group/same_range_test.rs::instance_in_a_same_range_group_satisfies_every_other_and_matches_its_semver_group"
+tags = ["same-range", "semver-groups"]
+valid-states = ["SatisfiesSameRangeGroup"]

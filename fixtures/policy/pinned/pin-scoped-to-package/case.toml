@@ -1,0 +1,3 @@
+description = "A pinned group restricted by packages only claims instances in those packages."
+source = "syncpack:src/version_group/pinned_test.rs::normal::a_pinned_version_will_replace_anything_different"
+tags = ["pinned", "selectors", "fix"]
