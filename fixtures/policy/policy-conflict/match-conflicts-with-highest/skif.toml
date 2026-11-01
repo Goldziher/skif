@@ -1,0 +1,3 @@
+[[semver-groups]]
+packages = ["lib"]
+range = "<"

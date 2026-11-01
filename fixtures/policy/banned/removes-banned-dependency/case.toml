@@ -1,0 +1,3 @@
+description = "A banned dependency is reported in every package that declares it and the fix removes the entry."
+source = "syncpack:src/version_group/banned_test.rs::removes_instance_with_versions_by_name_strategy"
+tags = ["banned", "fix"]

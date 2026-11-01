@@ -1,0 +1,29 @@
+[
+  {
+    "rule": "banned-dependency",
+    "severity": "error",
+    "package": "app",
+    "dependency": "left-pad",
+    "detail": "IsBanned",
+    "path": "packages/app/package.json",
+    "fixable": true
+  },
+  {
+    "rule": "banned-dependency",
+    "severity": "error",
+    "package": "lib",
+    "dependency": "left-pad",
+    "detail": "IsBanned",
+    "path": "packages/lib/package.json",
+    "fixable": true
+  },
+  {
+    "rule": "banned-dependency",
+    "severity": "error",
+    "package": "tool",
+    "dependency": "left-pad",
+    "detail": "IsBanned",
+    "path": "packages/tool/package.json",
+    "fixable": true
+  }
+]

@@ -1,0 +1,4 @@
+description = "A caret range and a tilde range that intersect satisfy a same-range group; nothing is reported."
+source = "syncpack:src/version_group/same_range_test.rs::caret_and_tilde_ranges_overlap_when_tilde_is_within_caret"
+tags = ["same-range"]
+valid-states = ["SatisfiesSameRangeGroup"]

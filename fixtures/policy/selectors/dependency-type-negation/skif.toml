@@ -1,0 +1,4 @@
+[[version-groups]]
+dependencies = ["left-pad"]
+dependency-types = ["!dev"]
+policy = "banned"

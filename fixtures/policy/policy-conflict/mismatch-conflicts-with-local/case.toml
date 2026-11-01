@@ -1,0 +1,4 @@
+description = "An instance outside its group's range where the group's range excludes the local version is an unfixable conflict."
+source = "syncpack:src/version_group/preferred_semver_test.rs::local::instance_has_same_version_number_as_local_package_but_mismatches_a_different_but_incompatible_semver_group"
+tags = ["semver-groups", "local", "conflict"]
+valid-states = ["IsLocalAndValid"]

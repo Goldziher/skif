@@ -1,0 +1,3 @@
+description = "A caret semver group conflicts with a same-minor group; the fix forces tilde, after which the group still disagrees."
+source = "syncpack:src/version_group/same_minor_test.rs::has_semver_number_which_satisfies_every_other_but_range_matches_incompatible_caret_semver_group"
+tags = ["same-minor", "semver-groups", "fix", "fix-not-idempotent"]

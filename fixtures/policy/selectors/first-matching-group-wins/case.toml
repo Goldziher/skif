@@ -1,0 +1,4 @@
+description = "Version groups are evaluated in file order: an instance belongs to the first group that matches."
+source = "skif (ADR 0009)"
+tags = ["selectors", "precedence", "pinned", "fix"]
+valid-states = ["IsIdenticalToPin"]

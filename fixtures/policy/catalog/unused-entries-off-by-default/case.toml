@@ -1,0 +1,4 @@
+description = "Unused catalog entries are not reported unless report-unused-entries is enabled."
+source = "skif"
+tags = ["catalog", "unused-entries"]
+valid-states = ["IsCatalog"]

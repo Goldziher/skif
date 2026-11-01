@@ -1,0 +1,162 @@
+//! Parses `package.json` scripts into the binaries, files and dependencies they reference.
+//!
+//! The parser is a pure, never-panicking, best-effort interpreter of POSIX-style command lines. It
+//! understands quoting, separators (`&&`, `||`, `;`, `|`, `&`), subshells, command substitution,
+//! redirections, environment assignments and the argument conventions of the common package
+//! managers (`npm`, `npx`, `pnpm`, `yarn`, `bun`), process wrappers (`cross-env`, `dotenv`, ...),
+//! task runners (`concurrently`, `npm-run-all`, `turbo`) and script runners (`node`, `tsx`,
+//! `ts-node`, ...). Nothing is executed and the file system is never consulted.
+
+mod args;
+mod tables;
+mod tokenize;
+mod walk;
+
+#[cfg(test)]
+mod tests;
+
+use std::ops::Range;
+
+use indexmap::IndexMap;
+
+pub use tables::{IGNORED_BINARIES, is_ignored_binary};
+
+pub use skif_config::PackageManager;
+
+/// What the parser knows about the package that owns the script.
+#[derive(Debug, Clone, Default)]
+pub struct ScriptContext {
+    /// The package's scripts by name, in `package.json` order. Used to follow `npm run x`,
+    /// `pnpm x`, `yarn x`, `bun run x`, `node --run x` and `npm-run-all` patterns.
+    pub scripts: IndexMap<String, String>,
+    /// The package manager declared by the package; informational, commands are resolved from the
+    /// binary that is actually invoked.
+    pub package_manager: Option<PackageManager>,
+    /// The name of the script being parsed. It is never expanded again, which breaks cycles that
+    /// lead back to it.
+    pub current_script: Option<String>,
+}
+
+impl ScriptContext {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn with_script(mut self, name: impl Into<String>, body: impl Into<String>) -> Self {
+        self.scripts.insert(name.into(), body.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_package_manager(mut self, package_manager: PackageManager) -> Self {
+        self.package_manager = Some(package_manager);
+        self
+    }
+
+    #[must_use]
+    pub fn with_current_script(mut self, name: impl Into<String>) -> Self {
+        self.current_script = Some(name.into());
+        self
+    }
+}
+
+/// How a binary was reached.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum BinaryVia {
+    /// Invoked by name (or by a `node_modules/.bin` path), directly or behind a wrapper.
+    #[default]
+    Direct,
+    /// `npx <bin>`.
+    Npx,
+    /// `npm exec <bin>`.
+    NpmExec,
+    /// `pnpm exec <bin>`, or `pnpm <bin>` when `<bin>` is neither a script nor a pnpm command.
+    PnpmExec,
+    /// `pnpm dlx`, `pnpx` or `yarn dlx`.
+    Dlx,
+    /// `bunx <bin>` or `bun x <bin>`.
+    Bunx,
+    /// `yarn run <bin>` or `yarn <bin>`.
+    YarnRun,
+    /// `yarn exec <bin>`.
+    YarnExec,
+    /// `bun run <bin>` or `bun <bin>`.
+    BunRun,
+}
+
+impl BinaryVia {
+    /// Whether the tool is fetched on demand, so it need not be listed in the manifest.
+    #[must_use]
+    pub const fn is_ephemeral(self) -> bool {
+        matches!(self, Self::Npx | Self::Dlx | Self::Bunx)
+    }
+}
+
+/// A binary the script runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BinaryUse {
+    pub name: String,
+    /// Byte range in the parsed script. For binaries reached through another script (`npm run x`)
+    /// or a string that could not be located exactly, the range of the referencing word.
+    pub span: Range<usize>,
+    pub via: BinaryVia,
+    /// The command targets another workspace (`pnpm --filter web exec vitest`), so the binary
+    /// belongs to that workspace's manifest rather than the current one.
+    pub filtered: bool,
+}
+
+/// A file the script runs, loads or passes to a runner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileRef {
+    pub path: String,
+    pub span: Range<usize>,
+}
+
+/// A package the script needs that is not a binary name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DepRef {
+    /// The package name, without version or subpath.
+    pub name: String,
+    pub span: Range<usize>,
+    /// Fetched on demand (`npx -p pkg`, `pnpm dlx pkg`).
+    pub ephemeral: bool,
+}
+
+/// Everything a script references.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScriptInfo {
+    pub binaries: Vec<BinaryUse>,
+    pub files: Vec<FileRef>,
+    pub dependencies: Vec<DepRef>,
+    /// Names of the package's scripts this script runs, in order of first reference. Names that
+    /// are not in [`ScriptContext::scripts`] are included so callers can report them.
+    pub run_scripts: Vec<String>,
+    /// Task names passed to `turbo`; they refer to scripts of other workspaces.
+    pub turbo_tasks: Vec<String>,
+}
+
+/// Parses `script` and follows references to other scripts of the same package.
+#[must_use]
+pub fn parse_script(script: &str, ctx: &ScriptContext) -> ScriptInfo {
+    walk::Walker::new(ctx).run(script)
+}
+
+fn dedupe<T: PartialEq>(items: &mut Vec<T>) {
+    let mut unique: Vec<T> = Vec::with_capacity(items.len());
+    for item in items.drain(..) {
+        if !unique.contains(&item) {
+            unique.push(item);
+        }
+    }
+    *items = unique;
+}
+
+impl ScriptInfo {
+    fn dedupe(&mut self) {
+        dedupe(&mut self.binaries);
+        dedupe(&mut self.files);
+        dedupe(&mut self.dependencies);
+    }
+}

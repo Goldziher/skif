@@ -1,0 +1,4 @@
+description = "A dependency defined in two catalogs is ambiguous for a plain instance; catalog: consumers stay valid."
+source = "syncpack:src/version_group/catalog_test.rs::ambiguous_catalog::catalog_group_dep_in_multiple_catalogs"
+tags = ["catalog", "prefer", "named-catalog", "unfixable"]
+valid-states = ["IsCatalog"]

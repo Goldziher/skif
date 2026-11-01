@@ -1,0 +1,3 @@
+[[semver-groups]]
+specifier-types = ["exact"]
+range = "^"

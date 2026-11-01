@@ -1,0 +1,4 @@
+description = "!$LOCAL excludes workspace packages from the group: external dependencies are fixed, local ones are not."
+source = "skif"
+tags = ["semver-groups", "selectors", "$LOCAL", "negation", "fix"]
+valid-states = ["IsIdenticalToLocal"]
