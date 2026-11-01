@@ -1,9 +1,4 @@
-use {
-    super::hardening_test::exercise,
-    crate::Specifier,
-    proptest::prelude::*,
-    std::cmp::Ordering,
-};
+use {super::hardening_test::exercise, crate::Specifier, proptest::prelude::*, std::cmp::Ordering};
 
 fn number() -> impl Strategy<Value = String> {
     prop_oneof![

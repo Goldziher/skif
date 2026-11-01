@@ -37,7 +37,11 @@ impl Major {
     }
 
     #[cfg(test)]
-    #[allow(clippy::expect_used, reason = "test fixtures are valid by construction")]
+    #[allow(
+        clippy::expect_used,
+        clippy::missing_panics_doc,
+        reason = "test fixtures are valid by construction"
+    )]
     #[must_use]
     pub fn create_test(raw: &str) -> Self {
         Self::try_new(raw).expect("valid test fixture")

@@ -678,19 +678,19 @@ fn comparing_specifier_with_itself() {
 }
 
 #[test]
-fn stable_sort_preserves_equal_elements_order() {
-    let mut specifiers = vec![
+fn non_version_specifiers_sort_by_raw_string() {
+    let mut specifiers = [
         Specifier::new("file:path1"),
         Specifier::new("file:path2"),
         Specifier::new("alpha"),
         Specifier::new("beta"),
     ];
 
-    let original_order = specifiers.clone();
     specifiers.sort();
 
-    // All non-version specifiers compare equal, so stable sort preserves order
-    assert_eq!(specifiers, original_order);
+    // Non-version specifiers have no semantic order, so the raw-string tie-break decides
+    let raw: Vec<&str> = specifiers.iter().map(|s| s.get_raw()).collect();
+    assert_eq!(raw, ["alpha", "beta", "file:path1", "file:path2"]);
 }
 
 #[test]
@@ -751,7 +751,11 @@ fn cmp_is_equal_exactly_when_eq_over_fixtures() {
                 a == b,
                 "cmp/eq disagree for {left:?} vs {right:?}"
             );
-            assert_eq!(a.cmp(&b), b.cmp(&a).reverse(), "cmp not antisymmetric for {left:?} vs {right:?}");
+            assert_eq!(
+                a.cmp(&b),
+                b.cmp(&a).reverse(),
+                "cmp not antisymmetric for {left:?} vs {right:?}"
+            );
         }
     }
 }
