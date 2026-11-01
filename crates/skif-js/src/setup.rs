@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use skif_config::{Config, Js};
+use skif_config::{Config, Js, RuleOptions};
 use skif_core::FileSystem;
 use skif_workspace::{PackageId, Workspace};
 
@@ -97,6 +97,8 @@ pub(crate) struct Setup {
     pub global_ignore_binaries: Names,
     pub production: bool,
     pub include_entry_exports: bool,
+    /// `JSDoc` tags that exempt an export from `unused-exports` and `unused-types`.
+    pub ignore_tags: Vec<String>,
 }
 
 impl Setup {
@@ -108,6 +110,10 @@ impl Setup {
     ) -> Self {
         let js = &config.js;
         let production = js.production;
+        let ignore_tags = match config.rule("unused-exports").map(|rule| &rule.options) {
+            Some(RuleOptions::UnusedExports(options)) => options.ignore_tags.clone(),
+            _ => Vec::new(),
+        };
         let packages = workspace
             .iter()
             .map(|(id, package)| {
@@ -170,6 +176,7 @@ impl Setup {
             global_ignore_binaries: Names::new(&js.ignore_binaries),
             production,
             include_entry_exports: js.include_entry_exports,
+            ignore_tags,
         }
     }
 
