@@ -1,0 +1,4 @@
+[[version-groups]]
+dependencies = ["lib"]
+policy = "snapped-to"
+snap-to = ["app"]

@@ -1,0 +1,7 @@
+[[version-groups]]
+dependencies = ["typescript"]
+policy = "same-minor"
+
+[[semver-groups]]
+dependencies = ["typescript"]
+range = "^"
