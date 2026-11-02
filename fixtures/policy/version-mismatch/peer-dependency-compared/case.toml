@@ -1,3 +1,4 @@
 description = "With no [policy] dependency-types restriction, peerDependencies take part in alignment like any other section."
 source = "skif"
 tags = ["highest", "peer", "dependency-types", "fix"]
+compare = "bytes"

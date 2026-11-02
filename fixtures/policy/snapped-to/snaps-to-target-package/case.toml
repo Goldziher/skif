@@ -2,3 +2,4 @@ description = "Every instance is aligned on the version declared by the snap tar
 source = "syncpack:src/version_group/snapped_to_test.rs::instance_has_different_version_to_snapped_to_and_has_no_semver_group"
 tags = ["snapped-to", "fix"]
 valid-states = ["IsIdenticalToSnapTarget"]
+compare = "bytes"

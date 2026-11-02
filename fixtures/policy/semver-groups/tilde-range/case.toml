@@ -1,3 +1,4 @@
 description = "A tilde semver group reports caret instances."
 source = "syncpack:src/version_group/preferred_semver_test.rs::highest_or_lowest::semver_group_greedier_range_becomes_highest"
 tags = ["semver-groups", "fix"]
+compare = "bytes"

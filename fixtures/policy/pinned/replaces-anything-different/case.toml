@@ -2,3 +2,4 @@ description = "A pinned group replaces every different specifier with the pin an
 source = "syncpack:src/version_group/pinned_test.rs::normal::a_pinned_version_will_replace_anything_different"
 tags = ["pinned", "fix"]
 valid-states = ["IsIdenticalToPin"]
+compare = "bytes"

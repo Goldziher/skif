@@ -2,3 +2,4 @@ description = "The pin may itself be a range; exact instances then differ to the
 source = "syncpack:src/version_group/pinned_test.rs::normal::a_pinned_version_will_replace_anything_different"
 tags = ["pinned", "range", "fix"]
 valid-states = ["IsIdenticalToPin"]
+compare = "bytes"

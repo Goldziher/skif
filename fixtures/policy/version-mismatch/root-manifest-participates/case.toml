@@ -1,3 +1,4 @@
 description = "The workspace root package.json is an ordinary participant in version alignment."
 source = "skif"
 tags = ["highest", "root", "fix"]
+compare = "bytes"

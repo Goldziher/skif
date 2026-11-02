@@ -1,3 +1,4 @@
 description = "An invalid local version affects only that package's own alignment; unrelated dependencies are still checked."
 source = "syncpack:src/version_group/preferred_semver_test.rs::local::instance_depends_on_local_version_which_is_not_exact_semver"
 tags = ["local", "invalid", "fix"]
+compare = "bytes"

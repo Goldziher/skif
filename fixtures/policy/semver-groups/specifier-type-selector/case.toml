@@ -2,3 +2,4 @@ description = "specifier-types limits a group to exact specifiers; range specifi
 source = "skif"
 tags = ["semver-groups", "selectors", "specifier-types", "fix"]
 valid-states = ["IsHighestOrLowestSemver"]
+compare = "bytes"
