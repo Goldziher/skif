@@ -49,3 +49,24 @@ updates:
         update-types:
           - "minor"
           - "patch"
+
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+    open-pull-requests-limit: 5
+    assignees:
+      - "Goldziher"
+    commit-message:
+      prefix: "build(deps)"
+      prefix-development: "build(dev-deps)"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
+    groups:
+      website:
+        update-types:
+          - "minor"
+          - "patch"

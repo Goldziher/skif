@@ -1,0 +1,80 @@
+---
+title: Installation
+description: Install skif with Cargo, npm, Homebrew, Scoop, the GitHub Action or a prebuilt binary.
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+<Aside type="note">
+Every channel below is available from the first release.
+</Aside>
+
+<Tabs>
+  <TabItem label="Cargo">
+    ```bash
+    cargo install skif-cli
+    # or, to download a prebuilt binary:
+    cargo binstall skif-cli
+    ```
+
+    `cargo install skif` installs the library crate, not the binary. The command-line tool is `skif-cli`.
+  </TabItem>
+  <TabItem label="npm">
+    ```bash
+    pnpm add -D skif        # or: npm install -D skif / yarn add -D skif / bun add -D skif
+    pnpm dlx skif           # run without installing; also: npx skif / yarn dlx skif / bunx skif
+    ```
+
+    The npm package is a napi-rs addon for Node 24+ and Bun on macOS and Linux. There are no Windows npm
+    packages. See [npm and Bun](../../guides/integrations/#npm-and-bun).
+  </TabItem>
+  <TabItem label="Homebrew">
+    ```bash
+    brew install goldziher/tap/skif
+    ```
+  </TabItem>
+  <TabItem label="Scoop">
+    ```bash
+    scoop bucket add goldziher https://github.com/Goldziher/scoop-bucket
+    scoop install skif
+    ```
+  </TabItem>
+</Tabs>
+
+## Prebuilt binaries
+
+Each release attaches one archive per target, plus `checksums.txt`.
+
+| Target | Archive |
+| --- | --- |
+| macOS, Apple silicon / Intel | `skif-aarch64-apple-darwin.tar.gz`, `skif-x86_64-apple-darwin.tar.gz` |
+| Linux x64 / arm64, glibc | `skif-x86_64-unknown-linux-gnu.tar.gz`, `skif-aarch64-unknown-linux-gnu.tar.gz` |
+| Linux x64 / arm64, musl (static, Alpine) | `skif-x86_64-unknown-linux-musl.tar.gz`, `skif-aarch64-unknown-linux-musl.tar.gz` |
+| Windows x64 / arm64 | `skif-x86_64-pc-windows-msvc.zip`, `skif-aarch64-pc-windows-msvc.zip` |
+
+Each archive holds the `skif` binary (`skif.exe` on Windows) and the licence. Verify a download with:
+
+```bash
+sha256sum --check --ignore-missing checksums.txt
+```
+
+## GitHub Action
+
+```yaml
+- uses: actions/checkout@v7
+- uses: Goldziher/skif@v0
+  with:
+    fail-on-warnings: true
+```
+
+See [integrations](../../guides/integrations/#github-action) for the inputs.
+
+## Build from source
+
+```bash
+git clone https://github.com/Goldziher/skif
+cd skif
+cargo build --release
+```
+
+The binary is `target/release/skif`.

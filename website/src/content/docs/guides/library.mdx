@@ -1,0 +1,52 @@
+---
+title: Library usage
+description: Embed skif in a Rust program through the skif crate.
+---
+
+The `skif` crate is a facade that never prints, prompts, exits, reads the environment or the working directory,
+or writes files. Everything is read through a `FileSystem`: `OsFs` on disk, `MemoryFs` for editor buffers and
+tests. Diagnostics are relative to the workspace root, and fixes come back as a `FixPlan` for the caller to show,
+merge or write. [Poly](https://github.com/Goldziher/poly) is the first host.
+
+```rust
+use std::path::Path;
+use skif::{ConfigOverrides, Linter, MemoryFs, Workspace, find_workspace_root, load_config};
+
+let fs = MemoryFs::new()
+    .with_file("/repo/package.json", r#"{"name": "root", "private": true, "workspaces": ["packages/*"]}"#)
+    .with_file("/repo/packages/a/package.json", r#"{"name": "a", "version": "1.0.0"}"#);
+
+let root = find_workspace_root(Path::new("/repo/packages/a"), &fs)?;
+let config = load_config(&root, &fs, &ConfigOverrides::default())?;
+let workspace = Workspace::discover_with_fs(&root, &config, &fs)?;
+let report = Linter::new(&config)?.run(&workspace)?;
+# Ok::<(), skif::Error>(())
+```
+
+## Cargo features
+
+| Feature | Default | Brings in |
+| --- | --- | --- |
+| `manifest` | yes | the manifest rules |
+| `policy` | yes | version, semver and catalog policies |
+| `js-analysis` | no | the oxc based JS and TypeScript analysis and the plugin table |
+| `fix` | no | `apply_fixes` and `FixPlan` |
+| `yaml-fix` | no | YAML edits for `pnpm-workspace.yaml` (implies `fix`) |
+| `report` | no | the human, JSON, SARIF and GitHub renderers, as `skif::render` |
+| `schema` | no | `config_schema` |
+
+`js-analysis` is off by default so a host that already embeds oxc keeps its own copy. No `oxc`, `nodejs_semver`
+or `rayon` type appears in a public signature.
+
+## Configuration from a host
+
+`load_config(root, fs, overrides)` reads `skif.toml` or `.skif.toml` through the `FileSystem`, never through
+`std::fs`. A host builds `ConfigOverrides` directly instead of command-line flags, and `skif-config` exposes a
+builder for constructing a `Config` without a file. Option validation happens when the `Linter` is built, so a
+host must build it to catch a misspelled rule option.
+
+## Writing a rule provider
+
+Hosts can add rules through `RuleProvider`. A provider receives the `toml::Table` of its rule options and reports
+through an `Emitter`. See [architecture](../../reference/architecture/) and the
+[ADR index](https://github.com/Goldziher/skif/blob/main/adrs/index.md).

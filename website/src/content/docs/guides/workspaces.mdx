@@ -1,0 +1,70 @@
+---
+title: Single packages and monorepos
+description: How skif finds the workspace root, detects the package manager and treats a standalone package.
+---
+
+## Workspace root
+
+`skif [PATH]` lints the workspace containing `PATH` (default `.`). The workspace root is the nearest ancestor of
+`PATH` that declares a workspace: `workspaces` in `package.json`, or a `pnpm-workspace.yaml`. The root is used
+for configuration, every reported path, every fix write and the install step, so the result does not depend on
+the current directory.
+
+`skif.toml` or `.skif.toml` is looked up in the workspace root only. There are no per-package configuration
+files; per-package differences are expressed with `[[ignore]]`, group selectors and `[js.workspaces."<dir>"]`.
+
+## Package manager detection
+
+First match wins:
+
+1. `[workspace] package-manager` in `skif.toml`.
+2. The root `package.json` `packageManager` field, then `devEngines.packageManager`.
+3. Lockfile presence: `pnpm-lock.yaml`, `bun.lock` / `bun.lockb`, `yarn.lock`, `package-lock.json`.
+4. A `pnpm-workspace.yaml` implies pnpm.
+
+If nothing indicates a manager, skif does not guess npm. Rules and fixes that depend on the manager skip what
+would be wrong for some manager; an npm workspace never receives a `workspace:*` specifier.
+
+## Workspace patterns
+
+Patterns follow pnpm semantics for every package manager: `dir/*` for direct children that contain a
+`package.json`, `dir/**` for nested packages, and `!pattern` to remove matches. `node_modules` and
+dot-directories are never entered.
+
+## Monorepo configuration
+
+```toml
+[workspace]
+ignore-packages = ["examples/*"]
+
+[policy]
+prefer = "highest"
+
+[[version-groups]]
+label = "Pin react across the repo"
+dependencies = ["react", "react-dom"]
+policy = "pinned"
+pin = "19.1.0"
+
+[[semver-groups]]
+label = "Caret ranges for libraries"
+packages = ["packages/*"]
+range = "^"
+
+[catalog]
+mode = "prefer"
+min-packages = 3
+```
+
+## Single packages
+
+skif lints the workspace that contains the start path, so a package is linted as part of the nearest ancestor that
+declares a workspace. If no ancestor declares one, skif exits with code `2` and says no workspace was found. A
+standalone project therefore needs a root `package.json` with `workspaces` (or a `pnpm-workspace.yaml`) to be
+linted. Rules that compare packages have little to compare in a one-package workspace; turn off those that do
+not fit:
+
+```toml
+[rules]
+root-package-dependencies = "off"
+```
