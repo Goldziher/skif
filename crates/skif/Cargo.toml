@@ -52,5 +52,9 @@ thiserror.workspace = true
 name = "fix"
 required-features = ["fix"]
 
+[[test]]
+name = "js"
+required-features = ["js-analysis"]
+
 [lints]
 workspace = true

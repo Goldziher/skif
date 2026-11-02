@@ -1,6 +1,7 @@
 //! The process environment the CLI is allowed to look at, gathered in one place.
 
 use std::io::IsTerminal;
+use std::path::PathBuf;
 
 /// Facts about the invoking environment that change behaviour.
 #[derive(Debug, Clone, Copy)]
@@ -15,6 +16,8 @@ pub struct Env {
     pub no_color: bool,
     pub stdin_tty: bool,
     pub stdout_tty: bool,
+    /// `GITHUB_ACTIONS` is `true`.
+    pub github_actions: bool,
 }
 
 impl Env {
@@ -26,8 +29,16 @@ impl Env {
             no_color,
             stdin_tty: std::io::stdin().is_terminal(),
             stdout_tty: std::io::stdout().is_terminal(),
+            github_actions: std::env::var_os("GITHUB_ACTIONS").is_some_and(|value| value == "true"),
         }
     }
+}
+
+/// `GITHUB_WORKSPACE`, the directory GitHub checked the repository out to.
+pub fn github_workspace() -> Option<PathBuf> {
+    std::env::var_os("GITHUB_WORKSPACE")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
 }
 
 /// Whether a `CI` value means "this is CI".

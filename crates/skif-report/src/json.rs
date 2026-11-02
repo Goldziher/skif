@@ -14,6 +14,19 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// Top-level members the document owns; `extra` members may not reuse them.
 const RESERVED: [&str; 4] = ["version", "skif", "summary", "diagnostics"];
 
+/// Top-level members of an error document that `extra` members may not reuse.
+const RESERVED_ERROR: [&str; 3] = ["version", "skif", "error"];
+
+fn ensure_unreserved(extra: &Map<String, Value>, reserved: &[&str]) -> io::Result<()> {
+    match extra.keys().find(|key| reserved.contains(&key.as_str())) {
+        Some(key) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("extra member `{key}` collides with a reserved key of the document"),
+        )),
+        None => Ok(()),
+    }
+}
+
 /// The version reported as `skif` when the caller does not supply one.
 const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -89,6 +102,8 @@ struct ErrorDocument<'a> {
     version: u32,
     skif: &'static str,
     error: ErrorBody<'a>,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
 }
 
 #[derive(Serialize)]
@@ -230,12 +245,7 @@ pub fn render_json_with(
     extra: Map<String, Value>,
     out: &mut dyn Write,
 ) -> io::Result<()> {
-    if let Some(key) = extra.keys().find(|key| RESERVED.contains(&key.as_str())) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("extra member `{key}` collides with a reserved key of the report"),
-        ));
-    }
+    ensure_unreserved(&extra, &RESERVED)?;
     let document = Document {
         version: SCHEMA_VERSION,
         skif: options.tool_version.as_deref().unwrap_or(TOOL_VERSION),
@@ -263,6 +273,7 @@ pub fn render_json_error(message: &str, out: &mut dyn Write) -> io::Result<()> {
                 line: None,
                 column: None,
             },
+            extra: Map::new(),
         },
         out,
     )
@@ -274,6 +285,22 @@ pub fn render_json_error(message: &str, out: &mut dyn Write) -> io::Result<()> {
 ///
 /// Returns any error produced by writing to `out`.
 pub fn render_json_error_info(info: &ErrorInfo<'_>, out: &mut dyn Write) -> io::Result<()> {
+    render_json_error_info_with(info, Map::new(), out)
+}
+
+/// Renders a failure like [`render_json_error_info`] and adds the top-level `extra` members (such as the `fix`
+/// object of a fix run that completed before the failure).
+///
+/// # Errors
+///
+/// Returns an [`io::ErrorKind::InvalidInput`] error when an `extra` member is named `version`, `skif` or `error`, and
+/// any error produced by writing to `out`.
+pub fn render_json_error_info_with(
+    info: &ErrorInfo<'_>,
+    extra: Map<String, Value>,
+    out: &mut dyn Write,
+) -> io::Result<()> {
+    ensure_unreserved(&extra, &RESERVED_ERROR)?;
     write_document(
         &ErrorDocument {
             version: SCHEMA_VERSION,
@@ -285,6 +312,7 @@ pub fn render_json_error_info(info: &ErrorInfo<'_>, out: &mut dyn Write) -> io::
                 line: info.line,
                 column: info.column,
             },
+            extra,
         },
         out,
     )
