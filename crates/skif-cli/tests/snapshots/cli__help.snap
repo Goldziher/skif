@@ -2,7 +2,7 @@
 source: crates/skif-cli/tests/cli.rs
 expression: help.stdout
 ---
-Command-line interface for skif, the fast dependency linter for JavaScript and TypeScript monorepos.
+Command-line interface for skif, a dependency and package-manager linter for JS/TS monorepos.
 
 Usage: skif [OPTIONS] [PATH]
        skif <COMMAND>
