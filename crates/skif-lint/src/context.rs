@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use skif_config::Config;
 use skif_core::{RuleMeta, Severity};
@@ -10,7 +11,22 @@ pub struct LintContext<'a> {
     pub workspace: &'a Workspace,
     pub config: &'a Config,
     pub enabled: &'a EnabledRules,
+    /// The configuration file `config` was loaded from, relative to the workspace root; `None` when the host
+    /// does not know it (for example a configuration built in memory).
+    pub config_path: Option<&'a Path>,
 }
+
+impl LintContext<'_> {
+    /// Name of the configuration file used by diagnostics about the configuration itself, relative to the
+    /// workspace root: [`config_path`](Self::config_path), or [`DEFAULT_CONFIG_FILE`] when unknown.
+    #[must_use]
+    pub fn config_file(&self) -> &Path {
+        self.config_path.unwrap_or_else(|| Path::new(DEFAULT_CONFIG_FILE))
+    }
+}
+
+/// The configuration file name assumed when the host does not say where the configuration came from.
+pub const DEFAULT_CONFIG_FILE: &str = "skif.toml";
 
 /// The effective severity of every enabled rule.
 ///
