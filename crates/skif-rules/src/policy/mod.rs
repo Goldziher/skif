@@ -9,14 +9,17 @@
 //! [`PolicyProvider::rules`] and [`PolicyProvider::run`] and reuse [`instances::Instances`].
 
 mod analysis;
+mod catalog;
+mod families;
 mod groups;
 pub(crate) mod instances;
 mod report;
 mod state;
 mod visit;
+mod workspace_protocol;
 
 use skif_core::RuleMeta;
-use skif_lint::{Emitter, EnabledRules, LintContext, ProviderError, RuleProvider};
+use skif_lint::{Emitter, EnabledRules, LintContext, ProviderError, RuleProvider, RulesProvider};
 
 pub use state::{BANNED_DEPENDENCY, INVALID_LOCAL_VERSION, POLICY_CONFLICT, SEMVER_RANGE_MISMATCH, VERSION_MISMATCH};
 
@@ -61,6 +64,18 @@ impl RuleProvider for PolicyProvider {
 #[must_use]
 pub const fn policy_provider() -> PolicyProvider {
     PolicyProvider
+}
+
+/// Identifies the catalog, workspace-protocol and dependency-family rules in errors.
+pub const CATALOG_PROVIDER_ID: &str = "catalog";
+
+/// The catalog, workspace-protocol and dependency-family rules, with id `"catalog"`.
+#[must_use]
+pub fn catalog_provider() -> RulesProvider {
+    let mut rules = catalog::rules();
+    rules.extend(workspace_protocol::rules());
+    rules.extend(families::rules());
+    RulesProvider::new(CATALOG_PROVIDER_ID, rules)
 }
 
 #[cfg(test)]

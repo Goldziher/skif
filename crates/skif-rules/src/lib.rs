@@ -12,13 +12,17 @@ pub mod manifest;
 pub mod policy;
 
 pub use manifest::manifest_provider;
-pub use policy::policy_provider;
+pub use policy::{catalog_provider, policy_provider};
 use skif_lint::RuleProvider;
 
 /// Every built-in rule provider.
 #[must_use]
 pub fn providers() -> Vec<Box<dyn RuleProvider>> {
-    vec![Box::new(manifest_provider()), Box::new(policy_provider())]
+    vec![
+        Box::new(manifest_provider()),
+        Box::new(policy_provider()),
+        Box::new(catalog_provider()),
+    ]
 }
 
 #[cfg(test)]

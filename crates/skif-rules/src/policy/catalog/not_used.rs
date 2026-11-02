@@ -33,8 +33,14 @@ impl Rule for CatalogNotUsed {
                     out,
                     &META,
                     &finding,
-                    format!("`{name}` is declared as `{specifier}` but {} defines it", catalog.display()),
-                    Some(format!("use `{}` so every package shares one version", catalog.reference())),
+                    format!(
+                        "`{name}` is declared as `{specifier}` but {} defines it",
+                        catalog.display()
+                    ),
+                    Some(format!(
+                        "use `{}` so every package shares one version",
+                        catalog.reference()
+                    )),
                     Some(use_catalog_fix(finding.instance, catalog, &[])),
                 ),
                 FindingKind::NotUsingCatalogAndCatalogUnknown => emit(
