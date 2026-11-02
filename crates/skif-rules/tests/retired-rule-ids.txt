@@ -1,0 +1,7 @@
+# sherif rule IDs that skif renamed (ADR 0007): the old ID is not accepted. One `<retired id> <replacement id>` per line.
+unordered-dependencies unsorted-dependencies
+non-existant-packages unmatched-workspace-patterns
+packages-without-package-json missing-package-manifest
+local-path-dependencies local-path-dependency
+multiple-dependency-versions version-mismatch
+unsync-similar-dependencies unsynced-dependency-family

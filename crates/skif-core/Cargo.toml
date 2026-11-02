@@ -7,11 +7,12 @@ license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "Core diagnostic, fix and report types for skif."
+description = "Diagnostic, fix, report and filesystem types shared by the skif crates."
 documentation = "https://docs.rs/skif-core"
-keywords = ["monorepo", "linter", "dependencies", "diagnostics"]
+keywords = ["linter", "diagnostics", "monorepo", "package-json", "skif"]
 categories = ["development-tools"]
 readme = "README.md"
+include = ["src/**", "benches/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
 
 [features]
 default = []

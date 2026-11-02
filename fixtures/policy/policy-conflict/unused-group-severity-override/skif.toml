@@ -3,4 +3,5 @@ policy-conflict = "error"
 
 [[version-groups]]
 dependencies = ["legacy-lib"]
-policy = "banned"
+policy = "pinned"
+pin = "1.0.0"

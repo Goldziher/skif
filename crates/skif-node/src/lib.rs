@@ -15,8 +15,8 @@ use skif::{ConfigOverrides, Linter, OsFs, Workspace};
 /// Output streams to the process's stdout and stderr exactly as the native binary does.
 #[napi]
 pub fn run(argv: Vec<String>) -> u32 {
-    let args = std::iter::once(OsString::from("skif")).chain(argv.into_iter().map(OsString::from));
-    u32::from(skif_cli::run(args))
+    let command_line = std::iter::once(OsString::from("skif")).chain(argv.into_iter().map(OsString::from));
+    u32::from(skif_cli::run(command_line))
 }
 
 /// Options for [`lint`]; each mirrors the CLI flag of the same name.
@@ -58,7 +58,8 @@ impl LintOptions {
 /// Rejects with the error message when no workspace is found, the configuration is invalid or discovery fails.
 #[napi]
 pub fn lint(path: String, options: Option<LintOptions>) -> Result<String> {
-    lint_json(&path, options.unwrap_or_default().overrides()).map_err(|error| napi::Error::from_reason(error.to_string()))
+    lint_json(&path, options.unwrap_or_default().overrides())
+        .map_err(|error| napi::Error::from_reason(error.to_string()))
 }
 
 fn lint_json(path: &str, overrides: ConfigOverrides) -> std::result::Result<String, Box<dyn Error>> {

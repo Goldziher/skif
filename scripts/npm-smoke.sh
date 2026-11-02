@@ -13,12 +13,12 @@ fixture="${root}/fixtures/e2e/npm/clean"
 version="$(jq -r '.version' npm-package/package.json)"
 
 case "$runtime" in
-  node) exec_bin=(npx --no-install skif) ;;
-  bun) exec_bin=(bunx --bun --no-install skif) ;;
-  *)
-    echo "error: runtime must be node or bun (got '${runtime}')" >&2
-    exit 1
-    ;;
+node) exec_bin=(npx --no-install skif) ;;
+bun) exec_bin=(bunx --bun --no-install skif) ;;
+*)
+  echo "error: runtime must be node or bun (got '${runtime}')" >&2
+  exit 1
+  ;;
 esac
 
 echo "== ${runtime}: import and lint()"

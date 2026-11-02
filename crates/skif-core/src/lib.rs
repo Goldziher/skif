@@ -18,18 +18,12 @@
 //! ```
 //! use skif_core::{Diagnostic, Location, Report, RuleId, Severity};
 //!
-//! let diagnostic = Diagnostic {
-//!     rule: RuleId::new("unused-dependency").unwrap_or_else(|_| RuleId::from_static("fallback")),
-//!     severity: Severity::Warning,
-//!     message: "dependency is never imported".to_owned(),
-//!     help: None,
-//!     location: Location { path: "package.json".into(), span: None },
-//!     related: Vec::new(),
-//!     package: None,
-//!     dependency: None,
-//!     detail: None,
-//!     fixes: Vec::new(),
-//! };
+//! let diagnostic = Diagnostic::new(
+//!     RuleId::new("unused-dependency").unwrap_or_else(|_| RuleId::from_static("fallback")),
+//!     Severity::Warning,
+//!     "dependency is never imported",
+//!     Location { path: "package.json".into(), span: None },
+//! );
 //! let report = Report::new(vec![diagnostic], 1);
 //! assert_eq!(report.summary.warnings, 1);
 //! ```
@@ -39,6 +33,7 @@ pub mod dependency;
 pub mod diagnostic;
 pub mod fix;
 pub mod fs;
+pub mod package_id;
 pub mod report;
 pub mod rule;
 pub mod span;
@@ -51,6 +46,7 @@ pub use fix::{
     apply_text_edits,
 };
 pub use fs::{DirEntry, FileSystem, MemoryFs, OsFs};
+pub use package_id::PackageId;
 pub use report::{Report, Summary};
 pub use rule::{Category, Fixability, InvalidRuleId, RuleId, RuleMeta, Severity};
 pub use span::{LineIndex, Location, Related, Span};
@@ -65,6 +61,7 @@ const _: () = {
     let _ = assert_send_sync::<FileChange>;
     let _ = assert_send_sync::<RuleMeta>;
     let _ = assert_send_sync::<Span>;
+    let _ = assert_send_sync::<PackageId>;
     let _ = assert_send_sync::<LineIndex>;
     let _ = assert_send_sync::<MemoryFs>;
     let _ = assert_send_sync::<OsFs>;

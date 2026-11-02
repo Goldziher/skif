@@ -57,6 +57,7 @@ fn severity_resolution_table() {
     let cases = [
         (none, None, None),
         (none, Some("off"), None),
+        (none, Some("info"), Some(Severity::Info)),
         (none, Some("warn"), Some(Severity::Warning)),
         (none, Some("error"), Some(Severity::Error)),
         (warning, None, Some(Severity::Warning)),
@@ -148,4 +149,103 @@ fn provider_error_propagates() {
         }
         other => panic!("unexpected {other}"),
     }
+}
+
+struct OptionRule {
+    meta: &'static skif_core::RuleMeta,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields, default)]
+#[allow(dead_code)]
+struct Depth {
+    depth: u8,
+}
+
+impl Default for Depth {
+    fn default() -> Self {
+        Self { depth: 1 }
+    }
+}
+
+impl Rule for OptionRule {
+    fn meta(&self) -> &'static skif_core::RuleMeta {
+        self.meta
+    }
+
+    fn check(&self, _cx: &skif_lint::LintContext<'_>, _out: &mut skif_lint::Emitter<'_>) {}
+
+    fn options_schema(&self) -> Option<serde_json::Value> {
+        Some(serde_json::json!({ "type": "object" }))
+    }
+
+    fn validate_options(&self, options: &toml::Table) -> Result<(), skif_lint::OptionsError> {
+        skif_lint::parse_options::<Depth>(options).map(drop)
+    }
+}
+
+fn option_registry() -> Registry {
+    let with = Box::new(OptionRule {
+        meta: leak_meta("with-options", Some(Severity::Warning)),
+    }) as Box<dyn Rule>;
+    let without = Box::new(FixedRule {
+        meta: leak_meta("no-options", Some(Severity::Warning)),
+        items: Vec::new(),
+    }) as Box<dyn Rule>;
+    Registry::new(vec![Box::new(RulesProvider::new("p", vec![with, without]))]).unwrap()
+}
+
+#[test]
+fn registry_validates_options_through_the_owning_rule() {
+    let registry = option_registry();
+    let cases = [
+        ("", true, None),
+        ("[rules]\nwith-options = \"warn\"\n", true, None),
+        ("[rules]\nwith-options = { depth = 3 }\n", true, None),
+        ("[rules]\nwith-options = { deph = 3 }\n", false, Some("deph")),
+        ("[rules]\nwith-options = { depth = \"x\" }\n", false, Some("depth")),
+        ("[rules]\nno-options = { severity = \"info\" }\n", true, None),
+        ("[rules]\nno-options = { extra = 1 }\n", false, Some("extra")),
+    ];
+    for (toml, ok, key) in cases {
+        let result = registry.validate_config(&config(toml));
+        assert_eq!(result.is_ok(), ok, "{toml}");
+        if let Err(err) = result {
+            match err {
+                skif_config::ConfigError::InvalidRuleOptions { rule, key: got, .. } => {
+                    assert!(toml.contains(&rule), "{toml}");
+                    assert_eq!(got.as_deref(), key, "{toml}");
+                }
+                other => panic!("unexpected {other}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn run_fails_on_invalid_options() {
+    let registry = option_registry();
+    let cfg = config("[rules]\nwith-options = { deph = 1 }\n");
+    let ws = workspace(&cfg);
+    let err = run(&registry, &ws, &cfg, &RunOptions::default()).unwrap_err();
+    assert!(matches!(err, LintError::Config(_)), "{err}");
+    assert!(
+        err.to_string().contains("with-options") && err.to_string().contains("deph"),
+        "{err}"
+    );
+}
+
+#[test]
+fn registry_exposes_option_schemas() {
+    let registry = option_registry();
+    assert!(registry.options_schema("with-options").is_some());
+    assert!(registry.options_schema("no-options").is_none());
+    assert!(registry.options_schema("missing").is_none());
+}
+
+#[test]
+fn info_level_yields_info_severity() {
+    let meta = leak_meta("info-rule", Some(Severity::Error));
+    let enabled = EnabledRules::resolve([meta], &config("[rules]\ninfo-rule = \"info\"\n"));
+    assert_eq!(enabled.severity("info-rule"), Some(Severity::Info));
 }

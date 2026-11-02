@@ -17,14 +17,14 @@ mod selector;
 
 pub use builder::ConfigBuilder;
 pub use dependency_types::DependencyTypes;
-pub use discover::{CONFIG_FILE_NAMES, discover};
+pub use discover::{CONFIG_FILE_NAMES, discover, discover_with_fs};
 pub use error::ConfigError;
 pub use model::{
     Catalog, CatalogMode, Config, DependencyFamily, IgnoreEntry, Js, JsWorkspace, Lint, PackageManager, PluginConfig,
     PluginOptions, Policy, Prefer, SemverGroup, SemverRange, VersionGroup, VersionPolicy, Workspace, WorkspaceProtocol,
 };
 pub use overrides::ConfigOverrides;
-pub use rules::{ForbidMode, Level, MemberToolchainFieldsOptions, RuleConfig, RuleOptions, UnusedExportsOptions};
+pub use rules::{Level, RuleConfig, RuleOptions};
 #[cfg(feature = "schema")]
 pub use schema::json_schema;
 pub use selector::{LOCAL, Selector};
@@ -38,4 +38,9 @@ const _: () = {
     let _ = assert_send_sync::<ConfigBuilder>;
     let _ = assert_send_sync::<Selector>;
     let _ = assert_send_sync::<DependencyTypes>;
+    let _ = assert_send_sync::<RuleConfig>;
+    let _ = assert_send_sync::<Level>;
+    let _ = assert_send_sync::<IgnoreEntry>;
+    let _ = assert_send_sync::<VersionGroup>;
+    let _ = assert_send_sync::<SemverGroup>;
 };

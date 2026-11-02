@@ -1,8 +1,8 @@
 # skif
 
 [skif](https://github.com/Goldziher/skif) is a dependency and package-manager linter, auditor and enforcer for
-JavaScript and TypeScript, with first-class monorepo support: workspace rules, version and catalog policies,
-and unused or unlisted dependencies, for npm, pnpm, Yarn and Bun.
+JavaScript and TypeScript, with first-class monorepo support: workspace rules and version and catalog policies,
+for npm, pnpm, Yarn and Bun. Unused and unlisted dependency analysis is in progress.
 
 ## Requirements
 

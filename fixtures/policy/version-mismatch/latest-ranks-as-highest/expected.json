@@ -2,10 +2,10 @@
   {
     "rule": "version-mismatch",
     "severity": "error",
-    "package": "lib",
+    "package": "app",
     "dependency": "typescript",
-    "detail": "DiffersToHighestOrLowestSemver",
-    "path": "packages/lib/package.json",
-    "fixable": true
+    "detail": "NonSemverMismatch",
+    "path": "packages/app/package.json",
+    "fixable": false
   }
 ]
