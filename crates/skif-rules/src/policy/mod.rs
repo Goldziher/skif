@@ -211,6 +211,38 @@ mod tests {
     }
 
     #[test]
+    fn a_mismatch_points_at_the_instance_it_should_align_with() {
+        let root_json = root("");
+        let files = files(&root_json);
+        let diagnostics = lint("version-mismatch", &files, &config(""));
+        let related = &diagnostics[0].related;
+        assert_eq!(related.len(), 1);
+        assert_eq!(
+            related[0].location.path.to_str(),
+            Some("packages/lib/package.json")
+        );
+        assert_eq!(
+            crate::testing::slice(&files, "packages/lib/package.json", related[0].location.span.unwrap()),
+            r#""react":"^18.3.1""#
+        );
+    }
+
+    #[test]
+    fn an_unusable_pin_is_a_policy_conflict_and_changes_nothing() {
+        let root_json = root("");
+        let files = files(&root_json);
+        for pin in ["", "   "] {
+            let config = config(&format!(
+                "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"{pin}\"\n"
+            ));
+            let diagnostics = lint("policy-conflict", &files, &config);
+            assert_eq!(details(&diagnostics), [("policy-conflict", Some("InvalidPin"))], "{pin:?}");
+            assert!(!diagnostics[0].is_fixable());
+            assert_eq!(lint("version-mismatch", &files, &config), [] as [Diagnostic; 0], "{pin:?}");
+        }
+    }
+
+    #[test]
     fn rules_can_be_turned_off_individually() {
         let root_json = root("");
         let files = files(&root_json);

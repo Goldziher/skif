@@ -52,7 +52,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
     /// Applies `policy` to the instances `ids` of one dependency.
     pub(super) fn visit(&mut self, policy: &Policy, ids: &[InstanceId]) {
         match policy {
-            Policy::Ignored => {}
+            Policy::Ignored | Policy::InvalidPin => {}
             Policy::Banned => self.banned(ids),
             Policy::Pinned(pin) => self.pinned(ids, pin),
             Policy::SameRange => self.same_range(ids),
