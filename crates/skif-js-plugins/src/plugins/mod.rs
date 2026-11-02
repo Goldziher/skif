@@ -13,6 +13,7 @@ pub mod playwright;
 pub mod postcss;
 pub mod prettier;
 pub mod rollup;
+pub mod rspack;
 pub mod storybook;
 pub mod tailwind;
 pub mod tsup;
