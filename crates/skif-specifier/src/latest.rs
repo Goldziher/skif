@@ -1,3 +1,4 @@
+// Vendored from syncpack crates/syncpack-specifier/src/latest.rs @958d306 (MIT, Copyright (c) 2017-2023 Jamie Mason). Modified for skif; see ATTRIBUTIONS.md.
 use {
     crate::{HUGE, Specifier, semver_range::SemverRange},
     std::sync::Arc,

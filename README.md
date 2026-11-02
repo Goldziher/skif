@@ -17,7 +17,7 @@ Written in Rust. A single-binary CLI that is also an embeddable library, for npm
 ---
 
 > **Pre-release.** skif has not been published. Nothing is released until every phase of the plan is
-> done; 0.1.0 is the first, complete release. Sections marked **planned** describe work that is
+> done; 0.1.0 is the first, complete release. Sections marked **in progress** describe work that is
 > designed (see the [ADRs](adrs/index.md)) but not yet built.
 
 skif combines three kinds of checks that are usually spread over separate tools:
@@ -26,10 +26,10 @@ skif combines three kinds of checks that are usually spread over separate tools:
   sorted and well-placed dependency fields (the [sherif](https://github.com/QuiiBz/sherif) lineage).
 - **Version, semver-range and catalog policies**: version groups, range policies, workspace protocol
   and catalog enforcement across packages (the [syncpack](https://github.com/JamieMason/syncpack)
-  lineage). **Planned.**
+  lineage).
 - **Unused, unlisted and unresolved dependencies and dead code**: static analysis of JavaScript and
   TypeScript sources on [oxc](https://oxc.rs) (the [knip](https://github.com/webpro-nl/knip) lineage).
-  **Planned.**
+  **In progress.**
 
 It works across npm, pnpm, yarn and bun workspaces. skif never executes project code: analysis is
 static, and fixes are format-preserving edits that keep key order, indentation and comments.
@@ -42,31 +42,17 @@ static, and fixes are format-preserving edits that keep key order, indentation a
 | CLI: human and JSON output, exit codes, `--fix`, rule and ignore overrides, `rules`, `schema`, `init` | Available |
 | Embeddable library facade (`skif` crate) | Available |
 | `skif.toml` configuration: rule levels, ignores, workspace settings | Available |
-| Version groups, semver groups, catalog and workspace-protocol policies | Planned ([ADR 0009](adrs/0009-version-and-catalog-policies.md)) |
-| Unused / unlisted / unresolved dependency and dead-code analysis | Planned ([ADR 0010](adrs/0010-js-analysis-on-oxc.md), [ADR 0011](adrs/0011-plugin-model.md)) |
-| SARIF and GitHub annotation output | Planned ([ADR 0012](adrs/0012-reporting.md)) |
+| Version groups, semver groups, catalog and workspace-protocol policies | Available ([ADR 0009](adrs/0009-version-and-catalog-policies.md)) |
+| Unused / unlisted / unresolved dependency and dead-code analysis | In progress ([ADR 0010](adrs/0010-js-analysis-on-oxc.md), [ADR 0011](adrs/0011-plugin-model.md)) |
+| SARIF and GitHub annotation renderers (`skif-report`) | Available; CLI selection in progress ([ADR 0012](adrs/0012-reporting.md)) |
 
 ## Rules
 
-Run `skif rules` (or `skif rules --format json`) to list the registry. Every rule has a stable
-kebab-case id, a category and a default level. Fixes are `safe` (applied by `--fix`), `unsafe`
-(applied only by `--fix-unsafe`) or `sometimes` (fixable for some findings).
-
-| Rule | Category | Default | Fix |
-| --- | --- | --- | --- |
-| `empty-dependencies` | manifest | error | safe |
-| `incompatible-peer-dependencies` | manifest | warn | none |
-| `local-path-dependency` | manifest | error | sometimes |
-| `member-toolchain-fields` | manifest | warn | unsafe |
-| `missing-package-manifest` | workspace | warn | unsafe |
-| `root-package-dependencies` | manifest | warn | unsafe |
-| `root-package-manager-field` | manifest | error | none |
-| `root-package-private-field` | manifest | error | safe |
-| `types-in-dependencies` | manifest | error | safe |
-| `unmatched-workspace-patterns` | workspace | warn | safe |
-| `unsorted-dependencies` | manifest | error | safe |
-
-Policy and analysis rules will join this registry as those phases land.
+Run `skif rules` (or `skif rules --format json`) to list the registry; [`docs/rules.md`](docs/rules.md)
+documents all 23 rules with their categories, default severities and fix safety. Every rule has a stable
+kebab-case id, a category (`manifest`, `workspace`, `policy`, `catalog`) and a default level. Fixes are
+`safe` (applied by `--fix`), `unsafe` (applied only by `--fix-unsafe`) or `sometimes` (fixable for some
+findings). Analysis rules join the registry when that phase lands.
 
 ## Quick start
 
@@ -119,13 +105,14 @@ Channels follow [ADR 0013](adrs/0013-distribution-and-naming.md). The npm packag
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: Goldziher/skif@v1
+- uses: Goldziher/skif@v0
   with:
     fail-on-warnings: true
 ```
 
 Inputs: `version` (defaults to the action's own tag), `args` (extra skif arguments), `working-directory`,
-`fail-on-warnings`, and `install-only` to put `skif` on `PATH` without running it. The action downloads
+`fail-on-warnings`, and `install-only` to put `skif` on `PATH` without running it. `@v0` is a floating tag
+that follows the newest 0.x release; pin a full tag such as `@v0.1.0` for a fixed version. The action downloads
 the release archive for the runner and verifies it against the release's `checksums.txt`.
 
 ### Prebuilt binaries
@@ -230,8 +217,8 @@ packages = ["legacy-app"]
 
 Top-level sections: `[workspace]`, `[lint]`, `[rules]`, `[[ignore]]`, `[policy]`,
 `[[version-groups]]`, `[[semver-groups]]`, `[catalog]`, `[workspace-protocol]`,
-`[[dependency-families]]` and `[js]`. The policy and `[js]` sections are parsed and validated today
-but only take effect when the policy and analysis phases land. See
+`[[dependency-families]]` and `[js]`. Every section except `[js]`, which takes effect with the analysis phase,
+is active. See
 [ADR 0004](adrs/0004-configuration-model.md).
 
 ## Output
@@ -263,7 +250,7 @@ let report = Linter::new(&config)?.run(&workspace)?;
 # Ok::<(), skif::Error>(())
 ```
 
-Cargo features: `manifest` and `policy` (default), `js-analysis` (reserved), `fix`, `yaml-fix`,
+Cargo features: `manifest` and `policy` (default), `js-analysis` (reserved until the analysis crates land), `fix`, `yaml-fix`,
 `report`, `schema`. See [ADR 0003](adrs/0003-library-first-embedding.md) and
 [ADR 0002](adrs/0002-crate-layout-and-publishing.md) for the crate layout.
 
@@ -274,12 +261,12 @@ skif builds on three projects and does not claim to replace them yet. The compar
 | Tool | Scope | Relation to skif |
 | --- | --- | --- |
 | [sherif](https://github.com/QuiiBz/sherif) | Zero-config monorepo manifest rules | skif began as a fork; the manifest rules are ported with stable ids and `skif.toml` configuration. |
-| [syncpack](https://github.com/JamieMason/syncpack) | Version consistency, semver ranges, catalogs | Same problem space; skif's policy phase is **planned** and reuses syncpack's specifier model (vendored in `skif-specifier`). |
-| [knip](https://github.com/webpro-nl/knip) | Unused files, exports and dependencies | Same problem space; skif's analysis phase is **planned**, on oxc, with static config extraction instead of running tools. |
+| [syncpack](https://github.com/JamieMason/syncpack) | Version consistency, semver ranges, catalogs | Same problem space; skif's policy rules reuse syncpack's specifier model (vendored in `skif-specifier`). |
+| [knip](https://github.com/webpro-nl/knip) | Unused files, exports and dependencies | Same problem space; skif's analysis phase is **in progress**, on oxc, with static config extraction instead of running tools. |
 | [manypkg](https://github.com/Thinkmill/manypkg) | Workspace consistency checks and fixes | Overlapping manifest checks; skif adds a rule registry, severities and a library API. |
 
-skif aims to offer all three in one tool with one configuration file and one report format. Today only
-the manifest layer exists. There are no performance claims: a benchmark harness lives in
+skif aims to offer all three in one tool with one configuration file and one report format. Today the manifest,
+policy and catalog layers exist; the analysis layer is in progress. There are no performance claims: a benchmark harness lives in
 [`tools/bench`](tools/bench/README.md), and numbers will be published once it has results.
 
 ## Contributing

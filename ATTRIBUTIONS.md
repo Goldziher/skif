@@ -6,15 +6,15 @@ file covers code that was **copied or derived** into the repository from other p
 
 ## sherif
 
-A zero-config linter for TypeScript and JavaScript monorepos. skif began as a fork of sherif and is
-being rebuilt as a clean, restructured codebase; the workspace rules are being ported from it.
+A zero-config linter for TypeScript and JavaScript monorepos. skif began as a fork of sherif and was
+rebuilt as a clean, restructured codebase; the workspace and manifest rules are ported from it.
 
 - **Source**: <https://github.com/QuiiBz/sherif>
 - **Upstream commit**: `1eeac7104af1a6143d7f5d17d18d11635222ca8d`
 - **License**: MIT
 - **Authors**: Tom Lienard and the sherif contributors
 - **Copyright**: Copyright (c) 2023 Tom Lienard
-- **Location**: `src/` (rule logic, package and workspace collection; being ported into `crates/`)
+- **Location**: `crates/skif-rules` and `crates/skif-workspace` (rule logic, package and workspace collection)
 - **Purpose**: Monorepo workspace rules (dependency hygiene, root and member `package.json`
   checks, workspace discovery for npm, yarn and pnpm) and their autofixes.
 

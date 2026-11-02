@@ -1,7 +1,7 @@
 name: skif
 description: >-
-  Lint the dependencies of a JavaScript or TypeScript monorepo: workspace rules, version and catalog
-  policies, and unused or unlisted dependencies.
+  Lint the dependencies of a JavaScript or TypeScript monorepo: workspace rules and version and catalog
+  policies.
 author: Goldziher
 branding:
   icon: package
@@ -11,8 +11,8 @@ inputs:
   version:
     description: >-
       skif version to install, with or without a leading `v` (e.g. "0.1.0"). Defaults to the tag this
-      action is pinned to (`github.action_ref`) - a full release or a floating major tag such as `v1`,
-      which resolves to the newest 1.x release - otherwise the latest GitHub release.
+      action is pinned to (`github.action_ref`) - a full release or a floating tag such as `v0`,
+      which resolves to the newest 0.x release - otherwise the latest GitHub release.
     required: false
     default: ""
   args:
