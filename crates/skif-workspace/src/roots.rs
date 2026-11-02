@@ -135,7 +135,13 @@ fn scan(fs: &dyn FileSystem, start: &Path, max_depth: usize) -> Scan {
 #[must_use]
 pub fn workspace_member_dirs(fs: &dyn FileSystem, root: &Path) -> BTreeSet<PathBuf> {
     Workspace::discover_with_fs(root, &Config::default(), fs)
-        .map(|workspace| workspace.packages.iter().map(|package| root.join(&package.dir)).collect())
+        .map(|workspace| {
+            workspace
+                .packages
+                .iter()
+                .map(|package| root.join(&package.dir))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -199,7 +205,11 @@ mod tests {
         roots
             .iter()
             .map(|root| {
-                let kind = if matches!(root, RootKind::Workspace(_)) { "ws" } else { "pkg" };
+                let kind = if matches!(root, RootKind::Workspace(_)) {
+                    "ws"
+                } else {
+                    "pkg"
+                };
                 format!("{kind}:{}", root.path().display())
             })
             .collect()
@@ -267,10 +277,7 @@ mod tests {
             .with_file("/r/projects/p/package.json", r#"{"name": "p"}"#)
             .with_file("/r/projects/q/package.json", r#"{"workspaces": ["pkgs/*"]}"#)
             .with_file("/r/projects/q/pkgs/m/package.json", r#"{"name": "m"}"#);
-        assert_eq!(
-            discover(&fs),
-            ["ws:/r", "pkg:/r/projects/p", "ws:/r/projects/q"]
-        );
+        assert_eq!(discover(&fs), ["ws:/r", "pkg:/r/projects/p", "ws:/r/projects/q"]);
     }
 
     #[test]
@@ -296,14 +303,14 @@ mod tests {
     #[test]
     fn nothing_found_is_empty() {
         let fs = MemoryFs::new().with_file("/r/readme.md", "x");
-        assert!(discover(&fs).is_empty());
+        assert_eq!(discover(&fs).len(), 0);
     }
 
     #[test]
     fn max_depth_bounds_the_walk() {
         let fs = MemoryFs::new().with_file("/r/a/b/c/package.json", r#"{"name": "deep"}"#);
         let shallow = discover_roots(Path::new("/r"), &fs, &DiscoverOptions::default().with_max_depth(2));
-        assert!(shallow.is_empty());
+        assert_eq!(shallow.len(), 0);
         assert_eq!(discover(&fs), ["pkg:/r/a/b/c"]);
     }
 

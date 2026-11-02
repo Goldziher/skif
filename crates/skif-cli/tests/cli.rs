@@ -796,7 +796,11 @@ fn lint_to_json_returns_the_report_without_printing() {
 
 #[test]
 fn lint_to_json_classifies_its_errors() {
-    let missing = skif_cli::lint_to_json(Path::new("/definitely/not/here"), &skif::ConfigOverrides::default(), false);
+    let missing = skif_cli::lint_to_json(
+        Path::new("/definitely/not/here"),
+        &skif::ConfigOverrides::default(),
+        false,
+    );
     assert_eq!(missing.unwrap_err().kind, skif_cli::Kind::Io);
 
     let dir = fixture("dirty");

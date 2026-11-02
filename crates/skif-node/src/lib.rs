@@ -137,13 +137,15 @@ impl Task for LintTask {
         let overrides = std::mem::take(&mut self.overrides);
         let recursive = self.recursive;
         Ok(
-            catch_unwind(AssertUnwindSafe(|| outcome(&path, &overrides, recursive))).unwrap_or_else(|payload| LintOutcome {
-                report: None,
-                error: Some(LintFailure {
-                    kind: "internal".to_owned(),
-                    message: panic_to_error(payload).reason,
-                    path: None,
-                }),
+            catch_unwind(AssertUnwindSafe(|| outcome(&path, &overrides, recursive))).unwrap_or_else(|payload| {
+                LintOutcome {
+                    report: None,
+                    error: Some(LintFailure {
+                        kind: "internal".to_owned(),
+                        message: panic_to_error(payload).reason,
+                        path: None,
+                    }),
+                }
             }),
         )
     }
