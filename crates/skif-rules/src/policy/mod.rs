@@ -136,6 +136,32 @@ mod tests {
     }
 
     #[test]
+    fn every_diagnostic_names_the_package_id_of_its_package() {
+        let root_json = root("");
+        let app = r#"{"name":"app","version":"1.0.0","dependencies":{"lib":"^1.0.0","react":"^18.0.0","react-dom":"^17.0.0","zod":"catalog:"}}"#;
+        let lib = r#"{"name":"lib","version":"1.0.0","dependencies":{"react":"^18.3.1"}}"#;
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/app/package.json", app),
+            ("packages/lib/package.json", lib),
+        ];
+        let config = config("[workspace-protocol]\ninternal = true\n");
+        for rule in [
+            "version-mismatch",
+            "workspace-protocol",
+            "unsynced-dependency-family",
+            "unresolved-catalog-references",
+        ] {
+            let diagnostics = lint(rule, &files, &config);
+            assert!(!diagnostics.is_empty(), "{rule} reported nothing");
+            assert!(
+                diagnostics.iter().all(|d| d.package_id.is_some()),
+                "{rule} has a diagnostic without a package id"
+            );
+        }
+    }
+
+    #[test]
     fn fixes_write_the_chosen_specifier_and_converge() {
         let root_json = root("");
         let files = files(&root_json);

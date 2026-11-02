@@ -42,6 +42,7 @@ fn instance_diagnostic(instance: &Instance<'_>, verdict: &Verdict) -> Diagnostic
         instance.location(),
     )
     .package(package)
+    .package_id(instance.package.id)
     .dependency(&instance.name)
     .detail(state.name());
     let help = match (&verdict.target, state) {

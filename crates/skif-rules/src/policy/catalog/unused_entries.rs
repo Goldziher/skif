@@ -50,19 +50,20 @@ impl Rule for UnusedCatalogEntries {
                 .keys()
                 .filter(|name| !used.contains(&(catalog.clone(), name.as_str())))
             {
-                out.emit(
-                    diagnostic(
-                        &META,
-                        format!("{} defines `{name}` but no package references it", catalog.display()),
-                        Location {
-                            path: source.to_path_buf(),
-                            span: entry_span(workspace, source, &catalog, name),
-                        },
-                    )
-                    .dependency(name.clone())
-                    .help("remove the entry or reference it with `catalog:`")
-                    .build(),
-                );
+                let mut builder = diagnostic(
+                    &META,
+                    format!("{} defines `{name}` but no package references it", catalog.display()),
+                    Location {
+                        path: source.to_path_buf(),
+                        span: entry_span(workspace, source, &catalog, name),
+                    },
+                )
+                .dependency(name.clone())
+                .help("remove the entry or reference it with `catalog:`");
+                if source == workspace.root_package.manifest.path.as_path() {
+                    builder = builder.package_id(workspace.root_package.id);
+                }
+                out.emit(builder.build());
             }
         }
     }
