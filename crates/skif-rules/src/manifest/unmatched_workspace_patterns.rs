@@ -12,13 +12,15 @@ pub static META: RuleMeta = RuleMeta {
     id: "unmatched-workspace-patterns",
     category: Category::Workspace,
     default: Some(Severity::Warning),
-    fixable: Fixability::Safe,
+    fixable: Fixability::Unsafe,
     summary: "A workspace pattern does not match any directory.",
 };
 
 /// Reports positive workspace patterns that select no directory.
 ///
-/// Negations (`!pattern`) that remove nothing are harmless and not reported.
+/// Negations (`!pattern`) that remove nothing are harmless and not reported. Removing a pattern changes which
+/// packages are part of the workspace, so the fix is unsafe, and none is offered when every positive pattern is
+/// unmatched: removing them all would leave a workspace without members.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UnmatchedWorkspacePatterns;
 
@@ -51,11 +53,16 @@ impl Rule for UnmatchedWorkspacePatterns {
 
     fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>) {
         let workspace = cx.workspace;
+        let keeps_a_member_pattern = workspace
+            .facts
+            .patterns
+            .iter()
+            .any(|fact| !fact.negated && fact.matched > 0);
         for fact in &workspace.facts.patterns {
             if fact.negated || fact.matched > 0 {
                 continue;
             }
-            let builder = diagnostic(
+            let mut builder = diagnostic(
                 &META,
                 format!("workspace pattern `{}` does not match any directory", fact.pattern),
                 Location {
@@ -64,15 +71,14 @@ impl Rule for UnmatchedWorkspacePatterns {
                 },
             )
             .help("remove the pattern, or create the directories it is meant to match");
-            out.emit(
-                builder
-                    .fix(Fix {
-                        title: format!("Remove the pattern `{}`", fact.pattern),
-                        safety: FixSafety::Safe,
-                        ops: vec![remove_pattern(workspace, fact)],
-                    })
-                    .build(),
-            );
+            if keeps_a_member_pattern {
+                builder = builder.fix(Fix {
+                    title: format!("Remove the pattern `{}`", fact.pattern),
+                    safety: FixSafety::Unsafe,
+                    ops: vec![remove_pattern(workspace, fact)],
+                });
+            }
+            out.emit(builder.build());
         }
     }
 }
@@ -158,6 +164,26 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].location.path.to_str(), Some("pnpm-workspace.yaml"));
         assert!(located(&files, &diagnostics[0]).contains("docs"));
+    }
+
+    #[test]
+    fn no_fix_is_offered_when_it_would_empty_the_pattern_list() {
+        let root_json = root_with(r#"["x","y/*","!z"]"#);
+        let files = [("package.json", root_json.as_str())];
+        let diagnostics = lint(META.id, &files, &config(""));
+        assert_eq!(diagnostics.len(), 2);
+        assert!(diagnostics.iter().all(|d| !d.is_fixable()));
+    }
+
+    #[test]
+    fn the_fix_is_unsafe_because_it_changes_the_workspace_members() {
+        let root_json = root_with(r#"["docs","packages/*"]"#);
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", MEMBER),
+        ];
+        let diagnostics = lint(META.id, &files, &config(""));
+        assert_eq!(diagnostics[0].fixes[0].safety, FixSafety::Unsafe);
     }
 
     #[test]
