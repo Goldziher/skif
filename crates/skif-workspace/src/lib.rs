@@ -28,7 +28,7 @@ pub use error::WorkspaceError;
 pub use manifest::{DependencyEntry, FieldSpans, Manifest};
 pub use package::{Package, PackageId};
 pub use pnpm::YamlSource;
-pub use roots::{DiscoverOptions, RootKind, discover_roots};
+pub use roots::{DiscoverOptions, RootKind, discover_roots, workspace_member_dirs};
 pub use skif_config::PackageManager;
 pub use skif_core::{DependencyKind, DirEntry, FileSystem, MemoryFs, OsFs};
 pub use workspace::{DiscoveryFacts, PatternFact, Workspace, WorkspaceSource};
