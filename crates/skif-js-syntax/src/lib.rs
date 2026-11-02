@@ -5,7 +5,7 @@
 //! public API, every public type is `Send + Sync`, and an oxc allocator lives only for the duration of one call.
 //!
 //! Supported inputs are `.js .mjs .cjs .jsx .ts .mts .cts .tsx` and `.d.ts` files, plus the `<script>` blocks (and
-//! Astro frontmatter) of `.vue`, `.svelte` and `.astro` files. Other extensions, including `.mdx`, yield
+//! Astro frontmatter) of `.vue`, `.svelte` and `.astro` files. Stylesheets go through [`parse_stylesheet`]. Other extensions, including `.mdx`, yield
 //! [`SyntaxError::Unsupported`].
 
 mod collect;
@@ -18,6 +18,7 @@ mod members;
 mod model;
 mod semantic;
 mod sfc;
+mod style;
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -30,6 +31,7 @@ use skif_core::LineIndex;
 
 pub use config::{ConfigValue, extract_config_object};
 pub use error::SyntaxError;
+pub use style::{is_stylesheet, parse_stylesheet};
 pub use model::{
     Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, ModuleInfo, ParseIssue, ParseOptions,
     Removal, RemovalKind, coalesce_ranges,
