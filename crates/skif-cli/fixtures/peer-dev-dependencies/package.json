@@ -1,9 +1,0 @@
-{
-  "name": "peer-dev-dependencies",
-  "private": true,
-  "packageManager": "pnpm@10.0.0",
-  "workspaces": [
-    "a",
-    "b"
-  ]
-}

@@ -588,3 +588,62 @@ fn ignore_packages_is_resolved_per_id() {
     assert_eq!(ignored, ["@repo/a"]);
     assert!(!workspace.is_ignored(PackageId::ROOT));
 }
+
+#[test]
+fn field_key_and_value_spans_are_separate() {
+    let workspace = discover(
+        &[
+            ("package.json", r#"{"workspaces":["a"],"name":"r","scripts":{"b":"x"}}"#),
+            ("a/package.json", "{}"),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    let manifest = &workspace.root_package.manifest;
+    let text = |span: skif_core::Span| manifest.source[span.start as usize..span.end as usize].to_owned();
+    let name = [PathSeg::Key("name".into())];
+    assert_eq!(text(manifest.field_key_span(&name).unwrap()), "\"name\"");
+    assert_eq!(text(manifest.field_value_span(&name).unwrap()), "\"r\"");
+    assert_eq!(text(manifest.field_span(&name).unwrap()), "\"name\":\"r\"");
+    let spans = manifest.field_spans(&name).unwrap();
+    assert_eq!(Some(spans.entry), manifest.field_span(&name));
+    let nested = [PathSeg::Key("scripts".into()), PathSeg::Key("b".into())];
+    assert_eq!(text(manifest.field_key_span(&nested).unwrap()), "\"b\"");
+    assert_eq!(text(manifest.field_value_span(&nested).unwrap()), "\"x\"");
+    let element = [PathSeg::Key("workspaces".into()), PathSeg::Index(0)];
+    assert!(manifest.field_key_span(&element).is_none());
+    assert_eq!(text(manifest.field_value_span(&element).unwrap()), "\"a\"");
+    assert!(manifest.field_key_span(&[]).is_none());
+    assert!(manifest.field_key_span(&[PathSeg::Key("missing".into())]).is_none());
+}
+
+#[test]
+fn pattern_facts_record_their_declared_index() {
+    let json = discover(
+        &[
+            ("package.json", r#"{"name":"r","workspaces":["a",1,"b"]}"#),
+            ("a/package.json", "{}"),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    let indices: Vec<(&str, usize)> = json
+        .facts
+        .patterns
+        .iter()
+        .map(|fact| (fact.pattern.as_str(), fact.index))
+        .collect();
+    assert_eq!(indices, [("a", 0), ("b", 2)]);
+
+    let yaml = discover(
+        &[
+            ("package.json", r#"{"name":"r","packageManager":"pnpm@9.0.0"}"#),
+            ("pnpm-workspace.yaml", "packages:\n  - 'a'\n  - 'b'\n  - '!c'\n"),
+            ("a/package.json", "{}"),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    let indices: Vec<usize> = yaml.facts.patterns.iter().map(|fact| fact.index).collect();
+    assert_eq!(indices, [0, 1, 2]);
+}
