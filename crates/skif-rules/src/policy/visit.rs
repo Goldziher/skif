@@ -526,7 +526,7 @@ mod tests {
         );
         let borrowed: Vec<(&str, &str)> = files.iter().map(|(p, c)| (p.as_str(), c.as_str())).collect();
         let workspace = workspace(&borrowed, &config);
-        let analysis = Analysis::run(&workspace, &config);
+        let analysis = Analysis::run(&workspace, &config, true);
         analysis
             .instances
             .iter()

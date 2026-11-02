@@ -1,9 +1,11 @@
 //! Version groups and semver groups: compiled selectors and the assignment of every instance to its group.
 //!
 //! Groups are evaluated in configuration order and the first group whose selectors match owns the instance
-//! (ADR 0009). After the configured version groups sits a catch-all preferred-semver group, so every instance has an
-//! owner. Semver groups are independent of version groups: the first matching one decides the range an instance
-//! should use, after a built-in group that exempts the packages' own versions.
+//! (ADR 0009). After the configured version groups sits a catch-all preferred-semver group. The catch-all takes the
+//! instances in the sections `[policy] dependency-types` names (production and development dependencies by default)
+//! that the catalog rules do not report, and nothing else: a group that names a section itself governs that section
+//! whatever the policy default says, and a group that names a dependency governs it even when a catalog owns it.
+//! Semver groups are independent of version groups: the first matching one decides the range an instance should use.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -26,6 +28,8 @@ pub(crate) struct Selectors<'c> {
     dependency_types: &'c DependencyTypes,
     /// Whether `dependency-types` admits a package's own version, which belongs to no dependency section.
     admits_own_version: bool,
+    /// The sections a group that names none governs.
+    scope: &'c DependencyTypes,
     specifier_types: &'c [String],
     /// Per package index, whether the `packages` selector admits it.
     packages: Vec<bool>,
@@ -37,12 +41,14 @@ impl<'c> Selectors<'c> {
         dependencies: &'c Selector,
         packages: &Selector,
         dependency_types: &'c DependencyTypes,
+        scope: &'c DependencyTypes,
         specifier_types: &'c [String],
     ) -> Self {
         Self {
             dependencies,
             dependency_types,
             admits_own_version: dependency_types.tokens().iter().all(|token| token.starts_with('!')),
+            scope,
             specifier_types,
             packages: workspace
                 .iter()
@@ -55,9 +61,24 @@ impl<'c> Selectors<'c> {
         self.packages.get(instance.package.id.index()).copied().unwrap_or(false)
             && (self.dependencies.is_empty() || self.dependencies.matches(&instance.name, instance.is_local))
             && instance.kind().map_or(self.admits_own_version, |kind: DependencyKind| {
-                self.dependency_types.matches(kind)
+                if self.dependency_types.is_empty() {
+                    in_default_scope(self.scope, kind)
+                } else {
+                    self.dependency_types.matches(kind)
+                }
             })
             && identifier_matches(self.specifier_types, instance.specifier.get_config_identifier())
+    }
+}
+
+/// Whether `[policy] dependency-types` (`scope`) puts the `kind` section under the policies by default: production and
+/// development dependencies unless it says otherwise. Peer and optional ranges state a compatibility window rather
+/// than a version to install, so aligning them is opt-in.
+fn in_default_scope(scope: &DependencyTypes, kind: DependencyKind) -> bool {
+    if scope.is_empty() {
+        matches!(kind, DependencyKind::Dependencies | DependencyKind::DevDependencies)
+    } else {
+        scope.matches(kind)
     }
 }
 
@@ -108,10 +129,12 @@ struct Ranged<'c> {
 pub(crate) struct Groups<'c> {
     groups: Vec<Group<'c>>,
     semver: Vec<Ranged<'c>>,
+    scope: &'c DependencyTypes,
 }
 
 impl<'c> Groups<'c> {
     pub(crate) fn compile(workspace: &Workspace, config: &'c Config) -> Self {
+        let scope = &config.policy.dependency_types;
         let mut groups: Vec<Group<'c>> = config
             .version_groups
             .iter()
@@ -125,6 +148,7 @@ impl<'c> Groups<'c> {
                     &group.dependencies,
                     &group.packages,
                     &group.dependency_types,
+                    scope,
                     &group.specifier_types,
                 )),
             })
@@ -144,12 +168,13 @@ impl<'c> Groups<'c> {
                     &group.dependencies,
                     &group.packages,
                     &group.dependency_types,
+                    scope,
                     &group.specifier_types,
                 ),
                 range: convert(group.range),
             })
             .collect();
-        Self { groups, semver }
+        Self { groups, semver, scope }
     }
 
     pub(crate) fn groups(&self) -> &[Group<'c>] {
@@ -162,16 +187,20 @@ impl<'c> Groups<'c> {
         let mut dependencies: Vec<BTreeMap<&'i str, Vec<InstanceId>>> =
             self.groups.iter().map(|_| BTreeMap::new()).collect();
         for (id, instance) in instances.iter() {
-            let owner = self
-                .groups
-                .iter()
-                .position(|group| {
-                    group
-                        .selectors
-                        .as_ref()
-                        .is_none_or(|selectors| selectors.matches(instance))
-                })
-                .unwrap_or(self.groups.len() - 1);
+            let explicit = self.groups.iter().position(|group| {
+                group
+                    .selectors
+                    .as_ref()
+                    .is_some_and(|selectors| selectors.matches(instance))
+            });
+            let owner = match explicit {
+                Some(owner) => owner,
+                None if self.governs_by_default(instance) => self.groups.len() - 1,
+                None => {
+                    preferred.push(None);
+                    continue;
+                }
+            };
             dependencies[owner].entry(instance.name.as_str()).or_default().push(id);
             preferred.push(self.preferred_range(instance));
         }
@@ -179,6 +208,12 @@ impl<'c> Groups<'c> {
             preferred,
             dependencies,
         }
+    }
+
+    /// Whether the catch-all group takes an instance no configured group claims: it is in a section the policy covers
+    /// by default and the catalog rules do not report it.
+    fn governs_by_default(&self, instance: &Instance<'_>) -> bool {
+        !instance.catalog_owned && instance.kind().is_none_or(|kind| in_default_scope(self.scope, kind))
     }
 
     /// The range of the first matching semver group, if the specifier can carry one.
@@ -282,7 +317,7 @@ mod tests {
     fn ownership(toml: &str) -> Vec<(String, String, usize)> {
         let config = config(toml);
         let workspace = workspace(&files(), &config);
-        let instances = Instances::collect(&workspace, &config);
+        let instances = Instances::collect(&workspace, &config, true);
         let groups = Groups::compile(&workspace, &config);
         let assignment = groups.assign(&instances);
         let owner = |id| {
@@ -383,7 +418,7 @@ mod tests {
             "[[semver-groups]]\ndependencies = [\"react\"]\nrange = \"~\"\n\n[[semver-groups]]\nrange = \"^\"\n",
         );
         let workspace = workspace(&files(), &config);
-        let instances = Instances::collect(&workspace, &config);
+        let instances = Instances::collect(&workspace, &config, true);
         let assignment = Groups::compile(&workspace, &config).assign(&instances);
         let ranges: Vec<(String, Option<String>)> = instances
             .iter()
@@ -403,7 +438,7 @@ mod tests {
     fn a_range_the_specifier_cannot_carry_is_not_preferred() {
         let config = config("[[semver-groups]]\nrange = \"^\"\n");
         let workspace = workspace(&files(), &config);
-        let instances = Instances::collect(&workspace, &config);
+        let instances = Instances::collect(&workspace, &config, true);
         let assignment = Groups::compile(&workspace, &config).assign(&instances);
         let git = instances
             .iter()
@@ -420,7 +455,7 @@ mod tests {
              [[version-groups]]\ndependencies = [\"react\"]\npolicy = \"ignored\"\n",
         );
         let workspace = workspace(&files(), &config);
-        let instances = Instances::collect(&workspace, &config);
+        let instances = Instances::collect(&workspace, &config, true);
         let groups = Groups::compile(&workspace, &config);
         let assignment = groups.assign(&instances);
         let used: Vec<bool> = (0..groups.groups().len())
@@ -445,5 +480,73 @@ mod tests {
             })
             .collect();
         assert_eq!(prefers, [Prefer::Highest, Prefer::Lowest]);
+    }
+
+    const PEERS: &str = r#"{"name":"peers","version":"1.0.0","dependencies":{"react":"^18.0.0"},"peerDependencies":{"react":"^17.0.0 || ^18.0.0"},"optionalDependencies":{"fsevents":"^2.0.0"}}"#;
+
+    /// `(section:dependency, owning group)` of every dependency of `peers` a group governs.
+    fn governed(toml: &str) -> Vec<(String, usize)> {
+        let config = config(toml);
+        let files = [("package.json", ROOT), ("packages/peers/package.json", PEERS)];
+        let workspace = workspace(&files, &config);
+        let instances = Instances::collect(&workspace, &config, true);
+        let groups = Groups::compile(&workspace, &config);
+        let assignment = groups.assign(&instances);
+        instances
+            .iter()
+            .filter(|(_, instance)| !instance.is_own_version() && instance.package.name.as_deref() == Some("peers"))
+            .filter_map(|(id, instance)| {
+                let owner = (0..groups.groups().len())
+                    .find(|&group| assignment.dependencies(group).any(|(_, ids)| ids.contains(&id)))?;
+                let kind = instance.kind().map_or("version", DependencyKind::token);
+                Some((format!("{kind}:{}", instance.name), owner))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_catch_all_governs_the_sections_the_policy_covers() {
+        let prod = || ("prod:react".to_owned(), 0);
+        assert_eq!(governed(""), [prod()]);
+        assert_eq!(
+            governed("[policy]\ndependency-types = [\"prod\", \"peer\"]\n"),
+            [prod(), ("peer:react".to_owned(), 0)]
+        );
+        assert_eq!(
+            governed("[policy]\ndependency-types = [\"optional\"]\n"),
+            [("optional:fsevents".to_owned(), 0)]
+        );
+    }
+
+    #[test]
+    fn a_group_naming_a_section_governs_it_whatever_the_policy_says() {
+        let toml = "[[version-groups]]\ndependency-types = [\"peer\"]\npolicy = \"ignored\"\n\n\
+                    [[version-groups]]\ndependency-types = [\"optional\"]\npolicy = \"banned\"\n";
+        assert_eq!(
+            governed(toml),
+            [
+                ("prod:react".to_owned(), 2),
+                ("peer:react".to_owned(), 0),
+                ("optional:fsevents".to_owned(), 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_group_naming_no_section_covers_the_sections_the_policy_covers() {
+        let toml = "[[version-groups]]\ndependencies = [\"react\", \"fsevents\"]\npolicy = \"ignored\"\n";
+        assert_eq!(governed(toml), [("prod:react".to_owned(), 0)]);
+        let semver = "[[semver-groups]]\nrange = \"~\"\n";
+        let config = config(semver);
+        let files = [("package.json", ROOT), ("packages/peers/package.json", PEERS)];
+        let workspace = workspace(&files, &config);
+        let instances = Instances::collect(&workspace, &config, true);
+        let assignment = Groups::compile(&workspace, &config).assign(&instances);
+        let ranged: Vec<(&str, bool)> = instances
+            .iter()
+            .filter(|(_, instance)| !instance.is_own_version() && instance.package.name.as_deref() == Some("peers"))
+            .map(|(id, instance)| (instance.kind().map_or("", DependencyKind::token), assignment.preferred(id).is_some()))
+            .collect();
+        assert_eq!(ranged, [("prod", true), ("peer", false), ("optional", false)]);
     }
 }

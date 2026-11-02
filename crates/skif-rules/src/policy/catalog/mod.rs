@@ -22,6 +22,11 @@ use skif_lint::Rule;
 pub use unresolved_references::UnresolvedCatalogReferences;
 pub use unused_entries::UnusedCatalogEntries;
 
+/// The rule that reports the plain instances of the dependencies a catalog owns (see [`owned_dependencies`]).
+pub(crate) fn owning_rule() -> &'static str {
+    not_used::META.id
+}
+
 /// The catalog rules, in the order their diagnostics are merged.
 pub(crate) fn rules() -> Vec<Box<dyn Rule>> {
     vec![

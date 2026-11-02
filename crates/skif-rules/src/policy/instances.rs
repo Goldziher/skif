@@ -7,7 +7,7 @@
 //! The model is shared: the version-group analysis in this module tree and the catalog rules build on the same
 //! [`Instances`], so a manifest is walked once per run.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
 use skif_config::Config;
@@ -16,21 +16,8 @@ use skif_specifier::Specifier;
 use skif_workspace::{DependencyEntry, Package, Workspace};
 
 use super::catalog;
+use super::specifiers::alias_target;
 use crate::manifest::support;
-
-/// Whether the policies look at the `kind` section of a manifest.
-///
-/// `[policy] dependency-types` decides when it is set. Without it only production and development dependencies are
-/// tracked: peer and optional ranges state a compatibility window rather than a version to install, so aligning
-/// them is opt-in.
-fn tracks(config: &Config, kind: DependencyKind) -> bool {
-    let types = &config.policy.dependency_types;
-    if types.is_empty() {
-        matches!(kind, DependencyKind::Dependencies | DependencyKind::DevDependencies)
-    } else {
-        types.matches(kind)
-    }
-}
 
 /// Whether the catalog rules, not the policy rules, report `entry` when its dependency is catalog-owned: a plain
 /// version in a section that can hold a catalog reference.
@@ -69,6 +56,9 @@ pub(crate) struct Instance<'w> {
     pub(crate) specifier: Arc<Specifier>,
     /// Whether `name` is itself a package of the workspace (what `$LOCAL` selects).
     pub(crate) is_local: bool,
+    /// Whether the catalog rules report this instance against its catalog, so that no version group takes it unless
+    /// one names it explicitly.
+    pub(crate) catalog_owned: bool,
 }
 
 impl Instance<'_> {
@@ -87,6 +77,11 @@ impl Instance<'_> {
     /// The specifier as written in the manifest.
     pub(crate) fn raw(&self) -> &str {
         self.specifier.get_raw()
+    }
+
+    /// The package an `npm:` alias installs in place of the dependency, when that is another package.
+    pub(crate) fn alias_target(&self) -> Option<&str> {
+        alias_target(&self.specifier, &self.name)
     }
 
     /// The whole entry for a dependency, the `version` member for an own version.
@@ -131,17 +126,22 @@ pub(crate) struct Instances<'w> {
 }
 
 impl<'w> Instances<'w> {
-    /// Collects the instances of every package the workspace does not ignore.
+    /// Collects the instances of every package the workspace does not ignore: every entry of every dependency
+    /// section, and each package's own version, which dependents are aligned with whatever section they use.
     ///
-    /// Dependency sections excluded by `[policy] dependency-types` are skipped; without that setting only
-    /// `dependencies` and `devDependencies` are tracked (see [`tracks`]). A package's own version is always
-    /// collected, as dependents are aligned with it whatever section they use.
-    pub(crate) fn collect(workspace: &'w Workspace, config: &Config) -> Self {
+    /// Which of them a version group governs is decided when they are assigned to groups (see
+    /// [`Groups::assign`](super::groups::Groups::assign)). With `catalog_owns`, dependencies the catalog rules report
+    /// (see [`catalog::owned_dependencies`]) are flagged [`catalog_owned`](Instance::catalog_owned).
+    pub(crate) fn collect(workspace: &'w Workspace, config: &Config, catalog_owns: bool) -> Self {
         let local_names: HashSet<&str> = workspace
             .all_packages()
             .filter_map(|package| package.name.as_deref())
             .collect();
-        let owned = catalog::owned_dependencies(workspace, &config.catalog);
+        let owned = if catalog_owns {
+            catalog::owned_dependencies(workspace, &config.catalog)
+        } else {
+            BTreeSet::new()
+        };
         let mut items = Vec::new();
         for package in support::active_packages(workspace) {
             if let (Some(name), Some(version)) = (&package.name, &package.version) {
@@ -151,18 +151,17 @@ impl<'w> Instances<'w> {
                     name: name.clone(),
                     specifier: Specifier::new(version),
                     is_local: true,
+                    catalog_owned: false,
                 });
             }
             for entry in &package.dependencies {
-                if !tracks(config, entry.kind) || (owned.contains(entry.name.as_str()) && owned_by_catalog(entry)) {
-                    continue;
-                }
                 items.push(Instance {
                     package,
                     origin: Origin::Dependency(entry),
                     name: entry.name.clone(),
                     specifier: Arc::clone(&entry.parsed),
                     is_local: local_names.contains(entry.name.as_str()),
+                    catalog_owned: owned.contains(entry.name.as_str()) && owned_by_catalog(entry),
                 });
             }
         }
@@ -238,7 +237,7 @@ mod tests {
     fn collects_dependencies_and_own_versions_grouped_by_name() {
         let config = config("");
         let workspace = workspace(&files(), &config);
-        let instances = Instances::collect(&workspace, &config);
+        let instances = Instances::collect(&workspace, &config, true);
         let summary: Vec<(&str, usize)> = instances.names().map(|(name, ids)| (name, ids.len())).collect();
         assert_eq!(
             summary,
@@ -251,7 +250,7 @@ mod tests {
     fn own_versions_and_local_dependencies_are_flagged() {
         let config = config("");
         let workspace = workspace(&files(), &config);
-        let instances = Instances::collect(&workspace, &config);
+        let instances = Instances::collect(&workspace, &config, true);
         let lib: Vec<(bool, bool, Option<DependencyKind>)> = instances
             .named("lib")
             .iter()
@@ -268,35 +267,25 @@ mod tests {
     }
 
     #[test]
-    fn peer_and_optional_dependencies_are_tracked_only_when_configured() {
-        let with_peers = config("[policy]\ndependency-types = [\"prod\", \"peer\"]\n");
-        let defaults = config("");
-        let by_default = workspace(&files(), &defaults);
-        let instances = Instances::collect(&by_default, &defaults);
-        assert_eq!(
-            instances.named("react").len(),
-            1,
-            "the peer entry is not tracked by default"
-        );
-        let configured = workspace(&files(), &with_peers);
-        let instances = Instances::collect(&configured, &with_peers);
-        assert_eq!(instances.named("react").len(), 2);
-    }
-
-    #[test]
-    fn policy_dependency_types_filter_dependency_entries_only() {
-        let config = config("[policy]\ndependency-types = [\"dev\"]\n");
-        let workspace = workspace(&files(), &config);
-        let instances = Instances::collect(&workspace, &config);
-        assert_eq!(instances.named("react"), []);
-        assert_eq!(instances.named("lib").len(), 1, "only the own version remains");
+    fn every_dependency_section_is_collected_whatever_the_policy_dependency_types() {
+        for toml in [
+            "",
+            "[policy]\ndependency-types = [\"dev\"]\n",
+            "[policy]\ndependency-types = [\"prod\", \"peer\"]\n",
+        ] {
+            let config = config(toml);
+            let workspace = workspace(&files(), &config);
+            let instances = Instances::collect(&workspace, &config, true);
+            assert_eq!(instances.named("react").len(), 2, "{toml}");
+            assert_eq!(instances.named("lib").len(), 2, "{toml}");
+        }
     }
 
     #[test]
     fn ignored_packages_contribute_nothing() {
         let config = config("[workspace]\nignore-packages = [\"app\"]\n");
         let workspace = workspace(&files(), &config);
-        let instances = Instances::collect(&workspace, &config);
+        let instances = Instances::collect(&workspace, &config, true);
         assert_eq!(instances.named("react"), []);
         assert_eq!(instances.named("app"), []);
         assert_eq!(instances.named("lib").len(), 1);
@@ -304,9 +293,9 @@ mod tests {
 
     #[test]
     fn edits_address_the_entry_and_never_the_own_version() {
-        let config = config("[policy]\ndependency-types = [\"prod\", \"peer\"]\n");
+        let config = config("");
         let workspace = workspace(&files(), &config);
-        let instances = Instances::collect(&workspace, &config);
+        let instances = Instances::collect(&workspace, &config, true);
         let dependency = instances.get(instances.named("react")[1]);
         assert_eq!(
             dependency.pointer(),
@@ -324,7 +313,7 @@ mod tests {
     fn locations_cover_the_entry_and_the_version_member() {
         let config = config("");
         let workspace = workspace(&files(), &config);
-        let instances = Instances::collect(&workspace, &config);
+        let instances = Instances::collect(&workspace, &config, true);
         let slice = |location: &Location| {
             let span = location.span.unwrap();
             APP[span.start as usize..span.end as usize].to_owned()
