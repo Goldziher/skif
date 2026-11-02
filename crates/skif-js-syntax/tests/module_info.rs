@@ -587,3 +587,22 @@ fn public_types_are_send_and_sync() {
     check::<ParseOptions>();
     check::<skif_js_syntax::ConfigValue>();
 }
+
+#[test]
+fn javascript_files_accept_jsx_and_top_level_return() {
+    for path in ["a.js", "a.mjs", "a.cjs", "a.jsx"] {
+        let info = parse(path, "import x from 'x';\nexport const a = <x.Y prop={1} />;\n");
+        assert!(info.has_jsx, "{path}");
+        assert_eq!(info.imports[0].specifier, "x", "{path}");
+    }
+    let info = parse("a.cjs", "const a = require('a');\nif (!a) return;\nmodule.exports = a;\n");
+    assert!(info.has_cjs_exports);
+    assert_eq!(info.imports[0].specifier, "a");
+}
+
+#[test]
+fn typescript_keeps_angle_bracket_assertions() {
+    let info = parse("a.ts", "export const a = <number>(<unknown>1);\n");
+    assert!(!info.has_jsx);
+    assert_eq!(info.exports.len(), 1);
+}
