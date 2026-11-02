@@ -488,15 +488,30 @@ fn schema_level_enum_includes_info() {
 #[test]
 fn unknown_specifier_types_are_rejected_with_a_suggestion() {
     let cases = [
-        ("[[version-groups]]\nspecifier-types = [\"rnge\"]\n", "version-groups[0]", "did you mean \"range\""),
-        ("[[semver-groups]]\nrange = \"^\"\nspecifier-types = [\"exact\", \"!gitt\"]\n", "semver-groups[0]", "did you mean \"git\""),
-        ("[[version-groups]]\nspecifier-types = [\"banana\"]\n", "version-groups[0]", "unknown specifier type \"banana\""),
+        (
+            "[[version-groups]]\nspecifier-types = [\"rnge\"]\n",
+            "version-groups[0]",
+            "did you mean \"range\"",
+        ),
+        (
+            "[[semver-groups]]\nrange = \"^\"\nspecifier-types = [\"exact\", \"!gitt\"]\n",
+            "semver-groups[0]",
+            "did you mean \"git\"",
+        ),
+        (
+            "[[version-groups]]\nspecifier-types = [\"banana\"]\n",
+            "version-groups[0]",
+            "unknown specifier type \"banana\"",
+        ),
     ];
     for (toml, location, expected) in cases {
         let err = Config::from_toml_str(toml).unwrap_err();
         assert!(matches!(err, ConfigError::Invalid { .. }), "{toml}: {err}");
         let message = err.to_string();
-        assert!(message.contains(location) && message.contains(expected), "{toml}: {message}");
+        assert!(
+            message.contains(location) && message.contains(expected),
+            "{toml}: {message}"
+        );
     }
 }
 
@@ -513,7 +528,8 @@ fn ignore_entries_need_a_filter() {
     let err = Config::from_toml_str("[[ignore]]\n").unwrap_err();
     assert!(matches!(err, ConfigError::Invalid { .. }), "{err}");
     assert!(err.to_string().contains("ignore[0]"), "{err}");
-    let err = Config::from_toml_str("[[ignore]]\nrules = [\"a\"]\n\n[[ignore]]\nrules = []\npackages = []\n").unwrap_err();
+    let err =
+        Config::from_toml_str("[[ignore]]\nrules = [\"a\"]\n\n[[ignore]]\nrules = []\npackages = []\n").unwrap_err();
     assert!(err.to_string().contains("ignore[1]"), "{err}");
     for filter in ["rules = [\"a\"]", "packages = [\"p\"]", "dependencies = [\"d\"]"] {
         Config::from_toml_str(&format!("[[ignore]]\n{filter}\n")).unwrap();
@@ -528,7 +544,10 @@ fn level_is_the_canonical_key_and_severity_an_alias() {
     assert_eq!(level.rule("a").unwrap().severity, Some(Level::Warn));
     assert!(!level.rule("a").unwrap().options.contains_key("level"));
     let written = level.to_toml_string().unwrap();
-    assert!(written.contains("level = \"warn\"") && !written.contains("severity"), "{written}");
+    assert!(
+        written.contains("level = \"warn\"") && !written.contains("severity"),
+        "{written}"
+    );
     assert_eq!(Config::from_toml_str(&written).unwrap(), level);
 }
 
@@ -560,12 +579,22 @@ fn discovery_goes_through_the_given_file_system() {
 #[test]
 fn error_columns_count_characters_after_multibyte_text() {
     let err = Config::from_toml_str("[lint]\n# héllo wörld\nfail-on-warning = true\n").unwrap_err();
-    let ConfigError::Parse { line, column, .. } = err else { panic!("expected a parse error") };
+    let ConfigError::Parse { line, column, .. } = err else {
+        panic!("expected a parse error")
+    };
     assert_eq!((line, column), (Some(3), Some(1)));
     let err = Config::from_toml_str("[lint]\nfail-on-warnings = \"é\" x\n").unwrap_err();
-    let ConfigError::Parse { line, column, span, .. } = err else { panic!("expected a parse error") };
+    let ConfigError::Parse { line, column, span, .. } = err else {
+        panic!("expected a parse error")
+    };
     assert_eq!(line, Some(2));
     let start = span.unwrap().start;
-    let expected = "[lint]\nfail-on-warnings = \"é\" x\n"[..start].rsplit('\n').next().unwrap().chars().count() + 1;
+    let expected = "[lint]\nfail-on-warnings = \"é\" x\n"[..start]
+        .rsplit('\n')
+        .next()
+        .unwrap()
+        .chars()
+        .count()
+        + 1;
     assert_eq!(column, Some(expected));
 }

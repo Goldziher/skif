@@ -32,7 +32,8 @@ pub(crate) fn parse(path: &Path, source: &str) -> Result<PnpmWorkspace, Workspac
         path: path.to_path_buf(),
         message,
     };
-    let document: Value = serde_saphyr::from_str(source.strip_prefix('\u{feff}').unwrap_or(source)).map_err(|error| invalid(error.to_string()))?;
+    let document: Value = serde_saphyr::from_str(source.strip_prefix('\u{feff}').unwrap_or(source))
+        .map_err(|error| invalid(error.to_string()))?;
     let packages = match document.get("packages") {
         None | Some(Value::Null) => None,
         Some(Value::Array(items)) => Some(
@@ -78,7 +79,11 @@ fn scalar(text: &str, flow: bool) -> (&str, usize) {
 /// Block lists, flow lists (`packages: [a, "b"]`, possibly over several lines), quoting, trailing comments and a
 /// byte order mark are understood. Position `n` is the `n`-th list entry, so duplicates keep their own spans.
 pub(crate) fn pattern_spans(source: &str, line_index: &LineIndex) -> Vec<(String, Span)> {
-    let bom = if source.starts_with('\u{feff}') { '\u{feff}'.len_utf8() } else { 0 };
+    let bom = if source.starts_with('\u{feff}') {
+        '\u{feff}'.len_utf8()
+    } else {
+        0
+    };
     let mut found = Vec::new();
     let mut in_packages = false;
     let mut in_flow = false;

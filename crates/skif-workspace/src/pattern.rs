@@ -117,7 +117,9 @@ fn expand_braces(pattern: &str, out: &mut Vec<String>) -> Result<(), String> {
     for part in parts {
         expand_braces(&format!("{}{part}{}", &pattern[..open], &pattern[close + 1..]), out)?;
         if out.len() > MAX_ALTERNATIVES {
-            return Err(format!("brace expansion produces more than {MAX_ALTERNATIVES} patterns"));
+            return Err(format!(
+                "brace expansion produces more than {MAX_ALTERNATIVES} patterns"
+            ));
         }
     }
     Ok(())
@@ -243,7 +245,11 @@ impl Expander<'_> {
                 }
             }
             Segment::Glob(matcher) => {
-                for name in self.child_dirs(dir, true).into_iter().filter(|name| matcher.is_match(name)) {
+                for name in self
+                    .child_dirs(dir, true)
+                    .into_iter()
+                    .filter(|name| matcher.is_match(name))
+                {
                     self.walk(&join(dir, &name), rest, depth + 1, found);
                 }
             }

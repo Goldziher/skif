@@ -217,7 +217,11 @@ fn root_given_with_dot_segments_reports_relative_slash_paths() {
 fn double_star_does_not_descend_symbolic_links() {
     let root = std::env::temp_dir().join(format!("skif-workspace-symlink-{}", std::process::id()));
     std::fs::create_dir_all(root.join("packages/a")).unwrap();
-    std::fs::write(root.join("package.json"), r#"{"name":"r","workspaces":["packages/**"]}"#).unwrap();
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"name":"r","workspaces":["packages/**"]}"#,
+    )
+    .unwrap();
     std::fs::write(root.join("packages/a/package.json"), r#"{"name":"a"}"#).unwrap();
     std::os::unix::fs::symlink(root.join("packages"), root.join("packages/a/loop")).unwrap();
 

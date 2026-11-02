@@ -166,6 +166,7 @@ fn reference(root: &Value, path: &[PathSeg], action: &JsonAction) -> Value {
                     InsertPosition::Start => 0,
                     InsertPosition::End => list.len(),
                     InsertPosition::Sorted => list.iter().position(|(name, _)| name > key).unwrap_or(list.len()),
+                    _ => unreachable!("the strategy only generates the known positions"),
                 };
                 list.insert(slot, (key.clone(), value.clone()));
             }
