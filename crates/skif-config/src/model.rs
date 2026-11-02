@@ -2,6 +2,8 @@ use std::path::Path;
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use skif_core::{FileSystem, OsFs};
+use skif_specifier::CONFIG_IDENTIFIERS;
 
 use crate::dependency_types::DependencyTypes;
 use crate::error::ConfigError;
@@ -47,7 +49,15 @@ impl Config {
     /// # Errors
     /// [`ConfigError::Io`] when the file cannot be read, otherwise as [`Config::from_toml_str`].
     pub fn from_toml_file(path: &Path) -> Result<Self, ConfigError> {
-        let source = std::fs::read_to_string(path).map_err(|source| ConfigError::Io {
+        Self::from_toml_file_with_fs(path, &OsFs)
+    }
+
+    /// Reads and parses a configuration file through `fs`; errors carry `path`.
+    ///
+    /// # Errors
+    /// [`ConfigError::Io`] when the file cannot be read, otherwise as [`Config::from_toml_str`].
+    pub fn from_toml_file_with_fs(path: &Path, fs: &dyn FileSystem) -> Result<Self, ConfigError> {
+        let source = fs.read_to_string(path).map_err(|source| ConfigError::Io {
             path: path.to_path_buf(),
             source,
         })?;
@@ -81,6 +91,21 @@ impl Config {
         for (index, group) in self.version_groups.iter().enumerate() {
             if let Some(message) = group.inconsistency() {
                 return invalid(format!("version-groups[{index}]: {message}"));
+            }
+            if let Some(message) = unknown_specifier_type(&group.specifier_types) {
+                return invalid(format!("version-groups[{index}]: {message}"));
+            }
+        }
+        for (index, group) in self.semver_groups.iter().enumerate() {
+            if let Some(message) = unknown_specifier_type(&group.specifier_types) {
+                return invalid(format!("semver-groups[{index}]: {message}"));
+            }
+        }
+        for (index, entry) in self.ignore.iter().enumerate() {
+            if entry.rules.is_empty() && entry.packages.is_empty() && entry.dependencies.is_empty() {
+                return invalid(format!(
+                    "ignore[{index}]: set at least one of `rules`, `packages` or `dependencies`; an entry without filters would suppress every diagnostic"
+                ));
             }
         }
         if self.catalog.min_packages == 0 {
@@ -157,6 +182,21 @@ impl Config {
     }
 }
 
+/// Describes the first entry of `specifier_types` (optionally negated with `!`) that is not a specifier type.
+fn unknown_specifier_type(specifier_types: &[String]) -> Option<String> {
+    specifier_types.iter().find_map(|raw| {
+        let name = raw.strip_prefix('!').unwrap_or(raw);
+        if CONFIG_IDENTIFIERS.contains(&name) {
+            return None;
+        }
+        let hint = closest(name, &CONFIG_IDENTIFIERS).map_or_else(String::new, |s| format!("; did you mean \"{s}\"?"));
+        Some(format!(
+            "unknown specifier type \"{name}\"{hint} (expected one of: {})",
+            CONFIG_IDENTIFIERS.join(", ")
+        ))
+    })
+}
+
 fn closest(id: &str, known: &[&str]) -> Option<String> {
     let limit = (id.chars().count() / 3).clamp(2, 4);
     known
@@ -201,7 +241,8 @@ pub struct Lint {
     pub fail_on_warnings: bool,
 }
 
-/// One `[[ignore]]` suppression. Empty lists match everything.
+/// One `[[ignore]]` suppression. An empty list does not narrow that dimension, but at least one list must be set:
+/// an entry without any filter is rejected as it would suppress everything.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]

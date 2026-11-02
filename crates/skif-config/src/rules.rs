@@ -41,6 +41,10 @@ impl Level {
 pub type RuleOptions = toml::Table;
 
 /// Configuration of one rule: an optional level plus options.
+///
+/// In the table form, `level` is the key that sets the level and is what is written back; `severity` is accepted as
+/// an alias. Both names are reserved: they are never passed on as rule options, so a rule cannot define an option
+/// called `level` or `severity`, and setting both in one table is an error.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RuleConfig {
     /// `None` keeps the rule's default severity.
@@ -64,16 +68,22 @@ impl RuleConfig {
             toml::Value::String(text) => Level::parse(&text).map(Self::level).ok_or_else(|| bad_level(id, &text)),
             toml::Value::Table(mut table) => {
                 let severity = table.remove("severity");
-                let alias = table.remove("level");
-                if severity.is_some() && alias.is_some() {
-                    return Err(format!("rule \"{id}\": set either `severity` or `level`, not both"));
-                }
-                let level = match severity.or(alias) {
+                let level = table.remove("level");
+                let (key, value) = match (severity, level) {
+                    (Some(_), Some(_)) => {
+                        return Err(format!(
+                            "rule \"{id}\": set either `level` or `severity`, not both; they name the same setting"
+                        ));
+                    }
+                    (Some(value), None) => ("severity", Some(value)),
+                    (None, value) => ("level", value),
+                };
+                let level = match value {
                     None => None,
                     Some(toml::Value::String(text)) => Some(Level::parse(&text).ok_or_else(|| bad_level(id, &text))?),
                     Some(other) => {
                         return Err(format!(
-                            "rule \"{id}\": severity must be a string, found {}",
+                            "rule \"{id}\": {key} must be a string, found {}",
                             other.type_str()
                         ));
                     }
@@ -100,7 +110,7 @@ impl RuleConfig {
         }
         let mut table = toml::Table::new();
         if let Some(level) = self.severity {
-            table.insert("severity".to_string(), toml::Value::try_from(level)?);
+            table.insert("level".to_string(), toml::Value::try_from(level)?);
         }
         table.extend(options);
         Ok(toml::Value::Table(table))
