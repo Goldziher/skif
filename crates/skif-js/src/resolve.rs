@@ -466,7 +466,7 @@ impl ModuleResolver {
                 if let Ok(resolution) = self.plain.resolve(directory, &path.to_string_lossy()) {
                     return Some(self.classify(resolution.path().to_path_buf()));
                 }
-                if let Some(found) = self.through_package_directory(&target, rest) {
+                if let Some(found) = self.through_package_directory(target, rest) {
                     return Some(found);
                 }
             }
@@ -803,10 +803,16 @@ mod tests {
         );
         let importer = Path::new("/ws/src/main.ts");
         let file = |path: &str| Resolved::File(PathBuf::from(path));
-        assert_eq!(r.resolve(importer, "services/api").target, file("/ws/shared/services/api.ts"));
+        assert_eq!(
+            r.resolve(importer, "services/api").target,
+            file("/ws/shared/services/api.ts")
+        );
         assert_eq!(r.resolve(importer, "views/home").target, file("/ws/src/views/home.ts"));
         assert_eq!(r.resolve(importer, "config").target, file("/ws/config.js"));
-        assert_eq!(r.resolve(importer, "react").target, Resolved::External("react".to_owned()));
+        assert_eq!(
+            r.resolve(importer, "react").target,
+            Resolved::External("react".to_owned())
+        );
         assert_eq!(r.resolve(importer, "missing/thing").package.as_deref(), Some("missing"));
     }
 
@@ -834,7 +840,10 @@ mod tests {
         let importer = Path::new("/ws/src/main.ts");
         let file = |path: &str| Resolved::File(PathBuf::from(path));
         assert_eq!(r.resolve(importer, "@kit").target, file("/ws/kit/src/index.ts"));
-        assert_eq!(r.resolve(importer, "@kit/Button").target, file("/ws/kit/src/Button.tsx"));
+        assert_eq!(
+            r.resolve(importer, "@kit/Button").target,
+            file("/ws/kit/src/Button.tsx")
+        );
         assert_eq!(r.resolve(importer, "@bare").target, Resolved::Ignored);
         assert_eq!(r.resolve(importer, "@gone").target, Resolved::Unresolved);
         assert_eq!(r.resolve(importer, "@kit/nothing").target, Resolved::Unresolved);

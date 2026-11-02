@@ -117,7 +117,11 @@ fn paths(options: &ConfigValue, config: &ConfigAst<'_>) -> Vec<PluginInput> {
     let base_url = options.get("baseUrl").and_then(ConfigValue::as_str);
     let mut out = Vec::new();
     let root = base_url.unwrap_or(".");
-    for (key, targets) in options.get("paths").and_then(ConfigValue::as_object).unwrap_or_default() {
+    for (key, targets) in options
+        .get("paths")
+        .and_then(ConfigValue::as_object)
+        .unwrap_or_default()
+    {
         let find = strip_wildcard(key);
         for target in strings(targets) {
             let path = config.join(&join_rel(root, strip_wildcard(target)));

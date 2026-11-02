@@ -947,7 +947,7 @@ fn rspack_computes_paths_and_reads_html_templates() {
         &[
             (
                 "rspack.config.js",
-                r#"const path = require('path');
+                r"const path = require('path');
                 const { resolve } = path;
                 module.exports = {
                   entry: { main: path.resolve(__dirname, 'src', 'index.js'), extra: resolve(__dirname, 'src/extra.js') },
@@ -955,9 +955,12 @@ fn rspack_computes_paths_and_reads_html_templates() {
                     modules: [path.resolve(__dirname, 'src'), 'node_modules'],
                     alias: { '@ui': path.join(__dirname, 'ui') },
                   },
-                };"#,
+                };",
             ),
-            ("public/index.html", r#"<script src="/static/boot.js"></script><script src="https://cdn.dev/x.js"></script>"#),
+            (
+                "public/index.html",
+                r#"<script src="/static/boot.js"></script><script src="https://cdn.dev/x.js"></script>"#,
+            ),
         ],
         &["@rspack/core"],
     );
@@ -980,7 +983,11 @@ fn jsconfig_base_url_and_wildcard_paths_become_lookup_directories() {
     let ts = output(&results, "typescript");
     assert_eq!(ts.module_dirs, ["../shared", "", "node_modules", "src"]);
     assert_deps(ts, &["react"]);
-    assert!(ts.aliases.contains(&alias("@kit", Some("../shared/kit"))), "{:?}", ts.aliases);
+    assert!(
+        ts.aliases.contains(&alias("@kit", Some("../shared/kit"))),
+        "{:?}",
+        ts.aliases
+    );
 }
 
 #[test]

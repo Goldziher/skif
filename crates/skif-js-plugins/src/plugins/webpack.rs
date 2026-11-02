@@ -2,8 +2,8 @@
 
 use skif_js_syntax::ConfigValue;
 
-use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::files::find_files;
+use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::babel;
 use crate::support::{
     alias_inputs, get_in, html_script_sources, join_rel, looks_like_file, module_input, objects, strings,
