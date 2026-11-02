@@ -41,9 +41,9 @@ pub use input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs}
 pub use plugin_source::PluginSource;
 pub use provider::{JsProvider, PROVIDER_ID};
 pub use rules::{
-    CircularImports, DuplicateExports, JsRule, UnlistedBinaries, UnlistedDependencies, UnparseableFiles, UnresolvedImports,
-    UnusedDependencies, UnusedDevDependencies, UnusedEnumMembers, UnusedExports, UnusedFiles, UnusedNamespaceMembers,
-    UnusedOptionalPeerDependencies, UnusedTypes, rules,
+    CircularImports, DuplicateExports, JsRule, UnlistedBinaries, UnlistedDependencies, UnparseableFiles,
+    UnresolvedImports, UnusedDependencies, UnusedDevDependencies, UnusedEnumMembers, UnusedExports, UnusedFiles,
+    UnusedNamespaceMembers, UnusedOptionalPeerDependencies, UnusedTypes, rules,
 };
 pub use usage::{ExportUsage, MemberUse};
 

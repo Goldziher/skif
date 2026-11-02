@@ -129,7 +129,7 @@ struct AliasScope {
     aliases: Vec<Alias>,
 }
 
-/// Roots of SvelteKit's virtual modules, which no file backs.
+/// Roots of `SvelteKit`'s virtual modules, which no file backs.
 const VIRTUAL_ROOTS: &[&str] = &["$app", "$env", "$service-worker"];
 
 /// The rest of `specifier` below the alias `find`, `""` for the alias itself.
@@ -229,7 +229,10 @@ impl ModuleResolver {
                     .iter()
                     .map(|alias| Alias {
                         find: alias.find.clone(),
-                        target: alias.target.as_deref().map(|target| join_normalized(&package.dir, target)),
+                        target: alias
+                            .target
+                            .as_deref()
+                            .map(|target| join_normalized(&package.dir, target)),
                     })
                     .collect();
                 aliases.push(Alias {
@@ -285,22 +288,19 @@ impl ModuleResolver {
         }
         let name = package_name(specifier);
         let member_name = name.clone().filter(|name| self.members.contains_key(name));
-        match self.attempt(importer, specifier) {
-            Ok(path) => {
-                if let Some(installed) = node_modules_package(&path) {
-                    let package = name.unwrap_or(installed);
-                    return self.package_target(&package, specifier);
-                }
-                outcome(self.classify(path), member_name)
+        if let Ok(path) = self.attempt(importer, specifier) {
+            if let Some(installed) = node_modules_package(&path) {
+                let package = name.unwrap_or(installed);
+                return self.package_target(&package, specifier);
             }
-            Err(_) => {
-                if let Some(aliased) = self.through_alias(importer, specifier) {
-                    return outcome(aliased, None);
-                }
-                match name {
-                    Some(name) => self.package_target(&name, specifier),
-                    None => outcome(Resolved::Unresolved, None),
-                }
+            outcome(self.classify(path), member_name)
+        } else {
+            if let Some(aliased) = self.through_alias(importer, specifier) {
+                return outcome(aliased, None);
+            }
+            match name {
+                Some(name) => self.package_target(&name, specifier),
+                None => outcome(Resolved::Unresolved, None),
             }
         }
     }

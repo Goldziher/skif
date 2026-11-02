@@ -220,7 +220,10 @@ mod tests {
             "./feature/*": "./dist/feature/*.js",
             "./internal": null,
         });
-        assert_eq!(resolve_exports(&exports, ".", &[]).as_deref(), Some("./dist/index.d.ts"));
+        assert_eq!(
+            resolve_exports(&exports, ".", &[]).as_deref(),
+            Some("./dist/index.d.ts")
+        );
         assert_eq!(
             resolve_exports(&exports, "./feature/a", &[]).as_deref(),
             Some("./dist/feature/a.js")
@@ -236,10 +239,7 @@ mod tests {
     #[test]
     fn source_and_custom_conditions_select_source_files() {
         let exports = json!({ ".": { "source": "./src/index.ts", "import": "./dist/index.js" } });
-        assert_eq!(
-            resolve_exports(&exports, ".", &[]).as_deref(),
-            Some("./src/index.ts")
-        );
+        assert_eq!(resolve_exports(&exports, ".", &[]).as_deref(), Some("./src/index.ts"));
         let custom = json!({ ".": { "monorepo": "./lib/a.ts", "default": "./dist/a.js" } });
         assert_eq!(resolve_exports(&custom, ".", &[]).as_deref(), Some("./dist/a.js"));
         assert_eq!(

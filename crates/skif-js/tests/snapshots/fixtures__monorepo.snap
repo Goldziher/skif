@@ -45,7 +45,7 @@ expression: diagnostics
     "rule": "unresolved-imports",
     "severity": "error",
     "message": "cannot resolve `./missing`",
-    "help": "check the path, the `tsconfig` paths and the package `exports`",
+    "help": "check the path, the `tsconfig` paths, the bundler aliases and the package `exports`",
     "location": {
       "path": "packages/app/src/main.ts",
       "span": {

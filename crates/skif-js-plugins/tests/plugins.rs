@@ -170,7 +170,7 @@ fn typescript() {
             ),
             ("tsconfig.base.json", r#"{"compilerOptions":{"types":["jest"]}}"#),
             (
-                "tsconfig.json",
+                "packages/a/tsconfig.json",
                 r#"{"compilerOptions":{"importHelpers":true}}"#,
             ),
         ],
@@ -189,7 +189,7 @@ fn typescript() {
             "@types/jest",
         ],
     );
-    assert!(out.config_files.iter().any(|f| f.ends_with("tsconfig.json")));
+    assert!(out.config_files.iter().any(|f| f.ends_with("packages/a/tsconfig.json")));
     assert!(out.provided_binaries.contains(&"tsc".to_string()));
 }
 
@@ -859,11 +859,14 @@ fn alias(find: &str, target: Option<&str>) -> skif_js_plugins::PathAlias {
 
 #[test]
 fn plugins_enabled_in_an_ancestor_apply_to_the_child() {
-    let files = [("vitest.config.ts", "export default { test: { setupFiles: ['./setup.ts'] } }")];
+    let files = [(
+        "vitest.config.ts",
+        "export default { test: { setupFiles: ['./setup.ts'] } }",
+    )];
     let none = resolve_inheriting(&files, &[], &[], false, &IndexMap::new());
     assert!(none.iter().all(|(id, _)| *id != "vitest"), "{none:?}");
     let inherited = resolve_inheriting(&files, &[], &["vitest"], false, &IndexMap::new());
-    assert!(!output(&inherited, "vitest").config_files.is_empty());
+    assert_ne!(output(&inherited, "vitest").config_files, [] as [std::path::PathBuf; 0]);
     let prefixed = resolve_inheriting(&[], &[], &["@storybook/react"], false, &IndexMap::new());
     output(&prefixed, "storybook");
 }
@@ -890,14 +893,25 @@ fn vite_and_webpack_aliases_are_extracted() {
         &["vite"],
     );
     let vite = output(&results, "vite");
-    assert!(vite.aliases.contains(&alias("@app", Some("src/app"))), "{:?}", vite.aliases);
+    assert!(
+        vite.aliases.contains(&alias("@app", Some("src/app"))),
+        "{:?}",
+        vite.aliases
+    );
     assert!(vite.aliases.contains(&alias("dyn", None)), "{:?}", vite.aliases);
 
     let results = resolve(
-        &[("webpack.config.js", "module.exports = { resolve: { alias: { Utils$: './src/utils' } } }")],
+        &[(
+            "webpack.config.js",
+            "module.exports = { resolve: { alias: { Utils$: './src/utils' } } }",
+        )],
         &["webpack"],
     );
-    assert!(output(&results, "webpack").aliases.contains(&alias("Utils", Some("src/utils"))));
+    assert!(
+        output(&results, "webpack")
+            .aliases
+            .contains(&alias("Utils", Some("src/utils")))
+    );
 }
 
 #[test]
@@ -911,7 +925,11 @@ fn tsconfig_paths_outdir_and_conditions() {
     );
     let ts = output(&results, "typescript");
     assert!(ts.aliases.contains(&alias("@app", Some("src/lib"))), "{:?}", ts.aliases);
-    assert!(ts.aliases.contains(&alias("@root", Some("index.ts"))), "{:?}", ts.aliases);
+    assert!(
+        ts.aliases.contains(&alias("@root", Some("index.ts"))),
+        "{:?}",
+        ts.aliases
+    );
     assert_eq!(
         ts.build_dirs,
         [skif_js_plugins::BuildDir {
@@ -924,8 +942,14 @@ fn tsconfig_paths_outdir_and_conditions() {
 
 #[test]
 fn enabled_plugins_without_config_files_use_conventions() {
-    let results = resolve(&[("index.html", r#"<script type="module" src="/src/main.tsx"></script>"#)], &["vite"]);
+    let results = resolve(
+        &[("index.html", r#"<script type="module" src="/src/main.tsx"></script>"#)],
+        &["vite"],
+    );
     assert_entries(&output(&results, "vite").entries, &["src/main.tsx"]);
     let results = resolve(&[], &["@storybook/react"]);
-    assert_entries(&output(&results, "storybook").entries, &["**/*.{mdx,stories.{mdx,js,jsx,mjs,ts,tsx}}"]);
+    assert_entries(
+        &output(&results, "storybook").entries,
+        &["**/*.{mdx,stories.{mdx,js,jsx,mjs,ts,tsx}}"],
+    );
 }
