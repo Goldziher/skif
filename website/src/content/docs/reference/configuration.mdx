@@ -1,0 +1,207 @@
+---
+title: Configuration
+description: The skif.toml reference, section by section, with precedence and examples.
+---
+
+skif reads one TOML file, `skif.toml` or `.skif.toml`, at the workspace root. Having both is an error naming both
+paths. There is no `package.json` key, no JSON, YAML or JavaScript variant, and no compatibility reader for sherif,
+syncpack or knip configuration. `skif init` writes a starter file and `skif schema` prints its JSON Schema.
+
+Keys are kebab-case, matching rule ids. Unknown keys and wrong types are errors that name the file, line and key.
+
+## Precedence
+
+Defaults, then the file, then the command line (`defaults < file < CLI`). Each layer sets only the keys it
+contains, and arrays replace rather than append.
+
+## Editor support
+
+`skif init` writes a `#:schema` directive, so editors with Taplo or Even Better TOML validate and complete the
+file. Print the schema with `skif schema`.
+
+## Sections
+
+| Section | Holds |
+| --- | --- |
+| `[workspace]` | `ignore-packages`, `package-manager` |
+| `[lint]` | `fail-on-warnings` |
+| `[rules]` | Per-rule levels and options |
+| `[[ignore]]` | Suppressions |
+| `[policy]` | `prefer`, `dependency-types` |
+| `[[version-groups]]` | Version policies per dependency group |
+| `[[semver-groups]]` | Range policies per dependency group |
+| `[catalog]` | Catalog enforcement |
+| `[workspace-protocol]` | `workspace:` protocol policy |
+| `[[dependency-families]]` | Packages that must share a version |
+| `[js]` | JavaScript analysis |
+
+### `[workspace]`
+
+```toml
+[workspace]
+ignore-packages = ["examples/*", "!examples/keep"]
+package-manager = "pnpm"   # npm | pnpm | yarn | bun; overrides detection
+```
+
+### `[lint]`
+
+```toml
+[lint]
+fail-on-warnings = true    # exit non-zero when only warnings were reported
+```
+
+### `[rules]`
+
+A rule is a level string, or a table with a level and the rule's own options.
+
+```toml
+[rules]
+unsorted-dependencies = "warn"      # off | info | warn | error
+empty-dependencies = "off"
+```
+
+An unknown rule id is rejected with a closest-match suggestion. See the [rules](../../rules/) for ids.
+
+### `[[ignore]]`
+
+Each entry narrows by `rules`, `packages` and `dependencies`. An empty list does not narrow that dimension, but at
+least one list must be set.
+
+```toml
+[[ignore]]
+rules = ["types-in-dependencies"]
+packages = ["legacy-app"]
+
+[[ignore]]
+dependencies = ["left-pad"]
+```
+
+### `[policy]`
+
+```toml
+[policy]
+prefer = "highest"                   # highest | lowest
+dependency-types = ["peer"]          # empty means dependencies and devDependencies; name peer or optional to include them
+```
+
+### `[[version-groups]]`
+
+The first matching group wins. Selectors accept `!` negation, and `$LOCAL` selects dependencies that are
+themselves workspace packages.
+
+| Key | Meaning |
+| --- | --- |
+| `label` | Optional name shown in diagnostics. |
+| `dependencies`, `packages`, `dependency-types`, `specifier-types` | Selectors. |
+| `policy` | `preferred-semver` (default), `pinned`, `banned`, `ignored`, `same-range`, `same-minor` or `snapped-to`. |
+| `pin` | Required by `pinned`. |
+| `snap-to` | Required by `snapped-to`: packages whose version the group follows. |
+| `prefer` | With `preferred-semver`, overrides `[policy] prefer`. |
+
+```toml
+[[version-groups]]
+label = "Pin react"
+dependencies = ["react", "react-dom"]
+policy = "pinned"
+pin = "19.1.0"
+
+[[version-groups]]
+label = "No moment"
+dependencies = ["moment"]
+policy = "banned"
+```
+
+### `[[semver-groups]]`
+
+```toml
+[[semver-groups]]
+label = "Libraries use caret ranges"
+packages = ["packages/*"]
+range = "^"      # one of * ^ ~ > >= < <=
+```
+
+### `[catalog]`
+
+```toml
+[catalog]
+mode = "prefer"              # off | prefer | enforce
+min-packages = 2             # packages using a dependency before an entry is suggested
+exclude = ["typescript"]
+report-unused-entries = true
+```
+
+### `[workspace-protocol]`
+
+```toml
+[workspace-protocol]
+internal = true              # require workspace: for dependencies on workspace packages
+allow-local-paths = false    # accept file:/link: paths for internal dependencies
+```
+
+### `[[dependency-families]]`
+
+```toml
+[[dependency-families]]
+name = "babel"
+packages = ["@babel/*"]
+
+[[dependency-families]]
+name = "react"
+enabled = false              # disable a built-in family of the same name
+```
+
+### `[js]`
+
+```toml
+[js]
+enabled = true
+entry = ["src/index.ts"]
+project = ["src/**/*.ts"]
+ignore = ["**/*.generated.ts"]
+ignore-dependencies = ["@types/node"]
+ignore-binaries = ["docker"]
+production = false
+include-entry-exports = false
+
+[js.workspaces."packages/web"]
+entry = ["src/main.tsx"]
+
+[js.plugins]
+vitest = true
+jest = { enabled = true, config = ["jest.config.cjs"] }
+```
+
+`enabled` defaults to `true`, so a plain `skif` run checks everything; the git hooks pass `--no-js`. Per-workspace
+tables take `entry`, `project`, `ignore`, `ignore-dependencies` and `ignore-binaries`. A plugin entry is `true`,
+`false` or a table with `enabled`, `config`, `entry` and `project`. Built-in plugins: typescript, eslint, prettier, vite, vitest, jest, next, storybook, playwright, tailwind, postcss, babel, webpack, rollup, tsup, turbo, husky, lint-staged, commitlint, changesets and github-actions.
+
+## Selectors
+
+Every key that names packages or dependencies is a list of names and globs. `!` negates, and an invalid pattern is
+a configuration error naming the key.
+
+## Full example
+
+```toml
+#:schema https://raw.githubusercontent.com/Goldziher/skif/main/schema/skif.schema.json
+
+[workspace]
+ignore-packages = ["examples/*"]
+
+[lint]
+fail-on-warnings = true
+
+[rules]
+unsorted-dependencies = "warn"
+empty-dependencies = "off"
+
+[[ignore]]
+rules = ["types-in-dependencies"]
+packages = ["legacy-app"]
+
+[catalog]
+mode = "prefer"
+
+[js]
+enabled = true
+```

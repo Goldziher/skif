@@ -1,0 +1,57 @@
+---
+title: skif
+description: >-
+  A dependency and package-manager linter, auditor and enforcer for JavaScript and TypeScript, with
+  first-class monorepo support. One Rust binary, one skif.toml.
+template: splash
+hero:
+  title: Dependency hygiene for JavaScript and TypeScript monorepos
+  tagline: >-
+    Manifest and workspace rules, version and catalog policies, and unused-dependency analysis in one
+    fast Rust binary, configured by one TOML file.
+  image:
+    file: ../../assets/mark.svg
+  actions:
+    - text: Get started
+      link: start/quickstart/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/Goldziher/skif
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+skif combines three kinds of checks that are usually spread over separate tools, for npm, pnpm, yarn and
+bun workspaces.
+
+<CardGrid>
+    <Card title="Manifest and workspace rules" icon="document">
+        Root and member `package.json` rules, workspace pattern checks, sorted and well-placed dependency
+        fields.
+    </Card>
+    <Card title="Version and catalog policies" icon="setting">
+        Version groups, semver-range policies, dependency families, workspace protocol and catalog
+        enforcement across packages.
+    </Card>
+    <Card title="Unused and unresolved dependencies" icon="magnifier">
+        Static analysis of JavaScript and TypeScript sources on oxc finds unused, unlisted and unresolved
+        dependencies, unused files and exports.
+    </Card>
+    <Card title="Safe autofixes" icon="approve-check">
+        Format-preserving edits keep key order, indentation and comments. skif never executes project code.
+    </Card>
+</CardGrid>
+
+## Where to go next
+
+<CardGrid>
+    <LinkCard title="Installation" description="Every install channel." href="start/installation/" />
+    <LinkCard title="Quickstart" description="Lint a workspace in a minute." href="start/quickstart/" />
+    <LinkCard title="Rules" description="Every rule, by category." href="rules/" />
+    <LinkCard title="Configuration" description="The skif.toml reference." href="reference/configuration/" />
+    <LinkCard title="CLI" description="Flags, formats and exit codes." href="reference/cli/" />
+    <LinkCard title="Integrations" description="GitHub Action, pre-commit, Poly, Lefthook, npm." href="guides/integrations/" />
+</CardGrid>

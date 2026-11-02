@@ -1,0 +1,36 @@
+---
+title: Rules
+description: Every skif rule, grouped by category, with default severities and fix safety.
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+Run `skif rules` (or `skif rules --format json`) to list the registry. Every rule has a stable kebab-case id, a
+category and a default level. Rule pages on this site are generated from
+[`docs/rules.md`](https://github.com/Goldziher/skif/blob/main/docs/rules.md) at build time.
+
+## Levels
+
+`off` disables a rule; `info`, `warn` and `error` set the severity. `info` never counts toward the exit code.
+Set a level in `[rules]`, or per run with `--rule ID=LEVEL`.
+
+## Fix safety
+
+| Fixable | Meaning |
+| --- | --- |
+| `safe` | Applied by `--fix`. |
+| `unsafe` | Applied only by `--fix-unsafe`. |
+| `sometimes` | Fixable for some findings, depending on the situation. |
+| `none` | Reported only. |
+
+## Categories
+
+<CardGrid>
+    <LinkCard title="Manifest" description="Root and member package.json hygiene." href="manifest/" />
+    <LinkCard title="Workspace" description="Workspace patterns and member manifests." href="workspace/" />
+    <LinkCard title="Policy" description="Version groups, semver groups, families, workspace protocol." href="policy/" />
+    <LinkCard title="Catalog" description="Catalog entries and references." href="catalog/" />
+    <LinkCard title="JavaScript analysis" description="Unused, unlisted and unresolved dependencies and dead code." href="js/" />
+</CardGrid>
+
+The JavaScript analysis rules need the JS analysis, which `--no-js` or `[js] enabled = false` turns off.

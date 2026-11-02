@@ -1,0 +1,65 @@
+---
+title: Quickstart
+description: Lint a workspace, apply fixes and wire skif into CI.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+<Steps>
+
+1. **Lint the workspace**
+
+   ```bash
+   skif                 # the workspace containing the current directory
+   skif path/to/pkg     # the workspace root is the nearest ancestor that declares a workspace
+   ```
+
+2. **Write a starter configuration**
+
+   ```bash
+   skif init
+   ```
+
+   `skif init` writes a commented `skif.toml` with a `#:schema` directive, so editors with Taplo or Even Better
+   TOML validate and complete the file. It refuses to overwrite an existing configuration.
+
+3. **Apply fixes**
+
+   ```bash
+   skif --fix           # safe fixes, lint again, then run the package manager's install
+   skif --fix-unsafe    # also apply unsafe fixes
+   ```
+
+   `--fix` is refused when `CI` is truthy. Pass `--no-install` to skip the install step.
+
+4. **Tune rules**
+
+   ```bash
+   skif --rule unsorted-dependencies=off --fail-on-warnings
+   skif rules           # list every rule
+   ```
+
+5. **Run it in CI**
+
+   ```yaml
+   - uses: actions/checkout@v7
+   - uses: Goldziher/skif@v0
+     with:
+       fail-on-warnings: true
+   ```
+
+</Steps>
+
+## Output formats
+
+```bash
+skif --format json                              # one JSON document on stdout
+skif --format sarif --output skif.sarif         # code scanning
+skif --format github                            # workflow annotations
+```
+
+## Next
+
+- [Single packages and monorepos](../../guides/workspaces/)
+- [Configuration reference](../../reference/configuration/)
+- [CLI reference](../../reference/cli/)
