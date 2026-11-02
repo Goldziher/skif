@@ -2,3 +2,4 @@ description = "The target wins even when it is lower than other instances: snapp
 source = "syncpack:src/version_group/snapped_to_test.rs::instance_is_in_a_snapped_to_group_and_is_itself_a_snapped_to_target"
 tags = ["snapped-to", "fix"]
 valid-states = ["IsIdenticalToSnapTarget"]
+compare = "bytes"

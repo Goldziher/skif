@@ -2,3 +2,4 @@ description = "An ignored group exempts its dependencies from alignment; other d
 source = "syncpack:src/version_group/ignored_test.rs::all_instances_are_ignored"
 tags = ["ignored", "fix"]
 valid-states = ["IsIgnored"]
+compare = "bytes"

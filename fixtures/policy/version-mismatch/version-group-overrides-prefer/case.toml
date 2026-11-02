@@ -1,3 +1,4 @@
 description = "A preferred-semver version group with prefer = lowest overrides [policy] prefer = highest for its dependencies only."
 source = "syncpack:src/version_group/../version_group.rs (preferred-semver group, lowestSemver)"
 tags = ["lowest", "highest", "group", "fix"]
+compare = "bytes"

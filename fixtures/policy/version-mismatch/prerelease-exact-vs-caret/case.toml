@@ -1,3 +1,4 @@
 description = "Prerelease versions on the same version number compare by range greediness; the exact prerelease differs from the caret one."
 source = "syncpack:src/version_group/preferred_semver_test.rs::highest_or_lowest::highest_semver_with_prerelease_versions_prefers_most_greedy"
 tags = ["prerelease", "highest", "fix"]
+compare = "bytes"

@@ -2,3 +2,4 @@ description = "$LOCAL and a named pattern in one selector match either: both are
 source = "syncpack:src/group_selector/group_selector_test.rs::local_plus_named_pattern_matches_either"
 tags = ["selectors", "$LOCAL", "fix"]
 valid-states = ["IsIgnored"]
+compare = "bytes"

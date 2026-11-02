@@ -2,3 +2,4 @@ description = "A dependency on a workspace package must accept the local package
 source = "syncpack:src/version_group/preferred_semver_test.rs::local::instance_has_same_version_number_as_local_package_but_a_different_range_and_has_no_semver_group"
 tags = ["local", "fix", "deviation"]
 valid-states = ["IsLocalAndValid"]
+compare = "bytes"
