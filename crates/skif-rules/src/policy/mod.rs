@@ -79,7 +79,7 @@ pub fn catalog_provider() -> RulesProvider {
 
 #[cfg(test)]
 mod tests {
-    use skif_core::Diagnostic;
+    use skif_core::{Diagnostic, Severity};
 
     use super::*;
     use crate::testing::{apply_fixes, borrowed, config, lint, located, root};
@@ -100,6 +100,88 @@ mod tests {
             .iter()
             .map(|d| (d.rule.as_str(), d.detail.as_deref()))
             .collect()
+    }
+
+    fn catalog_files<'a>(workspace_yaml: &'a str) -> [(&'a str, &'a str); 4] {
+        const ROOT: &str = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0"}"#;
+        const USER: &str = r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"react":"^18.3.1"}}"#;
+        const OTHER: &str = r#"{"name":"lib","version":"1.0.0","private":true,"dependencies":{"react":"^18.3.1"}}"#;
+        [
+            ("package.json", ROOT),
+            ("pnpm-workspace.yaml", workspace_yaml),
+            ("packages/app/package.json", USER),
+            ("packages/lib/package.json", OTHER),
+        ]
+    }
+
+    fn severities(rule: &str, workspace_yaml: &str, toml: &str) -> Vec<Severity> {
+        lint(rule, &catalog_files(workspace_yaml), &config(toml))
+            .iter()
+            .map(|diagnostic| diagnostic.severity)
+            .collect()
+    }
+
+    #[test]
+    fn catalog_usage_rules_are_errors_under_enforce_unless_a_level_is_configured() {
+        const CATALOGUED: &str = "packages:\n  - \"packages/*\"\ncatalog:\n  \"react\": \"^18.3.1\"\n";
+        const UNCATALOGUED: &str = "packages:\n  - \"packages/*\"\n";
+        let cases = [
+            ("catalog-not-used", CATALOGUED, "[catalog]\nmode = \"enforce\"\n", Severity::Error),
+            ("catalog-not-used", CATALOGUED, "[catalog]\nmode = \"prefer\"\n", Severity::Warning),
+            (
+                "catalog-not-used",
+                CATALOGUED,
+                "[catalog]\nmode = \"enforce\"\n[rules]\ncatalog-not-used = \"warn\"\n",
+                Severity::Warning,
+            ),
+            (
+                "catalog-not-used",
+                CATALOGUED,
+                "[catalog]\nmode = \"enforce\"\n[rules]\ncatalog-not-used = \"info\"\n",
+                Severity::Info,
+            ),
+            ("catalog-missing-entry", UNCATALOGUED, "[catalog]\nmode = \"enforce\"\n", Severity::Error),
+            ("catalog-missing-entry", UNCATALOGUED, "[catalog]\nmode = \"prefer\"\n", Severity::Warning),
+        ];
+        for (rule, yaml, toml, expected) in cases {
+            let found = severities(rule, yaml, toml);
+            assert_eq!(found, [expected, expected], "{rule}: {toml}");
+        }
+    }
+
+    #[test]
+    fn catalogued_dependencies_are_left_to_the_catalog_rules_unless_the_catalog_is_off_or_excludes_them() {
+        const ROOT: &str = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0"}"#;
+        const APP: &str = r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"react":"^18.2.0","zod":"^3.0.0"}}"#;
+        const LIB: &str = r#"{"name":"lib","version":"1.0.0","private":true,"dependencies":{"react":"^18.3.1","zod":"^3.1.0"}}"#;
+        const YAML: &str = "packages:\n  - \"packages/*\"\ncatalog:\n  \"react\": \"^18.3.1\"\n";
+        let files = [
+            ("package.json", ROOT),
+            ("pnpm-workspace.yaml", YAML),
+            ("packages/app/package.json", APP),
+            ("packages/lib/package.json", LIB),
+        ];
+        let mismatched = |toml: &str| -> Vec<Option<String>> {
+            lint("version-mismatch", &files, &config(toml))
+                .into_iter()
+                .map(|d| d.dependency)
+                .collect()
+        };
+        let both = || vec![Some("react".to_owned()), Some("zod".to_owned())];
+        let zod = || vec![Some("zod".to_owned())];
+        assert_eq!(mismatched(""), both(), "catalog mode off: the policy aligns everything");
+        assert_eq!(mismatched("[catalog]\nmode = \"prefer\"\n"), zod());
+        assert_eq!(mismatched("[catalog]\nmode = \"enforce\"\n"), zod());
+        assert_eq!(
+            mismatched("[catalog]\nmode = \"prefer\"\nexclude = [\"react\"]\n"),
+            both(),
+            "an excluded dependency is not owned by the catalog"
+        );
+        assert_eq!(
+            mismatched("[catalog]\nmode = \"prefer\"\nmin-packages = 3\n"),
+            both(),
+            "below min-packages the catalog rules do not report the dependency"
+        );
     }
 
     #[test]

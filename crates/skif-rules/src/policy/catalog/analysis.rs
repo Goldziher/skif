@@ -6,8 +6,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
-use skif_config::{CatalogMode, Selector};
-use skif_core::{DependencyKind, Fix, FixOp, FixSafety, RuleMeta, diagnostic};
+use skif_config::{Catalog, CatalogMode, Selector};
+use skif_core::{DependencyKind, Fix, FixOp, FixSafety, RuleMeta, Severity, diagnostic};
 use skif_lint::{Emitter, LintContext};
 use skif_specifier::Specifier;
 use skif_workspace::{DependencyEntry, Package, PackageId, Workspace};
@@ -74,7 +74,7 @@ struct Usage<'w> {
 
 /// Whether a specifier could be replaced by `catalog:`. Workspace, link and file specifiers name something local
 /// to a package and have no registry version to share.
-fn is_catalogable(specifier: &Specifier) -> bool {
+pub(super) fn is_catalogable(specifier: &Specifier) -> bool {
     !matches!(
         specifier,
         Specifier::Catalog(_)
@@ -108,6 +108,25 @@ fn usages<'w>(workspace: &'w Workspace, exclude: &Selector) -> BTreeMap<&'w str,
         }
     }
     usages
+}
+
+/// The dependencies the catalog rules own under `settings`: with `mode` other than `off`, every dependency that
+/// has a catalog entry, is not excluded and is used in at least `min-packages` packages. The policy rules leave the
+/// plain instances of these dependencies to the catalog rules, which report them against the catalog.
+pub(super) fn owned_dependencies<'w>(workspace: &'w Workspace, settings: &Catalog) -> BTreeSet<&'w str> {
+    if settings.mode == CatalogMode::Off {
+        return BTreeSet::new();
+    }
+    let exclude = Selector::new(settings.exclude.iter().cloned()).unwrap_or_default();
+    usages(workspace, &exclude)
+        .into_iter()
+        .filter(|(name, usage)| {
+            !usage.plain.is_empty()
+                && usage.packages.len() >= settings.min_packages
+                && !defining(&workspace.catalogs, name).is_empty()
+        })
+        .map(|(name, _)| name)
+        .collect()
 }
 
 /// The version the new catalog entry gets: the shared specifier, or the highest one when all are semver.
@@ -274,10 +293,19 @@ pub(super) fn use_catalog_ops(instance: Instance<'_>, catalog: &CatalogName, cat
     ops
 }
 
-/// Reports `finding` under `meta` with the shared package, dependency, state and location fields.
+/// The severity the rules that police catalog usage propose: an error under `[catalog] mode = "enforce"`, where a
+/// dependency that should come from a catalog is a violation. Otherwise they keep their own default, and a level
+/// configured for the rule always wins (see [`skif_core::Diagnostic::default_severity`]).
+pub(super) fn enforce_severity(cx: &LintContext<'_>) -> Option<Severity> {
+    (cx.config.catalog.mode == CatalogMode::Enforce).then_some(Severity::Error)
+}
+
+/// Reports `finding` under `meta` with the shared package, dependency, state and location fields, proposing
+/// `severity` when it is given.
 pub(super) fn emit(
     out: &mut Emitter<'_>,
     meta: &'static RuleMeta,
+    severity: Option<Severity>,
     finding: &Finding<'_>,
     message: String,
     help: Option<String>,
@@ -290,6 +318,9 @@ pub(super) fn emit(
         .dependency(entry.name.clone())
         .specifier(entry.specifier.clone())
         .detail(finding.kind.state());
+    if let Some(severity) = severity {
+        builder = builder.default_severity(severity);
+    }
     if let Some(help) = help {
         builder = builder.help(help);
     }
