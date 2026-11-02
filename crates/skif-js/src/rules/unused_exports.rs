@@ -1,5 +1,7 @@
+use std::collections::{HashMap, HashSet};
+
 use skif_core::{Category, Fix, FixSafety, Fixability, RuleMeta, Severity, diagnostic};
-use skif_js_syntax::{Export, RemovalKind};
+use skif_js_syntax::Export;
 use skif_lint::Emitter;
 
 use super::JsRule;
@@ -29,52 +31,59 @@ impl JsRule for UnusedExports {
     }
 }
 
-/// The edit that removes `export` from the code, or `None` when removing it needs the other exports of its
-/// statement to go as well and `export` is not the first of them.
-fn removal_fix(module: &Module, export: &Export, unused: &[&Export]) -> Option<Fix> {
-    let removal = export.removal?;
-    let siblings: Vec<&&Export> = unused
+/// The deletion that fixes each unused export, keyed by the export's address in the module.
+///
+/// The deletions come from [`skif_js_syntax::ModuleInfo::removal_edits`], so they never overlap. Each one is
+/// attached to the first unused export it removes; the others it removes get no fix of their own. Exports whose
+/// removal would delete an expression (`export default <expression>`) get no fix.
+fn fixes(module: &Module, unused: &[&Export]) -> HashMap<*const Export, (u32, u32)> {
+    let wanted: HashSet<*const Export> = unused
         .iter()
-        .filter(|other| other.removal.is_some_and(|r| r.statement == removal.statement))
+        .filter(|export| export.removal.is_some_and(|removal| !removal.default_expression))
+        .map(|export| std::ptr::from_ref::<Export>(export))
         .collect();
-    let all_unused = u32::try_from(siblings.len()).is_ok_and(|count| count >= removal.siblings);
-    let first = siblings
-        .first()
-        .is_some_and(|other| other.name == export.name && other.span == export.span);
-    let (start, end, title) = match removal.kind {
-        RemovalKind::ExportKeyword | RemovalKind::Statement => (removal.start, removal.end, None),
-        RemovalKind::SharedExportKeyword => {
-            if !(all_unused && first) {
-                return None;
-            }
-            (removal.start, removal.end, Some("Remove the shared `export` keyword"))
+    let edits = module
+        .info
+        .removal_edits(|export| wanted.contains(&std::ptr::from_ref::<Export>(export)));
+    let mut claimed = vec![false; edits.len()];
+    let mut fixes = HashMap::new();
+    for export in unused {
+        let Some(removal) = export.removal else { continue };
+        if removal.default_expression {
+            continue;
         }
-        RemovalKind::Specifier => {
-            if !all_unused {
-                (removal.start, removal.end, None)
-            } else if first {
-                (
-                    removal.statement.0,
-                    removal.statement.1,
-                    Some("Remove the export statement"),
-                )
-            } else {
-                return None;
-            }
+        let overlapping = edits
+            .iter()
+            .position(|(start, end)| *start < removal.end && removal.start < *end);
+        if let Some(position) = overlapping
+            && !claimed[position]
+        {
+            claimed[position] = true;
+            fixes.insert(std::ptr::from_ref::<Export>(export), edits[position]);
         }
+    }
+    fixes
+}
+
+fn removal_fix(module: &Module, export: &Export, range: (u32, u32)) -> Fix {
+    let whole_statement = export.removal.is_some_and(|removal| removal.statement == range);
+    let title = if whole_statement {
+        "Remove the export statement".to_owned()
+    } else {
+        format!("Remove the unused export `{}`", export.name)
     };
-    let title = title.map_or_else(|| format!("Remove the unused export `{}`", export.name), str::to_owned);
-    Some(Fix {
+    Fix {
         title,
         safety: FixSafety::Unsafe,
-        ops: vec![delete_range(module, start, end)],
-    })
+        ops: vec![delete_range(module, range.0, range.1)],
+    }
 }
 
 /// Reports the unused exports of every module that are types (`want_type`) or values.
 pub(super) fn report(meta: &'static RuleMeta, want_type: bool, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
     for module in analysis.graph.modules() {
         let unused = analysis.unused_exports(module);
+        let fixes = fixes(module, &unused);
         let package = analysis.workspace.package(module.owner);
         for export in unused.iter().copied().filter(|export| export.is_type == want_type) {
             let noun = if want_type { "type" } else { "export" };
@@ -91,8 +100,8 @@ pub(super) fn report(meta: &'static RuleMeta, want_type: bool, analysis: &JsAnal
             if let Some(package) = package {
                 builder = builder.package(package.display_name());
             }
-            if let Some(fix) = removal_fix(module, export, &unused) {
-                builder = builder.fix(fix);
+            if let Some(range) = fixes.get(&std::ptr::from_ref::<Export>(export)) {
+                builder = builder.fix(removal_fix(module, export, *range));
             }
             out.emit(builder.build());
         }

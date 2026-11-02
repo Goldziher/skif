@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::Value;
-use skif_core::FileSystem;
+use skif_core::{FileSystem, Span};
 use skif_js_syntax::ImportKind;
 use skif_workspace::{PackageId, Workspace};
 
@@ -59,8 +59,8 @@ pub struct UnlistedImport {
     pub name: String,
     /// The importing module.
     pub module: ModuleId,
-    /// Index into the importing module's imports.
-    pub import: usize,
+    /// Where the import is written: the import statement, or the `@jsxImportSource` pragma.
+    pub span: Option<Span>,
 }
 
 /// A script binary that no dependency provides.
@@ -222,11 +222,13 @@ impl DependencyUsage {
                 if let Some(name) = &resolved.package {
                     let kind = module.info.imports.get(resolved.import).map(|import| import.kind);
                     let type_only = resolved.type_only && kind != Some(ImportKind::ExportFrom);
-                    self.handle_import(workspace, module.owner, name, type_only, module.id, resolved.import);
+                    let span = module.info.imports.get(resolved.import).map(|import| import.span);
+                    self.handle_import(workspace, module.owner, name, type_only, module.id, span);
                 }
             }
             if let Some(source) = module.info.jsx_import_source.as_deref().and_then(package_name) {
-                self.handle_import(workspace, module.owner, &source, false, module.id, 0);
+                let span = module.info.jsx_import_source_span;
+                self.handle_import(workspace, module.owner, &source, false, module.id, span);
             }
         }
     }
@@ -238,7 +240,7 @@ impl DependencyUsage {
         name: &str,
         type_only: bool,
         module: ModuleId,
-        import: usize,
+        span: Option<Span>,
     ) {
         if RUNTIME_PACKAGES.contains(&name) {
             return;
@@ -277,7 +279,7 @@ impl DependencyUsage {
             package: owner,
             name: name.to_owned(),
             module,
-            import,
+            span,
         });
     }
 
