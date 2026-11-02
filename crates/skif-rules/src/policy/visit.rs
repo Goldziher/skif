@@ -357,7 +357,11 @@ impl<'a, 'w> Visitor<'a, 'w> {
         let differs = || Some((State::DiffersToLocal, Some(Arc::clone(local_specifier))));
         let specifier = self.spec(id);
         if specifier.is_link() || matches!(**specifier, Specifier::File(_)) {
-            return if self.path_resolves_to(id, local) { None } else { differs() };
+            return if self.path_resolves_to(id, local) {
+                None
+            } else {
+                differs()
+            };
         }
         if specifier.is_workspace_protocol() || matches!(**specifier, Specifier::Latest(_)) {
             return None;
@@ -580,7 +584,11 @@ mod tests {
             let app = manifest("app", "1.0.0", &format!(r#""lib":"{specifier}""#));
             let lib = manifest("lib", "1.0.0", "");
             let members = [("app", app.as_str()), ("lib", lib.as_str())];
-            let expected = if valid { vec![] } else { vec![one("app", "lib", "DiffersToLocal")] };
+            let expected = if valid {
+                vec![]
+            } else {
+                vec![one("app", "lib", "DiffersToLocal")]
+            };
             assert_eq!(states("", &members), expected, "{specifier}");
         }
     }

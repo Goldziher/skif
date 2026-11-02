@@ -189,9 +189,16 @@ mod tests {
         let first_run = testing::apply_fixes(&files, &linked);
         let after_first_run = testing::borrowed(&first_run);
         let unsorted = lint(META.id, &after_first_run, &config(""));
-        assert_eq!(unsorted.len(), 1, "the section is still unsorted after the other rule's fix");
+        assert_eq!(
+            unsorted.len(),
+            1,
+            "the section is still unsorted after the other rule's fix"
+        );
         let second_run = testing::apply_fixes(&after_first_run, &unsorted);
-        assert_eq!(lint(META.id, &testing::borrowed(&second_run), &config("")), [] as [skif_core::Diagnostic; 0]);
+        assert_eq!(
+            lint(META.id, &testing::borrowed(&second_run), &config("")),
+            [] as [skif_core::Diagnostic; 0]
+        );
     }
 
     #[test]

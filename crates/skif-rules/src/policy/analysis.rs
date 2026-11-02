@@ -46,17 +46,19 @@ impl<'w> Analysis<'w> {
                 })
             };
             let is_invalid = |group: &Group<'_>| matches!(group.policy, Policy::InvalidPin);
+            // A banned group that matches nothing is the state it asks for, not a misconfiguration.
+            let reportable = |group: &Group<'_>| !is_invalid(group) && !matches!(group.policy, Policy::Banned);
             let unused = groups
                 .groups()
                 .iter()
                 .enumerate()
-                .filter(|&(index, group)| !assignment.is_used(index) && !is_invalid(group))
+                .filter(|&(index, group)| !assignment.is_used(index) && reportable(group))
                 .filter_map(|(_, group)| configured(group))
                 .collect();
             let invalid = groups
                 .groups()
                 .iter()
-                .filter(|group| is_invalid(*group))
+                .filter(|group| is_invalid(group))
                 .filter_map(configured)
                 .collect();
             (visitor.into_verdicts(), unused, invalid)

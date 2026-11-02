@@ -165,7 +165,8 @@ pub fn lint(
     let workspace =
         Workspace::discover_with_fs(Path::new(ROOT), config, &fs).map_err(|error| format!("workspace: {error}"))?;
     let registry = Registry::new(skif_rules::providers()).map_err(|error| error.to_string())?;
-    let report = run(&registry, &workspace, config, &RunOptions::default()).map_err(|error| format!("lint: {error}"))?;
+    let report =
+        run(&registry, &workspace, config, &RunOptions::default()).map_err(|error| format!("lint: {error}"))?;
     Ok(report
         .diagnostics
         .into_iter()
@@ -188,9 +189,8 @@ pub fn project(diagnostic: &Diagnostic) -> Value {
 
 /// The order the fixtures are written in: path, rule, dependency, detail (byte order, `null` first).
 pub fn sort_rows(rows: &mut [Value]) {
-    let key = |row: &Value| {
-        ["path", "rule", "dependency", "detail"].map(|field| row[field].as_str().map(str::to_owned))
-    };
+    let key =
+        |row: &Value| ["path", "rule", "dependency", "detail"].map(|field| row[field].as_str().map(str::to_owned));
     rows.sort_by_key(key);
 }
 
@@ -309,8 +309,7 @@ fn normalized(path: &Path) -> String {
 }
 
 fn edit_file(source: &str, path: &str, ops: &[FixOp]) -> Result<String, Failure> {
-    let (texts, structured): (Vec<&FixOp>, Vec<&FixOp>) =
-        ops.iter().partition(|op| matches!(op, FixOp::Text { .. }));
+    let (texts, structured): (Vec<&FixOp>, Vec<&FixOp>) = ops.iter().partition(|op| matches!(op, FixOp::Text { .. }));
     let mut edits: Vec<TextEdit> = texts
         .iter()
         .filter_map(|op| match op {
@@ -319,7 +318,8 @@ fn edit_file(source: &str, path: &str, ops: &[FixOp]) -> Result<String, Failure>
         })
         .collect();
     if !structured.is_empty() {
-        let kind = FileKind::from_path(Path::new(path)).ok_or_else(|| Failure::Other(format!("no editor for {path}")))?;
+        let kind =
+            FileKind::from_path(Path::new(path)).ok_or_else(|| Failure::Other(format!("no editor for {path}")))?;
         edits.extend(plan_edits(source, kind, &structured).map_err(|error| match error {
             EditPlanError::Conflict { .. } => Failure::Conflict(error.to_string()),
             _ => Failure::Other(format!("{path}: {error}")),
@@ -452,7 +452,10 @@ pub fn check_case(case: &Case, family: &BTreeSet<&'static str>) -> Result<(), St
 
     let planned = plan_fixes(&files, &diagnostics)?;
     if !planned.skipped.is_empty() {
-        return Err(format!("fixes skipped as conflicting:\n  {}", planned.skipped.join("\n  ")));
+        return Err(format!(
+            "fixes skipped as conflicting:\n  {}",
+            planned.skipped.join("\n  ")
+        ));
     }
     if case.is_partial() {
         // The expected files also carry the fixes of the other family of rules, which are not planned here.
@@ -474,10 +477,14 @@ pub fn check_case(case: &Case, family: &BTreeSet<&'static str>) -> Result<(), St
         after.remove(path);
     }
     for (path, wanted) in &expected_fixed {
-        let got = after.get(path).ok_or_else(|| format!("{path} is missing after fixing"))?;
+        let got = after
+            .get(path)
+            .ok_or_else(|| format!("{path} is missing after fixing"))?;
         if case.compares_bytes() {
             if got != wanted {
-                return Err(format!("{path} differs byte for byte after fixing:\n  expected: {wanted:?}\n  actual:   {got:?}"));
+                return Err(format!(
+                    "{path} differs byte for byte after fixing:\n  expected: {wanted:?}\n  actual:   {got:?}"
+                ));
             }
         } else {
             let (want, got) = (parse_data(path, wanted)?, parse_data(path, got)?);
@@ -504,7 +511,10 @@ pub fn check_case(case: &Case, family: &BTreeSet<&'static str>) -> Result<(), St
         .filter(|line| line.starts_with("  unexpected:"))
         .collect::<Vec<_>>();
     if !new_rows.is_empty() {
-        return Err(format!("the fixed workspace reports more than before:\n{}", new_rows.join("\n")));
+        return Err(format!(
+            "the fixed workspace reports more than before:\n{}",
+            new_rows.join("\n")
+        ));
     }
     Ok(())
 }

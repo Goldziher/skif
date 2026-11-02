@@ -265,7 +265,11 @@ mod tests {
         let defaults = config("");
         let by_default = workspace(&files(), &defaults);
         let instances = Instances::collect(&by_default, &defaults);
-        assert_eq!(instances.named("react").len(), 1, "the peer entry is not tracked by default");
+        assert_eq!(
+            instances.named("react").len(),
+            1,
+            "the peer entry is not tracked by default"
+        );
         let configured = workspace(&files(), &with_peers);
         let instances = Instances::collect(&configured, &with_peers);
         assert_eq!(instances.named("react").len(), 2);
