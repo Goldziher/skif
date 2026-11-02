@@ -56,4 +56,10 @@ GEMINI.md
 /opencode.json
 # END ai-rulez
 
-/npm-package/platforms/*/bin/
+
+# napi-rs build outputs and the generated per-platform packages (`napi create-npm-dirs`).
+/npm-package/*.node
+/npm-package/index.js
+/npm-package/index.d.ts
+/npm-package/npm/
+/npm-package/artifacts/

@@ -1,0 +1,36 @@
+[package]
+name = "skif-node"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Node-API addon for skif: the npm package's native module (not published to crates.io)."
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi.workspace = true
+napi-derive.workspace = true
+skif = { workspace = true, features = ["manifest", "policy", "js-analysis", "report"] }
+skif-cli.workspace = true
+
+[build-dependencies]
+napi-build.workspace = true
+
+# Not `workspace = true`: napi-derive expands to `unsafe` Node-API glue, which the workspace's
+# `unsafe_code = "forbid"` would reject. All hand-written code in this crate is safe. ~keep
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+all = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+# napi passes arguments by value.
+needless_pass_by_value = "allow"

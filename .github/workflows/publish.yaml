@@ -14,7 +14,7 @@ on:
         required: false
         type: string
       dry-run:
-        description: "Build the eight targets and verify the release assets, but publish nothing"
+        description: "Build the eight release targets and the six npm addons and verify the release assets, but publish nothing"
         type: boolean
         default: false
 
@@ -410,11 +410,101 @@ jobs:
       smoke-command: |
         skif --version
 
+  build_npm:
+    name: Build npm addon / ${{ matrix.target }}
+    needs: [meta]
+    if: always() && needs.meta.result == 'success'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # glibc targets cross-build with napi-rs's bundled sysroot (--use-napi-cross) so the addon loads on old
+          # distributions; musl targets cross-build with zig (-x). Darwin builds natively.
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            napi_flags: --use-napi-cross
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            napi_flags: --use-napi-cross
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            napi_flags: -x
+            zig: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            napi_flags: -x
+            zig: true
+          - target: x86_64-apple-darwin
+            os: macos-26-intel
+            smoke: true
+          - target: aarch64-apple-darwin
+            os: macos-26
+            smoke: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: napi-${{ matrix.target }}
+
+      - name: Setup Node.js and pnpm
+        uses: xberg-io/actions/setup-mise@v1
+        with:
+          config-ref: ${{ github.sha }}
+          tools: node pnpm
+
+      - name: Setup zig
+        if: ${{ matrix.zig }}
+        uses: mlugg/setup-zig@v2
+
+      - name: Install cargo-zigbuild
+        if: ${{ matrix.zig }}
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+
+      - name: Install napi-rs
+        working-directory: npm-package
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the addon
+        working-directory: npm-package
+        env:
+          # A musl cdylib must link the C runtime dynamically.
+          RUSTFLAGS: ${{ contains(matrix.target, 'musl') && '-C target-feature=-crt-static' || '' }}
+        run: >-
+          pnpm exec napi build --platform --release --esm --package skif-node
+          --manifest-path ../crates/skif-node/Cargo.toml --output-dir .
+          --target ${{ matrix.target }} ${{ matrix.napi_flags }}
+
+      - name: Smoke test the addon
+        if: ${{ matrix.smoke }}
+        working-directory: npm-package
+        run: node -e 'import("./index.js").then((m) => { if (typeof m.run !== "function") process.exit(1); })'
+
+      - name: Save the addon
+        uses: actions/upload-artifact@v7
+        with:
+          name: bindings-${{ matrix.target }}
+          path: npm-package/skif.*.node
+          if-no-files-found: error
+
   publish_npm:
     name: Publish npm (skif)
-    needs: [meta, checksums, finalize_release]
+    needs: [meta, build_npm, checksums, finalize_release]
     if: >-
-      always() && needs.meta.result == 'success'
+      always() && needs.meta.result == 'success' && needs.build_npm.result == 'success'
       && (needs.meta.outputs.dry_run == 'true'
           || needs.finalize_release.result == 'success'
           || needs.meta.outputs.release_complete == 'true')
@@ -423,6 +513,9 @@ jobs:
       contents: read
       # Mints the OIDC token npm trusted publishing exchanges for a publish credential.
       id-token: write
+    defaults:
+      run:
+        working-directory: npm-package
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -435,26 +528,23 @@ jobs:
           config-ref: ${{ github.sha }}
           tools: node pnpm
 
-      - name: Download the built archives (dry run)
-        if: needs.meta.outputs.dry_run == 'true'
+      - name: Install napi-rs
+        run: pnpm install --frozen-lockfile
+
+      - name: Download the built addons
         uses: actions/download-artifact@v8
         with:
-          pattern: "{archive-*,checksums}"
-          merge-multiple: true
-          path: artifacts
+          pattern: bindings-*
+          path: npm-package/artifacts
 
-      - name: Download the published release archives
-        if: needs.meta.outputs.dry_run != 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.meta.outputs.tag }}
-        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'skif-*' --pattern 'checksums.txt' --dir artifacts --clobber
-
-      - name: Verify the archives against the release checksums
-        run: cd artifacts && sha256sum -c checksums.txt
-
-      - name: Stage the release binaries into the platform packages
-        run: npm-package/stage-binaries.sh --artifacts artifacts
+      - name: Generate the platform packages
+        run: |
+          set -euo pipefail
+          # npm/<platform>/package.json for every target in package.json's napi config, then the .node files into them.
+          pnpm exec napi create-npm-dirs
+          pnpm exec napi artifacts --output-dir artifacts --npm-dir npm
+          # Writes the umbrella's optionalDependencies. The platform packages are published below, idempotently.
+          pnpm exec napi prepublish -t npm --no-gh-release --skip-optional-publish
 
       - name: Publish to npm
         env:
@@ -483,13 +573,14 @@ jobs:
           }
 
           # Platform packages first: the umbrella must never list a package that does not exist.
-          platforms=(npm-package/platforms/*/)
-          expected="$(jq -er '.optionalDependencies | length | select(. > 0)' npm-package/package.json)"
+          platforms=(npm/*/)
+          expected="$(jq -er '.optionalDependencies | length | select(. > 0)' package.json)"
           [ "${#platforms[@]}" -eq "$expected" ] || { echo "::error::npm platform inventory is incomplete"; exit 1; }
           for dir in "${platforms[@]}"; do
+            ls "${dir}"*.node >/dev/null || { echo "::error::${dir} has no addon binary"; exit 1; }
             publish_one "${dir%/}"
           done
-          publish_one npm-package
+          publish_one .
 
   verify_npm:
     name: Verify npx skif

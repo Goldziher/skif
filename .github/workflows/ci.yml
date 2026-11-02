@@ -180,7 +180,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y shellcheck
           shopt -s globstar nullglob
-          shellcheck scripts/**/*.sh npm-package/*.sh mise-tasks/**/*.sh
+          shellcheck scripts/**/*.sh mise-tasks/**/*.sh
 
   consistency:
     name: Version consistency
@@ -203,6 +203,38 @@ jobs:
         run: scripts/check-dependency-tree.sh
       - name: Check that every published crate ships LICENSE and ATTRIBUTIONS.md
         run: scripts/check-package-contents.sh
+
+  npm-addon:
+    name: npm addon (${{ matrix.runtime }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # node-24 is the engines floor; node and bun are the versions pinned in mise.toml.
+        runtime: [node-24, node, bun]
+    steps:
+      - uses: actions/checkout@v7
+      # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: xberg-io/actions/setup-mise@v1
+        with:
+          tools: node pnpm bun
+      - name: Build the addon for the host
+        working-directory: npm-package
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Smoke-test import, lint() and the skif bin
+        run: |
+          set -euo pipefail
+          case "${{ matrix.runtime }}" in
+            node-24) mise exec node@24 -- bash scripts/npm-smoke.sh node ;;
+            *) bash scripts/npm-smoke.sh "${{ matrix.runtime }}" ;;
+          esac
 
   # Runs the built binary against real workspaces installed by each package manager, so the
   # fixtures prove skif's view of a monorepo matches what npm, pnpm, yarn and bun actually accept.
