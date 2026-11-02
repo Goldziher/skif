@@ -69,3 +69,20 @@ pub(crate) fn detect(
         .or_else(|| from_lockfile(fs, root))
         .or_else(|| has_pnpm_workspace.then_some(PackageManager::Pnpm))
 }
+
+/// Whether the workspace uses Yarn Classic (1.x), which has no `workspace:` protocol.
+///
+/// The `packageManager` field decides when it names Yarn; without it the first lines of `yarn.lock` do
+/// (`# yarn lockfile v1`).
+pub(crate) fn is_yarn_classic(fs: &dyn FileSystem, root: &Path, manifest: &Value) -> bool {
+    match manifest
+        .get("packageManager")
+        .and_then(Value::as_str)
+        .filter(|field| field.starts_with("yarn@"))
+    {
+        Some(field) => field.starts_with("yarn@1."),
+        None => fs
+            .read_to_string(&root.join("yarn.lock"))
+            .is_ok_and(|lock| lock.lines().take(8).any(|line| line.trim() == "# yarn lockfile v1")),
+    }
+}

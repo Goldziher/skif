@@ -2,3 +2,4 @@ description = "A pinned version beats a semver group whose range matches: the pi
 source = "syncpack:src/version_group/pinned_test.rs::normal::pin_version_will_override_instance_with_same_version_number_as_pinned_but_matching_a_semver_group"
 tags = ["pinned", "semver-groups", "fix"]
 valid-states = ["IsIdenticalToPin"]
+compare = "bytes"

@@ -53,6 +53,9 @@ impl Rule for UnmatchedWorkspacePatterns {
 
     fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>) {
         let workspace = cx.workspace;
+        if workspace.facts.implicit_patterns {
+            return;
+        }
         let keeps_a_member_pattern = workspace
             .facts
             .patterns
@@ -252,5 +255,16 @@ mod tests {
         };
         assert_eq!(path.to_str(), Some("package.json"));
         assert_eq!(pointer, &[key("workspaces"), PathSeg::Index(0)]);
+    }
+
+    #[test]
+    fn the_implicit_patterns_of_a_pnpm_workspace_without_packages_are_never_reported() {
+        let root_json = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0"}"#;
+        let files = [
+            ("package.json", root_json),
+            ("pnpm-workspace.yaml", "catalog:\n  react: 18\n"),
+            ("packages/a/package.json", MEMBER),
+        ];
+        assert_eq!(lint(META.id, &files, &config("")), [] as [skif_core::Diagnostic; 0]);
     }
 }

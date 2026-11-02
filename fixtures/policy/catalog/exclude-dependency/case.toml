@@ -2,3 +2,4 @@ description = "[catalog] exclude removes a dependency from catalog policy; other
 source = "skif"
 tags = ["catalog", "prefer", "exclude", "fix"]
 valid-states = ["IsHighestOrLowestSemver"]
+compare = "bytes"

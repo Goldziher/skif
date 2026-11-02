@@ -36,7 +36,7 @@ fn rich() -> Report {
     let mut mismatch = diag(
         "version-mismatch",
         Severity::Error,
-        "packages\\web\\package.json",
+        "packages/web/package.json",
         Some(span_of("\"^18.0.0\"")),
         "réact is declared with 2 different versions",
     );
@@ -147,18 +147,15 @@ fn json_is_deterministic() {
 
 #[test]
 fn json_paths_are_relativised_to_root() {
-    let report = Report::new(
-        vec![diag(
-            "sorted-keys",
-            Severity::Info,
-            "C:\\repo\\pkg\\package.json",
-            None,
-            "m",
-        )],
-        1,
-    );
-    let rendered = run(&report, Format::Json, &RenderOptions::default().with_root("C:\\repo"));
-    assert!(rendered.contains("\"path\": \"pkg/package.json\""));
+    // `\` is a separator only on Windows; elsewhere it is an ordinary file-name character.
+    let (path, root) = if cfg!(windows) {
+        ("C:\\repo\\pkg\\package.json", "C:\\repo")
+    } else {
+        ("/repo/pkg/package.json", "/repo")
+    };
+    let report = Report::new(vec![diag("sorted-keys", Severity::Info, path, None, "m")], 1);
+    let rendered = run(&report, Format::Json, &RenderOptions::default().with_root(root));
+    assert!(rendered.contains("\"path\": \"pkg/package.json\""), "{rendered}");
 }
 
 #[test]

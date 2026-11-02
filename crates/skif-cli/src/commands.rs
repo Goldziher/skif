@@ -6,10 +6,10 @@ use std::io::{ErrorKind, Write};
 
 use serde::Serialize;
 use serde_json::json;
-use skif::{CONFIG_FILE_NAMES, Config, Linter, RuleMeta};
+use skif::{CONFIG_FILE_NAMES, Config, Linter, RuleMeta, slash};
 
 use crate::args::{Format, InitArgs, RulesArgs, RulesFormat};
-use crate::error::{CliError, Kind, display};
+use crate::error::{CliError, Kind};
 use crate::output::{emit_error, write_stdout};
 
 const CLEAN: u8 = 0;
@@ -118,7 +118,7 @@ fn write_starter(args: &InitArgs) -> Result<(), CliError> {
         .find(|path| path.exists())
     {
         return Err(CliError {
-            path: Some(display(&existing)),
+            path: Some(slash(&existing)),
             ..CliError::new(
                 Kind::Config,
                 format!("{} already exists; refusing to overwrite it", existing.display()),
@@ -139,7 +139,7 @@ fn write_starter(args: &InitArgs) -> Result<(), CliError> {
         })?;
     file.write_all(STARTER_CONFIG.as_bytes())
         .map_err(|error| CliError::io("cannot write", &target, &error))?;
-    write_stdout(format!("Created {}\n", crate::error::display(&target)).as_bytes())
+    write_stdout(format!("Created {}\n", slash(&target)).as_bytes())
 }
 
 pub fn init(args: &InitArgs) -> u8 {

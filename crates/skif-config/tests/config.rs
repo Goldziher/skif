@@ -390,6 +390,28 @@ fn invalid_catalog_and_families_are_rejected() {
 }
 
 #[test]
+fn invalid_catalog_exclude_and_family_selectors_are_rejected_at_load() {
+    let cases = [
+        ("[catalog]\nexclude = [\"\"]\n", "catalog.exclude"),
+        ("[catalog]\nexclude = [\"[a\"]\n", "catalog.exclude"),
+        (
+            "[[dependency-families]]\nname = \"x\"\npackages = [\"{a\"]\n",
+            "dependency-families[0]",
+        ),
+        (
+            "[[dependency-families]]\nname = \"x\"\npackages = [\"ok\", \"!\"]\n",
+            "dependency-families[0]",
+        ),
+    ];
+    for (source, expected) in cases {
+        let error = Config::from_toml_str(source).unwrap_err();
+        assert!(matches!(error, ConfigError::Invalid { .. }), "{source}");
+        assert!(error.to_string().contains(expected), "{source}: {error}");
+    }
+    assert!(Config::from_toml_str("[catalog]\nexclude = [\"@types/*\", \"!react\"]\n").is_ok());
+}
+
+#[test]
 fn file_errors_carry_the_path() {
     let err = Config::from_toml_file(&fixture("basic").join("nope.toml")).unwrap_err();
     assert!(matches!(err, ConfigError::Io { .. }));

@@ -2,3 +2,4 @@ description = "A non-semver specifier next to a semver one is reported as differ
 source = "syncpack:src/version_group/preferred_semver_test.rs::non_semver::non_semver_and_semver_mismatch"
 tags = ["unsupported", "file", "fix"]
 valid-states = ["IsHighestOrLowestSemver"]
+compare = "bytes"

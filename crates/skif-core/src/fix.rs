@@ -29,6 +29,18 @@ pub struct Fix {
     pub ops: Vec<FixOp>,
 }
 
+impl Fix {
+    /// A fix titled `title` that performs `ops` in order.
+    #[must_use]
+    pub fn new(title: impl Into<String>, safety: FixSafety, ops: Vec<FixOp>) -> Self {
+        Self {
+            title: title.into(),
+            safety,
+            ops,
+        }
+    }
+}
+
 /// One step of a structured path into a JSON or YAML document.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -103,6 +115,7 @@ pub enum FixOp {
     /// Structured edit of a JSON file.
     Json {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
         /// Path to the target node; empty addresses the root.
         pointer: Vec<PathSeg>,
@@ -112,6 +125,7 @@ pub enum FixOp {
     /// Structured edit of a YAML file.
     Yaml {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
         /// Path to the target node; empty addresses the root.
         route: Vec<PathSeg>,
@@ -121,6 +135,7 @@ pub enum FixOp {
     /// Byte-range edit of a text file.
     Text {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
         /// The edit.
         edit: TextEdit,
@@ -128,6 +143,7 @@ pub enum FixOp {
     /// Create a file.
     CreateFile {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
         /// Full contents.
         contents: String,
@@ -135,6 +151,7 @@ pub enum FixOp {
     /// Delete a file.
     DeleteFile {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
     },
 }
@@ -152,6 +169,18 @@ pub struct TextEdit {
     pub replacement: String,
 }
 
+impl TextEdit {
+    /// Replaces the bytes `start..end` with `replacement`.
+    #[must_use]
+    pub fn new(start: u32, end: u32, replacement: impl Into<String>) -> Self {
+        Self {
+            start,
+            end,
+            replacement: replacement.into(),
+        }
+    }
+}
+
 /// The net effect of fixes on one file, ready to be written.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", rename_all_fields = "kebab-case")]
@@ -161,6 +190,7 @@ pub enum FileChange {
     /// An existing file is modified.
     Modify {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
         /// Text edits that produced `new_contents`, when the change is textual.
         edits: Vec<TextEdit>,
@@ -170,6 +200,7 @@ pub enum FileChange {
     /// A file is created.
     Create {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
         /// Full contents.
         contents: String,
@@ -177,6 +208,7 @@ pub enum FileChange {
     /// A file is deleted.
     Delete {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
     },
 }
@@ -434,5 +466,20 @@ mod tests {
             let edits = build_edits(&source, &cuts, &replacements, rotation);
             prop_assert_eq!(apply_text_edits(&source, &edits).unwrap(), reference(&source, &edits));
         }
+    }
+
+    #[test]
+    fn constructors_fill_every_field() {
+        let edit = TextEdit::new(1, 3, "x");
+        assert_eq!((edit.start, edit.end, edit.replacement.as_str()), (1, 3, "x"));
+        let fix = Fix::new("Title", FixSafety::Unsafe, vec![]);
+        assert_eq!(
+            fix,
+            Fix {
+                title: "Title".to_owned(),
+                safety: FixSafety::Unsafe,
+                ops: Vec::new()
+            }
+        );
     }
 }

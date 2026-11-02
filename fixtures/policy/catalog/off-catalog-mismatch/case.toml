@@ -2,3 +2,4 @@ description = "Even with mode off, an instance that does not use catalog: while 
 source = "syncpack:src/version_group/preferred_semver_test.rs (catalog: protocol wins over semver branch)"
 tags = ["catalog", "mode-off", "fix"]
 valid-states = ["IsCatalog", "IsCatalogDefinition"]
+compare = "bytes"

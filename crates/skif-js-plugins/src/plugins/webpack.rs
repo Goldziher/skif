@@ -4,7 +4,7 @@ use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::babel;
-use crate::support::{module_input, objects};
+use crate::support::{alias_inputs, get_in, module_input, objects};
 
 /// The `webpack` plugin.
 pub struct Webpack;
@@ -30,6 +30,9 @@ impl Plugin for Webpack {
             }
             if let Some(rules) = object.get("module").and_then(|m| m.get("rules")) {
                 rule_loaders(rules, config, &mut out, 0);
+            }
+            if let Some(alias) = get_in(object, &["resolve", "alias"]) {
+                out.extend(alias_inputs(alias, config));
             }
         }
         out

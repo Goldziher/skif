@@ -19,6 +19,7 @@ types-in-dependencies
 unlisted-binaries
 unlisted-dependencies
 unmatched-workspace-patterns
+unparseable-files
 unresolved-catalog-references
 unresolved-imports
 unsorted-dependencies

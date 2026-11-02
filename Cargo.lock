@@ -938,6 +938,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "913a7d294ad056474749152107309fdee3ec17d2482d1ab70fdc61a81c64b9a3"
 
 [[package]]
+name = "ignore"
+version = "0.4.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "484be5657551d7868d67587df967fb4fcbe9d266a761cc855aaa148fda0b3cc7"
+dependencies = [
+ "crossbeam-deque",
+ "globset",
+ "log",
+ "memchr",
+ "regex-automata",
+ "same-file",
+ "walkdir",
+ "winapi-util",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2075,6 +2091,7 @@ dependencies = [
  "criterion",
  "indexmap",
  "rayon",
+ "serde-saphyr",
  "serde_json",
  "skif-bench",
  "skif-config",
@@ -2087,6 +2104,7 @@ dependencies = [
  "skif-rules",
  "skif-workspace",
  "thiserror",
+ "toml",
 ]
 
 [[package]]
@@ -2168,6 +2186,8 @@ version = "0.0.0"
 dependencies = [
  "criterion",
  "globset",
+ "ignore",
+ "indexmap",
  "insta",
  "oxc_resolver",
  "rayon",
@@ -2209,6 +2229,7 @@ dependencies = [
  "oxc_semantic",
  "oxc_span",
  "oxc_str",
+ "proptest",
  "serde",
  "serde_json",
  "skif-core",

@@ -609,7 +609,9 @@ impl<'c> Walker<'c> {
             "run" | "run-script" => {
                 let inner = args::parse(after, tables::PNPM_VALUE_FLAGS, false);
                 if let Some(&i) = inner.positionals.first() {
-                    self.run_script_word(&after[i], frame, filtered);
+                    // A recursive run of a script this package doesn't define runs it in other workspaces only.
+                    let elsewhere = recursive && !self.ctx.scripts.contains_key(after[i].text.as_str());
+                    self.run_script_word(&after[i], frame, filtered || elsewhere);
                 }
             }
             "exec" => {
@@ -638,7 +640,11 @@ impl<'c> Walker<'c> {
                 if self.ctx.scripts.contains_key(name) {
                     let map = Map::Fixed(frame.span(&args[ci].span));
                     self.run_script_name(name, &map, filtered);
-                } else if !filtered && !tables::PNPM_COMMANDS.contains(&cmd) && !tables::LIFECYCLE.contains(&cmd) {
+                } else if !filtered
+                    && !recursive
+                    && !tables::PNPM_COMMANDS.contains(&cmd)
+                    && !tables::LIFECYCLE.contains(&cmd)
+                {
                     self.command(
                         &args[ci..],
                         frame,
