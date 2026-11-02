@@ -1,12 +1,11 @@
 //! Version and semver group policies (ADR 0009).
 //!
-//! The rules of this module share one analysis. [`PolicyProvider`] collects the dependency [`instances`] of the
+//! The rules of this module share one analysis. [`PolicyProvider`] collects the dependency instances (`instances`) of the
 //! workspace once, assigns each to its first matching version group and semver group (`groups`), derives the state
 //! of every instance (`visit`) and reports the result under the few stable rule IDs of the ADR, with the syncpack
 //! state name in `Diagnostic.detail`.
 //!
-//! Rules that build on the same instances (catalogs, the workspace protocol, dependency families) extend
-//! [`PolicyProvider::rules`] and [`PolicyProvider::run`] and reuse [`instances::Instances`].
+//! The catalog, workspace-protocol and dependency-family rules run as a separate provider, [`catalog_provider`].
 
 mod analysis;
 mod catalog;
