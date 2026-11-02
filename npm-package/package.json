@@ -57,7 +57,7 @@
     ]
   },
   "scripts": {
-    "build": "napi build --platform --release --esm --manifest-path ../crates/skif-node/Cargo.toml --output-dir . --package skif-node",
+    "build": "napi build --platform --profile node --esm --manifest-path ../crates/skif-node/Cargo.toml --output-dir . --package skif-node",
     "build:debug": "napi build --platform --esm --manifest-path ../crates/skif-node/Cargo.toml --output-dir . --package skif-node",
     "version": "napi version"
   },

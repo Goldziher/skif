@@ -31,6 +31,7 @@
 pub mod builder;
 pub mod dependency;
 pub mod diagnostic;
+pub mod display;
 pub mod fix;
 pub mod fs;
 pub mod package_id;
@@ -41,6 +42,7 @@ pub mod span;
 pub use builder::{DiagnosticBuilder, diagnostic};
 pub use dependency::DependencyKind;
 pub use diagnostic::Diagnostic;
+pub use display::slash;
 pub use fix::{
     EditError, FileChange, Fix, FixOp, FixSafety, InsertPosition, JsonAction, PathSeg, TextEdit, YamlAction,
     apply_text_edits,

@@ -49,11 +49,21 @@ if [ -z "$tag" ]; then
   exit 1
 fi
 
+# An Alpine (musl) container job needs the musl archives: the glibc binary does not load there. `ldd --version`
+# exits non-zero on musl, so it is captured on its own instead of piped (a pipeline would fail under pipefail).
+libc=gnu
+if [ "$RUNNER_OS" = "Linux" ]; then
+  banner="$(ldd --version 2>&1 || true)"
+  if [[ "$banner" == *musl* ]] || compgen -G '/lib/ld-musl-*' >/dev/null; then
+    libc=musl
+  fi
+fi
+
 case "$RUNNER_OS" in
 Linux)
   case "$RUNNER_ARCH" in
-  X64) triple="x86_64-unknown-linux-gnu" ;;
-  ARM64) triple="aarch64-unknown-linux-gnu" ;;
+  X64) triple="x86_64-unknown-linux-${libc}" ;;
+  ARM64) triple="aarch64-unknown-linux-${libc}" ;;
   *)
     echo "::error::skif publishes no Linux release asset for architecture $RUNNER_ARCH"
     exit 1

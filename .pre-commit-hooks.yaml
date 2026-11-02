@@ -17,6 +17,7 @@
   args:
     - --fix
     - --no-install
+    - --no-prompt
     - --no-js
   language: script
   files: '(^|/)(package\.json|pnpm-workspace\.yaml|\.?skif\.toml)$'
