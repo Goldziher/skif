@@ -90,6 +90,28 @@ const UNSUPPORTED: &str = "unsupported";
 const URL: &str = "url";
 const WORKSPACE_PROTOCOL: &str = "workspace-protocol";
 
+/// Every value [`Specifier::get_config_identifier`] can return: the specifier types configuration files may name.
+pub const CONFIG_IDENTIFIERS: [&str; 18] = [
+    ALIAS,
+    CATALOG,
+    RANGE_COMPLEX,
+    EXACT,
+    FILE,
+    LINK,
+    GIT,
+    LATEST,
+    MAJOR,
+    MINOR,
+    MISSING,
+    RANGE,
+    RANGE_MAJOR,
+    RANGE_MINOR,
+    TAG,
+    UNSUPPORTED,
+    URL,
+    WORKSPACE_PROTOCOL,
+];
+
 /// A huge number used to complete shorthand semver versions during ordering and
 /// comparison, such as:
 ///

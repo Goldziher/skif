@@ -374,8 +374,8 @@ impl<'a, 'w> Visitor<'a, 'w> {
                 .filter(|&id| self.spec(id).get_node_version().is_some())
                 .map(|id| self.with_preferred(id).unwrap_or_else(|| Arc::clone(self.spec(id))));
             match prefer {
-                Prefer::Highest => candidates.max(),
                 Prefer::Lowest => candidates.min(),
+                _ => candidates.max(),
             }
         };
         let Some(target) = target else {

@@ -471,3 +471,179 @@ fn file_kind_from_path() {
     assert_eq!(FileKind::from_path(Path::new("README.md")), None);
     assert_eq!(FileKind::from_path(Path::new("Makefile")), None);
 }
+
+fn apply_json(input: &str, ops: &[FixOp]) -> String {
+    let refs: Vec<&FixOp> = ops.iter().collect();
+    apply(input, FileKind::Json, &refs).unwrap_or_else(|error| panic!("{error}"))
+}
+
+#[test]
+fn byte_order_mark_is_skipped_and_kept() {
+    let input = "\u{feff}{\n  \"a\": 1,\n  \"b\": 2\n}\n";
+    let ops = [
+        set(&["a"], json!(9)),
+        insert(&[], "c", json!(3), InsertPosition::End),
+        remove(&["b"]),
+    ];
+    assert_eq!(apply_json(input, &ops), "\u{feff}{\n  \"a\": 9,\n  \"c\": 3\n}\n");
+    let refs: Vec<&FixOp> = ops.iter().collect();
+    let edits = plan_edits(input, FileKind::Json, &refs).unwrap();
+    assert!(edits.iter().all(|edit| edit.start >= 3), "{edits:?}");
+}
+
+#[test]
+fn text_edits_keep_their_offsets_with_a_byte_order_mark() {
+    let input = "\u{feff}{\"a\": 1}";
+    let op = FixOp::Text {
+        path: "package.json".into(),
+        edit: TextEdit {
+            start: 5,
+            end: 6,
+            replacement: "x".to_owned(),
+        },
+    };
+    assert_eq!(apply_json(input, &[op]), "\u{feff}{\"x\": 1}");
+}
+
+#[test]
+fn several_inserts_into_one_object_form_one_valid_edit() {
+    let end = |key: &str, value| insert(&[], key, value, InsertPosition::End);
+    run(vec![
+        Case {
+            name: "two inserts into an empty object",
+            input: "{}",
+            ops: vec![end("a", json!(1)), end("b", json!(2))],
+            expected: "{\n  \"a\": 1,\n  \"b\": 2\n}",
+        },
+        Case {
+            name: "three inserts at the end",
+            input: "{\n  \"x\": 0\n}\n",
+            ops: vec![end("a", json!(1)), end("b", json!(2)), end("c", json!(3))],
+            expected: "{\n  \"x\": 0,\n  \"a\": 1,\n  \"b\": 2,\n  \"c\": 3\n}\n",
+        },
+        Case {
+            name: "inserts at the start end up in reverse order",
+            input: "{\n  \"x\": 0\n}\n",
+            ops: vec![
+                insert(&[], "a", json!(1), InsertPosition::Start),
+                insert(&[], "b", json!(2), InsertPosition::Start),
+            ],
+            expected: "{\n  \"b\": 2,\n  \"a\": 1,\n  \"x\": 0\n}\n",
+        },
+        Case {
+            name: "sorted inserts into the same gap keep sorted order",
+            input: "{\n  \"a\": 0,\n  \"z\": 0\n}\n",
+            ops: vec![
+                insert(&[], "m", json!(1), InsertPosition::Sorted),
+                insert(&[], "c", json!(2), InsertPosition::Sorted),
+                insert(&[], "x", json!(3), InsertPosition::Sorted),
+            ],
+            expected: "{\n  \"a\": 0,\n  \"c\": 2,\n  \"m\": 1,\n  \"x\": 3,\n  \"z\": 0\n}\n",
+        },
+        Case {
+            name: "inline object",
+            input: "{\"a\": 1}",
+            ops: vec![end("b", json!(2)), end("c", json!(3))],
+            expected: "{\"a\": 1, \"b\": 2, \"c\": 3}",
+        },
+        Case {
+            name: "a repeated key keeps the last value",
+            input: "{}",
+            ops: vec![end("a", json!(1)), end("a", json!(2))],
+            expected: "{\n  \"a\": 2\n}",
+        },
+    ]);
+}
+
+#[test]
+fn inserts_and_removals_share_an_object() {
+    run(vec![
+        Case {
+            name: "remove everything, then insert",
+            input: "{\n  \"a\": 1,\n  \"b\": 2\n}\n",
+            ops: vec![
+                remove(&["a"]),
+                remove(&["b"]),
+                insert(&[], "k", json!("v"), InsertPosition::End),
+            ],
+            expected: "{\n  \"k\": \"v\"\n}\n",
+        },
+        Case {
+            name: "remove the last member, insert at the end",
+            input: "{\n  \"a\": 1,\n  \"b\": 2\n}\n",
+            ops: vec![remove(&["b"]), insert(&[], "k", json!(3), InsertPosition::End)],
+            expected: "{\n  \"a\": 1,\n  \"k\": 3\n}\n",
+        },
+        Case {
+            name: "insert before a removed member goes before the next survivor",
+            input: "{\n  \"a\": 1,\n  \"c\": 3,\n  \"d\": 4\n}\n",
+            ops: vec![remove(&["c"]), insert(&[], "b", json!(2), InsertPosition::Sorted)],
+            expected: "{\n  \"a\": 1,\n  \"b\": 2,\n  \"d\": 4\n}\n",
+        },
+        Case {
+            name: "re-insert a removed key",
+            input: "{\n  \"a\": 1,\n  \"b\": 2\n}\n",
+            ops: vec![remove(&["a"]), insert(&[], "a", json!(5), InsertPosition::End)],
+            expected: "{\n  \"b\": 2,\n  \"a\": 5\n}\n",
+        },
+    ]);
+}
+
+#[test]
+fn inserting_into_an_empty_object_keeps_its_comments() {
+    run(vec![
+        Case {
+            name: "block comment",
+            input: "{ /* keep */ }",
+            ops: vec![insert(&[], "a", json!(1), InsertPosition::End)],
+            expected: "{ /* keep */\n  \"a\": 1\n}",
+        },
+        Case {
+            name: "line comment",
+            input: "{\n  // keep\n}\n",
+            ops: vec![insert(&[], "a", json!(1), InsertPosition::End)],
+            expected: "{\n  // keep\n  \"a\": 1\n}\n",
+        },
+    ]);
+}
+
+#[test]
+fn duplicate_keys_resolve_to_the_last_occurrence() {
+    run(vec![
+        Case {
+            name: "set",
+            input: "{\"a\": 1, \"a\": 2}",
+            ops: vec![set(&["a"], json!(9))],
+            expected: "{\"a\": 1, \"a\": 9}",
+        },
+        Case {
+            name: "insert of an existing key",
+            input: "{\"a\": 1, \"a\": 2}",
+            ops: vec![insert(&[], "a", json!(9), InsertPosition::End)],
+            expected: "{\"a\": 1, \"a\": 9}",
+        },
+        Case {
+            name: "nested path",
+            input: "{\"a\": {\"x\": 1}, \"a\": {\"x\": 2}}",
+            ops: vec![set(&["a", "x"], json!(9))],
+            expected: "{\"a\": {\"x\": 1}, \"a\": {\"x\": 9}}",
+        },
+    ]);
+}
+
+#[test]
+fn edits_that_would_break_the_document_are_rejected() {
+    let source = "{\"a\": 1}";
+    let op = FixOp::Text {
+        path: "package.json".into(),
+        edit: TextEdit {
+            start: 1,
+            end: 1,
+            replacement: "\"b\": 2 \"c\": 3,".to_owned(),
+        },
+    };
+    let error = apply(source, FileKind::Json, &[&op]).unwrap_err();
+    assert!(matches!(error, EditPlanError::InvalidOutput { .. }), "{error}");
+    let error = plan_edits(source, FileKind::Json, &[&op]).unwrap_err();
+    assert!(matches!(error, EditPlanError::InvalidOutput { .. }), "{error}");
+}

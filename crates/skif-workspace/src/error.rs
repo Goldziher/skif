@@ -36,6 +36,14 @@ pub enum WorkspaceError {
         /// What is wrong.
         message: String,
     },
+    /// A workspace pattern cannot be used, for example because it climbs out of the root with `..`.
+    #[error("invalid workspace pattern {pattern:?}: {message}")]
+    InvalidPattern {
+        /// The pattern as written.
+        pattern: String,
+        /// What is wrong.
+        message: String,
+    },
     /// A file or directory could not be read.
     #[error("failed to read {path:?}: {source}")]
     Io {

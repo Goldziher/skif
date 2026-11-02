@@ -18,19 +18,12 @@
 //! ```
 //! use skif_core::{Diagnostic, Location, Report, RuleId, Severity};
 //!
-//! let diagnostic = Diagnostic {
-//!     rule: RuleId::new("unused-dependency").unwrap_or_else(|_| RuleId::from_static("fallback")),
-//!     severity: Severity::Warning,
-//!     message: "dependency is never imported".to_owned(),
-//!     help: None,
-//!     location: Location { path: "package.json".into(), span: None },
-//!     related: Vec::new(),
-//!     package: None,
-//!     package_id: None,
-//!     dependency: None,
-//!     detail: None,
-//!     fixes: Vec::new(),
-//! };
+//! let diagnostic = Diagnostic::new(
+//!     RuleId::new("unused-dependency").unwrap_or_else(|_| RuleId::from_static("fallback")),
+//!     Severity::Warning,
+//!     "dependency is never imported",
+//!     Location { path: "package.json".into(), span: None },
+//! );
 //! let report = Report::new(vec![diagnostic], 1);
 //! assert_eq!(report.summary.warnings, 1);
 //! ```

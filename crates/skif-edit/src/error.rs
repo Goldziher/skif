@@ -68,6 +68,14 @@ pub enum EditPlanError {
     /// The source is larger than 4 GiB, so offsets do not fit a `u32`.
     #[error("source is too large to address with 32-bit offsets")]
     SourceTooLarge,
+    /// The edits apply, but the result is no longer a valid document.
+    #[error("the edits would produce invalid {kind}: {message}")]
+    InvalidOutput {
+        /// Kind of file being edited.
+        kind: FileKind,
+        /// Parser message.
+        message: String,
+    },
     /// The planned edits could not be applied.
     #[error(transparent)]
     Apply(#[from] EditError),
