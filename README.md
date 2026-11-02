@@ -10,6 +10,7 @@ Written in Rust. A single-binary CLI that is also an embeddable library, for npm
 [![crates.io](https://img.shields.io/crates/v/skif?style=flat-square)](https://crates.io/crates/skif)
 [![npm](https://img.shields.io/npm/v/skif?style=flat-square)](https://www.npmjs.com/package/skif)
 [![CI](https://img.shields.io/github/actions/workflow/status/Goldziher/skif/ci.yml?style=flat-square)](https://github.com/Goldziher/skif/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-goldziher.github.io%2Fskif-f07a1a?style=flat-square)](https://goldziher.github.io/skif/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
 </div>
@@ -31,6 +32,10 @@ skif combines three kinds of checks that are usually spread over separate tools:
 
 It works across npm, pnpm, yarn and bun workspaces. skif never executes project code: analysis is
 static, and fixes are format-preserving edits that keep key order, indentation and comments.
+
+## Documentation
+
+The documentation site is at <https://goldziher.github.io/skif/>; its sources live in [`website/`](website/README.md).
 
 ## Status
 

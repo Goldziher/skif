@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" fill="none" role="img" aria-label="skif">
+  <rect width="1280" height="640" fill="#0e0b08" />
+  <text
+    x="640"
+    y="350"
+    text-anchor="middle"
+    font-family="monospace"
+    font-size="200"
+    font-weight="700"
+    fill="#f07a1a"
+  >skif</text>
+</svg>

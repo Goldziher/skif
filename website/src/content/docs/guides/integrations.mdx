@@ -1,0 +1,123 @@
+---
+title: Integrations
+description: Run skif from GitHub Actions, pre-commit, prek, Poly, Lefthook, npm and Bun.
+---
+
+## GitHub Action
+
+```yaml
+- uses: actions/checkout@v7
+- uses: Goldziher/skif@v0
+  with:
+    fail-on-warnings: true
+```
+
+| Input | Meaning |
+| --- | --- |
+| `version` | skif version to install. Defaults to the tag the action is pinned to, otherwise the latest release. |
+| `args` | Extra skif arguments, as one space-separated string. |
+| `working-directory` | Directory to run skif in. |
+| `fail-on-warnings` | Exit non-zero on any warning. |
+| `install-only` | Put `skif` on `PATH` without running it. |
+
+`@v0` is a floating tag that follows the newest 0.x release. Pin a full tag such as `@v0.1.0` for a fixed version.
+The action downloads the release archive for the runner and verifies it against the release's `checksums.txt`.
+Outputs are `version` and `path`.
+
+Code scanning with SARIF:
+
+```yaml
+- uses: Goldziher/skif@v0
+  with:
+    args: --format sarif --output skif.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: skif.sarif
+```
+
+When `GITHUB_ACTIONS=true` and no `--format` is given, skif prints the human report plus GitHub annotations.
+
+## Git hooks
+
+skif belongs in a pre-commit hook: a mismatched version or an unsorted dependency map is cheapest to fix before
+it is committed. Both hooks lint the whole workspace (`pass_filenames: false`) and pass `--no-js`, because
+JavaScript analysis reads every source file and belongs in CI. The fix hook also passes `--no-install`, so a
+commit never runs a package manager, and it is refused when `CI` is set.
+
+### pre-commit and prek
+
+```yaml
+repos:
+  - repo: https://github.com/Goldziher/skif
+    rev: v0.1.0 # use the latest release tag
+    hooks:
+      - id: skif       # skif --no-js
+      - id: skif-fix   # skif --fix --no-install --no-prompt --no-js (opt-in, rewrites manifests)
+```
+
+Both hooks run `scripts/pre-commit/run-skif.sh`, which needs neither Rust nor Node. It uses, in order,
+`SKIF_BINARY` (an error if it is not executable), `skif` on `PATH`, then the release pinned by the hook revision,
+downloaded once into `~/.cache/skif/pre-commit` and verified against `checksums.txt`.
+
+### Poly
+
+Add skif as a managed source in `poly.toml`:
+
+```toml
+[[hooks.sources]]
+id = "skif"
+git = "https://github.com/Goldziher/skif.git"
+revision = "v0.1.0" # use the latest release tag
+hooks = ["skif"]
+```
+
+`poly-hooks.toml` also provides `skif-fix`. Each hook has a `system` channel (`skif` on `PATH`) and an `npm`
+channel pinned to the release version (`pnpm dlx skif@<version>`). Then:
+
+```bash
+poly hooks update
+git add poly.toml poly-hooks.lock
+poly hooks install
+```
+
+### Lefthook
+
+Lefthook is configured on the consumer side, so nothing ships from the skif repository:
+
+```yaml
+pre-commit:
+  commands:
+    skif:
+      glob: "{package.json,**/package.json,pnpm-workspace.yaml,skif.toml,.skif.toml}"
+      run: skif --no-js
+```
+
+## npm and Bun
+
+The `skif` package is a native addon built with napi-rs for Node 24+ and Bun. It is ESM, has no install script,
+and downloads nothing at install time: one platform package per target is an optional dependency, so your package
+manager installs only the one that matches the machine. Windows is not supported by the npm package; use the
+release archive, Scoop or Cargo there.
+
+```js
+import { lint, lintAsync, run } from "skif";
+
+const report = JSON.parse(lint("./my-monorepo", { production: true }));
+console.log(report.summary);
+
+const outcome = await lintAsync("./my-monorepo");
+if (outcome.error) console.error(outcome.error.kind, outcome.error.message, outcome.error.path);
+else console.log(JSON.parse(outcome.report).summary);
+
+const exitCode = run(["--format", "json", "./my-monorepo"]);
+```
+
+- `lint(path, options?)` lints the workspace containing `path` and returns the JSON report as a string. It prints
+  nothing and writes no files. It blocks the event loop, so use `lintAsync` in a server.
+- `lintAsync(path, options?)` does the same on a worker thread and resolves with `{ report }` or, when the lint
+  cannot run, `{ error: { kind, message, path? } }`. `kind` is `config`, `workspace`, `io` or `internal`.
+- `run(argv)` runs the full command line (`argv` excludes the program name) and returns its exit code. Output
+  streams to the process's stdout and stderr.
+
+Types ship in `index.d.ts`. Both `lint` and `lintAsync` read the configuration file the way the command line does.
