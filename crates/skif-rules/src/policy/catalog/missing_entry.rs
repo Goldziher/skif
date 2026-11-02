@@ -2,7 +2,7 @@ use skif_core::{Category, Fixability, RuleMeta, Severity};
 use skif_lint::{Emitter, LintContext, Rule};
 use skif_workspace::PackageManager;
 
-use super::analysis::{FindingKind, emit, findings, use_catalog_fix};
+use super::analysis::{FindingKind, emit, enforce_severity, findings, use_catalog_fix};
 
 /// Metadata of `catalog-missing-entry`.
 pub static META: RuleMeta = RuleMeta {
@@ -26,12 +26,14 @@ impl Rule for CatalogMissingEntry {
         if !cx.enabled.contains(META.id) {
             return;
         }
+        let severity = enforce_severity(cx);
         for finding in findings(cx) {
             let name = &finding.instance.entry.name;
             match &finding.kind {
                 FindingKind::MissingFromCatalog { catalog, catalog_ops } => emit(
                     out,
                     &META,
+                    severity,
                     &finding,
                     format!("`{name}` has no entry in {}", catalog.display()),
                     Some(format!("add the entry and use `{}`", catalog.reference())),
@@ -40,6 +42,7 @@ impl Rule for CatalogMissingEntry {
                 FindingKind::MissingFromCatalogAndNonSemverMismatch => emit(
                     out,
                     &META,
+                    severity,
                     &finding,
                     format!("`{name}` has no catalog entry and its specifiers differ and cannot be merged into one"),
                     Some("align the specifiers by hand, then add the entry".to_owned()),
@@ -48,6 +51,7 @@ impl Rule for CatalogMissingEntry {
                 FindingKind::CannotInferCatalogFile => emit(
                     out,
                     &META,
+                    severity,
                     &finding,
                     format!("`{name}` has no catalog entry and skif cannot tell which file should hold the catalog"),
                     Some(match cx.workspace.package_manager {

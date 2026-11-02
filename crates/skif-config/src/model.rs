@@ -273,7 +273,7 @@ pub enum Prefer {
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 pub struct Policy {
     pub prefer: Prefer,
-    /// Dependency types the policies apply to; empty means all.
+    /// Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`); name `peer` or `optional` to include them.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependency_types: DependencyTypes,
 }

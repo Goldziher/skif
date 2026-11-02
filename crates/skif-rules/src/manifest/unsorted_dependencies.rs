@@ -39,22 +39,23 @@ impl Rule for UnsortedDependencies {
                 };
                 let field = kind.field();
                 let location = field_location(package, &[key(field), key(keys[first])]);
-                out.emit(
-                    diagnostic(&META, format!("`{field}` is not sorted alphabetically"), location)
-                        .package(package.display_name())
-                        .package_id(package.id)
-                        .dependency(keys[first])
-                        .help(format!(
-                            "sort the keys of `{field}`; `{}` should come before `{}`",
-                            sorted[first], keys[first]
-                        ))
-                        .fix(Fix {
-                            title: format!("Sort `{field}`"),
-                            safety: FixSafety::Safe,
-                            ops: vec![json_op(package, section(kind), JsonAction::SortKeys)],
-                        })
-                        .build(),
-                );
+                let mut builder = diagnostic(&META, format!("`{field}` is not sorted alphabetically"), location)
+                    .package(package.display_name())
+                    .package_id(package.id)
+                    .dependency(keys[first])
+                    .help(format!(
+                        "sort the keys of `{field}`; `{}` should come before `{}`",
+                        sorted[first], keys[first]
+                    ))
+                    .fix(Fix {
+                        title: format!("Sort `{field}`"),
+                        safety: FixSafety::Safe,
+                        ops: vec![json_op(package, section(kind), JsonAction::SortKeys)],
+                    });
+                if let Some(specifier) = map.get(keys[first]).and_then(|value| value.as_str()) {
+                    builder = builder.specifier(specifier);
+                }
+                out.emit(builder.build());
             }
         }
     }

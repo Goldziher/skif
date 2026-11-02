@@ -34,6 +34,7 @@ impl Rule for CatalogMismatch {
             emit(
                 out,
                 &META,
+                None,
                 &finding,
                 format!("`{name}` is declared as `{specifier}` while other packages use the catalog"),
                 Some(match catalog {
