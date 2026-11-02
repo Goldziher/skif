@@ -8,10 +8,7 @@ pub struct Rspack;
 
 static SPEC: PluginSpec = PluginSpec {
     id: "rspack",
-    enablers: &[
-        Enabler::Dependency("@rspack/core"),
-        Enabler::Dependency("@rspack/cli"),
-    ],
+    enablers: &[Enabler::Dependency("@rspack/core"), Enabler::Dependency("@rspack/cli")],
     config: &["rspack.config.{js,ts,mjs,cjs,mts,cts}"],
     binaries: &["rspack"],
     ..PluginSpec::DEFAULT

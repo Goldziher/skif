@@ -6,8 +6,8 @@ use std::path::Path;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, BinaryOperator, BindingPattern, Declaration, ExportDefaultDeclarationKind,
-    Expression, ImportDeclarationSpecifier, NewExpression, ObjectPropertyKind, Program, StaticMemberExpression,
-    Statement, TemplateLiteral, UnaryOperator, VariableDeclarationKind,
+    Expression, ImportDeclarationSpecifier, NewExpression, ObjectPropertyKind, Program, Statement,
+    StaticMemberExpression, TemplateLiteral, UnaryOperator, VariableDeclarationKind,
 };
 use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
 use oxc_span::SourceType;
@@ -207,6 +207,20 @@ fn module_bindings(program: &Program<'_>) -> ModuleBindings {
             for declarator in &v.declarations {
                 if let Some(module) = declarator.init.as_ref().and_then(required_module) {
                     bind_required(&mut bindings, &module, &declarator.id);
+                } else if let Some(Expression::Identifier(source)) =
+                    declarator.init.as_ref().map(Expression::get_inner_expression)
+                {
+                    // `const { resolve } = path;` destructures a module binding made earlier.
+                    let module = if bindings.path_modules.contains(source.name.as_str()) {
+                        Some("path")
+                    } else if bindings.url_modules.contains(source.name.as_str()) {
+                        Some("url")
+                    } else {
+                        None
+                    };
+                    if let Some(module) = module {
+                        bind_required(&mut bindings, module, &declarator.id);
+                    }
                 }
             }
         }
@@ -220,9 +234,11 @@ fn required_module(init: &Expression<'_>) -> Option<String> {
         return None;
     };
     match &call.callee {
-        Expression::Identifier(id) if id.name.as_str() == "require" => {
-            call.arguments.first().and_then(Argument::as_expression).and_then(static_string)
-        }
+        Expression::Identifier(id) if id.name.as_str() == "require" => call
+            .arguments
+            .first()
+            .and_then(Argument::as_expression)
+            .and_then(static_string),
         _ => None,
     }
 }
@@ -342,10 +358,10 @@ impl Evaluator<'_, '_, '_> {
             }
             Expression::ArrayExpression(a) => self.array(&a.elements, depth),
             Expression::ObjectExpression(o) => self.object(&o.properties, depth),
-            Expression::Identifier(id) => self.consts.get(id.name.as_str()).map_or_else(
-                || self.global(id.name.as_str()),
-                |init| self.expr(init, depth),
-            ),
+            Expression::Identifier(id) => self
+                .consts
+                .get(id.name.as_str())
+                .map_or_else(|| self.global(id.name.as_str()), |init| self.expr(init, depth)),
             Expression::CallExpression(c) => self.call(c, depth),
             Expression::ArrowFunctionExpression(f) => match f.get_expression() {
                 Some(body) => self.expr(body, depth),
@@ -402,11 +418,12 @@ impl Evaluator<'_, '_, '_> {
 
     /// `new URL('./x', import.meta.url)` as the path it names.
     fn url(&self, new: &NewExpression<'_>, depth: u32) -> ConfigValue {
-        let is_url = matches!(new.callee.get_inner_expression(), Expression::Identifier(id) if id.name.as_str() == "URL");
-        let mut args = new
-            .arguments
-            .iter()
-            .map(|arg| arg.as_expression().map_or(ConfigValue::Unknown, |e| self.expr(e, depth)));
+        let is_url =
+            matches!(new.callee.get_inner_expression(), Expression::Identifier(id) if id.name.as_str() == "URL");
+        let mut args = new.arguments.iter().map(|arg| {
+            arg.as_expression()
+                .map_or(ConfigValue::Unknown, |e| self.expr(e, depth))
+        });
         match (is_url, args.next(), args.next(), args.next()) {
             (true, Some(ConfigValue::String(relative)), Some(ConfigValue::String(base)), None)
                 if !relative.starts_with('/') =>
@@ -433,9 +450,9 @@ impl Evaluator<'_, '_, '_> {
                     return None;
                 };
                 let (object, property) = (object.name.as_str(), member.property.name.as_str());
-                if self.bindings.path_modules.contains(object) && PATH_FUNCTIONS.contains(&property) {
-                    property
-                } else if self.bindings.url_modules.contains(object) && property == "fileURLToPath" {
+                let path_function = self.bindings.path_modules.contains(object) && PATH_FUNCTIONS.contains(&property);
+                let url_function = self.bindings.url_modules.contains(object) && property == "fileURLToPath";
+                if path_function || url_function {
                     property
                 } else if object == "process" && property == "cwd" {
                     return Some(ConfigValue::String(".".to_owned()));
@@ -448,7 +465,10 @@ impl Evaluator<'_, '_, '_> {
         let args: Vec<ConfigValue> = call
             .arguments
             .iter()
-            .map(|arg| arg.as_expression().map_or(ConfigValue::Unknown, |e| self.expr(e, depth)))
+            .map(|arg| {
+                arg.as_expression()
+                    .map_or(ConfigValue::Unknown, |e| self.expr(e, depth))
+            })
             .collect();
         Some(apply_path_function(function, &args))
     }
