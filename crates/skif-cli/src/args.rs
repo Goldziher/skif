@@ -7,7 +7,13 @@ use skif::Level;
 
 /// Fast dependency linter for JavaScript and TypeScript monorepos.
 #[derive(Debug, Parser)]
-#[command(name = "skif", version, about, args_conflicts_with_subcommands = true)]
+#[command(
+    name = "skif",
+    bin_name = "skif",
+    version,
+    about,
+    args_conflicts_with_subcommands = true
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -28,8 +34,27 @@ pub enum Command {
 #[derive(Debug, clap::Args)]
 pub struct RulesArgs {
     /// Output format.
-    #[arg(long, value_enum, default_value_t = Format::Human)]
-    pub format: Format,
+    #[arg(long, value_enum, default_value_t = RulesFormat::Human)]
+    pub format: RulesFormat,
+}
+
+/// Output format of `skif rules`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum RulesFormat {
+    /// An aligned table.
+    #[default]
+    Human,
+    /// One JSON document on stdout.
+    Json,
+}
+
+impl From<RulesFormat> for Format {
+    fn from(format: RulesFormat) -> Self {
+        match format {
+            RulesFormat::Human => Self::Human,
+            RulesFormat::Json => Self::Json,
+        }
+    }
 }
 
 #[derive(Debug, clap::Args)]
@@ -47,6 +72,10 @@ pub enum Format {
     Human,
     /// One JSON document on stdout.
     Json,
+    /// SARIF 2.1.0 for code scanning.
+    Sarif,
+    /// GitHub Actions workflow-command annotations.
+    Github,
 }
 
 /// Which version a version alignment fix targets.
@@ -66,7 +95,7 @@ pub struct LintArgs {
     #[arg(default_value = ".")]
     pub path: PathBuf,
 
-    /// Output format [default: human].
+    /// Output format [default: human, or human plus GitHub annotations when `GITHUB_ACTIONS=true`].
     #[arg(long, value_enum)]
     pub format: Option<Format>,
 
@@ -95,10 +124,14 @@ pub struct LintArgs {
     pub max_warnings: Option<usize>,
 
     /// Same as --max-warnings 0.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "max_warnings")]
     pub fail_on_warnings: bool,
 
-    /// Set a rule's level, as ID=off|warn|error. Repeatable.
+    /// Never ask which alternative fix to apply; the diagnostic stays unfixed unless --select decides.
+    #[arg(long)]
+    pub no_prompt: bool,
+
+    /// Set a rule's level, as ID=off|info|warn|error. Repeatable.
     #[arg(long = "rule", value_name = "ID=LEVEL", value_parser = parse_rule_level)]
     pub rules: Vec<(String, Level)>,
 
@@ -149,9 +182,10 @@ fn parse_rule_level(value: &str) -> Result<(String, Level), String> {
         .ok_or_else(|| "expected `ID=LEVEL`, for example `unsorted-dependencies=off`".to_owned())?;
     let level = match level {
         "off" => Level::Off,
+        "info" => Level::Info,
         "warn" => Level::Warn,
         "error" => Level::Error,
-        other => return Err(format!("unknown level `{other}`; expected off, warn or error")),
+        other => return Err(format!("unknown level `{other}`; expected off, info, warn or error")),
     };
     Ok((rule.to_owned(), level))
 }
@@ -170,7 +204,8 @@ mod tests {
     #[test]
     fn rule_levels_parse() {
         assert_eq!(parse_rule_level("a-b=off"), Ok(("a-b".to_owned(), Level::Off)));
-        assert!(parse_rule_level("a-b=info").is_err());
+        assert_eq!(parse_rule_level("a-b=info"), Ok(("a-b".to_owned(), Level::Info)));
+        assert!(parse_rule_level("a-b=loud").is_err());
         assert!(parse_rule_level("=warn").is_err());
         assert!(parse_rule_level("nolevel").is_err());
     }

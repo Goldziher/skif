@@ -27,6 +27,9 @@ pub enum Error {
     /// No ancestor of the start path declares a workspace.
     #[error("no workspace found at or above {}", .0.display())]
     NoWorkspace(PathBuf),
+    /// A path that must be absolute was relative; the library never consults the working directory.
+    #[error("{} is relative; pass an absolute path", .0.display())]
+    RelativePath(PathBuf),
     /// `RunOptions::rules` names a rule that is not registered.
     #[error("unknown rule \"{0}\"")]
     UnknownRule(String),
