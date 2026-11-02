@@ -1,3 +1,4 @@
 description = "A lower version in a tilde group is a version mismatch fixed with the group's range; a right version with the wrong range is a range mismatch."
 source = "syncpack:src/version_group/preferred_semver_test.rs::highest_or_lowest::differs_to_highest_semver_should_apply_semver_group_range"
 tags = ["semver-groups", "highest", "fix"]
+compare = "bytes"

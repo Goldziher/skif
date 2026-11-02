@@ -2091,6 +2091,7 @@ dependencies = [
  "criterion",
  "indexmap",
  "rayon",
+ "serde-saphyr",
  "serde_json",
  "skif-bench",
  "skif-config",
@@ -2103,6 +2104,7 @@ dependencies = [
  "skif-rules",
  "skif-workspace",
  "thiserror",
+ "toml",
 ]
 
 [[package]]

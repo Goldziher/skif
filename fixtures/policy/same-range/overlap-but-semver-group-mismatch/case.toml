@@ -2,3 +2,4 @@ description = "Ranges overlap, but an instance not using its semver group's rang
 source = "syncpack:src/version_group/same_range_test.rs::instance_in_a_same_range_group_satisfies_every_other_but_mismatches_its_semver_group"
 tags = ["same-range", "semver-groups", "fix"]
 valid-states = ["SatisfiesSameRangeGroup"]
+compare = "bytes"

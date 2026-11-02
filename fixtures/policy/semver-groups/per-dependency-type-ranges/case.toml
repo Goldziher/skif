@@ -2,3 +2,4 @@ description = "Peer dependencies use caret while production and dev use exact; e
 source = "skif"
 tags = ["semver-groups", "dependency-types", "peer", "precedence", "fix"]
 valid-states = ["SatisfiesHighestOrLowestSemver"]
+compare = "bytes"

@@ -2,3 +2,4 @@ description = "$LOCAL selects dependencies that are workspace packages: a bare l
 source = "skif"
 tags = ["semver-groups", "selectors", "$LOCAL", "local", "fix"]
 valid-states = ["IsLocalAndValid"]
+compare = "bytes"

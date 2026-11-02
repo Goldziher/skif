@@ -13,12 +13,15 @@ mod families;
 mod groups;
 pub(crate) mod instances;
 mod report;
+mod specifiers;
 mod state;
 mod visit;
 mod workspace_protocol;
 
 use skif_core::RuleMeta;
-use skif_lint::{Emitter, EnabledRules, LintContext, ProviderError, RuleProvider, RulesProvider};
+use skif_lint::{
+    Emitter, EnabledRules, LintContext, OptionsError, ProviderError, RuleProvider, RulesProvider, reject_options,
+};
 
 pub use state::{BANNED_DEPENDENCY, INVALID_LOCAL_VERSION, POLICY_CONFLICT, SEMVER_RANGE_MISMATCH, VERSION_MISMATCH};
 
@@ -50,9 +53,17 @@ impl RuleProvider for PolicyProvider {
         rules()
     }
 
+    /// The policy rules take no options: their behaviour is configured through `[policy]` and the groups.
+    fn validate_options(&self, _rule_id: &str, options: &toml::Table) -> Result<(), OptionsError> {
+        reject_options(options)
+    }
+
     fn run(&self, cx: &LintContext<'_>, enabled: &EnabledRules, out: &mut Emitter<'_>) -> Result<(), ProviderError> {
         if rules().iter().any(|meta| enabled.contains(meta.id)) {
-            let analysis = analysis::Analysis::run(cx.workspace, cx.config);
+            // The catalog rules own a dependency only while the rule that reports it is on; otherwise the version
+            // groups keep it.
+            let catalog_owns = enabled.contains(catalog::owning_rule());
+            let analysis = analysis::Analysis::run(cx.workspace, cx.config, catalog_owns);
             report::emit(&analysis, cx.config_file(), out);
         }
         Ok(())
@@ -204,6 +215,69 @@ mod tests {
             both(),
             "below min-packages the catalog rules do not report the dependency"
         );
+    }
+
+    #[test]
+    fn the_catalog_owns_a_dependency_only_while_its_rule_is_on_and_no_group_names_it() {
+        const ROOT: &str = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0"}"#;
+        const APP: &str = r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"react":"^18.2.0"}}"#;
+        const LIB: &str = r#"{"name":"lib","version":"1.0.0","private":true,"dependencies":{"react":"^18.3.1"}}"#;
+        const YAML: &str = "packages:\n  - \"packages/*\"\ncatalog:\n  \"react\": \"^18.3.1\"\n";
+        let files = [
+            ("package.json", ROOT),
+            ("pnpm-workspace.yaml", YAML),
+            ("packages/app/package.json", APP),
+            ("packages/lib/package.json", LIB),
+        ];
+        let reported = |toml: &str| lint("version-mismatch", &files, &config(toml)).len();
+        let enforce = "[catalog]\nmode = \"enforce\"\n";
+        assert_eq!(reported(enforce), 0, "the catalog rules report it");
+        assert_eq!(
+            reported(&format!("{enforce}\n[rules]\ncatalog-not-used = \"off\"\n")),
+            1,
+            "with the rule that reports it off, the version groups keep the dependency"
+        );
+        let pinned = format!(
+            "{enforce}\n[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"18.3.1\"\n"
+        );
+        assert_eq!(
+            reported(&pinned),
+            2,
+            "a group that names the dependency wins over the catalog"
+        );
+    }
+
+    #[test]
+    fn catalog_mismatch_is_a_warning_unless_a_level_is_configured() {
+        const YAML: &str = "packages:\n  - \"packages/*\"\ncatalog:\n  \"react\": \"^18.3.1\"\n";
+        const USES: &str = r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"react":"catalog:"}}"#;
+        const DIFFERS: &str = r#"{"name":"lib","version":"1.0.0","private":true,"dependencies":{"react":"^18.2.0"}}"#;
+        const ROOT: &str = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0"}"#;
+        let files = [
+            ("package.json", ROOT),
+            ("pnpm-workspace.yaml", YAML),
+            ("packages/app/package.json", USES),
+            ("packages/lib/package.json", DIFFERS),
+        ];
+        let severities = |toml: &str| -> Vec<Severity> {
+            lint("catalog-mismatch", &files, &config(toml))
+                .iter()
+                .map(|diagnostic| diagnostic.severity)
+                .collect()
+        };
+        assert_eq!(severities(""), [Severity::Warning]);
+        assert_eq!(severities("[rules]\ncatalog-mismatch = \"error\"\n"), [Severity::Error]);
+    }
+
+    #[test]
+    fn the_policy_rules_reject_options() {
+        let registry = skif_lint::Registry::new(vec![Box::new(policy_provider())]).unwrap();
+        let bad = config("[rules]\nversion-mismatch = { severity = \"warn\", moed = \"x\" }\n");
+        let error = registry.validate_config(&bad).unwrap_err().to_string();
+        assert!(error.contains("version-mismatch") && error.contains("moed"), "{error}");
+        registry
+            .validate_config(&config("[rules]\nversion-mismatch = \"warn\"\n"))
+            .unwrap();
     }
 
     #[test]
