@@ -41,7 +41,7 @@ impl CliError {
     pub fn new(kind: Kind, message: impl Into<String>) -> Self {
         Self {
             kind,
-            message: message.into(),
+            message: slashes(message.into()),
             path: None,
             line: None,
             column: None,
@@ -69,9 +69,14 @@ impl fmt::Display for CliError {
     }
 }
 
-/// A path as displayed to users and machines in messages.
+/// Native separators rewritten to `/` on Windows, so messages and snapshots read the same on every platform.
+fn slashes(text: String) -> String {
+    if cfg!(windows) { text.replace('\\', "/") } else { text }
+}
+
+/// A path as displayed to users and machines in messages: `/` separators on every platform.
 pub fn display(path: &Path) -> String {
-    path.display().to_string()
+    slashes(path.display().to_string())
 }
 
 /// A workspace-relative path with `/` separators on every platform, for JSON.

@@ -64,7 +64,7 @@ pub fn lint(path: String, options: Option<LintOptions>) -> Result<String> {
 
 fn lint_json(path: &str, overrides: ConfigOverrides) -> std::result::Result<String, Box<dyn Error>> {
     let fs = OsFs;
-    let start = std::path::absolute(path)?;
+    let start = std::fs::canonicalize(path)?;
     let root = skif::find_workspace_root(&start, &fs)?;
     let config = skif::load_config(&root, &fs, &overrides)?;
     let linter = Linter::new(&config)?;

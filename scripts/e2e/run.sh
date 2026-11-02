@@ -5,7 +5,9 @@
 #
 # For each scenario under fixtures/e2e/<pm>/ the fixture is copied to a temp dir, installed with
 # the real package manager, linted, and (for scenarios expecting issues) fixed from another working
-# directory, re-installed and re-linted. Expectations live in each scenario's expected.json.
+# directory (skif runs the real install itself, no --no-install), and re-linted. The JSON `fix` object of the fix run
+# is checked too. JS analysis is off (--no-js) because the fixtures hold manifests only. Expectations live in each
+# scenario's expected.json.
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
@@ -57,7 +59,7 @@ fail() {
 # Runs skif in JSON mode; sets $skif_out and $skif_code.
 lint() {
   skif_code=0
-  skif_out="$("$skif" --format json "$1")" || skif_code=$?
+  skif_out="$("$skif" --no-js --format json "$1")" || skif_code=$?
 }
 
 # Compares the exit code and sorted rule ids of the last lint with the expectation.
@@ -104,13 +106,20 @@ for fixture in "$fixtures"/*/; do
 
   if [[ "$want_code" -ne 0 ]]; then
     # Fix from a directory that is not the workspace: every write must land under the workspace root, and
-    # nothing may be created in the current directory. skif refuses --fix when CI is truthy.
+    # nothing may be created in the current directory. skif refuses --fix when CI is truthy. It runs the real
+    # `<pm> install` itself afterwards, so the manager settings the fixtures need are exported to it.
     elsewhere="$(mktemp -d "$work_root/cwd.XXXXXX")"
-    (cd "$elsewhere" && env -u CI "$skif" --fix-unsafe --select highest --no-install "$dir" >/dev/null) ||
-      fail "--fix exited non-zero"
+    fix_code=0
+    fix_out="$(cd "$elsewhere" && env -u CI YARN_ENABLE_IMMUTABLE_INSTALLS=false \
+      "$skif" --fix-unsafe --select highest --no-js --format json "$dir")" || fix_code=$?
+    [[ "$fix_code" -eq 0 ]] || fail "--fix exited $fix_code: $fix_out"
     [[ -z "$(ls -A "$elsewhere")" ]] || fail "--fix created files in the current directory: $(ls -A "$elsewhere")"
     jq -e '.private == true' "$dir/package.json" >/dev/null || fail "--fix did not fix the root package.json"
-    install "$dir" || fail "$pm install failed on the fixed manifests"
+    jq -e '(.fix.applied | length) > 0 and (.fix.changed | index("package.json") != null)' <<<"$fix_out" >/dev/null ||
+      fail "the fix object does not list the applied fixes and the changed files: $fix_out"
+    jq -e '.fix.skipped == []' <<<"$fix_out" >/dev/null || fail "--fix skipped fixes: $fix_out"
+    jq -e --arg pm "$pm" '.fix.install.status == "ran" and .fix.install.command == ($pm + " install")' <<<"$fix_out" >/dev/null ||
+      fail "skif did not run '$pm install': $fix_out"
     lint "$dir"
     check "lint after fix" 0 "$want_rules_after_fix"
   fi

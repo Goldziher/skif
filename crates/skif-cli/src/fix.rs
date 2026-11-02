@@ -33,9 +33,10 @@ const fn allows(ceiling: FixSafety, safety: FixSafety) -> bool {
     matches!(ceiling, FixSafety::Unsafe) || matches!(safety, FixSafety::Safe)
 }
 
-/// Builds the selection for this run. Alternatives are put to the user only when stdin is a terminal, the format is
-/// `human` and `--select` did not already decide; otherwise the rule's configured preference (its first alternative)
-/// is taken.
+/// Builds the selection for this run. Alternatives are put to the user only when both stdin and stdout are terminals,
+/// the format is `human`, neither `--no-prompt` nor `--select` was given; with `--select` the first alternative (which
+/// the selection orders first) is taken; otherwise a diagnostic with several fixes stays unfixed (`needs-choice`),
+/// as ADR 0008 requires of a non-interactive run.
 pub fn selection(args: &LintArgs, env: Env, report: &Report) -> Result<FixSelection, CliError> {
     let safety = if args.fix_unsafe {
         FixSafety::Unsafe
@@ -43,9 +44,14 @@ pub fn selection(args: &LintArgs, env: Env, report: &Report) -> Result<FixSelect
         FixSafety::Safe
     };
     let selection = FixSelection::new(safety);
-    let interactive = env.stdin_tty && args.format() == Format::Human && args.select.is_none();
+    let interactive =
+        env.stdin_tty && env.stdout_tty && !args.no_prompt && args.format() == Format::Human && args.select.is_none();
     if !interactive {
-        return Ok(selection.with_alternatives(Alternatives::First));
+        return Ok(if args.select.is_some() {
+            selection.with_alternatives(Alternatives::First)
+        } else {
+            selection
+        });
     }
     let mut selection = selection;
     for (index, diagnostic) in report.diagnostics.iter().enumerate() {
@@ -102,6 +108,16 @@ fn install_json(status: &InstallStatus) -> Value {
 }
 
 impl FixRun {
+    /// A fix run whose install step did not happen because the re-lint failed.
+    pub const fn relint_failed(plan: FixPlan) -> Self {
+        Self {
+            plan,
+            install: InstallStatus::Skipped {
+                reason: "the re-lint after fixing failed",
+            },
+        }
+    }
+
     /// The `fix` object of the JSON report.
     pub fn to_json(&self) -> Value {
         let applied: Vec<Value> = self
