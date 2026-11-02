@@ -18,6 +18,7 @@ pub mod scripts;
 mod support;
 
 pub use plugin::{
-    ConfigAst, DepRef, Enabler, KNIP_COMMIT, Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
+    BuildDir, ConfigAst, DepRef, Enabler, KNIP_COMMIT, PathAlias, Plugin, PluginContext, PluginId, PluginInput,
+    PluginOutput, PluginSpec,
 };
 pub use resolve::resolve_plugins;

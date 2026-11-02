@@ -47,6 +47,13 @@ pub(crate) fn entry_files(
                 entries.insert(path);
             }
         }
+        entries.extend(
+            package_setup
+                .config_files
+                .iter()
+                .filter(|path| is_code_file(path) && fs.is_file(path))
+                .cloned(),
+        );
         if !setup.production {
             entries.extend(script_files(fs, package_setup));
         }

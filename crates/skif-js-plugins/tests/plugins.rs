@@ -55,6 +55,17 @@ fn resolve_with(
     is_root: bool,
     plugins: &IndexMap<String, PluginConfig>,
 ) -> Vec<(PluginId, PluginOutput)> {
+    resolve_inheriting(files, dependencies, &[], is_root, plugins)
+}
+
+fn resolve_inheriting(
+    files: &[(&str, &str)],
+    dependencies: &[&str],
+    inherited: &[&str],
+    is_root: bool,
+    plugins: &IndexMap<String, PluginConfig>,
+) -> Vec<(PluginId, PluginOutput)> {
+    let inherited: Vec<String> = inherited.iter().map(|d| (*d).to_string()).collect();
     let fs = fs_with(files);
     let dependencies: Vec<String> = dependencies.iter().map(|d| (*d).to_string()).collect();
     let scripts = IndexMap::new();
@@ -63,6 +74,7 @@ fn resolve_with(
         is_root,
         package_name: Some("app"),
         dependencies: &dependencies,
+        inherited_dependencies: &inherited,
         scripts: &scripts,
         fs: &fs,
         plugins,
@@ -158,7 +170,7 @@ fn typescript() {
             ),
             ("tsconfig.base.json", r#"{"compilerOptions":{"types":["jest"]}}"#),
             (
-                "packages/a/tsconfig.json",
+                "tsconfig.json",
                 r#"{"compilerOptions":{"importHelpers":true}}"#,
             ),
         ],
@@ -177,7 +189,7 @@ fn typescript() {
             "@types/jest",
         ],
     );
-    assert!(out.config_files.iter().any(|f| f.ends_with("packages/a/tsconfig.json")));
+    assert!(out.config_files.iter().any(|f| f.ends_with("tsconfig.json")));
     assert!(out.provided_binaries.contains(&"tsc".to_string()));
 }
 
@@ -836,4 +848,84 @@ fn malformed_configs_never_panic() {
     )];
     let results = resolve_with(&broken_manifest, &[], true, &plugins);
     assert_eq!(results.len(), ADR_IDS.len());
+}
+
+fn alias(find: &str, target: Option<&str>) -> skif_js_plugins::PathAlias {
+    skif_js_plugins::PathAlias {
+        find: find.to_owned(),
+        target: target.map(str::to_owned),
+    }
+}
+
+#[test]
+fn plugins_enabled_in_an_ancestor_apply_to_the_child() {
+    let files = [("vitest.config.ts", "export default { test: { setupFiles: ['./setup.ts'] } }")];
+    let none = resolve_inheriting(&files, &[], &[], false, &IndexMap::new());
+    assert!(none.iter().all(|(id, _)| *id != "vitest"), "{none:?}");
+    let inherited = resolve_inheriting(&files, &[], &["vitest"], false, &IndexMap::new());
+    assert!(!output(&inherited, "vitest").config_files.is_empty());
+    let prefixed = resolve_inheriting(&[], &[], &["@storybook/react"], false, &IndexMap::new());
+    output(&prefixed, "storybook");
+}
+
+#[test]
+fn vite_and_webpack_aliases_are_extracted() {
+    let results = resolve(
+        &[(
+            "vite.config.ts",
+            "export default { resolve: { alias: { '@': './src', '~lib': '/lib', '$': path.resolve(root, 'x'), react: 'preact/compat' } } }",
+        )],
+        &["vite"],
+    );
+    let vite = output(&results, "vite");
+    assert!(vite.aliases.contains(&alias("@", Some("src"))), "{:?}", vite.aliases);
+    assert!(vite.aliases.contains(&alias("~lib", Some("lib"))), "{:?}", vite.aliases);
+    assert!(!vite.aliases.iter().any(|a| a.find == "react"), "{:?}", vite.aliases);
+
+    let results = resolve(
+        &[(
+            "vite.config.ts",
+            "export default { resolve: { alias: [{ find: '@app', replacement: './src/app' }, { find: 'dyn', replacement: compute() }] } }",
+        )],
+        &["vite"],
+    );
+    let vite = output(&results, "vite");
+    assert!(vite.aliases.contains(&alias("@app", Some("src/app"))), "{:?}", vite.aliases);
+    assert!(vite.aliases.contains(&alias("dyn", None)), "{:?}", vite.aliases);
+
+    let results = resolve(
+        &[("webpack.config.js", "module.exports = { resolve: { alias: { Utils$: './src/utils' } } }")],
+        &["webpack"],
+    );
+    assert!(output(&results, "webpack").aliases.contains(&alias("Utils", Some("src/utils"))));
+}
+
+#[test]
+fn tsconfig_paths_outdir_and_conditions() {
+    let results = resolve(
+        &[(
+            "tsconfig.json",
+            r#"{"extends":"./missing.json","compilerOptions":{"baseUrl":"src","paths":{"@app/*":["lib/*"],"@root":["../index.ts"]},"outDir":"dist","rootDir":"src","customConditions":["source"]}}"#,
+        )],
+        &["typescript"],
+    );
+    let ts = output(&results, "typescript");
+    assert!(ts.aliases.contains(&alias("@app", Some("src/lib"))), "{:?}", ts.aliases);
+    assert!(ts.aliases.contains(&alias("@root", Some("index.ts"))), "{:?}", ts.aliases);
+    assert_eq!(
+        ts.build_dirs,
+        [skif_js_plugins::BuildDir {
+            out_dir: "dist".to_owned(),
+            root_dir: "src".to_owned(),
+        }]
+    );
+    assert_eq!(ts.conditions, ["source"]);
+}
+
+#[test]
+fn enabled_plugins_without_config_files_use_conventions() {
+    let results = resolve(&[("index.html", r#"<script type="module" src="/src/main.tsx"></script>"#)], &["vite"]);
+    assert_entries(&output(&results, "vite").entries, &["src/main.tsx"]);
+    let results = resolve(&[], &["@storybook/react"]);
+    assert_entries(&output(&results, "storybook").entries, &["**/*.{mdx,stories.{mdx,js,jsx,mjs,ts,tsx}}"]);
 }
