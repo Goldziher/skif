@@ -788,7 +788,7 @@ fn sarif_paths_are_relative_to_the_repository_top_level() {
 #[test]
 fn lint_to_json_returns_the_report_without_printing() {
     let dir = fixture("dirty");
-    let text = skif_cli::lint_to_json(dir.path(), &skif::ConfigOverrides::default()).unwrap();
+    let text = skif_cli::lint_to_json(dir.path(), &skif::ConfigOverrides::default(), false).unwrap();
     let report: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(report["version"], 1);
     assert!(report["summary"]["errors"].as_u64().unwrap() > 0);
@@ -796,12 +796,12 @@ fn lint_to_json_returns_the_report_without_printing() {
 
 #[test]
 fn lint_to_json_classifies_its_errors() {
-    let missing = skif_cli::lint_to_json(Path::new("/definitely/not/here"), &skif::ConfigOverrides::default());
+    let missing = skif_cli::lint_to_json(Path::new("/definitely/not/here"), &skif::ConfigOverrides::default(), false);
     assert_eq!(missing.unwrap_err().kind, skif_cli::Kind::Io);
 
     let dir = fixture("dirty");
     fs::write(dir.path().join("skif.toml"), "[lint\n").unwrap();
-    let broken = skif_cli::lint_to_json(dir.path(), &skif::ConfigOverrides::default()).unwrap_err();
+    let broken = skif_cli::lint_to_json(dir.path(), &skif::ConfigOverrides::default(), false).unwrap_err();
     assert_eq!(broken.kind, skif_cli::Kind::Config);
     assert!(broken.path.is_some_and(|path| path.ends_with("skif.toml")));
 }

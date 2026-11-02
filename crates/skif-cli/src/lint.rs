@@ -3,19 +3,18 @@
 use std::path::{Path, PathBuf};
 
 use clap::ColorChoice;
-use serde_json::Map;
-use skif::render::{RenderOptions, render_json};
-use skif::{
-    Config, ConfigOverrides, FileSystem, IgnoreEntry, Linter, OsFs, Prefer, Report, RunOptions, Selector, Workspace,
-};
-use skif_report::escape_controls;
+use serde_json::{Map, Value};
+use skif::render::RenderOptions;
+use skif::{Config, ConfigOverrides, FileSystem, IgnoreEntry, Linter, OsFs, Prefer, Report, Selector, Workspace};
+use skif_report::{escape_controls, render_json_with};
 
 use crate::args::{Format, LintArgs, Select};
 use crate::env::{Env, github_workspace};
 use crate::error::{CliError, Kind};
-use crate::fix::{self, FixRun};
+use crate::fix::{self, FixRun, RootFix};
 use crate::install::{self, InstallStatus};
-use crate::output::{self, Rendering, emit_error, emit_error_with, stderr_line};
+use crate::output::{self, Rendering, RootView, emit_error, emit_error_with, stderr_line};
+use crate::roots::{self, Linters, Resolved, RootRun};
 use crate::write::write_plan;
 
 const CLEAN: u8 = 0;
@@ -84,8 +83,8 @@ fn overrides(args: &LintArgs) -> ConfigOverrides {
     }
 }
 
-fn configure(args: &LintArgs, root: &Path, fs: &dyn FileSystem) -> Result<Config, CliError> {
-    let mut config = skif::load_config(root, fs, &overrides(args))?;
+/// The flags that are not plain configuration overrides, applied over a loaded configuration.
+fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
     for (rule, package) in &args.ignore_rule_for_package {
         config.ignore.push(IgnoreEntry {
             rules: vec![rule.clone()],
@@ -99,22 +98,18 @@ fn configure(args: &LintArgs, root: &Path, fs: &dyn FileSystem) -> Result<Config
             Select::Lowest => Prefer::Lowest,
         };
     }
-    Ok(config)
+    Ok(())
 }
 
 fn lint_once(
     linter: &Linter,
     root: &Path,
     config: &Config,
+    config_path: Option<&Path>,
     fs: &dyn FileSystem,
 ) -> Result<(Workspace, Report), CliError> {
     let workspace = Workspace::discover_with_fs(root, config, fs)?;
-    let mut options = RunOptions::default();
-    let config_path = skif::config_file(root, fs).map(Path::new);
-    if let Some(path) = config_path {
-        options = options.with_config_path(path);
-    }
-    let report = linter.run_with(&workspace, &options)?;
+    let report = roots::lint_loaded(linter, &workspace, config_path)?;
     Ok((workspace, report))
 }
 
@@ -161,29 +156,28 @@ fn exit_code(report: &Report, max_warnings: Option<usize>) -> u8 {
     }
 }
 
-fn rendering<'a>(args: &LintArgs, env: Env, linter: &Linter, root: &'a Path) -> Rendering<'a> {
-    let (format, annotations) = rendering_format(args, env);
-    Rendering {
-        format,
-        annotations,
-        color: color_enabled(args, env),
-        root,
-        repo_root: (matches!(format, Format::Github | Format::Sarif) || annotations)
-            .then(|| repo_root(root))
-            .flatten(),
-        rules: linter.rules().collect(),
+/// The worst exit code over the roots. `--max-warnings` bounds the warnings of the whole run; without it each root
+/// applies its own `fail-on-warnings`.
+fn run_exit_code(args: &LintArgs, runs: &[RootRun], aggregate: &Report) -> u8 {
+    match args.max_warnings {
+        Some(max) => exit_code(aggregate, Some(max)),
+        None => runs
+            .iter()
+            .map(|run| exit_code(&run.report, run.config.lint.fail_on_warnings.then_some(0)))
+            .max()
+            .unwrap_or(CLEAN),
     }
 }
 
-/// Plans, writes and describes the fixes; the second value is the lint of the tree after fixing, or the error that
-/// stopped it (the files are already changed by then, so the summary is still owed to the user).
+/// Plans, writes and describes the fixes of one root; the second value is the lint of the tree after fixing, or the
+/// error that stopped it (the files are already changed by then, so the summary is still owed to the user).
 type Relint = Result<(Workspace, Report), CliError>;
 
 fn fixed(
     args: &LintArgs,
     env: Env,
     linter: &Linter,
-    config: &Config,
+    (config, config_path): (&Config, Option<&Path>),
     state: (Workspace, Report),
     fs: &dyn FileSystem,
 ) -> Result<(FixRun, Relint), CliError> {
@@ -196,7 +190,7 @@ fn fixed(
         return Ok((FixRun { plan, install }, Ok((workspace, report))));
     }
     let root = workspace.root.clone();
-    Ok(match lint_once(linter, &root, config, fs) {
+    Ok(match lint_once(linter, &root, config, config_path, fs) {
         Ok((workspace, report)) => {
             let changed: Vec<&Path> = plan.paths().collect();
             let install = install_step(args, &changed, &workspace);
@@ -206,7 +200,8 @@ fn fixed(
     })
 }
 
-/// Lints the workspace containing `path` and returns the report as the JSON document `--format json` prints.
+/// Lints the workspace containing `path`, or with `recursive` every root at or below it, and returns the report as
+/// the JSON document `--format json` prints.
 ///
 /// Nothing is printed, no file is written and the environment is not consulted, so an embedding host (the npm
 /// addon) gets the same discovery, configuration and report as the command line, with the same classified errors.
@@ -214,20 +209,29 @@ fn fixed(
 /// # Errors
 /// A [`CliError`] when `path` cannot be resolved, no workspace is found there, the configuration is invalid or
 /// the lint cannot run.
-pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides) -> Result<String, CliError> {
+pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -> Result<String, CliError> {
     let fs = OsFs;
     let start = canonical(path)?;
-    let root = skif::find_workspace_root(&start, &fs)?;
-    let config = skif::load_config(&root, &fs, overrides)?;
-    let linter = Linter::new(&config)?;
-    let (workspace, report) = lint_once(&linter, &root, &config, &fs)?;
+    let Resolved { base, targets, multi } = roots::resolve(&start, recursive, &fs, overrides)?;
+    let linters = Linters::build(&targets)?;
+    let runs = roots::lint_targets(&base, targets, &linters)?;
+    let reports: Vec<Report> = runs.iter().map(|run| roots::prefixed(&run.report, &run.prefix)).collect();
+    let aggregate = roots::aggregate(&reports);
     let options = RenderOptions::default()
-        .with_root(&workspace.root)
+        .with_root(&base)
         .with_tool_version(env!("CARGO_PKG_VERSION"));
+    let mut extra = Map::new();
+    if multi {
+        extra.insert("roots".to_owned(), roots_json(&runs, &reports));
+    }
     let mut buffer = Vec::new();
-    render_json(&report, &options, &mut buffer)
+    render_json_with(&aggregate, &options, extra, &mut buffer)
         .map_err(|error| CliError::new(Kind::Io, format!("cannot render the report: {error}")))?;
     String::from_utf8(buffer).map_err(|error| CliError::new(Kind::Io, format!("the report is not UTF-8: {error}")))
+}
+
+fn roots_json(runs: &[RootRun], reports: &[Report]) -> Value {
+    Value::Array(runs.iter().zip(reports).map(|(run, report)| roots::root_json(run, report)).collect())
 }
 
 fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
@@ -236,49 +240,125 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         return Err(CliError::ci_refusal());
     }
     let start = canonical(&args.path)?;
-    let root = skif::find_workspace_root(&start, &fs)?;
-    let config = configure(args, &root, &fs)?;
-    let linter = Linter::new(&config)?;
-    let state = lint_once(&linter, &root, &config, &fs)?;
+    let Resolved {
+        base,
+        mut targets,
+        multi,
+    } = roots::resolve(&start, args.recursive, &fs, &overrides(args))?;
+    for target in &mut targets {
+        adjust(args, &mut target.config)?;
+    }
+    let linters = Linters::build(&targets)?;
+    let mut runs = roots::lint_targets(&base, targets, &linters)?;
 
-    let (workspace, report, fix_run) = if args.fixing() {
-        let (run, relint) = fixed(args, env, &linter, &config, state, &fs)?;
-        match relint {
-            Ok((workspace, report)) => (workspace, report, Some(run)),
-            Err(error) => return Ok(relint_failed(args, &error, &run)),
+    let mut fixes: Vec<FixRun> = Vec::new();
+    if args.fixing() {
+        let mut fixed_runs = Vec::with_capacity(runs.len());
+        for run in runs {
+            let RootRun {
+                prefix,
+                config,
+                config_path,
+                linter,
+                workspace,
+                report,
+            } = run;
+            let (fix_run, relint) = fixed(
+                args,
+                env,
+                linters.get(linter),
+                (&config, config_path.as_deref()),
+                (workspace, report),
+                &fs,
+            )?;
+            fixes.push(fix_run);
+            match relint {
+                Ok((workspace, report)) => fixed_runs.push(RootRun {
+                    prefix,
+                    config,
+                    config_path,
+                    linter,
+                    workspace,
+                    report,
+                }),
+                Err(error) => {
+                    let prefixes: Vec<&Path> = fixed_runs
+                        .iter()
+                        .map(|done| done.prefix.as_path())
+                        .chain(std::iter::once(prefix.as_path()))
+                        .collect();
+                    return Ok(relint_failed(args, &error, &roots_fix(&prefixes, &fixes)));
+                }
+            }
         }
-    } else {
-        (state.0, state.1, None)
-    };
-
-    let rendered = output::render(
-        &report,
-        &rendering(args, env, &linter, &workspace.root),
-        &fs,
-        fix_run.as_ref(),
-    )?;
-    output::emit(&rendered, args.output.as_deref())?;
-    if let Some(run) = &fix_run
-        && matches!(args.format(), Format::Sarif | Format::Github)
-    {
-        write_summary_to_stderr(run);
+        runs = fixed_runs;
     }
 
-    if let Some(InstallStatus::Failed { command, message }) = fix_run.as_ref().map(|run| &run.install) {
-        stderr_line(&format!(
-            "error: install failed ({}): {}",
-            escape_controls(command),
-            escape_controls(message)
-        ));
+    let reports: Vec<Report> = runs.iter().map(|run| roots::prefixed(&run.report, &run.prefix)).collect();
+    let aggregate = roots::aggregate(&reports);
+    let prefixes: Vec<&Path> = runs.iter().map(|run| run.prefix.as_path()).collect();
+    let root_fixes = roots_fix(&prefixes, &fixes);
+
+    let views: Vec<RootView<'_>> = runs
+        .iter()
+        .zip(&reports)
+        .enumerate()
+        .map(|(index, (run, report))| RootView {
+            prefix: &run.prefix,
+            report,
+            json: multi.then(|| roots::root_json(run, report)),
+            fix: fixes.get(index),
+        })
+        .collect();
+    let (format, annotations) = rendering_format(args, env);
+    let rendering = Rendering {
+        format,
+        annotations,
+        color: color_enabled(args, env),
+        root: &base,
+        repo_root: (matches!(format, Format::Github | Format::Sarif) || annotations)
+            .then(|| repo_root(&base))
+            .flatten(),
+        rules: linters.rules(),
+        multi,
+    };
+    let rendered = output::render(&aggregate, &views, &rendering, &fs, &root_fixes)?;
+    output::emit(&rendered, args.output.as_deref())?;
+    if !fixes.is_empty() && matches!(args.format(), Format::Sarif | Format::Github) {
+        write_summary_to_stderr(&root_fixes);
+    }
+
+    let failures: Vec<&InstallStatus> = fixes
+        .iter()
+        .map(|run| &run.install)
+        .filter(|status| matches!(status, InstallStatus::Failed { .. }))
+        .collect();
+    for status in &failures {
+        if let InstallStatus::Failed { command, message } = status {
+            stderr_line(&format!(
+                "error: install failed ({}): {}",
+                escape_controls(command),
+                escape_controls(message)
+            ));
+        }
+    }
+    if !failures.is_empty() {
         return Ok(COULD_NOT_RUN);
     }
-    let max_warnings = args.max_warnings.or_else(|| config.lint.fail_on_warnings.then_some(0));
-    Ok(exit_code(&report, max_warnings))
+    Ok(run_exit_code(args, &runs, &aggregate))
+}
+
+fn roots_fix<'a>(prefixes: &[&'a Path], fixes: &'a [FixRun]) -> Vec<RootFix<'a>> {
+    prefixes
+        .iter()
+        .zip(fixes)
+        .map(|(&prefix, run)| RootFix { prefix, run })
+        .collect()
 }
 
 /// The files changed, then the failure: exit 2, with the fix summary on stdout (human) or in the error document
 /// (JSON), so the user learns what was written even though the re-lint could not run.
-fn relint_failed(args: &LintArgs, error: &CliError, run: &FixRun) -> u8 {
+fn relint_failed(args: &LintArgs, error: &CliError, fixes: &[RootFix<'_>]) -> u8 {
     let error = CliError {
         message: format!("fixes were written, but linting again failed: {}", error.message),
         kind: error.kind,
@@ -288,17 +368,17 @@ fn relint_failed(args: &LintArgs, error: &CliError, run: &FixRun) -> u8 {
     };
     if args.format() == Format::Json {
         let mut extra = Map::new();
-        extra.insert("fix".to_owned(), run.to_json());
+        extra.insert("fix".to_owned(), fix::fixes_json(fixes));
         emit_error_with(&error, Format::Json, extra);
     } else {
         // Stdout carries the report in every format but `human`, so the summary goes to stderr there.
         if args.format() == Format::Human {
             let mut summary = Vec::new();
-            if run.write_human(&mut summary).is_ok() {
+            if fix::write_fixes_human(fixes, &mut summary).is_ok() {
                 let _ = output::write_stdout(&summary);
             }
         } else {
-            write_summary_to_stderr(run);
+            write_summary_to_stderr(fixes);
         }
         emit_error(&error, args.format());
     }
@@ -306,9 +386,9 @@ fn relint_failed(args: &LintArgs, error: &CliError, run: &FixRun) -> u8 {
 }
 
 /// The human account of a fix run, for formats whose stdout is a machine-readable report.
-fn write_summary_to_stderr(run: &FixRun) {
+fn write_summary_to_stderr(fixes: &[RootFix<'_>]) {
     let mut summary = Vec::new();
-    if run.write_human(&mut summary).is_ok() {
+    if fix::write_fixes_human(fixes, &mut summary).is_ok() {
         stderr_line(String::from_utf8_lossy(&summary).trim_end());
     }
 }
