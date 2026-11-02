@@ -3,8 +3,11 @@
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
+use crate::files::find_files;
 use crate::plugins::babel;
-use crate::support::{alias_inputs, get_in, module_input, objects};
+use crate::support::{
+    alias_inputs, get_in, html_script_sources, join_rel, looks_like_file, module_input, objects, strings,
+};
 
 /// The `webpack` plugin.
 pub struct Webpack;
@@ -22,21 +25,60 @@ impl Plugin for Webpack {
         &SPEC
     }
 
-    fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
-        let mut out = Vec::new();
-        for object in objects(config.value) {
-            if let Some(entry) = object.get("entry") {
-                entries(entry, config, &mut out);
-            }
-            if let Some(rules) = object.get("module").and_then(|m| m.get("rules")) {
-                rule_loaders(rules, config, &mut out, 0);
-            }
-            if let Some(alias) = get_in(object, &["resolve", "alias"]) {
-                out.extend(alias_inputs(alias, config));
+    fn resolve_config(&self, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        bundler_inputs(config, cx)
+    }
+}
+
+/// What a webpack-compatible config (webpack, rspack) references: entries, loaders, aliases, lookup directories and
+/// the scripts of the HTML templates.
+pub(crate) fn bundler_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
+    let mut out = html_template_entries(cx);
+    for object in objects(config.value) {
+        if let Some(entry) = object.get("entry") {
+            entries(entry, config, &mut out);
+        }
+        if let Some(rules) = object.get("module").and_then(|m| m.get("rules")) {
+            rule_loaders(rules, config, &mut out, 0);
+        }
+        if let Some(alias) = get_in(object, &["resolve", "alias"]) {
+            out.extend(alias_inputs(alias, config));
+        }
+        if let Some(modules) = get_in(object, &["resolve", "modules"]) {
+            for directory in strings(modules) {
+                if directory != "node_modules" && !directory.starts_with('/') {
+                    out.push(PluginInput::ModuleDir(config.join(directory)));
+                }
             }
         }
-        out
     }
+    out
+}
+
+/// Scripts loaded by the conventional HTML templates (`public/index.html`, `src/index.html`, `templates/*.html`),
+/// which `HtmlWebpackPlugin` and `HtmlRspackPlugin` inject the bundles into.
+fn html_template_entries(cx: &PluginContext<'_>) -> Vec<PluginInput> {
+    let patterns = ["index.html", "public/*.html", "src/*.html", "templates/*.html"].map(str::to_owned);
+    let mut out = Vec::new();
+    for html_path in find_files(cx.fs, cx.dir, &patterns) {
+        let Ok(html) = cx.fs.read_to_string(&cx.dir.join(&html_path)) else {
+            continue;
+        };
+        let html_dir = html_path.rsplit_once('/').map_or("", |(dir, _)| dir);
+        for src in html_script_sources(&html) {
+            if src.contains("://") || src.starts_with("//") || src.contains("<%") {
+                continue;
+            }
+            let path = match src.strip_prefix('/') {
+                Some(rooted) => rooted.to_owned(),
+                None => join_rel(html_dir, &src),
+            };
+            if looks_like_file(&path) {
+                out.push(PluginInput::Entry(path));
+            }
+        }
+    }
+    out
 }
 
 /// `entry` is a path, a list of paths, or an object whose values are either of those or `{ import }`.

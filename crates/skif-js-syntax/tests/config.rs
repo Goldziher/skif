@@ -141,3 +141,81 @@ fn multibyte_strings_survive() {
     let value = extract("c.js", "export default { name: 'héllo→' };").unwrap();
     assert_eq!(value.get("name").and_then(ConfigValue::as_str), Some("héllo→"));
 }
+
+#[test]
+fn computed_paths_are_relative_to_the_config_directory() {
+    let cases: Vec<(&str, &str, &str, &str)> = vec![
+        (
+            "namespace import of path",
+            "c.mjs",
+            "import path from 'node:path';\nexport default { a: path.resolve(import.meta.dirname, 'src', '..', 'lib') };",
+            "./lib",
+        ),
+        (
+            "required path and __dirname",
+            "c.js",
+            "const path = require('path');\nmodule.exports = { a: path.resolve(__dirname, 'src') };",
+            "./src",
+        ),
+        (
+            "destructured require",
+            "c.cjs",
+            "const { resolve, join: j } = require('node:path');\nmodule.exports = { a: resolve(__dirname, '../shared/js'), b: j(__dirname, 'a', 'b') };",
+            "../shared/js",
+        ),
+        (
+            "named import and a dirname constant",
+            "c.mjs",
+            "import { dirname, resolve } from 'path';\nimport { fileURLToPath } from 'url';\nconst __dirname = dirname(fileURLToPath(import.meta.url));\nexport default { a: resolve(__dirname, 'src') };",
+            "./src",
+        ),
+        (
+            "URL against import.meta.url",
+            "c.mjs",
+            "import { fileURLToPath } from 'node:url';\nexport default { a: fileURLToPath(new URL('./src', import.meta.url)) };",
+            "./src",
+        ),
+        (
+            "URL of the directory itself",
+            "c.mjs",
+            "export default { a: new URL('.', import.meta.url).pathname };",
+            ".",
+        ),
+        (
+            "template literal and concatenation",
+            "c.js",
+            "module.exports = { a: `${__dirname}/src/app`, b: __dirname + '/lib' };",
+            "./src/app",
+        ),
+        (
+            "constant holding a path",
+            "c.js",
+            "const path = require('path');\nconst src = path.join(__dirname, 'src');\nmodule.exports = { a: path.resolve(src, 'x') };",
+            "./src/x",
+        ),
+    ];
+    for (name, file, source, expected) in cases {
+        let value = extract(file, source).unwrap();
+        assert_eq!(value.get("a"), Some(&s(expected)), "{name}");
+    }
+    let value = extract(
+        "c.cjs",
+        "const { join: j } = require('node:path');\nmodule.exports = { b: j(__dirname, 'a', 'b'), c: `${__dirname}/lib`, d: __dirname + '/lib' };",
+    )
+    .unwrap();
+    assert_eq!(value.get("b"), Some(&s("./a/b")));
+    assert_eq!(value.get("c"), Some(&s("./lib")));
+    assert_eq!(value.get("d"), Some(&s("./lib")));
+}
+
+#[test]
+fn paths_that_cannot_be_known_stay_unknown() {
+    let value = extract(
+        "c.js",
+        "const path = require('path');\nmodule.exports = { a: path.resolve('/abs', 'x'), b: path.resolve(__dirname, process.env.DIR), c: Promise.resolve(1), d: other.join(__dirname, 'x') };",
+    )
+    .unwrap();
+    for key in ["a", "b", "c", "d"] {
+        assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}");
+    }
+}

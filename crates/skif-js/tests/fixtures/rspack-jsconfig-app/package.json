@@ -1,0 +1,1 @@
+{"name":"rspack-jsconfig-app","private":true,"version":"0.0.0","scripts":{"build":"rspack build","storybook":"storybook dev","test":"vitest run"},"dependencies":{"react":"^18.3.1","react-dom":"^18.3.1"},"devDependencies":{"@rspack/core":"^1.0.0","@storybook/react":"^8.0.0","vitest":"^2.0.5"}}

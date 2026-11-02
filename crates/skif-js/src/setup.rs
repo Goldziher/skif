@@ -119,6 +119,8 @@ pub(crate) struct PackageSetup {
     pub build_dirs: Vec<BuildDir>,
     /// Extra `exports` conditions that select source files.
     pub conditions: Vec<String>,
+    /// Directories bare specifiers are looked up in, relative to the package directory.
+    pub module_dirs: Vec<String>,
 }
 
 /// Settings for the whole workspace.
@@ -229,6 +231,7 @@ impl Setup {
                     aliases: plugin.aliases,
                     build_dirs: plugin.build_dirs,
                     conditions: plugin.conditions,
+                    module_dirs: plugin.module_dirs,
                 })
             })
             .collect();

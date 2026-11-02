@@ -1,0 +1,1 @@
+{"compilerOptions":{"baseUrl":".","paths":{"*":["./shared/js/*","./*","./node_modules/*","./public/assets/*","./src/*"],"@corp/uikit":["./shared/js/packages/uikit"],"@corp/uikit/*":["./shared/js/packages/uikit/*"]},"jsx":"react-jsx"}}

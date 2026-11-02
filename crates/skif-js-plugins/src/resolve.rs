@@ -125,6 +125,7 @@ impl Collector<'_, '_> {
                     }
                 }
                 PluginInput::Condition(name) => push_unique(&mut self.out.conditions, name),
+                PluginInput::ModuleDir(dir) => push_unique(&mut self.out.module_dirs, dir),
             }
         }
     }

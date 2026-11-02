@@ -128,6 +128,8 @@ struct Alias {
 struct AliasScope {
     dir: PathBuf,
     aliases: Vec<Alias>,
+    /// Absolute directories bare specifiers are looked up in, in lookup order.
+    module_dirs: Vec<PathBuf>,
 }
 
 /// Roots of `SvelteKit`'s virtual modules, which no file backs.
@@ -260,9 +262,16 @@ impl ModuleResolver {
                     target: Some(join_normalized(&package.dir, "src/lib")),
                 });
                 aliases.sort_by_key(|alias| std::cmp::Reverse(alias.find.len()));
+                let module_dirs = package
+                    .module_dirs
+                    .iter()
+                    .map(|dir| join_normalized(&package.dir, dir))
+                    .filter(|dir| !dir.components().any(|part| part.as_os_str() == "node_modules"))
+                    .collect();
                 AliasScope {
                     dir: package.dir.clone(),
                     aliases,
+                    module_dirs,
                 }
             })
             .collect();
@@ -319,6 +328,11 @@ impl ModuleResolver {
         } else {
             if let Some(aliased) = self.through_alias(importer, specifier) {
                 return outcome(aliased, None);
+            }
+            if name.is_some()
+                && let Some(found) = self.through_module_dirs(importer, specifier)
+            {
+                return outcome(found, None);
             }
             match name {
                 Some(name) => self.package_target(&name, specifier),
@@ -398,10 +412,32 @@ impl ModuleResolver {
         if let Some(aliased) = self.through_alias(importer, specifier) {
             return outcome(aliased, None);
         }
+        if name.is_some()
+            && let Some(found) = self.through_module_dirs(importer, specifier)
+        {
+            return outcome(found, None);
+        }
         match name {
             Some(name) => self.package_target(&name, specifier),
             None => outcome(Resolved::Unresolved, None),
         }
+    }
+
+    /// Looks a bare specifier up in the lookup directories of the importer's package (`baseUrl`, `paths` wildcards,
+    /// `resolve.modules`), in order. A specifier that names a file there is a file import, never a package.
+    fn through_module_dirs(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
+        let directory = importer.parent()?;
+        self.scopes
+            .iter()
+            .filter(|scope| importer.starts_with(&scope.dir))
+            .flat_map(|scope| &scope.module_dirs)
+            .find_map(|dir| {
+                let path = join_normalized(dir, specifier);
+                self.plain
+                    .resolve(directory, &path.to_string_lossy())
+                    .ok()
+                    .map(|resolution| self.classify(resolution.path().to_path_buf()))
+            })
     }
 
     /// Follows the aliases declared for the importer's package (and the packages above it).
@@ -430,12 +466,38 @@ impl ModuleResolver {
                 if let Ok(resolution) = self.plain.resolve(directory, &path.to_string_lossy()) {
                     return Some(self.classify(resolution.path().to_path_buf()));
                 }
+                if let Some(found) = self.through_package_directory(&target, rest) {
+                    return Some(found);
+                }
             }
         }
         match (matched, computed) {
             (false, _) => None,
             (true, true) => Some(Resolved::Ignored),
             (true, false) => Some(Resolved::Unresolved),
+        }
+    }
+
+    /// An alias target that is a package directory, such as a sibling checkout whose `main` points at output that was
+    /// never built: its source files by the usual output-to-source mapping, else a reference that is known to exist.
+    ///
+    /// `None` when `target` is not a package directory or `rest` names something inside it that does not exist.
+    fn through_package_directory(&self, target: &Path, rest: &str) -> Option<Resolved> {
+        let known = self.members.values().find(|member| member.dir == target);
+        let manifest = match known {
+            Some(_) => Value::Null,
+            None => serde_json::from_str(&self.fs.read_to_string(&target.join("package.json")).ok()?).ok()?,
+        };
+        let adhoc = Member {
+            dir: target.to_path_buf(),
+            manifest,
+            build_dirs: Vec::new(),
+        };
+        let member = known.unwrap_or(&adhoc);
+        match self.member_file(member, (!rest.is_empty()).then_some(rest)) {
+            Some(path) => Some(self.classify(path)),
+            None if rest.is_empty() => Some(Resolved::Ignored),
+            None => None,
         }
     }
 
@@ -715,5 +777,66 @@ mod tests {
             r.resolve(importer, "@x/b/util").target,
             Resolved::File(PathBuf::from("/ws/packages/b/lib/util.ts"))
         );
+    }
+
+    #[test]
+    fn bare_specifiers_resolve_through_lookup_directories_in_order() {
+        let inputs = WorkspaceInputs {
+            module_dirs: vec![
+                "shared".to_owned(),
+                ".".to_owned(),
+                "node_modules".to_owned(),
+                "src".to_owned(),
+            ],
+            ..WorkspaceInputs::default()
+        };
+        let r = resolver_with(
+            &[
+                ("package.json", ROOT),
+                ("src/main.ts", ""),
+                ("src/services/api.ts", ""),
+                ("src/views/home.ts", ""),
+                ("config.js", ""),
+                ("shared/services/api.ts", ""),
+            ],
+            inputs,
+        );
+        let importer = Path::new("/ws/src/main.ts");
+        let file = |path: &str| Resolved::File(PathBuf::from(path));
+        assert_eq!(r.resolve(importer, "services/api").target, file("/ws/shared/services/api.ts"));
+        assert_eq!(r.resolve(importer, "views/home").target, file("/ws/src/views/home.ts"));
+        assert_eq!(r.resolve(importer, "config").target, file("/ws/config.js"));
+        assert_eq!(r.resolve(importer, "react").target, Resolved::External("react".to_owned()));
+        assert_eq!(r.resolve(importer, "missing/thing").package.as_deref(), Some("missing"));
+    }
+
+    #[test]
+    fn alias_to_a_package_directory_with_unbuilt_output_is_not_unresolved() {
+        let inputs = WorkspaceInputs {
+            aliases: vec![
+                alias("@kit", Some("kit")),
+                alias("@bare", Some("bare")),
+                alias("@gone", Some("kit/nowhere")),
+            ],
+            ..WorkspaceInputs::default()
+        };
+        let r = resolver_with(
+            &[
+                ("package.json", ROOT),
+                ("src/main.ts", ""),
+                ("kit/package.json", r#"{"name":"kit","main":"dist/index.js"}"#),
+                ("kit/src/index.ts", ""),
+                ("kit/src/Button.tsx", ""),
+                ("bare/package.json", r#"{"name":"bare","main":"dist/index.js"}"#),
+            ],
+            inputs,
+        );
+        let importer = Path::new("/ws/src/main.ts");
+        let file = |path: &str| Resolved::File(PathBuf::from(path));
+        assert_eq!(r.resolve(importer, "@kit").target, file("/ws/kit/src/index.ts"));
+        assert_eq!(r.resolve(importer, "@kit/Button").target, file("/ws/kit/src/Button.tsx"));
+        assert_eq!(r.resolve(importer, "@bare").target, Resolved::Ignored);
+        assert_eq!(r.resolve(importer, "@gone").target, Resolved::Unresolved);
+        assert_eq!(r.resolve(importer, "@kit/nothing").target, Resolved::Unresolved);
     }
 }
