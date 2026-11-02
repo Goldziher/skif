@@ -51,7 +51,10 @@ impl JsRule for DuplicateExports {
                 }
                 let mut builder = diagnostic(
                     &META,
-                    format!("`{local}` is exported as {}", names.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(" and ")),
+                    format!(
+                        "`{local}` is exported as {}",
+                        names.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(" and ")
+                    ),
                     module_location(module, Some(second.span)),
                 )
                 .help("keep one export name for the binding")

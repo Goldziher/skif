@@ -24,7 +24,7 @@ pub struct WorkspaceInputs {
     pub ignore_dependencies: Vec<String>,
     /// Binary names (globs allowed) that are never reported as unlisted.
     pub ignore_binaries: Vec<String>,
-    /// Packages the tool uses without importing them, such as an ESLint parser named in a config.
+    /// Packages the tool uses without importing them, such as an `ESLint` parser named in a config.
     pub dependencies: Vec<String>,
     /// Binaries the tool runs without a script naming them.
     pub binaries: Vec<String>,

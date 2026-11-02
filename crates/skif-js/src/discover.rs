@@ -49,7 +49,11 @@ pub(crate) fn discover(fs: &dyn FileSystem, workspace: &Workspace) -> Vec<Candid
     while let Some((dir, owner, depth)) = stack.pop() {
         let Ok(entries) = fs.read_dir(&dir) else { continue };
         for entry in entries {
-            let name = entry.path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+            let name = entry
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
             if entry.is_dir {
                 if depth >= MAX_DEPTH || SKIPPED_DIRS.contains(&name) || skipped.contains(&entry.path) {
                     continue;

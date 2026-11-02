@@ -46,7 +46,11 @@ impl JsRule for UnlistedDependencies {
                 )
                 .package(package.display_name())
                 .dependency(unlisted.name.clone())
-                .help(format!("add `{}` to the dependencies of `{}`", unlisted.name, package.display_name()))
+                .help(format!(
+                    "add `{}` to the dependencies of `{}`",
+                    unlisted.name,
+                    package.display_name()
+                ))
                 .build(),
             );
         }

@@ -5,9 +5,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use oxc_resolver::{
-    FileMetadata, ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery,
-};
+use oxc_resolver::{FileMetadata, ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery};
 use serde_json::Value;
 use skif_core::{FileSystem, OsFs};
 use skif_workspace::Workspace;
@@ -16,7 +14,9 @@ use crate::manifest_paths::{ENTRY_FIELDS, map_to_source, resolve_exports};
 use crate::specifier::{has_foreign_scheme, is_builtin, node_modules_package, package_name, subpath};
 
 /// Extensions that are parsed and followed.
-pub(crate) const CODE_EXTENSIONS: &[&str] = &["js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "vue", "svelte", "astro"];
+pub(crate) const CODE_EXTENSIONS: &[&str] = &[
+    "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "vue", "svelte", "astro",
+];
 
 /// Whether a path has an extension that is parsed and followed.
 pub(crate) fn is_code_file(path: &Path) -> bool {
@@ -128,14 +128,8 @@ fn options(tsconfig: bool) -> ResolveOptions {
 
 impl ModuleResolver {
     pub(crate) fn new(fs: Arc<dyn FileSystem>, workspace: &Workspace) -> Self {
-        let make = |tsconfig| {
-            ResolverGeneric::new_with_file_system(
-                ResolverFs {
-                    fs: Arc::clone(&fs),
-                },
-                options(tsconfig),
-            )
-        };
+        let make =
+            |tsconfig| ResolverGeneric::new_with_file_system(ResolverFs { fs: Arc::clone(&fs) }, options(tsconfig));
         let members = workspace
             .all_packages()
             .filter_map(|package| {
@@ -156,11 +150,6 @@ impl ModuleResolver {
             root: workspace.root.clone(),
             members,
         }
-    }
-
-    /// Whether `name` is a package of this workspace.
-    pub(crate) fn is_member(&self, name: &str) -> bool {
-        self.members.contains_key(name)
     }
 
     fn classify(&self, path: PathBuf) -> Resolved {
@@ -261,9 +250,9 @@ mod tests {
     use super::*;
 
     fn resolver(files: &[(&str, &str)]) -> ModuleResolver {
-        let fs = files
-            .iter()
-            .fold(MemoryFs::new(), |fs, (path, text)| fs.with_file(Path::new("/ws").join(path), text));
+        let fs = files.iter().fold(MemoryFs::new(), |fs, (path, text)| {
+            fs.with_file(Path::new("/ws").join(path), text)
+        });
         let config = Config::from_toml_str("").unwrap();
         let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &fs).unwrap();
         ModuleResolver::new(Arc::new(fs), &workspace)
@@ -293,7 +282,10 @@ mod tests {
 
     #[test]
     fn builtins_externals_and_schemes() {
-        let r = resolver(&[("package.json", ROOT), ("packages/a/package.json", r#"{"name":"@x/a"}"#)]);
+        let r = resolver(&[
+            ("package.json", ROOT),
+            ("packages/a/package.json", r#"{"name":"@x/a"}"#),
+        ]);
         let importer = Path::new("/ws/packages/a/src/a.ts");
         assert_eq!(r.resolve(importer, "node:fs").target, Resolved::Builtin);
         assert_eq!(r.resolve(importer, "path").target, Resolved::Builtin);
@@ -317,7 +309,10 @@ mod tests {
         ]);
         let importer = Path::new("/ws/packages/a/src/a.ts");
         let main = r.resolve(importer, "@x/b");
-        assert_eq!(main.target, Resolved::File(PathBuf::from("/ws/packages/b/src/index.ts")));
+        assert_eq!(
+            main.target,
+            Resolved::File(PathBuf::from("/ws/packages/b/src/index.ts"))
+        );
         assert_eq!(main.package.as_deref(), Some("@x/b"));
         assert_eq!(
             r.resolve(importer, "@x/b/util").target,
@@ -333,10 +328,7 @@ mod tests {
     fn tsconfig_paths() {
         let r = resolver(&[
             ("package.json", ROOT),
-            (
-                "packages/a/package.json",
-                r#"{"name":"@x/a"}"#,
-            ),
+            ("packages/a/package.json", r#"{"name":"@x/a"}"#),
             (
                 "packages/a/tsconfig.json",
                 r#"{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/lib/*"]}}}"#,

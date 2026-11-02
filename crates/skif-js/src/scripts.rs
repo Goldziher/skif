@@ -35,7 +35,9 @@ pub(crate) fn analyze(package: &Package) -> ScriptFacts {
     let context = scripts
         .iter()
         .filter_map(|(name, body)| Some((name, body.as_str()?)))
-        .fold(ScriptContext::new(), |context, (name, body)| context.with_script(name, body));
+        .fold(ScriptContext::new(), |context, (name, body)| {
+            context.with_script(name, body)
+        });
     for (name, body) in scripts {
         let Some(body) = body.as_str() else { continue };
         let info = parse_script(body, &context.clone().with_current_script(name));
@@ -82,7 +84,11 @@ mod tests {
         let names: Vec<&str> = facts.binaries.iter().map(|b| b.name.as_str()).collect();
         assert!(names.contains(&"tsc") && names.contains(&"vitest"), "{names:?}");
         assert!(!names.contains(&"cowsay"));
-        assert!(facts.files.iter().any(|f| f.ends_with("scripts/build.js")), "{:?}", facts.files);
+        assert!(
+            facts.files.iter().any(|f| f.ends_with("scripts/build.js")),
+            "{:?}",
+            facts.files
+        );
     }
 
     #[test]

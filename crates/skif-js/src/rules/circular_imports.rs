@@ -161,7 +161,9 @@ mod tests {
     fn finds_components() {
         let adjacency = vec![vec![1], vec![2], vec![0], vec![0], vec![4]];
         let mut components = tarjan(&adjacency);
-        components.iter_mut().for_each(|component| component.sort_unstable());
+        for component in &mut components {
+            component.sort_unstable();
+        }
         components.sort();
         assert_eq!(components, [vec![0, 1, 2], vec![3], vec![4]]);
     }

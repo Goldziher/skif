@@ -142,13 +142,6 @@ fn resolve_target(value: &Value, matched: Option<&str>) -> Option<String> {
 /// Resolves `subpath` (`"."` or `"./x"`) against a package's `exports` for the conditions of an import.
 pub(crate) fn resolve_exports(exports: &Value, subpath: &str) -> Option<String> {
     match exports {
-        Value::String(_) | Value::Array(_) => {
-            if subpath == "." {
-                resolve_target(exports, None)
-            } else {
-                None
-            }
-        }
         Value::Object(map) if map.keys().any(|key| key.starts_with('.')) => {
             if let Some(value) = map.get(subpath) {
                 return resolve_target(value, None);
@@ -162,12 +155,16 @@ pub(crate) fn resolve_exports(exports: &Value, subpath: &str) -> Option<String> 
                     && subpath.starts_with(prefix)
                     && subpath.ends_with(suffix);
                 if fits && best.is_none_or(|(length, _, _)| prefix.len() > length) {
-                    best = Some((prefix.len(), value, &subpath[prefix.len()..subpath.len() - suffix.len()]));
+                    best = Some((
+                        prefix.len(),
+                        value,
+                        &subpath[prefix.len()..subpath.len() - suffix.len()],
+                    ));
                 }
             }
             best.and_then(|(_, value, matched)| resolve_target(value, Some(matched)))
         }
-        Value::Object(_) => {
+        Value::String(_) | Value::Array(_) | Value::Object(_) => {
             if subpath == "." {
                 resolve_target(exports, None)
             } else {
@@ -224,7 +221,10 @@ mod tests {
         );
         assert_eq!(resolve_exports(&exports, "./missing"), None);
         assert_eq!(resolve_exports(&json!("./x.js"), ".").as_deref(), Some("./x.js"));
-        assert_eq!(resolve_exports(&json!({"import": "./i.js"}), ".").as_deref(), Some("./i.js"));
+        assert_eq!(
+            resolve_exports(&json!({"import": "./i.js"}), ".").as_deref(),
+            Some("./i.js")
+        );
     }
 
     #[test]

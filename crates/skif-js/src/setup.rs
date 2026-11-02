@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use skif_config::{Config, Js, RuleOptions};
+use skif_config::{Config, Js};
 use skif_core::FileSystem;
 use skif_workspace::{PackageId, Workspace};
 
@@ -101,6 +101,14 @@ pub(crate) struct Setup {
     pub ignore_tags: Vec<String>,
 }
 
+/// Options of `unused-exports`, which `unused-types` shares.
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub(crate) struct UnusedExportsOptions {
+    /// `JSDoc` tags that exempt an export.
+    pub ignore_tags: Vec<String>,
+}
+
 impl Setup {
     pub(crate) fn new(
         workspace: &Workspace,
@@ -110,10 +118,11 @@ impl Setup {
     ) -> Self {
         let js = &config.js;
         let production = js.production;
-        let ignore_tags = match config.rule("unused-exports").map(|rule| &rule.options) {
-            Some(RuleOptions::UnusedExports(options)) => options.ignore_tags.clone(),
-            _ => Vec::new(),
-        };
+        let ignore_tags = config
+            .rule("unused-exports")
+            .and_then(|rule| skif_lint::parse_options::<UnusedExportsOptions>(&rule.options).ok())
+            .map(|options| options.ignore_tags)
+            .unwrap_or_default();
         let packages = workspace
             .iter()
             .map(|(id, package)| {
@@ -133,14 +142,22 @@ impl Setup {
                 }
                 let scripts = scripts::analyze(package);
 
-                let mut entry = if user.entry.is_empty() { default_entry() } else { user.entry };
+                let mut entry = if user.entry.is_empty() {
+                    default_entry()
+                } else {
+                    user.entry
+                };
                 if !production {
                     entry.extend(test_files());
                     entry.extend(plugin.entry);
                 }
                 entry.extend(plugin.production_entry);
 
-                let mut project = if user.project.is_empty() { default_project() } else { user.project };
+                let mut project = if user.project.is_empty() {
+                    default_project()
+                } else {
+                    user.project
+                };
                 project.extend(plugin.project);
                 if production {
                     project.extend(test_files().into_iter().map(|glob| format!("!{glob}")));
@@ -187,11 +204,16 @@ impl Setup {
     /// Whether the dependency `name` of package `id` is on an ignore list.
     pub(crate) fn ignores_dependency(&self, id: PackageId, name: &str) -> bool {
         self.global_ignore_dependencies.is_match(name)
-            || self.package(id).is_some_and(|setup| setup.ignore_dependencies.is_match(name))
+            || self
+                .package(id)
+                .is_some_and(|setup| setup.ignore_dependencies.is_match(name))
     }
 
     /// Whether the binary `name` of package `id` is on an ignore list.
     pub(crate) fn ignores_binary(&self, id: PackageId, name: &str) -> bool {
-        self.global_ignore_binaries.is_match(name) || self.package(id).is_some_and(|setup| setup.ignore_binaries.is_match(name))
+        self.global_ignore_binaries.is_match(name)
+            || self
+                .package(id)
+                .is_some_and(|setup| setup.ignore_binaries.is_match(name))
     }
 }

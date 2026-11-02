@@ -24,6 +24,13 @@ impl JsRule for UnusedEnumMembers {
     }
 
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
-        report(&META, ExportKind::Enum, |export| export.enum_members.as_slice(), "enum", analysis, out);
+        report(
+            &META,
+            ExportKind::Enum,
+            |export| export.enum_members.as_slice(),
+            "enum",
+            analysis,
+            out,
+        );
     }
 }

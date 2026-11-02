@@ -32,7 +32,10 @@ impl JsRule for UnlistedBinaries {
             out.emit(
                 diagnostic(
                     &META,
-                    format!("script `{}` runs `{}`, which no dependency provides", binary.script, binary.name),
+                    format!(
+                        "script `{}` runs `{}`, which no dependency provides",
+                        binary.script, binary.name
+                    ),
                     Location {
                         path: package.manifest.path.clone(),
                         span,
