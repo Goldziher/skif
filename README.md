@@ -278,5 +278,7 @@ direction.
 ## License and attribution
 
 MIT, see [LICENSE](LICENSE). skif started as a fork of sherif and vendors parts of syncpack; code
-derived from other projects is credited in [ATTRIBUTIONS.md](ATTRIBUTIONS.md). The knip project
-informs the design of the analysis phase.
+derived from other projects is credited in [ATTRIBUTIONS.md](ATTRIBUTIONS.md). The JavaScript analysis
+follows [knip](https://github.com/webpro-nl/knip) (ISC): its issue types, its plugin knowledge (enablers, config
+files, entry patterns), the plugins enabled by ancestor workspaces, and the list of global binaries that scripts may
+run without a dependency (`IGNORED_GLOBAL_BINARIES`) are taken from it and re-implemented on oxc.
