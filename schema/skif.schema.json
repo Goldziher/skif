@@ -1,0 +1,580 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "workspace": {
+      "$ref": "#/$defs/Workspace",
+      "default": {
+        "ignore-packages": []
+      }
+    },
+    "lint": {
+      "$ref": "#/$defs/Lint",
+      "default": {
+        "fail-on-warnings": false
+      }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/RuleConfigSchema"
+      },
+      "default": {}
+    },
+    "ignore": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/IgnoreEntry"
+      },
+      "default": []
+    },
+    "policy": {
+      "$ref": "#/$defs/Policy",
+      "default": {
+        "prefer": "highest",
+        "dependency-types": []
+      }
+    },
+    "version-groups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/VersionGroup"
+      },
+      "default": []
+    },
+    "semver-groups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SemverGroup"
+      },
+      "default": []
+    },
+    "catalog": {
+      "$ref": "#/$defs/Catalog",
+      "default": {
+        "mode": "off",
+        "min-packages": 2,
+        "exclude": [],
+        "report-unused-entries": false
+      }
+    },
+    "workspace-protocol": {
+      "$ref": "#/$defs/WorkspaceProtocol",
+      "default": {
+        "internal": false,
+        "allow-local-paths": false
+      }
+    },
+    "dependency-families": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/DependencyFamily"
+      },
+      "default": []
+    },
+    "js": {
+      "$ref": "#/$defs/Js",
+      "default": {
+        "enabled": true,
+        "entry": [],
+        "project": [],
+        "ignore": [],
+        "ignore-dependencies": [],
+        "ignore-binaries": [],
+        "production": false,
+        "include-entry-exports": false,
+        "workspaces": {},
+        "plugins": {}
+      }
+    }
+  },
+  "description": "The complete `skif.toml` model.",
+  "title": "Config",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ignore-packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Package names or globs excluded from every check.",
+          "default": []
+        },
+        "package-manager": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackageManager"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Overrides package-manager detection."
+        }
+      },
+      "description": "`[workspace]`"
+    },
+    "PackageManager": {
+      "type": "string",
+      "enum": ["npm", "pnpm", "yarn", "bun"],
+      "description": "Package managers that can be forced with `[workspace] package-manager`."
+    },
+    "Lint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fail-on-warnings": {
+          "type": "boolean",
+          "description": "Exit non-zero when only warnings were reported.",
+          "default": false
+        }
+      },
+      "description": "`[lint]`"
+    },
+    "RuleConfigSchema": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Level"
+        },
+        {
+          "$ref": "#/$defs/RuleTableSchema"
+        }
+      ],
+      "description": "Schema stand-in for a `[rules]` value: a level string or a table of severity plus options.\nIt only describes the shape for the JSON Schema and is never constructed."
+    },
+    "Level": {
+      "type": "string",
+      "enum": ["off", "info", "warn", "error"],
+      "description": "The level a rule is configured to: `off`, `info`, `warn` or `error`."
+    },
+    "RuleTableSchema": {
+      "type": "object",
+      "properties": {
+        "severity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Level"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "description": "Table form of a rule entry; the options present depend on the rule."
+    },
+    "IgnoreEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Package names or directories; an empty selector matches every package.",
+          "default": []
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Dependency names; an empty selector matches every dependency.",
+          "default": []
+        }
+      },
+      "description": "One `[[ignore]]` suppression. An empty list does not narrow that dimension, but at least one list must be set:\nan entry without any filter is rejected as it would suppress everything."
+    },
+    "Policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prefer": {
+          "$ref": "#/$defs/Prefer",
+          "default": "highest"
+        },
+        "dependency-types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Dependency types the policies apply to; empty means all.",
+          "default": []
+        }
+      },
+      "description": "`[policy]`"
+    },
+    "Prefer": {
+      "type": "string",
+      "enum": ["highest", "lowest"],
+      "description": "Which version `preferred-semver` favours."
+    },
+    "VersionGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": ["string", "null"]
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "dependency-types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "specifier-types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "policy": {
+          "$ref": "#/$defs/VersionPolicy",
+          "default": "preferred-semver"
+        },
+        "pin": {
+          "type": ["string", "null"],
+          "description": "Required by `pinned`."
+        },
+        "snap-to": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Required by `snapped-to`: packages whose version the group follows.",
+          "default": []
+        },
+        "prefer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Prefer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Allowed with `preferred-semver`; overrides `[policy] prefer`."
+        }
+      },
+      "description": "One `[[version-groups]]` entry; first match wins. Selectors accept `!` negation and `$LOCAL`."
+    },
+    "VersionPolicy": {
+      "type": "string",
+      "enum": ["pinned", "banned", "ignored", "same-range", "same-minor", "snapped-to", "preferred-semver"],
+      "description": "The policy of a version group."
+    },
+    "SemverGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": ["string", "null"]
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "dependency-types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "specifier-types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "range": {
+          "$ref": "#/$defs/SemverRange"
+        }
+      },
+      "required": ["range"],
+      "description": "One `[[semver-groups]]` entry; first match wins."
+    },
+    "SemverRange": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["*", "^", "~", ">", ">=", "<", "<="]
+        },
+        {
+          "type": "string",
+          "const": "",
+          "description": "No range operator: an exact version."
+        }
+      ],
+      "description": "The range type a semver group enforces."
+    },
+    "Catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/CatalogMode",
+          "default": "off"
+        },
+        "min-packages": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Minimum number of packages using a dependency before a catalog entry is suggested.",
+          "default": 2
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "report-unused-entries": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "description": "`[catalog]`"
+    },
+    "CatalogMode": {
+      "type": "string",
+      "enum": ["off", "prefer", "enforce"],
+      "description": "`[catalog] mode`"
+    },
+    "WorkspaceProtocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "internal": {
+          "type": "boolean",
+          "description": "Require `workspace:` for dependencies on other workspace packages.",
+          "default": false
+        },
+        "allow-local-paths": {
+          "type": "boolean",
+          "description": "Accept `file:` / `link:` paths for internal dependencies.",
+          "default": false
+        }
+      },
+      "description": "`[workspace-protocol]`"
+    },
+    "DependencyFamily": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "`false` disables a built-in family of the same name.",
+          "default": true
+        }
+      },
+      "required": ["name"],
+      "description": "One `[[dependency-families]]` entry: packages that must share a version."
+    },
+    "Js": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "entry": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "project": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "ignore": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "ignore-dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "ignore-binaries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "production": {
+          "type": "boolean",
+          "default": false
+        },
+        "include-entry-exports": {
+          "type": "boolean",
+          "default": false
+        },
+        "workspaces": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/JsWorkspace"
+          },
+          "description": "Per-workspace overrides keyed by directory.",
+          "default": {}
+        },
+        "plugins": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/PluginConfig"
+          },
+          "description": "Plugin switches keyed by plugin name.",
+          "default": {}
+        }
+      },
+      "description": "`[js]`"
+    },
+    "JsWorkspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "project": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "ignore": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "ignore-dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "ignore-binaries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "description": "`[js.workspaces.\"<dir>\"]`"
+    },
+    "PluginConfig": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/PluginOptions"
+        }
+      ],
+      "description": "`[js.plugins] <name> = true | { ... }`"
+    },
+    "PluginOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": ["boolean", "null"]
+        },
+        "config": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "entry": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "project": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "description": "Table form of a plugin entry."
+    }
+  }
+}

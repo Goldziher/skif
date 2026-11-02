@@ -48,7 +48,7 @@ pub struct Diagnostic {
 
 impl Diagnostic {
     /// A diagnostic without help, related locations, package, dependency, detail or fixes; set those through the
-    /// public fields, or use [`crate::diagnostic`] to build one for a rule.
+    /// public fields, or use [`diagnostic()`](crate::diagnostic()) to build one for a rule.
     #[must_use]
     pub fn new(rule: RuleId, severity: Severity, message: impl Into<String>, location: Location) -> Self {
         Self {

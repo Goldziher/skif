@@ -21,7 +21,8 @@ multiple-versions = "deny"
 wildcards = "deny"
 allow-wildcard-paths = true
 skip = [
-  { crate = "itertools@0.13.0", reason = "transitive duplicate; waits for upstream to converge on one release" },
+  { crate = "hashbrown@0.14.5", reason = "transitive duplicate from the oxc stack; waits for upstream to converge" },
+  { crate = "hashbrown@0.16.1", reason = "transitive duplicate from oxc_resolver; waits for upstream to converge" },
   { crate = "syn@2.0.119", reason = "transitive duplicate of syn 3 pulled in by different proc-macro dependencies" },
 ]
 

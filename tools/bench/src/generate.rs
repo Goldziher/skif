@@ -1,7 +1,7 @@
 //! Deterministic synthetic monorepo generator.
 //!
 //! [`build`] is pure: it returns every file of the workspace as `(relative path, contents)` plus the number of
-//! injected issues, so tests never touch the disk. [`write`] materialises the result.
+//! injected issues, so tests never touch the disk. [`write()`](write()) materialises the result.
 
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as _;
