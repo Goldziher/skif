@@ -729,3 +729,12 @@ fn coalesce_merges_overlapping_and_touching_ranges() {
         [(0, 4), (5, 12)]
     );
 }
+
+#[test]
+fn directive_helpers() {
+    let client = parse("a.tsx", "'use client';\nexport const a = 1;");
+    assert!(client.is_client_boundary() && !client.is_server_actions());
+    let server = parse("a.ts", "\"use server\";\nexport async function a() {}");
+    assert!(server.is_server_actions() && !server.is_client_boundary());
+    assert!(!parse("a.ts", "const s = 'use client';").is_client_boundary());
+}

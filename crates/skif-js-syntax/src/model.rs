@@ -191,7 +191,8 @@ pub struct ModuleInfo {
     pub exports: Vec<Export>,
     /// Export names referenced inside the same file; sorted, deduplicated.
     pub in_file_references: Vec<String>,
-    /// `module.exports = …`, `module.exports.x = …` or `exports.x = …`.
+    /// `module.exports = …`, `module.exports.x = …` or `exports.x = …` anywhere in the file. The file is then a
+    /// `CommonJS` module whose export names are not tracked: treat all of its exports as used.
     pub has_cjs_exports: bool,
     /// The file contains JSX.
     pub has_jsx: bool,
@@ -200,7 +201,8 @@ pub struct ModuleInfo {
     /// Location of the value of the `@jsxImportSource` pragma. Only a pragma in the comments before the first
     /// statement counts.
     pub jsx_import_source_span: Option<Span>,
-    /// Directive prologue strings such as `use client`.
+    /// Directive prologue strings of the top level, such as `use client` and `use server`. See
+    /// [`ModuleInfo::is_client_boundary`] and [`ModuleInfo::is_server_actions`].
     pub directives: Vec<String>,
     /// `import()`, `require()` and `import.meta.glob()` calls whose argument is not static.
     pub unresolved_dynamic: Vec<Span>,
@@ -216,6 +218,19 @@ impl ModuleInfo {
     /// Removal edits of every export that has one, in source order.
     pub fn removal_ranges(&self) -> impl Iterator<Item = &Removal> {
         self.exports.iter().filter_map(|e| e.removal.as_ref())
+    }
+
+    /// The file starts with the `"use client"` directive: a React Server Components client boundary whose exports
+    /// are consumed by the framework.
+    #[must_use]
+    pub fn is_client_boundary(&self) -> bool {
+        self.directives.iter().any(|d| d == "use client")
+    }
+
+    /// The file starts with the `"use server"` directive: every export is a server action the framework calls.
+    #[must_use]
+    pub fn is_server_actions(&self) -> bool {
+        self.directives.iter().any(|d| d == "use server")
     }
 
     /// Disjoint, sorted deletions that remove every export for which `is_unused` holds.
@@ -234,6 +249,7 @@ impl ModuleInfo {
         }
         let mut ranges = Vec::new();
         let mut whole_statements = HashSet::new();
+        let mut clauses: HashMap<(u32, u32), Vec<(Span, bool)>> = HashMap::new();
         for export in &self.exports {
             let Some(removal) = &export.removal else { continue };
             if !is_unused(export) {
@@ -247,10 +263,15 @@ impl ModuleInfo {
                 RemovalKind::Specifier if all_selected => {
                     whole_statements.insert(removal.statement);
                 }
-                RemovalKind::Specifier => ranges.push((removal.start, removal.end)),
+                RemovalKind::Specifier => {
+                    clauses.entry(removal.statement).or_default().push((export.span, is_unused(export)));
+                }
             }
         }
         ranges.extend(whole_statements);
+        for specifiers in clauses.values() {
+            ranges.extend(specifier_runs(specifiers));
+        }
         coalesce_ranges(ranges)
     }
 
@@ -271,6 +292,30 @@ impl ModuleInfo {
         self.parse_diagnostics.extend(other.parse_diagnostics);
         self.fatal |= other.fatal;
     }
+}
+
+/// Deletions for the unused specifiers of one export clause (in source order, at least one kept): each run of
+/// adjacent unused specifiers takes the comma after it, or, at the end of the clause, the comma before it.
+fn specifier_runs(specifiers: &[(Span, bool)]) -> Vec<(u32, u32)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < specifiers.len() {
+        if !specifiers[i].1 {
+            i += 1;
+            continue;
+        }
+        let first = i;
+        while i < specifiers.len() && specifiers[i].1 {
+            i += 1;
+        }
+        let last = i - 1;
+        if let Some(next) = specifiers.get(i) {
+            out.push((specifiers[first].0.start, next.0.start));
+        } else if let Some(before) = first.checked_sub(1).and_then(|k| specifiers.get(k)) {
+            out.push((before.0.end, specifiers[last].0.end));
+        }
+    }
+    out
 }
 
 /// Merges overlapping and touching byte ranges into sorted, disjoint ones.
