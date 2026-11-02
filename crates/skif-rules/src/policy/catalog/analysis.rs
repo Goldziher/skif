@@ -288,6 +288,7 @@ pub(super) fn emit(
         .package(package.display_name())
         .package_id(package.id)
         .dependency(entry.name.clone())
+        .specifier(entry.specifier.clone())
         .detail(finding.kind.state());
     if let Some(help) = help {
         builder = builder.help(help);

@@ -47,6 +47,7 @@ impl Rule for TypesInDependencies {
             .package(package.display_name())
             .package_id(package.id)
             .dependency(first.name.clone())
+            .specifier(first.specifier.clone())
             .help(
                 "move `@types/*` packages to `devDependencies`; a private package is never installed as a dependency",
             );

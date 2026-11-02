@@ -46,9 +46,9 @@ impl Rule for UnusedCatalogEntries {
             .iter()
             .map(|(name, entries)| (CatalogName::Named(name.clone()), entries));
         for (catalog, entries) in default.chain(named) {
-            for name in entries
-                .keys()
-                .filter(|name| !used.contains(&(catalog.clone(), name.as_str())))
+            for (name, version) in entries
+                .iter()
+                .filter(|(name, _)| !used.contains(&(catalog.clone(), name.as_str())))
             {
                 let mut builder = diagnostic(
                     &META,
@@ -59,6 +59,7 @@ impl Rule for UnusedCatalogEntries {
                     },
                 )
                 .dependency(name.clone())
+                .specifier(version.clone())
                 .help("remove the entry or reference it with `catalog:`");
                 if source == workspace.root_package.manifest.path.as_path() {
                     builder = builder.package_id(workspace.root_package.id);
