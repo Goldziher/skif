@@ -74,7 +74,7 @@ struct Usage<'w> {
 
 /// Whether a specifier could be replaced by `catalog:`. Workspace, link and file specifiers name something local
 /// to a package and have no registry version to share.
-pub(super) fn is_catalogable(specifier: &Specifier) -> bool {
+pub(crate) fn is_catalogable(specifier: &Specifier) -> bool {
     !matches!(
         specifier,
         Specifier::Catalog(_)
@@ -113,7 +113,7 @@ fn usages<'w>(workspace: &'w Workspace, exclude: &Selector) -> BTreeMap<&'w str,
 /// The dependencies the catalog rules own under `settings`: with `mode` other than `off`, every dependency that
 /// has a catalog entry, is not excluded and is used in at least `min-packages` packages. The policy rules leave the
 /// plain instances of these dependencies to the catalog rules, which report them against the catalog.
-pub(super) fn owned_dependencies<'w>(workspace: &'w Workspace, settings: &Catalog) -> BTreeSet<&'w str> {
+pub(crate) fn owned_dependencies<'w>(workspace: &'w Workspace, settings: &Catalog) -> BTreeSet<&'w str> {
     if settings.mode == CatalogMode::Off {
         return BTreeSet::new();
     }

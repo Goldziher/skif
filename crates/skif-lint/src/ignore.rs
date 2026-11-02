@@ -92,7 +92,10 @@ impl Suppressions {
     /// is `$LOCAL` when its name is a workspace package.
     fn dependency_matches(&self, selector: &Selector, dependency: &str, diagnostic: &Diagnostic) -> bool {
         let name = dependency_name(dependency);
-        let versioned = diagnostic.specifier.as_deref().map(|specifier| format!("{name}@{specifier}"));
+        let versioned = diagnostic
+            .specifier
+            .as_deref()
+            .map(|specifier| format!("{name}@{specifier}"));
         let candidates = [dependency, name].into_iter().chain(versioned.as_deref());
         selector.matches_any(candidates, self.by_name.contains_key(name))
     }

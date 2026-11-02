@@ -14,7 +14,7 @@ mod target;
 mod unresolved_references;
 mod unused_entries;
 
-pub(super) use analysis::{is_catalogable, owned_dependencies};
+pub(crate) use analysis::{is_catalogable, owned_dependencies};
 pub use mismatch::CatalogMismatch;
 pub use missing_entry::CatalogMissingEntry;
 pub use not_used::CatalogNotUsed;
