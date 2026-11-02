@@ -170,8 +170,17 @@ impl<'a, 'w> Visitor<'a, 'w> {
 
     fn same_range(&mut self, ids: &[InstanceId]) {
         let members = self.members(ids);
-        let specifiers: Vec<Arc<Specifier>> = members.iter().map(|&id| Arc::clone(self.spec(id))).collect();
-        for id in members {
+        let (ranged, odd): (Vec<InstanceId>, Vec<InstanceId>) = members
+            .iter()
+            .copied()
+            .partition(|&id| self.spec(id).get_node_range().is_some());
+        for id in odd {
+            if members.iter().any(|&other| !self.equals(other, self.spec(id))) {
+                self.mark(id, State::SameRangeMismatch, None);
+            }
+        }
+        let specifiers: Vec<Arc<Specifier>> = ranged.iter().map(|&id| Arc::clone(self.spec(id))).collect();
+        for id in ranged {
             if !self.spec(id).satisfies_all(&specifiers) {
                 self.mark(id, State::SameRangeMismatch, None);
             } else if self.preferred(id).is_some() && !self.matches_preferred(id) {
@@ -721,6 +730,16 @@ mod tests {
                 one("tool", "react", "SameRangeMismatch"),
             ]
         );
+    }
+
+    #[test]
+    fn a_specifier_without_a_range_is_the_only_one_a_same_range_group_flags() {
+        let app = manifest("app", "1.0.0", r#""react":"^18.0.0""#);
+        let lib = manifest("lib", "1.0.0", r#""react":"^18.2.0""#);
+        let tool = manifest("tool", "1.0.0", r#""react":"git+https://x.test/react.git#main""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
+        let config = "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"same-range\"\n";
+        assert_eq!(states(config, &members), [one("tool", "react", "SameRangeMismatch")]);
     }
 
     #[test]
