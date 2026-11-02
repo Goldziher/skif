@@ -20,7 +20,8 @@ mod write;
 
 use args::{Cli, Command, Format};
 use env::Env;
-use error::{CliError, Kind};
+pub use error::{CliError, Kind};
+pub use lint::lint_to_json;
 use output::emit_error;
 
 /// Runs the CLI with `args` (the first item is the program name, as in `std::env::args_os`) and returns the exit

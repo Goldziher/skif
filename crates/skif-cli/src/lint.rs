@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use clap::ColorChoice;
 use serde_json::Map;
+use skif::render::{RenderOptions, render_json};
 use skif::{
     Config, ConfigOverrides, FileSystem, IgnoreEntry, Linter, OsFs, Prefer, Report, RunOptions, Selector, Workspace,
 };
@@ -11,7 +12,7 @@ use skif_report::escape_controls;
 
 use crate::args::{Format, LintArgs, Select};
 use crate::env::{Env, github_workspace};
-use crate::error::CliError;
+use crate::error::{CliError, Kind};
 use crate::fix::{self, FixRun};
 use crate::install::{self, InstallStatus};
 use crate::output::{self, Rendering, emit_error, emit_error_with, stderr_line};
@@ -203,6 +204,30 @@ fn fixed(
         }
         Err(error) => (FixRun::relint_failed(plan), Err(error)),
     })
+}
+
+/// Lints the workspace containing `path` and returns the report as the JSON document `--format json` prints.
+///
+/// Nothing is printed, no file is written and the environment is not consulted, so an embedding host (the npm
+/// addon) gets the same discovery, configuration and report as the command line, with the same classified errors.
+///
+/// # Errors
+/// A [`CliError`] when `path` cannot be resolved, no workspace is found there, the configuration is invalid or
+/// the lint cannot run.
+pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides) -> Result<String, CliError> {
+    let fs = OsFs;
+    let start = canonical(path)?;
+    let root = skif::find_workspace_root(&start, &fs)?;
+    let config = skif::load_config(&root, &fs, overrides)?;
+    let linter = Linter::new(&config)?;
+    let (workspace, report) = lint_once(&linter, &root, &config, &fs)?;
+    let options = RenderOptions::default()
+        .with_root(&workspace.root)
+        .with_tool_version(env!("CARGO_PKG_VERSION"));
+    let mut buffer = Vec::new();
+    render_json(&report, &options, &mut buffer)
+        .map_err(|error| CliError::new(Kind::Io, format!("cannot render the report: {error}")))?;
+    String::from_utf8(buffer).map_err(|error| CliError::new(Kind::Io, format!("the report is not UTF-8: {error}")))
 }
 
 fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
