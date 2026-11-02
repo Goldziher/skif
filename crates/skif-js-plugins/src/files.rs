@@ -101,7 +101,11 @@ fn walk(fs: &dyn FileSystem, dir: &Path, parts: &mut Vec<String>, patterns: &[Pa
 
 /// Files below `dir` matching any of `globs`, as sorted forward-slash paths relative to `dir`.
 pub(crate) fn find_files(fs: &dyn FileSystem, dir: &Path, globs: &[String]) -> Vec<String> {
-    let patterns: Vec<Pattern> = globs.iter().filter_map(|g| compile(g)).collect();
+    let patterns: Vec<Pattern> = globs
+        .iter()
+        .flat_map(|g| crate::glob::expand_empty_alternatives(g))
+        .filter_map(|g| compile(&g))
+        .collect();
     let mut out = Vec::new();
     if !patterns.is_empty() {
         walk(fs, dir, &mut Vec::new(), &patterns, &mut out);

@@ -12,6 +12,7 @@ use skif_workspace::PackageId;
 use crate::discover::{Candidate, relative};
 use crate::resolve::{ModuleResolver, Resolved};
 use crate::setup::Setup;
+use crate::source_scan::{add_textual_imports, is_template_file, mark_template_usage};
 
 /// Identifies a module within one [`ModuleGraph`]. Ids follow discovery order, which is deterministic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -223,10 +224,20 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
         Ok(source) => source,
         Err(error) => return failed(error.to_string()),
     };
-    let info = match parse_module(path, &source, &ParseOptions::default()) {
+    let mut info = match parse_module(path, &source, &ParseOptions::default()) {
         Ok(info) => info,
         Err(error) => return failed(error.to_string()),
     };
+    let error = info.fatal.then(|| {
+        info.parse_diagnostics
+            .first()
+            .map_or_else(|| "syntax error".to_owned(), |issue| issue.message.clone())
+    });
+    if is_template_file(path) {
+        mark_template_usage(&mut info, &source);
+    }
+    let parsed_imports = info.imports.len();
+    add_textual_imports(&mut info, &source);
     let imports = info
         .imports
         .iter()
@@ -249,6 +260,8 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
                 Resolved::External(name) => RawTarget::External(name),
                 Resolved::Builtin => RawTarget::Builtin,
                 Resolved::Ignored => RawTarget::Ignored,
+                // Specifiers found by text scan may name directories or assets; they are followed when they resolve.
+                Resolved::Unresolved if index >= parsed_imports => RawTarget::Asset,
                 Resolved::Unresolved => RawTarget::Unresolved,
             };
             RawImport {
@@ -259,11 +272,7 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
             }
         })
         .collect();
-    Parsed {
-        info,
-        error: None,
-        imports,
-    }
+    Parsed { info, error, imports }
 }
 
 struct Builder<'a> {

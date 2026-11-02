@@ -52,7 +52,7 @@ impl Plugin for Next {
             .filter(|e| !e.is_empty())
             .collect();
         if extensions.is_empty() {
-            return Vec::new();
+            return framework_dependencies();
         }
         let group = format!("{{{}}}", extensions.join(","));
         let router = [
@@ -64,6 +64,19 @@ impl Plugin for Next {
         router
             .into_iter()
             .map(|p| PluginInput::ProductionEntry(config.join(&p)))
+            .chain(framework_dependencies())
             .collect()
     }
+
+    fn resolve_without_config(&self, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        framework_dependencies()
+    }
+}
+
+/// Next.js renders with React and requires `react-dom` as a peer without any file importing it.
+fn framework_dependencies() -> Vec<PluginInput> {
+    ["react", "react-dom"]
+        .into_iter()
+        .map(|name| PluginInput::Dependency(name.to_owned()))
+        .collect()
 }

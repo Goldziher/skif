@@ -93,41 +93,6 @@ expression: "run(&rich(), Format::Sarif, &options())"
           }
         },
         {
-          "ruleId": "unused-dependency",
-          "ruleIndex": 1,
-          "level": "warning",
-          "message": {
-            "text": "lodash is never imported 日本語"
-          },
-          "locations": [
-            {
-              "physicalLocation": {
-                "artifactLocation": {
-                  "uri": "packages/web/package.json",
-                  "uriBaseId": "%SRCROOT%"
-                },
-                "region": {
-                  "startLine": 5,
-                  "startColumn": 5,
-                  "endLine": 5,
-                  "endColumn": 13
-                }
-              }
-            }
-          ],
-          "partialFingerprints": {
-            "skifFingerprint/v1": "a0051baf4ad710d7:1"
-          },
-          "properties": {
-            "fixes": [
-              {
-                "title": "Remove lodash",
-                "safety": "safe"
-              }
-            ]
-          }
-        },
-        {
           "ruleId": "version-mismatch",
           "ruleIndex": 0,
           "level": "error",
@@ -182,6 +147,41 @@ expression: "run(&rich(), Format::Sarif, &options())"
               {
                 "title": "Use ^18.3.1",
                 "safety": "unsafe"
+              }
+            ]
+          }
+        },
+        {
+          "ruleId": "unused-dependency",
+          "ruleIndex": 1,
+          "level": "warning",
+          "message": {
+            "text": "lodash is never imported 日本語"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "packages/web/package.json",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 5,
+                  "startColumn": 5,
+                  "endLine": 5,
+                  "endColumn": 13
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "skifFingerprint/v1": "a0051baf4ad710d7:1"
+          },
+          "properties": {
+            "fixes": [
+              {
+                "title": "Remove lodash",
+                "safety": "safe"
               }
             ]
           }

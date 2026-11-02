@@ -9,6 +9,7 @@
 //! [`SyntaxError::Unsupported`].
 
 mod collect;
+mod comments;
 mod config;
 mod error;
 mod finder;
@@ -30,16 +31,19 @@ use skif_core::LineIndex;
 pub use config::{ConfigValue, extract_config_object};
 pub use error::SyntaxError;
 pub use model::{
-    Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, ModuleInfo, ParseOptions, Removal,
-    RemovalKind,
+    Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, ModuleInfo, ParseIssue, ParseOptions,
+    Removal, RemovalKind, coalesce_ranges,
 };
 
 /// Parses `source` (the content of `path`) into a [`ModuleInfo`]. The extension of `path` selects the language.
 ///
 /// # Errors
 ///
-/// [`SyntaxError::Parse`] with the location of the first syntax error, or [`SyntaxError::Unsupported`] for a file
-/// type that is neither a script nor a supported component format.
+/// [`SyntaxError::Unsupported`] for a file type that is neither a script nor a supported component format.
+///
+/// Syntax errors are not errors of this function: the parser's recovered program is analysed and the problems are
+/// reported in [`ModuleInfo::parse_diagnostics`]. When the parser cannot recover at all, the returned info is empty
+/// and [`ModuleInfo::fatal`] is set.
 pub fn parse_module(path: &Path, source: &str, options: &ParseOptions) -> Result<ModuleInfo, SyntaxError> {
     let lines = LineIndex::new(source);
     let extension = path
@@ -57,19 +61,29 @@ pub fn parse_module(path: &Path, source: &str, options: &ParseOptions) -> Result
                     (false, true) => "block.jsx",
                     (false, false) => "block.js",
                 };
-                let source_type = SourceType::from_path(name).map_err(|_| unsupported(&extension))?;
+                let source_type = source_type_for(Path::new(name)).ok_or_else(|| unsupported(&extension))?;
                 let base = u32::try_from(block.start).unwrap_or(u32::MAX);
-                let part = parse_block(&source[block.start..block.end], base, source_type, &lines, *options)?;
+                let part = parse_block(&source[block.start..block.end], base, source_type, &lines, *options);
                 info.merge(part);
             }
             Ok(info)
         }
         "mdx" => Err(unsupported(&extension)),
         _ => {
-            let source_type = SourceType::from_path(path).map_err(|_| unsupported(&extension))?;
-            parse_block(source, 0, source_type, &lines, *options)
+            let source_type = source_type_for(path).ok_or_else(|| unsupported(&extension))?;
+            Ok(parse_block(source, 0, source_type, &lines, *options))
         }
     }
+}
+
+/// Source type for `path`. JavaScript is parsed with JSX enabled because real projects write JSX in `.js` files.
+fn source_type_for(path: &Path) -> Option<SourceType> {
+    let source_type = SourceType::from_path(path).ok()?;
+    Some(if source_type.is_javascript() {
+        source_type.with_jsx(true)
+    } else {
+        source_type
+    })
 }
 
 fn unsupported(extension: &str) -> SyntaxError {
@@ -78,41 +92,47 @@ fn unsupported(extension: &str) -> SyntaxError {
     }
 }
 
-fn jsx_import_source(source: &str) -> Option<String> {
-    let rest = source.split_once("@jsxImportSource")?.1.trim_start();
-    let value: String = rest.chars().take_while(|c| !c.is_whitespace() && *c != '*').collect();
-    (!value.is_empty()).then_some(value)
-}
-
-fn parse_block(
-    src: &str,
-    base: u32,
-    source_type: SourceType,
-    lines: &LineIndex,
-    options: ParseOptions,
-) -> Result<ModuleInfo, SyntaxError> {
+fn parse_block(src: &str, base: u32, source_type: SourceType, lines: &LineIndex, options: ParseOptions) -> ModuleInfo {
     let allocator = Allocator::default();
     let parser_options = OxcParseOptions {
         preserve_parens: false,
+        allow_return_outside_function: true,
         ..OxcParseOptions::default()
     };
     let ret = Parser::new(&allocator, src, source_type)
         .with_options(parser_options)
         .parse();
-    if let Some(diagnostic) = ret.diagnostics.errors().next() {
-        let (offset, len) = diagnostic
-            .labels
-            .as_slice()
-            .first()
-            .map_or((0, 0), |l| (l.offset(), l.len()));
-        return Err(SyntaxError::Parse {
-            message: diagnostic.message.to_string(),
-            span: lines.span(base + offset, base + offset + len),
-        });
+    let parse_diagnostics: Vec<ParseIssue> = ret
+        .diagnostics
+        .errors()
+        .map(|diagnostic| {
+            let (offset, len) = diagnostic
+                .labels
+                .as_slice()
+                .first()
+                .map_or((0, 0), |l| (l.offset(), l.len()));
+            ParseIssue {
+                message: diagnostic.message.to_string(),
+                span: lines.span(
+                    base.saturating_add(offset),
+                    base.saturating_add(offset).saturating_add(len),
+                ),
+            }
+        })
+        .collect();
+    if ret.fatal_error {
+        return ModuleInfo {
+            parse_diagnostics,
+            fatal: true,
+            ..ModuleInfo::default()
+        };
     }
 
     let ctx = collect::Ctx { src, base, lines };
-    let mut info = ModuleInfo::default();
+    let mut info = ModuleInfo {
+        parse_diagnostics,
+        ..ModuleInfo::default()
+    };
     let collected = collect::collect(&ctx, &ret.program, &mut info);
     finder::Finder::new(&ctx, &mut info).visit_program(&ret.program);
     info.imports.sort_by_key(|i| i.span.start);
@@ -128,8 +148,8 @@ fn parse_block(
         .iter()
         .map(|d| d.directive.as_str().to_string())
         .collect();
-    info.jsx_import_source = jsx_import_source(src);
-    Ok(info)
+    comments::collect(&ctx, &ret.program, &mut info);
+    info
 }
 
 fn mark_in_file_references(program: &oxc_ast::ast::Program<'_>, excluded: &[oxc_span::Span], info: &mut ModuleInfo) {

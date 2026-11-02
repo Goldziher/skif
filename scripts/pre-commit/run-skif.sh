@@ -29,6 +29,14 @@ sha256() {
   fi
 }
 
+# musl detection must not be a pipeline: musl's `ldd --version` exits non-zero, which `pipefail` would turn into
+# "not musl" whatever grep says.
+is_musl() {
+  local banner
+  banner="$(ldd --version 2>&1 || true)"
+  [[ "$banner" == *musl* ]] || compgen -G '/lib/ld-musl-*' >/dev/null
+}
+
 detect_target() {
   local os arch libc=gnu
   case "$(uname -s)" in
@@ -50,7 +58,7 @@ detect_target() {
   esac
   case "$os" in
   unknown-linux)
-    if ldd --version 2>&1 | grep -qi musl; then
+    if is_musl; then
       libc=musl
     fi
     echo "${arch}-unknown-linux-${libc}"

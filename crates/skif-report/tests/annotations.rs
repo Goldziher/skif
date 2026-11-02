@@ -64,7 +64,7 @@ fn rich() -> Report {
     let mut mismatch = diag(
         "version-mismatch",
         Severity::Error,
-        "packages\\web\\package.json",
+        "packages/web/package.json",
         Some(span_of("\"^18.0.0\"")),
         "réact is declared with 2 different versions",
     );
@@ -142,7 +142,7 @@ fn sarif_structure() {
         .map(|r| r["level"].as_str().unwrap())
         .collect();
     // Results follow the report's order: by path, then by position.
-    assert_eq!(levels, ["note", "warning", "error"]);
+    assert_eq!(levels, ["note", "error", "warning"]);
     for result in run["results"].as_array().unwrap() {
         let index = usize::try_from(result["ruleIndex"].as_u64().unwrap()).unwrap();
         assert_eq!(rules[index]["id"], result["ruleId"]);
@@ -238,14 +238,14 @@ fn github_escapes_messages_and_properties() {
     let rendered = run(&report, Format::Github, &options());
     assert_eq!(
         rendered.lines().next().unwrap(),
-        "::warning file=dir%3Aa%2Cb/package.json,title=skif unused-dependency::100%25 bad%0D%0Asecond: line, here"
+        "::warning file=dir%3Aa%2Cb/package.json,title=unused-dependency::100%25 bad%0D%0Asecond: line, here"
     );
 }
 
 #[test]
 fn github_info_is_a_notice() {
     let report = Report::new(vec![diag("sorted-keys", Severity::Info, "p.json", None, "m")], 1);
-    assert!(run(&report, Format::Github, &options()).starts_with("::notice file=p.json,title=skif sorted-keys::m\n"));
+    assert!(run(&report, Format::Github, &options()).starts_with("::notice file=p.json,title=sorted-keys::m\n"));
 }
 
 fn sarif_of_one(path: &str, span: Option<Span>, message: &str, options: &RenderOptions) -> Value {

@@ -3,7 +3,7 @@
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{is_relative, objects, package_name, strings};
+use crate::support::{is_relative, join_rel, objects, package_name, strings, strip_wildcard};
 
 /// The `typescript` plugin.
 pub struct Typescript;
@@ -76,11 +76,50 @@ impl Plugin for Typescript {
                 }
             }
         }
+        out.extend(paths(options, config));
+        if let (Some(out_dir), Some(root_dir)) = (
+            options.get("outDir").and_then(ConfigValue::as_str),
+            options.get("rootDir").and_then(ConfigValue::as_str),
+        ) {
+            out.push(PluginInput::BuildDir {
+                out_dir: config.join(out_dir),
+                root_dir: config.join(root_dir),
+            });
+        }
+        if let Some(conditions) = options.get("customConditions") {
+            out.extend(
+                strings(conditions)
+                    .into_iter()
+                    .map(|name| PluginInput::Condition(name.to_owned())),
+            );
+        }
         if options.get("importHelpers").and_then(ConfigValue::as_bool) == Some(true) {
             out.push(PluginInput::Dependency("tslib".to_string()));
         }
         out
     }
+}
+
+/// `compilerOptions.paths` as aliases. Targets are relative to `baseUrl`, or to the config file without one.
+fn paths(options: &ConfigValue, config: &ConfigAst<'_>) -> Vec<PluginInput> {
+    let Some(paths) = options.get("paths").and_then(ConfigValue::as_object) else {
+        return Vec::new();
+    };
+    let root = options.get("baseUrl").and_then(ConfigValue::as_str).unwrap_or(".");
+    let mut out = Vec::new();
+    for (key, targets) in paths {
+        let find = strip_wildcard(key);
+        if find.is_empty() {
+            continue;
+        }
+        for target in strings(targets) {
+            out.push(PluginInput::Alias {
+                find: find.to_owned(),
+                target: Some(config.join(&join_rel(root, strip_wildcard(target)))),
+            });
+        }
+    }
+    out
 }
 
 fn with_json_extension(path: &str) -> String {

@@ -3,7 +3,7 @@
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{entry_glob, module_input, name_of, objects, package_name, strings};
+use crate::support::{alias_inputs, entry_glob, get_in, module_input, name_of, objects, package_name, strings};
 
 /// The `vitest` plugin.
 pub struct Vitest;
@@ -57,6 +57,11 @@ fn collect(value: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<PluginInpu
         return;
     }
     for object in objects(value) {
+        for path in [["resolve", "alias"], ["test", "alias"]] {
+            if let Some(alias) = get_in(object, &path) {
+                out.extend(alias_inputs(alias, config));
+            }
+        }
         let Some(test) = object.get("test") else { continue };
         test_options(test, config, out);
         for key in ["workspace", "projects"] {
