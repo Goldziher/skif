@@ -27,14 +27,14 @@ unused-catalog-entries             catalog    warning  none       A catalog entr
 workspace-protocol                 policy     error    none       A dependency on a workspace package does not use the `workspace:` protocol.
 unsynced-dependency-family         policy     error    none       Members of a dependency family declared in one package are on different versions.
 unused-dependencies                js         error    unsafe     A package in `dependencies` is never imported, required or run by a script.
-unused-dev-dependencies            js         error    unsafe     A package in `devDependencies` is never imported, required or run by a script.
+unused-dev-dependencies            js         warning  unsafe     A package in `devDependencies` is never imported, required or run by a script.
 unlisted-dependencies              js         error    none       A file imports a package that neither its `package.json` nor the root `package.json` lists.
 unresolved-imports                 js         error    none       An import specifier does not resolve to a file or a package.
-unlisted-binaries                  js         error    none       A script runs a binary that no listed dependency provides.
+unlisted-binaries                  js         warning  none       A script runs a binary that no listed dependency provides.
 unused-optional-peer-dependencies  js         warning  none       An optional peer dependency is imported but not installed as a dependency or dev dependency.
-unused-files                       js         error    unsafe     A project file is not reachable from any entry file.
-unused-exports                     js         error    unsafe     An exported value is not imported by any other module.
-unused-types                       js         error    unsafe     An exported type or interface is not imported by any other module.
+unused-files                       js         warning  unsafe     A project file is not reachable from any entry file.
+unused-exports                     js         warning  unsafe     An exported value is not imported by any other module.
+unused-types                       js         warning  unsafe     An exported type or interface is not imported by any other module.
 unused-enum-members                js         warning  none       A member of an exported enum is never read.
 unused-namespace-members           js         warning  none       An exported member of a TypeScript namespace is never read.
 duplicate-exports                  js         warning  none       One binding is exported under several names.

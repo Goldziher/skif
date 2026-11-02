@@ -177,7 +177,7 @@ expression: json.stdout
     {
       "id": "unused-dev-dependencies",
       "category": "js",
-      "default": "error",
+      "default": "warning",
       "fixable": "unsafe",
       "summary": "A package in `devDependencies` is never imported, required or run by a script."
     },
@@ -198,7 +198,7 @@ expression: json.stdout
     {
       "id": "unlisted-binaries",
       "category": "js",
-      "default": "error",
+      "default": "warning",
       "fixable": "none",
       "summary": "A script runs a binary that no listed dependency provides."
     },
@@ -212,21 +212,21 @@ expression: json.stdout
     {
       "id": "unused-files",
       "category": "js",
-      "default": "error",
+      "default": "warning",
       "fixable": "unsafe",
       "summary": "A project file is not reachable from any entry file."
     },
     {
       "id": "unused-exports",
       "category": "js",
-      "default": "error",
+      "default": "warning",
       "fixable": "unsafe",
       "summary": "An exported value is not imported by any other module."
     },
     {
       "id": "unused-types",
       "category": "js",
-      "default": "error",
+      "default": "warning",
       "fixable": "unsafe",
       "summary": "An exported type or interface is not imported by any other module."
     },
