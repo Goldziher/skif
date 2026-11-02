@@ -185,6 +185,10 @@ impl FixRun {
     }
 }
 
+static NOTHING_FIXED: InstallStatus = InstallStatus::Skipped {
+    reason: "nothing was fixed",
+};
+
 /// The install status that stands for all roots: a failure, else a run, else the first skip.
 fn merged_install<'a>(runs: &[RootFix<'a>]) -> &'a InstallStatus {
     let installs = || runs.iter().map(|root| &root.run.install);
@@ -192,9 +196,7 @@ fn merged_install<'a>(runs: &[RootFix<'a>]) -> &'a InstallStatus {
         .find(|status| matches!(status, InstallStatus::Failed { .. }))
         .or_else(|| installs().find(|status| matches!(status, InstallStatus::Ran { .. })))
         .or_else(|| installs().next())
-        .unwrap_or(&InstallStatus::Skipped {
-            reason: "nothing was fixed",
-        })
+        .unwrap_or(&NOTHING_FIXED)
 }
 
 /// The `fix` object for the roots of a run: the run itself for one root at the base, otherwise the applied and
