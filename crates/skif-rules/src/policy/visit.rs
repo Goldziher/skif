@@ -6,6 +6,8 @@
 //! * there is no strict mode: on a dependency that names a workspace package, a `workspace:` specifier, `*`/`latest`
 //!   and a `link:`/`file:` path that resolves to the package are always valid, as is any range the package's own
 //!   version satisfies (path specifiers are the business of `local-path-dependency`);
+//! * a `workspace:` specifier is never rewritten to a registry range, and never the target of one: where the package
+//!   has no version to align with, such instances take no part in the alignment;
 //! * instances using the `catalog:` protocol are left to the catalog rules: they never get a state here and take no
 //!   part in a preferred-semver group, whose other members still align with each other;
 //! * `latest` and dist-tags are never the target of an alignment: next to a version they are an unfixable
@@ -318,7 +320,13 @@ impl<'a, 'w> Visitor<'a, 'w> {
             }
             return;
         }
-        let members = self.members(ids);
+        // Without a version to align with, a `workspace:` specifier is neither a target nor a mismatch: the
+        // protocol is never rewritten to a registry range, nor a registry range to the protocol.
+        let members: Vec<InstanceId> = self
+            .members(ids)
+            .into_iter()
+            .filter(|&id| !self.spec(id).is_workspace_protocol())
+            .collect();
         self.align_to_extreme(&members, prefer);
     }
 
@@ -660,6 +668,25 @@ mod tests {
                 one("app", "lib", "DependsOnInvalidLocalPackage"),
                 one("lib", "lib", "InvalidLocalVersion"),
             ]
+        );
+    }
+
+    #[test]
+    fn the_workspace_protocol_is_never_aligned_with_registry_ranges() {
+        let lib = r#"{"name":"lib"}"#;
+        let app = manifest("app", "1.0.0", r#""lib":"workspace:^1.2.0""#);
+        let tool = manifest("tool", "1.0.0", r#""lib":"^1.0.0""#);
+        let other = manifest("other", "1.0.0", r#""lib":"^1.1.0""#);
+        let members = [
+            ("app", app.as_str()),
+            ("lib", lib),
+            ("other", other.as_str()),
+            ("tool", tool.as_str()),
+        ];
+        assert_eq!(
+            states("", &members),
+            [one("tool", "lib", "DiffersToHighestOrLowestSemver")],
+            "only the registry ranges align with each other"
         );
     }
 
