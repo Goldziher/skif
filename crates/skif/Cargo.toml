@@ -72,6 +72,10 @@ required-features = ["fix"]
 name = "js"
 required-features = ["js-analysis"]
 
+[[test]]
+name = "docs"
+required-features = ["js-analysis"]
+
 # The fixtures edit `pnpm-workspace.yaml` catalogs as well as manifests.
 [[test]]
 name = "policy_conformance"

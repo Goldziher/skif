@@ -128,3 +128,50 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
+
+## knip
+
+A tool that finds unused files, exports and dependencies in JavaScript and TypeScript projects. skif's JS
+analysis follows its semantics and its plugin set; the behaviour is re-implemented in Rust on oxc, and no knip
+source file is copied, apart from the data noted below.
+
+- **Source**: <https://github.com/webpro-nl/knip>
+- **Upstream commit**: `da07b6e9887f9a1eb08545da29755b7f9d309bca`
+- **License**: ISC
+- **Authors**: Lars Kappert and the knip contributors
+- **Copyright**: Copyright (c) 2022-2026 Lars Kappert
+- **Location**: `crates/skif-js` (issue types, module graph and usage rules) and `crates/skif-js-plugins` (the
+  plugin table, entry patterns and configuration readers)
+- **Purpose**: Unused and unlisted dependency, unused export, unresolved import and dead file analysis.
+
+### Modifications
+
+- The behaviour of knip's issue types, plugins and production mode is re-implemented in Rust; no TypeScript
+  source is translated line by line.
+- Analysis is static: configuration files are read with oxc, never executed, and tools are not run to ask for
+  their entries.
+- The list of binaries that are never reported as unlisted is adapted from knip's `constants.ts`.
+- The plugin table is declarative data with optional resolvers, keyed by the same plugin names as knip.
+- Rule ids, severities and configuration (`skif.toml`) are skif's own.
+
+### License Compatibility
+
+ISC is permissive and compatible with skif's MIT license. The upstream license text follows.
+
+```text
+ISC License
+
+Copyright (c) 2022-2026 Lars Kappert
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```

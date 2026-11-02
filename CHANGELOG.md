@@ -9,14 +9,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-skif has not been released. 0.1.0 will be the first, complete release.
-
-### Changed
-
-- **The project is renamed to skif.** It continues as an independent Rust dependency linter for
-  JavaScript and TypeScript monorepos, hosted at `github.com/Goldziher/skif`.
-- **The code is a library-first workspace** of `skif-*` crates with a thin `skif` command line on top.
-  Architecture decisions are recorded in `adrs/`.
+skif has not been released. 0.1.0 will be the first release and will contain everything listed here.
 
 ### Added
 
@@ -26,9 +19,27 @@ skif has not been released. 0.1.0 will be the first, complete release.
   `root-package-private-field`, `types-in-dependencies`, `unmatched-workspace-patterns` and
   `unsorted-dependencies`.
 - **Version, semver-range and catalog policies**: version groups, semver groups, banned dependencies,
-  dependency families, workspace-protocol and catalog rules (see `docs/rules.md` for all 23 rules).
-- **Catalog resolution** for pnpm, package.json and bun catalogs, so `catalog:` specifiers are resolved
-  rather than treated as opaque strings.
-- **Recursive workspace globs** (`**`) are expanded with pnpm semantics.
-- **JSON output** for machine consumers, plus SARIF and GitHub annotation renderers in `skif-report`.
-- **`skif.toml` configuration**, `skif init` and `skif schema`.
+  dependency families, workspace-protocol and catalog rules, with catalog resolution for pnpm, package.json
+  and bun catalogs and recursive workspace globs (`**`) with pnpm semantics.
+- **JS analysis on oxc** with 13 rules: `unused-files`, `unused-dependencies`, `unused-dev-dependencies`,
+  `unused-optional-peer-dependencies`, `unlisted-dependencies`, `unlisted-binaries`, `unresolved-imports`,
+  `unused-exports`, `unused-types`, `unused-enum-members`, `unused-namespace-members`, `duplicate-exports` and
+  `circular-imports`. Unused files, exports, types and dev dependencies default to warnings. Production mode,
+  `--no-js` and `[js]` settings per workspace are supported.
+- **A plugin table** that reads the static configuration of common tools to find entry files and the
+  dependencies they use, without running any tool.
+- **Output formats**: human, JSON, SARIF and GitHub annotations, selected with `--format`.
+- **Atomic fixes**: `--fix` and `--fix-unsafe` plan all edits first, write them atomically and lint again;
+  edits keep key order, indentation and newline style. `--fix` runs the package manager's install unless
+  `--no-install` is given.
+- **`skif.toml` configuration** with a committed JSON Schema (`skif schema`), `skif init` and `skif rules`.
+- **npm package as a napi-rs addon** for Node 24+ and Bun on macOS and Linux (glibc and musl), plus release
+  archives for Windows, `cargo binstall`, Homebrew and Scoop.
+- **Git hooks** for pre-commit, Poly and Lefthook, and a GitHub Action (`Goldziher/skif@v0`).
+
+### Changed
+
+- **The project is renamed to skif.** It continues as an independent Rust dependency linter for
+  JavaScript and TypeScript monorepos, hosted at `github.com/Goldziher/skif`.
+- **The code is a library-first workspace** of `skif-*` crates with a thin `skif` command line on top.
+  Architecture decisions are recorded in `adrs/`.
