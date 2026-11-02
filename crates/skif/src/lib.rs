@@ -28,17 +28,23 @@
 //! | --- | --- | --- |
 //! | `manifest` | yes | the manifest rules |
 //! | `policy` | yes | version, semver and catalog policies |
-//! | `js-analysis` | no | reserved for the oxc based analysis |
+//! | `js-analysis` | no | the oxc based JS and TypeScript analysis and the plugin table (`Linter` adds it to the built-in rules) |
 //! | `fix` | no | `apply_fixes` and `FixPlan` |
 //! | `yaml-fix` | no | YAML edits for `pnpm-workspace.yaml` (implies `fix`) |
-//! | `report` | no | the human and JSON renderers, as `skif::render` |
+//! | `report` | no | the human, JSON, SARIF and GitHub renderers, as `skif::render` |
 //! | `schema` | no | `config_schema` |
 //!
-//! No `oxc`, `serde_json::Value`, `toml::Value`, `nodejs_semver` or `rayon` type appears in a public signature.
+//! No `oxc`, `nodejs_semver` or `rayon` type appears in a public signature. Two data-model types remain public on
+//! purpose (ADR 0003, ADR 0008): [`JsonAction`] and [`YamlAction`] carry a `serde_json::Value`, because a fix is
+//! data a host may serialize, and [`RuleProvider::validate_options`] receives the `toml::Table` of a rule's options,
+//! because a rule's options are TOML in `skif.toml`. The renderers that take `serde_json` members
+//! (`render_json_with`) are not part of the facade; only the fixed renderers are re-exported as [`render`].
 
 mod error;
 #[cfg(feature = "fix")]
 mod fix;
+#[cfg(feature = "js-analysis")]
+mod js;
 mod linter;
 mod root;
 
@@ -62,9 +68,14 @@ pub use skif_lint::{
 };
 pub use skif_workspace::{Package, PackageId, Workspace, WorkspaceError};
 
-/// The human and JSON renderers of [`Report`]s.
+/// The renderers of [`Report`]s: human, JSON, SARIF and GitHub annotations.
 #[cfg(feature = "report")]
-pub use skif_report as render;
+pub mod render {
+    pub use skif_report::{
+        ErrorInfo, Format, RenderOptions, SCHEMA_VERSION, render, render_github, render_human, render_json,
+        render_json_error, render_json_error_info, render_sarif,
+    };
+}
 
 /// The JSON Schema of `skif.toml`, pretty printed.
 #[cfg(feature = "schema")]

@@ -52,3 +52,12 @@ fn nothing_declaring_a_workspace_is_an_error() {
     let error = find_workspace_root(Path::new("/empty"), &fs).unwrap_err();
     assert!(matches!(error, Error::NoWorkspace(_)), "{error}");
 }
+
+#[test]
+fn relative_start_paths_are_rejected() {
+    let fs = MemoryFs::new().with_file("/repo/package.json", r#"{"workspaces": ["*"]}"#);
+    for start in ["", ".", "packages/a", "../repo"] {
+        let error = find_workspace_root(Path::new(start), &fs).unwrap_err();
+        assert!(matches!(error, Error::RelativePath(_)), "{start}: {error}");
+    }
+}

@@ -201,9 +201,25 @@ impl PlanFailure {
 
 /// What the accepted fixes do to one file.
 enum Entry<'a> {
-    Edit(Vec<&'a FixOp>),
+    /// The operations of every accepted fix (identical ones once) and the edits they planned to, sorted by position.
+    Edit {
+        ops: Vec<&'a FixOp>,
+        edits: Vec<TextEdit>,
+    },
     Create(&'a str),
     Delete,
+}
+
+/// The effect one fix has on one file, computed before anything is accepted.
+enum Staged<'a> {
+    Edit {
+        ops: Vec<&'a FixOp>,
+        edits: Vec<TextEdit>,
+    },
+    Create(&'a str),
+    Delete,
+    /// Everything the fix does to the file is already in the plan.
+    Nothing,
 }
 
 struct Planner<'a> {
@@ -213,15 +229,41 @@ struct Planner<'a> {
     entries: BTreeMap<PathBuf, Entry<'a>>,
 }
 
-fn op_path(op: &FixOp) -> &Path {
+fn op_path(op: &FixOp) -> Option<&Path> {
     match op {
         FixOp::Json { path, .. }
         | FixOp::Yaml { path, .. }
         | FixOp::Text { path, .. }
         | FixOp::CreateFile { path, .. }
-        | FixOp::DeleteFile { path } => path,
-        _ => Path::new(""),
+        | FixOp::DeleteFile { path } => Some(path),
+        _ => None,
     }
+}
+
+/// Whether two edits replace overlapping ranges; touching ranges and inserts at a range boundary do not overlap.
+const fn overlaps(first: &TextEdit, second: &TextEdit) -> bool {
+    first.start < second.end && second.start < first.end
+}
+
+/// Whether `edit` collides with a different edit of `accepted` (sorted by position, pairwise non-overlapping).
+fn collides(accepted: &[TextEdit], edit: &TextEdit) -> bool {
+    let first = accepted.partition_point(|other| other.end <= edit.start);
+    accepted
+        .get(first)
+        .is_some_and(|other| other != edit && overlaps(other, edit))
+}
+
+fn contains(accepted: &[TextEdit], edit: &TextEdit) -> bool {
+    let first = accepted.partition_point(|other| (other.start, other.end) < (edit.start, edit.end));
+    accepted[first..]
+        .iter()
+        .take_while(|other| (other.start, other.end) == (edit.start, edit.end))
+        .any(|other| other == edit)
+}
+
+fn insert_sorted(accepted: &mut Vec<TextEdit>, edit: TextEdit) {
+    let at = accepted.partition_point(|other| (other.start, other.end) <= (edit.start, edit.end));
+    accepted.insert(at, edit);
 }
 
 impl<'a> Planner<'a> {
@@ -241,18 +283,20 @@ impl<'a> Planner<'a> {
     fn try_add(&mut self, fix: &'a Fix) -> Result<(), SkipReason> {
         let mut by_file: BTreeMap<&Path, Vec<&'a FixOp>> = BTreeMap::new();
         for op in &fix.ops {
-            by_file.entry(op_path(op)).or_default().push(op);
+            let path = op_path(op).ok_or_else(|| SkipReason::Failed("unsupported operation".to_owned()))?;
+            by_file.entry(path).or_default().push(op);
         }
-        let mut next: Vec<(PathBuf, Entry<'a>)> = Vec::new();
+        let mut staged: Vec<(PathBuf, Staged<'a>)> = Vec::new();
         for (path, ops) in by_file {
-            let entry = self.combine(path, &ops)?;
-            next.push((path.to_path_buf(), entry));
+            staged.push((path.to_path_buf(), self.stage(path, &ops)?));
         }
-        self.entries.extend(next);
+        for (path, change) in staged {
+            self.commit(path, change);
+        }
         Ok(())
     }
 
-    fn combine(&mut self, path: &Path, ops: &[&'a FixOp]) -> Result<Entry<'a>, SkipReason> {
+    fn stage(&mut self, path: &Path, ops: &[&'a FixOp]) -> Result<Staged<'a>, SkipReason> {
         let conflict = |what: &str| SkipReason::Conflict(format!("{}: {what}", path.display()));
         let creates = ops.iter().copied().find_map(|op| match op {
             FixOp::CreateFile { contents, .. } => Some(contents.as_str()),
@@ -265,43 +309,101 @@ impl<'a> Planner<'a> {
         let existing = self.entries.get(path);
         match (creates, deletes, edits) {
             (Some(contents), false, false) => match existing {
-                None => Ok(Entry::Create(contents)),
+                None if self.fs.is_file(&self.root.join(path)) => Err(SkipReason::Failed(format!(
+                    "{}: cannot create a file that already exists",
+                    path.display()
+                ))),
+                None => Ok(Staged::Create(contents)),
+                Some(Entry::Create(earlier)) if *earlier == contents => Ok(Staged::Nothing),
                 Some(_) => Err(conflict("another fix already touches a file this fix creates")),
             },
             (None, true, false) => match existing {
-                None | Some(Entry::Delete) => Ok(Entry::Delete),
+                None => Ok(Staged::Delete),
+                Some(Entry::Delete) => Ok(Staged::Nothing),
                 Some(_) => Err(conflict("another fix already touches a file this fix deletes")),
             },
-            (None, false, true) => {
-                let mut combined: Vec<&'a FixOp> = match existing {
-                    None => Vec::new(),
-                    Some(Entry::Edit(earlier)) => earlier.clone(),
-                    Some(_) => return Err(conflict("another fix creates or deletes a file this fix edits")),
-                };
-                combined.extend(ops.iter().copied());
-                self.plan(path, &combined).map_err(|failure| failure.into_skip(path))?;
-                Ok(Entry::Edit(combined))
-            }
+            (None, false, true) => self.stage_edits(path, ops),
             _ => Err(conflict("a single fix mixes creating, deleting and editing one file")),
         }
     }
 
+    /// Plans the operations of one fix on their own, then checks the result against the edits already accepted.
+    fn stage_edits(&mut self, path: &Path, ops: &[&'a FixOp]) -> Result<Staged<'a>, SkipReason> {
+        let conflict = |what: &str| SkipReason::Conflict(format!("{}: {what}", path.display()));
+        let fresh: Vec<&'a FixOp> = {
+            let earlier: &[&FixOp] = match self.entries.get(path) {
+                None => &[],
+                Some(Entry::Edit { ops, .. }) => ops.as_slice(),
+                Some(_) => return Err(conflict("another fix creates or deletes a file this fix edits")),
+            };
+            let mut fresh: Vec<&'a FixOp> = Vec::new();
+            for &op in ops {
+                if !earlier.contains(&op) && !fresh.contains(&op) {
+                    fresh.push(op);
+                }
+            }
+            fresh
+        };
+        if fresh.is_empty() {
+            return Ok(Staged::Nothing);
+        }
+        let planned = self.plan(path, &fresh).map_err(|failure| failure.into_skip(path))?;
+        let accepted: &[TextEdit] = match self.entries.get(path) {
+            Some(Entry::Edit { edits, .. }) => edits.as_slice(),
+            _ => &[],
+        };
+        let edits: Vec<TextEdit> = planned.into_iter().filter(|edit| !contains(accepted, edit)).collect();
+        if edits.iter().any(|edit| collides(accepted, edit)) {
+            return Err(conflict("the edits overlap an earlier fix"));
+        }
+        Ok(Staged::Edit { ops: fresh, edits })
+    }
+
+    fn commit(&mut self, path: PathBuf, change: Staged<'a>) {
+        match change {
+            Staged::Nothing => {}
+            Staged::Create(contents) => {
+                self.entries.insert(path, Entry::Create(contents));
+            }
+            Staged::Delete => {
+                self.entries.insert(path, Entry::Delete);
+            }
+            Staged::Edit { ops, edits } => match self.entries.entry(path) {
+                std::collections::btree_map::Entry::Occupied(mut occupied) => {
+                    if let Entry::Edit {
+                        ops: accepted_ops,
+                        edits: accepted_edits,
+                    } = occupied.get_mut()
+                    {
+                        accepted_ops.extend(ops);
+                        edits.into_iter().for_each(|edit| insert_sorted(accepted_edits, edit));
+                    }
+                }
+                std::collections::btree_map::Entry::Vacant(vacant) => {
+                    let mut sorted = Vec::with_capacity(edits.len());
+                    edits.into_iter().for_each(|edit| insert_sorted(&mut sorted, edit));
+                    vacant.insert(Entry::Edit { ops, edits: sorted });
+                }
+            },
+        }
+    }
+
+    /// The text edits `ops` amount to over the current contents of `path`.
     fn plan(&mut self, path: &Path, ops: &[&FixOp]) -> Result<Vec<TextEdit>, PlanFailure> {
-        let kind = FileKind::from_path(path).ok_or_else(|| PlanFailure::Other("unsupported file type".to_owned()))?;
         let source = self.source(path).map_err(PlanFailure::Other)?;
-        plan_edits(&source, kind, ops).map_err(|error| match error {
-            EditPlanError::Conflict { .. } => PlanFailure::Conflict(error.to_string()),
-            _ => PlanFailure::Other(error.to_string()),
-        })
+        match FileKind::from_path(path) {
+            Some(kind) => plan_edits(&source, kind, ops).map_err(plan_failure),
+            None => text_edits(&source, ops),
+        }
     }
 
     fn finish(mut self) -> Result<Vec<FileChange>, FixError> {
         let entries = std::mem::take(&mut self.entries);
         let mut changes = Vec::with_capacity(entries.len());
         for (path, entry) in entries {
-            let plan_error = |failure: PlanFailure| FixError::Plan {
+            let plan_error = |message: String| FixError::Plan {
                 path: path.clone(),
-                message: failure.message().to_owned(),
+                message,
             };
             changes.push(match entry {
                 Entry::Create(contents) => FileChange::Create {
@@ -309,15 +411,13 @@ impl<'a> Planner<'a> {
                     contents: contents.to_owned(),
                 },
                 Entry::Delete => FileChange::Delete { path: path.clone() },
-                Entry::Edit(ops) => {
-                    let edits = self.plan(&path, &ops).map_err(plan_error)?;
-                    let source = self
-                        .source(&path)
-                        .map_err(|message| plan_error(PlanFailure::Other(message)))?;
-                    let new_contents = apply_text_edits(&source, &edits).map_err(|error| FixError::Plan {
-                        path: path.clone(),
-                        message: error.to_string(),
-                    })?;
+                Entry::Edit { ops, edits } => {
+                    let source = self.source(&path).map_err(plan_error)?;
+                    if let Some(kind) = FileKind::from_path(&path) {
+                        skif_edit::apply(&source, kind, &ops).map_err(|error| plan_error(error.to_string()))?;
+                    }
+                    let new_contents =
+                        apply_text_edits(&source, &edits).map_err(|error| plan_error(error.to_string()))?;
                     FileChange::Modify {
                         path: path.clone(),
                         edits,
@@ -330,46 +430,65 @@ impl<'a> Planner<'a> {
     }
 }
 
+fn plan_failure(error: EditPlanError) -> PlanFailure {
+    match error {
+        EditPlanError::Conflict { .. } => PlanFailure::Conflict(error.to_string()),
+        _ => PlanFailure::Other(error.to_string()),
+    }
+}
+
+/// Edits of a file that is neither JSON nor YAML: only byte-range text operations apply, and they must fit the file.
+fn text_edits(source: &str, ops: &[&FixOp]) -> Result<Vec<TextEdit>, PlanFailure> {
+    let edits: Vec<TextEdit> = ops
+        .iter()
+        .map(|op| match op {
+            FixOp::Text { edit, .. } => Ok(edit.clone()),
+            _ => Err(PlanFailure::Other("unsupported file type".to_owned())),
+        })
+        .collect::<Result<_, _>>()?;
+    apply_text_edits(source, &edits).map_err(|error| PlanFailure::Other(error.to_string()))?;
+    Ok(edits)
+}
+
 enum Pick<'a> {
     Fix(&'a Fix),
     Skip(SkipReason),
 }
 
 fn pick<'a>(selection: &FixSelection, index: usize, diagnostic: &'a Diagnostic) -> Pick<'a> {
-    let chosen = match selection.choices.get(&index) {
-        Some(&fix) => match diagnostic.fixes.get(fix) {
-            Some(fix) => fix,
-            None => return Pick::Skip(SkipReason::Failed(format!("diagnostic has no fix number {fix}"))),
-        },
-        None => match (diagnostic.fixes.as_slice(), selection.alternatives) {
-            ([only], _) => only,
-            ([first, ..], Alternatives::First) => first,
-            (fixes, _) => {
-                return Pick::Skip(SkipReason::NeedsChoice {
-                    alternatives: fixes.iter().map(|fix| fix.title.clone()).collect(),
-                });
-            }
-        },
-    };
-    if selection.allows(chosen.safety) {
-        Pick::Fix(chosen)
-    } else {
-        Pick::Skip(SkipReason::Safety(chosen.safety))
+    if let Some(&number) = selection.choices.get(&index) {
+        return match diagnostic.fixes.get(number) {
+            Some(chosen) if selection.allows(chosen.safety) => Pick::Fix(chosen),
+            Some(chosen) => Pick::Skip(SkipReason::Safety(chosen.safety)),
+            None => Pick::Skip(SkipReason::Failed(format!("diagnostic has no fix number {number}"))),
+        };
+    }
+    let allowed: Vec<&Fix> = diagnostic.fixes.iter().filter(|fix| selection.allows(fix.safety)).collect();
+    match (allowed.as_slice(), diagnostic.fixes.first()) {
+        ([only], _) => Pick::Fix(*only),
+        ([first, ..], _) if selection.alternatives == Alternatives::First => Pick::Fix(*first),
+        ([], Some(first)) => Pick::Skip(SkipReason::Safety(first.safety)),
+        (alternatives, _) => Pick::Skip(SkipReason::NeedsChoice {
+            alternatives: alternatives.iter().map(|fix| fix.title.clone()).collect(),
+        }),
     }
 }
 
 /// Plans the fixes `selection` picks from `report` and returns them as data; the file system is only read.
 ///
-/// For each diagnostic in report order the pick is: the explicit choice, else the only fix, else (for several
-/// alternatives) the first when [`Alternatives::First`], else a [`SkipReason::NeedsChoice`] skip. A fix over the safety
-/// ceiling is skipped, a fix that overlaps an earlier accepted fix is skipped as a conflict (the earlier wins), and
-/// all operations of one file are planned together into a single [`FileChange::Modify`], so bytes outside every
-/// edit are unchanged. Paths in the plan are relative to the workspace root; resolve them against `workspace.root`
-/// to write them.
+/// For each diagnostic in report order the pick is: the explicit choice, else the only fix the safety ceiling allows,
+/// else (for several allowed alternatives) the first when [`Alternatives::First`], else a [`SkipReason::NeedsChoice`]
+/// skip. A diagnostic whose fixes all exceed the ceiling is skipped with [`SkipReason::Safety`]. Each accepted fix
+/// is planned on its own against the file as it is on disk (a fix whose edits do not fit is skipped, the others are
+/// unaffected); a fix whose edits overlap an earlier accepted fix is skipped as a conflict (the earlier wins) and
+/// operations or edits that two fixes share count once. The edits of one file become a single
+/// [`FileChange::Modify`], so bytes outside every edit are unchanged, and a `CreateFile` over an existing file is
+/// skipped. Paths in the plan are relative to the workspace root; resolve them against `workspace.root` to write
+/// them.
 ///
 /// # Errors
 /// [`FixError::Plan`] when the accepted fixes of a file cannot be turned into contents (not expected: each fix is
-/// validated against the earlier ones before it is accepted).
+/// validated against the file before it is accepted).
 ///
 /// # Examples
 /// ```
