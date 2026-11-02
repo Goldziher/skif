@@ -24,7 +24,7 @@ pub use model::{
     PluginOptions, Policy, Prefer, SemverGroup, SemverRange, VersionGroup, VersionPolicy, Workspace, WorkspaceProtocol,
 };
 pub use overrides::ConfigOverrides;
-pub use rules::{ForbidMode, Level, MemberToolchainFieldsOptions, RuleConfig, RuleOptions, UnusedExportsOptions};
+pub use rules::{Level, RuleConfig, RuleOptions};
 #[cfg(feature = "schema")]
 pub use schema::json_schema;
 pub use selector::{LOCAL, Selector};

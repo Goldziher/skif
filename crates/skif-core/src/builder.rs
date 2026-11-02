@@ -1,5 +1,6 @@
 use crate::diagnostic::Diagnostic;
 use crate::fix::Fix;
+use crate::package_id::PackageId;
 use crate::rule::{RuleId, RuleMeta, Severity};
 use crate::span::{Location, Related};
 
@@ -16,6 +17,7 @@ pub fn diagnostic(meta: &'static RuleMeta, message: impl Into<String>, location:
             location,
             related: Vec::new(),
             package: None,
+            package_id: None,
             dependency: None,
             detail: None,
             fixes: Vec::new(),
@@ -34,6 +36,12 @@ impl DiagnosticBuilder {
     /// Names the package the diagnostic belongs to (its display name).
     pub fn package(mut self, package: impl Into<String>) -> Self {
         self.inner.package = Some(package.into());
+        self
+    }
+
+    /// Identifies the package the diagnostic belongs to; suppressions prefer this over the display name.
+    pub const fn package_id(mut self, id: PackageId) -> Self {
+        self.inner.package_id = Some(id);
         self
     }
 

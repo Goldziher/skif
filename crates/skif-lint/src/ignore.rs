@@ -6,8 +6,8 @@ use skif_workspace::{PackageId, Workspace};
 
 /// `[[ignore]]` entries and `workspace.ignore-packages`, resolved against a workspace.
 ///
-/// Packages are resolved to [`PackageId`]s once; every per-diagnostic check afterwards is a lookup of the
-/// diagnostic's package name and an index into a vector, with no pattern matching on the package side.
+/// Packages are resolved to [`PackageId`]s once; every per-diagnostic check afterwards is an index into a vector
+/// by the diagnostic's [`PackageId`], or, for diagnostics that only carry a display name, a lookup of that name.
 #[derive(Debug)]
 pub struct Suppressions {
     /// Display name to the packages carrying it (names are not guaranteed unique).
@@ -60,9 +60,12 @@ impl Suppressions {
         self.entries.iter().any(|entry| self.entry_matches(entry, diagnostic))
     }
 
-    /// Whether the diagnostic's package is flagged in `flags`; a name shared by several packages needs all of them
-    /// flagged, since the diagnostic cannot tell them apart.
+    /// Whether the diagnostic's package is flagged in `flags`. A diagnostic with a [`PackageId`] is looked up by it;
+    /// one with only a display name needs every package of that name flagged, since it cannot tell them apart.
     fn package_flag(&self, diagnostic: &Diagnostic, flags: &[bool]) -> bool {
+        if let Some(id) = diagnostic.package_id {
+            return flags.get(id.index()).copied().unwrap_or(false);
+        }
         diagnostic
             .package
             .as_deref()
@@ -234,6 +237,45 @@ mod tests {
             Some("dup"),
             None
         ));
+    }
+
+    #[test]
+    fn package_id_tells_apart_packages_sharing_a_name() {
+        let config = Config::from_toml_str("[workspace]\nignore-packages = [\"p/dup1\"]\n").unwrap();
+        let workspace = workspace(&config);
+        let suppressions = Suppressions::new(&workspace, &config);
+        let id_of = |dir: &str| {
+            workspace
+                .iter()
+                .find(|(_, package)| package.dir == Path::new(dir))
+                .map(|(id, _)| id)
+                .unwrap()
+        };
+        let with_id = |id| {
+            let mut diagnostic = make(Some("dup"), None);
+            diagnostic.package_id = Some(id);
+            diagnostic
+        };
+        assert!(suppressions.suppresses(&with_id(id_of("p/dup1"))));
+        assert!(!suppressions.suppresses(&with_id(id_of("p/dup2"))));
+        assert!(
+            !suppressions.suppresses(&make(Some("dup"), None)),
+            "name alone stays ambiguous"
+        );
+    }
+
+    #[test]
+    fn package_id_wins_over_a_conflicting_display_name() {
+        let config = Config::from_toml_str("[workspace]\nignore-packages = [\"a\"]\n").unwrap();
+        let workspace = workspace(&config);
+        let suppressions = Suppressions::new(&workspace, &config);
+        let (id, _) = workspace
+            .iter()
+            .find(|(_, package)| package.display_name() == "a")
+            .unwrap();
+        let mut diagnostic = make(Some("something-else"), None);
+        diagnostic.package_id = Some(id);
+        assert!(suppressions.suppresses(&diagnostic));
     }
 
     #[test]
