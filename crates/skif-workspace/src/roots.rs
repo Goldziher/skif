@@ -128,8 +128,12 @@ fn scan(fs: &dyn FileSystem, start: &Path, max_depth: usize) -> Scan {
     found
 }
 
-/// The member directories of the workspace at `root`; empty when it cannot be discovered (the lint reports why).
-fn member_dirs(fs: &dyn FileSystem, root: &Path) -> BTreeSet<PathBuf> {
+/// The absolute directories of the members of the workspace at `root` (the root excluded), as its patterns select
+/// them with `ignore-packages` not applied.
+///
+/// Empty when the workspace cannot be discovered; linting it reports why.
+#[must_use]
+pub fn workspace_member_dirs(fs: &dyn FileSystem, root: &Path) -> BTreeSet<PathBuf> {
     Workspace::discover_with_fs(root, &Config::default(), fs)
         .map(|workspace| workspace.packages.iter().map(|package| root.join(&package.dir)).collect())
         .unwrap_or_default()
@@ -171,7 +175,7 @@ pub fn discover_roots(start: &Path, fs: &dyn FileSystem, options: &DiscoverOptio
         if members.contains(workspace) {
             continue;
         }
-        members.extend(member_dirs(fs, workspace));
+        members.extend(workspace_member_dirs(fs, workspace));
         roots.push(RootKind::Workspace(workspace.clone()));
     }
     for package in &found.packages {
@@ -253,6 +257,20 @@ mod tests {
             .with_file("/r/packages/a/package.json", r#"{"name": "a"}"#)
             .with_file("/r/examples/e/package.json", r#"{"name": "e"}"#);
         assert_eq!(discover(&fs), ["ws:/r", "pkg:/r/examples/e"]);
+    }
+
+    #[test]
+    fn unrelated_projects_below_a_workspace_that_does_not_list_them_are_roots() {
+        let fs = MemoryFs::new()
+            .with_file("/r/package.json", r#"{"workspaces": ["x/dist"]}"#)
+            .with_file("/r/x/dist/package.json", r#"{"name": "x"}"#)
+            .with_file("/r/projects/p/package.json", r#"{"name": "p"}"#)
+            .with_file("/r/projects/q/package.json", r#"{"workspaces": ["pkgs/*"]}"#)
+            .with_file("/r/projects/q/pkgs/m/package.json", r#"{"name": "m"}"#);
+        assert_eq!(
+            discover(&fs),
+            ["ws:/r", "pkg:/r/projects/p", "ws:/r/projects/q"]
+        );
     }
 
     #[test]
