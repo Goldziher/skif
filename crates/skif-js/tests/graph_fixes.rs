@@ -478,3 +478,69 @@ fn unparseable_files_are_reported_instead_of_silently_empty() {
             .all(|d| d.rule.as_str() != "unparseable-files" || d.severity == Severity::Warning)
     );
 }
+
+const STYLE_PACKAGE: (&str, &str) = (
+    "package.json",
+    r#"{"name":"app","private":true,"main":"src/main.tsx","dependencies":{"tailwindcss":"4","tw-animate-css":"1","@fontsource-variable/geist":"5","sass-pkg":"1","modules-pkg":"1"},"devDependencies":{"shadcn":"1"}}"#,
+);
+
+#[test]
+fn stylesheet_imports_count_as_dependency_usage() {
+    let diagnostics = lint_files(
+        &[
+            STYLE_PACKAGE,
+            ("src/main.tsx", "import './index.css';\nexport {};\n"),
+            (
+                "src/index.css",
+                "@import \"tailwindcss\";\n@import \"tw-animate-css\";\n@import \"shadcn/tailwind.css\";\n@import \"@fontsource-variable/geist\";\n@source \"../node_modules/ignored\";\n",
+            ),
+        ],
+        "",
+    );
+    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: sass-pkg", "package.json: modules-pkg"]);
+    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none());
+    assert_eq!(found(&diagnostics, "unresolved-imports"), none());
+}
+
+#[test]
+fn stylesheet_chains_scss_modules_and_commented_imports() {
+    let diagnostics = lint_files(
+        &[
+            STYLE_PACKAGE,
+            (
+                "src/main.tsx",
+                "import './chain.css';\nimport styles from './box.module.css';\nimport './theme.scss';\nexport const s = styles;\n",
+            ),
+            (
+                "src/chain.css",
+                "@import url(\"./second.css\");\n/* @import \"missing-package\"; */\n.a { background: url(\"./not-there.png\"); }\n@import \"tailwindcss\";\n@import \"tw-animate-css\";\n@import \"shadcn/tailwind.css\";\n@import \"@fontsource-variable/geist\";\n",
+            ),
+            ("src/second.css", "@import './third.css' layer(base);\n"),
+            ("src/third.css", ".t { color: red; }\n"),
+            ("src/box.module.css", ".a { composes: b from \"./base.module.css\"; }\n"),
+            ("src/base.module.css", ".b { color: red; }\n.c { composes: d from \"modules-pkg/x.css\"; }\n"),
+            (
+                "src/theme.scss",
+                "@use \"sass:math\";\n@use \"sass-pkg\";\n@use \"partial\";\n",
+            ),
+            ("src/_partial.scss", "$x: 1;\n"),
+        ],
+        "",
+    );
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none());
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+    assert_eq!(found(&diagnostics, "unresolved-imports"), none());
+}
+
+#[test]
+fn unresolvable_stylesheet_imports_are_reported_but_assets_are_not() {
+    let diagnostics = lint_files(
+        &[
+            STYLE_PACKAGE,
+            ("src/main.tsx", "import './a.css';\nexport {};\n"),
+            ("src/a.css", "@import \"./gone.css\";\n.x { background: url(\"./gone.png\"); }\n"),
+        ],
+        "",
+    );
+    assert_eq!(found(&diagnostics, "unresolved-imports"), ["src/a.css: ./gone.css"]);
+}

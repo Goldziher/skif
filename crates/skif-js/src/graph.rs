@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use globset::GlobBuilder;
 use rayon::prelude::*;
 use skif_core::FileSystem;
-use skif_js_syntax::{ImportKind, ModuleInfo, ParseOptions, parse_module};
+use skif_js_syntax::{ImportKind, ModuleInfo, ParseOptions, is_stylesheet, parse_module, parse_stylesheet};
 use skif_workspace::PackageId;
 
 use crate::discover::{Candidate, relative};
@@ -224,7 +224,13 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
         Ok(source) => source,
         Err(error) => return failed(error.to_string()),
     };
-    let mut info = match parse_module(path, &source, &ParseOptions::default()) {
+    let style = is_stylesheet(path);
+    let parsed = if style {
+        Ok(parse_stylesheet(path, &source))
+    } else {
+        parse_module(path, &source, &ParseOptions::default())
+    };
+    let mut info = match parsed {
         Ok(info) => info,
         Err(error) => return failed(error.to_string()),
     };
@@ -237,7 +243,9 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
         mark_template_usage(&mut info, &source);
     }
     let parsed_imports = info.imports.len();
-    add_textual_imports(&mut info, &source);
+    if !style {
+        add_textual_imports(&mut info, &source);
+    }
     let imports = info
         .imports
         .iter()
@@ -253,7 +261,11 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
                     type_only,
                 };
             }
-            let outcome = inputs.resolver.resolve(path, &import.specifier);
+            let outcome = if style {
+                inputs.resolver.resolve_style(path, &import.specifier)
+            } else {
+                inputs.resolver.resolve(path, &import.specifier)
+            };
             let target = match outcome.target {
                 Resolved::File(file) => RawTarget::File(file),
                 Resolved::Asset => RawTarget::Asset,
