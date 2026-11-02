@@ -19,7 +19,9 @@ mod visit;
 mod workspace_protocol;
 
 use skif_core::RuleMeta;
-use skif_lint::{Emitter, EnabledRules, LintContext, ProviderError, RuleProvider, RulesProvider};
+use skif_lint::{
+    Emitter, EnabledRules, LintContext, OptionsError, ProviderError, RuleProvider, RulesProvider, reject_options,
+};
 
 pub use state::{BANNED_DEPENDENCY, INVALID_LOCAL_VERSION, POLICY_CONFLICT, SEMVER_RANGE_MISMATCH, VERSION_MISMATCH};
 
@@ -49,6 +51,11 @@ impl RuleProvider for PolicyProvider {
 
     fn rules(&self) -> Vec<&'static RuleMeta> {
         rules()
+    }
+
+    /// The policy rules take no options: their behaviour is configured through `[policy]` and the groups.
+    fn validate_options(&self, _rule_id: &str, options: &toml::Table) -> Result<(), OptionsError> {
+        reject_options(options)
     }
 
     fn run(&self, cx: &LintContext<'_>, enabled: &EnabledRules, out: &mut Emitter<'_>) -> Result<(), ProviderError> {
@@ -259,6 +266,17 @@ mod tests {
             severities("[rules]\ncatalog-mismatch = \"error\"\n"),
             [Severity::Error]
         );
+    }
+
+    #[test]
+    fn the_policy_rules_reject_options() {
+        let registry = skif_lint::Registry::new(vec![Box::new(policy_provider())]).unwrap();
+        let bad = config("[rules]\nversion-mismatch = { severity = \"warn\", moed = \"x\" }\n");
+        let error = registry.validate_config(&bad).unwrap_err().to_string();
+        assert!(error.contains("version-mismatch") && error.contains("moed"), "{error}");
+        registry
+            .validate_config(&config("[rules]\nversion-mismatch = \"warn\"\n"))
+            .unwrap();
     }
 
     #[test]
