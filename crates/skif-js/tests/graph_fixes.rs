@@ -497,7 +497,7 @@ fn stylesheet_imports_count_as_dependency_usage() {
         ],
         "",
     );
-    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: sass-pkg", "package.json: modules-pkg"]);
+    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: modules-pkg", "package.json: sass-pkg"]);
     assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none());
     assert_eq!(found(&diagnostics, "unresolved-imports"), none());
 }
