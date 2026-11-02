@@ -326,13 +326,21 @@ impl ModuleResolver {
             }
             outcome(self.classify(path), member_name)
         } else {
-            if let Some(aliased) = self.through_alias(importer, specifier) {
-                return outcome(aliased, None);
+            let aliased = self.through_alias(importer, specifier);
+            // An alias whose target is missing is not final: bundlers fall through to their lookup directories.
+            if let Some(found) = aliased
+                .as_ref()
+                .filter(|resolved| !matches!(resolved, Resolved::Unresolved))
+            {
+                return outcome(found.clone(), None);
             }
-            if name.is_some()
+            if (name.is_some() || aliased.is_some())
                 && let Some(found) = self.through_module_dirs(importer, specifier)
             {
                 return outcome(found, None);
+            }
+            if let Some(aliased) = aliased {
+                return outcome(aliased, None);
             }
             match name {
                 Some(name) => self.package_target(&name, specifier),
@@ -409,13 +417,21 @@ impl ModuleResolver {
             }
             return outcome(self.classify(path), member_name);
         }
-        if let Some(aliased) = self.through_alias(importer, specifier) {
-            return outcome(aliased, None);
+        let aliased = self.through_alias(importer, specifier);
+        // An alias whose target is missing is not final: bundlers fall through to their lookup directories.
+        if let Some(found) = aliased
+            .as_ref()
+            .filter(|resolved| !matches!(resolved, Resolved::Unresolved))
+        {
+            return outcome(found.clone(), None);
         }
-        if name.is_some()
+        if (name.is_some() || aliased.is_some())
             && let Some(found) = self.through_module_dirs(importer, specifier)
         {
             return outcome(found, None);
+        }
+        if let Some(aliased) = aliased {
+            return outcome(aliased, None);
         }
         match name {
             Some(name) => self.package_target(&name, specifier),
