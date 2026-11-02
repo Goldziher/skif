@@ -1,0 +1,19 @@
+{
+  "name": "@fx/app",
+  "private": true,
+  "main": "src/main.ts",
+  "scripts": {
+    "build": "tsc -p ."
+  },
+  "dependencies": {
+    "@fx/lib": "workspace:*",
+    "lodash": "^4.17.21",
+    "react": "^18.0.0",
+    "unused-dep": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.0.0",
+    "@types/react": "^18.0.0",
+    "@types/unused-thing": "^1.0.0"
+  }
+}
