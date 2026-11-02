@@ -159,7 +159,8 @@ fn sarif_structure() {
                 .as_str()
                 .unwrap()
                 .len(),
-            16
+            // 16 hex digits of the hash, then `:` and the occurrence number.
+            18
         );
     }
 }
@@ -245,4 +246,85 @@ fn github_escapes_messages_and_properties() {
 fn github_info_is_a_notice() {
     let report = Report::new(vec![diag("sorted-keys", Severity::Info, "p.json", None, "m")], 1);
     assert!(run(&report, Format::Github, &options()).starts_with("::notice file=p.json,title=skif sorted-keys::m\n"));
+}
+
+fn sarif_of_one(path: &str, span: Option<Span>, message: &str, options: &RenderOptions) -> Value {
+    let report = Report::new(vec![diag("sorted-keys", Severity::Warning, path, span, message)], 1);
+    sarif(&report, options)
+}
+
+#[test]
+fn sarif_uris_are_percent_encoded() {
+    let log = sarif_of_one("packages/@scope/a b/package.json", None, "m", &options());
+    let uri = &log["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"];
+    assert_eq!(uri, "packages/%40scope/a%20b/package.json");
+}
+
+#[test]
+fn sarif_fingerprints_of_identical_diagnostics_differ() {
+    let first = diag("sorted-keys", Severity::Warning, "package.json", None, "same");
+    let second = diag("sorted-keys", Severity::Warning, "package.json", None, "same");
+    let other = diag("sorted-keys", Severity::Warning, "package.json", None, "different");
+    let log = sarif(&Report::new(vec![first, second, other], 1), &options());
+    let prints: Vec<&str> = log["runs"][0]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|result| result["partialFingerprints"]["skifFingerprint/v1"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        prints.iter().collect::<std::collections::BTreeSet<_>>().len(),
+        3,
+        "{prints:?}"
+    );
+    // The report sorts by message, so `different` comes first; the two identical ones are numbered in order.
+    let mut occurrences: Vec<&str> = prints.iter().map(|print| &print[print.len() - 2..]).collect();
+    occurrences.sort_unstable();
+    assert_eq!(occurrences, [":1", ":1", ":2"], "{prints:?}");
+}
+
+#[test]
+fn sarif_columns_are_utf16_when_the_source_is_known() {
+    let source = "{\n  \"a\u{1F600}b\": 1\n}\n";
+    let start = u32::try_from(source.find('b').unwrap()).unwrap();
+    let span = LineIndex::new(source).span(start, start + 1);
+    assert_eq!(span.start_col, 6);
+
+    let known = options().with_source("package.json", source);
+    let region = &sarif_of_one("package.json", Some(span), "m", &known)["runs"][0];
+    assert_eq!(region["columnKind"], "utf16CodeUnits");
+    assert_eq!(
+        region["results"][0]["locations"][0]["physicalLocation"]["region"]["startColumn"],
+        7
+    );
+
+    let unknown = &sarif_of_one("package.json", Some(span), "m", &options())["runs"][0];
+    assert_eq!(unknown["columnKind"], "unicodeCodePoints");
+    assert_eq!(
+        unknown["results"][0]["locations"][0]["physicalLocation"]["region"]["startColumn"],
+        6
+    );
+}
+
+#[test]
+fn github_annotations_are_relative_to_the_repository_root() {
+    let report = Report::new(
+        vec![diag(
+            "sorted-keys",
+            Severity::Warning,
+            "packages/a/package.json",
+            None,
+            "m",
+        )],
+        1,
+    );
+    let with = RenderOptions::default().with_root("/repo/sub").with_repo_root("/repo");
+    let rendered = run(&report, Format::Github, &with);
+    assert!(rendered.contains("file=sub/packages/a/package.json"), "{rendered}");
+
+    let same = RenderOptions::default().with_root("/repo").with_repo_root("/repo");
+    assert!(run(&report, Format::Github, &same).contains("file=packages/a/package.json"));
+
+    let without = RenderOptions::default().with_root("/repo/sub");
+    assert!(run(&report, Format::Github, &without).contains("file=packages/a/package.json"));
 }

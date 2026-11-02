@@ -17,9 +17,7 @@ const buttonVariants = cva("inline-flex items-center justify-center rounded-md t
   defaultVariants: { variant: "default", size: "default" },
 });
 
-export interface ButtonProps
-  extends ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
   asChild?: boolean;
   loading?: boolean;
 }
@@ -53,7 +51,11 @@ function Spinner(props: ComponentPropsWithoutRef<"svg">) {
 }
 
 export function ButtonGroup({ children }: { children: React.ReactNode }) {
-  return <div role="group" className="inline-flex gap-1">{children}</div>;
+  return (
+    <div role="group" className="inline-flex gap-1">
+      {children}
+    </div>
+  );
 }
 
 export { buttonVariants };

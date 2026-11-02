@@ -2,27 +2,40 @@
 source: crates/skif-cli/tests/cli.rs
 expression: human.stdout
 ---
-RULE                            CATEGORY   DEFAULT  FIXABLE    SUMMARY
-empty-dependencies              manifest   error    safe       A dependency section (`dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`) is an empty object.
-root-package-private-field      manifest   error    safe       The root `package.json` must set `"private": true` so it cannot be published by accident.
-root-package-manager-field      manifest   error    none       The root `package.json` must declare the package manager in `packageManager` or `devEngines.packageManager`.
-root-package-dependencies       manifest   warning  unsafe     The root package should only have `devDependencies`; runtime dependencies belong to the packages that use them.
-types-in-dependencies           manifest   error    unsafe     A private package lists `@types/*` packages in `dependencies`; type packages belong in `devDependencies`.
-member-toolchain-fields         manifest   warning  unsafe     Member packages should not declare `packageManager` or `engines`; the root package owns the toolchain.
-incompatible-peer-dependencies  manifest   warning  none       The version a package installs in `devDependencies` does not satisfy the range it declares in `peerDependencies`.
-unsorted-dependencies           manifest   error    safe       The entries of a dependency section are not in alphabetical (byte) order.
-unmatched-workspace-patterns    workspace  warning  unsafe     A workspace pattern does not match any directory.
-missing-package-manifest        workspace  warning  unsafe     A directory matched by the workspace patterns has no `package.json`.
-local-path-dependency           manifest   error    sometimes  A dependency points at a path on disk (`link:`, `file:`, `portal:` or a relative path) instead of a registry or workspace version.
-version-mismatch                policy     error    sometimes  A dependency instance differs from the version its version group requires (highest, lowest, pinned, local or snapped).
-banned-dependency               policy     error    unsafe     A dependency is declared although a banned version group forbids it.
-semver-range-mismatch           policy     error    unsafe     A dependency uses a semver range other than the one its semver group requires.
-policy-conflict                 policy     warning  sometimes  Two policies require incompatible outcomes for one dependency, or a group cannot be applied as configured.
-invalid-local-version           policy     error    none       A workspace package has a `version` that is not an exact semver version, so dependents cannot align with it.
-catalog-not-used                catalog    warning  sometimes  A dependency that has a catalog entry is declared with a version instead of `catalog:`.
-catalog-mismatch                catalog    error    sometimes  A dependency is declared with a version while other packages take it from a catalog.
-catalog-missing-entry           catalog    warning  sometimes  A dependency that should come from a catalog has no catalog entry.
-unresolved-catalog-references   catalog    error    none       A `catalog:` specifier names a catalog or an entry that does not exist.
-unused-catalog-entries          catalog    warning  none       A catalog entry that no manifest references.
-workspace-protocol              policy     error    none       A dependency on a workspace package does not use the `workspace:` protocol.
-unsynced-dependency-family      policy     error    none       Members of a dependency family declared in one package are on different versions.
+RULE                               CATEGORY   DEFAULT  FIXABLE    SUMMARY
+empty-dependencies                 manifest   error    safe       A dependency section (`dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`) is an empty object.
+root-package-private-field         manifest   error    safe       The root `package.json` must set `"private": true` so it cannot be published by accident.
+root-package-manager-field         manifest   error    none       The root `package.json` must declare the package manager in `packageManager` or `devEngines.packageManager`.
+root-package-dependencies          manifest   warning  unsafe     The root package should only have `devDependencies`; runtime dependencies belong to the packages that use them.
+types-in-dependencies              manifest   error    unsafe     A private package lists `@types/*` packages in `dependencies`; type packages belong in `devDependencies`.
+member-toolchain-fields            manifest   warning  unsafe     Member packages should not declare `packageManager` or `engines`; the root package owns the toolchain.
+incompatible-peer-dependencies     manifest   warning  none       The version a package installs in `devDependencies` does not satisfy the range it declares in `peerDependencies`.
+unsorted-dependencies              manifest   error    safe       The entries of a dependency section are not in alphabetical (byte) order.
+unmatched-workspace-patterns       workspace  warning  unsafe     A workspace pattern does not match any directory.
+missing-package-manifest           workspace  warning  unsafe     A directory matched by the workspace patterns has no `package.json`.
+local-path-dependency              manifest   error    sometimes  A dependency points at a path on disk (`link:`, `file:`, `portal:` or a relative path) instead of a registry or workspace version.
+version-mismatch                   policy     error    sometimes  A dependency instance differs from the version its version group requires (highest, lowest, pinned, local or snapped).
+banned-dependency                  policy     error    unsafe     A dependency is declared although a banned version group forbids it.
+semver-range-mismatch              policy     error    unsafe     A dependency uses a semver range other than the one its semver group requires.
+policy-conflict                    policy     warning  sometimes  Two policies require incompatible outcomes for one dependency, or a group cannot be applied as configured.
+invalid-local-version              policy     error    none       A workspace package has a `version` that is not an exact semver version, so dependents cannot align with it.
+catalog-not-used                   catalog    warning  sometimes  A dependency that has a catalog entry is declared with a version instead of `catalog:`.
+catalog-mismatch                   catalog    error    sometimes  A dependency is declared with a version while other packages take it from a catalog.
+catalog-missing-entry              catalog    warning  sometimes  A dependency that should come from a catalog has no catalog entry.
+unresolved-catalog-references      catalog    error    none       A `catalog:` specifier names a catalog or an entry that does not exist.
+unused-catalog-entries             catalog    warning  none       A catalog entry that no manifest references.
+workspace-protocol                 policy     error    none       A dependency on a workspace package does not use the `workspace:` protocol.
+unsynced-dependency-family         policy     error    none       Members of a dependency family declared in one package are on different versions.
+unused-dependencies                js         error    unsafe     A package in `dependencies` is never imported, required or run by a script.
+unused-dev-dependencies            js         error    unsafe     A package in `devDependencies` is never imported, required or run by a script.
+unlisted-dependencies              js         error    none       A file imports a package that neither its `package.json` nor the root `package.json` lists.
+unresolved-imports                 js         error    none       An import specifier does not resolve to a file or a package.
+unlisted-binaries                  js         error    none       A script runs a binary that no listed dependency provides.
+unused-optional-peer-dependencies  js         warning  none       An optional peer dependency is imported but not installed as a dependency or dev dependency.
+unused-files                       js         error    unsafe     A project file is not reachable from any entry file.
+unused-exports                     js         error    unsafe     An exported value is not imported by any other module.
+unused-types                       js         error    unsafe     An exported type or interface is not imported by any other module.
+unused-enum-members                js         warning  none       A member of an exported enum is never read.
+unused-namespace-members           js         warning  none       An exported member of a TypeScript namespace is never read.
+duplicate-exports                  js         warning  none       One binding is exported under several names.
+circular-imports                   js         off      none       Modules import each other in a cycle.

@@ -35,12 +35,15 @@ export function assertNever(value: never): never {
   throw new Error(`unexpected value: ${String(value)}`);
 }
 
-export const isDefined = <T,>(value: T | null | undefined): value is T => value != null;
+export const isDefined = <T>(value: T | null | undefined): value is T => value != null;
 
 export namespace Path {
   export const sep = "/";
   export function join(...parts: string[]): string {
-    return parts.filter(Boolean).join(sep).replace(/\/{2,}/g, sep);
+    return parts
+      .filter(Boolean)
+      .join(sep)
+      .replace(/\/{2,}/g, sep);
   }
   export function basename(path: string): string {
     return path.slice(path.lastIndexOf(sep) + 1);

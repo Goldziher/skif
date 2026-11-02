@@ -41,15 +41,11 @@ pub const POLICY_GROUPS: &[&str] = &[
 pub const CATALOG_GROUPS: &[&str] = &["catalog", "workspace-protocol", "dependency-families"];
 
 /// Cases the rules cannot pass yet and that are therefore not run, with the reason.
-pub const PENDING: &[(&str, &str)] = &[(
-    "catalog/enforce-not-using-catalog",
-    "a rule's severity comes from its configured level or its default, so `mode = \"enforce\"` cannot raise \
-     `catalog-not-used` to an error",
-)];
+pub const PENDING: &[(&str, &str)] = &[];
 
 /// Cases whose `expected.json` also lists diagnostics of the other family of rules. Only the rules of the case's
-/// group are compared, and the fixes of those rules; the rest waits for the interplay of catalogs and version groups
-/// (a dependency owned by the catalog policy is not also aligned by a version group).
+/// group are compared, and the fixes of those rules; the rest waits for catalog definitions to take part in version
+/// and semver groups, and for the harness to compare the rules of both families together.
 pub const PARTIAL: &[(&str, &str)] = &[
     (
         "catalog/catalog-definition-semver-group",

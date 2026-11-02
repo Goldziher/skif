@@ -46,7 +46,9 @@ export function Table<T extends { id: string }>({
 
   const toggle = useCallback((key: keyof T & string) => {
     setSort((current) =>
-      current?.key === key ? { key, direction: current.direction === "asc" ? "desc" : "asc" } : { key, direction: "asc" },
+      current?.key === key
+        ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
+        : { key, direction: "asc" },
     );
   }, []);
 

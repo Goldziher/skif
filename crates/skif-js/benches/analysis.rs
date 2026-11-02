@@ -23,10 +23,18 @@ const FILES_PER_PACKAGE: usize = 20;
 fn module(index: usize, files: usize) -> String {
     let mut source = String::new();
     if index + 1 < files {
-        let _ = writeln!(source, "import {{ step{} as next }} from \"./m{}\";", index + 1, index + 1);
+        let _ = writeln!(
+            source,
+            "import {{ step{} as next }} from \"./m{}\";",
+            index + 1,
+            index + 1
+        );
     }
     source.push_str("import debounce from \"lodash/debounce\";\n\n");
-    let _ = writeln!(source, "export interface Options{index} {{\n  id: number;\n  name: string;\n}}\n");
+    let _ = writeln!(
+        source,
+        "export interface Options{index} {{\n  id: number;\n  name: string;\n}}\n"
+    );
     let _ = writeln!(source, "export const unused{index} = {index};\n");
     let _ = writeln!(source, "export function step{index}(value: number): number {{");
     if index + 1 < files {
@@ -73,8 +81,7 @@ fn bench_analysis(c: &mut Criterion) {
     for packages in [10, 100] {
         let fs = memory_fs(packages);
         let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &fs).expect("workspace discovers");
-        let registry =
-            Registry::new(vec![Box::new(JsProvider::new(Arc::new(fs)))]).expect("the JS provider registers");
+        let registry = Registry::new(vec![Box::new(JsProvider::new(Arc::new(fs)))]).expect("the JS provider registers");
         group.throughput(Throughput::Elements((packages * (FILES_PER_PACKAGE + 1)) as u64));
         group.sample_size(10);
         group.bench_function(BenchmarkId::new("files", packages * (FILES_PER_PACKAGE + 1)), |b| {
