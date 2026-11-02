@@ -38,7 +38,9 @@ fn removal_fix(module: &Module, export: &Export, unused: &[&Export]) -> Option<F
         .filter(|other| other.removal.is_some_and(|r| r.statement == removal.statement))
         .collect();
     let all_unused = u32::try_from(siblings.len()).is_ok_and(|count| count >= removal.siblings);
-    let first = siblings.first().is_some_and(|other| other.name == export.name && other.span == export.span);
+    let first = siblings
+        .first()
+        .is_some_and(|other| other.name == export.name && other.span == export.span);
     let (start, end, title) = match removal.kind {
         RemovalKind::ExportKeyword | RemovalKind::Statement => (removal.start, removal.end, None),
         RemovalKind::SharedExportKeyword => {
@@ -51,7 +53,11 @@ fn removal_fix(module: &Module, export: &Export, unused: &[&Export]) -> Option<F
             if !all_unused {
                 (removal.start, removal.end, None)
             } else if first {
-                (removal.statement.0, removal.statement.1, Some("Remove the export statement"))
+                (
+                    removal.statement.0,
+                    removal.statement.1,
+                    Some("Remove the export statement"),
+                )
             } else {
                 return None;
             }

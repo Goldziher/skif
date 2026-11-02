@@ -62,12 +62,18 @@ impl Run {
         let registry = Registry::new(vec![Box::new(provider)]).unwrap();
         let mut diagnostics = run_unsorted(&registry, &self.workspace, &self.config, &RunOptions::default()).unwrap();
         diagnostics.sort_by(|a, b| {
-            (a.rule.as_str(), &a.location.path, a.location.span.map(|s| s.start), &a.message).cmp(&(
-                b.rule.as_str(),
-                &b.location.path,
-                b.location.span.map(|s| s.start),
-                &b.message,
-            ))
+            (
+                a.rule.as_str(),
+                &a.location.path,
+                a.location.span.map(|s| s.start),
+                &a.message,
+            )
+                .cmp(&(
+                    b.rule.as_str(),
+                    &b.location.path,
+                    b.location.span.map(|s| s.start),
+                    &b.message,
+                ))
         });
         diagnostics
     }
@@ -99,7 +105,9 @@ fn only<'a>(diagnostics: &'a [Diagnostic], rule: &str, name: &str) -> &'a Diagno
     let mut matching = diagnostics
         .iter()
         .filter(|d| d.rule.as_str() == rule && subject(d).ends_with(name));
-    let first = matching.next().unwrap_or_else(|| panic!("no {rule} diagnostic for {name}"));
+    let first = matching
+        .next()
+        .unwrap_or_else(|| panic!("no {rule} diagnostic for {name}"));
     assert!(matching.next().is_none(), "several {rule} diagnostics for {name}");
     first
 }
@@ -135,14 +143,20 @@ fn monorepo_dependencies() {
     );
     assert_eq!(
         found(&diagnostics, "unused-dev-dependencies"),
-        ["package.json: left-over", "packages/app/package.json: @types/unused-thing"]
+        [
+            "package.json: left-over",
+            "packages/app/package.json: @types/unused-thing"
+        ]
     );
     assert_eq!(
         found(&diagnostics, "unlisted-dependencies"),
         ["packages/app/src/main.ts: chalk"]
     );
     assert_eq!(found(&diagnostics, "unlisted-binaries"), ["package.json: eslint"]);
-    assert_eq!(found(&diagnostics, "unresolved-imports"), ["packages/app/src/main.ts: ./missing"]);
+    assert_eq!(
+        found(&diagnostics, "unresolved-imports"),
+        ["packages/app/src/main.ts: ./missing"]
+    );
 }
 
 #[test]
@@ -196,7 +210,11 @@ fn removing_an_unused_export_keeps_the_declaration() {
 #[test]
 fn public_tag_exempts_an_export() {
     let diagnostics = Run::new("monorepo", "").lint();
-    assert!(!found(&diagnostics, "unused-exports").iter().any(|s| s.contains("apiFormat")));
+    assert!(
+        !found(&diagnostics, "unused-exports")
+            .iter()
+            .any(|s| s.contains("apiFormat"))
+    );
 }
 
 #[test]
@@ -214,7 +232,10 @@ fn reexport_chains_and_member_tracking() {
         ]
     );
     assert_eq!(found(&diagnostics, "unused-types"), ["src/shape.ts: Unused2"]);
-    assert_eq!(found(&diagnostics, "unused-enum-members"), ["src/color.ts: Color.Green"]);
+    assert_eq!(
+        found(&diagnostics, "unused-enum-members"),
+        ["src/color.ts: Color.Green"]
+    );
     assert_eq!(found(&diagnostics, "duplicate-exports"), ["src/dupe.ts: x"]);
     assert!(found(&diagnostics, "unused-files").is_empty(), "{diagnostics:#?}");
 }
@@ -233,7 +254,10 @@ fn dynamic_imports_and_globs_keep_files_and_exports_alive() {
 #[test]
 fn circular_imports_are_off_by_default_and_ignore_type_only_edges() {
     let diagnostics = Run::new("cycles", "").lint();
-    let cycles: Vec<_> = diagnostics.iter().filter(|d| d.rule.as_str() == "circular-imports").collect();
+    let cycles: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.rule.as_str() == "circular-imports")
+        .collect();
     assert_eq!(cycles.len(), 1, "{diagnostics:#?}");
     assert_eq!(cycles[0].location.path, Path::new("src/a.ts"));
     assert_eq!(cycles[0].related.len(), 1);
@@ -241,7 +265,7 @@ fn circular_imports_are_off_by_default_and_ignore_type_only_edges() {
     let mut off = Run::new("cycles", "");
     off.config = Config::from_toml_str("").unwrap();
     let diagnostics = off.lint();
-    assert!(found(&diagnostics, "circular-imports").is_empty());
+    assert_eq!(found(&diagnostics, "circular-imports"), [] as [std::string::String; 0]);
 }
 
 #[test]
@@ -253,7 +277,10 @@ fn js_can_be_disabled() {
 #[test]
 fn production_mode_skips_dev_dependencies() {
     let diagnostics = Run::new("monorepo", "[js]\nproduction = true").lint();
-    assert!(found(&diagnostics, "unused-dev-dependencies").is_empty());
+    assert_eq!(
+        found(&diagnostics, "unused-dev-dependencies"),
+        [] as [std::string::String; 0]
+    );
     assert_eq!(
         found(&diagnostics, "unused-dependencies"),
         ["packages/app/package.json: unused-dep"]
@@ -263,24 +290,40 @@ fn production_mode_skips_dev_dependencies() {
 #[test]
 fn ignore_lists_silence_dependency_rules() {
     let root_level = Run::new("monorepo", "[js]\nignore-dependencies = [\"unused-dep\", \"@types/*\"]").lint();
-    assert!(found(&root_level, "unused-dependencies").is_empty());
-    assert_eq!(found(&root_level, "unused-dev-dependencies"), ["package.json: left-over"]);
+    assert_eq!(
+        found(&root_level, "unused-dependencies"),
+        [] as [std::string::String; 0]
+    );
+    assert_eq!(
+        found(&root_level, "unused-dev-dependencies"),
+        ["package.json: left-over"]
+    );
 
-    let per_workspace =
-        Run::new("monorepo", "[js.workspaces.\"packages/app\"]\nignore-dependencies = [\"unused-dep\"]").lint();
-    assert!(found(&per_workspace, "unused-dependencies").is_empty());
+    let per_workspace = Run::new(
+        "monorepo",
+        "[js.workspaces.\"packages/app\"]\nignore-dependencies = [\"unused-dep\"]",
+    )
+    .lint();
+    assert_eq!(
+        found(&per_workspace, "unused-dependencies"),
+        [] as [std::string::String; 0]
+    );
     assert_eq!(found(&per_workspace, "unused-dev-dependencies").len(), 2);
 
     let binaries = Run::new("monorepo", "[js]\nignore-binaries = [\"eslint\"]").lint();
-    assert!(found(&binaries, "unlisted-binaries").is_empty());
+    assert_eq!(found(&binaries, "unlisted-binaries"), [] as [std::string::String; 0]);
 
     let files = Run::new("monorepo", "[js]\nignore = [\"packages/lib/src/unused.ts\"]").lint();
-    assert!(found(&files, "unused-files").is_empty());
+    assert_eq!(found(&files, "unused-files"), [] as [std::string::String; 0]);
 }
 
 #[test]
 fn configured_entry_replaces_the_default_entry() {
-    let diagnostics = Run::new("monorepo", "[js.workspaces.\"packages/lib\"]\nentry = [\"src/unused.ts\"]").lint();
+    let diagnostics = Run::new(
+        "monorepo",
+        "[js.workspaces.\"packages/lib\"]\nentry = [\"src/unused.ts\"]",
+    )
+    .lint();
     assert!(found(&diagnostics, "unused-files").is_empty(), "{diagnostics:#?}");
 }
 

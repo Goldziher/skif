@@ -11,7 +11,7 @@ use skif_workspace::{PackageId, Workspace};
 
 use crate::graph::{ModuleGraph, ModuleId};
 use crate::setup::Setup;
-use crate::specifier::{RUNTIME_PACKAGES, package_name, types_package, typed_package};
+use crate::specifier::{RUNTIME_PACKAGES, package_name, typed_package, types_package};
 
 /// Packages that are used by tooling rather than imports and never reported as unused.
 const ALWAYS_USED: &[&str] = &["typescript", "knip", "skif"];
@@ -74,9 +74,11 @@ fn read_installed(
     let mut dir = start;
     loop {
         let manifest = dir.join("node_modules").join(name).join("package.json");
-        let entry = cache
-            .entry(manifest.clone())
-            .or_insert_with(|| fs.read_to_string(&manifest).ok().and_then(|text| parse_installed(&text, name)));
+        let entry = cache.entry(manifest.clone()).or_insert_with(|| {
+            fs.read_to_string(&manifest)
+                .ok()
+                .and_then(|text| parse_installed(&text, name))
+        });
         if entry.is_some() {
             return entry.clone();
         }
@@ -154,7 +156,10 @@ impl DependencyUsage {
                     self.bins[id.index()].entry(bin.clone()).or_default().push(name.clone());
                 }
                 for peer in &installed.peers {
-                    self.hosts[id.index()].entry(peer.clone()).or_default().push(name.clone());
+                    self.hosts[id.index()]
+                        .entry(peer.clone())
+                        .or_default()
+                        .push(name.clone());
                 }
             }
         }
@@ -236,7 +241,13 @@ impl DependencyUsage {
         if type_only && types.is_some() {
             return;
         }
-        if package.manifest.value.get("engines").and_then(|engines| engines.get(name)).is_some() {
+        if package
+            .manifest
+            .value
+            .get("engines")
+            .and_then(|engines| engines.get(name))
+            .is_some()
+        {
             return;
         }
         if package.private && self.members.contains(name) {

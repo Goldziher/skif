@@ -28,7 +28,12 @@ impl JsRule for UnusedOptionalPeerDependencies {
             if analysis.is_skipped(id) {
                 continue;
             }
-            let Some(meta) = package.manifest.value.get("peerDependenciesMeta").and_then(Value::as_object) else {
+            let Some(meta) = package
+                .manifest
+                .value
+                .get("peerDependenciesMeta")
+                .and_then(Value::as_object)
+            else {
                 continue;
             };
             for (name, value) in meta {

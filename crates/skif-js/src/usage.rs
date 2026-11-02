@@ -83,9 +83,11 @@ impl ExportUsage {
                             if name.escapes || name.local.is_none() {
                                 queue.push_back(Task::All(target));
                             } else {
-                                queue.extend(name.accessed_members.iter().map(|member| {
-                                    Task::Name(target, member.clone(), MemberUse::everything())
-                                }));
+                                queue.extend(
+                                    name.accessed_members
+                                        .iter()
+                                        .map(|member| Task::Name(target, member.clone(), MemberUse::everything())),
+                                );
                             }
                         }
                     }
@@ -95,7 +97,7 @@ impl ExportUsage {
         while let Some(task) = queue.pop_front() {
             match task {
                 Task::All(id) => usage.mark_all(graph, id, &mut queue),
-                Task::Name(id, name, access) => usage.mark_name(graph, id, &name, access, &mut queue),
+                Task::Name(id, name, access) => usage.mark_name(graph, id, &name, &access, &mut queue),
             }
         }
         usage
@@ -126,7 +128,7 @@ impl ExportUsage {
         graph: &ModuleGraph,
         id: ModuleId,
         name: &str,
-        access: MemberUse,
+        access: &MemberUse,
         queue: &mut VecDeque<Task>,
     ) {
         if self.all.contains(&id) {

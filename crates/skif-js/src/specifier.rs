@@ -94,8 +94,8 @@ pub(crate) fn subpath<'a>(specifier: &'a str, package: &str) -> Option<&'a str> 
     (!rest.is_empty()).then_some(rest)
 }
 
-/// The DefinitelyTyped package for `name`: `react` is `@types/react`, `@a/b` is `@types/a__b`.
-/// `None` for packages that already are DefinitelyTyped packages.
+/// The `DefinitelyTyped` package for `name`: `react` is `@types/react`, `@a/b` is `@types/a__b`.
+/// `None` for packages that already are `DefinitelyTyped` packages.
 pub(crate) fn types_package(name: &str) -> Option<String> {
     if name.starts_with("@types/") {
         return None;
@@ -106,7 +106,7 @@ pub(crate) fn types_package(name: &str) -> Option<String> {
     })
 }
 
-/// The package a DefinitelyTyped package describes: `@types/a__b` is `@a/b`.
+/// The package a `DefinitelyTyped` package describes: `@types/a__b` is `@a/b`.
 pub(crate) fn typed_package(types: &str) -> Option<String> {
     let rest = types.strip_prefix("@types/")?;
     Some(match rest.split_once("__") {

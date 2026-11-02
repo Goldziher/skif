@@ -29,7 +29,11 @@ impl JsRule for UnresolvedImports {
                 continue;
             }
             let package = analysis.workspace.package(module.owner);
-            for resolved in module.imports.iter().filter(|resolved| resolved.target == Target::Unresolved) {
+            for resolved in module
+                .imports
+                .iter()
+                .filter(|resolved| resolved.target == Target::Unresolved)
+            {
                 let Some(import) = module.info.imports.get(resolved.import) else {
                     continue;
                 };

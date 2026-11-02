@@ -38,8 +38,8 @@ pub use input::{InputRequest, InputSource, WorkspaceInputs};
 pub use provider::{JsProvider, PROVIDER_ID};
 pub use rules::{
     CircularImports, DuplicateExports, JsRule, UnlistedBinaries, UnlistedDependencies, UnresolvedImports,
-    UnusedDependencies, UnusedDevDependencies, UnusedEnumMembers, UnusedExports, UnusedFiles,
-    UnusedNamespaceMembers, UnusedOptionalPeerDependencies, UnusedTypes, rules,
+    UnusedDependencies, UnusedDevDependencies, UnusedEnumMembers, UnusedExports, UnusedFiles, UnusedNamespaceMembers,
+    UnusedOptionalPeerDependencies, UnusedTypes, rules,
 };
 pub use usage::{ExportUsage, MemberUse};
 

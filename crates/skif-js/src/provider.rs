@@ -4,7 +4,11 @@ use std::sync::Arc;
 
 use rayon::prelude::*;
 use skif_core::{FileSystem, OsFs, RuleMeta};
-use skif_lint::{Emitter, EnabledRules, LintContext, ProviderError, RuleProvider};
+use skif_lint::{
+    Emitter, EnabledRules, LintContext, OptionsError, ProviderError, RuleProvider, parse_options, reject_options,
+};
+
+use crate::setup::UnusedExportsOptions;
 
 use crate::analysis::JsAnalysis;
 use crate::input::InputSource;
@@ -63,6 +67,14 @@ impl RuleProvider for JsProvider {
 
     fn rules(&self) -> Vec<&'static RuleMeta> {
         self.rules.iter().map(|rule| rule.meta()).collect()
+    }
+
+    fn validate_options(&self, rule_id: &str, options: &toml::Table) -> Result<(), OptionsError> {
+        if rule_id == "unused-exports" {
+            parse_options::<UnusedExportsOptions>(options).map(drop)
+        } else {
+            reject_options(options)
+        }
     }
 
     fn run(&self, cx: &LintContext<'_>, enabled: &EnabledRules, out: &mut Emitter<'_>) -> Result<(), ProviderError> {

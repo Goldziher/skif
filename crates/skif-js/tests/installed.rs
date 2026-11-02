@@ -12,9 +12,9 @@ use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
 
 fn lint(files: &[(&str, &str)]) -> Vec<Diagnostic> {
-    let memory = files
-        .iter()
-        .fold(MemoryFs::new(), |fs, (path, text)| fs.with_file(Path::new("/ws").join(path), text));
+    let memory = files.iter().fold(MemoryFs::new(), |fs, (path, text)| {
+        fs.with_file(Path::new("/ws").join(path), text)
+    });
     let config = Config::from_toml_str("").unwrap();
     let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &memory).unwrap();
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
@@ -45,23 +45,41 @@ fn installed_manifests_provide_binaries_and_peers() {
                 "scripts":{"x":"acme-run build"},
                 "devDependencies":{"@acme/toolkit":"1","react-dom":"1"}}"#,
         ),
-        ("node_modules/@acme/toolkit/package.json", r#"{"name":"@acme/toolkit","bin":{"acme-run":"cli.js"}}"#),
-        ("node_modules/next/package.json", r#"{"name":"next","peerDependencies":{"react-dom":"*"}}"#),
+        (
+            "node_modules/@acme/toolkit/package.json",
+            r#"{"name":"@acme/toolkit","bin":{"acme-run":"cli.js"}}"#,
+        ),
+        (
+            "node_modules/next/package.json",
+            r#"{"name":"next","peerDependencies":{"react-dom":"*"}}"#,
+        ),
         (
             "packages/a/package.json",
             r#"{"name":"a","private":true,"dependencies":{"next":"1","react-dom":"1"}}"#,
         ),
-        ("packages/a/src/index.ts", "import next from \"next\";\nexport default next;\n"),
+        (
+            "packages/a/src/index.ts",
+            "import next from \"next\";\nexport default next;\n",
+        ),
     ]);
     assert!(names(&diagnostics, "unlisted-binaries").is_empty(), "{diagnostics:#?}");
-    assert!(names(&diagnostics, "unused-dependencies").is_empty(), "{diagnostics:#?}");
-    assert_eq!(names(&diagnostics, "unused-dev-dependencies"), ["package.json: react-dom"]);
+    assert!(
+        names(&diagnostics, "unused-dependencies").is_empty(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unused-dev-dependencies"),
+        ["package.json: react-dom"]
+    );
 }
 
 #[test]
 fn optional_peer_dependencies_must_be_installed_for_development() {
     let diagnostics = lint(&[
-        ("package.json", r#"{"name":"r","private":true,"workspaces":["packages/*"]}"#),
+        (
+            "package.json",
+            r#"{"name":"r","private":true,"workspaces":["packages/*"]}"#,
+        ),
         (
             "packages/a/package.json",
             r#"{"name":"a","main":"src/index.ts","peerDependencies":{"sass":"1","less":"1"},
