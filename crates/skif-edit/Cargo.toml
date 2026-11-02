@@ -11,7 +11,8 @@ description = "Format-preserving JSON and YAML edits used by skif autofixes."
 documentation = "https://docs.rs/skif-edit"
 keywords = ["json", "yaml", "edit", "format-preserving", "skif"]
 categories = ["development-tools", "text-processing"]
-include = ["src/**", "benches/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md"]
+readme = "README.md"
+include = ["src/**", "benches/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
 
 [features]
 default = []

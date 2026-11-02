@@ -1,4 +1,4 @@
-<!-- Generated from the rule metadata; run `SKIF_UPDATE_DOCS=1 cargo test -p skif-rules --test docs` to update. -->
+<!-- Generated from the rule metadata; run `SKIF_UPDATE_DOCS=1 cargo test -p skif --features js-analysis --test docs` to update. -->
 
 # Rules
 
@@ -9,6 +9,20 @@
 | [`catalog-not-used`](#catalog-not-used) | catalog | warning | sometimes |
 | [`unresolved-catalog-references`](#unresolved-catalog-references) | catalog | error | none |
 | [`unused-catalog-entries`](#unused-catalog-entries) | catalog | warning | none |
+| [`circular-imports`](#circular-imports) | js | off | none |
+| [`duplicate-exports`](#duplicate-exports) | js | warning | none |
+| [`unlisted-binaries`](#unlisted-binaries) | js | warning | none |
+| [`unlisted-dependencies`](#unlisted-dependencies) | js | error | none |
+| [`unparseable-files`](#unparseable-files) | js | warning | none |
+| [`unresolved-imports`](#unresolved-imports) | js | error | none |
+| [`unused-dependencies`](#unused-dependencies) | js | error | unsafe |
+| [`unused-dev-dependencies`](#unused-dev-dependencies) | js | warning | unsafe |
+| [`unused-enum-members`](#unused-enum-members) | js | warning | none |
+| [`unused-exports`](#unused-exports) | js | warning | unsafe |
+| [`unused-files`](#unused-files) | js | warning | unsafe |
+| [`unused-namespace-members`](#unused-namespace-members) | js | warning | none |
+| [`unused-optional-peer-dependencies`](#unused-optional-peer-dependencies) | js | warning | none |
+| [`unused-types`](#unused-types) | js | warning | unsafe |
 | [`empty-dependencies`](#empty-dependencies) | manifest | error | safe |
 | [`incompatible-peer-dependencies`](#incompatible-peer-dependencies) | manifest | warning | none |
 | [`local-path-dependency`](#local-path-dependency) | manifest | error | sometimes |
@@ -67,6 +81,118 @@ A catalog entry that no manifest references.
 - Category: catalog
 - Default severity: warning
 - Fixable: none
+
+## circular-imports
+
+Modules import each other in a cycle.
+
+- Category: js
+- Default severity: off
+- Fixable: none
+
+## duplicate-exports
+
+One binding is exported under several names.
+
+- Category: js
+- Default severity: warning
+- Fixable: none
+
+## unlisted-binaries
+
+A script runs a binary that no listed dependency provides.
+
+- Category: js
+- Default severity: warning
+- Fixable: none
+
+## unlisted-dependencies
+
+A file imports a package that neither its `package.json` nor the root `package.json` lists.
+
+- Category: js
+- Default severity: error
+- Fixable: none
+
+## unparseable-files
+
+A file reachable from an entry file has a syntax error the parser could not recover from.
+
+- Category: js
+- Default severity: warning
+- Fixable: none
+
+## unresolved-imports
+
+An import specifier does not resolve to a file or a package.
+
+- Category: js
+- Default severity: error
+- Fixable: none
+
+## unused-dependencies
+
+A package in `dependencies` is never imported, required or run by a script.
+
+- Category: js
+- Default severity: error
+- Fixable: unsafe
+
+## unused-dev-dependencies
+
+A package in `devDependencies` is never imported, required or run by a script.
+
+- Category: js
+- Default severity: warning
+- Fixable: unsafe
+
+## unused-enum-members
+
+A member of an exported enum is never read.
+
+- Category: js
+- Default severity: warning
+- Fixable: none
+
+## unused-exports
+
+An exported value is not imported by any other module.
+
+- Category: js
+- Default severity: warning
+- Fixable: unsafe
+
+## unused-files
+
+A project file is not reachable from any entry file.
+
+- Category: js
+- Default severity: warning
+- Fixable: unsafe
+
+## unused-namespace-members
+
+An exported member of a TypeScript namespace is never read.
+
+- Category: js
+- Default severity: warning
+- Fixable: none
+
+## unused-optional-peer-dependencies
+
+An optional peer dependency is imported but not installed as a dependency or dev dependency.
+
+- Category: js
+- Default severity: warning
+- Fixable: none
+
+## unused-types
+
+An exported type or interface is not imported by any other module.
+
+- Category: js
+- Default severity: warning
+- Fixable: unsafe
 
 ## empty-dependencies
 

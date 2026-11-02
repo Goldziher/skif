@@ -95,3 +95,8 @@ blake3 = "4b97f86d92cf26b2a38f54b907f7ffbdd7ad1e3b5bd822019da3c0efb21847bf"
 number = 19
 status = "accepted"
 blake3 = "e55661f3133897c9328cdcf825e73c032bffc646dab8e3a6d2c19080176d6d6e"
+
+[adrs."adrs/0020-js-rule-set-severities-addon-profile-and-windows-support.md"]
+number = 20
+status = "accepted"
+blake3 = "b415e4f435e95b85047ac0283d42686c81df426a21ae4d3bbc95f28812f0a72b"

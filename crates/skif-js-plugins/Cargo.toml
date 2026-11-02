@@ -11,7 +11,8 @@ description = "JS/TS tooling knowledge for skif: package.json script parsing and
 documentation = "https://docs.rs/skif-js-plugins"
 keywords = ["npm", "scripts", "dependencies", "monorepo", "skif"]
 categories = ["development-tools", "parser-implementations"]
-include = ["src/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md"]
+readme = "README.md"
+include = ["src/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
 
 [lib]
 name = "skif_js_plugins"

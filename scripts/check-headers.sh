@@ -30,14 +30,31 @@ for file in crates/skif-specifier/src/*.rs; do
     failures=$((failures + 1))
   fi
 done
-for section in "## sherif" "## syncpack specifier"; do
+for section in "## sherif" "## syncpack specifier" "## knip"; do
   if ! grep -qx "$section" ATTRIBUTIONS.md; then
     echo "::error file=ATTRIBUTIONS.md::missing section '${section}'"
     failures=$((failures + 1))
   fi
 done
-if [[ "$(grep -c '^### Modifications$' ATTRIBUTIONS.md)" -lt 2 ]]; then
+if [[ "$(grep -c '^### Modifications$' ATTRIBUTIONS.md)" -lt 3 ]]; then
   echo "::error file=ATTRIBUTIONS.md::every upstream section needs a '### Modifications' list"
+  failures=$((failures + 1))
+fi
+
+# The knip section records the commit the JS analysis follows and the licence holder (ADR 0015).
+knip_section="$(sed -n '/^## knip$/,$p' ATTRIBUTIONS.md)"
+for needle in "da07b6e9887f9a1eb08545da29755b7f9d309bca" "Copyright (c) 2022-2026 Lars Kappert" "ISC License"; do
+  if ! grep -qF "$needle" <<<"$knip_section"; then
+    echo "::error file=ATTRIBUTIONS.md::the knip section is missing '${needle}'"
+    failures=$((failures + 1))
+  fi
+done
+
+# The poly version is pinned in mise.toml and named again by the ai-rulez MCP server entry; they must agree.
+mise_poly="$(sed -nE 's/^"github:Goldziher\/poly" = "([^"]+)".*/\1/p' mise.toml)"
+rulez_poly="$(sed -nE 's/^package = "pkg:github\/Goldziher\/poly@v([^"]+)".*/\1/p' .ai-rulez/config.toml)"
+if [[ -z "$mise_poly" || "$mise_poly" != "$rulez_poly" ]]; then
+  echo "::error file=.ai-rulez/config.toml::poly version '${rulez_poly:-none}' differs from mise.toml '${mise_poly:-none}'"
   failures=$((failures + 1))
 fi
 
