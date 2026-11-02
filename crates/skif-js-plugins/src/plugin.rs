@@ -114,6 +114,9 @@ pub enum PluginInput {
     },
     /// An `exports` condition that selects source files (`customConditions`).
     Condition(String),
+    /// A directory bare specifiers are looked up in before packages (`baseUrl`, a `*` entry of `paths`, webpack's
+    /// `resolve.modules`), relative to the workspace directory.
+    ModuleDir(String),
 }
 
 /// A module alias read from a config file; see [`PluginInput::Alias`].
@@ -268,4 +271,6 @@ pub struct PluginOutput {
     pub build_dirs: Vec<BuildDir>,
     /// `exports` conditions that select source files.
     pub conditions: Vec<String>,
+    /// Directories bare specifiers are looked up in, relative to the workspace directory, in lookup order.
+    pub module_dirs: Vec<String>,
 }

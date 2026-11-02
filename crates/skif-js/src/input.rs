@@ -58,6 +58,9 @@ pub struct WorkspaceInputs {
     pub build_dirs: Vec<BuildDir>,
     /// Extra `exports` conditions that select source files (`customConditions`).
     pub conditions: Vec<String>,
+    /// Directories bare specifiers are looked up in (`baseUrl`, `paths` wildcards, `resolve.modules`), relative to the
+    /// package directory with `/` separators, in lookup order.
+    pub module_dirs: Vec<String>,
 }
 
 impl WorkspaceInputs {
@@ -75,6 +78,7 @@ impl WorkspaceInputs {
         self.aliases.extend(other.aliases);
         self.build_dirs.extend(other.build_dirs);
         self.conditions.extend(other.conditions);
+        self.module_dirs.extend(other.module_dirs);
     }
 }
 
