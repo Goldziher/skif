@@ -346,7 +346,12 @@ mod tests {
         fs::write(dir.path().join("real.json"), "old").unwrap();
         std::os::unix::fs::symlink("real.json", dir.path().join("link.json")).unwrap();
         write_atomic(&dir.path().join("link.json"), b"new").unwrap();
-        assert!(fs::symlink_metadata(dir.path().join("link.json")).unwrap().file_type().is_symlink());
+        assert!(
+            fs::symlink_metadata(dir.path().join("link.json"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         assert_eq!(fs::read_to_string(dir.path().join("real.json")).unwrap(), "new");
         assert_eq!(leftovers(dir.path()), [] as [std::string::String; 0]);
     }

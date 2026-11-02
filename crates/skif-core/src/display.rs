@@ -10,7 +10,11 @@ use serde::Serializer;
 #[must_use]
 pub fn slash(path: &Path) -> String {
     let text = path.to_string_lossy();
-    if cfg!(windows) { text.replace('\\', "/") } else { text.into_owned() }
+    if cfg!(windows) {
+        text.replace('\\', "/")
+    } else {
+        text.into_owned()
+    }
 }
 
 /// A `serde` serializer for workspace-relative paths, so serialized reports and plans read the same on every

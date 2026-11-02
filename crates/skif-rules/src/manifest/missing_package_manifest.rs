@@ -27,10 +27,7 @@ impl Rule for MissingPackageManifest {
             let manifest = dir.join("package.json");
             let mut builder = diagnostic(
                 &META,
-                format!(
-                    "`{}` matches a workspace pattern but has no package.json",
-                    slash(dir)
-                ),
+                format!("`{}` matches a workspace pattern but has no package.json", slash(dir)),
                 Location {
                     path: dir.clone(),
                     span: None,

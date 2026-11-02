@@ -130,7 +130,10 @@ mod tests {
         std::fs::write(dir.path().join("yarn.lock"), "# yarn lockfile v1\n").unwrap();
         assert_eq!(arguments(PackageManager::Yarn, dir.path()), ["install"]);
         std::fs::write(dir.path().join("yarn.lock"), "__metadata:\n  version: 8\n").unwrap();
-        assert_eq!(arguments(PackageManager::Yarn, dir.path()), ["install", "--no-immutable"]);
+        assert_eq!(
+            arguments(PackageManager::Yarn, dir.path()),
+            ["install", "--no-immutable"]
+        );
     }
 
     #[test]

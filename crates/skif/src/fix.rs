@@ -450,7 +450,10 @@ impl<'a> Planner<'a> {
         let entries = std::mem::take(&mut self.entries);
         let mut changes = Vec::with_capacity(entries.len());
         for (path, entry) in entries {
-            let culprit = self.contributors.get(&path).and_then(|accepted| accepted.last().copied());
+            let culprit = self
+                .contributors
+                .get(&path)
+                .and_then(|accepted| accepted.last().copied());
             let invalid = |message: String| Invalid {
                 path: path.clone(),
                 message,

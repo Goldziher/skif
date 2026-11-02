@@ -684,7 +684,9 @@ fn fix_through_a_symlink_out_of_the_workspace_is_refused() {
 fn pnpm_is_asked_to_update_the_lockfile_after_a_fix() {
     let dir = fixture("dirty");
     let manifest = dir.path().join("package.json");
-    let pnpm = fs::read_to_string(&manifest).unwrap().replace("npm@11.6.2", "pnpm@12.15.0");
+    let pnpm = fs::read_to_string(&manifest)
+        .unwrap()
+        .replace("npm@11.6.2", "pnpm@12.15.0");
     fs::write(&manifest, pnpm).unwrap();
     let log = tempfile::tempdir().unwrap();
     let record = log.path().join("record.txt");
@@ -698,7 +700,10 @@ fn pnpm_is_asked_to_update_the_lockfile_after_a_fix() {
     let calls = invocations(&record);
     assert_eq!(calls.len(), 1, "{calls:?}");
     assert_eq!(calls[0].0, "install --no-frozen-lockfile");
-    assert_eq!(result.json()["fix"]["install"]["command"], "pnpm install --no-frozen-lockfile");
+    assert_eq!(
+        result.json()["fix"]["install"]["command"],
+        "pnpm install --no-frozen-lockfile"
+    );
 }
 
 #[test]
@@ -729,7 +734,10 @@ fn fix_with_github_keeps_stdout_to_annotations() {
         .arg(dir.path()));
     assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
     assert!(
-        result.stdout.lines().all(|line| line.starts_with("::") || line.starts_with("skif:")),
+        result
+            .stdout
+            .lines()
+            .all(|line| line.starts_with("::") || line.starts_with("skif:")),
         "{}",
         result.stdout
     );
@@ -752,7 +760,10 @@ fn sarif_paths_are_relative_to_the_repository_top_level() {
     fs::create_dir(repo.path().join(".git")).unwrap();
     let nested = repo.path().join("web");
     fs::create_dir(&nested).unwrap();
-    let entries: Vec<PathBuf> = fs::read_dir(repo.path()).unwrap().map(|entry| entry.unwrap().path()).collect();
+    let entries: Vec<PathBuf> = fs::read_dir(repo.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
     for path in entries {
         if path.file_name().is_some_and(|name| name != ".git" && name != "web") {
             fs::rename(&path, nested.join(path.file_name().unwrap())).unwrap();
@@ -764,9 +775,13 @@ fn sarif_paths_are_relative_to_the_repository_top_level() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|result| result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"].as_str().unwrap())
+        .map(|result| {
+            result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+                .as_str()
+                .unwrap()
+        })
         .collect();
-    assert!(!uris.is_empty());
+    assert_ne!(uris, [] as [&str; 0]);
     assert!(uris.iter().all(|uri| uri.starts_with("web/")), "{uris:?}");
 }
 
