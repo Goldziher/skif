@@ -80,3 +80,18 @@ blake3 = "08e2d0276b072cb7194d9e99d2ec6d639c1b441bf01c69a27419bab3f1ea1e21"
 number = 16
 status = "accepted"
 blake3 = "6556e3ede3ef551d45de5865967a31ebc25578fc5f243c7134d02b8070ddb60e"
+
+[adrs."adrs/0017-release-policy-a-single-complete-0-1-0.md"]
+number = 17
+status = "accepted"
+blake3 = "8a78a78a82520db1443167670bdf0e0238625e3c150f5a0cb3fca8f1c78570c1"
+
+[adrs."adrs/0018-npm-distribution-via-napi-rs.md"]
+number = 18
+status = "accepted"
+blake3 = "4b97f86d92cf26b2a38f54b907f7ffbdd7ad1e3b5bd822019da3c0efb21847bf"
+
+[adrs."adrs/0019-reality-reconciliation-crate-list-schema-file-test-tooling-and-consistency.md"]
+number = 19
+status = "accepted"
+blake3 = "e55661f3133897c9328cdcf825e73c032bffc646dab8e3a6d2c19080176d6d6e"

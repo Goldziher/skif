@@ -1,6 +1,6 @@
 # skif-report
 
-Renderers that turn a `skif_core::Report` into human-readable or JSON output.
+Renderers that turn a `skif_core::Report` into human-readable, JSON, SARIF or GitHub annotation output.
 
 Renderers write to a `&mut dyn std::io::Write`, never touch the environment or the terminal, and take
 a `RenderOptions` that the caller (normally the CLI) fills in.
@@ -43,4 +43,11 @@ render(report, Format::Json, &RenderOptions::default(), &mut out)?;
 `skif`, `help`, `span`, `package`, `dependency` and `detail` are omitted when absent; `related` and
 `fixes` are always arrays. Paths are relative with `/` separators. Adding a field is not a breaking
 change; removing or renaming one, or changing its type or meaning, bumps `version`. Failures are
-reported as `{"version": 1, "error": {"message": "..."}}`.
+reported as `{"version": 1, "error": {"kind": "...", "message": "...", "path": "...", "line": 1, "column": 1}}`;
+`kind` and `message` are always present and `path`, `line` and `column` only when the failure has a location.
+
+## SARIF and GitHub annotations
+
+`Format::Sarif` writes a SARIF 2.1.0 log (one run, one result per diagnostic, with the rule metadata and
+the fix titles) for code-scanning upload. `Format::Github` writes one workflow command per diagnostic
+(`::error file=...,line=...,col=...::message`), which GitHub shows as annotations on the pull request.

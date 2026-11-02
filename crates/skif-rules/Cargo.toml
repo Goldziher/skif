@@ -11,6 +11,7 @@ description = "Built-in manifest and workspace rules for skif."
 documentation = "https://docs.rs/skif-rules"
 keywords = ["linter", "monorepo", "package-json", "rules", "skif"]
 categories = ["development-tools"]
+include = ["src/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md"]
 
 [dependencies]
 serde.workspace = true

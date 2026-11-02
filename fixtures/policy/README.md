@@ -2,9 +2,9 @@
 
 Declarative fixtures for the `policy` rules of skif: version groups, semver groups, catalogs, the
 workspace protocol, dependency families and the policy conflicts between them
-([ADR 0009](../../adrs/0009-version-and-catalog-policies.md)). The fixtures are data only. A test
-harness (written with the rule implementation) walks them, runs the policy rules and compares the
-result with `expected.json`.
+([ADR 0009](../../adrs/0009-version-and-catalog-policies.md)). The fixtures are data only. The conformance
+tests in `crates/skif-rules/tests` (`policy_conformance.rs` and `policy_catalog_conformance.rs`) walk them, run the
+policy rules and compare the result with `expected.json`.
 
 There are 157 cases in 14 groups. Each case is a minimal monorepo plus the `skif.toml` under
 test and the diagnostics skif must report for it, so a failing case points at one behaviour.

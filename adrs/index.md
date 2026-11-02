@@ -24,3 +24,6 @@ old one.
 | 0014 | [Git Hook Integration: pre-commit Launcher, poly Catalog, Lefthook Docs](0014-git-hook-integration.md) | accepted |
 | 0015 | [Attribution and Vendoring: Vendor, Re-Implement or Depend, and Credit Every Source](0015-attribution-and-vendoring.md) | accepted |
 | 0016 | [CLI Contract: Flags, Exit Codes and Machine-Readable Errors](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md) | accepted |
+| 0017 | [Release Policy: A Single Complete 0.1.0](0017-release-policy-a-single-complete-0-1-0.md) | accepted |
+| 0018 | [npm Distribution via napi-rs](0018-npm-distribution-via-napi-rs.md) | accepted |
+| 0019 | [Reality Reconciliation: Crate List, Schema File, Test Tooling and Consistency Checks](0019-reality-reconciliation-crate-list-schema-file-test-tooling-and-consistency.md) | accepted |

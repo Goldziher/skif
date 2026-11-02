@@ -11,4 +11,22 @@ allow = [
   "Zlib",
 ]
 confidence-threshold = 0.8
-exceptions = [{ allow = ["MPL-2.0"], crate = "colored" }]
+
+[advisories]
+yanked = "deny"
+unmaintained = "workspace"
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+allow-wildcard-paths = true
+skip = [
+  { crate = "hashbrown@0.14.5", reason = "transitive duplicate from the oxc stack; waits for upstream to converge" },
+  { crate = "hashbrown@0.16.1", reason = "transitive duplicate from oxc_resolver; waits for upstream to converge" },
+  { crate = "syn@2.0.119", reason = "transitive duplicate of syn 3 pulled in by different proc-macro dependencies" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

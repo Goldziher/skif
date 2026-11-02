@@ -11,6 +11,7 @@ description = "Workspace discovery for npm, pnpm, yarn and bun: packages, manife
 documentation = "https://docs.rs/skif-workspace"
 keywords = ["monorepo", "workspace", "pnpm", "package-json", "skif"]
 categories = ["development-tools"]
+include = ["src/**", "tests/**", "fixtures/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md"]
 
 [dependencies]
 globset.workspace = true
