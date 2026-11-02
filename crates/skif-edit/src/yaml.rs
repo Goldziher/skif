@@ -44,6 +44,14 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
     Ok(diff(source, document.source()).into_iter().collect())
 }
 
+/// Checks that `after` is still a YAML document.
+pub(crate) fn validate(after: &str) -> Result<(), EditPlanError> {
+    Document::new(after).map(drop).map_err(|error| EditPlanError::InvalidOutput {
+        kind: FileKind::Yaml,
+        message: error.to_string(),
+    })
+}
+
 /// Re-addresses `route`, written against the original document, after the sequence elements in `removed` (original
 /// routes) were deleted. `None` when `route` runs through a removed element.
 fn shift_past_removals(route: &[PathSeg], removed: &[&[PathSeg]]) -> Option<Vec<PathSeg>> {

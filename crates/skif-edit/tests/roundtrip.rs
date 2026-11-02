@@ -274,3 +274,135 @@ proptest! {
         prop_assert_eq!(serde_json::to_string(&parsed).unwrap(), serde_json::to_string(&Value::Object(expected)).unwrap());
     }
 }
+
+/// What a sequence does to one top-level member of the document.
+#[derive(Debug, Clone)]
+enum Touch {
+    Keep,
+    Remove,
+    Rename,
+    Set(Value),
+}
+
+fn touch() -> impl Strategy<Value = Touch> {
+    prop_oneof![
+        Just(Touch::Keep),
+        Just(Touch::Remove),
+        Just(Touch::Rename),
+        value().prop_map(Touch::Set),
+    ]
+}
+
+fn insert_spec() -> impl Strategy<Value = (String, Value, u8)> {
+    (key(), value(), any::<u8>())
+}
+
+fn position_of(code: u8) -> InsertPosition {
+    match code % 3 {
+        0 => InsertPosition::Start,
+        1 => InsertPosition::End,
+        _ => InsertPosition::Sorted,
+    }
+}
+
+/// A top-level member while the reference applies a sequence: the key it had, the key it has, and its value.
+struct Item {
+    original: Option<String>,
+    name: String,
+    value: Value,
+}
+
+/// The semantic outcome of a sequence of per-member operations followed by inserts.
+fn sequence_reference(map: &Map<String, Value>, touches: &[Touch], inserts: &[(String, Value, u8)]) -> Value {
+    let mut items: Vec<Item> = Vec::new();
+    for (index, ((key, value), touch)) in map.iter().zip(touches.iter().cycle()).enumerate() {
+        let (name, value) = match touch {
+            Touch::Remove => continue,
+            Touch::Keep => (key.clone(), value.clone()),
+            Touch::Rename => (format!("z{index}"), value.clone()),
+            Touch::Set(new) => (key.clone(), new.clone()),
+        };
+        items.push(Item {
+            original: Some(key.clone()),
+            name,
+            value,
+        });
+    }
+    for (key, value, code) in inserts {
+        if let Some(item) = items
+            .iter_mut()
+            .find(|item| item.original.as_deref() == Some(key.as_str()) || item.original.is_none() && &item.name == key)
+        {
+            item.value = value.clone();
+            continue;
+        }
+        let at = match position_of(*code) {
+            InsertPosition::Start => 0,
+            InsertPosition::End => items.len(),
+            _ => items
+                .iter()
+                .position(|item| item.original.as_ref().unwrap_or(&item.name) > key)
+                .unwrap_or(items.len()),
+        };
+        items.insert(
+            at,
+            Item {
+                original: None,
+                name: key.clone(),
+                value: value.clone(),
+            },
+        );
+    }
+    Value::Object(items.into_iter().map(|item| (item.name, item.value)).collect())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 1024, failure_persistence: None, ..ProptestConfig::default() })]
+
+    #[test]
+    fn sequences_of_edits_match_value_semantics(
+        doc in document(),
+        layout in layout(),
+        touches in prop::collection::vec(touch(), 1..6),
+        inserts in prop::collection::vec(insert_spec(), 0..4),
+    ) {
+        let source = format_document(&doc, &layout);
+        let Value::Object(map) = &doc else { unreachable!() };
+        let mut ops: Vec<FixOp> = Vec::new();
+        for (index, (key, touch)) in map.keys().zip(touches.iter().cycle()).enumerate() {
+            match touch {
+                Touch::Keep => {}
+                Touch::Remove => ops.push(common::remove(&[key.as_str()])),
+                Touch::Rename => ops.push(common::rename(&[key.as_str()], &format!("z{index}"))),
+                Touch::Set(value) => ops.push(common::set(&[key.as_str()], value.clone())),
+            }
+        }
+        for (key, value, code) in &inserts {
+            ops.push(common::insert(&[], key, value.clone(), position_of(*code)));
+        }
+        let refs: Vec<&FixOp> = ops.iter().collect();
+        let expected = sequence_reference(map, &touches, &inserts);
+
+        match apply(&source, FileKind::Json, &refs) {
+            Ok(edited) => {
+                let parsed: Value = serde_json::from_str(&edited).expect("output is valid JSON");
+                prop_assert_eq!(serde_json::to_string(&parsed).unwrap(), serde_json::to_string(&expected).unwrap());
+            }
+            // An insert that overwrites a member another operation also sets is a genuine conflict.
+            Err(skif_edit::EditPlanError::Conflict { .. }) => {}
+            Err(error) => prop_assert!(false, "unexpected error: {error}"),
+        }
+    }
+
+    #[test]
+    fn sorting_alone_matches_value_semantics(doc in document(), layout in layout()) {
+        let source = format_document(&doc, &layout);
+        let Value::Object(map) = &doc else { unreachable!() };
+        let mut sorted = entries(map);
+        sorted.sort_by(|a, b| a.0.cmp(&b.0));
+        let op = common::sort_keys(&[]);
+        let edited = apply(&source, FileKind::Json, &[&op]).expect("edit applies");
+        let parsed: Value = serde_json::from_str(&edited).expect("output is valid JSON");
+        prop_assert_eq!(serde_json::to_string(&parsed).unwrap(), serde_json::to_string(&from_entries(sorted)).unwrap());
+    }
+}
