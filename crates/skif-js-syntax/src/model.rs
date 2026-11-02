@@ -191,6 +191,9 @@ pub struct ModuleInfo {
     pub has_jsx: bool,
     /// Value of a `@jsxImportSource` pragma.
     pub jsx_import_source: Option<String>,
+    /// Location of the value of the `@jsxImportSource` pragma. Only a pragma in the comments before the first
+    /// statement counts.
+    pub jsx_import_source_span: Option<Span>,
     /// Directive prologue strings such as `use client`.
     pub directives: Vec<String>,
     /// `import()`, `require()` and `import.meta.glob()` calls whose argument is not static.
@@ -219,6 +222,7 @@ impl ModuleInfo {
         self.has_jsx |= other.has_jsx;
         if self.jsx_import_source.is_none() {
             self.jsx_import_source = other.jsx_import_source;
+            self.jsx_import_source_span = other.jsx_import_source_span;
         }
         self.directives.extend(other.directives);
         self.unresolved_dynamic.extend(other.unresolved_dynamic);

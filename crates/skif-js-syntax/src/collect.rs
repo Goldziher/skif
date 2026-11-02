@@ -81,7 +81,7 @@ fn module_export_span(name: &ModuleExportName<'_>) -> OxcSpan {
     }
 }
 
-fn imported_kind(name: String) -> ImportedKind {
+pub(crate) fn imported_kind(name: String) -> ImportedKind {
     if name == "default" {
         ImportedKind::Default
     } else {
