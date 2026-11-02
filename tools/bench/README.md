@@ -26,7 +26,7 @@ target under `raw/`.
 | Parse and build the module graph, 10,000 files | < 2 s |
 
 `summary.md` ends with a pass/fail line for the first two. The third needs JS analysis to exist and is not measured
-yet. The JS comparison with knip only means something once `skif` performs JS analysis (0.2.0): until then the
+yet. The JS comparison with knip only means something once `skif` performs JS analysis: until then the
 `skif` and `skif --no-js` rows on the corpus are the same work.
 
 ## Running

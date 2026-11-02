@@ -12,6 +12,7 @@ documentation = "https://docs.rs/skif-js-syntax"
 keywords = ["javascript", "typescript", "oxc", "imports", "skif"]
 categories = ["development-tools", "parser-implementations"]
 readme = "README.md"
+include = ["src/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
 
 [dependencies]
 oxc_allocator.workspace = true

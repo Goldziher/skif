@@ -11,6 +11,7 @@ description = "Rule engine for skif: rule registry, diagnostic emitter and paral
 documentation = "https://docs.rs/skif-lint"
 keywords = ["linter", "monorepo", "rules", "engine", "skif"]
 categories = ["development-tools"]
+include = ["src/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md"]
 
 [dependencies]
 rayon.workspace = true

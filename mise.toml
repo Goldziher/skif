@@ -75,7 +75,28 @@ run = "cargo deny check"
 
 [tasks."adr:lint"]
 description = "Lint the architecture decision records"
-run = "adrlint lint adrs"
+run = ["adrlint lint adrs", "adrlint format --check adrs", "adrlint lock --check"]
+
+[tasks."schema:check"]
+description = "Fail when schema/skif.schema.json differs from the schema `skif schema` prints"
+run = "scripts/check-schema.sh"
+
+[tasks."consistency"]
+description = "Check version surfaces, exact oxc pins, workspace-inherited dependencies, vendored headers and crate notices"
+run = [
+  "scripts/check-versions.sh",
+  "scripts/check-pins.sh",
+  "scripts/check-headers.sh",
+  "scripts/check-package-contents.sh",
+]
+
+[tasks."ai:validate"]
+description = "Validate the ai-rulez configuration, lock and generated outputs"
+run = [
+  "npx -y ai-rulez@latest validate --strict --no-local",
+  "npx -y ai-rulez@latest lock --check",
+  "npx -y ai-rulez@latest generate --no-local --strict-config --check",
+]
 
 [tasks.check]
 description = "Full local gate: format check, lint, test"

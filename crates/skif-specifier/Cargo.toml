@@ -11,6 +11,7 @@ description = "npm dependency specifier parsing and comparison for skif, vendore
 documentation = "https://docs.rs/skif-specifier"
 keywords = ["npm", "semver", "specifier", "monorepo", "skif"]
 categories = ["parser-implementations"]
+include = ["src/**", "benches/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md"]
 
 [lib]
 name = "skif_specifier"
