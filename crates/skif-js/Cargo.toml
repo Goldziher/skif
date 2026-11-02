@@ -15,6 +15,7 @@ categories = ["development-tools"]
 
 [dependencies]
 globset.workspace = true
+ignore.workspace = true
 oxc_resolver.workspace = true
 rayon.workspace = true
 serde.workspace = true

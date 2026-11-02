@@ -34,7 +34,7 @@ mod usage;
 pub use analysis::{JsAnalysis, UnusedFile};
 pub use deps::{DependencyUsage, UnlistedBinary, UnlistedImport};
 pub use graph::{Module, ModuleGraph, ModuleId, ResolvedImport, Target};
-pub use input::{InputRequest, InputSource, WorkspaceInputs};
+pub use input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
 pub use provider::{JsProvider, PROVIDER_ID};
 pub use rules::{
     CircularImports, DuplicateExports, JsRule, UnlistedBinaries, UnlistedDependencies, UnresolvedImports,

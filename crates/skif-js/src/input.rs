@@ -4,8 +4,30 @@
 //! workspace package each one returns a [`WorkspaceInputs`] with the entry and project globs, ignore lists and
 //! references the tool implies. The plugin table of `skif-js-plugins` implements this trait.
 
+use std::path::PathBuf;
+
 use skif_core::FileSystem;
 use skif_workspace::{Package, Workspace};
+
+/// A module alias a tool configuration declares: imports of `find` (and `find/…`) point at `target`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathAlias {
+    /// The aliased prefix, without a trailing `/` or `*`.
+    pub find: String,
+    /// The directory or file it stands for, relative to the package directory with `/` separators. `None` when the
+    /// configuration computes it, in which case imports of the alias are known not to be packages but cannot be
+    /// followed.
+    pub target: Option<String>,
+}
+
+/// Build output that maps back to source: `dist` to `src` for a `tsconfig` with `outDir` and `rootDir`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildDir {
+    /// The output directory, relative to the package directory.
+    pub out_dir: String,
+    /// The source directory, relative to the package directory.
+    pub root_dir: String,
+}
 
 /// What an [`InputSource`] contributes for one workspace package.
 ///
@@ -28,6 +50,14 @@ pub struct WorkspaceInputs {
     pub dependencies: Vec<String>,
     /// Binaries the tool runs without a script naming them.
     pub binaries: Vec<String>,
+    /// Configuration files of the tools, absolute. They are entries in every mode so what they import counts.
+    pub config_files: Vec<PathBuf>,
+    /// Module aliases declared by bundler and compiler configuration.
+    pub aliases: Vec<PathAlias>,
+    /// Output directories and the source directories they are built from.
+    pub build_dirs: Vec<BuildDir>,
+    /// Extra `exports` conditions that select source files (`customConditions`).
+    pub conditions: Vec<String>,
 }
 
 impl WorkspaceInputs {
@@ -41,6 +71,10 @@ impl WorkspaceInputs {
         self.ignore_binaries.extend(other.ignore_binaries);
         self.dependencies.extend(other.dependencies);
         self.binaries.extend(other.binaries);
+        self.config_files.extend(other.config_files);
+        self.aliases.extend(other.aliases);
+        self.build_dirs.extend(other.build_dirs);
+        self.conditions.extend(other.conditions);
     }
 }
 

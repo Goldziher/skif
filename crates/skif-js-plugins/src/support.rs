@@ -3,7 +3,7 @@
 
 use skif_js_syntax::ConfigValue;
 
-use crate::plugin::PluginInput;
+use crate::plugin::{ConfigAst, PluginInput};
 
 const FILE_EXTENSIONS: &[&str] = &[
     "js", "jsx", "ts", "tsx", "mjs", "cjs", "mts", "cts", "json", "css", "scss", "html", "vue", "svelte",
@@ -234,4 +234,71 @@ fn attribute(tag: &str, lower_tag: &str, name: &str) -> Option<String> {
         from = at + needle.len();
     }
     None
+}
+
+/// The module aliases of a bundler's `resolve.alias`: an object of `find: target` or an array of
+/// `{ find, replacement }`. Targets that are not paths (a package standing in for another) are not aliases.
+pub(crate) fn alias_inputs(alias: &ConfigValue, config: &ConfigAst<'_>) -> Vec<PluginInput> {
+    let pairs: Vec<(&str, &ConfigValue)> = match alias {
+        ConfigValue::Object(entries) => entries
+            .iter()
+            .filter(|(key, _)| key != "...")
+            .map(|(key, value)| (key.as_str(), value))
+            .collect(),
+        ConfigValue::Array(items) => items
+            .iter()
+            .filter_map(|item| Some((item.get("find")?.as_str()?, item.get("replacement")?)))
+            .collect(),
+        _ => Vec::new(),
+    };
+    pairs
+        .into_iter()
+        .filter_map(|(find, replacement)| {
+            let find = find.trim_end_matches('$').trim_end_matches('/');
+            if find.is_empty() {
+                return None;
+            }
+            let target = match replacement {
+                ConfigValue::String(path) => Some(alias_target(path, config)?),
+                _ => None,
+            };
+            Some(PluginInput::Alias {
+                find: find.to_owned(),
+                target,
+            })
+        })
+        .collect()
+}
+
+/// A path written as an alias target, relative to the workspace. `/src` is relative to the project root.
+fn alias_target(target: &str, config: &ConfigAst<'_>) -> Option<String> {
+    let target = target.replace('\\', "/");
+    let target = target.trim_end_matches('/');
+    if is_relative(target) {
+        Some(config.join(target))
+    } else {
+        target.strip_prefix('/').map(|rooted| config.join(rooted))
+    }
+}
+
+/// `@app/*` and `src/lib/*` without the wildcard.
+pub(crate) fn strip_wildcard(pattern: &str) -> &str {
+    pattern
+        .strip_suffix("/*")
+        .or_else(|| pattern.strip_suffix('*'))
+        .unwrap_or(pattern)
+        .trim_end_matches('/')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wildcards_are_stripped() {
+        assert_eq!(strip_wildcard("@app/*"), "@app");
+        assert_eq!(strip_wildcard("src/lib/*"), "src/lib");
+        assert_eq!(strip_wildcard("exact"), "exact");
+        assert_eq!(strip_wildcard("*"), "");
+    }
 }
