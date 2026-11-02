@@ -3,7 +3,8 @@
 #
 # Usage: scripts/npm-smoke.sh <node|bun>
 #
-# Expects `pnpm build` to have produced npm-package/index.js and the host .node file.
+# Expects `pnpm build` to have produced npm-package/index.js and the host .node file. With SKIF_EXPECT_PANIC_HOOK=1
+# the addon must also export the `panicForTest` hook (built with `--features test-hooks`).
 set -euo pipefail
 
 runtime="${1:?usage: npm-smoke.sh <node|bun>}"
@@ -21,16 +22,58 @@ bun) exec_bin=(bunx --bun --no-install skif) ;;
   ;;
 esac
 
-echo "== ${runtime}: import and lint()"
-"$runtime" -e '
-  import { lint, run } from "'"${root}"'/npm-package/index.js";
-  const report = JSON.parse(lint(process.argv[1]));
-  if (typeof run !== "function" || report.version !== 1) throw new Error("unexpected report: " + JSON.stringify(report));
-' "$fixture"
-
 # A temporary project with skif symlinked in, so the bin resolves exactly as it does from node_modules/.bin.
 project="$(mktemp -d)"
 trap 'rm -rf "$project"' EXIT
+
+cat >"${project}/addon.mjs" <<'JS'
+import * as addon from "ADDON";
+
+const [fixture, missing] = process.argv.slice(2);
+const fail = (message) => {
+  throw new Error(message);
+};
+
+if (typeof addon.run !== "function") fail("run is not exported");
+if (addon.run(["--version"]) !== 0) fail("run(['--version']) did not exit 0");
+
+const report = JSON.parse(addon.lint(fixture));
+if (report.version !== 1) fail("unexpected report: " + JSON.stringify(report));
+if (report.summary.errors !== 0) fail("the clean fixture reported errors: " + JSON.stringify(report.diagnostics));
+
+const asyncOutcome = await addon.lintAsync(fixture, { noJs: false });
+if (JSON.stringify(JSON.parse(asyncOutcome.report)) !== JSON.stringify(report)) fail("lintAsync differs from lint");
+
+const failure = await addon.lintAsync(missing);
+if (failure.report !== undefined && failure.report !== null) fail("a missing path produced a report");
+if (!failure.error || !failure.error.kind || !failure.error.message) fail("no structured error: " + JSON.stringify(failure));
+
+let thrown;
+try {
+  addon.lint(missing);
+} catch (error) {
+  thrown = error;
+}
+if (!thrown) fail("lint() of a missing path did not throw");
+
+if (typeof addon.panicForTest === "function") {
+  let panic;
+  try {
+    addon.panicForTest();
+  } catch (error) {
+    panic = error;
+  }
+  if (!panic || !String(panic.message).includes("deliberate panic")) fail("a panic did not become an exception");
+  if (addon.run(["--version"]) !== 0) fail("the addon is unusable after a panic");
+} else if (process.env.SKIF_EXPECT_PANIC_HOOK === "1") {
+  fail("the test-hooks build does not export panicForTest");
+}
+JS
+sed -i.bak "s#ADDON#${root}/npm-package/index.js#" "${project}/addon.mjs"
+
+echo "== ${runtime}: import, run(), lint(), lintAsync() and a panic"
+"$runtime" "${project}/addon.mjs" "$fixture" "${project}/does-not-exist"
+
 mkdir -p "${project}/node_modules/.bin"
 ln -s "${root}/npm-package" "${project}/node_modules/skif"
 ln -s ../skif/bin/skif.js "${project}/node_modules/.bin/skif"

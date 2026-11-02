@@ -3,7 +3,7 @@
 use std::fmt;
 use std::path::Path;
 
-use skif::{ConfigError, LintError, WorkspaceError};
+use skif::{ConfigError, LintError, WorkspaceError, slash};
 
 /// Machine-readable category of a failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,6 +16,7 @@ pub enum Kind {
 }
 
 impl Kind {
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Config => "config",
@@ -48,13 +49,15 @@ impl CliError {
         }
     }
 
+    #[must_use]
     pub fn io(context: &str, path: &Path, error: &std::io::Error) -> Self {
         Self {
-            path: Some(display(path)),
+            path: Some(slash(path)),
             ..Self::new(Kind::Io, format!("{context} {}: {error}", path.display()))
         }
     }
 
+    #[must_use]
     pub fn ci_refusal() -> Self {
         Self::new(
             Kind::CiRefusal,
@@ -74,19 +77,6 @@ fn slashes(text: String) -> String {
     if cfg!(windows) { text.replace('\\', "/") } else { text }
 }
 
-/// A path as displayed to users and machines in messages: `/` separators on every platform.
-pub fn display(path: &Path) -> String {
-    slashes(path.display().to_string())
-}
-
-/// A workspace-relative path with `/` separators on every platform, for JSON.
-pub fn slash(path: &Path) -> String {
-    path.components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
 fn position(value: Option<usize>) -> Option<u32> {
     value.and_then(|value| u32::try_from(value).ok())
 }
@@ -96,16 +86,16 @@ impl From<ConfigError> for CliError {
         let mut cli = Self::new(Kind::Config, error.to_string());
         match &error {
             ConfigError::Parse { path, line, column, .. } => {
-                cli.path = path.as_deref().map(display);
+                cli.path = path.as_deref().map(slash);
                 cli.line = position(*line);
                 cli.column = position(*column);
             }
-            ConfigError::Invalid { path, .. } => cli.path = path.as_deref().map(display),
+            ConfigError::Invalid { path, .. } => cli.path = path.as_deref().map(slash),
             ConfigError::Io { path, .. } => {
                 cli.kind = Kind::Io;
-                cli.path = Some(display(path));
+                cli.path = Some(slash(path));
             }
-            ConfigError::Ambiguous { first, .. } => cli.path = Some(display(first)),
+            ConfigError::Ambiguous { first, .. } => cli.path = Some(slash(first)),
             _ => {}
         }
         cli
@@ -117,14 +107,14 @@ impl From<WorkspaceError> for CliError {
         let mut cli = Self::new(Kind::Workspace, error.to_string());
         match &error {
             WorkspaceError::InvalidManifest { path, line, column, .. } => {
-                cli.path = Some(display(path));
+                cli.path = Some(slash(path));
                 cli.line = Some(*line);
                 cli.column = Some(*column);
             }
-            WorkspaceError::InvalidPnpmWorkspace { path, .. } => cli.path = Some(display(path)),
+            WorkspaceError::InvalidPnpmWorkspace { path, .. } => cli.path = Some(slash(path)),
             WorkspaceError::Io { path, .. } => {
                 cli.kind = Kind::Io;
-                cli.path = Some(display(path));
+                cli.path = Some(slash(path));
             }
             _ => {}
         }

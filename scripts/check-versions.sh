@@ -54,6 +54,10 @@ for hooks in .pre-commit-hooks.yaml poly-hooks.toml; do
     echo "::error::${hooks}: only the fix hook may pass --no-install"
     failures=$((failures + 1))
   fi
+  if [[ "$(grep -c -- '--no-prompt' "$hooks")" -ne 1 ]]; then
+    echo "::error::${hooks}: only the fix hook may pass --no-prompt (hooks never ask)"
+    failures=$((failures + 1))
+  fi
 done
 
 if [[ "$failures" -gt 0 ]]; then

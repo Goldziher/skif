@@ -5,11 +5,12 @@ use std::io::{self, Write};
 
 use inquire::InquireError;
 use serde_json::{Value, json};
-use skif::{Alternatives, FixPlan, FixSafety, FixSelection, Report, SkipReason};
+use skif::{Alternatives, FixPlan, FixSafety, FixSelection, Prefer, Report, SkipReason, preferred_alternative, slash};
+use skif_report::escape_controls;
 
 use crate::args::{Format, LintArgs};
 use crate::env::Env;
-use crate::error::{CliError, Kind, slash};
+use crate::error::{CliError, Kind};
 use crate::install::InstallStatus;
 
 /// What a fix run did.
@@ -25,7 +26,7 @@ struct Choice {
 
 impl fmt::Display for Choice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.title)
+        f.write_str(&escape_controls(&self.title))
     }
 }
 
@@ -34,10 +35,11 @@ const fn allows(ceiling: FixSafety, safety: FixSafety) -> bool {
 }
 
 /// Builds the selection for this run. Alternatives are put to the user only when both stdin and stdout are terminals,
-/// the format is `human`, neither `--no-prompt` nor `--select` was given; with `--select` the first alternative (which
-/// the selection orders first) is taken; otherwise a diagnostic with several fixes stays unfixed (`needs-choice`),
-/// as ADR 0008 requires of a non-interactive run.
-pub fn selection(args: &LintArgs, env: Env, report: &Report) -> Result<FixSelection, CliError> {
+/// the format is `human`, neither `--no-prompt` nor `--select` was given, and configuration does not already
+/// determine the answer. With `--select` the first alternative (which the rules order by the selected version) is
+/// taken; otherwise an alternative that names the version `[policy] prefer` selects is taken; a diagnostic with
+/// several fixes and neither stays unfixed (`needs-choice`), as ADR 0008 requires of a non-interactive run.
+pub fn selection(args: &LintArgs, env: Env, report: &Report, prefer: Prefer) -> Result<FixSelection, CliError> {
     let safety = if args.fix_unsafe {
         FixSafety::Unsafe
     } else {
@@ -47,15 +49,15 @@ pub fn selection(args: &LintArgs, env: Env, report: &Report) -> Result<FixSelect
     let interactive =
         env.stdin_tty && env.stdout_tty && !args.no_prompt && args.format() == Format::Human && args.select.is_none();
     if !interactive {
-        return Ok(if args.select.is_some() {
-            selection.with_alternatives(Alternatives::First)
+        return Ok(selection.with_alternatives(if args.select.is_some() {
+            Alternatives::First
         } else {
-            selection
-        });
+            Alternatives::Preferred(prefer)
+        }));
     }
-    let mut selection = selection;
+    let mut selection = selection.with_alternatives(Alternatives::Preferred(prefer));
     for (index, diagnostic) in report.diagnostics.iter().enumerate() {
-        if diagnostic.fixes.len() < 2 {
+        if diagnostic.fixes.len() < 2 || preferred_alternative(&diagnostic.fixes, prefer).is_some() {
             continue;
         }
         let mut options: Vec<Choice> = diagnostic
@@ -72,7 +74,7 @@ pub fn selection(args: &LintArgs, env: Env, report: &Report) -> Result<FixSelect
             0 => continue,
             1 => options.pop(),
             _ => {
-                let prompt = format!("{}: {}", diagnostic.rule, diagnostic.message);
+                let prompt = format!("{}: {}", diagnostic.rule, escape_controls(&diagnostic.message));
                 match inquire::Select::new(&prompt, options).prompt() {
                     Ok(choice) => Some(choice),
                     Err(InquireError::OperationCanceled) => None,
@@ -144,24 +146,26 @@ impl FixRun {
         })
     }
 
-    /// A short account of the fix run for terminals.
+    /// A short account of the fix run for terminals. Text that came from the repository is escaped, so it cannot
+    /// drive the terminal.
     pub fn write_human(&self, out: &mut dyn Write) -> io::Result<()> {
         let files = self.plan.changes.len();
         writeln!(out, "Fixed {} issue(s) in {files} file(s).", self.plan.applied.len())?;
         for path in self.plan.paths() {
-            writeln!(out, "  fixed {}", slash(path))?;
+            writeln!(out, "  fixed {}", escape_controls(&slash(path)))?;
         }
         for skipped in &self.plan.skipped {
             let (reason, detail) = skip_parts(&skipped.reason);
             let detail = if detail.is_empty() {
                 String::new()
             } else {
-                format!(": {detail}")
+                format!(": {}", escape_controls(&detail))
             };
             writeln!(
                 out,
                 "  skipped [{}] {} ({reason}{detail})",
-                skipped.rule, skipped.message
+                skipped.rule,
+                escape_controls(&skipped.message)
             )?;
         }
         writeln!(out)

@@ -17,4 +17,5 @@ fi
 
 cd "$WORKING_DIRECTORY"
 echo "Running: skif ${parsed_args[*]:-}"
-exec skif "${parsed_args[@]}"
+# `${arr[@]+...}`: an empty array is an unbound variable under `set -u` on bash 3.2 (macOS runners).
+exec skif ${parsed_args[@]+"${parsed_args[@]}"}
