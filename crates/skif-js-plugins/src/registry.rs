@@ -3,10 +3,10 @@
 use crate::plugin::Plugin;
 use crate::plugins::{
     babel, changesets, commitlint, eslint, github_actions, husky, jest, lint_staged, next, playwright, postcss,
-    prettier, rollup, storybook, tailwind, tsup, turbo, typescript, vite, vitest, webpack,
+    prettier, rollup, rspack, storybook, tailwind, tsup, turbo, typescript, vite, vitest, webpack,
 };
 
-static PLUGINS: [&dyn Plugin; 21] = [
+static PLUGINS: [&dyn Plugin; 22] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -20,6 +20,7 @@ static PLUGINS: [&dyn Plugin; 21] = [
     &postcss::Postcss,
     &babel::Babel,
     &webpack::Webpack,
+    &rspack::Rspack,
     &rollup::Rollup,
     &tsup::Tsup,
     &turbo::Turbo,

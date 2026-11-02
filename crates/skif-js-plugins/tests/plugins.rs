@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 21] = [
+const ADR_IDS: [&str; 22] = [
     "typescript",
     "eslint",
     "prettier",
@@ -28,6 +28,7 @@ const ADR_IDS: [&str; 21] = [
     "postcss",
     "babel",
     "webpack",
+    "rspack",
     "rollup",
     "tsup",
     "turbo",
@@ -938,6 +939,33 @@ fn tsconfig_paths_outdir_and_conditions() {
         }]
     );
     assert_eq!(ts.conditions, ["source"]);
+}
+
+#[test]
+fn rspack_computes_paths_and_reads_html_templates() {
+    let results = resolve(
+        &[
+            (
+                "rspack.config.js",
+                r#"const path = require('path');
+                const { resolve } = path;
+                module.exports = {
+                  entry: { main: path.resolve(__dirname, 'src', 'index.js'), extra: resolve(__dirname, 'src/extra.js') },
+                  resolve: {
+                    modules: [path.resolve(__dirname, 'src'), 'node_modules'],
+                    alias: { '@ui': path.join(__dirname, 'ui') },
+                  },
+                };"#,
+            ),
+            ("public/index.html", r#"<script src="/static/boot.js"></script><script src="https://cdn.dev/x.js"></script>"#),
+        ],
+        &["@rspack/core"],
+    );
+    let out = output(&results, "rspack");
+    assert_entries(&out.production_entries, &["src/index.js", "src/extra.js"]);
+    assert_entries(&out.entries, &["static/boot.js"]);
+    assert_eq!(out.module_dirs, ["src"]);
+    assert!(out.aliases.contains(&alias("@ui", Some("ui"))), "{:?}", out.aliases);
 }
 
 #[test]
