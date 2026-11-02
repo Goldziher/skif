@@ -48,7 +48,9 @@ pub(crate) fn dependencies(options: &ConfigValue, base: &str, depth: u8) -> Vec<
     }
     for object in objects(options) {
         for (key, kind) in [("presets", "preset"), ("plugins", "plugin")] {
-            let Some(ConfigValue::Array(items)) = object.get(key) else { continue };
+            let Some(ConfigValue::Array(items)) = object.get(key) else {
+                continue;
+            };
             for name in items.iter().filter_map(name_of) {
                 if is_relative(name) {
                     out.push(PluginInput::Entry(join_rel(base, name)));

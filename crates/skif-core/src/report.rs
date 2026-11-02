@@ -111,6 +111,7 @@ mod tests {
             },
             related: Vec::new(),
             package: None,
+            package_id: None,
             dependency: None,
             detail: None,
             fixes,

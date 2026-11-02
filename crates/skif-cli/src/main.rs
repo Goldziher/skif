@@ -1,115 +1,63 @@
-use crate::args::Format;
-use crate::packages::Config;
-use crate::printer::{build_report, print_json, print_success};
-use crate::rules::{IssueLevel, IssuesList};
-use crate::{args::Args, printer::print_error};
+//! The `skif` binary: a thin consumer of the `skif` library.
+//!
+//! It is the only code that reads the environment, prints, prompts, writes files and spawns a process; it
+//! returns an exit code from `main` and no function below calls `std::process::exit`.
+
+use std::ffi::OsString;
+use std::process::ExitCode;
+
 use clap::Parser;
-use collect::{collect_issues, collect_packages};
-use colored::Colorize;
-use printer::{print_footer, print_issues};
-use std::time::Instant;
 
 mod args;
-mod collect;
+mod commands;
+mod env;
+mod error;
+mod fix;
 mod install;
-mod json;
-mod packages;
-mod plural;
-mod printer;
-mod rules;
+mod lint;
+mod output;
+mod write;
 
-fn is_ci() -> bool {
-    std::env::var("CI").is_ok()
+use args::{Cli, Command, Format};
+use env::Env;
+use error::{CliError, Kind};
+use output::emit_error;
+
+fn main() -> ExitCode {
+    ExitCode::from(run())
 }
 
-fn print_report(issues: IssuesList, total_packages: usize) {
-    if let Err(error) = print_json(&build_report(issues, total_packages)) {
-        print_error("Failed to print issues", error.to_string().as_str());
-        std::process::exit(1);
-    }
-}
-
-fn main() {
-    let now = Instant::now();
-    let args = Args::parse();
-
-    let packages_list = match collect_packages(&args.path) {
-        Ok(result) => result,
-        Err(error) => {
-            print_error("Failed to collect packages", error.to_string().as_str());
-            std::process::exit(1);
-        }
+fn run() -> u8 {
+    let raw: Vec<OsString> = std::env::args_os().collect();
+    let cli = match Cli::try_parse_from(&raw) {
+        Ok(cli) => cli,
+        Err(error) => return usage(&raw, &error),
     };
-
-    let root = args.path.clone();
-    let mut config = Config::default();
-    config.merge(args);
-
-    let json_output = config.format == Format::Json;
-    if json_output {
-        colored::control::set_override(false);
+    match cli.command {
+        None => lint::run(&cli.lint, Env::detect()),
+        Some(Command::Rules(args)) => commands::rules(&args),
+        Some(Command::Schema) => commands::schema(),
+        Some(Command::Init(args)) => commands::init(&args),
     }
+}
 
-    if config.fix && is_ci() {
-        print_error("Failed to fix issues", "Cannot fix issues inside a CI environment");
-        std::process::exit(1);
+/// Help and version go to stdout with exit 0; usage errors exit 2, as a JSON `error` document when `--format json`
+/// is on the command line.
+fn usage(raw: &[OsString], error: &clap::Error) -> u8 {
+    if !error.use_stderr() {
+        let _ = error.print();
+        return 0;
     }
-
-    let total_packages = packages_list.packages.len();
-    let mut issues = collect_issues(&config, packages_list);
-
-    if config.fix {
-        if let Some(autofix_select) = config.select.as_ref().filter(|_| !json_output) {
-            println!(
-                " {}",
-                format!("Note: automatically selecting {autofix_select} dependencies for `multiple-dependency-versions` rule...").bright_black(),
-            );
-            println!();
-        }
-
-        if let Err(error) = issues.fix() {
-            print_error("Failed to fix issues", error.to_string().as_str());
-            std::process::exit(1);
-        }
-    }
-
-    let total_issues = issues.total_len();
-
-    if total_issues == 0 {
-        if json_output {
-            print_report(issues, total_packages);
-        } else {
-            print_success();
-        }
-        return;
-    }
-
-    let warnings = issues.len_by_level(IssueLevel::Warning);
-    let errors = issues.len_by_level(IssueLevel::Error);
-    let fixed = issues.len_by_level(IssueLevel::Fixed);
-
-    // Only run the install command if we allow it and we fixed some issues.
-    if config.fix
-        && !config.no_install
-        && fixed > 0
-        && let Err(error) = install::install(&root, json_output)
-    {
-        print_error("Failed to install packages", error.to_string().as_str());
-        std::process::exit(1);
-    }
-
-    if json_output {
-        print_report(issues, total_packages);
+    if wants_json(raw) {
+        let message = error.to_string();
+        emit_error(&CliError::new(Kind::Usage, message.trim_end()), Format::Json);
     } else {
-        if let Err(error) = print_issues(issues) {
-            print_error("Failed to print issues", error.to_string().as_str());
-            std::process::exit(1);
-        }
-
-        print_footer(total_issues, total_packages, warnings, errors, fixed, now);
+        let _ = error.print();
     }
+    2
+}
 
-    if errors > 0 || (config.fail_on_warnings && warnings > 0) {
-        std::process::exit(1);
-    }
+fn wants_json(raw: &[OsString]) -> bool {
+    let args: Vec<&str> = raw.iter().filter_map(|arg| arg.to_str()).collect();
+    args.contains(&"--format=json") || args.windows(2).any(|pair| pair[0] == "--format" && pair[1] == "json")
 }

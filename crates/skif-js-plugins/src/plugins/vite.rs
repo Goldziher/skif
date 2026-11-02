@@ -27,7 +27,10 @@ impl Plugin for Vite {
         let mut out = html_entries(cx, config.base, "index.html");
         let inputs = get_in(config.value, &["build", "rollupOptions", "input"]);
         for input in inputs.into_iter().flat_map(values_of).flat_map(strings) {
-            if input.ends_with(".html") {
+            if std::path::Path::new(input)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("html"))
+            {
                 out.extend(html_entries(cx, config.base, input.trim_start_matches('/')));
             } else {
                 out.push(PluginInput::ProductionEntry(config.join(input)));

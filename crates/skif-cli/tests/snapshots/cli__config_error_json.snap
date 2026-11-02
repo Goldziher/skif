@@ -1,0 +1,14 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: "redact(&json.stdout, dir.path())"
+---
+{
+  "version": 1,
+  "error": {
+    "kind": "config",
+    "message": "[ROOT]/skif.toml:2:1: unknown field `bogus`, expected `fail-on-warnings`",
+    "path": "[ROOT]/skif.toml",
+    "line": 2,
+    "column": 1
+  }
+}

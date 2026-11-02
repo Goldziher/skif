@@ -2,8 +2,8 @@
 
 use crate::plugin::Plugin;
 use crate::plugins::{
-    babel, changesets, commitlint, eslint, github_actions, husky, jest, lint_staged, next, playwright, postcss, prettier,
-    rollup, storybook, tailwind, tsup, turbo, typescript, vite, vitest, webpack,
+    babel, changesets, commitlint, eslint, github_actions, husky, jest, lint_staged, next, playwright, postcss,
+    prettier, rollup, storybook, tailwind, tsup, turbo, typescript, vite, vitest, webpack,
 };
 
 static PLUGINS: [&dyn Plugin; 21] = [

@@ -178,6 +178,16 @@ pub enum FileChange {
     },
 }
 
+impl FileChange {
+    /// The workspace-relative file the change touches.
+    #[must_use]
+    pub fn path(&self) -> &std::path::Path {
+        match self {
+            Self::Modify { path, .. } | Self::Create { path, .. } | Self::Delete { path } => path,
+        }
+    }
+}
+
 /// Reason a set of [`TextEdit`]s cannot be applied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]

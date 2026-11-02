@@ -17,7 +17,10 @@ sums_file="$2"
 release_repo="${3:-Goldziher/skif}"
 base_url="https://github.com/${release_repo}/releases/download/v${version}"
 
-[ -f "$sums_file" ] || { echo "error: no such checksums file: ${sums_file}" >&2; exit 1; }
+[ -f "$sums_file" ] || {
+  echo "error: no such checksums file: ${sums_file}" >&2
+  exit 1
+}
 
 hash_for() {
   local asset="$1" hash
@@ -106,7 +109,10 @@ if printf '%s' "$formula" | grep -q '@@'; then
 fi
 
 for expected in "$version" "$macos_arm_sha" "$macos_intel_sha" "$linux_arm_sha" "$linux_intel_sha"; do
-  printf '%s' "$formula" | grep -qF "$expected" || { echo "error: '${expected}' is missing from the generated formula" >&2; exit 1; }
+  printf '%s' "$formula" | grep -qF "$expected" || {
+    echo "error: '${expected}' is missing from the generated formula" >&2
+    exit 1
+  }
 done
 
 printf '%s\n' "$formula"

@@ -75,11 +75,15 @@ fn resolve(files: &[(&str, &str)], dependencies: &[&str]) -> Vec<(PluginId, Plug
 }
 
 fn output<'a>(results: &'a [(PluginId, PluginOutput)], id: &str) -> &'a PluginOutput {
-    results
-        .iter()
-        .find(|(plugin, _)| *plugin == id)
-        .map(|(_, output)| output)
-        .unwrap_or_else(|| panic!("plugin {id} is not enabled; enabled: {:?}", results.iter().map(|(i, _)| i).collect::<Vec<_>>()))
+    results.iter().find(|(plugin, _)| *plugin == id).map_or_else(
+        || {
+            panic!(
+                "plugin {id} is not enabled; enabled: {:?}",
+                results.iter().map(|(i, _)| i).collect::<Vec<_>>()
+            )
+        },
+        |(_, output)| output,
+    )
 }
 
 fn deps(output: &PluginOutput) -> BTreeSet<&str> {
@@ -95,7 +99,10 @@ fn assert_deps(output: &PluginOutput, expected: &[&str]) {
 
 fn assert_entries(entries: &[String], expected: &[&str]) {
     for pattern in expected {
-        assert!(entries.iter().any(|e| e == pattern), "missing entry {pattern}; got {entries:?}");
+        assert!(
+            entries.iter().any(|e| e == pattern),
+            "missing entry {pattern}; got {entries:?}"
+        );
     }
 }
 
@@ -128,7 +135,7 @@ fn plugins_are_send_and_sync() {
 
 #[test]
 fn nothing_is_enabled_without_enablers() {
-    assert!(resolve(&[], &[]).is_empty());
+    assert_eq!(resolve(&[], &[]), [] as [(&str, skif_js_plugins::PluginOutput); 0]);
 }
 
 #[test]
@@ -150,7 +157,10 @@ fn typescript() {
                 }"#,
             ),
             ("tsconfig.base.json", r#"{"compilerOptions":{"types":["jest"]}}"#),
-            ("packages/a/tsconfig.json", r#"{"compilerOptions":{"importHelpers":true}}"#),
+            (
+                "packages/a/tsconfig.json",
+                r#"{"compilerOptions":{"importHelpers":true}}"#,
+            ),
         ],
         &["typescript"],
     );
@@ -222,7 +232,10 @@ fn eslint_flat_config_is_read_without_error() {
 #[test]
 fn eslint_config_in_package_json() {
     let results = resolve(
-        &[("package.json", r#"{"name":"app","eslintConfig":{"extends":["next/core-web-vitals"]}}"#)],
+        &[(
+            "package.json",
+            r#"{"name":"app","eslintConfig":{"extends":["next/core-web-vitals"]}}"#,
+        )],
         &["eslint"],
     );
     assert_deps(output(&results, "eslint"), &["eslint-config-next"]);
@@ -246,7 +259,10 @@ fn prettier() {
 #[test]
 fn prettier_shared_config_as_string() {
     let results = resolve(
-        &[("package.json", r#"{"name":"app","prettier":"@company/prettier-config"}"#)],
+        &[(
+            "package.json",
+            r#"{"name":"app","prettier":"@company/prettier-config"}"#,
+        )],
         &["prettier"],
     );
     assert_deps(output(&results, "prettier"), &["@company/prettier-config"]);
@@ -263,7 +279,10 @@ fn vite() {
                   optimizeDeps: { include: ["react > scheduler", "lodash"] },
                 });"#,
             ),
-            ("index.html", r#"<html><script type="module" src="/src/index.tsx"></script></html>"#),
+            (
+                "index.html",
+                r#"<html><script type="module" src="/src/index.tsx"></script></html>"#,
+            ),
         ],
         &["vite"],
     );
@@ -292,7 +311,12 @@ fn vitest() {
     let out = output(&results, "vitest");
     assert_deps(
         out,
-        &["jsdom", "vitest-sonar-reporter", "@vitest/coverage-istanbul", "vitest-canvas-mock"],
+        &[
+            "jsdom",
+            "vitest-sonar-reporter",
+            "@vitest/coverage-istanbul",
+            "vitest-canvas-mock",
+        ],
     );
     assert_entries(&out.entries, &["test/setup.ts", "tests/**/*.test.ts"]);
     assert!(out.entries.iter().any(|e| e.starts_with("**/*.{bench,test")));
@@ -350,13 +374,20 @@ fn jest_config_in_package_json() {
 #[test]
 fn next() {
     let results = resolve(
-        &[("next.config.mjs", r#"export default { pageExtensions: ["tsx", "ts", "mdx"] };"#)],
+        &[(
+            "next.config.mjs",
+            r#"export default { pageExtensions: ["tsx", "ts", "mdx"] };"#,
+        )],
         &["next"],
     );
     let out = output(&results, "next");
     assert_entries(&out.entries, &["next-env.d.ts", "{,src/}pages/**/*.{tsx,ts,mdx}"]);
     assert_entries(&out.production_entries, &["{,src/}pages/**/*.{tsx,ts,mdx}"]);
-    assert!(out.entries.iter().any(|e| e.contains("app/**/{layout,page,route,template}")));
+    assert!(
+        out.entries
+            .iter()
+            .any(|e| e.contains("app/**/{layout,page,route,template}"))
+    );
     assert!(out.provided_binaries.contains(&"next".to_string()));
 }
 
@@ -393,13 +424,22 @@ fn storybook() {
             "@vitest/coverage-v8",
         ],
     );
-    assert!(out.referenced_dependencies.iter().any(|d| d.name == "@vitest/coverage-v8" && d.optional));
+    assert!(
+        out.referenced_dependencies
+            .iter()
+            .any(|d| d.name == "@vitest/coverage-v8" && d.optional)
+    );
 }
 
 #[test]
 fn storybook_defaults_to_conventional_stories() {
     let results = resolve(&[(".storybook/main.ts", "export default {};")], &["@storybook/react"]);
-    assert!(output(&results, "storybook").entries.iter().any(|e| e.contains("stories")));
+    assert!(
+        output(&results, "storybook")
+            .entries
+            .iter()
+            .any(|e| e.contains("stories"))
+    );
 }
 
 #[test]
@@ -420,7 +460,11 @@ fn playwright() {
     let out = output(&results, "playwright");
     assert_entries(
         &out.entries,
-        &["e2e/**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}", "e2e/smoke/*.spec.ts", "e2e/global-setup.ts"],
+        &[
+            "e2e/**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "e2e/smoke/*.spec.ts",
+            "e2e/global-setup.ts",
+        ],
     );
     assert_deps(out, &["playwright-allure"]);
     assert!(out.referenced_binaries.contains(&"vite".to_string()));
@@ -429,7 +473,10 @@ fn playwright() {
 #[test]
 fn tailwind() {
     let results = resolve(
-        &[("tailwind.config.js", r#"module.exports = { content: [], plugins: ["@tailwindcss/typography"] };"#)],
+        &[(
+            "tailwind.config.js",
+            r#"module.exports = { content: [], plugins: ["@tailwindcss/typography"] };"#,
+        )],
         &["tailwindcss"],
     );
     let out = output(&results, "tailwind");
@@ -497,22 +544,40 @@ fn webpack() {
     let out = output(&results, "webpack");
     assert_entries(&out.production_entries, &["src/index.js", "src/admin.js"]);
     assert!(!out.entries.iter().any(|e| e == "main"));
-    assert_deps(out, &["ts-loader", "style-loader", "css-loader", "babel-loader", "@babel/preset-env"]);
+    assert_deps(
+        out,
+        &[
+            "ts-loader",
+            "style-loader",
+            "css-loader",
+            "babel-loader",
+            "@babel/preset-env",
+        ],
+    );
 }
 
 #[test]
 fn rollup() {
     let results = resolve(
-        &[("rollup.config.mjs", r#"export default [{ input: "src/a.js" }, { input: { b: "src/b.js" } }];"#)],
+        &[(
+            "rollup.config.mjs",
+            r#"export default [{ input: "src/a.js" }, { input: { b: "src/b.js" } }];"#,
+        )],
         &["rollup"],
     );
-    assert_entries(&output(&results, "rollup").production_entries, &["src/a.js", "src/b.js"]);
+    assert_entries(
+        &output(&results, "rollup").production_entries,
+        &["src/a.js", "src/b.js"],
+    );
 }
 
 #[test]
 fn tsup() {
     let results = resolve(
-        &[("tsup.config.ts", r#"export default defineConfig({ entry: ["src/index.ts", "!src/skip.ts"] });"#)],
+        &[(
+            "tsup.config.ts",
+            r#"export default defineConfig({ entry: ["src/index.ts", "!src/skip.ts"] });"#,
+        )],
         &["tsup"],
     );
     let out = output(&results, "tsup");
@@ -523,7 +588,10 @@ fn tsup() {
 #[test]
 fn tsup_config_in_package_json() {
     let results = resolve(
-        &[("package.json", r#"{"name":"app","tsup":{"entry":{"cli":"src/cli.ts"}}}"#)],
+        &[(
+            "package.json",
+            r#"{"name":"app","tsup":{"entry":{"cli":"src/cli.ts"}}}"#,
+        )],
         &["tsup"],
     );
     assert_entries(&output(&results, "tsup").production_entries, &["src/cli.ts"]);
@@ -544,7 +612,11 @@ fn husky() {
     let files = [(".husky/pre-commit", hook)];
     let results = resolve(&files, &["husky"]);
     let out = output(&results, "husky");
-    assert!(out.referenced_binaries.contains(&"lint-staged".to_string()), "{:?}", out.referenced_binaries);
+    assert!(
+        out.referenced_binaries.contains(&"lint-staged".to_string()),
+        "{:?}",
+        out.referenced_binaries
+    );
     assert!(out.ignore.contains(&".husky/_/**".to_string()));
 
     let nested = resolve_with(&files, &["husky"], false, &IndexMap::new());
@@ -562,14 +634,25 @@ fn lint_staged() {
     );
     let out = output(&results, "lint-staged");
     for binary in ["eslint", "prettier", "markdownlint"] {
-        assert!(out.referenced_binaries.contains(&binary.to_string()), "{binary}: {:?}", out.referenced_binaries);
+        assert!(
+            out.referenced_binaries.contains(&binary.to_string()),
+            "{binary}: {:?}",
+            out.referenced_binaries
+        );
     }
 }
 
 #[test]
 fn lint_staged_rc_file() {
-    let results = resolve(&[(".lintstagedrc.json", r#"{"*.js":"eslint --fix"}"#)], &["lint-staged"]);
-    assert!(output(&results, "lint-staged").referenced_binaries.contains(&"eslint".to_string()));
+    let results = resolve(
+        &[(".lintstagedrc.json", r#"{"*.js":"eslint --fix"}"#)],
+        &["lint-staged"],
+    );
+    assert!(
+        output(&results, "lint-staged")
+            .referenced_binaries
+            .contains(&"eslint".to_string())
+    );
 }
 
 #[test]
@@ -607,7 +690,10 @@ fn changesets() {
         )],
         &["@changesets/cli"],
     );
-    assert_deps(output(&results, "changesets"), &["@changesets/changelog-github", "@changesets/config"]);
+    assert_deps(
+        output(&results, "changesets"),
+        &["@changesets/changelog-github", "@changesets/config"],
+    );
 }
 
 #[test]
@@ -615,13 +701,23 @@ fn github_actions() {
     let workflow = "name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: pnpm exec vitest run\n      - run: |\n          npx playwright test\n      - run: npx other-tool\n        working-directory: packages/x\n";
     let action = "name: local\nruns:\n  using: node20\n  main: dist/index.js\n";
     let results = resolve(
-        &[(".github/workflows/ci.yml", workflow), (".github/actions/local/action.yml", action)],
+        &[
+            (".github/workflows/ci.yml", workflow),
+            (".github/actions/local/action.yml", action),
+        ],
         &[],
     );
     let out = output(&results, "github-actions");
-    assert!(out.referenced_binaries.contains(&"vitest".to_string()), "{:?}", out.referenced_binaries);
+    assert!(
+        out.referenced_binaries.contains(&"vitest".to_string()),
+        "{:?}",
+        out.referenced_binaries
+    );
     assert!(out.referenced_binaries.contains(&"playwright".to_string()));
-    assert!(!out.referenced_binaries.contains(&"other-tool".to_string()), "steps in another directory are skipped");
+    assert!(
+        !out.referenced_binaries.contains(&"other-tool".to_string()),
+        "steps in another directory are skipped"
+    );
     assert_entries(&out.entries, &[".github/actions/local/dist/index.js"]);
     assert_eq!(out.config_files.len(), 2);
 }
@@ -656,7 +752,10 @@ fn table_overrides_replace_default_globs() {
     let results = resolve_with(
         &[
             ("e2e.config.ts", r#"export default { globalSetup: "./setup.ts" };"#),
-            ("playwright.config.ts", r#"export default { globalSetup: "./other.ts" };"#),
+            (
+                "playwright.config.ts",
+                r#"export default { globalSetup: "./other.ts" };"#,
+            ),
         ],
         &["@playwright/test"],
         true,
@@ -680,7 +779,7 @@ fn table_with_enabled_false_disables() {
         }),
     );
     let results = resolve_with(&[], &["tsup"], true, &plugins);
-    assert!(results.is_empty());
+    assert_eq!(results, [] as [(&str, skif_js_plugins::PluginOutput); 0]);
 }
 
 #[test]
@@ -731,7 +830,10 @@ fn malformed_configs_never_panic() {
         let results = resolve_with(&files, &[], true, &plugins);
         assert_eq!(results.len(), ADR_IDS.len());
     }
-    let broken_manifest = [("package.json", r#"{"name":1,"eslintConfig":5,"jest":[],"lint-staged":"x","husky":null}"#)];
+    let broken_manifest = [(
+        "package.json",
+        r#"{"name":1,"eslintConfig":5,"jest":[],"lint-staged":"x","husky":null}"#,
+    )];
     let results = resolve_with(&broken_manifest, &[], true, &plugins);
     assert_eq!(results.len(), ADR_IDS.len());
 }

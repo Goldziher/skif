@@ -28,7 +28,9 @@ pub(crate) fn from_json(value: &serde_json::Value) -> ConfigValue {
         serde_json::Value::Number(n) => n.as_f64().map_or(ConfigValue::Unknown, ConfigValue::Number),
         serde_json::Value::String(s) => ConfigValue::String(s.clone()),
         serde_json::Value::Array(items) => ConfigValue::Array(items.iter().map(from_json).collect()),
-        serde_json::Value::Object(map) => ConfigValue::Object(map.iter().map(|(k, v)| (k.clone(), from_json(v))).collect()),
+        serde_json::Value::Object(map) => {
+            ConfigValue::Object(map.iter().map(|(k, v)| (k.clone(), from_json(v))).collect())
+        }
     }
 }
 

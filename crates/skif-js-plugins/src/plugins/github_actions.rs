@@ -16,7 +16,12 @@ static SPEC: PluginSpec = PluginSpec {
     ..PluginSpec::DEFAULT
 };
 
-const ACTION_PATH_VARIABLES: &[&str] = &["${{ github.action_path }}", "${{github.action_path}}", "${GITHUB_ACTION_PATH}", "$GITHUB_ACTION_PATH"];
+const ACTION_PATH_VARIABLES: &[&str] = &[
+    "${{ github.action_path }}",
+    "${{github.action_path}}",
+    "${GITHUB_ACTION_PATH}",
+    "$GITHUB_ACTION_PATH",
+];
 
 impl Plugin for GithubActions {
     fn spec(&self) -> &'static PluginSpec {
@@ -28,7 +33,10 @@ impl Plugin for GithubActions {
         steps(config.value, &mut out, 0);
         // A JavaScript action runs files that live next to its manifest.
         if let Some(runs) = config.value.get("runs")
-            && runs.get("using").and_then(ConfigValue::as_str).is_some_and(|u| u.starts_with("node"))
+            && runs
+                .get("using")
+                .and_then(ConfigValue::as_str)
+                .is_some_and(|u| u.starts_with("node"))
         {
             for key in ["pre", "main", "post"] {
                 if let Some(file) = runs.get(key).and_then(ConfigValue::as_str) {
@@ -69,7 +77,9 @@ fn step(step: &ConfigValue) -> Option<PluginInput> {
         .iter()
         .all(|dir| matches!(*dir, "." | "./"));
     in_root.then(|| {
-        let script = ACTION_PATH_VARIABLES.iter().fold(run.to_string(), |text, variable| text.replace(variable, "."));
+        let script = ACTION_PATH_VARIABLES
+            .iter()
+            .fold(run.to_string(), |text, variable| text.replace(variable, "."));
         PluginInput::Script(script)
     })
 }

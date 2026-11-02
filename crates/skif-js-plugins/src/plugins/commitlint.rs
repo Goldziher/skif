@@ -45,7 +45,9 @@ impl Plugin for Commitlint {
             out.extend(module_input(config.base, formatter, false));
         }
         if let Some(preset) = value.get("parserPreset") {
-            let path = preset.as_str().or_else(|| preset.get("path").and_then(ConfigValue::as_str));
+            let path = preset
+                .as_str()
+                .or_else(|| preset.get("path").and_then(ConfigValue::as_str));
             out.extend(path.and_then(|p| module_input(config.base, p, false)));
         }
         out

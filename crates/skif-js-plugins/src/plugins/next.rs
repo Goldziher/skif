@@ -61,6 +61,9 @@ impl Plugin for Next {
             format!("{{,src/}}{{instrumentation,instrumentation-client,middleware,proxy}}.{group}"),
             format!("{{,src/}}pages/**/*.{group}"),
         ];
-        router.into_iter().map(|p| PluginInput::ProductionEntry(config.join(&p))).collect()
+        router
+            .into_iter()
+            .map(|p| PluginInput::ProductionEntry(config.join(&p)))
+            .collect()
     }
 }

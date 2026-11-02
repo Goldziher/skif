@@ -38,7 +38,11 @@ impl Plugin for Typescript {
             }
         }
         if let Some(ConfigValue::Array(references)) = value.get("references") {
-            for path in references.iter().filter_map(|r| r.get("path")).filter_map(ConfigValue::as_str) {
+            for path in references
+                .iter()
+                .filter_map(|r| r.get("path"))
+                .filter_map(ConfigValue::as_str)
+            {
                 let file = if std::path::Path::new(path)
                     .extension()
                     .is_some_and(|e| e.eq_ignore_ascii_case("json"))
@@ -50,7 +54,9 @@ impl Plugin for Typescript {
                 out.push(PluginInput::ConfigFile(config.join(&file)));
             }
         }
-        let Some(options) = value.get("compilerOptions") else { return out };
+        let Some(options) = value.get("compilerOptions") else {
+            return out;
+        };
         if let Some(types) = options.get("types") {
             for name in strings(types) {
                 if let Some(package) = type_package(name, cx) {
