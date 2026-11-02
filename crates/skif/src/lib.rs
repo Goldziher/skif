@@ -52,7 +52,7 @@ pub use error::Error;
 #[cfg(feature = "fix")]
 pub use fix::{Alternatives, AppliedFix, FixError, FixPlan, FixSelection, SkipReason, SkippedFix, apply_fixes};
 pub use linter::{Linter, RunOptions, builtin_providers};
-pub use root::{find_workspace_root, load_config};
+pub use root::{config_file, find_workspace_root, load_config};
 
 pub use skif_config::{
     CONFIG_FILE_NAMES, Config, ConfigError, ConfigOverrides, IgnoreEntry, Level, PackageManager, Prefer, RuleConfig,

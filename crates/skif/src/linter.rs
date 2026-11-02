@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -43,6 +44,9 @@ pub struct RunOptions<'a> {
     pub threads: Option<NonZeroUsize>,
     /// Run only these rules (a subset of the otherwise enabled ones); `None` runs every enabled rule.
     pub rules: Option<&'a [String]>,
+    /// The configuration file the configuration was loaded from, relative to the workspace root (see
+    /// [`config_file`](crate::config_file)); diagnostics about the configuration itself point at it.
+    pub config_path: Option<&'a Path>,
 }
 
 impl<'a> RunOptions<'a> {
@@ -57,6 +61,13 @@ impl<'a> RunOptions<'a> {
     #[must_use]
     pub const fn with_threads(mut self, threads: NonZeroUsize) -> Self {
         self.threads = Some(threads);
+        self
+    }
+
+    /// Names the configuration file that diagnostics about the configuration point at.
+    #[must_use]
+    pub const fn with_config_path(mut self, config_path: &'a Path) -> Self {
+        self.config_path = Some(config_path);
         self
     }
 
@@ -163,7 +174,7 @@ impl Linter {
         let run_options = skif_lint::RunOptions {
             pool: pool.as_ref(),
             cancel: options.cancel,
-            config_path: None,
+            config_path: options.config_path,
         };
         Ok(skif_lint::run(&self.registry, workspace, &config, &run_options)?)
     }

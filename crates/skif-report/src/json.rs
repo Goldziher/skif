@@ -63,6 +63,8 @@ struct JsonDiagnostic<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     dependency: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    specifier: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     detail: Option<&'a str>,
     fixes: Vec<JsonFix<'a>>,
 }
@@ -203,6 +205,7 @@ fn diagnostic<'a>(diagnostic: &'a Diagnostic, options: &RenderOptions) -> JsonDi
         related: diagnostic.related.iter().map(|r| related(r, options)).collect(),
         package: diagnostic.package.as_deref(),
         dependency: diagnostic.dependency.as_deref(),
+        specifier: diagnostic.specifier.as_deref(),
         detail: diagnostic.detail.as_deref(),
         fixes: diagnostic.fixes.iter().map(fix).collect(),
     }
