@@ -17,6 +17,20 @@ use skif_workspace::{DependencyEntry, Package, Workspace};
 
 use crate::manifest::support;
 
+/// Whether the policies look at the `kind` section of a manifest.
+///
+/// `[policy] dependency-types` decides when it is set. Without it only production and development dependencies are
+/// tracked: peer and optional ranges state a compatibility window rather than a version to install, so aligning
+/// them is opt-in.
+fn tracks(config: &Config, kind: DependencyKind) -> bool {
+    let types = &config.policy.dependency_types;
+    if types.is_empty() {
+        matches!(kind, DependencyKind::Dependencies | DependencyKind::DevDependencies)
+    } else {
+        types.matches(kind)
+    }
+}
+
 /// Index of an [`Instance`] in its [`Instances`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct InstanceId(usize);
@@ -112,7 +126,8 @@ pub(crate) struct Instances<'w> {
 impl<'w> Instances<'w> {
     /// Collects the instances of every package the workspace does not ignore.
     ///
-    /// Dependency sections excluded by `[policy] dependency-types` are skipped; a package's own version is always
+    /// Dependency sections excluded by `[policy] dependency-types` are skipped; without that setting only
+    /// `dependencies` and `devDependencies` are tracked (see [`tracks`]). A package's own version is always
     /// collected, as dependents are aligned with it whatever section they use.
     pub(crate) fn collect(workspace: &'w Workspace, config: &Config) -> Self {
         let local_names: HashSet<&str> = workspace
@@ -131,7 +146,7 @@ impl<'w> Instances<'w> {
                 });
             }
             for entry in &package.dependencies {
-                if !config.policy.dependency_types.matches(entry.kind) {
+                if !tracks(config, entry.kind) {
                     continue;
                 }
                 items.push(Instance {
@@ -219,7 +234,7 @@ mod tests {
         let summary: Vec<(&str, usize)> = instances.names().map(|(name, ids)| (name, ids.len())).collect();
         assert_eq!(
             summary,
-            [("app", 1), ("lib", 2), ("react", 2), ("root", 1)],
+            [("app", 1), ("lib", 2), ("react", 1), ("root", 1)],
             "bare has no version and so no own-version instance"
         );
     }
@@ -245,6 +260,22 @@ mod tests {
     }
 
     #[test]
+    fn peer_and_optional_dependencies_are_tracked_only_when_configured() {
+        let with_peers = config("[policy]\ndependency-types = [\"prod\", \"peer\"]\n");
+        let defaults = config("");
+        let by_default = workspace(&files(), &defaults);
+        let instances = Instances::collect(&by_default, &defaults);
+        assert_eq!(
+            instances.named("react").len(),
+            1,
+            "the peer entry is not tracked by default"
+        );
+        let configured = workspace(&files(), &with_peers);
+        let instances = Instances::collect(&configured, &with_peers);
+        assert_eq!(instances.named("react").len(), 2);
+    }
+
+    #[test]
     fn policy_dependency_types_filter_dependency_entries_only() {
         let config = config("[policy]\ndependency-types = [\"dev\"]\n");
         let workspace = workspace(&files(), &config);
@@ -265,7 +296,7 @@ mod tests {
 
     #[test]
     fn edits_address_the_entry_and_never_the_own_version() {
-        let config = config("");
+        let config = config("[policy]\ndependency-types = [\"prod\", \"peer\"]\n");
         let workspace = workspace(&files(), &config);
         let instances = Instances::collect(&workspace, &config);
         let dependency = instances.get(instances.named("react")[1]);

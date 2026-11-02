@@ -112,6 +112,7 @@ impl Rule for UnsyncedDependencyFamily {
                             value_location(package, entry),
                         )
                         .package(package.display_name())
+                        .package_id(package.id)
                         .dependency(entry.name.clone())
                         .help(format!(
                             "align `{}` with the other `{}` packages",

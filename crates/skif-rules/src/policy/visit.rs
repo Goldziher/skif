@@ -3,9 +3,15 @@
 //! The behaviour follows syncpack's version-group visitors (`src/version_group/*.rs`, commit 958d306, MIT,
 //! Copyright (c) 2017-2023 Jamie Mason; see `ATTRIBUTIONS.md`). Differences from syncpack:
 //!
-//! * there is no strict mode: a `workspace:` specifier on a workspace package is always valid;
-//! * instances using the `catalog:` protocol are left to the catalog rules: they never get a state here, and a
-//!   dependency one of whose instances uses it is not aligned by a preferred-semver group;
+//! * there is no strict mode: on a dependency that names a workspace package, a `workspace:` specifier, `*`/`latest`
+//!   and a `link:`/`file:` path that resolves to the package are always valid, as is any range the package's own
+//!   version satisfies (path specifiers are the business of `local-path-dependency`);
+//! * a `workspace:` specifier is never rewritten to a registry range, and never the target of one: where the package
+//!   has no version to align with, such instances take no part in the alignment;
+//! * instances using the `catalog:` protocol are left to the catalog rules: they never get a state here and take no
+//!   part in a preferred-semver group, whose other members still align with each other;
+//! * `latest` and dist-tags are never the target of an alignment: next to a version they are an unfixable
+//!   `NonSemverMismatch`;
 //! * a specifier that cannot carry a semver group's range (a git URL, `file:`, `latest`...) has no preferred range,
 //!   where syncpack would fail when asked to rewrite it;
 //! * specifiers that are byte-identical count as having the same version number, which keeps `latest` valid next to
@@ -48,7 +54,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
     /// Applies `policy` to the instances `ids` of one dependency.
     pub(super) fn visit(&mut self, policy: &Policy, ids: &[InstanceId]) {
         match policy {
-            Policy::Ignored => {}
+            Policy::Ignored | Policy::InvalidPin => {}
             Policy::Banned => self.banned(ids),
             Policy::Pinned(pin) => self.pinned(ids, pin),
             Policy::SameRange => self.same_range(ids),
@@ -166,8 +172,17 @@ impl<'a, 'w> Visitor<'a, 'w> {
 
     fn same_range(&mut self, ids: &[InstanceId]) {
         let members = self.members(ids);
-        let specifiers: Vec<Arc<Specifier>> = members.iter().map(|&id| Arc::clone(self.spec(id))).collect();
-        for id in members {
+        let (ranged, odd): (Vec<InstanceId>, Vec<InstanceId>) = members
+            .iter()
+            .copied()
+            .partition(|&id| self.spec(id).get_node_range().is_some());
+        for id in odd {
+            if members.iter().any(|&other| !self.equals(other, self.spec(id))) {
+                self.mark(id, State::SameRangeMismatch, None);
+            }
+        }
+        let specifiers: Vec<Arc<Specifier>> = ranged.iter().map(|&id| Arc::clone(self.spec(id))).collect();
+        for id in ranged {
             if !self.spec(id).satisfies_all(&specifiers) {
                 self.mark(id, State::SameRangeMismatch, None);
             } else if self.preferred(id).is_some() && !self.matches_preferred(id) {
@@ -209,6 +224,9 @@ impl<'a, 'w> Visitor<'a, 'w> {
     }
 
     /// A same-minor group forbids ranges wider than a tilde, and keeps a semver group's range when that is safe.
+    ///
+    /// An instance that already is the tilde the group forces is valid, whatever the semver group asks for, so the
+    /// fix converges.
     fn at_correct_minor(&self, id: InstanceId) -> Outcome {
         let is_safe = |range: &SemverRange| matches!(range, SemverRange::Exact | SemverRange::Patch);
         let tilde = || self.spec(id).with_range(&SemverRange::Patch);
@@ -221,12 +239,16 @@ impl<'a, 'w> Visitor<'a, 'w> {
                 }
             }
             Some(_) => {
+                let target = tilde();
+                if target.as_ref().is_some_and(|target| self.equals(id, target)) {
+                    return None;
+                }
                 let state = if self.matches_preferred(id) {
                     State::SameMinorOverridesSemverRange
                 } else {
                     State::SameMinorOverridesSemverRangeMismatch
                 };
-                Some((state, tilde()))
+                Some((state, target))
             }
             None => match self.spec(id).get_semver_range() {
                 Some(range) if !is_safe(&range) => Some((State::SameMinorOverridesSemverRange, tilde())),
@@ -298,10 +320,14 @@ impl<'a, 'w> Visitor<'a, 'w> {
             }
             return;
         }
-        let members = self.members(ids);
-        if members.len() == ids.len() {
-            self.align_to_extreme(&members, prefer);
-        }
+        // Without a version to align with, a `workspace:` specifier is neither a target nor a mismatch: the
+        // protocol is never rewritten to a registry range, nor a registry range to the protocol.
+        let members: Vec<InstanceId> = self
+            .members(ids)
+            .into_iter()
+            .filter(|&id| !self.spec(id).is_workspace_protocol())
+            .collect();
+        self.align_to_extreme(&members, prefer);
     }
 
     /// The package's own version is not an exact version: nothing can be aligned with it.
@@ -330,45 +356,60 @@ impl<'a, 'w> Visitor<'a, 'w> {
     fn local_state(&self, id: InstanceId, local: InstanceId, local_specifier: &Arc<Specifier>) -> Outcome {
         let differs = || Some((State::DiffersToLocal, Some(Arc::clone(local_specifier))));
         let specifier = self.spec(id);
-        if specifier.is_link() {
-            return if self.link_resolves_to(id, local) {
+        if specifier.is_link() || matches!(**specifier, Specifier::File(_)) {
+            return if self.path_resolves_to(id, local) {
                 None
             } else {
                 differs()
             };
         }
-        if specifier.is_workspace_protocol() {
+        if specifier.is_workspace_protocol() || matches!(**specifier, Specifier::Latest(_)) {
             return None;
         }
-        if !self.same_version(id, local_specifier) {
-            return differs();
-        }
-        if self.prefers_other_than(id, &SemverRange::Exact) {
+        if self.same_version(id, local_specifier) && self.prefers_other_than(id, &SemverRange::Exact) {
             return self.range_against_group(
                 id,
                 local_specifier,
                 [State::MatchConflictsWithLocal, State::MismatchConflictsWithLocal],
             );
         }
-        if self.equals(id, local_specifier) {
+        let keeps_group_range = self.preferred(id).is_none() || self.matches_preferred(id);
+        if self.equals(id, local_specifier) || (keeps_group_range && self.accepts(id, local_specifier)) {
             None
         } else {
             differs()
         }
     }
 
-    /// Whether the `link:` path of `id`, resolved from its package's directory, is the directory of `local`'s package.
-    fn link_resolves_to(&self, id: InstanceId, local: InstanceId) -> bool {
+    /// Whether the range of `id` accepts the exact version `version`.
+    fn accepts(&self, id: InstanceId, version: &Specifier) -> bool {
+        version
+            .get_node_version()
+            .zip(self.spec(id).get_node_range())
+            .is_some_and(|(version, range)| range.satisfies(&version))
+    }
+
+    /// Whether the `link:` or `file:` path of `id`, resolved from its package's directory, is the directory of
+    /// `local`'s package.
+    fn path_resolves_to(&self, id: InstanceId, local: InstanceId) -> bool {
         let raw = self.spec(id).get_raw();
-        let target = raw.strip_prefix("link:").unwrap_or(raw);
+        let target = ["link:", "file:"]
+            .iter()
+            .find_map(|prefix| raw.strip_prefix(prefix))
+            .unwrap_or(raw);
         let from = self.instances.get(id).package.dir.join(target);
         normalized(&from) == normalized(&self.instances.get(local).package.dir)
     }
 
     /// Aligns every instance on the highest (or lowest) version in use, each carrying its own semver group's range.
+    ///
+    /// `latest` and dist-tags cannot be ranked: they are never the target, and one that differs from another instance
+    /// is a `NonSemverMismatch` that has no fix.
     fn align_to_extreme(&mut self, ids: &[InstanceId], prefer: Prefer) {
+        let (floating, ranked): (Vec<InstanceId>, Vec<InstanceId>) =
+            ids.iter().copied().partition(|&id| is_floating(self.spec(id)));
         let target = {
-            let candidates = ids
+            let candidates = ranked
                 .iter()
                 .copied()
                 .filter(|&id| self.spec(id).get_node_version().is_some())
@@ -382,7 +423,12 @@ impl<'a, 'w> Visitor<'a, 'w> {
             self.without_semver(ids);
             return;
         };
-        for &id in ids {
+        for id in floating {
+            if ids.iter().any(|&other| !self.equals(other, self.spec(id))) {
+                self.mark(id, State::NonSemverMismatch, None);
+            }
+        }
+        for id in ranked {
             let outcome = self.extreme_state(id, &target);
             self.mark_outcome(id, outcome);
         }
@@ -432,6 +478,11 @@ impl<'a, 'w> Visitor<'a, 'w> {
             self.mark(id, state, None);
         }
     }
+}
+
+/// Whether the specifier names a moving target (`latest`, `*`, a dist-tag) rather than a version.
+fn is_floating(specifier: &Specifier) -> bool {
+    matches!(specifier, Specifier::Latest(_) | Specifier::Tag(_))
 }
 
 /// `path` with `.` and `..` components resolved lexically.
@@ -509,11 +560,94 @@ mod tests {
 
     #[test]
     fn local_packages_win_over_higher_versions() {
-        let app = manifest("app", "1.0.0", r#""lib":"^1.0.0""#);
+        let app = manifest("app", "1.0.0", r#""lib":"^2.0.0""#);
         let tool = manifest("tool", "1.0.0", r#""lib":"workspace:*""#);
         let lib = manifest("lib", "1.0.0", "");
         let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
         assert_eq!(states("", &members), [one("app", "lib", "DiffersToLocal")]);
+    }
+
+    #[test]
+    fn ranges_the_local_version_satisfies_are_valid() {
+        let cases = [
+            ("^1.0.0", true),
+            ("~1.0.0", true),
+            ("^1.2.0", false),
+            (">=1.0.0 <2.0.0", true),
+            ("2.0.0", false),
+            ("*", true),
+            ("latest", true),
+            ("workspace:^", true),
+            ("workspace:~", true),
+        ];
+        for (specifier, valid) in cases {
+            let app = manifest("app", "1.0.0", &format!(r#""lib":"{specifier}""#));
+            let lib = manifest("lib", "1.0.0", "");
+            let members = [("app", app.as_str()), ("lib", lib.as_str())];
+            let expected = if valid {
+                vec![]
+            } else {
+                vec![one("app", "lib", "DiffersToLocal")]
+            };
+            assert_eq!(states("", &members), expected, "{specifier}");
+        }
+    }
+
+    #[test]
+    fn a_semver_group_keeps_deciding_the_range_of_a_dependent_of_a_local_package() {
+        let app = manifest("app", "1.0.0", r#""lib":"^1.0.0""#);
+        let lib = manifest("lib", "1.0.0", "");
+        let members = [("app", app.as_str()), ("lib", lib.as_str())];
+        let toml = "[[semver-groups]]\ndependencies = [\"lib\"]\nrange = \"~\"\n";
+        assert_eq!(states(toml, &members), [one("app", "lib", "SemverRangeMismatch")]);
+    }
+
+    #[test]
+    fn file_paths_to_the_local_package_are_valid_and_other_paths_are_not() {
+        let good = manifest("good", "1.0.0", r#""lib":"file:../lib""#);
+        let bad = manifest("bad", "1.0.0", r#""lib":"file:../other""#);
+        let lib = manifest("lib", "1.0.0", "");
+        let other = manifest("other", "1.0.0", "");
+        let members = [
+            ("bad", bad.as_str()),
+            ("good", good.as_str()),
+            ("lib", lib.as_str()),
+            ("other", other.as_str()),
+        ];
+        assert_eq!(states("", &members), [one("bad", "lib", "DiffersToLocal")]);
+    }
+
+    #[test]
+    fn latest_and_tags_are_never_the_alignment_target() {
+        let cases: [(&str, &str, &[&str]); 5] = [
+            ("latest", "^5.4.5", &["NonSemverMismatch"]),
+            ("beta", "^5.4.5", &["NonSemverMismatch"]),
+            ("latest", "latest", &[]),
+            ("beta", "latest", &["NonSemverMismatch", "NonSemverMismatch"]),
+            ("^5.4.5", "^5.0.0", &["DiffersToHighestOrLowestSemver"]),
+        ];
+        for (first, second, expected) in cases {
+            let app = manifest("app", "1.0.0", &format!(r#""ts":"{first}""#));
+            let lib = manifest("lib", "1.0.0", &format!(r#""ts":"{second}""#));
+            let members = [("app", app.as_str()), ("lib", lib.as_str())];
+            let actual: Vec<&str> = states("", &members).into_iter().map(|(_, _, state)| state).collect();
+            assert_eq!(actual, expected, "{first} {second}");
+        }
+    }
+
+    #[test]
+    fn a_floating_specifier_does_not_stop_the_versions_from_aligning() {
+        let app = manifest("app", "1.0.0", r#""ts":"latest""#);
+        let lib = manifest("lib", "1.0.0", r#""ts":"^5.4.5""#);
+        let tool = manifest("tool", "1.0.0", r#""ts":"^5.0.0""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
+        assert_eq!(
+            states("", &members),
+            [
+                one("app", "ts", "NonSemverMismatch"),
+                one("tool", "ts", "DiffersToHighestOrLowestSemver"),
+            ]
+        );
     }
 
     #[test]
@@ -542,6 +676,25 @@ mod tests {
                 one("app", "lib", "DependsOnInvalidLocalPackage"),
                 one("lib", "lib", "InvalidLocalVersion"),
             ]
+        );
+    }
+
+    #[test]
+    fn the_workspace_protocol_is_never_aligned_with_registry_ranges() {
+        let lib = r#"{"name":"lib"}"#;
+        let app = manifest("app", "1.0.0", r#""lib":"workspace:^1.2.0""#);
+        let tool = manifest("tool", "1.0.0", r#""lib":"^1.0.0""#);
+        let other = manifest("other", "1.0.0", r#""lib":"^1.1.0""#);
+        let members = [
+            ("app", app.as_str()),
+            ("lib", lib),
+            ("other", other.as_str()),
+            ("tool", tool.as_str()),
+        ];
+        assert_eq!(
+            states("", &members),
+            [one("tool", "lib", "DiffersToHighestOrLowestSemver")],
+            "only the registry ranges align with each other"
         );
     }
 
@@ -615,6 +768,16 @@ mod tests {
     }
 
     #[test]
+    fn a_specifier_without_a_range_is_the_only_one_a_same_range_group_flags() {
+        let app = manifest("app", "1.0.0", r#""react":"^18.0.0""#);
+        let lib = manifest("lib", "1.0.0", r#""react":"^18.2.0""#);
+        let tool = manifest("tool", "1.0.0", r#""react":"git+https://x.test/react.git#main""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
+        let config = "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"same-range\"\n";
+        assert_eq!(states(config, &members), [one("tool", "react", "SameRangeMismatch")]);
+    }
+
+    #[test]
     fn same_minor_groups_compare_major_before_minor() {
         let toml = "[[version-groups]]\ndependencies = [\"ts\"]\npolicy = \"same-minor\"\n";
         let cases: [(&str, &str, &[&'static str]); 5] = [
@@ -638,6 +801,24 @@ mod tests {
             let members = [("app", app.as_str()), ("lib", lib.as_str())];
             let actual: Vec<&str> = states(toml, &members).into_iter().map(|(_, _, state)| state).collect();
             assert_eq!(actual, expected, "{first} {second}");
+        }
+    }
+
+    #[test]
+    fn a_same_minor_group_forcing_tilde_converges_under_a_caret_semver_group() {
+        let toml = "[[version-groups]]\ndependencies = [\"ts\"]\npolicy = \"same-minor\"\n\n\
+                    [[semver-groups]]\ndependencies = [\"ts\"]\nrange = \"^\"\n";
+        let cases: [(&str, &[&str]); 3] = [
+            ("^5.4.2", &["SameMinorOverridesSemverRange"]),
+            ("5.4.2", &["SameMinorOverridesSemverRangeMismatch"]),
+            ("~5.4.2", &[]),
+        ];
+        for (specifier, expected) in cases {
+            let app = manifest("app", "1.0.0", &format!(r#""ts":"{specifier}""#));
+            let lib = manifest("lib", "1.0.0", r#""ts":"~5.4.2""#);
+            let members = [("app", app.as_str()), ("lib", lib.as_str())];
+            let actual: Vec<&str> = states(toml, &members).into_iter().map(|(_, _, state)| state).collect();
+            assert_eq!(actual, expected, "{specifier}");
         }
     }
 
@@ -684,7 +865,8 @@ mod tests {
         let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
         assert_eq!(
             states("", &members),
-            [] as [(std::string::String, std::string::String, &str); 0]
+            [one("tool", "react", "DiffersToHighestOrLowestSemver")],
+            "a catalog reference leaves the group, the other members still align"
         );
         let pinned = "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"18.3.1\"\n";
         assert_eq!(

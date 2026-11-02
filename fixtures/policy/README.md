@@ -107,9 +107,9 @@ catalog, so that file is listed too.
 | `source` | `syncpack:<file>::<test>` the case was derived from (paths relative to the syncpack repository, `src/version_group/` abbreviated where unambiguous), or `skif` for cases not taken from a syncpack test |
 | `tags` | free-form labels; the ones with meaning to a harness are listed below |
 | `valid-states` | optional: syncpack valid states the case exercises without producing a diagnostic (used for the coverage table) |
+| `compare` | optional: `"parsed"` (default) compares fixed files as parsed JSON / YAML, `"bytes"` byte for byte |
 
-Tags with meaning: `fix-not-idempotent` (the fix is correct but the conflict it addresses
-persists, so skip the "re-run finds nothing fixable" assertion), `assumption` and `ambiguous`
+Tags with meaning: `assumption` and `ambiguous`
 (the expectation rests on a reading of the ADRs that the rule implementation must confirm; see
 "ADR gaps"), `deviation` (differs from syncpack on purpose; see below), `syncpack-quirk`
 (faithful to a surprising syncpack behaviour).
@@ -125,9 +125,10 @@ persists, so skip the "re-run finds nothing fixable" assertion), `assumption` an
    `{rule, severity, package, dependency, detail, path, fixable}`, sort as described above and
    compare with `expected.json` for equality.
 5. If `expected-fixed/` exists: apply the fixes of all fixable diagnostics and compare each file in
-   `expected-fixed/` with the result (parsed JSON / YAML equality); every other file must be
-   unchanged. Then re-run on the fixed workspace and expect no fixable diagnostic, unless the case
-   is tagged `fix-not-idempotent`. If `expected-fixed/` is absent, no diagnostic may be fixable.
+   `expected-fixed/` with the result (parsed JSON / YAML equality, or byte equality when `case.toml`
+   sets `compare = "bytes"`); every other file must be unchanged. Then re-run on the fixed workspace
+   and expect no diagnostic that is fixable, every fix being idempotent. If `expected-fixed/` is
+   absent, no diagnostic may be fixable.
 6. Cross-checks worth running once over the whole tree: every `skif.toml` loads and validates, every
    `rule` is registered, and every non-null `detail` appears in the ADR 0009 state table.
 
@@ -181,8 +182,15 @@ syncpack.
 * `UnusedGroup` is skif-only (`policy-conflict/unused-group-*`).
 * A Bun root with catalogs under both the top level and `workspaces` aborts syncpack; skif reports a
   workspace error (exit 2), which is not a diagnostic, so there is no fixture for it.
-* `latest` / `*` rank above every concrete version when aligning, as in syncpack
-  (`version-mismatch/latest-ranks-as-highest`).
+* `latest` and dist-tags never rank: they are not an alignment target, and next to a version they are an
+  unfixable `NonSemverMismatch` (`version-mismatch/latest-ranks-as-highest`).
+* Without `[policy] dependency-types` only `prod` and `dev` dependencies take part, as in sherif; `peer` and
+  `optional` are opt-in (`banned/banned-across-sections`, `version-mismatch/peer-dependency-compared` and
+  `semver-groups/per-dependency-type-ranges` configure them).
+* On a dependency that names a workspace package, a range the package's own version satisfies is valid, as are
+  `workspace:` specifiers, `*`/`latest` and a `link:`/`file:` path to the package
+  (`version-mismatch/local-package-wins-range-differs`).
+* A `catalog:` instance leaves the preferred-semver group; the remaining instances still align.
 
 ## ADR gaps and contradictions found while writing the fixtures
 
