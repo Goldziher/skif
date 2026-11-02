@@ -37,6 +37,23 @@ pub struct Location {
     pub span: Option<Span>,
 }
 
+impl Location {
+    /// The file at `path`, optionally at `span`.
+    #[must_use]
+    pub fn new(path: impl Into<PathBuf>, span: Option<Span>) -> Self {
+        Self {
+            path: path.into(),
+            span,
+        }
+    }
+
+    /// The file at `path` as a whole.
+    #[must_use]
+    pub fn file(path: impl Into<PathBuf>) -> Self {
+        Self::new(path, None)
+    }
+}
+
 /// A secondary location that explains a diagnostic.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -249,5 +266,12 @@ mod tests {
             serde_json::to_value(&location).unwrap_or_default(),
             serde_json::json!({ "path": "a/package.json" })
         );
+    }
+
+    #[test]
+    fn location_constructors_set_path_and_span() {
+        let whole = Location::file("package.json");
+        assert_eq!(whole, Location { path: "package.json".into(), span: None });
+        assert_eq!(Location::new("a", whole.span).path, PathBuf::from("a"));
     }
 }

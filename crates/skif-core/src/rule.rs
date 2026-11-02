@@ -136,6 +136,26 @@ pub struct RuleMeta {
     pub summary: &'static str,
 }
 
+impl RuleMeta {
+    /// Describes rule `id`.
+    #[must_use]
+    pub const fn new(
+        id: &'static str,
+        category: Category,
+        default: Option<Severity>,
+        fixable: Fixability,
+        summary: &'static str,
+    ) -> Self {
+        Self {
+            id,
+            category,
+            default,
+            fixable,
+            summary,
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -231,5 +251,11 @@ mod tests {
                 "summary": "Unused dependency.",
             })
         );
+    }
+
+    #[test]
+    fn rule_meta_new_is_const_and_fills_every_field() {
+        const META: RuleMeta = RuleMeta::new("some-rule", Category::Manifest, None, Fixability::None, "Does a thing.");
+        assert_eq!((META.id, META.default, META.summary), ("some-rule", None, "Does a thing."));
     }
 }
