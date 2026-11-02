@@ -8,6 +8,8 @@ use std::process::{Command, Stdio};
 
 use skif::PackageManager;
 
+use crate::output::stderr_line;
+
 /// Outcome of the install step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallStatus {
@@ -30,16 +32,43 @@ pub const fn program(manager: PackageManager) -> Option<&'static str> {
     }
 }
 
+/// The arguments after the program name. A fix edits manifests, so the lockfile has to be allowed to change: pnpm
+/// and yarn berry freeze it by default in CI, which the arguments override. npm and bun update it on `install`.
+fn arguments(manager: PackageManager, root: &Path) -> Vec<&'static str> {
+    match manager {
+        PackageManager::Pnpm => vec!["install", "--no-frozen-lockfile"],
+        PackageManager::Yarn if is_yarn_berry(root) => vec!["install", "--no-immutable"],
+        _ => vec!["install"],
+    }
+}
+
+/// Whether the workspace uses yarn 2 or later, which has `--no-immutable`; classic yarn rejects the flag.
+fn is_yarn_berry(root: &Path) -> bool {
+    root.join(".yarnrc.yml").is_file()
+        || std::fs::read_to_string(root.join("yarn.lock")).is_ok_and(|lock| lock.contains("__metadata:"))
+        || std::fs::read_to_string(root.join("package.json")).is_ok_and(|manifest| yarn_version_is_berry(&manifest))
+}
+
+/// Whether `package.json`'s `packageManager` field names yarn at a version of 2 or later.
+fn yarn_version_is_berry(manifest: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(manifest)
+        .ok()
+        .and_then(|value| value.get("packageManager")?.as_str().map(str::to_owned))
+        .and_then(|field| field.strip_prefix("yarn@")?.split('.').next()?.parse::<u32>().ok())
+        .is_some_and(|major| major >= 2)
+}
+
 /// Runs `<manager> install` with `root` as the working directory.
 ///
-/// With `quiet`, the child's stdout is redirected to stderr so stdout stays a single JSON document.
+/// With `quiet`, the child's stdout is redirected to stderr so stdout stays the report.
 pub fn install(manager: PackageManager, root: &Path, quiet: bool) -> InstallStatus {
     let Some(name) = program(manager) else {
         return InstallStatus::Skipped {
             reason: "unsupported package manager",
         };
     };
-    let command = format!("{name} install");
+    let arguments = arguments(manager, root);
+    let command = format!("{name} {}", arguments.join(" "));
     let executable = match which::which(name) {
         Ok(path) => path,
         Err(error) => {
@@ -49,14 +78,14 @@ pub fn install(manager: PackageManager, root: &Path, quiet: bool) -> InstallStat
             };
         }
     };
-    eprintln!("Running `{command}` in {}", root.display());
+    stderr_line(&format!("Running `{command}` in {}", skif::slash(root)));
     let stdout = if quiet {
         Stdio::from(std::io::stderr())
     } else {
         Stdio::inherit()
     };
     let status = Command::new(executable)
-        .arg("install")
+        .args(&arguments)
         .current_dir(root)
         .stdin(Stdio::null())
         .stdout(stdout)
@@ -72,5 +101,43 @@ pub fn install(manager: PackageManager, root: &Path, quiet: bool) -> InstallStat
             message: format!("cannot run `{command}`: {error}"),
             command,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pnpm_may_change_the_lockfile() {
+        assert_eq!(
+            arguments(PackageManager::Pnpm, Path::new(".")),
+            ["install", "--no-frozen-lockfile"]
+        );
+    }
+
+    #[test]
+    fn npm_and_bun_take_no_extra_flags() {
+        for manager in [PackageManager::Npm, PackageManager::Bun] {
+            assert_eq!(arguments(manager, Path::new(".")), ["install"]);
+        }
+    }
+
+    #[test]
+    fn yarn_berry_is_detected_from_the_project() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(arguments(PackageManager::Yarn, dir.path()), ["install"]);
+        std::fs::write(dir.path().join("yarn.lock"), "# yarn lockfile v1\n").unwrap();
+        assert_eq!(arguments(PackageManager::Yarn, dir.path()), ["install"]);
+        std::fs::write(dir.path().join("yarn.lock"), "__metadata:\n  version: 8\n").unwrap();
+        assert_eq!(arguments(PackageManager::Yarn, dir.path()), ["install", "--no-immutable"]);
+    }
+
+    #[test]
+    fn yarn_package_manager_field_decides_the_flavour() {
+        assert!(yarn_version_is_berry(r#"{"packageManager": "yarn@4.9.2"}"#));
+        assert!(!yarn_version_is_berry(r#"{"packageManager": "yarn@1.22.22"}"#));
+        assert!(!yarn_version_is_berry(r#"{"packageManager": "pnpm@9.0.0"}"#));
+        assert!(!yarn_version_is_berry("{"));
     }
 }

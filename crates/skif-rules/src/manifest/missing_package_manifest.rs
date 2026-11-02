@@ -1,5 +1,5 @@
 use serde_json::json;
-use skif_core::{Category, Fix, FixOp, FixSafety, Fixability, Location, RuleMeta, Severity, diagnostic};
+use skif_core::{Category, Fix, FixOp, FixSafety, Fixability, Location, RuleMeta, Severity, diagnostic, slash};
 use skif_lint::{Emitter, LintContext, Rule};
 
 /// Metadata of `missing-package-manifest`.
@@ -29,7 +29,7 @@ impl Rule for MissingPackageManifest {
                 &META,
                 format!(
                     "`{}` matches a workspace pattern but has no package.json",
-                    dir.display()
+                    slash(dir)
                 ),
                 Location {
                     path: dir.clone(),
@@ -45,7 +45,7 @@ impl Rule for MissingPackageManifest {
                 }));
                 if let Ok(contents) = contents {
                     builder = builder.fix(Fix {
-                        title: format!("Create `{}`", manifest.display()),
+                        title: format!("Create `{}`", slash(&manifest)),
                         safety: FixSafety::Unsafe,
                         ops: vec![FixOp::CreateFile {
                             path: manifest,

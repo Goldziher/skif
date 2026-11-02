@@ -36,7 +36,7 @@ fn rich() -> Report {
     let mut mismatch = diag(
         "version-mismatch",
         Severity::Error,
-        "packages\\web\\package.json",
+        "packages/web/package.json",
         Some(span_of("\"^18.0.0\"")),
         "réact is declared with 2 different versions",
     );

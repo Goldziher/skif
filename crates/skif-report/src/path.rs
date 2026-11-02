@@ -3,13 +3,16 @@
 use std::path::Path;
 
 /// Converts a path to a string with `/` separators regardless of platform.
+///
+/// Only Windows treats `\` as a separator; on other platforms it is an ordinary file name character.
 pub(crate) fn normalize(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    let text = path.to_string_lossy();
+    if cfg!(windows) { text.replace('\\', "/") } else { text.into_owned() }
 }
 
 /// Whether a `/`-separated path string is absolute (`/x`, `C:/x`).
 pub(crate) fn is_absolute_text(path: &str) -> bool {
-    path.starts_with('/') || path.as_bytes().get(1) == Some(&b':')
+    path.starts_with('/') || matches!(path.as_bytes(), [drive, b':', b'/', ..] if drive.is_ascii_alphabetic())
 }
 
 /// Normalises `path` and strips `root` (and a leading `./`) from it when it is a prefix.
@@ -35,14 +38,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn absolute_text_needs_a_drive_separator() {
+        for (path, expected) in [("/x", true), ("C:/x", true), ("a:b", false), ("a:", false), ("src/a.json", false)] {
+            assert_eq!(is_absolute_text(path), expected, "{path}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_separators_become_slashes() {
+        assert_eq!(normalize(Path::new("a\\b\\package.json")), "a/b/package.json");
+        assert_eq!(relativize(Path::new("C:\\repo\\a\\b.json"), Some(Path::new("C:\\repo"))), "a/b.json");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn backslashes_are_file_name_characters_elsewhere() {
+        assert_eq!(normalize(Path::new("a\\b.json")), "a\\b.json");
+    }
+
+    #[test]
     fn relativize_table() {
         let cases = [
-            ("a\\b\\package.json", None, "a/b/package.json"),
             ("./a/b.json", None, "a/b.json"),
             ("/repo/a/b.json", Some("/repo"), "a/b.json"),
             ("/repo/a/b.json", Some("/repo/"), "a/b.json"),
             ("/repository/a.json", Some("/repo"), "/repository/a.json"),
-            ("C:\\repo\\a\\b.json", Some("C:\\repo"), "a/b.json"),
+            ("C:/repo/a/b.json", Some("C:/repo"), "a/b.json"),
             ("a/b.json", Some("/repo"), "a/b.json"),
             ("a/b.json", Some(""), "a/b.json"),
         ];

@@ -6,9 +6,9 @@ use std::sync::atomic::AtomicBool;
 use serde_json::json;
 use skif::{
     Alternatives, Category, ConfigOverrides, Diagnostic, Emitter, FileChange, FileSystem, Fix, FixOp, FixSafety,
-    FixSelection, Fixability, InsertPosition, JsonAction, LintContext, Linter, Location, MemoryFs, PathSeg, Report,
-    Rule, RuleMeta, RulesProvider, RunOptions, Severity, SkipReason, TextEdit, Workspace, apply_fixes, diagnostic,
-    load_config,
+    FixSelection, Fixability, InsertPosition, JsonAction, LintContext, Linter, Location, MemoryFs, PathSeg, Prefer,
+    Report, Rule, RuleMeta, RulesProvider, RunOptions, Severity, SkipReason, TextEdit, Workspace, apply_fixes,
+    diagnostic, load_config, preferred_alternative,
 };
 
 const ROOT_MANIFEST: &str = "{\n  \"name\": \"root\",\n  \"workspaces\": [\"packages/*\"]\n}\n";
@@ -247,6 +247,37 @@ fn alternatives_without_a_pick_need_a_choice() {
         modified(&plan.changes, "packages/a/package.json"),
         "{\n  \"name\": \"a\",\n  \"version\": \"3.0.0\"\n}\n"
     );
+}
+
+#[test]
+fn configuration_picks_the_alternative_that_names_the_preferred_version() {
+    for (prefer, version) in [(Prefer::Highest, "2.0.0"), (Prefer::Lowest, "0.1.0")] {
+        let fs = fs();
+        let (workspace, report) = report(&fs);
+        let selection = FixSelection::new(FixSafety::Unsafe).with_alternatives(Alternatives::Preferred(prefer));
+        let plan = apply_fixes(&workspace, &report, &selection, &fs).unwrap();
+        assert!(
+            modified(&plan.changes, "packages/a/package.json").contains(version),
+            "{prefer:?}"
+        );
+        assert!(plan.skipped.iter().all(|skipped| skipped.rule.as_str() != "demo-alt"));
+    }
+}
+
+#[test]
+fn alternatives_that_do_not_name_the_preferred_version_still_need_a_choice() {
+    let fs = fs();
+    let workspace = workspace(&fs);
+    let alternatives = vec![
+        fix("pin one", FixSafety::Unsafe, vec![set_version("packages/a/package.json", "1.0.1")]),
+        fix("pin two", FixSafety::Unsafe, vec![set_version("packages/a/package.json", "1.0.2")]),
+    ];
+    assert_eq!(preferred_alternative(&alternatives, Prefer::Highest), None);
+    let report = report_of(vec![("demo-alt-unnamed", alternatives)]);
+    let selection = FixSelection::new(FixSafety::Unsafe).with_alternatives(Alternatives::Preferred(Prefer::Highest));
+    let plan = apply_fixes(&workspace, &report, &selection, &fs).unwrap();
+    assert!(plan.changes.is_empty());
+    assert!(matches!(plan.skipped[0].reason, SkipReason::NeedsChoice { .. }));
 }
 
 #[test]

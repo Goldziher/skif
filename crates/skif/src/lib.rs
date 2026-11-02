@@ -50,7 +50,10 @@ mod root;
 
 pub use error::Error;
 #[cfg(feature = "fix")]
-pub use fix::{Alternatives, AppliedFix, FixError, FixPlan, FixSelection, SkipReason, SkippedFix, apply_fixes};
+pub use fix::{
+    Alternatives, AppliedFix, FixError, FixPlan, FixSelection, SkipReason, SkippedFix, apply_fixes,
+    preferred_alternative,
+};
 pub use linter::{Linter, RunOptions, builtin_providers};
 pub use root::{config_file, find_workspace_root, load_config};
 
@@ -61,7 +64,7 @@ pub use skif_config::{
 pub use skif_core::{
     Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixSafety, Fixability,
     InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathSeg, Related, Report, RuleId, RuleMeta, Severity, Span,
-    Summary, TextEdit, YamlAction, diagnostic,
+    Summary, TextEdit, YamlAction, diagnostic, slash,
 };
 pub use skif_lint::{
     Emitter, EnabledRules, LintContext, LintError, ProviderError, RegistryError, Rule, RuleProvider, RulesProvider,

@@ -679,3 +679,93 @@ fn fix_through_a_symlink_out_of_the_workspace_is_refused() {
         );
     }
 }
+
+#[test]
+fn pnpm_is_asked_to_update_the_lockfile_after_a_fix() {
+    let dir = fixture("dirty");
+    let manifest = dir.path().join("package.json");
+    let pnpm = fs::read_to_string(&manifest).unwrap().replace("npm@11.6.2", "pnpm@12.15.0");
+    fs::write(&manifest, pnpm).unwrap();
+    let log = tempfile::tempdir().unwrap();
+    let record = log.path().join("record.txt");
+    let bin = shim("pnpm", &record, 0);
+
+    let result = run(skif()
+        .env("PATH", bin.path())
+        .args(["--fix", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let calls = invocations(&record);
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert_eq!(calls[0].0, "install --no-frozen-lockfile");
+    assert_eq!(result.json()["fix"]["install"]["command"], "pnpm install --no-frozen-lockfile");
+}
+
+#[test]
+fn fix_with_sarif_keeps_stdout_a_single_document() {
+    let dir = fixture("dirty");
+    let log = tempfile::tempdir().unwrap();
+    let record = log.path().join("record.txt");
+    let bin = shim("npm", &record, 0);
+    let result = run(skif()
+        .env("PATH", bin.path())
+        .args(["--fix", "--format", "sarif"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    assert_eq!(result.json()["version"], "2.1.0");
+    assert!(result.stderr.contains("Fixed "), "{}", result.stderr);
+    assert_eq!(invocations(&record).len(), 1);
+}
+
+#[test]
+fn fix_with_github_keeps_stdout_to_annotations() {
+    let dir = fixture("dirty");
+    let log = tempfile::tempdir().unwrap();
+    let record = log.path().join("record.txt");
+    let bin = shim("npm", &record, 0);
+    let result = run(skif()
+        .env("PATH", bin.path())
+        .args(["--fix", "--format", "github"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    assert!(
+        result.stdout.lines().all(|line| line.starts_with("::") || line.starts_with("skif:")),
+        "{}",
+        result.stdout
+    );
+    assert!(result.stderr.contains("Fixed "), "{}", result.stderr);
+}
+
+#[test]
+fn no_prompt_is_accepted_and_fixes_without_asking() {
+    let dir = fixture("mismatch");
+    let result = run(skif()
+        .args(["--fix-unsafe", "--no-install", "--no-prompt", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    assert_eq!(is_number_versions(dir.path()), ["7.0.0", "7.0.0"]);
+}
+
+#[test]
+fn sarif_paths_are_relative_to_the_repository_top_level() {
+    let repo = fixture("dirty");
+    fs::create_dir(repo.path().join(".git")).unwrap();
+    let nested = repo.path().join("web");
+    fs::create_dir(&nested).unwrap();
+    let entries: Vec<PathBuf> = fs::read_dir(repo.path()).unwrap().map(|entry| entry.unwrap().path()).collect();
+    for path in entries {
+        if path.file_name().is_some_and(|name| name != ".git" && name != "web") {
+            fs::rename(&path, nested.join(path.file_name().unwrap())).unwrap();
+        }
+    }
+    let result = run(skif().args(["--format", "sarif"]).arg(&nested));
+    let log = result.json();
+    let uris: Vec<&str> = log["runs"][0]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|result| result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"].as_str().unwrap())
+        .collect();
+    assert!(!uris.is_empty());
+    assert!(uris.iter().all(|uri| uri.starts_with("web/")), "{uris:?}");
+}

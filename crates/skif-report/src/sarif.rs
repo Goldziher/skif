@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::{self, Write};
+use std::path::Path;
 
 use serde::Serialize;
 use skif_core::{
@@ -16,6 +17,7 @@ use skif_core::{
 };
 
 use crate::options::RenderOptions;
+use crate::path::is_absolute_text;
 
 const SCHEMA_URI: &str = "https://json.schemastore.org/sarif-2.1.0.json";
 const SARIF_VERSION: &str = "2.1.0";
@@ -149,7 +151,8 @@ struct PhysicalLocation {
 #[serde(rename_all = "camelCase")]
 struct ArtifactLocation {
     uri: String,
-    uri_base_id: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    uri_base_id: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -251,14 +254,29 @@ fn region(span: &Span, path: &str, options: &RenderOptions, utf16: bool) -> Regi
     }
 }
 
+/// The artifact of a location: repository-relative under `%SRCROOT%`, or a `file:` URI when the path lies outside
+/// the workspace and so has no relative form.
+fn artifact(options: &RenderOptions, path: &Path) -> ArtifactLocation {
+    let shown = options.repo_path(path);
+    if is_absolute_text(&shown) {
+        let rooted = if shown.starts_with('/') { shown } else { format!("/{shown}") };
+        ArtifactLocation {
+            uri: format!("file://{}", encode_uri(&rooted)),
+            uri_base_id: None,
+        }
+    } else {
+        ArtifactLocation {
+            uri: encode_uri(&shown),
+            uri_base_id: Some(SRCROOT),
+        }
+    }
+}
+
 fn physical(location: &Location, options: &RenderOptions, utf16: bool) -> PhysicalLocation {
     let path = options.display_path(&location.path);
     PhysicalLocation {
         region: location.span.as_ref().map(|span| region(span, &path, options, utf16)),
-        artifact_location: ArtifactLocation {
-            uri: encode_uri(&path),
-            uri_base_id: SRCROOT,
-        },
+        artifact_location: artifact(options, &location.path),
     }
 }
 
@@ -395,6 +413,24 @@ mod tests {
         assert_eq!(encode_uri("packages/a b/package.json"), "packages/a%20b/package.json");
         assert_eq!(encode_uri("@scope/pkg#1/\u{e9}.json"), "%40scope/pkg%231/%C3%A9.json");
         assert_eq!(encode_uri("plain-name_1.0~x/y"), "plain-name_1.0~x/y");
+    }
+
+    #[test]
+    fn paths_outside_the_workspace_become_file_uris() {
+        let options = RenderOptions::default().with_root("/repo");
+        let inside = artifact(&options, Path::new("/repo/a b/package.json"));
+        assert_eq!((inside.uri.as_str(), inside.uri_base_id), ("a%20b/package.json", Some(SRCROOT)));
+        let outside = artifact(&options, Path::new("/elsewhere/x.json"));
+        assert_eq!((outside.uri.as_str(), outside.uri_base_id), ("file:///elsewhere/x.json", None));
+        let drive = artifact(&options, Path::new("C:/x/y.json"));
+        assert_eq!(drive.uri, "file:///C%3A/x/y.json");
+    }
+
+    #[test]
+    fn artifacts_are_relative_to_the_repository_top_level() {
+        let options = RenderOptions::default().with_root("/repo/web").with_repo_root("/repo");
+        let nested = artifact(&options, Path::new("packages/a/package.json"));
+        assert_eq!(nested.uri, "web/packages/a/package.json");
     }
 
     #[test]
