@@ -1,4 +1,5 @@
-//! Keeps `docs/rules.md` in sync with the built-in rule metadata.
+//! Keeps `docs/rules.md` in sync with the built-in rule metadata, the sherif names of the renamed rules
+//! (`retired-rule-ids.txt`) and the policy states skif does not emit yet.
 //!
 //! Run with `SKIF_UPDATE_DOCS=1` to regenerate the file instead of failing.
 
@@ -9,6 +10,31 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 use skif_core::RuleMeta;
+
+/// Policy states of ADR 0009 that no rule emits yet, with the reason.
+const UNIMPLEMENTED_STATES: [(&str, &str); 3] = [
+    (
+        "DiffersToHighestOrLowestSemverMinor",
+        "a `same-minor` group cannot name a direction, see ADR 0009",
+    ),
+    (
+        "DiffersToNpmRegistry",
+        "registry updates are out of scope, see ADR 0001",
+    ),
+    (
+        "RefuseToCatalogLocal",
+        "a workspace package is never moved into a catalog",
+    ),
+];
+
+/// `(sherif ID, skif ID)` of every renamed rule, from `retired-rule-ids.txt`.
+fn renamed() -> Vec<(&'static str, &'static str)> {
+    include_str!("retired-rule-ids.txt")
+        .lines()
+        .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
+        .filter_map(|line| line.split_once(' '))
+        .collect()
+}
 
 fn name(value: &impl Serialize) -> String {
     serde_json::to_value(value)
@@ -42,6 +68,7 @@ fn render(metas: &[&RuleMeta]) -> String {
             id = meta.id,
         );
     }
+    let renamed = renamed();
     for meta in metas {
         let _ = write!(
             out,
@@ -52,6 +79,13 @@ fn render(metas: &[&RuleMeta]) -> String {
             name(&meta.fixable),
             id = meta.id,
         );
+        if let Some((sherif, _)) = renamed.iter().find(|(_, skif)| *skif == meta.id) {
+            let _ = writeln!(out, "- sherif name: `{sherif}`");
+        }
+    }
+    out.push_str("\n## Unimplemented states\n\nThese policy states of ADR 0009 are not emitted yet.\n\n");
+    for (state, reason) in UNIMPLEMENTED_STATES {
+        let _ = writeln!(out, "- `{state}`: {reason}");
     }
     out
 }
