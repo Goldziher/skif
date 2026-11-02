@@ -619,7 +619,7 @@ fn a_mastra_app_has_no_unused_files_or_dependencies() {
         &[
             (
                 "package.json",
-                r#"{"name":"svc","private":true,"main":"index.js","dependencies":{"mastra":"1.0.0","@mastra/core":"1.0.0","@mastra/memory":"1.0.0"}}"#,
+                r#"{"name":"svc","private":true,"main":"index.js","scripts":{"build":"mastra build"},"dependencies":{"mastra":"1.0.0","@mastra/core":"1.0.0","@mastra/memory":"1.0.0"}}"#,
             ),
             (
                 "src/mastra/index.ts",

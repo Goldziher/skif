@@ -1,7 +1,7 @@
 //! Vite: HTML entry points, build inputs and pre-bundled dependencies.
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{alias_inputs, get_in, html_entries, join_rel, package_name, strings, values_of};
+use crate::support::{alias_inputs, get_in, html_entries, package_name, strings, values_of};
 
 /// The `vite` plugin.
 pub struct Vite;

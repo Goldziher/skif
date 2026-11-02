@@ -189,7 +189,11 @@ mod tests {
             ("lodash", None),
         ];
         for (specifier, expected) in cases {
-            assert_eq!(node_modules_specifier_package(specifier).as_deref(), expected, "{specifier}");
+            assert_eq!(
+                node_modules_specifier_package(specifier).as_deref(),
+                expected,
+                "{specifier}"
+            );
         }
     }
 

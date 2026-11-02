@@ -624,7 +624,11 @@ fn aws_cdk_app_command_is_a_script() {
     );
     let out = output(&results, "aws-cdk");
     assert_entries(&out.entries, &["app/main.ts"]);
-    assert!(out.referenced_binaries.iter().any(|b| b == "ts-node"), "{:?}", out.referenced_binaries);
+    assert!(
+        out.referenced_binaries.iter().any(|b| b == "ts-node"),
+        "{:?}",
+        out.referenced_binaries
+    );
     assert_eq!(out.provided_binaries, vec!["cdk".to_string()]);
 }
 
@@ -649,7 +653,10 @@ fn browser_extension_manifest_entries() {
         &[
             ("manifest.json", EXTENSION_MANIFEST),
             ("popup.html", r#"<script src="popup.js"></script>"#),
-            ("options/options.html", r#"<script type="module" src="./options.js"></script>"#),
+            (
+                "options/options.html",
+                r#"<script type="module" src="./options.js"></script>"#,
+            ),
         ],
         &[],
     );
@@ -699,7 +706,10 @@ fn browser_extension_manifest_in_public_and_mv2_shapes() {
 #[test]
 fn a_web_manifest_is_not_a_browser_extension() {
     let results = resolve(&[("manifest.json", r#"{"name":"pwa","start_url":"/"}"#)], &[]);
-    assert!(output(&results, "browser-extension").entries.is_empty());
+    assert_eq!(
+        output(&results, "browser-extension").entries,
+        [] as [std::string::String; 0]
+    );
 }
 
 #[test]
