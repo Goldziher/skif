@@ -8,7 +8,7 @@ use std::path::Path;
 use skif_config::Config;
 use skif_core::{Category, Fixability, RuleId, Severity};
 use skif_lint::{Registry, RuleProvider, RunOptions, run};
-use skif_rules::{manifest_provider, providers};
+use skif_rules::{manifest_provider, policy_provider, providers};
 use skif_workspace::Workspace;
 
 const EXPECTED: [&str; 11] = [
@@ -25,8 +25,9 @@ const EXPECTED: [&str; 11] = [
     "local-path-dependency",
 ];
 
+/// The manifest rules only: the snapshot fixtures are not meant to exercise the policy rules.
 fn registry() -> Registry {
-    Registry::new(providers()).unwrap()
+    Registry::new(vec![Box::new(manifest_provider())]).unwrap()
 }
 
 fn fixture(name: &str) -> std::path::PathBuf {
@@ -42,17 +43,30 @@ fn lint_fixture(name: &str) -> skif_core::Report {
 #[test]
 fn provider_ids_and_rule_set_are_stable() {
     assert_eq!(manifest_provider().id(), "manifest");
+    assert_eq!(policy_provider().id(), "policy");
     let all = providers();
     assert_eq!(
         all.iter().map(|provider| provider.id()).collect::<Vec<_>>(),
-        ["manifest"]
+        ["manifest", "policy"]
     );
     let ids: Vec<&str> = all
         .iter()
         .flat_map(|provider| provider.rules())
         .map(|meta| meta.id)
         .collect();
-    assert_eq!(ids, EXPECTED);
+    let (manifest, policy) = ids.split_at(EXPECTED.len());
+    assert_eq!(manifest, EXPECTED);
+    assert_eq!(
+        policy,
+        [
+            "version-mismatch",
+            "banned-dependency",
+            "semver-range-mismatch",
+            "policy-conflict",
+            "invalid-local-version",
+        ]
+    );
+    Registry::new(all).unwrap();
 }
 
 #[test]

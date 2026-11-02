@@ -13,6 +13,11 @@
 | [`root-package-private-field`](#root-package-private-field) | manifest | error | safe |
 | [`types-in-dependencies`](#types-in-dependencies) | manifest | error | safe |
 | [`unsorted-dependencies`](#unsorted-dependencies) | manifest | error | safe |
+| [`banned-dependency`](#banned-dependency) | policy | error | unsafe |
+| [`invalid-local-version`](#invalid-local-version) | policy | error | none |
+| [`policy-conflict`](#policy-conflict) | policy | warning | sometimes |
+| [`semver-range-mismatch`](#semver-range-mismatch) | policy | error | unsafe |
+| [`version-mismatch`](#version-mismatch) | policy | error | sometimes |
 | [`missing-package-manifest`](#missing-package-manifest) | workspace | warning | unsafe |
 | [`unmatched-workspace-patterns`](#unmatched-workspace-patterns) | workspace | warning | safe |
 
@@ -87,6 +92,46 @@ The entries of a dependency section are not in alphabetical (byte) order.
 - Category: manifest
 - Default severity: error
 - Fixable: safe
+
+## banned-dependency
+
+A dependency is declared although a banned version group forbids it.
+
+- Category: policy
+- Default severity: error
+- Fixable: unsafe
+
+## invalid-local-version
+
+A workspace package has a `version` that is not an exact semver version, so dependents cannot align with it.
+
+- Category: policy
+- Default severity: error
+- Fixable: none
+
+## policy-conflict
+
+Two policies require incompatible outcomes for one dependency, or a group cannot be applied as configured.
+
+- Category: policy
+- Default severity: warning
+- Fixable: sometimes
+
+## semver-range-mismatch
+
+A dependency uses a semver range other than the one its semver group requires.
+
+- Category: policy
+- Default severity: error
+- Fixable: unsafe
+
+## version-mismatch
+
+A dependency instance differs from the version its version group requires (highest, lowest, pinned, local or snapped).
+
+- Category: policy
+- Default severity: error
+- Fixable: sometimes
 
 ## missing-package-manifest
 

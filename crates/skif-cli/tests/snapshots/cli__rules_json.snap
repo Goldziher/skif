@@ -81,6 +81,41 @@ expression: json.stdout
       "default": "error",
       "fixable": "sometimes",
       "summary": "A dependency points at a path on disk (`link:`, `file:`, `portal:` or a relative path) instead of a registry or workspace version."
+    },
+    {
+      "id": "version-mismatch",
+      "category": "policy",
+      "default": "error",
+      "fixable": "sometimes",
+      "summary": "A dependency instance differs from the version its version group requires (highest, lowest, pinned, local or snapped)."
+    },
+    {
+      "id": "banned-dependency",
+      "category": "policy",
+      "default": "error",
+      "fixable": "unsafe",
+      "summary": "A dependency is declared although a banned version group forbids it."
+    },
+    {
+      "id": "semver-range-mismatch",
+      "category": "policy",
+      "default": "error",
+      "fixable": "unsafe",
+      "summary": "A dependency uses a semver range other than the one its semver group requires."
+    },
+    {
+      "id": "policy-conflict",
+      "category": "policy",
+      "default": "warning",
+      "fixable": "sometimes",
+      "summary": "Two policies require incompatible outcomes for one dependency, or a group cannot be applied as configured."
+    },
+    {
+      "id": "invalid-local-version",
+      "category": "policy",
+      "default": "error",
+      "fixable": "none",
+      "summary": "A workspace package has a `version` that is not an exact semver version, so dependents cannot align with it."
     }
   ]
 }
