@@ -120,7 +120,12 @@
     },
     "PackageManager": {
       "type": "string",
-      "enum": ["npm", "pnpm", "yarn", "bun"],
+      "enum": [
+        "npm",
+        "pnpm",
+        "yarn",
+        "bun"
+      ],
       "description": "Package managers that can be forced with `[workspace] package-manager`."
     },
     "Lint": {
@@ -148,7 +153,12 @@
     },
     "Level": {
       "type": "string",
-      "enum": ["off", "info", "warn", "error"],
+      "enum": [
+        "off",
+        "info",
+        "warn",
+        "error"
+      ],
       "description": "The level a rule is configured to: `off`, `info`, `warn` or `error`."
     },
     "RuleTableSchema": {
@@ -219,7 +229,10 @@
     },
     "Prefer": {
       "type": "string",
-      "enum": ["highest", "lowest"],
+      "enum": [
+        "highest",
+        "lowest"
+      ],
       "description": "Which version `preferred-semver` favours."
     },
     "VersionGroup": {
@@ -227,7 +240,10 @@
       "additionalProperties": false,
       "properties": {
         "label": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "dependencies": {
           "type": "array",
@@ -262,7 +278,10 @@
           "default": "preferred-semver"
         },
         "pin": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Required by `pinned`."
         },
         "snap-to": {
@@ -289,7 +308,15 @@
     },
     "VersionPolicy": {
       "type": "string",
-      "enum": ["pinned", "banned", "ignored", "same-range", "same-minor", "snapped-to", "preferred-semver"],
+      "enum": [
+        "pinned",
+        "banned",
+        "ignored",
+        "same-range",
+        "same-minor",
+        "snapped-to",
+        "preferred-semver"
+      ],
       "description": "The policy of a version group."
     },
     "SemverGroup": {
@@ -297,7 +324,10 @@
       "additionalProperties": false,
       "properties": {
         "label": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "dependencies": {
           "type": "array",
@@ -331,14 +361,24 @@
           "$ref": "#/$defs/SemverRange"
         }
       },
-      "required": ["range"],
+      "required": [
+        "range"
+      ],
       "description": "One `[[semver-groups]]` entry; first match wins."
     },
     "SemverRange": {
       "oneOf": [
         {
           "type": "string",
-          "enum": ["*", "^", "~", ">", ">=", "<", "<="]
+          "enum": [
+            "*",
+            "^",
+            "~",
+            ">",
+            ">=",
+            "<",
+            "<="
+          ]
         },
         {
           "type": "string",
@@ -379,7 +419,11 @@
     },
     "CatalogMode": {
       "type": "string",
-      "enum": ["off", "prefer", "enforce"],
+      "enum": [
+        "off",
+        "prefer",
+        "enforce"
+      ],
       "description": "`[catalog] mode`"
     },
     "WorkspaceProtocol": {
@@ -419,7 +463,9 @@
           "default": true
         }
       },
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "description": "One `[[dependency-families]]` entry: packages that must share a version."
     },
     "Js": {
@@ -550,7 +596,10 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "config": {
           "type": "array",
