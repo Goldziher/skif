@@ -1,3 +1,4 @@
 description = "A dependency defined in exactly one named catalog is fixed to catalog:<name>."
 source = "syncpack:src/version_group/catalog_test.rs::not_using_catalog::catalog_group_named_not_using_catalog_fixable"
 tags = ["catalog", "prefer", "named-catalog", "fix"]
+compare = "bytes"

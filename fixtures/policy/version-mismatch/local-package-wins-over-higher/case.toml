@@ -2,3 +2,4 @@ description = "The local version wins even when another dependent declares a hig
 source = "syncpack:src/version_group/preferred_semver_test.rs::local::instance_has_higher_version_than_local_package_and_has_no_semver_group"
 tags = ["local", "fix"]
 valid-states = ["IsLocalAndValid", "IsIdenticalToLocal"]
+compare = "bytes"

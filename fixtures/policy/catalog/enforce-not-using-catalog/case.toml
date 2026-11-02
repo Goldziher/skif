@@ -1,3 +1,4 @@
 description = "mode = enforce reports the same instances as prefer but at error severity."
 source = "syncpack:src/version_group/catalog_test.rs::severity::not_using_catalog_error"
 tags = ["catalog", "enforce", "severity", "fix"]
+compare = "bytes"

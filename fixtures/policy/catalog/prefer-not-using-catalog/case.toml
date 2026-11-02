@@ -2,3 +2,4 @@ description = "mode = prefer suggests catalog: for a dependency with a catalog e
 source = "syncpack:src/version_group/catalog_test.rs::not_using_catalog::catalog_group_not_using_catalog_fixable"
 tags = ["catalog", "prefer", "fix"]
 valid-states = ["IsCatalogDefinition"]
+compare = "bytes"

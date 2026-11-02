@@ -2,3 +2,4 @@ description = "Same version number as the pin but a different range, with no sem
 source = "syncpack:src/version_group/pinned_test.rs::normal::pin_version_will_override_instance_with_same_version_number_as_pinned_but_a_different_range_and_no_semver_group"
 tags = ["pinned", "fix"]
 valid-states = ["IsIdenticalToPin"]
+compare = "bytes"

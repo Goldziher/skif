@@ -1,3 +1,4 @@
 description = "An [[ignore]] entry suppresses a rule for a package without changing group ownership of the other instances."
 source = "skif"
 tags = ["ignore-table", "emitter", "fix"]
+compare = "bytes"

@@ -1,3 +1,4 @@
 description = "npm: aliases carry their inner version into alignment; the lower alias is reported and fixed to the highest alias."
 source = "syncpack:crates/syncpack-specifier/src/ordering_test.rs::sorting_aliases_with_same_versions_different_ranges"
 tags = ["alias", "highest", "fix"]
+compare = "bytes"

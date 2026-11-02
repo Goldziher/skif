@@ -2,3 +2,4 @@ description = "A different version is fixed to the snap target's version carryin
 source = "syncpack:src/version_group/snapped_to_test.rs::differs_to_snap_target_should_apply_semver_group_range"
 tags = ["snapped-to", "semver-groups", "fix"]
 valid-states = ["IsIdenticalToSnapTarget"]
+compare = "bytes"

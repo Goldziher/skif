@@ -2,3 +2,4 @@ description = "A same-minor group forbids caret ranges: a caret instance at the 
 source = "syncpack:src/version_group/same_minor_test.rs::same_minor_no_semver_group_unsafe_caret_range_on_disk"
 tags = ["same-minor", "fix"]
 valid-states = ["SatisfiesSameMinorGroup"]
+compare = "bytes"
