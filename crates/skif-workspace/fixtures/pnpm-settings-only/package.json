@@ -1,0 +1,8 @@
+{
+  "name": "pnpm-settings-only",
+  "version": "1.0.0",
+  "packageManager": "pnpm@9.0.0",
+  "dependencies": {
+    "is-number": "7.0.0"
+  }
+}
