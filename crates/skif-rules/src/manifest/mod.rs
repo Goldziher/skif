@@ -8,7 +8,7 @@ mod missing_package_manifest;
 mod root_package_dependencies;
 mod root_package_manager_field;
 mod root_package_private_field;
-mod support;
+pub(crate) mod support;
 mod types_in_dependencies;
 mod unmatched_workspace_patterns;
 mod unsorted_dependencies;

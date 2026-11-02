@@ -14,3 +14,8 @@ unsorted-dependencies           manifest   error    safe       The entries of a 
 unmatched-workspace-patterns    workspace  warning  safe       A workspace pattern does not match any directory.
 missing-package-manifest        workspace  warning  unsafe     A directory matched by the workspace patterns has no `package.json`.
 local-path-dependency           manifest   error    sometimes  A dependency points at a path on disk (`link:`, `file:`, `portal:` or a relative path) instead of a registry or workspace version.
+version-mismatch                policy     error    sometimes  A dependency instance differs from the version its version group requires (highest, lowest, pinned, local or snapped).
+banned-dependency               policy     error    unsafe     A dependency is declared although a banned version group forbids it.
+semver-range-mismatch           policy     error    unsafe     A dependency uses a semver range other than the one its semver group requires.
+policy-conflict                 policy     warning  sometimes  Two policies require incompatible outcomes for one dependency, or a group cannot be applied as configured.
+invalid-local-version           policy     error    none       A workspace package has a `version` that is not an exact semver version, so dependents cannot align with it.

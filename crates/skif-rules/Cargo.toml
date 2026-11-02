@@ -24,7 +24,7 @@ toml.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
-serde.workspace = true
+serde-saphyr.workspace = true
 skif-edit = { workspace = true, features = ["yaml"] }
 
 [lints]
