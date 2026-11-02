@@ -7,11 +7,11 @@ use super::support::{delete_range, module_location};
 use crate::analysis::JsAnalysis;
 use crate::graph::Module;
 
-/// Metadata of `unused-exports`.
+/// Metadata of `unused-exports`. Warning until the rule reaches corpus parity with knip; `unused-dependencies`, `unlisted-dependencies` and `unresolved-imports` stay errors.
 pub static META: RuleMeta = RuleMeta {
     id: "unused-exports",
     category: Category::Js,
-    default: Some(Severity::Error),
+    default: Some(Severity::Warning),
     fixable: Fixability::Unsafe,
     summary: "An exported value is not imported by any other module.",
 };

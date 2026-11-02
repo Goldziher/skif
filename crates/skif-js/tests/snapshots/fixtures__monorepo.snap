@@ -5,7 +5,7 @@ expression: diagnostics
 [
   {
     "rule": "unlisted-binaries",
-    "severity": "error",
+    "severity": "warning",
     "message": "script `lint` runs `eslint`, which no dependency provides",
     "help": "add the package that provides the binary to `devDependencies`, or add it to `ignore-binaries`",
     "location": {
@@ -102,7 +102,7 @@ expression: diagnostics
   },
   {
     "rule": "unused-dev-dependencies",
-    "severity": "error",
+    "severity": "warning",
     "message": "`left-over` is listed in `devDependencies` but never used",
     "help": "remove it, or add it to `ignore-dependencies` when a tool uses it without importing it",
     "location": {
@@ -143,7 +143,7 @@ expression: diagnostics
   },
   {
     "rule": "unused-dev-dependencies",
-    "severity": "error",
+    "severity": "warning",
     "message": "`@types/unused-thing` is listed in `devDependencies` but never used",
     "help": "remove it, or add it to `ignore-dependencies` when a tool uses it without importing it",
     "location": {
@@ -184,7 +184,7 @@ expression: diagnostics
   },
   {
     "rule": "unused-exports",
-    "severity": "error",
+    "severity": "warning",
     "message": "export `unusedFormat` is never imported by another module",
     "help": "remove it, or tag it `@public` when it is part of a public API",
     "location": {
@@ -220,7 +220,7 @@ expression: diagnostics
   },
   {
     "rule": "unused-files",
-    "severity": "error",
+    "severity": "warning",
     "message": "`packages/lib/src/unused.ts` is not reachable from any entry file",
     "help": "delete it, or add it to `entry` when a tool loads it",
     "location": {
@@ -243,7 +243,7 @@ expression: diagnostics
   },
   {
     "rule": "unused-types",
-    "severity": "error",
+    "severity": "warning",
     "message": "type `FormatOptions` is never imported by another module",
     "help": "remove it, or tag it `@public` when it is part of a public API",
     "location": {

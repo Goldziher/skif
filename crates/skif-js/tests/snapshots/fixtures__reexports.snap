@@ -57,7 +57,7 @@ expression: diagnostics
   },
   {
     "rule": "unused-exports",
-    "severity": "error",
+    "severity": "warning",
     "message": "export `a2` is never imported by another module",
     "help": "remove it, or tag it `@public` when it is part of a public API",
     "location": {
@@ -93,7 +93,7 @@ expression: diagnostics
   },
   {
     "rule": "unused-exports",
-    "severity": "error",
+    "severity": "warning",
     "message": "export `b2` is never imported by another module",
     "help": "remove it, or tag it `@public` when it is part of a public API",
     "location": {
@@ -129,7 +129,7 @@ expression: diagnostics
   },
   {
     "rule": "unused-exports",
-    "severity": "error",
+    "severity": "warning",
     "message": "export `c` is never imported by another module",
     "help": "remove it, or tag it `@public` when it is part of a public API",
     "location": {
@@ -165,7 +165,7 @@ expression: diagnostics
   },
   {
     "rule": "unused-exports",
-    "severity": "error",
+    "severity": "warning",
     "message": "export `c` is never imported by another module",
     "help": "remove it, or tag it `@public` when it is part of a public API",
     "location": {
@@ -201,7 +201,7 @@ expression: diagnostics
   },
   {
     "rule": "unused-exports",
-    "severity": "error",
+    "severity": "warning",
     "message": "export `beta` is never imported by another module",
     "help": "remove it, or tag it `@public` when it is part of a public API",
     "location": {
@@ -237,7 +237,7 @@ expression: diagnostics
   },
   {
     "rule": "unused-exports",
-    "severity": "error",
+    "severity": "warning",
     "message": "export `sideEffect` is never imported by another module",
     "help": "remove it, or tag it `@public` when it is part of a public API",
     "location": {
@@ -273,7 +273,7 @@ expression: diagnostics
   },
   {
     "rule": "unused-types",
-    "severity": "error",
+    "severity": "warning",
     "message": "type `Unused2` is never imported by another module",
     "help": "remove it, or tag it `@public` when it is part of a public API",
     "location": {
