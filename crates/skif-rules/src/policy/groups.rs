@@ -184,7 +184,7 @@ impl<'c> Groups<'c> {
     /// Assigns every instance to its owning version group and its preferred semver range.
     pub(crate) fn assign<'i>(&self, instances: &'i Instances<'_>) -> Assignment<'i> {
         let mut preferred = Vec::with_capacity(instances.len());
-        let mut dependencies: Vec<BTreeMap<&'i str, Vec<InstanceId>>> =
+        let mut dependencies: Vec<BTreeMap<Dependency<'i>, Vec<InstanceId>>> =
             self.groups.iter().map(|_| BTreeMap::new()).collect();
         for (id, instance) in instances.iter() {
             let explicit = self.groups.iter().position(|group| {
@@ -201,7 +201,10 @@ impl<'c> Groups<'c> {
                     continue;
                 }
             };
-            dependencies[owner].entry(instance.name.as_str()).or_default().push(id);
+            dependencies[owner]
+                .entry((instance.name.as_str(), instance.alias_target()))
+                .or_default()
+                .push(id);
             preferred.push(self.preferred_range(instance));
         }
         Assignment {
@@ -235,8 +238,12 @@ impl<'c> Groups<'c> {
 #[derive(Debug)]
 pub(crate) struct Assignment<'i> {
     preferred: Vec<Option<SemverRange>>,
-    dependencies: Vec<BTreeMap<&'i str, Vec<InstanceId>>>,
+    dependencies: Vec<BTreeMap<Dependency<'i>, Vec<InstanceId>>>,
 }
+
+/// A dependency name and, for an `npm:` alias of another package, that package: `foo` installing `bar` is not the
+/// `foo` that other packages install, and the two are not aligned with each other.
+type Dependency<'i> = (&'i str, Option<&'i str>);
 
 impl<'i> Assignment<'i> {
     /// The semver range `id` must use, when a semver group applies and the specifier can carry it.
@@ -248,7 +255,7 @@ impl<'i> Assignment<'i> {
     pub(crate) fn dependencies(&self, group: usize) -> impl Iterator<Item = (&'i str, &[InstanceId])> {
         self.dependencies[group]
             .iter()
-            .map(|(name, ids)| (*name, ids.as_slice()))
+            .map(|((name, _), ids)| (*name, ids.as_slice()))
     }
 
     /// Whether `group` owns at least one instance.

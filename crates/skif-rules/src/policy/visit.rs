@@ -21,6 +21,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use skif_config::Prefer;
+use skif_core::DependencyKind;
 use skif_specifier::Specifier;
 use skif_specifier::semver_range::SemverRange;
 
@@ -83,9 +84,28 @@ impl<'a, 'w> Visitor<'a, 'w> {
         }
     }
 
-    /// The instances the policies align: those not using the `catalog:` protocol.
+    /// The instances the policies align: those not using the `catalog:` protocol, and not a peer range written as a
+    /// compatibility window (`>=17 <19`, `^17 || ^18`), which states what is accepted rather than what is installed.
     fn members(&self, ids: &[InstanceId]) -> Vec<InstanceId> {
-        ids.iter().copied().filter(|&id| !self.spec(id).is_catalog()).collect()
+        ids.iter()
+            .copied()
+            .filter(|&id| !self.spec(id).is_catalog() && !self.is_peer_window(id))
+            .collect()
+    }
+
+    fn is_peer_window(&self, id: InstanceId) -> bool {
+        self.instances.get(id).kind() == Some(DependencyKind::PeerDependencies)
+            && matches!(**self.spec(id), Specifier::ComplexSemver(_))
+    }
+
+    /// The members a group may rewrite to `target`: a `workspace:` specifier stays what it is unless the target is one
+    /// too (the protocol is never replaced by a registry version).
+    fn rewritable(&self, ids: &[InstanceId], target: Option<&Specifier>) -> Vec<InstanceId> {
+        let keeps_protocol = target.is_none_or(|target| !target.is_workspace_protocol());
+        self.members(ids)
+            .into_iter()
+            .filter(|&id| !(keeps_protocol && self.spec(id).is_workspace_protocol()))
+            .collect()
     }
 
     fn equals(&self, id: InstanceId, other: &Specifier) -> bool {
@@ -148,7 +168,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
     }
 
     fn pinned(&mut self, ids: &[InstanceId], pin: &Arc<Specifier>) {
-        for id in self.members(ids) {
+        for id in self.rewritable(ids, Some(&**pin)) {
             let state = if self.is_own_version(id) {
                 State::RefuseToPinLocal
             } else if self.equals(id, pin) {
@@ -260,17 +280,19 @@ impl<'a, 'w> Visitor<'a, 'w> {
 
     fn snapped_to(&mut self, ids: &[InstanceId], packages: &[String]) {
         let Some(&first) = ids.first() else { return };
-        let target = self
-            .instances
-            .named(&self.instances.get(first).name)
+        let first = self.instances.get(first);
+        // The first package of `snap-to` that declares the dependency is the target.
+        let target = packages
             .iter()
-            .find(|&&id| {
-                let name = self.instances.get(id).package.name.as_deref();
-                name.is_some_and(|name| packages.iter().any(|package| package == name))
+            .find_map(|package| {
+                self.instances.named(&first.name).iter().find(|&&id| {
+                    let instance = self.instances.get(id);
+                    instance.alias_target() == first.alias_target() && instance.package.name.as_deref() == Some(package.as_str())
+                })
             })
             .map(|&id| Arc::clone(self.spec(id)));
         let Some(target) = target else {
-            for id in self.members(ids) {
+            for id in self.rewritable(ids, None) {
                 self.mark(id, State::DependsOnMissingSnapTarget, None);
             }
             return;
@@ -278,7 +300,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
         if target.is_catalog() {
             return;
         }
-        for id in self.members(ids) {
+        for id in self.rewritable(ids, Some(&*target)) {
             let outcome = self.snap_state(id, &target);
             self.mark_outcome(id, outcome);
         }
@@ -314,7 +336,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
 
     fn preferred_semver(&mut self, ids: &[InstanceId], prefer: Prefer) {
         if let Some(local) = ids.iter().rev().copied().find(|&id| self.is_own_version(id)) {
-            if matches!(**self.spec(local), Specifier::Exact(_)) {
+            if is_exact_version(self.spec(local)) {
                 self.align_with_local(ids, local);
             } else {
                 self.reject_invalid_local(ids);
@@ -484,6 +506,19 @@ impl<'a, 'w> Visitor<'a, 'w> {
             self.mark(id, state, None);
         }
     }
+}
+
+/// Whether the specifier is one exact version. Prerelease tags in capitals and build metadata (`1.0.0-RC.1`,
+/// `1.0.0+build.5`) are exact versions even though the specifier parser only knows lowercase tags.
+fn is_exact_version(specifier: &Specifier) -> bool {
+    if matches!(specifier, Specifier::Exact(_)) {
+        return true;
+    }
+    let raw = specifier.get_raw();
+    let core = raw.split(['-', '+']).next().unwrap_or_default();
+    core.split('.').count() == 3
+        && core.split('.').all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+        && Specifier::new_node_version(raw).is_some()
 }
 
 /// Whether the specifier names a moving target (`latest`, `*`, a dist-tag) rather than a version.
@@ -897,6 +932,92 @@ mod tests {
             states("[policy]\nprefer = \"lowest\"\n", &members),
             [one("lib", "react", "DiffersToHighestOrLowestSemver")]
         );
+    }
+
+    #[test]
+    fn an_alias_of_another_package_is_not_aligned_with_the_plain_dependency() {
+        let app = manifest("app", "1.0.0", r#""foo":"npm:bar@^1.0.0""#);
+        let lib = manifest("lib", "1.0.0", r#""foo":"^2.0.0""#);
+        let tool = manifest("tool", "1.0.0", r#""foo":"^2.1.0""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
+        assert_eq!(
+            states("", &members),
+            [one("lib", "foo", "DiffersToHighestOrLowestSemver")]
+        );
+        let other = manifest("other", "1.0.0", r#""foo":"npm:bar@^1.2.0""#);
+        let members = [("app", app.as_str()), ("other", other.as_str())];
+        assert_eq!(
+            states("", &members),
+            [one("app", "foo", "DiffersToHighestOrLowestSemver")],
+            "aliases of the same package still align with each other"
+        );
+    }
+
+    #[test]
+    fn prerelease_tags_in_capitals_and_build_metadata_are_exact_local_versions() {
+        for version in ["1.0.0-RC.1", "1.0.0+build.5", "1.0.0-beta.1+sha.5114f85"] {
+            let lib = manifest("lib", version, "");
+            let app = manifest("app", "1.0.0", &format!(r#""lib":"{version}""#));
+            let members = [("app", app.as_str()), ("lib", lib.as_str())];
+            assert_eq!(
+                states("", &members),
+                [] as [(String, String, &str); 0],
+                "{version}"
+            );
+        }
+        let lib = manifest("lib", "1.0.x", "");
+        let app = manifest("app", "1.0.0", r#""lib":"1.0.0""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str())];
+        assert_eq!(
+            states("", &members),
+            [
+                one("app", "lib", "DependsOnInvalidLocalPackage"),
+                one("lib", "lib", "InvalidLocalVersion"),
+            ]
+        );
+    }
+
+    #[test]
+    fn pinned_and_snapped_groups_leave_the_workspace_protocol_alone() {
+        let app = manifest("app", "1.0.0", r#""ui":"workspace:*""#);
+        let lib = manifest("lib", "1.0.0", r#""ui":"1.1.0""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str())];
+        let pinned = "[[version-groups]]\ndependencies = [\"ui\"]\npolicy = \"pinned\"\npin = \"1.2.0\"\n";
+        assert_eq!(states(pinned, &members), [one("lib", "ui", "DiffersToPin")]);
+        let tool = manifest("tool", "1.0.0", r#""ui":"^1.1.0""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
+        let snapped = "[[version-groups]]\ndependencies = [\"ui\"]\npolicy = \"snapped-to\"\nsnap-to = [\"tool\"]\n";
+        assert_eq!(states(snapped, &members), [one("lib", "ui", "DiffersToSnapTarget")]);
+        let workspace_pin = "[[version-groups]]\ndependencies = [\"ui\"]\npolicy = \"pinned\"\npin = \"workspace:*\"\n";
+        assert_eq!(
+            states(workspace_pin, &members),
+            [one("lib", "ui", "DiffersToPin"), one("tool", "ui", "DiffersToPin")]
+        );
+    }
+
+    #[test]
+    fn the_snap_target_is_the_first_listed_package_that_declares_the_dependency() {
+        let app = manifest("app", "1.0.0", r#""react":"^18.0.0""#);
+        let lib = manifest("lib", "1.0.0", r#""react":"^18.2.0""#);
+        let tool = manifest("tool", "1.0.0", r#""react":"^18.1.0""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
+        let toml = "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"snapped-to\"\nsnap-to = [\"tool\", \"app\"]\n";
+        assert_eq!(
+            states(toml, &members),
+            [
+                one("app", "react", "DiffersToSnapTarget"),
+                one("lib", "react", "DiffersToSnapTarget"),
+            ]
+        );
+    }
+
+    #[test]
+    fn peer_ranges_written_as_a_window_are_never_rewritten() {
+        let toml = "[policy]\ndependency-types = [\"prod\", \"peer\"]\n";
+        let app = r#"{"name":"app","version":"1.0.0","dependencies":{"react":"^18.3.1"},"peerDependencies":{"react":">=17 <19"}}"#;
+        let lib = manifest("lib", "1.0.0", r#""react":"^18.3.1""#);
+        let members = [("app", app), ("lib", lib.as_str())];
+        assert_eq!(states(toml, &members), [] as [(String, String, &str); 0]);
     }
 
     #[test]
