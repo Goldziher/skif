@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Map;
 use skif::render::{RenderOptions, render_github, render_human, render_sarif};
 use skif::{FileSystem, Report, RuleMeta};
-use skif_report::{ErrorInfo, render_json_error_info_with, render_json_with};
+use skif_report::{ErrorInfo, escape_multiline, render_json_error_info_with, render_json_with};
 
 use crate::args::Format;
 use crate::error::{CliError, Kind};
@@ -20,6 +20,13 @@ pub fn write_stdout(bytes: &[u8]) -> Result<(), CliError> {
     out.write_all(bytes)
         .and_then(|()| out.flush())
         .map_err(|error| CliError::new(Kind::Io, format!("cannot write to stdout: {error}")))
+}
+
+/// Writes `text` and a newline to stderr. A closed or broken stderr is ignored: `eprintln!` would panic on it, and
+/// diagnostics about a run are not worth failing the run for.
+pub fn stderr_line(text: &str) {
+    let mut err = io::stderr().lock();
+    let _ = err.write_all(text.as_bytes()).and_then(|()| err.write_all(b"\n"));
 }
 
 /// Reports a failure: a JSON `error` document on stdout in JSON mode, `error: ...` on stderr otherwise.
@@ -39,7 +46,7 @@ pub fn emit_error_with(error: &CliError, format: Format, extra: Map<String, serd
             return;
         }
     }
-    eprintln!("error: {error}");
+    stderr_line(&format!("error: {}", escape_multiline(&error.to_string())));
 }
 
 /// Files whose text a code frame or a UTF-16 column conversion may need: every file a diagnostic or related

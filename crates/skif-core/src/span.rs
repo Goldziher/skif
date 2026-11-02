@@ -31,6 +31,7 @@ pub struct Span {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Location {
     /// Workspace-relative path.
+    #[serde(serialize_with = "crate::display::serialize_path")]
     pub path: PathBuf,
     /// Position within the file, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
