@@ -29,6 +29,18 @@ pub struct Fix {
     pub ops: Vec<FixOp>,
 }
 
+impl Fix {
+    /// A fix titled `title` that performs `ops` in order.
+    #[must_use]
+    pub fn new(title: impl Into<String>, safety: FixSafety, ops: Vec<FixOp>) -> Self {
+        Self {
+            title: title.into(),
+            safety,
+            ops,
+        }
+    }
+}
+
 /// One step of a structured path into a JSON or YAML document.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -150,6 +162,18 @@ pub struct TextEdit {
     pub end: u32,
     /// Text put in place of the range.
     pub replacement: String,
+}
+
+impl TextEdit {
+    /// Replaces the bytes `start..end` with `replacement`.
+    #[must_use]
+    pub fn new(start: u32, end: u32, replacement: impl Into<String>) -> Self {
+        Self {
+            start,
+            end,
+            replacement: replacement.into(),
+        }
+    }
 }
 
 /// The net effect of fixes on one file, ready to be written.
@@ -434,5 +458,20 @@ mod tests {
             let edits = build_edits(&source, &cuts, &replacements, rotation);
             prop_assert_eq!(apply_text_edits(&source, &edits).unwrap(), reference(&source, &edits));
         }
+    }
+
+    #[test]
+    fn constructors_fill_every_field() {
+        let edit = TextEdit::new(1, 3, "x");
+        assert_eq!((edit.start, edit.end, edit.replacement.as_str()), (1, 3, "x"));
+        let fix = Fix::new("Title", FixSafety::Unsafe, vec![]);
+        assert_eq!(
+            fix,
+            Fix {
+                title: "Title".to_owned(),
+                safety: FixSafety::Unsafe,
+                ops: Vec::new()
+            }
+        );
     }
 }
