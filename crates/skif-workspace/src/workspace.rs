@@ -242,6 +242,7 @@ impl Workspace {
                     path: PathBuf::from(PNPM_WORKSPACE),
                     source: text,
                     line_index,
+                    overrides: parsed.overrides.clone(),
                 }),
                 Some(parsed),
             )

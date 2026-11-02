@@ -35,7 +35,7 @@ pub struct MemberToolchainFieldsOptions {
     pub mode: ForbidMode,
 }
 
-/// Reports toolchain fields in member manifests.
+/// Reports toolchain fields in the manifests of private members; a published package declares what it supports.
 ///
 /// Options (`[rules.member-toolchain-fields] mode`): `forbid` (default) reports every declaration, `match-root`
 /// allows a field whose value equals the root's.
@@ -67,7 +67,9 @@ impl Rule for MemberToolchainFields {
             .unwrap_or_default()
             .mode;
         let root = &cx.workspace.root_package.manifest.value;
-        for package in active_members(cx.workspace) {
+        // A published package states the engines it supports and the manager it is developed with; only the
+        // private members of the workspace take their toolchain from the root.
+        for package in active_members(cx.workspace).filter(|package| package.private) {
             for field in FIELDS {
                 let Some(value) = package.manifest.value.get(field) else {
                     continue;
@@ -110,21 +112,21 @@ mod tests {
     fn forbid_mode_reports_every_declaration() {
         let root_json = root(ROOT_TOOLCHAIN);
         let cases = [
-            ("none", r#"{"name":"a"}"#, vec![]),
-            ("engines", r#"{"name":"a","engines":{"node":">=20"}}"#, vec!["engines"]),
+            ("none", r#"{"name":"a","private":true}"#, vec![]),
+            ("engines", r#"{"name":"a","private":true,"engines":{"node":">=20"}}"#, vec!["engines"]),
             (
                 "packageManager",
-                r#"{"name":"a","packageManager":"pnpm@9.0.0"}"#,
+                r#"{"name":"a","private":true,"packageManager":"pnpm@9.0.0"}"#,
                 vec!["packageManager"],
             ),
             (
                 "both",
-                r#"{"name":"a","packageManager":"pnpm@9.0.0","engines":{"node":">=20"}}"#,
+                r#"{"name":"a","private":true,"packageManager":"pnpm@9.0.0","engines":{"node":">=20"}}"#,
                 vec!["packageManager", "engines"],
             ),
             (
                 "empty engines still declared",
-                r#"{"name":"a","engines":{}}"#,
+                r#"{"name":"a","private":true,"engines":{}}"#,
                 vec!["engines"],
             ),
         ];
@@ -150,12 +152,12 @@ mod tests {
         let cases = [
             (
                 "equal",
-                r#"{"name":"a","engines":{"node":">=20"},"packageManager":"pnpm@9.0.0"}"#,
+                r#"{"name":"a","private":true,"engines":{"node":">=20"},"packageManager":"pnpm@9.0.0"}"#,
                 0,
             ),
-            ("different engines", r#"{"name":"a","engines":{"node":">=22"}}"#, 1),
-            ("different manager", r#"{"name":"a","packageManager":"pnpm@10.0.0"}"#, 1),
-            ("equal manager only", r#"{"name":"a","packageManager":"pnpm@9.0.0"}"#, 0),
+            ("different engines", r#"{"name":"a","private":true,"engines":{"node":">=22"}}"#, 1),
+            ("different manager", r#"{"name":"a","private":true,"packageManager":"pnpm@10.0.0"}"#, 1),
+            ("equal manager only", r#"{"name":"a","private":true,"packageManager":"pnpm@9.0.0"}"#, 0),
         ];
         for (name, member, expected) in cases {
             let files = [
@@ -169,7 +171,7 @@ mod tests {
     #[test]
     fn match_root_flags_a_field_the_root_does_not_declare() {
         let root_json = format!(r#"{{"name":"root","private":true,"workspaces":["packages/*"]{ROOT_TOOLCHAIN}}}"#);
-        let member = r#"{"name":"a","packageManager":"pnpm@9.0.0"}"#;
+        let member = r#"{"name":"a","private":true,"packageManager":"pnpm@9.0.0"}"#;
         let files = [
             ("package.json", root_json.as_str()),
             ("packages/a/package.json", member),
@@ -178,11 +180,22 @@ mod tests {
     }
 
     #[test]
+    fn published_members_may_declare_their_toolchain() {
+        let root_json = root(ROOT_TOOLCHAIN);
+        let member = r#"{"name":"a","version":"1.0.0","engines":{"node":">=18"},"packageManager":"pnpm@9.0.0"}"#;
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", member),
+        ];
+        assert_eq!(lint(META.id, &files, &config("")), [] as [skif_core::Diagnostic; 0]);
+    }
+
+    #[test]
     fn the_root_itself_is_never_reported() {
         let root_json = root(ROOT_TOOLCHAIN);
         let files = [
             ("package.json", root_json.as_str()),
-            ("packages/a/package.json", r#"{"name":"a"}"#),
+            ("packages/a/package.json", r#"{"name":"a","private":true}"#),
         ];
         assert_eq!(lint(META.id, &files, &config("")), [] as [skif_core::Diagnostic; 0]);
     }
@@ -190,7 +203,7 @@ mod tests {
     #[test]
     fn spans_cover_the_field_entry() {
         let root_json = root("");
-        let member = r#"{"name":"a","engines":{"node":">=20"}}"#;
+        let member = r#"{"name":"a","private":true,"engines":{"node":">=20"}}"#;
         let files = [
             ("package.json", root_json.as_str()),
             ("packages/a/package.json", member),
@@ -203,7 +216,7 @@ mod tests {
     #[test]
     fn ignored_packages_are_skipped() {
         let root_json = root("");
-        let member = r#"{"name":"a","engines":{}}"#;
+        let member = r#"{"name":"a","private":true,"engines":{}}"#;
         let files = [
             ("package.json", root_json.as_str()),
             ("packages/a/package.json", member),
@@ -248,7 +261,7 @@ mod tests {
     #[test]
     fn fix_removes_the_fields_and_leaves_the_rest() {
         let root_json = root(ROOT_TOOLCHAIN);
-        let member = r#"{"name":"a","packageManager":"pnpm@9.0.0","version":"1.0.0","engines":{"node":">=20"}}"#;
+        let member = r#"{"name":"a","private":true,"packageManager":"pnpm@9.0.0","version":"1.0.0","engines":{"node":">=20"}}"#;
         let files = [
             ("package.json", root_json.as_str()),
             ("packages/a/package.json", member),

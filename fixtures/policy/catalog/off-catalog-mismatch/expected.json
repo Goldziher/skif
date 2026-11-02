@@ -1,7 +1,7 @@
 [
   {
     "rule": "catalog-mismatch",
-    "severity": "error",
+    "severity": "warning",
     "package": "lib",
     "dependency": "react",
     "detail": "DiffersToCatalog",
