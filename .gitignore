@@ -1,6 +1,8 @@
 /target
 node_modules/
 /dist
+/website/dist/
+/website/.astro/
 
 # poly (polylint) local cache
 /.polylint

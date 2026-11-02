@@ -57,6 +57,16 @@ run = "cargo run --release --locked -p skif-bench -- generate"
 description = "Fetch the pinned benchmark corpus into target/bench-corpus"
 run = "cargo run --release --locked -p skif-bench -- corpus fetch"
 
+[tasks."docs:dev"]
+description = "Serve the documentation site locally (installs website dependencies first)"
+dir = "website"
+run = ["pnpm install", "pnpm run dev"]
+
+[tasks."docs:build"]
+description = "Build the documentation site into website/dist"
+dir = "website"
+run = ["pnpm install --frozen-lockfile", "pnpm run build"]
+
 [tasks.test]
 description = "Run all tests"
 run = "cargo test --workspace --locked --no-fail-fast"

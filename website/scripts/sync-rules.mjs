@@ -1,17 +1,17 @@
 // Renders ../docs/rules.md into one page per rule category under src/content/docs/rules/.
 // The output is generated at build time and ignored by git; ../docs/rules.md stays the single source of truth.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const root = join(import.meta.dirname, "..");
 const source = join(root, "..", "docs", "rules.md");
 const outDir = join(root, "src", "content", "docs", "rules");
 
 const categories = {
   manifest: {
     title: "Manifest rules",
-    summary: "Hygiene of the root and member `package.json` files: field placement, ordering and toolchain declarations.",
+    summary:
+      "Hygiene of the root and member `package.json` files: field placement, ordering and toolchain declarations.",
   },
   workspace: {
     title: "Workspace rules",
@@ -24,7 +24,8 @@ const categories = {
   },
   catalog: {
     title: "Catalog rules",
-    summary: "pnpm, yarn and bun catalogs: keep catalog entries, `catalog:` references and declared versions consistent. Configured with `[catalog]`.",
+    summary:
+      "pnpm, yarn and bun catalogs: keep catalog entries, `catalog:` references and declared versions consistent. Configured with `[catalog]`.",
   },
   js: {
     title: "JavaScript analysis rules",
@@ -38,7 +39,7 @@ const lines = readFileSync(source, "utf8").split("\n");
 const rules = [];
 let current = null;
 for (const line of lines) {
-  const heading = /^## (\S+)\s*$/.exec(line);
+  const heading = /^## (\S+)\s*$/u.exec(line);
   if (heading) {
     current = { id: heading[1], body: [] };
     rules.push(current);
@@ -50,18 +51,18 @@ for (const line of lines) {
 const parsed = [];
 for (const rule of rules) {
   const text = rule.body.join("\n").trim();
-  const category = /^- Category: (\S+)$/m.exec(text)?.[1];
+  const category = /^- Category: (\S+)$/mu.exec(text)?.[1];
   if (!category) continue;
   if (!(category in categories)) throw new Error(`rule ${rule.id} has unknown category ${category}`);
   const description = text.split("\n\n")[0].trim();
-  const field = (name) => new RegExp(`^- ${name}: (.+)$`, "m").exec(text)?.[1] ?? "";
+  const field = (name) => new RegExp(`^- ${name}: (.+)$`, "mu").exec(text)?.[1] ?? "";
   parsed.push({
     id: rule.id,
     category,
     description,
     severity: field("Default severity"),
     fixable: field("Fixable"),
-    sherif: /^- sherif name: `(.+)`$/m.exec(text)?.[1],
+    sherif: /^- sherif name: `(.+)`$/mu.exec(text)?.[1],
   });
 }
 
@@ -90,13 +91,23 @@ for (const [category, meta] of Object.entries(categories)) {
     "",
   ];
   for (const r of inCategory) {
-    out.push(`## ${r.id}`, "", r.description, "");
-    out.push(`- Default severity: ${r.severity}`, `- Fixable: ${r.fixable}`);
-    if (r.sherif) out.push(`- sherif name: \`${r.sherif}\``);
-    out.push("");
-    out.push("```toml", "[rules]", `${r.id} = "${r.severity === "warning" ? "warn" : r.severity}"`, "```", "");
+    out.push(
+      `## ${r.id}`,
+      "",
+      r.description,
+      "",
+      `- Default severity: ${r.severity}`,
+      `- Fixable: ${r.fixable}`,
+      ...(r.sherif ? [`- sherif name: \`${r.sherif}\``] : []),
+      "",
+      "```toml",
+      "[rules]",
+      `${r.id} = "${r.severity === "warning" ? "warn" : r.severity}"`,
+      "```",
+      "",
+    );
   }
   writeFileSync(join(outDir, `${category}.mdx`), out.join("\n"));
 }
 
-console.log(`sync-rules: ${parsed.length} rules into ${Object.keys(categories).length} pages`);
+process.stdout.write(`sync-rules: ${parsed.length} rules into ${Object.keys(categories).length} pages\n`);
