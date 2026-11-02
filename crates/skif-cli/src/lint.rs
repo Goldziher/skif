@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 
 use clap::ColorChoice;
 use serde_json::Map;
-use skif::{Config, ConfigOverrides, FileSystem, IgnoreEntry, Linter, OsFs, Prefer, Report, RunOptions, Selector, Workspace};
+use skif::{
+    Config, ConfigOverrides, FileSystem, IgnoreEntry, Linter, OsFs, Prefer, Report, RunOptions, Selector, Workspace,
+};
 
 use crate::args::{Format, LintArgs, Select};
 use crate::env::{Env, github_workspace};
@@ -61,7 +63,11 @@ fn repo_root(root: &Path) -> Option<PathBuf> {
     github_workspace()
         .map(|workspace| simplified(std::fs::canonicalize(&workspace).unwrap_or(workspace)))
         .filter(|workspace| root.starts_with(workspace))
-        .or_else(|| root.ancestors().find(|dir| dir.join(".git").exists()).map(Path::to_path_buf))
+        .or_else(|| {
+            root.ancestors()
+                .find(|dir| dir.join(".git").exists())
+                .map(Path::to_path_buf)
+        })
 }
 
 fn overrides(args: &LintArgs) -> ConfigOverrides {
@@ -160,7 +166,9 @@ fn rendering<'a>(args: &LintArgs, env: Env, linter: &Linter, root: &'a Path) -> 
         annotations,
         color: color_enabled(args, env),
         root,
-        repo_root: (format == Format::Github || annotations).then(|| repo_root(root)).flatten(),
+        repo_root: (format == Format::Github || annotations)
+            .then(|| repo_root(root))
+            .flatten(),
         rules: linter.rules().collect(),
     }
 }
@@ -217,7 +225,12 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         (state.0, state.1, None)
     };
 
-    let rendered = output::render(&report, rendering(args, env, &linter, &workspace.root), &fs, fix_run.as_ref())?;
+    let rendered = output::render(
+        &report,
+        &rendering(args, env, &linter, &workspace.root),
+        &fs,
+        fix_run.as_ref(),
+    )?;
     output::emit(&rendered, args.output.as_deref())?;
     if let Some(run) = &fix_run
         && matches!(args.format(), Format::Sarif | Format::Github)
@@ -246,19 +259,16 @@ fn relint_failed(args: &LintArgs, error: &CliError, run: &FixRun) -> u8 {
         line: error.line,
         column: error.column,
     };
-    match args.format() {
-        Format::Json => {
-            let mut extra = Map::new();
-            extra.insert("fix".to_owned(), run.to_json());
-            emit_error_with(&error, Format::Json, extra);
+    if args.format() == Format::Json {
+        let mut extra = Map::new();
+        extra.insert("fix".to_owned(), run.to_json());
+        emit_error_with(&error, Format::Json, extra);
+    } else {
+        let mut summary = Vec::new();
+        if run.write_human(&mut summary).is_ok() {
+            let _ = output::write_stdout(&summary);
         }
-        _ => {
-            let mut summary = Vec::new();
-            if run.write_human(&mut summary).is_ok() {
-                let _ = output::write_stdout(&summary);
-            }
-            emit_error(&error, args.format());
-        }
+        emit_error(&error, args.format());
     }
     COULD_NOT_RUN
 }

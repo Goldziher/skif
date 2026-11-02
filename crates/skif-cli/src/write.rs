@@ -75,7 +75,12 @@ pub fn write_plan(plan: &FixPlan, root: &Path) -> Result<(), CliError> {
     let mut dirs = CreatedDirs::default();
     let mut staged: Vec<(Temp, &Job<'_>)> = Vec::new();
     for job in &jobs {
-        if let Job::Write { target, bytes, original } = job {
+        if let Job::Write {
+            target,
+            bytes,
+            original,
+        } = job
+        {
             let temp = stage(target, bytes, original.is_none(), &mut dirs)
                 .map_err(|error| CliError::io("cannot write", target, &error))?;
             staged.push((temp, job));
@@ -174,7 +179,10 @@ fn prepare<'a>(change: &'a FileChange, root: &Path) -> Result<Job<'a>, CliError>
                 Err(error) => Err(CliError::io("cannot read", path, &error)),
             }
         }
-        _ => Err(CliError::new(Kind::Io, "the fix plan holds a change this skif cannot write")),
+        _ => Err(CliError::new(
+            Kind::Io,
+            "the fix plan holds a change this skif cannot write",
+        )),
     }
 }
 
@@ -298,7 +306,7 @@ mod tests {
         fs::write(dir.path().join("a.json"), "old").unwrap();
         write_atomic(&dir.path().join("a.json"), b"new").unwrap();
         assert_eq!(fs::read_to_string(dir.path().join("a.json")).unwrap(), "new");
-        assert!(leftovers(dir.path()).is_empty());
+        assert_eq!(leftovers(dir.path()), [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -308,7 +316,10 @@ mod tests {
         assert!(target(&root, Path::new("../x")).is_err());
         assert!(target(&root, Path::new("/abs")).is_err());
         assert!(target(&root, Path::new("")).is_err());
-        assert_eq!(target(&root, Path::new("a/b.json")).unwrap(), root.join("a").join("b.json"));
+        assert_eq!(
+            target(&root, Path::new("a/b.json")).unwrap(),
+            root.join("a").join("b.json")
+        );
     }
 
     #[test]
@@ -318,7 +329,7 @@ mod tests {
         let bad = plan(vec![modify("a.json", "new"), modify("../escape.json", "x")]);
         assert!(write_plan(&bad, dir.path()).is_err());
         assert_eq!(fs::read_to_string(dir.path().join("a.json")).unwrap(), "old");
-        assert!(leftovers(dir.path()).is_empty());
+        assert_eq!(leftovers(dir.path()), [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -335,7 +346,7 @@ mod tests {
         ]);
         assert!(write_plan(&failing, dir.path()).is_err());
         assert_eq!(fs::read_to_string(dir.path().join("a.json")).unwrap(), "old");
-        assert!(leftovers(dir.path()).is_empty());
+        assert_eq!(leftovers(dir.path()), [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -377,6 +388,9 @@ mod tests {
         assert!(write_plan(&through_file, dir.path()).is_err());
         let through_dir = plan(vec![modify("linked-dir/secret.json", "pwned")]);
         assert!(write_plan(&through_dir, dir.path()).is_err());
-        assert_eq!(fs::read_to_string(outside.path().join("secret.json")).unwrap(), "secret");
+        assert_eq!(
+            fs::read_to_string(outside.path().join("secret.json")).unwrap(),
+            "secret"
+        );
     }
 }

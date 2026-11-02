@@ -7,7 +7,13 @@ use skif::Level;
 
 /// Fast dependency linter for JavaScript and TypeScript monorepos.
 #[derive(Debug, Parser)]
-#[command(name = "skif", bin_name = "skif", version, about, args_conflicts_with_subcommands = true)]
+#[command(
+    name = "skif",
+    bin_name = "skif",
+    version,
+    about,
+    args_conflicts_with_subcommands = true
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -89,7 +95,7 @@ pub struct LintArgs {
     #[arg(default_value = ".")]
     pub path: PathBuf,
 
-    /// Output format [default: human, or human plus GitHub annotations when GITHUB_ACTIONS=true].
+    /// Output format [default: human, or human plus GitHub annotations when `GITHUB_ACTIONS=true`].
     #[arg(long, value_enum)]
     pub format: Option<Format>,
 

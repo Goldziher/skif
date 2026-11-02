@@ -376,12 +376,16 @@ impl<'a> Planner<'a> {
                     } = occupied.get_mut()
                     {
                         accepted_ops.extend(ops);
-                        edits.into_iter().for_each(|edit| insert_sorted(accepted_edits, edit));
+                        for edit in edits {
+                            insert_sorted(accepted_edits, edit);
+                        }
                     }
                 }
                 std::collections::btree_map::Entry::Vacant(vacant) => {
                     let mut sorted = Vec::with_capacity(edits.len());
-                    edits.into_iter().for_each(|edit| insert_sorted(&mut sorted, edit));
+                    for edit in edits {
+                        insert_sorted(&mut sorted, edit);
+                    }
                     vacant.insert(Entry::Edit { ops, edits: sorted });
                 }
             },
@@ -392,7 +396,7 @@ impl<'a> Planner<'a> {
     fn plan(&mut self, path: &Path, ops: &[&FixOp]) -> Result<Vec<TextEdit>, PlanFailure> {
         let source = self.source(path).map_err(PlanFailure::Other)?;
         match FileKind::from_path(path) {
-            Some(kind) => plan_edits(&source, kind, ops).map_err(plan_failure),
+            Some(kind) => plan_edits(&source, kind, ops).map_err(|error| plan_failure(&error)),
             None => text_edits(&source, ops),
         }
     }
@@ -430,7 +434,7 @@ impl<'a> Planner<'a> {
     }
 }
 
-fn plan_failure(error: EditPlanError) -> PlanFailure {
+fn plan_failure(error: &EditPlanError) -> PlanFailure {
     match error {
         EditPlanError::Conflict { .. } => PlanFailure::Conflict(error.to_string()),
         _ => PlanFailure::Other(error.to_string()),
@@ -463,10 +467,14 @@ fn pick<'a>(selection: &FixSelection, index: usize, diagnostic: &'a Diagnostic) 
             None => Pick::Skip(SkipReason::Failed(format!("diagnostic has no fix number {number}"))),
         };
     }
-    let allowed: Vec<&Fix> = diagnostic.fixes.iter().filter(|fix| selection.allows(fix.safety)).collect();
+    let allowed: Vec<&Fix> = diagnostic
+        .fixes
+        .iter()
+        .filter(|fix| selection.allows(fix.safety))
+        .collect();
     match (allowed.as_slice(), diagnostic.fixes.first()) {
-        ([only], _) => Pick::Fix(*only),
-        ([first, ..], _) if selection.alternatives == Alternatives::First => Pick::Fix(*first),
+        ([only], _) => Pick::Fix(only),
+        ([first, ..], _) if selection.alternatives == Alternatives::First => Pick::Fix(first),
         ([], Some(first)) => Pick::Skip(SkipReason::Safety(first.safety)),
         (alternatives, _) => Pick::Skip(SkipReason::NeedsChoice {
             alternatives: alternatives.iter().map(|fix| fix.title.clone()).collect(),

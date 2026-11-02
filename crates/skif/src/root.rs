@@ -74,7 +74,10 @@ pub fn find_workspace_root(start: &Path, fs: &dyn FileSystem) -> Result<PathBuf,
 /// ```
 #[must_use]
 pub fn config_file(root: &Path, fs: &dyn FileSystem) -> Option<&'static str> {
-    CONFIG_FILE_NAMES.iter().copied().find(|name| fs.is_file(&root.join(name)))
+    CONFIG_FILE_NAMES
+        .iter()
+        .copied()
+        .find(|name| fs.is_file(&root.join(name)))
 }
 
 fn with_path(mut error: ConfigError, file: &Path) -> ConfigError {

@@ -91,7 +91,7 @@ fn list_rules(format: RulesFormat) -> Result<(), CliError> {
                 "skif": env!("CARGO_PKG_VERSION"),
                 "rules": metas,
             }))
-                .map_err(|error| CliError::new(Kind::Io, error.to_string()))?;
+            .map_err(|error| CliError::new(Kind::Io, error.to_string()))?;
             text.push('\n');
             text
         }
