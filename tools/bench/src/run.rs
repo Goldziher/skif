@@ -10,7 +10,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::corpus;
-use crate::generate::{self, Options, PackageManager};
+use skif_bench::generate::{self, Options, PackageManager};
 
 /// ADR 0001: manifest and policy rules on 500 packages.
 const MANIFEST_TARGET_PACKAGES: usize = 500;

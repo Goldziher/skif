@@ -1,8 +1,6 @@
 //! Benchmark harness for skif: generates synthetic monorepos, fetches the pinned corpus and runs hyperfine.
 
 mod corpus;
-mod generate;
-mod rng;
 mod run;
 
 use std::fs;
@@ -11,8 +9,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 
-use crate::generate::{Options, PackageManager};
 use crate::run::RunOptions;
+use skif_bench::generate::{self, Options, PackageManager};
 
 const DEFAULT_CORPUS_FILE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml");
 
