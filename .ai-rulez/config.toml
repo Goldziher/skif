@@ -6,12 +6,8 @@ gitignore = true
 
 presets = ["claude", "codex", "opencode"]
 
-# `testing` is auto-included and explicitly excluded here. Its six rules restate the
-# hand-written `tdd-and-hooks` rule, which carries this project's actual testing policy, and
-# its `tdd-workflow` ("wrote production code before the test? delete it, start over — no
-# exceptions") contradicts `minimal-changes` and `incremental-approach` in this same set.
-# What those six said that `tdd-and-hooks` did not — independence, naming, exact assertions,
-# a test that can fail — was folded into `tdd-and-hooks` before the exclusion landed.
+# The `testing` builtin is excluded: the hand-written `tdd-and-hooks` rule carries this project's testing policy, and
+# the builtin's "delete production code written before the test" rule contradicts `minimal-changes`.
 builtins = ["rust", "security", "git-workflow", "code-quality", "!testing", "documentation", "default-commands"]
 
 # OpenCode reads a bare alias such as `sonnet` as a provider with no model, so its agents get a
@@ -24,7 +20,7 @@ name = "poly"
 description = "Lint, format, and cache over MCP — the poly binary's stdio server."
 command = "poly"
 args = ["mcp"]
-package = "pkg:github/Goldziher/poly@v0.31.2"
+package = "pkg:github/Goldziher/poly@v0.32.2"
 
 [mcp]
 self_server_command = ["npx", "-y", "ai-rulez@latest", "mcp"]
