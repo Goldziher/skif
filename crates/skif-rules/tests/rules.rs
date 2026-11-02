@@ -144,7 +144,7 @@ fn every_diagnostic_naming_a_dependency_instance_carries_its_specifier() {
         .iter()
         .filter(|diagnostic| diagnostic.dependency.is_some())
         .collect();
-    assert!(!named.is_empty());
+    assert_ne!(named, [] as [&skif_core::Diagnostic; 0]);
     for diagnostic in named {
         assert!(
             diagnostic.specifier.is_some(),
@@ -165,7 +165,9 @@ fn ignore_entries_match_dependencies_by_name_and_specifier() {
         report
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.rule.as_str() == "unsorted-dependencies" && diagnostic.dependency.as_deref() == Some("react"))
+            .filter(|diagnostic| {
+                diagnostic.rule.as_str() == "unsorted-dependencies" && diagnostic.dependency.as_deref() == Some("react")
+            })
             .count()
     };
     assert_eq!(ignored("react"), 0);

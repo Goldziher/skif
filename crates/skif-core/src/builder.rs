@@ -128,7 +128,9 @@ mod tests {
         assert_eq!(built.severity, Severity::Warning);
         assert_eq!(built.message, "message");
         assert!(
-            built.help.is_none() && built.package.is_none() && built.dependency.is_none()
+            built.help.is_none()
+                && built.package.is_none()
+                && built.dependency.is_none()
                 && built.specifier.is_none()
                 && built.default_severity.is_none()
                 && built.detail.is_none()

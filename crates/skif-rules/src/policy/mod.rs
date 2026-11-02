@@ -102,7 +102,7 @@ mod tests {
             .collect()
     }
 
-    fn catalog_files<'a>(workspace_yaml: &'a str) -> [(&'a str, &'a str); 4] {
+    fn catalog_files(workspace_yaml: &str) -> [(&str, &str); 4] {
         const ROOT: &str = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0"}"#;
         const USER: &str = r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"react":"^18.3.1"}}"#;
         const OTHER: &str = r#"{"name":"lib","version":"1.0.0","private":true,"dependencies":{"react":"^18.3.1"}}"#;
@@ -126,8 +126,18 @@ mod tests {
         const CATALOGUED: &str = "packages:\n  - \"packages/*\"\ncatalog:\n  \"react\": \"^18.3.1\"\n";
         const UNCATALOGUED: &str = "packages:\n  - \"packages/*\"\n";
         let cases = [
-            ("catalog-not-used", CATALOGUED, "[catalog]\nmode = \"enforce\"\n", Severity::Error),
-            ("catalog-not-used", CATALOGUED, "[catalog]\nmode = \"prefer\"\n", Severity::Warning),
+            (
+                "catalog-not-used",
+                CATALOGUED,
+                "[catalog]\nmode = \"enforce\"\n",
+                Severity::Error,
+            ),
+            (
+                "catalog-not-used",
+                CATALOGUED,
+                "[catalog]\nmode = \"prefer\"\n",
+                Severity::Warning,
+            ),
             (
                 "catalog-not-used",
                 CATALOGUED,
@@ -140,8 +150,18 @@ mod tests {
                 "[catalog]\nmode = \"enforce\"\n[rules]\ncatalog-not-used = \"info\"\n",
                 Severity::Info,
             ),
-            ("catalog-missing-entry", UNCATALOGUED, "[catalog]\nmode = \"enforce\"\n", Severity::Error),
-            ("catalog-missing-entry", UNCATALOGUED, "[catalog]\nmode = \"prefer\"\n", Severity::Warning),
+            (
+                "catalog-missing-entry",
+                UNCATALOGUED,
+                "[catalog]\nmode = \"enforce\"\n",
+                Severity::Error,
+            ),
+            (
+                "catalog-missing-entry",
+                UNCATALOGUED,
+                "[catalog]\nmode = \"prefer\"\n",
+                Severity::Warning,
+            ),
         ];
         for (rule, yaml, toml, expected) in cases {
             let found = severities(rule, yaml, toml);
@@ -152,8 +172,10 @@ mod tests {
     #[test]
     fn catalogued_dependencies_are_left_to_the_catalog_rules_unless_the_catalog_is_off_or_excludes_them() {
         const ROOT: &str = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0"}"#;
-        const APP: &str = r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"react":"^18.2.0","zod":"^3.0.0"}}"#;
-        const LIB: &str = r#"{"name":"lib","version":"1.0.0","private":true,"dependencies":{"react":"^18.3.1","zod":"^3.1.0"}}"#;
+        const APP: &str =
+            r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"react":"^18.2.0","zod":"^3.0.0"}}"#;
+        const LIB: &str =
+            r#"{"name":"lib","version":"1.0.0","private":true,"dependencies":{"react":"^18.3.1","zod":"^3.1.0"}}"#;
         const YAML: &str = "packages:\n  - \"packages/*\"\ncatalog:\n  \"react\": \"^18.3.1\"\n";
         let files = [
             ("package.json", ROOT),

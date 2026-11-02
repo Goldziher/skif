@@ -66,13 +66,20 @@ fn severities(toml: &str) -> Vec<(String, Severity)> {
 fn a_proposed_severity_replaces_the_rule_default() {
     assert_eq!(
         severities(""),
-        [("plain".to_owned(), Severity::Warning), ("proposed".to_owned(), Severity::Error)]
+        [
+            ("plain".to_owned(), Severity::Warning),
+            ("proposed".to_owned(), Severity::Error)
+        ]
     );
 }
 
 #[test]
 fn a_configured_level_beats_the_proposed_severity() {
-    for (level, expected) in [("warn", Severity::Warning), ("info", Severity::Info), ("error", Severity::Error)] {
+    for (level, expected) in [
+        ("warn", Severity::Warning),
+        ("info", Severity::Info),
+        ("error", Severity::Error),
+    ] {
         let found = severities(&format!("[rules]\ndemo = \"{level}\"\n"));
         assert_eq!(
             found,
@@ -80,7 +87,10 @@ fn a_configured_level_beats_the_proposed_severity() {
             "{level}"
         );
     }
-    assert!(severities("[rules]\ndemo = \"off\"\n").is_empty());
+    assert_eq!(
+        severities("[rules]\ndemo = \"off\"\n"),
+        [] as [(std::string::String, skif_core::Severity); 0]
+    );
 }
 
 #[test]
@@ -110,11 +120,18 @@ fn reported_config_file(path: Option<&Path>) -> String {
         config_path: path,
         ..RunOptions::default()
     };
-    run(&registry, &ws, &cfg, &options).unwrap().diagnostics.remove(0).message
+    run(&registry, &ws, &cfg, &options)
+        .unwrap()
+        .diagnostics
+        .remove(0)
+        .message
 }
 
 #[test]
 fn the_context_names_the_configuration_file_or_falls_back_to_the_default() {
     assert_eq!(reported_config_file(None), "skif.toml");
-    assert_eq!(reported_config_file(Some(Path::new("tools/skif.toml"))), "tools/skif.toml");
+    assert_eq!(
+        reported_config_file(Some(Path::new("tools/skif.toml"))),
+        "tools/skif.toml"
+    );
 }
