@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 /// A directory entry returned by [`FileSystem::read_dir`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DirEntry {
     /// Full path of the entry (the listed directory joined with the entry name).
     pub path: PathBuf,
@@ -15,6 +16,28 @@ pub struct DirEntry {
     pub is_dir: bool,
     /// Whether the entry is a regular file (symlinks are followed).
     pub is_file: bool,
+    /// Whether the entry itself is a symbolic link; `is_dir` and `is_file` describe its target.
+    pub is_symlink: bool,
+}
+
+impl DirEntry {
+    /// An entry that is not a symbolic link.
+    #[must_use]
+    pub const fn new(path: PathBuf, is_dir: bool, is_file: bool) -> Self {
+        Self {
+            path,
+            is_dir,
+            is_file,
+            is_symlink: false,
+        }
+    }
+
+    /// Marks the entry as a symbolic link.
+    #[must_use]
+    pub const fn symlink(mut self) -> Self {
+        self.is_symlink = true;
+        self
+    }
 }
 
 /// Read-only file system access used by discovery.
@@ -50,12 +73,14 @@ impl FileSystem for OsFs {
             let entry = entry?;
             let path = entry.path();
             let file_type = entry.file_type()?;
-            let (is_dir, is_file) = if file_type.is_symlink() {
+            let is_symlink = file_type.is_symlink();
+            let (is_dir, is_file) = if is_symlink {
                 std::fs::metadata(&path).map_or((false, false), |metadata| (metadata.is_dir(), metadata.is_file()))
             } else {
                 (file_type.is_dir(), file_type.is_file())
             };
-            entries.push(DirEntry { path, is_dir, is_file });
+            let entry = DirEntry::new(path, is_dir, is_file);
+            entries.push(if is_symlink { entry.symlink() } else { entry });
         }
         entries.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(entries)
@@ -136,7 +161,7 @@ impl FileSystem for MemoryFs {
         }
         Ok(children
             .into_iter()
-            .map(|(path, (is_dir, is_file))| DirEntry { path, is_dir, is_file })
+            .map(|(path, (is_dir, is_file))| DirEntry::new(path, is_dir, is_file))
             .collect())
     }
 
@@ -234,6 +259,27 @@ mod tests {
         );
         assert_eq!(&*OsFs.read_to_string(&dir.path().join("b.txt")).unwrap(), "hello");
         assert!(OsFs.is_dir(dir.path()) && OsFs.is_file(&dir.path().join("a.txt")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn os_listing_marks_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("real")).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("real"), dir.path().join("link")).unwrap();
+        let flags: Vec<(String, bool)> = OsFs
+            .read_dir(dir.path())
+            .unwrap()
+            .iter()
+            .map(|e| (e.path.file_name().unwrap().to_string_lossy().into_owned(), e.is_symlink))
+            .collect();
+        assert_eq!(flags, [("link".to_owned(), true), ("real".to_owned(), false)]);
+    }
+
+    #[test]
+    fn memory_entries_are_not_symlinks() {
+        let entries = tree().read_dir(Path::new("/ws")).unwrap();
+        assert!(entries.iter().all(|entry| !entry.is_symlink));
     }
 
     #[cfg(unix)]

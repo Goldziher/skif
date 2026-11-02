@@ -32,7 +32,7 @@ pub(crate) fn parse(path: &Path, source: &str) -> Result<PnpmWorkspace, Workspac
         path: path.to_path_buf(),
         message,
     };
-    let document: Value = serde_saphyr::from_str(source).map_err(|error| invalid(error.to_string()))?;
+    let document: Value = serde_saphyr::from_str(source.strip_prefix('\u{feff}').unwrap_or(source)).map_err(|error| invalid(error.to_string()))?;
     let packages = match document.get("packages") {
         None | Some(Value::Null) => None,
         Some(Value::Array(items)) => Some(
@@ -56,36 +56,85 @@ pub(crate) fn parse(path: &Path, source: &str) -> Result<PnpmWorkspace, Workspac
     Ok(PnpmWorkspace { packages, catalogs })
 }
 
-fn unquote(token: &str) -> Option<(&str, usize)> {
-    let quote = token.chars().next().filter(|c| matches!(c, '\'' | '"'))?;
-    let close = token[1..].find(quote)?;
-    Some((&token[1..=close], close + 2))
+/// Reads one scalar at the start of `text`: a quoted string, or a plain scalar up to a flow delimiter or ` #`.
+///
+/// Returns the value and the length of the written token (quotes included).
+fn scalar(text: &str, flow: bool) -> (&str, usize) {
+    if let Some(quote) = text.chars().next().filter(|c| matches!(c, '\'' | '"'))
+        && let Some(close) = text[1..].find(quote)
+    {
+        return (&text[1..=close], close + 2);
+    }
+    let mut end = text.find(" #").unwrap_or(text.len());
+    if flow && let Some(delimiter) = text[..end].find([',', ']']) {
+        end = delimiter;
+    }
+    let plain = text[..end].trim_end();
+    (plain, plain.len())
 }
 
-/// Finds the span of `pattern` inside the block-style `packages:` list of `pnpm-workspace.yaml`.
-pub(crate) fn pattern_span(source: &str, line_index: &LineIndex, pattern: &str) -> Option<Span> {
+/// The patterns of the `packages:` list of `pnpm-workspace.yaml` as written, each with its span, in order.
+///
+/// Block lists, flow lists (`packages: [a, "b"]`, possibly over several lines), quoting, trailing comments and a
+/// byte order mark are understood. Position `n` is the `n`-th list entry, so duplicates keep their own spans.
+pub(crate) fn pattern_spans(source: &str, line_index: &LineIndex) -> Vec<(String, Span)> {
+    let bom = if source.starts_with('\u{feff}') { '\u{feff}'.len_utf8() } else { 0 };
+    let mut found = Vec::new();
     let mut in_packages = false;
-    let mut offset = 0;
-    for line in source.split_inclusive('\n') {
+    let mut in_flow = false;
+    let mut offset = bom;
+    for line in source[bom..].split_inclusive('\n') {
         let content = line.trim_end_matches(['\r', '\n']);
         let trimmed = content.trim_start();
         let indent = content.len() - trimmed.len();
-        if indent == 0 && !trimmed.is_empty() && !trimmed.starts_with(['#', '-']) {
-            let key = trimmed.split(':').next().unwrap_or_default().trim_matches(['"', '\'']);
-            in_packages = key == "packages";
+        if in_flow {
+            in_flow = flow_items(content, offset, line_index, &mut found);
+        } else if indent == 0 && !trimmed.is_empty() && !trimmed.starts_with(['#', '-']) {
+            let (key, rest) = trimmed.split_once(':').unwrap_or((trimmed, ""));
+            in_packages = key.trim().trim_matches(['"', '\'']) == "packages";
+            let value = rest.trim_start();
+            if in_packages && value.starts_with('[') {
+                let from = content.len() - value.len() + 1;
+                in_flow = flow_items(&content[from..], offset + from, line_index, &mut found);
+            }
         } else if in_packages && let Some(item) = trimmed.strip_prefix('-') {
             let token = item.trim_start();
-            let start = offset + indent + 1 + (item.len() - token.len());
-            let (value, length) = unquote(token).unwrap_or_else(|| {
-                let end = token.find(" #").unwrap_or(token.len());
-                let plain = token[..end].trim_end();
-                (plain, plain.len())
-            });
-            if value == pattern {
-                return Some(line_index.span(to_u32(start), to_u32(start + length)));
-            }
+            let start = indent + 1 + (item.len() - token.len());
+            let (value, length) = scalar(token, false);
+            found.push((
+                value.to_owned(),
+                line_index.span(to_u32(offset + start), to_u32(offset + start + length)),
+            ));
         }
         offset += line.len();
     }
-    None
+    found
+}
+
+/// Collects the entries of a flow sequence found in `text` (which begins at `base` in the source). Returns whether the
+/// sequence continues on the next line.
+fn flow_items(text: &str, base: usize, line_index: &LineIndex, found: &mut Vec<(String, Span)>) -> bool {
+    let mut at = 0;
+    while at < text.len() {
+        let rest = &text[at..];
+        let skipped = rest.len() - rest.trim_start_matches([' ', '\t', ',']).len();
+        at += skipped;
+        let rest = &text[at..];
+        if rest.is_empty() || rest.starts_with('#') {
+            break;
+        }
+        if rest.starts_with(']') {
+            return false;
+        }
+        let (value, length) = scalar(rest, true);
+        if length == 0 {
+            break;
+        }
+        found.push((
+            value.to_owned(),
+            line_index.span(to_u32(base + at), to_u32(base + at + length)),
+        ));
+        at += length;
+    }
+    true
 }
