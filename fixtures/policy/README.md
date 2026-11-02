@@ -181,8 +181,15 @@ syncpack.
 * `UnusedGroup` is skif-only (`policy-conflict/unused-group-*`).
 * A Bun root with catalogs under both the top level and `workspaces` aborts syncpack; skif reports a
   workspace error (exit 2), which is not a diagnostic, so there is no fixture for it.
-* `latest` / `*` rank above every concrete version when aligning, as in syncpack
-  (`version-mismatch/latest-ranks-as-highest`).
+* `latest` and dist-tags never rank: they are not an alignment target, and next to a version they are an
+  unfixable `NonSemverMismatch` (`version-mismatch/latest-ranks-as-highest`).
+* Without `[policy] dependency-types` only `prod` and `dev` dependencies take part, as in sherif; `peer` and
+  `optional` are opt-in (`banned/banned-across-sections`, `version-mismatch/peer-dependency-compared` and
+  `semver-groups/per-dependency-type-ranges` configure them).
+* On a dependency that names a workspace package, a range the package's own version satisfies is valid, as are
+  `workspace:` specifiers, `*`/`latest` and a `link:`/`file:` path to the package
+  (`version-mismatch/local-package-wins-range-differs`).
+* A `catalog:` instance leaves the preferred-semver group; the remaining instances still align.
 
 ## ADR gaps and contradictions found while writing the fixtures
 
