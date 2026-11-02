@@ -32,7 +32,7 @@ pub use config::{ConfigValue, extract_config_object};
 pub use error::SyntaxError;
 pub use model::{
     Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, ModuleInfo, ParseIssue, ParseOptions,
-    Removal, RemovalKind,
+    Removal, RemovalKind, coalesce_ranges,
 };
 
 /// Parses `source` (the content of `path`) into a [`ModuleInfo`]. The extension of `path` selects the language.

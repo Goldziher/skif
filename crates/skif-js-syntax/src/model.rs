@@ -1,5 +1,7 @@
 //! Skif-owned description of one module. No oxc type appears here.
 
+use std::collections::{HashMap, HashSet};
+
 use serde::{Deserialize, Serialize};
 use skif_core::Span;
 
@@ -112,8 +114,8 @@ pub enum RemovalKind {
     /// Like [`RemovalKind::ExportKeyword`], but the keyword is shared by several exports of one statement
     /// (`export const a = 1, b = 2`); apply it only when every sibling is unused.
     SharedExportKeyword,
-    /// One specifier with its separating comma. Ranges of adjacent specifiers of one statement overlap; the union of
-    /// the ranges is the correct deletion.
+    /// One specifier with its separating comma. Ranges of adjacent specifiers of one statement overlap; use
+    /// [`ModuleInfo::removal_edits`] (or [`coalesce_ranges`]) to get disjoint edits.
     Specifier,
     /// The whole statement, including one trailing line break.
     Statement,
@@ -133,6 +135,10 @@ pub struct Removal {
     pub statement: (u32, u32),
     /// Number of exports declared by that statement (including this one).
     pub siblings: u32,
+    /// The statement is `export default <expression>` (or an anonymous default declaration) and
+    /// [`RemovalKind::Statement`] deletes the expression too, not only the export: side effects of the expression
+    /// disappear. Callers that want a conservative fix should skip or flag these.
+    pub default_expression: bool,
 }
 
 /// One export of a module.
@@ -212,6 +218,42 @@ impl ModuleInfo {
         self.exports.iter().filter_map(|e| e.removal.as_ref())
     }
 
+    /// Disjoint, sorted deletions that remove every export for which `is_unused` holds.
+    ///
+    /// Specifier ranges of one statement are merged; a statement whose specifiers are all unused is deleted whole
+    /// instead of leaving `export {}`; a [`RemovalKind::SharedExportKeyword`] applies only when every sibling is
+    /// unused.
+    pub fn removal_edits(&self, is_unused: impl Fn(&Export) -> bool) -> Vec<(u32, u32)> {
+        let mut selected: HashMap<(u32, u32), u32> = HashMap::new();
+        for export in &self.exports {
+            if let Some(removal) = &export.removal
+                && is_unused(export)
+            {
+                *selected.entry(removal.statement).or_default() += 1;
+            }
+        }
+        let mut ranges = Vec::new();
+        let mut whole_statements = HashSet::new();
+        for export in &self.exports {
+            let Some(removal) = &export.removal else { continue };
+            if !is_unused(export) {
+                continue;
+            }
+            let all_selected = selected.get(&removal.statement).copied().unwrap_or(0) >= removal.siblings;
+            match removal.kind {
+                RemovalKind::ExportKeyword | RemovalKind::Statement => ranges.push((removal.start, removal.end)),
+                RemovalKind::SharedExportKeyword if all_selected => ranges.push((removal.start, removal.end)),
+                RemovalKind::SharedExportKeyword => {}
+                RemovalKind::Specifier if all_selected => {
+                    whole_statements.insert(removal.statement);
+                }
+                RemovalKind::Specifier => ranges.push((removal.start, removal.end)),
+            }
+        }
+        ranges.extend(whole_statements);
+        coalesce_ranges(ranges)
+    }
+
     pub(crate) fn merge(&mut self, other: Self) {
         self.imports.extend(other.imports);
         self.exports.extend(other.exports);
@@ -229,6 +271,21 @@ impl ModuleInfo {
         self.parse_diagnostics.extend(other.parse_diagnostics);
         self.fatal |= other.fatal;
     }
+}
+
+/// Merges overlapping and touching byte ranges into sorted, disjoint ones.
+#[must_use]
+pub fn coalesce_ranges(ranges: impl IntoIterator<Item = (u32, u32)>) -> Vec<(u32, u32)> {
+    let mut sorted: Vec<(u32, u32)> = ranges.into_iter().filter(|(s, e)| s < e).collect();
+    sorted.sort_unstable();
+    let mut out: Vec<(u32, u32)> = Vec::with_capacity(sorted.len());
+    for (start, end) in sorted {
+        match out.last_mut() {
+            Some(last) if start <= last.1 => last.1 = last.1.max(end),
+            _ => out.push((start, end)),
+        }
+    }
+    out
 }
 
 /// Options for [`crate::parse_module`].
