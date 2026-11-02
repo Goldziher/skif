@@ -9,7 +9,9 @@ use skif_js_syntax::ConfigValue;
 
 use crate::config_load::{from_json, load_config};
 use crate::files::find_files;
-use crate::plugin::{ConfigAst, DepRef, Enabler, Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec};
+use crate::plugin::{
+    ConfigAst, DepRef, Enabler, Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
+};
 use crate::registry;
 use crate::scripts::{ScriptContext, parse_script};
 
@@ -169,7 +171,9 @@ fn run_plugin(
         push_unique(&mut collector.out.entries, (*production).to_string());
     }
     let patterns = globs(&options.config, spec.config);
-    collector.queue.extend(find_files(ctx.fs, ctx.dir, &patterns).into_iter().map(|p| (p, 0)));
+    collector
+        .queue
+        .extend(find_files(ctx.fs, ctx.dir, &patterns).into_iter().map(|p| (p, 0)));
 
     let mut visited = BTreeSet::new();
     drain(&mut collector, plugin, &mut visited);
@@ -202,9 +206,13 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             continue;
         }
         let path = ctx.dir.join(&relative);
-        let Ok(source) = ctx.fs.read_to_string(&path) else { continue };
+        let Ok(source) = ctx.fs.read_to_string(&path) else {
+            continue;
+        };
         collector.out.config_files.push(path.clone());
-        let Some(value) = load_config(&path, &source) else { continue };
+        let Some(value) = load_config(&path, &source) else {
+            continue;
+        };
         let ast = ConfigAst {
             path: &path,
             base: parent_of(&relative),

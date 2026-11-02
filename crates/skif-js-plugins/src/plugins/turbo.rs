@@ -9,7 +9,10 @@ static SPEC: PluginSpec = PluginSpec {
     id: "turbo",
     enablers: &[Enabler::Dependency("turbo"), Enabler::Dependency("@turbo/gen")],
     config: &["turbo.json", "turbo.jsonc"],
-    entry: &["turbo/generators/config.{ts,js,cjs,mts,mjs}", "plopfile.{ts,js,cjs,mts,mjs}"],
+    entry: &[
+        "turbo/generators/config.{ts,js,cjs,mts,mjs}",
+        "plopfile.{ts,js,cjs,mts,mjs}",
+    ],
     binaries: &["turbo"],
     ..PluginSpec::DEFAULT
 };

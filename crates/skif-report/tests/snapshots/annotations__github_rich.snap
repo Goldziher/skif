@@ -1,0 +1,8 @@
+---
+source: crates/skif-report/tests/annotations.rs
+expression: "run(&rich(), Format::Github, &options())"
+---
+::notice file=package.json,title=skif sorted-keys::keys are not sorted
+::warning file=packages/web/package.json,line=5,col=5,endLine=5,endColumn=13,title=skif unused-dependency::lodash is never imported 日本語
+::error file=packages/web/package.json,line=4,col=14,endLine=4,endColumn=23,title=skif version-mismatch::réact is declared with 2 different versions
+skif: 1 error, 1 warning, 1 info in 3 packages

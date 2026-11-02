@@ -91,7 +91,9 @@ pub(crate) fn entry_glob(base: &str, pattern: &str) -> Option<String> {
     if pattern.is_empty() || pattern.starts_with('!') {
         return None;
     }
-    let pattern = pattern.strip_prefix("<rootDir>").map_or(pattern, |r| r.trim_start_matches('/'));
+    let pattern = pattern
+        .strip_prefix("<rootDir>")
+        .map_or(pattern, |r| r.trim_start_matches('/'));
     Some(join_rel(base, &extglob_to_braces(pattern)))
 }
 

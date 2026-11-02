@@ -57,7 +57,9 @@ fn matches_all(segments: &[Segment], parts: &[String]) -> bool {
         (Some(Segment::AnyDepth), _) => {
             matches_all(&segments[1..], parts) || (!parts.is_empty() && matches_all(segments, &parts[1..]))
         }
-        (Some(Segment::Glob(glob)), Some(part)) => glob.is_match(part.as_str()) && matches_all(&segments[1..], &parts[1..]),
+        (Some(Segment::Glob(glob)), Some(part)) => {
+            glob.is_match(part.as_str()) && matches_all(&segments[1..], &parts[1..])
+        }
         _ => false,
     }
 }
@@ -78,7 +80,9 @@ fn could_contain(pattern: &Pattern, parts: &[String]) -> bool {
 fn walk(fs: &dyn FileSystem, dir: &Path, parts: &mut Vec<String>, patterns: &[Pattern], out: &mut Vec<String>) {
     let Ok(entries) = fs.read_dir(dir) else { return };
     for entry in entries {
-        let Some(name) = entry.path.file_name().and_then(|n| n.to_str()) else { continue };
+        let Some(name) = entry.path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
         parts.push(name.to_string());
         if entry.is_file {
             if patterns.iter().any(|p| matches_all(&p.segments, parts)) {

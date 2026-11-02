@@ -7,9 +7,9 @@ license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "JavaScript and TypeScript tool knowledge for skif: package.json script parsing and the declarative plugin table."
+description = "JS/TS tooling knowledge for skif: package.json script parsing and the declarative plugin table."
 documentation = "https://docs.rs/skif-js-plugins"
-keywords = ["npm", "scripts", "dependencies", "monorepo"]
+keywords = ["npm", "scripts", "dependencies", "monorepo", "skif"]
 categories = ["development-tools", "parser-implementations"]
 
 [lib]

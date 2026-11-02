@@ -1,0 +1,5 @@
+---
+source: crates/skif-report/tests/annotations.rs
+expression: "run(&Report::new(Vec::new(), 2), Format::Github, &options())"
+---
+skif: 0 errors, 0 warnings, 0 infos in 2 packages

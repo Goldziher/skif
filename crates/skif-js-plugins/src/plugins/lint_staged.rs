@@ -26,7 +26,9 @@ impl Plugin for LintStaged {
     }
 
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
-        let ConfigValue::Object(globs) = config.value else { return Vec::new() };
+        let ConfigValue::Object(globs) = config.value else {
+            return Vec::new();
+        };
         globs
             .iter()
             .filter(|(key, _)| !key.starts_with('_'))

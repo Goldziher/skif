@@ -36,6 +36,17 @@ pub struct DependencyEntry {
     pub value_span: Span,
 }
 
+/// The spans of one node of a manifest: the whole entry, its key and its value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FieldSpans {
+    /// For an object member the key through the value; for an array element or the document, the node itself.
+    pub entry: Span,
+    /// The key string, quotes included; `None` for array elements and the document.
+    pub key: Option<Span>,
+    /// The value.
+    pub value: Span,
+}
+
 /// A parsed `package.json`.
 #[derive(Debug, Clone)]
 pub struct Manifest {
@@ -47,7 +58,7 @@ pub struct Manifest {
     pub line_index: Arc<LineIndex>,
     /// The parsed document; key order is preserved.
     pub value: Value,
-    spans: HashMap<Box<[PathSeg]>, Span>,
+    spans: HashMap<Box<[PathSeg]>, FieldSpans>,
 }
 
 pub(crate) fn to_u32(n: usize) -> u32 {
@@ -110,13 +121,17 @@ struct Spans<'a> {
     bom: usize,
     line_index: &'a LineIndex,
     path: Vec<PathSeg>,
-    table: HashMap<Box<[PathSeg]>, Span>,
+    table: HashMap<Box<[PathSeg]>, FieldSpans>,
 }
 
 impl Spans<'_> {
-    fn insert(&mut self, range: Range) {
-        let span = shift(range, self.bom, self.line_index);
-        self.table.insert(self.path.as_slice().into(), span);
+    fn insert(&mut self, entry: Range, key: Option<Range>, value: Range) {
+        let spans = FieldSpans {
+            entry: shift(entry, self.bom, self.line_index),
+            key: key.map(|range| shift(range, self.bom, self.line_index)),
+            value: shift(value, self.bom, self.line_index),
+        };
+        self.table.insert(self.path.as_slice().into(), spans);
     }
 
     fn record(&mut self, value: &ast::Value<'_>) {
@@ -127,7 +142,8 @@ impl Spans<'_> {
             ast::Value::Object(object) => {
                 for prop in &object.properties {
                     self.path.push(PathSeg::Key(prop_name(&prop.name).to_owned()));
-                    self.insert(Range::new(prop.name.range().start, prop.value.range().end));
+                    let (name, value) = (prop.name.range(), prop.value.range());
+                    self.insert(Range::new(name.start, value.end), Some(name), value);
                     self.record(&prop.value);
                     self.path.pop();
                 }
@@ -135,7 +151,7 @@ impl Spans<'_> {
             ast::Value::Array(array) => {
                 for (index, element) in array.elements.iter().enumerate() {
                     self.path.push(PathSeg::Index(index));
-                    self.insert(element.range());
+                    self.insert(element.range(), None, element.range());
                     self.record(element);
                     self.path.pop();
                 }
@@ -194,7 +210,7 @@ impl Manifest {
             path: Vec::new(),
             table: HashMap::new(),
         };
-        spans.insert(root.range());
+        spans.insert(root.range(), None, root.range());
         spans.record(&root);
         let spans = spans.table;
 
@@ -219,6 +235,26 @@ impl Manifest {
     /// wins, as in the JSON value.
     #[must_use]
     pub fn field_span(&self, pointer: &[PathSeg]) -> Option<Span> {
+        self.field_spans(pointer).map(|spans| spans.entry)
+    }
+
+    /// The span of the key of the object member at `pointer`, quotes included. `None` when the path does not exist,
+    /// is longer than three segments, or does not end in an object key (array elements and the document have no key).
+    #[must_use]
+    pub fn field_key_span(&self, pointer: &[PathSeg]) -> Option<Span> {
+        self.field_spans(pointer)?.key
+    }
+
+    /// The span of the value at `pointer`, without its key.
+    #[must_use]
+    pub fn field_value_span(&self, pointer: &[PathSeg]) -> Option<Span> {
+        self.field_spans(pointer).map(|spans| spans.value)
+    }
+
+    /// The entry, key and value spans of the node at `pointer`, under the same lookup rules as
+    /// [`field_span`](Self::field_span).
+    #[must_use]
+    pub fn field_spans(&self, pointer: &[PathSeg]) -> Option<FieldSpans> {
         self.spans.get(pointer).copied()
     }
 }

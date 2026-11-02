@@ -1,4 +1,4 @@
-//! PostCSS: plugins named in the config, as object keys or array items.
+//! `PostCSS`: plugins named in the config, as object keys or array items.
 
 use skif_js_syntax::ConfigValue;
 

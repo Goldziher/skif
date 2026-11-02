@@ -99,7 +99,13 @@ fn collect_object(object: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Pl
     if let Some(sequencer) = string("testSequencer") {
         out.extend(prefixed(config, sequencer, "jest-sequencer"));
     }
-    for key in ["setupFiles", "setupFilesAfterEnv", "globalSetup", "globalTeardown", "snapshotSerializers"] {
+    for key in [
+        "setupFiles",
+        "setupFilesAfterEnv",
+        "globalSetup",
+        "globalTeardown",
+        "snapshotSerializers",
+    ] {
         for specifier in object.get(key).map(strings).unwrap_or_default() {
             out.extend(module_input(base, specifier, false));
         }

@@ -1,5 +1,5 @@
 use crate::model::Config;
-use crate::rules::{ForbidMode, Level};
+use crate::rules::Level;
 
 /// Schema stand-in for a `[rules]` value: a level string or a table of severity plus options.
 /// It only describes the shape for the JSON Schema and is never constructed.
@@ -17,10 +17,9 @@ pub enum RuleConfigSchema {
 #[serde(rename_all = "kebab-case")]
 pub struct RuleTableSchema {
     pub severity: Option<Level>,
-    /// `member-toolchain-fields`
-    pub mode: Option<ForbidMode>,
-    /// `unused-exports`, `unused-types`
-    pub ignore_tags: Option<Vec<String>>,
+    /// Rule-specific options; their shape is defined by the owning rule.
+    #[serde(flatten)]
+    pub options: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 /// The JSON Schema of `skif.toml`.

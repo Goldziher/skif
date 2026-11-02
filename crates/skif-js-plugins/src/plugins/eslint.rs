@@ -1,4 +1,4 @@
-//! ESLint: flat and legacy configs. Plugins, configs and parsers named by string follow ESLint's
+//! `ESLint`: flat and legacy configs. Plugins, configs and parsers named by string follow `ESLint`'s
 //! package naming conventions.
 
 use skif_js_syntax::ConfigValue;
@@ -54,7 +54,11 @@ fn collect(value: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<PluginInpu
                 out.push(PluginInput::Dependency(conventional(name, "eslint-plugin")));
             }
         }
-        let parser_paths: [&[&str]; 3] = [&["parser"], &["parserOptions", "parser"], &["languageOptions", "parser"]];
+        let parser_paths: [&[&str]; 3] = [
+            &["parser"],
+            &["parserOptions", "parser"],
+            &["languageOptions", "parser"],
+        ];
         for path in parser_paths {
             if let Some(parser) = get_in(object, path).and_then(ConfigValue::as_str)
                 && parser != "espree"

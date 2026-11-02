@@ -83,6 +83,7 @@ fn diagnostics(count: usize) -> Vec<Diagnostic> {
                 },
                 related: Vec::new(),
                 package: Some(format!("pkg-{package}")),
+                package_id: None,
                 dependency: Some(format!("dep-{start}")),
                 detail: None,
                 fixes: Vec::new(),

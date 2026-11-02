@@ -86,7 +86,10 @@ fn test_options(test: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Plugin
         let provider = coverage.get("provider").and_then(ConfigValue::as_str);
         let enabled = coverage.get("enabled").and_then(ConfigValue::as_bool) != Some(false);
         if (enabled || provider.is_some()) && provider != Some("custom") {
-            out.push(PluginInput::Dependency(format!("@vitest/coverage-{}", provider.unwrap_or("v8"))));
+            out.push(PluginInput::Dependency(format!(
+                "@vitest/coverage-{}",
+                provider.unwrap_or("v8")
+            )));
         }
     }
     for key in ["setupFiles", "globalSetup", "snapshotSerializers"] {
