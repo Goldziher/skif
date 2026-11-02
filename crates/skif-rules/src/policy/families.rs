@@ -203,8 +203,7 @@ mod tests {
     use super::*;
     use crate::testing::{config, lint};
 
-    const ROOT: &str =
-        r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"]}"#;
+    const ROOT: &str = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"]}"#;
 
     /// The dependencies reported for a package declaring `sections` (the members of its manifest after `private`).
     fn flagged(toml: &str, sections: &str) -> Vec<String> {
@@ -238,7 +237,8 @@ mod tests {
 
     #[test]
     fn peer_ranges_are_not_compared_with_installed_versions() {
-        let sections = r#""peerDependencies":{"react":">=17"},"devDependencies":{"react":"^18.3.1","react-dom":"^18.3.1"}"#;
+        let sections =
+            r#""peerDependencies":{"react":">=17"},"devDependencies":{"react":"^18.3.1","react-dom":"^18.3.1"}"#;
         assert_eq!(flagged("", sections), Vec::<String>::new());
         let installed = r#""dependencies":{"react":"^17.0.0"},"devDependencies":{"react-dom":"^18.3.1"}"#;
         assert_eq!(flagged("", installed), ["react"]);
@@ -269,7 +269,8 @@ mod tests {
 
     #[test]
     fn floating_specifiers_and_aliases_take_no_part() {
-        let sections = r#""dependencies":{"react":"latest","react-dom":"^18.3.1","react-test-renderer":"npm:other@^19.0.0"}"#;
+        let sections =
+            r#""dependencies":{"react":"latest","react-dom":"^18.3.1","react-test-renderer":"npm:other@^19.0.0"}"#;
         assert_eq!(flagged("", sections), Vec::<String>::new());
     }
 }

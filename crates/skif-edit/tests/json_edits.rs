@@ -467,14 +467,15 @@ fn single_member_removals_planned_alone_commute() {
         assert_eq!(combined_single_plans(ABCD, &ops).as_deref(), Ok(expected), "{keys:?}");
         // The order in which the fixes are planned does not matter.
         let reversed: Vec<FixOp> = ops.into_iter().rev().collect();
-        assert_eq!(combined_single_plans(ABCD, &reversed).as_deref(), Ok(expected), "{keys:?}");
+        assert_eq!(
+            combined_single_plans(ABCD, &reversed).as_deref(),
+            Ok(expected),
+            "{keys:?}"
+        );
     }
-    const INLINE: &str = "{ \"a\": 1, \"b\": 2, \"c\": 3 }";
+    let inline = "{ \"a\": 1, \"b\": 2, \"c\": 3 }";
     let ops = [remove(&["a"]), remove(&["c"])];
-    assert_eq!(
-        combined_single_plans(INLINE, &ops).as_deref(),
-        Ok("{ \"b\": 2 }")
-    );
+    assert_eq!(combined_single_plans(inline, &ops).as_deref(), Ok("{ \"b\": 2 }"));
 }
 
 #[test]

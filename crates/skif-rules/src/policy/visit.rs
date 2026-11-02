@@ -287,7 +287,8 @@ impl<'a, 'w> Visitor<'a, 'w> {
             .find_map(|package| {
                 self.instances.named(&first.name).iter().find(|&&id| {
                     let instance = self.instances.get(id);
-                    instance.alias_target() == first.alias_target() && instance.package.name.as_deref() == Some(package.as_str())
+                    instance.alias_target() == first.alias_target()
+                        && instance.package.name.as_deref() == Some(package.as_str())
                 })
             })
             .map(|&id| Arc::clone(self.spec(id)));
@@ -439,9 +440,8 @@ impl<'a, 'w> Visitor<'a, 'w> {
                 .map(|id| self.with_preferred(id).unwrap_or_else(|| Arc::clone(self.spec(id))))
                 .collect();
             // Ranked by the lowest version each admits, so `^18` never outranks `^18.3.1`.
-            let order = |a: &Arc<Specifier>, b: &Arc<Specifier>| {
-                floor_version(a).cmp(&floor_version(b)).then_with(|| a.cmp(b))
-            };
+            let order =
+                |a: &Arc<Specifier>, b: &Arc<Specifier>| floor_version(a).cmp(&floor_version(b)).then_with(|| a.cmp(b));
             match prefer {
                 Prefer::Lowest => candidates.into_iter().min_by(order),
                 _ => candidates.into_iter().max_by(order),
@@ -517,7 +517,9 @@ fn is_exact_version(specifier: &Specifier) -> bool {
     let raw = specifier.get_raw();
     let core = raw.split(['-', '+']).next().unwrap_or_default();
     core.split('.').count() == 3
-        && core.split('.').all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+        && core
+            .split('.')
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
         && Specifier::new_node_version(raw).is_some()
 }
 
@@ -959,11 +961,7 @@ mod tests {
             let lib = manifest("lib", version, "");
             let app = manifest("app", "1.0.0", &format!(r#""lib":"{version}""#));
             let members = [("app", app.as_str()), ("lib", lib.as_str())];
-            assert_eq!(
-                states("", &members),
-                [] as [(String, String, &str); 0],
-                "{version}"
-            );
+            assert_eq!(states("", &members), [] as [(String, String, &str); 0], "{version}");
         }
         let lib = manifest("lib", "1.0.x", "");
         let app = manifest("app", "1.0.0", r#""lib":"1.0.0""#);
@@ -1001,9 +999,10 @@ mod tests {
         let lib = manifest("lib", "1.0.0", r#""react":"^18.2.0""#);
         let tool = manifest("tool", "1.0.0", r#""react":"^18.1.0""#);
         let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
-        let toml = "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"snapped-to\"\nsnap-to = [\"tool\", \"app\"]\n";
+        let config =
+            "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"snapped-to\"\nsnap-to = [\"tool\", \"app\"]\n";
         assert_eq!(
-            states(toml, &members),
+            states(config, &members),
             [
                 one("app", "react", "DiffersToSnapTarget"),
                 one("lib", "react", "DiffersToSnapTarget"),

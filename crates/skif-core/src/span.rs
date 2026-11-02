@@ -272,7 +272,13 @@ mod tests {
     #[test]
     fn location_constructors_set_path_and_span() {
         let whole = Location::file("package.json");
-        assert_eq!(whole, Location { path: "package.json".into(), span: None });
+        assert_eq!(
+            whole,
+            Location {
+                path: "package.json".into(),
+                span: None
+            }
+        );
         assert_eq!(Location::new("a", whole.span).path, PathBuf::from("a"));
     }
 }

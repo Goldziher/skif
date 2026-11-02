@@ -113,7 +113,11 @@ mod tests {
         let root_json = root(ROOT_TOOLCHAIN);
         let cases = [
             ("none", r#"{"name":"a","private":true}"#, vec![]),
-            ("engines", r#"{"name":"a","private":true,"engines":{"node":">=20"}}"#, vec!["engines"]),
+            (
+                "engines",
+                r#"{"name":"a","private":true,"engines":{"node":">=20"}}"#,
+                vec!["engines"],
+            ),
             (
                 "packageManager",
                 r#"{"name":"a","private":true,"packageManager":"pnpm@9.0.0"}"#,
@@ -155,9 +159,21 @@ mod tests {
                 r#"{"name":"a","private":true,"engines":{"node":">=20"},"packageManager":"pnpm@9.0.0"}"#,
                 0,
             ),
-            ("different engines", r#"{"name":"a","private":true,"engines":{"node":">=22"}}"#, 1),
-            ("different manager", r#"{"name":"a","private":true,"packageManager":"pnpm@10.0.0"}"#, 1),
-            ("equal manager only", r#"{"name":"a","private":true,"packageManager":"pnpm@9.0.0"}"#, 0),
+            (
+                "different engines",
+                r#"{"name":"a","private":true,"engines":{"node":">=22"}}"#,
+                1,
+            ),
+            (
+                "different manager",
+                r#"{"name":"a","private":true,"packageManager":"pnpm@10.0.0"}"#,
+                1,
+            ),
+            (
+                "equal manager only",
+                r#"{"name":"a","private":true,"packageManager":"pnpm@9.0.0"}"#,
+                0,
+            ),
         ];
         for (name, member, expected) in cases {
             let files = [
@@ -261,14 +277,18 @@ mod tests {
     #[test]
     fn fix_removes_the_fields_and_leaves_the_rest() {
         let root_json = root(ROOT_TOOLCHAIN);
-        let member = r#"{"name":"a","private":true,"packageManager":"pnpm@9.0.0","version":"1.0.0","engines":{"node":">=20"}}"#;
+        let member =
+            r#"{"name":"a","private":true,"packageManager":"pnpm@9.0.0","version":"1.0.0","engines":{"node":">=20"}}"#;
         let files = [
             ("package.json", root_json.as_str()),
             ("packages/a/package.json", member),
         ];
         assert_fixes_clear(META.id, &files, &config(""));
         let fixed = testing::fixed_json(META.id, &files, &config(""), "packages/a/package.json");
-        assert_eq!(fixed, serde_json::json!({"name": "a", "version": "1.0.0"}));
+        assert_eq!(
+            fixed,
+            serde_json::json!({"name": "a", "private": true, "version": "1.0.0"})
+        );
         let diagnostics = lint(META.id, &files, &config(""));
         assert!(
             diagnostics

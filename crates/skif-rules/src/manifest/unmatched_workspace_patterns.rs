@@ -265,6 +265,6 @@ mod tests {
             ("pnpm-workspace.yaml", "catalog:\n  react: 18\n"),
             ("packages/a/package.json", MEMBER),
         ];
-        assert!(lint(META.id, &files, &config("")).is_empty());
+        assert_eq!(lint(META.id, &files, &config("")), [] as [skif_core::Diagnostic; 0]);
     }
 }
