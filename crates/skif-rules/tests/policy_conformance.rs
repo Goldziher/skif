@@ -160,7 +160,11 @@ fn describe(row: &Value) -> String {
         field("dependency"),
         field("detail"),
         field("path"),
-        if row["fixable"] == json!(true) { " (fixable)" } else { "" },
+        if row["fixable"] == json!(true) {
+            " (fixable)"
+        } else {
+            ""
+        },
     )
 }
 
@@ -247,7 +251,10 @@ fn check_case(case: &Case) -> Result<(), String> {
     sort_rows(&mut expected);
     sort_rows(&mut actual);
     if expected != actual {
-        return Err(format!("diagnostics differ:\n{}", diff_rows(&expected, &actual).join("\n")));
+        return Err(format!(
+            "diagnostics differ:\n{}",
+            diff_rows(&expected, &actual).join("\n")
+        ));
     }
 
     let changed = apply_fixes(&files, &diagnostics)?;
@@ -293,7 +300,10 @@ fn is_pending(case: &Case) -> bool {
 fn implemented_groups_exist() {
     let cases = discover_cases();
     for group in IMPLEMENTED_GROUPS {
-        assert!(cases.iter().any(|case| case.group == *group), "no fixtures for group {group}");
+        assert!(
+            cases.iter().any(|case| case.group == *group),
+            "no fixtures for group {group}"
+        );
     }
     for (id, _) in PENDING_CASES {
         assert!(cases.iter().any(|case| case.id() == *id), "unknown pending case {id}");
@@ -306,7 +316,11 @@ fn policy_fixtures_conform() {
         .into_iter()
         .filter(|case| IMPLEMENTED_GROUPS.contains(&case.group.as_str()) && !is_pending(case))
         .collect();
-    assert!(!cases.is_empty(), "no policy fixtures found under {}", fixtures_root().display());
+    assert!(
+        !cases.is_empty(),
+        "no policy fixtures found under {}",
+        fixtures_root().display()
+    );
     let mut report = String::new();
     let mut failed = 0;
     for case in &cases {
@@ -352,7 +366,13 @@ fn row_diff_reports_missing_and_unexpected_rows() {
     let actual = [row("version-mismatch", "b"), row("banned-dependency", "c")];
     let lines = diff_rows(&expected, &actual);
     assert_eq!(lines.len(), 2);
-    assert!(lines[0].starts_with("  missing:") && lines[0].contains(" a "), "{lines:?}");
-    assert!(lines[1].starts_with("  unexpected:") && lines[1].contains("banned-dependency"), "{lines:?}");
-    assert!(diff_rows(&expected, &expected).is_empty());
+    assert!(
+        lines[0].starts_with("  missing:") && lines[0].contains(" a "),
+        "{lines:?}"
+    );
+    assert!(
+        lines[1].starts_with("  unexpected:") && lines[1].contains("banned-dependency"),
+        "{lines:?}"
+    );
+    assert_eq!(diff_rows(&expected, &expected), [] as [std::string::String; 0]);
 }

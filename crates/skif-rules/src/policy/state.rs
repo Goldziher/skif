@@ -232,14 +232,44 @@ mod tests {
     /// The emitted states of the ADR 0009 table with the rule each maps to.
     const TABLE: [(State, &str, &str, bool); 26] = [
         (State::IsBanned, "IsBanned", "banned-dependency", true),
-        (State::DiffersToHighestOrLowestSemver, "DiffersToHighestOrLowestSemver", "version-mismatch", true),
+        (
+            State::DiffersToHighestOrLowestSemver,
+            "DiffersToHighestOrLowestSemver",
+            "version-mismatch",
+            true,
+        ),
         (State::DiffersToLocal, "DiffersToLocal", "version-mismatch", true),
-        (State::DiffersToSnapTarget, "DiffersToSnapTarget", "version-mismatch", true),
+        (
+            State::DiffersToSnapTarget,
+            "DiffersToSnapTarget",
+            "version-mismatch",
+            true,
+        ),
         (State::DiffersToPin, "DiffersToPin", "version-mismatch", true),
-        (State::SemverRangeMismatch, "SemverRangeMismatch", "semver-range-mismatch", true),
-        (State::PinOverridesSemverRange, "PinOverridesSemverRange", "policy-conflict", true),
-        (State::PinOverridesSemverRangeMismatch, "PinOverridesSemverRangeMismatch", "policy-conflict", true),
-        (State::SameMinorOverridesSemverRange, "SameMinorOverridesSemverRange", "policy-conflict", true),
+        (
+            State::SemverRangeMismatch,
+            "SemverRangeMismatch",
+            "semver-range-mismatch",
+            true,
+        ),
+        (
+            State::PinOverridesSemverRange,
+            "PinOverridesSemverRange",
+            "policy-conflict",
+            true,
+        ),
+        (
+            State::PinOverridesSemverRangeMismatch,
+            "PinOverridesSemverRangeMismatch",
+            "policy-conflict",
+            true,
+        ),
+        (
+            State::SameMinorOverridesSemverRange,
+            "SameMinorOverridesSemverRange",
+            "policy-conflict",
+            true,
+        ),
         (
             State::SameMinorOverridesSemverRangeMismatch,
             "SameMinorOverridesSemverRangeMismatch",
@@ -249,8 +279,18 @@ mod tests {
         (State::NonSemverMismatch, "NonSemverMismatch", "version-mismatch", false),
         (State::SameRangeMismatch, "SameRangeMismatch", "version-mismatch", false),
         (State::SameMinorMismatch, "SameMinorMismatch", "version-mismatch", false),
-        (State::SameMinorHasMajorMismatch, "SameMinorHasMajorMismatch", "version-mismatch", false),
-        (State::DependsOnInvalidLocalPackage, "DependsOnInvalidLocalPackage", "invalid-local-version", false),
+        (
+            State::SameMinorHasMajorMismatch,
+            "SameMinorHasMajorMismatch",
+            "version-mismatch",
+            false,
+        ),
+        (
+            State::DependsOnInvalidLocalPackage,
+            "DependsOnInvalidLocalPackage",
+            "invalid-local-version",
+            false,
+        ),
         (
             State::MatchConflictsWithHighestOrLowestSemver,
             "MatchConflictsWithHighestOrLowestSemver",
@@ -263,15 +303,45 @@ mod tests {
             "policy-conflict",
             false,
         ),
-        (State::MatchConflictsWithSnapTarget, "MatchConflictsWithSnapTarget", "policy-conflict", false),
-        (State::MismatchConflictsWithSnapTarget, "MismatchConflictsWithSnapTarget", "policy-conflict", false),
-        (State::MatchConflictsWithLocal, "MatchConflictsWithLocal", "policy-conflict", false),
-        (State::MismatchConflictsWithLocal, "MismatchConflictsWithLocal", "policy-conflict", false),
-        (State::InvalidLocalVersion, "InvalidLocalVersion", "invalid-local-version", false),
+        (
+            State::MatchConflictsWithSnapTarget,
+            "MatchConflictsWithSnapTarget",
+            "policy-conflict",
+            false,
+        ),
+        (
+            State::MismatchConflictsWithSnapTarget,
+            "MismatchConflictsWithSnapTarget",
+            "policy-conflict",
+            false,
+        ),
+        (
+            State::MatchConflictsWithLocal,
+            "MatchConflictsWithLocal",
+            "policy-conflict",
+            false,
+        ),
+        (
+            State::MismatchConflictsWithLocal,
+            "MismatchConflictsWithLocal",
+            "policy-conflict",
+            false,
+        ),
+        (
+            State::InvalidLocalVersion,
+            "InvalidLocalVersion",
+            "invalid-local-version",
+            false,
+        ),
         (State::RefuseToBanLocal, "RefuseToBanLocal", "policy-conflict", false),
         (State::RefuseToPinLocal, "RefuseToPinLocal", "policy-conflict", false),
         (State::RefuseToSnapLocal, "RefuseToSnapLocal", "policy-conflict", false),
-        (State::DependsOnMissingSnapTarget, "DependsOnMissingSnapTarget", "policy-conflict", false),
+        (
+            State::DependsOnMissingSnapTarget,
+            "DependsOnMissingSnapTarget",
+            "policy-conflict",
+            false,
+        ),
     ];
 
     #[test]
@@ -304,6 +374,10 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), metas.len());
-        assert!(metas.iter().all(|meta| meta.summary.ends_with('.') && meta.summary.len() > 20));
+        assert!(
+            metas
+                .iter()
+                .all(|meta| meta.summary.ends_with('.') && meta.summary.len() > 20)
+        );
     }
 }

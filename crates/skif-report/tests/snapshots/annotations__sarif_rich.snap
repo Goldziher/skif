@@ -1,0 +1,192 @@
+---
+source: crates/skif-report/tests/annotations.rs
+expression: "run(&rich(), Format::Sarif, &options())"
+---
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "skif",
+          "version": "0.1.0",
+          "informationUri": "https://github.com/Goldziher/skif",
+          "rules": [
+            {
+              "id": "version-mismatch",
+              "shortDescription": {
+                "text": "A dependency is declared with different versions."
+              },
+              "help": {
+                "text": "A dependency is declared with different versions."
+              },
+              "defaultConfiguration": {
+                "enabled": true,
+                "level": "error"
+              },
+              "properties": {
+                "category": "policy",
+                "fixable": "sometimes"
+              }
+            },
+            {
+              "id": "unused-dependency",
+              "shortDescription": {
+                "text": "A dependency is never imported."
+              },
+              "help": {
+                "text": "A dependency is never imported."
+              },
+              "defaultConfiguration": {
+                "enabled": true,
+                "level": "warning"
+              },
+              "properties": {
+                "category": "manifest",
+                "fixable": "safe"
+              }
+            },
+            {
+              "id": "sorted-keys",
+              "shortDescription": {
+                "text": "Keys are not sorted."
+              },
+              "help": {
+                "text": "Keys are not sorted."
+              },
+              "defaultConfiguration": {
+                "enabled": false
+              },
+              "properties": {
+                "category": "manifest",
+                "fixable": "none"
+              }
+            }
+          ]
+        }
+      },
+      "columnKind": "unicodeCodePoints",
+      "results": [
+        {
+          "ruleId": "sorted-keys",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "keys are not sorted"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "package.json",
+                  "uriBaseId": "%SRCROOT%"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "skifFingerprint/v1": "b4f926ac4d48626f"
+          },
+          "properties": {
+            "fixes": []
+          }
+        },
+        {
+          "ruleId": "unused-dependency",
+          "ruleIndex": 1,
+          "level": "warning",
+          "message": {
+            "text": "lodash is never imported 日本語"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "packages/web/package.json",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 5,
+                  "startColumn": 5,
+                  "endLine": 5,
+                  "endColumn": 13
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "skifFingerprint/v1": "175411d2702f6d63"
+          },
+          "properties": {
+            "fixes": [
+              {
+                "title": "Remove lodash",
+                "safety": "safe"
+              }
+            ]
+          }
+        },
+        {
+          "ruleId": "version-mismatch",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "réact is declared with 2 different versions"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "packages/web/package.json",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 4,
+                  "startColumn": 14,
+                  "endLine": 4,
+                  "endColumn": 23
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 0,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "packages/api/package.json",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 5,
+                  "startColumn": 15,
+                  "endLine": 5,
+                  "endColumn": 23
+                }
+              },
+              "message": {
+                "text": "other declaration"
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "skifFingerprint/v1": "e030e8f8736fac3d"
+          },
+          "properties": {
+            "help": "align on ^18.3.1",
+            "package": "web",
+            "dependency": "réact",
+            "detail": "DiffersToHighestOrLowestSemver",
+            "fixes": [
+              {
+                "title": "Use ^18.3.1",
+                "safety": "unsafe"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

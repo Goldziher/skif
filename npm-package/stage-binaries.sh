@@ -42,20 +42,35 @@ stage_from_archive() {
 
   if [[ "$triple" == *windows* ]]; then
     archive="${archive_dir}/skif-${triple}.zip"
-    [[ -f "$archive" ]] || { echo "error: missing archive ${archive}" >&2; return 1; }
+    [[ -f "$archive" ]] || {
+      echo "error: missing archive ${archive}" >&2
+      return 1
+    }
     unzip -q -o "$archive" skif.exe -d "$dest"
-    [[ -f "${dest}/skif.exe" ]] || { echo "error: ${archive} contained no skif.exe" >&2; return 1; }
+    [[ -f "${dest}/skif.exe" ]] || {
+      echo "error: ${archive} contained no skif.exe" >&2
+      return 1
+    }
   else
     archive="${archive_dir}/skif-${triple}.tar.gz"
-    [[ -f "$archive" ]] || { echo "error: missing archive ${archive}" >&2; return 1; }
+    [[ -f "$archive" ]] || {
+      echo "error: missing archive ${archive}" >&2
+      return 1
+    }
     tar xzf "$archive" -C "$dest" skif
-    [[ -x "${dest}/skif" ]] || { echo "error: ${archive} contained no executable skif" >&2; return 1; }
+    [[ -x "${dest}/skif" ]] || {
+      echo "error: ${archive} contained no executable skif" >&2
+      return 1
+    }
   fi
   echo "  staged ${name} from skif-${triple}"
 }
 
 if [[ "$mode" == "--artifacts" ]]; then
-  [[ -d "$arg" ]] || { echo "error: not a directory: ${arg}" >&2; exit 1; }
+  [[ -d "$arg" ]] || {
+    echo "error: not a directory: ${arg}" >&2
+    exit 1
+  }
   arg="$(cd "$arg" && pwd)"
   echo "Staging skif binaries from ${arg}"
   for target in "${targets[@]}"; do
@@ -64,7 +79,10 @@ if [[ "$mode" == "--artifacts" ]]; then
   exit 0
 fi
 
-[[ -x "$arg" ]] || { echo "error: not an executable: ${arg}" >&2; exit 1; }
+[[ -x "$arg" ]] || {
+  echo "error: not an executable: ${arg}" >&2
+  exit 1
+}
 case "$(uname -s)/$(uname -m)" in
 Darwin/arm64) name="darwin-arm64" ;;
 Darwin/x86_64) name="darwin-x64" ;;

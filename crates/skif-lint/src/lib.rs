@@ -15,7 +15,7 @@ mod runner;
 
 pub use context::{EnabledRules, LintContext};
 pub use emitter::Emitter;
-pub use provider::{ProviderError, Rule, RuleProvider, RulesProvider};
+pub use provider::{OptionsError, ProviderError, Rule, RuleProvider, RulesProvider, parse_options, reject_options};
 pub use registry::{Registry, RegistryError};
 pub use runner::{LintError, RunOptions, run, run_unsorted};
 pub use skif_core::{DiagnosticBuilder, diagnostic};
@@ -27,6 +27,7 @@ const _: () = {
     let _ = assert_send_sync::<Emitter<'static>>;
     let _ = assert_send_sync::<RulesProvider>;
     let _ = assert_send_sync::<ProviderError>;
+    let _ = assert_send_sync::<OptionsError>;
     let _ = assert_send_sync::<LintError>;
     let _ = assert_send_sync::<RegistryError>;
 };

@@ -156,7 +156,6 @@ impl<'c> Groups<'c> {
 
     /// Assigns every instance to its owning version group and its preferred semver range.
     pub(crate) fn assign<'i>(&self, instances: &'i Instances<'_>) -> Assignment<'i> {
-        let mut group_of = Vec::with_capacity(instances.len());
         let mut preferred = Vec::with_capacity(instances.len());
         let mut dependencies: Vec<BTreeMap<&'i str, Vec<InstanceId>>> =
             self.groups.iter().map(|_| BTreeMap::new()).collect();
@@ -164,14 +163,17 @@ impl<'c> Groups<'c> {
             let owner = self
                 .groups
                 .iter()
-                .position(|group| group.selectors.as_ref().is_none_or(|selectors| selectors.matches(instance)))
+                .position(|group| {
+                    group
+                        .selectors
+                        .as_ref()
+                        .is_none_or(|selectors| selectors.matches(instance))
+                })
                 .unwrap_or(self.groups.len() - 1);
-            group_of.push(owner);
             dependencies[owner].entry(instance.name.as_str()).or_default().push(id);
             preferred.push(self.preferred_range(instance));
         }
         Assignment {
-            group_of,
             preferred,
             dependencies,
         }
@@ -195,7 +197,6 @@ impl<'c> Groups<'c> {
 /// The owner and preferred range of every instance, and each group's instances by dependency name.
 #[derive(Debug)]
 pub(crate) struct Assignment<'i> {
-    group_of: Vec<usize>,
     preferred: Vec<Option<SemverRange>>,
     dependencies: Vec<BTreeMap<&'i str, Vec<InstanceId>>>,
 }
@@ -204,11 +205,6 @@ impl<'i> Assignment<'i> {
     /// The semver range `id` must use, when a semver group applies and the specifier can carry it.
     pub(crate) fn preferred(&self, id: InstanceId) -> Option<&SemverRange> {
         self.preferred[id.index()].as_ref()
-    }
-
-    /// The index in [`Groups::groups`] of the group owning `id`.
-    pub(crate) fn owner(&self, id: InstanceId) -> usize {
-        self.group_of[id.index()]
     }
 
     /// The instances `group` owns, by dependency name in byte order.
@@ -255,7 +251,8 @@ mod tests {
     use super::*;
     use crate::testing::{config, workspace};
 
-    const ROOT: &str = r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"]}"#;
+    const ROOT: &str =
+        r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"]}"#;
     const APP: &str = r#"{"name":"app","version":"1.0.0","dependencies":{"react":"^18.0.0","lib":"1.0.0"},"devDependencies":{"typescript":"^5.0.0","left-pad":"git+https://x.test/left-pad.git"}}"#;
     const LIB: &str = r#"{"name":"lib","version":"1.0.0","dependencies":{"react":"^18.0.0"}}"#;
 
@@ -272,7 +269,13 @@ mod tests {
         let config = config(toml);
         let workspace = workspace(&files(), &config);
         let instances = Instances::collect(&workspace, &config);
-        let assignment = Groups::compile(&workspace, &config).assign(&instances);
+        let groups = Groups::compile(&workspace, &config);
+        let assignment = groups.assign(&instances);
+        let owner = |id| {
+            (0..groups.groups.len())
+                .find(|&group| assignment.dependencies(group).any(|(_, ids)| ids.contains(&id)))
+                .unwrap()
+        };
         instances
             .iter()
             .map(|(id, instance)| {
@@ -280,7 +283,7 @@ mod tests {
                 (
                     format!("{}:{kind}", instance.package.display_name()),
                     instance.name.clone(),
-                    assignment.owner(id),
+                    owner(id),
                 )
             })
             .collect()
@@ -302,12 +305,17 @@ mod tests {
         );
         assert_eq!(owner_of(&owners, "app:prod", "react"), 0);
         assert_eq!(owner_of(&owners, "lib:prod", "react"), 1);
-        assert_eq!(owner_of(&owners, "app:dev", "typescript"), 2, "unclaimed instances reach the catch-all");
+        assert_eq!(
+            owner_of(&owners, "app:dev", "typescript"),
+            2,
+            "unclaimed instances reach the catch-all"
+        );
     }
 
     #[test]
     fn selectors_combine_with_and_and_support_negation() {
-        let toml = "[[version-groups]]\ndependencies = [\"!react\"]\ndependency-types = [\"dev\"]\npolicy = \"ignored\"\n";
+        let toml =
+            "[[version-groups]]\ndependencies = [\"!react\"]\ndependency-types = [\"dev\"]\npolicy = \"ignored\"\n";
         let owners = ownership(toml);
         assert_eq!(owner_of(&owners, "app:dev", "typescript"), 0);
         assert_eq!(owner_of(&owners, "app:prod", "lib"), 1, "wrong section");
@@ -365,12 +373,7 @@ mod tests {
         let assignment = Groups::compile(&workspace, &config).assign(&instances);
         let ranges: Vec<(String, Option<String>)> = instances
             .iter()
-            .map(|(id, instance)| {
-                (
-                    instance.name.clone(),
-                    assignment.preferred(id).map(SemverRange::unwrap),
-                )
-            })
+            .map(|(id, instance)| (instance.name.clone(), assignment.preferred(id).map(SemverRange::unwrap)))
             .collect();
         let range_of = |name: &str| ranges.iter().find(|(n, _)| n == name).and_then(|(_, r)| r.clone());
         assert_eq!(range_of("react").as_deref(), Some("~"));
@@ -388,7 +391,11 @@ mod tests {
         let workspace = workspace(&files(), &config);
         let instances = Instances::collect(&workspace, &config);
         let assignment = Groups::compile(&workspace, &config).assign(&instances);
-        let git = instances.iter().find(|(_, i)| i.name == "left-pad").map(|(id, _)| id).unwrap();
+        let git = instances
+            .iter()
+            .find(|(_, i)| i.name == "left-pad")
+            .map(|(id, _)| id)
+            .unwrap();
         assert!(assignment.preferred(git).is_none());
     }
 
@@ -402,7 +409,9 @@ mod tests {
         let instances = Instances::collect(&workspace, &config);
         let groups = Groups::compile(&workspace, &config);
         let assignment = groups.assign(&instances);
-        let used: Vec<bool> = (0..groups.groups().len()).map(|group| assignment.is_used(group)).collect();
+        let used: Vec<bool> = (0..groups.groups().len())
+            .map(|group| assignment.is_used(group))
+            .collect();
         assert_eq!(used, [false, true, true]);
     }
 

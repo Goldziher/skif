@@ -28,7 +28,12 @@ fn instance_diagnostic(instance: &Instance<'_>, verdict: &Verdict) -> Diagnostic
     let state = verdict.state;
     let package = instance.package.display_name();
     let subject = match instance.kind() {
-        Some(kind) => format!("`{}@{}` in `{}` of {package}", instance.name, instance.raw(), kind.field()),
+        Some(kind) => format!(
+            "`{}@{}` in `{}` of {package}",
+            instance.name,
+            instance.raw(),
+            kind.field()
+        ),
         None => format!("the version `{}` of {package}", instance.raw()),
     };
     let mut builder = diagnostic(

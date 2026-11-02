@@ -1,0 +1,5 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: "redact(&refused.stderr, dir.path())"
+---
+error: [ROOT]/skif.toml already exists; refusing to overwrite it

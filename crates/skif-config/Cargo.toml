@@ -7,9 +7,9 @@ license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "Configuration model and skif.toml loading for skif."
+description = "skif.toml model, loading, CLI overrides and JSON Schema for skif."
 documentation = "https://docs.rs/skif-config"
-keywords = ["monorepo", "linter", "dependencies", "configuration", "toml"]
+keywords = ["linter", "configuration", "toml", "monorepo", "skif"]
 categories = ["development-tools", "config"]
 readme = "../../README.md"
 
