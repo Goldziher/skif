@@ -612,3 +612,47 @@ fn a_missing_alias_target_falls_through_to_bundler_lookup_directories() {
         .collect();
     assert!(found.is_empty(), "{found:?}");
 }
+
+#[test]
+fn a_mastra_app_has_no_unused_files_or_dependencies() {
+    let diagnostics = lint_files(
+        &[
+            (
+                "package.json",
+                r#"{"name":"svc","private":true,"main":"index.js","dependencies":{"mastra":"1.0.0","@mastra/core":"1.0.0","@mastra/memory":"1.0.0"}}"#,
+            ),
+            (
+                "src/mastra/index.ts",
+                "import { Mastra } from '@mastra/core';\nimport { agent } from './agents/agent';\nimport { flow } from './workflows/flow';\nexport const mastra = new Mastra({ agent, flow });\n",
+            ),
+            (
+                "src/mastra/agents/agent.ts",
+                "import { Memory } from '@mastra/memory';\nimport { tool } from '../tools/tool';\nexport const agent = { Memory, tool };\n",
+            ),
+            ("src/mastra/tools/tool.ts", "export const tool = 1;\n"),
+            ("src/mastra/workflows/flow.ts", "export const flow = 1;\n"),
+        ],
+        "",
+    );
+    assert!(found(&diagnostics, "unused-files").is_empty(), "{diagnostics:?}");
+    assert!(found(&diagnostics, "unused-dependencies").is_empty(), "{diagnostics:?}");
+}
+
+#[test]
+fn node_modules_specifiers_use_the_package_and_are_never_unresolved() {
+    let diagnostics = lint_files(
+        &[
+            (
+                "package.json",
+                r#"{"name":"mylib","main":"src/index.js","dependencies":{"express":"4.0.0","lodash":"4.0.0","@scope/pkg":"1.0.0"}}"#,
+            ),
+            (
+                "src/index.js",
+                "require('mylib/node_modules/express');\nrequire('../node_modules/lodash/fp');\nrequire('/abs/node_modules/@scope/pkg/x');\n",
+            ),
+        ],
+        "",
+    );
+    assert!(found(&diagnostics, "unresolved-imports").is_empty(), "{diagnostics:?}");
+    assert!(found(&diagnostics, "unused-dependencies").is_empty(), "{diagnostics:?}");
+}
