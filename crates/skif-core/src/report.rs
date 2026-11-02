@@ -116,6 +116,7 @@ mod tests {
             package_id: None,
             dependency: None,
             specifier: None,
+            default_severity: None,
             detail: None,
             fixes,
         }
