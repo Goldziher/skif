@@ -167,7 +167,7 @@ fn fix(fix: &Fix) -> JsonFix<'_> {
         title: &fix.title,
         safety: match fix.safety {
             FixSafety::Safe => "safe",
-            FixSafety::Unsafe => "unsafe",
+            _ => "unsafe",
         },
     }
 }

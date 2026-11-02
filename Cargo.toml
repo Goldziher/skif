@@ -17,6 +17,7 @@ oxc_allocator = "=0.156.0"
 oxc_ast = "=0.156.0"
 oxc_ast_visit = "=0.156.0"
 oxc_parser = "=0.156.0"
+oxc_resolver = "=11.24.3"
 oxc_semantic = "=0.156.0"
 oxc_span = "=0.156.0"
 oxc_str = "=0.156.0"
@@ -49,6 +50,7 @@ skif = { path = "crates/skif", version = "=0.0.0" }
 skif-config = { path = "crates/skif-config", version = "=0.0.0" }
 skif-core = { path = "crates/skif-core", version = "=0.0.0" }
 skif-edit = { path = "crates/skif-edit", version = "=0.0.0" }
+skif-js = { path = "crates/skif-js", version = "=0.0.0" }
 skif-js-plugins = { path = "crates/skif-js-plugins", version = "=0.0.0" }
 skif-js-syntax = { path = "crates/skif-js-syntax", version = "=0.0.0" }
 skif-lint = { path = "crates/skif-lint", version = "=0.0.0" }

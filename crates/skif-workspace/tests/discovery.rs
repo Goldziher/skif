@@ -211,3 +211,30 @@ fn root_given_with_dot_segments_reports_relative_slash_paths() {
     let workspace = Workspace::discover(&root, &Config::default()).unwrap();
     assert_eq!(dirs(&workspace), ["docs", "packages/abc", "packages/def"]);
 }
+
+#[cfg(unix)]
+#[test]
+fn double_star_does_not_descend_symbolic_links() {
+    let root = std::env::temp_dir().join(format!("skif-workspace-symlink-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("packages/a")).unwrap();
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"name":"r","workspaces":["packages/**"]}"#,
+    )
+    .unwrap();
+    std::fs::write(root.join("packages/a/package.json"), r#"{"name":"a"}"#).unwrap();
+    std::os::unix::fs::symlink(root.join("packages"), root.join("packages/a/loop")).unwrap();
+
+    let result = Workspace::discover(&root, &Config::default());
+    std::fs::remove_dir_all(&root).unwrap();
+
+    assert_eq!(dirs(&result.unwrap()), ["packages/a"]);
+}
+
+#[test]
+fn discover_resolves_a_relative_root_against_the_current_directory() {
+    let relative = Path::new("fixtures").join("basic");
+    let workspace = Workspace::discover(&relative, &Config::default()).unwrap();
+    assert!(workspace.root.is_absolute());
+    assert!(workspace.root.ends_with(&relative));
+}

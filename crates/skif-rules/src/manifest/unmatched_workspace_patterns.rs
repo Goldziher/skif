@@ -28,7 +28,7 @@ fn remove_pattern(workspace: &Workspace, fact: &PatternFact) -> FixOp {
     let (base, yaml) = match workspace.facts.source {
         WorkspaceSource::PnpmWorkspaceYaml => (vec![key("packages")], true),
         WorkspaceSource::YarnNohoistWorkspaces => (vec![key("workspaces"), key("packages")], false),
-        WorkspaceSource::PackageJsonWorkspaces => (vec![key("workspaces")], false),
+        _ => (vec![key("workspaces")], false),
     };
     let route: Vec<PathSeg> = base.into_iter().chain([PathSeg::Index(fact.index)]).collect();
     if yaml {

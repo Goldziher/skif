@@ -44,6 +44,16 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
     Ok(diff(source, document.source()).into_iter().collect())
 }
 
+/// Checks that `after` is still a YAML document.
+pub(crate) fn validate(after: &str) -> Result<(), EditPlanError> {
+    Document::new(after)
+        .map(drop)
+        .map_err(|error| EditPlanError::InvalidOutput {
+            kind: FileKind::Yaml,
+            message: error.to_string(),
+        })
+}
+
 /// Re-addresses `route`, written against the original document, after the sequence elements in `removed` (original
 /// routes) were deleted. `None` when `route` runs through a removed element.
 fn shift_past_removals(route: &[PathSeg], removed: &[&[PathSeg]]) -> Option<Vec<PathSeg>> {
@@ -70,11 +80,12 @@ fn shift_past_removals(route: &[PathSeg], removed: &[&[PathSeg]]) -> Option<Vec<
         .collect()
 }
 
-fn components(path: &[PathSeg]) -> Vec<Component<'static>> {
+fn components(path: &[PathSeg]) -> Result<Vec<Component<'static>>, String> {
     path.iter()
         .map(|seg| match seg {
-            PathSeg::Key(key) => Component::Key(Cow::Owned(key.clone())),
-            PathSeg::Index(index) => Component::Index(*index),
+            PathSeg::Key(key) => Ok(Component::Key(Cow::Owned(key.clone()))),
+            PathSeg::Index(index) => Ok(Component::Index(*index)),
+            _ => Err("unsupported path segment".to_owned()),
         })
         .collect()
 }
@@ -87,7 +98,7 @@ fn apply_one(document: &Document, path: &[PathSeg], action: &YamlAction) -> Resu
     if path.is_empty() && !matches!(action, YamlAction::Append(_)) {
         return Err("the document root cannot be replaced or removed".to_owned());
     }
-    let route = Route::from(components(path));
+    let route = Route::from(components(path)?);
     let step = match action {
         YamlAction::Remove => Patch {
             route,
@@ -105,7 +116,7 @@ fn apply_one(document: &Document, path: &[PathSeg], action: &YamlAction) -> Resu
         },
         YamlAction::Set(value) => match path.split_last() {
             Some((PathSeg::Key(key), parent)) => {
-                let parent = Route::from(components(parent));
+                let parent = Route::from(components(parent)?);
                 if !document.query_exists(&parent) {
                     return Err("path not found in document".to_owned());
                 }

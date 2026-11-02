@@ -159,7 +159,7 @@ const fn level(severity: Severity) -> &'static str {
     match severity {
         Severity::Error => "error",
         Severity::Warning => "warning",
-        Severity::Info => "note",
+        _ => "note",
     }
 }
 
@@ -229,7 +229,7 @@ fn fix(fix: &Fix) -> SarifFix<'_> {
         title: &fix.title,
         safety: match fix.safety {
             FixSafety::Safe => "safe",
-            FixSafety::Unsafe => "unsafe",
+            _ => "unsafe",
         },
     }
 }

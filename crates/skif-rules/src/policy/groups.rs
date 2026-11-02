@@ -226,11 +226,12 @@ fn policy_of(group: &VersionGroup, default: Prefer) -> Policy {
     match group.policy {
         VersionPolicy::Pinned => pinned(group.pin.as_deref().unwrap_or_default()),
         VersionPolicy::Banned => Policy::Banned,
-        VersionPolicy::Ignored => Policy::Ignored,
         VersionPolicy::SameRange => Policy::SameRange,
         VersionPolicy::SameMinor => Policy::SameMinor,
         VersionPolicy::SnappedTo => Policy::SnappedTo(group.snap_to.clone()),
         VersionPolicy::PreferredSemver => Policy::PreferredSemver(group.prefer.unwrap_or(default)),
+        // `Ignored`, and any policy this build does not know: leave the group alone.
+        _ => Policy::Ignored,
     }
 }
 
@@ -248,13 +249,14 @@ fn convert(range: skif_config::SemverRange) -> SemverRange {
     use skif_config::SemverRange as Configured;
     match range {
         Configured::Exact => SemverRange::Exact,
-        Configured::Any => SemverRange::Any,
         Configured::Caret => SemverRange::Minor,
         Configured::Tilde => SemverRange::Patch,
         Configured::Gt => SemverRange::Gt,
         Configured::Gte => SemverRange::Gte,
         Configured::Lt => SemverRange::Lt,
         Configured::Lte => SemverRange::Lte,
+        // `Any`, and any range this build does not know: accept any range.
+        _ => SemverRange::Any,
     }
 }
 
