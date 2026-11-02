@@ -1,5 +1,7 @@
 //! Skif-owned description of one module. No oxc type appears here.
 
+use std::collections::{HashMap, HashSet};
+
 use serde::{Deserialize, Serialize};
 use skif_core::Span;
 
@@ -112,8 +114,8 @@ pub enum RemovalKind {
     /// Like [`RemovalKind::ExportKeyword`], but the keyword is shared by several exports of one statement
     /// (`export const a = 1, b = 2`); apply it only when every sibling is unused.
     SharedExportKeyword,
-    /// One specifier with its separating comma. Ranges of adjacent specifiers of one statement overlap; the union of
-    /// the ranges is the correct deletion.
+    /// One specifier with its separating comma. Ranges of adjacent specifiers of one statement overlap; use
+    /// [`ModuleInfo::removal_edits`] (or [`coalesce_ranges`]) to get disjoint edits.
     Specifier,
     /// The whole statement, including one trailing line break.
     Statement,
@@ -133,6 +135,10 @@ pub struct Removal {
     pub statement: (u32, u32),
     /// Number of exports declared by that statement (including this one).
     pub siblings: u32,
+    /// The statement is `export default <expression>` (or an anonymous default declaration) and
+    /// [`RemovalKind::Statement`] deletes the expression too, not only the export: side effects of the expression
+    /// disappear. Callers that want a conservative fix should skip or flag these.
+    pub default_expression: bool,
 }
 
 /// One export of a module.
@@ -165,6 +171,16 @@ pub struct Export {
     pub referenced_in_file: bool,
 }
 
+/// A syntax problem reported by the parser. The analysis of the file continues on the parser's recovered program.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct ParseIssue {
+    /// The parser's message.
+    pub message: String,
+    /// Location of the problem in the original file.
+    pub span: Span,
+}
+
 /// Everything skif needs to know about one source file.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -175,22 +191,101 @@ pub struct ModuleInfo {
     pub exports: Vec<Export>,
     /// Export names referenced inside the same file; sorted, deduplicated.
     pub in_file_references: Vec<String>,
-    /// `module.exports = …`, `module.exports.x = …` or `exports.x = …`.
+    /// `module.exports = …`, `module.exports.x = …` or `exports.x = …` anywhere in the file. The file is then a
+    /// `CommonJS` module whose export names are not tracked: treat all of its exports as used.
     pub has_cjs_exports: bool,
     /// The file contains JSX.
     pub has_jsx: bool,
     /// Value of a `@jsxImportSource` pragma.
     pub jsx_import_source: Option<String>,
-    /// Directive prologue strings such as `use client`.
+    /// Location of the value of the `@jsxImportSource` pragma. Only a pragma in the comments before the first
+    /// statement counts.
+    pub jsx_import_source_span: Option<Span>,
+    /// Directive prologue strings of the top level, such as `use client` and `use server`. See
+    /// [`ModuleInfo::is_client_boundary`] and [`ModuleInfo::is_server_actions`].
     pub directives: Vec<String>,
     /// `import()`, `require()` and `import.meta.glob()` calls whose argument is not static.
     pub unresolved_dynamic: Vec<Span>,
+    /// Syntax errors the parser recovered from; the other fields describe the recovered program. For component
+    /// files, the issues of every script block.
+    pub parse_diagnostics: Vec<ParseIssue>,
+    /// The parser could not recover (or, for a component file, could not recover in at least one script block): the
+    /// facts of the affected code are missing. Report the file as unparseable instead of treating it as empty.
+    pub fatal: bool,
 }
 
 impl ModuleInfo {
     /// Removal edits of every export that has one, in source order.
     pub fn removal_ranges(&self) -> impl Iterator<Item = &Removal> {
         self.exports.iter().filter_map(|e| e.removal.as_ref())
+    }
+
+    /// The file starts with the `"use client"` directive: a React Server Components client boundary whose exports
+    /// are consumed by the framework.
+    #[must_use]
+    pub fn is_client_boundary(&self) -> bool {
+        self.directives.iter().any(|d| d == "use client")
+    }
+
+    /// The file starts with the `"use server"` directive: every export is a server action the framework calls.
+    #[must_use]
+    pub fn is_server_actions(&self) -> bool {
+        self.directives.iter().any(|d| d == "use server")
+    }
+
+    /// Disjoint, sorted deletions that remove every export for which `is_unused` holds.
+    ///
+    /// Specifier ranges of one statement are merged; a statement whose specifiers are all unused is deleted whole
+    /// instead of leaving `export {}`; a [`RemovalKind::SharedExportKeyword`] applies only when every sibling is
+    /// unused.
+    pub fn removal_edits(&self, is_unused: impl Fn(&Export) -> bool) -> Vec<(u32, u32)> {
+        let mut selected: HashMap<(u32, u32), u32> = HashMap::new();
+        for export in &self.exports {
+            if let Some(removal) = &export.removal
+                && is_unused(export)
+            {
+                *selected.entry(removal.statement).or_default() += 1;
+            }
+        }
+        let mut ranges = Vec::new();
+        let mut whole_statements = HashSet::new();
+        let mut clauses: HashMap<(u32, u32), Vec<(Span, bool)>> = HashMap::new();
+        // Every specifier of a clause, used or not: a run's separator depends on its neighbours.
+        for export in &self.exports {
+            if let Some(removal) = &export.removal
+                && removal.kind == RemovalKind::Specifier
+            {
+                clauses
+                    .entry(removal.statement)
+                    .or_default()
+                    .push((export.span, is_unused(export)));
+            }
+        }
+        for export in &self.exports {
+            let Some(removal) = &export.removal else { continue };
+            if !is_unused(export) {
+                continue;
+            }
+            let all_selected = selected.get(&removal.statement).copied().unwrap_or(0) >= removal.siblings;
+            match removal.kind {
+                RemovalKind::ExportKeyword | RemovalKind::Statement => ranges.push((removal.start, removal.end)),
+                RemovalKind::SharedExportKeyword if all_selected => ranges.push((removal.start, removal.end)),
+                RemovalKind::Specifier if all_selected => {
+                    whole_statements.insert(removal.statement);
+                }
+                // Partly unused shared declarations stay; partly unused clauses are handled per run below.
+                RemovalKind::SharedExportKeyword | RemovalKind::Specifier => {}
+            }
+        }
+        for (statement, specifiers) in &mut clauses {
+            if whole_statements.contains(statement) {
+                continue;
+            }
+            specifiers.sort_by_key(|(span, _)| span.start);
+            ranges.extend(specifier_runs(specifiers));
+        }
+        ranges.extend(whole_statements);
+        coalesce_ranges(ranges)
     }
 
     pub(crate) fn merge(&mut self, other: Self) {
@@ -203,10 +298,52 @@ impl ModuleInfo {
         self.has_jsx |= other.has_jsx;
         if self.jsx_import_source.is_none() {
             self.jsx_import_source = other.jsx_import_source;
+            self.jsx_import_source_span = other.jsx_import_source_span;
         }
         self.directives.extend(other.directives);
         self.unresolved_dynamic.extend(other.unresolved_dynamic);
+        self.parse_diagnostics.extend(other.parse_diagnostics);
+        self.fatal |= other.fatal;
     }
+}
+
+/// Deletions for the unused specifiers of one export clause (in source order, at least one kept): each run of
+/// adjacent unused specifiers takes the comma after it, or, at the end of the clause, the comma before it.
+fn specifier_runs(specifiers: &[(Span, bool)]) -> Vec<(u32, u32)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < specifiers.len() {
+        if !specifiers[i].1 {
+            i += 1;
+            continue;
+        }
+        let first = i;
+        while i < specifiers.len() && specifiers[i].1 {
+            i += 1;
+        }
+        let last = i - 1;
+        if let Some(next) = specifiers.get(i) {
+            out.push((specifiers[first].0.start, next.0.start));
+        } else if let Some(before) = first.checked_sub(1).and_then(|k| specifiers.get(k)) {
+            out.push((before.0.end, specifiers[last].0.end));
+        }
+    }
+    out
+}
+
+/// Merges overlapping and touching byte ranges into sorted, disjoint ones.
+#[must_use]
+pub fn coalesce_ranges(ranges: impl IntoIterator<Item = (u32, u32)>) -> Vec<(u32, u32)> {
+    let mut sorted: Vec<(u32, u32)> = ranges.into_iter().filter(|(s, e)| s < e).collect();
+    sorted.sort_unstable();
+    let mut out: Vec<(u32, u32)> = Vec::with_capacity(sorted.len());
+    for (start, end) in sorted {
+        match out.last_mut() {
+            Some(last) if start <= last.1 => last.1 = last.1.max(end),
+            _ => out.push((start, end)),
+        }
+    }
+    out
 }
 
 /// Options for [`crate::parse_module`].

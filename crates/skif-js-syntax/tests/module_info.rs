@@ -532,23 +532,45 @@ fn source_type_follows_extension() {
         let info = parse(path, source);
         assert!(!info.exports.is_empty() || info.has_cjs_exports, "{path}");
     }
-    let ts_only = parse_module(
-        Path::new("a.js"),
-        "export const a: number = 1;",
-        &ParseOptions::default(),
-    );
-    assert!(matches!(ts_only, Err(SyntaxError::Parse { .. })));
+    let ts_only = parse("a.js", "export const a: number = 1;");
+    assert_ne!(ts_only.parse_diagnostics, [] as [skif_js_syntax::ParseIssue; 0]);
 }
 
 #[test]
-fn syntax_errors_carry_a_location() {
-    let source = "const ok = 1;\nconst = ;\n";
-    let err = parse_module(Path::new("a.js"), source, &ParseOptions::default()).unwrap_err();
-    let SyntaxError::Parse { message, span } = err else {
-        panic!("expected a parse error");
-    };
-    assert_ne!(message, "");
-    assert_eq!(span.start_line, 2);
+fn syntax_errors_are_reported_and_the_recovered_program_is_used() {
+    // Mixing `??` and `||` without parentheses is a recoverable error: oxc reports it and keeps the program.
+    let source = "import a from 'a';\nx ?? y || z;\nexport const kept = 1;\n";
+    let info = parse("a.js", source);
+    assert!(!info.fatal);
+    assert_eq!(info.imports[0].specifier, "a");
+    assert_eq!(info.exports[0].name, "kept");
+    let issue = &info.parse_diagnostics[0];
+    assert_ne!(issue.message, "");
+    assert_eq!(issue.span.start_line, 2);
+}
+
+#[test]
+fn clean_files_have_no_diagnostics() {
+    let info = parse("a.js", "export const a = 1;");
+    assert_eq!(info.parse_diagnostics, [] as [skif_js_syntax::ParseIssue; 0]);
+    assert!(!info.fatal);
+}
+
+#[test]
+fn unrecoverable_input_is_flagged_fatal() {
+    // A missing binding name is a fatal error in oxc: the program comes back empty.
+    let info = parse("a.js", "import a from 'a';\nconst = ;\n");
+    assert!(info.fatal);
+    assert_ne!(info.parse_diagnostics, [] as [skif_js_syntax::ParseIssue; 0]);
+    assert!(info.imports.is_empty() && info.exports.is_empty());
+}
+
+#[test]
+fn component_blocks_report_their_diagnostics_with_original_offsets() {
+    let vue = "<template/>\n<script>\nx ?? y || z;\nexport const ok = 1;\n</script>\n";
+    let info = parse("A.vue", vue);
+    assert_eq!(info.exports[0].name, "ok");
+    assert_eq!(info.parse_diagnostics[0].span.start_line, 3);
 }
 
 #[test]
@@ -586,4 +608,150 @@ fn public_types_are_send_and_sync() {
     check::<SyntaxError>();
     check::<ParseOptions>();
     check::<skif_js_syntax::ConfigValue>();
+}
+
+#[test]
+fn javascript_files_accept_jsx_and_top_level_return() {
+    for path in ["a.js", "a.mjs", "a.cjs", "a.jsx"] {
+        let info = parse(path, "import x from 'x';\nexport const a = <x.Y prop={1} />;\n");
+        assert!(info.has_jsx, "{path}");
+        assert_eq!(info.imports[0].specifier, "x", "{path}");
+    }
+    let info = parse(
+        "a.cjs",
+        "const a = require('a');\nif (!a) return;\nmodule.exports = a;\n",
+    );
+    assert!(info.has_cjs_exports);
+    assert_eq!(info.imports[0].specifier, "a");
+}
+
+#[test]
+fn typescript_keeps_angle_bracket_assertions() {
+    let info = parse("a.ts", "export const a = <number>(<unknown>1);\n");
+    assert!(!info.has_jsx);
+    assert_eq!(info.exports.len(), 1);
+}
+
+fn specifiers(info: &ModuleInfo) -> Vec<(&str, ImportKind)> {
+    info.imports.iter().map(|i| (i.specifier.as_str(), i.kind)).collect()
+}
+
+#[test]
+fn import_types_are_type_only_imports() {
+    let info = parse("a.ts", "export type A = import('x').T;\nlet v: typeof import('y');\n");
+    assert_eq!(
+        specifiers(&info),
+        [("x", ImportKind::TypeOnly), ("y", ImportKind::TypeOnly)]
+    );
+    assert_eq!(info.imports[0].names[0].kind, ImportedKind::Named("T".into()));
+    assert!(info.imports[0].names[0].is_type);
+    assert_eq!(info.imports[1].names[0].kind, ImportedKind::Namespace);
+    assert!(info.imports[1].names[0].escapes);
+}
+
+#[test]
+fn jsdoc_imports_are_type_only_imports() {
+    let source = "/** @import {A, B as C} from 'pkg-a' */\n/** @type {import('pkg-b').Thing} */\nconst x = 1;\n/**\n * @import {\n *   D,\n * } from \"pkg-c\"\n */\n";
+    let info = parse("a.js", source);
+    assert_eq!(
+        specifiers(&info),
+        [
+            ("pkg-a", ImportKind::TypeOnly),
+            ("pkg-b", ImportKind::TypeOnly),
+            ("pkg-c", ImportKind::TypeOnly)
+        ]
+    );
+    let names: Vec<_> = info.imports[0].names.iter().map(|n| n.local.as_deref()).collect();
+    assert_eq!(names, [Some("A"), Some("C")]);
+    assert_eq!(info.imports[1].names[0].kind, ImportedKind::Named("Thing".into()));
+}
+
+#[test]
+fn triple_slash_references_are_imports_only_in_the_header() {
+    let source = "/// <reference types=\"node\" />\n/// <reference path=\"extra.d.ts\" />\nexport const a = 1;\n/// <reference types=\"late\" />\n";
+    let info = parse("a.ts", source);
+    assert_eq!(
+        specifiers(&info),
+        [("node", ImportKind::TypeOnly), ("./extra.d.ts", ImportKind::SideEffect)]
+    );
+}
+
+#[test]
+fn jsx_import_source_only_counts_in_leading_comments() {
+    let leading = parse("a.jsx", "// @jsxImportSource preact\nexport const a = <b />;\n");
+    assert_eq!(leading.jsx_import_source.as_deref(), Some("preact"));
+    let span = leading.jsx_import_source_span.unwrap();
+    assert_eq!(slice("// @jsxImportSource preact\n", span.start, span.end), "preact");
+
+    let late = parse(
+        "a.jsx",
+        "export const a = <b />;\n// @jsxImportSource preact\nconst s = '@jsxImportSource x';\n",
+    );
+    assert_eq!(late.jsx_import_source, None);
+    assert_eq!(late.jsx_import_source_span, None);
+}
+
+#[test]
+fn export_keyword_is_anchored_at_the_statement_start() {
+    let source = "@Component({ selector: 'export-me' })\nexport class A {}\n";
+    let info = parse("a.ts", source);
+    let removal = info.exports[0].removal.unwrap();
+    assert_eq!(slice(source, removal.start, removal.end), "export ");
+    assert_eq!(removal.start as usize, source.find("export class").unwrap());
+
+    let source = "@dec(')', \"export\") export default class B {}\n";
+    let removal = parse("a.ts", source).exports[0].removal.unwrap();
+    assert_eq!(slice(source, removal.start, removal.end), "export default ");
+}
+
+#[test]
+fn default_expression_removal_is_marked() {
+    let expr = parse("a.js", "export default 42;\n").exports[0].removal.unwrap();
+    assert!(expr.default_expression);
+    let decl = parse("a.js", "export default function f() {}\n").exports[0]
+        .removal
+        .unwrap();
+    assert!(!decl.default_expression);
+}
+
+#[test]
+fn removal_edits_are_disjoint() {
+    let source = "const a = 1, b = 2, c = 3;\nexport { a, b, c };\nexport const x = 1, y = 2;\n";
+    let info = parse("a.ts", source);
+    let apply = |unused: &[&str]| {
+        let mut out = source.to_string();
+        for (s, e) in info
+            .removal_edits(|e| unused.contains(&e.name.as_str()))
+            .into_iter()
+            .rev()
+        {
+            out.replace_range(s as usize..e as usize, "");
+        }
+        out
+    };
+    assert_eq!(apply(&["b", "c"]), source.replace("a, b, c", "a"));
+    assert_eq!(apply(&["a", "b"]), source.replace("a, b, c", "c"));
+    assert_eq!(apply(&["a", "b", "c"]), source.replace("export { a, b, c };\n", ""));
+    assert_eq!(apply(&["x"]), source);
+    assert_eq!(apply(&["x", "y"]), source.replace("export const x", "const x"));
+    for pair in info.removal_edits(|_| true).windows(2) {
+        assert!(pair[0].1 < pair[1].0);
+    }
+}
+
+#[test]
+fn coalesce_merges_overlapping_and_touching_ranges() {
+    assert_eq!(
+        skif_js_syntax::coalesce_ranges([(5, 9), (0, 3), (3, 4), (8, 12), (20, 20)]),
+        [(0, 4), (5, 12)]
+    );
+}
+
+#[test]
+fn directive_helpers() {
+    let client = parse("a.tsx", "'use client';\nexport const a = 1;");
+    assert!(client.is_client_boundary() && !client.is_server_actions());
+    let server = parse("a.ts", "\"use server\";\nexport async function a() {}");
+    assert!(server.is_server_actions() && !server.is_client_boundary());
+    assert!(!parse("a.ts", "const s = 'use client';").is_client_boundary());
 }
