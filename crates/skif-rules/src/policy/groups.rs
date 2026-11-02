@@ -126,6 +126,10 @@ struct Ranged<'c> {
 }
 
 /// All version groups (the catch-all last) and semver groups of a configuration.
+#[allow(
+    clippy::struct_field_names,
+    reason = "`groups` are the version groups, next to `semver` groups"
+)]
 pub(crate) struct Groups<'c> {
     groups: Vec<Group<'c>>,
     semver: Vec<Ranged<'c>>,
@@ -552,7 +556,12 @@ mod tests {
         let ranged: Vec<(&str, bool)> = instances
             .iter()
             .filter(|(_, instance)| !instance.is_own_version() && instance.package.name.as_deref() == Some("peers"))
-            .map(|(id, instance)| (instance.kind().map_or("", DependencyKind::token), assignment.preferred(id).is_some()))
+            .map(|(id, instance)| {
+                (
+                    instance.kind().map_or("", DependencyKind::token),
+                    assignment.preferred(id).is_some(),
+                )
+            })
             .collect();
         assert_eq!(ranged, [("prod", true), ("peer", false), ("optional", false)]);
     }

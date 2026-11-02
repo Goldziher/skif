@@ -12,8 +12,8 @@ mod catalog;
 mod families;
 mod groups;
 pub(crate) mod instances;
-mod specifiers;
 mod report;
+mod specifiers;
 mod state;
 mod visit;
 mod workspace_protocol;
@@ -240,7 +240,11 @@ mod tests {
         let pinned = format!(
             "{enforce}\n[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"18.3.1\"\n"
         );
-        assert_eq!(reported(&pinned), 2, "a group that names the dependency wins over the catalog");
+        assert_eq!(
+            reported(&pinned),
+            2,
+            "a group that names the dependency wins over the catalog"
+        );
     }
 
     #[test]
@@ -262,10 +266,7 @@ mod tests {
                 .collect()
         };
         assert_eq!(severities(""), [Severity::Warning]);
-        assert_eq!(
-            severities("[rules]\ncatalog-mismatch = \"error\"\n"),
-            [Severity::Error]
-        );
+        assert_eq!(severities("[rules]\ncatalog-mismatch = \"error\"\n"), [Severity::Error]);
     }
 
     #[test]

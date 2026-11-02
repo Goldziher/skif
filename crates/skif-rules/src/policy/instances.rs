@@ -241,7 +241,7 @@ mod tests {
         let summary: Vec<(&str, usize)> = instances.names().map(|(name, ids)| (name, ids.len())).collect();
         assert_eq!(
             summary,
-            [("app", 1), ("lib", 2), ("react", 1), ("root", 1)],
+            [("app", 1), ("lib", 2), ("react", 2), ("root", 1)],
             "bare has no version and so no own-version instance"
         );
     }

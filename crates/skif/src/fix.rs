@@ -467,14 +467,16 @@ impl<'a> Planner<'a> {
                 Entry::Delete => FileChange::Delete { path: path.clone() },
                 Entry::Edit { ops, edits } => {
                     let source = self.source(&path).map_err(invalid)?;
-                    let kind = FileKind::from_path(&path);
-                    if let Some(kind) = kind {
-                        skif_edit::apply(&source, kind, &ops).map_err(|error| invalid(error.to_string()))?;
-                    }
+                    // Per-fix plans decide which fixes are accepted; the file is written from one joint plan of
+                    // every accepted op, because independent removals of neighbouring members need the joint
+                    // view to place separators (two tail removals planned alone leave a dangling comma).
+                    let edits = match FileKind::from_path(&path) {
+                        Some(kind) => {
+                            skif_edit::plan_edits(&source, kind, &ops).map_err(|error| invalid(error.to_string()))?
+                        }
+                        None => edits,
+                    };
                     let new_contents = apply_text_edits(&source, &edits).map_err(|error| invalid(error.to_string()))?;
-                    if let Some(kind) = kind {
-                        skif_edit::apply(&new_contents, kind, &[]).map_err(|error| invalid(error.to_string()))?;
-                    }
                     FileChange::Modify {
                         path: path.clone(),
                         edits,

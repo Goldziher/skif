@@ -7,7 +7,7 @@ use skif_specifier::Specifier;
 /// A shorthand such as `^18` or `18.3` names the first release of that line: `18.0.0` and `18.3.0`. The version the
 /// parser derives for ordering (`18.999999.999999`) puts such a range above `^18.3.1`, which would make the vaguer
 /// specifier the one everything else aligns with. `None` when the specifier names no version.
-pub(super) fn floor_version(specifier: &Specifier) -> Option<impl Ord + Clone> {
+pub(super) fn floor_version(specifier: &Specifier) -> Option<impl Ord + Clone + use<>> {
     let floor = specifier.get_semver_number().and_then(|number| {
         let (core, suffix) = number.split_at(number.find(['-', '+']).unwrap_or(number.len()));
         let mut parts: Vec<&str> = core.split('.').collect();

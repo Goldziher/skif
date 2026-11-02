@@ -302,6 +302,7 @@ impl Workspace {
         let declared = chosen.unwrap_or_else(|| Declared {
             source: WorkspaceSource::SinglePackage,
             file: root_package.manifest.path.clone(),
+            implicit: false,
             patterns: Vec::new(),
         });
 

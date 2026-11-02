@@ -312,6 +312,9 @@ impl Edit {
     }
 }
 
+/// A sort edit and the byte range of the member it moves.
+type MovedEdit = (Edit, (usize, usize));
+
 struct Doc<'s, 'a> {
     source: &'s str,
     root: Value<'a>,
@@ -360,7 +363,7 @@ impl<'a> Doc<'_, 'a> {
     }
 
     /// The edits sorting the object at `pointer`, each with the byte range of the member whose text it writes.
-    fn sort_edits(&self, op: &str, pointer: &[PathSeg]) -> Result<Vec<(Edit, (usize, usize))>, EditPlanError> {
+    fn sort_edits(&self, op: &str, pointer: &[PathSeg]) -> Result<Vec<MovedEdit>, EditPlanError> {
         let target = locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: op.to_owned() })?;
         let holder = container(target.value)
             .filter(|holder| holder.is_object)
@@ -662,14 +665,19 @@ impl<'a> Doc<'_, 'a> {
         if let Some(end) = rest_of_line(self.source, after).filter(|&end| end <= next) {
             return Some((comma, end, true));
         }
-        let blank = self.source[after..next].trim_matches([' ', '\t', '\r', '\n']).is_empty();
+        let blank = self.source[after..next]
+            .trim_matches([' ', '\t', '\r', '\n'])
+            .is_empty();
         Some((comma, if blank { next } else { after }, false))
     }
 
     /// Start of the line `offset` is on, when only blanks precede it there.
     fn own_line_start(&self, offset: usize) -> Option<usize> {
         let start = line_start(self.source, offset);
-        self.source[start..offset].trim_matches([' ', '\t']).is_empty().then_some(start)
+        self.source[start..offset]
+            .trim_matches([' ', '\t'])
+            .is_empty()
+            .then_some(start)
     }
 
     fn removal_with_following_separator(&self, holder: &Container<'_, '_>, member: usize, op: usize) -> Vec<Planned> {
@@ -756,16 +764,20 @@ fn rebase_moves(planned: &mut Vec<Planned>, moves: &[(usize, (usize, usize))]) {
             .filter(|&index| index != at && !absorbed[index] && is_inside(&planned[index], from_start, from_end))
             .collect();
         inside.sort_by_key(|&index| (planned[index].start, planned[index].end));
-        if inside.is_empty() || inside.windows(2).any(|pair| planned[pair[0]].end > planned[pair[1]].start) {
+        if inside.is_empty()
+            || inside
+                .windows(2)
+                .any(|pair| planned[pair[0]].end > planned[pair[1]].start)
+        {
             continue;
         }
-        let moved = planned[at].replacement.clone();
-        let mut rebased = String::with_capacity(moved.len());
+        let original = planned[at].replacement.clone();
+        let mut rebased = String::with_capacity(original.len());
         let mut cursor = 0;
         let mut fits = true;
         for &index in &inside {
             let edit = &planned[index];
-            let Some(kept) = moved.get(cursor..edit.start - from_start) else {
+            let Some(kept) = original.get(cursor..edit.start - from_start) else {
                 fits = false;
                 break;
             };
@@ -773,7 +785,7 @@ fn rebase_moves(planned: &mut Vec<Planned>, moves: &[(usize, (usize, usize))]) {
             rebased.push_str(&edit.replacement);
             cursor = edit.end - from_start;
         }
-        let Some(tail) = moved.get(cursor..).filter(|_| fits) else {
+        let Some(tail) = original.get(cursor..).filter(|_| fits) else {
             continue;
         };
         rebased.push_str(tail);

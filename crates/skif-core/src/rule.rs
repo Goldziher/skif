@@ -256,6 +256,9 @@ mod tests {
     #[test]
     fn rule_meta_new_is_const_and_fills_every_field() {
         const META: RuleMeta = RuleMeta::new("some-rule", Category::Manifest, None, Fixability::None, "Does a thing.");
-        assert_eq!((META.id, META.default, META.summary), ("some-rule", None, "Does a thing."));
+        assert_eq!(
+            (META.id, META.default, META.summary),
+            ("some-rule", None, "Does a thing.")
+        );
     }
 }

@@ -31,8 +31,8 @@ fn through_the_facade(
     for (path, content) in files {
         fs.insert(Path::new(ROOT).join(path), content);
     }
-    let workspace = Workspace::discover_with_fs(Path::new(ROOT), config, &fs)
-        .map_err(|error| format!("workspace: {error}"))?;
+    let workspace =
+        Workspace::discover_with_fs(Path::new(ROOT), config, &fs).map_err(|error| format!("workspace: {error}"))?;
     let registry = Registry::new(skif_rules::providers()).map_err(|error| error.to_string())?;
     let report =
         run(&registry, &workspace, config, &RunOptions::default()).map_err(|error| format!("lint: {error}"))?;
@@ -105,16 +105,19 @@ fn remove_banned(dependencies: &str) -> Planned {
     let app = format!(
         "{{\n  \"name\": \"app\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"dependencies\": {{\n{dependencies}\n  }}\n}}\n"
     );
-    let config = Config::from_toml_str(
-        "[[version-groups]]\ndependencies = [\"left-pad\", \"lodash\"]\npolicy = \"banned\"\n",
-    )
-    .unwrap();
+    let config =
+        Config::from_toml_str("[[version-groups]]\ndependencies = [\"left-pad\", \"lodash\"]\npolicy = \"banned\"\n")
+            .unwrap();
     let files = BTreeMap::from([
         ("package.json".to_owned(), ROOT_MANIFEST.to_owned()),
         ("packages/app/package.json".to_owned(), app),
     ]);
     let planned = through_the_facade(&files, &config, &rule_ids(&skif_rules::policy_provider())).unwrap();
-    assert_eq!(planned.skipped, Vec::<String>::new(), "no removal is skipped as conflicting");
+    assert_eq!(
+        planned.skipped,
+        Vec::<String>::new(),
+        "no removal is skipped as conflicting"
+    );
     planned
 }
 
@@ -133,7 +136,8 @@ fn adjacent_banned_dependencies_are_removed_in_one_pass() {
 /// leave must be valid JSON.
 #[test]
 fn adjacent_banned_dependencies_at_the_end_leave_valid_json() {
-    let planned = remove_banned("    \"keep\": \"^1.0.0\",\n    \"left-pad\": \"^1.3.0\",\n    \"lodash\": \"^4.17.21\"");
+    let planned =
+        remove_banned("    \"keep\": \"^1.0.0\",\n    \"left-pad\": \"^1.3.0\",\n    \"lodash\": \"^4.17.21\"");
     let fixed = &planned.changed["packages/app/package.json"];
     let parsed: serde_json::Value = serde_json::from_str(fixed).unwrap_or_else(|error| panic!("{error}: {fixed}"));
     assert_eq!(parsed["dependencies"], serde_json::json!({"keep": "^1.0.0"}));
