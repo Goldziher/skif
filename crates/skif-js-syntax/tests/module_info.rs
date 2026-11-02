@@ -679,3 +679,53 @@ fn jsx_import_source_only_counts_in_leading_comments() {
     assert_eq!(late.jsx_import_source, None);
     assert_eq!(late.jsx_import_source_span, None);
 }
+
+#[test]
+fn export_keyword_is_anchored_at_the_statement_start() {
+    let source = "@Component({ selector: 'export-me' })\nexport class A {}\n";
+    let info = parse("a.ts", source);
+    let removal = info.exports[0].removal.unwrap();
+    assert_eq!(slice(source, removal.start, removal.end), "export ");
+    assert_eq!(removal.start as usize, source.find("export class").unwrap());
+
+    let source = "@dec(')', \"export\") export default class B {}\n";
+    let removal = parse("a.ts", source).exports[0].removal.unwrap();
+    assert_eq!(slice(source, removal.start, removal.end), "export default ");
+}
+
+#[test]
+fn default_expression_removal_is_marked() {
+    let expr = parse("a.js", "export default 42;\n").exports[0].removal.unwrap();
+    assert!(expr.default_expression);
+    let decl = parse("a.js", "export default function f() {}\n").exports[0].removal.unwrap();
+    assert!(!decl.default_expression);
+}
+
+#[test]
+fn removal_edits_are_disjoint() {
+    let source = "const a = 1, b = 2, c = 3;\nexport { a, b, c };\nexport const x = 1, y = 2;\n";
+    let info = parse("a.ts", source);
+    let apply = |unused: &[&str]| {
+        let mut out = source.to_string();
+        for (s, e) in info.removal_edits(|e| unused.contains(&e.name.as_str())).into_iter().rev() {
+            out.replace_range(s as usize..e as usize, "");
+        }
+        out
+    };
+    assert_eq!(apply(&["b", "c"]), source.replace("a, b, c", "a"));
+    assert_eq!(apply(&["a", "b"]), source.replace("a, b, c", "c"));
+    assert_eq!(apply(&["a", "b", "c"]), source.replace("export { a, b, c };\n", ""));
+    assert_eq!(apply(&["x"]), source);
+    assert_eq!(apply(&["x", "y"]), source.replace("export const x", "const x"));
+    for pair in info.removal_edits(|_| true).windows(2) {
+        assert!(pair[0].1 < pair[1].0);
+    }
+}
+
+#[test]
+fn coalesce_merges_overlapping_and_touching_ranges() {
+    assert_eq!(
+        skif_js_syntax::coalesce_ranges([(5, 9), (0, 3), (3, 4), (8, 12), (20, 20)]),
+        [(0, 4), (5, 12)]
+    );
+}
