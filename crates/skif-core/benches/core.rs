@@ -90,13 +90,15 @@ fn diagnostics(count: usize) -> Vec<Diagnostic> {
 fn bench_report(c: &mut Criterion) {
     let mut group = c.benchmark_group("Report");
     group.sample_size(30);
-    group.bench_function("new_10k", |b| {
-        b.iter_batched(
-            || diagnostics(10_000),
-            |input| Report::new(input, 500),
-            BatchSize::LargeInput,
-        );
-    });
+    for (label, count) in [("new_10k", 10_000), ("new_50k", 50_000)] {
+        group.bench_function(label, |b| {
+            b.iter_batched(
+                || diagnostics(count),
+                |input| Report::new(input, 500),
+                BatchSize::LargeInput,
+            );
+        });
+    }
     group.finish();
 }
 
