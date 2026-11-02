@@ -1,0 +1,170 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: json.stdout
+---
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "empty-dependencies",
+      "category": "manifest",
+      "default": "error",
+      "fixable": "safe",
+      "summary": "A dependency section (`dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`) is an empty object."
+    },
+    {
+      "id": "root-package-private-field",
+      "category": "manifest",
+      "default": "error",
+      "fixable": "safe",
+      "summary": "The root `package.json` must set `\"private\": true` so it cannot be published by accident."
+    },
+    {
+      "id": "root-package-manager-field",
+      "category": "manifest",
+      "default": "error",
+      "fixable": "none",
+      "summary": "The root `package.json` must declare the package manager in `packageManager` or `devEngines.packageManager`."
+    },
+    {
+      "id": "root-package-dependencies",
+      "category": "manifest",
+      "default": "warning",
+      "fixable": "unsafe",
+      "summary": "The root package should only have `devDependencies`; runtime dependencies belong to the packages that use them."
+    },
+    {
+      "id": "types-in-dependencies",
+      "category": "manifest",
+      "default": "error",
+      "fixable": "safe",
+      "summary": "A private package lists `@types/*` packages in `dependencies`; type packages belong in `devDependencies`."
+    },
+    {
+      "id": "member-toolchain-fields",
+      "category": "manifest",
+      "default": "warning",
+      "fixable": "unsafe",
+      "summary": "Member packages should not declare `packageManager` or `engines`; the root package owns the toolchain."
+    },
+    {
+      "id": "incompatible-peer-dependencies",
+      "category": "manifest",
+      "default": "warning",
+      "fixable": "none",
+      "summary": "The version a package installs in `devDependencies` does not satisfy the range it declares in `peerDependencies`."
+    },
+    {
+      "id": "unsorted-dependencies",
+      "category": "manifest",
+      "default": "error",
+      "fixable": "safe",
+      "summary": "The entries of a dependency section are not in alphabetical (byte) order."
+    },
+    {
+      "id": "unmatched-workspace-patterns",
+      "category": "workspace",
+      "default": "warning",
+      "fixable": "safe",
+      "summary": "A workspace pattern does not match any directory."
+    },
+    {
+      "id": "missing-package-manifest",
+      "category": "workspace",
+      "default": "warning",
+      "fixable": "unsafe",
+      "summary": "A directory matched by the workspace patterns has no `package.json`."
+    },
+    {
+      "id": "local-path-dependency",
+      "category": "manifest",
+      "default": "error",
+      "fixable": "sometimes",
+      "summary": "A dependency points at a path on disk (`link:`, `file:`, `portal:` or a relative path) instead of a registry or workspace version."
+    },
+    {
+      "id": "version-mismatch",
+      "category": "policy",
+      "default": "error",
+      "fixable": "sometimes",
+      "summary": "A dependency instance differs from the version its version group requires (highest, lowest, pinned, local or snapped)."
+    },
+    {
+      "id": "banned-dependency",
+      "category": "policy",
+      "default": "error",
+      "fixable": "unsafe",
+      "summary": "A dependency is declared although a banned version group forbids it."
+    },
+    {
+      "id": "semver-range-mismatch",
+      "category": "policy",
+      "default": "error",
+      "fixable": "unsafe",
+      "summary": "A dependency uses a semver range other than the one its semver group requires."
+    },
+    {
+      "id": "policy-conflict",
+      "category": "policy",
+      "default": "warning",
+      "fixable": "sometimes",
+      "summary": "Two policies require incompatible outcomes for one dependency, or a group cannot be applied as configured."
+    },
+    {
+      "id": "invalid-local-version",
+      "category": "policy",
+      "default": "error",
+      "fixable": "none",
+      "summary": "A workspace package has a `version` that is not an exact semver version, so dependents cannot align with it."
+    },
+    {
+      "id": "catalog-not-used",
+      "category": "catalog",
+      "default": "warning",
+      "fixable": "sometimes",
+      "summary": "A dependency that has a catalog entry is declared with a version instead of `catalog:`."
+    },
+    {
+      "id": "catalog-mismatch",
+      "category": "catalog",
+      "default": "error",
+      "fixable": "sometimes",
+      "summary": "A dependency is declared with a version while other packages take it from a catalog."
+    },
+    {
+      "id": "catalog-missing-entry",
+      "category": "catalog",
+      "default": "warning",
+      "fixable": "sometimes",
+      "summary": "A dependency that should come from a catalog has no catalog entry."
+    },
+    {
+      "id": "unresolved-catalog-references",
+      "category": "catalog",
+      "default": "error",
+      "fixable": "none",
+      "summary": "A `catalog:` specifier names a catalog or an entry that does not exist."
+    },
+    {
+      "id": "unused-catalog-entries",
+      "category": "catalog",
+      "default": "warning",
+      "fixable": "none",
+      "summary": "A catalog entry that no manifest references."
+    },
+    {
+      "id": "workspace-protocol",
+      "category": "policy",
+      "default": "error",
+      "fixable": "none",
+      "summary": "A dependency on a workspace package does not use the `workspace:` protocol."
+    },
+    {
+      "id": "unsynced-dependency-family",
+      "category": "policy",
+      "default": "error",
+      "fixable": "none",
+      "summary": "Members of a dependency family declared in one package are on different versions."
+    }
+  ]
+}

@@ -39,6 +39,7 @@ impl Rule for RootPackageManagerField {
                 document_location(root),
             )
             .package(root.display_name())
+            .package_id(root.id)
             .help(
                 "add `\"packageManager\": \"<name>@<version>\"` (or `devEngines.packageManager`) to the root package.json; tools such as corepack read it",
             )

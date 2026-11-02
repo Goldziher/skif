@@ -1,0 +1,25 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: "redact(&human.stdout, dir.path())"
+---
+package.json
+  error[root-package-private-field]: the root package is not marked private
+   --> package.json:1:1
+    |
+  1 | {
+    | ^
+    = package: cli-dirty
+    = help: set `"private": true` in the root package.json to prevent publishing it to a registry
+    = fix (safe): Set `private` to `true`
+
+packages/a/package.json
+  warning[empty-dependencies]: `devDependencies` is empty
+   --> packages/a/package.json:7:3
+    |
+  7 |   "devDependencies": {}
+    |   ^^^^^^^^^^^^^^^^^^^^^
+    = package: @cli/a
+    = help: remove the empty `devDependencies` field
+    = fix (safe): Remove the empty `devDependencies` field
+
+Found 1 error, 1 warning in 3 packages (2 fixable)

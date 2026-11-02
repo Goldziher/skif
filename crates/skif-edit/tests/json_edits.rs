@@ -171,6 +171,18 @@ fn remove_cleans_up_separators() {
             expected: "{\n  \"l\": [\n    2\n  ]\n}\n",
         },
         Case {
+            name: "array removals in descending op order",
+            input: "{\n  \"l\": [\n    1,\n    2,\n    3,\n    4,\n    5\n  ]\n}\n",
+            ops: vec![remove(&["l", "#3"]), remove(&["l", "#1"])],
+            expected: "{\n  \"l\": [\n    1,\n    3,\n    5\n  ]\n}\n",
+        },
+        Case {
+            name: "three array removals address the original indices",
+            input: "{ \"l\": [\"a\", \"b\", \"c\", \"d\", \"e\"] }",
+            ops: vec![remove(&["l", "#0"]), remove(&["l", "#1"]), remove(&["l", "#3"])],
+            expected: "{ \"l\": [\"c\", \"e\"] }",
+        },
+        Case {
             name: "adjacent middle members",
             input: "{\n  \"a\": 1,\n  \"b\": 2,\n  \"c\": 3,\n  \"d\": 4\n}\n",
             ops: vec![remove(&["b"]), remove(&["c"])],

@@ -7,9 +7,9 @@ license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "JavaScript and TypeScript module facts and static config extraction for skif, built on oxc."
+description = "oxc-based JS/TS module facts and static config extraction for skif; never executes code."
 documentation = "https://docs.rs/skif-js-syntax"
-keywords = ["javascript", "typescript", "oxc", "imports", "exports"]
+keywords = ["javascript", "typescript", "oxc", "imports", "skif"]
 categories = ["development-tools", "parser-implementations"]
 readme = "README.md"
 
