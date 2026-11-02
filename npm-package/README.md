@@ -1,8 +1,12 @@
 # skif
 
-[skif](https://github.com/Goldziher/skif) is a fast dependency linter for JavaScript and TypeScript
-monorepos: workspace rules and version and catalog policies, in one single-binary CLI. Unused and
-unlisted dependency analysis is in progress.
+[skif](https://github.com/Goldziher/skif) is a dependency and package-manager linter, auditor and enforcer for
+JavaScript and TypeScript, with first-class monorepo support: workspace rules and version and catalog policies,
+for npm, pnpm, Yarn and Bun. Unused and unlisted dependency analysis is in progress.
+
+## Requirements
+
+Node.js 24 or newer, or Bun. The package is ESM.
 
 ## Install
 
@@ -19,12 +23,31 @@ npx skif
 bunx skif
 ```
 
-## How the binary gets here
+## Use from code
 
-There is no install script and nothing is downloaded at install time or at first run. This package lists
-eight platform packages as `optionalDependencies`, each carrying one prebuilt binary and declaring the
-`os`, `cpu` and, on Linux, `libc` it is for. Your package manager installs only the one that matches
-the machine, so installs work offline and are covered by the registry's integrity hashes.
+```js
+import { lint, run } from "skif";
+
+const report = JSON.parse(lint("./my-monorepo", { production: true }));
+console.log(report.summary);
+
+const exitCode = run(["--format", "json", "./my-monorepo"]);
+```
+
+- `lint(path, options?)` lints the workspace containing `path` and returns the JSON report as a string. It prints
+  nothing and writes no files.
+- `run(argv)` runs the full command line (`argv` excludes the program name) and returns its exit code. Output
+  streams to the process's stdout and stderr.
+
+Types ship in `index.d.ts`.
+
+## How the native code gets here
+
+skif is a native addon built with [napi-rs](https://napi.rs). There is no install script and nothing is
+downloaded at install time or at first run. This package lists one platform package per target as
+`optionalDependencies`, each carrying the prebuilt addon and declaring the `os`, `cpu` and, on Linux, `libc` it is
+for. Your package manager installs only the one that matches the machine, so installs work offline and are
+covered by the registry's integrity hashes.
 
 | Platform | Package |
 | --- | --- |
@@ -34,13 +57,9 @@ the machine, so installs work offline and are covered by the registry's integrit
 | Linux arm64 (musl, Alpine) | `skif-linux-arm64-musl` |
 | Linux x64 (glibc) | `skif-linux-x64-gnu` |
 | Linux x64 (musl, Alpine) | `skif-linux-x64-musl` |
-| Windows arm64 | `skif-win32-arm64` |
-| Windows x64 | `skif-win32-x64` |
 
-If no platform package is installed (for example because optional dependencies were disabled), `skif`
-exits with code 2 and a message naming the missing package.
-
-Set `SKIF_BINARY` to the path of a skif executable to run that binary instead of the bundled one.
+Windows is not supported by this package. If no platform package is installed (for example because optional
+dependencies were disabled), importing `skif` fails with an error naming the missing package.
 
 ## Links
 

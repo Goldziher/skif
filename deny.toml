@@ -23,6 +23,7 @@ allow-wildcard-paths = true
 skip = [
   { crate = "hashbrown@0.14.5", reason = "transitive duplicate from the oxc stack; waits for upstream to converge" },
   { crate = "hashbrown@0.16.1", reason = "transitive duplicate from oxc_resolver; waits for upstream to converge" },
+  { crate = "convert_case@0.7.1", reason = "transitive duplicate via derive_more in the napi stack; waits for upstream" },
   { crate = "syn@2.0.119", reason = "transitive duplicate of syn 3 pulled in by different proc-macro dependencies" },
 ]
 

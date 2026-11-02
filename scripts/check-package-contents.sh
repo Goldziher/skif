@@ -11,6 +11,10 @@ failures=0
 for manifest in crates/*/Cargo.toml; do
   dir="$(dirname "$manifest")"
   crate="$(basename "$dir")"
+  # Crates that never reach crates.io (the npm addon) ship no package.
+  if grep -qx 'publish = false' "$manifest"; then
+    continue
+  fi
   for notice in LICENSE ATTRIBUTIONS.md; do
     if ! cmp -s "$notice" "${dir}/${notice}"; then
       echo "::error file=${dir}/${notice}::${crate} must carry a copy of the root ${notice}"
