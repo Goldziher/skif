@@ -1,3 +1,6 @@
+[policy]
+dependency-types = ["prod", "dev", "peer"]
+
 [[semver-groups]]
 dependency-types = ["peer"]
 range = "^"
