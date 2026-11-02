@@ -2,9 +2,9 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
-use skif_js_syntax::{Export, ExportKind, ImportKind, ImportedKind};
+use skif_js_syntax::{ExportKind, ImportKind, ImportedKind};
 
-use crate::graph::{Module, ModuleGraph, ModuleId, Target};
+use crate::graph::{ModuleGraph, ModuleId, Target};
 
 /// How the members of one export (an enum's or a namespace's) are used.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -36,8 +36,102 @@ pub struct ExportUsage {
     all: HashSet<ModuleId>,
 }
 
-fn reexport_target(module: &Module, export: &Export) -> Option<ModuleId> {
-    export.from.as_deref().and_then(|from| module.reexport_source(from))
+/// The re-exports of one module, resolved to the modules they come from.
+#[derive(Default)]
+struct Reexports {
+    /// `export { source as name } from`, by exported `name`.
+    named: HashMap<String, Vec<(ModuleId, String)>>,
+    /// `export * as name from`, by `name`.
+    namespaces: HashMap<String, Vec<ModuleId>>,
+    /// `export * from`.
+    stars: Vec<ModuleId>,
+    /// Every target with the name it is re-exported under: `Some((name, source))` for a named re-export.
+    all: Vec<(ModuleId, Option<(String, String)>)>,
+    /// Names the module defines or re-exports itself, excluding what `export *` forwards.
+    defined: HashSet<String>,
+}
+
+/// Re-export lookups for every module, computed once so that propagating a name touches only what can answer it.
+struct ReexportIndex {
+    modules: Vec<Reexports>,
+    /// Per module, every name it exposes: its own and those forwarded by `export *`, transitively.
+    exposed: Vec<HashSet<String>>,
+}
+
+impl ReexportIndex {
+    fn build(graph: &ModuleGraph) -> Self {
+        let mut modules: Vec<Reexports> = graph
+            .modules()
+            .iter()
+            .map(|module| {
+                let mut sources: HashMap<&str, ModuleId> = HashMap::new();
+                for resolved in &module.imports {
+                    let Some(import) = module.info.imports.get(resolved.import) else {
+                        continue;
+                    };
+                    if let (ImportKind::ExportFrom, Target::Module(id)) = (import.kind, &resolved.target) {
+                        sources.entry(import.specifier.as_str()).or_insert(*id);
+                    }
+                }
+                let mut reexports = Reexports::default();
+                for export in &module.info.exports {
+                    if !(export.kind == ExportKind::StarReExport && export.name == "*") {
+                        reexports.defined.insert(export.name.clone());
+                    }
+                    let Some(target) = export
+                        .from
+                        .as_deref()
+                        .and_then(|from| sources.get(from))
+                        .copied()
+                    else {
+                        continue;
+                    };
+                    match export.kind {
+                        ExportKind::ReExport => {
+                            let source = export.imported_name.clone().unwrap_or_else(|| export.name.clone());
+                            reexports
+                                .named
+                                .entry(export.name.clone())
+                                .or_default()
+                                .push((target, source.clone()));
+                            reexports.all.push((target, Some((export.name.clone(), source))));
+                        }
+                        ExportKind::StarReExport if export.name == "*" => {
+                            reexports.stars.push(target);
+                            reexports.all.push((target, None));
+                        }
+                        ExportKind::StarReExport => {
+                            reexports.namespaces.entry(export.name.clone()).or_default().push(target);
+                            reexports.all.push((target, None));
+                        }
+                        _ => {}
+                    }
+                }
+                reexports
+            })
+            .collect();
+        let mut exposed: Vec<HashSet<String>> = modules.iter().map(|m| m.defined.clone()).collect();
+        loop {
+            let mut changed = false;
+            for (index, reexports) in modules.iter().enumerate() {
+                for target in &reexports.stars {
+                    let additions: Vec<String> = exposed[target.index()]
+                        .iter()
+                        .filter(|name| name.as_str() != "default" && !exposed[index].contains(*name))
+                        .cloned()
+                        .collect();
+                    if !additions.is_empty() {
+                        changed = true;
+                        exposed[index].extend(additions);
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        Self { modules, exposed }
+    }
 }
 
 impl ExportUsage {
@@ -47,6 +141,7 @@ impl ExportUsage {
     #[must_use]
     pub fn compute(graph: &ModuleGraph, include_entry_exports: bool) -> Self {
         let mut usage = Self::default();
+        let index = ReexportIndex::build(graph);
         let mut queue = VecDeque::new();
         for module in graph.modules() {
             if module.is_entry && !include_entry_exports {
@@ -96,36 +191,28 @@ impl ExportUsage {
         }
         while let Some(task) = queue.pop_front() {
             match task {
-                Task::All(id) => usage.mark_all(graph, id, &mut queue),
-                Task::Name(id, name, access) => usage.mark_name(graph, id, &name, &access, &mut queue),
+                Task::All(id) => usage.mark_all(&index, id, &mut queue),
+                Task::Name(id, name, access) => usage.mark_name(&index, id, &name, &access, &mut queue),
             }
         }
         usage
     }
 
-    fn mark_all(&mut self, graph: &ModuleGraph, id: ModuleId, queue: &mut VecDeque<Task>) {
+    fn mark_all(&mut self, index: &ReexportIndex, id: ModuleId, queue: &mut VecDeque<Task>) {
         if !self.all.insert(id) {
             return;
         }
-        let module = graph.module(id);
-        for export in &module.info.exports {
-            let Some(target) = reexport_target(module, export) else {
-                continue;
-            };
-            match export.kind {
-                ExportKind::ReExport => {
-                    let name = export.imported_name.clone().unwrap_or_else(|| export.name.clone());
-                    queue.push_back(Task::Name(target, name, MemberUse::everything()));
-                }
-                ExportKind::StarReExport => queue.push_back(Task::All(target)),
-                _ => {}
+        for (target, named) in &index.modules[id.index()].all {
+            match named {
+                Some((_, source)) => queue.push_back(Task::Name(*target, source.clone(), MemberUse::everything())),
+                None => queue.push_back(Task::All(*target)),
             }
         }
     }
 
     fn mark_name(
         &mut self,
-        graph: &ModuleGraph,
+        index: &ReexportIndex,
         id: ModuleId,
         name: &str,
         access: &MemberUse,
@@ -143,28 +230,18 @@ impl ExportUsage {
         if !fresh && (entry.members.len(), entry.all) == before {
             return;
         }
-        let module = graph.module(id);
-        let defines_own = module
-            .info
-            .exports
-            .iter()
-            .any(|export| export.name == name && !(export.kind == ExportKind::StarReExport && export.name == "*"));
-        for export in &module.info.exports {
-            let Some(target) = reexport_target(module, export) else {
-                continue;
-            };
-            match export.kind {
-                ExportKind::ReExport if export.name == name => {
-                    let source = export.imported_name.clone().unwrap_or_else(|| export.name.clone());
-                    queue.push_back(Task::Name(target, source, access.clone()));
+        let reexports = &index.modules[id.index()];
+        for (target, source) in reexports.named.get(name).into_iter().flatten() {
+            queue.push_back(Task::Name(*target, source.clone(), access.clone()));
+        }
+        for target in reexports.namespaces.get(name).into_iter().flatten() {
+            queue.push_back(Task::All(*target));
+        }
+        if !reexports.defined.contains(name) && name != "default" {
+            for target in &reexports.stars {
+                if index.exposed[target.index()].contains(name) {
+                    queue.push_back(Task::Name(*target, name.to_owned(), access.clone()));
                 }
-                ExportKind::StarReExport if export.name == "*" => {
-                    if !defines_own && name != "default" {
-                        queue.push_back(Task::Name(target, name.to_owned(), access.clone()));
-                    }
-                }
-                ExportKind::StarReExport if export.name == name => queue.push_back(Task::All(target)),
-                _ => {}
             }
         }
     }

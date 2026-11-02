@@ -55,7 +55,7 @@ impl<'a> JsAnalysis<'a> {
         let setup = Setup::new(workspace, config, fs, sources);
         let candidates = discover(fs.as_ref(), workspace);
         let entries = entry_files(fs.as_ref(), workspace, &setup, &candidates);
-        let resolver = ModuleResolver::new(Arc::clone(fs), workspace);
+        let resolver = ModuleResolver::new(Arc::clone(fs), workspace, &setup);
         let inputs = Inputs {
             fs: fs.as_ref(),
             resolver: &resolver,
