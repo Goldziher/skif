@@ -91,9 +91,14 @@ pub enum Select {
     reason = "each bool is an independent command-line switch"
 )]
 pub struct LintArgs {
-    /// A path inside the monorepo; the workspace root is the nearest ancestor that declares a workspace.
+    /// A path inside a project; the workspace root is the nearest ancestor workspace that lists the project as a
+    /// member, else the project itself. Without a `package.json` here or above, every project below is linted.
     #[arg(default_value = ".")]
     pub path: PathBuf,
+
+    /// Lint every workspace and standalone package at or below PATH, each with its nearest `skif.toml`.
+    #[arg(short, long)]
+    pub recursive: bool,
 
     /// Output format [default: human, or human plus GitHub annotations when `GITHUB_ACTIONS=true`].
     #[arg(long, value_enum)]

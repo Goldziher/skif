@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::io::{self, Write};
+use std::path::Path;
 
 use inquire::InquireError;
 use serde_json::{Value, json};
@@ -109,6 +110,12 @@ fn install_json(status: &InstallStatus) -> Value {
     }
 }
 
+/// A fix run and the root it ran in, relative to the base the paths of the run are reported against.
+pub struct RootFix<'a> {
+    pub prefix: &'a Path,
+    pub run: &'a FixRun,
+}
+
 impl FixRun {
     /// A fix run whose install step did not happen because the re-lint failed.
     pub const fn relint_failed(plan: FixPlan) -> Self {
@@ -120,28 +127,30 @@ impl FixRun {
         }
     }
 
-    /// The `fix` object of the JSON report.
-    pub fn to_json(&self) -> Value {
-        let applied: Vec<Value> = self
-            .plan
+    fn applied_json(&self) -> impl Iterator<Item = Value> + '_ {
+        self.plan
             .applied
             .iter()
             .map(|fix| json!({"rule": fix.rule.as_str(), "message": fix.message, "title": fix.title}))
-            .collect();
-        let skipped: Vec<Value> = self
-            .plan
-            .skipped
-            .iter()
-            .map(|fix| {
-                let (reason, detail) = skip_parts(&fix.reason);
-                json!({"rule": fix.rule.as_str(), "message": fix.message, "reason": reason, "detail": detail})
-            })
-            .collect();
-        let changed: Vec<String> = self.plan.paths().map(slash).collect();
+    }
+
+    fn skipped_json(&self) -> impl Iterator<Item = Value> + '_ {
+        self.plan.skipped.iter().map(|fix| {
+            let (reason, detail) = skip_parts(&fix.reason);
+            json!({"rule": fix.rule.as_str(), "message": fix.message, "reason": reason, "detail": detail})
+        })
+    }
+
+    fn changed_at<'a>(&'a self, prefix: &'a Path) -> impl Iterator<Item = String> + 'a {
+        self.plan.paths().map(move |path| slash(&prefix.join(path)))
+    }
+
+    /// The `fix` object of the JSON report.
+    pub fn to_json(&self) -> Value {
         json!({
-            "applied": applied,
-            "skipped": skipped,
-            "changed": changed,
+            "applied": self.applied_json().collect::<Vec<_>>(),
+            "skipped": self.skipped_json().collect::<Vec<_>>(),
+            "changed": self.changed_at(Path::new("")).collect::<Vec<_>>(),
             "install": install_json(&self.install),
         })
     }
@@ -149,10 +158,19 @@ impl FixRun {
     /// A short account of the fix run for terminals. Text that came from the repository is escaped, so it cannot
     /// drive the terminal.
     pub fn write_human(&self, out: &mut dyn Write) -> io::Result<()> {
+        self.write_human_at(Path::new(""), out)
+    }
+
+    /// Like [`write_human`](Self::write_human) for a run in the root `prefix`: the root is named and the changed
+    /// files are shown relative to the base.
+    pub fn write_human_at(&self, prefix: &Path, out: &mut dyn Write) -> io::Result<()> {
+        if !prefix.as_os_str().is_empty() {
+            writeln!(out, "{}:", escape_controls(&slash(prefix)))?;
+        }
         let files = self.plan.changes.len();
         writeln!(out, "Fixed {} issue(s) in {files} file(s).", self.plan.applied.len())?;
-        for path in self.plan.paths() {
-            writeln!(out, "  fixed {}", escape_controls(&slash(path)))?;
+        for path in self.changed_at(prefix) {
+            writeln!(out, "  fixed {}", escape_controls(&path))?;
         }
         for skipped in &self.plan.skipped {
             let (reason, detail) = skip_parts(&skipped.reason);
@@ -170,4 +188,38 @@ impl FixRun {
         }
         writeln!(out)
     }
+}
+
+/// The install status that stands for all roots: a failure, else a run, else the first skip.
+fn merged_install<'a>(runs: &[RootFix<'a>]) -> &'a InstallStatus {
+    let installs = || runs.iter().map(|root| &root.run.install);
+    installs()
+        .find(|status| matches!(status, InstallStatus::Failed { .. }))
+        .or_else(|| installs().find(|status| matches!(status, InstallStatus::Ran { .. })))
+        .or_else(|| installs().next())
+        .unwrap_or(&InstallStatus::Skipped {
+            reason: "nothing was fixed",
+        })
+}
+
+/// The `fix` object for the roots of a run: the run itself for one root at the base, otherwise the applied and
+/// skipped fixes of all roots and the changed files relative to the base.
+pub fn fixes_json(runs: &[RootFix<'_>]) -> Value {
+    if let [only] = runs
+        && only.prefix.as_os_str().is_empty()
+    {
+        return only.run.to_json();
+    }
+    json!({
+        "applied": runs.iter().flat_map(|root| root.run.applied_json()).collect::<Vec<_>>(),
+        "skipped": runs.iter().flat_map(|root| root.run.skipped_json()).collect::<Vec<_>>(),
+        "changed": runs.iter().flat_map(|root| root.run.changed_at(root.prefix)).collect::<Vec<_>>(),
+        "install": install_json(merged_install(runs)),
+    })
+}
+
+/// The human account of every root's fix run, in order.
+pub fn write_fixes_human(runs: &[RootFix<'_>], out: &mut dyn Write) -> io::Result<()> {
+    runs.iter()
+        .try_for_each(|root| root.run.write_human_at(root.prefix, out))
 }

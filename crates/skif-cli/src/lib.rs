@@ -16,6 +16,7 @@ mod fix;
 mod install;
 mod lint;
 mod output;
+mod roots;
 mod write;
 
 use args::{Cli, Command, Format};
