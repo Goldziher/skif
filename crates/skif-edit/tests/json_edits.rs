@@ -5,7 +5,7 @@ mod common;
 use common::{insert, json_op, remove, rename, set, sort_keys};
 use jsonc_parser::{CollectOptions, ParseOptions, parse_to_ast};
 use serde_json::json;
-use skif_core::{FixOp, InsertPosition, JsonAction, TextEdit};
+use skif_core::{FixOp, InsertPosition, JsonAction, TextEdit, apply_text_edits};
 use skif_edit::{EditPlanError, FileKind, apply, plan_edits};
 
 struct Case {
@@ -386,10 +386,126 @@ fn overlapping_ops_conflict_and_name_both() {
         "operations conflict: `json remove /a` overlaps `json set /a`"
     );
 
+    // Sorting an object moves its members; what an operation changes inside a member moves with it.
     let sort = sort_keys(&[]);
     let unsorted = "{\n  \"b\": 1,\n  \"a\": 2\n}\n";
-    let error = plan_edits(unsorted, FileKind::Json, &[&sort, &set(&["a"], json!(3))]).unwrap_err();
+    assert_eq!(
+        apply(unsorted, FileKind::Json, &[&sort, &set(&["a"], json!(3))]).unwrap(),
+        "{\n  \"a\": 3,\n  \"b\": 1\n}\n"
+    );
+    let remove_a = remove(&["a"]);
+    let error = plan_edits(unsorted, FileKind::Json, &[&sort, &remove_a]).unwrap_err();
     assert!(matches!(error, EditPlanError::Conflict { .. }), "{error}");
+}
+
+#[test]
+fn sorting_carries_the_edits_inside_the_moved_members() {
+    run(vec![
+        Case {
+            name: "set inside a nested object that moves",
+            input: "{\n  \"z\": {\n    \"x\": 1\n  },\n  \"a\": 2\n}\n",
+            ops: vec![sort_keys(&[]), set(&["z", "x"], json!(5))],
+            expected: "{\n  \"a\": 2,\n  \"z\": {\n    \"x\": 5\n  }\n}\n",
+        },
+        Case {
+            name: "remove inside a member that moves",
+            input: "{\n  \"z\": {\n    \"x\": 1,\n    \"y\": 2\n  },\n  \"a\": 2\n}\n",
+            ops: vec![sort_keys(&[]), remove(&["z", "x"])],
+            expected: "{\n  \"a\": 2,\n  \"z\": {\n    \"y\": 2\n  }\n}\n",
+        },
+        Case {
+            name: "rename the key of a member that moves",
+            input: "{\n  \"b\": 1,\n  \"a\": 2\n}\n",
+            ops: vec![sort_keys(&[]), rename(&["b"], "c")],
+            expected: "{\n  \"a\": 2,\n  \"c\": 1\n}\n",
+        },
+        Case {
+            name: "nested sorts travel with the member that holds them",
+            input: "{\n  \"z\": {\n    \"y\": 1,\n    \"x\": 2\n  },\n  \"a\": 2\n}\n",
+            ops: vec![sort_keys(&[]), sort_keys(&["z"])],
+            expected: "{\n  \"a\": 2,\n  \"z\": {\n    \"x\": 2,\n    \"y\": 1\n  }\n}\n",
+        },
+        Case {
+            name: "edits in members that stay put are untouched",
+            input: "{\n  \"a\": {\n    \"k\": 1\n  },\n  \"c\": 3,\n  \"b\": 2\n}\n",
+            ops: vec![sort_keys(&[]), set(&["a", "k"], json!(9))],
+            expected: "{\n  \"a\": {\n    \"k\": 9\n  },\n  \"b\": 2,\n  \"c\": 3\n}\n",
+        },
+    ]);
+}
+
+/// What the facade does with fixes that each remove one member: every fix is planned on its own, identical edits count
+/// once and the rest must not overlap.
+fn combined_single_plans(source: &str, ops: &[FixOp]) -> Result<String, String> {
+    let mut edits: Vec<TextEdit> = Vec::new();
+    for op in ops {
+        for edit in plan_edits(source, FileKind::Json, &[op]).map_err(|error| error.to_string())? {
+            if !edits.contains(&edit) {
+                edits.push(edit);
+            }
+        }
+    }
+    edits.sort_by_key(|edit| (edit.start, edit.end));
+    if let Some(pair) = edits.windows(2).find(|pair| pair[0].end > pair[1].start) {
+        return Err(format!("overlap: {pair:?}"));
+    }
+    apply_text_edits(source, &edits).map_err(|error| error.to_string())
+}
+
+#[test]
+fn single_member_removals_planned_alone_commute() {
+    const ABCD: &str = "{\n  \"a\": 1,\n  \"b\": 2,\n  \"c\": 3,\n  \"d\": 4\n}\n";
+    let cases: [(&[&str], &str); 5] = [
+        (&["a", "b"], "{\n  \"c\": 3,\n  \"d\": 4\n}\n"),
+        (&["b", "c"], "{\n  \"a\": 1,\n  \"d\": 4\n}\n"),
+        (&["a", "c"], "{\n  \"b\": 2,\n  \"d\": 4\n}\n"),
+        (&["a", "d"], "{\n  \"b\": 2,\n  \"c\": 3\n}\n"),
+        (&["b", "d"], "{\n  \"a\": 1,\n  \"c\": 3\n}\n"),
+    ];
+    for (keys, expected) in cases {
+        let ops: Vec<FixOp> = keys.iter().map(|key| remove(&[key])).collect();
+        assert_eq!(combined_single_plans(ABCD, &ops).as_deref(), Ok(expected), "{keys:?}");
+        // The order in which the fixes are planned does not matter.
+        let reversed: Vec<FixOp> = ops.into_iter().rev().collect();
+        assert_eq!(combined_single_plans(ABCD, &reversed).as_deref(), Ok(expected), "{keys:?}");
+    }
+    const INLINE: &str = "{ \"a\": 1, \"b\": 2, \"c\": 3 }";
+    let ops = [remove(&["a"]), remove(&["c"])];
+    assert_eq!(
+        combined_single_plans(INLINE, &ops).as_deref(),
+        Ok("{ \"b\": 2 }")
+    );
+}
+
+#[test]
+fn the_last_two_members_removed_alone_agree_on_their_separator() {
+    const ABC: &str = "{\n  \"a\": 1,\n  \"b\": 2,\n  \"c\": 3\n}\n";
+    let ops = [remove(&["b"]), remove(&["c"])];
+    assert!(combined_single_plans(ABC, &ops).is_ok());
+}
+
+#[test]
+fn removing_the_last_member_keeps_the_comment_after_the_previous_comma() {
+    run(vec![
+        Case {
+            name: "comment after the comma",
+            input: "{\n  \"a\": 1, // keep\n  \"b\": 2\n}\n",
+            ops: vec![remove(&["b"])],
+            expected: "{\n  \"a\": 1 // keep\n}\n",
+        },
+        Case {
+            name: "block comment after the comma, inline",
+            input: "{ \"a\": 1, /* keep */ \"b\": 2 }",
+            ops: vec![remove(&["b"])],
+            expected: "{ \"a\": 1 /* keep */  }",
+        },
+        Case {
+            name: "several trailing members",
+            input: "{\n  \"a\": 1,\n  \"b\": 2,\n  \"c\": 3\n}\n",
+            ops: vec![remove(&["b"]), remove(&["c"])],
+            expected: "{\n  \"a\": 1\n}\n",
+        },
+    ]);
 }
 
 #[test]
