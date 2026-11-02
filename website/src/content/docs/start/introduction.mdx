@@ -1,0 +1,36 @@
+---
+title: Introduction
+description: What skif is, what it checks and how it is built.
+---
+
+skif is a dependency and package-manager linter, auditor and enforcer for JavaScript and TypeScript, with
+first-class monorepo support. It is written in Rust, ships as a single-binary CLI, and is also an embeddable
+library.
+
+## What it checks
+
+- **Monorepo and manifest hygiene.** Root and member `package.json` rules, workspace pattern checks, sorted and
+  well-placed dependency fields. This is the [sherif](https://github.com/QuiiBz/sherif) lineage.
+- **Version, semver-range and catalog policies.** Version groups, range policies, workspace protocol and catalog
+  enforcement across packages. This is the [syncpack](https://github.com/JamieMason/syncpack) lineage.
+- **Unused, unlisted and unresolved dependencies and dead code.** Static analysis of JavaScript and TypeScript
+  sources on [oxc](https://oxc.rs), with a built-in plugin table for common tools. This is the
+  [knip](https://github.com/webpro-nl/knip) lineage.
+
+Every check is a rule with a stable kebab-case id, a category (`manifest`, `workspace`, `policy`, `catalog`,
+`js`), a default level (`off`, `info`, `warn`, `error`) and a fix safety. See the [rules overview](../../rules/).
+
+## Principles
+
+- **Static only.** skif never executes project code. Analysis reads files; configuration is TOML.
+- **Format-preserving fixes.** `--fix` edits `package.json` and `pnpm-workspace.yaml` while keeping key order,
+  indentation and comments.
+- **One configuration file.** `skif.toml` or `.skif.toml` at the workspace root. There is no `package.json` key
+  and no compatibility reader for sherif, syncpack or knip configuration.
+- **Library first.** The CLI is a thin layer over the `skif` crate, which never prints, prompts, exits or writes
+  files. See [library usage](../../guides/library/).
+
+## Supported package managers
+
+npm, pnpm, yarn and bun workspaces. skif detects the package manager from `[workspace] package-manager`, then
+the root `packageManager` field, then lockfiles. It does not guess when nothing indicates one.
