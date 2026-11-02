@@ -213,6 +213,9 @@ impl<'a, 'w> Visitor<'a, 'w> {
     }
 
     /// A same-minor group forbids ranges wider than a tilde, and keeps a semver group's range when that is safe.
+    ///
+    /// An instance that already is the tilde the group forces is valid, whatever the semver group asks for, so the
+    /// fix converges.
     fn at_correct_minor(&self, id: InstanceId) -> Outcome {
         let is_safe = |range: &SemverRange| matches!(range, SemverRange::Exact | SemverRange::Patch);
         let tilde = || self.spec(id).with_range(&SemverRange::Patch);
@@ -225,12 +228,16 @@ impl<'a, 'w> Visitor<'a, 'w> {
                 }
             }
             Some(_) => {
+                let target = tilde();
+                if target.as_ref().is_some_and(|target| self.equals(id, target)) {
+                    return None;
+                }
                 let state = if self.matches_preferred(id) {
                     State::SameMinorOverridesSemverRange
                 } else {
                     State::SameMinorOverridesSemverRangeMismatch
                 };
-                Some((state, tilde()))
+                Some((state, target))
             }
             None => match self.spec(id).get_semver_range() {
                 Some(range) if !is_safe(&range) => Some((State::SameMinorOverridesSemverRange, tilde())),
@@ -740,6 +747,24 @@ mod tests {
             let members = [("app", app.as_str()), ("lib", lib.as_str())];
             let actual: Vec<&str> = states(toml, &members).into_iter().map(|(_, _, state)| state).collect();
             assert_eq!(actual, expected, "{first} {second}");
+        }
+    }
+
+    #[test]
+    fn a_same_minor_group_forcing_tilde_converges_under_a_caret_semver_group() {
+        let toml = "[[version-groups]]\ndependencies = [\"ts\"]\npolicy = \"same-minor\"\n\n\
+                    [[semver-groups]]\ndependencies = [\"ts\"]\nrange = \"^\"\n";
+        let cases: [(&str, &[&str]); 3] = [
+            ("^5.4.2", &["SameMinorOverridesSemverRange"]),
+            ("5.4.2", &["SameMinorOverridesSemverRangeMismatch"]),
+            ("~5.4.2", &[]),
+        ];
+        for (specifier, expected) in cases {
+            let app = manifest("app", "1.0.0", &format!(r#""ts":"{specifier}""#));
+            let lib = manifest("lib", "1.0.0", r#""ts":"~5.4.2""#);
+            let members = [("app", app.as_str()), ("lib", lib.as_str())];
+            let actual: Vec<&str> = states(toml, &members).into_iter().map(|(_, _, state)| state).collect();
+            assert_eq!(actual, expected, "{specifier}");
         }
     }
 
