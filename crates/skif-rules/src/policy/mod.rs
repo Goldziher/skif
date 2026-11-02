@@ -237,6 +237,31 @@ mod tests {
     }
 
     #[test]
+    fn catalog_mismatch_is_a_warning_unless_a_level_is_configured() {
+        const YAML: &str = "packages:\n  - \"packages/*\"\ncatalog:\n  \"react\": \"^18.3.1\"\n";
+        const USES: &str = r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"react":"catalog:"}}"#;
+        const DIFFERS: &str = r#"{"name":"lib","version":"1.0.0","private":true,"dependencies":{"react":"^18.2.0"}}"#;
+        const ROOT: &str = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0"}"#;
+        let files = [
+            ("package.json", ROOT),
+            ("pnpm-workspace.yaml", YAML),
+            ("packages/app/package.json", USES),
+            ("packages/lib/package.json", DIFFERS),
+        ];
+        let severities = |toml: &str| -> Vec<Severity> {
+            lint("catalog-mismatch", &files, &config(toml))
+                .iter()
+                .map(|diagnostic| diagnostic.severity)
+                .collect()
+        };
+        assert_eq!(severities(""), [Severity::Warning]);
+        assert_eq!(
+            severities("[rules]\ncatalog-mismatch = \"error\"\n"),
+            [Severity::Error]
+        );
+    }
+
+    #[test]
     fn the_rule_ids_are_the_adr_set() {
         let ids: Vec<&str> = rules().iter().map(|meta| meta.id).collect();
         assert_eq!(

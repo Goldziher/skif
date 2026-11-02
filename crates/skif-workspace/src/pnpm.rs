@@ -19,12 +19,15 @@ pub struct YamlSource {
     pub source: Arc<str>,
     /// Offset-to-line/column conversion for `source`.
     pub line_index: Arc<LineIndex>,
+    /// The `overrides:` entries as written: dependency selector and replacement.
+    pub overrides: Vec<(String, String)>,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct PnpmWorkspace {
     pub packages: Option<Vec<String>>,
     pub catalogs: Catalogs,
+    pub overrides: Vec<(String, String)>,
 }
 
 pub(crate) fn parse(path: &Path, source: &str) -> Result<PnpmWorkspace, WorkspaceError> {
@@ -54,7 +57,21 @@ pub(crate) fn parse(path: &Path, source: &str) -> Result<PnpmWorkspace, Workspac
     } else {
         catalogs.with_source(path)
     };
-    Ok(PnpmWorkspace { packages, catalogs })
+    let overrides = document
+        .get("overrides")
+        .and_then(Value::as_object)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|(selector, replacement)| Some((selector.clone(), replacement.as_str()?.to_owned())))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(PnpmWorkspace {
+        packages,
+        catalogs,
+        overrides,
+    })
 }
 
 /// Reads one scalar at the start of `text`: a quoted string, or a plain scalar up to a flow delimiter or ` #`.
