@@ -194,9 +194,13 @@ jobs:
         run: scripts/check-pins.sh
       - name: Check that vendored files carry their attribution headers
         run: scripts/check-headers.sh
+      - name: Check that rule ids are never dropped
+        run: scripts/check-rule-ids.sh
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
+      - name: Check the dependency layering
+        run: scripts/check-dependency-tree.sh
       - name: Check that every published crate ships LICENSE and ATTRIBUTIONS.md
         run: scripts/check-package-contents.sh
 
