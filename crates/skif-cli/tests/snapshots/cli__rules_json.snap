@@ -257,6 +257,13 @@ expression: json.stdout
       "default": null,
       "fixable": "none",
       "summary": "Modules import each other in a cycle."
+    },
+    {
+      "id": "unparseable-files",
+      "category": "js",
+      "default": "warning",
+      "fixable": "none",
+      "summary": "A file reachable from an entry file has a syntax error the parser could not recover from."
     }
   ]
 }

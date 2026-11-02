@@ -37,12 +37,11 @@ impl JsRule for UnlistedDependencies {
             let Some(package) = analysis.workspace.package(unlisted.package) else {
                 continue;
             };
-            let span = module.info.imports.get(unlisted.import).map(|import| import.span);
             out.emit(
                 diagnostic(
                     &META,
                     format!("`{}` is imported but not listed in `package.json`", unlisted.name),
-                    module_location(module, span),
+                    module_location(module, unlisted.span),
                 )
                 .package(package.display_name())
                 .dependency(unlisted.name.clone())

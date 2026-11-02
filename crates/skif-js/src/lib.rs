@@ -11,7 +11,8 @@
 //!
 //! The rules are `unused-dependencies`, `unused-dev-dependencies`, `unlisted-dependencies`, `unresolved-imports`,
 //! `unlisted-binaries`, `unused-optional-peer-dependencies`, `unused-files`, `unused-exports`, `unused-types`,
-//! `unused-enum-members`, `unused-namespace-members`, `duplicate-exports` and `circular-imports` (off by default).
+//! `unused-enum-members`, `unused-namespace-members`, `duplicate-exports`, `unparseable-files` and `circular-imports` (off
+//! by default).
 //!
 //! No oxc type appears in the public API.
 
@@ -29,6 +30,7 @@ mod resolve;
 mod rules;
 mod scripts;
 mod setup;
+mod source_scan;
 mod specifier;
 mod usage;
 
@@ -39,7 +41,7 @@ pub use input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs}
 pub use plugin_source::PluginSource;
 pub use provider::{JsProvider, PROVIDER_ID};
 pub use rules::{
-    CircularImports, DuplicateExports, JsRule, UnlistedBinaries, UnlistedDependencies, UnresolvedImports,
+    CircularImports, DuplicateExports, JsRule, UnlistedBinaries, UnlistedDependencies, UnparseableFiles, UnresolvedImports,
     UnusedDependencies, UnusedDevDependencies, UnusedEnumMembers, UnusedExports, UnusedFiles, UnusedNamespaceMembers,
     UnusedOptionalPeerDependencies, UnusedTypes, rules,
 };

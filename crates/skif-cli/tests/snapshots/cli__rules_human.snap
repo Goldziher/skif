@@ -39,3 +39,4 @@ unused-enum-members                js         warning  none       A member of an
 unused-namespace-members           js         warning  none       An exported member of a TypeScript namespace is never read.
 duplicate-exports                  js         warning  none       One binding is exported under several names.
 circular-imports                   js         off      none       Modules import each other in a cycle.
+unparseable-files                  js         warning  none       A file reachable from an entry file has a syntax error the parser could not recover from.
