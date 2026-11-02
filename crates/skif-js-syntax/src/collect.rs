@@ -232,8 +232,8 @@ fn skip_trivia(src: &str, mut at: usize) -> usize {
         at += rest.len() - trimmed.len();
         if trimmed.starts_with("//") {
             at += trimmed.find('\n').unwrap_or(trimmed.len());
-        } else if trimmed.starts_with("/*") {
-            at += trimmed[2..].find("*/").map_or(trimmed.len(), |i| i + 4);
+        } else if let Some(body) = trimmed.strip_prefix("/*") {
+            at += body.find("*/").map_or(trimmed.len(), |i| i + 4);
         } else {
             return at;
         }
@@ -255,7 +255,6 @@ fn skip_decorator(src: &str, at: usize) -> usize {
     for (k, &b) in bytes.iter().enumerate().skip(j) {
         match (quote, b) {
             (Some(q), b) if b == q => quote = None,
-            (Some(_), _) => {}
             (None, b'"' | b'\'' | b'`') => quote = Some(b),
             (None, b'(') => depth += 1,
             (None, b')') => {

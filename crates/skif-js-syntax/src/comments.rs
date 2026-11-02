@@ -56,7 +56,10 @@ fn jsx_import_source(comment: &str) -> Option<(String, u32)> {
     let after = comment.find(PRAGMA)? + PRAGMA.len();
     let rest = &comment[after..];
     let trimmed = rest.trim_start();
-    let value: String = trimmed.chars().take_while(|c| !c.is_whitespace() && *c != '*').collect();
+    let value: String = trimmed
+        .chars()
+        .take_while(|c| !c.is_whitespace() && *c != '*')
+        .collect();
     let offset = u32::try_from(after + (rest.len() - trimmed.len())).ok()?;
     (!value.is_empty()).then_some((value, offset))
 }
@@ -198,7 +201,11 @@ fn jsdoc_import_types(flat: &str) -> Vec<(String, Vec<ImportedName>)> {
     while let Some(i) = flat[from..].find(CALL) {
         let at = from + i;
         from = at + CALL.len();
-        if flat[..at].chars().next_back().is_some_and(|c| is_ident_char(c) || c == '@') {
+        if flat[..at]
+            .chars()
+            .next_back()
+            .is_some_and(|c| is_ident_char(c) || c == '@')
+        {
             continue;
         }
         let Some((specifier, after)) = quoted(&flat[from..]) else {
@@ -225,10 +232,19 @@ mod tests {
 
     #[test]
     fn jsdoc_import_clauses() {
-        let cases: &[(&str, &str, &[(&str, Option<&str>)])] = &[
-            ("@import {A, B as C} from 'pkg'", "pkg", &[("A", Some("A")), ("B", Some("C"))]),
+        type Case<'a> = (&'a str, &'a str, &'a [(&'a str, Option<&'a str>)]);
+        let cases: &[Case<'_>] = &[
+            (
+                "@import {A, B as C} from 'pkg'",
+                "pkg",
+                &[("A", Some("A")), ("B", Some("C"))],
+            ),
             ("@import * as ns from \"pkg\"", "pkg", &[("*", Some("ns"))]),
-            ("@import Def, {type A} from 'pkg'", "pkg", &[("default", Some("Def")), ("A", Some("A"))]),
+            (
+                "@import Def, {type A} from 'pkg'",
+                "pkg",
+                &[("default", Some("Def")), ("A", Some("A"))],
+            ),
         ];
         for (src, specifier, expected) in cases {
             let got = jsdoc_imports(src);
@@ -246,8 +262,10 @@ mod tests {
                     (kind, n.local.clone())
                 })
                 .collect();
-            let want: Vec<(String, Option<String>)> =
-                expected.iter().map(|(k, l)| ((*k).to_string(), l.map(str::to_string))).collect();
+            let want: Vec<(String, Option<String>)> = expected
+                .iter()
+                .map(|(k, l)| ((*k).to_string(), l.map(str::to_string)))
+                .collect();
             assert_eq!(names, want, "{src}");
         }
     }

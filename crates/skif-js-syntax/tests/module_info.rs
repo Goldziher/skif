@@ -533,12 +533,13 @@ fn source_type_follows_extension() {
         assert!(!info.exports.is_empty() || info.has_cjs_exports, "{path}");
     }
     let ts_only = parse("a.js", "export const a: number = 1;");
-    assert!(!ts_only.parse_diagnostics.is_empty());
+    assert_ne!(ts_only.parse_diagnostics, [] as [skif_js_syntax::ParseIssue; 0]);
 }
 
 #[test]
 fn syntax_errors_are_reported_and_the_recovered_program_is_used() {
-    let source = "import a from 'a';\nconst = ;\nexport const kept = 1;\n";
+    // Mixing `??` and `||` without parentheses is a recoverable error: oxc reports it and keeps the program.
+    let source = "import a from 'a';\nx ?? y || z;\nexport const kept = 1;\n";
     let info = parse("a.js", source);
     assert!(!info.fatal);
     assert_eq!(info.imports[0].specifier, "a");
@@ -551,21 +552,22 @@ fn syntax_errors_are_reported_and_the_recovered_program_is_used() {
 #[test]
 fn clean_files_have_no_diagnostics() {
     let info = parse("a.js", "export const a = 1;");
-    assert!(info.parse_diagnostics.is_empty());
+    assert_eq!(info.parse_diagnostics, [] as [skif_js_syntax::ParseIssue; 0]);
     assert!(!info.fatal);
 }
 
 #[test]
 fn unrecoverable_input_is_flagged_fatal() {
-    let info = parse("a.js", "\u{0}\u{1} ((( import {{{ `");
+    // A missing binding name is a fatal error in oxc: the program comes back empty.
+    let info = parse("a.js", "import a from 'a';\nconst = ;\n");
     assert!(info.fatal);
-    assert!(!info.parse_diagnostics.is_empty());
+    assert_ne!(info.parse_diagnostics, [] as [skif_js_syntax::ParseIssue; 0]);
     assert!(info.imports.is_empty() && info.exports.is_empty());
 }
 
 #[test]
 fn component_blocks_report_their_diagnostics_with_original_offsets() {
-    let vue = "<template/>\n<script>\nconst = ;\nexport const ok = 1;\n</script>\n";
+    let vue = "<template/>\n<script>\nx ?? y || z;\nexport const ok = 1;\n</script>\n";
     let info = parse("A.vue", vue);
     assert_eq!(info.exports[0].name, "ok");
     assert_eq!(info.parse_diagnostics[0].span.start_line, 3);
@@ -615,7 +617,10 @@ fn javascript_files_accept_jsx_and_top_level_return() {
         assert!(info.has_jsx, "{path}");
         assert_eq!(info.imports[0].specifier, "x", "{path}");
     }
-    let info = parse("a.cjs", "const a = require('a');\nif (!a) return;\nmodule.exports = a;\n");
+    let info = parse(
+        "a.cjs",
+        "const a = require('a');\nif (!a) return;\nmodule.exports = a;\n",
+    );
     assert!(info.has_cjs_exports);
     assert_eq!(info.imports[0].specifier, "a");
 }
@@ -634,7 +639,10 @@ fn specifiers(info: &ModuleInfo) -> Vec<(&str, ImportKind)> {
 #[test]
 fn import_types_are_type_only_imports() {
     let info = parse("a.ts", "export type A = import('x').T;\nlet v: typeof import('y');\n");
-    assert_eq!(specifiers(&info), [("x", ImportKind::TypeOnly), ("y", ImportKind::TypeOnly)]);
+    assert_eq!(
+        specifiers(&info),
+        [("x", ImportKind::TypeOnly), ("y", ImportKind::TypeOnly)]
+    );
     assert_eq!(info.imports[0].names[0].kind, ImportedKind::Named("T".into()));
     assert!(info.imports[0].names[0].is_type);
     assert_eq!(info.imports[1].names[0].kind, ImportedKind::Namespace);
@@ -675,7 +683,10 @@ fn jsx_import_source_only_counts_in_leading_comments() {
     let span = leading.jsx_import_source_span.unwrap();
     assert_eq!(slice("// @jsxImportSource preact\n", span.start, span.end), "preact");
 
-    let late = parse("a.jsx", "export const a = <b />;\n// @jsxImportSource preact\nconst s = '@jsxImportSource x';\n");
+    let late = parse(
+        "a.jsx",
+        "export const a = <b />;\n// @jsxImportSource preact\nconst s = '@jsxImportSource x';\n",
+    );
     assert_eq!(late.jsx_import_source, None);
     assert_eq!(late.jsx_import_source_span, None);
 }
@@ -697,7 +708,9 @@ fn export_keyword_is_anchored_at_the_statement_start() {
 fn default_expression_removal_is_marked() {
     let expr = parse("a.js", "export default 42;\n").exports[0].removal.unwrap();
     assert!(expr.default_expression);
-    let decl = parse("a.js", "export default function f() {}\n").exports[0].removal.unwrap();
+    let decl = parse("a.js", "export default function f() {}\n").exports[0]
+        .removal
+        .unwrap();
     assert!(!decl.default_expression);
 }
 
@@ -707,7 +720,11 @@ fn removal_edits_are_disjoint() {
     let info = parse("a.ts", source);
     let apply = |unused: &[&str]| {
         let mut out = source.to_string();
-        for (s, e) in info.removal_edits(|e| unused.contains(&e.name.as_str())).into_iter().rev() {
+        for (s, e) in info
+            .removal_edits(|e| unused.contains(&e.name.as_str()))
+            .into_iter()
+            .rev()
+        {
             out.replace_range(s as usize..e as usize, "");
         }
         out
