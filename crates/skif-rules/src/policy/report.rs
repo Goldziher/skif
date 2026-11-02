@@ -83,14 +83,15 @@ fn instance_diagnostic(
 
 /// The other instances of the dependency of `id`, in collection order.
 fn counterparts<'a, 'w>(analysis: &'a Analysis<'w>, id: InstanceId) -> impl Iterator<Item = &'a Instance<'w>> {
-    let name = &analysis.instances.get(id).name;
+    let instance = analysis.instances.get(id);
     analysis
         .instances
-        .named(name)
+        .named(&instance.name)
         .iter()
         .copied()
         .filter(move |&other| other != id)
         .map(move |other| analysis.instances.get(other))
+        .filter(move |other| other.alias_target() == instance.alias_target())
 }
 
 /// The instance the finding is about: the one that holds the version `id` should take, or, when the instances
