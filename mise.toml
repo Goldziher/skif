@@ -87,6 +87,8 @@ run = [
   "scripts/check-versions.sh",
   "scripts/check-pins.sh",
   "scripts/check-headers.sh",
+  "scripts/check-rule-ids.sh",
+  "scripts/check-dependency-tree.sh",
   "scripts/check-package-contents.sh",
 ]
 
