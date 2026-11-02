@@ -1,9 +1,13 @@
 //! The SARIF 2.1.0 renderer.
 //!
-//! Columns are declared as `unicodeCodePoints` so skif's scalar-value columns are emitted unchanged. Fixes are
+//! Columns follow ADR 0012: converted to UTF-16 code units (`utf16CodeUnits`) using the source text registered with
+//! [`RenderOptions::with_source`]; when some file's text is unknown the run declares `unicodeCodePoints` and emits
+//! skif's scalar-value columns unchanged. Paths are percent-encoded URI references. Fixes are
 //! operations on structured files rather than text replacements, so they are listed under `properties.fixes`
 //! instead of the SARIF `fixes` array, which requires concrete artifact changes.
 
+use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::io::{self, Write};
 
 use serde::Serialize;
@@ -197,29 +201,69 @@ fn rules<'a>(report: &'a Report, options: &'a RenderOptions) -> Vec<SarifRule<'a
     rules
 }
 
-const fn region(span: &Span) -> Region {
+/// Percent-encodes a `/`-separated path as a URI reference: everything but unreserved characters and `/`.
+fn encode_uri(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~' | b'/') {
+            out.push(char::from(byte));
+        } else {
+            let _ = write!(out, "%{byte:02X}");
+        }
+    }
+    out
+}
+
+/// Whether the column of `span`'s ends can be converted to UTF-16 for the file at `path`.
+fn convertible(options: &RenderOptions, path: &str, span: &Span) -> bool {
+    options.utf16_column(path, span.start_line, span.start_col).is_some()
+        && options.utf16_column(path, span.end_line, span.end_col).is_some()
+}
+
+/// Whether every region of the report can be expressed in UTF-16 columns.
+fn all_convertible(report: &Report, options: &RenderOptions) -> bool {
+    report.diagnostics.iter().all(|diagnostic| {
+        let mut locations = std::iter::once(&diagnostic.location).chain(diagnostic.related.iter().map(|r| &r.location));
+        locations.all(|location| {
+            location
+                .span
+                .as_ref()
+                .is_none_or(|span| convertible(options, &options.display_path(&location.path), span))
+        })
+    })
+}
+
+fn region(span: &Span, path: &str, options: &RenderOptions, utf16: bool) -> Region {
+    let column = |line: u32, column: u32| {
+        if utf16 {
+            options.utf16_column(path, line, column).unwrap_or(column)
+        } else {
+            column
+        }
+    };
     Region {
         start_line: span.start_line,
-        start_column: span.start_col,
+        start_column: column(span.start_line, span.start_col),
         end_line: span.end_line,
-        end_column: span.end_col,
+        end_column: column(span.end_line, span.end_col),
     }
 }
 
-fn physical(location: &Location, options: &RenderOptions) -> PhysicalLocation {
+fn physical(location: &Location, options: &RenderOptions, utf16: bool) -> PhysicalLocation {
+    let path = options.display_path(&location.path);
     PhysicalLocation {
+        region: location.span.as_ref().map(|span| region(span, &path, options, utf16)),
         artifact_location: ArtifactLocation {
-            uri: options.display_path(&location.path),
+            uri: encode_uri(&path),
             uri_base_id: SRCROOT,
         },
-        region: location.span.as_ref().map(region),
     }
 }
 
-fn related<'a>(index: usize, related: &'a Related, options: &RenderOptions) -> SarifLocation<'a> {
+fn related<'a>(index: usize, related: &'a Related, options: &RenderOptions, utf16: bool) -> SarifLocation<'a> {
     SarifLocation {
         id: Some(index),
-        physical_location: physical(&related.location, options),
+        physical_location: physical(&related.location, options, utf16),
         message: Some(Text { text: &related.message }),
     }
 }
@@ -248,7 +292,9 @@ fn fnv1a(parts: &[&str]) -> u64 {
     hash
 }
 
-fn fingerprint(diagnostic: &Diagnostic, path: &str) -> String {
+/// Fingerprint of a diagnostic; `occurrence` (1-based) separates diagnostics that are otherwise identical, such as
+/// the same message reported twice in one file.
+fn fingerprint(diagnostic: &Diagnostic, path: &str, occurrence: usize) -> String {
     let hash = fnv1a(&[
         diagnostic.rule.as_str(),
         path,
@@ -256,13 +302,21 @@ fn fingerprint(diagnostic: &Diagnostic, path: &str) -> String {
         diagnostic.dependency.as_deref().unwrap_or_default(),
         &diagnostic.message,
     ]);
-    format!("{hash:016x}")
+    format!("{hash:016x}:{occurrence}")
 }
 
-fn result<'a>(diagnostic: &'a Diagnostic, rules: &[SarifRule<'_>], options: &RenderOptions) -> SarifResult<'a> {
+fn result<'a>(
+    diagnostic: &'a Diagnostic,
+    rules: &[SarifRule<'_>],
+    options: &RenderOptions,
+    utf16: bool,
+    seen: &mut HashMap<String, usize>,
+) -> SarifResult<'a> {
     let id = diagnostic.rule.as_str();
-    let primary = physical(&diagnostic.location, options);
-    let fingerprint = fingerprint(diagnostic, &primary.artifact_location.uri);
+    let primary = physical(&diagnostic.location, options, utf16);
+    let key = fingerprint(diagnostic, &primary.artifact_location.uri, 0);
+    let occurrence = seen.entry(key).and_modify(|count| *count += 1).or_insert(1);
+    let fingerprint = fingerprint(diagnostic, &primary.artifact_location.uri, *occurrence);
     SarifResult {
         rule_id: id,
         rule_index: rules.iter().position(|rule| rule.id == id),
@@ -279,7 +333,7 @@ fn result<'a>(diagnostic: &'a Diagnostic, rules: &[SarifRule<'_>], options: &Ren
             .related
             .iter()
             .enumerate()
-            .map(|(index, r)| related(index, r, options))
+            .map(|(index, r)| related(index, r, options, utf16))
             .collect(),
         partial_fingerprints: Fingerprints { skif: fingerprint },
         properties: ResultProperties {
@@ -301,7 +355,13 @@ fn result<'a>(diagnostic: &'a Diagnostic, rules: &[SarifRule<'_>], options: &Ren
 /// Returns any error produced by writing to `out`.
 pub fn render_sarif(report: &Report, options: &RenderOptions, out: &mut dyn Write) -> io::Result<()> {
     let rules = rules(report, options);
-    let results = report.diagnostics.iter().map(|d| result(d, &rules, options)).collect();
+    let utf16 = all_convertible(report, options);
+    let mut seen = HashMap::new();
+    let results = report
+        .diagnostics
+        .iter()
+        .map(|d| result(d, &rules, options, utf16, &mut seen))
+        .collect();
     let document = Document {
         schema: SCHEMA_URI,
         version: SARIF_VERSION,
@@ -314,7 +374,7 @@ pub fn render_sarif(report: &Report, options: &RenderOptions, out: &mut dyn Writ
                     rules,
                 },
             },
-            column_kind: "unicodeCodePoints",
+            column_kind: if utf16 { "utf16CodeUnits" } else { "unicodeCodePoints" },
             results,
         }],
     };
@@ -325,6 +385,13 @@ pub fn render_sarif(report: &Report, options: &RenderOptions, out: &mut dyn Writ
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uris_are_percent_encoded() {
+        assert_eq!(encode_uri("packages/a b/package.json"), "packages/a%20b/package.json");
+        assert_eq!(encode_uri("@scope/pkg#1/\u{e9}.json"), "%40scope/pkg%231/%C3%A9.json");
+        assert_eq!(encode_uri("plain-name_1.0~x/y"), "plain-name_1.0~x/y");
+    }
 
     #[test]
     fn fingerprint_is_stable() {
