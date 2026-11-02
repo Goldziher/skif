@@ -7,13 +7,14 @@ use serde_json::Map;
 use skif::{
     Config, ConfigOverrides, FileSystem, IgnoreEntry, Linter, OsFs, Prefer, Report, RunOptions, Selector, Workspace,
 };
+use skif_report::escape_controls;
 
 use crate::args::{Format, LintArgs, Select};
 use crate::env::{Env, github_workspace};
 use crate::error::CliError;
 use crate::fix::{self, FixRun};
 use crate::install::{self, InstallStatus};
-use crate::output::{self, Rendering, emit_error, emit_error_with};
+use crate::output::{self, Rendering, emit_error, emit_error_with, stderr_line};
 use crate::write::write_plan;
 
 const CLEAN: u8 = 0;
@@ -135,7 +136,7 @@ fn install_step(args: &LintArgs, changed: &[&Path], workspace: &Workspace) -> In
         };
     }
     match workspace.package_manager {
-        Some(manager) => install::install(manager, &workspace.root, args.format() == Format::Json),
+        Some(manager) => install::install(manager, &workspace.root, args.format() != Format::Human),
         None => InstallStatus::Skipped {
             reason: "no package manager detected",
         },
@@ -166,7 +167,7 @@ fn rendering<'a>(args: &LintArgs, env: Env, linter: &Linter, root: &'a Path) -> 
         annotations,
         color: color_enabled(args, env),
         root,
-        repo_root: (format == Format::Github || annotations)
+        repo_root: (matches!(format, Format::Github | Format::Sarif) || annotations)
             .then(|| repo_root(root))
             .flatten(),
         rules: linter.rules().collect(),
@@ -186,7 +187,7 @@ fn fixed(
     fs: &dyn FileSystem,
 ) -> Result<(FixRun, Relint), CliError> {
     let (workspace, report) = state;
-    let selection = fix::selection(args, env, &report)?;
+    let selection = fix::selection(args, env, &report, config.policy.prefer)?;
     let plan = skif::apply_fixes(&workspace, &report, &selection, fs)?;
     write_plan(&plan, &workspace.root)?;
     if plan.is_empty() {
@@ -235,14 +236,15 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     if let Some(run) = &fix_run
         && matches!(args.format(), Format::Sarif | Format::Github)
     {
-        let mut summary = Vec::new();
-        if run.write_human(&mut summary).is_ok() {
-            eprint!("{}", String::from_utf8_lossy(&summary));
-        }
+        write_summary_to_stderr(run);
     }
 
     if let Some(InstallStatus::Failed { command, message }) = fix_run.as_ref().map(|run| &run.install) {
-        eprintln!("error: install failed ({command}): {message}");
+        stderr_line(&format!(
+            "error: install failed ({}): {}",
+            escape_controls(command),
+            escape_controls(message)
+        ));
         return Ok(COULD_NOT_RUN);
     }
     let max_warnings = args.max_warnings.or_else(|| config.lint.fail_on_warnings.then_some(0));
@@ -264,11 +266,24 @@ fn relint_failed(args: &LintArgs, error: &CliError, run: &FixRun) -> u8 {
         extra.insert("fix".to_owned(), run.to_json());
         emit_error_with(&error, Format::Json, extra);
     } else {
-        let mut summary = Vec::new();
-        if run.write_human(&mut summary).is_ok() {
-            let _ = output::write_stdout(&summary);
+        // Stdout carries the report in every format but `human`, so the summary goes to stderr there.
+        if args.format() == Format::Human {
+            let mut summary = Vec::new();
+            if run.write_human(&mut summary).is_ok() {
+                let _ = output::write_stdout(&summary);
+            }
+        } else {
+            write_summary_to_stderr(run);
         }
         emit_error(&error, args.format());
     }
     COULD_NOT_RUN
+}
+
+/// The human account of a fix run, for formats whose stdout is a machine-readable report.
+fn write_summary_to_stderr(run: &FixRun) {
+    let mut summary = Vec::new();
+    if run.write_human(&mut summary).is_ok() {
+        stderr_line(String::from_utf8_lossy(&summary).trim_end());
+    }
 }

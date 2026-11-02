@@ -484,7 +484,7 @@ jobs:
           # A musl cdylib must link the C runtime dynamically.
           RUSTFLAGS: ${{ contains(matrix.target, 'musl') && '-C target-feature=-crt-static' || '' }}
         run: >-
-          pnpm exec napi build --platform --release --esm --package skif-node
+          pnpm exec napi build --platform --profile node --esm --package skif-node
           --manifest-path ../crates/skif-node/Cargo.toml --output-dir .
           --target ${{ matrix.target }} ${{ matrix.napi_flags }}
 
