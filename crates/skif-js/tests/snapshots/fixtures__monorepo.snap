@@ -1,0 +1,280 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "unlisted-binaries",
+    "severity": "error",
+    "message": "script `lint` runs `eslint`, which no dependency provides",
+    "help": "add the package that provides the binary to `devDependencies`, or add it to `ignore-binaries`",
+    "location": {
+      "path": "package.json",
+      "span": {
+        "start": 93,
+        "end": 111,
+        "start-line": 6,
+        "start-col": 5,
+        "end-line": 6,
+        "end-col": 23
+      }
+    },
+    "package": "fx-root",
+    "dependency": "eslint"
+  },
+  {
+    "rule": "unlisted-dependencies",
+    "severity": "error",
+    "message": "`chalk` is imported but not listed in `package.json`",
+    "help": "add `chalk` to the dependencies of `@fx/app`",
+    "location": {
+      "path": "packages/app/src/main.ts",
+      "span": {
+        "start": 172,
+        "end": 198,
+        "start-line": 6,
+        "start-col": 1,
+        "end-line": 6,
+        "end-col": 27
+      }
+    },
+    "package": "@fx/app",
+    "dependency": "chalk"
+  },
+  {
+    "rule": "unresolved-imports",
+    "severity": "error",
+    "message": "cannot resolve `./missing`",
+    "help": "check the path, the `tsconfig` paths and the package `exports`",
+    "location": {
+      "path": "packages/app/src/main.ts",
+      "span": {
+        "start": 235,
+        "end": 271,
+        "start-line": 9,
+        "start-col": 1,
+        "end-line": 9,
+        "end-col": 37
+      }
+    },
+    "package": "@fx/app"
+  },
+  {
+    "rule": "unused-dependencies",
+    "severity": "error",
+    "message": "`unused-dep` is listed in `dependencies` but never used",
+    "help": "remove it, or add it to `ignore-dependencies` when a tool uses it without importing it",
+    "location": {
+      "path": "packages/app/package.json",
+      "span": {
+        "start": 215,
+        "end": 237,
+        "start-line": 12,
+        "start-col": 5,
+        "end-line": 12,
+        "end-col": 27
+      }
+    },
+    "package": "@fx/app",
+    "dependency": "unused-dep",
+    "fixes": [
+      {
+        "title": "Remove `unused-dep` from `dependencies`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "json": {
+              "path": "packages/app/package.json",
+              "pointer": [
+                {
+                  "key": "dependencies"
+                },
+                {
+                  "key": "unused-dep"
+                }
+              ],
+              "action": "remove"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-dev-dependencies",
+    "severity": "error",
+    "message": "`left-over` is listed in `devDependencies` but never used",
+    "help": "remove it, or add it to `ignore-dependencies` when a tool uses it without importing it",
+    "location": {
+      "path": "package.json",
+      "span": {
+        "start": 170,
+        "end": 191,
+        "start-line": 10,
+        "start-col": 5,
+        "end-line": 10,
+        "end-col": 26
+      }
+    },
+    "package": "fx-root",
+    "dependency": "left-over",
+    "fixes": [
+      {
+        "title": "Remove `left-over` from `devDependencies`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "json": {
+              "path": "package.json",
+              "pointer": [
+                {
+                  "key": "devDependencies"
+                },
+                {
+                  "key": "left-over"
+                }
+              ],
+              "action": "remove"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-dev-dependencies",
+    "severity": "error",
+    "message": "`@types/unused-thing` is listed in `devDependencies` but never used",
+    "help": "remove it, or add it to `ignore-dependencies` when a tool uses it without importing it",
+    "location": {
+      "path": "packages/app/package.json",
+      "span": {
+        "start": 332,
+        "end": 363,
+        "start-line": 17,
+        "start-col": 5,
+        "end-line": 17,
+        "end-col": 36
+      }
+    },
+    "package": "@fx/app",
+    "dependency": "@types/unused-thing",
+    "fixes": [
+      {
+        "title": "Remove `@types/unused-thing` from `devDependencies`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "json": {
+              "path": "packages/app/package.json",
+              "pointer": [
+                {
+                  "key": "devDependencies"
+                },
+                {
+                  "key": "@types/unused-thing"
+                }
+              ],
+              "action": "remove"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-exports",
+    "severity": "error",
+    "message": "export `unusedFormat` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "packages/app/src/format.ts",
+      "span": {
+        "start": 94,
+        "end": 106,
+        "start-line": 5,
+        "start-col": 14,
+        "end-line": 5,
+        "end-col": 26
+      }
+    },
+    "package": "@fx/app",
+    "fixes": [
+      {
+        "title": "Remove the unused export `unusedFormat`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "packages/app/src/format.ts",
+              "edit": {
+                "start": 81,
+                "end": 88,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-files",
+    "severity": "error",
+    "message": "`packages/lib/src/unused.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "packages/lib/src/unused.ts"
+    },
+    "package": "@fx/lib",
+    "fixes": [
+      {
+        "title": "Delete `packages/lib/src/unused.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "packages/lib/src/unused.ts"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-types",
+    "severity": "error",
+    "message": "type `FormatOptions` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "packages/app/src/format.ts",
+      "span": {
+        "start": 169,
+        "end": 182,
+        "start-line": 10,
+        "start-col": 13,
+        "end-line": 10,
+        "end-col": 26
+      }
+    },
+    "package": "@fx/app",
+    "fixes": [
+      {
+        "title": "Remove the unused export `FormatOptions`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "packages/app/src/format.ts",
+              "edit": {
+                "start": 157,
+                "end": 164,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+]
