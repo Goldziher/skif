@@ -979,6 +979,7 @@ fn jsconfig_base_url_and_wildcard_paths_become_lookup_directories() {
     );
     let ts = output(&results, "typescript");
     assert_eq!(ts.module_dirs, ["../shared", "", "node_modules", "src"]);
+    assert_deps(ts, &["react"]);
     assert!(ts.aliases.contains(&alias("@kit", Some("../shared/kit"))), "{:?}", ts.aliases);
 }
 

@@ -229,6 +229,11 @@ impl DependencyUsage {
             if let Some(source) = module.info.jsx_import_source.as_deref().and_then(package_name) {
                 let span = module.info.jsx_import_source_span;
                 self.handle_import(workspace, module.owner, &source, false, module.id, span);
+            } else if module.info.has_jsx
+                && let Some(found) = self.find_listed(module.owner, "react")
+            {
+                // The automatic JSX runtime imports `react/jsx-runtime` on behalf of the file.
+                self.reference(found, "react");
             }
         }
     }
