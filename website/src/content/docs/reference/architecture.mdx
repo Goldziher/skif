@@ -1,0 +1,49 @@
+---
+title: Architecture
+description: The crate layout of skif and where design decisions are recorded.
+---
+
+Design decisions are recorded as architecture decision records in
+[`adrs/`](https://github.com/Goldziher/skif/blob/main/adrs/index.md). Read them before proposing a change in
+direction.
+
+## Crates
+
+| Crate | Role |
+| --- | --- |
+| `skif-cli` | The command line: argument parsing, exit codes, install step after fixes. |
+| `skif` | Embeddable facade: discover a workspace, lint it and plan fixes without IO side effects. |
+| `skif-config` | `skif.toml` model, loading, CLI overrides and the JSON Schema. |
+| `skif-core` | Diagnostic, fix, report and filesystem types shared by the other crates. |
+| `skif-workspace` | Workspace discovery for npm, pnpm, yarn and bun: packages, manifests and catalogs. |
+| `skif-lint` | Rule engine: rule registry, diagnostic emitter and parallel runner. |
+| `skif-rules` | Built-in manifest and workspace rules. |
+| `skif-specifier` | npm dependency specifier parsing and comparison, vendored from syncpack. |
+| `skif-edit` | Format-preserving JSON and YAML edits used by autofixes. |
+| `skif-report` | Human, JSON, SARIF and GitHub renderers. |
+| `skif-js` | JavaScript and TypeScript module graph and dependency rules, built on oxc. |
+| `skif-js-syntax` | oxc-based module facts and static config extraction; never executes code. |
+| `skif-js-plugins` | `package.json` script parsing and the declarative plugin table. |
+| `skif-node` | The Node-API addon behind the npm package. |
+
+## Key decisions
+
+- [Mission and scope](https://github.com/Goldziher/skif/blob/main/adrs/0001-mission-and-scope.md)
+- [Library-first embedding](https://github.com/Goldziher/skif/blob/main/adrs/0003-library-first-embedding.md)
+- [Configuration model](https://github.com/Goldziher/skif/blob/main/adrs/0004-configuration-model.md)
+- [Rule and diagnostic model](https://github.com/Goldziher/skif/blob/main/adrs/0007-rule-and-diagnostic-model.md)
+- [Fix and edit model](https://github.com/Goldziher/skif/blob/main/adrs/0008-fix-and-edit-model.md)
+- [Version and catalog policies](https://github.com/Goldziher/skif/blob/main/adrs/0009-version-and-catalog-policies.md)
+- [JS analysis on oxc](https://github.com/Goldziher/skif/blob/main/adrs/0010-js-analysis-on-oxc.md)
+- [CLI contract](https://github.com/Goldziher/skif/blob/main/adrs/0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md)
+
+The full list is the [ADR index](https://github.com/Goldziher/skif/blob/main/adrs/index.md).
+
+## Pipeline
+
+1. `skif-config` resolves defaults, then the file, then CLI overrides.
+2. `skif-workspace` discovers packages and reports facts; it never decides that a fact is a problem.
+3. `skif-lint` builds a registry from the rule providers, validates every rule's options, and runs the rules in
+   parallel. Rules emit diagnostics, optionally with fixes.
+4. `skif-edit` turns fixes into a `FixPlan` of format-preserving edits; the CLI writes the plan.
+5. `skif-report` renders the report as human, JSON, SARIF or GitHub output.

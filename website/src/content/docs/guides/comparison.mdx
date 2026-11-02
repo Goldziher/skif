@@ -1,0 +1,28 @@
+---
+title: Comparison
+description: How skif relates to sherif, syncpack, knip and manypkg. Scope only.
+---
+
+skif builds on three projects and does not claim to replace them yet. This comparison is about scope.
+
+| Tool | Scope | Relation to skif |
+| --- | --- | --- |
+| [sherif](https://github.com/QuiiBz/sherif) | Zero-config monorepo manifest rules | skif began as a fork; the manifest rules are ported with stable ids and `skif.toml` configuration. |
+| [syncpack](https://github.com/JamieMason/syncpack) | Version consistency, semver ranges, catalogs | Same problem space; skif's policy rules reuse syncpack's specifier model, vendored in `skif-specifier`. |
+| [knip](https://github.com/webpro-nl/knip) | Unused files, exports and dependencies | Same problem space; skif's analysis runs on oxc, with static config extraction instead of running tools. |
+| [manypkg](https://github.com/Thinkmill/manypkg) | Workspace consistency checks and fixes | Overlapping manifest checks; skif adds a rule registry, severities and a library API. |
+
+skif offers all three kinds of checks in one tool with one configuration file and one report format.
+
+## Configuration
+
+skif reads `skif.toml` or `.skif.toml` only. It has no reader for `sherif`, `.syncpackrc` or `knip.json`
+configuration, so migrating means rewriting configuration by hand. Rule ids are stable kebab-case names; rules
+ported from sherif list their sherif name on the [rules pages](../../rules/).
+
+## Performance
+
+A benchmark harness lives in
+[`tools/bench`](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md) and measures full CLI
+invocations with hyperfine against generated workspaces and a pinned corpus. Run `mise run bench` to reproduce
+it on your machine; this site makes no performance claims beyond what that harness measures.
