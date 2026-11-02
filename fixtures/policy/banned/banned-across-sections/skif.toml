@@ -1,3 +1,6 @@
+[policy]
+dependency-types = ["prod", "dev", "peer"]
+
 [[version-groups]]
 dependencies = ["left-pad"]
 policy = "banned"

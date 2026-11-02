@@ -84,6 +84,8 @@ pub(crate) enum State {
     DependsOnMissingSnapTarget,
     /// skif-only: a configured group that owns no instance.
     UnusedGroup,
+    /// skif-only: a `pinned` group whose `pin` is empty or not a version specifier.
+    InvalidPin,
 }
 
 impl State {
@@ -117,6 +119,7 @@ impl State {
             Self::RefuseToSnapLocal => "RefuseToSnapLocal",
             Self::DependsOnMissingSnapTarget => "DependsOnMissingSnapTarget",
             Self::UnusedGroup => "UnusedGroup",
+            Self::InvalidPin => "InvalidPin",
         }
     }
 
@@ -148,7 +151,8 @@ impl State {
             | Self::RefuseToPinLocal
             | Self::RefuseToSnapLocal
             | Self::DependsOnMissingSnapTarget
-            | Self::UnusedGroup => &POLICY_CONFLICT,
+            | Self::UnusedGroup
+            | Self::InvalidPin => &POLICY_CONFLICT,
         }
     }
 
@@ -213,6 +217,7 @@ impl State {
             Self::RefuseToSnapLocal => "is a workspace package; a snapped-to group refuses to change its own version",
             Self::DependsOnMissingSnapTarget => "is snapped to a package that does not declare it",
             Self::UnusedGroup => "is not matched by any dependency",
+            Self::InvalidPin => "pins a version that is empty or not a version specifier, so it cannot be applied",
         }
     }
 }
@@ -359,6 +364,9 @@ mod tests {
         assert_eq!(State::UnusedGroup.name(), "UnusedGroup");
         assert_eq!(State::UnusedGroup.rule().id, "policy-conflict");
         assert!(!State::UnusedGroup.is_fixable());
+        assert_eq!(State::InvalidPin.name(), "InvalidPin");
+        assert_eq!(State::InvalidPin.rule().id, "policy-conflict");
+        assert!(!State::InvalidPin.is_fixable());
     }
 
     #[test]
