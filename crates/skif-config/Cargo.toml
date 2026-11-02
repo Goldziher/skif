@@ -11,8 +11,8 @@ description = "skif.toml model, loading, CLI overrides and JSON Schema for skif.
 documentation = "https://docs.rs/skif-config"
 keywords = ["linter", "configuration", "toml", "monorepo", "skif"]
 categories = ["development-tools", "config"]
-readme = "../../README.md"
-include = ["src/**", "tests/**", "fixtures/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md"]
+readme = "README.md"
+include = ["src/**", "tests/**", "fixtures/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
 
 [features]
 default = []

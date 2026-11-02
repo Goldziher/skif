@@ -42,8 +42,8 @@ file headers, and the LICENSE and ATTRIBUTIONS files each published crate must s
 3. Fixers must keep the original indentation and newline style of the edited file.
 4. Regenerate the reference with `SKIF_UPDATE_DOCS=1 cargo test -p skif --features js-analysis --test docs`
    and commit `docs/rules.md`; `scripts/check-rule-ids.sh` compares it with `rule-ids.txt`.
-5. For a JS plugin, add its row to `skif-js-plugins`, a fixture under `fixtures/js/plugins/<id>/`, and
-   compare the behaviour with the pinned knip commit recorded in `ATTRIBUTIONS.md`.
+5. For a JS plugin, add its row to `skif-js-plugins`, a fixture project
+   that exercises it ([ADR 0011](adrs/0011-plugin-model.md)), and compare the behaviour with the pinned knip commit recorded in `ATTRIBUTIONS.md`.
 6. Add or extend an end-to-end scenario under `scripts/e2e` when the rule changes what a package manager
    layout produces, and a bench in `tools/bench` when it changes the hot path.
 7. Document the rule in the changelog.

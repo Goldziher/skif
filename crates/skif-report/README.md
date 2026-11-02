@@ -20,7 +20,7 @@ render(report, Format::Json, &RenderOptions::default(), &mut out)?;
 ```json
 {
   "version": 1,
-  "skif": "0.1.0",
+  "skif": "<skif version>",
   "summary": { "errors": 1, "warnings": 0, "infos": 0, "fixable": 1, "packages": 3 },
   "diagnostics": [
     {
