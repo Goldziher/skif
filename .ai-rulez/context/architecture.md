@@ -28,13 +28,14 @@ All crates publish to crates.io as `skif-*`. `skif` is the embeddable facade; th
 | `skif-lint` | `Rule`, `RuleProvider`, `Registry`, `LintContext`, central ignores and severity, deterministic order. |
 | `skif-rules` | `manifest/` (ported rules) and `policy/` (version groups, semver groups, catalogs, workspace protocol). |
 | `skif-js-syntax` | The oxc boundary: file to module info. No oxc types exported. |
-| `skif-js-plugins` | Script parsing today; the plugin table later. |
+| `skif-js-plugins` | The plugin table (entry patterns, config readers) and script parsing. |
+| `skif-js` | Module graph and the 13 JS analysis rules (`RuleProvider`). |
 | `skif-report` | human, json, sarif and github renderers. |
 | `skif` | The facade: discover, lint and plan fixes without I/O side effects. |
 | `skif-cli` | The `skif` binary: clap, terminal output, file writes, exit codes. |
+| `skif-node` | The napi-rs addon behind the npm package; not published to crates.io. |
 
-`skif-js` (module graph and JavaScript analysis rules) is not in the workspace yet; it lands before the 0.1.0
-release. Sample monorepos live in `fixtures/` and in each crate's `fixtures/` directory.
+Sample monorepos live in `fixtures/` and in each crate's `fixtures/` directory.
 
 Library crates do no I/O beyond the `FileSystem` trait; reading, writing and terminal output belong to
 `skif-cli`.
