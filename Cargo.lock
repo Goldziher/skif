@@ -2072,11 +2072,14 @@ checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 name = "skif"
 version = "0.0.0"
 dependencies = [
+ "indexmap",
  "rayon",
  "serde_json",
  "skif-config",
  "skif-core",
  "skif-edit",
+ "skif-js",
+ "skif-js-plugins",
  "skif-lint",
  "skif-report",
  "skif-rules",
@@ -2106,6 +2109,7 @@ dependencies = [
  "serde",
  "serde_json",
  "skif",
+ "skif-report",
  "tempfile",
  "which",
 ]
@@ -2240,6 +2244,7 @@ dependencies = [
  "serde",
  "serde_json",
  "skif-core",
+ "unicode-width",
 ]
 
 [[package]]

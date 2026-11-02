@@ -178,6 +178,7 @@ fn detailed_error_document_carries_kind_and_location() {
         value,
         serde_json::json!({
             "version": 1,
+            "skif": env!("CARGO_PKG_VERSION"),
             "error": {"kind": "config", "message": "bad key", "path": "skif.toml", "line": 3, "column": 5}
         })
     );
@@ -193,4 +194,123 @@ fn extra_members_follow_the_diagnostics() {
     let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
     assert_eq!(value["fix"]["changed"][0], "package.json");
     assert_eq!(value["summary"]["packages"], 2);
+}
+
+#[test]
+fn json_documents_always_carry_the_tool_version() {
+    let rendered = run(&Report::new(Vec::new(), 1), Format::Json, &RenderOptions::default());
+    let value: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+    assert_eq!(value["skif"], env!("CARGO_PKG_VERSION"));
+    let mut out = Vec::new();
+    render_json_error("boom", &mut out).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(value["skif"], env!("CARGO_PKG_VERSION"));
+}
+
+#[test]
+fn extra_members_cannot_shadow_reserved_keys() {
+    for key in ["version", "skif", "summary", "diagnostics"] {
+        let mut extra = serde_json::Map::new();
+        extra.insert(key.to_owned(), serde_json::json!("x"));
+        let mut out = Vec::new();
+        let error =
+            skif_report::render_json_with(&Report::new(Vec::new(), 1), &RenderOptions::default(), extra, &mut out)
+                .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput, "{key}");
+        assert!(out.is_empty(), "{key}");
+    }
+}
+
+#[test]
+fn human_output_escapes_control_characters() {
+    let report = Report::new(
+        vec![diag(
+            "sorted-keys",
+            Severity::Warning,
+            "package.json",
+            None,
+            "evil \u{1b}[2J message \u{202e}",
+        )],
+        1,
+    );
+    let rendered = run(&report, Format::Human, &RenderOptions::default());
+    assert!(!rendered.contains('\u{1b}'), "{rendered:?}");
+    assert!(!rendered.contains('\u{202e}'), "{rendered:?}");
+    assert!(rendered.contains("evil \\u{1b}[2J message \\u{202e}"), "{rendered:?}");
+}
+
+#[test]
+fn human_underline_is_measured_in_terminal_cells() {
+    let source = "{\n  \"\u{4e2d}\u{6587}\": \"x\"\n}\n";
+    let start = u32::try_from(source.find("\"x\"").unwrap()).unwrap();
+    let span = LineIndex::new(source).span(start, start + 3);
+    let report = Report::new(
+        vec![diag(
+            "sorted-keys",
+            Severity::Warning,
+            "package.json",
+            Some(span),
+            "wide",
+        )],
+        1,
+    );
+    let options = RenderOptions::default().with_source("package.json", source);
+    let rendered = run(&report, Format::Human, &options);
+    let frame = rendered.lines().find(|line| line.contains('\u{4e2d}')).unwrap();
+    let underline = rendered.lines().skip_while(|line| *line != frame).nth(1).unwrap();
+    let bar = |line: &str| line.find("| ").unwrap() + 2;
+    let before_value = &frame[bar(frame)..frame.find("\"x\"").unwrap()];
+    let cells: usize = before_value
+        .chars()
+        .map(|c| if c == '\u{4e2d}' || c == '\u{6587}' { 2 } else { 1 })
+        .sum();
+    assert_eq!(underline[bar(underline)..].find('^').unwrap(), cells);
+}
+
+#[test]
+fn human_diagnostics_are_ordered_by_position_within_a_file() {
+    let late = diag(
+        "unused-dependency",
+        Severity::Warning,
+        "package.json",
+        Some(span_of("\"lodash\"")),
+        "late",
+    );
+    let early = diag(
+        "version-mismatch",
+        Severity::Warning,
+        "package.json",
+        Some(span_of("\"name\"")),
+        "early",
+    );
+    let rendered = run(
+        &Report::new(vec![late, early], 1),
+        Format::Human,
+        &RenderOptions::default(),
+    );
+    assert!(
+        rendered.find("early").unwrap() < rendered.find("late").unwrap(),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn the_specifier_is_reported_when_set() {
+    let mut with = diag("sorted-keys", Severity::Warning, "package.json", None, "m");
+    with.specifier = Some("^1.0.0".to_owned());
+    let without = diag("sorted-keys", Severity::Warning, "package.json", None, "m");
+    let rendered = run(
+        &Report::new(vec![with, without], 1),
+        Format::Json,
+        &RenderOptions::default(),
+    );
+    let value: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+    assert_eq!(value["diagnostics"][0]["specifier"], "^1.0.0");
+    assert!(value["diagnostics"][1].get("specifier").is_none());
+    let sarif = run(
+        &Report::new(vec![diag("sorted-keys", Severity::Warning, "p.json", None, "m")], 1),
+        Format::Sarif,
+        &RenderOptions::default(),
+    );
+    assert!(!sarif.contains("\"specifier\""));
 }

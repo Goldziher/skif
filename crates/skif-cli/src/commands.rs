@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::json;
 use skif::{CONFIG_FILE_NAMES, Config, Linter, RuleMeta};
 
-use crate::args::{Format, InitArgs, RulesArgs};
+use crate::args::{Format, InitArgs, RulesArgs, RulesFormat};
 use crate::error::{CliError, Kind, display};
 use crate::output::{emit_error, write_stdout};
 
@@ -80,29 +80,31 @@ fn rules_table(metas: &[&'static RuleMeta]) -> String {
     table
 }
 
-fn list_rules(format: Format) -> Result<(), CliError> {
+fn list_rules(format: RulesFormat) -> Result<(), CliError> {
     let linter = Linter::new(&Config::default())?;
     let metas: Vec<&'static RuleMeta> = linter.rules().collect();
     let text = match format {
-        Format::Human => rules_table(&metas),
-        Format::Json => {
-            let mut text = serde_json::to_string_pretty(&json!({"version": 1, "rules": metas}))
-                .map_err(|error| CliError::new(Kind::Io, error.to_string()))?;
+        RulesFormat::Human => rules_table(&metas),
+        RulesFormat::Json => {
+            let mut text = serde_json::to_string_pretty(&json!({
+                "version": 1,
+                "skif": env!("CARGO_PKG_VERSION"),
+                "rules": metas,
+            }))
+            .map_err(|error| CliError::new(Kind::Io, error.to_string()))?;
             text.push('\n');
             text
         }
     };
-    write_stdout(text.as_bytes());
-    Ok(())
+    write_stdout(text.as_bytes())
 }
 
 pub fn rules(args: &RulesArgs) -> u8 {
-    finish(list_rules(args.format), args.format)
+    finish(list_rules(args.format), args.format.into())
 }
 
 pub fn schema() -> u8 {
-    write_stdout(skif::config_schema().as_bytes());
-    CLEAN
+    finish(write_stdout(skif::config_schema().as_bytes()), Format::Human)
 }
 
 fn write_starter(args: &InitArgs) -> Result<(), CliError> {
@@ -137,8 +139,7 @@ fn write_starter(args: &InitArgs) -> Result<(), CliError> {
         })?;
     file.write_all(STARTER_CONFIG.as_bytes())
         .map_err(|error| CliError::io("cannot write", &target, &error))?;
-    write_stdout(format!("Created {}\n", target.display()).as_bytes());
-    Ok(())
+    write_stdout(format!("Created {}\n", crate::error::display(&target)).as_bytes())
 }
 
 pub fn init(args: &InitArgs) -> u8 {

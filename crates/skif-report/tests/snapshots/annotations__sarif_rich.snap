@@ -86,7 +86,7 @@ expression: "run(&rich(), Format::Sarif, &options())"
             }
           ],
           "partialFingerprints": {
-            "skifFingerprint/v1": "b4f926ac4d48626f"
+            "skifFingerprint/v1": "c998c70652d802b5:1"
           },
           "properties": {
             "fixes": []
@@ -116,7 +116,7 @@ expression: "run(&rich(), Format::Sarif, &options())"
             }
           ],
           "partialFingerprints": {
-            "skifFingerprint/v1": "175411d2702f6d63"
+            "skifFingerprint/v1": "a0051baf4ad710d7:1"
           },
           "properties": {
             "fixes": [
@@ -171,7 +171,7 @@ expression: "run(&rich(), Format::Sarif, &options())"
             }
           ],
           "partialFingerprints": {
-            "skifFingerprint/v1": "e030e8f8736fac3d"
+            "skifFingerprint/v1": "bd0f7209eafebb57:1"
           },
           "properties": {
             "help": "align on ^18.3.1",

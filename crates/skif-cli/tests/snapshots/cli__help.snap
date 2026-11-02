@@ -21,11 +21,13 @@ Arguments:
 
 Options:
       --format <FORMAT>
-          Output format [default: human]
+          Output format [default: human, or human plus GitHub annotations when `GITHUB_ACTIONS=true`]
 
           Possible values:
-          - human: Grouped, optionally coloured text
-          - json:  One JSON document on stdout
+          - human:  Grouped, optionally coloured text
+          - json:   One JSON document on stdout
+          - sarif:  SARIF 2.1.0 for code scanning
+          - github: GitHub Actions workflow-command annotations
 
       --output <FILE>
           Write the rendering to this file instead of stdout
@@ -50,8 +52,11 @@ Options:
       --fail-on-warnings
           Same as --max-warnings 0
 
+      --no-prompt
+          Never ask which alternative fix to apply; the diagnostic stays unfixed unless --select decides
+
       --rule <ID=LEVEL>
-          Set a rule's level, as ID=off|warn|error. Repeatable
+          Set a rule's level, as ID=off|info|warn|error. Repeatable
 
       --ignore-rule <ID>
           Turn a rule off. Repeatable
