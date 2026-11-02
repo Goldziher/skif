@@ -1,7 +1,8 @@
 # skif-bench
 
-Benchmark harness for skif. It is an internal workspace member (`publish = false`) and treats the skif binary as an
-external command, so it does not depend on skif's library APIs.
+Benchmark harness for skif. It is an internal workspace member (`publish = false`). The `skif-bench` command treats the
+skif binary as an external command; the crate also exposes its synthetic monorepo generator as a library
+(`skif_bench::generate`) so the in-process criterion benches can build workspaces in memory.
 
 ## What it measures
 
@@ -33,7 +34,7 @@ yet. The JS comparison with knip only means something once `skif` performs JS an
 
 ```sh
 mise run bench            # build release skif, fetch the corpus, run everything
-mise run bench:micro      # criterion micro-benchmarks (skif-specifier, skif-core, skif-edit)
+mise run bench:micro      # all criterion benchmarks (see "In-process benchmarks")
 mise run bench:corpus     # only fetch the pinned corpus
 mise run bench:generate -- --packages 500 --out target/bench-generated/demo
 ```
@@ -55,6 +56,34 @@ injected issue: a version mismatch, unsorted `dependencies`, an `@types/*` packa
 `optionalDependencies`. The command prints the injected counts as JSON.
 
 Profile with `cargo build --profile profiling` (release plus debug symbols, no stripping).
+
+## In-process benchmarks
+
+`mise run bench:micro` runs every criterion benchmark (`cargo bench --workspace`). They run in one process on a
+`MemoryFs`, so they measure the library, not process start-up or disk. Run one bench with
+`cargo bench -p <crate> --bench <name> -- <filter>`; `--features fix` is needed for the `skif` `fix` bench
+(`cargo bench -p skif --features fix --bench fix`).
+
+Generated workspaces use seed 1, pnpm layout and a 5 % issue rate, the same as the hyperfine targets.
+
+| Bench target | Benchmark id | Measures |
+| --- | --- | --- |
+| `skif` / `pipeline` | `manifest/parse_500` | `Manifest::parse` over 500 generated manifests |
+| | `discover/{50,500,2000}` | `Workspace::discover_with_fs` |
+| | `policy/{plain,semver_groups,same_range}/{500,2000}` | only the policy provider (version, semver and `same-range` groups) |
+| | `target/manifest_policy_{50,500,2000}` | `Linter::run` with the manifest, policy and catalog providers; `manifest_policy_500` is the ADR 0001 budget (< 50 ms) |
+| | `suppressions/ignore_entries/{0,10,50}` | a 500-package run with that many non-matching `[[ignore]]` entries |
+| `skif` / `fix` (feature `fix`) | `fix/apply_fixes/{1,10,100}` | `apply_fixes` planning N fixes against one 200-dependency `package.json` |
+| `skif-core` / `core` | `Report/new_{10k,50k}` | `Report::new` (sort and summary) over that many diagnostics |
+| `skif-core` / `core` | `LineIndex/*` | line and column lookup |
+| `skif-js-syntax` / `parse_module` | `parse_module/corpus/{full,facts_only}` | `parse_module` over the files in `benches/corpus` (TS, TSX, JS); `facts_only` turns off in-file references and member tracking |
+| | `parse_module/file/<name>` | one corpus file at a time |
+| `skif-js` / `analysis` | `js_analysis/files/{210,2100}` | the JS provider (module graph and all JS rules) over 10 and 100 generated packages of 21 files each |
+| `skif-specifier`, `skif-edit` | see the bench sources | specifier parsing and format-preserving JSON edits |
+
+The `target/` group covers the ADR 0001 manifest and policy budget. The JS analysis speed target (at least 5x faster than
+`knip`) is only measurable end to end with hyperfine on the corpus; `js_analysis` tracks regressions of the in-process
+part.
 
 ## Caveats
 
