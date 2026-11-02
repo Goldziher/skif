@@ -181,6 +181,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y shellcheck
           # `find` rather than a `**` glob: without `globstar`, bash reads `**` as `*` and skips scripts/*.sh.
           find scripts mise-tasks -name '*.sh' -print0 | xargs -0 shellcheck
+      - name: Test the npm publish probe
+        run: bash scripts/test-npm-published.sh
 
   consistency:
     name: Version consistency

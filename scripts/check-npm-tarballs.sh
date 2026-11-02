@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Checks the packed npm tarballs of a release before anything is published.
+#
+# Usage: scripts/check-npm-tarballs.sh <directory-of-tarballs> <version>
+#
+# The directory must hold exactly the umbrella `skif` and the six platform packages, no more and no fewer. The
+# umbrella must ship the generated loader (index.js, index.d.ts) and the bin, and list the six platform packages
+# as optional dependencies; each platform package must ship its .node addon. This is what turns a missing
+# artifact (the loader is generated, not committed) into a failed job instead of a broken release.
+set -euo pipefail
+
+dir="${1:?usage: check-npm-tarballs.sh <directory-of-tarballs> <version>}"
+version="${2:?usage: check-npm-tarballs.sh <directory-of-tarballs> <version>}"
+
+platforms=(
+  darwin-arm64
+  darwin-x64
+  linux-arm64-gnu
+  linux-arm64-musl
+  linux-x64-gnu
+  linux-x64-musl
+)
+
+failures=0
+fail() {
+  echo "::error::$*" >&2
+  failures=$((failures + 1))
+}
+
+expected_files="$(
+  {
+    echo "skif-${version}.tgz"
+    for platform in "${platforms[@]}"; do echo "skif-${platform}-${version}.tgz"; done
+  } | LC_ALL=C sort
+)"
+actual_files="$(cd "$dir" && find . -maxdepth 1 -type f -name '*.tgz' -printf '%f\n' 2>/dev/null | LC_ALL=C sort || true)"
+if [[ "$expected_files" != "$actual_files" ]]; then
+  fail "the packed tarballs are not the umbrella plus the six platform packages"
+  diff <(echo "$expected_files") <(echo "$actual_files") >&2 || true
+fi
+
+listing() {
+  tar -tzf "${dir}/$1"
+}
+
+require() {
+  local tarball="$1" member="$2"
+  if ! listing "$tarball" | grep -qxF "package/${member}"; then
+    fail "${tarball} does not contain ${member}"
+  fi
+}
+
+if [[ -f "${dir}/skif-${version}.tgz" ]]; then
+  for member in index.js index.d.ts bin/skif.js package.json LICENSE README.md; do
+    require "skif-${version}.tgz" "$member"
+  done
+  declared="$(tar -xzOf "${dir}/skif-${version}.tgz" package/package.json |
+    jq -r '(.optionalDependencies // {}) | to_entries[] | "\(.key)@\(.value)"' | LC_ALL=C sort)"
+  wanted="$(for platform in "${platforms[@]}"; do echo "skif-${platform}@${version}"; done | LC_ALL=C sort)"
+  if [[ "$declared" != "$wanted" ]]; then
+    fail "the umbrella's optionalDependencies are not the six platform packages at ${version}"
+    diff <(echo "$wanted") <(echo "$declared") >&2 || true
+  fi
+fi
+
+for platform in "${platforms[@]}"; do
+  tarball="skif-${platform}-${version}.tgz"
+  [[ -f "${dir}/${tarball}" ]] || continue
+  require "$tarball" "skif.${platform}.node"
+  require "$tarball" "package.json"
+done
+
+if [[ "$failures" -ne 0 ]]; then
+  echo "${failures} problem(s) in the npm tarballs" >&2
+  exit 1
+fi
+echo "npm tarballs: the umbrella and the six platform packages are complete"
