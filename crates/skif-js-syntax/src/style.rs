@@ -235,7 +235,11 @@ impl Scanner<'_> {
         while self.cur().is_some_and(is_ident) {
             self.pos += 1;
         }
-        let name = self.text.get(name_start..self.pos).unwrap_or_default().to_ascii_lowercase();
+        let name = self
+            .text
+            .get(name_start..self.pos)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
         match name.as_str() {
             "import" => self.import_list(start),
             "use" | "forward" | "plugin" | "config" | "reference" => {
@@ -353,7 +357,7 @@ impl Scanner<'_> {
                     while self.cur().is_some_and(is_ident) {
                         self.pos += 1;
                     }
-                    last = self.text.get(from..self.pos).unwrap_or_default().to_owned();
+                    self.text.get(from..self.pos).unwrap_or_default().clone_into(&mut last);
                 }
                 _ => self.pos += 1,
             }
@@ -396,7 +400,10 @@ mod tests {
     fn import_forms() {
         let source = "@import url(\"a.css\");\n@import url(b.css) screen;\n@import 'c.css' layer(base) supports(display: grid) print;\n\
                       @import \"d.css\", \"e.css\";\n@import url(https://cdn.test/x.css);\n@import \"https://cdn.test/y.css\";";
-        assert_eq!(specifiers("a.css", source), ["a.css", "b.css", "c.css", "d.css", "e.css"]);
+        assert_eq!(
+            specifiers("a.css", source),
+            ["a.css", "b.css", "c.css", "d.css", "e.css"]
+        );
     }
 
     #[test]
@@ -410,23 +417,31 @@ mod tests {
 
     #[test]
     fn scss_modules() {
-        let source = "@use \"sass:math\";\n@use \"pkg\" as p with ($a: 1);\n@forward \"./theme\";\n@use \"~legacy/mixins\";";
+        let source =
+            "@use \"sass:math\";\n@use \"pkg\" as p with ($a: 1);\n@forward \"./theme\";\n@use \"~legacy/mixins\";";
         assert_eq!(specifiers("a.scss", source), ["pkg", "./theme", "legacy/mixins"]);
     }
 
     #[test]
     fn indented_sass_bare_words() {
-        assert_eq!(specifiers("a.sass", "@use sass:math\n@use pkg\n@import a, b\n"), ["pkg", "a", "b"]);
+        assert_eq!(
+            specifiers("a.sass", "@use sass:math\n@use pkg\n@import a, b\n"),
+            ["pkg", "a", "b"]
+        );
     }
 
     #[test]
     fn less_import_options() {
-        assert_eq!(specifiers("a.less", "@import (reference) \"./base\";\n@plugin \"p\";"), ["./base", "p"]);
+        assert_eq!(
+            specifiers("a.less", "@import (reference) \"./base\";\n@plugin \"p\";"),
+            ["./base", "p"]
+        );
     }
 
     #[test]
     fn css_modules_composes() {
-        let source = ".a { composes: b c from \"./other.module.css\"; }\n.d { composes: e from global; }\n.f { composes: g; }";
+        let source =
+            ".a { composes: b c from \"./other.module.css\"; }\n.d { composes: e from global; }\n.f { composes: g; }";
         assert_eq!(specifiers("a.module.css", source), ["./other.module.css"]);
     }
 

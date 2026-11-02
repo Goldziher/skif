@@ -31,11 +31,11 @@ use skif_core::LineIndex;
 
 pub use config::{ConfigValue, extract_config_object};
 pub use error::SyntaxError;
-pub use style::{is_stylesheet, parse_stylesheet};
 pub use model::{
     Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, ModuleInfo, ParseIssue, ParseOptions,
     Removal, RemovalKind, coalesce_ranges,
 };
+pub use style::{is_stylesheet, parse_stylesheet};
 
 /// Parses `source` (the content of `path`) into a [`ModuleInfo`]. The extension of `path` selects the language.
 ///

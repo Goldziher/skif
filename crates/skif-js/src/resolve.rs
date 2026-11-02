@@ -341,8 +341,14 @@ impl ModuleResolver {
     /// A stylesheet next to `importer`: `specifier` itself, its Sass partial (`_name`) or the index partial of a
     /// directory.
     fn local_style(&self, importer: &Path, specifier: &str) -> Option<PathBuf> {
-        let (dir, name) = specifier.rsplit_once('/').map_or(("", specifier), |(dir, name)| (dir, name));
-        let prefix = if dir.is_empty() { String::new() } else { format!("{dir}/") };
+        let (dir, name) = specifier
+            .rsplit_once('/')
+            .map_or(("", specifier), |(dir, name)| (dir, name));
+        let prefix = if dir.is_empty() {
+            String::new()
+        } else {
+            format!("{dir}/")
+        };
         let name = name.trim_end_matches('/');
         [
             specifier.to_owned(),

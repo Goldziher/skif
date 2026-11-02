@@ -497,7 +497,10 @@ fn stylesheet_imports_count_as_dependency_usage() {
         ],
         "",
     );
-    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: modules-pkg", "package.json: sass-pkg"]);
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        ["package.json: modules-pkg", "package.json: sass-pkg"]
+    );
     assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none());
     assert_eq!(found(&diagnostics, "unresolved-imports"), none());
 }
@@ -518,7 +521,10 @@ fn stylesheet_chains_scss_modules_and_commented_imports() {
             ("src/second.css", "@import './third.css' layer(base);\n"),
             ("src/third.css", ".t { color: red; }\n"),
             ("src/box.module.css", ".a { composes: b from \"./base.module.css\"; }\n"),
-            ("src/base.module.css", ".b { color: red; }\n.c { composes: d from \"modules-pkg/x.css\"; }\n"),
+            (
+                "src/base.module.css",
+                ".b { color: red; }\n.c { composes: d from \"modules-pkg/x.css\"; }\n",
+            ),
             (
                 "src/theme.scss",
                 "@use \"sass:math\";\n@use \"sass-pkg\";\n@use \"partial\";\n",
@@ -538,7 +544,10 @@ fn unresolvable_stylesheet_imports_are_reported_but_assets_are_not() {
         &[
             STYLE_PACKAGE,
             ("src/main.tsx", "import './a.css';\nexport {};\n"),
-            ("src/a.css", "@import \"./gone.css\";\n.x { background: url(\"./gone.png\"); }\n"),
+            (
+                "src/a.css",
+                "@import \"./gone.css\";\n.x { background: url(\"./gone.png\"); }\n",
+            ),
         ],
         "",
     );
