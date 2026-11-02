@@ -2209,6 +2209,7 @@ dependencies = [
  "oxc_semantic",
  "oxc_span",
  "oxc_str",
+ "proptest",
  "serde",
  "serde_json",
  "skif-core",
