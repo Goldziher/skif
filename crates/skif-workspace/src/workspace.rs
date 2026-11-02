@@ -7,7 +7,7 @@ use std::sync::Arc;
 use rayon::prelude::*;
 use serde_json::Value;
 use skif_config::{Config, PackageManager};
-use skif_core::{FileSystem, LineIndex, OsFs, PathSeg, Span};
+use skif_core::{DirEntry, FileSystem, LineIndex, OsFs, PathSeg, Span};
 
 use crate::catalogs::{self, Catalogs};
 use crate::detect;
@@ -55,7 +55,7 @@ pub struct DiscoveryFacts {
     pub source: WorkspaceSource,
     /// One entry per declared pattern, in declaration order.
     pub patterns: Vec<PatternFact>,
-    /// Matched, non-empty, non-hidden directories without a `package.json`, sorted.
+    /// Matched directories with real content (not only hidden entries, `node_modules` or build output) without a `package.json`, sorted.
     pub dirs_without_manifest: Vec<PathBuf>,
 }
 
@@ -98,17 +98,31 @@ fn io_error(path: &Path, source: std::io::Error) -> WorkspaceError {
 /// The outcome of loading one selected directory.
 enum Member {
     Loaded(Box<Package>),
-    /// A non-empty directory without a `package.json`.
+    /// A directory with real content (not only `node_modules`, build output or hidden entries) and no `package.json`.
     NoManifest(PathBuf),
-    /// An empty directory; those linger after switching git branches and are not worth reporting.
+    /// A directory without real content; those linger after switching git branches and are not worth reporting.
     Empty,
     Failed(WorkspaceError),
+}
+
+/// Names that say nothing about a directory being in use: hidden entries, installed dependencies and build output.
+const GENERATED: [&str; 3] = ["dist", "build", "coverage"];
+
+/// Whether `entry` is something a person put in the directory, rather than tooling leftovers.
+fn has_content(entry: &DirEntry) -> bool {
+    entry.path.file_name().is_some_and(|name| {
+        let name = name.to_string_lossy();
+        !pattern::is_ignored_name(&name) && !GENERATED.contains(&name.as_ref())
+    })
 }
 
 fn load_member(fs: &dyn FileSystem, root: &Path, dir: &str) -> Member {
     let manifest = root.join(dir).join(MANIFEST);
     if !fs.is_file(&manifest) {
-        return if fs.read_dir(&root.join(dir)).is_ok_and(|entries| !entries.is_empty()) {
+        return if fs
+            .read_dir(&root.join(dir))
+            .is_ok_and(|entries| entries.iter().any(has_content))
+        {
             Member::NoManifest(PathBuf::from(dir))
         } else {
             Member::Empty
@@ -158,20 +172,25 @@ fn json_patterns(root_package: &Package) -> Option<Declared> {
 }
 
 impl Workspace {
-    /// Discovers the workspace at `root` on the real file system.
+    /// Discovers the workspace at `root` on the real file system. A relative `root` is resolved against the
+    /// current directory here and nowhere else.
     ///
     /// # Errors
     /// See [`WorkspaceError`]; a broken member manifest is not an error but is listed in `manifest_errors`.
     pub fn discover(root: &Path, config: &Config) -> Result<Self, WorkspaceError> {
-        Self::discover_with_fs(root, config, &OsFs)
+        let root = std::path::absolute(root).map_err(|error| io_error(root, error))?;
+        Self::discover_with_fs(&root, config, &OsFs)
     }
 
     /// Discovers the workspace at `root` through `fs`.
     ///
+    /// `root` is used exactly as given and never resolved against the current directory, so the same root names the
+    /// same tree on every platform; pass an absolute path for a real file system.
+    ///
     /// # Errors
     /// See [`WorkspaceError`]; a broken member manifest is not an error but is listed in `manifest_errors`.
     pub fn discover_with_fs(root: &Path, config: &Config, fs: &dyn FileSystem) -> Result<Self, WorkspaceError> {
-        let root = std::path::absolute(root).map_err(|error| io_error(root, error))?;
+        let root = root.to_path_buf();
         if !fs.is_dir(&root) {
             return Err(WorkspaceError::NotADirectory(root));
         }
@@ -212,20 +231,23 @@ impl Workspace {
         );
 
         let from_json = json_patterns(&root_package);
-        let from_yaml = |yaml: &YamlSource, packages: &[String]| Declared {
-            source: WorkspaceSource::PnpmWorkspaceYaml,
-            file: yaml.path.clone(),
-            patterns: packages
-                .iter()
-                .enumerate()
-                .map(|(index, pattern)| {
-                    (
-                        index,
-                        pattern.clone(),
-                        pnpm::pattern_span(&yaml.source, &yaml.line_index, pattern),
-                    )
-                })
-                .collect(),
+        let from_yaml = |yaml: &YamlSource, packages: &[String]| {
+            let spans = pnpm::pattern_spans(&yaml.source, &yaml.line_index);
+            Declared {
+                source: WorkspaceSource::PnpmWorkspaceYaml,
+                file: yaml.path.clone(),
+                patterns: packages
+                    .iter()
+                    .enumerate()
+                    .map(|(index, pattern)| {
+                        let span = spans
+                            .get(index)
+                            .filter(|(written, _)| written == pattern)
+                            .map(|(_, span)| *span);
+                        (index, pattern.clone(), span)
+                    })
+                    .collect(),
+            }
         };
         let yaml_declared = pnpm_workspace
             .as_ref()
@@ -250,11 +272,15 @@ impl Workspace {
         let mut negations = Vec::new();
         for (index, raw, span) in &declared.patterns {
             let negated = raw.trim_start().starts_with('!');
+            let invalid = |message: String| WorkspaceError::InvalidPattern {
+                pattern: raw.clone(),
+                message,
+            };
             let matched = if negated {
-                negations.push((facts.len(), pattern::negation(raw)));
+                negations.push((facts.len(), pattern::negation(raw).map_err(invalid)?));
                 0
             } else {
-                let found = expander.expand(&Pattern::new(raw));
+                let found = expander.expand(&Pattern::new(raw).map_err(invalid)?);
                 let count = found.len();
                 candidates.extend(found);
                 count
@@ -270,7 +296,6 @@ impl Workspace {
         }
         let mut selected = candidates.clone();
         for (index, matcher) in negations {
-            let Some(matcher) = matcher else { continue };
             let hits: Vec<&String> = candidates.iter().filter(|dir| matcher.is_match(dir.as_str())).collect();
             if let Some(fact) = facts.get_mut(index) {
                 fact.matched = hits.len();
