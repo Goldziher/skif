@@ -227,6 +227,7 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       },
       "package": "dirty-root",
       "dependency": "zod",
+      "specifier": "^3.0.0",
       "fixes": [
         {
           "title": "Sort `devDependencies`",
@@ -302,6 +303,7 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       },
       "package": "@dirty/a",
       "dependency": "@dirty/b",
+      "specifier": "link:../b",
       "fixes": [
         {
           "title": "Use `*` for `@dirty/b`",
@@ -345,6 +347,7 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       },
       "package": "@dirty/a",
       "dependency": "react",
+      "specifier": "^18.0.0",
       "fixes": [
         {
           "title": "Sort `dependencies`",
@@ -383,6 +386,7 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       },
       "package": "@dirty/a",
       "dependency": "@types/node",
+      "specifier": "^20.0.0",
       "fixes": [
         {
           "title": "Move the `@types/*` packages to `devDependencies`",
@@ -456,7 +460,8 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
         }
       ],
       "package": "@dirty/a",
-      "dependency": "react"
+      "dependency": "react",
+      "specifier": "^18.2.0"
     },
     {
       "rule": "empty-dependencies",

@@ -163,6 +163,7 @@ impl Linter {
         let run_options = skif_lint::RunOptions {
             pool: pool.as_ref(),
             cancel: options.cancel,
+            config_path: None,
         };
         Ok(skif_lint::run(&self.registry, workspace, &config, &run_options)?)
     }

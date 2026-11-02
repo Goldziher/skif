@@ -102,6 +102,7 @@ fn merge_order_is_providers_then_rules_then_emission_regardless_of_scheduling() 
             let options = RunOptions {
                 pool: Some(pool),
                 cancel: None,
+                ..RunOptions::default()
             };
             assert_eq!(messages(&options), expected);
         }
@@ -126,6 +127,7 @@ fn report_is_the_sorted_merge_and_identical_across_runs_and_pools() {
             let options = RunOptions {
                 pool: Some(pool),
                 cancel: None,
+                ..RunOptions::default()
             };
             assert_eq!(run(&registry, &ws, &cfg, &options).unwrap(), expected);
         }
@@ -174,6 +176,7 @@ fn preset_cancel_flag_runs_nothing() {
     let options = RunOptions {
         pool: None,
         cancel: Some(&cancel),
+        ..RunOptions::default()
     };
     assert!(matches!(run(&registry, &ws, &cfg, &options), Err(LintError::Cancelled)));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
@@ -197,6 +200,7 @@ fn cancel_during_a_provider_skips_later_providers() {
     let options = RunOptions {
         pool: None,
         cancel: Some(&cancel),
+        ..RunOptions::default()
     };
     assert!(matches!(run(&registry, &ws, &cfg, &options), Err(LintError::Cancelled)));
     assert_eq!(first_calls.load(Ordering::SeqCst), 1);

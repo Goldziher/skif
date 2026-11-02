@@ -137,6 +137,45 @@ fn dirty_workspace_snapshot() {
 }
 
 #[test]
+fn every_diagnostic_naming_a_dependency_instance_carries_its_specifier() {
+    let report = lint_fixture("dirty");
+    let named: Vec<_> = report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.dependency.is_some())
+        .collect();
+    assert_ne!(named, [] as [&skif_core::Diagnostic; 0]);
+    for diagnostic in named {
+        assert!(
+            diagnostic.specifier.is_some(),
+            "{} names {:?} without a specifier",
+            diagnostic.rule,
+            diagnostic.dependency
+        );
+    }
+}
+
+#[test]
+fn ignore_entries_match_dependencies_by_name_and_specifier() {
+    let ignored = |dependency: &str| {
+        let toml = format!("[[ignore]]\nrules = [\"unsorted-dependencies\"]\ndependencies = [\"{dependency}\"]\n");
+        let config = Config::from_toml_str(&toml).unwrap();
+        let workspace = Workspace::discover(&fixture("dirty"), &config).unwrap();
+        let report = run(&registry(), &workspace, &config, &RunOptions::default()).unwrap();
+        report
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.rule.as_str() == "unsorted-dependencies" && diagnostic.dependency.as_deref() == Some("react")
+            })
+            .count()
+    };
+    assert_eq!(ignored("react"), 0);
+    assert_eq!(ignored("react@^18.0.0"), 0);
+    assert_eq!(ignored("react@^17.0.0"), 1);
+}
+
+#[test]
 fn rules_can_be_turned_off_and_ignored_through_configuration() {
     let config = Config::from_toml_str(
         "[rules]\nunsorted-dependencies = \"off\"\n\n[[ignore]]\nrules = [\"types-in-dependencies\"]\npackages = [\"@dirty/a\"]\n",
