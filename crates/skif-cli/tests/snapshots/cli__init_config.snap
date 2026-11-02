@@ -1,0 +1,21 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: starter
+---
+#:schema https://raw.githubusercontent.com/Goldziher/skif/main/schema/skif.schema.json
+
+# skif configuration. Every key is optional; the values below are the defaults.
+
+[lint]
+# Exit 1 when only warnings were reported (the same as `--max-warnings 0`).
+fail-on-warnings = false
+
+[policy]
+# The version that alignment fixes target: "highest" or "lowest".
+prefer = "highest"
+
+# [workspace]
+# ignore-packages = ["@scope/legacy-*"]
+
+# [rules]
+# unsorted-dependencies = "off"

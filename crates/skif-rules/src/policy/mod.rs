@@ -18,9 +18,7 @@ mod visit;
 use skif_core::RuleMeta;
 use skif_lint::{Emitter, EnabledRules, LintContext, ProviderError, RuleProvider};
 
-pub use state::{
-    BANNED_DEPENDENCY, INVALID_LOCAL_VERSION, POLICY_CONFLICT, SEMVER_RANGE_MISMATCH, VERSION_MISMATCH,
-};
+pub use state::{BANNED_DEPENDENCY, INVALID_LOCAL_VERSION, POLICY_CONFLICT, SEMVER_RANGE_MISMATCH, VERSION_MISMATCH};
 
 /// Identifies the policy provider in errors.
 pub const PROVIDER_ID: &str = "policy";
@@ -111,7 +109,10 @@ mod tests {
         let root_json = root("");
         let files = files(&root_json);
         let diagnostics = lint("version-mismatch", &files, &config(""));
-        assert_eq!(details(&diagnostics), [("version-mismatch", Some("DiffersToHighestOrLowestSemver"))]);
+        assert_eq!(
+            details(&diagnostics),
+            [("version-mismatch", Some("DiffersToHighestOrLowestSemver"))]
+        );
         let diagnostic = &diagnostics[0];
         assert_eq!(diagnostic.package.as_deref(), Some("app"));
         assert_eq!(diagnostic.dependency.as_deref(), Some("react"));
@@ -127,8 +128,15 @@ mod tests {
         assert!(diagnostics.iter().all(Diagnostic::is_fixable));
         let fixed = apply_fixes(&files, &diagnostics);
         let fixed = borrowed(&fixed);
-        assert!(lint("version-mismatch", &fixed, &config("")).is_empty());
-        let app = fixed.iter().find(|(path, _)| path.ends_with("app/package.json")).unwrap().1;
+        assert_eq!(
+            lint("version-mismatch", &fixed, &config("")),
+            [] as [skif_core::Diagnostic; 0]
+        );
+        let app = fixed
+            .iter()
+            .find(|(path, _)| path.ends_with("app/package.json"))
+            .unwrap()
+            .1;
         assert!(app.contains(r#""react":"^18.3.1""#), "{app}");
     }
 
@@ -140,7 +148,10 @@ mod tests {
         let diagnostics = lint("banned-dependency", &files, &config);
         assert_eq!(details(&diagnostics), [("banned-dependency", Some("IsBanned"))]);
         let fixed = apply_fixes(&files, &diagnostics);
-        let app = fixed.iter().find(|(path, _)| path.ends_with("app/package.json")).unwrap();
+        let app = fixed
+            .iter()
+            .find(|(path, _)| path.ends_with("app/package.json"))
+            .unwrap();
         assert!(!app.1.contains("left-pad"), "{}", app.1);
     }
 
@@ -148,7 +159,8 @@ mod tests {
     fn unused_groups_are_reported_on_the_configuration_file() {
         let root_json = root("");
         let files = files(&root_json);
-        let config = config("[[version-groups]]\nlabel = \"ghosts\"\ndependencies = [\"ghost\"]\npolicy = \"banned\"\n");
+        let config =
+            config("[[version-groups]]\nlabel = \"ghosts\"\ndependencies = [\"ghost\"]\npolicy = \"banned\"\n");
         let diagnostics = lint("policy-conflict", &files, &config);
         assert_eq!(details(&diagnostics), [("policy-conflict", Some("UnusedGroup"))]);
         let diagnostic = &diagnostics[0];
@@ -162,7 +174,7 @@ mod tests {
         let root_json = root("");
         let files = files(&root_json);
         let off = config("[rules]\nversion-mismatch = \"off\"\n");
-        assert!(lint("version-mismatch", &files, &off).is_empty());
+        assert_eq!(lint("version-mismatch", &files, &off), [] as [skif_core::Diagnostic; 0]);
     }
 
     #[test]

@@ -33,6 +33,14 @@ pub enum ConfigError {
     /// A rule ID in the configuration is not in the registry.
     #[error("unknown rule \"{rule}\"{}", suggestion_hint(.suggestion.as_deref()))]
     UnknownRule { rule: String, suggestion: Option<String> },
+    /// The options configured for a rule are invalid, as judged by the rule that owns them.
+    #[error("invalid options for rule \"{rule}\"{}: {message}", key_hint(.key.as_deref()))]
+    InvalidRuleOptions {
+        rule: String,
+        /// The offending option key, when known.
+        key: Option<String>,
+        message: String,
+    },
 }
 
 impl ConfigError {
@@ -78,4 +86,8 @@ fn render(path: Option<&Path>, line: Option<&usize>, column: Option<&usize>, mes
 
 fn suggestion_hint(suggestion: Option<&str>) -> String {
     suggestion.map_or_else(String::new, |s| format!("; did you mean \"{s}\"?"))
+}
+
+fn key_hint(key: Option<&str>) -> String {
+    key.map_or_else(String::new, |key| format!(" (option `{key}`)"))
 }

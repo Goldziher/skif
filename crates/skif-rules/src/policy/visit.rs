@@ -78,10 +78,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
 
     /// The instances the policies align: those not using the `catalog:` protocol.
     fn members(&self, ids: &[InstanceId]) -> Vec<InstanceId> {
-        ids.iter()
-            .copied()
-            .filter(|&id| !self.spec(id).is_catalog())
-            .collect()
+        ids.iter().copied().filter(|&id| !self.spec(id).is_catalog()).collect()
     }
 
     fn equals(&self, id: InstanceId, other: &Specifier) -> bool {
@@ -195,7 +192,9 @@ impl<'a, 'w> Visitor<'a, 'w> {
             return;
         };
         let same = |matching: fn(&(u64, u64), &(u64, u64)) -> bool| {
-            versions.iter().all(|version| version.as_ref().is_some_and(|v| matching(v, &first)))
+            versions
+                .iter()
+                .all(|version| version.as_ref().is_some_and(|v| matching(v, &first)))
         };
         if !same(|a, b| a.0 == b.0) {
             self.mark_all(&members, State::SameMinorHasMajorMismatch);
@@ -281,7 +280,10 @@ impl<'a, 'w> Visitor<'a, 'w> {
             return self.range_against_group(
                 id,
                 target,
-                [State::MatchConflictsWithSnapTarget, State::MismatchConflictsWithSnapTarget],
+                [
+                    State::MatchConflictsWithSnapTarget,
+                    State::MismatchConflictsWithSnapTarget,
+                ],
             );
         }
         (!self.equals(id, target)).then(|| (State::DiffersToSnapTarget, Some(Arc::clone(target))))
@@ -329,7 +331,11 @@ impl<'a, 'w> Visitor<'a, 'w> {
         let differs = || Some((State::DiffersToLocal, Some(Arc::clone(local_specifier))));
         let specifier = self.spec(id);
         if specifier.is_link() {
-            return if self.link_resolves_to(id, local) { None } else { differs() };
+            return if self.link_resolves_to(id, local) {
+                None
+            } else {
+                differs()
+            };
         }
         if specifier.is_workspace_protocol() {
             return None;
@@ -344,7 +350,11 @@ impl<'a, 'w> Visitor<'a, 'w> {
                 [State::MatchConflictsWithLocal, State::MismatchConflictsWithLocal],
             );
         }
-        if self.equals(id, local_specifier) { None } else { differs() }
+        if self.equals(id, local_specifier) {
+            None
+        } else {
+            differs()
+        }
     }
 
     /// Whether the `link:` path of `id`, resolved from its package's directory, is the directory of `local`'s package.
@@ -445,7 +455,8 @@ mod tests {
     use crate::policy::analysis::Analysis;
     use crate::testing::{config, workspace};
 
-    const ROOT: &str = r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"]}"#;
+    const ROOT: &str =
+        r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"]}"#;
 
     /// `(package, dependency, state)` of every verdict, for a workspace of `members` and a configuration.
     fn states(toml: &str, members: &[(&str, &str)]) -> Vec<(String, String, &'static str)> {
@@ -539,7 +550,10 @@ mod tests {
         let lib = r#"{"name":"lib"}"#;
         let app = manifest("app", "1.0.0", r#""lib":"workspace:*""#);
         let members = [("app", app.as_str()), ("lib", lib)];
-        assert!(states("", &members).is_empty());
+        assert_eq!(
+            states("", &members),
+            [] as [(std::string::String, std::string::String, &str); 0]
+        );
     }
 
     #[test]
@@ -589,9 +603,9 @@ mod tests {
         let lib = manifest("lib", "1.0.0", r#""react":"^18.2.0""#);
         let tool = manifest("tool", "1.0.0", r#""react":"^17.0.0""#);
         let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
-        let toml = "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"same-range\"\n";
+        let config = "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"same-range\"\n";
         assert_eq!(
-            states(toml, &members),
+            states(config, &members),
             [
                 one("app", "react", "SameRangeMismatch"),
                 one("lib", "react", "SameRangeMismatch"),
@@ -606,7 +620,11 @@ mod tests {
         let cases: [(&str, &str, &[&'static str]); 5] = [
             ("~5.4.2", "5.4.9", &[]),
             ("~5.4.2", "~5.5.0", &["SameMinorMismatch", "SameMinorMismatch"]),
-            ("~5.4.2", "~4.9.0", &["SameMinorHasMajorMismatch", "SameMinorHasMajorMismatch"]),
+            (
+                "~5.4.2",
+                "~4.9.0",
+                &["SameMinorHasMajorMismatch", "SameMinorHasMajorMismatch"],
+            ),
             ("^5.4.2", "~5.4.2", &["SameMinorOverridesSemverRange"]),
             (
                 "git+https://x.test/ts.git#a",
@@ -664,17 +682,26 @@ mod tests {
         let lib = manifest("lib", "1.0.0", r#""react":"^18.3.1""#);
         let tool = manifest("tool", "1.0.0", r#""react":"^17.0.0""#);
         let members = [("app", app.as_str()), ("lib", lib.as_str()), ("tool", tool.as_str())];
-        assert!(states("", &members).is_empty());
+        assert_eq!(
+            states("", &members),
+            [] as [(std::string::String, std::string::String, &str); 0]
+        );
         let pinned = "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"18.3.1\"\n";
         assert_eq!(
             states(pinned, &members),
-            [one("lib", "react", "DiffersToPin"), one("tool", "react", "DiffersToPin")]
+            [
+                one("lib", "react", "DiffersToPin"),
+                one("tool", "react", "DiffersToPin")
+            ]
         );
     }
 
     #[test]
     fn lexical_normalization_resolves_dots() {
-        assert_eq!(normalized(Path::new("packages/app/../lib/./x")), Path::new("packages/lib/x"));
+        assert_eq!(
+            normalized(Path::new("packages/app/../lib/./x")),
+            Path::new("packages/lib/x")
+        );
         assert_eq!(normalized(Path::new("")), Path::new(""));
         assert_eq!(normalized(Path::new("a/../..")), Path::new(""));
     }

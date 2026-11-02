@@ -155,7 +155,10 @@ impl<'w> Instances<'w> {
     }
 
     /// The workspace the instances were read from.
-    #[allow(dead_code, reason = "the entry point of the catalog rules, which resolve catalogs against the workspace")]
+    #[allow(
+        dead_code,
+        reason = "the entry point of the catalog rules, which resolve catalogs against the workspace"
+    )]
     pub(crate) const fn workspace(&self) -> &'w Workspace {
         self.workspace
     }
@@ -193,7 +196,8 @@ mod tests {
     use super::*;
     use crate::testing::{config, workspace};
 
-    const ROOT: &str = r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"]}"#;
+    const ROOT: &str =
+        r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"]}"#;
     const APP: &str = r#"{"name":"app","version":"1.0.0","dependencies":{"lib":"1.0.0","react":"^18.0.0"},"peerDependencies":{"react":"^18.0.0"}}"#;
     const LIB: &str = r#"{"name":"lib","version":"1.0.0"}"#;
     const NO_VERSION: &str = r#"{"name":"bare"}"#;
@@ -245,7 +249,7 @@ mod tests {
         let config = config("[policy]\ndependency-types = [\"dev\"]\n");
         let workspace = workspace(&files(), &config);
         let instances = Instances::collect(&workspace, &config);
-        assert!(instances.named("react").is_empty());
+        assert_eq!(instances.named("react"), []);
         assert_eq!(instances.named("lib").len(), 1, "only the own version remains");
     }
 
@@ -254,8 +258,8 @@ mod tests {
         let config = config("[workspace]\nignore-packages = [\"app\"]\n");
         let workspace = workspace(&files(), &config);
         let instances = Instances::collect(&workspace, &config);
-        assert!(instances.named("react").is_empty());
-        assert!(instances.named("app").is_empty());
+        assert_eq!(instances.named("react"), []);
+        assert_eq!(instances.named("app"), []);
         assert_eq!(instances.named("lib").len(), 1);
     }
 
@@ -267,7 +271,10 @@ mod tests {
         let dependency = instances.get(instances.named("react")[1]);
         assert_eq!(
             dependency.pointer(),
-            Some(vec![PathSeg::Key("peerDependencies".to_owned()), PathSeg::Key("react".to_owned())])
+            Some(vec![
+                PathSeg::Key("peerDependencies".to_owned()),
+                PathSeg::Key("react".to_owned())
+            ])
         );
         assert!(dependency.set_specifier("^18.3.1").is_some() && dependency.remove().is_some());
         let own = instances.get(instances.named("app")[0]);

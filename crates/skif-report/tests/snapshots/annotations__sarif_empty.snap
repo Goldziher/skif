@@ -1,0 +1,73 @@
+---
+source: crates/skif-report/tests/annotations.rs
+expression: "run(&Report::new(Vec::new(), 2), Format::Sarif, &options())"
+---
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "skif",
+          "version": "0.1.0",
+          "informationUri": "https://github.com/Goldziher/skif",
+          "rules": [
+            {
+              "id": "version-mismatch",
+              "shortDescription": {
+                "text": "A dependency is declared with different versions."
+              },
+              "help": {
+                "text": "A dependency is declared with different versions."
+              },
+              "defaultConfiguration": {
+                "enabled": true,
+                "level": "error"
+              },
+              "properties": {
+                "category": "policy",
+                "fixable": "sometimes"
+              }
+            },
+            {
+              "id": "unused-dependency",
+              "shortDescription": {
+                "text": "A dependency is never imported."
+              },
+              "help": {
+                "text": "A dependency is never imported."
+              },
+              "defaultConfiguration": {
+                "enabled": true,
+                "level": "warning"
+              },
+              "properties": {
+                "category": "manifest",
+                "fixable": "safe"
+              }
+            },
+            {
+              "id": "sorted-keys",
+              "shortDescription": {
+                "text": "Keys are not sorted."
+              },
+              "help": {
+                "text": "Keys are not sorted."
+              },
+              "defaultConfiguration": {
+                "enabled": false
+              },
+              "properties": {
+                "category": "manifest",
+                "fixable": "none"
+              }
+            }
+          ]
+        }
+      },
+      "columnKind": "unicodeCodePoints",
+      "results": []
+    }
+  ]
+}
