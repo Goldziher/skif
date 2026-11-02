@@ -12,7 +12,7 @@ documentation = "https://docs.rs/skif"
 keywords = ["linter", "monorepo", "package-json", "dependencies", "pnpm"]
 categories = ["development-tools"]
 readme = "README.md"
-include = ["src/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
+include = ["src/**", "benches/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
 
 [features]
 default = ["manifest", "policy"]
@@ -48,8 +48,22 @@ skif-rules = { workspace = true, optional = true }
 skif-workspace.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+criterion.workspace = true
+skif-bench.workspace = true
+skif-rules.workspace = true
+
 [[test]]
 name = "fix"
+required-features = ["fix"]
+
+[[bench]]
+name = "pipeline"
+harness = false
+
+[[bench]]
+name = "fix"
+harness = false
 required-features = ["fix"]
 
 [[test]]

@@ -2072,9 +2072,11 @@ checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 name = "skif"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "indexmap",
  "rayon",
  "serde_json",
+ "skif-bench",
  "skif-config",
  "skif-core",
  "skif-edit",
@@ -2164,6 +2166,7 @@ dependencies = [
 name = "skif-js"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "globset",
  "insta",
  "oxc_resolver",
@@ -2198,6 +2201,7 @@ dependencies = [
 name = "skif-js-syntax"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",

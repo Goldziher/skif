@@ -7,8 +7,11 @@ license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "Benchmark harness for skif: synthetic monorepo generator, pinned corpus and hyperfine runner."
+description = "Benchmark harness for skif: synthetic monorepo generator (also a library for in-process benches), pinned corpus and hyperfine runner."
 publish = false
+
+[lib]
+path = "src/lib.rs"
 
 [[bin]]
 name = "skif-bench"
