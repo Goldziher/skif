@@ -30,16 +30,25 @@ for file in crates/skif-specifier/src/*.rs; do
     failures=$((failures + 1))
   fi
 done
-for section in "## sherif" "## syncpack specifier"; do
+for section in "## sherif" "## syncpack specifier" "## knip"; do
   if ! grep -qx "$section" ATTRIBUTIONS.md; then
     echo "::error file=ATTRIBUTIONS.md::missing section '${section}'"
     failures=$((failures + 1))
   fi
 done
-if [[ "$(grep -c '^### Modifications$' ATTRIBUTIONS.md)" -lt 2 ]]; then
+if [[ "$(grep -c '^### Modifications$' ATTRIBUTIONS.md)" -lt 3 ]]; then
   echo "::error file=ATTRIBUTIONS.md::every upstream section needs a '### Modifications' list"
   failures=$((failures + 1))
 fi
+
+# The knip section records the commit the JS analysis follows and the licence holder (ADR 0015).
+knip_section="$(sed -n '/^## knip$/,$p' ATTRIBUTIONS.md)"
+for needle in "da07b6e9887f9a1eb08545da29755b7f9d309bca" "Copyright (c) 2022-2026 Lars Kappert" "ISC License"; do
+  if ! grep -qF "$needle" <<<"$knip_section"; then
+    echo "::error file=ATTRIBUTIONS.md::the knip section is missing '${needle}'"
+    failures=$((failures + 1))
+  fi
+done
 
 if [[ "$failures" -gt 0 ]]; then
   echo "${failures} attribution problem(s)" >&2
