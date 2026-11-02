@@ -10,7 +10,7 @@ repository.workspace = true
 description = "JavaScript and TypeScript module graph and dependency rules for skif, built on oxc."
 documentation = "https://docs.rs/skif-js"
 keywords = ["javascript", "typescript", "unused", "dependencies", "monorepo"]
-include = ["src/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md"]
+include = ["src/**", "benches/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md"]
 categories = ["development-tools"]
 
 [dependencies]
@@ -28,7 +28,12 @@ skif-lint.workspace = true
 skif-workspace.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 insta = { workspace = true, features = ["json"] }
+
+[[bench]]
+name = "analysis"
+harness = false
 
 [lints]
 workspace = true
