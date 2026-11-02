@@ -47,7 +47,7 @@ fn provider_ids_and_rule_set_are_stable() {
     let all = providers();
     assert_eq!(
         all.iter().map(|provider| provider.id()).collect::<Vec<_>>(),
-        ["manifest", "policy"]
+        ["manifest", "policy", "catalog"]
     );
     let ids: Vec<&str> = all
         .iter()
@@ -64,6 +64,13 @@ fn provider_ids_and_rule_set_are_stable() {
             "semver-range-mismatch",
             "policy-conflict",
             "invalid-local-version",
+            "catalog-not-used",
+            "catalog-mismatch",
+            "catalog-missing-entry",
+            "unresolved-catalog-references",
+            "unused-catalog-entries",
+            "workspace-protocol",
+            "unsynced-dependency-family",
         ]
     );
     Registry::new(all).unwrap();

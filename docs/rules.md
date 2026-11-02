@@ -4,6 +4,11 @@
 
 | Rule | Category | Default severity | Fixable |
 | --- | --- | --- | --- |
+| [`catalog-mismatch`](#catalog-mismatch) | catalog | error | sometimes |
+| [`catalog-missing-entry`](#catalog-missing-entry) | catalog | warning | sometimes |
+| [`catalog-not-used`](#catalog-not-used) | catalog | warning | sometimes |
+| [`unresolved-catalog-references`](#unresolved-catalog-references) | catalog | error | none |
+| [`unused-catalog-entries`](#unused-catalog-entries) | catalog | warning | none |
 | [`empty-dependencies`](#empty-dependencies) | manifest | error | safe |
 | [`incompatible-peer-dependencies`](#incompatible-peer-dependencies) | manifest | warning | none |
 | [`local-path-dependency`](#local-path-dependency) | manifest | error | sometimes |
@@ -17,9 +22,51 @@
 | [`invalid-local-version`](#invalid-local-version) | policy | error | none |
 | [`policy-conflict`](#policy-conflict) | policy | warning | sometimes |
 | [`semver-range-mismatch`](#semver-range-mismatch) | policy | error | unsafe |
+| [`unsynced-dependency-family`](#unsynced-dependency-family) | policy | error | none |
 | [`version-mismatch`](#version-mismatch) | policy | error | sometimes |
+| [`workspace-protocol`](#workspace-protocol) | policy | error | none |
 | [`missing-package-manifest`](#missing-package-manifest) | workspace | warning | unsafe |
 | [`unmatched-workspace-patterns`](#unmatched-workspace-patterns) | workspace | warning | safe |
+
+## catalog-mismatch
+
+A dependency is declared with a version while other packages take it from a catalog.
+
+- Category: catalog
+- Default severity: error
+- Fixable: sometimes
+
+## catalog-missing-entry
+
+A dependency that should come from a catalog has no catalog entry.
+
+- Category: catalog
+- Default severity: warning
+- Fixable: sometimes
+
+## catalog-not-used
+
+A dependency that has a catalog entry is declared with a version instead of `catalog:`.
+
+- Category: catalog
+- Default severity: warning
+- Fixable: sometimes
+
+## unresolved-catalog-references
+
+A `catalog:` specifier names a catalog or an entry that does not exist.
+
+- Category: catalog
+- Default severity: error
+- Fixable: none
+
+## unused-catalog-entries
+
+A catalog entry that no manifest references.
+
+- Category: catalog
+- Default severity: warning
+- Fixable: none
 
 ## empty-dependencies
 
@@ -125,6 +172,14 @@ A dependency uses a semver range other than the one its semver group requires.
 - Default severity: error
 - Fixable: unsafe
 
+## unsynced-dependency-family
+
+Members of a dependency family declared in one package are on different versions.
+
+- Category: policy
+- Default severity: error
+- Fixable: none
+
 ## version-mismatch
 
 A dependency instance differs from the version its version group requires (highest, lowest, pinned, local or snapped).
@@ -132,6 +187,14 @@ A dependency instance differs from the version its version group requires (highe
 - Category: policy
 - Default severity: error
 - Fixable: sometimes
+
+## workspace-protocol
+
+A dependency on a workspace package does not use the `workspace:` protocol.
+
+- Category: policy
+- Default severity: error
+- Fixable: none
 
 ## missing-package-manifest
 
