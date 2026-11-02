@@ -112,7 +112,7 @@ fn plugin_config_files_are_entries_and_their_imports_count() {
         &[
             (
                 "package.json",
-                r#"{"name":"app","private":true,"devDependencies":{"vite":"5","@vitejs/plugin-react":"4","eslint":"9","globals":"15"}}"#,
+                r#"{"name":"app","private":true,"scripts":{"lint":"eslint ."},"devDependencies":{"vite":"5","@vitejs/plugin-react":"4","eslint":"9","globals":"15"}}"#,
             ),
             (
                 "vite.config.ts",
@@ -333,7 +333,7 @@ fn out_dir_and_root_dir_map_a_sibling_build_back_to_source() {
             ),
             ("packages/b/lib/index.ts", "export const b = 1;\n"),
         ],
-        "[js.workspaces.\"packages/b\"]\nentry = [\"lib/index.ts\"]",
+        "",
     );
     assert_eq!(found(&diagnostics, "unresolved-imports"), none());
     assert_eq!(found(&diagnostics, "unused-exports"), none());

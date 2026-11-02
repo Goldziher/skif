@@ -60,7 +60,7 @@ struct ReexportIndex {
 
 impl ReexportIndex {
     fn build(graph: &ModuleGraph) -> Self {
-        let mut modules: Vec<Reexports> = graph
+        let modules: Vec<Reexports> = graph
             .modules()
             .iter()
             .map(|module| {

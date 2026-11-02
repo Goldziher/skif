@@ -236,6 +236,7 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
     if is_template_file(path) {
         mark_template_usage(&mut info, &source);
     }
+    let parsed_imports = info.imports.len();
     add_textual_imports(&mut info, &source);
     let imports = info
         .imports
@@ -259,6 +260,8 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
                 Resolved::External(name) => RawTarget::External(name),
                 Resolved::Builtin => RawTarget::Builtin,
                 Resolved::Ignored => RawTarget::Ignored,
+                // Specifiers found by text scan may name directories or assets; they are followed when they resolve.
+                Resolved::Unresolved if index >= parsed_imports => RawTarget::Asset,
                 Resolved::Unresolved => RawTarget::Unresolved,
             };
             RawImport {
