@@ -582,3 +582,33 @@ fn unresolvable_stylesheet_imports_are_reported_but_assets_are_not() {
     );
     assert_eq!(found(&diagnostics, "unresolved-imports"), ["src/a.css: ./gone.css"]);
 }
+
+#[test]
+fn a_missing_alias_target_falls_through_to_bundler_lookup_directories() {
+    let memory = MemoryFs::new()
+        .with_file(
+            format!("{ROOT}/package.json"),
+            r#"{"name":"app","private":true,"main":"src/index.js","devDependencies":{"@rspack/core":"1.0.0","typescript":"5.0.0"},"scripts":{"build":"rspack build"}}"#,
+        )
+        .with_file(
+            format!("{ROOT}/tsconfig.json"),
+            r#"{"compilerOptions":{"baseUrl":"src","paths":{"kit":["kit"]}}}"#,
+        )
+        .with_file(
+            format!("{ROOT}/rspack.config.js"),
+            "const path = require('path');\nmodule.exports = { entry: './src/index.js', resolve: { modules: [path.resolve(__dirname, '../shared'), 'node_modules'] } };\n",
+        )
+        // The lookup directory sits outside the project, next to it.
+        .with_file("/shared/kit/index.js", "export const kit = 1;\n")
+        .with_file("/shared/kit/css/index.scss", ".a {}\n")
+        .with_file(
+            format!("{ROOT}/src/index.js"),
+            "import 'kit/css/index.scss';\nimport { kit } from 'kit';\nconsole.log(kit);\n",
+        );
+    let found: Vec<String> = lint_memory(memory, "")
+        .iter()
+        .filter(|d| matches!(d.rule.as_str(), "unresolved-imports" | "unlisted-dependencies"))
+        .map(|d| d.message.clone())
+        .collect();
+    assert!(found.is_empty(), "{found:?}");
+}
