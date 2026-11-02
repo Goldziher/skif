@@ -532,23 +532,43 @@ fn source_type_follows_extension() {
         let info = parse(path, source);
         assert!(!info.exports.is_empty() || info.has_cjs_exports, "{path}");
     }
-    let ts_only = parse_module(
-        Path::new("a.js"),
-        "export const a: number = 1;",
-        &ParseOptions::default(),
-    );
-    assert!(matches!(ts_only, Err(SyntaxError::Parse { .. })));
+    let ts_only = parse("a.js", "export const a: number = 1;");
+    assert!(!ts_only.parse_diagnostics.is_empty());
 }
 
 #[test]
-fn syntax_errors_carry_a_location() {
-    let source = "const ok = 1;\nconst = ;\n";
-    let err = parse_module(Path::new("a.js"), source, &ParseOptions::default()).unwrap_err();
-    let SyntaxError::Parse { message, span } = err else {
-        panic!("expected a parse error");
-    };
-    assert_ne!(message, "");
-    assert_eq!(span.start_line, 2);
+fn syntax_errors_are_reported_and_the_recovered_program_is_used() {
+    let source = "import a from 'a';\nconst = ;\nexport const kept = 1;\n";
+    let info = parse("a.js", source);
+    assert!(!info.fatal);
+    assert_eq!(info.imports[0].specifier, "a");
+    assert_eq!(info.exports[0].name, "kept");
+    let issue = &info.parse_diagnostics[0];
+    assert_ne!(issue.message, "");
+    assert_eq!(issue.span.start_line, 2);
+}
+
+#[test]
+fn clean_files_have_no_diagnostics() {
+    let info = parse("a.js", "export const a = 1;");
+    assert!(info.parse_diagnostics.is_empty());
+    assert!(!info.fatal);
+}
+
+#[test]
+fn unrecoverable_input_is_flagged_fatal() {
+    let info = parse("a.js", "\u{0}\u{1} ((( import {{{ `");
+    assert!(info.fatal);
+    assert!(!info.parse_diagnostics.is_empty());
+    assert!(info.imports.is_empty() && info.exports.is_empty());
+}
+
+#[test]
+fn component_blocks_report_their_diagnostics_with_original_offsets() {
+    let vue = "<template/>\n<script>\nconst = ;\nexport const ok = 1;\n</script>\n";
+    let info = parse("A.vue", vue);
+    assert_eq!(info.exports[0].name, "ok");
+    assert_eq!(info.parse_diagnostics[0].span.start_line, 3);
 }
 
 #[test]

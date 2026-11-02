@@ -165,6 +165,16 @@ pub struct Export {
     pub referenced_in_file: bool,
 }
 
+/// A syntax problem reported by the parser. The analysis of the file continues on the parser's recovered program.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct ParseIssue {
+    /// The parser's message.
+    pub message: String,
+    /// Location of the problem in the original file.
+    pub span: Span,
+}
+
 /// Everything skif needs to know about one source file.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -185,6 +195,12 @@ pub struct ModuleInfo {
     pub directives: Vec<String>,
     /// `import()`, `require()` and `import.meta.glob()` calls whose argument is not static.
     pub unresolved_dynamic: Vec<Span>,
+    /// Syntax errors the parser recovered from; the other fields describe the recovered program. For component
+    /// files, the issues of every script block.
+    pub parse_diagnostics: Vec<ParseIssue>,
+    /// The parser could not recover (or, for a component file, could not recover in at least one script block): the
+    /// facts of the affected code are missing. Report the file as unparseable instead of treating it as empty.
+    pub fatal: bool,
 }
 
 impl ModuleInfo {
@@ -206,6 +222,8 @@ impl ModuleInfo {
         }
         self.directives.extend(other.directives);
         self.unresolved_dynamic.extend(other.unresolved_dynamic);
+        self.parse_diagnostics.extend(other.parse_diagnostics);
+        self.fatal |= other.fatal;
     }
 }
 
