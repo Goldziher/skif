@@ -38,6 +38,16 @@ pub struct Diagnostic {
     /// Name of the affected dependency.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dependency: Option<String>,
+    /// Raw version specifier of the affected dependency instance, as written in the manifest. `[[ignore]]`
+    /// `dependencies = ["name@spec"]` entries match against it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub specifier: Option<String>,
+    /// Severity the rule proposes for this finding. The engine applies it only when the user has not set the rule's
+    /// level in the configuration, so a rule can derive its default from other settings (for example
+    /// `[catalog] mode`); never serialized, because the effective [`severity`](Self::severity) is what is reported.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub default_severity: Option<Severity>,
     /// Extra machine-readable context.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
@@ -47,7 +57,7 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    /// A diagnostic without help, related locations, package, dependency, detail or fixes; set those through the
+    /// A diagnostic without help, related locations, package, dependency, specifier, detail or fixes; set those through the
     /// public fields, or use [`diagnostic()`](crate::diagnostic()) to build one for a rule.
     #[must_use]
     pub fn new(rule: RuleId, severity: Severity, message: impl Into<String>, location: Location) -> Self {
@@ -61,6 +71,8 @@ impl Diagnostic {
             package: None,
             package_id: None,
             dependency: None,
+            specifier: None,
+            default_severity: None,
             detail: None,
             fixes: Vec::new(),
         }
@@ -153,6 +165,8 @@ mod tests {
             package: Some("pkg".into()),
             package_id: None,
             dependency: None,
+            specifier: None,
+            default_severity: None,
             detail: None,
             fixes: vec![Fix {
                 title: "apply".into(),
@@ -216,6 +230,27 @@ mod tests {
         assert_eq!(value, serde_json::to_value(diagnostic()).unwrap());
         let back: Diagnostic = serde_json::from_value(value).unwrap();
         assert_eq!(back.package_id, None);
+    }
+
+    #[test]
+    fn specifier_is_serialized_only_when_set_and_round_trips() {
+        let plain = serde_json::to_value(diagnostic()).unwrap();
+        assert!(plain.get("specifier").is_none(), "{plain}");
+        let mut with = diagnostic();
+        with.dependency = Some("@scope/pkg".into());
+        with.specifier = Some("^1.0.0".into());
+        let value = serde_json::to_value(&with).unwrap();
+        assert_eq!(value["specifier"], "^1.0.0");
+        assert_eq!(serde_json::from_value::<Diagnostic>(value).unwrap(), with);
+    }
+
+    #[test]
+    fn default_severity_is_never_serialized() {
+        let mut with = diagnostic();
+        with.default_severity = Some(Severity::Error);
+        let value = serde_json::to_value(&with).unwrap();
+        assert!(value.get("default-severity").is_none() && value.get("default_severity").is_none());
+        assert_eq!(value, serde_json::to_value(diagnostic()).unwrap());
     }
 
     #[test]

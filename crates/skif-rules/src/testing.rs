@@ -26,9 +26,14 @@ pub fn workspace(files: Files<'_>, config: &Config) -> Workspace {
 
 /// Runs the whole manifest provider and keeps the diagnostics of `rule`.
 pub fn lint(rule: &str, files: Files<'_>, config: &Config) -> Vec<Diagnostic> {
+    lint_with(rule, files, config, &RunOptions::default())
+}
+
+/// As [`lint`], with the given run options.
+pub fn lint_with(rule: &str, files: Files<'_>, config: &Config, options: &RunOptions<'_>) -> Vec<Diagnostic> {
     let workspace = workspace(files, config);
     let registry = Registry::new(crate::providers()).unwrap();
-    run_unsorted(&registry, &workspace, config, &RunOptions::default())
+    run_unsorted(&registry, &workspace, config, options)
         .unwrap()
         .into_iter()
         .filter(|diagnostic| diagnostic.rule.as_str() == rule)
