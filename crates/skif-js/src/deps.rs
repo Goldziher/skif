@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::Value;
-use skif_core::FileSystem;
+use skif_core::{FileSystem, Span};
 use skif_js_syntax::ImportKind;
 use skif_workspace::{PackageId, Workspace};
 
@@ -19,7 +19,7 @@ const ALWAYS_USED: &[&str] = &["typescript", "knip", "skif"];
 /// Packages whose `@types` twin does not need the package itself.
 const UNPAIRED_TYPES: &[&str] = &["node", "bun", "jest"];
 
-/// Binaries whose package has a different name.
+/// Binaries whose package has a different name. Used when the package is not installed, so its `bin` cannot be read.
 const BINARY_PACKAGES: &[(&str, &str)] = &[
     ("tsc", "typescript"),
     ("tsserver", "typescript"),
@@ -29,6 +29,25 @@ const BINARY_PACKAGES: &[(&str, &str)] = &[
     ("graphql-codegen", "@graphql-codegen/cli"),
     ("biome", "@biomejs/biome"),
     ("webpack", "webpack-cli"),
+    ("babel", "@babel/cli"),
+    ("nest", "@nestjs/cli"),
+    ("svelte-kit", "@sveltejs/kit"),
+    ("swc", "@swc/cli"),
+    ("docusaurus", "@docusaurus/core"),
+    ("sentry-cli", "@sentry/cli"),
+    ("vue-cli-service", "@vue/cli-service"),
+    ("lhci", "@lhci/cli"),
+    ("redocly", "@redocly/cli"),
+    ("tsgo", "@typescript/native-preview"),
+    ("sb", "storybook"),
+    ("cz", "commitizen"),
+    ("firebase", "firebase-tools"),
+    ("eas", "eas-cli"),
+    ("netlify", "netlify-cli"),
+    ("playwright", "@playwright/test"),
+    ("gql-gen", "@graphql-codegen/cli"),
+    ("nuxi", "nuxt"),
+    ("cdk", "aws-cdk"),
 ];
 
 /// An import of a package the manifest does not list.
@@ -40,8 +59,8 @@ pub struct UnlistedImport {
     pub name: String,
     /// The importing module.
     pub module: ModuleId,
-    /// Index into the importing module's imports.
-    pub import: usize,
+    /// Where the import is written: the import statement, or the `@jsxImportSource` pragma.
+    pub span: Option<Span>,
 }
 
 /// A script binary that no dependency provides.
@@ -203,11 +222,13 @@ impl DependencyUsage {
                 if let Some(name) = &resolved.package {
                     let kind = module.info.imports.get(resolved.import).map(|import| import.kind);
                     let type_only = resolved.type_only && kind != Some(ImportKind::ExportFrom);
-                    self.handle_import(workspace, module.owner, name, type_only, module.id, resolved.import);
+                    let span = module.info.imports.get(resolved.import).map(|import| import.span);
+                    self.handle_import(workspace, module.owner, name, type_only, module.id, span);
                 }
             }
             if let Some(source) = module.info.jsx_import_source.as_deref().and_then(package_name) {
-                self.handle_import(workspace, module.owner, &source, false, module.id, 0);
+                let span = module.info.jsx_import_source_span;
+                self.handle_import(workspace, module.owner, &source, false, module.id, span);
             }
         }
     }
@@ -219,7 +240,7 @@ impl DependencyUsage {
         name: &str,
         type_only: bool,
         module: ModuleId,
-        import: usize,
+        span: Option<Span>,
     ) {
         if RUNTIME_PACKAGES.contains(&name) {
             return;
@@ -258,7 +279,7 @@ impl DependencyUsage {
             package: owner,
             name: name.to_owned(),
             module,
-            import,
+            span,
         });
     }
 

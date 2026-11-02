@@ -2,14 +2,51 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use ignore::Match;
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use skif_core::FileSystem;
 use skif_workspace::{PackageId, Workspace};
 
 use crate::resolve::is_code_file;
 
-/// Directories that never hold analysed sources.
-const SKIPPED_DIRS: &[&str] = &["node_modules", ".git", "dist", "build", "coverage"];
+/// Directories that never hold analysed sources: dependencies, VCS data and common build output.
+///
+/// `build` is not listed: it is often a source directory, so it is only skipped when a `.gitignore` says so.
+const SKIPPED_DIRS: &[&str] = &[
+    "node_modules",
+    ".git",
+    "dist",
+    "coverage",
+    ".next",
+    "out",
+    ".turbo",
+    ".svelte-kit",
+    "storybook-static",
+    ".yarn",
+    ".vercel",
+    ".nuxt",
+    "target",
+];
+
+/// Hidden directories that hold tool configuration and sources; every other hidden directory is skipped.
+const HIDDEN_DIRS: &[&str] = &[
+    ".storybook",
+    ".rnstorybook",
+    ".config",
+    ".vitepress",
+    ".vuepress",
+    ".husky",
+    ".github",
+    ".changeset",
+];
+
+/// Ignore files honoured like the `ignore` crate does, in increasing priority.
+const IGNORE_FILES: &[&str] = &[".gitignore", ".ignore"];
+
+/// Files package managers generate next to the manifest; they are never project source.
+const GENERATED_FILES: &[&str] = &[".pnp.cjs", ".pnp.js", ".pnp.loader.mjs"];
 
 const MAX_DEPTH: usize = 48;
 
@@ -29,9 +66,50 @@ pub(crate) fn relative(path: &Path, base: &Path) -> Option<String> {
     Some(rest.to_string_lossy().replace('\\', "/"))
 }
 
+/// The matchers of the ignore files found in `dir`, if any.
+fn ignore_file_matcher(fs: &dyn FileSystem, dir: &Path) -> Option<Gitignore> {
+    let mut builder = GitignoreBuilder::new(dir);
+    let mut any = false;
+    for name in IGNORE_FILES {
+        let path = dir.join(name);
+        let Ok(text) = fs.read_to_string(&path) else { continue };
+        for line in text.lines() {
+            any |= builder.add_line(Some(path.clone()), line).is_ok();
+        }
+    }
+    if any { builder.build().ok() } else { None }
+}
+
+/// Whether the closest matcher with an opinion ignores `path`.
+fn is_ignored(matchers: &[Arc<Gitignore>], path: &Path, is_dir: bool) -> bool {
+    for matcher in matchers.iter().rev() {
+        match matcher.matched(path, is_dir) {
+            Match::Ignore(_) => return true,
+            Match::Whitelist(_) => return false,
+            Match::None => {}
+        }
+    }
+    false
+}
+
+/// Whether a directory is skipped by name, unless it is a workspace package.
+fn skipped_by_name(name: &str) -> bool {
+    SKIPPED_DIRS.contains(&name) || (name.starts_with('.') && !HIDDEN_DIRS.contains(&name))
+}
+
+struct Frame {
+    dir: PathBuf,
+    owner: PackageId,
+    depth: usize,
+    matchers: Vec<Arc<Gitignore>>,
+}
+
 /// Lists every `.js`/`.ts`-family file below the workspace root, sorted by relative path.
 ///
 /// Files of a nested package belong to that package; packages excluded by `ignore-packages` contribute nothing.
+/// `.gitignore` and `.ignore` files are honoured with the semantics of the `ignore` crate, hidden directories
+/// (except tool configuration ones) and common build output are skipped, and symbolic links to directories are
+/// not followed.
 pub(crate) fn discover(fs: &dyn FileSystem, workspace: &Workspace) -> Vec<Candidate> {
     let mut owners: HashMap<PathBuf, PackageId> = HashMap::new();
     let mut skipped: HashSet<PathBuf> = HashSet::new();
@@ -45,9 +123,18 @@ pub(crate) fn discover(fs: &dyn FileSystem, workspace: &Workspace) -> Vec<Candid
     }
 
     let mut found = Vec::new();
-    let mut stack = vec![(workspace.root.clone(), PackageId::ROOT, 0_usize)];
-    while let Some((dir, owner, depth)) = stack.pop() {
-        let Ok(entries) = fs.read_dir(&dir) else { continue };
+    let mut stack = vec![Frame {
+        dir: workspace.root.clone(),
+        owner: PackageId::ROOT,
+        depth: 0,
+        matchers: Vec::new(),
+    }];
+    while let Some(frame) = stack.pop() {
+        let Ok(entries) = fs.read_dir(&frame.dir) else { continue };
+        let mut matchers = frame.matchers;
+        if let Some(matcher) = ignore_file_matcher(fs, &frame.dir) {
+            matchers.push(Arc::new(matcher));
+        }
         for entry in entries {
             let name = entry
                 .path
@@ -55,19 +142,31 @@ pub(crate) fn discover(fs: &dyn FileSystem, workspace: &Workspace) -> Vec<Candid
                 .and_then(|name| name.to_str())
                 .unwrap_or_default();
             if entry.is_dir {
-                if depth >= MAX_DEPTH || SKIPPED_DIRS.contains(&name) || skipped.contains(&entry.path) {
+                let package = owners.get(&entry.path).copied();
+                if frame.depth >= MAX_DEPTH
+                    || entry.is_symlink
+                    || skipped.contains(&entry.path)
+                    || (package.is_none() && skipped_by_name(name))
+                    || is_ignored(&matchers, &entry.path, true)
+                {
                     continue;
                 }
-                let child_owner = owners.get(&entry.path).copied().unwrap_or(owner);
-                stack.push((entry.path, child_owner, depth + 1));
+                stack.push(Frame {
+                    dir: entry.path,
+                    owner: package.unwrap_or(frame.owner),
+                    depth: frame.depth + 1,
+                    matchers: matchers.clone(),
+                });
             } else if entry.is_file
+                && !GENERATED_FILES.contains(&name)
                 && is_code_file(&entry.path)
+                && !is_ignored(&matchers, &entry.path, false)
                 && let Some(rel) = relative(&entry.path, &workspace.root)
             {
                 found.push(Candidate {
                     abs: entry.path,
                     rel,
-                    owner,
+                    owner: frame.owner,
                 });
             }
         }
@@ -93,11 +192,69 @@ mod tests {
             .with_file("/ws/packages/a/dist/built.js", "")
             .with_file("/ws/packages/a/node_modules/x/index.js", "")
             .with_file("/ws/tools/run.js", "")
+            .with_file("/ws/.pnp.cjs", "")
+            .with_file("/ws/.pnp.loader.mjs", "")
             .with_file("/ws/readme.md", "");
         let config = Config::from_toml_str("").unwrap();
         let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &fs).unwrap();
         let files = discover(&fs, &workspace);
         let listed: Vec<(&str, usize)> = files.iter().map(|c| (c.rel.as_str(), c.owner.index())).collect();
         assert_eq!(listed, [("packages/a/src/z.ts", 1), ("tools/run.js", 0)]);
+    }
+
+    fn files(fs: &MemoryFs) -> Vec<String> {
+        let config = Config::from_toml_str("").unwrap();
+        let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, fs).unwrap();
+        discover(fs, &workspace).into_iter().map(|c| c.rel).collect()
+    }
+
+    #[test]
+    fn build_directory_is_source_unless_gitignored() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/package.json", r#"{"name":"r"}"#)
+            .with_file("/ws/build/tool.ts", "")
+            .with_file("/ws/src/a.ts", "");
+        assert_eq!(files(&fs), ["build/tool.ts", "src/a.ts"]);
+
+        let fs = fs.with_file("/ws/.gitignore", "build/\n");
+        assert_eq!(files(&fs), ["src/a.ts"]);
+    }
+
+    #[test]
+    fn gitignore_patterns_nesting_and_negation() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/package.json", r#"{"name":"r"}"#)
+            .with_file("/ws/.gitignore", "*.generated.ts\ngen/\n!keep.generated.ts\n")
+            .with_file("/ws/src/a.ts", "")
+            .with_file("/ws/src/a.generated.ts", "")
+            .with_file("/ws/src/keep.generated.ts", "")
+            .with_file("/ws/gen/x.ts", "")
+            .with_file("/ws/src/nested/.ignore", "private.ts\n")
+            .with_file("/ws/src/nested/private.ts", "")
+            .with_file("/ws/src/nested/public.ts", "");
+        assert_eq!(
+            files(&fs),
+            ["src/a.ts", "src/keep.generated.ts", "src/nested/public.ts"]
+        );
+    }
+
+    #[test]
+    fn hidden_and_build_output_directories_are_skipped() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/package.json", r#"{"name":"r"}"#)
+            .with_file("/ws/.next/server.js", "")
+            .with_file("/ws/out/x.js", "")
+            .with_file("/ws/.turbo/x.js", "")
+            .with_file("/ws/.svelte-kit/x.js", "")
+            .with_file("/ws/storybook-static/x.js", "")
+            .with_file("/ws/.yarn/x.js", "")
+            .with_file("/ws/.vercel/x.js", "")
+            .with_file("/ws/.nuxt/x.js", "")
+            .with_file("/ws/target/x.js", "")
+            .with_file("/ws/.cache/x.js", "")
+            .with_file("/ws/.storybook/main.ts", "")
+            .with_file("/ws/.eslintrc.js", "")
+            .with_file("/ws/src/a.ts", "");
+        assert_eq!(files(&fs), [".eslintrc.js", ".storybook/main.ts", "src/a.ts"]);
     }
 }

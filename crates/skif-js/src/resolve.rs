@@ -11,6 +11,7 @@ use skif_core::{FileSystem, OsFs};
 use skif_workspace::Workspace;
 
 use crate::manifest_paths::{ENTRY_FIELDS, map_to_source, resolve_exports};
+use crate::setup::Setup;
 use crate::specifier::{has_foreign_scheme, is_builtin, node_modules_package, package_name, subpath};
 
 /// Extensions that are parsed and followed.
@@ -66,6 +67,24 @@ impl oxc_resolver::FileSystem for ResolverFs {
     }
 }
 
+/// Joins a relative path written with `/` or `\` separators onto `base`, collapsing `.` and `..` lexically.
+///
+/// Tool configuration and `tsconfig` paths use `/`, Windows tooling and hand-written configs may use `\`; both
+/// join the same way, and no separator of the host leaks into the result.
+pub(crate) fn join_normalized(base: &Path, relative: &str) -> PathBuf {
+    let mut path = base.to_path_buf();
+    for segment in relative.split(['/', '\\']) {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                path.pop();
+            }
+            other => path.push(other),
+        }
+    }
+    path
+}
+
 /// What a specifier points at.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Resolved {
@@ -94,6 +113,31 @@ pub(crate) struct Outcome {
 struct Member {
     dir: PathBuf,
     manifest: Value,
+    /// Absolute output directories with the source directory each is built from.
+    build_dirs: Vec<(PathBuf, PathBuf)>,
+}
+
+/// One alias with its absolute target; `None` when the configuration computes it.
+struct Alias {
+    find: String,
+    target: Option<PathBuf>,
+}
+
+/// The aliases declared for a package directory, longest `find` first.
+struct AliasScope {
+    dir: PathBuf,
+    aliases: Vec<Alias>,
+}
+
+/// Roots of `SvelteKit`'s virtual modules, which no file backs.
+const VIRTUAL_ROOTS: &[&str] = &["$app", "$env", "$service-worker"];
+
+/// The rest of `specifier` below the alias `find`, `""` for the alias itself.
+fn alias_rest<'a>(specifier: &'a str, find: &str) -> Option<&'a str> {
+    if specifier == find {
+        return Some("");
+    }
+    specifier.strip_prefix(find)?.strip_prefix('/')
 }
 
 /// Resolves specifiers for the whole workspace. Cheap to share between threads.
@@ -103,9 +147,12 @@ pub(crate) struct ModuleResolver {
     fs: Arc<dyn FileSystem>,
     root: PathBuf,
     members: BTreeMap<String, Member>,
+    scopes: Vec<AliasScope>,
+    /// `exports` conditions that select source files, besides the built-in `source`.
+    conditions: Vec<String>,
 }
 
-fn options(tsconfig: bool) -> ResolveOptions {
+fn options(tsconfig: bool, conditions: &[String]) -> ResolveOptions {
     let owned = |items: &[&str]| items.iter().map(|item| (*item).to_owned()).collect::<Vec<_>>();
     ResolveOptions {
         tsconfig: tsconfig.then_some(TsconfigDiscovery::Auto),
@@ -118,7 +165,10 @@ fn options(tsconfig: bool) -> ResolveOptions {
             (".mjs".to_owned(), owned(&[".mts", ".d.mts", ".mjs"])),
             (".cjs".to_owned(), owned(&[".cts", ".d.cts", ".cjs"])),
         ],
-        condition_names: owned(&["import", "require", "node", "default", "types"]),
+        condition_names: owned(&["import", "require", "node", "default", "types"])
+            .into_iter()
+            .chain(conditions.iter().cloned())
+            .collect(),
         main_fields: owned(&["module", "main"]),
         symlinks: false,
         node_path: false,
@@ -127,28 +177,84 @@ fn options(tsconfig: bool) -> ResolveOptions {
 }
 
 impl ModuleResolver {
-    pub(crate) fn new(fs: Arc<dyn FileSystem>, workspace: &Workspace) -> Self {
-        let make =
-            |tsconfig| ResolverGeneric::new_with_file_system(ResolverFs { fs: Arc::clone(&fs) }, options(tsconfig));
+    pub(crate) fn new(fs: Arc<dyn FileSystem>, workspace: &Workspace, setup: &Setup) -> Self {
+        let mut conditions: Vec<String> = setup
+            .packages
+            .iter()
+            .flatten()
+            .flat_map(|package| package.conditions.iter().cloned())
+            .collect();
+        conditions.sort();
+        conditions.dedup();
+        let make = |tsconfig| {
+            ResolverGeneric::new_with_file_system(ResolverFs { fs: Arc::clone(&fs) }, options(tsconfig, &conditions))
+        };
         let members = workspace
             .all_packages()
             .filter_map(|package| {
                 let name = package.name.clone()?;
+                let dir = workspace.root.join(&package.dir);
+                let build_dirs = setup
+                    .package(package.id)
+                    .map(|setup| {
+                        setup
+                            .build_dirs
+                            .iter()
+                            .map(|dir_pair| {
+                                (
+                                    join_normalized(&dir, &dir_pair.out_dir),
+                                    join_normalized(&dir, &dir_pair.root_dir),
+                                )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 Some((
                     name,
                     Member {
-                        dir: workspace.root.join(&package.dir),
+                        dir,
                         manifest: package.manifest.value.clone(),
+                        build_dirs,
                     },
                 ))
             })
             .collect();
+        let mut scopes: Vec<AliasScope> = setup
+            .packages
+            .iter()
+            .flatten()
+            .map(|package| {
+                let mut aliases: Vec<Alias> = package
+                    .aliases
+                    .iter()
+                    .map(|alias| Alias {
+                        find: alias.find.clone(),
+                        target: alias
+                            .target
+                            .as_deref()
+                            .map(|target| join_normalized(&package.dir, target)),
+                    })
+                    .collect();
+                aliases.push(Alias {
+                    find: "$lib".to_owned(),
+                    target: Some(join_normalized(&package.dir, "src/lib")),
+                });
+                aliases.sort_by_key(|alias| std::cmp::Reverse(alias.find.len()));
+                AliasScope {
+                    dir: package.dir.clone(),
+                    aliases,
+                }
+            })
+            .collect();
+        scopes.sort_by_key(|scope| std::cmp::Reverse(scope.dir.components().count()));
         Self {
             with_tsconfig: make(true),
             plain: make(false),
             fs,
             root: workspace.root.clone(),
             members,
+            scopes,
+            conditions,
         }
     }
 
@@ -182,18 +288,55 @@ impl ModuleResolver {
         }
         let name = package_name(specifier);
         let member_name = name.clone().filter(|name| self.members.contains_key(name));
-        match self.attempt(importer, specifier) {
-            Ok(path) => {
-                if let Some(installed) = node_modules_package(&path) {
-                    let package = name.unwrap_or(installed);
-                    return self.package_target(&package, specifier);
-                }
-                outcome(self.classify(path), member_name)
+        if let Ok(path) = self.attempt(importer, specifier) {
+            if let Some(installed) = node_modules_package(&path) {
+                let package = name.unwrap_or(installed);
+                return self.package_target(&package, specifier);
             }
-            Err(_) => match name {
+            outcome(self.classify(path), member_name)
+        } else {
+            if let Some(aliased) = self.through_alias(importer, specifier) {
+                return outcome(aliased, None);
+            }
+            match name {
                 Some(name) => self.package_target(&name, specifier),
                 None => outcome(Resolved::Unresolved, None),
-            },
+            }
+        }
+    }
+
+    /// Follows the aliases declared for the importer's package (and the packages above it).
+    ///
+    /// `None` when no alias applies. An alias whose target the configuration computes is not followed but is known not
+    /// to be a package; one whose static target does not exist is unresolved.
+    fn through_alias(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
+        let root = specifier.split('/').next().unwrap_or(specifier);
+        if VIRTUAL_ROOTS.contains(&root) {
+            return Some(Resolved::Ignored);
+        }
+        let mut computed = false;
+        let mut matched = false;
+        let directory = importer.parent()?;
+        for scope in self.scopes.iter().filter(|scope| importer.starts_with(&scope.dir)) {
+            for alias in &scope.aliases {
+                let Some(rest) = alias_rest(specifier, &alias.find) else {
+                    continue;
+                };
+                matched = true;
+                let Some(target) = &alias.target else {
+                    computed = true;
+                    continue;
+                };
+                let path = join_normalized(target, rest);
+                if let Ok(resolution) = self.plain.resolve(directory, &path.to_string_lossy()) {
+                    return Some(self.classify(resolution.path().to_path_buf()));
+                }
+            }
+        }
+        match (matched, computed) {
+            (false, _) => None,
+            (true, true) => Some(Resolved::Ignored),
+            (true, false) => Some(Resolved::Unresolved),
         }
     }
 
@@ -209,18 +352,39 @@ impl ModuleResolver {
         }
     }
 
+    /// The source file behind a published path: through the package's `outDir` and `rootDir` first, then by the
+    /// `dist` to `src` convention.
+    fn map_member_target(&self, member: &Member, target: &str) -> Option<PathBuf> {
+        let published = join_normalized(&member.dir, target);
+        for (out_dir, root_dir) in &member.build_dirs {
+            let Ok(rest) = published.strip_prefix(out_dir) else {
+                continue;
+            };
+            let rest = rest.to_string_lossy().replace('\\', "/");
+            let source = join_normalized(root_dir, &rest);
+            let Ok(inside) = source.strip_prefix(&member.dir) else {
+                continue;
+            };
+            let mapped = inside.to_string_lossy().replace('\\', "/");
+            if let Some(found) = map_to_source(self.fs.as_ref(), &member.dir, &mapped) {
+                return Some(found);
+            }
+        }
+        map_to_source(self.fs.as_ref(), &member.dir, target)
+    }
+
     /// The source file a workspace package exposes at `subpath`, or `None` when its build output is all there is.
     fn member_file(&self, member: &Member, subpath: Option<&str>) -> Option<PathBuf> {
         if let Some(exports) = member.manifest.get("exports").filter(|value| !value.is_null()) {
             let key = subpath.map_or_else(|| ".".to_owned(), |sub| format!("./{sub}"));
-            let target = resolve_exports(exports, &key)?;
-            return map_to_source(self.fs.as_ref(), &member.dir, &target);
+            let target = resolve_exports(exports, &key, &self.conditions)?;
+            return self.map_member_target(member, &target);
         }
         match subpath {
             None => ENTRY_FIELDS
                 .iter()
                 .filter_map(|field| member.manifest.get(*field)?.as_str())
-                .find_map(|target| map_to_source(self.fs.as_ref(), &member.dir, target))
+                .find_map(|target| self.map_member_target(member, target))
                 .or_else(|| {
                     self.plain
                         .resolve(&member.dir, ".")
@@ -249,13 +413,42 @@ mod tests {
 
     use super::*;
 
+    use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
+
+    /// Gives the root package fixed aliases, build directories and conditions.
+    struct RootInputs(WorkspaceInputs);
+
+    impl InputSource for RootInputs {
+        fn inputs(&self, request: &InputRequest<'_>) -> WorkspaceInputs {
+            if request.package.is_root {
+                self.0.clone()
+            } else {
+                WorkspaceInputs::default()
+            }
+        }
+    }
+
     fn resolver(files: &[(&str, &str)]) -> ModuleResolver {
+        resolver_with(files, WorkspaceInputs::default())
+    }
+
+    fn resolver_with(files: &[(&str, &str)], inputs: WorkspaceInputs) -> ModuleResolver {
         let fs = files.iter().fold(MemoryFs::new(), |fs, (path, text)| {
             fs.with_file(Path::new("/ws").join(path), text)
         });
         let config = Config::from_toml_str("").unwrap();
         let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &fs).unwrap();
-        ModuleResolver::new(Arc::new(fs), &workspace)
+        let fs: Arc<dyn FileSystem> = Arc::new(fs);
+        let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(RootInputs(inputs))];
+        let setup = Setup::new(&workspace, &config, &fs, &sources);
+        ModuleResolver::new(fs, &workspace, &setup)
+    }
+
+    fn alias(find: &str, target: Option<&str>) -> PathAlias {
+        PathAlias {
+            find: find.to_owned(),
+            target: target.map(str::to_owned),
+        }
     }
 
     const ROOT: &str = r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#;
@@ -340,6 +533,88 @@ mod tests {
         assert_eq!(
             r.resolve(importer, "@app/thing").target,
             Resolved::File(PathBuf::from("/ws/packages/a/src/lib/thing.ts"))
+        );
+    }
+
+    #[test]
+    fn bundler_aliases_resolve_and_unresolved_aliases_are_never_packages() {
+        let inputs = WorkspaceInputs {
+            aliases: vec![
+                alias("@", Some("src")),
+                alias("@app", Some("src\\lib")),
+                alias("computed", None),
+                alias("@gone", Some("nowhere")),
+            ],
+            ..WorkspaceInputs::default()
+        };
+        let r = resolver_with(
+            &[
+                ("package.json", ROOT),
+                ("src/main.ts", ""),
+                ("src/util.ts", ""),
+                ("src/lib/thing.ts", ""),
+                ("src/routes/a/x.ts", ""),
+                ("src/lib/index.ts", ""),
+            ],
+            inputs,
+        );
+        let importer = Path::new("/ws/src/main.ts");
+        let file = |path: &str| Resolved::File(PathBuf::from(path));
+        assert_eq!(r.resolve(importer, "@/util").target, file("/ws/src/util.ts"));
+        assert_eq!(r.resolve(importer, "@app/thing").target, file("/ws/src/lib/thing.ts"));
+        assert_eq!(r.resolve(importer, "$lib/thing").target, file("/ws/src/lib/thing.ts"));
+        assert_eq!(r.resolve(importer, "$lib").target, file("/ws/src/lib/index.ts"));
+        assert_eq!(r.resolve(importer, "$app/stores").target, Resolved::Ignored);
+        assert_eq!(r.resolve(importer, "computed/x").target, Resolved::Ignored);
+        let gone = r.resolve(importer, "@gone/x");
+        assert_eq!(gone.target, Resolved::Unresolved);
+        assert_eq!(gone.package, None);
+        let unknown = r.resolve(importer, "@/missing");
+        assert_eq!(unknown.target, Resolved::Unresolved);
+        assert_eq!(unknown.package, None);
+        assert_eq!(
+            r.resolve(importer, "@scope/real").target,
+            Resolved::External("@scope/real".to_owned())
+        );
+    }
+
+    #[test]
+    fn windows_separators_join_like_posix_ones() {
+        let base = Path::new("/ws/pkg");
+        assert_eq!(
+            join_normalized(base, "src\\lib\\..\\app/./x"),
+            Path::new("/ws/pkg/src/app/x")
+        );
+        assert_eq!(join_normalized(base, "..\\other"), Path::new("/ws/other"));
+        assert_eq!(join_normalized(base, ""), base);
+    }
+
+    #[test]
+    fn out_dir_root_dir_and_source_condition_map_to_sources() {
+        let inputs = WorkspaceInputs {
+            build_dirs: vec![BuildDir {
+                out_dir: "packages/b/build".to_owned(),
+                root_dir: "packages/b/lib".to_owned(),
+            }],
+            ..WorkspaceInputs::default()
+        };
+        let r = resolver_with(
+            &[
+                ("package.json", ROOT),
+                ("packages/a/package.json", r#"{"name":"@x/a"}"#),
+                (
+                    "packages/b/package.json",
+                    r#"{"name":"@x/b","main":"./build/index.js","exports":{"./util":{"source":"./lib/util.ts","default":"./build/util.js"}}}"#,
+                ),
+                ("packages/b/lib/index.ts", ""),
+                ("packages/b/lib/util.ts", ""),
+            ],
+            inputs,
+        );
+        let importer = Path::new("/ws/packages/a/src/a.ts");
+        assert_eq!(
+            r.resolve(importer, "@x/b/util").target,
+            Resolved::File(PathBuf::from("/ws/packages/b/lib/util.ts"))
         );
     }
 }
