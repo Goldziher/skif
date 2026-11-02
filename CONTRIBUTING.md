@@ -36,10 +36,17 @@ file headers, and the LICENSE and ATTRIBUTIONS files each published crate must s
 
 ## Adding a rule
 
-1. Give the rule a stable kebab-case ID. IDs are the public contract.
-2. Add a fixture under `fixtures/` and a snapshot test for the diagnostics. Never edit `.snap` files by hand.
+1. Give the rule a stable kebab-case ID. IDs are the public contract; add it to `rule-ids.txt`.
+2. Implement it in `skif-rules` (manifest, policy, catalog) or `skif-js` (JS), with a fixture under
+   `fixtures/` and a snapshot test for the diagnostics. Never edit `.snap` files by hand.
 3. Fixers must keep the original indentation and newline style of the edited file.
-4. Document the rule.
+4. Regenerate the reference with `SKIF_UPDATE_DOCS=1 cargo test -p skif --features js-analysis --test docs`
+   and commit `docs/rules.md`; `scripts/check-rule-ids.sh` compares it with `rule-ids.txt`.
+5. For a JS plugin, add its row to `skif-js-plugins`, a fixture under `fixtures/js/plugins/<id>/`, and
+   compare the behaviour with the pinned knip commit recorded in `ATTRIBUTIONS.md`.
+6. Add or extend an end-to-end scenario under `scripts/e2e` when the rule changes what a package manager
+   layout produces, and a bench in `tools/bench` when it changes the hot path.
+7. Document the rule in the changelog.
 
 ## Architecture decisions
 
@@ -50,7 +57,7 @@ or is replaced, write a new ADR that supersedes or amends it, add it to `adrs/in
 
 ## Releasing
 
-Nothing is released until every phase of the plan is done; 0.1.0 is the first, complete release.
+0.1.0 is the first release and contains the whole tool ([ADR 0017](adrs/0017-release-policy-a-single-complete-0-1-0.md)).
 
 1. Bump every version surface at once with `scripts/release-bump.sh <version>`, then check them with
    `scripts/check-versions.sh`.
