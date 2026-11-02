@@ -64,6 +64,7 @@ fn instance_diagnostic(
     .package(package)
     .package_id(instance.package.id)
     .dependency(&instance.name)
+    .specifier(instance.raw())
     .detail(state.name());
     let help = match (&verdict.target, state) {
         (_, State::IsBanned) => Some(format!("remove `{}`", instance.name)),

@@ -83,15 +83,18 @@ impl Suppressions {
             || diagnostic
                 .dependency
                 .as_deref()
-                .is_some_and(|dependency| self.dependency_matches(&entry.dependencies, dependency));
+                .is_some_and(|dependency| self.dependency_matches(&entry.dependencies, dependency, diagnostic));
         rule_ok && package_ok && dependency_ok
     }
 
-    /// Matches `selector` against a dependency written as `name` or `name@specifier`; the dependency is `$LOCAL`
-    /// when its name is a workspace package.
-    fn dependency_matches(&self, selector: &Selector, dependency: &str) -> bool {
+    /// Matches `selector` against the dependency of `diagnostic`: its name, and `name@specifier` when the diagnostic
+    /// carries the raw specifier (a dependency recorded as `name@specifier` is matched as written). The dependency
+    /// is `$LOCAL` when its name is a workspace package.
+    fn dependency_matches(&self, selector: &Selector, dependency: &str, diagnostic: &Diagnostic) -> bool {
         let name = dependency_name(dependency);
-        selector.matches_any([dependency, name], self.by_name.contains_key(name))
+        let versioned = diagnostic.specifier.as_deref().map(|specifier| format!("{name}@{specifier}"));
+        let candidates = [dependency, name].into_iter().chain(versioned.as_deref());
+        selector.matches_any(candidates, self.by_name.contains_key(name))
     }
 }
 
@@ -184,6 +187,41 @@ mod tests {
                 suppresses(&toml, None, Some(dependency)),
                 expected,
                 "{pattern} vs {dependency}"
+            );
+        }
+    }
+
+    fn suppresses_instance(toml: &str, name: &str, specifier: &str) -> bool {
+        let config = Config::from_toml_str(toml).unwrap();
+        let mut diagnostic = make(None, Some(name));
+        diagnostic.specifier = Some(specifier.to_owned());
+        Suppressions::new(&workspace(&config), &config).suppresses(&diagnostic)
+    }
+
+    #[test]
+    fn name_at_specifier_matches_the_recorded_specifier() {
+        let cases = [
+            ("react@^18.0.0", "react", "^18.0.0", true),
+            ("react@^18.0.0", "react", "^17.0.0", false),
+            ("react@^18.0.0", "react-dom", "^18.0.0", false),
+            ("react", "react", "^17.0.0", true),
+            ("react@*", "react", "^17.0.0", true),
+            ("react@^1*", "react", "^17.0.0", true),
+            ("!react@^17.0.0", "react", "^17.0.0", false),
+            ("!react@^17.0.0", "react", "^18.0.0", true),
+            ("@scope/pkg@^1.0.0", "@scope/pkg", "^1.0.0", true),
+            ("@scope/pkg@^1.0.0", "@scope/pkg", "^2.0.0", false),
+            ("@scope/pkg", "@scope/pkg", "^2.0.0", true),
+            ("@scope/*@^1.0.0", "@scope/pkg", "^1.0.0", true),
+            ("@scope/*@^1.0.0", "@other/pkg", "^1.0.0", false),
+            ("$LOCAL", "a", "workspace:*", true),
+        ];
+        for (pattern, name, specifier, expected) in cases {
+            let toml = format!("[[ignore]]\ndependencies = [\"{pattern}\"]\n");
+            assert_eq!(
+                suppresses_instance(&toml, name, specifier),
+                expected,
+                "{pattern} vs {name}@{specifier}"
             );
         }
     }
