@@ -13,7 +13,9 @@ use skif_workspace::Workspace;
 
 use crate::manifest_paths::{ENTRY_FIELDS, map_to_source, resolve_exports};
 use crate::setup::Setup;
-use crate::specifier::{has_foreign_scheme, is_builtin, node_modules_package, package_name, subpath};
+use crate::specifier::{
+    has_foreign_scheme, is_builtin, node_modules_package, node_modules_specifier_package, package_name, subpath,
+};
 
 /// Extensions that are parsed and followed.
 pub(crate) const CODE_EXTENSIONS: &[&str] = &[
@@ -317,6 +319,9 @@ impl ModuleResolver {
         if has_foreign_scheme(specifier) {
             return outcome(Resolved::Ignored, None);
         }
+        if let Some(name) = node_modules_specifier_package(specifier) {
+            return self.package_target(&name, specifier);
+        }
         let name = package_name(specifier);
         let member_name = name.clone().filter(|name| self.members.contains_key(name));
         if let Ok(path) = self.attempt(importer, specifier) {
@@ -407,6 +412,9 @@ impl ModuleResolver {
             if relative {
                 return outcome(Resolved::Unresolved, None);
             }
+        }
+        if let Some(name) = node_modules_specifier_package(specifier) {
+            return self.package_target(&name, specifier);
         }
         let name = package_name(specifier);
         let member_name = name.clone().filter(|name| self.members.contains_key(name));
@@ -793,6 +801,21 @@ mod tests {
             r.resolve(importer, "@x/b/util").target,
             Resolved::File(PathBuf::from("/ws/packages/b/lib/util.ts"))
         );
+    }
+
+    #[test]
+    fn node_modules_specifiers_are_uses_of_the_package_after_the_last_segment() {
+        let r = resolver(&[("package.json", ROOT), ("src/main.ts", "")]);
+        let importer = Path::new("/ws/src/main.ts");
+        for (specifier, package) in [
+            ("mylib/node_modules/express", "express"),
+            ("../node_modules/lodash/fp", "lodash"),
+            ("/abs/node_modules/@scope/pkg/x", "@scope/pkg"),
+        ] {
+            let outcome = r.resolve(importer, specifier);
+            assert_eq!(outcome.target, Resolved::External(package.to_owned()), "{specifier}");
+            assert_eq!(outcome.package.as_deref(), Some(package), "{specifier}");
+        }
     }
 
     #[test]
