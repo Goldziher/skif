@@ -24,10 +24,11 @@ concurrency:
   group: publish-${{ github.event.inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
-# Least privilege at the workflow level. The registry jobs add `id-token: write` themselves,
-# because trusted publishing mints its credential from that claim.
+# Least privilege at the workflow level. Jobs that create, upload to or promote the release add
+# `contents: write`, and the registry jobs add `id-token: write`, because trusted publishing mints its
+# credential from that claim.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   meta:
@@ -111,6 +112,8 @@ jobs:
     name: Create draft GitHub release
     needs: meta
     if: needs.meta.outputs.dry_run != 'true' && needs.meta.outputs.release_complete != 'true'
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -145,6 +148,8 @@ jobs:
       always() && needs.meta.result == 'success'
       && needs.create_release.result != 'failure' && needs.create_release.result != 'cancelled'
       && needs.meta.outputs.release_complete != 'true'
+    permissions:
+      contents: write
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -189,53 +194,63 @@ jobs:
 
       - name: Build binary
         if: ${{ !matrix.alpine }}
-        run: cargo build --release --locked -p skif-cli --target ${{ matrix.target }}
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked -p skif-cli --target "$TARGET"
         shell: bash
 
       - name: Build binary (musl, Alpine container)
         if: ${{ matrix.alpine }}
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           # The image's host target is the musl triple being released, so the build is host-native.
-          docker run --rm -v "$PWD":/work -w /work -e CARGO_TARGET_DIR=/work/target rust:alpine sh -c '
+          docker run --rm -v "$PWD":/work -w /work -e CARGO_TARGET_DIR=/work/target -e TARGET rust:alpine sh -c '
             set -e
             apk add --no-cache build-base musl-dev git perl
             cargo build --release --locked -p skif-cli
-            mkdir -p "target/${{ matrix.target }}/release"
-            cp target/release/skif "target/${{ matrix.target }}/release/skif"
-            strip "target/${{ matrix.target }}/release/skif"
+            mkdir -p "target/$TARGET/release"
+            cp target/release/skif "target/$TARGET/release/skif"
+            strip "target/$TARGET/release/skif"
           '
         shell: bash
 
       - name: Strip binary
         if: ${{ !matrix.alpine && runner.os != 'Windows' }}
-        run: strip "target/${{ matrix.target }}/release/skif" || true
+        env:
+          TARGET: ${{ matrix.target }}
+        run: strip "target/$TARGET/release/skif" || true
         shell: bash
 
       - name: Package archive
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           stage="$(mktemp -d)"
           cp LICENSE "$stage/"
-          case "${{ matrix.target }}" in
+          case "$TARGET" in
           *windows*)
-            cp "target/${{ matrix.target }}/release/skif.exe" "$stage/"
-            (cd "$stage" && 7z a -tzip "$GITHUB_WORKSPACE/skif-${{ matrix.target }}.zip" skif.exe LICENSE)
+            cp "target/$TARGET/release/skif.exe" "$stage/"
+            (cd "$stage" && 7z a -tzip "$GITHUB_WORKSPACE/skif-$TARGET.zip" skif.exe LICENSE)
             ;;
           *)
-            cp "target/${{ matrix.target }}/release/skif" "$stage/"
-            tar czf "skif-${{ matrix.target }}.tar.gz" -C "$stage" skif LICENSE
+            cp "target/$TARGET/release/skif" "$stage/"
+            tar czf "skif-$TARGET.tar.gz" -C "$stage" skif LICENSE
             ;;
           esac
         shell: bash
 
       - name: Smoke test the binary
         if: ${{ !startsWith(matrix.target, 'aarch64-pc-windows') }}
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          case "${{ matrix.target }}" in
-          *windows*) "target/${{ matrix.target }}/release/skif.exe" --version ;;
-          *) "target/${{ matrix.target }}/release/skif" --version ;;
+          case "$TARGET" in
+          *windows*) "target/$TARGET/release/skif.exe" --version ;;
+          *) "target/$TARGET/release/skif" --version ;;
           esac
         shell: bash
 
@@ -253,13 +268,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.meta.outputs.tag }}
-        run: gh release upload "$TAG" skif-${{ matrix.target }}.* --clobber
+          TARGET: ${{ matrix.target }}
+        run: gh release upload "$TAG" skif-"$TARGET".* --clobber
         shell: bash
 
   checksums:
     name: Generate checksums
     needs: [meta, build]
     if: needs.meta.outputs.release_complete != 'true'
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -311,6 +329,8 @@ jobs:
     name: Publish GitHub release
     needs: [meta, checksums]
     if: needs.meta.outputs.dry_run != 'true' && needs.checksums.result == 'success'
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -583,6 +603,8 @@ jobs:
     name: Move the major version tag
     needs: [meta, verify_binstall, verify_npm]
     if: needs.meta.outputs.prerelease != 'true' && needs.verify_binstall.result == 'success' && needs.verify_npm.result == 'success'
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
