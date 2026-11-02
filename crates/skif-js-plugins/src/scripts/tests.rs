@@ -318,6 +318,14 @@ fn table() {
         bins("pnpm --filter web exec vitest", &["vitest:pnpm-exec"]),
         bins("pnpm --filter=web exec vitest", &["vitest:pnpm-exec"]),
         bins("pnpm -F web build", &[]),
+        // A recursive run names scripts of the members, never a binary of this package.
+        bins("pnpm -r build", &[]),
+        bins("pnpm --recursive build", &[]),
+        bins("pnpm -r --filter web build", &[]),
+        bins("pnpm -r run build", &[]),
+        bins("yarn workspaces foreach run build", &[]),
+        bins("yarn workspaces foreach --all run build", &[]),
+        bins("yarn workspaces foreach -A run build", &[]),
         bins("pnpm --filter web run build", &[]),
         bins("pnpm test", &[]),
         // yarn.
@@ -541,7 +549,7 @@ fn current_script_breaks_cycles() {
 #[test]
 fn ignored_binaries() {
     for name in [
-        "cd", "echo", "rm", "cp", "mkdir", "exit", "test", "[", "true", "false", "git",
+        "cd", "echo", "rm", "cp", "mkdir", "exit", "test", "[", "true", "false", "git", "jq", "gh", "kubectl", "deno",
     ] {
         assert!(is_ignored_binary(name), "{name}");
     }

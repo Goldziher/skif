@@ -19,7 +19,7 @@ const ALWAYS_USED: &[&str] = &["typescript", "knip", "skif"];
 /// Packages whose `@types` twin does not need the package itself.
 const UNPAIRED_TYPES: &[&str] = &["node", "bun", "jest"];
 
-/// Binaries whose package has a different name.
+/// Binaries whose package has a different name. Used when the package is not installed, so its `bin` cannot be read.
 const BINARY_PACKAGES: &[(&str, &str)] = &[
     ("tsc", "typescript"),
     ("tsserver", "typescript"),
@@ -29,6 +29,25 @@ const BINARY_PACKAGES: &[(&str, &str)] = &[
     ("graphql-codegen", "@graphql-codegen/cli"),
     ("biome", "@biomejs/biome"),
     ("webpack", "webpack-cli"),
+    ("babel", "@babel/cli"),
+    ("nest", "@nestjs/cli"),
+    ("svelte-kit", "@sveltejs/kit"),
+    ("swc", "@swc/cli"),
+    ("docusaurus", "@docusaurus/core"),
+    ("sentry-cli", "@sentry/cli"),
+    ("vue-cli-service", "@vue/cli-service"),
+    ("lhci", "@lhci/cli"),
+    ("redocly", "@redocly/cli"),
+    ("tsgo", "@typescript/native-preview"),
+    ("sb", "storybook"),
+    ("cz", "commitizen"),
+    ("firebase", "firebase-tools"),
+    ("eas", "eas-cli"),
+    ("netlify", "netlify-cli"),
+    ("playwright", "@playwright/test"),
+    ("gql-gen", "@graphql-codegen/cli"),
+    ("nuxi", "nuxt"),
+    ("cdk", "aws-cdk"),
 ];
 
 /// An import of a package the manifest does not list.
