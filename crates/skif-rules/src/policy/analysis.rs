@@ -28,8 +28,10 @@ pub(crate) struct Analysis<'w> {
 }
 
 impl<'w> Analysis<'w> {
-    pub(crate) fn run(workspace: &'w Workspace, config: &Config) -> Self {
-        let instances = Instances::collect(workspace, config);
+    /// Runs the version groups; with `catalog_owns`, dependencies the catalog rules report are left to them (see
+    /// [`Instances::collect`]).
+    pub(crate) fn run(workspace: &'w Workspace, config: &Config, catalog_owns: bool) -> Self {
+        let instances = Instances::collect(workspace, config, catalog_owns);
         let (verdicts, unused_groups, invalid_pins) = {
             let groups = Groups::compile(workspace, config);
             let assignment = groups.assign(&instances);

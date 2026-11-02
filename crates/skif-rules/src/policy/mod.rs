@@ -53,7 +53,10 @@ impl RuleProvider for PolicyProvider {
 
     fn run(&self, cx: &LintContext<'_>, enabled: &EnabledRules, out: &mut Emitter<'_>) -> Result<(), ProviderError> {
         if rules().iter().any(|meta| enabled.contains(meta.id)) {
-            let analysis = analysis::Analysis::run(cx.workspace, cx.config);
+            // The catalog rules own a dependency only while the rule that reports it is on; otherwise the version
+            // groups keep it.
+            let catalog_owns = enabled.contains(catalog::owning_rule());
+            let analysis = analysis::Analysis::run(cx.workspace, cx.config, catalog_owns);
             report::emit(&analysis, cx.config_file(), out);
         }
         Ok(())
@@ -205,6 +208,32 @@ mod tests {
             both(),
             "below min-packages the catalog rules do not report the dependency"
         );
+    }
+
+    #[test]
+    fn the_catalog_owns_a_dependency_only_while_its_rule_is_on_and_no_group_names_it() {
+        const ROOT: &str = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0"}"#;
+        const APP: &str = r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"react":"^18.2.0"}}"#;
+        const LIB: &str = r#"{"name":"lib","version":"1.0.0","private":true,"dependencies":{"react":"^18.3.1"}}"#;
+        const YAML: &str = "packages:\n  - \"packages/*\"\ncatalog:\n  \"react\": \"^18.3.1\"\n";
+        let files = [
+            ("package.json", ROOT),
+            ("pnpm-workspace.yaml", YAML),
+            ("packages/app/package.json", APP),
+            ("packages/lib/package.json", LIB),
+        ];
+        let reported = |toml: &str| lint("version-mismatch", &files, &config(toml)).len();
+        let enforce = "[catalog]\nmode = \"enforce\"\n";
+        assert_eq!(reported(enforce), 0, "the catalog rules report it");
+        assert_eq!(
+            reported(&format!("{enforce}\n[rules]\ncatalog-not-used = \"off\"\n")),
+            1,
+            "with the rule that reports it off, the version groups keep the dependency"
+        );
+        let pinned = format!(
+            "{enforce}\n[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"18.3.1\"\n"
+        );
+        assert_eq!(reported(&pinned), 2, "a group that names the dependency wins over the catalog");
     }
 
     #[test]
