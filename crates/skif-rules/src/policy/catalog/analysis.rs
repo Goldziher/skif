@@ -286,6 +286,7 @@ pub(super) fn emit(
     let Instance { package, entry } = finding.instance;
     let mut builder = diagnostic(meta, message, value_location(package, entry))
         .package(package.display_name())
+        .package_id(package.id)
         .dependency(entry.name.clone())
         .detail(finding.kind.state());
     if let Some(help) = help {
