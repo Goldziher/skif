@@ -638,7 +638,11 @@ impl<'c> Walker<'c> {
                 if self.ctx.scripts.contains_key(name) {
                     let map = Map::Fixed(frame.span(&args[ci].span));
                     self.run_script_name(name, &map, filtered);
-                } else if !filtered && !tables::PNPM_COMMANDS.contains(&cmd) && !tables::LIFECYCLE.contains(&cmd) {
+                } else if !filtered
+                    && !recursive
+                    && !tables::PNPM_COMMANDS.contains(&cmd)
+                    && !tables::LIFECYCLE.contains(&cmd)
+                {
                     self.command(
                         &args[ci..],
                         frame,
