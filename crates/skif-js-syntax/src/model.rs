@@ -250,6 +250,17 @@ impl ModuleInfo {
         let mut ranges = Vec::new();
         let mut whole_statements = HashSet::new();
         let mut clauses: HashMap<(u32, u32), Vec<(Span, bool)>> = HashMap::new();
+        // Every specifier of a clause, used or not: a run's separator depends on its neighbours.
+        for export in &self.exports {
+            if let Some(removal) = &export.removal
+                && removal.kind == RemovalKind::Specifier
+            {
+                clauses
+                    .entry(removal.statement)
+                    .or_default()
+                    .push((export.span, is_unused(export)));
+            }
+        }
         for export in &self.exports {
             let Some(removal) = &export.removal else { continue };
             if !is_unused(export) {
@@ -259,19 +270,21 @@ impl ModuleInfo {
             match removal.kind {
                 RemovalKind::ExportKeyword | RemovalKind::Statement => ranges.push((removal.start, removal.end)),
                 RemovalKind::SharedExportKeyword if all_selected => ranges.push((removal.start, removal.end)),
-                RemovalKind::SharedExportKeyword => {}
                 RemovalKind::Specifier if all_selected => {
                     whole_statements.insert(removal.statement);
                 }
-                RemovalKind::Specifier => {
-                    clauses.entry(removal.statement).or_default().push((export.span, is_unused(export)));
-                }
+                // Partly unused shared declarations stay; partly unused clauses are handled per run below.
+                RemovalKind::SharedExportKeyword | RemovalKind::Specifier => {}
             }
         }
-        ranges.extend(whole_statements);
-        for specifiers in clauses.values() {
+        for (statement, specifiers) in &mut clauses {
+            if whole_statements.contains(statement) {
+                continue;
+            }
+            specifiers.sort_by_key(|(span, _)| span.start);
             ranges.extend(specifier_runs(specifiers));
         }
+        ranges.extend(whole_statements);
         coalesce_ranges(ranges)
     }
 

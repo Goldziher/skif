@@ -63,7 +63,7 @@ pub fn parse_module(path: &Path, source: &str, options: &ParseOptions) -> Result
                 };
                 let source_type = source_type_for(Path::new(name)).ok_or_else(|| unsupported(&extension))?;
                 let base = u32::try_from(block.start).unwrap_or(u32::MAX);
-                let part = parse_block(&source[block.start..block.end], base, source_type, &lines, *options)?;
+                let part = parse_block(&source[block.start..block.end], base, source_type, &lines, *options);
                 info.merge(part);
             }
             Ok(info)
@@ -71,7 +71,7 @@ pub fn parse_module(path: &Path, source: &str, options: &ParseOptions) -> Result
         "mdx" => Err(unsupported(&extension)),
         _ => {
             let source_type = source_type_for(path).ok_or_else(|| unsupported(&extension))?;
-            parse_block(source, 0, source_type, &lines, *options)
+            Ok(parse_block(source, 0, source_type, &lines, *options))
         }
     }
 }
@@ -92,13 +92,7 @@ fn unsupported(extension: &str) -> SyntaxError {
     }
 }
 
-fn parse_block(
-    src: &str,
-    base: u32,
-    source_type: SourceType,
-    lines: &LineIndex,
-    options: ParseOptions,
-) -> Result<ModuleInfo, SyntaxError> {
+fn parse_block(src: &str, base: u32, source_type: SourceType, lines: &LineIndex, options: ParseOptions) -> ModuleInfo {
     let allocator = Allocator::default();
     let parser_options = OxcParseOptions {
         preserve_parens: false,
@@ -117,20 +111,21 @@ fn parse_block(
                 .as_slice()
                 .first()
                 .map_or((0, 0), |l| (l.offset(), l.len()));
-            let offset = u32::try_from(offset).unwrap_or(u32::MAX);
-            let len = u32::try_from(len).unwrap_or(0);
             ParseIssue {
                 message: diagnostic.message.to_string(),
-                span: lines.span(base.saturating_add(offset), base.saturating_add(offset).saturating_add(len)),
+                span: lines.span(
+                    base.saturating_add(offset),
+                    base.saturating_add(offset).saturating_add(len),
+                ),
             }
         })
         .collect();
     if ret.fatal_error {
-        return Ok(ModuleInfo {
+        return ModuleInfo {
             parse_diagnostics,
             fatal: true,
             ..ModuleInfo::default()
-        });
+        };
     }
 
     let ctx = collect::Ctx { src, base, lines };
@@ -154,7 +149,7 @@ fn parse_block(
         .map(|d| d.directive.as_str().to_string())
         .collect();
     comments::collect(&ctx, &ret.program, &mut info);
-    Ok(info)
+    info
 }
 
 fn mark_in_file_references(program: &oxc_ast::ast::Program<'_>, excluded: &[oxc_span::Span], info: &mut ModuleInfo) {
