@@ -50,6 +50,14 @@ for needle in "da07b6e9887f9a1eb08545da29755b7f9d309bca" "Copyright (c) 2022-202
   fi
 done
 
+# The poly version is pinned in mise.toml and named again by the ai-rulez MCP server entry; they must agree.
+mise_poly="$(sed -nE 's/^"github:Goldziher\/poly" = "([^"]+)".*/\1/p' mise.toml)"
+rulez_poly="$(sed -nE 's/^package = "pkg:github\/Goldziher\/poly@v([^"]+)".*/\1/p' .ai-rulez/config.toml)"
+if [[ -z "$mise_poly" || "$mise_poly" != "$rulez_poly" ]]; then
+  echo "::error file=.ai-rulez/config.toml::poly version '${rulez_poly:-none}' differs from mise.toml '${mise_poly:-none}'"
+  failures=$((failures + 1))
+fi
+
 if [[ "$failures" -gt 0 ]]; then
   echo "${failures} attribution problem(s)" >&2
   exit 1
