@@ -8,6 +8,7 @@ use std::sync::Arc;
 use oxc_resolver::{FileMetadata, ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery};
 use serde_json::Value;
 use skif_core::{FileSystem, OsFs};
+use skif_js_syntax::is_stylesheet;
 use skif_workspace::Workspace;
 
 use crate::manifest_paths::{ENTRY_FIELDS, map_to_source, resolve_exports};
@@ -144,12 +145,28 @@ fn alias_rest<'a>(specifier: &'a str, find: &str) -> Option<&'a str> {
 pub(crate) struct ModuleResolver {
     with_tsconfig: ResolverGeneric<ResolverFs>,
     plain: ResolverGeneric<ResolverFs>,
+    style_with_tsconfig: ResolverGeneric<ResolverFs>,
+    style_plain: ResolverGeneric<ResolverFs>,
     fs: Arc<dyn FileSystem>,
     root: PathBuf,
     members: BTreeMap<String, Member>,
     scopes: Vec<AliasScope>,
     /// `exports` conditions that select source files, besides the built-in `source`.
     conditions: Vec<String>,
+}
+
+/// Options for specifiers written in stylesheets: stylesheet extensions and the `style` export condition.
+fn style_options(tsconfig: bool) -> ResolveOptions {
+    let owned = |items: &[&str]| items.iter().map(|item| (*item).to_owned()).collect::<Vec<_>>();
+    ResolveOptions {
+        tsconfig: tsconfig.then_some(TsconfigDiscovery::Auto),
+        extensions: owned(&[".scss", ".sass", ".css", ".less", ".pcss"]),
+        condition_names: owned(&["style", "sass", "less", "import", "node", "default"]),
+        main_fields: owned(&["style", "sass", "less", "main"]),
+        symlinks: false,
+        node_path: false,
+        ..ResolveOptions::default()
+    }
 }
 
 fn options(tsconfig: bool, conditions: &[String]) -> ResolveOptions {
@@ -188,6 +205,9 @@ impl ModuleResolver {
         conditions.dedup();
         let make = |tsconfig| {
             ResolverGeneric::new_with_file_system(ResolverFs { fs: Arc::clone(&fs) }, options(tsconfig, &conditions))
+        };
+        let make_style = |tsconfig| {
+            ResolverGeneric::new_with_file_system(ResolverFs { fs: Arc::clone(&fs) }, style_options(tsconfig))
         };
         let members = workspace
             .all_packages()
@@ -250,6 +270,8 @@ impl ModuleResolver {
         Self {
             with_tsconfig: make(true),
             plain: make(false),
+            style_with_tsconfig: make_style(true),
+            style_plain: make_style(false),
             fs,
             root: workspace.root.clone(),
             members,
@@ -259,7 +281,7 @@ impl ModuleResolver {
     }
 
     fn classify(&self, path: PathBuf) -> Resolved {
-        if path.starts_with(&self.root) && is_code_file(&path) {
+        if path.starts_with(&self.root) && (is_code_file(&path) || is_stylesheet(&path)) {
             Resolved::File(path)
         } else {
             Resolved::Asset
@@ -302,6 +324,77 @@ impl ModuleResolver {
                 Some(name) => self.package_target(&name, specifier),
                 None => outcome(Resolved::Unresolved, None),
             }
+        }
+    }
+
+    fn style_attempt(&self, importer: &Path, specifier: &str) -> Result<PathBuf, ResolveError> {
+        match self.style_with_tsconfig.resolve_file(importer, specifier) {
+            Ok(resolution) => Ok(resolution.path().to_path_buf()),
+            Err(error @ (ResolveError::NotFound(_) | ResolveError::MatchedAliasNotFound(..))) => Err(error),
+            Err(_) => self
+                .style_plain
+                .resolve_file(importer, specifier)
+                .map(|resolution| resolution.path().to_path_buf()),
+        }
+    }
+
+    /// A stylesheet next to `importer`: `specifier` itself, its Sass partial (`_name`) or the index partial of a
+    /// directory.
+    fn local_style(&self, importer: &Path, specifier: &str) -> Option<PathBuf> {
+        let (dir, name) = specifier.rsplit_once('/').map_or(("", specifier), |(dir, name)| (dir, name));
+        let prefix = if dir.is_empty() { String::new() } else { format!("{dir}/") };
+        let name = name.trim_end_matches('/');
+        [
+            specifier.to_owned(),
+            format!("{prefix}_{name}"),
+            format!("{prefix}{name}/_index"),
+        ]
+        .iter()
+        .find_map(|candidate| self.style_attempt(importer, candidate).ok())
+    }
+
+    /// Resolves `specifier` as written in the stylesheet `importer`.
+    ///
+    /// A bare specifier is looked up next to the stylesheet first when the language resolves it that way (Sass and
+    /// Less) or it names a stylesheet file (`@import "reset.css"`), and as a package otherwise.
+    pub(crate) fn resolve_style(&self, importer: &Path, specifier: &str) -> Outcome {
+        let outcome = |target, package| Outcome { target, package };
+        if has_foreign_scheme(specifier) {
+            return outcome(Resolved::Ignored, None);
+        }
+        let relative = specifier.starts_with(['.', '/']);
+        let preprocessed = importer
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "scss" | "sass" | "less"));
+        if relative || preprocessed || is_stylesheet(Path::new(specifier)) {
+            let local = if relative {
+                specifier.to_owned()
+            } else {
+                format!("./{specifier}")
+            };
+            if let Some(path) = self.local_style(importer, &local) {
+                return outcome(self.classify(path), None);
+            }
+            if relative {
+                return outcome(Resolved::Unresolved, None);
+            }
+        }
+        let name = package_name(specifier);
+        let member_name = name.clone().filter(|name| self.members.contains_key(name));
+        if let Ok(path) = self.style_attempt(importer, specifier) {
+            if let Some(installed) = node_modules_package(&path) {
+                let package = name.unwrap_or(installed);
+                return self.package_target(&package, specifier);
+            }
+            return outcome(self.classify(path), member_name);
+        }
+        if let Some(aliased) = self.through_alias(importer, specifier) {
+            return outcome(aliased, None);
+        }
+        match name {
+            Some(name) => self.package_target(&name, specifier),
+            None => outcome(Resolved::Unresolved, None),
         }
     }
 
