@@ -87,6 +87,25 @@ pub(crate) fn package_name(specifier: &str) -> Option<String> {
     valid.then_some(name)
 }
 
+/// The package a specifier reaches through a `node_modules/` segment, using the last one:
+/// `mylib/node_modules/express` and `../node_modules/lodash/fp` are `express` and `lodash`.
+///
+/// Returns `None` when the specifier has no `node_modules` segment followed by a package name.
+pub(crate) fn node_modules_specifier_package(specifier: &str) -> Option<String> {
+    let specifier = specifier.split(['?', '#']).next()?;
+    let segments: Vec<&str> = specifier.split('/').collect();
+    let position = segments.iter().rposition(|segment| *segment == "node_modules")?;
+    let rest = segments.get(position + 1..)?;
+    let first = rest.first().copied().filter(|part| !part.is_empty())?;
+    let joined = if first.starts_with('@') {
+        let second = rest.get(1).copied().filter(|part| !part.is_empty())?;
+        format!("{first}/{second}")
+    } else {
+        first.to_owned()
+    };
+    package_name(&joined)
+}
+
 /// The part of a bare specifier after the package name, without a leading slash.
 pub(crate) fn subpath<'a>(specifier: &'a str, package: &str) -> Option<&'a str> {
     let rest = specifier.strip_prefix(package)?.strip_prefix('/')?;
@@ -153,6 +172,24 @@ mod tests {
         ];
         for (specifier, expected) in cases {
             assert_eq!(package_name(specifier).as_deref(), expected, "{specifier}");
+        }
+    }
+
+    #[test]
+    fn node_modules_specifiers() {
+        let cases = [
+            ("mylib/node_modules/express", Some("express")),
+            ("../node_modules/lodash/fp", Some("lodash")),
+            ("/abs/node_modules/@scope/pkg/x", Some("@scope/pkg")),
+            ("./a/node_modules/b/node_modules/c/d.js", Some("c")),
+            ("node_modules/@scope/pkg", Some("@scope/pkg")),
+            ("/abs/node_modules/@scope", None),
+            ("/abs/node_modules/", None),
+            ("my_node_modules/x", None),
+            ("lodash", None),
+        ];
+        for (specifier, expected) in cases {
+            assert_eq!(node_modules_specifier_package(specifier).as_deref(), expected, "{specifier}");
         }
     }
 

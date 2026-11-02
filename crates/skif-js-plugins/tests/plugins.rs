@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 22] = [
+const ADR_IDS: [&str; 25] = [
     "typescript",
     "eslint",
     "prettier",
@@ -37,6 +37,9 @@ const ADR_IDS: [&str; 22] = [
     "commitlint",
     "changesets",
     "github-actions",
+    "mastra",
+    "aws-cdk",
+    "browser-extension",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -582,6 +585,121 @@ fn rollup() {
         &output(&results, "rollup").production_entries,
         &["src/a.js", "src/b.js"],
     );
+}
+
+#[test]
+fn mastra_entries_and_binary() {
+    for dependency in ["mastra", "@mastra/core"] {
+        let results = resolve(&[("package.json", r#"{"name":"app"}"#)], &[dependency]);
+        let out = output(&results, "mastra");
+        assert_entries(
+            &out.production_entries,
+            &[
+                "src/mastra/index.{ts,js,mts,mjs}",
+                "src/mastra/workflows/*.{js,ts}",
+                "src/mastra/{,agents/*/}tools/**/*.{js,ts}",
+            ],
+        );
+        assert_entries(&out.entries, &["src/mastra/index.{ts,js,mts,mjs}"]);
+        assert_eq!(out.provided_binaries, vec!["mastra".to_string()]);
+    }
+    let results = resolve(&[], &["react"]);
+    assert!(!results.iter().any(|(id, _)| *id == "mastra"));
+}
+
+#[test]
+fn mastra_config_file_is_read() {
+    let results = resolve(&[("mastra.config.ts", "export default {};")], &["mastra"]);
+    assert_eq!(output(&results, "mastra").config_files.len(), 1);
+}
+
+#[test]
+fn aws_cdk_app_command_is_a_script() {
+    let results = resolve(
+        &[(
+            "cdk.json",
+            r#"{"app":"npx ts-node --prefer-ts-exts app/main.ts","context":{}}"#,
+        )],
+        &["aws-cdk-lib"],
+    );
+    let out = output(&results, "aws-cdk");
+    assert_entries(&out.entries, &["app/main.ts"]);
+    assert!(out.referenced_binaries.iter().any(|b| b == "ts-node"), "{:?}", out.referenced_binaries);
+    assert_eq!(out.provided_binaries, vec!["cdk".to_string()]);
+}
+
+#[test]
+fn aws_cdk_enabled_by_the_cli_dependency() {
+    let results = resolve(&[("cdk.json", r#"{"app":"tsx bin/app.ts"}"#)], &["aws-cdk"]);
+    assert_entries(&output(&results, "aws-cdk").entries, &["bin/app.ts"]);
+}
+
+const EXTENSION_MANIFEST: &str = r#"{
+  "manifest_version": 3,
+  "background": {"service_worker": "dist/background.js"},
+  "content_scripts": [{"matches": ["*://*/*"], "js": ["content.js"]}],
+  "action": {"default_popup": "popup.html"},
+  "options_ui": {"page": "options/options.html"},
+  "web_accessible_resources": [{"resources": ["injected.js", "icon.png"], "matches": ["*://*/*"]}]
+}"#;
+
+#[test]
+fn browser_extension_manifest_entries() {
+    let results = resolve(
+        &[
+            ("manifest.json", EXTENSION_MANIFEST),
+            ("popup.html", r#"<script src="popup.js"></script>"#),
+            ("options/options.html", r#"<script type="module" src="./options.js"></script>"#),
+        ],
+        &[],
+    );
+    let out = output(&results, "browser-extension");
+    assert_entries(
+        &out.entries,
+        &[
+            "dist/background.{js,jsx,ts,tsx,mjs,mts}",
+            "src/background.{js,jsx,ts,tsx,mjs,mts}",
+            "content.{js,jsx,ts,tsx,mjs,mts}",
+            "injected.{js,jsx,ts,tsx,mjs,mts}",
+            "popup.js",
+            "options/options.js",
+        ],
+    );
+    assert!(!out.entries.iter().any(|e| e.contains("icon.png")));
+}
+
+#[test]
+fn browser_extension_manifest_in_public_and_mv2_shapes() {
+    let manifest = r#"{
+      "manifest_version": 2,
+      "background": {"scripts": ["bg.js"]},
+      "browser_action": {"default_popup": "popup.html"},
+      "web_accessible_resources": ["inject.js", "style.css"]
+    }"#;
+    let results = resolve(
+        &[
+            ("public/manifest.json", manifest),
+            ("src/popup.html", r#"<script src="popup.ts"></script>"#),
+        ],
+        &[],
+    );
+    let out = output(&results, "browser-extension");
+    assert_entries(
+        &out.entries,
+        &[
+            "public/bg.{js,jsx,ts,tsx,mjs,mts}",
+            "src/bg.{js,jsx,ts,tsx,mjs,mts}",
+            "public/inject.{js,jsx,ts,tsx,mjs,mts}",
+            "src/popup.ts",
+        ],
+    );
+    assert!(!out.entries.iter().any(|e| e.contains("style.css")));
+}
+
+#[test]
+fn a_web_manifest_is_not_a_browser_extension() {
+    let results = resolve(&[("manifest.json", r#"{"name":"pwa","start_url":"/"}"#)], &[]);
+    assert!(output(&results, "browser-extension").entries.is_empty());
 }
 
 #[test]

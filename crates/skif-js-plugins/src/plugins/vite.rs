@@ -1,7 +1,7 @@
 //! Vite: HTML entry points, build inputs and pre-bundled dependencies.
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{alias_inputs, get_in, html_script_sources, join_rel, package_name, strings, values_of};
+use crate::support::{alias_inputs, get_in, html_entries, join_rel, package_name, strings, values_of};
 
 /// The `vite` plugin.
 pub struct Vite;
@@ -56,24 +56,4 @@ impl Plugin for Vite {
     fn resolve_without_config(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         html_entries(cx, "", "index.html")
     }
-}
-
-/// The scripts an HTML file loads, as production entries.
-fn html_entries(cx: &PluginContext<'_>, base: &str, file: &str) -> Vec<PluginInput> {
-    let html_path = join_rel(base, file);
-    let Ok(html) = cx.fs.read_to_string(&cx.dir.join(&html_path)) else {
-        return Vec::new();
-    };
-    let html_dir = html_path.rsplit_once('/').map_or("", |(dir, _)| dir);
-    html_script_sources(&html)
-        .into_iter()
-        .filter(|src| !src.contains("://") && !src.starts_with("//"))
-        .map(|src| {
-            let path = match src.strip_prefix('/') {
-                Some(root_relative) => join_rel(base, root_relative),
-                None => join_rel(html_dir, &src),
-            };
-            PluginInput::ProductionEntry(path)
-        })
-        .collect()
 }
