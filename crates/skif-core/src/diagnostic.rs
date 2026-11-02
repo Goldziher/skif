@@ -42,6 +42,12 @@ pub struct Diagnostic {
     /// `dependencies = ["name@spec"]` entries match against it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub specifier: Option<String>,
+    /// Severity the rule proposes for this finding. The engine applies it only when the user has not set the rule's
+    /// level in the configuration, so a rule can derive its default from other settings (for example
+    /// `[catalog] mode`); never serialized, because the effective [`severity`](Self::severity) is what is reported.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub default_severity: Option<Severity>,
     /// Extra machine-readable context.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
@@ -66,6 +72,7 @@ impl Diagnostic {
             package_id: None,
             dependency: None,
             specifier: None,
+            default_severity: None,
             detail: None,
             fixes: Vec::new(),
         }
@@ -159,6 +166,7 @@ mod tests {
             package_id: None,
             dependency: None,
             specifier: None,
+            default_severity: None,
             detail: None,
             fixes: vec![Fix {
                 title: "apply".into(),
@@ -234,6 +242,15 @@ mod tests {
         let value = serde_json::to_value(&with).unwrap();
         assert_eq!(value["specifier"], "^1.0.0");
         assert_eq!(serde_json::from_value::<Diagnostic>(value).unwrap(), with);
+    }
+
+    #[test]
+    fn default_severity_is_never_serialized() {
+        let mut with = diagnostic();
+        with.default_severity = Some(Severity::Error);
+        let value = serde_json::to_value(&with).unwrap();
+        assert!(value.get("default-severity").is_none() && value.get("default_severity").is_none());
+        assert_eq!(value, serde_json::to_value(diagnostic()).unwrap());
     }
 
     #[test]

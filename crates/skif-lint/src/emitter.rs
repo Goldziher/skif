@@ -8,7 +8,8 @@ use crate::ignore::Suppressions;
 
 /// Collects the diagnostics of one or more rules and applies policy centrally.
 ///
-/// [`emit`](Self::emit) sets the effective severity, drops diagnostics of disabled rules and
+/// [`emit`](Self::emit) sets the effective severity (the configured level, else the severity the rule proposed with
+/// [`Diagnostic::default_severity`], else the rule's default), drops diagnostics of disabled rules and
 /// drops diagnostics matched by `[[ignore]]` entries or `workspace.ignore-packages`.
 #[derive(Debug)]
 pub struct Emitter<'a> {
@@ -61,10 +62,11 @@ impl<'a> Emitter<'a> {
 
     /// Reports a diagnostic; it is kept only if its rule is enabled and it is not suppressed.
     pub fn emit(&mut self, mut diagnostic: Diagnostic) {
-        let Some(severity) = self.enabled.severity(diagnostic.rule.as_str()) else {
+        let Some(severity) = self.enabled.effective(&diagnostic) else {
             return;
         };
         diagnostic.severity = severity;
+        diagnostic.default_severity = None;
         if self.suppressions.suppresses(&diagnostic) {
             return;
         }

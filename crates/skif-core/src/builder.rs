@@ -20,6 +20,7 @@ pub fn diagnostic(meta: &'static RuleMeta, message: impl Into<String>, location:
             package_id: None,
             dependency: None,
             specifier: None,
+            default_severity: None,
             detail: None,
             fixes: Vec::new(),
         },
@@ -56,6 +57,13 @@ impl DiagnosticBuilder {
     /// written as `name@specifier` can match it.
     pub fn specifier(mut self, specifier: impl Into<String>) -> Self {
         self.inner.specifier = Some(specifier.into());
+        self
+    }
+
+    /// Proposes the severity of this finding for when the user has not configured the rule's level; a configured
+    /// level always wins. See [`Diagnostic::default_severity`].
+    pub const fn default_severity(mut self, severity: Severity) -> Self {
+        self.inner.default_severity = Some(severity);
         self
     }
 
@@ -122,6 +130,7 @@ mod tests {
         assert!(
             built.help.is_none() && built.package.is_none() && built.dependency.is_none()
                 && built.specifier.is_none()
+                && built.default_severity.is_none()
                 && built.detail.is_none()
         );
         assert!(built.related.is_empty() && built.fixes.is_empty());
@@ -153,6 +162,7 @@ mod tests {
             .package("pkg")
             .dependency("react")
             .specifier("^18.0.0")
+            .default_severity(Severity::Error)
             .help("do it")
             .detail("d")
             .related(related.clone())
@@ -162,6 +172,7 @@ mod tests {
         assert_eq!(built.package.as_deref(), Some("pkg"));
         assert_eq!(built.dependency.as_deref(), Some("react"));
         assert_eq!(built.specifier.as_deref(), Some("^18.0.0"));
+        assert_eq!(built.default_severity, Some(Severity::Error));
         assert_eq!(built.help.as_deref(), Some("do it"));
         assert_eq!(built.detail.as_deref(), Some("d"));
         assert_eq!(built.related, [related]);
