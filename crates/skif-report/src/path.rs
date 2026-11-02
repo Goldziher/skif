@@ -7,6 +7,11 @@ pub(crate) fn normalize(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+/// Whether a `/`-separated path string is absolute (`/x`, `C:/x`).
+pub(crate) fn is_absolute_text(path: &str) -> bool {
+    path.starts_with('/') || path.as_bytes().get(1) == Some(&b':')
+}
+
 /// Normalises `path` and strips `root` (and a leading `./`) from it when it is a prefix.
 pub(crate) fn relativize(path: &Path, root: Option<&Path>) -> String {
     let full = normalize(path);

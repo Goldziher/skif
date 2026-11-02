@@ -10,6 +10,7 @@ mod options;
 mod path;
 mod sarif;
 mod style;
+mod text;
 
 use std::io::{self, Write};
 

@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 use skif_core::RuleMeta;
 
-use crate::path::relativize;
+use crate::path::{is_absolute_text, relativize};
+use crate::text::{line_of, utf16_column};
 
 /// Configuration for every renderer; the caller decides colour, root and sources.
 #[derive(Debug, Clone, Default)]
@@ -15,8 +16,10 @@ pub struct RenderOptions {
     pub color: bool,
     /// Root stripped from absolute paths so that output is relative.
     pub root: Option<PathBuf>,
-    /// Version of the tool, reported as `skif` in JSON output.
+    /// Version of the tool, reported as `skif` in JSON output; the version of this crate when unset.
     pub tool_version: Option<String>,
+    /// The repository top-level, when the workspace root is below it; GitHub annotations are relative to it.
+    pub repo_root: Option<PathBuf>,
     rules: Vec<&'static RuleMeta>,
     sources: BTreeMap<String, String>,
 }
@@ -33,6 +36,13 @@ impl RenderOptions {
     #[must_use]
     pub fn with_root(mut self, root: impl Into<PathBuf>) -> Self {
         self.root = Some(root.into());
+        self
+    }
+
+    /// Sets the repository top-level that GitHub annotation paths are relative to (`file=` must be repo-relative).
+    #[must_use]
+    pub fn with_repo_root(mut self, repo_root: impl Into<PathBuf>) -> Self {
+        self.repo_root = Some(repo_root.into());
         self
     }
 
@@ -63,6 +73,30 @@ impl RenderOptions {
     /// Path as displayed: relative to the root, with `/` separators.
     pub(crate) fn display_path(&self, path: &Path) -> String {
         relativize(path, self.root.as_deref())
+    }
+
+    /// Path as displayed in GitHub annotations: relative to the repository top-level when one is set and contains
+    /// the root, otherwise as [`Self::display_path`].
+    pub(crate) fn repo_path(&self, path: &Path) -> String {
+        let shown = self.display_path(path);
+        match (&self.root, &self.repo_root) {
+            (Some(root), Some(repo)) if !is_absolute_text(&shown) => {
+                let prefix = relativize(root, Some(repo));
+                if is_absolute_text(&prefix) || prefix.is_empty() || prefix == "." {
+                    shown
+                } else {
+                    format!("{prefix}/{shown}")
+                }
+            }
+            _ => shown,
+        }
+    }
+
+    /// The column in UTF-16 code units for a column counted in scalar values, when the text of the file is known.
+    pub(crate) fn utf16_column(&self, display_path: &str, line: u32, column: u32) -> Option<u32> {
+        let text = self.source(display_path)?;
+        let line = line_of(text, line)?;
+        Some(utf16_column(line, column))
     }
 
     /// Rule metadata supplied through [`Self::with_rules`].
