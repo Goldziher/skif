@@ -83,8 +83,11 @@ fn recursive_reports_roots_with_their_own_summaries_and_an_aggregate() {
     let roots = report["roots"].as_array().unwrap();
     assert_eq!(roots.len(), 3);
 
-    let packages: usize = roots.iter().map(|root| root["summary"]["packages"].as_u64().unwrap() as usize).sum();
-    assert_eq!(report["summary"]["packages"].as_u64().unwrap() as usize, packages);
+    let packages: u64 = roots
+        .iter()
+        .map(|root| root["summary"]["packages"].as_u64().unwrap())
+        .sum();
+    assert_eq!(report["summary"]["packages"].as_u64().unwrap(), packages);
     for key in ["errors", "warnings", "infos", "fixable"] {
         let total: u64 = roots.iter().map(|root| root["summary"][key].as_u64().unwrap()).sum();
         assert_eq!(report["summary"][key].as_u64().unwrap(), total, "{key}");
@@ -114,7 +117,12 @@ fn human_output_groups_diagnostics_by_root() {
     let dir = fixture("multi/siblings");
     let result = run(skif().arg(dir.path()));
     assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
-    let position = |needle: &str| result.stdout.find(needle).unwrap_or_else(|| panic!("{needle} in {}", result.stdout));
+    let position = |needle: &str| {
+        result
+            .stdout
+            .find(needle)
+            .unwrap_or_else(|| panic!("{needle} in {}", result.stdout))
+    };
     let (solo, one, two) = (position("==> solo"), position("==> ws-one"), position("==> ws-two"));
     assert!(solo < one && one < two, "{}", result.stdout);
     assert!(position("ws-one/packages/a/package.json") > one);
@@ -144,7 +152,11 @@ fn sarif_and_github_concatenate_the_roots() {
     let github = run(skif().args(["--format", "github"]).arg(dir.path()));
     assert_eq!(github.code, 1);
     assert!(github.stdout.contains("solo/package.json"), "{}", github.stdout);
-    assert!(github.stdout.contains("ws-one/packages/a/package.json"), "{}", github.stdout);
+    assert!(
+        github.stdout.contains("ws-one/packages/a/package.json"),
+        "{}",
+        github.stdout
+    );
 }
 
 #[test]
@@ -156,7 +168,8 @@ fn a_directory_with_a_manifest_lints_only_its_workspace_unless_recursive() {
     assert!(diagnostic_paths(&single).contains("packages/a/package.json"));
 
     let (code, recursive) = json(dir.path(), &["-r"]);
-    assert_eq!(code, 1);
+    // The fixtures report `empty-dependencies` as a warning, which doesn't fail the run.
+    assert_eq!(code, 0);
     assert_eq!(root_paths(&recursive), [".", "tools"]);
     let paths = diagnostic_paths(&recursive);
     assert!(paths.contains("packages/a/package.json"), "{paths:?}");
@@ -211,7 +224,8 @@ fn a_path_inside_one_root_lints_only_that_root() {
     );
 
     let (code, solo) = json(&dir.path().join("solo"), &[]);
-    assert_eq!(code, 1);
+    // The fixtures report `empty-dependencies` as a warning, which doesn't fail the run.
+    assert_eq!(code, 0);
     assert_eq!(solo["summary"]["packages"], 1);
     assert_eq!(diagnostic_paths(&solo), BTreeSet::from(["package.json".to_owned()]));
 }
@@ -279,16 +293,17 @@ fn fix_touches_only_the_roots_with_fixable_findings() {
         sibling_changes()
     );
     let report = result.json();
-    let reported: BTreeSet<PathBuf> = strings(&report["fix"]["changed"]).into_iter().map(PathBuf::from).collect();
+    let reported: BTreeSet<PathBuf> = strings(&report["fix"]["changed"])
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
     assert_eq!(reported, sibling_changes());
     assert_eq!(report["fix"]["install"]["status"], "skipped");
     assert_eq!(report["summary"]["errors"], 0);
     assert_eq!(root_paths(&report), ["solo", "ws-one", "ws-two"]);
 
-    let member: Value = serde_json::from_str(
-        &after[&Path::new("ws-one").join("packages").join("a").join("package.json")],
-    )
-    .unwrap();
+    let member: Value =
+        serde_json::from_str(&after[&Path::new("ws-one").join("packages").join("a").join("package.json")]).unwrap();
     assert!(member.get("devDependencies").is_none(), "{member}");
 }
 
@@ -310,7 +325,10 @@ fn install_runs_in_each_fixed_root_with_its_own_package_manager() {
     let pnpm = shim("pnpm", &record, 0);
     let path: OsString = std::env::join_paths([npm.path(), pnpm.path()]).unwrap();
 
-    let result = run(skif().env("PATH", path).args(["--fix", "--format", "json"]).arg(dir.path()));
+    let result = run(skif()
+        .env("PATH", path)
+        .args(["--fix", "--format", "json"])
+        .arg(dir.path()));
     assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
     assert_eq!(result.json()["fix"]["install"]["status"], "ran");
 

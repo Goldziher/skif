@@ -64,7 +64,10 @@ fn relative_start_paths_are_rejected() {
 
 fn monorepo_with_unrelated_projects() -> MemoryFs {
     MemoryFs::new()
-        .with_file("/repo/package.json", r#"{"workspaces": ["x/dist", "y/dist", "!y/dist"]}"#)
+        .with_file(
+            "/repo/package.json",
+            r#"{"workspaces": ["x/dist", "y/dist", "!y/dist"]}"#,
+        )
         .with_file("/repo/x/dist/package.json", r#"{"name": "x"}"#)
         .with_file("/repo/y/dist/package.json", r#"{"name": "y"}"#)
         .with_file("/repo/projects/p/package.json", r#"{"name": "p"}"#)
@@ -76,7 +79,11 @@ fn monorepo_with_unrelated_projects() -> MemoryFs {
 #[test]
 fn an_ancestor_workspace_does_not_claim_a_project_it_does_not_include() {
     let fs = monorepo_with_unrelated_projects();
-    for start in ["/repo/projects/p", "/repo/projects/p/src", "/repo/projects/p/src/index.ts"] {
+    for start in [
+        "/repo/projects/p",
+        "/repo/projects/p/src",
+        "/repo/projects/p/src/index.ts",
+    ] {
         assert_eq!(
             find_workspace_root(Path::new(start), &fs).unwrap(),
             Path::new("/repo/projects/p"),

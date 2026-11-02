@@ -179,7 +179,11 @@ fn write_report(
 }
 
 fn plural_roots(count: usize) -> String {
-    if count == 1 { "1 root".to_owned() } else { format!("{count} roots") }
+    if count == 1 {
+        "1 root".to_owned()
+    } else {
+        format!("{count} roots")
+    }
 }
 
 pub fn emit(bytes: &[u8], output: Option<&Path>) -> Result<(), CliError> {

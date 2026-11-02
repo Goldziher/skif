@@ -215,7 +215,10 @@ pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -
     let Resolved { base, targets, multi } = roots::resolve(&start, recursive, &fs, overrides)?;
     let linters = Linters::build(&targets)?;
     let runs = roots::lint_targets(&base, targets, &linters)?;
-    let reports: Vec<Report> = runs.iter().map(|run| roots::prefixed(&run.report, &run.prefix)).collect();
+    let reports: Vec<Report> = runs
+        .iter()
+        .map(|run| roots::prefixed(&run.report, &run.prefix))
+        .collect();
     let aggregate = roots::aggregate(&reports);
     let options = RenderOptions::default()
         .with_root(&base)
@@ -231,7 +234,12 @@ pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -
 }
 
 fn roots_json(runs: &[RootRun], reports: &[Report]) -> Value {
-    Value::Array(runs.iter().zip(reports).map(|(run, report)| roots::root_json(run, report)).collect())
+    Value::Array(
+        runs.iter()
+            .zip(reports)
+            .map(|(run, report)| roots::root_json(run, report))
+            .collect(),
+    )
 }
 
 fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
@@ -294,7 +302,10 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         runs = fixed_runs;
     }
 
-    let reports: Vec<Report> = runs.iter().map(|run| roots::prefixed(&run.report, &run.prefix)).collect();
+    let reports: Vec<Report> = runs
+        .iter()
+        .map(|run| roots::prefixed(&run.report, &run.prefix))
+        .collect();
     let aggregate = roots::aggregate(&reports);
     let prefixes: Vec<&Path> = runs.iter().map(|run| run.prefix.as_path()).collect();
     let root_fixes = roots_fix(&prefixes, &fixes);

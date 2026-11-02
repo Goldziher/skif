@@ -5,7 +5,9 @@ use std::path::{Component, Path, PathBuf};
 
 use rayon::prelude::*;
 use serde_json::{Value, json};
-use skif::{ConfigOverrides, Diagnostic, FileSystem, Linter, Location, Report, RuleMeta, RunOptions, Target, Workspace, slash};
+use skif::{
+    ConfigOverrides, Diagnostic, FileSystem, Linter, Location, Report, RuleMeta, RunOptions, Target, Workspace, slash,
+};
 
 use crate::error::{CliError, Kind};
 
@@ -78,12 +80,11 @@ impl Linters {
         let mut linters: Vec<Linter> = Vec::new();
         let mut of_target = Vec::with_capacity(targets.len());
         for target in targets {
-            let index = match linters.iter().position(|linter| linter.config() == &target.config) {
-                Some(index) => index,
-                None => {
-                    linters.push(Linter::new(&target.config)?);
-                    linters.len() - 1
-                }
+            let index = if let Some(index) = linters.iter().position(|linter| linter.config() == &target.config) {
+                index
+            } else {
+                linters.push(Linter::new(&target.config)?);
+                linters.len() - 1
             };
             of_target.push(index);
         }
@@ -129,9 +130,7 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
     let reports: Vec<Result<Report, CliError>> = targets
         .par_iter()
         .zip(&linters.of_target)
-        .map(|(target, &linter)| {
-            lint_loaded(linters.get(linter), &target.workspace, target.config_path().as_deref())
-        })
+        .map(|(target, &linter)| lint_loaded(linters.get(linter), &target.workspace, target.config_path().as_deref()))
         .collect();
     targets
         .into_iter()
@@ -189,7 +188,10 @@ pub fn prefixed(report: &Report, prefix: &Path) -> Report {
 /// All roots as one report: diagnostics merged in the usual deterministic order, package counts summed.
 pub fn aggregate(reports: &[Report]) -> Report {
     Report::new(
-        reports.iter().flat_map(|report| report.diagnostics.iter().cloned()).collect(),
+        reports
+            .iter()
+            .flat_map(|report| report.diagnostics.iter().cloned())
+            .collect(),
         reports.iter().map(|report| report.summary.packages).sum(),
     )
 }
@@ -224,7 +226,10 @@ mod tests {
 
     #[test]
     fn join_resolves_parent_segments() {
-        assert_eq!(join(Path::new("a/b"), Path::new("package.json")), Path::new("a/b/package.json"));
+        assert_eq!(
+            join(Path::new("a/b"), Path::new("package.json")),
+            Path::new("a/b/package.json")
+        );
         assert_eq!(join(Path::new("a"), Path::new("../skif.toml")), Path::new("skif.toml"));
         assert_eq!(join(Path::new(""), Path::new("x")), Path::new("x"));
     }
