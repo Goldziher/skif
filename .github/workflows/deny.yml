@@ -1,0 +1,19 @@
+name: Dependency audit
+
+# New advisories appear without any change to this repository, so the audit also runs on a schedule.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deny:
+    name: Advisories, licences, bans and sources
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: EmbarkStudios/cargo-deny-action@v2

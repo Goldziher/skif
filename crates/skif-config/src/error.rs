@@ -1,6 +1,8 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
+use skif_core::LineIndex;
+
 /// Everything that can go wrong while locating, reading, parsing or validating configuration.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -33,6 +35,14 @@ pub enum ConfigError {
     /// A rule ID in the configuration is not in the registry.
     #[error("unknown rule \"{rule}\"{}", suggestion_hint(.suggestion.as_deref()))]
     UnknownRule { rule: String, suggestion: Option<String> },
+    /// The options configured for a rule are invalid, as judged by the rule that owns them.
+    #[error("invalid options for rule \"{rule}\"{}: {message}", key_hint(.key.as_deref()))]
+    InvalidRuleOptions {
+        rule: String,
+        /// The offending option key, when known.
+        key: Option<String>,
+        message: String,
+    },
 }
 
 impl ConfigError {
@@ -60,11 +70,9 @@ impl ConfigError {
 }
 
 fn line_column(source: &str, offset: usize) -> (usize, usize) {
-    let end = offset.min(source.len());
-    let before = source.get(..end).unwrap_or_default();
-    let line = before.matches('\n').count() + 1;
-    let column = before.rsplit('\n').next().map_or(0, |tail| tail.chars().count()) + 1;
-    (line, column)
+    let offset = u32::try_from(offset.min(source.len())).unwrap_or(u32::MAX);
+    let (line, column) = LineIndex::new(source).line_col(offset);
+    (line as usize, column as usize)
 }
 
 fn render(path: Option<&Path>, line: Option<&usize>, column: Option<&usize>, message: &str) -> String {
@@ -78,4 +86,8 @@ fn render(path: Option<&Path>, line: Option<&usize>, column: Option<&usize>, mes
 
 fn suggestion_hint(suggestion: Option<&str>) -> String {
     suggestion.map_or_else(String::new, |s| format!("; did you mean \"{s}\"?"))
+}
+
+fn key_hint(key: Option<&str>) -> String {
+    key.map_or_else(String::new, |key| format!(" (option `{key}`)"))
 }

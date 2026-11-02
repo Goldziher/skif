@@ -1,0 +1,32 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "circular-imports",
+    "severity": "error",
+    "message": "2 modules import each other in a cycle",
+    "help": "move the shared code into a module both sides can import",
+    "location": {
+      "path": "src/a.ts",
+      "span": {
+        "start": 0,
+        "end": 24,
+        "start-line": 1,
+        "start-col": 1,
+        "end-line": 1,
+        "end-col": 25
+      }
+    },
+    "related": [
+      {
+        "message": "part of the same cycle",
+        "location": {
+          "path": "src/b.ts"
+        }
+      }
+    ],
+    "package": "cycles"
+  }
+]

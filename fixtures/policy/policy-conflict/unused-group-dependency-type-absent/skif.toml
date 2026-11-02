@@ -1,4 +1,5 @@
 [[version-groups]]
 dependencies = ["left-pad"]
 dependency-types = ["peer"]
-policy = "banned"
+policy = "pinned"
+pin = "1.0.0"

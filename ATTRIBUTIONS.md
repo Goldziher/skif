@@ -6,15 +6,15 @@ file covers code that was **copied or derived** into the repository from other p
 
 ## sherif
 
-A zero-config linter for TypeScript and JavaScript monorepos. skif began as a fork of sherif and is
-being rebuilt as a clean, restructured codebase; the workspace rules are being ported from it.
+A zero-config linter for TypeScript and JavaScript monorepos. skif began as a fork of sherif and was
+rebuilt as a clean, restructured codebase; the workspace and manifest rules are ported from it.
 
 - **Source**: <https://github.com/QuiiBz/sherif>
 - **Upstream commit**: `1eeac7104af1a6143d7f5d17d18d11635222ca8d`
 - **License**: MIT
 - **Authors**: Tom Lienard and the sherif contributors
 - **Copyright**: Copyright (c) 2023 Tom Lienard
-- **Location**: `src/` (rule logic, package and workspace collection; being ported into `crates/`)
+- **Location**: `crates/skif-rules` and `crates/skif-workspace` (rule logic, package and workspace collection)
 - **Purpose**: Monorepo workspace rules (dependency hygiene, root and member `package.json`
   checks, workspace discovery for npm, yarn and pnpm) and their autofixes.
 
@@ -96,6 +96,11 @@ JavaScript monorepos.
    `is_complex_range` accepts unspaced `||` unions, prerelease tags and x-range operands
    (`1.x || 2.x`), and only a bare `*`, `x` or `X` is `Latest` (`*foo` is `Unsupported`, `xyz` is
    a `Tag`). Property tests cover panic freedom and the `Ord`/`Eq` law.
+7. The version-group state machine in `crates/skif-rules/src/policy/visit.rs` is a Rust re-implementation of
+   the visitors in syncpack's `src/version_group/*.rs` (preferred-semver, pinned, banned, ignored, same-range,
+   same-minor, snapped-to) at the same commit, on skif's own instance model; no syncpack code is copied. It differs
+   in having no strict mode, leaving `catalog:` references to the catalog rules, and treating specifiers that
+   cannot carry a semver range as having no preferred range.
 
 ### License Compatibility
 

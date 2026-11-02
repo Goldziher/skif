@@ -27,7 +27,12 @@ It runs the format check, the lint (clippy with warnings denied, then poly) and 
 the same checks on commit; do not commit with `--no-verify`. Commits are conventional (`feat:`, `fix:`,
 `perf:`, `docs:`, `refactor:`, `test:`, `build:`, `ci:`, `chore:`).
 
-`mise run deny` checks advisories and licenses; it needs `cargo-deny` installed locally.
+`mise run deny` checks advisories, licenses, bans and sources; it needs `cargo-deny` installed locally.
+
+`mise run schema:check` regenerates the JSON Schema of `skif.toml` and fails when `schema/skif.schema.json`
+differs; refresh it with `cargo run -p skif-cli -- schema > schema/skif.schema.json`. The `consistency` CI job
+also runs `scripts/check-*.sh` (version surfaces, exact oxc pins, workspace-inherited dependencies, vendored
+file headers, and the LICENSE and ATTRIBUTIONS files each published crate must ship).
 
 ## Adding a rule
 
@@ -39,12 +44,22 @@ the same checks on commit; do not commit with `--no-verify`. Commits are convent
 ## Architecture decisions
 
 Substantive design changes get an ADR in [`adrs/`](adrs/index.md), linted with [adrlint](https://github.com/Goldziher/adrlint)
-(`mise run adr:lint`). Amend an existing ADR in place when a decision evolves; write a new one only when a
-decision is replaced.
+(`mise run adr:lint`). Accepted ADRs are locked by `adrlint.lock` and are never edited: when a decision evolves
+or is replaced, write a new ADR that supersedes or amends it, add it to `adrs/index.md` and run
+`adrlint lock`.
 
 ## Releasing
 
-To be defined.
+Nothing is released until every phase of the plan is done; 0.1.0 is the first, complete release.
+
+1. Bump every version surface at once with `scripts/release-bump.sh <version>`, then check them with
+   `scripts/check-versions.sh`.
+2. Move the `[Unreleased]` entries of `CHANGELOG.md` under the new version.
+3. Tag the commit `v<version>` and push the tag. The `Publish Packages` workflow builds the release
+   archives, publishes the crates, the npm packages, the Homebrew formula and the Scoop manifest, and moves
+   the floating `v0` tag (the major version's tag, used as `Goldziher/skif@v0`) to the release.
+4. Rehearse with the workflow's `dry-run` input: it builds every target and verifies the assets and the crate
+   packages without publishing.
 
 ## AI governance
 

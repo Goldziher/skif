@@ -3,11 +3,10 @@
 use std::path::{Path, PathBuf};
 
 use skif_config::{
-    Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, ForbidMode, IgnoreEntry, Level,
-    MemberToolchainFieldsOptions, PackageManager, PluginConfig, Prefer, RuleConfig, RuleOptions, Selector, SemverRange,
-    VersionPolicy, discover,
+    Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, IgnoreEntry, Level, PackageManager,
+    PluginConfig, Prefer, RuleConfig, Selector, SemverRange, VersionPolicy, discover, discover_with_fs,
 };
-use skif_core::Severity;
+use skif_core::{MemoryFs, Severity};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join(name)
@@ -183,6 +182,7 @@ fn known_rules_pass_validation() {
 fn rule_levels() {
     let cases = [
         ("off", Level::Off, None),
+        ("info", Level::Info, Some(Severity::Info)),
         ("warn", Level::Warn, Some(Severity::Warning)),
         ("error", Level::Error, Some(Severity::Error)),
     ];
@@ -191,7 +191,7 @@ fn rule_levels() {
         let rule = config.rule("version-mismatch").unwrap();
         assert_eq!(rule.severity, Some(level), "{text}");
         assert_eq!(level.severity(), severity, "{text}");
-        assert_eq!(rule.options, RuleOptions::None);
+        assert!(rule.options.is_empty());
     }
 }
 
@@ -205,9 +205,6 @@ fn bad_rule_levels_fail_with_a_message() {
             "version-mismatch = { severity = \"warn\", level = \"warn\" }",
             "not both",
         ),
-        ("member-toolchain-fields = { mode = \"sometimes\" }", "sometimes"),
-        ("member-toolchain-fields = { moed = \"forbid\" }", "moed"),
-        ("unused-exports = { ignore-tag = [] }", "ignore-tag"),
     ];
     for (line, expected) in cases {
         let err = Config::from_toml_str(&format!("[rules]\n{line}\n")).unwrap_err();
@@ -218,21 +215,21 @@ fn bad_rule_levels_fail_with_a_message() {
 }
 
 #[test]
-fn rule_tables_keep_typed_options() {
+fn rule_tables_keep_raw_options() {
     let config = full();
+    let toolchain = config.rule("member-toolchain-fields").unwrap();
+    assert_eq!(toolchain.severity, Some(Level::Error));
+    assert_eq!(toolchain.options.len(), 1);
     assert_eq!(
-        config.rule("member-toolchain-fields"),
-        Some(&RuleConfig {
-            severity: Some(Level::Error),
-            options: RuleOptions::MemberToolchainFields(MemberToolchainFieldsOptions {
-                mode: ForbidMode::MatchRoot
-            }),
-        })
+        toolchain.options.get("mode"),
+        Some(&toml::Value::String("match-root".into()))
     );
-    let RuleOptions::UnusedExports(options) = &config.rule("unused-exports").unwrap().options else {
-        panic!("expected unused-exports options")
-    };
-    assert_eq!(options.ignore_tags, ["public", "internal"]);
+    let exports = config.rule("unused-exports").unwrap();
+    assert_eq!(exports.severity, Some(Level::Warn));
+    assert_eq!(
+        exports.options.get("ignore-tags"),
+        Some(&toml::Value::Array(vec!["public".into(), "internal".into()]))
+    );
     assert_eq!(
         config.rule("unlisted-dependencies"),
         Some(&RuleConfig::level(Level::Error))
@@ -240,12 +237,24 @@ fn rule_tables_keep_typed_options() {
 }
 
 #[test]
-fn options_of_rules_without_typed_options_are_kept_raw() {
-    let config = Config::from_toml_str("[rules]\nsome-rule = { severity = \"warn\", depth = 2 }\n").unwrap();
-    let RuleOptions::Other(map) = &config.rule("some-rule").unwrap().options else {
-        panic!("expected raw options")
-    };
-    assert_eq!(map.get("depth"), Some(&toml::Value::Integer(2)));
+fn unknown_option_keys_are_not_rejected_by_config() {
+    let config = Config::from_toml_str("[rules]\nsome-rule = { severity = \"info\", depth = 2 }\n").unwrap();
+    let rule = config.rule("some-rule").unwrap();
+    assert_eq!(rule.severity, Some(Level::Info));
+    assert_eq!(rule.options.get("depth"), Some(&toml::Value::Integer(2)));
+}
+
+#[test]
+fn rule_config_round_trips_through_toml() {
+    let config = Config::from_toml_str("[rules]\na = \"info\"\nb = { severity = \"warn\", depth = 2 }\n").unwrap();
+    let text = toml::to_string(&config).unwrap();
+    assert_eq!(Config::from_toml_str(&text).unwrap(), config);
+}
+
+#[test]
+fn invalid_level_lists_info() {
+    let err = Config::from_toml_str("[rules]\na = \"fatal\"\n").unwrap_err();
+    assert!(err.to_string().contains("\"info\""), "{err}");
 }
 
 #[test]
@@ -410,10 +419,7 @@ fn cli_overrides_win_over_file_and_defaults() {
     assert_eq!(config.rule("brand-new").unwrap().severity, Some(Level::Warn));
     let exports = config.rule("unused-exports").unwrap();
     assert_eq!(exports.severity, Some(Level::Off));
-    assert!(
-        matches!(exports.options, RuleOptions::UnusedExports(_)),
-        "options survive a level override"
-    );
+    assert!(!exports.options.is_empty(), "options survive a level override");
     assert_eq!(config.workspace.ignore_packages, ["cli-only"]);
     assert_eq!(config.ignore.len(), 2);
     assert_eq!(config.ignore[1].dependencies, ["left-pad"]);
@@ -470,4 +476,125 @@ fn schema_lists_every_section() {
     ] {
         assert!(properties.contains_key(key), "{key}");
     }
+}
+
+#[cfg(feature = "schema")]
+#[test]
+fn schema_level_enum_includes_info() {
+    let schema = skif_config::json_schema().to_string();
+    assert!(schema.contains("\"info\""), "{schema}");
+}
+
+#[test]
+fn unknown_specifier_types_are_rejected_with_a_suggestion() {
+    let cases = [
+        (
+            "[[version-groups]]\nspecifier-types = [\"rnge\"]\n",
+            "version-groups[0]",
+            "did you mean \"range\"",
+        ),
+        (
+            "[[semver-groups]]\nrange = \"^\"\nspecifier-types = [\"exact\", \"!gitt\"]\n",
+            "semver-groups[0]",
+            "did you mean \"git\"",
+        ),
+        (
+            "[[version-groups]]\nspecifier-types = [\"banana\"]\n",
+            "version-groups[0]",
+            "unknown specifier type \"banana\"",
+        ),
+    ];
+    for (toml, location, expected) in cases {
+        let err = Config::from_toml_str(toml).unwrap_err();
+        assert!(matches!(err, ConfigError::Invalid { .. }), "{toml}: {err}");
+        let message = err.to_string();
+        assert!(
+            message.contains(location) && message.contains(expected),
+            "{toml}: {message}"
+        );
+    }
+}
+
+#[test]
+fn every_specifier_identifier_is_accepted_with_and_without_negation() {
+    for identifier in skif_specifier::CONFIG_IDENTIFIERS {
+        let toml = format!("[[version-groups]]\nspecifier-types = [\"{identifier}\", \"!{identifier}\"]\n");
+        Config::from_toml_str(&toml).unwrap_or_else(|error| panic!("{identifier}: {error}"));
+    }
+}
+
+#[test]
+fn ignore_entries_need_a_filter() {
+    let err = Config::from_toml_str("[[ignore]]\n").unwrap_err();
+    assert!(matches!(err, ConfigError::Invalid { .. }), "{err}");
+    assert!(err.to_string().contains("ignore[0]"), "{err}");
+    let err =
+        Config::from_toml_str("[[ignore]]\nrules = [\"a\"]\n\n[[ignore]]\nrules = []\npackages = []\n").unwrap_err();
+    assert!(err.to_string().contains("ignore[1]"), "{err}");
+    for filter in ["rules = [\"a\"]", "packages = [\"p\"]", "dependencies = [\"d\"]"] {
+        Config::from_toml_str(&format!("[[ignore]]\n{filter}\n")).unwrap();
+    }
+}
+
+#[test]
+fn level_is_the_canonical_key_and_severity_an_alias() {
+    let level = Config::from_toml_str("[rules]\na = { level = \"warn\", depth = 2 }\n").unwrap();
+    let alias = Config::from_toml_str("[rules]\na = { severity = \"warn\", depth = 2 }\n").unwrap();
+    assert_eq!(level, alias);
+    assert_eq!(level.rule("a").unwrap().severity, Some(Level::Warn));
+    assert!(!level.rule("a").unwrap().options.contains_key("level"));
+    let written = level.to_toml_string().unwrap();
+    assert!(
+        written.contains("level = \"warn\"") && !written.contains("severity"),
+        "{written}"
+    );
+    assert_eq!(Config::from_toml_str(&written).unwrap(), level);
+}
+
+#[test]
+fn a_non_string_level_names_the_key_that_was_used() {
+    for key in ["level", "severity"] {
+        let err = Config::from_toml_str(&format!("[rules]\na = {{ {key} = 3 }}\n")).unwrap_err();
+        assert!(err.to_string().contains(&format!("{key} must be a string")), "{err}");
+    }
+}
+
+#[test]
+fn discovery_goes_through_the_given_file_system() {
+    let fs = MemoryFs::new().with_file("/ws/.skif.toml", "[lint]\nfail-on-warnings = true\n");
+    let (path, config) = discover_with_fs(Path::new("/ws"), &fs).unwrap().unwrap();
+    assert_eq!(path, Path::new("/ws/.skif.toml"));
+    assert!(config.lint.fail_on_warnings);
+    assert!(discover_with_fs(Path::new("/elsewhere"), &fs).unwrap().is_none());
+
+    let both = fs.with_file("/ws/skif.toml", "");
+    assert!(matches!(
+        discover_with_fs(Path::new("/ws"), &both),
+        Err(ConfigError::Ambiguous { .. })
+    ));
+    let err = Config::from_toml_file_with_fs(Path::new("/ws/missing.toml"), &both).unwrap_err();
+    assert!(matches!(err, ConfigError::Io { .. }), "{err}");
+}
+
+#[test]
+fn error_columns_count_characters_after_multibyte_text() {
+    let err = Config::from_toml_str("[lint]\n# héllo wörld\nfail-on-warning = true\n").unwrap_err();
+    let ConfigError::Parse { line, column, .. } = err else {
+        panic!("expected a parse error")
+    };
+    assert_eq!((line, column), (Some(3), Some(1)));
+    let err = Config::from_toml_str("[lint]\nfail-on-warnings = \"é\" x\n").unwrap_err();
+    let ConfigError::Parse { line, column, span, .. } = err else {
+        panic!("expected a parse error")
+    };
+    assert_eq!(line, Some(2));
+    let start = span.unwrap().start;
+    let expected = "[lint]\nfail-on-warnings = \"é\" x\n"[..start]
+        .rsplit('\n')
+        .next()
+        .unwrap()
+        .chars()
+        .count()
+        + 1;
+    assert_eq!(column, Some(expected));
 }

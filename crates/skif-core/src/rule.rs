@@ -6,10 +6,27 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 /// Stable kebab-case identifier of a rule, e.g. `unused-dependency`.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+///
+/// Deserializing validates the identifier, exactly like [`RuleId::new`].
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
+#[serde(try_from = "String")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(with = "String"))]
 pub struct RuleId(Cow<'static, str>);
+
+impl Serialize for RuleId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl TryFrom<String> for RuleId {
+    type Error = InvalidRuleId;
+
+    fn try_from(id: String) -> Result<Self, Self::Error> {
+        Self::new(id)
+    }
+}
 
 /// Error returned by [`RuleId::new`] when the identifier is not kebab-case.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -59,6 +76,7 @@ fn is_kebab_case(id: &str) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub enum Severity {
     /// Informational finding.
     Info,
@@ -171,6 +189,17 @@ mod tests {
         );
         let back: RuleId = serde_json::from_str("\"unused-dependency\"").unwrap();
         assert_eq!(back, id);
+    }
+
+    #[test]
+    fn rule_id_deserialization_validates() {
+        for bad in ["\"Bad_Id\"", "\"\"", "\"a--b\"", "\"-a\"", "\"é\""] {
+            let error = serde_json::from_str::<RuleId>(bad).unwrap_err();
+            assert!(error.to_string().contains("invalid rule id"), "{bad}: {error}");
+        }
+        assert!(serde_json::from_str::<RuleId>("3").is_err());
+        let ids: Vec<RuleId> = serde_json::from_str("[\"a\", \"b-1\"]").unwrap();
+        assert_eq!(ids, [RuleId::from_static("a"), RuleId::from_static("b-1")]);
     }
 
     #[test]

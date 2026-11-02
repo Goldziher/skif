@@ -1,0 +1,11 @@
+{
+  "name": "@fx/lib",
+  "version": "1.0.0",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./util": "./dist/util.js"
+  }
+}

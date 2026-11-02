@@ -69,22 +69,7 @@ pub(crate) struct Planned {
 /// Returns [`EditPlanError`] when the source does not parse, a path does not exist, an action does not fit the
 /// target, or two operations conflict.
 pub fn plan_edits(source: &str, kind: FileKind, ops: &[&FixOp]) -> Result<Vec<TextEdit>, EditPlanError> {
-    let mut planned = match kind {
-        FileKind::Json => json::plan(source, ops)?,
-        FileKind::Yaml => plan_yaml(source, ops)?,
-    };
-    planned.sort_by_key(|edit| (edit.start, edit.end, edit.op));
-    ensure_disjoint(&planned, ops)?;
-    planned
-        .into_iter()
-        .map(|edit| {
-            Ok(TextEdit {
-                start: u32::try_from(edit.start).map_err(|_| EditPlanError::SourceTooLarge)?,
-                end: u32::try_from(edit.end).map_err(|_| EditPlanError::SourceTooLarge)?,
-                replacement: edit.replacement,
-            })
-        })
-        .collect()
+    plan_checked(source, kind, ops).map(|(edits, _)| edits)
 }
 
 /// Plans `ops` with [`plan_edits`] and applies them to `source`.
@@ -93,8 +78,49 @@ pub fn plan_edits(source: &str, kind: FileKind, ops: &[&FixOp]) -> Result<Vec<Te
 ///
 /// Returns the errors of [`plan_edits`], or [`EditPlanError::Apply`] if the edits cannot be applied.
 pub fn apply(source: &str, kind: FileKind, ops: &[&FixOp]) -> Result<String, EditPlanError> {
-    let edits = plan_edits(source, kind, ops)?;
-    Ok(apply_text_edits(source, &edits)?)
+    plan_checked(source, kind, ops).map(|(_, output)| output)
+}
+
+/// Plans the edits, applies them and checks that the result still parses.
+fn plan_checked(source: &str, kind: FileKind, ops: &[&FixOp]) -> Result<(Vec<TextEdit>, String), EditPlanError> {
+    let mut planned = match kind {
+        FileKind::Json => json::plan(source, ops)?,
+        FileKind::Yaml => plan_yaml(source, ops)?,
+    };
+    planned.sort_by_key(|edit| (edit.start, edit.end, edit.op));
+    ensure_disjoint(&planned, ops)?;
+    let edits = planned
+        .into_iter()
+        .map(|edit| {
+            Ok(TextEdit {
+                start: u32::try_from(edit.start).map_err(|_| EditPlanError::SourceTooLarge)?,
+                end: u32::try_from(edit.end).map_err(|_| EditPlanError::SourceTooLarge)?,
+                replacement: edit.replacement,
+            })
+        })
+        .collect::<Result<Vec<_>, EditPlanError>>()?;
+    let output = apply_text_edits(source, &edits)?;
+    if !edits.is_empty() {
+        validate(kind, source, &output)?;
+    }
+    Ok((edits, output))
+}
+
+fn validate(kind: FileKind, before: &str, after: &str) -> Result<(), EditPlanError> {
+    match kind {
+        FileKind::Json => json::validate(before, after),
+        FileKind::Yaml => validate_yaml(after),
+    }
+}
+
+#[cfg(feature = "yaml")]
+fn validate_yaml(after: &str) -> Result<(), EditPlanError> {
+    yaml::validate(after)
+}
+
+#[cfg(not(feature = "yaml"))]
+fn validate_yaml(_after: &str) -> Result<(), EditPlanError> {
+    Err(EditPlanError::YamlDisabled)
 }
 
 #[cfg(feature = "yaml")]

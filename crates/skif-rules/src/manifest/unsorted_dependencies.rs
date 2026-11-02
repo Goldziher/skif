@@ -42,6 +42,7 @@ impl Rule for UnsortedDependencies {
                 out.emit(
                     diagnostic(&META, format!("`{field}` is not sorted alphabetically"), location)
                         .package(package.display_name())
+                        .package_id(package.id)
                         .dependency(keys[first])
                         .help(format!(
                             "sort the keys of `{field}`; `{}` should come before `{}`",
@@ -170,6 +171,34 @@ mod tests {
             ("packages/a/package.json", member),
         ];
         assert_fixes_clear(META.id, &files, &config(""));
+    }
+
+    /// Rules plan their fixes independently, so a host that applies two overlapping fixes in one run skips the later
+    /// one. Sorting is reported again by the next run, which is what makes the sequence converge.
+    #[test]
+    fn a_section_edited_by_another_rule_is_sorted_by_the_next_run() {
+        let root_json = root("");
+        let member = r#"{"name":"a","devDependencies":{"z":"1","@scope/b":"link:../b"}}"#;
+        let b = r#"{"name":"@scope/b","version":"1.0.0"}"#;
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/a/package.json", member),
+            ("packages/b/package.json", b),
+        ];
+        let linked = lint("local-path-dependency", &files, &config(""));
+        let first_run = testing::apply_fixes(&files, &linked);
+        let after_first_run = testing::borrowed(&first_run);
+        let unsorted = lint(META.id, &after_first_run, &config(""));
+        assert_eq!(
+            unsorted.len(),
+            1,
+            "the section is still unsorted after the other rule's fix"
+        );
+        let second_run = testing::apply_fixes(&after_first_run, &unsorted);
+        assert_eq!(
+            lint(META.id, &testing::borrowed(&second_run), &config("")),
+            [] as [skif_core::Diagnostic; 0]
+        );
     }
 
     #[test]

@@ -11,7 +11,7 @@ x-ai-rulez:
 # Rule Conventions
 
 - Every rule has a stable kebab-case ID. IDs are the public contract (`--ignore-rule`, config files,
-  docs); changing one is a breaking change that needs an ADR amendment and a changelog entry.
+  docs); changing one is a breaking change that needs a superseding ADR and a changelog entry.
 - Every rule is registered in the rule registry, whose constructor rejects duplicate IDs, and is
   documented in the generated rules reference.
 - New or changed rules need a fixture under `fixtures/` and an insta snapshot test of the diagnostics; never

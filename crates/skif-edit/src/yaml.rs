@@ -3,6 +3,10 @@
 //! `yamlpatch` returns a whole new document instead of byte ranges, so the operations are applied in order and the
 //! difference to the original source is reported as one [`Planned`] edit (common prefix and suffix trimmed). A YAML
 //! file therefore never yields conflicts between operations; later operations see the result of earlier ones.
+//!
+//! Every operation addresses the original document: sequence indices of a later operation are shifted past the
+//! elements earlier operations removed, so removing `#0` and `#2` of one sequence removes the original first and
+//! third element.
 
 use std::borrow::Cow;
 
@@ -18,6 +22,7 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
         kind: FileKind::Yaml,
         message: error.to_string(),
     })?;
+    let mut removed: Vec<&[PathSeg]> = Vec::new();
     for op in ops {
         let FixOp::Yaml { route, action, .. } = op else {
             return Err(EditPlanError::Unsupported {
@@ -25,19 +30,62 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
                 kind: FileKind::Yaml,
             });
         };
-        document = apply_one(&document, route, action).map_err(|message| EditPlanError::Yaml {
+        let fail = |message: String| EditPlanError::Yaml {
             op: describe::op(op),
             message,
-        })?;
+        };
+        let shifted = shift_past_removals(route, &removed)
+            .ok_or_else(|| fail("path was removed by an earlier operation on the same document".to_owned()))?;
+        document = apply_one(&document, &shifted, action).map_err(fail)?;
+        if matches!(action, YamlAction::Remove) && matches!(route.last(), Some(PathSeg::Index(_))) {
+            removed.push(route);
+        }
     }
     Ok(diff(source, document.source()).into_iter().collect())
 }
 
-fn components(path: &[PathSeg]) -> Vec<Component<'static>> {
+/// Checks that `after` is still a YAML document.
+pub(crate) fn validate(after: &str) -> Result<(), EditPlanError> {
+    Document::new(after)
+        .map(drop)
+        .map_err(|error| EditPlanError::InvalidOutput {
+            kind: FileKind::Yaml,
+            message: error.to_string(),
+        })
+}
+
+/// Re-addresses `route`, written against the original document, after the sequence elements in `removed` (original
+/// routes) were deleted. `None` when `route` runs through a removed element.
+fn shift_past_removals(route: &[PathSeg], removed: &[&[PathSeg]]) -> Option<Vec<PathSeg>> {
+    route
+        .iter()
+        .enumerate()
+        .map(|(depth, seg)| {
+            let PathSeg::Index(index) = seg else {
+                return Some(seg.clone());
+            };
+            let mut shifted = *index;
+            for gone in removed {
+                if gone.len() != depth + 1 || gone[..depth] != route[..depth] {
+                    continue;
+                }
+                match gone[depth] {
+                    PathSeg::Index(gone) if gone == *index => return None,
+                    PathSeg::Index(gone) if gone < *index => shifted -= 1,
+                    _ => {}
+                }
+            }
+            Some(PathSeg::Index(shifted))
+        })
+        .collect()
+}
+
+fn components(path: &[PathSeg]) -> Result<Vec<Component<'static>>, String> {
     path.iter()
         .map(|seg| match seg {
-            PathSeg::Key(key) => Component::Key(Cow::Owned(key.clone())),
-            PathSeg::Index(index) => Component::Index(*index),
+            PathSeg::Key(key) => Ok(Component::Key(Cow::Owned(key.clone()))),
+            PathSeg::Index(index) => Ok(Component::Index(*index)),
+            _ => Err("unsupported path segment".to_owned()),
         })
         .collect()
 }
@@ -50,7 +98,7 @@ fn apply_one(document: &Document, path: &[PathSeg], action: &YamlAction) -> Resu
     if path.is_empty() && !matches!(action, YamlAction::Append(_)) {
         return Err("the document root cannot be replaced or removed".to_owned());
     }
-    let route = Route::from(components(path));
+    let route = Route::from(components(path)?);
     let step = match action {
         YamlAction::Remove => Patch {
             route,
@@ -68,7 +116,7 @@ fn apply_one(document: &Document, path: &[PathSeg], action: &YamlAction) -> Resu
         },
         YamlAction::Set(value) => match path.split_last() {
             Some((PathSeg::Key(key), parent)) => {
-                let parent = Route::from(components(parent));
+                let parent = Route::from(components(parent)?);
                 if !document.query_exists(&parent) {
                     return Err("path not found in document".to_owned());
                 }

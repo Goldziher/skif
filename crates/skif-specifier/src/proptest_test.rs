@@ -1,3 +1,4 @@
+// Added for skif (not in syncpack): property tests over the specifier parser; see ATTRIBUTIONS.md.
 use {super::hardening_test::exercise, crate::Specifier, proptest::prelude::*, std::cmp::Ordering};
 
 fn number() -> impl Strategy<Value = String> {

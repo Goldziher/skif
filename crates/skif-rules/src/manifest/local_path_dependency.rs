@@ -1,7 +1,7 @@
 use serde_json::Value;
 use skif_core::{Category, Fix, FixSafety, Fixability, JsonAction, RuleMeta, Severity, diagnostic};
 use skif_lint::{Emitter, LintContext, Rule};
-use skif_workspace::{Package, PackageManager, Workspace};
+use skif_workspace::{PackageManager, Workspace};
 
 use super::support::{active_packages, json_op, key, value_location};
 
@@ -28,38 +28,26 @@ fn is_local_path(specifier: &str) -> bool {
         || specifier.starts_with('/')
 }
 
+/// Whether the root manifest pins Yarn Classic (1.x) in `packageManager`, which does not implement `workspace:`.
+fn is_yarn_classic(workspace: &Workspace) -> bool {
+    workspace
+        .root_package
+        .manifest
+        .value
+        .get("packageManager")
+        .and_then(Value::as_str)
+        .is_some_and(|pinned| pinned.starts_with("yarn@1."))
+}
+
 /// The specifier that links a workspace package: `*` for npm, `workspace:*` for the others, `None` when the
-/// package manager is unknown.
+/// package manager is unknown or (Yarn Classic) has no protocol to suggest.
 fn workspace_specifier(workspace: &Workspace) -> Option<&'static str> {
     match workspace.package_manager? {
         PackageManager::Npm => Some("*"),
+        PackageManager::Yarn if is_yarn_classic(workspace) => None,
         PackageManager::Pnpm | PackageManager::Yarn | PackageManager::Bun => Some("workspace:*"),
         _ => None,
     }
-}
-
-/// The workspace-relative directory `specifier` points at, resolved from `package`'s directory. `None` for
-/// absolute paths and paths that leave the workspace.
-fn target_dir(package: &Package, specifier: &str) -> Option<String> {
-    let path = PROTOCOLS
-        .iter()
-        .find_map(|protocol| specifier.strip_prefix(protocol))
-        .unwrap_or(specifier);
-    if path.starts_with('/') {
-        return None;
-    }
-    let base = package.dir.to_string_lossy().replace('\\', "/");
-    let mut parts: Vec<&str> = base.split('/').filter(|part| !part.is_empty()).collect();
-    for part in path.split('/') {
-        match part {
-            "" | "." => {}
-            ".." => {
-                parts.pop()?;
-            }
-            other => parts.push(other),
-        }
-    }
-    Some(parts.join("/"))
 }
 
 impl Rule for LocalPathDependency {
@@ -85,25 +73,22 @@ impl Rule for LocalPathDependency {
                     value_location(package, entry),
                 )
                 .package(package.display_name())
+                .package_id(package.id)
                 .dependency(entry.name.clone());
                 builder = match (target, replacement) {
-                    (Some(target), Some(replacement)) => {
-                        let same_directory = target_dir(package, &entry.specifier)
-                            .is_some_and(|dir| dir == target.dir.to_string_lossy().replace('\\', "/"));
-                        builder
-                            .help(format!(
-                                "depend on the workspace package with `{replacement}` instead of a path"
-                            ))
-                            .fix(Fix {
-                                title: format!("Use `{replacement}` for `{}`", entry.name),
-                                safety: if same_directory { FixSafety::Safe } else { FixSafety::Unsafe },
-                                ops: vec![json_op(
-                                    package,
-                                    vec![key(entry.kind.field()), key(&entry.name)],
-                                    JsonAction::Set(Value::String(replacement.to_owned())),
-                                )],
-                            })
-                    }
+                    (Some(_), Some(replacement)) => builder
+                        .help(format!(
+                            "depend on the workspace package with `{replacement}` instead of a path"
+                        ))
+                        .fix(Fix {
+                            title: format!("Use `{replacement}` for `{}`", entry.name),
+                            safety: FixSafety::Unsafe,
+                            ops: vec![json_op(
+                                package,
+                                vec![key(entry.kind.field()), key(&entry.name)],
+                                JsonAction::Set(Value::String(replacement.to_owned())),
+                            )],
+                        }),
                     _ => builder.help("publish the package or vendor it; paths outside the workspace packages do not install elsewhere"),
                 };
                 out.emit(builder.build());
@@ -222,6 +207,22 @@ mod tests {
     }
 
     #[test]
+    fn yarn_classic_gets_no_workspace_suggestion_but_modern_yarn_does() {
+        let a = a_with("link:../b");
+        for (manager, fixable) in [("yarn@1.22.19", false), ("yarn@4.1.0", true)] {
+            let root_json = root_for(manager);
+            let files = [
+                ("package.json", root_json.as_str()),
+                ("packages/a/package.json", a.as_str()),
+                ("packages/b/package.json", B),
+            ];
+            let diagnostics = lint(META.id, &files, &config(""));
+            assert_eq!(diagnostics.len(), 1, "{manager}");
+            assert_eq!(diagnostics[0].is_fixable(), fixable, "{manager}");
+        }
+    }
+
+    #[test]
     fn config_override_decides_the_package_manager() {
         let root_json = root_for("pnpm@9.0.0");
         let a = a_with("link:../b");
@@ -253,12 +254,12 @@ mod tests {
     }
 
     #[test]
-    fn fix_safety_depends_on_the_path_matching_the_package() {
+    fn the_fix_is_unsafe_because_it_changes_what_gets_installed() {
         let root_json = root_for("pnpm@9.0.0");
         let cases = [
-            ("link:../b", FixSafety::Safe),
-            ("file:./../b", FixSafety::Safe),
-            ("../b", FixSafety::Safe),
+            ("link:../b", FixSafety::Unsafe),
+            ("file:./../b", FixSafety::Unsafe),
+            ("../b", FixSafety::Unsafe),
             ("link:../elsewhere", FixSafety::Unsafe),
             ("/abs/b", FixSafety::Unsafe),
         ];
@@ -296,7 +297,7 @@ mod tests {
         let root_json = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"],"devDependencies":{"@scope/b":"link:./packages/b"}}"#.to_string();
         let files = [("package.json", root_json.as_str()), ("packages/b/package.json", B)];
         let diagnostics = lint(META.id, &files, &config(""));
-        assert_eq!(diagnostics[0].fixes[0].safety, FixSafety::Safe);
+        assert_eq!(diagnostics[0].fixes[0].safety, FixSafety::Unsafe);
         let fixed = testing::fixed_json(META.id, &files, &config(""), "package.json");
         assert_eq!(fixed["devDependencies"]["@scope/b"], serde_json::json!("workspace:*"));
     }

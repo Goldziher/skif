@@ -7,11 +7,12 @@ license.workspace = true
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
-description = "Configuration model and skif.toml loading for skif."
+description = "skif.toml model, loading, CLI overrides and JSON Schema for skif."
 documentation = "https://docs.rs/skif-config"
-keywords = ["monorepo", "linter", "dependencies", "configuration", "toml"]
+keywords = ["linter", "configuration", "toml", "monorepo", "skif"]
 categories = ["development-tools", "config"]
 readme = "../../README.md"
+include = ["src/**", "tests/**", "fixtures/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md"]
 
 [features]
 default = []
@@ -24,6 +25,7 @@ schemars = { workspace = true, optional = true }
 serde.workspace = true
 serde_json = { workspace = true, optional = true }
 skif-core.workspace = true
+skif-specifier.workspace = true
 strsim.workspace = true
 thiserror.workspace = true
 toml.workspace = true

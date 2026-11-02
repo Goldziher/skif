@@ -1,3 +1,4 @@
+// Added for skif (not in syncpack): robustness checks over the specifier parser; see ATTRIBUTIONS.md.
 use {
     crate::{Specifier, semver_range::SemverRange, update_target::UpdateTarget},
     std::{
@@ -254,4 +255,39 @@ fn every_classification_is_stable_for_its_raw_value() {
     ] {
         assert_eq!(Specifier::new(value).get_raw(), value);
     }
+}
+
+#[test]
+fn every_identifier_a_specifier_reports_is_listed() {
+    let samples = [
+        "npm:lodash@^4.17.21",
+        "catalog:",
+        "^1.2.3 || ^2",
+        "1.2.3",
+        "file:../a",
+        "link:../a",
+        "github:user/repo",
+        "latest",
+        "1",
+        "1.2",
+        "",
+        "^1.2.3",
+        "^1",
+        "^1.2",
+        "beta",
+        "!!!",
+        "https://example.com/a.tgz",
+        "workspace:*",
+    ];
+    for raw in samples {
+        let identifier = Specifier::new(raw).get_config_identifier();
+        assert!(
+            crate::CONFIG_IDENTIFIERS.contains(&identifier),
+            "{raw:?} -> {identifier:?}"
+        );
+    }
+    let mut unique = crate::CONFIG_IDENTIFIERS.to_vec();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), crate::CONFIG_IDENTIFIERS.len());
 }

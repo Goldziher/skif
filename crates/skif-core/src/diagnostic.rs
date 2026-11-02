@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::fix::Fix;
+use crate::package_id::PackageId;
 use crate::rule::{RuleId, Severity};
 use crate::span::{Location, Related};
 
@@ -10,6 +11,7 @@ use crate::span::{Location, Related};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct Diagnostic {
     /// Rule that produced the finding.
     pub rule: RuleId,
@@ -25,9 +27,14 @@ pub struct Diagnostic {
     /// Secondary locations that explain the finding.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related: Vec<Related>,
-    /// Name of the affected package.
+    /// Display name of the affected package, for output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
+    /// Identity of the affected package within the workspace being linted. Used by suppressions in place of the
+    /// display name, which is not unique; never serialized, because ids are meaningful only in-process.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub package_id: Option<PackageId>,
     /// Name of the affected dependency.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dependency: Option<String>,
@@ -40,6 +47,25 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
+    /// A diagnostic without help, related locations, package, dependency, detail or fixes; set those through the
+    /// public fields, or use [`diagnostic()`](crate::diagnostic()) to build one for a rule.
+    #[must_use]
+    pub fn new(rule: RuleId, severity: Severity, message: impl Into<String>, location: Location) -> Self {
+        Self {
+            rule,
+            severity,
+            message: message.into(),
+            help: None,
+            location,
+            related: Vec::new(),
+            package: None,
+            package_id: None,
+            dependency: None,
+            detail: None,
+            fixes: Vec::new(),
+        }
+    }
+
     /// Whether at least one fix is attached.
     #[must_use]
     pub fn is_fixable(&self) -> bool {
@@ -125,6 +151,7 @@ mod tests {
             },
             related: Vec::new(),
             package: Some("pkg".into()),
+            package_id: None,
             dependency: None,
             detail: None,
             fixes: vec![Fix {
@@ -175,6 +202,20 @@ mod tests {
         let original = diagnostic();
         let text = serde_json::to_string(&original).unwrap();
         assert_eq!(serde_json::from_str::<Diagnostic>(&text).unwrap(), original);
+    }
+
+    #[test]
+    fn package_id_is_not_serialized() {
+        let mut with_id = diagnostic();
+        with_id.package_id = Some(PackageId::from_index(2));
+        let value = serde_json::to_value(&with_id).unwrap();
+        assert!(
+            value.get("package-id").is_none() && value.get("package_id").is_none(),
+            "{value}"
+        );
+        assert_eq!(value, serde_json::to_value(diagnostic()).unwrap());
+        let back: Diagnostic = serde_json::from_value(value).unwrap();
+        assert_eq!(back.package_id, None);
     }
 
     #[test]

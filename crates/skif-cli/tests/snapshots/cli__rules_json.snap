@@ -37,7 +37,7 @@ expression: json.stdout
       "id": "types-in-dependencies",
       "category": "manifest",
       "default": "error",
-      "fixable": "safe",
+      "fixable": "unsafe",
       "summary": "A private package lists `@types/*` packages in `dependencies`; type packages belong in `devDependencies`."
     },
     {
@@ -65,7 +65,7 @@ expression: json.stdout
       "id": "unmatched-workspace-patterns",
       "category": "workspace",
       "default": "warning",
-      "fixable": "safe",
+      "fixable": "unsafe",
       "summary": "A workspace pattern does not match any directory."
     },
     {
@@ -81,6 +81,90 @@ expression: json.stdout
       "default": "error",
       "fixable": "sometimes",
       "summary": "A dependency points at a path on disk (`link:`, `file:`, `portal:` or a relative path) instead of a registry or workspace version."
+    },
+    {
+      "id": "version-mismatch",
+      "category": "policy",
+      "default": "error",
+      "fixable": "sometimes",
+      "summary": "A dependency instance differs from the version its version group requires (highest, lowest, pinned, local or snapped)."
+    },
+    {
+      "id": "banned-dependency",
+      "category": "policy",
+      "default": "error",
+      "fixable": "unsafe",
+      "summary": "A dependency is declared although a banned version group forbids it."
+    },
+    {
+      "id": "semver-range-mismatch",
+      "category": "policy",
+      "default": "error",
+      "fixable": "unsafe",
+      "summary": "A dependency uses a semver range other than the one its semver group requires."
+    },
+    {
+      "id": "policy-conflict",
+      "category": "policy",
+      "default": "warning",
+      "fixable": "sometimes",
+      "summary": "Two policies require incompatible outcomes for one dependency, or a group cannot be applied as configured."
+    },
+    {
+      "id": "invalid-local-version",
+      "category": "policy",
+      "default": "error",
+      "fixable": "none",
+      "summary": "A workspace package has a `version` that is not an exact semver version, so dependents cannot align with it."
+    },
+    {
+      "id": "catalog-not-used",
+      "category": "catalog",
+      "default": "warning",
+      "fixable": "sometimes",
+      "summary": "A dependency that has a catalog entry is declared with a version instead of `catalog:`."
+    },
+    {
+      "id": "catalog-mismatch",
+      "category": "catalog",
+      "default": "error",
+      "fixable": "sometimes",
+      "summary": "A dependency is declared with a version while other packages take it from a catalog."
+    },
+    {
+      "id": "catalog-missing-entry",
+      "category": "catalog",
+      "default": "warning",
+      "fixable": "sometimes",
+      "summary": "A dependency that should come from a catalog has no catalog entry."
+    },
+    {
+      "id": "unresolved-catalog-references",
+      "category": "catalog",
+      "default": "error",
+      "fixable": "none",
+      "summary": "A `catalog:` specifier names a catalog or an entry that does not exist."
+    },
+    {
+      "id": "unused-catalog-entries",
+      "category": "catalog",
+      "default": "warning",
+      "fixable": "none",
+      "summary": "A catalog entry that no manifest references."
+    },
+    {
+      "id": "workspace-protocol",
+      "category": "policy",
+      "default": "error",
+      "fixable": "none",
+      "summary": "A dependency on a workspace package does not use the `workspace:` protocol."
+    },
+    {
+      "id": "unsynced-dependency-family",
+      "category": "policy",
+      "default": "error",
+      "fixable": "none",
+      "summary": "Members of a dependency family declared in one package are on different versions."
     }
   ]
 }
