@@ -108,6 +108,35 @@ fn jest_and_vitest_monorepo_has_no_findings() {
 }
 
 #[test]
+fn rspack_jsconfig_app_has_no_false_positives() {
+    let diagnostics = lint_fixture("rspack-jsconfig-app");
+    for rule in [
+        "unused-files",
+        "unresolved-imports",
+        "unlisted-dependencies",
+        "unused-dependencies",
+        "unused-dev-dependencies",
+    ] {
+        assert_eq!(found(&diagnostics, rule), none(), "{rule}: {diagnostics:#?}");
+    }
+}
+
+#[test]
+fn react_is_used_by_the_automatic_jsx_runtime() {
+    let diagnostics = lint_files(
+        &[
+            (
+                "package.json",
+                r#"{"name":"app","private":true,"main":"src/index.jsx","dependencies":{"react":"18"}}"#,
+            ),
+            ("src/index.jsx", "export const App = () => <div />;\n"),
+        ],
+        "",
+    );
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none());
+}
+
+#[test]
 fn plugin_config_files_are_entries_and_their_imports_count() {
     let diagnostics = lint_files(
         &[
