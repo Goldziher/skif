@@ -114,7 +114,10 @@ fn source_candidates(base: &str, path: &str) -> Vec<String> {
     }
     paths.sort();
     paths.dedup();
-    paths.into_iter().map(|candidate| any_script_extension(&candidate)).collect()
+    paths
+        .into_iter()
+        .map(|candidate| any_script_extension(&candidate))
+        .collect()
 }
 
 fn any_script_extension(path: &str) -> String {
