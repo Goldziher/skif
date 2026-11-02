@@ -11,6 +11,7 @@ use crate::rule::Severity;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct Summary {
     /// Diagnostics with [`Severity::Error`].
     pub errors: usize,
@@ -28,6 +29,7 @@ pub struct Summary {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct Report {
     /// Diagnostics sorted by path, span start, rule and message.
     pub diagnostics: Vec<Diagnostic>,

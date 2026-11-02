@@ -229,6 +229,8 @@ fn policy_of(group: &VersionGroup, default: Prefer) -> Policy {
         VersionPolicy::SameMinor => Policy::SameMinor,
         VersionPolicy::SnappedTo => Policy::SnappedTo(group.snap_to.clone()),
         VersionPolicy::PreferredSemver => Policy::PreferredSemver(group.prefer.unwrap_or(default)),
+        // A policy this build does not know cannot be enforced; leave the group alone.
+        _ => Policy::Ignored,
     }
 }
 
@@ -243,6 +245,8 @@ fn convert(range: skif_config::SemverRange) -> SemverRange {
         Configured::Gte => SemverRange::Gte,
         Configured::Lt => SemverRange::Lt,
         Configured::Lte => SemverRange::Lte,
+        // A range this build does not know cannot be enforced; accept any.
+        _ => SemverRange::Any,
     }
 }
 

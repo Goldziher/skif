@@ -7,6 +7,7 @@ use skif_core::Severity;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum Level {
     Off,
     Info,

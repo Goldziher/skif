@@ -124,6 +124,7 @@ fn locate<'a, 'b>(root: &'b Value<'a>, path: &[PathSeg]) -> Option<Located<'a, '
                     .iter()
                     .rposition(|member| member.key == Some(key.as_str()))?,
                 PathSeg::Index(index) => (!holder.is_object && *index < holder.members.len()).then_some(*index)?,
+                _ => return None,
             };
             Some(Located {
                 value: holder.members[index].value,
@@ -423,7 +424,7 @@ impl<'a> Doc<'_, 'a> {
             let at = match pending.position {
                 InsertPosition::Start => 0,
                 InsertPosition::End => order.len(),
-                InsertPosition::Sorted => order
+                _ => order
                     .iter()
                     .position(|slot| {
                         let key = match *slot {

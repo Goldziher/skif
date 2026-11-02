@@ -260,6 +260,7 @@ pub struct IgnoreEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum Prefer {
     #[default]
     Highest,
@@ -281,6 +282,7 @@ pub struct Policy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum VersionPolicy {
     Pinned,
     Banned,
@@ -342,6 +344,7 @@ impl VersionGroup {
 /// The range type a semver group enforces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub enum SemverRange {
     /// No range operator: an exact version.
     #[serde(rename = "")]
@@ -387,6 +390,7 @@ pub struct SemverGroup {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum CatalogMode {
     #[default]
     Off,
