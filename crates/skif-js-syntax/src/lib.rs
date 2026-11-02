@@ -30,16 +30,19 @@ use skif_core::LineIndex;
 pub use config::{ConfigValue, extract_config_object};
 pub use error::SyntaxError;
 pub use model::{
-    Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, ModuleInfo, ParseOptions, Removal,
-    RemovalKind,
+    Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, ModuleInfo, ParseIssue, ParseOptions,
+    Removal, RemovalKind,
 };
 
 /// Parses `source` (the content of `path`) into a [`ModuleInfo`]. The extension of `path` selects the language.
 ///
 /// # Errors
 ///
-/// [`SyntaxError::Parse`] with the location of the first syntax error, or [`SyntaxError::Unsupported`] for a file
-/// type that is neither a script nor a supported component format.
+/// [`SyntaxError::Unsupported`] for a file type that is neither a script nor a supported component format.
+///
+/// Syntax errors are not errors of this function: the parser's recovered program is analysed and the problems are
+/// reported in [`ModuleInfo::parse_diagnostics`]. When the parser cannot recover at all, the returned info is empty
+/// and [`ModuleInfo::fatal`] is set.
 pub fn parse_module(path: &Path, source: &str, options: &ParseOptions) -> Result<ModuleInfo, SyntaxError> {
     let lines = LineIndex::new(source);
     let extension = path
@@ -110,20 +113,36 @@ fn parse_block(
     let ret = Parser::new(&allocator, src, source_type)
         .with_options(parser_options)
         .parse();
-    if let Some(diagnostic) = ret.diagnostics.errors().next() {
-        let (offset, len) = diagnostic
-            .labels
-            .as_slice()
-            .first()
-            .map_or((0, 0), |l| (l.offset(), l.len()));
-        return Err(SyntaxError::Parse {
-            message: diagnostic.message.to_string(),
-            span: lines.span(base + offset, base + offset + len),
+    let parse_diagnostics: Vec<ParseIssue> = ret
+        .diagnostics
+        .errors()
+        .map(|diagnostic| {
+            let (offset, len) = diagnostic
+                .labels
+                .as_slice()
+                .first()
+                .map_or((0, 0), |l| (l.offset(), l.len()));
+            let offset = u32::try_from(offset).unwrap_or(u32::MAX);
+            let len = u32::try_from(len).unwrap_or(0);
+            ParseIssue {
+                message: diagnostic.message.to_string(),
+                span: lines.span(base.saturating_add(offset), base.saturating_add(offset).saturating_add(len)),
+            }
+        })
+        .collect();
+    if ret.fatal_error {
+        return Ok(ModuleInfo {
+            parse_diagnostics,
+            fatal: true,
+            ..ModuleInfo::default()
         });
     }
 
     let ctx = collect::Ctx { src, base, lines };
-    let mut info = ModuleInfo::default();
+    let mut info = ModuleInfo {
+        parse_diagnostics,
+        ..ModuleInfo::default()
+    };
     let collected = collect::collect(&ctx, &ret.program, &mut info);
     finder::Finder::new(&ctx, &mut info).visit_program(&ret.program);
     info.imports.sort_by_key(|i| i.span.start);
