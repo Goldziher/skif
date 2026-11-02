@@ -7,7 +7,8 @@ use serde_json::json;
 use skif::{
     Alternatives, Category, ConfigOverrides, Diagnostic, Emitter, FileChange, FileSystem, Fix, FixOp, FixSafety,
     FixSelection, Fixability, InsertPosition, JsonAction, LintContext, Linter, Location, MemoryFs, PathSeg, Report,
-    Rule, RuleMeta, RulesProvider, RunOptions, Severity, SkipReason, Workspace, apply_fixes, diagnostic, load_config,
+    Rule, RuleMeta, RulesProvider, RunOptions, Severity, SkipReason, TextEdit, Workspace, apply_fixes, diagnostic,
+    load_config,
 };
 
 const ROOT_MANIFEST: &str = "{\n  \"name\": \"root\",\n  \"workspaces\": [\"packages/*\"]\n}\n";
@@ -415,4 +416,118 @@ fn both_configuration_files_are_ambiguous() {
     let fs = fs().with_file("/ws/skif.toml", "").with_file("/ws/.skif.toml", "");
     let error = load_config(Path::new("/ws"), &fs, &ConfigOverrides::default()).unwrap_err();
     assert!(matches!(error, skif::ConfigError::Ambiguous { .. }), "{error}");
+}
+
+fn report_of(diagnostics: Vec<(&str, Vec<Fix>)>) -> Report {
+    let built: Vec<Diagnostic> = diagnostics
+        .into_iter()
+        .map(|(id, fixes)| {
+            let meta: &'static RuleMeta = Box::leak(Box::new(meta(id, Fixability::Safe)));
+            let location = Location {
+                path: "package.json".into(),
+                span: None,
+            };
+            fixes
+                .into_iter()
+                .fold(diagnostic(meta, id, location), |builder, fix| builder.fix(fix))
+                .build()
+        })
+        .collect();
+    Report::new(built, 2)
+}
+
+fn text_fix(title: &str, path: &str, start: u32, end: u32, replacement: &str) -> Fix {
+    fix(
+        title,
+        FixSafety::Safe,
+        vec![FixOp::Text {
+            path: path.into(),
+            edit: TextEdit {
+                start,
+                end,
+                replacement: replacement.to_owned(),
+            },
+        }],
+    )
+}
+
+#[test]
+fn an_out_of_range_text_edit_skips_only_that_fix() {
+    let fs = fs();
+    let workspace = workspace(&fs);
+    let report = report_of(vec![
+        ("demo-bad", vec![text_fix("past the end", "package.json", 9_000, 9_001, "x")]),
+        ("demo-good", vec![text_fix("rename", "package.json", 12, 18, "\"main\"")]),
+    ]);
+    let plan = apply_fixes(&workspace, &report, &FixSelection::default(), &fs).unwrap();
+
+    assert_eq!(plan.applied.len(), 1);
+    assert_eq!(plan.applied[0].rule.as_str(), "demo-good");
+    assert!(matches!(plan.skipped[0].reason, SkipReason::Failed(_)), "{:?}", plan.skipped);
+    assert!(modified(&plan.changes, "package.json").contains("\"name\": \"main\""));
+}
+
+#[test]
+fn identical_operations_from_different_fixes_count_once() {
+    let fs = fs();
+    let workspace = workspace(&fs);
+    let report = report_of(vec![
+        ("demo-one", vec![private_fix()]),
+        ("demo-two", vec![private_fix()]),
+    ]);
+    let plan = apply_fixes(&workspace, &report, &FixSelection::default(), &fs).unwrap();
+
+    assert_eq!(plan.applied.len(), 2, "{:?}", plan.skipped);
+    assert!(plan.skipped.is_empty());
+    let text = modified(&plan.changes, "package.json");
+    assert_eq!(text.matches("\"private\"").count(), 1, "{text}");
+}
+
+#[test]
+fn alternatives_pick_the_first_one_the_safety_ceiling_allows() {
+    let fs = fs();
+    let workspace = workspace(&fs);
+    let alternatives = vec![
+        fix("unsafe pin", FixSafety::Unsafe, vec![set_version("packages/a/package.json", "9.0.0")]),
+        fix("safe pin", FixSafety::Safe, vec![set_version("packages/a/package.json", "1.0.1")]),
+    ];
+    let report = report_of(vec![("demo-alt-safe", alternatives)]);
+    let plan = apply_fixes(
+        &workspace,
+        &report,
+        &FixSelection::new(FixSafety::Safe).with_alternatives(Alternatives::First),
+        &fs,
+    )
+    .unwrap();
+
+    assert_eq!(plan.applied[0].title, "safe pin");
+    assert!(modified(&plan.changes, "packages/a/package.json").contains("1.0.1"));
+}
+
+#[test]
+fn creating_over_an_existing_file_is_refused() {
+    let fs = fs();
+    let workspace = workspace(&fs);
+    let create = fix(
+        "create",
+        FixSafety::Safe,
+        vec![FixOp::CreateFile {
+            path: "package.json".into(),
+            contents: "{}".to_owned(),
+        }],
+    );
+    let plan = apply_fixes(&workspace, &report_of(vec![("demo-create", vec![create])]), &FixSelection::default(), &fs).unwrap();
+
+    assert!(plan.changes.is_empty());
+    assert!(matches!(plan.skipped[0].reason, SkipReason::Failed(_)), "{:?}", plan.skipped);
+}
+
+#[test]
+fn text_edits_apply_to_files_that_are_neither_json_nor_yaml() {
+    let fs = fs().with_file("/ws/notes.txt", "hello world");
+    let workspace = workspace(&fs);
+    let report = report_of(vec![("demo-text", vec![text_fix("greet", "notes.txt", 0, 5, "bye")])]);
+    let plan = apply_fixes(&workspace, &report, &FixSelection::default(), &fs).unwrap();
+
+    assert_eq!(modified(&plan.changes, "notes.txt"), "bye world");
 }

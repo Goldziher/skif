@@ -29,9 +29,9 @@ let report = Linter::new(&config)?.run(&workspace)?;
 | `manifest`, `policy` (default) | The built-in manifest, workspace, policy and catalog rules. |
 | `fix` | `apply_fixes` and `FixPlan` (format-preserving JSON edits). |
 | `yaml-fix` | YAML edits for `pnpm-workspace.yaml`. |
-| `report` | Human and JSON renderers, re-exported as `skif::render`. |
+| `report` | Human, JSON, SARIF and GitHub renderers, re-exported as `skif::render`. |
 | `schema` | The JSON Schema of `skif.toml`, as `skif::config_schema`. |
-| `js-analysis` | Reserved until the JavaScript analysis crates land. |
+| `js-analysis` | JavaScript and TypeScript analysis and the plugin table; `Linter` adds it to the built-in rules. |
 
 The command-line tool is the [`skif-cli`](https://crates.io/crates/skif-cli) crate. See the
 [repository](https://github.com/Goldziher/skif) for the rule reference and the architecture decisions.
