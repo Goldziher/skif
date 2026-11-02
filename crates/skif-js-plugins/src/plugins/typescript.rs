@@ -14,8 +14,9 @@ static SPEC: PluginSpec = PluginSpec {
         Enabler::Dependency("typescript"),
         Enabler::Dependency("@typescript/native"),
         Enabler::Dependency("@typescript/native-preview"),
+        Enabler::File("jsconfig.json"),
     ],
-    config: &["tsconfig.json", "tsconfig.*.json"],
+    config: &["tsconfig.json", "tsconfig.*.json", "jsconfig.json"],
     binaries: &["tsc", "tsserver", "tsgo"],
     ..PluginSpec::DEFAULT
 };
@@ -100,25 +101,30 @@ impl Plugin for Typescript {
     }
 }
 
-/// `compilerOptions.paths` as aliases. Targets are relative to `baseUrl`, or to the config file without one.
+/// `compilerOptions.baseUrl` and `paths`.
+///
+/// `baseUrl` is a directory bare specifiers are looked up in, after the `paths`. Targets of `paths` are relative to
+/// `baseUrl`, or to the config file without one; a key with a prefix is an alias, and the catch-all `*` (whose targets
+/// are tried in order) adds lookup directories.
 fn paths(options: &ConfigValue, config: &ConfigAst<'_>) -> Vec<PluginInput> {
-    let Some(paths) = options.get("paths").and_then(ConfigValue::as_object) else {
-        return Vec::new();
-    };
-    let root = options.get("baseUrl").and_then(ConfigValue::as_str).unwrap_or(".");
+    let base_url = options.get("baseUrl").and_then(ConfigValue::as_str);
     let mut out = Vec::new();
-    for (key, targets) in paths {
+    let root = base_url.unwrap_or(".");
+    for (key, targets) in options.get("paths").and_then(ConfigValue::as_object).unwrap_or_default() {
         let find = strip_wildcard(key);
-        if find.is_empty() {
-            continue;
-        }
         for target in strings(targets) {
-            out.push(PluginInput::Alias {
-                find: find.to_owned(),
-                target: Some(config.join(&join_rel(root, strip_wildcard(target)))),
+            let path = config.join(&join_rel(root, strip_wildcard(target)));
+            out.push(if find.is_empty() {
+                PluginInput::ModuleDir(path)
+            } else {
+                PluginInput::Alias {
+                    find: find.to_owned(),
+                    target: Some(path),
+                }
             });
         }
     }
+    out.extend(base_url.map(|base_url| PluginInput::ModuleDir(config.join(base_url))));
     out
 }
 

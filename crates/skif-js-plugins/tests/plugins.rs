@@ -941,6 +941,20 @@ fn tsconfig_paths_outdir_and_conditions() {
 }
 
 #[test]
+fn jsconfig_base_url_and_wildcard_paths_become_lookup_directories() {
+    let results = resolve(
+        &[(
+            "jsconfig.json",
+            r#"{"compilerOptions":{"baseUrl":".","paths":{"*":["../shared/*","./*","./node_modules/*","./src/*"],"@kit":["../shared/kit"]},"jsx":"react-jsx"}}"#,
+        )],
+        &[],
+    );
+    let ts = output(&results, "typescript");
+    assert_eq!(ts.module_dirs, ["../shared", "", "node_modules", "src"]);
+    assert!(ts.aliases.contains(&alias("@kit", Some("../shared/kit"))), "{:?}", ts.aliases);
+}
+
+#[test]
 fn enabled_plugins_without_config_files_use_conventions() {
     let results = resolve(
         &[("index.html", r#"<script type="module" src="/src/main.tsx"></script>"#)],
