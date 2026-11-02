@@ -1888,9 +1888,15 @@ dependencies = [
 name = "skif-js-plugins"
 version = "0.0.0"
 dependencies = [
+ "globset",
  "indexmap",
  "proptest",
+ "serde_json",
  "skif-config",
+ "skif-core",
+ "skif-js-syntax",
+ "toml",
+ "yaml_serde",
 ]
 
 [[package]]
