@@ -57,7 +57,7 @@ pub fn parse_module(path: &Path, source: &str, options: &ParseOptions) -> Result
                     (false, true) => "block.jsx",
                     (false, false) => "block.js",
                 };
-                let source_type = SourceType::from_path(name).map_err(|_| unsupported(&extension))?;
+                let source_type = source_type_for(Path::new(name)).ok_or_else(|| unsupported(&extension))?;
                 let base = u32::try_from(block.start).unwrap_or(u32::MAX);
                 let part = parse_block(&source[block.start..block.end], base, source_type, &lines, *options)?;
                 info.merge(part);
@@ -66,10 +66,20 @@ pub fn parse_module(path: &Path, source: &str, options: &ParseOptions) -> Result
         }
         "mdx" => Err(unsupported(&extension)),
         _ => {
-            let source_type = SourceType::from_path(path).map_err(|_| unsupported(&extension))?;
+            let source_type = source_type_for(path).ok_or_else(|| unsupported(&extension))?;
             parse_block(source, 0, source_type, &lines, *options)
         }
     }
+}
+
+/// Source type for `path`. JavaScript is parsed with JSX enabled because real projects write JSX in `.js` files.
+fn source_type_for(path: &Path) -> Option<SourceType> {
+    let source_type = SourceType::from_path(path).ok()?;
+    Some(if source_type.is_javascript() {
+        source_type.with_jsx(true)
+    } else {
+        source_type
+    })
 }
 
 fn unsupported(extension: &str) -> SyntaxError {
@@ -94,6 +104,7 @@ fn parse_block(
     let allocator = Allocator::default();
     let parser_options = OxcParseOptions {
         preserve_parens: false,
+        allow_return_outside_function: true,
         ..OxcParseOptions::default()
     };
     let ret = Parser::new(&allocator, src, source_type)
