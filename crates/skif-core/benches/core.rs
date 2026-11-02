@@ -78,7 +78,8 @@ fn diagnostics(count: usize) -> Vec<Diagnostic> {
                 span: None,
             };
             let message = format!("dependency dep-{i} is out of sync");
-            let mut diagnostic = Diagnostic::new(RuleId::from_static(RULES[i % RULES.len()]), severity, message, location);
+            let mut diagnostic =
+                Diagnostic::new(RuleId::from_static(RULES[i % RULES.len()]), severity, message, location);
             diagnostic.package = Some(format!("pkg-{package}"));
             diagnostic.dependency = Some(format!("dep-{start}"));
             diagnostic

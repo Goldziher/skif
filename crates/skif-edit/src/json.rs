@@ -1,6 +1,7 @@
 //! JSON and JSONC edits, located with `jsonc-parser` byte ranges.
 
 use std::collections::{BTreeMap, HashMap};
+use std::fmt::Write as _;
 
 use jsonc_parser::ast::{Object, ObjectProp, ObjectPropName, Value};
 use jsonc_parser::common::Ranged;
@@ -144,7 +145,7 @@ fn parse_options(strict_commas: bool) -> ParseOptions {
     }
 }
 
-fn parse_error(error: impl ToString) -> EditPlanError {
+fn parse_error(error: &(impl ToString + ?Sized)) -> EditPlanError {
     EditPlanError::Parse {
         kind: FileKind::Json,
         message: error.to_string(),
@@ -156,13 +157,12 @@ pub(crate) fn validate(before: &str, after: &str) -> Result<(), EditPlanError> {
     let body = |text: &str| text.strip_prefix(BOM).unwrap_or(text).to_owned();
     let (before, after) = (body(before), body(after));
     let strict = parse_to_ast(&before, &CollectOptions::default(), &parse_options(true)).is_ok();
-    let parsed =
-        parse_to_ast(&after, &CollectOptions::default(), &parse_options(strict)).map_err(|error| {
-            EditPlanError::InvalidOutput {
-                kind: FileKind::Json,
-                message: error.to_string(),
-            }
-        })?;
+    let parsed = parse_to_ast(&after, &CollectOptions::default(), &parse_options(strict)).map_err(|error| {
+        EditPlanError::InvalidOutput {
+            kind: FileKind::Json,
+            message: error.to_string(),
+        }
+    })?;
     if parsed.value.is_none() {
         return Err(EditPlanError::InvalidOutput {
             kind: FileKind::Json,
@@ -176,10 +176,9 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
     let (bom, body) = source
         .strip_prefix(BOM)
         .map_or((0, source), |rest| (BOM.len_utf8(), rest));
-    let parsed = parse_to_ast(body, &CollectOptions::default(), &ParseOptions::default()).map_err(parse_error)?;
-    let root = parsed
-        .value
-        .ok_or_else(|| parse_error("document is empty"))?;
+    let parsed = parse_to_ast(body, &CollectOptions::default(), &ParseOptions::default())
+        .map_err(|error| parse_error(&error))?;
+    let root = parsed.value.ok_or_else(|| parse_error("document is empty"))?;
     let doc = Doc {
         source: body,
         root,
@@ -204,7 +203,13 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
                 action: JsonAction::Insert { key, value, position },
                 ..
             } => {
-                doc.queue_insertion(&mut insertions, &describe::op(op), index, pointer, (key.as_str(), value, *position))?;
+                doc.queue_insertion(
+                    &mut insertions,
+                    &describe::op(op),
+                    index,
+                    pointer,
+                    (key.as_str(), value, *position),
+                )?;
                 Vec::new()
             }
             FixOp::Json { pointer, action, .. } => doc.edits(&describe::op(op), pointer, action)?,
@@ -485,23 +490,34 @@ impl<'a> Doc<'_, 'a> {
                 Some(member) => {
                     let start = holder.members[member].start;
                     let text: String = if multiline {
-                        entries.iter().map(|text| format!("{text},{newline}{inner}")).collect()
+                        entries.iter().fold(String::new(), |mut out, text| {
+                            let _ = write!(out, "{text},{newline}{inner}");
+                            out
+                        })
                     } else {
-                        entries.iter().map(|text| format!("{text}, ")).collect()
+                        entries.iter().fold(String::new(), |mut out, text| {
+                            let _ = write!(out, "{text}, ");
+                            out
+                        })
                     };
                     (start, start, text)
                 }
-                None => match (0..count).rfind(|&index| !gone(index)) {
-                    Some(last) => {
+                None => {
+                    if let Some(last) = (0..count).rfind(|&index| !gone(index)) {
                         let end = holder.members[last].end;
                         let text: String = if multiline {
-                            entries.iter().map(|text| format!(",{newline}{inner}{text}")).collect()
+                            entries.iter().fold(String::new(), |mut out, text| {
+                                let _ = write!(out, ",{newline}{inner}{text}");
+                                out
+                            })
                         } else {
-                            entries.iter().map(|text| format!(", {text}")).collect()
+                            entries.iter().fold(String::new(), |mut out, text| {
+                                let _ = write!(out, ", {text}");
+                                out
+                            })
                         };
                         (end, end, text)
-                    }
-                    None => {
+                    } else {
                         let joined = entries.join(&format!(",{newline}{inner}"));
                         let text = format!("{newline}{inner}{joined}{newline}{outer}");
                         if count == 0 {
@@ -513,7 +529,7 @@ impl<'a> Doc<'_, 'a> {
                             (holder.open + 1, holder.open + 1, text)
                         }
                     }
-                },
+                }
             };
             edits.push(Planned {
                 op: owner(&indexes),

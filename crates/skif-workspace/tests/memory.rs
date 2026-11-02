@@ -665,7 +665,10 @@ fn pnpm_patterns(yaml: &str) -> Vec<(String, String)> {
         .iter()
         .map(|fact| {
             let span = fact.span.unwrap_or_else(|| panic!("no span for {}", fact.pattern));
-            (fact.pattern.clone(), source[span.start as usize..span.end as usize].to_owned())
+            (
+                fact.pattern.clone(),
+                source[span.start as usize..span.end as usize].to_owned(),
+            )
         })
         .collect()
 }
@@ -698,11 +701,25 @@ fn negations_ending_in_double_star_exclude_the_directory_itself() {
     };
     assert_eq!(
         run(r#"["packages/**","!**/test/**"]"#),
-        (vec!["packages/a".to_owned(), "packages/x".to_owned(), "packages/x/y".to_owned()], 2)
+        (
+            vec![
+                "packages/a".to_owned(),
+                "packages/x".to_owned(),
+                "packages/x/y".to_owned()
+            ],
+            2
+        )
     );
     assert_eq!(
         run(r#"["packages/**","!packages/x/**"]"#),
-        (vec!["packages/a".to_owned(), "packages/a/test".to_owned(), "packages/test".to_owned()], 2)
+        (
+            vec![
+                "packages/a".to_owned(),
+                "packages/a/test".to_owned(),
+                "packages/test".to_owned()
+            ],
+            2
+        )
     );
     assert_eq!(
         run(r#"["packages/**","!packages/x/*"]"#),
@@ -754,7 +771,13 @@ fn brace_alternation_may_span_directories() {
     let found = run(&["{apps/*/web,tool}", "packages/{a,foo-*}"]);
     assert_eq!(
         dirs(&found),
-        ["apps/one/web", "packages/a", "packages/foo-bar", "packages/foo-baz", "tool"]
+        [
+            "apps/one/web",
+            "packages/a",
+            "packages/foo-bar",
+            "packages/foo-baz",
+            "tool"
+        ]
     );
     let found = run(&["{apps,packages}/{one,a}/*"]);
     assert_eq!(dirs(&found), ["apps/one/web", "packages/a/nested"]);
@@ -779,7 +802,12 @@ fn pnpm_pattern_spans_follow_duplicates_flow_lists_and_bom() {
             &Config::default(),
         )
         .unwrap();
-        workspace.facts.patterns.iter().map(|f| f.span.unwrap().start).collect::<Vec<_>>()
+        workspace
+            .facts
+            .patterns
+            .iter()
+            .map(|f| f.span.unwrap().start)
+            .collect::<Vec<_>>()
     };
     assert_ne!(spans[0], spans[1], "duplicates must not share a span");
     assert_eq!(

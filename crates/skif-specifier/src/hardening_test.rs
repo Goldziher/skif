@@ -280,7 +280,10 @@ fn every_identifier_a_specifier_reports_is_listed() {
     ];
     for raw in samples {
         let identifier = Specifier::new(raw).get_config_identifier();
-        assert!(crate::CONFIG_IDENTIFIERS.contains(&identifier), "{raw:?} -> {identifier:?}");
+        assert!(
+            crate::CONFIG_IDENTIFIERS.contains(&identifier),
+            "{raw:?} -> {identifier:?}"
+        );
     }
     let mut unique = crate::CONFIG_IDENTIFIERS.to_vec();
     unique.sort_unstable();

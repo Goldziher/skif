@@ -46,10 +46,12 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
 
 /// Checks that `after` is still a YAML document.
 pub(crate) fn validate(after: &str) -> Result<(), EditPlanError> {
-    Document::new(after).map(drop).map_err(|error| EditPlanError::InvalidOutput {
-        kind: FileKind::Yaml,
-        message: error.to_string(),
-    })
+    Document::new(after)
+        .map(drop)
+        .map_err(|error| EditPlanError::InvalidOutput {
+            kind: FileKind::Yaml,
+            message: error.to_string(),
+        })
 }
 
 /// Re-addresses `route`, written against the original document, after the sequence elements in `removed` (original
