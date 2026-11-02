@@ -182,7 +182,7 @@ expression: diagnostics
     "package": "reexports",
     "fixes": [
       {
-        "title": "Remove the unused export `c`",
+        "title": "Remove the export statement",
         "safety": "unsafe",
         "ops": [
           {

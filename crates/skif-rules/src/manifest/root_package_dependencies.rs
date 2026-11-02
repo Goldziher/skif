@@ -22,6 +22,10 @@ impl Rule for RootPackageDependencies {
     }
 
     fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>) {
+        // A single package is not a workspace root; the monorepo root conventions don't apply.
+        if cx.workspace.facts.source == skif_workspace::WorkspaceSource::SinglePackage {
+            return;
+        }
         let root = &cx.workspace.root_package;
         if cx.workspace.is_ignored(root.id) {
             return;

@@ -3,7 +3,7 @@
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{is_relative, join_rel, objects, package_name, strip_wildcard, strings};
+use crate::support::{is_relative, join_rel, objects, package_name, strings, strip_wildcard};
 
 /// The `typescript` plugin.
 pub struct Typescript;
@@ -87,7 +87,11 @@ impl Plugin for Typescript {
             });
         }
         if let Some(conditions) = options.get("customConditions") {
-            out.extend(strings(conditions).into_iter().map(|name| PluginInput::Condition(name.to_owned())));
+            out.extend(
+                strings(conditions)
+                    .into_iter()
+                    .map(|name| PluginInput::Condition(name.to_owned())),
+            );
         }
         if options.get("importHelpers").and_then(ConfigValue::as_bool) == Some(true) {
             out.push(PluginInput::Dependency("tslib".to_string()));

@@ -38,12 +38,11 @@ fn strip_blocks(source: &str, tag: &str) -> String {
             continue;
         }
         out.push_str(&source[position..start]);
-        match lower[start..].find(&close) {
-            Some(end) => position = start + end + close.len(),
-            None => {
-                position = source.len();
-                break;
-            }
+        if let Some(end) = lower[start..].find(&close) {
+            position = start + end + close.len();
+        } else {
+            position = source.len();
+            break;
         }
     }
     out.push_str(&source[position..]);
@@ -135,7 +134,10 @@ fn span(source: &str, start: usize, end: usize) -> Span {
         let before = &source[..offset];
         let line = before.matches('\n').count() + 1;
         let column = before.rsplit('\n').next().map_or(0, |last| last.chars().count()) + 1;
-        (u32::try_from(line).unwrap_or(u32::MAX), u32::try_from(column).unwrap_or(u32::MAX))
+        (
+            u32::try_from(line).unwrap_or(u32::MAX),
+            u32::try_from(column).unwrap_or(u32::MAX),
+        )
     };
     let (start_line, start_col) = position(start);
     let (end_line, end_col) = position(end);
@@ -211,7 +213,8 @@ mod tests {
         assert!(words.contains("Color") && words.contains("Red") && words.contains("shown"));
         assert!(!words.contains("hidden") && !words.contains("setup"));
 
-        let astro = "---\nimport Layout from './l.astro';\nconst title = 1;\n---\n<Layout title={title}><Widget /></Layout>";
+        let astro =
+            "---\nimport Layout from './l.astro';\nconst title = 1;\n---\n<Layout title={title}><Widget /></Layout>";
         let words = template_identifiers(astro);
         assert!(words.contains("Layout") && words.contains("Widget") && words.contains("title"));
         assert!(!words.contains("import"));
@@ -227,6 +230,9 @@ mod tests {
     #[test]
     fn spans_count_lines_and_columns() {
         let span = span("a\nbc\ndef", 5, 8);
-        assert_eq!((span.start_line, span.start_col, span.end_line, span.end_col), (3, 1, 3, 4));
+        assert_eq!(
+            (span.start_line, span.start_col, span.end_line, span.end_col),
+            (3, 1, 3, 4)
+        );
     }
 }

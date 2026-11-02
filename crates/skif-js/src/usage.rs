@@ -78,12 +78,7 @@ impl ReexportIndex {
                     if !(export.kind == ExportKind::StarReExport && export.name == "*") {
                         reexports.defined.insert(export.name.clone());
                     }
-                    let Some(target) = export
-                        .from
-                        .as_deref()
-                        .and_then(|from| sources.get(from))
-                        .copied()
-                    else {
+                    let Some(target) = export.from.as_deref().and_then(|from| sources.get(from)).copied() else {
                         continue;
                     };
                     match export.kind {
@@ -101,7 +96,11 @@ impl ReexportIndex {
                             reexports.all.push((target, None));
                         }
                         ExportKind::StarReExport => {
-                            reexports.namespaces.entry(export.name.clone()).or_default().push(target);
+                            reexports
+                                .namespaces
+                                .entry(export.name.clone())
+                                .or_default()
+                                .push(target);
                             reexports.all.push((target, None));
                         }
                         _ => {}

@@ -4,6 +4,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -119,7 +120,10 @@ fn plugin_config_files_are_entries_and_their_imports_count() {
                 "import react from '@vitejs/plugin-react';\nimport { defineConfig } from 'vite';\nimport { helper } from './config/helper';\nexport default defineConfig({ plugins: [react(), helper()] });\n",
             ),
             ("config/helper.ts", "export const helper = () => undefined;\n"),
-            ("eslint.config.js", "import globals from 'globals';\nexport default [{ languageOptions: { globals: globals.node } }];\n"),
+            (
+                "eslint.config.js",
+                "import globals from 'globals';\nexport default [{ languageOptions: { globals: globals.node } }];\n",
+            ),
         ],
         "",
     );
@@ -131,7 +135,11 @@ fn plugin_config_files_are_entries_and_their_imports_count() {
 #[test]
 fn ambient_declaration_files_are_entries() {
     let diagnostics = lint_files(
-        &[PACKAGE, ("types/global.d.ts", "declare const VERSION: string;\n"), ("src/index.ts", "export {};\n")],
+        &[
+            PACKAGE,
+            ("types/global.d.ts", "declare const VERSION: string;\n"),
+            ("src/index.ts", "export {};\n"),
+        ],
         "",
     );
     assert_eq!(found(&diagnostics, "unused-files"), none());
@@ -151,7 +159,10 @@ fn conventional_test_directories_are_entries() {
         ],
         "",
     );
-    assert_eq!(found(&diagnostics, "unused-files"), ["scripts/orphan.ts: scripts/orphan.ts"]);
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["scripts/orphan.ts: scripts/orphan.ts"]
+    );
 }
 
 #[test]
@@ -173,7 +184,10 @@ fn storybook_stories_are_entries_without_a_storybook_config() {
 fn gitignore_hides_files_and_a_build_directory_is_source_otherwise() {
     let files = [
         PACKAGE,
-        ("src/index.ts", "import { tool } from '../build/tool';\nexport const run = tool;\n"),
+        (
+            "src/index.ts",
+            "import { tool } from '../build/tool';\nexport const run = tool;\n",
+        ),
         ("build/tool.ts", "export const tool = 1;\n"),
         ("generated/orphan.ts", "export const orphan = 1;\n"),
         ("orphan.ts", "export const alone = 1;\n"),
@@ -199,7 +213,10 @@ fn default_severities_follow_the_documented_split() {
                 "package.json",
                 r#"{"name":"app","private":true,"scripts":{"x":"missing-tool"},"dependencies":{"left":"1"},"devDependencies":{"dev-left":"1"}}"#,
             ),
-            ("src/index.ts", "import './gone';\nimport 'unlisted';\nexport const used = 1;\n"),
+            (
+                "src/index.ts",
+                "import './gone';\nimport 'unlisted';\nexport const used = 1;\n",
+            ),
             ("src/orphan.ts", "export const alone = 1;\n"),
         ],
         "",
@@ -265,7 +282,10 @@ fn bundler_aliases_computed_in_config_are_followed_or_ignored_but_never_packages
                 "import { defineConfig } from 'vite';\nexport default defineConfig({ resolve: { alias: [{ find: '@app', replacement: './src/app' }, { find: '@dyn', replacement: fileURLToPath(new URL('./src', import.meta.url)) }] } });\n",
             ),
             ("index.html", "<script type=\"module\" src=\"/src/main.ts\"></script>"),
-            ("src/main.ts", "import { a } from '@app/a';\nimport { b } from '@dyn/b';\nexport const all = [a, b];\n"),
+            (
+                "src/main.ts",
+                "import { a } from '@app/a';\nimport { b } from '@dyn/b';\nexport const all = [a, b];\n",
+            ),
             ("src/app/a.ts", "export const a = 1;\n"),
         ],
         "",
@@ -299,14 +319,23 @@ fn workspace_override_keys_may_be_globs() {
             "package.json",
             r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
         ),
-        ("packages/a/package.json", r#"{"name":"@x/a","dependencies":{"left":"1"}}"#),
-        ("packages/b/package.json", r#"{"name":"@x/b","dependencies":{"left":"1"}}"#),
+        (
+            "packages/a/package.json",
+            r#"{"name":"@x/a","dependencies":{"left":"1"}}"#,
+        ),
+        (
+            "packages/b/package.json",
+            r#"{"name":"@x/b","dependencies":{"left":"1"}}"#,
+        ),
         ("packages/a/src/index.ts", "export {};\n"),
         ("packages/b/src/index.ts", "export {};\n"),
     ];
     let plain = lint_files(&files, "");
     assert_eq!(found(&plain, "unused-dependencies").len(), 2);
-    let globbed = lint_files(&files, "[js.workspaces.\"packages/*\"]\nignore-dependencies = [\"left\"]");
+    let globbed = lint_files(
+        &files,
+        "[js.workspaces.\"packages/*\"]\nignore-dependencies = [\"left\"]",
+    );
     assert_eq!(found(&globbed, "unused-dependencies"), none());
 }
 
@@ -322,7 +351,10 @@ fn out_dir_and_root_dir_map_a_sibling_build_back_to_source() {
                 "packages/a/package.json",
                 r#"{"name":"@x/a","private":true,"dependencies":{"@x/b":"1"}}"#,
             ),
-            ("packages/a/src/index.ts", "import { b } from '@x/b';\nexport const a = b;\n"),
+            (
+                "packages/a/src/index.ts",
+                "import { b } from '@x/b';\nexport const a = b;\n",
+            ),
             (
                 "packages/b/package.json",
                 r#"{"name":"@x/b","version":"1.0.0","main":"./build/index.js"}"#,
@@ -359,13 +391,20 @@ fn wide_barrels_attribute_usage_to_the_defining_module() {
     let mut memory = MemoryFs::new().with_file("/ws/package.json", r#"{"name":"app","private":true}"#);
     let mut barrel = String::new();
     for index in 0..count {
-        barrel.push_str(&format!("export * from './m{index}';\n"));
-        memory.insert(format!("/ws/src/m{index}.ts"), format!("export const v{index} = {index};\n"));
+        let _ = writeln!(barrel, "export * from './m{index}';");
+        memory.insert(
+            format!("/ws/src/m{index}.ts"),
+            format!("export const v{index} = {index};\n"),
+        );
     }
     memory.insert("/ws/src/barrel.ts", barrel);
     memory.insert(
         "/ws/src/index.ts",
-        format!("import {{ v7, v{} }} from './barrel';\nexport const all = [v7, v{}];\n", count - 1, count - 1),
+        format!(
+            "import {{ v7, v{} }} from './barrel';\nexport const all = [v7, v{}];\n",
+            count - 1,
+            count - 1
+        ),
     );
     let diagnostics = lint_memory(memory, "");
     let unused = found(&diagnostics, "unused-exports");
@@ -378,7 +417,10 @@ fn wide_barrels_attribute_usage_to_the_defining_module() {
 fn bindings_used_only_in_component_templates_keep_their_members() {
     let files = [
         PACKAGE,
-        ("src/color.ts", "export enum Color { Red, Green }\nexport const unused = 1;\n"),
+        (
+            "src/color.ts",
+            "export enum Color { Red, Green }\nexport const unused = 1;\n",
+        ),
         (
             "src/App.vue",
             "<script setup lang=\"ts\">\nimport { Color } from './color';\n</script>\n<template><div :class=\"Color.Red\" /></template>\n",
@@ -394,7 +436,10 @@ fn bindings_used_only_in_component_templates_keep_their_members() {
         "<script setup lang=\"ts\">\nimport { Color } from './color';\n</script>\n<template><div /></template>\n",
     );
     let diagnostics = lint_files(&control, "");
-    assert!(!found(&diagnostics, "unused-enum-members").is_empty(), "{diagnostics:#?}");
+    assert!(
+        !found(&diagnostics, "unused-enum-members").is_empty(),
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]
@@ -402,7 +447,10 @@ fn url_and_mock_specifiers_keep_modules_reachable() {
     let diagnostics = lint_files(
         &[
             PACKAGE,
-            ("src/index.ts", "export const worker = new URL('./worker.ts', import.meta.url);\n"),
+            (
+                "src/index.ts",
+                "export const worker = new URL('./worker.ts', import.meta.url);\n",
+            ),
             ("src/worker.ts", "export {};\n"),
             ("src/thing.test.ts", "vi.mock('./dep');\n"),
             ("src/dep.ts", "export const dep = 1;\n"),
@@ -415,10 +463,18 @@ fn url_and_mock_specifiers_keep_modules_reachable() {
 #[test]
 fn unparseable_files_are_reported_instead_of_silently_empty() {
     let diagnostics = lint_files(
-        &[PACKAGE, ("src/index.ts", "import './broken';\n"), ("src/broken.ts", "const = ;;; )(\n")],
+        &[
+            PACKAGE,
+            ("src/index.ts", "import './broken';\n"),
+            ("src/broken.ts", "const = ;;; )(\n"),
+        ],
         "",
     );
     let found = found(&diagnostics, "unparseable-files");
     assert_eq!(found, ["src/broken.ts: src/broken.ts"], "{diagnostics:#?}");
-    assert!(diagnostics.iter().all(|d| d.rule.as_str() != "unparseable-files" || d.severity == Severity::Warning));
+    assert!(
+        diagnostics
+            .iter()
+            .all(|d| d.rule.as_str() != "unparseable-files" || d.severity == Severity::Warning)
+    );
 }

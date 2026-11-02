@@ -45,6 +45,9 @@ const HIDDEN_DIRS: &[&str] = &[
 /// Ignore files honoured like the `ignore` crate does, in increasing priority.
 const IGNORE_FILES: &[&str] = &[".gitignore", ".ignore"];
 
+/// Files package managers generate next to the manifest; they are never project source.
+const GENERATED_FILES: &[&str] = &[".pnp.cjs", ".pnp.js", ".pnp.loader.mjs"];
+
 const MAX_DEPTH: usize = 48;
 
 /// A source file on disk.
@@ -155,6 +158,7 @@ pub(crate) fn discover(fs: &dyn FileSystem, workspace: &Workspace) -> Vec<Candid
                     matchers: matchers.clone(),
                 });
             } else if entry.is_file
+                && !GENERATED_FILES.contains(&name)
                 && is_code_file(&entry.path)
                 && !is_ignored(&matchers, &entry.path, false)
                 && let Some(rel) = relative(&entry.path, &workspace.root)
@@ -188,6 +192,8 @@ mod tests {
             .with_file("/ws/packages/a/dist/built.js", "")
             .with_file("/ws/packages/a/node_modules/x/index.js", "")
             .with_file("/ws/tools/run.js", "")
+            .with_file("/ws/.pnp.cjs", "")
+            .with_file("/ws/.pnp.loader.mjs", "")
             .with_file("/ws/readme.md", "");
         let config = Config::from_toml_str("").unwrap();
         let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &fs).unwrap();
@@ -226,7 +232,10 @@ mod tests {
             .with_file("/ws/src/nested/.ignore", "private.ts\n")
             .with_file("/ws/src/nested/private.ts", "")
             .with_file("/ws/src/nested/public.ts", "");
-        assert_eq!(files(&fs), ["src/a.ts", "src/keep.generated.ts", "src/nested/public.ts"]);
+        assert_eq!(
+            files(&fs),
+            ["src/a.ts", "src/keep.generated.ts", "src/nested/public.ts"]
+        );
     }
 
     #[test]

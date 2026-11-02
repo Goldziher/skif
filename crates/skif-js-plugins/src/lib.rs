@@ -10,6 +10,7 @@
 
 mod config_load;
 mod files;
+pub mod glob;
 pub mod plugin;
 pub mod plugins;
 pub mod registry;
