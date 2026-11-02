@@ -264,3 +264,16 @@ fn human_diagnostics_are_ordered_by_position_within_a_file() {
     let rendered = run(&Report::new(vec![late, early], 1), Format::Human, &RenderOptions::default());
     assert!(rendered.find("early").unwrap() < rendered.find("late").unwrap(), "{rendered}");
 }
+
+#[test]
+fn the_specifier_is_reported_when_set() {
+    let mut with = diag("sorted-keys", Severity::Warning, "package.json", None, "m");
+    with.specifier = Some("^1.0.0".to_owned());
+    let without = diag("sorted-keys", Severity::Warning, "package.json", None, "m");
+    let rendered = run(&Report::new(vec![with, without], 1), Format::Json, &RenderOptions::default());
+    let value: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+    assert_eq!(value["diagnostics"][0]["specifier"], "^1.0.0");
+    assert!(value["diagnostics"][1].get("specifier").is_none());
+    let sarif = run(&Report::new(vec![diag("sorted-keys", Severity::Warning, "p.json", None, "m")], 1), Format::Sarif, &RenderOptions::default());
+    assert!(!sarif.contains("\"specifier\""));
+}

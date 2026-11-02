@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use clap::ColorChoice;
 use serde_json::Map;
-use skif::{Config, ConfigOverrides, FileSystem, IgnoreEntry, Linter, OsFs, Prefer, Report, Selector, Workspace};
+use skif::{Config, ConfigOverrides, FileSystem, IgnoreEntry, Linter, OsFs, Prefer, Report, RunOptions, Selector, Workspace};
 
 use crate::args::{Format, LintArgs, Select};
 use crate::env::{Env, github_workspace};
@@ -101,7 +101,12 @@ fn lint_once(
     fs: &dyn FileSystem,
 ) -> Result<(Workspace, Report), CliError> {
     let workspace = Workspace::discover_with_fs(root, config, fs)?;
-    let report = linter.run(&workspace)?;
+    let mut options = RunOptions::default();
+    let config_path = skif::config_file(root, fs).map(Path::new);
+    if let Some(path) = config_path {
+        options = options.with_config_path(path);
+    }
+    let report = linter.run_with(&workspace, &options)?;
     Ok((workspace, report))
 }
 

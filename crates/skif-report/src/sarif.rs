@@ -115,6 +115,8 @@ struct ResultProperties<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     dependency: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    specifier: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     detail: Option<&'a str>,
     fixes: Vec<SarifFix<'a>>,
 }
@@ -300,6 +302,7 @@ fn fingerprint(diagnostic: &Diagnostic, path: &str, occurrence: usize) -> String
         path,
         diagnostic.package.as_deref().unwrap_or_default(),
         diagnostic.dependency.as_deref().unwrap_or_default(),
+        diagnostic.specifier.as_deref().unwrap_or_default(),
         &diagnostic.message,
     ]);
     format!("{hash:016x}:{occurrence}")
@@ -340,6 +343,7 @@ fn result<'a>(
             help: diagnostic.help.as_deref(),
             package: diagnostic.package.as_deref(),
             dependency: diagnostic.dependency.as_deref(),
+            specifier: diagnostic.specifier.as_deref(),
             detail: diagnostic.detail.as_deref(),
             fixes: diagnostic.fixes.iter().map(fix).collect(),
         },
