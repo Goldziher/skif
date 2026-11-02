@@ -50,6 +50,7 @@ yamlpatch = "1.31"
 yamlpath = "1.31"
 
 skif = { path = "crates/skif", version = "=0.0.0" }
+skif-bench = { path = "tools/bench" }
 skif-cli = { path = "crates/skif-cli", version = "=0.0.0" }
 skif-config = { path = "crates/skif-config", version = "=0.0.0" }
 skif-core = { path = "crates/skif-core", version = "=0.0.0" }
