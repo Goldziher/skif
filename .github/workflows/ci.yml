@@ -8,7 +8,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -19,6 +19,7 @@ env:
 jobs:
   toolchain:
     name: Toolchain baseline
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -36,6 +37,7 @@ jobs:
 
   lint:
     name: Lint
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -52,6 +54,7 @@ jobs:
 
   test:
     name: Test (${{ matrix.os }})
+    timeout-minutes: 45
     runs-on: ${{ matrix.os }}
     strategy:
       # fail-fast stays off so one platform's failure does not cancel the others.
@@ -77,6 +80,7 @@ jobs:
   # constraint that no consumer of the published crate is ever subject to.
   msrv:
     name: MSRV
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -102,6 +106,7 @@ jobs:
 
   build:
     name: Build
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -110,22 +115,63 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build release
+      - name: Build
         run: cargo build --workspace --locked
       - name: Verify the publishable crates
         run: cargo package --workspace --locked
+      - name: Check that the JSON Schema file is current
+        run: scripts/check-schema.sh target/debug/skif
+
+  docs:
+    name: Documentation
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+      # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the documentation
+        run: cargo doc --workspace --no-deps --all-features --locked
+
+  # The facade is embedded by hosts that pick features, so each feature has to compile on its own.
+  features:
+    name: Facade features (${{ matrix.features }})
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ["", manifest, policy, js-analysis, fix, yaml-fix, report, schema]
+    steps:
+      - uses: actions/checkout@v7
+      # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: features-${{ matrix.features }}
+      - name: Check the facade with only this feature
+        env:
+          FEATURES: ${{ matrix.features }}
+        run: cargo check -p skif --locked --no-default-features --features "$FEATURES"
 
   deny:
-    name: Licences and advisories
+    name: Licences, advisories, bans and sources
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
 
-  # Runs the built binary against real workspaces installed by each package manager, so the
-  # fixtures prove skif's view of a monorepo matches what npm, pnpm, yarn and bun actually accept.
   scripts:
     name: Shell scripts
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -138,14 +184,27 @@ jobs:
 
   consistency:
     name: Version consistency
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: Check that every release surface agrees on one version
         run: scripts/check-versions.sh
+      - name: Check that oxc is pinned exactly and dependencies are inherited from the workspace
+        run: scripts/check-pins.sh
+      - name: Check that vendored files carry their attribution headers
+        run: scripts/check-headers.sh
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - name: Check that every published crate ships LICENSE and ATTRIBUTIONS.md
+        run: scripts/check-package-contents.sh
 
+  # Runs the built binary against real workspaces installed by each package manager, so the
+  # fixtures prove skif's view of a monorepo matches what npm, pnpm, yarn and bun actually accept.
   e2e:
     name: E2E (${{ matrix.package-manager }})
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     strategy:
       # fail-fast stays off so one package manager's failure does not hide the others.

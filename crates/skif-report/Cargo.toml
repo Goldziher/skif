@@ -12,7 +12,7 @@ documentation = "https://docs.rs/skif-report"
 keywords = ["linter", "diagnostics", "json", "report", "skif"]
 categories = ["development-tools"]
 readme = "README.md"
-include = ["src/**/*", "README.md", "Cargo.toml"]
+include = ["src/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
 
 [dependencies]
 serde.workspace = true

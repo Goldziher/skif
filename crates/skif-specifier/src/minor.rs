@@ -1,3 +1,4 @@
+// Vendored from syncpack crates/syncpack-specifier/src/minor.rs @958d306 (MIT, Copyright (c) 2017-2023 Jamie Mason). Modified for skif; see ATTRIBUTIONS.md.
 use {
     crate::{HUGE, Specifier},
     std::sync::Arc,

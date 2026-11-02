@@ -1,8 +1,8 @@
 # skif
 
 [skif](https://github.com/Goldziher/skif) is a fast dependency linter for JavaScript and TypeScript
-monorepos: workspace rules, version and catalog policies, and unused or unlisted dependencies, in one
-single-binary CLI.
+monorepos: workspace rules and version and catalog policies, in one single-binary CLI. Unused and
+unlisted dependency analysis is in progress.
 
 ## Install
 

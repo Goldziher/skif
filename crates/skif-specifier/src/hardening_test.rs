@@ -1,3 +1,4 @@
+// Added for skif (not in syncpack): robustness checks over the specifier parser; see ATTRIBUTIONS.md.
 use {
     crate::{Specifier, semver_range::SemverRange, update_target::UpdateTarget},
     std::{
