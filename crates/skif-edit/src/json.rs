@@ -204,7 +204,7 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
                 action: JsonAction::Insert { key, value, position },
                 ..
             } => {
-                doc.queue_insertion(&mut insertions, &describe::op(op), index, pointer, (key, value, *position))?;
+                doc.queue_insertion(&mut insertions, &describe::op(op), index, pointer, (key.as_str(), value, *position))?;
                 Vec::new()
             }
             FixOp::Json { pointer, action, .. } => doc.edits(&describe::op(op), pointer, action)?,
@@ -484,7 +484,7 @@ impl<'a> Doc<'_, 'a> {
             let (start, end, replacement) = match before {
                 Some(member) => {
                     let start = holder.members[member].start;
-                    let text = if multiline {
+                    let text: String = if multiline {
                         entries.iter().map(|text| format!("{text},{newline}{inner}")).collect()
                     } else {
                         entries.iter().map(|text| format!("{text}, ")).collect()
@@ -494,7 +494,7 @@ impl<'a> Doc<'_, 'a> {
                 None => match (0..count).rfind(|&index| !gone(index)) {
                     Some(last) => {
                         let end = holder.members[last].end;
-                        let text = if multiline {
+                        let text: String = if multiline {
                             entries.iter().map(|text| format!(",{newline}{inner}{text}")).collect()
                         } else {
                             entries.iter().map(|text| format!(", {text}")).collect()
