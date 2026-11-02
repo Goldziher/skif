@@ -1,0 +1,7 @@
+{
+  "name": "@cli/b",
+  "version": "0.0.0",
+  "dependencies": {
+    "is-number": "7.0.0"
+  }
+}

@@ -3,6 +3,10 @@
 //! `yamlpatch` returns a whole new document instead of byte ranges, so the operations are applied in order and the
 //! difference to the original source is reported as one [`Planned`] edit (common prefix and suffix trimmed). A YAML
 //! file therefore never yields conflicts between operations; later operations see the result of earlier ones.
+//!
+//! Every operation addresses the original document: sequence indices of a later operation are shifted past the
+//! elements earlier operations removed, so removing `#0` and `#2` of one sequence removes the original first and
+//! third element.
 
 use std::borrow::Cow;
 
@@ -18,6 +22,7 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
         kind: FileKind::Yaml,
         message: error.to_string(),
     })?;
+    let mut removed: Vec<&[PathSeg]> = Vec::new();
     for op in ops {
         let FixOp::Yaml { route, action, .. } = op else {
             return Err(EditPlanError::Unsupported {
@@ -25,12 +30,44 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
                 kind: FileKind::Yaml,
             });
         };
-        document = apply_one(&document, route, action).map_err(|message| EditPlanError::Yaml {
+        let fail = |message: String| EditPlanError::Yaml {
             op: describe::op(op),
             message,
-        })?;
+        };
+        let shifted = shift_past_removals(route, &removed)
+            .ok_or_else(|| fail("path was removed by an earlier operation on the same document".to_owned()))?;
+        document = apply_one(&document, &shifted, action).map_err(fail)?;
+        if matches!(action, YamlAction::Remove) && matches!(route.last(), Some(PathSeg::Index(_))) {
+            removed.push(route);
+        }
     }
     Ok(diff(source, document.source()).into_iter().collect())
+}
+
+/// Re-addresses `route`, written against the original document, after the sequence elements in `removed` (original
+/// routes) were deleted. `None` when `route` runs through a removed element.
+fn shift_past_removals(route: &[PathSeg], removed: &[&[PathSeg]]) -> Option<Vec<PathSeg>> {
+    route
+        .iter()
+        .enumerate()
+        .map(|(depth, seg)| {
+            let PathSeg::Index(index) = seg else {
+                return Some(seg.clone());
+            };
+            let mut shifted = *index;
+            for gone in removed {
+                if gone.len() != depth + 1 || gone[..depth] != route[..depth] {
+                    continue;
+                }
+                match gone[depth] {
+                    PathSeg::Index(gone) if gone == *index => return None,
+                    PathSeg::Index(gone) if gone < *index => shifted -= 1,
+                    _ => {}
+                }
+            }
+            Some(PathSeg::Index(shifted))
+        })
+        .collect()
 }
 
 fn components(path: &[PathSeg]) -> Vec<Component<'static>> {

@@ -1,4 +1,3 @@
-use serde_json::Value;
 use skif_core::{
     Category, Fix, FixOp, FixSafety, Fixability, JsonAction, Location, PathSeg, RuleMeta, Severity, YamlAction,
     diagnostic,
@@ -23,50 +22,26 @@ pub static META: RuleMeta = RuleMeta {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UnmatchedWorkspacePatterns;
 
-/// Where the pattern at `position` among the declared strings sits in its file.
-fn pointer(workspace: &Workspace, position: usize) -> Option<Vec<PathSeg>> {
-    let base = match workspace.facts.source {
-        WorkspaceSource::PnpmWorkspaceYaml => vec![key("packages")],
-        WorkspaceSource::YarnNohoistWorkspaces => vec![key("workspaces"), key("packages")],
-        WorkspaceSource::PackageJsonWorkspaces => vec![key("workspaces")],
+fn remove_pattern(workspace: &Workspace, fact: &PatternFact) -> FixOp {
+    let (base, yaml) = match workspace.facts.source {
+        WorkspaceSource::PnpmWorkspaceYaml => (vec![key("packages")], true),
+        WorkspaceSource::YarnNohoistWorkspaces => (vec![key("workspaces"), key("packages")], false),
+        WorkspaceSource::PackageJsonWorkspaces => (vec![key("workspaces")], false),
     };
-    let index = if workspace.facts.source == WorkspaceSource::PnpmWorkspaceYaml {
-        Some(position)
-    } else {
-        let items = base
-            .iter()
-            .try_fold(&workspace.root_package.manifest.value, |value, seg| match seg {
-                PathSeg::Key(name) => value.get(name),
-                PathSeg::Index(index) => value.get(*index),
-            });
-        items
-            .and_then(Value::as_array)
-            .and_then(|items| {
-                items
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, item)| item.is_string())
-                    .nth(position)
-            })
-            .map(|(index, _)| index)
-    };
-    index.map(|index| base.into_iter().chain([PathSeg::Index(index)]).collect())
-}
-
-fn remove_pattern(workspace: &Workspace, fact: &PatternFact, position: usize) -> Option<FixOp> {
-    let route = pointer(workspace, position)?;
-    Some(match workspace.facts.source {
-        WorkspaceSource::PnpmWorkspaceYaml => FixOp::Yaml {
+    let route: Vec<PathSeg> = base.into_iter().chain([PathSeg::Index(fact.index)]).collect();
+    if yaml {
+        FixOp::Yaml {
             path: fact.file.clone(),
             route,
             action: YamlAction::Remove,
-        },
-        _ => FixOp::Json {
+        }
+    } else {
+        FixOp::Json {
             path: fact.file.clone(),
             pointer: route,
             action: JsonAction::Remove,
-        },
-    })
+        }
+    }
 }
 
 impl Rule for UnmatchedWorkspacePatterns {
@@ -76,11 +51,11 @@ impl Rule for UnmatchedWorkspacePatterns {
 
     fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>) {
         let workspace = cx.workspace;
-        for (position, fact) in workspace.facts.patterns.iter().enumerate() {
+        for fact in &workspace.facts.patterns {
             if fact.negated || fact.matched > 0 {
                 continue;
             }
-            let mut builder = diagnostic(
+            let builder = diagnostic(
                 &META,
                 format!("workspace pattern `{}` does not match any directory", fact.pattern),
                 Location {
@@ -89,14 +64,15 @@ impl Rule for UnmatchedWorkspacePatterns {
                 },
             )
             .help("remove the pattern, or create the directories it is meant to match");
-            if let Some(op) = remove_pattern(workspace, fact, position) {
-                builder = builder.fix(Fix {
-                    title: format!("Remove the pattern `{}`", fact.pattern),
-                    safety: FixSafety::Safe,
-                    ops: vec![op],
-                });
-            }
-            out.emit(builder.build());
+            out.emit(
+                builder
+                    .fix(Fix {
+                        title: format!("Remove the pattern `{}`", fact.pattern),
+                        safety: FixSafety::Safe,
+                        ops: vec![remove_pattern(workspace, fact)],
+                    })
+                    .build(),
+            );
         }
     }
 }
@@ -182,6 +158,22 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].location.path.to_str(), Some("pnpm-workspace.yaml"));
         assert!(located(&files, &diagnostics[0]).contains("docs"));
+    }
+
+    #[test]
+    fn yaml_fix_removes_several_unmatched_patterns() {
+        let root_json = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0"}"#;
+        let yaml = "packages:\n  - 'x'\n  - 'packages/*'\n  - 'y'\n  - 'z'\n";
+        let files = [
+            ("package.json", root_json),
+            ("pnpm-workspace.yaml", yaml),
+            ("packages/a/package.json", MEMBER),
+        ];
+        let diagnostics = lint(META.id, &files, &config(""));
+        assert_eq!(diagnostics.len(), 3);
+        let fixed = testing::apply_fixes(&files, &diagnostics);
+        let (_, text) = fixed.iter().find(|(path, _)| path == "pnpm-workspace.yaml").unwrap();
+        assert_eq!(text, "packages:\n  - 'packages/*'\n");
     }
 
     #[test]

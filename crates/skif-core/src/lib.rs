@@ -26,6 +26,7 @@
 //!     location: Location { path: "package.json".into(), span: None },
 //!     related: Vec::new(),
 //!     package: None,
+//!     package_id: None,
 //!     dependency: None,
 //!     detail: None,
 //!     fixes: Vec::new(),
@@ -39,6 +40,7 @@ pub mod dependency;
 pub mod diagnostic;
 pub mod fix;
 pub mod fs;
+pub mod package_id;
 pub mod report;
 pub mod rule;
 pub mod span;
@@ -51,6 +53,7 @@ pub use fix::{
     apply_text_edits,
 };
 pub use fs::{DirEntry, FileSystem, MemoryFs, OsFs};
+pub use package_id::PackageId;
 pub use report::{Report, Summary};
 pub use rule::{Category, Fixability, InvalidRuleId, RuleId, RuleMeta, Severity};
 pub use span::{LineIndex, Location, Related, Span};
@@ -65,6 +68,7 @@ const _: () = {
     let _ = assert_send_sync::<FileChange>;
     let _ = assert_send_sync::<RuleMeta>;
     let _ = assert_send_sync::<Span>;
+    let _ = assert_send_sync::<PackageId>;
     let _ = assert_send_sync::<LineIndex>;
     let _ = assert_send_sync::<MemoryFs>;
     let _ = assert_send_sync::<OsFs>;
