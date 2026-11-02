@@ -23,12 +23,12 @@ fn declares_workspace(dir: &Path, fs: &dyn FileSystem) -> bool {
 /// Finds the nearest ancestor of `start` (inclusive) that declares a workspace: a `package.json` with a
 /// `workspaces` field, or a `pnpm-workspace.yaml`.
 ///
-/// `start` may be a file or a directory and should be absolute; the search never consults the working directory, so
-/// a relative path only searches its own ancestors. When no ancestor declares a workspace but `start` itself holds a
+/// `start` may be a file or a directory and must be rooted (absolute); the search never consults the working
+/// directory, so a relative path is rejected rather than silently searching only its own lexical ancestors. When no ancestor declares a workspace but `start` itself holds a
 /// `package.json`, `start` is returned so that discovery can report precisely what is missing.
 ///
 /// # Errors
-/// [`Error::NoWorkspace`] when nothing qualifies.
+/// [`Error::RelativePath`] when `start` is relative, [`Error::NoWorkspace`] when nothing qualifies.
 ///
 /// # Examples
 /// ```
@@ -43,6 +43,9 @@ fn declares_workspace(dir: &Path, fs: &dyn FileSystem) -> bool {
 /// # Ok::<(), skif::Error>(())
 /// ```
 pub fn find_workspace_root(start: &Path, fs: &dyn FileSystem) -> Result<PathBuf, Error> {
+    if !start.has_root() {
+        return Err(Error::RelativePath(start.to_path_buf()));
+    }
     let first = if fs.is_dir(start) {
         start
     } else {
@@ -54,6 +57,27 @@ pub fn find_workspace_root(start: &Path, fs: &dyn FileSystem) -> Result<PathBuf,
         .map(Path::to_path_buf)
         .or_else(|| fs.is_file(&first.join(MANIFEST)).then(|| first.to_path_buf()))
         .ok_or_else(|| Error::NoWorkspace(start.to_path_buf()))
+}
+
+/// The name of the configuration file in `root` (`skif.toml` or `.skif.toml`), relative to `root`, when there is one.
+///
+/// Pass it to [`RunOptions::with_config_path`](crate::RunOptions::with_config_path) so diagnostics about the
+/// configuration point at the right file. When both files exist [`load_config`] fails, and this returns the first.
+///
+/// # Examples
+/// ```
+/// use std::path::Path;
+/// use skif::{MemoryFs, config_file};
+///
+/// let fs = MemoryFs::new().with_file("/repo/.skif.toml", "");
+/// assert_eq!(config_file(Path::new("/repo"), &fs), Some(".skif.toml"));
+/// ```
+#[must_use]
+pub fn config_file(root: &Path, fs: &dyn FileSystem) -> Option<&'static str> {
+    CONFIG_FILE_NAMES
+        .iter()
+        .copied()
+        .find(|name| fs.is_file(&root.join(name)))
 }
 
 fn with_path(mut error: ConfigError, file: &Path) -> ConfigError {

@@ -90,6 +90,7 @@ impl Rule for WorkspaceProtocol {
                     .package(package.display_name())
                     .package_id(package.id)
                     .dependency(entry.name.clone())
+                    .specifier(entry.specifier.clone())
                     .help("use `workspace:*` (or `workspace:^`) so the dependency always resolves to the local package")
                     .build(),
                 );

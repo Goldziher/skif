@@ -232,7 +232,8 @@ jobs:
         run: |
           set -euo pipefail
           case "${{ matrix.runtime }}" in
-            node-24) mise exec node@24 -- bash scripts/npm-smoke.sh node ;;
+            # Node 24 is the engines floor, not a pinned tool, so it bypasses the locked lockfile.
+            node-24) MISE_LOCKED=0 mise exec node@24 -- bash scripts/npm-smoke.sh node ;;
             *) bash scripts/npm-smoke.sh "${{ matrix.runtime }}" ;;
           esac
 

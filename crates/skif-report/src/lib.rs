@@ -10,6 +10,7 @@ mod options;
 mod path;
 mod sarif;
 mod style;
+mod text;
 
 use std::io::{self, Write};
 
@@ -17,7 +18,10 @@ use skif_core::Report;
 
 pub use github::render_github;
 pub use human::render_human;
-pub use json::{ErrorInfo, SCHEMA_VERSION, render_json, render_json_error, render_json_error_info, render_json_with};
+pub use json::{
+    ErrorInfo, SCHEMA_VERSION, render_json, render_json_error, render_json_error_info, render_json_error_info_with,
+    render_json_with,
+};
 pub use options::RenderOptions;
 pub use sarif::render_sarif;
 

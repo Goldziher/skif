@@ -7,6 +7,7 @@ use skif_core::{Diagnostic, Fix, FixSafety, Report, Severity, Span, Summary};
 
 use crate::options::RenderOptions;
 use crate::style::Painter;
+use crate::text::{escape_controls, frame, line_of};
 
 /// Renders `report` grouped by file, with code frames when sources were supplied via
 /// [`RenderOptions::with_source`], followed by a summary line.
@@ -25,12 +26,12 @@ pub fn render_human(report: &Report, options: &RenderOptions, out: &mut dyn Writ
     }
     for (path, mut diagnostics) in files {
         diagnostics.sort_by(|a, b| {
-            a.rule
-                .cmp(&b.rule)
-                .then_with(|| start(a).cmp(&start(b)))
+            start(a)
+                .cmp(&start(b))
+                .then_with(|| a.rule.cmp(&b.rule))
                 .then_with(|| a.message.cmp(&b.message))
         });
-        writeln!(out, "{}", paint.bold(&path))?;
+        writeln!(out, "{}", paint.bold(&escape_controls(&path)))?;
         let source = options.source(&path);
         for diagnostic in diagnostics {
             write_diagnostic(out, paint, options, &path, source, diagnostic)?;
@@ -53,10 +54,10 @@ fn write_diagnostic(
     diagnostic: &Diagnostic,
 ) -> io::Result<()> {
     let span = diagnostic.location.span;
-    let frame = span.and_then(|span| {
+    let framed = span.and_then(|span| {
         source
             .and_then(|text| line_of(text, span.start_line))
-            .map(|line| (span, line))
+            .map(|line| (span, frame(line, span.start_col, same_line_end(&span))))
     });
     let width = span.map_or(1, |span| digits(span.start_line));
     let pad = " ".repeat(width);
@@ -65,28 +66,34 @@ fn write_diagnostic(
     writeln!(
         out,
         "  {}: {}",
-        paint.severity(diagnostic.severity, &label),
-        paint.bold(&diagnostic.message)
+        paint.severity(diagnostic.severity, &escape_controls(&label)),
+        paint.bold(&escape_controls(&diagnostic.message))
     )?;
     writeln!(
         out,
         "  {pad}{} {}",
         paint.accent("-->"),
-        location_text(path, span.as_ref())
+        escape_controls(&location_text(path, span.as_ref()))
     )?;
-    if let Some((span, line)) = frame {
+    if let Some((span, framed)) = framed {
         let number = paint.accent(&format!("{:>width$}", span.start_line));
         writeln!(out, "  {pad} {bar}")?;
-        writeln!(out, "  {number} {bar} {}", line.replace('\t', " "))?;
+        writeln!(out, "  {number} {bar} {}", framed.text)?;
         writeln!(
             out,
             "  {pad} {bar} {}{}",
-            " ".repeat(to_usize(span.start_col.saturating_sub(1))),
-            paint.severity(diagnostic.severity, &"^".repeat(underline_width(&span, line)))
+            " ".repeat(framed.pad),
+            paint.severity(diagnostic.severity, &"^".repeat(framed.carets))
         )?;
     }
     let note = |out: &mut dyn Write, key: &str, value: &str| {
-        writeln!(out, "  {pad} {} {}: {value}", paint.accent("="), paint.bold(key))
+        writeln!(
+            out,
+            "  {pad} {} {}: {}",
+            paint.accent("="),
+            paint.bold(key),
+            escape_controls(value)
+        )
     };
     for (key, value) in [
         ("package", diagnostic.package.as_deref()),
@@ -133,32 +140,18 @@ fn location_text(path: &str, span: Option<&Span>) -> String {
     )
 }
 
-fn line_of(source: &str, line: u32) -> Option<&str> {
-    let index = to_usize(line.checked_sub(1)?);
-    source
-        .split('\n')
-        .nth(index)
-        .map(|text| text.strip_suffix('\r').unwrap_or(text))
-}
-
-/// Columns are character based, matching [`Span`]; wide glyphs are not measured specially.
-fn underline_width(span: &Span, line: &str) -> usize {
-    let end = if span.end_line == span.start_line {
-        span.end_col
+/// The exclusive end column of a span that stays on its first line; `None` when it continues on later lines.
+const fn same_line_end(span: &Span) -> Option<u32> {
+    if span.end_line == span.start_line {
+        Some(span.end_col)
     } else {
-        u32::try_from(line.chars().count())
-            .unwrap_or(u32::MAX)
-            .saturating_add(1)
-    };
-    to_usize(end.saturating_sub(span.start_col)).max(1)
+        None
+    }
 }
 
 fn digits(n: u32) -> usize {
-    n.checked_ilog10().map_or(1, |log| to_usize(log) + 1)
-}
-
-fn to_usize(n: u32) -> usize {
-    usize::try_from(n).unwrap_or(usize::MAX)
+    n.checked_ilog10()
+        .map_or(1, |log| usize::try_from(log).unwrap_or(usize::MAX).saturating_add(1))
 }
 
 fn plural(count: usize, word: &str) -> String {
@@ -200,14 +193,5 @@ mod tests {
         for (n, expected) in [(0, 1), (1, 1), (9, 1), (10, 2), (99, 2), (100, 3)] {
             assert_eq!(digits(n), expected, "{n}");
         }
-    }
-
-    #[test]
-    fn line_of_handles_crlf_and_bounds() {
-        let text = "a\r\nb\n";
-        assert_eq!(line_of(text, 1), Some("a"));
-        assert_eq!(line_of(text, 2), Some("b"));
-        assert_eq!(line_of(text, 4), None);
-        assert_eq!(line_of(text, 0), None);
     }
 }

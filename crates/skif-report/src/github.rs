@@ -29,7 +29,7 @@ fn annotation(diagnostic: &Diagnostic, options: &RenderOptions) -> String {
     let mut line = format!(
         "::{} file={}",
         command(diagnostic.severity),
-        escape_property(&options.display_path(&diagnostic.location.path))
+        escape_property(&options.repo_path(&diagnostic.location.path))
     );
     if let Some(span) = diagnostic.location.span {
         let _ = write!(

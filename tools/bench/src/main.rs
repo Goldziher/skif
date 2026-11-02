@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 
-use skif_bench::generate::{self, Options, PackageManager};
 use crate::run::RunOptions;
+use skif_bench::generate::{self, Options, PackageManager};
 
 const DEFAULT_CORPUS_FILE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml");
 

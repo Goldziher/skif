@@ -7,12 +7,6 @@ package.json
    --> package.json
 
 packages/web/package.json
-  warning[unused-dependency]: lodash is never imported 日本語
-   --> packages/web/package.json:5:5
-    |
-  5 |     "lodash": "^4.0.0"
-    |     ^^^^^^^^
-    = fix (safe): Remove lodash
   error[version-mismatch]: réact is declared with 2 different versions
    --> packages/web/package.json:4:14
     |
@@ -24,5 +18,11 @@ packages/web/package.json
     = help: align on ^18.3.1
     = note: other declaration (packages/api/package.json:5:15)
     = fix (unsafe): Use ^18.3.1
+  warning[unused-dependency]: lodash is never imported 日本語
+   --> packages/web/package.json:5:5
+    |
+  5 |     "lodash": "^4.0.0"
+    |     ^^^^^^^^
+    = fix (safe): Remove lodash
 
 Found 1 error, 1 warning, 1 info in 3 packages (2 fixable)

@@ -21,24 +21,27 @@ manifest = ["dep:skif-rules"]
 # Version, semver and catalog policies. They ship in the rule providers of `manifest`; the feature name is reserved
 # so hosts can already select it.
 policy = []
-# JavaScript and TypeScript analysis on oxc. Reserved until the analysis crates land; off by default so a host that
-# pins its own oxc is never forced onto skif's.
-js-analysis = []
+# JavaScript and TypeScript analysis on oxc (`skif-js` and the plugin table). Off by default so a host that pins its
+# own oxc is never forced onto skif's.
+js-analysis = ["dep:skif-js", "dep:skif-js-plugins", "dep:indexmap"]
 # `apply_fixes` and `FixPlan` (format-preserving JSON edits).
 fix = ["dep:skif-edit"]
 # YAML edits for `pnpm-workspace.yaml`.
 yaml-fix = ["fix", "skif-edit/yaml"]
-# Human and JSON renderers, re-exported as `skif::render`.
+# Human, JSON, SARIF and GitHub renderers, re-exported as `skif::render`.
 report = ["dep:skif-report"]
 # JSON Schema of `skif.toml`, as `skif::config_schema`.
 schema = ["skif-config/schema"]
 
 [dependencies]
+indexmap = { workspace = true, optional = true }
 rayon.workspace = true
 serde_json.workspace = true
 skif-config.workspace = true
 skif-core.workspace = true
 skif-edit = { workspace = true, optional = true }
+skif-js = { workspace = true, optional = true }
+skif-js-plugins = { workspace = true, optional = true }
 skif-lint.workspace = true
 skif-report = { workspace = true, optional = true }
 skif-rules = { workspace = true, optional = true }
@@ -62,6 +65,10 @@ harness = false
 name = "fix"
 harness = false
 required-features = ["fix"]
+
+[[test]]
+name = "js"
+required-features = ["js-analysis"]
 
 [lints]
 workspace = true

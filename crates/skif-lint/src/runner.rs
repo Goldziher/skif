@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use skif_config::{Config, ConfigError};
@@ -16,6 +17,9 @@ pub struct RunOptions<'a> {
     pub pool: Option<&'a rayon::ThreadPool>,
     /// Set to stop the run before the next rule or provider starts.
     pub cancel: Option<&'a AtomicBool>,
+    /// The configuration file the configuration was loaded from, relative to the workspace root. Diagnostics about
+    /// the configuration itself point at it; `None` falls back to `skif.toml`.
+    pub config_path: Option<&'a Path>,
 }
 
 /// A lint run failed.
@@ -68,6 +72,7 @@ pub fn run_unsorted(
         workspace,
         config,
         enabled: &enabled,
+        config_path: options.config_path,
     };
     let job = || execute(registry, &cx, options);
     match options.pool {

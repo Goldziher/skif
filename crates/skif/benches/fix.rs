@@ -58,10 +58,7 @@ fn report(fixes: usize) -> Report {
                 safety: FixSafety::Safe,
                 ops: vec![FixOp::Json {
                     path: MEMBER.into(),
-                    pointer: vec![
-                        PathSeg::Key("dependencies".into()),
-                        PathSeg::Key(format!("dep-{i:03}")),
-                    ],
+                    pointer: vec![PathSeg::Key("dependencies".into()), PathSeg::Key(format!("dep-{i:03}"))],
                     action: JsonAction::Set(json!("^2.0.0")),
                 }],
             });

@@ -456,6 +456,7 @@ fn schema_prints_the_config_schema() {
 #[test]
 fn init_writes_a_starter_config_and_refuses_to_overwrite() {
     let dir = fixture("clean");
+    fs::remove_file(dir.path().join("skif.toml")).unwrap();
     let created = run(skif().arg("init").arg(dir.path()));
     assert_eq!(created.code, 0, "{}{}", created.stdout, created.stderr);
     let target = dir.path().join("skif.toml");
@@ -463,7 +464,7 @@ fn init_writes_a_starter_config_and_refuses_to_overwrite() {
     assert!(starter.starts_with("#:schema "), "{starter}");
     insta::assert_snapshot!("init_config", starter);
 
-    let linted = run(skif().arg(dir.path()));
+    let linted = run(skif().arg("--no-js").arg(dir.path()));
     assert_eq!(
         linted.code, 0,
         "the starter config must be valid: {}{}",
@@ -491,4 +492,190 @@ fn help_and_version_exit_zero() {
     let version = run(skif().arg("--version"));
     assert_eq!(version.code, 0);
     assert!(version.stdout.starts_with("skif "), "{}", version.stdout);
+}
+
+fn reported(result: &support::Run) -> BTreeSet<String> {
+    rule_ids(&result.json())
+}
+
+#[test]
+fn js_analysis_runs_by_default_and_no_js_turns_it_off() {
+    let dir = fixture("js");
+    let with_js = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert_eq!(with_js.code, 1, "{}{}", with_js.stdout, with_js.stderr);
+    let found = reported(&with_js);
+    for rule in ["unused-dependencies", "unlisted-dependencies"] {
+        assert!(found.contains(rule), "{rule} missing from {found:?}");
+    }
+
+    let without = run(skif().args(["--no-js", "--format", "json"]).arg(dir.path()));
+    assert_eq!(without.code, 0, "{}{}", without.stdout, without.stderr);
+    let found = reported(&without);
+    for rule in [
+        "unused-dependencies",
+        "unlisted-dependencies",
+        "unused-dev-dependencies",
+    ] {
+        assert!(!found.contains(rule), "{rule} reported with --no-js: {found:?}");
+    }
+}
+
+#[test]
+fn production_skips_dev_dependencies() {
+    let dir = fixture("js");
+    let default = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert!(reported(&default).contains("unused-dev-dependencies"));
+    let production = run(skif().args(["--production", "--format", "json"]).arg(dir.path()));
+    let found = reported(&production);
+    assert!(!found.contains("unused-dev-dependencies"), "{found:?}");
+    assert!(found.contains("unused-dependencies"), "{found:?}");
+}
+
+fn is_number_versions(dir: &Path) -> Vec<String> {
+    ["a", "b"]
+        .iter()
+        .map(|member| {
+            let text = fs::read_to_string(dir.join("packages").join(member).join("package.json")).unwrap();
+            let manifest: Value = serde_json::from_str(&text).unwrap();
+            manifest["dependencies"]["is-number"].as_str().unwrap().to_owned()
+        })
+        .collect()
+}
+
+#[test]
+fn select_decides_which_version_alignment_is_applied() {
+    for (select, expected) in [("highest", "7.0.0"), ("lowest", "6.0.0")] {
+        let dir = fixture("mismatch");
+        let result = run(skif()
+            .args(["--fix-unsafe", "--no-install", "--select", select, "--format", "json"])
+            .arg(dir.path()));
+        assert_eq!(result.code, 0, "{select}\n{}{}", result.stdout, result.stderr);
+        assert_eq!(is_number_versions(dir.path()), [expected, expected], "{select}");
+    }
+}
+
+#[test]
+fn color_always_emits_escapes_and_never_does_not() {
+    let dir = fixture("dirty");
+    let always = run(skif().args(["--color", "always"]).arg(dir.path()));
+    assert!(always.stdout.contains('\x1b'), "{}", always.stdout);
+    let never = run(skif().args(["--color", "never"]).arg(dir.path()));
+    assert!(!never.stdout.contains('\x1b'), "{}", never.stdout);
+    let json = run(skif().args(["--color", "always", "--format", "json"]).arg(dir.path()));
+    assert!(!json.stdout.contains('\x1b'));
+}
+
+#[test]
+fn info_findings_alone_exit_zero() {
+    let dir = fixture("dirty");
+    let result = run(skif()
+        .args([
+            "--rule",
+            "root-package-private-field=off",
+            "--rule",
+            "empty-dependencies=info",
+            "--format",
+            "json",
+        ])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let summary = &result.json()["summary"];
+    assert_eq!(summary["errors"], 0);
+    assert_eq!(summary["warnings"], 0);
+    assert_ne!(summary["infos"], 0);
+}
+
+#[test]
+fn fail_on_warnings_conflicts_with_max_warnings() {
+    let dir = fixture("dirty");
+    let result = run(skif()
+        .args(["--fail-on-warnings", "--max-warnings", "3", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 2);
+    assert_eq!(result.json()["error"]["kind"], "usage");
+}
+
+#[test]
+fn sarif_goes_to_stdout_or_to_output() {
+    let dir = fixture("dirty");
+    let stdout = run(skif().args(["--format", "sarif"]).arg(dir.path()));
+    assert_eq!(stdout.code, 1);
+    let log = stdout.json();
+    assert_eq!(log["version"], "2.1.0");
+    assert_ne!(log["runs"][0]["tool"]["driver"]["rules"].as_array().unwrap().len(), 0);
+    assert_ne!(log["runs"][0]["results"].as_array().unwrap().len(), 0);
+
+    let out = tempfile::tempdir().unwrap();
+    let target = out.path().join("skif.sarif");
+    let written = run(skif()
+        .args(["--format", "sarif", "--output"])
+        .arg(&target)
+        .arg(dir.path()));
+    assert_eq!(written.code, 1);
+    assert!(written.stdout.is_empty(), "{}", written.stdout);
+    let from_file: Value = serde_json::from_str(&fs::read_to_string(&target).unwrap()).unwrap();
+    assert_eq!(from_file, log);
+    assert!(
+        fs::read_dir(out.path()).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".skif-tmp"))
+    );
+}
+
+#[test]
+fn github_format_prints_annotations() {
+    let dir = fixture("dirty");
+    let result = run(skif().args(["--format", "github"]).arg(dir.path()));
+    assert_eq!(result.code, 1);
+    assert!(
+        result.stdout.lines().any(|line| line.starts_with("::error file=")),
+        "{}",
+        result.stdout
+    );
+}
+
+#[test]
+fn github_actions_defaults_to_human_plus_annotations() {
+    let dir = fixture("dirty");
+    let result = run(skif().env("GITHUB_ACTIONS", "true").arg(dir.path()));
+    assert_eq!(result.code, 1);
+    assert!(result.stdout.contains("Found "), "{}", result.stdout);
+    assert!(
+        result.stdout.lines().any(|line| line.starts_with("::error file=")),
+        "{}",
+        result.stdout
+    );
+
+    let explicit = run(skif()
+        .env("GITHUB_ACTIONS", "true")
+        .args(["--format", "json"])
+        .arg(dir.path()));
+    explicit.json();
+}
+
+#[test]
+fn fix_through_a_symlink_out_of_the_workspace_is_refused() {
+    #[cfg(unix)]
+    {
+        let dir = fixture("dirty");
+        let outside = tempfile::tempdir().unwrap();
+        let real = outside.path().join("package.json");
+        fs::copy(dir.path().join("packages/a/package.json"), &real).unwrap();
+        fs::remove_file(dir.path().join("packages/a/package.json")).unwrap();
+        std::os::unix::fs::symlink(&real, dir.path().join("packages/a/package.json")).unwrap();
+        let before = fs::read_to_string(&real).unwrap();
+        let root_before = fs::read_to_string(dir.path().join("package.json")).unwrap();
+
+        let result = run(skif()
+            .args(["--fix", "--no-install", "--format", "json"])
+            .arg(dir.path()));
+        assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+        assert_eq!(fs::read_to_string(&real).unwrap(), before);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("package.json")).unwrap(),
+            root_before
+        );
+    }
 }
