@@ -28,23 +28,12 @@ fn is_local_path(specifier: &str) -> bool {
         || specifier.starts_with('/')
 }
 
-/// Whether the root manifest pins Yarn Classic (1.x) in `packageManager`, which does not implement `workspace:`.
-fn is_yarn_classic(workspace: &Workspace) -> bool {
-    workspace
-        .root_package
-        .manifest
-        .value
-        .get("packageManager")
-        .and_then(Value::as_str)
-        .is_some_and(|pinned| pinned.starts_with("yarn@1."))
-}
-
 /// The specifier that links a workspace package: `*` for npm, `workspace:*` for the others, `None` when the
 /// package manager is unknown or (Yarn Classic) has no protocol to suggest.
 fn workspace_specifier(workspace: &Workspace) -> Option<&'static str> {
     match workspace.package_manager? {
         PackageManager::Npm => Some("*"),
-        PackageManager::Yarn if is_yarn_classic(workspace) => None,
+        PackageManager::Yarn if workspace.facts.yarn_classic => None,
         PackageManager::Pnpm | PackageManager::Yarn | PackageManager::Bun => Some("workspace:*"),
         _ => None,
     }

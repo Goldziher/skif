@@ -161,8 +161,33 @@ impl Spans<'_> {
     }
 }
 
+/// Drops the entries from `from` on whose name is declared again later in the same section: with duplicate keys the
+/// last one wins, as it does for the JSON value and for the span table.
+fn keep_last_duplicates(entries: &mut Vec<DependencyEntry>, from: usize) {
+    let last: HashMap<&str, usize> = entries[from..]
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| (entry.name.as_str(), index))
+        .collect();
+    let keep: Vec<bool> = entries[from..]
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| last.get(entry.name.as_str()) == Some(&index))
+        .collect();
+    if keep.iter().all(|&kept| kept) {
+        return;
+    }
+    let mut position = 0;
+    entries.retain(|_| {
+        let index = position;
+        position += 1;
+        index < from || keep[index - from]
+    });
+}
+
 impl Manifest {
-    /// Parses a manifest and collects its dependency entries in file order.
+    /// Parses a manifest and collects its dependency entries in file order. A name declared twice in one section is
+    /// collected once, with the value of its last declaration.
     ///
     /// `path` is the workspace-relative path used in errors and diagnostics. Comments and trailing commas are
     /// tolerated; the root must be an object.
@@ -190,6 +215,7 @@ impl Manifest {
             let ast::Value::Object(dependencies) = &section.value else {
                 continue;
             };
+            let section_start = entries.len();
             for dependency in &dependencies.properties {
                 if let ast::Value::StringLit(specifier) = &dependency.value {
                     entries.push(DependencyEntry {
@@ -202,6 +228,7 @@ impl Manifest {
                     });
                 }
             }
+            keep_last_duplicates(&mut entries, section_start);
         }
 
         let mut spans = Spans {
