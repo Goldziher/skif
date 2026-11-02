@@ -1,0 +1,89 @@
+---
+title: CLI
+description: Flags, subcommands, output formats, exit codes and CI behaviour of the skif command line.
+---
+
+```text
+skif [OPTIONS] [PATH]
+skif rules [--format human|json]
+skif schema
+skif init [PATH]
+```
+
+`skif [PATH]` lints the workspace containing `PATH` (default `.`). The workspace root is the nearest ancestor that
+declares a workspace; it is used for configuration, reported paths, fix writes and the install step.
+
+## Subcommands
+
+| Command | Does |
+| --- | --- |
+| `skif rules` | List every rule with its category, default level and fixability. `--format json` prints one JSON document. |
+| `skif schema` | Print the JSON Schema of `skif.toml`. |
+| `skif init [PATH]` | Write a starter `skif.toml` into `PATH` (default `.`). Refuses to overwrite an existing configuration. |
+
+## Flags
+
+| Flag | Meaning |
+| --- | --- |
+| `--format <human\|json\|sarif\|github>` | Output format. Default `human`, or `human` plus GitHub annotations when `GITHUB_ACTIONS=true`. |
+| `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires `--format`. |
+| `--fix` | Apply safe fixes, lint again, then run the package manager's install command. |
+| `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. |
+| `--select <highest\|lowest>` | Which version a version alignment fix targets, overriding `[policy] prefer` for this run. |
+| `--no-install` | Do not run the package manager after fixing. |
+| `--no-prompt` | Never ask which alternative fix to apply; the diagnostic stays unfixed unless `--select` decides. |
+| `--max-warnings <N>` | Exit `1` when there are more than `N` warnings. |
+| `--fail-on-warnings` | Same as `--max-warnings 0`. Also set by `[lint] fail-on-warnings`. |
+| `--rule <ID>=<off\|info\|warn\|error>` | Set a rule's level. Repeatable. |
+| `--ignore-rule <ID>` | Turn a rule off. Repeatable. |
+| `--ignore-package <NAME>` | Ignore a package by name or glob in every rule. Repeatable. |
+| `--ignore-dependency <NAME>` | Ignore a dependency in every rule. Repeatable. |
+| `--ignore-rule-for-package <RULE:PACKAGE>` | Ignore one rule for one package. Repeatable. |
+| `--no-js` | Skip JavaScript analysis. Overrides `[js] enabled`. |
+| `--production` | Only analyse production code in JavaScript analysis. Overrides `[js] production`. |
+| `--color <auto\|always\|never>` | When to colour human output. |
+
+Flags are the top layer of the [configuration precedence](../configuration/#precedence): defaults, then the file,
+then the command line. Array flags replace the file's arrays rather than append.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Clean. Warnings within `--max-warnings` are allowed, and `info` never counts. |
+| `1` | Problems remain. |
+| `2` | skif could not run: invalid or ambiguous configuration, no workspace found, bad flags, a refused `--fix`, or a failed install step. |
+
+## Output formats
+
+| Format | Output |
+| --- | --- |
+| `human` | Diagnostics grouped by file, optionally coloured, with a summary. Colour is on only when stdout is a TTY, `NO_COLOR` is unset and the format is `human`. |
+| `json` | One versioned document with `version`, `summary` and `diagnostics`. Each diagnostic has rule, severity, message, location with line and column span, related locations and fix titles. |
+| `sarif` | SARIF 2.1.0 for code scanning. |
+| `github` | GitHub Actions workflow-command annotations. |
+
+In `--format json` mode stdout holds exactly one JSON document in every case, including failures. A failure is an
+`error` document with a `kind` (`config`, `workspace`, `io`, `usage` or `ci-refusal`), a message and, when known,
+`path`, `line` and `column`. `--output` never receives an error document: on failure the file is not written and
+the error goes to stdout.
+
+## Fixing
+
+`--fix` applies fixes marked `safe`; `--fix-unsafe` also applies `unsafe` ones. A fix run:
+
+1. Lints and builds the fix plan, selecting fixes by `--fix` or `--fix-unsafe` and `--select`.
+2. Writes the plan, atomically per file.
+3. Lints again on the changed tree. The report and exit code come from this second run, so exit `1` means problems
+   remain after fixing.
+4. Runs the detected package manager's `install` in the workspace root, unless `--no-install` was given, no file
+   changed, or no package manager was detected. If the install fails the fixes stay written and the exit code is `2`.
+
+skif's own process never opens a network connection and never resolves a version. The only network traffic comes
+from your package manager during the install step.
+
+## CI behaviour
+
+`--fix` and `--fix-unsafe` are refused with exit `2` when `CI` is truthy: set, not empty after trimming, and not
+one of `0`, `false`, `no` or `off` in any case. Linting without `--fix` is never affected. On GitHub Actions, with
+no `--format`, skif prints the human report plus workflow annotations.
