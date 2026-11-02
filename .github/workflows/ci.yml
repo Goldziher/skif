@@ -179,8 +179,10 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shopt -s globstar nullglob
-          shellcheck scripts/**/*.sh mise-tasks/**/*.sh
+          # `find` rather than a `**` glob: without `globstar`, bash reads `**` as `*` and skips scripts/*.sh.
+          find scripts mise-tasks -name '*.sh' -print0 | xargs -0 shellcheck
+      - name: Test the npm publish probe
+        run: bash scripts/test-npm-published.sh
 
   consistency:
     name: Version consistency
@@ -223,12 +225,16 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           tools: node pnpm bun
+      # The `node` profile unwinds panics (the release profile aborts); `test-hooks` adds the deliberate panic the
+      # smoke test throws to prove it reaches JavaScript as an exception.
       - name: Build the addon for the host
         working-directory: npm-package
         run: |
           pnpm install --frozen-lockfile
-          pnpm build
-      - name: Smoke-test import, lint() and the skif bin
+          pnpm build --features test-hooks
+      - name: Smoke-test import, lint(), lintAsync(), a panic and the skif bin
+        env:
+          SKIF_EXPECT_PANIC_HOOK: "1"
         run: |
           set -euo pipefail
           case "${{ matrix.runtime }}" in

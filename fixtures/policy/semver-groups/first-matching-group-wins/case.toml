@@ -1,3 +1,4 @@
 description = "When two semver groups match, the first one decides the range; the second never applies."
 source = "skif"
 tags = ["semver-groups", "precedence", "fix"]
+compare = "bytes"

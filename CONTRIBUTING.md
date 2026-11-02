@@ -65,6 +65,10 @@ or is replaced, write a new ADR that supersedes or amends it, add it to `adrs/in
 3. Tag the commit `v<version>` and push the tag. The `Publish Packages` workflow builds the release
    archives, publishes the crates, the npm packages, the Homebrew formula and the Scoop manifest, and moves
    the floating `v0` tag (the major version's tag, used as `Goldziher/skif@v0`) to the release.
+   npm trusted publishing can only be configured for a package that already exists, so before the first release
+   publish a placeholder of `skif` and of each of the six platform packages (`skif-darwin-arm64`,
+   `skif-darwin-x64`, `skif-linux-arm64-gnu`, `skif-linux-arm64-musl`, `skif-linux-x64-gnu`,
+   `skif-linux-x64-musl`) once by hand, then add the trusted publisher (this repository, `publish.yaml`) to each.
 4. Rehearse with the workflow's `dry-run` input: it builds every target and verifies the assets and the crate
    packages without publishing.
 

@@ -1,3 +1,4 @@
 description = "A dependency used in at least min-packages packages is reported in each of them."
 source = "skif"
 tags = ["catalog", "prefer", "min-packages", "fix"]
+compare = "bytes"

@@ -278,6 +278,18 @@ pub fn check_diagnostics(
         {
             problems.push(format!("{}: the span {covered:?} does not cover {dependency}", label()));
         }
+        // The catalog, workspace-protocol and family rules locate the specifier itself; catalog entries are located
+        // at their key (or key and value).
+        if let (Some(dependency), Some(specifier)) = (&diagnostic.dependency, &diagnostic.specifier)
+            && !entry_spans
+            && !covered.contains(dependency.as_str())
+            && covered.trim_matches('"') != specifier.as_str()
+        {
+            problems.push(format!(
+                "{}: the span {covered:?} is neither {dependency} nor its specifier {specifier:?}",
+                label()
+            ));
+        }
     }
     if problems.is_empty() {
         Ok(())
@@ -416,8 +428,20 @@ fn parse_data(path: &str, content: &str) -> Result<Value, String> {
     parsed.map_err(|error| format!("{path} does not parse: {error}"))
 }
 
+/// How the fixes of the diagnostics of `family` are planned for the files of a case.
+pub type Planner = dyn Fn(&BTreeMap<String, String>, &Config, &BTreeSet<&'static str>) -> Result<Planned, String>;
+
+/// Plans the first fix of every diagnostic jointly, the way [`plan_fixes`] does.
+pub fn plan_jointly(
+    files: &BTreeMap<String, String>,
+    config: &Config,
+    family: &BTreeSet<&'static str>,
+) -> Result<Planned, String> {
+    plan_fixes(files, &lint(files, config, family)?)
+}
+
 /// Runs one case: `family` selects the rules the group exercises.
-pub fn check_case(case: &Case, family: &BTreeSet<&'static str>) -> Result<(), String> {
+pub fn check_case(case: &Case, family: &BTreeSet<&'static str>, plan: &Planner) -> Result<(), String> {
     let config_source = std::fs::read_to_string(case.dir.join("skif.toml")).map_err(|error| error.to_string())?;
     let config = Config::from_toml_str(&config_source).map_err(|error| format!("skif.toml: {error}"))?;
     let mut files = read_tree(&case.dir.join("workspace"));
@@ -446,7 +470,7 @@ pub fn check_case(case: &Case, family: &BTreeSet<&'static str>) -> Result<(), St
     }
     check_diagnostics(&files, &diagnostics, family.contains("version-mismatch"))?;
 
-    let planned = plan_fixes(&files, &diagnostics)?;
+    let planned = plan(&files, &config, family)?;
     if !planned.skipped.is_empty() {
         return Err(format!(
             "fixes skipped as conflicting:\n  {}",
@@ -515,8 +539,13 @@ pub fn check_case(case: &Case, family: &BTreeSet<&'static str>) -> Result<(), St
     Ok(())
 }
 
-/// Runs every case of `groups` that is not pending and reports all failures at once.
+/// Runs every case of `groups` that is not pending and reports all failures at once, planning the fixes jointly.
 pub fn run_groups(groups: &[&str], family: &BTreeSet<&'static str>) {
+    run_groups_with(groups, family, &plan_jointly);
+}
+
+/// As [`run_groups`], planning the fixes with `plan`.
+pub fn run_groups_with(groups: &[&str], family: &BTreeSet<&'static str>, plan: &Planner) {
     let cases: Vec<Case> = discover_cases()
         .into_iter()
         .filter(|case| groups.contains(&case.group.as_str()) && !case.is_pending())
@@ -529,7 +558,7 @@ pub fn run_groups(groups: &[&str], family: &BTreeSet<&'static str>) {
     let mut report = String::new();
     let mut failed = 0;
     for case in &cases {
-        if let Err(message) = check_case(case, family) {
+        if let Err(message) = check_case(case, family, plan) {
             failed += 1;
             writeln!(report, "\n{}\n{message}", case.id()).unwrap();
         }

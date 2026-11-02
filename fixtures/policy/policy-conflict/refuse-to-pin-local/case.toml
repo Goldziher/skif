@@ -1,3 +1,4 @@
 description = "A pinned group that selects a workspace package's own version refuses to pin it; dependents are still pinned."
 source = "syncpack:src/version_group/pinned_test.rs::normal::local::refuses_to_pin_local_version"
 tags = ["pinned", "local", "refuse-local", "fix"]
+compare = "bytes"

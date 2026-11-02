@@ -1,3 +1,4 @@
 description = "With prefer = lowest and equal versions, the least greedy range (exact) is the lowest."
 source = "syncpack:src/version_group/preferred_semver_test.rs::highest_or_lowest::lowest_semver_prefers_least_greedy_range_when_versions_equal"
 tags = ["lowest", "range-greediness", "fix"]
+compare = "bytes"

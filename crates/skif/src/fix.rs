@@ -4,8 +4,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use skif_config::Prefer;
 use skif_core::{
-    Diagnostic, FileChange, FileSystem, Fix, FixOp, FixSafety, Report, RuleId, TextEdit, apply_text_edits,
+    Diagnostic, FileChange, FileSystem, Fix, FixOp, FixSafety, Report, RuleId, TextEdit, apply_text_edits, slash,
 };
 use skif_edit::{EditPlanError, FileKind, plan_edits};
 use skif_workspace::Workspace;
@@ -19,6 +20,37 @@ pub enum Alternatives {
     Ask,
     /// Take the first alternative, which a rule orders by configuration (`[policy] prefer`).
     First,
+    /// Take the alternative that names the preferred version (see [`preferred_alternative`]), as `[policy] prefer`
+    /// determines it; leave the diagnostic unfixed ([`SkipReason::NeedsChoice`]) when no alternative names it.
+    Preferred(Prefer),
+}
+
+/// Whether a fix titled `title` aligns on the version `prefer` names ("highest" or "lowest").
+fn names(title: &str, prefer: Prefer) -> bool {
+    let word = match prefer {
+        Prefer::Lowest => "lowest",
+        _ => "highest",
+    };
+    title.to_ascii_lowercase().contains(word)
+}
+
+/// The index of the alternative in `fixes` whose title names the version `prefer` selects, when there is one.
+///
+/// A rule labels alternatives by what they do ("highest", "lowest", ...); configuration determines the answer
+/// when `[policy] prefer` selects one of those labels.
+///
+/// # Examples
+/// ```
+/// use skif::{Fix, FixSafety, Prefer, preferred_alternative};
+///
+/// let fix = |title: &str| Fix { title: title.to_owned(), safety: FixSafety::Unsafe, ops: Vec::new() };
+/// let fixes = [fix("Use the highest version"), fix("Use the lowest version")];
+/// assert_eq!(preferred_alternative(&fixes, Prefer::Lowest), Some(1));
+/// assert_eq!(preferred_alternative(&fixes[..1], Prefer::Lowest), None);
+/// ```
+#[must_use]
+pub fn preferred_alternative(fixes: &[Fix], prefer: Prefer) -> Option<usize> {
+    fixes.iter().position(|fix| names(&fix.title, prefer))
 }
 
 /// Which fixes go into a [`FixPlan`].
@@ -168,7 +200,7 @@ impl FixPlan {
 #[non_exhaustive]
 pub enum FixError {
     /// The edits of a file that every accepted fix agreed on could not be combined.
-    #[error("cannot plan edits for {}: {message}", .path.display())]
+    #[error("cannot plan edits for {}: {message}", slash(.path))]
     Plan {
         /// Workspace-relative file.
         path: PathBuf,
@@ -191,7 +223,7 @@ impl PlanFailure {
     }
 
     fn into_skip(self, path: &Path) -> SkipReason {
-        let text = format!("{}: {}", path.display(), self.message());
+        let text = format!("{}: {}", slash(path), self.message());
         match self {
             Self::Conflict(_) => SkipReason::Conflict(text),
             Self::Other(_) => SkipReason::Failed(text),
@@ -227,6 +259,16 @@ struct Planner<'a> {
     fs: &'a dyn FileSystem,
     sources: BTreeMap<PathBuf, Arc<str>>,
     entries: BTreeMap<PathBuf, Entry<'a>>,
+    /// The diagnostics whose accepted fixes touch each path, in the order they were accepted.
+    contributors: BTreeMap<PathBuf, Vec<usize>>,
+}
+
+/// The accepted fixes of one file do not combine into a valid file.
+struct Invalid {
+    path: PathBuf,
+    message: String,
+    /// The diagnostic accepted last for the file; dropping it is the first thing to try.
+    culprit: Option<usize>,
 }
 
 fn op_path(op: &FixOp) -> Option<&Path> {
@@ -274,13 +316,13 @@ impl<'a> Planner<'a> {
         let source = self
             .fs
             .read_to_string(&self.root.join(path))
-            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+            .map_err(|error| format!("cannot read {}: {error}", slash(path)))?;
         self.sources.insert(path.to_path_buf(), Arc::clone(&source));
         Ok(source)
     }
 
     /// Adds every op of `fix` or none: the plan is only extended once all of the fix's files check out.
-    fn try_add(&mut self, fix: &'a Fix) -> Result<(), SkipReason> {
+    fn try_add(&mut self, index: usize, fix: &'a Fix) -> Result<(), SkipReason> {
         let mut by_file: BTreeMap<&Path, Vec<&'a FixOp>> = BTreeMap::new();
         for op in &fix.ops {
             let path = op_path(op).ok_or_else(|| SkipReason::Failed("unsupported operation".to_owned()))?;
@@ -291,13 +333,14 @@ impl<'a> Planner<'a> {
             staged.push((path.to_path_buf(), self.stage(path, &ops)?));
         }
         for (path, change) in staged {
+            self.contributors.entry(path.clone()).or_default().push(index);
             self.commit(path, change);
         }
         Ok(())
     }
 
     fn stage(&mut self, path: &Path, ops: &[&'a FixOp]) -> Result<Staged<'a>, SkipReason> {
-        let conflict = |what: &str| SkipReason::Conflict(format!("{}: {what}", path.display()));
+        let conflict = |what: &str| SkipReason::Conflict(format!("{}: {what}", slash(path)));
         let creates = ops.iter().copied().find_map(|op| match op {
             FixOp::CreateFile { contents, .. } => Some(contents.as_str()),
             _ => None,
@@ -311,7 +354,7 @@ impl<'a> Planner<'a> {
             (Some(contents), false, false) => match existing {
                 None if self.fs.is_file(&self.root.join(path)) => Err(SkipReason::Failed(format!(
                     "{}: cannot create a file that already exists",
-                    path.display()
+                    slash(path)
                 ))),
                 None => Ok(Staged::Create(contents)),
                 Some(Entry::Create(earlier)) if *earlier == contents => Ok(Staged::Nothing),
@@ -329,7 +372,7 @@ impl<'a> Planner<'a> {
 
     /// Plans the operations of one fix on their own, then checks the result against the edits already accepted.
     fn stage_edits(&mut self, path: &Path, ops: &[&'a FixOp]) -> Result<Staged<'a>, SkipReason> {
-        let conflict = |what: &str| SkipReason::Conflict(format!("{}: {what}", path.display()));
+        let conflict = |what: &str| SkipReason::Conflict(format!("{}: {what}", slash(path)));
         let fresh: Vec<&'a FixOp> = {
             let earlier: &[&FixOp] = match self.entries.get(path) {
                 None => &[],
@@ -401,13 +444,20 @@ impl<'a> Planner<'a> {
         }
     }
 
-    fn finish(mut self) -> Result<Vec<FileChange>, FixError> {
+    /// The contents every accepted fix amounts to. Each file is checked as a whole: the accepted fixes were planned one
+    /// at a time, so only the combined result proves that they still form a document that parses.
+    fn finish(mut self) -> Result<Vec<FileChange>, Invalid> {
         let entries = std::mem::take(&mut self.entries);
         let mut changes = Vec::with_capacity(entries.len());
         for (path, entry) in entries {
-            let plan_error = |message: String| FixError::Plan {
+            let culprit = self
+                .contributors
+                .get(&path)
+                .and_then(|accepted| accepted.last().copied());
+            let invalid = |message: String| Invalid {
                 path: path.clone(),
                 message,
+                culprit,
             };
             changes.push(match entry {
                 Entry::Create(contents) => FileChange::Create {
@@ -416,12 +466,17 @@ impl<'a> Planner<'a> {
                 },
                 Entry::Delete => FileChange::Delete { path: path.clone() },
                 Entry::Edit { ops, edits } => {
-                    let source = self.source(&path).map_err(plan_error)?;
-                    if let Some(kind) = FileKind::from_path(&path) {
-                        skif_edit::apply(&source, kind, &ops).map_err(|error| plan_error(error.to_string()))?;
-                    }
-                    let new_contents =
-                        apply_text_edits(&source, &edits).map_err(|error| plan_error(error.to_string()))?;
+                    let source = self.source(&path).map_err(invalid)?;
+                    // Per-fix plans decide which fixes are accepted; the file is written from one joint plan of
+                    // every accepted op, because independent removals of neighbouring members need the joint
+                    // view to place separators (two tail removals planned alone leave a dangling comma).
+                    let edits = match FileKind::from_path(&path) {
+                        Some(kind) => {
+                            skif_edit::plan_edits(&source, kind, &ops).map_err(|error| invalid(error.to_string()))?
+                        }
+                        None => edits,
+                    };
+                    let new_contents = apply_text_edits(&source, &edits).map_err(|error| invalid(error.to_string()))?;
                     FileChange::Modify {
                         path: path.clone(),
                         edits,
@@ -474,11 +529,22 @@ fn pick<'a>(selection: &FixSelection, index: usize, diagnostic: &'a Diagnostic) 
         .collect();
     match (allowed.as_slice(), diagnostic.fixes.first()) {
         ([only], _) => Pick::Fix(only),
-        ([first, ..], _) if selection.alternatives == Alternatives::First => Pick::Fix(first),
         ([], Some(first)) => Pick::Skip(SkipReason::Safety(first.safety)),
-        (alternatives, _) => Pick::Skip(SkipReason::NeedsChoice {
-            alternatives: alternatives.iter().map(|fix| fix.title.clone()).collect(),
-        }),
+        (alternatives, _) => {
+            let chosen = match selection.alternatives {
+                Alternatives::First => alternatives.first().copied(),
+                Alternatives::Preferred(prefer) => alternatives.iter().copied().find(|fix| names(&fix.title, prefer)),
+                Alternatives::Ask => None,
+            };
+            chosen.map_or_else(
+                || {
+                    Pick::Skip(SkipReason::NeedsChoice {
+                        alternatives: alternatives.iter().map(|fix| fix.title.clone()).collect(),
+                    })
+                },
+                Pick::Fix,
+            )
+        }
     }
 }
 
@@ -512,11 +578,42 @@ pub fn apply_fixes(
     selection: &FixSelection,
     fs: &dyn FileSystem,
 ) -> Result<FixPlan, FixError> {
+    let mut dropped: BTreeMap<usize, SkipReason> = BTreeMap::new();
+    loop {
+        match plan_once(workspace, report, selection, fs, &dropped) {
+            Ok(plan) => return Ok(plan),
+            Err(Invalid {
+                path,
+                culprit: Some(index),
+                ..
+            }) => {
+                dropped.insert(
+                    index,
+                    SkipReason::Conflict(format!(
+                        "{}: the combined edits of the accepted fixes do not form a valid file",
+                        slash(&path)
+                    )),
+                );
+            }
+            Err(Invalid { path, message, .. }) => return Err(FixError::Plan { path, message }),
+        }
+    }
+}
+
+/// One planning pass; the diagnostics in `dropped` are skipped with the reason given instead of being planned.
+fn plan_once(
+    workspace: &Workspace,
+    report: &Report,
+    selection: &FixSelection,
+    fs: &dyn FileSystem,
+    dropped: &BTreeMap<usize, SkipReason>,
+) -> Result<FixPlan, Invalid> {
     let mut planner = Planner {
         root: &workspace.root,
         fs,
         sources: BTreeMap::new(),
         entries: BTreeMap::new(),
+        contributors: BTreeMap::new(),
     };
     let mut applied = Vec::new();
     let mut skipped = Vec::new();
@@ -524,9 +621,10 @@ pub fn apply_fixes(
         if diagnostic.fixes.is_empty() || !selection.includes(&diagnostic.rule) {
             continue;
         }
-        let outcome = match pick(selection, index, diagnostic) {
-            Pick::Fix(fix) => planner.try_add(fix).map(|()| fix.title.clone()),
-            Pick::Skip(reason) => Err(reason),
+        let outcome = match (dropped.get(&index), pick(selection, index, diagnostic)) {
+            (Some(reason), _) => Err(reason.clone()),
+            (None, Pick::Fix(fix)) => planner.try_add(index, fix).map(|()| fix.title.clone()),
+            (None, Pick::Skip(reason)) => Err(reason),
         };
         match outcome {
             Ok(title) => applied.push(AppliedFix {

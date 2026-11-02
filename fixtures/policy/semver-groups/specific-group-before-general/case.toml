@@ -1,3 +1,4 @@
 description = "A specific exact-range group listed before a general caret group claims its dependency; the rest use the general range."
 source = "skif"
 tags = ["semver-groups", "precedence", "fix"]
+compare = "bytes"

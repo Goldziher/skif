@@ -50,8 +50,10 @@ thiserror.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+serde-saphyr.workspace = true
 skif-bench.workspace = true
 skif-rules.workspace = true
+toml.workspace = true
 
 [[test]]
 name = "fix"
@@ -73,6 +75,11 @@ required-features = ["js-analysis"]
 [[test]]
 name = "docs"
 required-features = ["js-analysis"]
+
+# The fixtures edit `pnpm-workspace.yaml` catalogs as well as manifests.
+[[test]]
+name = "policy_conformance"
+required-features = ["yaml-fix"]
 
 [lints]
 workspace = true

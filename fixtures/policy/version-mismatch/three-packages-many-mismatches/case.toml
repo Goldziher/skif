@@ -1,3 +1,4 @@
 description = "Three packages on three majors: every instance below the highest is reported, highest is not."
 source = "syncpack:src/version_group/preferred_semver_test.rs::highest_or_lowest::reports_highest_version_mismatches_in_many_files"
 tags = ["highest", "fix"]
+compare = "bytes"

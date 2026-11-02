@@ -5,11 +5,12 @@ use std::collections::HashMap;
 
 use oxc_ast::ast::{
     Argument, AssignmentExpression, AssignmentTarget, BindingPattern, CallExpression, Expression, ImportExpression,
-    JSXElement, JSXFragment, StaticMemberExpression, TSImportEqualsDeclaration, TSModuleReference, VariableDeclarator,
+    JSXElement, JSXFragment, StaticMemberExpression, TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier,
+    TSModuleReference, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 
-use crate::collect::Ctx;
+use crate::collect::{Ctx, imported_kind};
 use crate::model::{Import, ImportKind, ImportedKind, ImportedName, ModuleInfo};
 
 pub(crate) struct Finder<'c, 's> {
@@ -125,6 +126,13 @@ fn bindings_for_pattern(pattern: &BindingPattern<'_>) -> Vec<ImportedName> {
     }
 }
 
+fn first_qualifier<'q>(qualifier: &'q TSImportTypeQualifier<'_>) -> &'q str {
+    match qualifier {
+        TSImportTypeQualifier::Identifier(i) => i.name.as_str(),
+        TSImportTypeQualifier::QualifiedName(n) => first_qualifier(&n.left),
+    }
+}
+
 impl<'a> Visit<'a> for Finder<'_, '_> {
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
         if let Some(init) = &it.init
@@ -183,6 +191,21 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
             });
         }
         walk::walk_ts_import_equals_declaration(self, it);
+    }
+
+    fn visit_ts_import_type(&mut self, it: &TSImportType<'a>) {
+        let mut bound = match &it.qualifier {
+            Some(qualifier) => name(imported_kind(first_qualifier(qualifier).to_string()), None, false),
+            None => name(ImportedKind::Namespace, None, true),
+        };
+        bound.is_type = true;
+        self.info.imports.push(Import {
+            specifier: crate::js_string(it.source.value),
+            kind: ImportKind::TypeOnly,
+            names: vec![bound],
+            span: self.ctx.span(it.span),
+        });
+        walk::walk_ts_import_type(self, it);
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {

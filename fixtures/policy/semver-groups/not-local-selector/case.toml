@@ -2,3 +2,4 @@ description = "!$LOCAL excludes workspace packages from the group: external depe
 source = "skif"
 tags = ["semver-groups", "selectors", "$LOCAL", "negation", "fix"]
 valid-states = ["IsIdenticalToLocal"]
+compare = "bytes"

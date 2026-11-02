@@ -27,16 +27,23 @@ bunx skif
 ## Use from code
 
 ```js
-import { lint, run } from "skif";
+import { lint, lintAsync, run } from "skif";
 
 const report = JSON.parse(lint("./my-monorepo", { production: true }));
 console.log(report.summary);
+
+const outcome = await lintAsync("./my-monorepo");
+if (outcome.error) console.error(outcome.error.kind, outcome.error.message, outcome.error.path);
+else console.log(JSON.parse(outcome.report).summary);
 
 const exitCode = run(["--format", "json", "./my-monorepo"]);
 ```
 
 - `lint(path, options?)` lints the workspace containing `path` and returns the JSON report as a string. It prints
-  nothing and writes no files.
+  nothing and writes no files. It blocks the event loop, so use `lintAsync` in a server.
+- `lintAsync(path, options?)` does the same on a worker thread and resolves with `{ report }` or, when the lint
+  cannot run, `{ error: { kind, message, path? } }` (`kind` is `config`, `workspace`, `io` or `internal`). Both
+  functions read the configuration file the way the command line does.
 - `run(argv)` runs the full command line (`argv` excludes the program name) and returns its exit code. Output
   streams to the process's stdout and stderr.
 

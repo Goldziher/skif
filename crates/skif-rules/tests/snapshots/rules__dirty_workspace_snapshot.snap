@@ -501,43 +501,6 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       ]
     },
     {
-      "rule": "member-toolchain-fields",
-      "severity": "warning",
-      "message": "member package declares `packageManager`, which the root package owns",
-      "help": "remove `packageManager` from this package.json and declare it once in the root",
-      "location": {
-        "path": "packages/b/package.json",
-        "span": {
-          "start": 48,
-          "end": 78,
-          "start-line": 4,
-          "start-col": 3,
-          "end-line": 4,
-          "end-col": 33
-        }
-      },
-      "package": "@dirty/b",
-      "fixes": [
-        {
-          "title": "Remove `packageManager`",
-          "safety": "unsafe",
-          "ops": [
-            {
-              "json": {
-                "path": "packages/b/package.json",
-                "pointer": [
-                  {
-                    "key": "packageManager"
-                  }
-                ],
-                "action": "remove"
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
       "rule": "missing-package-manifest",
       "severity": "warning",
       "message": "`packages/nomanifest` matches a workspace pattern but has no package.json",
@@ -563,9 +526,9 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
   ],
   "summary": {
     "errors": 7,
-    "warnings": 7,
+    "warnings": 6,
     "infos": 0,
-    "fixable": 12,
+    "fixable": 11,
     "packages": 3
   }
 }

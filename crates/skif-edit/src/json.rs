@@ -188,6 +188,8 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
     let mut texts = Vec::new();
     let mut removals: HashMap<usize, Removals<'_, '_>> = HashMap::new();
     let mut insertions: HashMap<usize, Insertions<'_, '_>> = HashMap::new();
+    // Index in `planned` of each edit that moves a member, with the byte range of the member it moves.
+    let mut moves: Vec<(usize, (usize, usize))> = Vec::new();
     for (index, op) in ops.iter().enumerate() {
         let edits = match op {
             FixOp::Json {
@@ -210,6 +212,22 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
                     pointer,
                     (key.as_str(), value, *position),
                 )?;
+                Vec::new()
+            }
+            FixOp::Json {
+                pointer,
+                action: JsonAction::SortKeys,
+                ..
+            } => {
+                for (edit, from) in doc.sort_edits(&describe::op(op), pointer)? {
+                    moves.push((planned.len(), from));
+                    planned.push(Planned {
+                        op: index,
+                        start: edit.start,
+                        end: edit.end,
+                        replacement: edit.replacement,
+                    });
+                }
                 Vec::new()
             }
             FixOp::Json { pointer, action, .. } => doc.edits(&describe::op(op), pointer, action)?,
@@ -243,6 +261,7 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
     for insertion in insertions.values() {
         planned.extend(doc.insertion_edits(insertion, removals.get(&insertion.holder.open)));
     }
+    rebase_moves(&mut planned, &moves);
     for edit in &mut planned {
         edit.start += bom;
         edit.end += bom;
@@ -293,6 +312,9 @@ impl Edit {
     }
 }
 
+/// A sort edit and the byte range of the member it moves.
+type MovedEdit = (Edit, (usize, usize));
+
 struct Doc<'s, 'a> {
     source: &'s str,
     root: Value<'a>,
@@ -304,17 +326,9 @@ impl<'a> Doc<'_, 'a> {
         let target = locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: op.to_owned() })?;
         match action {
             JsonAction::Set(value) => Ok(vec![self.set(target.value, value)]),
-            JsonAction::SortKeys => {
-                let holder = container(target.value)
-                    .filter(|holder| holder.is_object)
-                    .ok_or_else(|| EditPlanError::WrongNodeKind {
-                        op: op.to_owned(),
-                        expected: "an object",
-                    })?;
-                Ok(self.sort_keys(&holder))
-            }
             JsonAction::RenameKey(new_key) => Self::rename(op, target, new_key),
-            // `Remove` and `Insert` are planned per container; any action added later has no in-place JSON edit.
+            // `Remove`, `Insert` and `SortKeys` are planned per container; any action added later has no in-place JSON
+            // edit.
             _ => Err(EditPlanError::Unsupported {
                 op: op.to_owned(),
                 kind: FileKind::Json,
@@ -348,7 +362,19 @@ impl<'a> Doc<'_, 'a> {
         Ok(vec![Edit::new(name_start, name_end, json_string(new_key))])
     }
 
-    fn sort_keys(&self, holder: &Container<'_, '_>) -> Vec<Edit> {
+    /// The edits sorting the object at `pointer`, each with the byte range of the member whose text it writes.
+    fn sort_edits(&self, op: &str, pointer: &[PathSeg]) -> Result<Vec<MovedEdit>, EditPlanError> {
+        let target = locate(&self.root, pointer).ok_or_else(|| EditPlanError::PathNotFound { op: op.to_owned() })?;
+        let holder = container(target.value)
+            .filter(|holder| holder.is_object)
+            .ok_or_else(|| EditPlanError::WrongNodeKind {
+                op: op.to_owned(),
+                expected: "an object",
+            })?;
+        Ok(self.sort_keys(&holder))
+    }
+
+    fn sort_keys(&self, holder: &Container<'_, '_>) -> Vec<(Edit, (usize, usize))> {
         let mut order: Vec<usize> = (0..holder.members.len()).collect();
         order.sort_by(|&a, &b| holder.members[a].key.cmp(&holder.members[b].key));
         order
@@ -357,10 +383,13 @@ impl<'a> Doc<'_, 'a> {
             .filter(|&(slot, &from)| slot != from)
             .map(|(slot, &from)| {
                 let (target, source) = (&holder.members[slot], &holder.members[from]);
-                Edit::new(
-                    target.start,
-                    target.end,
-                    self.source[source.start..source.end].to_owned(),
+                (
+                    Edit::new(
+                        target.start,
+                        target.end,
+                        self.source[source.start..source.end].to_owned(),
+                    ),
+                    (source.start, source.end),
                 )
             })
             .collect()
@@ -567,22 +596,24 @@ impl<'a> Doc<'_, 'a> {
 
     /// Edits removing the queued members of one container.
     ///
-    /// Consecutive members are removed together, and the edit of each member covers a slice of the combined range, so
-    /// that every operation owns its part and neighbours never conflict.
+    /// Every removed member owns its edits, so operations never conflict with their neighbours:
+    ///
+    /// * a member with a survivor after it takes the comma and the whitespace that follow it, and its own line when it
+    ///   occupies one;
+    /// * the members of a run that reaches the end of the container, with a survivor before it, take the comma and
+    ///   whitespace that precede them, so no comma is left dangling;
+    /// * the comma and the whitespace after it are always one edit, so a member planned alone and the member after it
+    ///   planned alone agree on it and the two plans combine.
+    ///
+    /// Comments between members stay.
     fn removal_edits(&self, removals: &Removals<'_, '_>) -> Vec<Planned> {
         let holder = &removals.holder;
         let count = holder.members.len();
-        let removed: Vec<(usize, usize)> = removals.members.iter().map(|(&member, &op)| (member, op)).collect();
-        let slice = |op: usize, start: usize, end: usize| Planned {
-            op,
-            start,
-            end,
-            replacement: String::new(),
-        };
-        if removed.len() == count {
-            return removed
+        if removals.members.len() == count {
+            return removals
+                .members
                 .iter()
-                .map(|&(member, op)| {
+                .map(|(&member, &op)| {
                     let start = if member == 0 {
                         holder.open + 1
                     } else {
@@ -593,61 +624,90 @@ impl<'a> Doc<'_, 'a> {
                     } else {
                         holder.members[member].end
                     };
-                    slice(op, start, end)
+                    Self::removal(op, start, end)
                 })
                 .collect();
         }
-        let mut edits = Vec::new();
-        let mut rest = removed.as_slice();
-        while let Some(&(first, _)) = rest.first() {
-            let run_len = rest
-                .iter()
-                .zip(first..)
-                .take_while(|&(&(member, _), expected)| member == expected)
-                .count();
-            let (run, tail) = rest.split_at(run_len);
-            rest = tail;
-            let last = first + run_len - 1;
-            if last + 1 == count {
-                edits.extend(
-                    run.iter()
-                        .map(|&(member, op)| slice(op, holder.members[member - 1].end, holder.members[member].end)),
-                );
-                continue;
-            }
-            let (run_start, run_end) = self.run_bounds(holder, first, last);
-            edits.extend(run.iter().map(|&(member, op)| {
-                let start = if member == first {
-                    run_start
+        let tail_start = (0..count)
+            .rev()
+            .take_while(|member| removals.members.contains_key(member))
+            .last()
+            .unwrap_or(count);
+        removals
+            .members
+            .iter()
+            .flat_map(|(&member, &op)| {
+                if member >= tail_start {
+                    self.removal_with_preceding_separator(holder, member, op)
                 } else {
-                    holder.members[member].start
-                };
-                let end = if member == last {
-                    run_end
-                } else {
-                    holder.members[member + 1].start
-                };
-                slice(op, start, end)
-            }));
-        }
-        edits
+                    self.removal_with_following_separator(holder, member, op)
+                }
+            })
+            .collect()
     }
 
-    /// Range to delete for members `first..=last` when a member follows them: their whole lines when they occupy
-    /// their own lines, otherwise up to the start of the next member.
-    fn run_bounds(&self, holder: &Container<'_, '_>, first: usize, last: usize) -> (usize, usize) {
-        let head = holder.members[first].start;
-        let next = holder.members[last + 1].start;
-        find_comma(self.source, holder.members[last].end, next)
-            .and_then(|comma| {
-                let start = line_start(self.source, head);
-                let own_line = self.source[start..head].trim_matches([' ', '\t']).is_empty();
-                own_line
-                    .then(|| rest_of_line(self.source, comma + 1))
-                    .flatten()
-                    .map(|end| (start, end))
-            })
-            .unwrap_or((head, next))
+    const fn removal(op: usize, start: usize, end: usize) -> Planned {
+        Planned {
+            op,
+            start,
+            end,
+            replacement: String::new(),
+        }
+    }
+
+    /// The comma after member `previous` and the whitespace behind it, as a byte range, and whether the comma ends its
+    /// line. The whitespace includes the line break when nothing but whitespace follows the comma on its line; a
+    /// comment after the comma is not part of the separator.
+    fn separator(&self, holder: &Container<'_, '_>, previous: usize) -> Option<(usize, usize, bool)> {
+        let next = holder.members[previous + 1].start;
+        let comma = find_comma(self.source, holder.members[previous].end, next)?;
+        let after = comma + 1;
+        if let Some(end) = rest_of_line(self.source, after).filter(|&end| end <= next) {
+            return Some((comma, end, true));
+        }
+        let blank = self.source[after..next]
+            .trim_matches([' ', '\t', '\r', '\n'])
+            .is_empty();
+        Some((comma, if blank { next } else { after }, false))
+    }
+
+    /// Start of the line `offset` is on, when only blanks precede it there.
+    fn own_line_start(&self, offset: usize) -> Option<usize> {
+        let start = line_start(self.source, offset);
+        self.source[start..offset]
+            .trim_matches([' ', '\t'])
+            .is_empty()
+            .then_some(start)
+    }
+
+    fn removal_with_following_separator(&self, holder: &Container<'_, '_>, member: usize, op: usize) -> Vec<Planned> {
+        let (start, next) = (holder.members[member].start, holder.members[member + 1].start);
+        let Some((comma, end, ends_line)) = self.separator(holder, member) else {
+            return vec![Self::removal(op, start, next)];
+        };
+        let from = if ends_line {
+            self.own_line_start(start).unwrap_or(start)
+        } else {
+            start
+        };
+        vec![Self::removal(op, from, comma), Self::removal(op, comma, end)]
+    }
+
+    fn removal_with_preceding_separator(&self, holder: &Container<'_, '_>, member: usize, op: usize) -> Vec<Planned> {
+        let (start, end) = (holder.members[member].start, holder.members[member].end);
+        let Some((comma, gap_end, _)) = self.separator(holder, member - 1) else {
+            return vec![Self::removal(op, holder.members[member - 1].end, end)];
+        };
+        if gap_end > comma + 1 {
+            return vec![Self::removal(op, comma, gap_end), Self::removal(op, gap_end, end)];
+        }
+        // A comment follows the comma and stays: the member goes alone, with its line when it occupies one.
+        let own_line = self.own_line_start(start);
+        let stop = own_line.and_then(|_| rest_of_line(self.source, end)).unwrap_or(end);
+        vec![
+            Self::removal(op, comma, comma + 1),
+            Self::removal(op, own_line.unwrap_or(start), stop),
+        ]
     }
 
     /// Serializes `value`; objects and arrays are laid out with the document's indentation, one level below `base`.
@@ -674,6 +734,72 @@ impl<'a> Doc<'_, 'a> {
             other => other.to_string(),
         }
     }
+}
+
+/// Whether `edit` changes something inside the member spanning `from_start..from_end` and not the member as a whole.
+const fn is_inside(edit: &Planned, from_start: usize, from_end: usize) -> bool {
+    if edit.start < from_start || edit.end > from_end {
+        return false;
+    }
+    if edit.start == edit.end {
+        return edit.start > from_start && edit.start < from_end;
+    }
+    !(edit.start == from_start && edit.end == from_end)
+}
+
+/// Rebases the edits inside a member that a `SortKeys` moves onto the text it moves, so that sorting an object and
+/// changing what is in it agree.
+///
+/// `moves` lists, for each edit of `planned` that writes a member's text, its index and the byte range of that member.
+/// Smaller members are handled first, so a sort nested in a moved member travels along with it.
+fn rebase_moves(planned: &mut Vec<Planned>, moves: &[(usize, (usize, usize))]) {
+    if moves.is_empty() {
+        return;
+    }
+    let mut order: Vec<&(usize, (usize, usize))> = moves.iter().collect();
+    order.sort_by_key(|(_, (start, end))| end - start);
+    let mut absorbed = vec![false; planned.len()];
+    for &&(at, (from_start, from_end)) in &order {
+        let mut inside: Vec<usize> = (0..planned.len())
+            .filter(|&index| index != at && !absorbed[index] && is_inside(&planned[index], from_start, from_end))
+            .collect();
+        inside.sort_by_key(|&index| (planned[index].start, planned[index].end));
+        if inside.is_empty()
+            || inside
+                .windows(2)
+                .any(|pair| planned[pair[0]].end > planned[pair[1]].start)
+        {
+            continue;
+        }
+        let original = planned[at].replacement.clone();
+        let mut rebased = String::with_capacity(original.len());
+        let mut cursor = 0;
+        let mut fits = true;
+        for &index in &inside {
+            let edit = &planned[index];
+            let Some(kept) = original.get(cursor..edit.start - from_start) else {
+                fits = false;
+                break;
+            };
+            rebased.push_str(kept);
+            rebased.push_str(&edit.replacement);
+            cursor = edit.end - from_start;
+        }
+        let Some(tail) = original.get(cursor..).filter(|_| fits) else {
+            continue;
+        };
+        rebased.push_str(tail);
+        planned[at].replacement = rebased;
+        for index in inside {
+            absorbed[index] = true;
+        }
+    }
+    let mut index = 0;
+    planned.retain(|_| {
+        let keep = !absorbed[index];
+        index += 1;
+        keep
+    });
 }
 
 fn json_string(text: &str) -> String {

@@ -34,6 +34,14 @@ pub struct Config {
     pub js: Js,
 }
 
+/// Why `patterns` are not a valid selector, when they are not.
+fn selector_problem(patterns: &[String]) -> Option<String> {
+    match Selector::new(patterns.iter().cloned()) {
+        Err(ConfigError::Invalid { message, .. }) => Some(message),
+        _ => None,
+    }
+}
+
 impl Config {
     /// Parses `skif.toml` contents.
     ///
@@ -111,12 +119,18 @@ impl Config {
         if self.catalog.min_packages == 0 {
             return invalid("catalog.min-packages must be at least 1".to_string());
         }
+        if let Some(message) = selector_problem(&self.catalog.exclude) {
+            return invalid(format!("catalog.exclude: {message}"));
+        }
         for (index, family) in self.dependency_families.iter().enumerate() {
             if family.name.is_empty() {
                 return invalid(format!("dependency-families[{index}]: `name` must not be empty"));
             }
             if family.enabled && family.packages.is_empty() {
                 return invalid(format!("dependency-families[{index}]: `packages` must not be empty"));
+            }
+            if let Some(message) = selector_problem(&family.packages) {
+                return invalid(format!("dependency-families[{index}]: {message}"));
             }
         }
         Ok(())

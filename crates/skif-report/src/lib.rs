@@ -24,6 +24,7 @@ pub use json::{
 };
 pub use options::RenderOptions;
 pub use sarif::render_sarif;
+pub use text::{escape_controls, escape_multiline};
 
 /// Output format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

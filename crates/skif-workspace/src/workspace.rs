@@ -29,6 +29,8 @@ pub enum WorkspaceSource {
     YarnNohoistWorkspaces,
     /// `packages:` in `pnpm-workspace.yaml`.
     PnpmWorkspaceYaml,
+    /// Nothing declares a workspace: the root package is the only package.
+    SinglePackage,
 }
 
 /// What one workspace pattern matched.
@@ -60,6 +62,12 @@ pub struct DiscoveryFacts {
     pub patterns: Vec<PatternFact>,
     /// Matched directories with real content (not only hidden entries, `node_modules` or build output) without a `package.json`, sorted.
     pub dirs_without_manifest: Vec<PathBuf>,
+    /// Whether `patterns` are pnpm's defaults rather than written down: a `pnpm-workspace.yaml` without `packages:`
+    /// makes pnpm take the root and every package below it (except `test` and `tests` directories).
+    pub implicit_patterns: bool,
+    /// Whether the package manager is Yarn Classic (1.x): the `packageManager` field says `yarn@1.x`, or, without
+    /// one, `yarn.lock` starts with `# yarn lockfile v1`.
+    pub yarn_classic: bool,
 }
 
 /// A discovered workspace.
@@ -79,7 +87,8 @@ pub struct Workspace {
     pub facts: DiscoveryFacts,
     /// `pnpm-workspace.yaml` when present.
     pub pnpm_workspace: Option<YamlSource>,
-    /// Members whose manifest could not be read or parsed; the rest of the workspace is still discovered.
+    /// Members whose manifest could not be read or parsed, and workspace patterns that cannot be used (a `..`
+    /// segment, too many brace alternatives); the rest of the workspace is still discovered.
     pub manifest_errors: Vec<WorkspaceError>,
     /// Indexed by [`PackageId`]: whether `[workspace] ignore-packages` excludes the package.
     ignored: Vec<bool>,
@@ -88,7 +97,23 @@ pub struct Workspace {
 struct Declared {
     source: WorkspaceSource,
     file: PathBuf,
+    /// Whether the patterns are pnpm's defaults and not written in the file.
+    implicit: bool,
     patterns: Vec<(usize, String, Option<Span>)>,
+}
+
+/// The patterns pnpm applies to a `pnpm-workspace.yaml` that has no `packages:` list.
+fn implicit_declared(yaml: &YamlSource) -> Declared {
+    Declared {
+        source: WorkspaceSource::PnpmWorkspaceYaml,
+        file: yaml.path.clone(),
+        implicit: true,
+        patterns: ["**", "!**/test/**", "!**/tests/**"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, pattern)| (index, pattern.to_owned(), None))
+            .collect(),
+    }
 }
 
 fn io_error(path: &Path, source: std::io::Error) -> WorkspaceError {
@@ -170,6 +195,7 @@ fn json_patterns(root_package: &Package) -> Option<Declared> {
     Some(Declared {
         source,
         file: root_package.manifest.path.clone(),
+        implicit: false,
         patterns,
     })
 }
@@ -218,6 +244,7 @@ impl Workspace {
                     path: PathBuf::from(PNPM_WORKSPACE),
                     source: text,
                     line_index,
+                    overrides: parsed.overrides.clone(),
                 }),
                 Some(parsed),
             )
@@ -233,12 +260,16 @@ impl Workspace {
             pnpm_workspace.is_some(),
         );
 
+        let yarn_classic = package_manager == Some(PackageManager::Yarn)
+            && detect::is_yarn_classic(fs, &root, &root_package.manifest.value);
+
         let from_json = json_patterns(&root_package);
         let from_yaml = |yaml: &YamlSource, packages: &[String]| {
             let spans = pnpm::pattern_spans(&yaml.source, &yaml.line_index);
             Declared {
                 source: WorkspaceSource::PnpmWorkspaceYaml,
                 file: yaml.path.clone(),
+                implicit: false,
                 patterns: packages
                     .iter()
                     .enumerate()
@@ -252,16 +283,28 @@ impl Workspace {
                     .collect(),
             }
         };
+        // pnpm reads `['.', '**']` when `packages:` is missing (`@pnpm/find-packages`), whatever `package.json` says.
+        let implicit_patterns = package_manager == Some(PackageManager::Pnpm)
+            && pnpm_config.as_ref().is_some_and(|parsed| parsed.packages.is_none());
         let yaml_declared = pnpm_workspace
             .as_ref()
-            .zip(pnpm_config.as_ref().and_then(|parsed| parsed.packages.as_deref()))
-            .map(|(yaml, packages)| from_yaml(yaml, packages));
+            .zip(pnpm_config.as_ref())
+            .and_then(|(yaml, parsed)| match parsed.packages.as_deref() {
+                Some(packages) => Some(from_yaml(yaml, packages)),
+                None => implicit_patterns.then(|| implicit_declared(yaml)),
+            });
         let chosen = if package_manager == Some(PackageManager::Pnpm) && yaml_declared.is_some() {
             yaml_declared
         } else {
             from_json.or(yaml_declared)
         };
-        let declared = chosen.ok_or_else(|| WorkspaceError::NoWorkspaces(root.clone()))?;
+        // A plain package with no workspace declaration is linted on its own.
+        let declared = chosen.unwrap_or_else(|| Declared {
+            source: WorkspaceSource::SinglePackage,
+            file: root_package.manifest.path.clone(),
+            implicit: false,
+            patterns: Vec::new(),
+        });
 
         let mut catalogs = pnpm_config.map(|parsed| parsed.catalogs).unwrap_or_default();
         catalogs.merge(catalogs::from_package_json(
@@ -273,20 +316,34 @@ impl Workspace {
         let mut facts = Vec::new();
         let mut candidates = BTreeSet::new();
         let mut negations = Vec::new();
+        let mut manifest_errors = Vec::new();
         for (index, raw, span) in &declared.patterns {
             let negated = raw.trim_start().starts_with('!');
-            let invalid = |message: String| WorkspaceError::InvalidPattern {
-                pattern: raw.clone(),
-                message,
+            let mut invalid = |message: String| {
+                manifest_errors.push(WorkspaceError::InvalidPattern {
+                    pattern: raw.clone(),
+                    message,
+                });
+                0
             };
             let matched = if negated {
-                negations.push((facts.len(), pattern::negation(raw).map_err(invalid)?));
-                0
+                match pattern::negation(raw) {
+                    Ok(matcher) => {
+                        negations.push((facts.len(), matcher));
+                        0
+                    }
+                    Err(message) => invalid(message),
+                }
             } else {
-                let found = expander.expand(&Pattern::new(raw).map_err(invalid)?);
-                let count = found.len();
-                candidates.extend(found);
-                count
+                match Pattern::new(raw) {
+                    Ok(pattern) => {
+                        let found = expander.expand(&pattern);
+                        let count = found.len();
+                        candidates.extend(found);
+                        count
+                    }
+                    Err(message) => invalid(message),
+                }
             };
             facts.push(PatternFact {
                 index: *index,
@@ -312,7 +369,6 @@ impl Workspace {
         let members: Vec<Member> = dirs.par_iter().map(|dir| load_member(fs, &root, dir)).collect();
         let mut packages = Vec::new();
         let mut dirs_without_manifest = Vec::new();
-        let mut manifest_errors = Vec::new();
         for member in members {
             match member {
                 Member::Loaded(package) => {
@@ -340,6 +396,8 @@ impl Workspace {
                 source: declared.source,
                 patterns: facts,
                 dirs_without_manifest,
+                implicit_patterns: declared.implicit,
+                yarn_classic,
             },
             pnpm_workspace,
             manifest_errors,

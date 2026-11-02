@@ -13,6 +13,7 @@
 | [`duplicate-exports`](#duplicate-exports) | js | warning | none |
 | [`unlisted-binaries`](#unlisted-binaries) | js | warning | none |
 | [`unlisted-dependencies`](#unlisted-dependencies) | js | error | none |
+| [`unparseable-files`](#unparseable-files) | js | warning | none |
 | [`unresolved-imports`](#unresolved-imports) | js | error | none |
 | [`unused-dependencies`](#unused-dependencies) | js | error | unsafe |
 | [`unused-dev-dependencies`](#unused-dev-dependencies) | js | warning | unsafe |
@@ -111,6 +112,14 @@ A file imports a package that neither its `package.json` nor the root `package.j
 
 - Category: js
 - Default severity: error
+- Fixable: none
+
+## unparseable-files
+
+A file reachable from an entry file has a syntax error the parser could not recover from.
+
+- Category: js
+- Default severity: warning
 - Fixable: none
 
 ## unresolved-imports

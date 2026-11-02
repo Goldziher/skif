@@ -7,7 +7,10 @@
 //!
 //! Patterns follow pnpm semantics for every package manager: `*` matches direct children, `**` any depth
 //! (descending through packages), `!pattern` removes matches after all positive patterns, and `node_modules` and
-//! dot-directories are never entered.
+//! dot-directories are never entered. A `pnpm-workspace.yaml` without `packages:` selects what pnpm selects then, the
+//! root and every package below it except `test` and `tests` directories (`@pnpm/find-packages` defaults to
+//! `['.', '**']`); [`DiscoveryFacts::implicit_patterns`] says so. A pattern that cannot be used is listed in
+//! [`Workspace::manifest_errors`] and does not stop discovery.
 
 mod catalogs;
 mod detect;

@@ -24,29 +24,6 @@ expression: "run(&rich(), Format::Json, &options(false))"
       "fixes": []
     },
     {
-      "rule": "unused-dependency",
-      "severity": "warning",
-      "message": "lodash is never imported 日本語",
-      "location": {
-        "path": "packages/web/package.json",
-        "span": {
-          "start": 68,
-          "end": 76,
-          "start-line": 5,
-          "start-col": 5,
-          "end-line": 5,
-          "end-col": 13
-        }
-      },
-      "related": [],
-      "fixes": [
-        {
-          "title": "Remove lodash",
-          "safety": "safe"
-        }
-      ]
-    },
-    {
       "rule": "version-mismatch",
       "severity": "error",
       "message": "réact is declared with 2 different versions",
@@ -85,6 +62,29 @@ expression: "run(&rich(), Format::Json, &options(false))"
         {
           "title": "Use ^18.3.1",
           "safety": "unsafe"
+        }
+      ]
+    },
+    {
+      "rule": "unused-dependency",
+      "severity": "warning",
+      "message": "lodash is never imported 日本語",
+      "location": {
+        "path": "packages/web/package.json",
+        "span": {
+          "start": 68,
+          "end": 76,
+          "start-line": 5,
+          "start-col": 5,
+          "end-line": 5,
+          "end-col": 13
+        }
+      },
+      "related": [],
+      "fixes": [
+        {
+          "title": "Remove lodash",
+          "safety": "safe"
         }
       ]
     }

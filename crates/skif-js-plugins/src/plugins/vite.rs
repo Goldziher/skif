@@ -1,7 +1,7 @@
 //! Vite: HTML entry points, build inputs and pre-bundled dependencies.
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{get_in, html_script_sources, join_rel, package_name, strings, values_of};
+use crate::support::{alias_inputs, get_in, html_script_sources, join_rel, package_name, strings, values_of};
 
 /// The `vite` plugin.
 pub struct Vite;
@@ -47,7 +47,14 @@ impl Plugin for Vite {
                 out.extend(package_name(id).map(PluginInput::Dependency));
             }
         }
+        if let Some(alias) = get_in(config.value, &["resolve", "alias"]) {
+            out.extend(alias_inputs(alias, config));
+        }
         out
+    }
+
+    fn resolve_without_config(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        html_entries(cx, "", "index.html")
     }
 }
 

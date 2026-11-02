@@ -81,7 +81,7 @@ fn module_export_span(name: &ModuleExportName<'_>) -> OxcSpan {
     }
 }
 
-fn imported_kind(name: String) -> ImportedKind {
+pub(crate) fn imported_kind(name: String) -> ImportedKind {
     if name == "default" {
         ImportedKind::Default
     } else {
@@ -224,19 +224,77 @@ fn statement_range(ctx: &Ctx<'_>, span: OxcSpan) -> (u32, u32) {
     )
 }
 
+/// Skips whitespace and comments from `at`.
+fn skip_trivia(src: &str, mut at: usize) -> usize {
+    loop {
+        let rest = &src[at..];
+        let trimmed = rest.trim_start();
+        at += rest.len() - trimmed.len();
+        if trimmed.starts_with("//") {
+            at += trimmed.find('\n').unwrap_or(trimmed.len());
+        } else if let Some(body) = trimmed.strip_prefix("/*") {
+            at += body.find("*/").map_or(trimmed.len(), |i| i + 4);
+        } else {
+            return at;
+        }
+    }
+}
+
+/// Skips one decorator (`@a.b(...)`) starting at `at`, which must hold the `@`.
+fn skip_decorator(src: &str, at: usize) -> usize {
+    let bytes = src.as_bytes();
+    let mut i = at + 1;
+    while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || matches!(bytes[i], b'_' | b'$' | b'.')) {
+        i += 1;
+    }
+    let j = skip_trivia(src, i);
+    if bytes.get(j) != Some(&b'(') {
+        return i;
+    }
+    let (mut depth, mut quote) = (0_u32, None);
+    for (k, &b) in bytes.iter().enumerate().skip(j) {
+        match (quote, b) {
+            (Some(q), b) if b == q => quote = None,
+            (None, b'"' | b'\'' | b'`') => quote = Some(b),
+            (None, b'(') => depth += 1,
+            (None, b')') => {
+                depth -= 1;
+                if depth == 0 {
+                    return k + 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    bytes.len()
+}
+
+fn keyword_at(src: &str, at: usize, keyword: &str) -> bool {
+    src[at..].starts_with(keyword)
+        && !src[at + keyword.len()..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphanumeric() || matches!(c, '_' | '$'))
+}
+
 /// Range of the `export` (or `export default`) keyword and the whitespace after it (absolute offsets).
+///
+/// The keyword is located lexically from the start of the statement, past any leading decorators and comments, so
+/// text such as `@Component({ selector: 'export' })` is never mistaken for it.
 fn keyword_range(ctx: &Ctx<'_>, stmt: OxcSpan, default: bool) -> Option<(u32, u32)> {
-    let from = stmt.start as usize;
-    let kw = from + ctx.src[from..].find("export")?;
+    let src = ctx.src;
+    let mut kw = skip_trivia(src, stmt.start as usize);
+    while src[kw..].starts_with('@') {
+        kw = skip_trivia(src, skip_decorator(src, kw));
+    }
+    keyword_at(src, kw, "export").then_some(())?;
     let mut end = kw + "export".len();
     if default {
-        let tail = ctx.src[end..].trim_start();
-        let skipped = ctx.src.len() - end - tail.len();
-        tail.starts_with("default").then_some(())?;
-        end += skipped + "default".len();
+        let at = skip_trivia(src, end);
+        keyword_at(src, at, "default").then_some(())?;
+        end = at + "default".len();
     }
-    let tail = &ctx.src[end..];
-    end += tail.len() - tail.trim_start().len();
+    end = skip_trivia(src, end);
     Some((ctx.off(u32::try_from(kw).ok()?), ctx.off(u32::try_from(end).ok()?)))
 }
 
@@ -247,6 +305,7 @@ fn removal(ctx: &Ctx<'_>, stmt: OxcSpan, range: (u32, u32), kind: RemovalKind, s
         kind,
         statement: statement_range(ctx, stmt),
         siblings: u32::try_from(siblings).unwrap_or(u32::MAX),
+        default_expression: false,
     }
 }
 
@@ -566,7 +625,9 @@ fn collect_default_export(
     export.removal = if keep_declaration {
         keyword_range(ctx, e.span, true).map(|range| removal(ctx, e.span, range, RemovalKind::ExportKeyword, 1))
     } else {
-        Some(whole_statement(ctx, e.span, 1))
+        let mut whole = whole_statement(ctx, e.span, 1);
+        whole.default_expression = true;
+        Some(whole)
     };
     info.exports.push(export);
 }

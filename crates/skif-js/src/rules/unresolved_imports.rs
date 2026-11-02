@@ -45,7 +45,7 @@ impl JsRule for UnresolvedImports {
                     format!("cannot resolve `{}`", import.specifier),
                     module_location(module, Some(import.span)),
                 )
-                .help("check the path, the `tsconfig` paths and the package `exports`");
+                .help("check the path, the `tsconfig` paths, the bundler aliases and the package `exports`");
                 if let Some(package) = package {
                     builder = builder.package(package.display_name());
                 }
