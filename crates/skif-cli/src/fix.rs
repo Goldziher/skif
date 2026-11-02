@@ -155,14 +155,9 @@ impl FixRun {
         })
     }
 
-    /// A short account of the fix run for terminals. Text that came from the repository is escaped, so it cannot
-    /// drive the terminal.
-    pub fn write_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        self.write_human_at(Path::new(""), out)
-    }
-
-    /// Like [`write_human`](Self::write_human) for a run in the root `prefix`: the root is named and the changed
-    /// files are shown relative to the base.
+    /// A short account of the fix run in the root `prefix` for terminals: the root is named when it is not the base,
+    /// and the changed files are shown relative to the base. Text that came from the repository is escaped, so it
+    /// cannot drive the terminal.
     pub fn write_human_at(&self, prefix: &Path, out: &mut dyn Write) -> io::Result<()> {
         if !prefix.as_os_str().is_empty() {
             writeln!(out, "{}:", escape_controls(&slash(prefix)))?;
