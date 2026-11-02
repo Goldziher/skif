@@ -68,26 +68,21 @@ fn diagnostics(count: usize) -> Vec<Diagnostic> {
         .map(|i| {
             let package = (i.wrapping_mul(7919)) % 500;
             let start = u32::try_from((i.wrapping_mul(104_729)) % 4000).unwrap_or(0);
-            Diagnostic {
-                rule: RuleId::from_static(RULES[i % RULES.len()]),
-                severity: match i % 3 {
-                    0 => Severity::Error,
-                    1 => Severity::Warning,
-                    _ => Severity::Info,
-                },
-                message: format!("dependency dep-{i} is out of sync"),
-                help: None,
-                location: Location {
-                    path: format!("packages/pkg-{package}/package.json").into(),
-                    span: None,
-                },
-                related: Vec::new(),
-                package: Some(format!("pkg-{package}")),
-                package_id: None,
-                dependency: Some(format!("dep-{start}")),
-                detail: None,
-                fixes: Vec::new(),
-            }
+            let severity = match i % 3 {
+                0 => Severity::Error,
+                1 => Severity::Warning,
+                _ => Severity::Info,
+            };
+            let location = Location {
+                path: format!("packages/pkg-{package}/package.json").into(),
+                span: None,
+            };
+            let message = format!("dependency dep-{i} is out of sync");
+            let mut diagnostic =
+                Diagnostic::new(RuleId::from_static(RULES[i % RULES.len()]), severity, message, location);
+            diagnostic.package = Some(format!("pkg-{package}"));
+            diagnostic.dependency = Some(format!("dep-{start}"));
+            diagnostic
         })
         .collect()
 }

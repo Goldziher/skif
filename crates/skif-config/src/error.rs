@@ -1,6 +1,8 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
+use skif_core::LineIndex;
+
 /// Everything that can go wrong while locating, reading, parsing or validating configuration.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -68,11 +70,9 @@ impl ConfigError {
 }
 
 fn line_column(source: &str, offset: usize) -> (usize, usize) {
-    let end = offset.min(source.len());
-    let before = source.get(..end).unwrap_or_default();
-    let line = before.matches('\n').count() + 1;
-    let column = before.rsplit('\n').next().map_or(0, |tail| tail.chars().count()) + 1;
-    (line, column)
+    let offset = u32::try_from(offset.min(source.len())).unwrap_or(u32::MAX);
+    let (line, column) = LineIndex::new(source).line_col(offset);
+    (line as usize, column as usize)
 }
 
 fn render(path: Option<&Path>, line: Option<&usize>, column: Option<&usize>, message: &str) -> String {

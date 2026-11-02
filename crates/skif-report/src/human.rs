@@ -114,7 +114,7 @@ fn write_diagnostic(
 fn fix_key(fix: &Fix) -> String {
     match fix.safety {
         FixSafety::Safe => "fix (safe)".to_owned(),
-        FixSafety::Unsafe => "fix (unsafe)".to_owned(),
+        _ => "fix (unsafe)".to_owned(),
     }
 }
 
@@ -122,7 +122,7 @@ const fn severity_label(severity: Severity) -> &'static str {
     match severity {
         Severity::Error => "error",
         Severity::Warning => "warning",
-        Severity::Info => "info",
+        _ => "info",
     }
 }
 

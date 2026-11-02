@@ -36,9 +36,93 @@ fn compile(glob: &str) -> Option<GlobMatcher> {
         .map(|glob| glob.compile_matcher())
 }
 
-/// A negated pattern (`!packages/x`): a glob over root-relative directories.
-pub(crate) fn negation(raw: &str) -> Option<GlobMatcher> {
-    compile(&normalize(raw.trim().trim_start_matches('!')))
+/// A negated pattern (`!packages/x`): globs over root-relative directories.
+///
+/// A negation ending in `/**` also removes the directory it is rooted at, as pnpm and fast-glob do: `!**/test/**`
+/// drops `test` itself, not just what is inside it.
+pub(crate) struct Negation {
+    matchers: Vec<GlobMatcher>,
+}
+
+impl Negation {
+    pub(crate) fn is_match(&self, dir: &str) -> bool {
+        self.matchers.iter().any(|matcher| matcher.is_match(dir))
+    }
+}
+
+/// Compiles a negated pattern. A glob that does not compile matches nothing.
+///
+/// # Errors
+/// A message when the pattern contains a `..` segment.
+pub(crate) fn negation(raw: &str) -> Result<Negation, String> {
+    let glob = normalize(raw.trim().trim_start_matches('!'));
+    reject_parent_segments(&glob)?;
+    let rooted = glob.strip_suffix("/**").filter(|rooted| !rooted.is_empty());
+    let matchers = std::iter::once(glob.as_str())
+        .chain(rooted)
+        .filter_map(compile)
+        .collect();
+    Ok(Negation { matchers })
+}
+
+fn reject_parent_segments(pattern: &str) -> Result<(), String> {
+    if pattern.split('/').any(|segment| segment == "..") {
+        return Err("`..` would select directories outside the workspace root".to_owned());
+    }
+    Ok(())
+}
+
+/// Upper bound on the patterns one brace expression may expand to.
+const MAX_ALTERNATIVES: usize = 256;
+
+/// The first `{a,b}` group of `pattern` that has at least two alternatives: its brace offsets and the alternatives.
+fn first_group(pattern: &str) -> Option<(usize, usize, Vec<&str>)> {
+    let mut search = 0;
+    while let Some(relative) = pattern[search..].find('{') {
+        let open = search + relative;
+        let mut depth = 0_usize;
+        let mut parts = Vec::new();
+        let mut part_start = open + 1;
+        for (at, byte) in pattern.bytes().enumerate().skip(open) {
+            match byte {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        parts.push(&pattern[part_start..at]);
+                        if parts.len() > 1 {
+                            return Some((open, at, parts));
+                        }
+                        break;
+                    }
+                }
+                b',' if depth == 1 => {
+                    parts.push(&pattern[part_start..at]);
+                    part_start = at + 1;
+                }
+                _ => {}
+            }
+        }
+        search = open + 1;
+    }
+    None
+}
+
+/// Expands brace alternation, including alternatives that contain `/`, into plain patterns.
+fn expand_braces(pattern: &str, out: &mut Vec<String>) -> Result<(), String> {
+    let Some((open, close, parts)) = first_group(pattern) else {
+        out.push(pattern.to_owned());
+        return Ok(());
+    };
+    for part in parts {
+        expand_braces(&format!("{}{part}{}", &pattern[..open], &pattern[close + 1..]), out)?;
+        if out.len() > MAX_ALTERNATIVES {
+            return Err(format!(
+                "brace expansion produces more than {MAX_ALTERNATIVES} patterns"
+            ));
+        }
+    }
+    Ok(())
 }
 
 enum Segment {
@@ -53,30 +137,41 @@ enum Segment {
     Never,
 }
 
-/// A positive workspace pattern split into segments.
+/// A positive workspace pattern: one segment list per brace alternative.
 pub(crate) struct Pattern {
-    segments: Vec<Segment>,
+    alternatives: Vec<Vec<Segment>>,
 }
 
 impl Pattern {
-    pub(crate) fn new(raw: &str) -> Self {
-        let segments = normalize(raw)
-            .split('/')
-            .filter(|segment| !segment.is_empty() && *segment != ".")
-            .map(|segment| match segment {
-                "**" => Segment::DoubleStar,
-                "*" => Segment::Star,
-                _ if segment.contains(GLOB_CHARS) => compile(segment).map_or(Segment::Never, Segment::Glob),
-                _ => Segment::Literal(segment.to_owned()),
+    /// # Errors
+    /// A message when the pattern contains a `..` segment or expands to too many alternatives.
+    pub(crate) fn new(raw: &str) -> Result<Self, String> {
+        let normalized = normalize(raw);
+        reject_parent_segments(&normalized)?;
+        let mut expanded = Vec::new();
+        expand_braces(&normalized, &mut expanded)?;
+        let alternatives = expanded
+            .iter()
+            .map(|alternative| {
+                alternative
+                    .split('/')
+                    .filter(|segment| !segment.is_empty() && *segment != ".")
+                    .map(|segment| match segment {
+                        "**" => Segment::DoubleStar,
+                        "*" => Segment::Star,
+                        _ if segment.contains(GLOB_CHARS) => compile(segment).map_or(Segment::Never, Segment::Glob),
+                        _ => Segment::Literal(segment.to_owned()),
+                    })
+                    .collect()
             })
             .collect();
-        Self { segments }
+        Ok(Self { alternatives })
     }
+}
 
-    /// A bare `*` selects only direct children of the root that contain a `package.json`.
-    fn is_root_star(&self) -> bool {
-        matches!(self.segments.as_slice(), [Segment::Star])
-    }
+/// A bare `*` selects only direct children of the root that contain a `package.json`.
+fn is_root_star(segments: &[Segment]) -> bool {
+    matches!(segments, [Segment::Star])
 }
 
 fn join(dir: &str, name: &str) -> String {
@@ -105,12 +200,13 @@ impl Expander<'_> {
         self.fs.is_file(&self.absolute(dir).join(MANIFEST))
     }
 
-    fn child_dirs(&self, dir: &str) -> Vec<String> {
+    /// Non-hidden subdirectories of `dir`; symbolic links to directories only when `follow_symlinks`.
+    fn child_dirs(&self, dir: &str, follow_symlinks: bool) -> Vec<String> {
         self.fs
             .read_dir(&self.absolute(dir))
             .unwrap_or_default()
             .into_iter()
-            .filter(|entry| entry.is_dir)
+            .filter(|entry| entry.is_dir && (follow_symlinks || !entry.is_symlink))
             .filter_map(|entry| entry.path.file_name().map(|name| name.to_string_lossy().into_owned()))
             .filter(|name| !is_ignored_name(name))
             .collect()
@@ -118,12 +214,16 @@ impl Expander<'_> {
 
     /// All existing directories selected by `pattern`, root-relative.
     pub(crate) fn expand(&self, pattern: &Pattern) -> BTreeSet<String> {
-        let mut found = BTreeSet::new();
-        self.walk("", &pattern.segments, 0, &mut found);
-        if pattern.is_root_star() {
-            found.retain(|dir| self.has_manifest(dir));
+        let mut all = BTreeSet::new();
+        for segments in &pattern.alternatives {
+            let mut found = BTreeSet::new();
+            self.walk("", segments, 0, &mut found);
+            if is_root_star(segments) {
+                found.retain(|dir| self.has_manifest(dir));
+            }
+            all.extend(found);
         }
-        found
+        all
     }
 
     fn walk(&self, dir: &str, segments: &[Segment], depth: usize, found: &mut BTreeSet<String>) {
@@ -140,12 +240,16 @@ impl Expander<'_> {
         match first {
             Segment::Literal(name) => self.walk(&join(dir, name), rest, depth + 1, found),
             Segment::Star => {
-                for name in self.child_dirs(dir) {
+                for name in self.child_dirs(dir, true) {
                     self.walk(&join(dir, &name), rest, depth + 1, found);
                 }
             }
             Segment::Glob(matcher) => {
-                for name in self.child_dirs(dir).into_iter().filter(|name| matcher.is_match(name)) {
+                for name in self
+                    .child_dirs(dir, true)
+                    .into_iter()
+                    .filter(|name| matcher.is_match(name))
+                {
                     self.walk(&join(dir, &name), rest, depth + 1, found);
                 }
             }
@@ -163,7 +267,7 @@ impl Expander<'_> {
                     return;
                 }
                 self.walk(dir, rest, depth + 1, found);
-                for name in self.child_dirs(dir) {
+                for name in self.child_dirs(dir, false) {
                     self.double_star(&join(dir, &name), rest, depth + 1, found);
                 }
             }
@@ -179,7 +283,7 @@ impl Expander<'_> {
         if include_self && !dir.is_empty() && self.has_manifest(dir) {
             found.insert(dir.to_owned());
         }
-        for name in self.child_dirs(dir) {
+        for name in self.child_dirs(dir, false) {
             self.nested_packages(&join(dir, &name), true, depth + 1, found);
         }
     }

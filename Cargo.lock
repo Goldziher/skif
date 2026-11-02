@@ -1967,6 +1967,7 @@ dependencies = [
  "serde",
  "serde_json",
  "skif-core",
+ "skif-specifier",
  "strsim",
  "tempfile",
  "thiserror",

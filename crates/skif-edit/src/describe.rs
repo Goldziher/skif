@@ -45,6 +45,7 @@ pub(crate) fn pointer_text(path: &[PathSeg]) -> String {
             PathSeg::Index(index) => {
                 let _ = write!(out, "/{index}");
             }
+            _ => out.push_str("/?"),
         }
         out
     })
