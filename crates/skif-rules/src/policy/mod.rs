@@ -136,6 +136,32 @@ mod tests {
     }
 
     #[test]
+    fn every_diagnostic_names_the_package_id_of_its_package() {
+        let root_json = root("");
+        let app = r#"{"name":"app","version":"1.0.0","dependencies":{"lib":"^1.0.0","react":"^18.0.0","react-dom":"^17.0.0","zod":"catalog:"}}"#;
+        let lib = r#"{"name":"lib","version":"1.0.0","dependencies":{"react":"^18.3.1"}}"#;
+        let files = [
+            ("package.json", root_json.as_str()),
+            ("packages/app/package.json", app),
+            ("packages/lib/package.json", lib),
+        ];
+        let config = config("[workspace-protocol]\ninternal = true\n");
+        for rule in [
+            "version-mismatch",
+            "workspace-protocol",
+            "unsynced-dependency-family",
+            "unresolved-catalog-references",
+        ] {
+            let diagnostics = lint(rule, &files, &config);
+            assert!(!diagnostics.is_empty(), "{rule} reported nothing");
+            assert!(
+                diagnostics.iter().all(|d| d.package_id.is_some()),
+                "{rule} has a diagnostic without a package id"
+            );
+        }
+    }
+
+    #[test]
     fn fixes_write_the_chosen_specifier_and_converge() {
         let root_json = root("");
         let files = files(&root_json);
@@ -174,14 +200,60 @@ mod tests {
     fn unused_groups_are_reported_on_the_configuration_file() {
         let root_json = root("");
         let files = files(&root_json);
-        let config =
-            config("[[version-groups]]\nlabel = \"ghosts\"\ndependencies = [\"ghost\"]\npolicy = \"banned\"\n");
+        let config = config(
+            "[[version-groups]]\nlabel = \"ghosts\"\ndependencies = [\"ghost\"]\npolicy = \"pinned\"\npin = \"1.0.0\"\n",
+        );
         let diagnostics = lint("policy-conflict", &files, &config);
         assert_eq!(details(&diagnostics), [("policy-conflict", Some("UnusedGroup"))]);
         let diagnostic = &diagnostics[0];
         assert_eq!(diagnostic.location.path.to_str(), Some("skif.toml"));
         assert!(diagnostic.package.is_none() && diagnostic.dependency.is_none() && !diagnostic.is_fixable());
         assert!(diagnostic.message.contains("ghosts"), "{}", diagnostic.message);
+    }
+
+    #[test]
+    fn a_banned_group_that_matches_nothing_is_not_reported() {
+        let root_json = root("");
+        let files = files(&root_json);
+        let config = config("[[version-groups]]\ndependencies = [\"ghost\"]\npolicy = \"banned\"\n");
+        assert_eq!(details(&lint("policy-conflict", &files, &config)), []);
+    }
+
+    #[test]
+    fn a_mismatch_points_at_the_instance_it_should_align_with() {
+        let root_json = root("");
+        let files = files(&root_json);
+        let diagnostics = lint("version-mismatch", &files, &config(""));
+        let related = &diagnostics[0].related;
+        assert_eq!(related.len(), 1);
+        assert_eq!(related[0].location.path.to_str(), Some("packages/lib/package.json"));
+        assert_eq!(
+            crate::testing::slice(&files, "packages/lib/package.json", related[0].location.span.unwrap()),
+            r#""react":"^18.3.1""#
+        );
+    }
+
+    #[test]
+    fn an_unusable_pin_is_a_policy_conflict_and_changes_nothing() {
+        let root_json = root("");
+        let files = files(&root_json);
+        for pin in ["", "   "] {
+            let config = config(&format!(
+                "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"{pin}\"\n"
+            ));
+            let diagnostics = lint("policy-conflict", &files, &config);
+            assert_eq!(
+                details(&diagnostics),
+                [("policy-conflict", Some("InvalidPin"))],
+                "{pin:?}"
+            );
+            assert!(!diagnostics[0].is_fixable());
+            assert_eq!(
+                lint("version-mismatch", &files, &config),
+                [] as [Diagnostic; 0],
+                "{pin:?}"
+            );
+        }
     }
 
     #[test]

@@ -1,0 +1,5 @@
+{
+  "name": "reexports",
+  "private": true,
+  "workspaces": ["packages/*"]
+}

@@ -24,7 +24,7 @@ impl Painter {
         let codes = match severity {
             Severity::Error => "1;31",
             Severity::Warning => "1;33",
-            Severity::Info => "1;36",
+            _ => "1;36",
         };
         self.paint(codes, text)
     }

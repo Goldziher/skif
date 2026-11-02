@@ -21,7 +21,7 @@ const fn command(severity: Severity) -> &'static str {
     match severity {
         Severity::Error => "error",
         Severity::Warning => "warning",
-        Severity::Info => "notice",
+        _ => "notice",
     }
 }
 

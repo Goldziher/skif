@@ -8,7 +8,7 @@ pub static META: RuleMeta = RuleMeta {
     id: "types-in-dependencies",
     category: Category::Manifest,
     default: Some(Severity::Error),
-    fixable: Fixability::Safe,
+    fixable: Fixability::Unsafe,
     summary: "A private package lists `@types/*` packages in `dependencies`; type packages belong in `devDependencies`.",
 };
 
@@ -59,7 +59,7 @@ impl Rule for TypesInDependencies {
             if let Some(ops) = move_to_dev_dependencies(package, &names) {
                 builder = builder.fix(Fix {
                     title: "Move the `@types/*` packages to `devDependencies`".to_owned(),
-                    safety: FixSafety::Safe,
+                    safety: FixSafety::Unsafe,
                     ops,
                 });
             }
@@ -176,6 +176,15 @@ mod tests {
         );
         let by_rule = config("[[ignore]]\nrules = [\"types-in-dependencies\"]\npackages = [\"a\"]\n");
         assert_eq!(lint(META.id, &files, &by_rule), [] as [skif_core::Diagnostic; 0]);
+    }
+
+    #[test]
+    fn the_fix_is_unsafe_because_it_changes_what_gets_installed() {
+        let root_json = root("");
+        let member = r#"{"name":"a","private":true,"dependencies":{"@types/node":"1"}}"#;
+        let files = files_with(&root_json, member);
+        let diagnostics = lint(META.id, &files, &config(""));
+        assert_eq!(diagnostics[0].fixes[0].safety, FixSafety::Unsafe);
     }
 
     #[test]

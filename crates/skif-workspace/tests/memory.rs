@@ -647,3 +647,179 @@ fn pattern_facts_record_their_declared_index() {
     let indices: Vec<usize> = yaml.facts.patterns.iter().map(|fact| fact.index).collect();
     assert_eq!(indices, [0, 1, 2]);
 }
+
+fn pnpm_patterns(yaml: &str) -> Vec<(String, String)> {
+    let workspace = discover(
+        &[
+            ("package.json", r#"{"name":"r","packageManager":"pnpm@9.0.0"}"#),
+            ("pnpm-workspace.yaml", yaml),
+            ("a/package.json", "{}"),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    let source = workspace.pnpm_workspace.as_ref().unwrap().source.clone();
+    workspace
+        .facts
+        .patterns
+        .iter()
+        .map(|fact| {
+            let span = fact.span.unwrap_or_else(|| panic!("no span for {}", fact.pattern));
+            (
+                fact.pattern.clone(),
+                source[span.start as usize..span.end as usize].to_owned(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn discover_with_fs_never_consults_the_current_directory() {
+    let mut fs = MemoryFs::new();
+    fs.insert("ws/package.json", r#"{"name":"r","workspaces":["a"]}"#);
+    fs.insert("ws/a/package.json", r#"{"name":"a"}"#);
+    let workspace = Workspace::discover_with_fs(Path::new("ws"), &Config::default(), &fs).unwrap();
+    assert_eq!(workspace.root, Path::new("ws"));
+    assert_eq!(dirs(&workspace), ["a"]);
+}
+
+#[test]
+fn negations_ending_in_double_star_exclude_the_directory_itself() {
+    let tree = [
+        ("packages/a/package.json", pkg("a")),
+        ("packages/a/test/package.json", pkg("a-test")),
+        ("packages/test/package.json", pkg("test")),
+        ("packages/x/package.json", pkg("x")),
+        ("packages/x/y/package.json", pkg("y")),
+    ];
+    let run = |patterns: &str| {
+        let mut files: Vec<(&str, &str)> = tree.iter().map(|(p, c)| (*p, c.as_str())).collect();
+        let manifest = root(patterns);
+        files.push(("package.json", manifest.as_str()));
+        let workspace = discover(&files, &Config::default()).unwrap();
+        (dirs(&workspace), workspace.facts.patterns.last().unwrap().matched)
+    };
+    assert_eq!(
+        run(r#"["packages/**","!**/test/**"]"#),
+        (
+            vec![
+                "packages/a".to_owned(),
+                "packages/x".to_owned(),
+                "packages/x/y".to_owned()
+            ],
+            2
+        )
+    );
+    assert_eq!(
+        run(r#"["packages/**","!packages/x/**"]"#),
+        (
+            vec![
+                "packages/a".to_owned(),
+                "packages/a/test".to_owned(),
+                "packages/test".to_owned()
+            ],
+            2
+        )
+    );
+    assert_eq!(
+        run(r#"["packages/**","!packages/x/*"]"#),
+        (
+            vec![
+                "packages/a".to_owned(),
+                "packages/a/test".to_owned(),
+                "packages/test".to_owned(),
+                "packages/x".to_owned()
+            ],
+            1
+        )
+    );
+}
+
+#[test]
+fn directories_with_only_generated_content_count_as_empty() {
+    let workspace = discover(
+        &[
+            ("package.json", r#"{"name":"r","workspaces":["packages/*"]}"#),
+            ("packages/a/package.json", r#"{"name":"a"}"#),
+            ("packages/b/node_modules/dep/index.js", ""),
+            ("packages/b/dist/index.js", ""),
+            ("packages/b/build/out.js", ""),
+            ("packages/b/coverage/lcov.info", ""),
+            ("packages/b/.cache/x", ""),
+            ("packages/c/src/index.js", ""),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    assert_eq!(workspace.facts.dirs_without_manifest, [PathBuf::from("packages/c")]);
+}
+
+#[test]
+fn patterns_cannot_climb_out_of_the_root() {
+    for pattern in ["../x", "packages/../../x", "!../x"] {
+        let manifest = root(&format!(r#"["{pattern}"]"#));
+        let error = discover(&[("package.json", manifest.as_str())], &Config::default()).unwrap_err();
+        assert!(
+            matches!(&error, WorkspaceError::InvalidPattern { pattern: written, .. } if written == pattern),
+            "{pattern}: {error}"
+        );
+    }
+}
+
+#[test]
+fn brace_alternation_may_span_directories() {
+    let found = run(&["{apps/*/web,tool}", "packages/{a,foo-*}"]);
+    assert_eq!(
+        dirs(&found),
+        [
+            "apps/one/web",
+            "packages/a",
+            "packages/foo-bar",
+            "packages/foo-baz",
+            "tool"
+        ]
+    );
+    let found = run(&["{apps,packages}/{one,a}/*"]);
+    assert_eq!(dirs(&found), ["apps/one/web", "packages/a/nested"]);
+}
+
+#[test]
+fn pnpm_pattern_spans_follow_duplicates_flow_lists_and_bom() {
+    let written = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+        pairs.iter().map(|(a, b)| ((*a).to_owned(), (*b).to_owned())).collect()
+    };
+    assert_eq!(
+        pnpm_patterns("packages:\n  - a\n  - 'b'\n  - a  # again\n"),
+        written(&[("a", "a"), ("b", "'b'"), ("a", "a")])
+    );
+    let spans = {
+        let workspace = discover(
+            &[
+                ("package.json", r#"{"name":"r","packageManager":"pnpm@9.0.0"}"#),
+                ("pnpm-workspace.yaml", "packages:\n  - a\n  - a\n"),
+                ("a/package.json", "{}"),
+            ],
+            &Config::default(),
+        )
+        .unwrap();
+        workspace
+            .facts
+            .patterns
+            .iter()
+            .map(|f| f.span.unwrap().start)
+            .collect::<Vec<_>>()
+    };
+    assert_ne!(spans[0], spans[1], "duplicates must not share a span");
+    assert_eq!(
+        pnpm_patterns("packages: [a, \"b\", 'c']\n"),
+        written(&[("a", "a"), ("b", "\"b\""), ("c", "'c'")])
+    );
+    assert_eq!(
+        pnpm_patterns("packages: [\n  a,\n  '!b',\n]\ncatalog: {}\n"),
+        written(&[("a", "a"), ("!b", "'!b'")])
+    );
+    assert_eq!(
+        pnpm_patterns("\u{feff}packages:\n  - a\n  - \"b\"\n"),
+        written(&[("a", "a"), ("b", "\"b\"")])
+    );
+}

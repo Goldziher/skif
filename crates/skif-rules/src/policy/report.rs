@@ -2,29 +2,49 @@
 
 use std::path::PathBuf;
 
-use skif_core::{Diagnostic, Fix, FixSafety, Location, diagnostic};
+use skif_core::{Diagnostic, Fix, FixSafety, Location, Related, diagnostic};
 use skif_lint::Emitter;
 
-use super::analysis::{Analysis, UnusedGroup};
-use super::instances::Instance;
+use super::analysis::{Analysis, ConfiguredGroup};
+use super::instances::{Instance, InstanceId};
 use super::state::{State, Verdict};
 
-/// The configuration file `UnusedGroup` diagnostics point at.
+/// The configuration file the configuration-level diagnostics point at.
+///
+/// The lint context does not carry the path the configuration was loaded from, so this is the default name.
 const CONFIG_FILE: &str = "skif.toml";
 
-/// Emits one diagnostic per non-valid instance, then one per unused group.
+/// Emits one diagnostic per non-valid instance, then one per unused group and one per unusable pin.
 pub(super) fn emit(analysis: &Analysis<'_>, out: &mut Emitter<'_>) {
     for (id, instance) in analysis.instances.iter() {
         if let Some(verdict) = &analysis.verdicts[id.index()] {
-            out.emit(instance_diagnostic(instance, verdict));
+            out.emit(instance_diagnostic(analysis, id, instance, verdict));
         }
     }
     for unused in &analysis.unused_groups {
-        out.emit(unused_group_diagnostic(unused));
+        out.emit(group_diagnostic(
+            State::UnusedGroup,
+            unused,
+            "owns no dependency",
+            "an earlier group may claim its dependencies, or its selectors match nothing",
+        ));
+    }
+    for invalid in &analysis.invalid_pins {
+        out.emit(group_diagnostic(
+            State::InvalidPin,
+            invalid,
+            "has a `pin` that is empty or not a version specifier",
+            "set `pin` to the version the dependencies must use, for example `\"1.2.3\"`",
+        ));
     }
 }
 
-fn instance_diagnostic(instance: &Instance<'_>, verdict: &Verdict) -> Diagnostic {
+fn instance_diagnostic(
+    analysis: &Analysis<'_>,
+    id: InstanceId,
+    instance: &Instance<'_>,
+    verdict: &Verdict,
+) -> Diagnostic {
     let state = verdict.state;
     let package = instance.package.display_name();
     let subject = match instance.kind() {
@@ -42,6 +62,7 @@ fn instance_diagnostic(instance: &Instance<'_>, verdict: &Verdict) -> Diagnostic
         instance.location(),
     )
     .package(package)
+    .package_id(instance.package.id)
     .dependency(&instance.name)
     .detail(state.name());
     let help = match (&verdict.target, state) {
@@ -52,10 +73,57 @@ fn instance_diagnostic(instance: &Instance<'_>, verdict: &Verdict) -> Diagnostic
     if let Some(help) = help {
         builder = builder.help(help);
     }
+    if let Some(related) = related_of(analysis, id, verdict) {
+        builder = builder.related(related);
+    }
     if let Some(fix) = fix_of(instance, verdict) {
         builder = builder.fix(fix);
     }
     builder.build()
+}
+
+/// The other instances of the dependency of `id`, in collection order.
+fn counterparts<'a, 'w>(analysis: &'a Analysis<'w>, id: InstanceId) -> impl Iterator<Item = &'a Instance<'w>> {
+    let name = &analysis.instances.get(id).name;
+    analysis
+        .instances
+        .named(name)
+        .iter()
+        .copied()
+        .filter(move |&other| other != id)
+        .map(move |other| analysis.instances.get(other))
+}
+
+/// The instance the finding is about: the one that holds the version `id` should take, or, when the instances
+/// cannot be ranked, the first one that differs from it.
+fn related_of(analysis: &Analysis<'_>, id: InstanceId, verdict: &Verdict) -> Option<Related> {
+    let instance = analysis.instances.get(id);
+    let (counterpart, why) = match (&verdict.target, verdict.state) {
+        (Some(target), state) if state.is_fixable() && state != State::IsBanned => (
+            counterparts(analysis, id).find(|other| other.raw() == target.get_raw())?,
+            "holds the version this should align with",
+        ),
+        (
+            None,
+            State::NonSemverMismatch
+            | State::SameRangeMismatch
+            | State::SameMinorMismatch
+            | State::SameMinorHasMajorMismatch,
+        ) => (
+            counterparts(analysis, id).find(|other| other.raw() != instance.raw())?,
+            "differs from it",
+        ),
+        _ => return None,
+    };
+    Some(Related {
+        message: format!(
+            "`{}@{}` in {} {why}",
+            counterpart.name,
+            counterpart.raw(),
+            counterpart.package.display_name()
+        ),
+        location: counterpart.location(),
+    })
 }
 
 /// The fix of a fixable state: the entry is removed when banned, and set to the chosen specifier otherwise.
@@ -81,21 +149,21 @@ fn fix_of(instance: &Instance<'_>, verdict: &Verdict) -> Option<Fix> {
     })
 }
 
-fn unused_group_diagnostic(unused: &UnusedGroup) -> Diagnostic {
-    let state = State::UnusedGroup;
-    let name = unused.label.as_ref().map_or_else(
-        || format!("`version-groups[{}]`", unused.index),
-        |label| format!("`{label}` (`version-groups[{}]`)", unused.index),
+/// A finding about a configured version group, located in the configuration file.
+fn group_diagnostic(state: State, group: &ConfiguredGroup, what: &str, help: &str) -> Diagnostic {
+    let name = group.label.as_ref().map_or_else(
+        || format!("`version-groups[{}]`", group.index),
+        |label| format!("`{label}` (`version-groups[{}]`)", group.index),
     );
     diagnostic(
         state.rule(),
-        format!("the version group {name} owns no dependency"),
+        format!("the version group {name} {what}"),
         Location {
             path: PathBuf::from(CONFIG_FILE),
             span: None,
         },
     )
-    .help("an earlier group may claim its dependencies, or its selectors match nothing")
+    .help(help)
     .detail(state.name())
     .build()
 }
