@@ -1,7 +1,7 @@
 use skif_core::{Category, Fixability, RuleMeta, Severity};
 use skif_lint::{Emitter, LintContext, Rule};
 
-use super::analysis::{FindingKind, emit, findings, use_catalog_fix};
+use super::analysis::{FindingKind, emit, enforce_severity, findings, use_catalog_fix};
 
 /// Metadata of `catalog-not-used`.
 pub static META: RuleMeta = RuleMeta {
@@ -25,6 +25,7 @@ impl Rule for CatalogNotUsed {
         if !cx.enabled.contains(META.id) {
             return;
         }
+        let severity = enforce_severity(cx);
         for finding in findings(cx) {
             let name = &finding.instance.entry.name;
             let specifier = &finding.instance.entry.specifier;
@@ -32,6 +33,7 @@ impl Rule for CatalogNotUsed {
                 FindingKind::NotUsingCatalog { catalog } => emit(
                     out,
                     &META,
+                    severity,
                     &finding,
                     format!(
                         "`{name}` is declared as `{specifier}` but {} defines it",
@@ -46,6 +48,7 @@ impl Rule for CatalogNotUsed {
                 FindingKind::NotUsingCatalogAndCatalogUnknown => emit(
                     out,
                     &META,
+                    severity,
                     &finding,
                     format!("`{name}` is declared as `{specifier}` and more than one catalog could hold it"),
                     Some("reference the intended catalog explicitly with `catalog:<name>`".to_owned()),

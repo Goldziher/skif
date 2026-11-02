@@ -13,7 +13,7 @@ mod provider;
 mod registry;
 mod runner;
 
-pub use context::{EnabledRules, LintContext};
+pub use context::{DEFAULT_CONFIG_FILE, EnabledRules, LintContext};
 pub use emitter::Emitter;
 pub use provider::{OptionsError, ProviderError, Rule, RuleProvider, RulesProvider, parse_options, reject_options};
 pub use registry::{Registry, RegistryError};

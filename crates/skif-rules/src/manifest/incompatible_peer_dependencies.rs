@@ -89,6 +89,7 @@ impl Rule for IncompatiblePeerDependencies {
                     .package(package.display_name())
                     .package_id(package.id)
                     .dependency(peer.name.clone())
+                    .specifier(peer.specifier.clone())
                     .help(format!(
                         "install a version of `{}` that satisfies `{}` in devDependencies, or widen the peer range",
                         peer.name, peer.specifier

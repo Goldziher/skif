@@ -15,6 +15,7 @@ use skif_core::{DependencyKind, FixOp, JsonAction, Location, PathSeg};
 use skif_specifier::Specifier;
 use skif_workspace::{DependencyEntry, Package, Workspace};
 
+use super::catalog;
 use crate::manifest::support;
 
 /// Whether the policies look at the `kind` section of a manifest.
@@ -29,6 +30,12 @@ fn tracks(config: &Config, kind: DependencyKind) -> bool {
     } else {
         types.matches(kind)
     }
+}
+
+/// Whether the catalog rules, not the policy rules, report `entry` when its dependency is catalog-owned: a plain
+/// version in a section that can hold a catalog reference.
+fn owned_by_catalog(entry: &DependencyEntry) -> bool {
+    entry.kind != DependencyKind::PeerDependencies && catalog::is_catalogable(&entry.parsed)
 }
 
 /// Index of an [`Instance`] in its [`Instances`].
@@ -134,6 +141,7 @@ impl<'w> Instances<'w> {
             .all_packages()
             .filter_map(|package| package.name.as_deref())
             .collect();
+        let owned = catalog::owned_dependencies(workspace, &config.catalog);
         let mut items = Vec::new();
         for package in support::active_packages(workspace) {
             if let (Some(name), Some(version)) = (&package.name, &package.version) {
@@ -146,7 +154,7 @@ impl<'w> Instances<'w> {
                 });
             }
             for entry in &package.dependencies {
-                if !tracks(config, entry.kind) {
+                if !tracks(config, entry.kind) || (owned.contains(entry.name.as_str()) && owned_by_catalog(entry)) {
                     continue;
                 }
                 items.push(Instance {

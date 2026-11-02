@@ -74,7 +74,8 @@ impl Rule for LocalPathDependency {
                 )
                 .package(package.display_name())
                 .package_id(package.id)
-                .dependency(entry.name.clone());
+                .dependency(entry.name.clone())
+                .specifier(entry.specifier.clone());
                 builder = match (target, replacement) {
                     (Some(_), Some(replacement)) => builder
                         .help(format!(
