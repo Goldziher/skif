@@ -94,7 +94,20 @@ pub fn write_plan(plan: &FixPlan, root: &Path) -> Result<(), CliError> {
         return Err(error);
     }
     dirs.keep = true;
+    for job in &jobs {
+        sync_parent(match job {
+            Job::Write { target, .. } | Job::Remove { target, .. } => target,
+        });
+    }
     Ok(())
+}
+
+/// Flushes the directory entry of `target`, so a rename or removal survives a crash. Best effort: not every
+/// platform can open a directory, and the data itself was synced before the rename.
+fn sync_parent(target: &Path) {
+    if let Some(parent) = target.parent() {
+        let _ = fs::File::open(parent).and_then(|dir| dir.sync_all());
+    }
 }
 
 fn commit(staged: &mut [(Temp, &Job<'_>)], jobs: &[Job<'_>], undo: &mut Vec<Undo>) -> Result<(), CliError> {
@@ -263,15 +276,32 @@ fn stage(target: &Path, bytes: &[u8], create: bool, dirs: &mut CreatedDirs) -> i
     Ok(temp)
 }
 
-/// Writes `bytes` to `target` through a temporary sibling that is renamed over it; the temporary is removed on
-/// failure.
+/// Writes `bytes` to `target`.
+///
+/// A regular file is replaced atomically through a temporary sibling that is renamed over it; a symlink to a regular
+/// file is followed, so the link stays a link. Anything that is not a regular file (`/dev/stdout`, a pipe) cannot be
+/// replaced without destroying it, so the bytes are written through it instead.
 pub fn write_atomic(target: &Path, bytes: &[u8]) -> io::Result<()> {
+    let destination = match fs::metadata(target) {
+        Ok(metadata) if metadata.is_file() => fs::canonicalize(target)?,
+        Ok(_) => return write_through(target, bytes),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => target.to_path_buf(),
+        Err(error) => return Err(error),
+    };
     let mut dirs = CreatedDirs::default();
-    let mut temp = stage(target, bytes, false, &mut dirs)?;
+    let mut temp = stage(&destination, bytes, false, &mut dirs)?;
     let path = temp.0.take().unwrap_or_default();
-    fs::rename(&path, target).inspect_err(|_| {
+    fs::rename(&path, &destination).inspect_err(|_| {
         let _ = fs::remove_file(&path);
-    })
+    })?;
+    sync_parent(&destination);
+    Ok(())
+}
+
+fn write_through(target: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut file = OpenOptions::new().write(true).open(target)?;
+    file.write_all(bytes)?;
+    file.flush()
 }
 
 #[cfg(test)]
@@ -307,6 +337,30 @@ mod tests {
         write_atomic(&dir.path().join("a.json"), b"new").unwrap();
         assert_eq!(fs::read_to_string(dir.path().join("a.json")).unwrap(), "new");
         assert_eq!(leftovers(dir.path()), [] as [std::string::String; 0]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_keeps_a_symlink_and_updates_its_target() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("real.json"), "old").unwrap();
+        std::os::unix::fs::symlink("real.json", dir.path().join("link.json")).unwrap();
+        write_atomic(&dir.path().join("link.json"), b"new").unwrap();
+        assert!(
+            fs::symlink_metadata(dir.path().join("link.json"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read_to_string(dir.path().join("real.json")).unwrap(), "new");
+        assert_eq!(leftovers(dir.path()), [] as [std::string::String; 0]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_goes_through_a_device_instead_of_replacing_it() {
+        write_atomic(Path::new("/dev/null"), b"discarded").unwrap();
+        assert!(!fs::metadata("/dev/null").unwrap().is_file());
     }
 
     #[test]

@@ -21,7 +21,7 @@ run = "pnpm dlx skif@0.0.0"
 [[hooks]]
 id = "skif-fix"
 stages = ["pre-commit"]
-args = ["--fix", "--no-install", "--no-js"]
+args = ["--fix", "--no-install", "--no-prompt", "--no-js"]
 files = ["**/package.json", "**/pnpm-workspace.yaml", "**/skif.toml", "**/.skif.toml"]
 workspace = true
 pass_filenames = false

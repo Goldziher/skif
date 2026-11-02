@@ -39,20 +39,32 @@ fn escaped(c: char) -> String {
     out
 }
 
-/// Replaces control characters with a visible `\u{..}` escape, so report text cannot drive the terminal.
-pub(crate) fn escape_controls(text: &str) -> Cow<'_, str> {
-    if !text.chars().any(is_unsafe) {
+fn escape_where(text: &str, unsafe_char: impl Fn(char) -> bool) -> Cow<'_, str> {
+    if !text.chars().any(&unsafe_char) {
         return Cow::Borrowed(text);
     }
     let mut out = String::with_capacity(text.len() + 8);
     for c in text.chars() {
-        if is_unsafe(c) {
+        if unsafe_char(c) {
             out.push_str(&escaped(c));
         } else {
             out.push(c);
         }
     }
     Cow::Owned(out)
+}
+
+/// Replaces control characters (line breaks and tabs included) with a visible `\u{..}` escape, so text that
+/// came from a repository cannot drive the terminal or forge extra lines.
+#[must_use]
+pub fn escape_controls(text: &str) -> Cow<'_, str> {
+    escape_where(text, is_unsafe)
+}
+
+/// Like [`escape_controls`], but keeps line breaks and tabs, for messages that legitimately span lines.
+#[must_use]
+pub fn escape_multiline(text: &str) -> Cow<'_, str> {
+    escape_where(text, |c| is_unsafe(c) && !matches!(c, '\n' | '\t'))
 }
 
 /// One source line made printable, with the display columns of its underline.
@@ -119,6 +131,7 @@ mod tests {
         assert_eq!(escape_controls("a\u{1b}[2Jb"), "a\\u{1b}[2Jb");
         assert_eq!(escape_controls("x\u{202e}y"), "x\\u{202e}y");
         assert_eq!(escape_controls("a\nb"), "a\\u{a}b");
+        assert_eq!(escape_multiline("a\n\tb\u{1b}"), "a\n\tb\\u{1b}");
     }
 
     #[test]

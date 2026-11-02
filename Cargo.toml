@@ -87,6 +87,12 @@ codegen-units = 1
 strip = "symbols"
 panic = "abort"
 
+# The npm addon is loaded into the Node process: a panic must unwind to the napi boundary and become a JS
+# exception instead of aborting the host. Build it with `napi build --profile node`.
+[profile.node]
+inherits = "release"
+panic = "unwind"
+
 # Release build with symbols for flamegraphs and profilers: `cargo build --profile profiling`.
 [profile.profiling]
 inherits = "release"

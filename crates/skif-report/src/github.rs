@@ -38,11 +38,10 @@ fn annotation(diagnostic: &Diagnostic, options: &RenderOptions) -> String {
             span.start_line, span.start_col, span.end_line, span.end_col
         );
     }
-    let title = format!("skif {}", diagnostic.rule);
     let _ = write!(
         line,
         ",title={}::{}",
-        escape_property(&title),
+        escape_property(diagnostic.rule.as_str()),
         escape_data(&diagnostic.message)
     );
     line
