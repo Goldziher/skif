@@ -1,0 +1,10 @@
+{
+  "name": "solo",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "npm@11.6.2",
+  "dependencies": {
+    "is-number": "7.0.0"
+  },
+  "devDependencies": {}
+}
