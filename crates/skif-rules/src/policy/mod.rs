@@ -200,8 +200,9 @@ mod tests {
     fn unused_groups_are_reported_on_the_configuration_file() {
         let root_json = root("");
         let files = files(&root_json);
-        let config =
-            config("[[version-groups]]\nlabel = \"ghosts\"\ndependencies = [\"ghost\"]\npolicy = \"banned\"\n");
+        let config = config(
+            "[[version-groups]]\nlabel = \"ghosts\"\ndependencies = [\"ghost\"]\npolicy = \"pinned\"\npin = \"1.0.0\"\n",
+        );
         let diagnostics = lint("policy-conflict", &files, &config);
         assert_eq!(details(&diagnostics), [("policy-conflict", Some("UnusedGroup"))]);
         let diagnostic = &diagnostics[0];
@@ -211,16 +212,21 @@ mod tests {
     }
 
     #[test]
+    fn a_banned_group_that_matches_nothing_is_not_reported() {
+        let root_json = root("");
+        let files = files(&root_json);
+        let config = config("[[version-groups]]\ndependencies = [\"ghost\"]\npolicy = \"banned\"\n");
+        assert_eq!(details(&lint("policy-conflict", &files, &config)), []);
+    }
+
+    #[test]
     fn a_mismatch_points_at_the_instance_it_should_align_with() {
         let root_json = root("");
         let files = files(&root_json);
         let diagnostics = lint("version-mismatch", &files, &config(""));
         let related = &diagnostics[0].related;
         assert_eq!(related.len(), 1);
-        assert_eq!(
-            related[0].location.path.to_str(),
-            Some("packages/lib/package.json")
-        );
+        assert_eq!(related[0].location.path.to_str(), Some("packages/lib/package.json"));
         assert_eq!(
             crate::testing::slice(&files, "packages/lib/package.json", related[0].location.span.unwrap()),
             r#""react":"^18.3.1""#
@@ -236,9 +242,17 @@ mod tests {
                 "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"{pin}\"\n"
             ));
             let diagnostics = lint("policy-conflict", &files, &config);
-            assert_eq!(details(&diagnostics), [("policy-conflict", Some("InvalidPin"))], "{pin:?}");
+            assert_eq!(
+                details(&diagnostics),
+                [("policy-conflict", Some("InvalidPin"))],
+                "{pin:?}"
+            );
             assert!(!diagnostics[0].is_fixable());
-            assert_eq!(lint("version-mismatch", &files, &config), [] as [Diagnostic; 0], "{pin:?}");
+            assert_eq!(
+                lint("version-mismatch", &files, &config),
+                [] as [Diagnostic; 0],
+                "{pin:?}"
+            );
         }
     }
 

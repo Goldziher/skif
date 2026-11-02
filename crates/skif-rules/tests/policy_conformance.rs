@@ -36,7 +36,10 @@ fn every_case_is_accounted_for() {
         );
     }
     for group in POLICY_GROUPS.iter().chain(CATALOG_GROUPS) {
-        assert!(cases.iter().any(|case| case.group == *group), "no fixtures for group {group}");
+        assert!(
+            cases.iter().any(|case| case.group == *group),
+            "no fixtures for group {group}"
+        );
     }
     for (id, reason) in PENDING.iter().chain(PARTIAL) {
         assert!(cases.iter().any(|case| case.id() == *id), "unknown pending case {id}");
