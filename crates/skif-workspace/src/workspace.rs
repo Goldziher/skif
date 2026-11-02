@@ -21,6 +21,7 @@ const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
 
 /// Where the workspace patterns were declared.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum WorkspaceSource {
     /// `workspaces: [...]` in the root `package.json`.
     PackageJsonWorkspaces,
@@ -32,6 +33,7 @@ pub enum WorkspaceSource {
 
 /// What one workspace pattern matched.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PatternFact {
     /// Position of the pattern in its declared list: the array index in `package.json`, or the position among the
     /// `packages:` entries of `pnpm-workspace.yaml`. Usable directly as the last segment of a fix path.
@@ -50,6 +52,7 @@ pub struct PatternFact {
 
 /// Observations about discovery; judging them is up to rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DiscoveryFacts {
     /// Where the patterns came from.
     pub source: WorkspaceSource,
