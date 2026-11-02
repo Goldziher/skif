@@ -80,7 +80,7 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       "fixes": [
         {
           "title": "Remove the pattern `apps/*`",
-          "safety": "safe",
+          "safety": "unsafe",
           "ops": [
             {
               "json": {
@@ -119,7 +119,7 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       "fixes": [
         {
           "title": "Remove the pattern `docs`",
-          "safety": "safe",
+          "safety": "unsafe",
           "ops": [
             {
               "json": {
@@ -305,7 +305,7 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       "fixes": [
         {
           "title": "Use `*` for `@dirty/b`",
-          "safety": "safe",
+          "safety": "unsafe",
           "ops": [
             {
               "json": {
@@ -386,7 +386,7 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       "fixes": [
         {
           "title": "Move the `@types/*` packages to `devDependencies`",
-          "safety": "safe",
+          "safety": "unsafe",
           "ops": [
             {
               "json": {

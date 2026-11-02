@@ -21,22 +21,15 @@ fn fix(title: &str, safety: FixSafety) -> Fix {
 }
 
 fn diag(rule: &'static str, severity: Severity, path: &str, span: Option<Span>, message: &str) -> Diagnostic {
-    Diagnostic {
-        rule: RuleId::from_static(rule),
+    Diagnostic::new(
+        RuleId::from_static(rule),
         severity,
-        message: message.to_owned(),
-        help: None,
-        location: Location {
+        message,
+        Location {
             path: path.into(),
             span,
         },
-        related: Vec::new(),
-        package: None,
-        package_id: None,
-        dependency: None,
-        detail: None,
-        fixes: Vec::new(),
-    }
+    )
 }
 
 fn rich() -> Report {

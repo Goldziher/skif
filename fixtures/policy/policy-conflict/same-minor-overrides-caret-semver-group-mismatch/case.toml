@@ -1,3 +1,3 @@
-description = "An exact instance outside a caret semver group that a same-minor group forbids is fixed to tilde; the conflict persists afterwards."
+description = "An exact instance outside a caret semver group that a same-minor group forbids is fixed to tilde; the same-minor group wins, so the fix converges."
 source = "syncpack:src/version_group/same_minor_test.rs::has_semver_number_which_satisfies_every_other_but_range_mismatches_incompatible_caret_semver_group"
-tags = ["same-minor", "semver-groups", "fix", "fix-not-idempotent"]
+tags = ["same-minor", "semver-groups", "fix"]

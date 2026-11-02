@@ -11,6 +11,7 @@ use crate::span::{Location, Related};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct Diagnostic {
     /// Rule that produced the finding.
     pub rule: RuleId,
@@ -46,6 +47,25 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
+    /// A diagnostic without help, related locations, package, dependency, detail or fixes; set those through the
+    /// public fields, or use [`crate::diagnostic`] to build one for a rule.
+    #[must_use]
+    pub fn new(rule: RuleId, severity: Severity, message: impl Into<String>, location: Location) -> Self {
+        Self {
+            rule,
+            severity,
+            message: message.into(),
+            help: None,
+            location,
+            related: Vec::new(),
+            package: None,
+            package_id: None,
+            dependency: None,
+            detail: None,
+            fixes: Vec::new(),
+        }
+    }
+
     /// Whether at least one fix is attached.
     #[must_use]
     pub fn is_fixable(&self) -> bool {

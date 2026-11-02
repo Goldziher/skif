@@ -1,0 +1,310 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "duplicate-exports",
+    "severity": "warning",
+    "message": "`x` is exported as `x` and `y`",
+    "help": "keep one export name for the binding",
+    "location": {
+      "path": "src/dupe.ts",
+      "span": {
+        "start": 29,
+        "end": 35,
+        "start-line": 2,
+        "start-col": 10,
+        "end-line": 2,
+        "end-col": 16
+      }
+    },
+    "related": [
+      {
+        "message": "first exported as `x` here",
+        "location": {
+          "path": "src/dupe.ts",
+          "span": {
+            "start": 13,
+            "end": 14,
+            "start-line": 1,
+            "start-col": 14,
+            "end-line": 1,
+            "end-col": 15
+          }
+        }
+      }
+    ],
+    "package": "reexports"
+  },
+  {
+    "rule": "unused-enum-members",
+    "severity": "warning",
+    "message": "enum member `Color.Green` is never used",
+    "help": "remove the member, or tag it `@public`",
+    "location": {
+      "path": "src/color.ts",
+      "span": {
+        "start": 29,
+        "end": 34,
+        "start-line": 3,
+        "start-col": 3,
+        "end-line": 3,
+        "end-col": 8
+      }
+    },
+    "package": "reexports"
+  },
+  {
+    "rule": "unused-exports",
+    "severity": "error",
+    "message": "export `a2` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "src/chain/a.ts",
+      "span": {
+        "start": 34,
+        "end": 36,
+        "start-line": 2,
+        "start-col": 14,
+        "end-line": 2,
+        "end-col": 16
+      }
+    },
+    "package": "reexports",
+    "fixes": [
+      {
+        "title": "Remove the unused export `a2`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/chain/a.ts",
+              "edit": {
+                "start": 21,
+                "end": 28,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-exports",
+    "severity": "error",
+    "message": "export `b2` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "src/chain/b.ts",
+      "span": {
+        "start": 33,
+        "end": 35,
+        "start-line": 2,
+        "start-col": 14,
+        "end-line": 2,
+        "end-col": 16
+      }
+    },
+    "package": "reexports",
+    "fixes": [
+      {
+        "title": "Remove the unused export `b2`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/chain/b.ts",
+              "edit": {
+                "start": 20,
+                "end": 27,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-exports",
+    "severity": "error",
+    "message": "export `c` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "src/chain/c.ts",
+      "span": {
+        "start": 13,
+        "end": 14,
+        "start-line": 1,
+        "start-col": 14,
+        "end-line": 1,
+        "end-col": 15
+      }
+    },
+    "package": "reexports",
+    "fixes": [
+      {
+        "title": "Remove the unused export `c`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/chain/c.ts",
+              "edit": {
+                "start": 0,
+                "end": 7,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-exports",
+    "severity": "error",
+    "message": "export `c` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "src/chain/index.ts",
+      "span": {
+        "start": 61,
+        "end": 62,
+        "start-line": 3,
+        "start-col": 10,
+        "end-line": 3,
+        "end-col": 11
+      }
+    },
+    "package": "reexports",
+    "fixes": [
+      {
+        "title": "Remove the unused export `c`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/chain/index.ts",
+              "edit": {
+                "start": 52,
+                "end": 77,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-exports",
+    "severity": "error",
+    "message": "export `beta` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "src/namespace.ts",
+      "span": {
+        "start": 37,
+        "end": 41,
+        "start-line": 2,
+        "start-col": 14,
+        "end-line": 2,
+        "end-col": 18
+      }
+    },
+    "package": "reexports",
+    "fixes": [
+      {
+        "title": "Remove the unused export `beta`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/namespace.ts",
+              "edit": {
+                "start": 24,
+                "end": 31,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-exports",
+    "severity": "error",
+    "message": "export `sideEffect` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "src/side.ts",
+      "span": {
+        "start": 13,
+        "end": 23,
+        "start-line": 1,
+        "start-col": 14,
+        "end-line": 1,
+        "end-col": 24
+      }
+    },
+    "package": "reexports",
+    "fixes": [
+      {
+        "title": "Remove the unused export `sideEffect`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/side.ts",
+              "edit": {
+                "start": 0,
+                "end": 7,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-types",
+    "severity": "error",
+    "message": "type `Unused2` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "src/shape.ts",
+      "span": {
+        "start": 62,
+        "end": 69,
+        "start-line": 5,
+        "start-col": 18,
+        "end-line": 5,
+        "end-col": 25
+      }
+    },
+    "package": "reexports",
+    "fixes": [
+      {
+        "title": "Remove the unused export `Unused2`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/shape.ts",
+              "edit": {
+                "start": 45,
+                "end": 52,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

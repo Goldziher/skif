@@ -1,0 +1,24 @@
+# Every released rule ID (ADR 0007). IDs are never removed or renamed; add new ones here with the rule.
+empty-dependencies
+root-package-private-field
+root-package-manager-field
+root-package-dependencies
+types-in-dependencies
+member-toolchain-fields
+incompatible-peer-dependencies
+unsorted-dependencies
+unmatched-workspace-patterns
+missing-package-manifest
+local-path-dependency
+version-mismatch
+banned-dependency
+semver-range-mismatch
+policy-conflict
+invalid-local-version
+catalog-not-used
+catalog-mismatch
+catalog-missing-entry
+unresolved-catalog-references
+unused-catalog-entries
+workspace-protocol
+unsynced-dependency-family

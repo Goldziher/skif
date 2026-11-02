@@ -43,6 +43,7 @@ impl Rule for UnresolvedCatalogReferences {
                         value_location(package, entry),
                     )
                     .package(package.display_name())
+                    .package_id(package.id)
                     .dependency(entry.name.clone())
                     .detail("DependsOnMissingCatalogDefinition")
                     .help("define the entry in the catalog or use a version")

@@ -1,4 +1,3 @@
-description = "The latest/* wildcard ranks above every concrete version (syncpack quirk), so concrete ranges are fixed to it."
+description = "latest never becomes the alignment target: next to a concrete range it is an unfixable NonSemverMismatch on the latest side."
 source = "syncpack:crates/syncpack-specifier/src/latest.rs (HUGE ordering version)"
-tags = ["unsupported", "latest", "highest", "syncpack-quirk", "fix"]
-valid-states = ["IsHighestOrLowestSemver"]
+tags = ["unsupported", "latest", "deviation"]
