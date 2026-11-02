@@ -3,7 +3,7 @@
 
 use skif_js_syntax::ConfigValue;
 
-use crate::plugin::{ConfigAst, PluginInput};
+use crate::plugin::{ConfigAst, PluginContext, PluginInput};
 
 const FILE_EXTENSIONS: &[&str] = &[
     "js", "jsx", "ts", "tsx", "mjs", "cjs", "mts", "cts", "json", "css", "scss", "html", "vue", "svelte",
@@ -200,6 +200,26 @@ pub(crate) fn values_of(value: &ConfigValue) -> Vec<&ConfigValue> {
         ConfigValue::Array(items) => items.iter().collect(),
         other => vec![other],
     }
+}
+
+/// The scripts an HTML file loads, as production entries.
+pub(crate) fn html_entries(cx: &PluginContext<'_>, base: &str, file: &str) -> Vec<PluginInput> {
+    let html_path = join_rel(base, file);
+    let Ok(html) = cx.fs.read_to_string(&cx.dir.join(&html_path)) else {
+        return Vec::new();
+    };
+    let html_dir = html_path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    html_script_sources(&html)
+        .into_iter()
+        .filter(|src| !src.contains("://") && !src.starts_with("//"))
+        .map(|src| {
+            let path = match src.strip_prefix('/') {
+                Some(root_relative) => join_rel(base, root_relative),
+                None => join_rel(html_dir, &src),
+            };
+            PluginInput::ProductionEntry(path)
+        })
+        .collect()
 }
 
 /// The `src` of every `<script>` tag of an HTML document.

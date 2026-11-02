@@ -2,11 +2,12 @@
 
 use crate::plugin::Plugin;
 use crate::plugins::{
-    babel, changesets, commitlint, eslint, github_actions, husky, jest, lint_staged, next, playwright, postcss,
-    prettier, rollup, rspack, storybook, tailwind, tsup, turbo, typescript, vite, vitest, webpack,
+    aws_cdk, babel, browser_extension, changesets, commitlint, eslint, github_actions, husky, jest, lint_staged,
+    mastra, next, playwright, postcss, prettier, rollup, rspack, storybook, tailwind, tsup, turbo, typescript, vite,
+    vitest, webpack,
 };
 
-static PLUGINS: [&dyn Plugin; 22] = [
+static PLUGINS: [&dyn Plugin; 25] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -29,6 +30,9 @@ static PLUGINS: [&dyn Plugin; 22] = [
     &commitlint::Commitlint,
     &changesets::Changesets,
     &github_actions::GithubActions,
+    &mastra::Mastra,
+    &aws_cdk::AwsCdk,
+    &browser_extension::BrowserExtension,
 ];
 
 /// Every plugin, in the order ADR 0011 lists them.
