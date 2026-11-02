@@ -626,3 +626,56 @@ fn typescript_keeps_angle_bracket_assertions() {
     assert!(!info.has_jsx);
     assert_eq!(info.exports.len(), 1);
 }
+
+fn specifiers(info: &ModuleInfo) -> Vec<(&str, ImportKind)> {
+    info.imports.iter().map(|i| (i.specifier.as_str(), i.kind)).collect()
+}
+
+#[test]
+fn import_types_are_type_only_imports() {
+    let info = parse("a.ts", "export type A = import('x').T;\nlet v: typeof import('y');\n");
+    assert_eq!(specifiers(&info), [("x", ImportKind::TypeOnly), ("y", ImportKind::TypeOnly)]);
+    assert_eq!(info.imports[0].names[0].kind, ImportedKind::Named("T".into()));
+    assert!(info.imports[0].names[0].is_type);
+    assert_eq!(info.imports[1].names[0].kind, ImportedKind::Namespace);
+    assert!(info.imports[1].names[0].escapes);
+}
+
+#[test]
+fn jsdoc_imports_are_type_only_imports() {
+    let source = "/** @import {A, B as C} from 'pkg-a' */\n/** @type {import('pkg-b').Thing} */\nconst x = 1;\n/**\n * @import {\n *   D,\n * } from \"pkg-c\"\n */\n";
+    let info = parse("a.js", source);
+    assert_eq!(
+        specifiers(&info),
+        [
+            ("pkg-a", ImportKind::TypeOnly),
+            ("pkg-b", ImportKind::TypeOnly),
+            ("pkg-c", ImportKind::TypeOnly)
+        ]
+    );
+    let names: Vec<_> = info.imports[0].names.iter().map(|n| n.local.as_deref()).collect();
+    assert_eq!(names, [Some("A"), Some("C")]);
+    assert_eq!(info.imports[1].names[0].kind, ImportedKind::Named("Thing".into()));
+}
+
+#[test]
+fn triple_slash_references_are_imports_only_in_the_header() {
+    let source = "/// <reference types=\"node\" />\n/// <reference path=\"extra.d.ts\" />\nexport const a = 1;\n/// <reference types=\"late\" />\n";
+    let info = parse("a.ts", source);
+    assert_eq!(
+        specifiers(&info),
+        [("node", ImportKind::TypeOnly), ("./extra.d.ts", ImportKind::SideEffect)]
+    );
+}
+
+#[test]
+fn jsx_import_source_only_counts_in_leading_comments() {
+    let leading = parse("a.jsx", "// @jsxImportSource preact\nexport const a = <b />;\n");
+    assert_eq!(leading.jsx_import_source.as_deref(), Some("preact"));
+    let span = leading.jsx_import_source_span.unwrap();
+    assert_eq!(slice("// @jsxImportSource preact\n", span.start, span.end), "preact");
+
+    let late = parse("a.jsx", "export const a = <b />;\n// @jsxImportSource preact\nconst s = '@jsxImportSource x';\n");
+    assert_eq!(late.jsx_import_source, None);
+    assert_eq!(late.jsx_import_source_span, None);
+}

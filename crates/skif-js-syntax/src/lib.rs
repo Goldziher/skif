@@ -9,6 +9,7 @@
 //! [`SyntaxError::Unsupported`].
 
 mod collect;
+mod comments;
 mod config;
 mod error;
 mod finder;
@@ -91,12 +92,6 @@ fn unsupported(extension: &str) -> SyntaxError {
     }
 }
 
-fn jsx_import_source(source: &str) -> Option<String> {
-    let rest = source.split_once("@jsxImportSource")?.1.trim_start();
-    let value: String = rest.chars().take_while(|c| !c.is_whitespace() && *c != '*').collect();
-    (!value.is_empty()).then_some(value)
-}
-
 fn parse_block(
     src: &str,
     base: u32,
@@ -158,7 +153,7 @@ fn parse_block(
         .iter()
         .map(|d| d.directive.as_str().to_string())
         .collect();
-    info.jsx_import_source = jsx_import_source(src);
+    comments::collect(&ctx, &ret.program, &mut info);
     Ok(info)
 }
 
