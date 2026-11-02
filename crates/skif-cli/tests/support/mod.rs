@@ -104,6 +104,8 @@ pub fn redact(text: &str, root: &Path) -> String {
     if let Ok(canonical) = root.canonicalize() {
         spellings.push(canonical);
     }
+    // Longest first: on macOS the canonical `/private/var/...` contains the raw `/var/...`.
+    spellings.sort_by_key(|spelling| std::cmp::Reverse(spelling.as_os_str().len()));
     let mut text = text.to_owned();
     for spelling in spellings {
         let raw = spelling.display().to_string();

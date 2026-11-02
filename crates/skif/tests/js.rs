@@ -10,9 +10,13 @@ fn fs() -> MemoryFs {
     MemoryFs::new()
         .with_file(
             "/ws/package.json",
+            r#"{"name": "root", "private": true, "packageManager": "pnpm@10.0.0", "workspaces": ["packages/*"]}"#,
+        )
+        .with_file(
+            "/ws/packages/app/package.json",
             r#"{"name": "app", "version": "1.0.0", "private": true, "main": "index.js", "dependencies": {"is-number": "7.0.0"}}"#,
         )
-        .with_file("/ws/index.js", "import 'left-pad';\n")
+        .with_file("/ws/packages/app/index.js", "import 'left-pad';\n")
 }
 
 fn rules(overrides: &ConfigOverrides) -> BTreeSet<String> {

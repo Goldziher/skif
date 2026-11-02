@@ -150,7 +150,8 @@ const fn same_line_end(span: &Span) -> Option<u32> {
 }
 
 fn digits(n: u32) -> usize {
-    n.checked_ilog10().map_or(1, |log| usize::try_from(log).unwrap_or(usize::MAX).saturating_add(1))
+    n.checked_ilog10()
+        .map_or(1, |log| usize::try_from(log).unwrap_or(usize::MAX).saturating_add(1))
 }
 
 fn plural(count: usize, word: &str) -> String {

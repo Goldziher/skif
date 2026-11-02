@@ -418,7 +418,7 @@ fn both_configuration_files_are_ambiguous() {
     assert!(matches!(error, skif::ConfigError::Ambiguous { .. }), "{error}");
 }
 
-fn report_of(diagnostics: Vec<(&str, Vec<Fix>)>) -> Report {
+fn report_of(diagnostics: Vec<(&'static str, Vec<Fix>)>) -> Report {
     let built: Vec<Diagnostic> = diagnostics
         .into_iter()
         .map(|(id, fixes)| {
@@ -429,7 +429,7 @@ fn report_of(diagnostics: Vec<(&str, Vec<Fix>)>) -> Report {
             };
             fixes
                 .into_iter()
-                .fold(diagnostic(meta, id, location), |builder, fix| builder.fix(fix))
+                .fold(diagnostic(meta, id, location), skif::DiagnosticBuilder::fix)
                 .build()
         })
         .collect();
@@ -456,14 +456,24 @@ fn an_out_of_range_text_edit_skips_only_that_fix() {
     let fs = fs();
     let workspace = workspace(&fs);
     let report = report_of(vec![
-        ("demo-bad", vec![text_fix("past the end", "package.json", 9_000, 9_001, "x")]),
-        ("demo-good", vec![text_fix("rename", "package.json", 12, 18, "\"main\"")]),
+        (
+            "demo-bad",
+            vec![text_fix("past the end", "package.json", 9_000, 9_001, "x")],
+        ),
+        (
+            "demo-good",
+            vec![text_fix("rename", "package.json", 12, 18, "\"main\"")],
+        ),
     ]);
     let plan = apply_fixes(&workspace, &report, &FixSelection::default(), &fs).unwrap();
 
     assert_eq!(plan.applied.len(), 1);
     assert_eq!(plan.applied[0].rule.as_str(), "demo-good");
-    assert!(matches!(plan.skipped[0].reason, SkipReason::Failed(_)), "{:?}", plan.skipped);
+    assert!(
+        matches!(plan.skipped[0].reason, SkipReason::Failed(_)),
+        "{:?}",
+        plan.skipped
+    );
     assert!(modified(&plan.changes, "package.json").contains("\"name\": \"main\""));
 }
 
@@ -478,7 +488,7 @@ fn identical_operations_from_different_fixes_count_once() {
     let plan = apply_fixes(&workspace, &report, &FixSelection::default(), &fs).unwrap();
 
     assert_eq!(plan.applied.len(), 2, "{:?}", plan.skipped);
-    assert!(plan.skipped.is_empty());
+    assert_eq!(plan.skipped, [] as [skif::SkippedFix; 0]);
     let text = modified(&plan.changes, "package.json");
     assert_eq!(text.matches("\"private\"").count(), 1, "{text}");
 }
@@ -488,8 +498,16 @@ fn alternatives_pick_the_first_one_the_safety_ceiling_allows() {
     let fs = fs();
     let workspace = workspace(&fs);
     let alternatives = vec![
-        fix("unsafe pin", FixSafety::Unsafe, vec![set_version("packages/a/package.json", "9.0.0")]),
-        fix("safe pin", FixSafety::Safe, vec![set_version("packages/a/package.json", "1.0.1")]),
+        fix(
+            "unsafe pin",
+            FixSafety::Unsafe,
+            vec![set_version("packages/a/package.json", "9.0.0")],
+        ),
+        fix(
+            "safe pin",
+            FixSafety::Safe,
+            vec![set_version("packages/a/package.json", "1.0.1")],
+        ),
     ];
     let report = report_of(vec![("demo-alt-safe", alternatives)]);
     let plan = apply_fixes(
@@ -516,10 +534,20 @@ fn creating_over_an_existing_file_is_refused() {
             contents: "{}".to_owned(),
         }],
     );
-    let plan = apply_fixes(&workspace, &report_of(vec![("demo-create", vec![create])]), &FixSelection::default(), &fs).unwrap();
+    let plan = apply_fixes(
+        &workspace,
+        &report_of(vec![("demo-create", vec![create])]),
+        &FixSelection::default(),
+        &fs,
+    )
+    .unwrap();
 
-    assert!(plan.changes.is_empty());
-    assert!(matches!(plan.skipped[0].reason, SkipReason::Failed(_)), "{:?}", plan.skipped);
+    assert_eq!(plan.changes, [] as [skif::FileChange; 0]);
+    assert!(
+        matches!(plan.skipped[0].reason, SkipReason::Failed(_)),
+        "{:?}",
+        plan.skipped
+    );
 }
 
 #[test]

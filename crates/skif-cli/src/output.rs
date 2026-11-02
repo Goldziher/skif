@@ -75,7 +75,7 @@ pub struct Rendering<'a> {
 /// Renders `report` (and the fix run, if any) as `rendering` says.
 pub fn render(
     report: &Report,
-    rendering: Rendering<'_>,
+    rendering: &Rendering<'_>,
     fs: &dyn FileSystem,
     fix: Option<&FixRun>,
 ) -> Result<Vec<u8>, CliError> {
@@ -98,7 +98,7 @@ pub fn render(
         options = options.with_rules(rendering.rules.iter().copied());
     }
     let mut buffer = Vec::new();
-    write_report(report, &rendering, &options, fix, &mut buffer)
+    write_report(report, rendering, &options, fix, &mut buffer)
         .map_err(|error| CliError::new(Kind::Io, format!("cannot render the report: {error}")))?;
     Ok(buffer)
 }

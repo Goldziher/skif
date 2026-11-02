@@ -159,7 +159,8 @@ fn sarif_structure() {
                 .as_str()
                 .unwrap()
                 .len(),
-            16
+            // 16 hex digits of the hash, then `:` and the occurrence number.
+            18
         );
     }
 }
@@ -271,8 +272,15 @@ fn sarif_fingerprints_of_identical_diagnostics_differ() {
         .iter()
         .map(|result| result["partialFingerprints"]["skifFingerprint/v1"].as_str().unwrap())
         .collect();
-    assert_eq!(prints.iter().collect::<std::collections::BTreeSet<_>>().len(), 3, "{prints:?}");
-    assert!(prints[0].ends_with(":1") && prints[1].ends_with(":2") && prints[2].ends_with(":1"), "{prints:?}");
+    assert_eq!(
+        prints.iter().collect::<std::collections::BTreeSet<_>>().len(),
+        3,
+        "{prints:?}"
+    );
+    // The report sorts by message, so `different` comes first; the two identical ones are numbered in order.
+    let mut occurrences: Vec<&str> = prints.iter().map(|print| &print[print.len() - 2..]).collect();
+    occurrences.sort_unstable();
+    assert_eq!(occurrences, [":1", ":1", ":2"], "{prints:?}");
 }
 
 #[test]
@@ -285,17 +293,29 @@ fn sarif_columns_are_utf16_when_the_source_is_known() {
     let known = options().with_source("package.json", source);
     let region = &sarif_of_one("package.json", Some(span), "m", &known)["runs"][0];
     assert_eq!(region["columnKind"], "utf16CodeUnits");
-    assert_eq!(region["results"][0]["locations"][0]["physicalLocation"]["region"]["startColumn"], 7);
+    assert_eq!(
+        region["results"][0]["locations"][0]["physicalLocation"]["region"]["startColumn"],
+        7
+    );
 
     let unknown = &sarif_of_one("package.json", Some(span), "m", &options())["runs"][0];
     assert_eq!(unknown["columnKind"], "unicodeCodePoints");
-    assert_eq!(unknown["results"][0]["locations"][0]["physicalLocation"]["region"]["startColumn"], 6);
+    assert_eq!(
+        unknown["results"][0]["locations"][0]["physicalLocation"]["region"]["startColumn"],
+        6
+    );
 }
 
 #[test]
 fn github_annotations_are_relative_to_the_repository_root() {
     let report = Report::new(
-        vec![diag("sorted-keys", Severity::Warning, "packages/a/package.json", None, "m")],
+        vec![diag(
+            "sorted-keys",
+            Severity::Warning,
+            "packages/a/package.json",
+            None,
+            "m",
+        )],
         1,
     );
     let with = RenderOptions::default().with_root("/repo/sub").with_repo_root("/repo");

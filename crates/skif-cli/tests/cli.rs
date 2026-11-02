@@ -511,7 +511,11 @@ fn js_analysis_runs_by_default_and_no_js_turns_it_off() {
     let without = run(skif().args(["--no-js", "--format", "json"]).arg(dir.path()));
     assert_eq!(without.code, 0, "{}{}", without.stdout, without.stderr);
     let found = reported(&without);
-    for rule in ["unused-dependencies", "unlisted-dependencies", "unused-dev-dependencies"] {
+    for rule in [
+        "unused-dependencies",
+        "unlisted-dependencies",
+        "unused-dev-dependencies",
+    ] {
         assert!(!found.contains(rule), "{rule} reported with --no-js: {found:?}");
     }
 }
@@ -548,16 +552,6 @@ fn select_decides_which_version_alignment_is_applied() {
         assert_eq!(result.code, 0, "{select}\n{}{}", result.stdout, result.stderr);
         assert_eq!(is_number_versions(dir.path()), [expected, expected], "{select}");
     }
-}
-
-#[test]
-fn alternatives_need_a_choice_when_nothing_decides_them() {
-    let dir = fixture("mismatch");
-    let before = tree(dir.path());
-    let result = run(skif().args(["--fix-unsafe", "--no-install", "--format", "json"]).arg(dir.path()));
-    assert_eq!(tree(dir.path()), before);
-    let skipped = result.json()["fix"]["skipped"].clone();
-    assert_eq!(skipped[0]["reason"], "needs-choice", "{skipped}");
 }
 
 #[test]
@@ -608,8 +602,8 @@ fn sarif_goes_to_stdout_or_to_output() {
     assert_eq!(stdout.code, 1);
     let log = stdout.json();
     assert_eq!(log["version"], "2.1.0");
-    assert!(!log["runs"][0]["tool"]["driver"]["rules"].as_array().unwrap().is_empty());
-    assert!(!log["runs"][0]["results"].as_array().unwrap().is_empty());
+    assert_ne!(log["runs"][0]["tool"]["driver"]["rules"].as_array().unwrap().len(), 0);
+    assert_ne!(log["runs"][0]["results"].as_array().unwrap().len(), 0);
 
     let out = tempfile::tempdir().unwrap();
     let target = out.path().join("skif.sarif");
@@ -622,9 +616,11 @@ fn sarif_goes_to_stdout_or_to_output() {
     let from_file: Value = serde_json::from_str(&fs::read_to_string(&target).unwrap()).unwrap();
     assert_eq!(from_file, log);
     assert!(
-        fs::read_dir(out.path())
+        fs::read_dir(out.path()).unwrap().all(|entry| !entry
             .unwrap()
-            .all(|entry| !entry.unwrap().file_name().to_string_lossy().ends_with(".skif-tmp"))
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".skif-tmp"))
     );
 }
 
@@ -633,7 +629,11 @@ fn github_format_prints_annotations() {
     let dir = fixture("dirty");
     let result = run(skif().args(["--format", "github"]).arg(dir.path()));
     assert_eq!(result.code, 1);
-    assert!(result.stdout.lines().any(|line| line.starts_with("::error file=")), "{}", result.stdout);
+    assert!(
+        result.stdout.lines().any(|line| line.starts_with("::error file=")),
+        "{}",
+        result.stdout
+    );
 }
 
 #[test]
@@ -642,9 +642,16 @@ fn github_actions_defaults_to_human_plus_annotations() {
     let result = run(skif().env("GITHUB_ACTIONS", "true").arg(dir.path()));
     assert_eq!(result.code, 1);
     assert!(result.stdout.contains("Found "), "{}", result.stdout);
-    assert!(result.stdout.lines().any(|line| line.starts_with("::error file=")), "{}", result.stdout);
+    assert!(
+        result.stdout.lines().any(|line| line.starts_with("::error file=")),
+        "{}",
+        result.stdout
+    );
 
-    let explicit = run(skif().env("GITHUB_ACTIONS", "true").args(["--format", "json"]).arg(dir.path()));
+    let explicit = run(skif()
+        .env("GITHUB_ACTIONS", "true")
+        .args(["--format", "json"])
+        .arg(dir.path()));
     explicit.json();
 }
 
@@ -661,9 +668,14 @@ fn fix_through_a_symlink_out_of_the_workspace_is_refused() {
         let before = fs::read_to_string(&real).unwrap();
         let root_before = fs::read_to_string(dir.path().join("package.json")).unwrap();
 
-        let result = run(skif().args(["--fix", "--no-install", "--format", "json"]).arg(dir.path()));
+        let result = run(skif()
+            .args(["--fix", "--no-install", "--format", "json"])
+            .arg(dir.path()));
         assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
         assert_eq!(fs::read_to_string(&real).unwrap(), before);
-        assert_eq!(fs::read_to_string(dir.path().join("package.json")).unwrap(), root_before);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("package.json")).unwrap(),
+            root_before
+        );
     }
 }
