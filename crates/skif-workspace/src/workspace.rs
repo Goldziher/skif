@@ -29,6 +29,8 @@ pub enum WorkspaceSource {
     YarnNohoistWorkspaces,
     /// `packages:` in `pnpm-workspace.yaml`.
     PnpmWorkspaceYaml,
+    /// Nothing declares a workspace: the root package is the only package.
+    SinglePackage,
 }
 
 /// What one workspace pattern matched.
@@ -296,7 +298,12 @@ impl Workspace {
         } else {
             from_json.or(yaml_declared)
         };
-        let declared = chosen.ok_or_else(|| WorkspaceError::NoWorkspaces(root.clone()))?;
+        // A plain package with no workspace declaration is linted on its own.
+        let declared = chosen.unwrap_or_else(|| Declared {
+            source: WorkspaceSource::SinglePackage,
+            file: root_package.manifest.path.clone(),
+            patterns: Vec::new(),
+        });
 
         let mut catalogs = pnpm_config.map(|parsed| parsed.catalogs).unwrap_or_default();
         catalogs.merge(catalogs::from_package_json(

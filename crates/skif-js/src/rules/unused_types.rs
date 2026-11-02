@@ -5,11 +5,11 @@ use super::JsRule;
 use super::unused_exports::report;
 use crate::analysis::JsAnalysis;
 
-/// Metadata of `unused-types`.
+/// Metadata of `unused-types`. Warning until the rule reaches corpus parity with knip; `unused-dependencies`, `unlisted-dependencies` and `unresolved-imports` stay errors.
 pub static META: RuleMeta = RuleMeta {
     id: "unused-types",
     category: Category::Js,
-    default: Some(Severity::Error),
+    default: Some(Severity::Warning),
     fixable: Fixability::Unsafe,
     summary: "An exported type or interface is not imported by any other module.",
 };

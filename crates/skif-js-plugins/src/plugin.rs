@@ -96,6 +96,42 @@ pub enum PluginInput {
     Script(String),
     /// A glob of files the config owns.
     Ignore(String),
+    /// A module alias (`resolve.alias`, `compilerOptions.paths`): imports of `find` and `find/…` lead to `target`.
+    ///
+    /// `target` is a directory or file relative to the workspace directory, `None` when the config computes it.
+    Alias {
+        /// The aliased prefix, without a trailing `/` or `*`.
+        find: String,
+        /// Where it points.
+        target: Option<String>,
+    },
+    /// Build output and the source directory it comes from (`outDir` and `rootDir`), relative to the workspace.
+    BuildDir {
+        /// The output directory.
+        out_dir: String,
+        /// The source directory.
+        root_dir: String,
+    },
+    /// An `exports` condition that selects source files (`customConditions`).
+    Condition(String),
+}
+
+/// A module alias read from a config file; see [`PluginInput::Alias`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathAlias {
+    /// The aliased prefix.
+    pub find: String,
+    /// The target relative to the workspace directory, when statically known.
+    pub target: Option<String>,
+}
+
+/// Build output and its source directory; see [`PluginInput::BuildDir`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildDir {
+    /// The output directory, relative to the workspace directory.
+    pub out_dir: String,
+    /// The source directory, relative to the workspace directory.
+    pub root_dir: String,
 }
 
 /// The statically extracted content of a plugin's config file.
@@ -138,6 +174,9 @@ pub struct PluginContext<'a> {
     pub package_name: Option<&'a str>,
     /// Names of every dependency of the workspace, all kinds.
     pub dependencies: &'a [String],
+    /// Names of the dependencies of ancestor workspaces. A plugin whose enabler they satisfy is enabled here too,
+    /// as the tool is installed once for the whole repository.
+    pub inherited_dependencies: &'a [String],
     /// The workspace's scripts.
     pub scripts: &'a IndexMap<String, String>,
     /// File access for config files.
@@ -151,6 +190,12 @@ impl PluginContext<'_> {
     #[must_use]
     pub fn has_dependency(&self, name: &str) -> bool {
         self.dependencies.iter().any(|d| d == name)
+    }
+
+    /// Whether the workspace or one of its ancestors depends on `name`.
+    #[must_use]
+    pub fn has_dependency_in_ancestors(&self, name: &str) -> bool {
+        self.has_dependency(name) || self.inherited_dependencies.iter().any(|d| d == name)
     }
 }
 
@@ -172,6 +217,12 @@ pub trait Plugin: Send + Sync {
     /// Reads the plugin's parsed config file and returns what it references. The default returns
     /// nothing, which is all a purely declarative plugin needs.
     fn resolve_config(&self, _config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        Vec::new()
+    }
+
+    /// What the plugin knows by convention when it is enabled but no config file exists, such as Vite's
+    /// `index.html`. The default returns nothing.
+    fn resolve_without_config(&self, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         Vec::new()
     }
 }
@@ -211,4 +262,10 @@ pub struct PluginOutput {
     pub provided_binaries: Vec<String>,
     /// Globs of files that must not be reported as unused.
     pub ignore: Vec<String>,
+    /// Module aliases the configs declare.
+    pub aliases: Vec<PathAlias>,
+    /// Output directories and the source directories they are built from.
+    pub build_dirs: Vec<BuildDir>,
+    /// `exports` conditions that select source files.
+    pub conditions: Vec<String>,
 }

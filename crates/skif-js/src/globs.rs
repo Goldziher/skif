@@ -10,12 +10,15 @@ pub(crate) struct Globs {
     has_include: bool,
 }
 
-fn compile(pattern: &str) -> Option<Glob> {
+fn compile(pattern: &str) -> Vec<Glob> {
     let pattern = pattern.trim().trim_start_matches("./").trim_end_matches('!');
     if pattern.is_empty() {
-        return None;
+        return Vec::new();
     }
-    GlobBuilder::new(pattern).literal_separator(true).build().ok()
+    skif_js_plugins::glob::expand_empty_alternatives(pattern)
+        .iter()
+        .filter_map(|variant| GlobBuilder::new(variant).literal_separator(true).build().ok())
+        .collect()
 }
 
 fn build(globs: Vec<Glob>) -> GlobSet {
@@ -75,7 +78,8 @@ impl Names {
     {
         let globs = patterns
             .into_iter()
-            .filter_map(|pattern| Glob::new(pattern.as_ref()).ok())
+            .flat_map(|pattern| skif_js_plugins::glob::expand_empty_alternatives(pattern.as_ref()))
+            .filter_map(|pattern| Glob::new(&pattern).ok())
             .collect();
         Self { set: build(globs) }
     }
