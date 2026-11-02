@@ -3,12 +3,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use skif_config::{Config, Js};
+use globset::Glob;
+use skif_config::{Config, Js, JsWorkspace};
 use skif_core::FileSystem;
 use skif_workspace::{PackageId, Workspace};
 
 use crate::globs::{Globs, Names};
-use crate::input::{InputRequest, InputSource, WorkspaceInputs};
+use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
 use crate::scripts::{self, ScriptFacts};
 
 const EXTENSIONS: &str = "{js,mjs,cjs,jsx,ts,tsx,mts,cts}";
@@ -17,6 +18,20 @@ fn default_entry() -> Vec<String> {
     vec![
         format!("{{index,cli,main}}.{EXTENSIONS}"),
         format!("src/{{index,cli,main}}.{EXTENSIONS}"),
+    ]
+}
+
+/// Ambient declaration files load without being imported.
+fn ambient_declarations() -> Vec<String> {
+    vec!["**/*.d.{ts,mts,cts}".to_owned()]
+}
+
+/// Directories that hold tests and end-to-end suites, which tools run without any file importing them.
+fn test_directories() -> Vec<String> {
+    vec![
+        format!("{{test,tests,e2e,cypress}}/**/*.{EXTENSIONS}"),
+        format!("src/{{test,tests,e2e}}/**/*.{EXTENSIONS}"),
+        format!("**/__mocks__/**/*.{EXTENSIONS}"),
     ]
 }
 
@@ -55,10 +70,8 @@ fn configured(js: &Js, dir: &str, is_root: bool) -> Configured {
             ignore_binaries: js.ignore_binaries.clone(),
         };
     }
-    js.workspaces
-        .iter()
-        .find(|(key, _)| normalize_dir(key) == dir)
-        .map(|(_, workspace)| Configured {
+    workspace_override(js, dir)
+        .map(|workspace| Configured {
             entry: workspace.entry.clone(),
             project: workspace.project.clone(),
             ignore: workspace.ignore.clone(),
@@ -66,6 +79,21 @@ fn configured(js: &Js, dir: &str, is_root: bool) -> Configured {
             ignore_binaries: workspace.ignore_binaries.clone(),
         })
         .unwrap_or_default()
+}
+
+/// The `[js.workspaces]` table for `dir`: an exact key wins over a glob key such as `packages/*`.
+fn workspace_override<'a>(js: &'a Js, dir: &str) -> Option<&'a JsWorkspace> {
+    js.workspaces
+        .iter()
+        .find(|(key, _)| normalize_dir(key) == dir)
+        .or_else(|| {
+            js.workspaces.iter().find(|(key, _)| {
+                let key = normalize_dir(key);
+                key.contains(['*', '?', '[', '{'])
+                    && Glob::new(key).is_ok_and(|glob| glob.compile_matcher().is_match(dir))
+            })
+        })
+        .map(|(_, workspace)| workspace)
 }
 
 /// The settings of one workspace package.
@@ -84,6 +112,13 @@ pub(crate) struct PackageSetup {
     /// Binaries run by plugins.
     pub referenced_binaries: Vec<String>,
     pub scripts: ScriptFacts,
+    /// Tool configuration files, absolute.
+    pub config_files: Vec<PathBuf>,
+    /// Aliases declared by the package's tool configuration.
+    pub aliases: Vec<PathAlias>,
+    pub build_dirs: Vec<BuildDir>,
+    /// Extra `exports` conditions that select source files.
+    pub conditions: Vec<String>,
 }
 
 /// Settings for the whole workspace.
@@ -147,8 +182,10 @@ impl Setup {
                 } else {
                     user.entry
                 };
+                entry.extend(ambient_declarations());
                 if !production {
                     entry.extend(test_files());
+                    entry.extend(test_directories());
                     entry.extend(plugin.entry);
                 }
                 entry.extend(plugin.production_entry);
@@ -160,7 +197,12 @@ impl Setup {
                 };
                 project.extend(plugin.project);
                 if production {
-                    project.extend(test_files().into_iter().map(|glob| format!("!{glob}")));
+                    project.extend(
+                        test_files()
+                            .into_iter()
+                            .chain(test_directories())
+                            .map(|glob| format!("!{glob}")),
+                    );
                 }
 
                 let mut ignore = user.ignore;
@@ -183,6 +225,10 @@ impl Setup {
                     referenced_dependencies,
                     referenced_binaries: plugin.binaries,
                     scripts,
+                    config_files: plugin.config_files,
+                    aliases: plugin.aliases,
+                    build_dirs: plugin.build_dirs,
+                    conditions: plugin.conditions,
                 })
             })
             .collect();

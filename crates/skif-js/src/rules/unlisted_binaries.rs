@@ -4,11 +4,11 @@ use skif_lint::Emitter;
 use super::JsRule;
 use crate::analysis::JsAnalysis;
 
-/// Metadata of `unlisted-binaries`.
+/// Metadata of `unlisted-binaries`. Warning until the rule reaches corpus parity with knip; `unused-dependencies`, `unlisted-dependencies` and `unresolved-imports` stay errors.
 pub static META: RuleMeta = RuleMeta {
     id: "unlisted-binaries",
     category: Category::Js,
-    default: Some(Severity::Error),
+    default: Some(Severity::Warning),
     fixable: Fixability::None,
     summary: "A script runs a binary that no listed dependency provides.",
 };

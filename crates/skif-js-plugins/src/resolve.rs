@@ -10,7 +10,8 @@ use skif_js_syntax::ConfigValue;
 use crate::config_load::{from_json, load_config};
 use crate::files::find_files;
 use crate::plugin::{
-    ConfigAst, DepRef, Enabler, Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
+    BuildDir, ConfigAst, DepRef, Enabler, PathAlias, Plugin, PluginContext, PluginId, PluginInput, PluginOutput,
+    PluginSpec,
 };
 use crate::registry;
 use crate::scripts::{ScriptContext, parse_script};
@@ -56,8 +57,12 @@ fn detected(spec: &PluginSpec, ctx: &PluginContext<'_>) -> bool {
 
 fn enabler_matches(enabler: &Enabler, ctx: &PluginContext<'_>) -> bool {
     match *enabler {
-        Enabler::Dependency(name) => ctx.has_dependency(name),
-        Enabler::DependencyPrefix(prefix) => ctx.dependencies.iter().any(|d| d.starts_with(prefix)),
+        Enabler::Dependency(name) => ctx.has_dependency_in_ancestors(name),
+        Enabler::DependencyPrefix(prefix) => ctx
+            .dependencies
+            .iter()
+            .chain(ctx.inherited_dependencies)
+            .any(|d| d.starts_with(prefix)),
         Enabler::ManifestNamePrefix(prefix) => ctx.package_name.is_some_and(|n| n.starts_with(prefix)),
         Enabler::ManifestNameContains(text) => ctx.package_name.is_some_and(|n| n.contains(text)),
         Enabler::File(glob) => !find_files(ctx.fs, ctx.dir, &[glob.to_string()]).is_empty(),
@@ -107,6 +112,19 @@ impl Collector<'_, '_> {
                 }
                 PluginInput::Script(text) => self.script(&text, from),
                 PluginInput::Ignore(glob) => push_unique(&mut self.out.ignore, glob),
+                PluginInput::Alias { find, target } => {
+                    let alias = PathAlias { find, target };
+                    if !self.out.aliases.contains(&alias) {
+                        self.out.aliases.push(alias);
+                    }
+                }
+                PluginInput::BuildDir { out_dir, root_dir } => {
+                    let dir = BuildDir { out_dir, root_dir };
+                    if !self.out.build_dirs.contains(&dir) {
+                        self.out.build_dirs.push(dir);
+                    }
+                }
+                PluginInput::Condition(name) => push_unique(&mut self.out.conditions, name),
             }
         }
     }
@@ -177,6 +195,7 @@ fn run_plugin(
 
     let mut visited = BTreeSet::new();
     drain(&mut collector, plugin, &mut visited);
+    let found_config = !collector.out.config_files.is_empty();
 
     if let (Some(key), Some(manifest)) = (spec.package_json_key, manifest)
         && let Some(value) = manifest.get(key)
@@ -193,6 +212,10 @@ fn run_plugin(
             collector.out.config_files.push(path.clone());
         }
         collector.absorb(inputs, &path, 0);
+        drain(&mut collector, plugin, &mut visited);
+    } else if !found_config {
+        let inputs = plugin.resolve_without_config(ctx);
+        collector.absorb(inputs, &ctx.dir.join("package.json"), 0);
         drain(&mut collector, plugin, &mut visited);
     }
     collector.out

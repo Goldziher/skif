@@ -28,6 +28,10 @@ impl Plugin for Storybook {
         &SPEC
     }
 
+    fn resolve_without_config(&self, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        vec![PluginInput::Entry(DEFAULT_STORIES.to_string())]
+    }
+
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let value = config.value;
         let mut out = Vec::new();

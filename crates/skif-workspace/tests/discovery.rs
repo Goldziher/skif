@@ -82,9 +82,11 @@ fn yarn_nohoist() {
 }
 
 #[test]
-fn no_workspace_pnpm() {
-    let error = Workspace::discover(&fixture("no-workspace-pnpm"), &Config::default()).unwrap_err();
-    assert!(matches!(error, WorkspaceError::NoWorkspaces(_)));
+fn a_package_without_a_workspace_is_a_single_package() {
+    let workspace = Workspace::discover(&fixture("no-workspace-pnpm"), &Config::default()).unwrap();
+    assert_eq!(workspace.facts.source, WorkspaceSource::SinglePackage);
+    assert!(workspace.packages.is_empty());
+    assert_eq!(workspace.facts.patterns, [] as [skif_workspace::PatternFact; 0]);
 }
 
 #[test]

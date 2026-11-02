@@ -5,11 +5,11 @@ use super::JsRule;
 use super::support::file_location;
 use crate::analysis::JsAnalysis;
 
-/// Metadata of `unused-files`.
+/// Metadata of `unused-files`. Warning until the rule reaches corpus parity with knip; `unused-dependencies`, `unlisted-dependencies` and `unresolved-imports` stay errors.
 pub static META: RuleMeta = RuleMeta {
     id: "unused-files",
     category: Category::Js,
-    default: Some(Severity::Error),
+    default: Some(Severity::Warning),
     fixable: Fixability::Unsafe,
     summary: "A project file is not reachable from any entry file.",
 };

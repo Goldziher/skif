@@ -5,11 +5,11 @@ use super::JsRule;
 use super::support::report_unused_dependencies;
 use crate::analysis::JsAnalysis;
 
-/// Metadata of `unused-dev-dependencies`.
+/// Metadata of `unused-dev-dependencies`. Warning until the rule reaches corpus parity with knip; `unused-dependencies`, `unlisted-dependencies` and `unresolved-imports` stay errors.
 pub static META: RuleMeta = RuleMeta {
     id: "unused-dev-dependencies",
     category: Category::Js,
-    default: Some(Severity::Error),
+    default: Some(Severity::Warning),
     fixable: Fixability::Unsafe,
     summary: "A package in `devDependencies` is never imported, required or run by a script.",
 };
