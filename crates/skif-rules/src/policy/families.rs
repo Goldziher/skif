@@ -113,7 +113,10 @@ impl Rule for UnsyncedDependencyFamily {
                         )
                         .package(package.display_name())
                         .dependency(entry.name.clone())
-                        .help(format!("align `{}` with the other `{}` packages", entry.name, family.name))
+                        .help(format!(
+                            "align `{}` with the other `{}` packages",
+                            entry.name, family.name
+                        ))
                         .build(),
                     );
                 }
@@ -129,7 +132,10 @@ mod tests {
 
     fn names(toml: &str) -> Vec<String> {
         let config = Config::from_toml_str(toml).unwrap();
-        effective_families(&config).into_iter().map(|family| family.name).collect()
+        effective_families(&config)
+            .into_iter()
+            .map(|family| family.name)
+            .collect()
     }
 
     #[test]

@@ -25,7 +25,9 @@ pub struct WorkspaceProtocol;
 
 /// The workspace-relative directory a `link:` or `file:` specifier of a dependency in `package` points at.
 fn path_target(package: &Package, specifier: &str) -> Option<String> {
-    let path = ["link:", "file:"].iter().find_map(|prefix| specifier.strip_prefix(prefix))?;
+    let path = ["link:", "file:"]
+        .iter()
+        .find_map(|prefix| specifier.strip_prefix(prefix))?;
     if path.starts_with('/') {
         return None;
     }

@@ -116,6 +116,55 @@ expression: json.stdout
       "default": "error",
       "fixable": "none",
       "summary": "A workspace package has a `version` that is not an exact semver version, so dependents cannot align with it."
+    },
+    {
+      "id": "catalog-not-used",
+      "category": "catalog",
+      "default": "warning",
+      "fixable": "sometimes",
+      "summary": "A dependency that has a catalog entry is declared with a version instead of `catalog:`."
+    },
+    {
+      "id": "catalog-mismatch",
+      "category": "catalog",
+      "default": "error",
+      "fixable": "sometimes",
+      "summary": "A dependency is declared with a version while other packages take it from a catalog."
+    },
+    {
+      "id": "catalog-missing-entry",
+      "category": "catalog",
+      "default": "warning",
+      "fixable": "sometimes",
+      "summary": "A dependency that should come from a catalog has no catalog entry."
+    },
+    {
+      "id": "unresolved-catalog-references",
+      "category": "catalog",
+      "default": "error",
+      "fixable": "none",
+      "summary": "A `catalog:` specifier names a catalog or an entry that does not exist."
+    },
+    {
+      "id": "unused-catalog-entries",
+      "category": "catalog",
+      "default": "warning",
+      "fixable": "none",
+      "summary": "A catalog entry that no manifest references."
+    },
+    {
+      "id": "workspace-protocol",
+      "category": "policy",
+      "default": "error",
+      "fixable": "none",
+      "summary": "A dependency on a workspace package does not use the `workspace:` protocol."
+    },
+    {
+      "id": "unsynced-dependency-family",
+      "category": "policy",
+      "default": "error",
+      "fixable": "none",
+      "summary": "Members of a dependency family declared in one package are on different versions."
     }
   ]
 }

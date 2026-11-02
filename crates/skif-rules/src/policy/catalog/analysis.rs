@@ -14,7 +14,7 @@ use skif_workspace::{DependencyEntry, Package, PackageId, Workspace};
 
 use super::names::{CatalogName, defined_catalogs, defining, referenced};
 use super::support::{active_packages, set_specifier, value_location};
-use super::target::{CatalogFile, add_entry, create_default_catalog, creatable_file, existing_file};
+use super::target::{CatalogFile, add_entry, creatable_file, create_default_catalog, existing_file};
 
 /// A dependency entry together with the package that declares it.
 #[derive(Debug, Clone, Copy)]
@@ -113,7 +113,10 @@ fn usages<'w>(workspace: &'w Workspace, exclude: &Selector) -> BTreeMap<&'w str,
 /// The version the new catalog entry gets: the shared specifier, or the highest one when all are semver.
 fn entry_version(plain: &[Instance<'_>]) -> Option<String> {
     let first = plain.first()?;
-    if plain.iter().all(|instance| instance.entry.specifier == first.entry.specifier) {
+    if plain
+        .iter()
+        .all(|instance| instance.entry.specifier == first.entry.specifier)
+    {
         return Some(first.entry.specifier.clone());
     }
     if plain
@@ -179,6 +182,10 @@ fn decide_policy(workspace: &Workspace, name: &str, plain: &[Instance<'_>]) -> D
 
 /// The catalog every resolvable `catalog:` reference to `name` selects. Outer `None`: no sibling uses a catalog;
 /// inner `None`: siblings select different catalogs.
+#[allow(
+    clippy::option_option,
+    reason = "the two absences mean different things to the caller"
+)]
 fn sibling_catalog(workspace: &Workspace, name: &str, references: &[Instance<'_>]) -> Option<Option<CatalogName>> {
     let catalogs: Vec<CatalogName> = references
         .iter()

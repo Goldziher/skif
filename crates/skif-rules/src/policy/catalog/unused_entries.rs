@@ -46,7 +46,10 @@ impl Rule for UnusedCatalogEntries {
             .iter()
             .map(|(name, entries)| (CatalogName::Named(name.clone()), entries));
         for (catalog, entries) in default.chain(named) {
-            for name in entries.keys().filter(|name| !used.contains(&(catalog.clone(), name.as_str()))) {
+            for name in entries
+                .keys()
+                .filter(|name| !used.contains(&(catalog.clone(), name.as_str())))
+            {
                 out.emit(
                     diagnostic(
                         &META,
