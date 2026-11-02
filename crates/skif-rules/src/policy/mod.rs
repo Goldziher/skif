@@ -12,6 +12,7 @@ mod catalog;
 mod families;
 mod groups;
 pub(crate) mod instances;
+mod specifiers;
 mod report;
 mod state;
 mod visit;

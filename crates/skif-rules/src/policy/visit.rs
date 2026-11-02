@@ -26,6 +26,7 @@ use skif_specifier::semver_range::SemverRange;
 
 use super::groups::{Assignment, Policy};
 use super::instances::{InstanceId, Instances};
+use super::specifiers::floor_version;
 use super::state::{State, Verdict};
 
 /// A state together with the specifier the instance should have.
@@ -409,14 +410,19 @@ impl<'a, 'w> Visitor<'a, 'w> {
         let (floating, ranked): (Vec<InstanceId>, Vec<InstanceId>) =
             ids.iter().copied().partition(|&id| is_floating(self.spec(id)));
         let target = {
-            let candidates = ranked
+            let candidates: Vec<Arc<Specifier>> = ranked
                 .iter()
                 .copied()
                 .filter(|&id| self.spec(id).get_node_version().is_some())
-                .map(|id| self.with_preferred(id).unwrap_or_else(|| Arc::clone(self.spec(id))));
+                .map(|id| self.with_preferred(id).unwrap_or_else(|| Arc::clone(self.spec(id))))
+                .collect();
+            // Ranked by the lowest version each admits, so `^18` never outranks `^18.3.1`.
+            let order = |a: &Arc<Specifier>, b: &Arc<Specifier>| {
+                floor_version(a).cmp(&floor_version(b)).then_with(|| a.cmp(b))
+            };
             match prefer {
-                Prefer::Lowest => candidates.min(),
-                _ => candidates.max(),
+                Prefer::Lowest => candidates.into_iter().min_by(order),
+                _ => candidates.into_iter().max_by(order),
             }
         };
         let Some(target) = target else {
@@ -875,6 +881,21 @@ mod tests {
                 one("lib", "react", "DiffersToPin"),
                 one("tool", "react", "DiffersToPin")
             ]
+        );
+    }
+
+    #[test]
+    fn a_shorthand_never_outranks_a_full_version_of_its_line() {
+        let app = manifest("app", "1.0.0", r#""react":"^18""#);
+        let lib = manifest("lib", "1.0.0", r#""react":"^18.3.1""#);
+        let members = [("app", app.as_str()), ("lib", lib.as_str())];
+        assert_eq!(
+            states("", &members),
+            [one("app", "react", "DiffersToHighestOrLowestSemver")]
+        );
+        assert_eq!(
+            states("[policy]\nprefer = \"lowest\"\n", &members),
+            [one("lib", "react", "DiffersToHighestOrLowestSemver")]
         );
     }
 
