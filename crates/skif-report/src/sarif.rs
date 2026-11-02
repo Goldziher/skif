@@ -259,7 +259,11 @@ fn region(span: &Span, path: &str, options: &RenderOptions, utf16: bool) -> Regi
 fn artifact(options: &RenderOptions, path: &Path) -> ArtifactLocation {
     let shown = options.repo_path(path);
     if is_absolute_text(&shown) {
-        let rooted = if shown.starts_with('/') { shown } else { format!("/{shown}") };
+        let rooted = if shown.starts_with('/') {
+            shown
+        } else {
+            format!("/{shown}")
+        };
         ArtifactLocation {
             uri: format!("file://{}", encode_uri(&rooted)),
             uri_base_id: None,
@@ -419,9 +423,15 @@ mod tests {
     fn paths_outside_the_workspace_become_file_uris() {
         let options = RenderOptions::default().with_root("/repo");
         let inside = artifact(&options, Path::new("/repo/a b/package.json"));
-        assert_eq!((inside.uri.as_str(), inside.uri_base_id), ("a%20b/package.json", Some(SRCROOT)));
+        assert_eq!(
+            (inside.uri.as_str(), inside.uri_base_id),
+            ("a%20b/package.json", Some(SRCROOT))
+        );
         let outside = artifact(&options, Path::new("/elsewhere/x.json"));
-        assert_eq!((outside.uri.as_str(), outside.uri_base_id), ("file:///elsewhere/x.json", None));
+        assert_eq!(
+            (outside.uri.as_str(), outside.uri_base_id),
+            ("file:///elsewhere/x.json", None)
+        );
         let drive = artifact(&options, Path::new("C:/x/y.json"));
         assert_eq!(drive.uri, "file:///C%3A/x/y.json");
     }

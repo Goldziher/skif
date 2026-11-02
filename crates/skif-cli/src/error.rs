@@ -16,6 +16,7 @@ pub enum Kind {
 }
 
 impl Kind {
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Config => "config",
@@ -48,6 +49,7 @@ impl CliError {
         }
     }
 
+    #[must_use]
     pub fn io(context: &str, path: &Path, error: &std::io::Error) -> Self {
         Self {
             path: Some(slash(path)),
@@ -55,6 +57,7 @@ impl CliError {
         }
     }
 
+    #[must_use]
     pub fn ci_refusal() -> Self {
         Self::new(
             Kind::CiRefusal,

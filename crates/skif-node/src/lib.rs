@@ -108,7 +108,9 @@ fn outcome(path: &str, overrides: &ConfigOverrides) -> LintOutcome {
 pub fn lint(path: String, options: Option<LintOptions>) -> Result<String> {
     let overrides = options.unwrap_or_default().overrides();
     match outcome(&path, &overrides) {
-        LintOutcome { report: Some(report), .. } => Ok(report),
+        LintOutcome {
+            report: Some(report), ..
+        } => Ok(report),
         LintOutcome { error, .. } => Err(napi::Error::from_reason(
             error.map_or_else(|| "the lint produced no report".to_owned(), |failure| failure.message),
         )),
@@ -128,14 +130,16 @@ impl Task for LintTask {
     fn compute(&mut self) -> Result<LintOutcome> {
         let path = std::mem::take(&mut self.path);
         let overrides = std::mem::take(&mut self.overrides);
-        Ok(catch_unwind(AssertUnwindSafe(|| outcome(&path, &overrides))).unwrap_or_else(|payload| LintOutcome {
-            report: None,
-            error: Some(LintFailure {
-                kind: "internal".to_owned(),
-                message: panic_to_error(payload).reason,
-                path: None,
+        Ok(
+            catch_unwind(AssertUnwindSafe(|| outcome(&path, &overrides))).unwrap_or_else(|payload| LintOutcome {
+                report: None,
+                error: Some(LintFailure {
+                    kind: "internal".to_owned(),
+                    message: panic_to_error(payload).reason,
+                    path: None,
+                }),
             }),
-        }))
+        )
     }
 
     fn resolve(&mut self, _env: Env, output: LintOutcome) -> Result<LintOutcome> {
@@ -146,6 +150,7 @@ impl Task for LintTask {
 /// Like [`lint`], without blocking the event loop. Resolves with a [`LintOutcome`]: `report` on success, or a
 /// structured `error` (kind, message, path) instead of a rejection when the lint cannot run.
 #[napi(ts_return_type = "Promise<LintOutcome>")]
+#[must_use]
 pub fn lint_async(path: String, options: Option<LintOptions>) -> AsyncTask<LintTask> {
     AsyncTask::new(LintTask {
         path,
@@ -155,8 +160,13 @@ pub fn lint_async(path: String, options: Option<LintOptions>) -> AsyncTask<LintT
 
 /// Panics on purpose, so the test suite can prove a panic reaches JavaScript as an exception. Compiled only with
 /// the `test-hooks` feature, which release builds never enable.
+///
+/// # Panics
+///
+/// Always.
 #[cfg(feature = "test-hooks")]
 #[napi(catch_unwind)]
+#[must_use]
 pub fn panic_for_test() -> u32 {
     panic!("skif test hook: deliberate panic");
 }

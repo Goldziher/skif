@@ -7,7 +7,11 @@ use std::path::Path;
 /// Only Windows treats `\` as a separator; on other platforms it is an ordinary file name character.
 pub(crate) fn normalize(path: &Path) -> String {
     let text = path.to_string_lossy();
-    if cfg!(windows) { text.replace('\\', "/") } else { text.into_owned() }
+    if cfg!(windows) {
+        text.replace('\\', "/")
+    } else {
+        text.into_owned()
+    }
 }
 
 /// Whether a `/`-separated path string is absolute (`/x`, `C:/x`).
@@ -39,7 +43,13 @@ mod tests {
 
     #[test]
     fn absolute_text_needs_a_drive_separator() {
-        for (path, expected) in [("/x", true), ("C:/x", true), ("a:b", false), ("a:", false), ("src/a.json", false)] {
+        for (path, expected) in [
+            ("/x", true),
+            ("C:/x", true),
+            ("a:b", false),
+            ("a:", false),
+            ("src/a.json", false),
+        ] {
             assert_eq!(is_absolute_text(path), expected, "{path}");
         }
     }
@@ -48,7 +58,10 @@ mod tests {
     #[test]
     fn windows_separators_become_slashes() {
         assert_eq!(normalize(Path::new("a\\b\\package.json")), "a/b/package.json");
-        assert_eq!(relativize(Path::new("C:\\repo\\a\\b.json"), Some(Path::new("C:\\repo"))), "a/b.json");
+        assert_eq!(
+            relativize(Path::new("C:\\repo\\a\\b.json"), Some(Path::new("C:\\repo"))),
+            "a/b.json"
+        );
     }
 
     #[cfg(not(windows))]

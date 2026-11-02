@@ -5,9 +5,7 @@ use std::io::{self, Write};
 
 use inquire::InquireError;
 use serde_json::{Value, json};
-use skif::{
-    Alternatives, FixPlan, FixSafety, FixSelection, Prefer, Report, SkipReason, preferred_alternative, slash,
-};
+use skif::{Alternatives, FixPlan, FixSafety, FixSelection, Prefer, Report, SkipReason, preferred_alternative, slash};
 use skif_report::escape_controls;
 
 use crate::args::{Format, LintArgs};

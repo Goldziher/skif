@@ -269,14 +269,22 @@ fn alternatives_that_do_not_name_the_preferred_version_still_need_a_choice() {
     let fs = fs();
     let workspace = workspace(&fs);
     let alternatives = vec![
-        fix("pin one", FixSafety::Unsafe, vec![set_version("packages/a/package.json", "1.0.1")]),
-        fix("pin two", FixSafety::Unsafe, vec![set_version("packages/a/package.json", "1.0.2")]),
+        fix(
+            "pin one",
+            FixSafety::Unsafe,
+            vec![set_version("packages/a/package.json", "1.0.1")],
+        ),
+        fix(
+            "pin two",
+            FixSafety::Unsafe,
+            vec![set_version("packages/a/package.json", "1.0.2")],
+        ),
     ];
     assert_eq!(preferred_alternative(&alternatives, Prefer::Highest), None);
     let report = report_of(vec![("demo-alt-unnamed", alternatives)]);
     let selection = FixSelection::new(FixSafety::Unsafe).with_alternatives(Alternatives::Preferred(Prefer::Highest));
     let plan = apply_fixes(&workspace, &report, &selection, &fs).unwrap();
-    assert!(plan.changes.is_empty());
+    assert_eq!(plan.changes, [] as [skif::FileChange; 0]);
     assert!(matches!(plan.skipped[0].reason, SkipReason::NeedsChoice { .. }));
 }
 
