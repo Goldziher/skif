@@ -53,7 +53,7 @@ impl RuleProvider for PolicyProvider {
     fn run(&self, cx: &LintContext<'_>, enabled: &EnabledRules, out: &mut Emitter<'_>) -> Result<(), ProviderError> {
         if rules().iter().any(|meta| enabled.contains(meta.id)) {
             let analysis = analysis::Analysis::run(cx.workspace, cx.config);
-            report::emit(&analysis, out);
+            report::emit(&analysis, cx.config_file(), out);
         }
         Ok(())
     }
@@ -208,6 +208,35 @@ mod tests {
         assert_eq!(diagnostic.location.path.to_str(), Some("skif.toml"));
         assert!(diagnostic.package.is_none() && diagnostic.dependency.is_none() && !diagnostic.is_fixable());
         assert!(diagnostic.message.contains("ghosts"), "{}", diagnostic.message);
+    }
+
+    #[test]
+    fn group_diagnostics_point_at_the_configuration_file_the_host_names() {
+        let root_json = root("");
+        let files = files(&root_json);
+        let config = config(
+            "[[version-groups]]\ndependencies = [\"ghost\"]\npolicy = \"pinned\"\npin = \"1.0.0\"\n\n[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"\"\n",
+        );
+        let options = skif_lint::RunOptions {
+            config_path: Some(std::path::Path::new("config/skif.toml")),
+            ..skif_lint::RunOptions::default()
+        };
+        let named = crate::testing::lint_with("policy-conflict", &files, &config, &options);
+        assert!(named.iter().any(|d| d.detail.as_deref() == Some("UnusedGroup")));
+        assert!(named.iter().any(|d| d.detail.as_deref() == Some("InvalidPin")));
+        assert!(
+            named
+                .iter()
+                .all(|diagnostic| diagnostic.location.path.to_str() == Some("config/skif.toml")),
+            "{named:#?}"
+        );
+        let unnamed = lint("policy-conflict", &files, &config);
+        assert!(
+            unnamed
+                .iter()
+                .all(|diagnostic| diagnostic.location.path.to_str() == Some("skif.toml")),
+            "{unnamed:#?}"
+        );
     }
 
     #[test]

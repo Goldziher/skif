@@ -1,6 +1,6 @@
 //! Turns the verdicts of an [`Analysis`] into diagnostics.
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use skif_core::{Diagnostic, Fix, FixSafety, Location, Related, diagnostic};
 use skif_lint::Emitter;
@@ -9,13 +9,9 @@ use super::analysis::{Analysis, ConfiguredGroup};
 use super::instances::{Instance, InstanceId};
 use super::state::{State, Verdict};
 
-/// The configuration file the configuration-level diagnostics point at.
-///
-/// The lint context does not carry the path the configuration was loaded from, so this is the default name.
-const CONFIG_FILE: &str = "skif.toml";
-
-/// Emits one diagnostic per non-valid instance, then one per unused group and one per unusable pin.
-pub(super) fn emit(analysis: &Analysis<'_>, out: &mut Emitter<'_>) {
+/// Emits one diagnostic per non-valid instance, then one per unused group and one per unusable pin; the latter two
+/// point at `config_file`.
+pub(super) fn emit(analysis: &Analysis<'_>, config_file: &Path, out: &mut Emitter<'_>) {
     for (id, instance) in analysis.instances.iter() {
         if let Some(verdict) = &analysis.verdicts[id.index()] {
             out.emit(instance_diagnostic(analysis, id, instance, verdict));
@@ -24,6 +20,7 @@ pub(super) fn emit(analysis: &Analysis<'_>, out: &mut Emitter<'_>) {
     for unused in &analysis.unused_groups {
         out.emit(group_diagnostic(
             State::UnusedGroup,
+            config_file,
             unused,
             "owns no dependency",
             "an earlier group may claim its dependencies, or its selectors match nothing",
@@ -32,6 +29,7 @@ pub(super) fn emit(analysis: &Analysis<'_>, out: &mut Emitter<'_>) {
     for invalid in &analysis.invalid_pins {
         out.emit(group_diagnostic(
             State::InvalidPin,
+            config_file,
             invalid,
             "has a `pin` that is empty or not a version specifier",
             "set `pin` to the version the dependencies must use, for example `\"1.2.3\"`",
@@ -151,7 +149,7 @@ fn fix_of(instance: &Instance<'_>, verdict: &Verdict) -> Option<Fix> {
 }
 
 /// A finding about a configured version group, located in the configuration file.
-fn group_diagnostic(state: State, group: &ConfiguredGroup, what: &str, help: &str) -> Diagnostic {
+fn group_diagnostic(state: State, config_file: &Path, group: &ConfiguredGroup, what: &str, help: &str) -> Diagnostic {
     let name = group.label.as_ref().map_or_else(
         || format!("`version-groups[{}]`", group.index),
         |label| format!("`{label}` (`version-groups[{}]`)", group.index),
@@ -160,7 +158,7 @@ fn group_diagnostic(state: State, group: &ConfiguredGroup, what: &str, help: &st
         state.rule(),
         format!("the version group {name} {what}"),
         Location {
-            path: PathBuf::from(CONFIG_FILE),
+            path: config_file.to_path_buf(),
             span: None,
         },
     )
