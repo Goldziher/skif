@@ -179,8 +179,8 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shopt -s globstar nullglob
-          shellcheck scripts/**/*.sh mise-tasks/**/*.sh
+          # `find` rather than a `**` glob: without `globstar`, bash reads `**` as `*` and skips scripts/*.sh.
+          find scripts mise-tasks -name '*.sh' -print0 | xargs -0 shellcheck
 
   consistency:
     name: Version consistency
