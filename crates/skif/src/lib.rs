@@ -47,6 +47,7 @@ mod fix;
 mod js;
 mod linter;
 mod root;
+mod targets;
 
 pub use error::Error;
 #[cfg(feature = "fix")]
@@ -56,6 +57,7 @@ pub use fix::{
 };
 pub use linter::{Linter, RunOptions, builtin_providers};
 pub use root::{config_file, find_workspace_root, load_config};
+pub use targets::{Target, discover_all, load_target};
 
 pub use skif_config::{
     CONFIG_FILE_NAMES, Config, ConfigError, ConfigOverrides, IgnoreEntry, Level, PackageManager, Prefer, RuleConfig,
@@ -69,7 +71,7 @@ pub use skif_core::{
 pub use skif_lint::{
     Emitter, EnabledRules, LintContext, LintError, ProviderError, RegistryError, Rule, RuleProvider, RulesProvider,
 };
-pub use skif_workspace::{Package, PackageId, Workspace, WorkspaceError};
+pub use skif_workspace::{DiscoverOptions, Package, PackageId, RootKind, Workspace, WorkspaceError, discover_roots};
 
 /// The renderers of [`Report`]s: human, JSON, SARIF and GitHub annotations.
 #[cfg(feature = "report")]

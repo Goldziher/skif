@@ -2126,6 +2126,7 @@ dependencies = [
  "clap",
  "inquire",
  "insta",
+ "rayon",
  "serde",
  "serde_json",
  "skif",
@@ -2303,6 +2304,7 @@ name = "skif-workspace"
 version = "0.0.0"
 dependencies = [
  "globset",
+ "ignore",
  "indexmap",
  "jsonc-parser",
  "rayon",

@@ -814,6 +814,34 @@ fn a_pnpm_workspace_without_packages_takes_every_directory_like_pnpm() {
 }
 
 #[test]
+fn implicit_patterns_that_select_no_member_make_a_single_package() {
+    let workspace = discover(
+        &[
+            ("package.json", r#"{"name":"app","packageManager":"pnpm@9.0.0"}"#),
+            ("pnpm-workspace.yaml", "onlyBuiltDependencies:\n  - esbuild\n"),
+            ("src/index.ts", ""),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    assert_eq!(workspace.facts.source, WorkspaceSource::SinglePackage);
+    assert!(workspace.packages.is_empty());
+}
+
+#[test]
+fn written_patterns_selecting_nothing_stay_a_pnpm_workspace() {
+    let workspace = discover(
+        &[
+            ("package.json", r#"{"name":"root","packageManager":"pnpm@9.0.0"}"#),
+            ("pnpm-workspace.yaml", "packages:\n  - \"pkgs/*\"\n"),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    assert_eq!(workspace.facts.source, WorkspaceSource::PnpmWorkspaceYaml);
+}
+
+#[test]
 fn written_patterns_are_not_implicit() {
     let workspace = discover(
         &[

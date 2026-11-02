@@ -4,14 +4,15 @@ use std::collections::BTreeSet;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use serde_json::Map;
+use serde_json::{Map, Value};
 use skif::render::{RenderOptions, render_github, render_human, render_sarif};
 use skif::{FileSystem, Report, RuleMeta};
-use skif_report::{ErrorInfo, escape_multiline, render_json_error_info_with, render_json_with};
+use skif_report::{ErrorInfo, escape_controls, escape_multiline, render_json_error_info_with, render_json_with};
 
 use crate::args::Format;
 use crate::error::{CliError, Kind};
-use crate::fix::FixRun;
+use crate::fix::{self, FixRun, RootFix};
+use crate::roots;
 use crate::write::write_atomic;
 
 /// Writes `bytes` to stdout; a failure (a closed pipe, a full disk) is an error, not something to swallow.
@@ -69,22 +70,31 @@ fn framed_files(report: &Report) -> BTreeSet<PathBuf> {
 /// How to render one report.
 pub struct Rendering<'a> {
     pub format: Format,
-    /// Append GitHub annotations to the human rendering.
     pub annotations: bool,
     pub color: bool,
+    /// The directory diagnostic paths are relative to.
     pub root: &'a Path,
-    /// The repository top-level, for annotation paths.
     pub repo_root: Option<PathBuf>,
-    /// Rules listed in the SARIF driver.
     pub rules: Vec<&'static RuleMeta>,
+    /// Whether the run covers several roots: human output is grouped by root and JSON lists them.
+    pub multi: bool,
 }
 
-/// Renders `report` (and the fix run, if any) as `rendering` says.
+/// One root of a run, with paths already relative to [`Rendering::root`].
+pub struct RootView<'a> {
+    pub prefix: &'a Path,
+    pub report: &'a Report,
+    /// The entry of the JSON `roots` array.
+    pub json: Option<Value>,
+    pub fix: Option<&'a FixRun>,
+}
+
 pub fn render(
     report: &Report,
+    roots: &[RootView<'_>],
     rendering: &Rendering<'_>,
     fs: &dyn FileSystem,
-    fix: Option<&FixRun>,
+    fixes: &[RootFix<'_>],
 ) -> Result<Vec<u8>, CliError> {
     let root = rendering.root;
     let mut options = RenderOptions::default()
@@ -105,24 +115,46 @@ pub fn render(
         options = options.with_rules(rendering.rules.iter().copied());
     }
     let mut buffer = Vec::new();
-    write_report(report, rendering, &options, fix, &mut buffer)
+    write_report(report, roots, rendering, &options, fixes, &mut buffer)
         .map_err(|error| CliError::new(Kind::Io, format!("cannot render the report: {error}")))?;
     Ok(buffer)
 }
 
-fn write_report(
-    report: &Report,
+fn write_human_roots(
+    roots: &[RootView<'_>],
     rendering: &Rendering<'_>,
     options: &RenderOptions,
-    fix: Option<&FixRun>,
+    out: &mut Vec<u8>,
+) -> io::Result<()> {
+    for view in roots {
+        if rendering.multi {
+            writeln!(out, "==> {}", escape_controls(&roots::display(view.prefix)))?;
+        }
+        if let Some(run) = view.fix {
+            run.write_human_at(view.prefix, out)?;
+        }
+        render_human(view.report, options, out)?;
+        if rendering.multi {
+            writeln!(out)?;
+        }
+    }
+    Ok(())
+}
+
+fn write_report(
+    report: &Report,
+    roots: &[RootView<'_>],
+    rendering: &Rendering<'_>,
+    options: &RenderOptions,
+    fixes: &[RootFix<'_>],
     out: &mut Vec<u8>,
 ) -> io::Result<()> {
     match rendering.format {
         Format::Human => {
-            if let Some(run) = fix {
-                run.write_human(out)?;
+            write_human_roots(roots, rendering, options, out)?;
+            if rendering.multi {
+                writeln!(out, "Linted {}.", plural_roots(roots.len()))?;
             }
-            render_human(report, options, out)?;
             if rendering.annotations {
                 render_github(report, options, out)?;
             }
@@ -130,8 +162,14 @@ fn write_report(
         }
         Format::Json => {
             let mut extra = Map::new();
-            if let Some(run) = fix {
-                extra.insert("fix".to_owned(), run.to_json());
+            if !fixes.is_empty() {
+                extra.insert("fix".to_owned(), fix::fixes_json(fixes));
+            }
+            if rendering.multi {
+                extra.insert(
+                    "roots".to_owned(),
+                    Value::Array(roots.iter().filter_map(|view| view.json.clone()).collect()),
+                );
             }
             render_json_with(report, options, extra, out)
         }
@@ -140,7 +178,14 @@ fn write_report(
     }
 }
 
-/// Sends the rendering to `--output` (atomically) when given, stdout otherwise.
+fn plural_roots(count: usize) -> String {
+    if count == 1 {
+        "1 root".to_owned()
+    } else {
+        format!("{count} roots")
+    }
+}
+
 pub fn emit(bytes: &[u8], output: Option<&Path>) -> Result<(), CliError> {
     match output {
         Some(path) => write_atomic(path, bytes).map_err(|error| CliError::io("cannot write", path, &error)),

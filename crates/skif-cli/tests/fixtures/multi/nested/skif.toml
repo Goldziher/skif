@@ -1,0 +1,7 @@
+[rules]
+root-package-private-field = "error"
+empty-dependencies = "warn"
+
+[js]
+enabled = false
+

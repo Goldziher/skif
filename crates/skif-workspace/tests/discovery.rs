@@ -90,6 +90,14 @@ fn a_package_without_a_workspace_is_a_single_package() {
 }
 
 #[test]
+fn a_pnpm_workspace_file_with_only_settings_and_no_member_is_a_single_package() {
+    let workspace = Workspace::discover(&fixture("pnpm-settings-only"), &Config::default()).unwrap();
+    assert_eq!(workspace.facts.source, WorkspaceSource::SinglePackage);
+    assert!(workspace.packages.is_empty());
+    assert!(workspace.pnpm_workspace.is_some());
+}
+
+#[test]
 fn directories_without_manifest_are_facts() {
     let workspace = discover("without-package-json");
     assert_eq!(dirs(&workspace), ["packages/def"]);

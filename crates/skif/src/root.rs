@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use skif_config::{CONFIG_FILE_NAMES, Config, ConfigError, ConfigOverrides};
 use skif_core::FileSystem;
+use skif_workspace::workspace_member_dirs;
 
 use crate::error::Error;
 
@@ -20,15 +21,19 @@ fn declares_workspace(dir: &Path, fs: &dyn FileSystem) -> bool {
         .is_some_and(|manifest| manifest.get("workspaces").is_some())
 }
 
-/// Finds the nearest ancestor of `start` (inclusive) that declares a workspace: a `package.json` with a
-/// `workspaces` field, or a `pnpm-workspace.yaml`.
+/// Finds the workspace that `start` belongs to.
+///
+/// The project of `start` is its nearest ancestor (inclusive) with a `package.json` or a workspace declaration. When
+/// the project declares a workspace itself, it is the root. Otherwise the nearest ancestor workspace that lists the
+/// project as a member (after negations) is the root, and when none does, the project is its own root as a single
+/// package: an ancestor workspace never claims a project it does not include.
 ///
 /// `start` may be a file or a directory and must be rooted (absolute); the search never consults the working
-/// directory, so a relative path is rejected rather than silently searching only its own lexical ancestors. When no ancestor declares a workspace but `start` itself holds a
-/// `package.json`, `start` is returned so that discovery can report precisely what is missing.
+/// directory, so a relative path is rejected rather than silently searching only its own lexical ancestors.
 ///
 /// # Errors
-/// [`Error::RelativePath`] when `start` is relative, [`Error::NoWorkspace`] when nothing qualifies.
+/// [`Error::RelativePath`] when `start` is relative, [`Error::NoWorkspace`] when `start` and its ancestors hold no
+/// `package.json` and declare no workspace.
 ///
 /// # Examples
 /// ```
@@ -37,9 +42,10 @@ fn declares_workspace(dir: &Path, fs: &dyn FileSystem) -> bool {
 ///
 /// let fs = MemoryFs::new()
 ///     .with_file("/repo/package.json", r#"{"workspaces": ["packages/*"]}"#)
-///     .with_file("/repo/packages/a/package.json", r#"{"name": "a"}"#);
-/// let root = find_workspace_root(Path::new("/repo/packages/a"), &fs)?;
-/// assert_eq!(root, Path::new("/repo"));
+///     .with_file("/repo/packages/a/package.json", r#"{"name": "a"}"#)
+///     .with_file("/repo/other/package.json", r#"{"name": "other"}"#);
+/// assert_eq!(find_workspace_root(Path::new("/repo/packages/a"), &fs)?, Path::new("/repo"));
+/// assert_eq!(find_workspace_root(Path::new("/repo/other"), &fs)?, Path::new("/repo/other"));
 /// # Ok::<(), skif::Error>(())
 /// ```
 pub fn find_workspace_root(start: &Path, fs: &dyn FileSystem) -> Result<PathBuf, Error> {
@@ -51,12 +57,20 @@ pub fn find_workspace_root(start: &Path, fs: &dyn FileSystem) -> Result<PathBuf,
     } else {
         start.parent().unwrap_or(start)
     };
-    first
+    let project = first
         .ancestors()
-        .find(|dir| declares_workspace(dir, fs))
-        .map(Path::to_path_buf)
-        .or_else(|| fs.is_file(&first.join(MANIFEST)).then(|| first.to_path_buf()))
-        .ok_or_else(|| Error::NoWorkspace(start.to_path_buf()))
+        .find(|dir| fs.is_file(&dir.join(MANIFEST)) || declares_workspace(dir, fs))
+        .ok_or_else(|| Error::NoWorkspace(start.to_path_buf()))?;
+    if declares_workspace(project, fs) {
+        return Ok(project.to_path_buf());
+    }
+    Ok(project
+        .ancestors()
+        .skip(1)
+        .filter(|dir| declares_workspace(dir, fs))
+        .find(|dir| workspace_member_dirs(fs, dir).contains(project))
+        .unwrap_or(project)
+        .to_path_buf())
 }
 
 /// The name of the configuration file in `root` (`skif.toml` or `.skif.toml`), relative to `root`, when there is one.

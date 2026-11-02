@@ -386,6 +386,14 @@ impl Workspace {
             .map(|package| package.is_selected_by(ignore))
             .collect();
 
+        // A `pnpm-workspace.yaml` that only holds settings selects pnpm's default patterns; when those find no
+        // package besides the root, the directory is a single package, not a monorepo.
+        let source = if declared.implicit && packages.is_empty() {
+            WorkspaceSource::SinglePackage
+        } else {
+            declared.source
+        };
+
         Ok(Self {
             root,
             package_manager,
@@ -393,7 +401,7 @@ impl Workspace {
             packages,
             catalogs,
             facts: DiscoveryFacts {
-                source: declared.source,
+                source,
                 patterns: facts,
                 dirs_without_manifest,
                 implicit_patterns: declared.implicit,
