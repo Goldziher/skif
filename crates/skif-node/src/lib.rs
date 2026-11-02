@@ -35,6 +35,8 @@ pub struct LintOptions {
     pub fail_on_warnings: Option<bool>,
     /// Rule ids to turn off (`--ignore-rule`).
     pub ignore_rules: Option<Vec<String>>,
+    /// Lint every workspace and standalone package at or below the path (`--recursive`).
+    pub recursive: Option<bool>,
     /// Package names to skip (`--ignore-package`).
     pub ignore_packages: Option<Vec<String>>,
     /// Dependency names to skip (`--ignore-dependency`).
@@ -85,8 +87,8 @@ pub struct LintOutcome {
     pub error: Option<LintFailure>,
 }
 
-fn outcome(path: &str, overrides: &ConfigOverrides) -> LintOutcome {
-    match skif_cli::lint_to_json(Path::new(path), overrides) {
+fn outcome(path: &str, overrides: &ConfigOverrides, recursive: bool) -> LintOutcome {
+    match skif_cli::lint_to_json(Path::new(path), overrides, recursive) {
         Ok(report) => LintOutcome {
             report: Some(report),
             error: None,
@@ -98,7 +100,7 @@ fn outcome(path: &str, overrides: &ConfigOverrides) -> LintOutcome {
     }
 }
 
-/// Lints the workspace containing `path` and returns the report as the versioned JSON document the CLI prints for
+/// Lints the workspace containing `path` (or, with `recursive`, every root at or below it) and returns the report as the versioned JSON document the CLI prints for
 /// `--format json`. Nothing is printed and no file is written. The call blocks the event loop; use [`lint_async`]
 /// in a server.
 ///
@@ -106,8 +108,10 @@ fn outcome(path: &str, overrides: &ConfigOverrides) -> LintOutcome {
 /// Throws with the error message when no workspace is found, the configuration is invalid or discovery fails.
 #[napi(catch_unwind)]
 pub fn lint(path: String, options: Option<LintOptions>) -> Result<String> {
-    let overrides = options.unwrap_or_default().overrides();
-    match outcome(&path, &overrides) {
+    let options = options.unwrap_or_default();
+    let recursive = options.recursive.unwrap_or(false);
+    let overrides = options.overrides();
+    match outcome(&path, &overrides, recursive) {
         LintOutcome {
             report: Some(report), ..
         } => Ok(report),
@@ -121,6 +125,7 @@ pub fn lint(path: String, options: Option<LintOptions>) -> Result<String> {
 pub struct LintTask {
     path: String,
     overrides: ConfigOverrides,
+    recursive: bool,
 }
 
 impl Task for LintTask {
@@ -130,14 +135,17 @@ impl Task for LintTask {
     fn compute(&mut self) -> Result<LintOutcome> {
         let path = std::mem::take(&mut self.path);
         let overrides = std::mem::take(&mut self.overrides);
+        let recursive = self.recursive;
         Ok(
-            catch_unwind(AssertUnwindSafe(|| outcome(&path, &overrides))).unwrap_or_else(|payload| LintOutcome {
-                report: None,
-                error: Some(LintFailure {
-                    kind: "internal".to_owned(),
-                    message: panic_to_error(payload).reason,
-                    path: None,
-                }),
+            catch_unwind(AssertUnwindSafe(|| outcome(&path, &overrides, recursive))).unwrap_or_else(|payload| {
+                LintOutcome {
+                    report: None,
+                    error: Some(LintFailure {
+                        kind: "internal".to_owned(),
+                        message: panic_to_error(payload).reason,
+                        path: None,
+                    }),
+                }
             }),
         )
     }
@@ -152,9 +160,12 @@ impl Task for LintTask {
 #[napi(ts_return_type = "Promise<LintOutcome>")]
 #[must_use]
 pub fn lint_async(path: String, options: Option<LintOptions>) -> AsyncTask<LintTask> {
+    let options = options.unwrap_or_default();
+    let recursive = options.recursive.unwrap_or(false);
     AsyncTask::new(LintTask {
         path,
-        overrides: options.unwrap_or_default().overrides(),
+        overrides: options.overrides(),
+        recursive,
     })
 }
 

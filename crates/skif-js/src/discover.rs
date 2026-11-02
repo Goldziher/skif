@@ -107,6 +107,8 @@ struct Frame {
 /// Lists every `.js`/`.ts`-family file below the workspace root, sorted by relative path.
 ///
 /// Files of a nested package belong to that package; packages excluded by `ignore-packages` contribute nothing.
+/// A directory with its own `package.json` that is not a member of the workspace is a separate project: it and
+/// everything below it are skipped.
 /// `.gitignore` and `.ignore` files are honoured with the semantics of the `ignore` crate, hidden directories
 /// (except tool configuration ones) and common build output are skipped, and symbolic links to directories are
 /// not followed.
@@ -147,6 +149,7 @@ pub(crate) fn discover(fs: &dyn FileSystem, workspace: &Workspace) -> Vec<Candid
                     || entry.is_symlink
                     || skipped.contains(&entry.path)
                     || (package.is_none() && skipped_by_name(name))
+                    || (package.is_none() && fs.is_file(&entry.path.join("package.json")))
                     || is_ignored(&matchers, &entry.path, true)
                 {
                     continue;
@@ -206,6 +209,19 @@ mod tests {
         let config = Config::from_toml_str("").unwrap();
         let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, fs).unwrap();
         discover(fs, &workspace).into_iter().map(|c| c.rel).collect()
+    }
+
+    #[test]
+    fn directories_with_their_own_manifest_outside_the_members_are_separate_projects() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/package.json", r#"{"name":"r","workspaces":["packages/*"]}"#)
+            .with_file("/ws/packages/a/package.json", r#"{"name":"a"}"#)
+            .with_file("/ws/packages/a/src/a.ts", "")
+            .with_file("/ws/other/package.json", r#"{"name":"other"}"#)
+            .with_file("/ws/other/src/o.ts", "")
+            .with_file("/ws/other/deep/more/d.ts", "")
+            .with_file("/ws/scripts/run.ts", "");
+        assert_eq!(files(&fs), ["packages/a/src/a.ts", "scripts/run.ts"]);
     }
 
     #[test]

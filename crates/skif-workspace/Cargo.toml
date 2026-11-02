@@ -16,6 +16,7 @@ include = ["src/**", "tests/**", "fixtures/**", "Cargo.toml", "LICENSE", "ATTRIB
 
 [dependencies]
 globset.workspace = true
+ignore.workspace = true
 indexmap.workspace = true
 jsonc-parser.workspace = true
 rayon.workspace = true

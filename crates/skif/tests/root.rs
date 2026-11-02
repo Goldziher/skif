@@ -61,3 +61,63 @@ fn relative_start_paths_are_rejected() {
         assert!(matches!(error, Error::RelativePath(_)), "{start}: {error}");
     }
 }
+
+fn monorepo_with_unrelated_projects() -> MemoryFs {
+    MemoryFs::new()
+        .with_file(
+            "/repo/package.json",
+            r#"{"workspaces": ["x/dist", "y/dist", "!y/dist"]}"#,
+        )
+        .with_file("/repo/x/dist/package.json", r#"{"name": "x"}"#)
+        .with_file("/repo/y/dist/package.json", r#"{"name": "y"}"#)
+        .with_file("/repo/projects/p/package.json", r#"{"name": "p"}"#)
+        .with_file("/repo/projects/p/src/index.ts", "")
+        .with_file("/repo/projects/q/package.json", r#"{"workspaces": ["pkgs/*"]}"#)
+        .with_file("/repo/projects/q/pkgs/m/package.json", r#"{"name": "m"}"#)
+}
+
+#[test]
+fn an_ancestor_workspace_does_not_claim_a_project_it_does_not_include() {
+    let fs = monorepo_with_unrelated_projects();
+    for start in [
+        "/repo/projects/p",
+        "/repo/projects/p/src",
+        "/repo/projects/p/src/index.ts",
+    ] {
+        assert_eq!(
+            find_workspace_root(Path::new(start), &fs).unwrap(),
+            Path::new("/repo/projects/p"),
+            "{start}"
+        );
+    }
+}
+
+#[test]
+fn a_project_with_its_own_workspace_is_its_own_root() {
+    let fs = monorepo_with_unrelated_projects();
+    for start in ["/repo/projects/q", "/repo/projects/q/pkgs/m"] {
+        assert_eq!(
+            find_workspace_root(Path::new(start), &fs).unwrap(),
+            Path::new("/repo/projects/q"),
+            "{start}"
+        );
+    }
+}
+
+#[test]
+fn members_still_resolve_to_the_ancestor_workspace() {
+    let fs = monorepo_with_unrelated_projects();
+    assert_eq!(
+        find_workspace_root(Path::new("/repo/x/dist"), &fs).unwrap(),
+        Path::new("/repo")
+    );
+}
+
+#[test]
+fn a_negated_member_is_not_claimed() {
+    let fs = monorepo_with_unrelated_projects();
+    assert_eq!(
+        find_workspace_root(Path::new("/repo/y/dist"), &fs).unwrap(),
+        Path::new("/repo/y/dist")
+    );
+}
