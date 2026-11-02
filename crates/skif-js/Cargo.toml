@@ -1,0 +1,33 @@
+[package]
+name = "skif-js"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "JavaScript and TypeScript module graph and dependency rules for skif, built on oxc."
+documentation = "https://docs.rs/skif-js"
+keywords = ["javascript", "typescript", "unused", "dependencies", "monorepo"]
+categories = ["development-tools"]
+
+[dependencies]
+globset.workspace = true
+oxc_resolver.workspace = true
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+skif-config.workspace = true
+skif-core.workspace = true
+skif-js-plugins.workspace = true
+skif-js-syntax.workspace = true
+skif-lint.workspace = true
+skif-workspace.workspace = true
+
+[dev-dependencies]
+insta = { workspace = true, features = ["json"] }
+
+[lints]
+workspace = true
