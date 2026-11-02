@@ -127,24 +127,30 @@ pub(crate) fn manifest_targets(manifest: &Value) -> Vec<String> {
     targets
 }
 
-fn resolve_target(value: &Value, matched: Option<&str>) -> Option<String> {
+/// Whether an `exports` condition applies to an import: the standard ones, `source` and the project's own.
+fn condition_applies(key: &str, custom: &[String]) -> bool {
+    CONDITIONS.contains(&key) || key == "source" || custom.iter().any(|condition| condition == key)
+}
+
+fn resolve_target(value: &Value, matched: Option<&str>, custom: &[String]) -> Option<String> {
     match value {
         Value::String(text) => Some(matched.map_or_else(|| text.clone(), |m| text.replace('*', m))),
-        Value::Array(items) => items.iter().find_map(|item| resolve_target(item, matched)),
+        Value::Array(items) => items.iter().find_map(|item| resolve_target(item, matched, custom)),
         Value::Object(map) => map
             .iter()
-            .filter(|(key, _)| CONDITIONS.contains(&key.as_str()))
-            .find_map(|(_, item)| resolve_target(item, matched)),
+            .filter(|(key, _)| condition_applies(key, custom))
+            .find_map(|(_, item)| resolve_target(item, matched, custom)),
         _ => None,
     }
 }
 
-/// Resolves `subpath` (`"."` or `"./x"`) against a package's `exports` for the conditions of an import.
-pub(crate) fn resolve_exports(exports: &Value, subpath: &str) -> Option<String> {
+/// Resolves `subpath` (`"."` or `"./x"`) against a package's `exports` for the conditions of an import, the
+/// `source` condition and the `custom` conditions of the project.
+pub(crate) fn resolve_exports(exports: &Value, subpath: &str, custom: &[String]) -> Option<String> {
     match exports {
         Value::Object(map) if map.keys().any(|key| key.starts_with('.')) => {
             if let Some(value) = map.get(subpath) {
-                return resolve_target(value, None);
+                return resolve_target(value, None, custom);
             }
             let mut best: Option<(usize, &Value, &str)> = None;
             for (key, value) in map {
@@ -162,11 +168,11 @@ pub(crate) fn resolve_exports(exports: &Value, subpath: &str) -> Option<String> 
                     ));
                 }
             }
-            best.and_then(|(_, value, matched)| resolve_target(value, Some(matched)))
+            best.and_then(|(_, value, matched)| resolve_target(value, Some(matched), custom))
         }
         Value::String(_) | Value::Array(_) | Value::Object(_) => {
             if subpath == "." {
-                resolve_target(exports, None)
+                resolve_target(exports, None, custom)
             } else {
                 None
             }
@@ -214,16 +220,31 @@ mod tests {
             "./feature/*": "./dist/feature/*.js",
             "./internal": null,
         });
-        assert_eq!(resolve_exports(&exports, ".").as_deref(), Some("./dist/index.d.ts"));
+        assert_eq!(resolve_exports(&exports, ".", &[]).as_deref(), Some("./dist/index.d.ts"));
         assert_eq!(
-            resolve_exports(&exports, "./feature/a").as_deref(),
+            resolve_exports(&exports, "./feature/a", &[]).as_deref(),
             Some("./dist/feature/a.js")
         );
-        assert_eq!(resolve_exports(&exports, "./missing"), None);
-        assert_eq!(resolve_exports(&json!("./x.js"), ".").as_deref(), Some("./x.js"));
+        assert_eq!(resolve_exports(&exports, "./missing", &[]), None);
+        assert_eq!(resolve_exports(&json!("./x.js"), ".", &[]).as_deref(), Some("./x.js"));
         assert_eq!(
-            resolve_exports(&json!({"import": "./i.js"}), ".").as_deref(),
+            resolve_exports(&json!({"import": "./i.js"}), ".", &[]).as_deref(),
             Some("./i.js")
+        );
+    }
+
+    #[test]
+    fn source_and_custom_conditions_select_source_files() {
+        let exports = json!({ ".": { "source": "./src/index.ts", "import": "./dist/index.js" } });
+        assert_eq!(
+            resolve_exports(&exports, ".", &[]).as_deref(),
+            Some("./src/index.ts")
+        );
+        let custom = json!({ ".": { "monorepo": "./lib/a.ts", "default": "./dist/a.js" } });
+        assert_eq!(resolve_exports(&custom, ".", &[]).as_deref(), Some("./dist/a.js"));
+        assert_eq!(
+            resolve_exports(&custom, ".", &["monorepo".to_owned()]).as_deref(),
+            Some("./lib/a.ts")
         );
     }
 

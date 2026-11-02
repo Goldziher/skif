@@ -23,6 +23,7 @@ mod globs;
 mod graph;
 mod input;
 mod manifest_paths;
+mod plugin_source;
 mod provider;
 mod resolve;
 mod rules;
@@ -35,6 +36,7 @@ pub use analysis::{JsAnalysis, UnusedFile};
 pub use deps::{DependencyUsage, UnlistedBinary, UnlistedImport};
 pub use graph::{Module, ModuleGraph, ModuleId, ResolvedImport, Target};
 pub use input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
+pub use plugin_source::PluginSource;
 pub use provider::{JsProvider, PROVIDER_ID};
 pub use rules::{
     CircularImports, DuplicateExports, JsRule, UnlistedBinaries, UnlistedDependencies, UnresolvedImports,
