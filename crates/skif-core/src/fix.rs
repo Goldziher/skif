@@ -103,6 +103,7 @@ pub enum FixOp {
     /// Structured edit of a JSON file.
     Json {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
         /// Path to the target node; empty addresses the root.
         pointer: Vec<PathSeg>,
@@ -112,6 +113,7 @@ pub enum FixOp {
     /// Structured edit of a YAML file.
     Yaml {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
         /// Path to the target node; empty addresses the root.
         route: Vec<PathSeg>,
@@ -121,6 +123,7 @@ pub enum FixOp {
     /// Byte-range edit of a text file.
     Text {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
         /// The edit.
         edit: TextEdit,
@@ -128,6 +131,7 @@ pub enum FixOp {
     /// Create a file.
     CreateFile {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
         /// Full contents.
         contents: String,
@@ -135,6 +139,7 @@ pub enum FixOp {
     /// Delete a file.
     DeleteFile {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
     },
 }
@@ -161,6 +166,7 @@ pub enum FileChange {
     /// An existing file is modified.
     Modify {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
         /// Text edits that produced `new_contents`, when the change is textual.
         edits: Vec<TextEdit>,
@@ -170,6 +176,7 @@ pub enum FileChange {
     /// A file is created.
     Create {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
         /// Full contents.
         contents: String,
@@ -177,6 +184,7 @@ pub enum FileChange {
     /// A file is deleted.
     Delete {
         /// Workspace-relative file.
+        #[serde(serialize_with = "crate::display::serialize_path")]
         path: PathBuf,
     },
 }
