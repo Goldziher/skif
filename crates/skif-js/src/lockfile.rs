@@ -20,12 +20,17 @@ type Entries = HashMap<String, Entry>;
 
 /// The binaries and peer dependencies each locked package declares, by package name.
 ///
-/// Reads `pnpm-lock.yaml`, else `package-lock.json`, from `root`. Empty when neither exists or is understood.
+/// Reads `pnpm-lock.yaml`, else `package-lock.json`, `bun.lock`, `yarn.lock` (Berry, which records peers and binaries),
+/// from `root`. Empty when none exists or is understood.
 pub(crate) fn read(fs: &dyn FileSystem, root: &Path) -> HashMap<String, Arc<Installed>> {
     let entries = if let Ok(text) = fs.read_to_string(&root.join("pnpm-lock.yaml")) {
         pnpm(&text)
     } else if let Ok(text) = fs.read_to_string(&root.join("package-lock.json")) {
         npm(&text)
+    } else if let Ok(text) = fs.read_to_string(&root.join("bun.lock")) {
+        bun(&text)
+    } else if let Ok(text) = fs.read_to_string(&root.join("yarn.lock")) {
+        yarn(&text)
     } else {
         Entries::new()
     };
@@ -142,6 +147,116 @@ fn npm(text: &str) -> Entries {
     entries
 }
 
+/// `bun.lock` is JSONC: strips the trailing commas outside of strings so it parses as JSON.
+fn strip_trailing_commas(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, &c) in chars.iter().enumerate() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+        } else if c == '"' {
+            in_string = true;
+        } else if c == ','
+            && chars[index + 1..]
+                .iter()
+                .find(|next| !next.is_whitespace())
+                .is_some_and(|next| matches!(next, '}' | ']'))
+        {
+            continue;
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn bun(text: &str) -> Entries {
+    let mut entries = Entries::new();
+    let Ok(value) = serde_json::from_str::<Value>(&strip_trailing_commas(text)) else {
+        return entries;
+    };
+    let Some(packages) = value.get("packages").and_then(Value::as_object) else {
+        return entries;
+    };
+    for package in packages.values() {
+        let Some(parts) = package.as_array() else {
+            continue;
+        };
+        let Some(name) = parts.first().and_then(Value::as_str).and_then(package_of_key) else {
+            continue;
+        };
+        let entry = entries.entry(name.to_owned()).or_default();
+        if let Some(meta) = parts.iter().find(|part| part.is_object()) {
+            entry.bins.extend(bins_of(meta, name));
+            entry.peers.extend(peers_of(meta));
+        }
+    }
+    entries
+}
+
+fn yarn(text: &str) -> Entries {
+    #[derive(PartialEq)]
+    enum Section {
+        Peers,
+        Bins,
+        Other,
+    }
+    let mut entries = Entries::new();
+    let mut current: Option<String> = None;
+    let mut section = Section::Other;
+    for line in text.lines() {
+        let body = line.trim();
+        if body.is_empty() || body.starts_with('#') {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        match indent {
+            0 => {
+                section = Section::Other;
+                current = body
+                    .trim_end_matches(':')
+                    .split(',')
+                    .next()
+                    .and_then(package_of_key)
+                    .map(str::to_owned);
+                if let Some(name) = &current {
+                    entries.entry(name.clone()).or_default();
+                }
+            }
+            2 => {
+                section = match body {
+                    "peerDependencies:" => Section::Peers,
+                    "bin:" => Section::Bins,
+                    _ => Section::Other,
+                };
+            }
+            4 => {
+                if let (Some(name), Some(key)) = (&current, yaml_key(body)) {
+                    let entry = entries.entry(name.clone()).or_default();
+                    match section {
+                        Section::Peers => {
+                            entry.peers.insert(key.to_owned());
+                        }
+                        Section::Bins => {
+                            entry.bins.insert(key.to_owned());
+                        }
+                        Section::Other => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    entries
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -173,5 +288,33 @@ mod tests {
               "node_modules/solo":{"bin":"x.js"}}}"#);
         assert!(entries["@s/tool"].bins.contains("tool-cli") && entries["@s/tool"].peers.contains("p"));
         assert!(entries["solo"].bins.contains("solo"));
+    }
+
+    #[test]
+    fn bun_lock_peers_and_bins() {
+        let entries = bun(
+            r#"{
+  "lockfileVersion": 1,
+  "workspaces": { "": { "name": "app", }, },
+  "packages": {
+    "@s/react": ["@s/react@16.0.0", "", { "peerDependencies": { "@s/dom": "^10", "react": "^18", }, }, "sha512-x"],
+    "oxlint": ["oxlint@1.0.0", "", { "bin": { "oxlint": "bin.js" } }, "sha512-y"],
+    "app": ["app@workspace:."],
+  },
+}"#,
+        );
+        assert!(entries["@s/react"].peers.contains("@s/dom") && entries["@s/react"].peers.contains("react"));
+        assert!(entries["oxlint"].bins.contains("oxlint"));
+    }
+
+    #[test]
+    fn yarn_berry_lock_peers_and_bins() {
+        let entries = yarn(
+            "__metadata:\n  version: 8\n\n\"@s/react@npm:^16.0.0, @s/react@npm:^16.1.0\":\n  version: 16.0.0\n  \
+             peerDependencies:\n    \"@s/dom\": ^10.0.0\n    react: ^18.0.0\n  checksum: abc\n\n\
+             \"oxlint@npm:1.0.0\":\n  version: 1.0.0\n  bin:\n    oxlint: bin.js\n  languageName: node\n",
+        );
+        assert!(entries["@s/react"].peers.contains("@s/dom") && entries["@s/react"].peers.contains("react"));
+        assert!(entries["oxlint"].bins.contains("oxlint"));
     }
 }

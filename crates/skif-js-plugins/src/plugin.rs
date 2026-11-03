@@ -126,6 +126,8 @@ pub enum PluginInput {
     /// A directory bare specifiers are looked up in before packages (`baseUrl`, a `*` entry of `paths`, webpack's
     /// `resolve.modules`), relative to the workspace directory.
     ModuleDir(String),
+    /// A file extension bare imports may omit (`resolve.extensions`), with its leading dot.
+    Extension(String),
     /// The config computes its entry points in a way that cannot be evaluated statically, so the entries found are
     /// not all of them. Sets [`PluginOutput::entries_incomplete`].
     EntriesIncomplete,
@@ -292,6 +294,8 @@ pub struct PluginOutput {
     pub conditions: Vec<String>,
     /// Directories bare specifiers are looked up in, relative to the workspace directory, in lookup order.
     pub module_dirs: Vec<String>,
+    /// File extensions (with the leading dot) imports may omit, from bundler `resolve.extensions`.
+    pub extensions: Vec<String>,
     /// A config computes entry points the plugin could not evaluate statically (`entry: await glob(…)` with a
     /// computed pattern, a call of an unknown function): `entries` may be missing files. Rules that report files as
     /// unreachable from entries should be conservative for this workspace.

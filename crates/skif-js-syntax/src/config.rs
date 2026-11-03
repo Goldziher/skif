@@ -832,8 +832,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     }
 
     fn call(&self, call: &'p CallExpression<'a>, depth: u32) -> ConfigValue {
-        let special = self
-            .package_directory(call, depth)
+        let special = required_package(call, depth)
+            .or_else(|| self.package_directory(call, depth))
             .or_else(|| self.path_call(call, depth))
             .or_else(|| self.resolve_call(call, depth))
             .or_else(|| self.glob_call(call, depth))
@@ -1074,6 +1074,27 @@ fn single_argument<'p, 'a>(call: &'p CallExpression<'a>) -> Option<&'p Expressio
         (Some(only), None) => only.as_expression(),
         _ => None,
     }
+}
+
+/// `require('pkg')` and the factory call `require('pkg')(options)` nested in a config value (a `PostCSS` plugin list),
+/// as the package name. A top-level `require` stays unknown: it is a whole config, not a name. Relative paths stay
+/// unknown too, as they load a module rather than name a package.
+fn required_package(call: &CallExpression<'_>, depth: u32) -> Option<ConfigValue> {
+    if depth < 2 {
+        return None;
+    }
+    let call = match call.callee.get_inner_expression() {
+        Expression::CallExpression(factory) => &**factory,
+        _ => call,
+    };
+    let Expression::Identifier(callee) = call.callee.get_inner_expression() else {
+        return None;
+    };
+    if callee.name.as_str() != "require" {
+        return None;
+    }
+    let module = single_argument(call).and_then(static_string)?;
+    (!module.starts_with(['.', '/'])).then_some(ConfigValue::String(module))
 }
 
 fn is_require_resolve(call: &CallExpression<'_>) -> bool {
