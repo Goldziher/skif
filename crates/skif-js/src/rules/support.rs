@@ -20,6 +20,15 @@ pub(super) fn module_location(module: &Module, span: Option<Span>) -> Location {
     }
 }
 
+/// Whether the module sits in a `fixtures` or `__fixtures__` directory. Fixtures are test data (often deliberately
+/// broken sources), so their imports are not held against the project.
+pub(super) fn is_fixture(module: &Module) -> bool {
+    module
+        .path
+        .components()
+        .any(|part| matches!(part.as_os_str().to_str(), Some("fixtures" | "__fixtures__")))
+}
+
 /// A dependency entry of a manifest, from its key through its value.
 pub(super) fn entry_location(package: &Package, entry: &DependencyEntry) -> Location {
     Location {
@@ -69,7 +78,7 @@ pub(super) fn report_unused_dependencies(
     out: &mut Emitter<'_>,
 ) {
     for (id, package) in analysis.workspace.iter() {
-        if analysis.is_skipped(id) {
+        if analysis.is_skipped(id) || analysis.entries_incomplete(id) {
             continue;
         }
         for entry in package.dependencies.iter().filter(|entry| kinds.contains(&entry.kind)) {

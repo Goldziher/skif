@@ -169,6 +169,9 @@ pub struct Export {
     pub removal: Option<Removal>,
     /// The local binding is referenced elsewhere in this file (excluding export clauses).
     pub referenced_in_file: bool,
+    /// Names of the other value exports of this file whose signature mentions this export's local binding.
+    #[serde(default)]
+    pub referenced_in: Vec<String>,
 }
 
 /// A syntax problem reported by the parser. The analysis of the file continues on the parser's recovered program.
@@ -206,6 +209,9 @@ pub struct ModuleInfo {
     pub directives: Vec<String>,
     /// `import()`, `require()` and `import.meta.glob()` calls whose argument is not static.
     pub unresolved_dynamic: Vec<Span>,
+    /// Names declared or augmented with `declare module 'name' { … }`.
+    #[serde(default)]
+    pub ambient_modules: Vec<String>,
     /// Syntax errors the parser recovered from; the other fields describe the recovered program. For component
     /// files, the issues of every script block.
     pub parse_diagnostics: Vec<ParseIssue>,
@@ -302,6 +308,7 @@ impl ModuleInfo {
         }
         self.directives.extend(other.directives);
         self.unresolved_dynamic.extend(other.unresolved_dynamic);
+        self.ambient_modules.extend(other.ambient_modules);
         self.parse_diagnostics.extend(other.parse_diagnostics);
         self.fatal |= other.fatal;
     }

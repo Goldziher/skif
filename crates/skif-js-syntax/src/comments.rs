@@ -38,7 +38,11 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
         }
         if text.starts_with("/**") {
             let flat = flatten(text);
-            for (specifier, names) in jsdoc_imports(&flat).into_iter().chain(jsdoc_import_types(&flat)) {
+            let type_expressions = tag_type_expressions(&flat);
+            let import_types = type_expressions
+                .iter()
+                .flat_map(|expression| jsdoc_import_types(expression));
+            for (specifier, names) in jsdoc_imports(&flat).into_iter().chain(import_types) {
                 info.imports.push(Import {
                     specifier,
                     kind: ImportKind::TypeOnly,
@@ -193,6 +197,34 @@ fn import_clause(clause: &str) -> Option<Vec<ImportedName>> {
     (!names.is_empty()).then_some(names)
 }
 
+/// The `{...}` type expressions that directly follow a tag (`@type {…}`, `@param {…} name`), without the braces.
+///
+/// Braces elsewhere in the prose, including inline tags such as `{@link …}`, are not type expressions.
+fn tag_type_expressions(flat: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut rest = flat;
+    while let Some(at) = rest.find('@') {
+        rest = &rest[at + 1..];
+        let after_tag = rest[leading_ident(rest).len()..].trim_start();
+        let Some(body) = after_tag.strip_prefix('{') else {
+            continue;
+        };
+        let mut depth = 1usize;
+        let end = body.char_indices().find_map(|(i, c)| {
+            match c {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                _ => {}
+            }
+            (depth == 0).then_some(i)
+        });
+        let Some(end) = end else { break };
+        out.push(&body[..end]);
+        rest = &body[end + 1..];
+    }
+    out
+}
+
 /// `import('pkg')` and `import('pkg').Name` inside a `JSDoc` type expression.
 fn jsdoc_import_types(flat: &str) -> Vec<(String, Vec<ImportedName>)> {
     const CALL: &str = "import(";
@@ -274,5 +306,18 @@ mod tests {
     fn import_types_need_a_call_not_an_identifier_suffix() {
         assert_eq!(jsdoc_import_types("{import('a').B} and reimport('c')").len(), 1);
         assert_eq!(jsdoc_import_types("@import {X} from 'a'").len(), 0);
+    }
+
+    #[test]
+    fn type_expressions_follow_tags_only() {
+        assert_eq!(
+            tag_type_expressions("@type {import('a').B} the {x: {y: 1}} @param {{k: import('c').D}} p"),
+            ["import('a').B", "{k: import('c').D}"]
+        );
+        assert_eq!(
+            tag_type_expressions("see {@link import('a')} or call import('b') here"),
+            Vec::<&str>::new()
+        );
+        assert_eq!(tag_type_expressions("@returns {unterminated"), Vec::<&str>::new());
     }
 }

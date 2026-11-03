@@ -102,6 +102,11 @@ pub(crate) struct PackageSetup {
     /// Absolute package directory.
     pub dir: PathBuf,
     pub entry: Globs,
+    /// Entry globs that point outside the package directory (`../shared/setup.ts`), relative to the workspace root.
+    pub external_entry: Globs,
+    /// The tool configuration of the package could not be fully read, so its entry files are not all known.
+    /// Files and dependencies cannot be judged unused then.
+    pub entries_incomplete: bool,
     pub project: Globs,
     /// Files whose issues are not reported, relative to the package directory.
     pub ignore: Globs,
@@ -136,6 +141,23 @@ pub(crate) struct Setup {
     pub include_entry_exports: bool,
     /// `JSDoc` tags that exempt an export from `unused-exports` and `unused-types`.
     pub ignore_tags: Vec<String>,
+}
+
+/// `pattern`, written relative to the package directory `dir`, relative to the workspace root instead. `None` when it
+/// leaves the workspace. A leading `!` is kept.
+fn workspace_relative(dir: &str, pattern: &str) -> Option<String> {
+    let (negation, body) = pattern.strip_prefix('!').map_or(("", pattern), |rest| ("!", rest));
+    let mut parts: Vec<&str> = Vec::new();
+    for segment in dir.split('/').chain(body.split('/')) {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            other => parts.push(other),
+        }
+    }
+    Some(format!("{negation}{}", parts.join("/")))
 }
 
 /// Options of `unused-exports`, which `unused-types` shares.
@@ -216,10 +238,20 @@ impl Setup {
 
                 let mut referenced_dependencies = plugin.dependencies;
                 referenced_dependencies.extend(scripts.dependencies.iter().cloned());
+                let (outside, entry): (Vec<String>, Vec<String>) = entry
+                    .into_iter()
+                    .partition(|pattern| pattern.trim_start_matches('!').starts_with("../"));
+                let external_entry = Globs::new(
+                    outside
+                        .iter()
+                        .filter_map(|pattern| workspace_relative(&dir_name, pattern)),
+                );
                 Some(PackageSetup {
                     id,
                     dir: workspace.root.join(&package.dir),
                     entry: Globs::new(entry),
+                    external_entry,
+                    entries_incomplete: false,
                     project: Globs::new(project),
                     ignore: Globs::new(ignore),
                     ignore_dependencies: Names::new(ignore_dependencies),
@@ -264,5 +296,20 @@ impl Setup {
             || self
                 .package(id)
                 .is_some_and(|setup| setup.ignore_binaries.is_match(name))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::workspace_relative;
+
+    #[test]
+    fn patterns_outside_the_package_become_workspace_relative() {
+        assert_eq!(
+            workspace_relative("apps/a", "../../shared/setup.ts").as_deref(),
+            Some("shared/setup.ts")
+        );
+        assert_eq!(workspace_relative("a", "!../b/**").as_deref(), Some("!b/**"));
+        assert_eq!(workspace_relative("a", "../../escape.ts"), None);
     }
 }

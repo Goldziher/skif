@@ -328,6 +328,7 @@ fn export_from_declared(ctx: &Ctx<'_>, d: Declared, tags: Vec<String>, removal: 
         namespace_members: d.namespace_members,
         removal,
         referenced_in_file: false,
+        referenced_in: Vec::new(),
     }
 }
 
@@ -346,6 +347,7 @@ impl Export {
             namespace_members: Vec::new(),
             removal: None,
             referenced_in_file: false,
+            referenced_in: Vec::new(),
         }
     }
 }

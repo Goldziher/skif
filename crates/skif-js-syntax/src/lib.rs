@@ -17,6 +17,7 @@ mod jsdoc;
 mod members;
 mod model;
 mod semantic;
+mod signature_refs;
 mod sfc;
 mod style;
 
@@ -143,6 +144,7 @@ fn parse_block(src: &str, base: u32, source_type: SourceType, lines: &LineIndex,
     }
     if options.in_file_references {
         mark_in_file_references(&ret.program, &collected.export_clause_spans, &mut info);
+        signature_refs::mark(&ret.program, &mut info);
     }
     info.directives = ret
         .program

@@ -4,9 +4,10 @@
 use std::collections::HashMap;
 
 use oxc_ast::ast::{
-    Argument, AssignmentExpression, AssignmentTarget, BindingPattern, CallExpression, Expression, ImportExpression,
-    JSXElement, JSXFragment, StaticMemberExpression, TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier,
-    TSModuleReference, VariableDeclarator,
+    Argument, AssignmentExpression, AssignmentTarget, BindingPattern, CallExpression, ComputedMemberExpression,
+    Expression, FormalParameters, IdentifierReference, ImportExpression, JSXElement, JSXFragment,
+    StaticMemberExpression, TSExternalModuleDeclaration, TSImportEqualsDeclaration, TSImportType,
+    TSImportTypeQualifier, TSModuleReference, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 
@@ -144,7 +145,9 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
     }
 
     fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
-        if let Some(start) = module_call_start(&it.object) {
+        let promise_method = matches!(it.property.name.as_str(), "then" | "catch" | "finally")
+            && matches!(it.object.get_inner_expression(), Expression::ImportExpression(_));
+        if !promise_method && let Some(start) = module_call_start(&it.object) {
             let key = it.property.name.as_str();
             let kind = if key == "default" {
                 ImportedKind::Default
@@ -171,8 +174,14 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        self.then_callback(it);
         self.visit_special_call(it);
         walk::walk_call_expression(self, it);
+    }
+
+    fn visit_ts_external_module_declaration(&mut self, it: &TSExternalModuleDeclaration<'a>) {
+        self.info.ambient_modules.push(crate::js_string(it.id.value));
+        walk::walk_ts_external_module_declaration(self, it);
     }
 
     fn visit_ts_import_equals_declaration(&mut self, it: &TSImportEqualsDeclaration<'a>) {
@@ -228,7 +237,100 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
     }
 }
 
+/// Reads of the module namespace `target` inside a `.then` callback.
+struct NamespaceReads<'n> {
+    target: &'n str,
+    members: Vec<String>,
+    escapes: bool,
+}
+
+impl<'a> Visit<'a> for NamespaceReads<'_> {
+    fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
+        if is_ident(&it.object, self.target) {
+            self.members.push(it.property.name.as_str().to_owned());
+        } else {
+            walk::walk_static_member_expression(self, it);
+        }
+    }
+
+    fn visit_computed_member_expression(&mut self, it: &ComputedMemberExpression<'a>) {
+        if is_ident(&it.object, self.target) {
+            match static_string(&it.expression) {
+                Some(member) => self.members.push(member),
+                None => self.escapes = true,
+            }
+            self.visit_expression(&it.expression);
+        } else {
+            walk::walk_computed_member_expression(self, it);
+        }
+    }
+
+    fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
+        if it.name.as_str() == self.target {
+            self.escapes = true;
+        }
+    }
+}
+
+fn namespace_reads(target: &str, visit: impl FnOnce(&mut NamespaceReads<'_>)) -> Vec<ImportedName> {
+    let mut reads = NamespaceReads {
+        target,
+        members: Vec::new(),
+        escapes: false,
+    };
+    visit(&mut reads);
+    if reads.escapes || reads.members.is_empty() {
+        return escaping_namespace();
+    }
+    reads
+        .members
+        .into_iter()
+        .map(|member| {
+            let kind = if member == "default" {
+                ImportedKind::Default
+            } else {
+                ImportedKind::Named(member)
+            };
+            name(kind, None, false)
+        })
+        .collect()
+}
+
+/// What the first parameter of a `.then` callback reads from the module: `m => m.Page`, `({ Page }) => Page`.
+fn callback_names(params: &FormalParameters<'_>, visit: impl FnOnce(&mut NamespaceReads<'_>)) -> Vec<ImportedName> {
+    match params.items.first().map(|param| &param.pattern) {
+        Some(BindingPattern::BindingIdentifier(b)) => namespace_reads(b.name.as_str(), visit),
+        Some(pattern @ BindingPattern::ObjectPattern(_)) => bindings_for_pattern(pattern),
+        _ => escaping_namespace(),
+    }
+}
+
 impl Finder<'_, '_> {
+    /// `import('./x').then(cb)`: the exports used are those `cb` reads from its parameter, not a member named `then`.
+    fn then_callback(&mut self, it: &CallExpression<'_>) {
+        let Expression::StaticMemberExpression(member) = &it.callee else {
+            return;
+        };
+        if member.property.name.as_str() != "then" {
+            return;
+        }
+        let Expression::ImportExpression(import) = member.object.get_inner_expression() else {
+            return;
+        };
+        let names = match it.arguments.first() {
+            Some(Argument::ArrowFunctionExpression(arrow)) => callback_names(&arrow.params, |reads| {
+                reads.visit_arrow_function_body(&arrow.body);
+            }),
+            Some(Argument::FunctionExpression(function)) => callback_names(&function.params, |reads| {
+                if let Some(body) = &function.body {
+                    reads.visit_function_body(body);
+                }
+            }),
+            _ => return,
+        };
+        self.pending.insert(import.span.start, names);
+    }
+
     fn visit_special_call(&mut self, it: &CallExpression<'_>) {
         let first = it.arguments.first().and_then(Argument::as_expression);
         let span = self.ctx.span(it.span);
