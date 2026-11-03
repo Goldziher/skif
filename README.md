@@ -46,23 +46,25 @@ The documentation site is at <https://goldziher.github.io/skif/>; its sources li
 | Embeddable library facade (`skif` crate) | Available |
 | `skif.toml` configuration: rule levels, ignores, workspace settings | Available |
 | Version groups, semver groups, catalog and workspace-protocol policies | Available ([ADR 0009](adrs/0009-version-and-catalog-policies.md)) |
-| Unused / unlisted / unresolved dependency and dead-code analysis, 13 rules and a plugin table | Available ([ADR 0010](adrs/0010-js-analysis-on-oxc.md), [ADR 0011](adrs/0011-plugin-model.md)) |
+| Unused / unlisted / unresolved dependency and dead-code analysis, 14 rules and a table of 25 plugins | Available ([ADR 0010](adrs/0010-js-analysis-on-oxc.md), [ADR 0011](adrs/0011-plugin-model.md)) |
+| Several projects in one run (`-r`), and single packages that declare no workspace | Available ([ADR 0022](adrs/0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md)) |
 | Human, JSON, SARIF and GitHub annotation output | Available ([ADR 0012](adrs/0012-reporting.md)) |
 | npm package as a napi-rs addon | Available ([ADR 0018](adrs/0018-npm-distribution-via-napi-rs.md)) |
 
 ## Rules
 
 Run `skif rules` (or `skif rules --format json`) to list the registry; [`docs/rules.md`](docs/rules.md)
-documents all 36 rules with their categories, default severities and fix safety. Every rule has a stable
+documents all 37 rules with their categories, default severities and fix safety. Every rule has a stable
 kebab-case id, a category (`manifest`, `workspace`, `policy`, `catalog`, `js`) and a default level. Fixes are
 `safe` (applied by `--fix`), `unsafe` (applied only by `--fix-unsafe`) or `sometimes` (fixable for some
-findings). The 13 `js` rules need the JS analysis, which `--no-js` or `[js] enabled = false` turns off.
+findings). The 14 `js` rules need the JS analysis, which `--no-js` or `[js] enabled = false` turns off.
 
 ## Quick start
 
 ```bash
-skif                      # lint the workspace containing the current directory
-skif path/to/pkg          # the workspace root is the nearest ancestor that declares a workspace
+skif                      # lint the workspace or package containing the current directory
+skif path/to/pkg          # the root is the nearest ancestor workspace that lists the package, else the package
+skif -r                   # lint every workspace and standalone package at or below the current directory
 skif --fix                # apply safe fixes, lint again, then run the package manager's install
 skif --fix-unsafe         # also apply unsafe fixes
 skif --format json        # one JSON document on stdout
@@ -76,7 +78,14 @@ Exit codes: `0` clean (warnings within `--max-warnings`), `1` problems remain, `
 (bad configuration, bad flags, refused `--fix`, failed install). `--fix` is refused when `CI` is
 truthy. `--format` is `human`, `json`, `sarif` or `github`; in `--format json` mode failures are also JSON. Other flags: `--output FILE`, `--select
 highest|lowest`, `--no-install`, `--max-warnings N`, `--ignore-rule`, `--ignore-package`,
-`--ignore-dependency`, `--ignore-rule-for-package RULE:PACKAGE`, `--no-js`, `--production`, `--color`.
+`--ignore-dependency`, `--ignore-rule-for-package RULE:PACKAGE`, `--no-js`, `--production`, `--color`, `-r`/`--recursive`.
+
+`skif [PATH]` lints one root: the nearest ancestor workspace that lists the package as a member, otherwise the
+package itself, which is then linted in single-package mode (no workspace is needed). When neither `PATH` nor an
+ancestor holds a `package.json`, or with `-r`/`--recursive`, skif lints every workspace and standalone package
+below `PATH` and reports them in one run with one exit code; `.gitignore`d directories, `node_modules` and hidden
+directories are skipped.
+
 The full contract is [ADR 0016](adrs/0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md).
 
 ## Installation

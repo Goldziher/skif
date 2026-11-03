@@ -10,8 +10,21 @@ skif schema
 skif init [PATH]
 ```
 
-`skif [PATH]` lints the workspace containing `PATH` (default `.`). The workspace root is the nearest ancestor that
-declares a workspace; it is used for configuration, reported paths, fix writes and the install step.
+`skif [PATH]` lints the project containing `PATH` (default `.`). The root is resolved in this order:
+
+1. With `-r`/`--recursive`, every root at or below `PATH` (see below).
+2. Otherwise the nearest ancestor workspace that lists the package at `PATH` as a member. A package that declares a
+   workspace is its own root.
+3. Otherwise the package itself, linted in single-package mode: no workspace declaration is needed.
+4. When neither `PATH` nor an ancestor holds a `package.json` or a workspace declaration, every root below `PATH`,
+   as with `-r`.
+
+The root is used for configuration, reported paths, fix writes and the install step. In a multi-root run (`-r`, or
+the fallback in step 4) skif lints each workspace and each standalone package below `PATH` in parallel and merges
+the results into one report with one exit code, the worst over the roots. Reported paths are relative to the
+invocation directory, human output is grouped by root, and `--format json` adds a `roots` array. `node_modules`,
+hidden directories and directories excluded by a `.gitignore` or `.ignore` are not searched. `--fix` plans, writes
+and installs per root.
 
 ## Subcommands
 
@@ -25,6 +38,7 @@ declares a workspace; it is used for configuration, reported paths, fix writes a
 
 | Flag | Meaning |
 | --- | --- |
+| `-r`, `--recursive` | Lint every workspace and standalone package at or below `PATH` in one run, instead of only the project containing `PATH`. |
 | `--format <human\|json\|sarif\|github>` | Output format. Default `human`, or `human` plus GitHub annotations when `GITHUB_ACTIONS=true`. |
 | `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires `--format`. |
 | `--fix` | Apply safe fixes, lint again, then run the package manager's install command. |
@@ -52,14 +66,14 @@ then the command line. Array flags replace the file's arrays rather than append.
 | --- | --- |
 | `0` | Clean. Warnings within `--max-warnings` are allowed, and `info` never counts. |
 | `1` | Problems remain. |
-| `2` | skif could not run: invalid or ambiguous configuration, no workspace found, bad flags, a refused `--fix`, or a failed install step. |
+| `2` | skif could not run: invalid or ambiguous configuration, no `package.json` found at or below `PATH`, bad flags, a refused `--fix`, or a failed install step. |
 
 ## Output formats
 
 | Format | Output |
 | --- | --- |
 | `human` | Diagnostics grouped by file, optionally coloured, with a summary. Colour is on only when stdout is a TTY, `NO_COLOR` is unset and the format is `human`. |
-| `json` | One versioned document with `version`, `summary` and `diagnostics`. Each diagnostic has rule, severity, message, location with line and column span, related locations and fix titles. |
+| `json` | One versioned document with `version`, `summary` and `diagnostics`; a multi-root run adds a `roots` array with each root's `path`, `packages` and `summary`. Each diagnostic has rule, severity, message, location with line and column span, related locations and fix titles. |
 | `sarif` | SARIF 2.1.0 for code scanning. |
 | `github` | GitHub Actions workflow-command annotations. |
 

@@ -9,8 +9,9 @@ JavaScript and TypeScript tool knowledge for skif.
   executed (ADR 0010).
 - `resolve_plugins`: the entry point the module graph calls, given a `PluginContext` for one workspace.
 
-The first 21 plugins are typescript, eslint, prettier, vite, vitest, jest, next, storybook, playwright, tailwind,
-postcss, babel, webpack, rollup, tsup, turbo, husky, lint-staged, commitlint, changesets and github-actions.
+The table holds 25 plugins: `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`,
+`playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`,
+`commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk` and `browser-extension`.
 
 ## Acknowledgements
 

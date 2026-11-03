@@ -39,7 +39,9 @@ else console.log(JSON.parse(outcome.report).summary);
 const exitCode = run(["--format", "json", "./my-monorepo"]);
 ```
 
-- `lint(path, options?)` lints the workspace containing `path` and returns the JSON report as a string. It prints
+- `lint(path, options?)` lints the project containing `path` and returns the JSON report as a string. With
+  `{ recursive: true }` it lints every workspace and standalone package at or below `path`, like `skif -r`, and
+  the report gains a `roots` array. It prints
   nothing and writes no files. It blocks the event loop, so use `lintAsync` in a server.
 - `lintAsync(path, options?)` does the same on a worker thread and resolves with `{ report }` or, when the lint
   cannot run, `{ error: { kind, message, path? } }` (`kind` is `config`, `workspace`, `io` or `internal`). Both

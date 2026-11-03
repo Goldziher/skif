@@ -10,9 +10,13 @@ import { Steps } from '@astrojs/starlight/components';
 1. **Lint the workspace**
 
    ```bash
-   skif                 # the workspace containing the current directory
-   skif path/to/pkg     # the workspace root is the nearest ancestor that declares a workspace
+   skif                 # the workspace or package containing the current directory
+   skif path/to/pkg     # the nearest ancestor workspace that lists it, else the package itself
+   skif -r              # every workspace and standalone package at or below the current directory
    ```
+
+   A package needs no workspace to be linted. Run `skif` at the top of a repository of independent projects, or
+   pass `-r`, to lint all of them in one run.
 
 2. **Write a starter configuration**
 
