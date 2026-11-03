@@ -13,6 +13,13 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Added
 
+- **Several projects in one run**: `-r`/`--recursive` lints every workspace and standalone package at or below the
+  start path, and so does a run started where neither the path nor an ancestor holds a `package.json`. Results are
+  merged into one report with one exit code; `--format json` adds a `roots` array. Each root uses its nearest
+  `skif.toml`, searched upwards to the start path.
+- **Single-package mode**: a package that declares no workspace is linted on its own, with no workspace required.
+  `root-package-private-field` and `root-package-dependencies` do not report for it.
+- **`recursive` option** for `lint` and `lintAsync` in the npm addon.
 - **Manifest and workspace rules** with stable ids, severities and autofixes: `empty-dependencies`,
   `incompatible-peer-dependencies`, `local-path-dependency`, `member-toolchain-fields`,
   `missing-package-manifest`, `root-package-dependencies`, `root-package-manager-field`,
@@ -21,13 +28,15 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 - **Version, semver-range and catalog policies**: version groups, semver groups, banned dependencies,
   dependency families, workspace-protocol and catalog rules, with catalog resolution for pnpm, package.json
   and bun catalogs and recursive workspace globs (`**`) with pnpm semantics.
-- **JS analysis on oxc** with 13 rules: `unused-files`, `unused-dependencies`, `unused-dev-dependencies`,
+- **JS analysis on oxc** with 14 rules: `unused-files`, `unused-dependencies`, `unused-dev-dependencies`,
   `unused-optional-peer-dependencies`, `unlisted-dependencies`, `unlisted-binaries`, `unresolved-imports`,
-  `unused-exports`, `unused-types`, `unused-enum-members`, `unused-namespace-members`, `duplicate-exports` and
-  `circular-imports`. Unused files, exports, types and dev dependencies default to warnings. Production mode,
+  `unused-exports`, `unused-types`, `unused-enum-members`, `unused-namespace-members`, `duplicate-exports`,
+  `circular-imports` and `unparseable-files`. Unused files, exports, types and dev dependencies default to warnings. Production mode,
   `--no-js` and `[js]` settings per workspace are supported.
-- **A plugin table** that reads the static configuration of common tools to find entry files and the
-  dependencies they use, without running any tool.
+- **A plugin table of 25 plugins** that reads the static configuration of common tools to find entry files and the
+  dependencies they use, without running any tool: `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`,
+  `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`,
+  `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk` and `browser-extension`.
 - **Output formats**: human, JSON, SARIF and GitHub annotations, selected with `--format`.
 - **Atomic fixes**: `--fix` and `--fix-unsafe` plan all edits first, write them atomically and lint again;
   edits keep key order, indentation and newline style. `--fix` runs the package manager's install unless

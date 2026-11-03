@@ -173,7 +173,9 @@ jest = { enabled = true, config = ["jest.config.cjs"] }
 
 `enabled` defaults to `true`, so a plain `skif` run checks everything; the git hooks pass `--no-js`. Per-workspace
 tables take `entry`, `project`, `ignore`, `ignore-dependencies` and `ignore-binaries`. A plugin entry is `true`,
-`false` or a table with `enabled`, `config`, `entry` and `project`. Built-in plugins: typescript, eslint, prettier, vite, vitest, jest, next, storybook, playwright, tailwind, postcss, babel, webpack, rollup, tsup, turbo, husky, lint-staged, commitlint, changesets and github-actions.
+`false` or a table with `enabled`, `config`, `entry` and `project`. The table holds 25 built-in plugins:
+
+`typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk` and `browser-extension`.
 
 ## Selectors
 

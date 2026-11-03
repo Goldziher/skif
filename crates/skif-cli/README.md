@@ -17,7 +17,8 @@ channels (npm, Homebrew, Scoop, GitHub release archives and the GitHub Action) a
 ## Usage
 
 ```bash
-skif                 # lint the workspace containing the current directory
+skif                 # lint the workspace or package containing the current directory
+skif -r              # lint every workspace and standalone package at or below the current directory
 skif --fix           # apply safe fixes, lint again, then run the package manager's install
 skif --format json   # one JSON document on stdout
 skif rules           # list every rule

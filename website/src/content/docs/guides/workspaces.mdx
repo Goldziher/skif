@@ -1,17 +1,29 @@
 ---
 title: Single packages and monorepos
-description: How skif finds the workspace root, detects the package manager and treats a standalone package.
+description: How skif finds the root, detects the package manager, and lints standalone packages and several projects in one run.
 ---
 
-## Workspace root
+## Root
 
-`skif [PATH]` lints the workspace containing `PATH` (default `.`). The workspace root is the nearest ancestor of
-`PATH` that declares a workspace: `workspaces` in `package.json`, or a `pnpm-workspace.yaml`. The root is used
-for configuration, every reported path, every fix write and the install step, so the result does not depend on
-the current directory.
+`skif [PATH]` lints the project containing `PATH` (default `.`). The project is the nearest directory at or above
+`PATH` that holds a `package.json` or declares a workspace. A directory declares a workspace with `workspaces` in
+`package.json` or a `pnpm-workspace.yaml`.
 
-`skif.toml` or `.skif.toml` is looked up in the workspace root only. There are no per-package configuration
-files; per-package differences are expressed with `[[ignore]]`, group selectors and `[js.workspaces."<dir>"]`.
+- If the project declares a workspace, it is the root.
+- Otherwise the root is the nearest ancestor workspace that lists the project as a member, after negations. An
+  ancestor workspace does not claim projects it does not list.
+- Otherwise the project is its own root.
+
+The root is used for configuration, every reported path, every fix write and the install step, so the result does not
+depend on the current directory.
+
+## Configuration lookup
+
+`skif.toml` or `.skif.toml` is searched from the root upwards. In a single-root run the search stops at the root, so
+only the root's own file counts. In a multi-root run (see below) each root takes the nearest file between the root
+and the start directory, and a root with none uses the defaults; a file above the start directory is never read.
+There are no per-package configuration files; per-package differences are expressed with `[[ignore]]`, group
+selectors and `[js.workspaces."<dir>"]`.
 
 ## Package manager detection
 
@@ -58,13 +70,29 @@ min-packages = 3
 
 ## Single packages
 
-skif lints the workspace that contains the start path, so a package is linted as part of the nearest ancestor that
-declares a workspace. If no ancestor declares one, skif exits with code `2` and says no workspace was found. A
-standalone project therefore needs a root `package.json` with `workspaces` (or a `pnpm-workspace.yaml`) to be
-linted. Rules that compare packages have little to compare in a one-package workspace; turn off those that do
-not fit:
+A package that declares no workspace is linted on its own; skif does not require a `workspaces` field or a
+`pnpm-workspace.yaml`. A `pnpm-workspace.yaml` that holds only settings and no `packages:` key counts as no
+declaration when it finds no package besides the root. In this single-package mode `root-package-private-field` and
+`root-package-dependencies` do not report, because a standalone package is published and keeps its dependencies in
+its own `package.json`. The other rules run unchanged; turn off those that do not fit with `[rules]`.
 
-```toml
-[rules]
-root-package-dependencies = "off"
+## Several projects
+
+A repository can hold independent projects with no workspace at the top. `skif -r` (`--recursive`) lints every
+workspace and standalone package at or below the start path in one run, and so does a plain `skif` started where
+neither the path nor any ancestor holds a `package.json` or a workspace declaration.
+
+```bash
+skif -r                  # every root below the current directory
+skif -r services         # every root below services/
+skif -r --format json    # one document with a "roots" array
 ```
+
+- A root is a workspace that no outer workspace lists as a member, or a package that declares no workspace, is
+  listed by no workspace and does not lie inside a workspace member. Members are never roots of their own.
+- The search skips `node_modules`, hidden directories, symbolic links and anything a `.gitignore` or `.ignore`
+  excludes, and goes at most 32 directories deep.
+- Roots are linted in parallel and merged into one report in path order. Paths are relative to the invocation
+  directory, and the exit code is the worst over the roots. `--max-warnings` bounds the warnings of the whole run.
+- `--fix` plans, writes and runs the package manager's install per root.
+- If no root is found, skif exits with code `2` and says no workspace or package was found.

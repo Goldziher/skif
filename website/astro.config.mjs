@@ -53,7 +53,7 @@ export default defineConfig({
           minify: { collapseCodeBlocks: true },
           details:
             "skif lints package.json manifests, workspaces, version and catalog policies, and unused " +
-            "dependencies in JavaScript and TypeScript monorepos. Configuration is TOML only " +
+            "dependencies in JavaScript and TypeScript monorepos, standalone packages, and several projects in one run (-r). Configuration is TOML only " +
             "(skif.toml or .skif.toml). Project source: https://github.com/Goldziher/skif",
         }),
       ],
