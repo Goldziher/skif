@@ -435,7 +435,7 @@ mod tests {
                 } else {
                     "pkg"
                 };
-                format!("{kind}:{}", root.path().display())
+                format!("{kind}:{}", root.path().display().to_string().replace('\\', "/"))
             })
             .collect()
     }

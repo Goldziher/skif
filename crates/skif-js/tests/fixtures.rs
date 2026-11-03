@@ -12,7 +12,8 @@ use skif_js::{InputRequest, InputSource, JsProvider, WorkspaceInputs};
 use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
 
-const ROOT: &str = "/ws";
+// The resolver only applies a `tsconfig` found below an absolute path, and `/ws` has no drive on Windows.
+const ROOT: &str = if cfg!(windows) { "C:/ws" } else { "/ws" };
 
 fn fixture_dir(case: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(case)
