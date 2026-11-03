@@ -14,6 +14,8 @@ pub struct LintContext<'a> {
     /// The configuration file `config` was loaded from, relative to the workspace root; `None` when the host
     /// does not know it (for example a configuration built in memory).
     pub config_path: Option<&'a Path>,
+    /// Providers run their work on the calling thread and must not use rayon.
+    pub sequential: bool,
 }
 
 impl LintContext<'_> {

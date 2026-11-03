@@ -53,4 +53,7 @@ pub enum WorkspaceError {
         #[source]
         source: io::Error,
     },
+    /// The dedicated thread pool for discovery could not be built.
+    #[error("failed to build the discovery thread pool: {0}")]
+    ThreadPool(String),
 }

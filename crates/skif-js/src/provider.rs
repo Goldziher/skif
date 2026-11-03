@@ -2,11 +2,11 @@
 
 use std::sync::Arc;
 
-use rayon::prelude::*;
 use skif_core::{FileSystem, OsFs, RuleMeta};
 use skif_lint::{
     Emitter, EnabledRules, LintContext, OptionsError, ProviderError, RuleProvider, parse_options, reject_options,
 };
+use skif_workspace::map_ordered;
 
 use crate::setup::UnusedExportsOptions;
 
@@ -90,18 +90,15 @@ impl RuleProvider for JsProvider {
         if active.is_empty() || out.is_cancelled() {
             return Ok(());
         }
-        let analysis = JsAnalysis::build(cx.workspace, cx.config, &self.fs, &self.sources);
+        let analysis = JsAnalysis::build(cx.workspace, cx.config, &self.fs, &self.sources, cx.sequential);
         let base = &*out;
-        let parts: Vec<Emitter<'_>> = active
-            .par_iter()
-            .map(|rule| {
-                let mut part = base.fork();
-                if !part.is_cancelled() {
-                    rule.check(&analysis, &mut part);
-                }
-                part
-            })
-            .collect();
+        let parts: Vec<Emitter<'_>> = map_ordered(&active, cx.sequential, |rule| {
+            let mut part = base.fork();
+            if !part.is_cancelled() {
+                rule.check(&analysis, &mut part);
+            }
+            part
+        });
         for part in parts {
             out.merge(part);
         }

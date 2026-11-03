@@ -1,5 +1,5 @@
-use rayon::prelude::*;
 use skif_core::RuleMeta;
+use skif_workspace::map_ordered;
 
 use crate::context::{EnabledRules, LintContext};
 use crate::emitter::Emitter;
@@ -174,8 +174,8 @@ impl ProviderError {
 
 /// Adapts a list of [`Rule`]s into a [`RuleProvider`].
 ///
-/// Enabled rules run in parallel on the current rayon pool; their diagnostics are merged in
-/// rule order, so the result does not depend on scheduling.
+/// Enabled rules run in parallel on the current rayon pool, or on the calling thread when the context is
+/// sequential; their diagnostics are merged in rule order, so the result does not depend on scheduling.
 pub struct RulesProvider {
     id: &'static str,
     rules: Vec<Box<dyn Rule>>,
@@ -217,16 +217,13 @@ impl RuleProvider for RulesProvider {
             .filter(|rule| enabled.contains(rule.meta().id))
             .collect();
         let base = &*out;
-        let parts: Vec<Emitter<'_>> = active
-            .par_iter()
-            .map(|rule| {
-                let mut part = base.fork();
-                if !part.is_cancelled() {
-                    rule.check(cx, &mut part);
-                }
-                part
-            })
-            .collect();
+        let parts: Vec<Emitter<'_>> = map_ordered(&active, cx.sequential, |rule| {
+            let mut part = base.fork();
+            if !part.is_cancelled() {
+                rule.check(cx, &mut part);
+            }
+            part
+        });
         for part in parts {
             out.merge(part);
         }

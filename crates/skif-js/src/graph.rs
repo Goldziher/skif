@@ -4,10 +4,9 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use globset::GlobBuilder;
-use rayon::prelude::*;
 use skif_core::FileSystem;
 use skif_js_syntax::{ImportKind, ModuleInfo, ParseOptions, is_stylesheet, parse_module, parse_stylesheet};
-use skif_workspace::PackageId;
+use skif_workspace::{PackageId, map_ordered};
 
 use crate::discover::{Candidate, relative};
 use crate::resolve::{ModuleResolver, Resolved};
@@ -173,6 +172,8 @@ pub(crate) struct Inputs<'a> {
     pub root: &'a Path,
     pub candidates: &'a [Candidate],
     pub setup: &'a Setup,
+    /// Parse on the calling thread instead of the current rayon pool.
+    pub sequential: bool,
 }
 
 fn normalize(path: &str) -> String {
@@ -413,7 +414,7 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf]) -> ModuleGraph {
             .iter()
             .map(|id| builder.modules[id.index()].abs.clone())
             .collect();
-        let parsed: Vec<Parsed> = paths.par_iter().map(|path| process(path, inputs)).collect();
+        let parsed: Vec<Parsed> = map_ordered(&paths, inputs.sequential, |path| process(path, inputs));
         let mut next = Vec::new();
         for (id, parsed) in frontier.iter().zip(parsed) {
             let imports = parsed
