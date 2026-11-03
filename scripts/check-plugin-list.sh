@@ -18,6 +18,7 @@ fi
 # Prints the sorted backticked ids of the text from the first line of $1 matching $2 to the next blank line after
 # the first line that carries an id.
 listed() {
+  # shellcheck disable=SC2016 # the backticks are literal Markdown, not command substitution
   awk -v marker="$2" '
     found && /^$/ { if (started) exit; next }
     found { if ($0 ~ /`/) started = 1; print; next }
