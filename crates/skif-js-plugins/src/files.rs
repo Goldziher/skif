@@ -7,7 +7,7 @@ use globset::{Glob, GlobMatcher};
 use skif_core::FileSystem;
 
 const MAX_DEPTH: usize = 8;
-const SKIPPED_DIRS: &[&str] = &["node_modules", ".git"];
+const SKIPPED_DIRS: &[&str] = &["node_modules", ".git", "cdk.out"];
 
 enum Segment {
     AnyDepth,

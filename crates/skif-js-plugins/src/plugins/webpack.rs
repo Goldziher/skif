@@ -6,7 +6,8 @@ use crate::files::find_files;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::babel;
 use crate::support::{
-    alias_inputs, get_in, html_script_sources, join_rel, looks_like_file, module_input, objects, strings,
+    alias_inputs, config_unknown, get_in, html_script_sources, join_rel, key_unknown, looks_like_file, module_input,
+    objects, strings,
 };
 
 /// The `webpack` plugin.
@@ -34,9 +35,15 @@ impl Plugin for Webpack {
 /// the scripts of the HTML templates.
 pub(crate) fn bundler_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
     let mut out = html_template_entries(cx);
+    if config_unknown(config.value) {
+        out.push(PluginInput::EntriesIncomplete);
+    }
     for object in objects(config.value) {
         if let Some(entry) = object.get("entry") {
             entries(entry, config, &mut out);
+        }
+        if key_unknown(object, "entry") {
+            out.push(PluginInput::EntriesIncomplete);
         }
         if let Some(rules) = object.get("module").and_then(|m| m.get("rules")) {
             rule_loaders(rules, config, &mut out, 0);

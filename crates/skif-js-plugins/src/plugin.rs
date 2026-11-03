@@ -94,6 +94,15 @@ pub enum PluginInput {
     ConfigFile(String),
     /// A shell script, parsed with the script parser.
     Script(String),
+    /// A shell script that runs in `dir`, a directory of the workspace other than its root (a workflow step with a
+    /// `working-directory`). The files it runs are entries; the binaries and packages it names belong to whichever
+    /// package lives in `dir` and are not recorded.
+    ScriptAt {
+        /// The directory the script runs in, relative to the workspace directory.
+        dir: String,
+        /// The script text.
+        script: String,
+    },
     /// A glob of files the config owns.
     Ignore(String),
     /// A module alias (`resolve.alias`, `compilerOptions.paths`): imports of `find` and `find/…` lead to `target`.
@@ -117,6 +126,9 @@ pub enum PluginInput {
     /// A directory bare specifiers are looked up in before packages (`baseUrl`, a `*` entry of `paths`, webpack's
     /// `resolve.modules`), relative to the workspace directory.
     ModuleDir(String),
+    /// The config computes its entry points in a way that cannot be evaluated statically, so the entries found are
+    /// not all of them. Sets [`PluginOutput::entries_incomplete`].
+    EntriesIncomplete,
 }
 
 /// A module alias read from a config file; see [`PluginInput::Alias`].
@@ -223,6 +235,13 @@ pub trait Plugin: Send + Sync {
         Vec::new()
     }
 
+    /// What the plugin finds in the workspace besides its config files, such as the scripts that invoke the tool or
+    /// the constructs in source files that declare entry points. Called for every enabled plugin, whether or not a
+    /// config file exists. The default returns nothing.
+    fn resolve_workspace(&self, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        Vec::new()
+    }
+
     /// What the plugin knows by convention when it is enabled but no config file exists, such as Vite's
     /// `index.html`. The default returns nothing.
     fn resolve_without_config(&self, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
@@ -273,4 +292,8 @@ pub struct PluginOutput {
     pub conditions: Vec<String>,
     /// Directories bare specifiers are looked up in, relative to the workspace directory, in lookup order.
     pub module_dirs: Vec<String>,
+    /// A config computes entry points the plugin could not evaluate statically (`entry: await glob(…)` with a
+    /// computed pattern, a call of an unknown function): `entries` may be missing files. Rules that report files as
+    /// unreachable from entries should be conservative for this workspace.
+    pub entries_incomplete: bool,
 }

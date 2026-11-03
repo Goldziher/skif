@@ -3,7 +3,7 @@
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{entry_glob, objects, strings, values_of};
+use crate::support::{config_unknown, entry_glob, key_unknown, objects, strings, values_of};
 
 /// The `tsup` plugin.
 pub struct Tsup;
@@ -23,15 +23,32 @@ impl Plugin for Tsup {
     }
 
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
-        objects(config.value)
-            .into_iter()
-            .filter_map(|build| build.get("entry").or_else(|| build.get("entryPoints")))
-            .flat_map(|entry| match entry {
-                ConfigValue::Object(_) => values_of(entry).into_iter().flat_map(strings).collect(),
-                other => strings(other),
-            })
-            .filter_map(|path| entry_glob(config.base, path))
-            .map(PluginInput::ProductionEntry)
-            .collect()
+        let mut out = Vec::new();
+        if config_unknown(config.value) {
+            out.push(PluginInput::EntriesIncomplete);
+        }
+        for build in objects(config.value) {
+            if let Some(entry) = build.get("entry").or_else(|| build.get("entryPoints")) {
+                let paths = match entry {
+                    ConfigValue::Object(_) => values_of(entry).into_iter().flat_map(strings).collect(),
+                    other => strings(other),
+                };
+                out.extend(
+                    paths
+                        .into_iter()
+                        .filter_map(|path| entry_glob(config.base, path))
+                        .map(PluginInput::ProductionEntry),
+                );
+            }
+            let key = if build.get("entry").is_some() {
+                "entry"
+            } else {
+                "entryPoints"
+            };
+            if key_unknown(build, key) {
+                out.push(PluginInput::EntriesIncomplete);
+            }
+        }
+        out
     }
 }
