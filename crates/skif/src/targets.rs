@@ -443,7 +443,12 @@ mod tests {
         let nested: Vec<_> = discovery
             .targets
             .iter()
-            .map(|target| (target.root.display().to_string(), target.workspace.is_nested()))
+            .map(|target| {
+                (
+                    target.root.display().to_string().replace('\\', "/"),
+                    target.workspace.is_nested(),
+                )
+            })
             .collect();
         assert_eq!(
             nested,
