@@ -16,6 +16,10 @@ pub(crate) struct ScriptBinary {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ScriptFacts {
     pub binaries: Vec<ScriptBinary>,
+    /// Binaries fetched on demand (`npx x`, `pnpm dlx x`): a listed provider is used, nothing is ever unlisted.
+    pub ephemeral_binaries: Vec<ScriptBinary>,
+    /// Package managers the scripts invoke, which a manifest may list as a dependency.
+    pub package_managers: Vec<String>,
     /// Files the scripts run, relative to the package directory.
     pub files: Vec<String>,
     pub dependencies: Vec<String>,
@@ -42,16 +46,24 @@ pub(crate) fn analyze(package: &Package) -> ScriptFacts {
         let Some(body) = body.as_str() else { continue };
         let info = parse_script(body, &context.clone().with_current_script(name));
         for binary in info.binaries {
-            if binary.filtered || binary.via.is_ephemeral() || is_ignored_binary(&binary.name) {
+            if binary.filtered || is_ignored_binary(&binary.name) {
                 continue;
             }
+            let target = if binary.via.is_ephemeral() {
+                &mut facts.ephemeral_binaries
+            } else {
+                &mut facts.binaries
+            };
             push_unique(
-                &mut facts.binaries,
+                target,
                 ScriptBinary {
                     name: binary.name,
                     script: name.clone(),
                 },
             );
+        }
+        for manager in info.package_managers {
+            push_unique(&mut facts.package_managers, manager);
         }
         for file in info.files {
             push_unique(&mut facts.files, file.path);
@@ -84,6 +96,8 @@ mod tests {
         let names: Vec<&str> = facts.binaries.iter().map(|b| b.name.as_str()).collect();
         assert!(names.contains(&"tsc") && names.contains(&"vitest"), "{names:?}");
         assert!(!names.contains(&"cowsay"));
+        assert_eq!(facts.ephemeral_binaries.len(), 1);
+        assert_eq!(facts.ephemeral_binaries[0].name, "cowsay");
         assert!(
             facts.files.iter().any(|f| f.ends_with("scripts/build.js")),
             "{:?}",

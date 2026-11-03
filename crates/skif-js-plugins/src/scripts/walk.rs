@@ -111,6 +111,17 @@ fn classify(text: &str) -> Target<'_> {
     }
 }
 
+/// The package a path below a `node_modules` directory belongs to (`node_modules/@scope/pkg/cli.js`).
+fn installed_package(path: &str) -> Option<&str> {
+    let rest = if let Some(rest) = path.strip_prefix("node_modules/") {
+        rest
+    } else {
+        let at = path.find("/node_modules/")?;
+        &path[at + "/node_modules/".len()..]
+    };
+    package_name(rest)
+}
+
 /// The package name of a module specifier, without version or subpath. `None` for paths, URLs
 /// and dynamic specifiers.
 fn package_name(spec: &str) -> Option<&str> {
@@ -262,10 +273,41 @@ impl<'c> Walker<'c> {
         if path.is_empty() || path.starts_with('-') || path.contains('$') {
             return;
         }
+        if let Some(name) = installed_package(path) {
+            self.dep(name, span, false);
+            return;
+        }
         self.info.files.push(FileRef {
             path: path.to_owned(),
             span,
         });
+    }
+
+    fn package_manager(&mut self, name: &str) {
+        if !self.info.package_managers.iter().any(|known| known == name) {
+            self.info.package_managers.push(name.to_owned());
+        }
+    }
+
+    /// Packages a tool loads when it is given a flag or subcommand (`vitest --ui`, `webpack serve`).
+    fn flag_dependencies(&mut self, tool: &str, args: &[Word], frame: &Frame) {
+        for (name, flag, packages) in tables::FLAG_DEPENDENCIES {
+            if *name != tool {
+                continue;
+            }
+            let Some(word) = args.iter().find(|word| {
+                word.text == *flag
+                    || word
+                        .text
+                        .strip_prefix(*flag)
+                        .is_some_and(|rest| rest.starts_with(['.', '=']))
+            }) else {
+                continue;
+            };
+            for package in *packages {
+                self.dep(package, frame.span(&word.span), false);
+            }
+        }
     }
 
     fn dep(&mut self, name: &str, span: Range<usize>, ephemeral: bool) {
@@ -355,7 +397,10 @@ impl<'c> Walker<'c> {
         };
         match name {
             "node" | "nodejs" => self.node_args(args, frame, st, true),
-            "npm" => self.npm(args, frame, st),
+            "npm" => {
+                self.package_manager("npm");
+                self.npm(args, frame, st);
+            }
             "npx" => self.exec_like(
                 args,
                 frame,
@@ -374,8 +419,14 @@ impl<'c> Walker<'c> {
                 },
                 false,
             ),
-            "pnpm" => self.pnpm(args, frame, st),
-            "yarn" | "yarnpkg" => self.yarn(args, frame, st),
+            "pnpm" => {
+                self.package_manager("pnpm");
+                self.pnpm(args, frame, st);
+            }
+            "yarn" | "yarnpkg" => {
+                self.package_manager("yarn");
+                self.yarn(args, frame, st);
+            }
             "bun" => self.bun(args, frame, st),
             "bunx" => self.exec_like(
                 args,
@@ -408,6 +459,7 @@ impl<'c> Walker<'c> {
             n if is_ignored_binary(n) => {}
             n => {
                 self.bin(n, span, st);
+                self.flag_dependencies(n, args, frame);
                 if let Some(wrapper) = tables::wrapper(n) {
                     self.wrapper(wrapper, args, frame, st);
                 } else if let Some(runner) = tables::runner(n) {
@@ -603,15 +655,17 @@ impl<'c> Walker<'c> {
             break (ci, parsed);
         };
         let after = &args[parsed.rest..];
-        let filtered = st.filtered || (filter && !recursive);
+        let filtered = st.filtered || filter;
         let cmd = args[ci].text.as_str();
         match cmd {
             "run" | "run-script" => {
                 let inner = args::parse(after, tables::PNPM_VALUE_FLAGS, false);
+                let selected = filtered || inner.has(&["filter", "F", "filter-prod"]);
+                let recursive = recursive || inner.has(&["recursive", "r"]);
                 if let Some(&i) = inner.positionals.first() {
                     // A recursive run of a script this package doesn't define runs it in other workspaces only.
                     let elsewhere = recursive && !self.ctx.scripts.contains_key(after[i].text.as_str());
-                    self.run_script_word(&after[i], frame, filtered || elsewhere);
+                    self.run_script_word(&after[i], frame, selected || elsewhere);
                 }
             }
             "exec" => {

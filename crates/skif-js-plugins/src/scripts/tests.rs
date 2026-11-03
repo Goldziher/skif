@@ -645,3 +645,63 @@ proptest! {
         check(&script.join(" "));
     }
 }
+
+#[test]
+fn recursive_filtered_commands_run_elsewhere() {
+    for script in [
+        "pnpm -r --filter web exec vite",
+        "pnpm --recursive --filter=web exec vite",
+        "pnpm -r --filter web run build",
+        "pnpm run -r build",
+        "pnpm run build -r",
+        "pnpm run build --filter web",
+    ] {
+        let info = parse(script);
+        assert!(
+            info.binaries.iter().all(|b| b.filtered) && info.run_scripts.is_empty(),
+            "{script}: {info:?}"
+        );
+    }
+}
+
+#[test]
+fn recursive_without_filter_still_runs_here() {
+    let info = parse("pnpm -r exec vite");
+    assert_eq!(binaries_of(&info), vec!["vite:pnpm-exec".to_owned()]);
+    assert!(!info.binaries[0].filtered);
+}
+
+#[test]
+fn recursive_run_of_a_local_script_is_followed() {
+    let ctx = context(&[("build", "tsc")]);
+    let info = parse_script("pnpm run -r build", &ctx);
+    assert_eq!(binaries_of(&info), vec!["tsc".to_owned()]);
+}
+
+#[test]
+fn flags_and_subcommands_load_packages() {
+    let cases: [(&str, &[&str]); 5] = [
+        ("vitest --ui", &["@vitest/ui"]),
+        ("vitest run --coverage", &["@vitest/coverage-istanbul", "@vitest/coverage-v8"]),
+        ("vitest run --coverage.enabled", &["@vitest/coverage-istanbul", "@vitest/coverage-v8"]),
+        ("webpack serve --mode development", &["webpack-dev-server"]),
+        ("vitest run", &[]),
+    ];
+    for (script, expected_deps) in cases {
+        assert_eq!(deps_of(&parse(script)), expected(expected_deps), "{script}");
+    }
+}
+
+#[test]
+fn node_modules_paths_are_packages_not_files() {
+    let info = parse("node node_modules/@scope/tool/cli.js deploy && node ./node_modules/other/index.js");
+    assert_eq!(deps_of(&info), expected(&["@scope/tool", "other"]));
+    assert!(info.files.is_empty(), "{:?}", info.files);
+}
+
+#[test]
+fn package_managers_are_recorded() {
+    let info = parse("pnpm --filter web build && yarn lint && npm test && pnpm -r build");
+    assert_eq!(info.package_managers, ["pnpm", "yarn", "npm"]);
+    assert!(parse("vitest").package_managers.is_empty());
+}
