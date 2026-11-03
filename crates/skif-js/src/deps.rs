@@ -6,10 +6,12 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use skif_core::{FileSystem, Span};
-use skif_js_syntax::ImportKind;
+use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object};
 use skif_workspace::{PackageId, Workspace};
 
 use crate::graph::{ModuleGraph, ModuleId};
+use crate::lockfile;
+use crate::resolve::join_normalized;
 use crate::setup::Setup;
 use crate::specifier::{RUNTIME_PACKAGES, package_name, typed_package, types_package};
 
@@ -48,6 +50,49 @@ const BINARY_PACKAGES: &[(&str, &str)] = &[
     ("gql-gen", "@graphql-codegen/cli"),
     ("nuxi", "nuxt"),
     ("cdk", "aws-cdk"),
+    ("rspack", "@rspack/cli"),
+    ("rsbuild", "@rsbuild/core"),
+    ("rslib", "@rslib/core"),
+    ("remix", "@remix-run/dev"),
+    ("react-router", "@react-router/dev"),
+    ("tailwindcss", "@tailwindcss/cli"),
+    ("tauri", "@tauri-apps/cli"),
+    ("cap", "@capacitor/cli"),
+    ("capacitor", "@capacitor/cli"),
+    ("ionic", "@ionic/cli"),
+    ("ember", "ember-cli"),
+    ("quasar", "@quasar/cli"),
+    ("mikro-orm", "@mikro-orm/cli"),
+    ("sequelize", "sequelize-cli"),
+    ("sls", "serverless"),
+    ("vsce", "@vscode/vsce"),
+    ("ncu", "npm-check-updates"),
+    ("dotenv", "dotenv-cli"),
+    ("markdownlint", "markdownlint-cli"),
+    ("babel-node", "@babel/node"),
+    ("tspc", "ts-patch"),
+    ("api-extractor", "@microsoft/api-extractor"),
+    ("rush", "@microsoft/rush"),
+    ("manypkg", "@manypkg/cli"),
+    ("graphql-inspector", "@graphql-inspector/cli"),
+    ("graphql-codegen-esm", "@graphql-codegen/cli"),
+    ("buf", "@bufbuild/buf"),
+    ("protoc-gen-es", "@bufbuild/protoc-gen-es"),
+    ("pbjs", "protobufjs-cli"),
+    ("pbts", "protobufjs-cli"),
+    ("wdio", "@wdio/cli"),
+    ("percy", "@percy/cli"),
+    ("electron-forge", "@electron-forge/cli"),
+    ("start-storybook", "@storybook/cli"),
+    ("build-storybook", "@storybook/cli"),
+    ("start-test", "start-server-and-test"),
+    ("server-test", "start-server-and-test"),
+    ("jest-cli", "jest"),
+    ("ts-node-esm", "ts-node"),
+    ("ts-node-cwd", "ts-node"),
+    ("prettier-eslint", "prettier-eslint-cli"),
+    ("openapi-generator-cli", "@openapitools/openapi-generator-cli"),
+    ("pm2-runtime", "pm2"),
 ];
 
 /// An import of a package the manifest does not list.
@@ -74,9 +119,28 @@ pub struct UnlistedBinary {
     pub script: String,
 }
 
-struct Installed {
-    bins: Vec<String>,
-    peers: Vec<String>,
+/// The binaries and peer dependencies a package declares.
+pub(crate) struct Installed {
+    pub(crate) bins: Vec<String>,
+    pub(crate) peers: Vec<String>,
+}
+
+/// The binary names a manifest declares: the package's own name for a `bin` string, the keys of a `bin` map.
+pub(crate) fn bins_of(manifest: &Value, name: &str) -> Vec<String> {
+    match manifest.get("bin") {
+        Some(Value::String(_)) => vec![unscoped(name).to_owned()],
+        Some(Value::Object(map)) => map.keys().cloned().collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The names a manifest lists under `peerDependencies`.
+pub(crate) fn peers_of(manifest: &Value) -> Vec<String> {
+    manifest
+        .get("peerDependencies")
+        .and_then(Value::as_object)
+        .map(|map| map.keys().cloned().collect())
+        .unwrap_or_default()
 }
 
 fn unscoped(name: &str) -> &str {
@@ -113,17 +177,63 @@ fn read_installed(
 
 fn parse_installed(text: &str, name: &str) -> Option<Arc<Installed>> {
     let value: Value = serde_json::from_str(text).ok()?;
-    let bins = match value.get("bin") {
-        Some(Value::String(_)) => vec![unscoped(name).to_owned()],
-        Some(Value::Object(map)) => map.keys().cloned().collect(),
+    Some(Arc::new(Installed {
+        bins: bins_of(&value, name),
+        peers: peers_of(&value),
+    }))
+}
+
+/// Whether `dir` is where the repository starts: it holds the `.git` entry.
+fn is_repository_root(fs: &dyn FileSystem, dir: &Path) -> bool {
+    let git = dir.join(".git");
+    fs.is_dir(&git) || fs.is_file(&git)
+}
+
+fn parse_tsconfig(fs: &dyn FileSystem, path: &Path) -> Option<ConfigValue> {
+    let text = fs.read_to_string(path).ok()?;
+    extract_config_object(&format!("module.exports = {text}"), Path::new("tsconfig.js"))
+}
+
+/// Whether the `tsconfig.json` at `path` makes TypeScript include every installed `@types/*` package: it exists, no
+/// `compilerOptions.types` is set along its `extends` chain, and `typeRoots`, when set, keeps `node_modules/@types`.
+fn includes_all_types(fs: &dyn FileSystem, path: &Path, depth: usize) -> bool {
+    const MAX_DEPTH: usize = 8;
+    let Some(config) = parse_tsconfig(fs, path) else {
+        return false;
+    };
+    if let Some(options) = config.get("compilerOptions") {
+        if options.get("types").is_some() {
+            return false;
+        }
+        if let Some(ConfigValue::Array(roots)) = options.get("typeRoots") {
+            let keeps_default = roots.iter().filter_map(ConfigValue::as_str).any(|root| {
+                let root = root.trim_end_matches('/');
+                root.ends_with("node_modules/@types") || root == "@types"
+            });
+            if !keeps_default {
+                return false;
+            }
+        }
+    }
+    let Some(extends) = config.get("extends") else {
+        return true;
+    };
+    let parents: Vec<&str> = match extends {
+        ConfigValue::String(one) => vec![one.as_str()],
+        ConfigValue::Array(many) => many.iter().filter_map(ConfigValue::as_str).collect(),
         _ => Vec::new(),
     };
-    let peers = value
-        .get("peerDependencies")
-        .and_then(Value::as_object)
-        .map(|map| map.keys().cloned().collect())
-        .unwrap_or_default();
-    Some(Arc::new(Installed { bins, peers }))
+    let dir = path.parent().unwrap_or(path);
+    parents
+        .iter()
+        .filter(|parent| parent.starts_with('.'))
+        .all(|parent| {
+            let mut target = join_normalized(dir, parent);
+            if target.extension().is_none_or(|extension| extension != "json") {
+                target.as_mut_os_string().push(".json");
+            }
+            depth >= MAX_DEPTH || includes_all_types(fs, &target, depth + 1)
+        })
 }
 
 /// Dependency and binary usage of every package.
@@ -135,6 +245,8 @@ pub struct DependencyUsage {
     bins: Vec<HashMap<String, Vec<String>>>,
     member_bins: BTreeMap<String, Vec<String>>,
     members: HashSet<String>,
+    /// Binaries that `node_modules/.bin` directories of ancestor projects put on the `PATH`.
+    ancestor_bins: HashSet<String>,
     /// Imports of packages that are not listed, in module order.
     pub unlisted: Vec<UnlistedImport>,
     /// Script binaries that nothing provides, in package order.
@@ -153,6 +265,8 @@ impl DependencyUsage {
             ..Self::default()
         };
         usage.read_manifests(workspace, fs);
+        usage.collect_ambient_types(workspace, fs);
+        usage.collect_ancestor_bins(workspace, fs);
         usage.collect_member_bins(workspace);
         usage.collect_imports(workspace, setup, graph);
         usage.collect_scripts(workspace, setup);
@@ -161,6 +275,7 @@ impl DependencyUsage {
 
     fn read_manifests(&mut self, workspace: &Workspace, fs: &dyn FileSystem) {
         let mut cache = HashMap::new();
+        let locked = lockfile::read(fs, &workspace.root);
         for (id, package) in workspace.iter() {
             let dir = workspace.root.join(&package.dir);
             for entry in &package.dependencies {
@@ -168,7 +283,9 @@ impl DependencyUsage {
             }
             let names: Vec<String> = self.listed[id.index()].iter().cloned().collect();
             for name in names {
-                let Some(installed) = read_installed(fs, &dir, &workspace.root, &name, &mut cache) else {
+                let Some(installed) =
+                    read_installed(fs, &dir, &workspace.root, &name, &mut cache).or_else(|| locked.get(&name).cloned())
+                else {
                     continue;
                 };
                 for bin in &installed.bins {
@@ -184,15 +301,64 @@ impl DependencyUsage {
         }
     }
 
+    /// TypeScript includes every visible `@types/*` package unless `compilerOptions.types` narrows them, so the ones a
+    /// package (and the root, which hoists them) lists are used when the package has a `tsconfig.json` that does not.
+    fn collect_ambient_types(&mut self, workspace: &Workspace, fs: &dyn FileSystem) {
+        for (id, package) in workspace.iter() {
+            if !includes_all_types(fs, &workspace.root.join(&package.dir).join("tsconfig.json"), 0) {
+                continue;
+            }
+            for scope in [id, PackageId::ROOT] {
+                let types: Vec<String> = self.listed[scope.index()]
+                    .iter()
+                    .filter(|name| name.starts_with("@types/"))
+                    .cloned()
+                    .collect();
+                for name in types {
+                    self.reference(scope, &name);
+                }
+            }
+        }
+    }
+
+    /// Binaries of the dependencies listed by the directories above the workspace, up to the repository root.
+    fn collect_ancestor_bins(&mut self, workspace: &Workspace, fs: &dyn FileSystem) {
+        let mut cache = HashMap::new();
+        let mut dir = workspace.root.as_path();
+        while !is_repository_root(fs, dir) {
+            let Some(parent) = dir.parent() else { break };
+            dir = parent;
+            let Some(manifest) = fs
+                .read_to_string(&dir.join("package.json"))
+                .ok()
+                .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            else {
+                continue;
+            };
+            for section in ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] {
+                let Some(listed) = manifest.get(section).and_then(Value::as_object) else {
+                    continue;
+                };
+                for name in listed.keys() {
+                    self.ancestor_bins.insert(unscoped(name).to_owned());
+                    self.ancestor_bins.extend(
+                        BINARY_PACKAGES
+                            .iter()
+                            .filter(|(_, package)| *package == name.as_str())
+                            .map(|(bin, _)| (*bin).to_owned()),
+                    );
+                    if let Some(installed) = read_installed(fs, dir, dir, name, &mut cache) {
+                        self.ancestor_bins.extend(installed.bins.iter().cloned());
+                    }
+                }
+            }
+        }
+    }
+
     fn collect_member_bins(&mut self, workspace: &Workspace) {
         for package in workspace.all_packages() {
             let Some(name) = package.name.as_deref() else { continue };
-            let bins: Vec<String> = match package.manifest.value.get("bin") {
-                Some(Value::String(_)) => vec![unscoped(name).to_owned()],
-                Some(Value::Object(map)) => map.keys().cloned().collect(),
-                _ => continue,
-            };
-            for bin in bins {
+            for bin in bins_of(&package.manifest.value, name) {
                 self.member_bins.entry(bin).or_default().push(name.to_owned());
             }
         }
@@ -301,8 +467,19 @@ impl DependencyUsage {
             for bin in &package_setup.referenced_binaries {
                 self.provide_binary(id, bin);
             }
+            for binary in &package_setup.scripts.ephemeral_binaries {
+                self.provide_binary(id, &binary.name);
+            }
+            for manager in &package_setup.scripts.package_managers {
+                if let Some(found) = self.find_listed(id, manager) {
+                    self.reference(found, manager);
+                }
+            }
             for binary in &package_setup.scripts.binaries {
-                if !self.provide_binary(id, &binary.name) && !setup.ignores_binary(id, &binary.name) {
+                if !self.provide_binary(id, &binary.name)
+                    && !self.ancestor_bins.contains(&binary.name)
+                    && !setup.ignores_binary(id, &binary.name)
+                {
                     self.unlisted_binaries.push(UnlistedBinary {
                         package: id,
                         name: binary.name.clone(),
