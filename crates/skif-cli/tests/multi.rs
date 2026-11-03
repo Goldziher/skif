@@ -511,19 +511,20 @@ fn a_project_is_judged_by_the_same_config_whichever_way_it_is_reached() {
         "I/examples/e/package.json",
         r#"{"name": "e", "version": "0.0.0", "private": true, "devDependencies": {}}"#,
     );
-    let rules = |report: &Value| -> BTreeSet<String> {
+    let rules = |report: &Value, path: &str| -> BTreeSet<String> {
         report["diagnostics"]
             .as_array()
             .unwrap()
             .iter()
-            .filter(|d| d["location"]["path"].as_str().unwrap().ends_with("e/package.json"))
+            .filter(|d| d["location"]["path"] == path)
             .map(|d| d["rule"].as_str().unwrap().to_owned())
             .collect()
     };
     let (_, recursive) = json(&dir.path().join("I"), &["-r"]);
     let (_, direct) = json(&dir.path().join("I").join("examples").join("e"), &[]);
-    assert!(!rules(&recursive).contains("empty-dependencies"), "{recursive}");
-    assert_eq!(rules(&direct), rules(&recursive), "{direct}");
+    let through_the_tree = rules(&recursive, "examples/e/package.json");
+    assert!(!through_the_tree.contains("empty-dependencies"), "{recursive}");
+    assert_eq!(rules(&direct, "package.json"), through_the_tree, "{direct}");
 }
 
 #[cfg(unix)]
