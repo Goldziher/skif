@@ -78,6 +78,8 @@ pub struct Rendering<'a> {
     pub rules: Vec<&'static RuleMeta>,
     /// Whether the run covers several roots: human output is grouped by root and JSON lists them.
     pub multi: bool,
+    /// The roots of a multi-root run that could not be loaded, as JSON `errors` entries.
+    pub errors: Vec<Value>,
 }
 
 /// One root of a run, with paths already relative to [`Rendering::root`].
@@ -170,6 +172,9 @@ fn write_report(
                     "roots".to_owned(),
                     Value::Array(roots.iter().filter_map(|view| view.json.clone()).collect()),
                 );
+                if !rendering.errors.is_empty() {
+                    extra.insert("errors".to_owned(), Value::Array(rendering.errors.clone()));
+                }
             }
             render_json_with(report, options, extra, out)
         }

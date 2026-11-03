@@ -1,5 +1,6 @@
 //! The CLI side of fixing: choosing among alternatives interactively and describing the outcome.
 
+use std::borrow::Cow;
 use std::fmt;
 use std::io::{self, Write};
 use std::path::Path;
@@ -13,6 +14,7 @@ use crate::args::{Format, LintArgs};
 use crate::env::Env;
 use crate::error::{CliError, Kind};
 use crate::install::InstallStatus;
+use crate::roots;
 
 /// What a fix run did.
 pub struct FixRun {
@@ -189,14 +191,39 @@ static NOTHING_FIXED: InstallStatus = InstallStatus::Skipped {
     reason: "nothing was fixed",
 };
 
-/// The install status that stands for all roots: a failure, else a run, else the first skip.
-fn merged_install<'a>(runs: &[RootFix<'a>]) -> &'a InstallStatus {
-    let installs = || runs.iter().map(|root| &root.run.install);
-    installs()
-        .find(|status| matches!(status, InstallStatus::Failed { .. }))
-        .or_else(|| installs().find(|status| matches!(status, InstallStatus::Ran { .. })))
-        .or_else(|| installs().next())
-        .unwrap_or(&NOTHING_FIXED)
+/// The install status that stands for all roots: the failures (all of them, named by root, when several), else a
+/// run, else the first skip.
+fn merged_install<'a>(runs: &[RootFix<'a>]) -> Cow<'a, InstallStatus> {
+    let installs: Vec<(&'a Path, &'a InstallStatus)> = runs.iter().map(|root| (root.prefix, &root.run.install)).collect();
+    merge_installs(&installs)
+}
+
+fn merge_installs<'a>(installs: &[(&Path, &'a InstallStatus)]) -> Cow<'a, InstallStatus> {
+    let failed: Vec<(&Path, &str, &str)> = installs
+        .iter()
+        .filter_map(|(prefix, status)| match status {
+            InstallStatus::Failed { command, message } => Some((*prefix, command.as_str(), message.as_str())),
+            _ => None,
+        })
+        .collect();
+    if failed.len() > 1 {
+        return Cow::Owned(InstallStatus::Failed {
+            command: failed.iter().map(|(_, command, _)| *command).collect::<Vec<_>>().join("; "),
+            message: failed
+                .iter()
+                .map(|(prefix, _, message)| format!("{}: {message}", roots::display(prefix)))
+                .collect::<Vec<_>>()
+                .join("; "),
+        });
+    }
+    let statuses = || installs.iter().map(|(_, status)| *status);
+    Cow::Borrowed(
+        statuses()
+            .find(|status| matches!(status, InstallStatus::Failed { .. }))
+            .or_else(|| statuses().find(|status| matches!(status, InstallStatus::Ran { .. })))
+            .or_else(|| statuses().next())
+            .unwrap_or(&NOTHING_FIXED),
+    )
 }
 
 /// The `fix` object for the roots of a run: the run itself for one root at the base, otherwise the applied and
@@ -211,7 +238,7 @@ pub fn fixes_json(runs: &[RootFix<'_>]) -> Value {
         "applied": runs.iter().flat_map(|root| root.run.applied_json()).collect::<Vec<_>>(),
         "skipped": runs.iter().flat_map(|root| root.run.skipped_json()).collect::<Vec<_>>(),
         "changed": runs.iter().flat_map(|root| root.run.changed_at(root.prefix)).collect::<Vec<_>>(),
-        "install": install_json(merged_install(runs)),
+        "install": install_json(&merged_install(runs)),
     })
 }
 
@@ -219,4 +246,46 @@ pub fn fixes_json(runs: &[RootFix<'_>]) -> Value {
 pub fn write_fixes_human(runs: &[RootFix<'_>], out: &mut dyn Write) -> io::Result<()> {
     runs.iter()
         .try_for_each(|root| root.run.write_human_at(root.prefix, out))
+}
+
+#[cfg(test)]
+mod install_tests {
+    use super::*;
+
+    fn failed(command: &str, message: &str) -> InstallStatus {
+        InstallStatus::Failed {
+            command: command.to_owned(),
+            message: message.to_owned(),
+        }
+    }
+
+    #[test]
+    fn every_failed_install_is_named_by_its_root() {
+        let a = failed("npm install", "exit 1");
+        let b = failed("pnpm install", "no network");
+        let ran = InstallStatus::Ran {
+            command: "yarn".to_owned(),
+        };
+        let merged = merge_installs(&[
+            (Path::new("a"), &a),
+            (Path::new("ok"), &ran),
+            (Path::new("pkgs/b"), &b),
+        ]);
+        assert_eq!(
+            *merged,
+            failed("npm install; pnpm install", "a: exit 1; pkgs/b: no network")
+        );
+    }
+
+    #[test]
+    fn one_failure_wins_over_a_run_and_a_run_over_a_skip() {
+        let a = failed("npm install", "exit 1");
+        let ran = InstallStatus::Ran {
+            command: "yarn".to_owned(),
+        };
+        let skipped = InstallStatus::Skipped { reason: "nothing" };
+        assert_eq!(*merge_installs(&[(Path::new("x"), &skipped), (Path::new("a"), &a)]), a);
+        assert_eq!(*merge_installs(&[(Path::new("x"), &skipped), (Path::new("y"), &ran)]), ran);
+        assert_eq!(*merge_installs(&[(Path::new("x"), &skipped)]), skipped);
+    }
 }

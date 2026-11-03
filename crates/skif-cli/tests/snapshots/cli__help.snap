@@ -50,7 +50,7 @@ Options:
           Do not run the package manager after fixing
 
       --max-warnings <N>
-          Exit 1 when there are more than N warnings
+          Exit 1 when there are more than N warnings (counted over all roots)
 
       --fail-on-warnings
           Same as --max-warnings 0

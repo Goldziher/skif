@@ -1,14 +1,17 @@
 //! Finding every workspace root and standalone package below a directory.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use serde_json::Value;
 use skif_config::Config;
-use skif_core::FileSystem;
+use skif_core::{DirEntry, FileSystem};
 
+use crate::pattern::{self, Expander, Pattern};
+use crate::pnpm;
 use crate::workspace::Workspace;
 
 const MANIFEST: &str = "package.json";
@@ -16,6 +19,10 @@ const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
 const IGNORE_FILES: [&str; 2] = [".gitignore", ".ignore"];
 
 /// A project root found by [`discover_roots`].
+///
+/// Only a workspace declaration makes a directory a root of its own: a directory that declares a workspace is a
+/// [`Workspace`](Self::Workspace) wherever it lies, also when an outer workspace lists it as a member or when it lies
+/// below a member. A plain package is a [`Package`](Self::Package) root only when no workspace's members contain it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum RootKind {
@@ -58,21 +65,36 @@ impl DiscoverOptions {
     }
 }
 
-fn declares_workspace(fs: &dyn FileSystem, dir: &Path) -> bool {
-    if fs.is_file(&dir.join(PNPM_WORKSPACE)) {
-        return true;
-    }
+fn manifest_declares_workspace(fs: &dyn FileSystem, dir: &Path) -> bool {
     fs.read_to_string(&dir.join(MANIFEST))
         .ok()
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
         .is_some_and(|manifest| manifest.get("workspaces").is_some())
 }
 
-fn ignore_matcher(fs: &dyn FileSystem, dir: &Path) -> Option<Gitignore> {
-    let mut builder = GitignoreBuilder::new(dir);
+/// Whether `dir` declares a workspace: it holds a `pnpm-workspace.yaml`, or its `package.json` has a `workspaces`
+/// key.
+#[must_use]
+pub fn declares_workspace(fs: &dyn FileSystem, dir: &Path) -> bool {
+    fs.is_file(&dir.join(PNPM_WORKSPACE)) || manifest_declares_workspace(fs, dir)
+}
+
+fn has_git(fs: &dyn FileSystem, dir: &Path) -> bool {
+    let git = dir.join(".git");
+    fs.is_dir(&git) || fs.is_file(&git)
+}
+
+/// The nearest directory at or above `start` that holds a `.git` entry (a directory, or the file of a linked
+/// worktree), which bounds every upward search.
+#[must_use]
+pub fn repository_root(fs: &dyn FileSystem, start: &Path) -> Option<PathBuf> {
+    start.ancestors().find(|dir| has_git(fs, dir)).map(Path::to_path_buf)
+}
+
+fn matcher_from(fs: &dyn FileSystem, base: &Path, files: impl IntoIterator<Item = PathBuf>) -> Option<Gitignore> {
+    let mut builder = GitignoreBuilder::new(base);
     let mut any = false;
-    for name in IGNORE_FILES {
-        let path = dir.join(name);
+    for path in files {
         let Ok(text) = fs.read_to_string(&path) else { continue };
         for line in text.lines() {
             any |= builder.add_line(Some(path.clone()), line).is_ok();
@@ -81,80 +103,241 @@ fn ignore_matcher(fs: &dyn FileSystem, dir: &Path) -> Option<Gitignore> {
     if any { builder.build().ok() } else { None }
 }
 
-fn is_ignored(matchers: &[Arc<Gitignore>], path: &Path) -> bool {
-    for matcher in matchers.iter().rev() {
-        match matcher.matched(path, true) {
+/// The ignore files of the directories above a walk, innermost last: each parent is the next outer one.
+struct Chain {
+    matcher: Gitignore,
+    parent: Ignores,
+}
+
+type Ignores = Option<Arc<Chain>>;
+
+fn pushed(parent: Ignores, matcher: Option<Gitignore>) -> Ignores {
+    match matcher {
+        Some(matcher) => Some(Arc::new(Chain { matcher, parent })),
+        None => parent,
+    }
+}
+
+fn is_ignored(ignores: &Ignores, path: &Path) -> bool {
+    let mut link = ignores.as_deref();
+    while let Some(chain) = link {
+        match chain.matcher.matched(path, true) {
             Match::Ignore(_) => return true,
             Match::Whitelist(_) => return false,
             Match::None => {}
         }
+        link = chain.parent.as_deref();
     }
     false
 }
 
-#[derive(Default)]
-struct Scan {
-    packages: BTreeSet<PathBuf>,
-    workspaces: BTreeSet<PathBuf>,
+/// The ignore rules that apply to `start` from above: `.git/info/exclude` of the repository and the `.gitignore` and
+/// `.ignore` files of the directories between the repository root and `start`. Nothing outside a repository.
+fn inherited_ignores(fs: &dyn FileSystem, start: &Path) -> Ignores {
+    let git_root = repository_root(fs, start)?;
+    let exclude = git_root.join(".git").join("info").join("exclude");
+    let mut ignores = pushed(None, matcher_from(fs, &git_root, [exclude]));
+    let mut above: Vec<&Path> = start
+        .ancestors()
+        .skip(1)
+        .take_while(|dir| dir.starts_with(&git_root))
+        .collect();
+    above.reverse();
+    for dir in above {
+        let files = IGNORE_FILES.iter().map(|name| dir.join(name));
+        ignores = pushed(ignores, matcher_from(fs, dir, files));
+    }
+    ignores
 }
 
-fn scan(fs: &dyn FileSystem, start: &Path, max_depth: usize) -> Scan {
-    let mut found = Scan::default();
-    let mut stack: Vec<(PathBuf, usize, Vec<Arc<Gitignore>>)> = vec![(start.to_path_buf(), 0, Vec::new())];
-    while let Some((dir, depth, mut matchers)) = stack.pop() {
-        if let Some(matcher) = ignore_matcher(fs, &dir) {
-            matchers.push(Arc::new(matcher));
-        }
-        if fs.is_file(&dir.join(MANIFEST)) {
+fn descends(entry: &DirEntry) -> bool {
+    entry.is_dir
+        && !entry.is_symlink
+        && entry
+            .path
+            .file_name()
+            .is_some_and(|name| name != "node_modules" && !name.to_string_lossy().starts_with('.'))
+}
+
+/// What the walk found below a start directory, before deciding which of it is a root.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Candidates {
+    /// Directories that declare a workspace.
+    pub workspaces: BTreeSet<PathBuf>,
+    /// Directories with a `package.json`, workspaces included.
+    pub packages: BTreeSet<PathBuf>,
+    /// Directories at the depth limit that have subdirectories the walk did not enter, sorted.
+    pub truncated: Vec<PathBuf>,
+}
+
+/// Walks `start` and lists the workspace declarations and `package.json` files below it.
+///
+/// What a directory holds is decided from its listing, so a directory without a manifest costs one read. The walk
+/// skips `node_modules`, hidden directories, symbolic links and directories excluded by a `.gitignore` or `.ignore`
+/// at or below `start`, and, when `start` lies in a git repository, by the `.gitignore` and `.ignore` files between
+/// the repository root and `start` and by `.git/info/exclude`.
+#[must_use]
+pub fn scan_candidates(start: &Path, fs: &dyn FileSystem, options: &DiscoverOptions) -> Candidates {
+    let mut found = Candidates::default();
+    let mut stack = vec![(start.to_path_buf(), 0_usize, inherited_ignores(fs, start))];
+    while let Some((dir, depth, ignores)) = stack.pop() {
+        let Ok(entries) = fs.read_dir(&dir) else { continue };
+        let names: Vec<&str> = entries
+            .iter()
+            .filter(|entry| entry.is_file)
+            .filter_map(|entry| entry.path.file_name().and_then(|name| name.to_str()))
+            .collect();
+        let manifest = names.contains(&MANIFEST);
+        if manifest {
             found.packages.insert(dir.clone());
         }
-        if declares_workspace(fs, &dir) {
+        if names.contains(&PNPM_WORKSPACE) || (manifest && manifest_declares_workspace(fs, &dir)) {
             found.workspaces.insert(dir.clone());
         }
-        if depth >= max_depth {
+        let files = IGNORE_FILES.iter().filter(|name| names.contains(name)).map(|name| dir.join(name));
+        let ignores = pushed(ignores, matcher_from(fs, &dir, files));
+        let children: Vec<PathBuf> = entries
+            .into_iter()
+            .filter(|entry| descends(entry) && !is_ignored(&ignores, &entry.path))
+            .map(|entry| entry.path)
+            .collect();
+        if depth >= options.max_depth {
+            if !children.is_empty() {
+                found.truncated.push(dir);
+            }
             continue;
         }
-        let Ok(entries) = fs.read_dir(&dir) else { continue };
-        for entry in entries {
-            let hidden_or_modules = entry
-                .path
-                .file_name()
-                .is_some_and(|name| name == "node_modules" || name.to_string_lossy().starts_with('.'));
-            if entry.is_dir && !entry.is_symlink && !hidden_or_modules && !is_ignored(&matchers, &entry.path) {
-                stack.push((entry.path, depth + 1, matchers.clone()));
-            }
-        }
+        stack.extend(children.into_iter().map(|child| (child, depth + 1, ignores.clone())));
     }
+    found.truncated.sort();
     found
 }
 
-/// The absolute directories of the members of the workspace at `root` (the root excluded), as its patterns select
-/// them with `ignore-packages` not applied.
-///
-/// Empty when the workspace cannot be discovered; linting it reports why.
-#[must_use]
-pub fn workspace_member_dirs(fs: &dyn FileSystem, root: &Path) -> BTreeSet<PathBuf> {
-    Workspace::discover_with_fs(root, &Config::default(), fs)
-        .map(|workspace| {
-            workspace
-                .packages
-                .iter()
-                .map(|package| root.join(&package.dir))
-                .collect()
-        })
-        .unwrap_or_default()
+fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
+    let from_yaml = fs
+        .read_to_string(&root.join(PNPM_WORKSPACE))
+        .ok()
+        .and_then(|text| pnpm::parse(Path::new(PNPM_WORKSPACE), &text).ok())
+        .and_then(|parsed| parsed.packages);
+    if let Some(patterns) = from_yaml {
+        return patterns;
+    }
+    let manifest = fs
+        .read_to_string(&root.join(MANIFEST))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    let items = match manifest.as_ref().and_then(|manifest| manifest.get("workspaces")) {
+        Some(Value::Array(items)) => Some(items),
+        Some(Value::Object(object)) => object.get("packages").and_then(Value::as_array),
+        _ => None,
+    };
+    items
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.as_str().map(str::to_owned))
+        .collect()
 }
 
-/// Finds every workspace root and standalone package at or below `start`, sorted by path.
+/// The absolute directories the patterns declared at `root` select (negations applied), read straight from
+/// `pnpm-workspace.yaml` or the `workspaces` of `package.json`.
 ///
-/// `start` must be a directory path usable through `fs` (absolute for a real file system). The walk skips
-/// `node_modules`, hidden directories, symbolic links and directories excluded by a `.gitignore` or `.ignore`
-/// found at or below `start`.
+/// This is how the members of a workspace that cannot be discovered (a broken root manifest, a root without a
+/// `package.json`) are still claimed. Only directories with a `package.json` count, and the result is empty when the
+/// patterns cannot be read.
+#[must_use]
+pub fn declared_member_dirs(fs: &dyn FileSystem, root: &Path) -> BTreeSet<PathBuf> {
+    let expander = Expander { fs, root };
+    let mut selected = BTreeSet::new();
+    let mut negations = Vec::new();
+    for raw in declared_patterns(fs, root) {
+        if raw.trim_start().starts_with('!') {
+            negations.extend(pattern::negation(&raw).ok());
+        } else if let Ok(pattern) = Pattern::new(&raw) {
+            selected.extend(expander.expand(&pattern));
+        }
+    }
+    selected
+        .into_iter()
+        .filter(|dir| expander.has_manifest(dir) && !negations.iter().any(|negation| negation.is_match(dir)))
+        .map(|dir| root.join(dir))
+        .collect()
+}
+
+/// The directories below `parent` that are symbolic links.
+fn links_in(fs: &dyn FileSystem, parent: &Path) -> BTreeSet<PathBuf> {
+    fs.read_dir(parent)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|entry| entry.is_symlink)
+        .map(|entry| entry.path)
+        .collect()
+}
+
+/// `dir` as the OS resolves it when `dir` or a directory between `root` and `dir` is a symbolic link, else `dir`.
+/// The walk never enters links, so a member reached through one has to be resolved to be recognised when the walk
+/// finds its target.
+fn resolved(
+    fs: &dyn FileSystem,
+    root: &Path,
+    dir: &Path,
+    links: &mut HashMap<PathBuf, BTreeSet<PathBuf>>,
+) -> PathBuf {
+    let linked = dir
+        .ancestors()
+        .take_while(|ancestor| *ancestor != root && ancestor.starts_with(root))
+        .any(|ancestor| {
+            ancestor.parent().is_some_and(|parent| {
+                links
+                    .entry(parent.to_path_buf())
+                    .or_insert_with(|| links_in(fs, parent))
+                    .contains(ancestor)
+            })
+        });
+    if linked {
+        std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf())
+    } else {
+        dir.to_path_buf()
+    }
+}
+
+/// Decides which of `candidates` are roots, given the member directories of each workspace (`members` is keyed by
+/// workspace directory), sorted by path.
 ///
-/// A directory is a [`RootKind::Workspace`] when it declares a workspace and is not a member of an outer workspace
-/// found by the walk; a workspace nested in an outer one that does not list it as a member is a root of its own.
-/// A directory is a [`RootKind::Package`] when it holds a `package.json`, declares no workspace, is not a member
-/// of a found workspace and does not lie below a member. Ancestors of `start` are not consulted.
+/// Every workspace is a root. A package is a root when it is not a workspace and neither it nor a directory above
+/// it is a member of any workspace. Members reached through a symbolic link count as the directory they point to.
+#[must_use]
+pub fn claim_roots(
+    fs: &dyn FileSystem,
+    candidates: &Candidates,
+    members: &BTreeMap<PathBuf, BTreeSet<PathBuf>>,
+) -> Vec<RootKind> {
+    let mut links = HashMap::new();
+    let owned: BTreeSet<PathBuf> = members
+        .iter()
+        .flat_map(|(root, dirs)| dirs.iter().map(move |dir| (root, dir)))
+        .map(|(root, dir)| resolved(fs, root, dir, &mut links))
+        .collect();
+    let mut roots: Vec<RootKind> = candidates.workspaces.iter().cloned().map(RootKind::Workspace).collect();
+    roots.extend(
+        candidates
+            .packages
+            .iter()
+            .filter(|package| !candidates.workspaces.contains(*package))
+            .filter(|package| !package.ancestors().any(|ancestor| owned.contains(ancestor)))
+            .cloned()
+            .map(RootKind::Package),
+    );
+    roots.sort_by(|a, b| a.path().cmp(b.path()));
+    roots
+}
+
+/// Finds every workspace root and standalone package at or below `start`, sorted by path, discovering each
+/// workspace with the default configuration (see [`scan_candidates`] for what the walk skips and [`claim_roots`]
+/// for what counts as a root).
+///
+/// `start` must be a directory path usable through `fs` (absolute for a real file system). A workspace whose
+/// manifest cannot be discovered is still a root and claims the directories its patterns select.
 ///
 /// # Examples
 /// ```
@@ -173,33 +356,56 @@ pub fn workspace_member_dirs(fs: &dyn FileSystem, root: &Path) -> BTreeSet<PathB
 /// ```
 #[must_use]
 pub fn discover_roots(start: &Path, fs: &dyn FileSystem, options: &DiscoverOptions) -> Vec<RootKind> {
-    let found = scan(fs, start, options.max_depth);
-    let mut members: BTreeSet<PathBuf> = BTreeSet::new();
-    let mut roots = Vec::new();
-    // Sorted paths put an outer workspace before everything it contains.
-    for workspace in &found.workspaces {
-        if members.contains(workspace) {
-            continue;
-        }
-        members.extend(workspace_member_dirs(fs, workspace));
-        roots.push(RootKind::Workspace(workspace.clone()));
-    }
-    for package in &found.packages {
-        let owned = members.iter().any(|member| package.starts_with(member));
-        if !owned && !found.workspaces.contains(package) {
-            roots.push(RootKind::Package(package.clone()));
-        }
-    }
-    roots.sort_by(|a, b| a.path().cmp(b.path()));
-    roots
+    let candidates = scan_candidates(start, fs, options);
+    let members = candidates
+        .workspaces
+        .iter()
+        .map(|root| {
+            let dirs = Workspace::discover_with_fs(root, &Config::default(), fs)
+                .map_or_else(|_| declared_member_dirs(fs, root), |workspace| workspace.member_dirs());
+            (root.clone(), dirs)
+        })
+        .collect();
+    claim_roots(fs, &candidates, &members)
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use std::io;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use skif_core::MemoryFs;
 
     use super::*;
+
+    /// A file system that counts how it is asked about files.
+    struct Counting {
+        inner: MemoryFs,
+        probes: AtomicUsize,
+        reads: AtomicUsize,
+    }
+
+    impl FileSystem for Counting {
+        fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            self.inner.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+            self.inner.read_dir(path)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.probes.fetch_add(1, Ordering::SeqCst);
+            self.inner.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.probes.fetch_add(1, Ordering::SeqCst);
+            self.inner.is_dir(path)
+        }
+    }
 
     fn paths(roots: &[RootKind]) -> Vec<String> {
         roots
@@ -252,12 +458,23 @@ mod tests {
     }
 
     #[test]
-    fn workspace_listed_as_a_member_is_not_a_root() {
+    fn workspace_listed_as_a_member_is_still_a_root_of_its_own() {
         let fs = MemoryFs::new()
             .with_file("/r/package.json", r#"{"workspaces": ["packages/*"]}"#)
             .with_file("/r/packages/inner/package.json", r#"{"workspaces": ["x/*"]}"#)
             .with_file("/r/packages/inner/x/y/package.json", r#"{"name": "y"}"#);
-        assert_eq!(discover(&fs), ["ws:/r"]);
+        assert_eq!(discover(&fs), ["ws:/r", "ws:/r/packages/inner"]);
+    }
+
+    #[test]
+    fn workspace_below_a_member_is_a_root_and_a_package_below_a_member_is_not() {
+        let fs = MemoryFs::new()
+            .with_file("/r/package.json", r#"{"workspaces": ["packages/*"]}"#)
+            .with_file("/r/packages/a/package.json", r#"{"name": "a"}"#)
+            .with_file("/r/packages/a/fixture/package.json", r#"{"name": "fixture"}"#)
+            .with_file("/r/packages/a/ex/package.json", r#"{"workspaces": ["p/*"]}"#)
+            .with_file("/r/packages/a/ex/p/m/package.json", r#"{"name": "m"}"#);
+        assert_eq!(discover(&fs), ["ws:/r", "ws:/r/packages/a/ex"]);
     }
 
     #[test]
@@ -319,5 +536,120 @@ mod tests {
         let fs = MemoryFs::new().with_file("/r/w/package.json", r#"{"workspaces": ["p/*"]"#);
         let roots = discover_roots(Path::new("/r"), &fs, &DiscoverOptions::default());
         assert_eq!(roots.len(), 1);
+    }
+
+    #[test]
+    fn the_walk_decides_from_listings_without_probing_each_directory() {
+        let fs = Counting {
+            inner: MemoryFs::new()
+                .with_file("/r/a/x/readme.md", "x")
+                .with_file("/r/b/y/readme.md", "y")
+                .with_file("/r/c/package.json", r#"{"name": "c"}"#),
+            probes: AtomicUsize::new(0),
+            reads: AtomicUsize::new(0),
+        };
+        let found = scan_candidates(Path::new("/r"), &fs, &DiscoverOptions::default());
+        assert_eq!(found.packages.len(), 1);
+        // The start directory's own ancestors are probed for `.git`; nothing else is.
+        let ancestors = Path::new("/r").ancestors().count();
+        assert_eq!(fs.probes.load(Ordering::SeqCst), ancestors * 2);
+        assert_eq!(fs.reads.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn gitignore_above_the_start_applies_inside_a_repository() {
+        let fs = MemoryFs::new()
+            .with_file("/r/.git/HEAD", "ref")
+            .with_file("/r/.gitignore", "dist/\nvendor\n")
+            .with_file("/r/sub/app/package.json", r#"{"name": "app"}"#)
+            .with_file("/r/sub/dist/package.json", r#"{"name": "dist"}"#)
+            .with_file("/r/sub/vendor/package.json", r#"{"name": "vendor"}"#);
+        let roots = discover_roots(Path::new("/r/sub"), &fs, &DiscoverOptions::default());
+        assert_eq!(paths(&roots), ["pkg:/r/sub/app"]);
+    }
+
+    #[test]
+    fn git_exclude_applies_and_a_linked_worktree_git_file_marks_the_root() {
+        let fs = MemoryFs::new()
+            .with_file("/r/.git/info/exclude", "generated\n")
+            .with_file("/r/app/package.json", r#"{"name": "app"}"#)
+            .with_file("/r/generated/package.json", r#"{"name": "generated"}"#);
+        assert_eq!(discover(&fs), ["pkg:/r/app"]);
+
+        let linked = MemoryFs::new()
+            .with_file("/w/.git", "gitdir: elsewhere")
+            .with_file("/w/.gitignore", "out/\n")
+            .with_file("/w/pkgs/a/package.json", r#"{"name": "a"}"#)
+            .with_file("/w/pkgs/out/package.json", r#"{"name": "out"}"#);
+        let roots = discover_roots(Path::new("/w/pkgs"), &linked, &DiscoverOptions::default());
+        assert_eq!(paths(&roots), ["pkg:/w/pkgs/a"]);
+    }
+
+    #[test]
+    fn ignore_files_above_the_start_are_not_consulted_outside_a_repository() {
+        let fs = MemoryFs::new()
+            .with_file("/r/.gitignore", "dist/\n")
+            .with_file("/r/sub/dist/package.json", r#"{"name": "dist"}"#);
+        let roots = discover_roots(Path::new("/r/sub"), &fs, &DiscoverOptions::default());
+        assert_eq!(paths(&roots), ["pkg:/r/sub/dist"]);
+    }
+
+    #[test]
+    fn the_walk_reports_where_the_depth_limit_cut_it() {
+        let fs = MemoryFs::new()
+            .with_file("/r/a/b/c/package.json", r#"{"name": "deep"}"#)
+            .with_file("/r/a/b/leaf.txt", "x")
+            .with_file("/r/z/package.json", r#"{"name": "z"}"#);
+        let options = DiscoverOptions::default().with_max_depth(2);
+        let found = scan_candidates(Path::new("/r"), &fs, &options);
+        assert_eq!(found.truncated, [PathBuf::from("/r/a/b")]);
+        assert!(scan_candidates(Path::new("/r"), &fs, &DiscoverOptions::default()).truncated.is_empty());
+    }
+
+    #[test]
+    fn a_workspace_that_cannot_be_discovered_still_claims_its_declared_members() {
+        let fs = MemoryFs::new()
+            .with_file("/r/w/pnpm-workspace.yaml", "packages:\n  - 'p/*'\n  - '!p/skip'\n")
+            .with_file("/r/w/package.json", r#"{"workspaces": ["p/*"]"#)
+            .with_file("/r/w/p/m/package.json", r#"{"name": "m"}"#)
+            .with_file("/r/w/p/skip/package.json", r#"{"name": "skip"}"#);
+        assert_eq!(discover(&fs), ["ws:/r/w", "pkg:/r/w/p/skip"]);
+    }
+
+    #[test]
+    fn a_workspace_without_a_root_manifest_claims_its_declared_members() {
+        let fs = MemoryFs::new()
+            .with_file("/r/w/pnpm-workspace.yaml", "packages:\n  - 'p/*'\n")
+            .with_file("/r/w/p/m/package.json", r#"{"name": "m"}"#);
+        assert_eq!(discover(&fs), ["ws:/r/w"]);
+    }
+
+    #[test]
+    fn declared_member_dirs_reads_json_patterns_when_there_is_no_yaml() {
+        let fs = MemoryFs::new()
+            .with_file("/r/package.json", r#"{"workspaces": {"packages": ["p/*"]}}"#)
+            .with_file("/r/p/m/package.json", r#"{"name": "m"}"#)
+            .with_file("/r/p/empty/readme.md", "x");
+        assert_eq!(
+            declared_member_dirs(&fs, Path::new("/r")),
+            BTreeSet::from([PathBuf::from("/r/p/m")])
+        );
+    }
+
+    #[test]
+    fn ignored_dirs_are_excluded_from_a_workspace_without_leaving_it() {
+        let fs = MemoryFs::new()
+            .with_file("/r/package.json", r#"{"workspaces": ["p/*"]}"#)
+            .with_file("/r/p/a/package.json", r#"{"name": "a"}"#)
+            .with_file("/r/p/b/package.json", r#"{"name": "b"}"#);
+        let mut workspace = Workspace::discover_with_fs(Path::new("/r"), &Config::default(), &fs).unwrap();
+        workspace.ignore_dirs(&BTreeSet::from([PathBuf::from("/r/p/b")]));
+        let ignored: Vec<_> = workspace
+            .iter()
+            .filter(|(id, _)| workspace.is_ignored(*id))
+            .filter_map(|(_, package)| package.name.clone())
+            .collect();
+        assert_eq!(ignored, ["b"]);
+        assert_eq!(workspace.packages.len(), 2);
     }
 }
