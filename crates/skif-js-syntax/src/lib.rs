@@ -17,8 +17,8 @@ mod jsdoc;
 mod members;
 mod model;
 mod semantic;
-mod signature_refs;
 mod sfc;
+mod signature_refs;
 mod style;
 
 use std::collections::HashSet;

@@ -226,31 +226,37 @@ impl Resolvers {
 
 /// The `name` argument of a Bazel `module(...)` or `workspace(...)` call.
 fn bazel_workspace_name(fs: &dyn FileSystem, root: &Path) -> Option<String> {
-    ["MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel"].iter().find_map(|file| {
-        let text = fs.read_to_string(&root.join(file)).ok()?;
-        let call = if *file == "MODULE.bazel" { "module(" } else { "workspace(" };
-        let at = text.match_indices(call).find_map(|(at, _)| {
-            text[..at]
-                .chars()
-                .next_back()
-                .is_none_or(|before| !(before.is_alphanumeric() || before == '_'))
-                .then_some(at)
-        })?;
-        let body = &text[at + call.len()..];
-        let body = &body[..body.find(')')?];
-        let at = body.match_indices("name").find_map(|(at, _)| {
-            body[..at]
-                .chars()
-                .next_back()
-                .is_none_or(|before| !(before.is_alphanumeric() || before == '_'))
-                .then_some(at)
-        })?;
-        let value = body[at + "name".len()..].trim_start().strip_prefix('=')?.trim_start();
-        let quote = value.chars().next().filter(|quote| matches!(quote, '"' | '\''))?;
-        let value = &value[1..];
-        let name = &value[..value.find(quote)?];
-        (!name.is_empty()).then(|| name.to_owned())
-    })
+    ["MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel"]
+        .iter()
+        .find_map(|file| {
+            let text = fs.read_to_string(&root.join(file)).ok()?;
+            let call = if *file == "MODULE.bazel" {
+                "module("
+            } else {
+                "workspace("
+            };
+            let at = text.match_indices(call).find_map(|(at, _)| {
+                text[..at]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|before| !(before.is_alphanumeric() || before == '_'))
+                    .then_some(at)
+            })?;
+            let body = &text[at + call.len()..];
+            let body = &body[..body.find(')')?];
+            let at = body.match_indices("name").find_map(|(at, _)| {
+                body[..at]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|before| !(before.is_alphanumeric() || before == '_'))
+                    .then_some(at)
+            })?;
+            let value = body[at + "name".len()..].trim_start().strip_prefix('=')?.trim_start();
+            let quote = value.chars().next().filter(|quote| matches!(quote, '"' | '\''))?;
+            let value = &value[1..];
+            let name = &value[..value.find(quote)?];
+            (!name.is_empty()).then(|| name.to_owned())
+        })
 }
 
 /// The `.gitignore` of `dir`, if it has one.
@@ -258,9 +264,8 @@ fn read_gitignore(fs: &dyn FileSystem, dir: &Path) -> Option<(PathBuf, Gitignore
     let text = fs.read_to_string(&dir.join(".gitignore")).ok()?;
     let mut builder = GitignoreBuilder::new(dir);
     for line in text.lines() {
-        if builder.add_line(None, line).is_err() {
-            continue;
-        }
+        // A malformed line is skipped, as git does.
+        let _ = builder.add_line(None, line);
     }
     Some((dir.to_path_buf(), builder.build().ok()?))
 }
@@ -424,9 +429,9 @@ impl ModuleResolver {
 
     /// Whether `path` is listed in a `.gitignore`, so it may be generated and absent from a fresh checkout.
     fn is_generated(&self, path: &Path) -> bool {
-        self.ignores.iter().any(|(dir, ignore)| {
-            path.starts_with(dir) && ignore.matched_path_or_any_parents(path, false).is_ignore()
-        })
+        self.ignores
+            .iter()
+            .any(|(dir, ignore)| path.starts_with(dir) && ignore.matched_path_or_any_parents(path, false).is_ignore())
     }
 
     /// What a relative specifier that names nothing is: unresolved, or unknown when it points at an ignored path.
@@ -1099,9 +1104,15 @@ mod tests {
                 ("package.json", ROOT),
                 ("src/main.ts", ""),
                 ("src/utils/index.ts", ""),
-                ("node_modules/utils/package.json", r#"{"name":"utils","main":"index.js"}"#),
+                (
+                    "node_modules/utils/package.json",
+                    r#"{"name":"utils","main":"index.js"}"#,
+                ),
                 ("node_modules/utils/index.js", ""),
-                ("node_modules/react/package.json", r#"{"name":"react","main":"index.js"}"#),
+                (
+                    "node_modules/react/package.json",
+                    r#"{"name":"react","main":"index.js"}"#,
+                ),
                 ("node_modules/react/index.js", ""),
             ],
             inputs,
@@ -1140,16 +1151,29 @@ mod tests {
             r.resolve_style(importer, "/src/styles/reset.css").target,
             file("/ws/src/styles/reset.css")
         );
-        assert_eq!(r.resolve_style(importer, "/fonts.css").target, file("/ws/public/fonts.css"));
-        assert_eq!(r.resolve_style(importer, "/served/by/server.css").target, Resolved::Ignored);
+        assert_eq!(
+            r.resolve_style(importer, "/fonts.css").target,
+            file("/ws/public/fonts.css")
+        );
+        assert_eq!(
+            r.resolve_style(importer, "/served/by/server.css").target,
+            Resolved::Ignored
+        );
         assert_eq!(r.resolve_style(importer, "./missing.css").target, Resolved::Unresolved);
     }
 
     #[test]
     fn dollar_aliases_resolve_in_stylesheets() {
-        let r = resolver(&[("package.json", ROOT), ("src/lib/theme.css", ""), ("src/routes/page.css", "")]);
+        let r = resolver(&[
+            ("package.json", ROOT),
+            ("src/lib/theme.css", ""),
+            ("src/routes/page.css", ""),
+        ]);
         let importer = Path::new("/ws/src/routes/page.css");
-        assert_eq!(r.resolve_style(importer, "$lib/theme.css").target, file("/ws/src/lib/theme.css"));
+        assert_eq!(
+            r.resolve_style(importer, "$lib/theme.css").target,
+            file("/ws/src/lib/theme.css")
+        );
     }
 
     #[test]
@@ -1175,7 +1199,10 @@ mod tests {
     #[test]
     fn bazel_workspace_name_prefixes_root_relative_requires() {
         for (marker, text) in [
-            ("MODULE.bazel", "module(\n    name = \"mono\",\n    version = \"1.0\",\n)\n"),
+            (
+                "MODULE.bazel",
+                "module(\n    name = \"mono\",\n    version = \"1.0\",\n)\n",
+            ),
             ("WORKSPACE", "workspace(name = 'mono')\n"),
         ] {
             let r = resolver(&[

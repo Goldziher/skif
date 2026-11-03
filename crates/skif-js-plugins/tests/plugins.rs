@@ -497,7 +497,7 @@ fn tailwind() {
     );
     let out = output(&results, "tailwind");
     assert_deps(out, &["@tailwindcss/typography"]);
-    assert_entries(&out.entries, &["tailwind.config.{js,cjs,mjs,ts,cts,mts}"]);
+    assert_entries(&out.entries, &["{,config/}tailwind.config.{js,cjs,mjs,ts,cts,mts}"]);
 }
 
 #[test]
@@ -1110,7 +1110,11 @@ fn jsconfig_base_url_and_wildcard_paths_become_lookup_directories() {
     );
     let ts = output(&results, "typescript");
     assert_eq!(ts.module_dirs, ["../shared", "", "node_modules", "src"]);
-    assert_deps(ts, &["react"]);
+    // The JSX runtime is credited per file that contains JSX, not by the compiler option.
+    assert!(
+        !deps(ts).contains("react"),
+        "jsx: react-jsx must not add a react dependency"
+    );
     assert!(
         ts.aliases.contains(&alias("@kit", Some("../shared/kit"))),
         "{:?}",

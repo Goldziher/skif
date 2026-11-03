@@ -71,7 +71,7 @@ impl Plugin for Vite {
     }
 }
 
-/// `css.postcss`: an inline PostCSS config object, or the path of a PostCSS config file or of the directory to
+/// `css.postcss`: an inline `PostCSS` config object, or the path of a `PostCSS` config file or of the directory to
 /// search for one. A config file is an entry, and what it references counts for this plugin.
 fn css_postcss(value: &ConfigValue, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
     let ConfigValue::String(path) = value else {

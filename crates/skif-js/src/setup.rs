@@ -251,7 +251,7 @@ impl Setup {
                     dir: workspace.root.join(&package.dir),
                     entry: Globs::new(entry),
                     external_entry,
-                    entries_incomplete: false,
+                    entries_incomplete: plugin.entries_incomplete,
                     project: Globs::new(project),
                     ignore: Globs::new(ignore),
                     ignore_dependencies: Names::new(ignore_dependencies),

@@ -87,6 +87,6 @@ fn signature_references_name_the_containing_exports() {
     };
     assert_eq!(containing("Props"), ["Widget"]);
     assert_eq!(containing("Inner"), ["make"]);
-    assert!(containing("Body").is_empty());
-    assert!(containing("Skipped").is_empty());
+    assert_eq!(containing("Body"), [] as [std::string::String; 0]);
+    assert_eq!(containing("Skipped"), [] as [std::string::String; 0]);
 }

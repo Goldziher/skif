@@ -21,6 +21,44 @@ const ALWAYS_USED: &[&str] = &["typescript", "knip", "skif"];
 /// Packages whose `@types` twin does not need the package itself.
 const UNPAIRED_TYPES: &[&str] = &["node", "bun", "jest"];
 
+/// `@types` packages that only declare globals (no module to import), so a `tsconfig.json` that includes every
+/// visible `@types/*` package is their only use. Other `@types` packages stay paired with their runtime package.
+const GLOBAL_TYPES: &[&str] = &[
+    "@types/chrome",
+    "@types/dom-chromium-ai",
+    "@types/dom-mediacapture-record",
+    "@types/dom-speech-recognition",
+    "@types/dom-webcodecs",
+    "@types/firefox-webext-browser",
+    "@types/ga-gtag",
+    "@types/gapi",
+    "@types/gapi.auth2",
+    "@types/gapi.client",
+    "@types/google.accounts",
+    "@types/google.analytics",
+    "@types/google.maps",
+    "@types/google.picker",
+    "@types/google-apps-script",
+    "@types/gtag.js",
+    "@types/jasmine",
+    "@types/mocha",
+    "@types/office-js",
+    "@types/office-js-preview",
+    "@types/office-runtime",
+    "@types/offscreencanvas",
+    "@types/serviceworker",
+    "@types/sharedworker",
+    "@types/trusted-types",
+    "@types/w3c-web-hid",
+    "@types/w3c-web-serial",
+    "@types/w3c-web-usb",
+    "@types/web",
+    "@types/web-bluetooth",
+    "@types/webextension-polyfill",
+    "@types/webpack-env",
+    "@types/wicg-file-system-access",
+];
+
 /// Binaries whose package has a different name. Used when the package is not installed, so its `bin` cannot be read.
 const BINARY_PACKAGES: &[(&str, &str)] = &[
     ("tsc", "typescript"),
@@ -224,16 +262,13 @@ fn includes_all_types(fs: &dyn FileSystem, path: &Path, depth: usize) -> bool {
         _ => Vec::new(),
     };
     let dir = path.parent().unwrap_or(path);
-    parents
-        .iter()
-        .filter(|parent| parent.starts_with('.'))
-        .all(|parent| {
-            let mut target = join_normalized(dir, parent);
-            if target.extension().is_none_or(|extension| extension != "json") {
-                target.as_mut_os_string().push(".json");
-            }
-            depth >= MAX_DEPTH || includes_all_types(fs, &target, depth + 1)
-        })
+    parents.iter().filter(|parent| parent.starts_with('.')).all(|parent| {
+        let mut target = join_normalized(dir, parent);
+        if target.extension().is_none_or(|extension| extension != "json") {
+            target.as_mut_os_string().push(".json");
+        }
+        depth >= MAX_DEPTH || includes_all_types(fs, &target, depth + 1)
+    })
 }
 
 /// Dependency and binary usage of every package.
@@ -301,8 +336,9 @@ impl DependencyUsage {
         }
     }
 
-    /// TypeScript includes every visible `@types/*` package unless `compilerOptions.types` narrows them, so the ones a
-    /// package (and the root, which hoists them) lists are used when the package has a `tsconfig.json` that does not.
+    /// TypeScript includes every visible `@types/*` package unless `compilerOptions.types` narrows them, so the
+    /// globals-only ones a package (and the root, which hoists them) lists are used when the package has a
+    /// `tsconfig.json` that does not narrow them.
     fn collect_ambient_types(&mut self, workspace: &Workspace, fs: &dyn FileSystem) {
         for (id, package) in workspace.iter() {
             if !includes_all_types(fs, &workspace.root.join(&package.dir).join("tsconfig.json"), 0) {
@@ -311,7 +347,7 @@ impl DependencyUsage {
             for scope in [id, PackageId::ROOT] {
                 let types: Vec<String> = self.listed[scope.index()]
                     .iter()
-                    .filter(|name| name.starts_with("@types/"))
+                    .filter(|name| GLOBAL_TYPES.contains(&name.as_str()))
                     .cloned()
                     .collect();
                 for name in types {
@@ -335,7 +371,12 @@ impl DependencyUsage {
             else {
                 continue;
             };
-            for section in ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] {
+            for section in [
+                "dependencies",
+                "devDependencies",
+                "optionalDependencies",
+                "peerDependencies",
+            ] {
                 let Some(listed) = manifest.get(section).and_then(Value::as_object) else {
                     continue;
                 };

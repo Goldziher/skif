@@ -168,11 +168,9 @@ mod tests {
 
     #[test]
     fn npm_lock_peers_and_bins() {
-        let entries = npm(
-            r#"{"packages":{"":{"name":"app"},
+        let entries = npm(r#"{"packages":{"":{"name":"app"},
               "node_modules/a/node_modules/@s/tool":{"bin":{"tool-cli":"cli.js"},"peerDependencies":{"p":"1"}},
-              "node_modules/solo":{"bin":"x.js"}}}"#,
-        );
+              "node_modules/solo":{"bin":"x.js"}}}"#);
         assert!(entries["@s/tool"].bins.contains("tool-cli") && entries["@s/tool"].peers.contains("p"));
         assert!(entries["solo"].bins.contains("solo"));
     }

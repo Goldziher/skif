@@ -682,8 +682,14 @@ fn recursive_run_of_a_local_script_is_followed() {
 fn flags_and_subcommands_load_packages() {
     let cases: [(&str, &[&str]); 5] = [
         ("vitest --ui", &["@vitest/ui"]),
-        ("vitest run --coverage", &["@vitest/coverage-istanbul", "@vitest/coverage-v8"]),
-        ("vitest run --coverage.enabled", &["@vitest/coverage-istanbul", "@vitest/coverage-v8"]),
+        (
+            "vitest run --coverage",
+            &["@vitest/coverage-istanbul", "@vitest/coverage-v8"],
+        ),
+        (
+            "vitest run --coverage.enabled",
+            &["@vitest/coverage-istanbul", "@vitest/coverage-v8"],
+        ),
         ("webpack serve --mode development", &["webpack-dev-server"]),
         ("vitest run", &[]),
     ];
@@ -703,5 +709,5 @@ fn node_modules_paths_are_packages_not_files() {
 fn package_managers_are_recorded() {
     let info = parse("pnpm --filter web build && yarn lint && npm test && pnpm -r build");
     assert_eq!(info.package_managers, ["pnpm", "yarn", "npm"]);
-    assert!(parse("vitest").package_managers.is_empty());
+    assert_eq!(parse("vitest").package_managers, [] as [std::string::String; 0]);
 }

@@ -25,7 +25,10 @@ fn lint_at(root: &str, files: &[(&str, &str)]) -> Vec<Diagnostic> {
 }
 
 fn lint(files: &[(&str, &str)]) -> Vec<Diagnostic> {
-    let rooted: Vec<(String, &str)> = files.iter().map(|(path, text)| (format!("/ws/{path}"), *text)).collect();
+    let rooted: Vec<(String, &str)> = files
+        .iter()
+        .map(|(path, text)| (format!("/ws/{path}"), *text))
+        .collect();
     let borrowed: Vec<(&str, &str)> = rooted.iter().map(|(path, text)| (path.as_str(), *text)).collect();
     lint_at("/ws", &borrowed)
 }
@@ -70,7 +73,11 @@ fn binaries_of_ancestor_projects_are_on_the_path() {
         "/ws/child",
         &[("/ws/package.json", PARENT), ("/ws/child/package.json", CHILD)],
     );
-    assert_eq!(names(&diagnostics, "unlisted-binaries"), Vec::<String>::new(), "{diagnostics:#?}");
+    assert_eq!(
+        names(&diagnostics, "unlisted-binaries"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]
@@ -102,7 +109,10 @@ fn ancestor_binaries_do_not_make_imports_listed() {
         "/ws/child",
         &[
             ("/ws/package.json", PARENT),
-            ("/ws/child/package.json", r#"{"name":"child","private":true,"main":"index.js"}"#),
+            (
+                "/ws/child/package.json",
+                r#"{"name":"child","private":true,"main":"index.js"}"#,
+            ),
             ("/ws/child/index.js", "import 'oxlint';\n"),
         ],
     );
@@ -125,7 +135,11 @@ fn peers_come_from_the_lockfile_when_nothing_is_installed() {
         ("src/a.test.tsx", TESTING_TEST),
         ("pnpm-lock.yaml", PNPM_LOCK),
     ]);
-    assert_eq!(names(&with, "unused-dev-dependencies"), Vec::<String>::new(), "{with:#?}");
+    assert_eq!(
+        names(&with, "unused-dev-dependencies"),
+        Vec::<String>::new(),
+        "{with:#?}"
+    );
     assert_eq!(names(&with, "unused-dependencies"), Vec::<String>::new(), "{with:#?}");
 }
 
@@ -137,7 +151,11 @@ fn peers_come_from_the_npm_lockfile_too() {
         ("src/a.test.tsx", TESTING_TEST),
         ("package-lock.json", lock),
     ]);
-    assert_eq!(names(&diagnostics, "unused-dev-dependencies"), Vec::<String>::new(), "{diagnostics:#?}");
+    assert_eq!(
+        names(&diagnostics, "unused-dev-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
 }
 
 const TOOLS: &str = r#"{"name":"app","private":true,"packageManager":"pnpm@10.0.0","scripts":{"e2e":"npx playwright test","start":"webpack serve --mode development","ui":"vitest --ui","cov":"vitest run --coverage","deploy":"node node_modules/@google/clasp deploy","filtered":"pnpm --filter web build","fetch":"npx cowsay hi","each":"pnpm -r --filter web exec vite"},"dependencies":{"@google/clasp":"1.0.0","playwright":"1.0.0"},"devDependencies":{"@vitest/coverage-v8":"3.0.0","@vitest/ui":"3.0.0","pnpm":"10.0.0","vitest":"3.0.0","webpack":"5.0.0","webpack-cli":"5.0.0","webpack-dev-server":"5.0.0"}}"#;
@@ -145,9 +163,21 @@ const TOOLS: &str = r#"{"name":"app","private":true,"packageManager":"pnpm@10.0.
 #[test]
 fn on_demand_tools_and_flags_credit_their_packages() {
     let diagnostics = lint(&[("package.json", TOOLS)]);
-    assert_eq!(names(&diagnostics, "unused-dependencies"), Vec::<String>::new(), "{diagnostics:#?}");
-    assert_eq!(names(&diagnostics, "unused-dev-dependencies"), Vec::<String>::new(), "{diagnostics:#?}");
-    assert_eq!(names(&diagnostics, "unlisted-binaries"), Vec::<String>::new(), "{diagnostics:#?}");
+    assert_eq!(
+        names(&diagnostics, "unused-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unused-dev-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unlisted-binaries"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]
@@ -174,7 +204,11 @@ fn every_listed_types_package_is_ambient_without_a_types_option() {
             ("base.json", r#"{"compilerOptions":{"strict":true}}"#),
             ("src/index.ts", "export const a = 1;\n"),
         ]);
-        assert_eq!(names(&diagnostics, "unused-dev-dependencies"), Vec::<String>::new(), "{tsconfig}: {diagnostics:#?}");
+        assert_eq!(
+            names(&diagnostics, "unused-dev-dependencies"),
+            Vec::<String>::new(),
+            "{tsconfig}: {diagnostics:#?}"
+        );
     }
 }
 
@@ -208,25 +242,46 @@ fn declaration_files_do_not_shadow_the_runtime_file() {
     let diagnostics = lint(&[
         ("package.json", r#"{"name":"app","private":true,"main":"src/main.js"}"#),
         ("src/main.js", "import Card from './ui/Card';\nexport default Card;\n"),
-        ("src/ui/Card.js", "import { helper } from './helper.js';\nexport default helper;\n"),
-        ("src/ui/Card.d.ts", "declare const Card: number;\nexport default Card;\n"),
+        (
+            "src/ui/Card.js",
+            "import { helper } from './helper.js';\nexport default helper;\n",
+        ),
+        (
+            "src/ui/Card.d.ts",
+            "declare const Card: number;\nexport default Card;\n",
+        ),
         ("src/ui/helper.js", "export const helper = 1;\n"),
     ]);
-    assert_eq!(paths(&diagnostics, "unused-files"), Vec::<String>::new(), "{diagnostics:#?}");
+    assert_eq!(
+        paths(&diagnostics, "unused-files"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]
 fn ignored_generated_targets_are_not_unresolved() {
     let files = [
         ("package.json", r#"{"name":"app","private":true,"main":"src/index.ts"}"#),
-        ("src/index.ts", "import { A } from './generated/consts';\nimport { B } from './missing';\nexport const c = [A, B];\n"),
+        (
+            "src/index.ts",
+            "import { A } from './generated/consts';\nimport { B } from './missing';\nexport const c = [A, B];\n",
+        ),
     ];
     let without_ignore = lint(&files);
-    assert_eq!(names(&without_ignore, "unresolved-imports").len(), 2, "{without_ignore:#?}");
+    assert_eq!(
+        names(&without_ignore, "unresolved-imports").len(),
+        2,
+        "{without_ignore:#?}"
+    );
     let mut with_ignore = files.to_vec();
     with_ignore.push((".gitignore", "src/generated\n"));
     let diagnostics = lint(&with_ignore);
-    assert_eq!(names(&diagnostics, "unresolved-imports"), strings(&["./missing"]), "{diagnostics:#?}");
+    assert_eq!(
+        names(&diagnostics, "unresolved-imports"),
+        strings(&["./missing"]),
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]
@@ -237,8 +292,16 @@ fn root_relative_stylesheet_imports_resolve() {
         ("src/style.css", "@import \"/src/base.css\";\n"),
         ("src/base.css", "body { margin: 0; }\n"),
     ]);
-    assert_eq!(names(&diagnostics, "unresolved-imports"), Vec::<String>::new(), "{diagnostics:#?}");
-    assert_eq!(paths(&diagnostics, "unused-files"), Vec::<String>::new(), "{diagnostics:#?}");
+    assert_eq!(
+        names(&diagnostics, "unresolved-imports"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        paths(&diagnostics, "unused-files"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]
@@ -246,11 +309,22 @@ fn bazel_workspace_prefixed_requires_are_local_files() {
     let diagnostics = lint(&[
         ("package.json", r#"{"name":"app","private":true,"main":"src/main.js"}"#),
         ("MODULE.bazel", "module(name = \"mono\", version = \"1.0\")\n"),
-        ("src/main.js", "const util = require('mono/lib/util');\nmodule.exports = util;\n"),
+        (
+            "src/main.js",
+            "const util = require('mono/lib/util');\nmodule.exports = util;\n",
+        ),
         ("lib/util.js", "module.exports = 1;\n"),
     ]);
-    assert_eq!(names(&diagnostics, "unlisted-dependencies"), Vec::<String>::new(), "{diagnostics:#?}");
-    assert_eq!(paths(&diagnostics, "unused-files"), Vec::<String>::new(), "{diagnostics:#?}");
+    assert_eq!(
+        names(&diagnostics, "unlisted-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        paths(&diagnostics, "unused-files"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]
@@ -266,6 +340,14 @@ fn an_alias_into_an_uninstalled_node_modules_uses_the_package() {
         ),
         ("src/main.js", "import { onMount } from 'svelte';\nonMount(() => {});\n"),
     ]);
-    assert_eq!(names(&diagnostics, "unresolved-imports"), Vec::<String>::new(), "{diagnostics:#?}");
-    assert_eq!(names(&diagnostics, "unused-dependencies"), Vec::<String>::new(), "{diagnostics:#?}");
+    assert_eq!(
+        names(&diagnostics, "unresolved-imports"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unused-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
 }

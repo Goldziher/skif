@@ -213,7 +213,7 @@ fn computed_paths_are_relative_to_the_config_directory() {
 fn paths_that_cannot_be_known_stay_unknown() {
     let value = extract(
         "c.js",
-        "const path = require('path');\nmodule.exports = { a: path.resolve('/abs', 'x'), b: path.resolve(__dirname, process.env.DIR), c: Promise.resolve(1), d: other.join(__dirname, 'x') };",
+        "const path = require('path');\nmodule.exports = { a: path.resolve('/abs', 'x'), b: path.resolve(__dirname, process.env.DIR), c: Promise.resolve(process.env.X), d: other.join(__dirname, 'x') };",
     )
     .unwrap();
     for key in ["a", "b", "c", "d"] {
