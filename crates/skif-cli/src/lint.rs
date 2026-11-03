@@ -1,11 +1,14 @@
 //! `skif [PATH]`: lint, optionally fix, report, and choose the exit code.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use clap::ColorChoice;
 use serde_json::{Map, Value};
 use skif::render::RenderOptions;
-use skif::{Config, ConfigOverrides, FileSystem, IgnoreEntry, Linter, OsFs, Prefer, Report, Selector, Workspace};
+use skif::{
+    CachedFs, Config, ConfigOverrides, FileSystem, IgnoreEntry, Linter, OsFs, Prefer, Report, Selector, Workspace,
+};
 use skif_report::{escape_controls, render_json_with};
 
 use crate::args::{Format, LintArgs, Select};
@@ -179,7 +182,7 @@ fn fixed(
     linter: &Linter,
     (config, config_path): (&Config, Option<&Path>),
     state: (Workspace, Report),
-    fs: &dyn FileSystem,
+    fs: &CachedFs<OsFs>,
 ) -> Result<(FixRun, Relint), CliError> {
     let (workspace, report) = state;
     let selection = fix::selection(args, env, &report, config.policy.prefer)?;
@@ -189,6 +192,8 @@ fn fixed(
         let install = install_step(args, &[], &workspace);
         return Ok((FixRun { plan, install }, Ok((workspace, report))));
     }
+    // The files just changed; the relint must not see the listings and manifests read before the fix.
+    fs.clear();
     let root = workspace.root.clone();
     Ok(match lint_once(linter, &root, config, config_path, fs) {
         Ok((workspace, report)) => {
@@ -210,10 +215,10 @@ fn fixed(
 /// A [`CliError`] when `path` cannot be resolved, no workspace is found there, the configuration is invalid or
 /// the lint cannot run.
 pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -> Result<String, CliError> {
-    let fs = OsFs;
+    let fs = Arc::new(CachedFs::new(OsFs));
     let start = canonical(path)?;
-    let Resolved { base, targets, multi } = roots::resolve(&start, recursive, &fs, overrides)?;
-    let linters = Linters::build(&targets)?;
+    let Resolved { base, targets, multi } = roots::resolve(&start, recursive, fs.as_ref(), overrides)?;
+    let linters = Linters::build(&targets, &(Arc::clone(&fs) as Arc<dyn FileSystem>))?;
     let runs = roots::lint_targets(&base, targets, &linters)?;
     let reports: Vec<Report> = runs
         .iter()
@@ -243,7 +248,7 @@ fn roots_json(runs: &[RootRun], reports: &[Report]) -> Value {
 }
 
 fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
-    let fs = OsFs;
+    let fs = Arc::new(CachedFs::new(OsFs));
     if args.fixing() && env.ci {
         return Err(CliError::ci_refusal());
     }
@@ -252,11 +257,11 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         base,
         mut targets,
         multi,
-    } = roots::resolve(&start, args.recursive, &fs, &overrides(args))?;
+    } = roots::resolve(&start, args.recursive, fs.as_ref(), &overrides(args))?;
     for target in &mut targets {
         adjust(args, &mut target.config)?;
     }
-    let linters = Linters::build(&targets)?;
+    let linters = Linters::build(&targets, &(Arc::clone(&fs) as Arc<dyn FileSystem>))?;
     let mut runs = roots::lint_targets(&base, targets, &linters)?;
 
     let mut fixes: Vec<FixRun> = Vec::new();
@@ -277,7 +282,7 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
                 linters.get(linter),
                 (&config, config_path.as_deref()),
                 (workspace, report),
-                &fs,
+                fs.as_ref(),
             )?;
             fixes.push(fix_run);
             match relint {

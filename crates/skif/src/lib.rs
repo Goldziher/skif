@@ -64,7 +64,7 @@ pub use skif_config::{
     Selector,
 };
 pub use skif_core::{
-    Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixSafety, Fixability,
+    CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixSafety, Fixability,
     InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathSeg, Related, Report, RuleId, RuleMeta, Severity, Span,
     Summary, TextEdit, YamlAction, diagnostic, slash,
 };
