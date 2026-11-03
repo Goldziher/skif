@@ -263,7 +263,7 @@ mod tests {
         discovery
             .targets
             .iter()
-            .map(|target| target.root.display().to_string())
+            .map(|target| target.root.display().to_string().replace('\\', "/"))
             .collect()
     }
 
