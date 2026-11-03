@@ -1,24 +1,77 @@
 //! Locating the workspace root and loading its configuration.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use skif_config::{CONFIG_FILE_NAMES, Config, ConfigError, ConfigOverrides};
 use skif_core::FileSystem;
-use skif_workspace::workspace_member_dirs;
+use skif_workspace::{Workspace, declared_member_dirs, declares_workspace, repository_root};
 
 use crate::error::Error;
 
 const MANIFEST: &str = "package.json";
-const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
 
-fn declares_workspace(dir: &Path, fs: &dyn FileSystem) -> bool {
-    if fs.is_file(&dir.join(PNPM_WORKSPACE)) {
-        return true;
+/// The directory the search for a configuration file of `root` stops at: the root of the git repository holding it,
+/// and the root itself outside a repository.
+pub(crate) fn config_ceiling(root: &Path, fs: &dyn FileSystem) -> PathBuf {
+    repository_root(fs, root).unwrap_or_else(|| root.to_path_buf())
+}
+
+/// The nearest directory from `root` up to and including `ceiling` that holds a configuration file.
+pub(crate) fn config_dir<'a>(root: &'a Path, ceiling: &Path, fs: &dyn FileSystem) -> Option<&'a Path> {
+    root.ancestors()
+        .take_while(|dir| dir.starts_with(ceiling))
+        .find(|dir| config_file(dir, fs).is_some())
+}
+
+/// The project that contains a start path, and the workspaces above it that could claim it.
+pub(crate) struct Located {
+    /// The nearest directory at or above the start with a `package.json` or a workspace declaration.
+    pub project: PathBuf,
+    /// The directories above `project` that declare a workspace, nearest first.
+    pub ancestors: Vec<PathBuf>,
+}
+
+/// Locates the project of `start`, climbing no higher than the root of the git repository holding it.
+pub(crate) fn locate(start: &Path, fs: &dyn FileSystem) -> Result<Located, Error> {
+    if !start.has_root() {
+        return Err(Error::RelativePath(start.to_path_buf()));
     }
-    fs.read_to_string(&dir.join(MANIFEST))
-        .ok()
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .is_some_and(|manifest| manifest.get("workspaces").is_some())
+    let first = if fs.is_dir(start) {
+        start
+    } else {
+        start.parent().unwrap_or(start)
+    };
+    let ceiling = repository_root(fs, first);
+    let within = |dir: &Path| ceiling.as_deref().is_none_or(|top| dir.starts_with(top));
+    let project = first
+        .ancestors()
+        .take_while(|dir| within(dir))
+        .find(|dir| fs.is_file(&dir.join(MANIFEST)) || declares_workspace(fs, dir))
+        .ok_or_else(|| Error::NoWorkspace(start.to_path_buf()))?;
+    let ancestors = project
+        .ancestors()
+        .skip(1)
+        .take_while(|dir| within(dir))
+        .filter(|dir| declares_workspace(fs, dir))
+        .map(Path::to_path_buf)
+        .collect();
+    Ok(Located {
+        project: project.to_path_buf(),
+        ancestors,
+    })
+}
+
+/// The member directories of the workspace at `root`, discovered with its own configuration; the declared
+/// patterns when it cannot be discovered.
+fn workspace_members(root: &Path, fs: &dyn FileSystem) -> BTreeSet<PathBuf> {
+    let ceiling = config_ceiling(root, fs);
+    let dir = config_dir(root, &ceiling, fs).unwrap_or(root);
+    let config = load_config(dir, fs, &ConfigOverrides::default()).unwrap_or_default();
+    Workspace::discover_with_fs(root, &config, fs).map_or_else(
+        |_| declared_member_dirs(fs, root),
+        |workspace| workspace.member_dirs(),
+    )
 }
 
 /// Finds the workspace that `start` belongs to.
@@ -27,6 +80,13 @@ fn declares_workspace(dir: &Path, fs: &dyn FileSystem) -> bool {
 /// the project declares a workspace itself, it is the root. Otherwise the nearest ancestor workspace that lists the
 /// project as a member (after negations) is the root, and when none does, the project is its own root as a single
 /// package: an ancestor workspace never claims a project it does not include.
+///
+/// A workspace that declares itself is its own root even when an outer workspace lists it as a member, as it is for
+/// [`discover_all`](crate::discover_all). Ancestor workspaces are read with their own configuration, so their
+/// package-manager choice decides which patterns count.
+///
+/// The search never climbs above the root of the git repository holding `start` (the nearest directory with a
+/// `.git`), so a stray `package.json` in a parent of the repository is never taken for its workspace.
 ///
 /// `start` may be a file or a directory and must be rooted (absolute); the search never consults the working
 /// directory, so a relative path is rejected rather than silently searching only its own lexical ancestors.
@@ -49,28 +109,14 @@ fn declares_workspace(dir: &Path, fs: &dyn FileSystem) -> bool {
 /// # Ok::<(), skif::Error>(())
 /// ```
 pub fn find_workspace_root(start: &Path, fs: &dyn FileSystem) -> Result<PathBuf, Error> {
-    if !start.has_root() {
-        return Err(Error::RelativePath(start.to_path_buf()));
+    let Located { project, ancestors } = locate(start, fs)?;
+    if declares_workspace(fs, &project) {
+        return Ok(project);
     }
-    let first = if fs.is_dir(start) {
-        start
-    } else {
-        start.parent().unwrap_or(start)
-    };
-    let project = first
-        .ancestors()
-        .find(|dir| fs.is_file(&dir.join(MANIFEST)) || declares_workspace(dir, fs))
-        .ok_or_else(|| Error::NoWorkspace(start.to_path_buf()))?;
-    if declares_workspace(project, fs) {
-        return Ok(project.to_path_buf());
-    }
-    Ok(project
-        .ancestors()
-        .skip(1)
-        .filter(|dir| declares_workspace(dir, fs))
-        .find(|dir| workspace_member_dirs(fs, dir).contains(project))
-        .unwrap_or(project)
-        .to_path_buf())
+    Ok(ancestors
+        .into_iter()
+        .find(|dir| workspace_members(dir, fs).contains(&project))
+        .unwrap_or(project))
 }
 
 /// The name of the configuration file in `root` (`skif.toml` or `.skif.toml`), relative to `root`, when there is one.

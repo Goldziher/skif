@@ -57,7 +57,7 @@ pub use fix::{
 };
 pub use linter::{Linter, RunOptions, builtin_providers};
 pub use root::{config_file, find_workspace_root, load_config};
-pub use targets::{Target, discover_all, load_target};
+pub use targets::{Discovery, RootFailure, Target, discover_all, discover_targets, find_target, load_target};
 
 pub use skif_config::{
     CONFIG_FILE_NAMES, Config, ConfigError, ConfigOverrides, IgnoreEntry, Level, PackageManager, Prefer, RuleConfig,
