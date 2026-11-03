@@ -63,6 +63,7 @@ pub use skif_config::{
     CONFIG_FILE_NAMES, Config, ConfigError, ConfigOverrides, IgnoreEntry, Level, PackageManager, Prefer, RuleConfig,
     Selector,
 };
+pub use skif_core::timing;
 pub use skif_core::{
     CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixSafety, Fixability,
     InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathSeg, Related, Report, RuleId, RuleMeta, Severity, Span,

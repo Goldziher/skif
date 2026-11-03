@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use globset::GlobBuilder;
 use skif_core::FileSystem;
+use skif_core::timing::Tally;
 use skif_js_syntax::{ImportKind, ModuleInfo, ParseOptions, is_stylesheet, parse_module, parse_stylesheet};
 use skif_workspace::{PackageId, map_ordered};
 
@@ -216,21 +217,34 @@ fn expand_glob(importer: &Path, pattern: &str, inputs: &Inputs<'_>) -> Vec<PathB
         .collect()
 }
 
+static READ_TIME: Tally = Tally::new();
+static PARSE_TIME: Tally = Tally::new();
+static RESOLVE_TIME: Tally = Tally::new();
+
+/// Prints the time `process` spent reading, parsing and resolving since the last report (`SKIF_TIMINGS`).
+pub(crate) fn report_timings(root: &Path) {
+    READ_TIME.report(format_args!("js read {}", root.display()));
+    PARSE_TIME.report(format_args!("js parse {}", root.display()));
+    RESOLVE_TIME.report(format_args!("js resolve {}", root.display()));
+}
+
 fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
     let failed = |message: String| Parsed {
         error: Some(message),
         ..Parsed::default()
     };
-    let source = match inputs.fs.read_to_string(path) {
+    let source = match READ_TIME.time(|| inputs.fs.read_to_string(path)) {
         Ok(source) => source,
         Err(error) => return failed(error.to_string()),
     };
     let style = is_stylesheet(path);
-    let parsed = if style {
-        Ok(parse_stylesheet(path, &source))
-    } else {
-        parse_module(path, &source, &ParseOptions::default())
-    };
+    let parsed = PARSE_TIME.time(|| {
+        if style {
+            Ok(parse_stylesheet(path, &source))
+        } else {
+            parse_module(path, &source, &ParseOptions::default())
+        }
+    });
     let mut info = match parsed {
         Ok(info) => info,
         Err(error) => return failed(error.to_string()),
@@ -262,11 +276,13 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
                     type_only,
                 };
             }
-            let outcome = if style {
-                inputs.resolver.resolve_style(path, &import.specifier)
-            } else {
-                inputs.resolver.resolve(path, &import.specifier)
-            };
+            let outcome = RESOLVE_TIME.time(|| {
+                if style {
+                    inputs.resolver.resolve_style(path, &import.specifier)
+                } else {
+                    inputs.resolver.resolve(path, &import.specifier)
+                }
+            });
             let target = match outcome.target {
                 Resolved::File(file) => RawTarget::File(file),
                 Resolved::Asset => RawTarget::Asset,

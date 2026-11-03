@@ -6,6 +6,7 @@ use std::sync::Arc;
 use clap::ColorChoice;
 use serde_json::{Map, Value};
 use skif::render::RenderOptions;
+use skif::timing;
 use skif::{
     CachedFs, Config, ConfigOverrides, FileSystem, IgnoreEntry, Linter, OsFs, Prefer, Report, Selector, Workspace,
 };
@@ -217,9 +218,11 @@ fn fixed(
 pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -> Result<String, CliError> {
     let fs = Arc::new(CachedFs::new(OsFs));
     let start = canonical(path)?;
-    let Resolved { base, targets, multi } = roots::resolve(&start, recursive, fs.as_ref(), overrides)?;
+    let Resolved { base, targets, multi } = timing::phase("root discovery (roots, configs, workspaces)", || {
+        roots::resolve(&start, recursive, fs.as_ref(), overrides)
+    })?;
     let linters = Linters::build(&targets, &(Arc::clone(&fs) as Arc<dyn FileSystem>))?;
-    let runs = roots::lint_targets(&base, targets, &linters)?;
+    let runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
     let reports: Vec<Report> = runs
         .iter()
         .map(|run| roots::prefixed(&run.report, &run.prefix))
@@ -257,12 +260,14 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         base,
         mut targets,
         multi,
-    } = roots::resolve(&start, args.recursive, fs.as_ref(), &overrides(args))?;
+    } = timing::phase("root discovery (roots, configs, workspaces)", || {
+        roots::resolve(&start, args.recursive, fs.as_ref(), &overrides(args))
+    })?;
     for target in &mut targets {
         adjust(args, &mut target.config)?;
     }
     let linters = Linters::build(&targets, &(Arc::clone(&fs) as Arc<dyn FileSystem>))?;
-    let mut runs = roots::lint_targets(&base, targets, &linters)?;
+    let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
 
     let mut fixes: Vec<FixRun> = Vec::new();
     if args.fixing() {
@@ -338,7 +343,9 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         rules: linters.rules(),
         multi,
     };
-    let rendered = output::render(&aggregate, &views, &rendering, &fs, &root_fixes)?;
+    let rendered = timing::phase("render", || {
+        output::render(&aggregate, &views, &rendering, fs.as_ref(), &root_fixes)
+    })?;
     output::emit(&rendered, args.output.as_deref())?;
     if !fixes.is_empty() && matches!(args.format(), Format::Sarif | Format::Github) {
         write_summary_to_stderr(&root_fixes);
