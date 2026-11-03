@@ -110,3 +110,8 @@ blake3 = "f7ece8304004557fc1b80a4767033d4f538ec11c686bc9abb73ab1129f2a8227"
 number = 22
 status = "accepted"
 blake3 = "658b5006d492a1d8b75ec6e4d25ea5abd4d29e29ccdf47cd66ed9422492f9c0f"
+
+[adrs."adrs/0023-root-discovery-semantics-nested-roots-rush-and-fixture-directories.md"]
+number = 23
+status = "accepted"
+blake3 = "f3fdba8d95ce99232126e077300ac2392e25e487840627a540d4ae3866cc2bb4"

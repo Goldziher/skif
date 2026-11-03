@@ -24,6 +24,15 @@ pub(crate) fn config_dir<'a>(root: &'a Path, ceiling: &Path, fs: &dyn FileSystem
         .find(|dir| config_file(dir, fs).is_some())
 }
 
+/// Whether a directory strictly above `root`, up to and including `ceiling`, holds a `package.json` or a workspace
+/// declaration: a standalone package there is nested in another project.
+pub(crate) fn is_enclosed(root: &Path, ceiling: &Path, fs: &dyn FileSystem) -> bool {
+    root.ancestors()
+        .skip(1)
+        .take_while(|dir| dir.starts_with(ceiling))
+        .any(|dir| fs.is_file(&dir.join(MANIFEST)) || declares_workspace(fs, dir))
+}
+
 /// The project that contains a start path, and the workspaces above it that could claim it.
 pub(crate) struct Located {
     /// The nearest directory at or above the start with a `package.json` or a workspace declaration.

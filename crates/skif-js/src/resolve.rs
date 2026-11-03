@@ -509,7 +509,9 @@ impl ModuleResolver {
             return outcome(self.classify(path), member_name);
         }
         let aliased = self.through_alias(importer, specifier);
-        if aliased.as_ref().is_none_or(|resolved| matches!(resolved, Resolved::Unresolved))
+        if aliased
+            .as_ref()
+            .is_none_or(|resolved| matches!(resolved, Resolved::Unresolved))
             && let Some(found) = self.through_nearest_tsconfig(importer, specifier)
         {
             return Self::aliased(found);
@@ -1202,7 +1204,10 @@ mod tests {
     fn bundler_extensions_let_imports_omit_them() {
         let files = [("package.json", ROOT), ("src/main.js", ""), ("src/widget.page", "")];
         let importer = Path::new("/ws/src/main.js");
-        assert_eq!(resolver(&files).resolve(importer, "./widget").target, Resolved::Unresolved);
+        assert_eq!(
+            resolver(&files).resolve(importer, "./widget").target,
+            Resolved::Unresolved
+        );
         let inputs = WorkspaceInputs {
             extensions: vec![".page".to_owned()],
             ..WorkspaceInputs::default()

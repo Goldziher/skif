@@ -305,23 +305,43 @@ fn ignored_generated_targets_are_not_unresolved() {
 #[test]
 fn tsconfig_in_a_directory_that_is_not_a_package_applies_below_it() {
     let diagnostics = lint(&[
-        ("package.json", r#"{"name":"app","private":true,"main":"packages/app/main.js"}"#),
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"packages/app/main.js"}"#,
+        ),
         (
             "packages/tsconfig.json",
             r#"{"compilerOptions":{"paths":{"@scope/*":["./*/index.ts"]}},"include":["./lib"]}"#,
         ),
-        ("packages/app/main.js", "import { x } from '@scope/lib';\nexport const y = x;\n"),
+        (
+            "packages/app/main.js",
+            "import { x } from '@scope/lib';\nexport const y = x;\n",
+        ),
         ("packages/lib/index.ts", "export const x = 1;\n"),
     ]);
-    assert_eq!(names(&diagnostics, "unresolved-imports"), Vec::<String>::new(), "{diagnostics:#?}");
-    assert_eq!(names(&diagnostics, "unlisted-dependencies"), Vec::<String>::new(), "{diagnostics:#?}");
+    assert_eq!(
+        names(&diagnostics, "unresolved-imports"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        names(&diagnostics, "unlisted-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]
 fn bundler_resolve_extensions_make_extensionless_imports_resolve() {
     let files = [
-        ("package.json", r#"{"name":"app","private":true,"main":"src/main.js","devDependencies":{"webpack":"5.0.0"}}"#),
-        ("src/main.js", "import { page } from './page';\nexport const y = page;\n"),
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/main.js","devDependencies":{"webpack":"5.0.0"}}"#,
+        ),
+        (
+            "src/main.js",
+            "import { page } from './page';\nexport const y = page;\n",
+        ),
         ("src/page.view", "export const page = 1;\n"),
     ];
     let without = lint(&files);
@@ -332,7 +352,11 @@ fn bundler_resolve_extensions_make_extensionless_imports_resolve() {
         "module.exports = { entry: './src/main.js', resolve: { extensions: ['.js', '.view'] } };\n",
     ));
     let diagnostics = lint(&with);
-    assert_eq!(names(&diagnostics, "unresolved-imports"), Vec::<String>::new(), "{diagnostics:#?}");
+    assert_eq!(
+        names(&diagnostics, "unresolved-imports"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]

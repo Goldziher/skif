@@ -12,7 +12,7 @@ use skif_workspace::{
 };
 
 use crate::error::Error;
-use crate::root::{Located, config_ceiling, config_dir, config_file, load_config, locate};
+use crate::root::{Located, config_ceiling, config_dir, config_file, is_enclosed, load_config, locate};
 
 /// One root to lint: a workspace or a standalone package, with the configuration that governs it.
 #[derive(Debug)]
@@ -79,7 +79,8 @@ fn load_in_repository(root: &Path, fs: &dyn FileSystem, overrides: &ConfigOverri
 ///
 /// The root is the one [`find_workspace_root`](crate::find_workspace_root) names. Its configuration is the nearest
 /// config file at or above it, up to the root of the git repository holding it (the root itself outside one), which
-/// is the configuration [`discover_all`] gives the same directory.
+/// is the configuration [`discover_all`] gives the same directory. A standalone package with a project above it in the
+/// same repository is marked [`Workspace::is_nested`], as [`discover_targets`] marks it.
 ///
 /// # Errors
 /// [`Error::RelativePath`] for a relative `start`, [`Error::NoWorkspace`] when `start` and its ancestors hold no
@@ -97,7 +98,13 @@ pub fn find_target(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOverride
             _ => {}
         }
     }
-    load_in_repository(&project, fs, overrides)
+    let mut target = load_in_repository(&project, fs, overrides)?;
+    if !declares_workspace(fs, &project) {
+        target
+            .workspace
+            .set_nested(is_enclosed(&project, &config_ceiling(&project, fs), fs));
+    }
+    Ok(target)
 }
 
 /// A root that could not be loaded.
@@ -189,7 +196,8 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
         match result {
             Ok(mut target) => {
                 let nested = !candidates.workspaces.contains(&root)
-                    && root.ancestors().skip(1).any(|ancestor| root_dirs.contains(ancestor));
+                    && (root.ancestors().skip(1).any(|ancestor| root_dirs.contains(ancestor))
+                        || is_enclosed(&root, &ceiling(&root), fs));
                 target.workspace.set_nested(nested);
                 target.workspace.ignore_dirs(&candidates.workspaces);
                 discovery.targets.push(target);
@@ -350,9 +358,9 @@ mod tests {
             .with_file("/r/ws/pnpm-workspace.yaml", "packages:\n  - 'p/*'\n")
             .with_file("/r/ws/p/m/package.json", r#"{"name": "m"}"#);
         let discovery = discover(&fs, "/r");
-        assert_eq!(names(&discovery), ["/r/good"]);
+        assert_eq!(names(&discovery), ["/r/good", "/r/ws"]);
         let failed: Vec<_> = discovery.failures.iter().map(|failure| failure.root.clone()).collect();
-        assert_eq!(failed, [PathBuf::from("/r/bad"), PathBuf::from("/r/ws")]);
+        assert_eq!(failed, [PathBuf::from("/r/bad")]);
         assert!(discover_all(Path::new("/r"), &fs, &ConfigOverrides::default()).is_err());
     }
 
