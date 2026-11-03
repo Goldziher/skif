@@ -78,8 +78,8 @@ fn could_contain(pattern: &Pattern, parts: &[String]) -> bool {
 }
 
 fn walk(fs: &dyn FileSystem, dir: &Path, parts: &mut Vec<String>, patterns: &[Pattern], out: &mut Vec<String>) {
-    let Ok(entries) = fs.read_dir(dir) else { return };
-    for entry in entries {
+    let Ok(entries) = fs.read_dir_shared(dir) else { return };
+    for entry in &*entries {
         let Some(name) = entry.path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };

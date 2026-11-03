@@ -1,9 +1,10 @@
 //! Module resolution on `oxc_resolver`, reading through the host's [`FileSystem`].
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::hash::Hash;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError, RwLock};
 
 use oxc_resolver::{FileMetadata, ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery};
 use serde_json::Value;
@@ -145,6 +146,27 @@ fn alias_rest<'a>(specifier: &'a str, find: &str) -> Option<&'a str> {
     specifier.strip_prefix(find)?.strip_prefix('/')
 }
 
+/// A map filled on first use; concurrent first uses may both compute, the results are equal.
+struct Memo<K, V>(RwLock<HashMap<K, V>>);
+
+impl<K: Eq + Hash, V: Clone> Memo<K, V> {
+    fn new() -> Self {
+        Self(RwLock::new(HashMap::new()))
+    }
+
+    fn get_or_compute(&self, key: K, compute: impl FnOnce() -> V) -> V {
+        if let Some(known) = self.0.read().unwrap_or_else(PoisonError::into_inner).get(&key) {
+            return known.clone();
+        }
+        let value = compute();
+        self.0
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(key, value.clone());
+        value
+    }
+}
+
 /// Resolves specifiers for the whole workspace. Cheap to share between threads.
 pub(crate) struct ModuleResolver {
     with_tsconfig: ResolverGeneric<ResolverFs>,
@@ -157,6 +179,10 @@ pub(crate) struct ModuleResolver {
     scopes: Vec<AliasScope>,
     /// `exports` conditions that select source files, besides the built-in `source`.
     conditions: Vec<String>,
+    /// Packages that are not workspace members, by directory, parsed once; `None` when there is no readable manifest.
+    directory_packages: Memo<PathBuf, Option<Arc<Member>>>,
+    /// Outcomes of the lookup-directory probe by importer directory and specifier, misses included.
+    module_dir_probes: Memo<(PathBuf, String), Option<Resolved>>,
 }
 
 /// Options for specifiers written in stylesheets: stylesheet extensions and the `style` export condition.
@@ -288,6 +314,8 @@ impl ModuleResolver {
             members,
             scopes,
             conditions,
+            directory_packages: Memo::new(),
+            module_dir_probes: Memo::new(),
         }
     }
 
@@ -451,16 +479,19 @@ impl ModuleResolver {
     /// `resolve.modules`), in order. A specifier that names a file there is a file import, never a package.
     fn through_module_dirs(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
         let directory = importer.parent()?;
-        self.scopes
-            .iter()
-            .filter(|scope| importer.starts_with(&scope.dir))
-            .flat_map(|scope| &scope.module_dirs)
-            .find_map(|dir| {
-                let path = join_normalized(dir, specifier);
-                self.plain
-                    .resolve(directory, &path.to_string_lossy())
-                    .ok()
-                    .map(|resolution| self.classify(resolution.path().to_path_buf()))
+        self.module_dir_probes
+            .get_or_compute((directory.to_path_buf(), specifier.to_owned()), || {
+                self.scopes
+                    .iter()
+                    .filter(|scope| importer.starts_with(&scope.dir))
+                    .flat_map(|scope| &scope.module_dirs)
+                    .find_map(|dir| {
+                        let path = join_normalized(dir, specifier);
+                        self.plain
+                            .resolve(directory, &path.to_string_lossy())
+                            .ok()
+                            .map(|resolution| self.classify(resolution.path().to_path_buf()))
+                    })
             })
     }
 
@@ -507,22 +538,30 @@ impl ModuleResolver {
     ///
     /// `None` when `target` is not a package directory or `rest` names something inside it that does not exist.
     fn through_package_directory(&self, target: &Path, rest: &str) -> Option<Resolved> {
-        let known = self.members.values().find(|member| member.dir == target);
-        let manifest = match known {
-            Some(_) => Value::Null,
-            None => serde_json::from_str(&self.fs.read_to_string(&target.join("package.json")).ok()?).ok()?,
+        let adhoc;
+        let member = if let Some(known) = self.members.values().find(|member| member.dir == target) {
+            known
+        } else {
+            adhoc = self.directory_package(target)?;
+            &*adhoc
         };
-        let adhoc = Member {
-            dir: target.to_path_buf(),
-            manifest,
-            build_dirs: Vec::new(),
-        };
-        let member = known.unwrap_or(&adhoc);
         match self.member_file(member, (!rest.is_empty()).then_some(rest)) {
             Some(path) => Some(self.classify(path)),
             None if rest.is_empty() => Some(Resolved::Ignored),
             None => None,
         }
+    }
+
+    /// The package in `dir` that is not a workspace member, with its manifest parsed once per directory.
+    fn directory_package(&self, dir: &Path) -> Option<Arc<Member>> {
+        self.directory_packages.get_or_compute(dir.to_path_buf(), || {
+            let text = self.fs.read_to_string(&dir.join("package.json")).ok()?;
+            Some(Arc::new(Member {
+                dir: dir.to_path_buf(),
+                manifest: serde_json::from_str(&text).ok()?,
+                build_dirs: Vec::new(),
+            }))
+        })
     }
 
     fn package_target(&self, name: &str, specifier: &str) -> Outcome {

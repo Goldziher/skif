@@ -21,17 +21,19 @@ pub fn discover(root: &Path) -> Result<Option<(PathBuf, Config)>, ConfigError> {
 /// # Errors
 /// [`ConfigError::Ambiguous`] when both exist, plus any error from loading the file.
 pub fn discover_with_fs(root: &Path, fs: &dyn FileSystem) -> Result<Option<(PathBuf, Config)>, ConfigError> {
-    let found: Vec<PathBuf> = CONFIG_FILE_NAMES
-        .iter()
-        .map(|name| root.join(name))
-        .filter(|path| fs.is_file(path))
-        .collect();
-    match found.as_slice() {
-        [] => Ok(None),
-        [path] => Ok(Some((path.clone(), Config::from_toml_file_with_fs(path, fs)?))),
-        [first, second, ..] => Err(ConfigError::Ambiguous {
-            first: first.clone(),
-            second: second.clone(),
-        }),
-    }
+    skif_core::timing::phase(format_args!("config {}", root.display()), || {
+        let found: Vec<PathBuf> = CONFIG_FILE_NAMES
+            .iter()
+            .map(|name| root.join(name))
+            .filter(|path| fs.is_file(path))
+            .collect();
+        match found.as_slice() {
+            [] => Ok(None),
+            [path] => Ok(Some((path.clone(), Config::from_toml_file_with_fs(path, fs)?))),
+            [first, second, ..] => Err(ConfigError::Ambiguous {
+                first: first.clone(),
+                second: second.clone(),
+            }),
+        }
+    })
 }

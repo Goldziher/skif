@@ -219,3 +219,41 @@ fn paths_that_cannot_be_known_stay_unknown() {
         assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}");
     }
 }
+
+fn leaves(value: &ConfigValue) -> usize {
+    match value {
+        ConfigValue::Array(items) => items.iter().map(leaves).sum(),
+        _ => 1,
+    }
+}
+
+/// `const a1 = ['x']; const a2 = [a1, a1]; …` up to `a{depth}`, exported.
+fn doubling_constants(depth: usize) -> String {
+    let mut source = String::from("const a1 = ['x'];\n");
+    for level in 2..=depth {
+        source.push_str(&format!("const a{level} = [a{prev}, a{prev}];\n", prev = level - 1));
+    }
+    source.push_str(&format!("export default {{ v: a{depth} }};"));
+    source
+}
+
+#[test]
+fn constants_that_double_per_level_are_evaluated_once_and_bounded() {
+    let small = extract("c.js", &doubling_constants(10)).unwrap();
+    assert_eq!(leaves(small.get("v").unwrap()), 512);
+
+    let huge = extract("c.js", &doubling_constants(30)).unwrap();
+    assert!(huge.get("v").unwrap().has_unknown());
+}
+
+#[test]
+fn long_constant_chains_and_cycles_terminate() {
+    let mut source = String::from("const c1 = 'x';\n");
+    for level in 2..=30 {
+        source.push_str(&format!("const c{level} = c{};\n", level - 1));
+    }
+    source.push_str("const p = [q];\nconst q = [p];\nexport default { v: c30, cycle: p };");
+    let value = extract("c.js", &source).unwrap();
+    assert_eq!(value.get("v"), Some(&s("x")));
+    assert!(value.get("cycle").unwrap().has_unknown());
+}

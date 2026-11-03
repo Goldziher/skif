@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use skif_core::FileSystem;
-use skif_workspace::{PackageId, Workspace};
+use skif_core::{DirEntry, FileSystem};
+use skif_workspace::{PackageId, Workspace, map_ordered};
 
 use crate::resolve::is_code_file;
 
@@ -66,11 +66,20 @@ pub(crate) fn relative(path: &Path, base: &Path) -> Option<String> {
     Some(rest.to_string_lossy().replace('\\', "/"))
 }
 
-/// The matchers of the ignore files found in `dir`, if any.
-fn ignore_file_matcher(fs: &dyn FileSystem, dir: &Path) -> Option<Gitignore> {
+/// Whether the listing holds a regular file called `name`.
+fn lists_file(entries: &[DirEntry], name: &str) -> bool {
+    entries
+        .iter()
+        .any(|entry| entry.is_file && entry.path.file_name().is_some_and(|candidate| candidate == name))
+}
+
+/// The matchers of the ignore files listed in `entries`, the listing of `dir`, if any.
+///
+/// Only files the listing names are opened, so a directory without ignore files costs no `open`.
+fn ignore_file_matcher(fs: &dyn FileSystem, dir: &Path, entries: &[DirEntry]) -> Option<Gitignore> {
     let mut builder = GitignoreBuilder::new(dir);
     let mut any = false;
-    for name in IGNORE_FILES {
+    for name in IGNORE_FILES.iter().filter(|name| lists_file(entries, name)) {
         let path = dir.join(name);
         let Ok(text) = fs.read_to_string(&path) else { continue };
         for line in text.lines() {
@@ -102,6 +111,77 @@ struct Frame {
     owner: PackageId,
     depth: usize,
     matchers: Vec<Arc<Gitignore>>,
+    /// The directory is skipped, with everything below it, when it holds its own `package.json`.
+    skip_if_project: bool,
+}
+
+/// What the walk shares between directories.
+struct Walk<'a> {
+    fs: &'a dyn FileSystem,
+    root: &'a Path,
+    owners: HashMap<PathBuf, PackageId>,
+    skipped: HashSet<PathBuf>,
+    sequential: bool,
+}
+
+impl Walk<'_> {
+    /// The source files below `frame`, subdirectories walked in parallel unless `sequential`.
+    fn directory(&self, frame: &Frame) -> Vec<Candidate> {
+        let Ok(entries) = self.fs.read_dir_shared(&frame.dir) else {
+            return Vec::new();
+        };
+        if frame.skip_if_project && lists_file(&entries, "package.json") {
+            return Vec::new();
+        }
+        let mut matchers = frame.matchers.clone();
+        if let Some(matcher) = ignore_file_matcher(self.fs, &frame.dir, &entries) {
+            matchers.push(Arc::new(matcher));
+        }
+        let mut found = Vec::new();
+        let mut children = Vec::new();
+        for entry in &*entries {
+            let name = entry
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
+            if entry.is_dir {
+                let package = self.owners.get(&entry.path).copied();
+                if frame.depth >= MAX_DEPTH
+                    || entry.is_symlink
+                    || self.skipped.contains(&entry.path)
+                    || (package.is_none() && skipped_by_name(name))
+                    || is_ignored(&matchers, &entry.path, true)
+                {
+                    continue;
+                }
+                children.push(Frame {
+                    dir: entry.path.clone(),
+                    owner: package.unwrap_or(frame.owner),
+                    depth: frame.depth + 1,
+                    matchers: matchers.clone(),
+                    skip_if_project: package.is_none(),
+                });
+            } else if entry.is_file
+                && !GENERATED_FILES.contains(&name)
+                && is_code_file(&entry.path)
+                && !is_ignored(&matchers, &entry.path, false)
+                && let Some(rel) = relative(&entry.path, self.root)
+            {
+                found.push(Candidate {
+                    abs: entry.path.clone(),
+                    rel,
+                    owner: frame.owner,
+                });
+            }
+        }
+        found.extend(
+            map_ordered(&children, self.sequential, |child| self.directory(child))
+                .into_iter()
+                .flatten(),
+        );
+        found
+    }
 }
 
 /// Lists every `.js`/`.ts`-family file below the workspace root, sorted by relative path.
@@ -112,7 +192,11 @@ struct Frame {
 /// `.gitignore` and `.ignore` files are honoured with the semantics of the `ignore` crate, hidden directories
 /// (except tool configuration ones) and common build output are skipped, and symbolic links to directories are
 /// not followed.
-pub(crate) fn discover(fs: &dyn FileSystem, workspace: &Workspace) -> Vec<Candidate> {
+///
+/// Directories are listed once each, and the ignore files and manifests are found in the listing instead of probed.
+/// Sibling directories are walked in parallel (on the calling thread with `sequential`); the sort makes the result
+/// independent of scheduling.
+pub(crate) fn discover(fs: &dyn FileSystem, workspace: &Workspace, sequential: bool) -> Vec<Candidate> {
     let mut owners: HashMap<PathBuf, PackageId> = HashMap::new();
     let mut skipped: HashSet<PathBuf> = HashSet::new();
     for (id, package) in workspace.iter().filter(|(_, package)| !package.is_root) {
@@ -123,57 +207,20 @@ pub(crate) fn discover(fs: &dyn FileSystem, workspace: &Workspace) -> Vec<Candid
             owners.insert(dir, id);
         }
     }
-
-    let mut found = Vec::new();
-    let mut stack = vec![Frame {
+    let walk = Walk {
+        fs,
+        root: &workspace.root,
+        owners,
+        skipped,
+        sequential,
+    };
+    let mut found = walk.directory(&Frame {
         dir: workspace.root.clone(),
         owner: PackageId::ROOT,
         depth: 0,
         matchers: Vec::new(),
-    }];
-    while let Some(frame) = stack.pop() {
-        let Ok(entries) = fs.read_dir(&frame.dir) else { continue };
-        let mut matchers = frame.matchers;
-        if let Some(matcher) = ignore_file_matcher(fs, &frame.dir) {
-            matchers.push(Arc::new(matcher));
-        }
-        for entry in entries {
-            let name = entry
-                .path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or_default();
-            if entry.is_dir {
-                let package = owners.get(&entry.path).copied();
-                if frame.depth >= MAX_DEPTH
-                    || entry.is_symlink
-                    || skipped.contains(&entry.path)
-                    || (package.is_none() && skipped_by_name(name))
-                    || (package.is_none() && fs.is_file(&entry.path.join("package.json")))
-                    || is_ignored(&matchers, &entry.path, true)
-                {
-                    continue;
-                }
-                stack.push(Frame {
-                    dir: entry.path,
-                    owner: package.unwrap_or(frame.owner),
-                    depth: frame.depth + 1,
-                    matchers: matchers.clone(),
-                });
-            } else if entry.is_file
-                && !GENERATED_FILES.contains(&name)
-                && is_code_file(&entry.path)
-                && !is_ignored(&matchers, &entry.path, false)
-                && let Some(rel) = relative(&entry.path, &workspace.root)
-            {
-                found.push(Candidate {
-                    abs: entry.path,
-                    rel,
-                    owner: frame.owner,
-                });
-            }
-        }
-    }
+        skip_if_project: false,
+    });
     found.sort_by(|a, b| a.rel.cmp(&b.rel));
     found
 }
@@ -200,7 +247,7 @@ mod tests {
             .with_file("/ws/readme.md", "");
         let config = Config::from_toml_str("").unwrap();
         let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &fs).unwrap();
-        let files = discover(&fs, &workspace);
+        let files = discover(&fs, &workspace, false);
         let listed: Vec<(&str, usize)> = files.iter().map(|c| (c.rel.as_str(), c.owner.index())).collect();
         assert_eq!(listed, [("packages/a/src/z.ts", 1), ("tools/run.js", 0)]);
     }
@@ -208,7 +255,7 @@ mod tests {
     fn files(fs: &MemoryFs) -> Vec<String> {
         let config = Config::from_toml_str("").unwrap();
         let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, fs).unwrap();
-        discover(fs, &workspace).into_iter().map(|c| c.rel).collect()
+        discover(fs, &workspace, false).into_iter().map(|c| c.rel).collect()
     }
 
     #[test]
@@ -272,5 +319,25 @@ mod tests {
             .with_file("/ws/.eslintrc.js", "")
             .with_file("/ws/src/a.ts", "");
         assert_eq!(files(&fs), [".eslintrc.js", ".storybook/main.ts", "src/a.ts"]);
+    }
+
+    #[test]
+    fn sequential_and_parallel_walks_agree() {
+        let mut fs = MemoryFs::new().with_file("/ws/package.json", r#"{"name":"r"}"#);
+        for dir in 0..12 {
+            for file in 0..5 {
+                fs.insert(format!("/ws/d{dir}/s{file}/f.ts"), "");
+            }
+        }
+        let config = Config::from_toml_str("").unwrap();
+        let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &fs).unwrap();
+        let rels = |sequential| -> Vec<String> {
+            discover(&fs, &workspace, sequential)
+                .into_iter()
+                .map(|candidate| candidate.rel)
+                .collect()
+        };
+        assert_eq!(rels(true), rels(false));
+        assert_eq!(rels(true).len(), 60);
     }
 }
