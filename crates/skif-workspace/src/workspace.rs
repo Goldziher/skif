@@ -149,7 +149,7 @@ fn load_member(fs: &dyn FileSystem, root: &Path, dir: &str) -> Member {
     let manifest = root.join(dir).join(MANIFEST);
     if !fs.is_file(&manifest) {
         return if fs
-            .read_dir(&root.join(dir))
+            .read_dir_shared(&root.join(dir))
             .is_ok_and(|entries| entries.iter().any(has_content))
         {
             Member::NoManifest(PathBuf::from(dir))
