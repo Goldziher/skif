@@ -664,10 +664,10 @@ fn browser_extension_manifest_entries() {
     assert_entries(
         &out.entries,
         &[
-            "dist/background.{js,jsx,ts,tsx,mjs,mts}",
-            "src/background.{js,jsx,ts,tsx,mjs,mts}",
-            "content.{js,jsx,ts,tsx,mjs,mts}",
-            "injected.{js,jsx,ts,tsx,mjs,mts}",
+            "dist/background.{js,jsx,ts,tsx,mjs,mts,cjs,cts}",
+            "src/background.{js,jsx,ts,tsx,mjs,mts,cjs,cts}",
+            "content.{js,jsx,ts,tsx,mjs,mts,cjs,cts}",
+            "injected.{js,jsx,ts,tsx,mjs,mts,cjs,cts}",
             "popup.js",
             "options/options.js",
         ],
@@ -694,9 +694,9 @@ fn browser_extension_manifest_in_public_and_mv2_shapes() {
     assert_entries(
         &out.entries,
         &[
-            "public/bg.{js,jsx,ts,tsx,mjs,mts}",
-            "src/bg.{js,jsx,ts,tsx,mjs,mts}",
-            "public/inject.{js,jsx,ts,tsx,mjs,mts}",
+            "public/bg.{js,jsx,ts,tsx,mjs,mts,cjs,cts}",
+            "src/bg.{js,jsx,ts,tsx,mjs,mts,cjs,cts}",
+            "public/inject.{js,jsx,ts,tsx,mjs,mts,cjs,cts}",
             "src/popup.ts",
         ],
     );

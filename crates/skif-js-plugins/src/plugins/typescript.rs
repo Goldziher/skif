@@ -70,13 +70,8 @@ impl Plugin for Typescript {
         {
             out.push(PluginInput::Dependency(name));
         }
-        let automatic_runtime = matches!(
-            options.get("jsx").and_then(ConfigValue::as_str),
-            Some("react-jsx" | "react-jsxdev")
-        );
-        if automatic_runtime && options.get("jsxImportSource").is_none() {
-            out.push(PluginInput::Dependency("react".to_string()));
-        }
+        // `jsx: "react-jsx"` does not make `react` a dependency here: a shared base config sets it for packages that
+        // do not use React, and the module graph credits `react` where a file contains JSX.
         if let Some(plugins) = options.get("plugins") {
             for plugin in objects(plugins) {
                 if let Some(name) = plugin.get("name").and_then(ConfigValue::as_str).and_then(package_name) {

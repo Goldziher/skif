@@ -15,8 +15,8 @@ static SPEC: PluginSpec = PluginSpec {
         Enabler::Dependency("@tailwindcss/postcss"),
         Enabler::Dependency("@tailwindcss/cli"),
     ],
-    config: &["tailwind.config.{js,cjs,mjs,ts,cts,mts}"],
-    entry: &["tailwind.config.{js,cjs,mjs,ts,cts,mts}"],
+    config: &["{,config/}tailwind.config.{js,cjs,mjs,ts,cts,mts}"],
+    entry: &["{,config/}tailwind.config.{js,cjs,mjs,ts,cts,mts}"],
     binaries: &["tailwindcss"],
     ..PluginSpec::DEFAULT
 };

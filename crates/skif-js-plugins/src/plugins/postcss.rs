@@ -8,6 +8,13 @@ use crate::support::{module_input, name_of};
 /// The `postcss` plugin.
 pub struct Postcss;
 
+/// Where a PostCSS config lives: next to the manifest or in a `config/` directory.
+pub(crate) const CONFIG: &[&str] = &[
+    "{,config/}postcss.config.{json,js,cjs,mjs,ts,cts,mts}",
+    ".postcssrc",
+    ".postcssrc.{json,js,cjs,mjs,ts,cts,mts,yaml,yml}",
+];
+
 static SPEC: PluginSpec = PluginSpec {
     id: "postcss",
     enablers: &[
@@ -16,11 +23,7 @@ static SPEC: PluginSpec = PluginSpec {
         Enabler::Dependency("next"),
         Enabler::Dependency("@tailwindcss/postcss"),
     ],
-    config: &[
-        "postcss.config.{json,js,cjs,mjs,ts,cts,mts}",
-        ".postcssrc",
-        ".postcssrc.{json,js,cjs,mjs,ts,cts,mts,yaml,yml}",
-    ],
+    config: CONFIG,
     package_json_key: Some("postcss"),
     binaries: &["postcss"],
     ..PluginSpec::DEFAULT
@@ -32,24 +35,30 @@ impl Plugin for Postcss {
     }
 
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
-        let names: Vec<&str> = match config.value.get("plugins") {
-            Some(ConfigValue::Array(items)) => items.iter().filter_map(name_of).collect(),
-            Some(ConfigValue::Object(entries)) => entries
-                .iter()
-                .filter(|(_, options)| options.as_bool() != Some(false))
-                .map(|(name, _)| name.as_str())
-                .collect(),
-            _ => Vec::new(),
-        };
-        let mut out: Vec<PluginInput> = names
-            .iter()
-            .filter_map(|name| module_input(config.base, name, false))
-            .collect();
-        if names.contains(&"tailwindcss") {
-            out.push(PluginInput::Dependency("postcss".to_string()));
-        } else if names.contains(&"@tailwindcss/postcss") {
-            out.push(PluginInput::OptionalDependency("postcss".to_string()));
-        }
-        out
+        inputs(config.value, config.base)
     }
+}
+
+/// What a PostCSS config references: its plugins, as object keys or array items. `base` is the directory of the
+/// config relative to the workspace.
+pub(crate) fn inputs(config: &ConfigValue, base: &str) -> Vec<PluginInput> {
+    let names: Vec<&str> = match config.get("plugins") {
+        Some(ConfigValue::Array(items)) => items.iter().filter_map(name_of).collect(),
+        Some(ConfigValue::Object(entries)) => entries
+            .iter()
+            .filter(|(_, options)| options.as_bool() != Some(false))
+            .map(|(name, _)| name.as_str())
+            .collect(),
+        _ => Vec::new(),
+    };
+    let mut out: Vec<PluginInput> = names
+        .iter()
+        .filter_map(|name| module_input(base, name, false))
+        .collect();
+    if names.contains(&"tailwindcss") {
+        out.push(PluginInput::Dependency("postcss".to_string()));
+    } else if names.contains(&"@tailwindcss/postcss") {
+        out.push(PluginInput::OptionalDependency("postcss".to_string()));
+    }
+    out
 }

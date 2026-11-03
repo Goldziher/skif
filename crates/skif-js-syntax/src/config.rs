@@ -11,6 +11,7 @@ use oxc_ast::ast::{
     ImportDeclarationSpecifier, NewExpression, ObjectPropertyKind, Program, Statement, StaticMemberExpression,
     TemplateLiteral, UnaryOperator, VariableDeclaration, VariableDeclarationKind,
 };
+use oxc_ast_visit::{Visit, walk};
 use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
 use oxc_span::SourceType;
 use serde::{Deserialize, Serialize};
@@ -52,6 +53,8 @@ pub enum ConfigValue {
     Array(Vec<ConfigValue>),
     /// An object literal in source order. A spread of an unknown value is recorded as the key `...`.
     Object(Vec<(String, ConfigValue)>),
+    /// A regular expression literal: its pattern, without the slashes and flags.
+    Regex(String),
     /// Anything that cannot be known without running the code.
     Unknown,
 }
@@ -89,6 +92,15 @@ impl ConfigValue {
     pub fn as_object(&self) -> Option<&[(String, ConfigValue)]> {
         match self {
             Self::Object(entries) => Some(entries),
+            _ => None,
+        }
+    }
+
+    /// The pattern when this is a regular expression literal.
+    #[must_use]
+    pub fn as_regex(&self) -> Option<&str> {
+        match self {
+            Self::Regex(pattern) => Some(pattern),
             _ => None,
         }
     }
@@ -381,6 +393,88 @@ fn apply_path_function(function: &str, args: &[ConfigValue]) -> ConfigValue {
     ConfigValue::String(path)
 }
 
+/// Statically evaluates the option `key` of every `new constructor({ … })` in `source`, however the constructor was
+/// imported (`new NodejsFunction(…)`, `new lambda_nodejs.NodejsFunction(…)`). Path computations are relative to the
+/// directory of `path`. Returns nothing when the file does not parse.
+#[must_use]
+pub fn extract_constructor_options(source: &str, path: &Path, constructor: &str, key: &str) -> Vec<ConfigValue> {
+    let Ok(source_type) = SourceType::from_path(path) else {
+        return Vec::new();
+    };
+    let allocator = Allocator::default();
+    let ret = Parser::new(&allocator, source, source_type)
+        .with_options(OxcParseOptions {
+            preserve_parens: false,
+            ..OxcParseOptions::default()
+        })
+        .parse();
+    if ret.diagnostics.errors().next().is_some() {
+        return Vec::new();
+    }
+    let program = &ret.program;
+    let top = top_level(program);
+    let bindings = module_bindings(program);
+    let mut finder = OptionFinder {
+        top: &top,
+        bindings: &bindings,
+        file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+        constructor,
+        key,
+        found: Vec::new(),
+    };
+    finder.visit_program(program);
+    finder.found
+}
+
+struct OptionFinder<'t, 'p, 'a> {
+    top: &'t TopLevel<'p, 'a>,
+    bindings: &'t ModuleBindings,
+    file: &'t str,
+    constructor: &'t str,
+    key: &'t str,
+    found: Vec<ConfigValue>,
+}
+
+impl<'a> Visit<'a> for OptionFinder<'_, '_, 'a> {
+    fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
+        let name = match it.callee.get_inner_expression() {
+            Expression::Identifier(id) => Some(id.name.as_str()),
+            Expression::StaticMemberExpression(member) => Some(member.property.name.as_str()),
+            _ => None,
+        };
+        if name == Some(self.constructor) {
+            let eval = Evaluator {
+                consts: &self.top.consts,
+                functions: &self.top.functions,
+                bindings: self.bindings,
+                file: self.file,
+                evaluated: RefCell::new(HashMap::new()),
+                chain: RefCell::new(Vec::new()),
+                frames: RefCell::new(Vec::new()),
+                calls: Cell::new(0),
+            };
+            for argument in &it.arguments {
+                let Some(Expression::ObjectExpression(options)) =
+                    argument.as_expression().map(Expression::get_inner_expression)
+                else {
+                    continue;
+                };
+                for property in &options.properties {
+                    if let ObjectPropertyKind::ObjectProperty(p) = property
+                        && !p.method
+                        && p.key
+                            .static_name()
+                            .is_some_and(|name| crate::js_string(name.as_js_str()) == self.key)
+                    {
+                        self.found.push(eval.expr(&p.value, 0));
+                    }
+                }
+            }
+        }
+        walk::walk_new_expression(self, it);
+    }
+}
+
 /// What a module exports.
 enum Exported<'p, 'a> {
     Expression(&'p Expression<'a>),
@@ -451,6 +545,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             Expression::BooleanLiteral(b) => ConfigValue::Bool(b.value),
             Expression::NumericLiteral(n) => ConfigValue::Number(n.value),
             Expression::StringLiteral(_) => static_string(inner).map_or(ConfigValue::Unknown, ConfigValue::String),
+            Expression::RegExpLiteral(r) => ConfigValue::Regex(r.regex.pattern.text.as_str().to_owned()),
             Expression::TemplateLiteral(template) => self.template(template, depth),
             Expression::BinaryExpression(b) if b.operator == BinaryOperator::Addition => {
                 match (self.expr(&b.left, depth), self.expr(&b.right, depth)) {
@@ -835,6 +930,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             let BindingPattern::BindingIdentifier(id) = &declarator.id else {
                 continue;
             };
+            if let Some(callable) = declarator.init.as_ref().and_then(Callable::of_expression) {
+                self.assign(id.name.as_str(), Binding::Callable(callable));
+                continue;
+            }
             let value = declarator
                 .init
                 .as_ref()

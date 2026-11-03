@@ -193,6 +193,36 @@ pub(crate) fn objects(value: &ConfigValue) -> Vec<&ConfigValue> {
     }
 }
 
+/// Whether a config is unknown, or is a list (of builds) with an unknown element.
+pub(crate) fn config_unknown(config: &ConfigValue) -> bool {
+    match config {
+        ConfigValue::Unknown => true,
+        ConfigValue::Array(items) => items.iter().any(|item| matches!(item, ConfigValue::Unknown)),
+        _ => false,
+    }
+}
+
+/// Whether the value at `path` is not fully known statically: it contains an unknown part, or an object on the way
+/// is unknown or has an unknown spread that could provide the key.
+pub(crate) fn path_unknown(value: &ConfigValue, path: &[&str]) -> bool {
+    let Some((key, rest)) = path.split_first() else {
+        return value.has_unknown();
+    };
+    match value {
+        ConfigValue::Unknown => true,
+        ConfigValue::Object(_) => match value.get(key) {
+            Some(child) => path_unknown(child, rest),
+            None => value.get("...").is_some(),
+        },
+        _ => false,
+    }
+}
+
+/// Whether the value of `key` in a config object is not fully known statically; see [`path_unknown`].
+pub(crate) fn key_unknown(object: &ConfigValue, key: &str) -> bool {
+    path_unknown(object, &[key])
+}
+
 /// The values of an object, the elements of an array or the value itself.
 pub(crate) fn values_of(value: &ConfigValue) -> Vec<&ConfigValue> {
     match value {
