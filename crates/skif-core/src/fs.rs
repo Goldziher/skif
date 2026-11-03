@@ -52,6 +52,15 @@ pub trait FileSystem: Send + Sync {
     /// # Errors
     /// Any IO error from listing the directory.
     fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>>;
+    /// Lists a directory like [`FileSystem::read_dir`], as a shared slice.
+    ///
+    /// Caching implementations hand out the listing they hold instead of copying it.
+    ///
+    /// # Errors
+    /// Any IO error from listing the directory.
+    fn read_dir_shared(&self, path: &Path) -> io::Result<Arc<[DirEntry]>> {
+        self.read_dir(path).map(Arc::from)
+    }
     /// Whether `path` is a regular file.
     fn is_file(&self, path: &Path) -> bool;
     /// Whether `path` is a directory.
@@ -72,6 +81,7 @@ impl FileSystem for OsFs {
         for entry in std::fs::read_dir(path)? {
             let entry = entry?;
             let path = entry.path();
+            // `file_type` comes from the directory record; only a symlink needs a `stat` to learn its target.
             let file_type = entry.file_type()?;
             let is_symlink = file_type.is_symlink();
             let (is_dir, is_file) = if is_symlink {
@@ -82,7 +92,9 @@ impl FileSystem for OsFs {
             let entry = DirEntry::new(path, is_dir, is_file);
             entries.push(if is_symlink { entry.symlink() } else { entry });
         }
-        entries.sort_by(|a, b| a.path.cmp(&b.path));
+        // Entries share one parent, so comparing the raw paths orders them like the component-wise `Path` order
+        // without parsing components on every comparison.
+        entries.sort_unstable_by(|a, b| a.path.as_os_str().cmp(b.path.as_os_str()));
         Ok(entries)
     }
 
