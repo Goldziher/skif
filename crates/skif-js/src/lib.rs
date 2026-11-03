@@ -33,6 +33,7 @@ mod scripts;
 mod setup;
 mod source_scan;
 mod specifier;
+mod tsconfig_paths;
 mod usage;
 
 pub use analysis::{JsAnalysis, UnusedFile};

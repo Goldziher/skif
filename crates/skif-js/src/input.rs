@@ -61,6 +61,8 @@ pub struct WorkspaceInputs {
     /// Directories bare specifiers are looked up in (`baseUrl`, `paths` wildcards, `resolve.modules`), relative to the
     /// package directory with `/` separators, in lookup order.
     pub module_dirs: Vec<String>,
+    /// File extensions (with the leading dot) imports may omit, from bundler `resolve.extensions`.
+    pub extensions: Vec<String>,
     /// Whether a tool's entries could only be partly read (a computed `entry`), so unused files and dependencies of
     /// the package cannot be told apart from ones reached through the unknown entries.
     pub entries_incomplete: bool,
@@ -82,6 +84,7 @@ impl WorkspaceInputs {
         self.build_dirs.extend(other.build_dirs);
         self.conditions.extend(other.conditions);
         self.module_dirs.extend(other.module_dirs);
+        self.extensions.extend(other.extensions);
         self.entries_incomplete |= other.entries_incomplete;
     }
 }

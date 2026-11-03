@@ -18,6 +18,7 @@ use crate::setup::Setup;
 use crate::specifier::{
     has_foreign_scheme, is_builtin, node_modules_package, node_modules_specifier_package, package_name, subpath,
 };
+use crate::tsconfig_paths::{self, TsPaths};
 
 /// Extensions that are parsed and followed.
 pub(crate) const CODE_EXTENSIONS: &[&str] = &[
@@ -187,6 +188,8 @@ pub(crate) struct ModuleResolver {
     /// Outcomes of the lookup-directory probe by the innermost package directory of the importer and specifier, misses
     /// included.
     module_dir_probes: Memo<(PathBuf, String), Option<Resolved>>,
+    /// The nearest `baseUrl` and `paths` by directory, `None` when no config at or above it sets them.
+    nearest_paths: Memo<PathBuf, Option<Arc<TsPaths>>>,
 }
 
 /// Which language a specifier is written in.
@@ -284,13 +287,16 @@ fn style_options(tsconfig: bool) -> ResolveOptions {
     }
 }
 
-fn options(tsconfig: bool, conditions: &[String]) -> ResolveOptions {
+fn options(tsconfig: bool, conditions: &[String], extensions: &[String]) -> ResolveOptions {
     let owned = |items: &[&str]| items.iter().map(|item| (*item).to_owned()).collect::<Vec<_>>();
     ResolveOptions {
         tsconfig: tsconfig.then_some(TsconfigDiscovery::Auto),
         extensions: owned(&[
             ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".json", ".vue", ".svelte", ".astro", ".d.ts",
-        ]),
+        ])
+        .into_iter()
+        .chain(extensions.iter().cloned())
+        .collect(),
         // A declaration file only stands in for a runtime file that is not there: the runtime file is what is loaded.
         extension_alias: vec![
             (".js".to_owned(), owned(&[".ts", ".tsx", ".js", ".d.ts"])),
@@ -319,7 +325,15 @@ impl ModuleResolver {
             .collect();
         conditions.sort();
         conditions.dedup();
-        let script = Resolvers::new(&fs, |tsconfig| options(tsconfig, &conditions));
+        let mut extensions: Vec<String> = setup
+            .packages
+            .iter()
+            .flatten()
+            .flat_map(|package| package.extensions.iter().cloned())
+            .collect();
+        extensions.sort();
+        extensions.dedup();
+        let script = Resolvers::new(&fs, |tsconfig| options(tsconfig, &conditions, &extensions));
         let style = Resolvers::new(&fs, style_options);
         let members = workspace
             .all_packages()
@@ -409,6 +423,7 @@ impl ModuleResolver {
             conditions,
             directory_packages: Memo::new(),
             module_dir_probes: Memo::new(),
+            nearest_paths: Memo::new(),
         }
     }
 
@@ -494,6 +509,11 @@ impl ModuleResolver {
             return outcome(self.classify(path), member_name);
         }
         let aliased = self.through_alias(importer, specifier);
+        if aliased.as_ref().is_none_or(|resolved| matches!(resolved, Resolved::Unresolved))
+            && let Some(found) = self.through_nearest_tsconfig(importer, specifier)
+        {
+            return Self::aliased(found);
+        }
         // An alias whose target is missing is not final: bundlers fall through to their lookup directories.
         if let Some(found) = aliased
             .as_ref()
@@ -629,6 +649,25 @@ impl ModuleResolver {
                             .map(|resolution| self.classify(resolution.path().to_path_buf()))
                     })
             })
+    }
+
+    /// Follows `paths` and `baseUrl` of the nearest `tsconfig.json` or `jsconfig.json` at or above the importer, also
+    /// when it is in a directory that is not a package or does not include the importer.
+    fn through_nearest_tsconfig(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
+        let directory = importer.parent()?;
+        let config = self.nearest_paths.get_or_compute(directory.to_path_buf(), || {
+            tsconfig_paths::nearest(self.fs.as_ref(), &self.root, directory).map(Arc::new)
+        })?;
+        config.candidates(specifier).into_iter().find_map(|path| {
+            if let Some(package) = node_modules_package(&path) {
+                return Some(Resolved::External(package));
+            }
+            self.script
+                .plain
+                .resolve(directory, &path.to_string_lossy())
+                .ok()
+                .map(|resolution| self.classify(resolution.path().to_path_buf()))
+        })
     }
 
     /// Follows the aliases declared for the importer's package (and the packages above it).
@@ -906,6 +945,31 @@ mod tests {
     }
 
     #[test]
+    fn tsconfig_outside_a_package_applies_to_the_files_below_it() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            (
+                "packages/tsconfig.json",
+                r#"{"compilerOptions":{"paths":{"@scope/*":["./*/src/index.ts"]}},"exclude":["**/*.spec.ts"]}"#,
+            ),
+            ("packages/app/src/main.spec.ts", ""),
+            ("packages/app/src/main.js", ""),
+            ("packages/lib/src/index.ts", ""),
+            ("src/legacy/jsconfig.json", r#"{"compilerOptions":{"baseUrl":"."}}"#),
+            ("src/legacy/page.js", ""),
+            ("src/legacy/helpers/util.js", ""),
+        ]);
+        let lib = Resolved::File(PathBuf::from("/ws/packages/lib/src/index.ts"));
+        for importer in ["/ws/packages/app/src/main.spec.ts", "/ws/packages/app/src/main.js"] {
+            assert_eq!(r.resolve(Path::new(importer), "@scope/lib").target, lib, "{importer}");
+        }
+        assert_eq!(
+            r.resolve(Path::new("/ws/src/legacy/page.js"), "helpers/util").target,
+            Resolved::File(PathBuf::from("/ws/src/legacy/helpers/util.js"))
+        );
+    }
+
+    #[test]
     fn bundler_aliases_resolve_and_unresolved_aliases_are_never_packages() {
         let inputs = WorkspaceInputs {
             aliases: vec![
@@ -1122,6 +1186,21 @@ mod tests {
         assert_eq!(local.target, file("/ws/src/utils/index.ts"));
         assert_eq!(local.package, None);
         assert_eq!(r.resolve(importer, "react").package.as_deref(), Some("react"));
+    }
+
+    #[test]
+    fn bundler_extensions_let_imports_omit_them() {
+        let files = [("package.json", ROOT), ("src/main.js", ""), ("src/widget.page", "")];
+        let importer = Path::new("/ws/src/main.js");
+        assert_eq!(resolver(&files).resolve(importer, "./widget").target, Resolved::Unresolved);
+        let inputs = WorkspaceInputs {
+            extensions: vec![".page".to_owned()],
+            ..WorkspaceInputs::default()
+        };
+        assert_eq!(
+            resolver_with(&files, inputs).resolve(importer, "./widget").target,
+            Resolved::Asset
+        );
     }
 
     #[test]
