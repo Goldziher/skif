@@ -802,11 +802,15 @@ mod tests {
     }
 
     fn resolver_with(files: &[(&str, &str)], inputs: WorkspaceInputs) -> ModuleResolver {
-        let fs = files.iter().fold(MemoryFs::new(), |fs, (path, text)| {
-            fs.with_file(Path::new("/ws").join(path), text)
-        });
+        resolver_at(Path::new("/ws"), files, inputs)
+    }
+
+    fn resolver_at(root: &Path, files: &[(&str, &str)], inputs: WorkspaceInputs) -> ModuleResolver {
+        let fs = files
+            .iter()
+            .fold(MemoryFs::new(), |fs, (path, text)| fs.with_file(root.join(path), text));
         let config = Config::from_toml_str("").unwrap();
-        let workspace = Workspace::discover_with_fs(Path::new("/ws"), &config, &fs).unwrap();
+        let workspace = Workspace::discover_with_fs(root, &config, &fs).unwrap();
         let fs: Arc<dyn FileSystem> = Arc::new(fs);
         let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(RootInputs(inputs))];
         let setup = Setup::new(&workspace, &config, &fs, &sources);
@@ -888,20 +892,26 @@ mod tests {
 
     #[test]
     fn tsconfig_paths() {
-        let r = resolver(&[
-            ("package.json", ROOT),
-            ("packages/a/package.json", r#"{"name":"@x/a"}"#),
-            (
-                "packages/a/tsconfig.json",
-                r#"{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/lib/*"]}}}"#,
-            ),
-            ("packages/a/src/a.ts", ""),
-            ("packages/a/src/lib/thing.ts", ""),
-        ]);
-        let importer = Path::new("/ws/packages/a/src/a.ts");
+        // The resolver only applies a `tsconfig` found below an absolute path, and `/ws` has no drive on Windows.
+        let root = Path::new(if cfg!(windows) { "C:/ws" } else { "/ws" });
+        let r = resolver_at(
+            root,
+            &[
+                ("package.json", ROOT),
+                ("packages/a/package.json", r#"{"name":"@x/a"}"#),
+                (
+                    "packages/a/tsconfig.json",
+                    r#"{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/lib/*"]}}}"#,
+                ),
+                ("packages/a/src/a.ts", ""),
+                ("packages/a/src/lib/thing.ts", ""),
+            ],
+            WorkspaceInputs::default(),
+        );
+        let importer = root.join("packages/a/src/a.ts");
         assert_eq!(
-            r.resolve(importer, "@app/thing").target,
-            Resolved::File(PathBuf::from("/ws/packages/a/src/lib/thing.ts"))
+            r.resolve(&importer, "@app/thing").target,
+            Resolved::File(root.join("packages/a/src/lib/thing.ts"))
         );
     }
 

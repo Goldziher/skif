@@ -109,6 +109,8 @@ pub fn redact(text: &str, root: &Path) -> String {
     let mut text = text.to_owned();
     for spelling in spellings {
         let raw = spelling.display().to_string();
+        // A canonical Windows path is verbatim (`\\?\C:\...`), while the CLI prints the plain drive path.
+        let raw = raw.strip_prefix(r"\\?\").unwrap_or(&raw).to_owned();
         let escaped = raw.replace('\\', "\\\\");
         let slashed = raw.replace('\\', "/");
         for form in [escaped, raw, slashed] {
