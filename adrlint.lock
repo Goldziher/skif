@@ -100,3 +100,8 @@ blake3 = "e55661f3133897c9328cdcf825e73c032bffc646dab8e3a6d2c19080176d6d6e"
 number = 20
 status = "accepted"
 blake3 = "b415e4f435e95b85047ac0283d42686c81df426a21ae4d3bbc95f28812f0a72b"
+
+[adrs."adrs/0021-oxc-lockstep-with-poly.md"]
+number = 21
+status = "accepted"
+blake3 = "f7ece8304004557fc1b80a4767033d4f538ec11c686bc9abb73ab1129f2a8227"

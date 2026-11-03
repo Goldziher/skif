@@ -88,6 +88,10 @@ run = "cargo deny check"
 description = "Lint the architecture decision records"
 run = ["adrlint lint adrs", "adrlint format --check adrs", "adrlint lock --check"]
 
+[tasks."oxc:lockstep"]
+description = "Build skif with js-analysis against the git commit of the matching oxc release tag (ADR 0021); pass a tag to try another release"
+run = "scripts/check-oxc-git-patch.sh"
+
 [tasks."schema:check"]
 description = "Fail when schema/skif.schema.json differs from the schema `skif schema` prints"
 run = "scripts/check-schema.sh"
