@@ -65,9 +65,9 @@ pub use skif_config::{
 };
 pub use skif_core::timing;
 pub use skif_core::{
-    CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixSafety, Fixability,
-    InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathSeg, Related, Report, RuleId, RuleMeta, Severity, Span,
-    Summary, TextEdit, YamlAction, diagnostic, slash,
+    CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixSafety,
+    Fixability, InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathSeg, Related, Report, RuleId, RuleMeta,
+    Severity, Span, Summary, TextEdit, YamlAction, diagnostic, slash,
 };
 pub use skif_lint::{
     Emitter, EnabledRules, LintContext, LintError, ProviderError, RegistryError, Rule, RuleProvider, RulesProvider,

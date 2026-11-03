@@ -301,7 +301,10 @@ mod tests {
     fn a_nested_workspace_is_a_root_and_its_members_are_linted_once() {
         let fs = MemoryFs::new()
             .with_file("/r/package.json", r#"{"name": "root", "workspaces": ["packages/*"]}"#)
-            .with_file("/r/packages/inner/package.json", r#"{"name": "inner", "workspaces": ["x/*"]}"#)
+            .with_file(
+                "/r/packages/inner/package.json",
+                r#"{"name": "inner", "workspaces": ["x/*"]}"#,
+            )
             .with_file("/r/packages/inner/x/y/package.json", r#"{"name": "y"}"#)
             .with_file("/r/packages/plain/package.json", r#"{"name": "plain"}"#);
         let discovery = discover(&fs, "/r");

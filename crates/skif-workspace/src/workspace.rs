@@ -497,7 +497,10 @@ impl Workspace {
     /// The absolute directories of the members, the root excluded.
     #[must_use]
     pub fn member_dirs(&self) -> BTreeSet<PathBuf> {
-        self.packages.iter().map(|package| self.root.join(&package.dir)).collect()
+        self.packages
+            .iter()
+            .map(|package| self.root.join(&package.dir))
+            .collect()
     }
 
     /// Excludes the members at `dirs` (absolute paths) from analysis as `ignore-packages` would, because another

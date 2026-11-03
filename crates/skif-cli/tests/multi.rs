@@ -422,7 +422,11 @@ fn roots_are_claimed_with_each_workspace_s_configured_package_manager() {
 fn a_nested_workspace_is_a_root_and_every_package_is_linted_once() {
     let dir = tempfile::tempdir().unwrap();
     put(dir.path(), "package.json", &workspace("root", r#""packages/*""#));
-    put(dir.path(), "packages/inner/package.json", &workspace("inner", r#""x/*""#));
+    put(
+        dir.path(),
+        "packages/inner/package.json",
+        &workspace("inner", r#""x/*""#),
+    );
     put(dir.path(), "packages/inner/x/y/package.json", &package("y"));
     put(dir.path(), "packages/plain/package.json", &package("plain"));
     let (_, report) = json(dir.path(), &["-r"]);
@@ -467,11 +471,17 @@ fn a_walk_cut_by_the_depth_limit_says_so() {
     let dir = tempfile::tempdir().unwrap();
     put(dir.path(), "a/package.json", &package("a"));
     let deep: Vec<String> = (0..34).map(|level| format!("d{level}")).collect();
-    put(dir.path(), &format!("{}/package.json", deep.join("/")), &package("deep"));
+    put(
+        dir.path(),
+        &format!("{}/package.json", deep.join("/")),
+        &package("deep"),
+    );
     let result = run(skif().args(["--format", "json", "-r"]).arg(dir.path()));
     assert!(result.code <= 1, "{}{}", result.stdout, result.stderr);
     assert!(
-        result.stderr.contains("warning: the search for roots stopped 32 levels down"),
+        result
+            .stderr
+            .contains("warning: the search for roots stopped 32 levels down"),
         "{}",
         result.stderr
     );

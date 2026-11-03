@@ -136,7 +136,9 @@ impl<F: FileSystem> CachedFs<F> {
 
 impl<F: FileSystem + std::fmt::Debug> std::fmt::Debug for CachedFs<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CachedFs").field("inner", &self.inner).finish_non_exhaustive()
+        f.debug_struct("CachedFs")
+            .field("inner", &self.inner)
+            .finish_non_exhaustive()
     }
 }
 
@@ -303,7 +305,10 @@ mod tests {
     fn missing_directories_are_remembered() {
         let fs = cached();
         for _ in 0..3 {
-            assert_eq!(fs.read_dir(Path::new("/nope")).unwrap_err().kind(), io::ErrorKind::NotFound);
+            assert_eq!(
+                fs.read_dir(Path::new("/nope")).unwrap_err().kind(),
+                io::ErrorKind::NotFound
+            );
         }
         assert_eq!(count(&fs.inner().listings), 1);
     }
@@ -421,7 +426,7 @@ mod tests {
     fn disk_changes_are_invisible_until_cleared() {
         let dir = tempfile::tempdir().unwrap();
         let fs = CachedFs::new(OsFs);
-        assert!(fs.read_dir(dir.path()).unwrap().is_empty());
+        assert_eq!(fs.read_dir(dir.path()).unwrap(), Vec::<DirEntry>::new());
         std::fs::write(dir.path().join("package.json"), "{}").unwrap();
         assert!(!fs.is_file(&dir.path().join("package.json")));
         fs.clear();

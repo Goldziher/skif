@@ -64,7 +64,10 @@ impl Tally {
     pub fn report(&self, label: impl Display) {
         if enabled() {
             let nanos = self.nanos.swap(0, Ordering::Relaxed);
-            print(&format_args!("{label} (summed over threads)"), Duration::from_nanos(nanos));
+            print(
+                &format_args!("{label} (summed over threads)"),
+                Duration::from_nanos(nanos),
+            );
         }
     }
 }
