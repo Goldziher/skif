@@ -1016,7 +1016,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let binding = frames.iter_mut().rev().find_map(|frame| frame.get_mut(name));
         match binding {
             Some(Binding::Value(ConfigValue::Object(entries))) => {
-                entries.push(("...".to_owned(), ConfigValue::Unknown))
+                entries.push(("...".to_owned(), ConfigValue::Unknown));
             }
             Some(Binding::Value(ConfigValue::Array(items))) => items.push(ConfigValue::Unknown),
             _ => {}

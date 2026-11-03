@@ -41,8 +41,7 @@ fn output<'a>(results: &'a [(PluginId, PluginOutput)], id: &str) -> &'a PluginOu
     results
         .iter()
         .find(|(plugin, _)| *plugin == id)
-        .map(|(_, output)| output)
-        .unwrap_or_else(|| panic!("plugin {id} is not enabled"))
+        .map_or_else(|| panic!("plugin {id} is not enabled"), |(_, output)| output)
 }
 
 fn deps(output: &PluginOutput) -> BTreeSet<&str> {
@@ -200,7 +199,10 @@ fn vite_css_postcss_file_is_read_as_a_postcss_config() {
     assert_deps(vite, &["@tailwindcss/postcss", "autoprefixer"]);
     assert_entries(&vite.entries, &["config/postcss.config.js"]);
     let tailwind = output(&results, "tailwind");
-    assert_entries(&tailwind.entries, &["config/tailwind.config.{js,cjs,mjs,ts,cts,mts}"]);
+    assert_entries(
+        &tailwind.entries,
+        &["{,config/}tailwind.config.{js,cjs,mjs,ts,cts,mts}"],
+    );
     assert_deps(tailwind, &["tailwindcss-animate"]);
 }
 

@@ -8,7 +8,7 @@ use crate::support::{module_input, name_of};
 /// The `postcss` plugin.
 pub struct Postcss;
 
-/// Where a PostCSS config lives: next to the manifest or in a `config/` directory.
+/// Where a `PostCSS` config lives: next to the manifest or in a `config/` directory.
 pub(crate) const CONFIG: &[&str] = &[
     "{,config/}postcss.config.{json,js,cjs,mjs,ts,cts,mts}",
     ".postcssrc",
@@ -39,7 +39,7 @@ impl Plugin for Postcss {
     }
 }
 
-/// What a PostCSS config references: its plugins, as object keys or array items. `base` is the directory of the
+/// What a `PostCSS` config references: its plugins, as object keys or array items. `base` is the directory of the
 /// config relative to the workspace.
 pub(crate) fn inputs(config: &ConfigValue, base: &str) -> Vec<PluginInput> {
     let names: Vec<&str> = match config.get("plugins") {

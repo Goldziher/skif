@@ -121,7 +121,7 @@ mod tests {
         let script = "build && storybook dev -p 6006 -c ui/.storybook; vitest --config=a.ts run && other -c no";
         assert_eq!(flag_values(script, &["storybook"], &["-c"]), ["ui/.storybook"]);
         assert_eq!(flag_values(script, &["vitest"], &["--config"]), ["a.ts"]);
-        assert!(flag_values(script, &["vite"], &["-c"]).is_empty());
+        assert_eq!(flag_values(script, &["vite"], &["-c"]), [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -136,8 +136,14 @@ mod tests {
 
     #[test]
     fn a_flag_without_a_value_yields_nothing() {
-        assert!(flag_values("rollup -c", &["rollup"], &["-c"]).is_empty());
-        assert!(flag_values("rollup -c -w", &["rollup"], &["-c"]).is_empty());
+        assert_eq!(
+            flag_values("rollup -c", &["rollup"], &["-c"]),
+            [] as [std::string::String; 0]
+        );
+        assert_eq!(
+            flag_values("rollup -c -w", &["rollup"], &["-c"]),
+            [] as [std::string::String; 0]
+        );
     }
 
     #[test]
