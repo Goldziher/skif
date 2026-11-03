@@ -15,6 +15,7 @@ pub mod plugin;
 pub mod plugins;
 pub mod registry;
 mod resolve;
+mod script_config;
 pub mod scripts;
 mod support;
 

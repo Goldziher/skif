@@ -1,7 +1,9 @@
 //! Rollup: the `input` of each build in the config is a production entry.
 
+use skif_js_syntax::ConfigValue;
+
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{objects, strings, values_of};
+use crate::support::{config_unknown, key_unknown, objects, strings, values_of};
 
 /// The `rollup` plugin.
 pub struct Rollup;
@@ -20,14 +22,26 @@ impl Plugin for Rollup {
     }
 
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
-        objects(config.value)
-            .into_iter()
-            .filter_map(|build| build.get("input"))
-            .flat_map(|input| match input {
-                skif_js_syntax::ConfigValue::Object(_) => values_of(input).into_iter().flat_map(strings).collect(),
-                other => strings(other),
-            })
-            .map(|path| PluginInput::ProductionEntry(config.join(path)))
-            .collect()
+        let mut out = Vec::new();
+        if config_unknown(config.value) {
+            out.push(PluginInput::EntriesIncomplete);
+        }
+        for build in objects(config.value) {
+            if let Some(input) = build.get("input") {
+                let paths = match input {
+                    ConfigValue::Object(_) => values_of(input).into_iter().flat_map(strings).collect(),
+                    other => strings(other),
+                };
+                out.extend(
+                    paths
+                        .into_iter()
+                        .map(|path| PluginInput::ProductionEntry(config.join(path))),
+                );
+            }
+            if key_unknown(build, "input") {
+                out.push(PluginInput::EntriesIncomplete);
+            }
+        }
+        out
     }
 }

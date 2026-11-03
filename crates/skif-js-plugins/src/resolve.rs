@@ -14,7 +14,9 @@ use crate::plugin::{
     PluginSpec,
 };
 use crate::registry;
+use crate::script_config::{config_flags, config_paths, flag_values};
 use crate::scripts::{ScriptContext, parse_script};
+use crate::support::{join_rel, looks_like_file};
 
 const MAX_CONFIG_DEPTH: u8 = 16;
 
@@ -111,6 +113,7 @@ impl Collector<'_, '_> {
                     }
                 }
                 PluginInput::Script(text) => self.script(&text, from),
+                PluginInput::ScriptAt { dir, script } => self.script_at(&dir, &script),
                 PluginInput::Ignore(glob) => push_unique(&mut self.out.ignore, glob),
                 PluginInput::Alias { find, target } => {
                     let alias = PathAlias { find, target };
@@ -126,6 +129,7 @@ impl Collector<'_, '_> {
                 }
                 PluginInput::Condition(name) => push_unique(&mut self.out.conditions, name),
                 PluginInput::ModuleDir(dir) => push_unique(&mut self.out.module_dirs, dir),
+                PluginInput::EntriesIncomplete => self.out.entries_incomplete = true,
             }
         }
     }
@@ -148,6 +152,14 @@ impl Collector<'_, '_> {
     }
 
     fn script(&mut self, text: &str, from: &Path) {
+        self.parse_script(text, from);
+        // `cdk deploy -a "npx ts-node bin/app.ts"` runs the app command, which is a script of its own.
+        for app in flag_values(text, &["cdk"], &["-a", "--app"]) {
+            self.parse_script(&app, from);
+        }
+    }
+
+    fn parse_script(&mut self, text: &str, from: &Path) {
         let mut script_ctx = ScriptContext::new();
         script_ctx.scripts.clone_from(self.ctx.scripts);
         let info = parse_script(text, &script_ctx);
@@ -159,6 +171,19 @@ impl Collector<'_, '_> {
         }
         for dep in info.dependencies {
             self.dependency(dep.name, from, dep.ephemeral);
+        }
+    }
+
+    /// The files a script runs in `dir` are entries; what it names besides belongs to the package in `dir`.
+    fn script_at(&mut self, dir: &str, text: &str) {
+        let mut script_ctx = ScriptContext::new();
+        script_ctx.scripts.clone_from(self.ctx.scripts);
+        let mut texts = vec![text.to_owned()];
+        texts.extend(flag_values(text, &["cdk"], &["-a", "--app"]));
+        for text in texts {
+            for file in parse_script(&text, &script_ctx).files {
+                push_unique(&mut self.out.entries, join_rel(dir, &file.path));
+            }
         }
     }
 }
@@ -189,7 +214,15 @@ fn run_plugin(
     for production in spec.production {
         push_unique(&mut collector.out.entries, (*production).to_string());
     }
-    let patterns = globs(&options.config, spec.config);
+    let mut patterns = globs(&options.config, spec.config);
+    let scripted = scripted_configs(spec, ctx);
+    patterns.extend(scripted.config);
+    for entry in scripted.entry {
+        push_unique(&mut collector.out.entries, entry);
+    }
+    for project in scripted.project {
+        push_unique(&mut collector.out.project, project);
+    }
     collector
         .queue
         .extend(find_files(ctx.fs, ctx.dir, &patterns).into_iter().map(|p| (p, 0)));
@@ -219,7 +252,63 @@ fn run_plugin(
         collector.absorb(inputs, &ctx.dir.join("package.json"), 0);
         drain(&mut collector, plugin, &mut visited);
     }
+    let inputs = plugin.resolve_workspace(ctx);
+    collector.absorb(inputs, &ctx.dir.join("package.json"), 0);
+    drain(&mut collector, plugin, &mut visited);
     collector.out
+}
+
+/// Config patterns, and entry and project globs, for the config files and directories that the workspace's scripts
+/// pass to the tool (`storybook dev -c ui/.storybook`, `vitest --config configs/vitest.ts`).
+#[derive(Default)]
+struct ScriptedConfigs {
+    config: Vec<String>,
+    entry: Vec<String>,
+    project: Vec<String>,
+}
+
+fn scripted_configs(spec: &PluginSpec, ctx: &PluginContext<'_>) -> ScriptedConfigs {
+    let mut found = ScriptedConfigs::default();
+    if spec.binaries.is_empty() {
+        return found;
+    }
+    let prefix = spec.config.first().and_then(|pattern| split_last_segment(pattern).0);
+    for path in config_paths(ctx.scripts, spec.binaries, &config_flags(spec.id)) {
+        if looks_like_file(&path) {
+            found.config.push(path);
+            continue;
+        }
+        for pattern in spec.config {
+            found.config.push(join_rel(&path, split_last_segment(pattern).1));
+        }
+        let Some(prefix) = prefix else { continue };
+        let rebase = |patterns: &[&str], into: &mut Vec<String>| {
+            for pattern in patterns {
+                if let (Some(head), rest) = split_last_segment(pattern)
+                    && head == prefix
+                {
+                    into.push(join_rel(&path, rest));
+                }
+            }
+        };
+        rebase(spec.entry, &mut found.entry);
+        rebase(spec.project, &mut found.project);
+    }
+    found
+}
+
+/// Splits a glob at its last `/` that is outside braces: `(Some(".{a,b}"), "main.ts")`; the head is `None` without one.
+fn split_last_segment(pattern: &str) -> (Option<&str>, &str) {
+    let mut depth = 0_u32;
+    for (index, c) in pattern.char_indices().rev() {
+        match c {
+            '}' => depth += 1,
+            '{' => depth = depth.saturating_sub(1),
+            '/' if depth == 0 => return (Some(&pattern[..index]), &pattern[index + 1..]),
+            _ => {}
+        }
+    }
+    (None, pattern)
 }
 
 /// Reads every queued config file, which may queue further ones.

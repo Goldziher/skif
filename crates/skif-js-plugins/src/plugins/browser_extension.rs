@@ -8,7 +8,9 @@ use crate::support::{get_in, html_entries, join_rel, objects, strings};
 /// The `browser-extension` plugin.
 pub struct BrowserExtension;
 
-const MANIFEST: &str = "{,public/,src/}manifest.json";
+/// The manifest sits at the package root, in `public/` or `src/`, or in a first-level directory of the same layout
+/// (an extension kept in a folder of a package, or in a directory without a `package.json`).
+const MANIFEST: &str = "{,*/}{,public/,src/}manifest.json";
 
 static SPEC: PluginSpec = PluginSpec {
     id: "browser-extension",
@@ -21,6 +23,9 @@ static SPEC: PluginSpec = PluginSpec {
 const BUILD_DIRS: &[&str] = &["dist", "build", "out"];
 
 const SCRIPT_EXTENSIONS: &[&str] = &["js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx"];
+
+/// `SCRIPT_EXTENSIONS` as a brace group.
+const SOURCE_EXTENSIONS: &str = "{js,jsx,ts,tsx,mjs,mts,cjs,cts}";
 
 /// Manifest keys holding a single html page.
 const PAGE_KEYS: &[&[&str]] = &[
@@ -60,7 +65,11 @@ impl Plugin for BrowserExtension {
         for key in PAGE_KEYS {
             for page in get_in(manifest, key).map(strings).unwrap_or_default() {
                 for candidate in page_candidates(config.base, page) {
-                    out.extend(html_entries(cx, "", &candidate).into_iter().map(into_entry));
+                    out.extend(
+                        html_entries(cx, "", &candidate)
+                            .into_iter()
+                            .flat_map(html_script_entries),
+                    );
                 }
             }
         }
@@ -68,10 +77,14 @@ impl Plugin for BrowserExtension {
     }
 }
 
-fn into_entry(input: PluginInput) -> PluginInput {
+/// A script an HTML page loads is an entry, and so is the source it is built from.
+fn html_script_entries(input: PluginInput) -> Vec<PluginInput> {
     match input {
-        PluginInput::ProductionEntry(path) => PluginInput::Entry(path),
-        other => other,
+        PluginInput::ProductionEntry(path) => {
+            let sources = source_candidates("", &path).into_iter().map(PluginInput::Entry);
+            std::iter::once(PluginInput::Entry(path)).chain(sources).collect()
+        }
+        other => vec![other],
     }
 }
 
@@ -100,30 +113,42 @@ fn web_accessible_scripts(manifest: &ConfigValue) -> Vec<&str> {
 }
 
 /// The paths a manifest-relative `path` may come from: the path itself, and without its build directory prefix
-/// also under `src/`, each with any script extension.
+/// also under `src/`. A script may be built from a file of that name or from the `index` file of a directory of that
+/// name (`dist/background.js` from `src/background.ts` or `src/background/index.ts`), with any script extension.
 fn source_candidates(base: &str, path: &str) -> Vec<String> {
     let path = path.trim_start_matches('/');
     let mut paths = vec![join_rel(base, path)];
-    if let Some((first, rest)) = path.split_once('/')
-        && BUILD_DIRS.contains(&first)
-    {
-        paths.push(rest.to_string());
-        paths.push(join_rel("src", rest));
+    if let Some(tail) = after_build_dir(path) {
+        paths.push(tail.to_string());
+        paths.push(join_rel("src", tail));
     } else if base != "src" {
         paths.push(join_rel("src", path));
     }
     paths.sort();
     paths.dedup();
-    paths
-        .into_iter()
-        .map(|candidate| any_script_extension(&candidate))
-        .collect()
+    paths.iter().flat_map(|candidate| script_sources(candidate)).collect()
 }
 
-fn any_script_extension(path: &str) -> String {
+/// What follows the first build directory (`dist`, `build`, `out`) of a path.
+fn after_build_dir(path: &str) -> Option<&str> {
+    let mut rest = path;
+    while let Some((first, tail)) = rest.split_once('/') {
+        if BUILD_DIRS.contains(&first) {
+            return Some(tail);
+        }
+        rest = tail;
+    }
+    None
+}
+
+/// The source files a script path may be built from; a path that is not a script is kept as it is.
+fn script_sources(path: &str) -> Vec<String> {
     match path.rsplit_once('.') {
-        Some((stem, "js" | "mjs" | "cjs" | "ts" | "tsx" | "jsx")) => format!("{stem}.{{js,jsx,ts,tsx,mjs,mts}}"),
-        _ => path.to_string(),
+        Some((stem, extension)) if SCRIPT_EXTENSIONS.contains(&extension) => vec![
+            format!("{stem}.{SOURCE_EXTENSIONS}"),
+            format!("{stem}/index.{SOURCE_EXTENSIONS}"),
+        ],
+        _ => vec![path.to_string()],
     }
 }
 

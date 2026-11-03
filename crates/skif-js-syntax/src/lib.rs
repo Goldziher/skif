@@ -30,7 +30,7 @@ use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
 use oxc_span::SourceType;
 use skif_core::LineIndex;
 
-pub use config::{ConfigValue, extract_config_object};
+pub use config::{ConfigValue, extract_config_object, extract_constructor_options};
 pub use error::SyntaxError;
 pub use model::{
     Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, ModuleInfo, ParseIssue, ParseOptions,

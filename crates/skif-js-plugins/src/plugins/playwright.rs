@@ -67,12 +67,77 @@ impl Plugin for Playwright {
 fn test_files(project: &ConfigValue, root_dir: Option<&str>, config: &ConfigAst<'_>, out: &mut Vec<PluginInput>) {
     let dir = project.get("testDir").and_then(ConfigValue::as_str).or(root_dir);
     let base = dir.map_or_else(|| config.base.to_string(), |d| join_rel(config.base, d));
-    let patterns = project.get("testMatch").map(strings).unwrap_or_default();
+    let patterns: Vec<String> = match project.get("testMatch") {
+        Some(ConfigValue::Array(items)) => items.iter().flat_map(match_patterns).collect(),
+        Some(single) => match_patterns(single),
+        None => Vec::new(),
+    };
     if !patterns.is_empty() {
         for pattern in patterns {
-            out.extend(entry_glob(&base, pattern).map(PluginInput::Entry));
+            out.extend(entry_glob(&base, &pattern).map(PluginInput::Entry));
         }
     } else if dir.is_some() {
         out.push(PluginInput::Entry(join_rel(&base, TEST_FILES)));
     }
+}
+
+/// Every script file, which is what a `testMatch` regular expression that is not a simple file name pattern may match.
+const ANY_SCRIPT: &str = "**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}";
+
+/// The globs for one `testMatch` value: a glob string, or a regular expression turned into a glob.
+fn match_patterns(value: &ConfigValue) -> Vec<String> {
+    match value {
+        ConfigValue::String(glob) => vec![glob.clone()],
+        ConfigValue::Regex(source) => vec![regex_glob(source).unwrap_or_else(|| ANY_SCRIPT.to_owned())],
+        _ => Vec::new(),
+    }
+}
+
+/// A glob matching at least the files a regular expression of file-name fragments matches: `.*\.setup\.js` becomes
+/// `**/*.setup.js*`. `None` when the expression uses more than literals, `.*`, anchors and alternation groups.
+fn regex_glob(source: &str) -> Option<String> {
+    let anchored_end = source.ends_with('$') && !source.ends_with("\\$");
+    let body = source.strip_prefix('^').unwrap_or(source);
+    let body = if anchored_end { body.strip_suffix('$')? } else { body };
+    let mut glob = String::new();
+    let mut depth = 0_u32;
+    let mut chars = body.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                let escaped = chars.next()?;
+                if escaped.is_ascii_alphanumeric() {
+                    return None;
+                }
+                glob.push(escaped);
+            }
+            '.' if chars.peek() == Some(&'*') => {
+                chars.next();
+                glob.push('*');
+            }
+            '(' => {
+                if chars.peek() == Some(&'?') {
+                    chars.next();
+                    if chars.next()? != ':' {
+                        return None;
+                    }
+                }
+                depth += 1;
+                glob.push('{');
+            }
+            ')' => {
+                depth = depth.checked_sub(1)?;
+                glob.push('}');
+            }
+            '|' if depth > 0 => glob.push(','),
+            c if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/') => glob.push(c),
+            _ => return None,
+        }
+    }
+    if depth != 0 || glob.is_empty() {
+        return None;
+    }
+    let tail = if anchored_end { "" } else { "*" };
+    let head = if glob.starts_with('*') { "**/" } else { "**/*" };
+    Some(format!("{head}{glob}{tail}"))
 }
