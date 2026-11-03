@@ -252,6 +252,16 @@ pub(super) const NPM_VALUE_FLAGS: &[&str] = &[
     "C",
     "script-shell",
 ];
+/// Packages a tool loads on demand: the tool, the flag or subcommand that triggers it, the packages it needs. Any
+/// of the packages may satisfy the need, so every candidate is credited when listed.
+pub(super) const FLAG_DEPENDENCIES: &[(&str, &str, &[&str])] = &[
+    ("vitest", "--ui", &["@vitest/ui"]),
+    ("vitest", "--coverage", &["@vitest/coverage-v8", "@vitest/coverage-istanbul"]),
+    ("webpack", "serve", &["webpack-dev-server"]),
+    ("webpack", "server", &["webpack-dev-server"]),
+    ("webpack", "s", &["webpack-dev-server"]),
+];
+
 pub(super) const WORKSPACE_FLAGS: &[&str] = &["workspace", "w", "workspaces", "ws", "prefix"];
 pub(super) const PNPM_VALUE_FLAGS: &[&str] = &[
     "filter",
