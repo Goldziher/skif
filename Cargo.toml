@@ -5,7 +5,7 @@ members = ["crates/*", "tools/*"]
 [workspace.package]
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.97"
+rust-version = "1.99"
 license = "MIT"
 authors = ["Na'aman Hirschfeld <nhirschfeld@gmail.com>"]
 homepage = "https://github.com/Goldziher/skif"
