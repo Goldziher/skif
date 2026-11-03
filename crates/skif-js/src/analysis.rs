@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use skif_config::Config;
-use skif_core::FileSystem;
+use skif_core::{FileSystem, timing};
 use skif_js_syntax::{Export, ExportKind};
 use skif_workspace::{PackageId, Workspace};
 
@@ -54,10 +54,15 @@ impl<'a> JsAnalysis<'a> {
         sources: &[Arc<dyn InputSource>],
         sequential: bool,
     ) -> Self {
-        let setup = Setup::new(workspace, config, fs, sources);
-        let candidates = discover(fs.as_ref(), workspace);
-        let entries = entry_files(fs.as_ref(), workspace, &setup, &candidates);
-        let resolver = ModuleResolver::new(Arc::clone(fs), workspace, &setup);
+        let phase = |name: &str| format!("js {name} {}", workspace.root.display());
+        let setup = timing::phase(phase("setup (plugins, configs)"), || {
+            Setup::new(workspace, config, fs, sources)
+        });
+        let candidates = timing::phase(phase("discover"), || discover(fs.as_ref(), workspace, sequential));
+        let entries = timing::phase(phase("entries"), || {
+            entry_files(fs.as_ref(), workspace, &setup, &candidates)
+        });
+        let resolver = timing::phase(phase("resolver"), || ModuleResolver::new(Arc::clone(fs), workspace, &setup));
         let inputs = Inputs {
             fs: fs.as_ref(),
             resolver: &resolver,
@@ -66,9 +71,14 @@ impl<'a> JsAnalysis<'a> {
             setup: &setup,
             sequential,
         };
-        let graph = graph::build(&inputs, &entries);
-        let exports = ExportUsage::compute(&graph, setup.include_entry_exports);
-        let dependencies = DependencyUsage::compute(workspace, &setup, &graph, fs.as_ref());
+        let graph = timing::phase(phase("graph (read, parse, resolve)"), || graph::build(&inputs, &entries));
+        graph::report_timings(&workspace.root);
+        let exports = timing::phase(phase("exports"), || {
+            ExportUsage::compute(&graph, setup.include_entry_exports)
+        });
+        let dependencies = timing::phase(phase("dependencies"), || {
+            DependencyUsage::compute(workspace, &setup, &graph, fs.as_ref())
+        });
 
         let unused_files = candidates
             .iter()

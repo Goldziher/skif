@@ -20,6 +20,11 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 - **Single-package mode**: a package that declares no workspace is linted on its own, with no workspace required.
   `root-package-private-field` and `root-package-dependencies` do not report for it.
 - **`recursive` option** for `lint` and `lintAsync` in the npm addon.
+- **One pass over the file system**: a run reads each directory and each configuration file at most once; one caching
+  file system is shared by root discovery, workspace discovery, plugin file searches, JS discovery and the module
+  resolver, and JS discovery walks sibling directories in parallel.
+- `SKIF_TIMINGS=1` prints the duration of each phase of a run (root discovery, workspace discovery, configuration,
+  every rule provider, JS discovery, parsing, resolution and graph building, rendering) to stderr.
 - **Manifest and workspace rules** with stable ids, severities and autofixes: `empty-dependencies`,
   `incompatible-peer-dependencies`, `local-path-dependency`, `member-toolchain-fields`,
   `missing-package-manifest`, `root-package-dependencies`, `root-package-manager-field`,

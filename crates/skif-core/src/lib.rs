@@ -29,6 +29,7 @@
 //! ```
 
 pub mod builder;
+pub mod cached_fs;
 pub mod dependency;
 pub mod diagnostic;
 pub mod display;
@@ -38,6 +39,7 @@ pub mod package_id;
 pub mod report;
 pub mod rule;
 pub mod span;
+pub mod timing;
 
 pub use builder::{DiagnosticBuilder, diagnostic};
 pub use dependency::DependencyKind;
@@ -47,6 +49,7 @@ pub use fix::{
     EditError, FileChange, Fix, FixOp, FixSafety, InsertPosition, JsonAction, PathSeg, TextEdit, YamlAction,
     apply_text_edits,
 };
+pub use cached_fs::CachedFs;
 pub use fs::{DirEntry, FileSystem, MemoryFs, OsFs};
 pub use package_id::PackageId;
 pub use report::{Report, Summary};
@@ -67,4 +70,5 @@ const _: () = {
     let _ = assert_send_sync::<LineIndex>;
     let _ = assert_send_sync::<MemoryFs>;
     let _ = assert_send_sync::<OsFs>;
+    let _ = assert_send_sync::<CachedFs<OsFs>>;
 };
