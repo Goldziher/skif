@@ -1,6 +1,6 @@
 //! Multi-root discovery: every workspace and standalone package below a directory, each with its own configuration.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
@@ -150,7 +150,7 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
         .par_iter()
         .map(|root| (root.clone(), load_target(root, &ceiling(root), fs, overrides)))
         .collect();
-    let members = workspaces
+    let members: BTreeMap<PathBuf, BTreeSet<PathBuf>> = workspaces
         .iter()
         .map(|(root, loaded)| {
             let dirs = match loaded {
