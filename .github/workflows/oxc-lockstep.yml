@@ -1,0 +1,46 @@
+name: oxc lockstep
+
+# poly redirects skif's crates.io oxc crates to its git copy of an oxc release (ADR 0021). This builds
+# skif against the matching oxc tag so pin or API drift shows up here, not in poly.
+on:
+  schedule:
+    - cron: "41 5 * * 1"
+  pull_request:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - scripts/check-oxc-git-patch.sh
+      - .github/workflows/oxc-lockstep.yml
+  workflow_dispatch:
+    inputs:
+      oxc_tag:
+        description: "oxc tag to patch in (default: the release matching the oxc_parser pin)"
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  oxc-lockstep:
+    name: skif builds on the patched oxc git release
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build against the oxc git release
+        env:
+          OXC_TAG: ${{ inputs.oxc_tag }}
+        run: scripts/check-oxc-git-patch.sh
