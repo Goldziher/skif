@@ -9,10 +9,17 @@ on:
       - "mise.toml"
       - "mise.lock"
       - ".github/workflows/docs.yaml"
+  pull_request:
+    paths:
+      - "website/**"
+      - "docs/rules.md"
+      - "mise.toml"
+      - "mise.lock"
+      - ".github/workflows/docs.yaml"
   workflow_dispatch: {}
 
 concurrency:
-  group: pages
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
   cancel-in-progress: true
 
 permissions:
@@ -33,13 +40,16 @@ jobs:
           install-args: node pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build site
+      # The build also validates internal links (starlight-links-validator) and fails on a broken one.
+      - name: Build site and check links
         run: pnpm run build
       - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
         with:
           path: website/dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:

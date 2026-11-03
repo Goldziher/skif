@@ -37,8 +37,22 @@ const categories = {
 const lines = readFileSync(source, "utf8").split("\n");
 
 const rules = [];
+const unimplemented = [];
 let current = null;
+let inUnimplemented = false;
 for (const line of lines) {
+  if (/^## Unimplemented states\s*$/u.test(line)) {
+    inUnimplemented = true;
+    current = null;
+    continue;
+  }
+  if (inUnimplemented) {
+    if (/^## /u.test(line)) inUnimplemented = false;
+    else {
+      unimplemented.push(line);
+      continue;
+    }
+  }
   const heading = /^## (\S+)\s*$/u.exec(line);
   if (heading) {
     current = { id: heading[1], body: [] };
@@ -106,6 +120,9 @@ for (const [category, meta] of Object.entries(categories)) {
       "```",
       "",
     );
+  }
+  if (category === "policy" && unimplemented.join("").trim()) {
+    out.push("## Unimplemented states", "", unimplemented.join("\n").trim(), "");
   }
   writeFileSync(join(outDir, `${category}.mdx`), out.join("\n"));
 }
