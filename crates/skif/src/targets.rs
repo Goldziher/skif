@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
-use skif_config::{Config, ConfigOverrides};
+use skif_config::{Ceiling, Config, ConfigCache, ConfigOverrides, ConfigSource, Origins};
 use skif_core::FileSystem;
 use skif_workspace::{
     DiscoverOptions, RootKind, Workspace, claim_roots, declared_member_dirs, declares_workspace, repository_root,
@@ -12,7 +12,7 @@ use skif_workspace::{
 };
 
 use crate::error::Error;
-use crate::root::{Located, config_ceiling, config_dir, config_file, is_enclosed, load_config, locate};
+use crate::root::{Located, config_ceiling, is_enclosed, locate, resolve_config};
 
 /// One root to lint: a workspace or a standalone package, with the configuration that governs it.
 #[derive(Debug)]
@@ -20,10 +20,15 @@ use crate::root::{Located, config_ceiling, config_dir, config_file, is_enclosed,
 pub struct Target {
     /// Absolute root directory.
     pub root: PathBuf,
-    /// The nearest `skif.toml` or `.skif.toml` with the overrides applied, or the defaults when there is none.
+    /// Every `skif.toml` or `.skif.toml` from the root up to the ceiling, with what they extend, merged and with the
+    /// overrides applied; the defaults when there is none.
     pub config: Config,
-    /// Absolute path of the configuration file `config` was read from, when there is one.
+    /// Absolute path of the nearest configuration file `config` was read from, when there is one.
     pub config_file: Option<PathBuf>,
+    /// The files `config` was merged from, in the order they were applied.
+    pub sources: Vec<ConfigSource>,
+    /// Where each key of `config` was set, as indices into `sources`.
+    pub origins: Origins,
     /// The discovered workspace (a standalone package is a workspace of one package).
     pub workspace: Workspace,
 }
@@ -43,42 +48,49 @@ impl Target {
     }
 }
 
-/// Loads the configuration for `root` from the nearest config file in `root` or a parent up to and including
-/// `ceiling`, and discovers the workspace at `root`.
+/// Loads the configuration for `root` from every config file in `root` or a parent up to the `ceiling`, merged (see
+/// [`resolve_config`](crate::resolve_config)), and discovers the workspace at `root`.
 ///
-/// With `ceiling == root` only the root's own config file counts.
+/// `cache` is shared by the roots of a run so each config file is read once; it may be used from several threads.
 ///
 /// # Errors
 /// [`Error::Config`] for an unreadable, ambiguous or invalid configuration, [`Error::Workspace`] when the root cannot
 /// be discovered.
 pub fn load_target(
     root: &Path,
-    ceiling: &Path,
+    ceiling: &Ceiling,
     fs: &dyn FileSystem,
     overrides: &ConfigOverrides,
+    cache: &ConfigCache,
 ) -> Result<Target, Error> {
-    let found = config_dir(root, ceiling, fs);
-    let config = load_config(found.unwrap_or(root), fs, overrides)?;
-    let file = found.and_then(|dir| config_file(dir, fs).map(|name| dir.join(name)));
-    let workspace = Workspace::discover_with_fs(root, &config, fs)?;
+    let resolved = resolve_config(root, ceiling, fs, overrides, cache)?;
+    let file = resolved.nearest_file().map(Path::to_path_buf);
+    let workspace = Workspace::discover_with_fs(root, &resolved.config, fs)?;
     Ok(Target {
         root: root.to_path_buf(),
-        config,
+        config: resolved.config,
         config_file: file,
+        sources: resolved.sources,
+        origins: resolved.origins,
         workspace,
     })
 }
 
-/// Loads `root` with the configuration its repository gives it: the nearest config file at or above `root` up to the
-/// root of the git repository, or `root` alone outside one.
-fn load_in_repository(root: &Path, fs: &dyn FileSystem, overrides: &ConfigOverrides) -> Result<Target, Error> {
-    load_target(root, &config_ceiling(root, fs), fs, overrides)
+/// Loads `root` with the configuration its repository gives it: the config files at and above `root` up to the root
+/// of the git repository, or `root` alone outside one.
+fn load_in_repository(
+    root: &Path,
+    fs: &dyn FileSystem,
+    overrides: &ConfigOverrides,
+    cache: &ConfigCache,
+) -> Result<Target, Error> {
+    load_target(root, &Ceiling::Vcs, fs, overrides, cache)
 }
 
 /// Finds the workspace that `start` belongs to and loads it, discovering it once.
 ///
-/// The root is the one [`find_workspace_root`](crate::find_workspace_root) names. Its configuration is the nearest
-/// config file at or above it, up to the root of the git repository holding it (the root itself outside one), which
+/// The root is the one [`find_workspace_root`](crate::find_workspace_root) names. Its configuration is every config
+/// file at or above it, up to the root of the git repository holding it (the root itself outside one), merged, which
 /// is the configuration [`discover_all`] gives the same directory. A standalone package with a project above it in the
 /// same repository is marked [`Workspace::is_nested`], as [`discover_targets`] marks it.
 ///
@@ -88,17 +100,18 @@ fn load_in_repository(root: &Path, fs: &dyn FileSystem, overrides: &ConfigOverri
 /// cannot be loaded is that error, not a silent fallback to the project alone.
 pub fn find_target(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOverrides) -> Result<Target, Error> {
     let Located { project, ancestors } = locate(start, fs)?;
+    let cache = ConfigCache::new();
     if declares_workspace(fs, &project) {
-        return load_in_repository(&project, fs, overrides);
+        return load_in_repository(&project, fs, overrides, &cache);
     }
     for ancestor in ancestors {
-        match load_in_repository(&ancestor, fs, overrides) {
+        match load_in_repository(&ancestor, fs, overrides, &cache) {
             Ok(target) if target.workspace.member_dirs().contains(&project) => return Ok(target),
             Err(error) if declared_member_dirs(fs, &ancestor).contains(&project) => return Err(error),
             _ => {}
         }
     }
-    let mut target = load_in_repository(&project, fs, overrides)?;
+    let mut target = load_in_repository(&project, fs, overrides, &cache)?;
     if !declares_workspace(fs, &project) {
         target
             .workspace
@@ -133,8 +146,9 @@ pub struct Discovery {
 /// path (see [`skif_workspace::discover_roots`] for what counts as a root).
 ///
 /// Each workspace is discovered once, with the configuration that governs it, and the directories it lists decide
-/// which packages are claimed. A root's configuration is the nearest config file at or above it, up to the root of
-/// the git repository holding it (`start` outside one). A workspace that is listed as a member of an outer workspace
+/// which packages are claimed. A root's configuration is every config file at or above it, up to the root of the git
+/// repository holding it (`start` outside one), merged farthest first, so a project file adds to the organisation
+/// file above it unless it says `root = true`. The config files are read once for all the roots. A workspace that is listed as a member of an outer workspace
 /// is a root of its own and the outer one leaves its package to it, so every package is linted by exactly one root.
 ///
 /// A standalone package below another root is marked [`Workspace::is_nested`], which the rules that only concern a
@@ -158,12 +172,14 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
     } else {
         start.parent().unwrap_or(start)
     };
-    let ceiling = |root: &Path| repository_ceiling(root, dir, fs);
-    let candidates = scan_candidates(dir, fs, &discover_options(dir, fs, overrides));
+    let cache = ConfigCache::new();
+    let ceiling = Ceiling::VcsOr(dir.to_path_buf());
+    let enclosing = |root: &Path| repository_ceiling(root, dir, fs);
+    let candidates = scan_candidates(dir, fs, &discover_options(dir, fs, overrides, &cache));
     let mut workspaces: BTreeMap<PathBuf, Result<Target, Error>> = candidates
         .workspaces
         .par_iter()
-        .map(|root| (root.clone(), load_target(root, &ceiling(root), fs, overrides)))
+        .map(|root| (root.clone(), load_target(root, &ceiling, fs, overrides, &cache)))
         .collect();
     let members: BTreeMap<PathBuf, BTreeSet<PathBuf>> = workspaces
         .iter()
@@ -183,7 +199,7 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
     let loaded: Vec<(PathBuf, Result<Target, Error>)> = slots
         .into_par_iter()
         .map(|(root, found)| {
-            let result = found.unwrap_or_else(|| load_target(&root, &ceiling(&root), fs, overrides));
+            let result = found.unwrap_or_else(|| load_target(&root, &ceiling, fs, overrides, &cache));
             (root, result)
         })
         .collect();
@@ -197,7 +213,7 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
             Ok(mut target) => {
                 let nested = !candidates.workspaces.contains(&root)
                     && (root.ancestors().skip(1).any(|ancestor| root_dirs.contains(ancestor))
-                        || is_enclosed(&root, &ceiling(&root), fs));
+                        || is_enclosed(&root, &enclosing(&root), fs));
                 target.workspace.set_nested(nested);
                 target.workspace.ignore_dirs(&candidates.workspaces);
                 discovery.targets.push(target);
@@ -210,11 +226,14 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
 
 /// The bounds of the walk started at `start`: the defaults, with the skipped directories from the configuration that
 /// governs `start` when it loads (a broken file is reported by the root that uses it, not here).
-fn discover_options(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOverrides) -> DiscoverOptions {
-    let ceiling = repository_root(fs, start).unwrap_or_else(|| start.to_path_buf());
-    let dir = config_dir(start, &ceiling, fs).unwrap_or(start);
-    match load_config(dir, fs, overrides) {
-        Ok(config) => DiscoverOptions::default().with_ignore(config.workspace.discover_ignore),
+fn discover_options(
+    start: &Path,
+    fs: &dyn FileSystem,
+    overrides: &ConfigOverrides,
+    cache: &ConfigCache,
+) -> DiscoverOptions {
+    match resolve_config(start, &Ceiling::Vcs, fs, overrides, cache) {
+        Ok(resolved) => DiscoverOptions::default().with_ignore(resolved.config.workspace.discover_ignore),
         Err(_) => DiscoverOptions::default(),
     }
 }
@@ -266,14 +285,16 @@ mod tests {
     }
 
     #[test]
-    fn nearest_config_wins_and_inherits_from_the_start_directory() {
+    fn every_config_up_to_the_start_directory_contributes() {
         let targets = discover_all(Path::new("/r"), &fs(), &ConfigOverrides::default()).unwrap();
         let roots: Vec<_> = targets.iter().map(|target| target.root.clone()).collect();
         assert_eq!(roots, [PathBuf::from("/r/a"), PathBuf::from("/r/b")]);
         assert!(targets[0].config.lint.fail_on_warnings);
         assert_eq!(targets[0].config_path(), Some(PathBuf::from("../skif.toml")));
-        assert!(!targets[1].config.lint.fail_on_warnings);
+        assert_eq!(targets[0].sources.len(), 1);
+        assert!(targets[1].config.lint.fail_on_warnings);
         assert_eq!(targets[1].config_path(), Some(PathBuf::from("skif.toml")));
+        assert_eq!(targets[1].sources.len(), 2);
     }
 
     #[test]

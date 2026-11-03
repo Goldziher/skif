@@ -96,7 +96,7 @@ pub struct LintArgs {
     #[arg(default_value = ".")]
     pub path: PathBuf,
 
-    /// Lint every workspace and standalone package at or below PATH, each with its nearest `skif.toml`.
+    /// Lint every workspace and standalone package at or below PATH, each with the `skif.toml` files that govern it.
     #[arg(short, long)]
     pub recursive: bool,
 
@@ -159,6 +159,14 @@ pub struct LintArgs {
     /// Skip JavaScript analysis.
     #[arg(long)]
     pub no_js: bool,
+
+    /// Use this configuration file (and the files it extends) instead of discovering `skif.toml` files.
+    #[arg(long, value_name = "FILE", conflicts_with = "no_config")]
+    pub config: Option<PathBuf>,
+
+    /// Read no configuration file: the defaults plus the flags.
+    #[arg(long)]
+    pub no_config: bool,
 
     /// Only analyse production code in JavaScript analysis.
     #[arg(long)]

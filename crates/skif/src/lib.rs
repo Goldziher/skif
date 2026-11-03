@@ -56,12 +56,13 @@ pub use fix::{
     preferred_alternative,
 };
 pub use linter::{Linter, RunOptions, builtin_providers};
-pub use root::{config_file, find_workspace_root, load_config};
+pub use root::{config_file, find_workspace_root, load_config, resolve_config};
 pub use targets::{Discovery, RootFailure, Target, discover_all, discover_targets, find_target, load_target};
 
 pub use skif_config::{
-    CONFIG_FILE_NAMES, Config, ConfigError, ConfigOverrides, IgnoreEntry, Level, PackageManager, Prefer, RuleConfig,
-    Selector,
+    Assignment, CONFIG_FILE_NAMES, Ceiling, Config, ConfigCache, ConfigError, ConfigLoader, ConfigOverrides,
+    ConfigSource, IgnoreEntry, Level, Op, Origins, Override, OverrideScope, PackageJs, PackageManager, Prefer,
+    ResetKey, ResolvedConfig, RuleConfig, Selector, SourceKind,
 };
 pub use skif_core::timing;
 pub use skif_core::{
@@ -98,6 +99,7 @@ const _: () = {
     let _ = assert_send_sync::<Error>;
     let _ = assert_send_sync::<RunOptions<'static>>;
     let _ = assert_send_sync::<Config>;
+    let _ = assert_send_sync::<ConfigCache>;
     let _ = assert_send_sync::<Report>;
     let _ = assert_send_sync::<Workspace>;
     #[cfg(feature = "fix")]
