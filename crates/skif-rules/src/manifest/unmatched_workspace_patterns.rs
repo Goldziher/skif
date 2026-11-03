@@ -74,7 +74,7 @@ impl Rule for UnmatchedWorkspacePatterns {
                 },
             )
             .help("remove the pattern, or create the directories it is meant to match");
-            if keeps_a_member_pattern {
+            if keeps_a_member_pattern && workspace.facts.source != WorkspaceSource::RushJson {
                 builder = builder.fix(Fix {
                     title: format!("Remove the pattern `{}`", fact.pattern),
                     safety: FixSafety::Unsafe,

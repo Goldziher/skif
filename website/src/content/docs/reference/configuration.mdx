@@ -23,7 +23,7 @@ file. Print the schema with `skif schema`.
 
 | Section | Holds |
 | --- | --- |
-| `[workspace]` | `ignore-packages`, `package-manager` |
+| `[workspace]` | `ignore-packages`, `package-manager`, `discover-ignore` |
 | `[lint]` | `fail-on-warnings` |
 | `[rules]` | Per-rule levels and options |
 | `[[ignore]]` | Suppressions |
@@ -41,7 +41,13 @@ file. Print the schema with `skif schema`.
 [workspace]
 ignore-packages = ["examples/*", "!examples/keep"]
 package-manager = "pnpm"   # npm | pnpm | yarn | bun; overrides detection
+discover-ignore = ["fixtures", "e2e/cases"]   # directories `skif -r` does not search for roots
 ```
+
+`discover-ignore` takes gitignore-style patterns relative to the directory the run starts in: a bare name matches at
+any depth, a pattern with a slash is anchored there, and `!` re-includes. It replaces the default list
+(`__fixtures__`, `fixtures`, `__mocks__`, `__snapshots__`); `[]` skips nothing. It is read from the configuration
+file that governs the start directory and only affects root discovery in a recursive run.
 
 ### `[lint]`
 

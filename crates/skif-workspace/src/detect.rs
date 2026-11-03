@@ -53,19 +53,21 @@ fn from_lockfile(fs: &dyn FileSystem, root: &Path) -> Option<PackageManager> {
 }
 
 /// Detects the package manager, first match wins: `[workspace] package-manager` in the config, the manifest
-/// declaration, a lockfile (`pnpm-lock.yaml`, `bun.lock`/`bun.lockb`, `yarn.lock`, `package-lock.json`), then the
+/// declaration, the one `rush.json` names, a lockfile (`pnpm-lock.yaml`, `bun.lock`/`bun.lockb`, `yarn.lock`, `package-lock.json`), then the
 /// presence of `pnpm-workspace.yaml`. `None` when nothing indicates a manager.
 pub(crate) fn detect(
     fs: &dyn FileSystem,
     root: &Path,
     config: &Config,
     manifest: &Value,
+    from_rush: Option<PackageManager>,
     has_pnpm_workspace: bool,
 ) -> Option<PackageManager> {
     config
         .workspace
         .package_manager
         .or_else(|| package_manager_from_manifest(manifest))
+        .or(from_rush)
         .or_else(|| from_lockfile(fs, root))
         .or_else(|| has_pnpm_workspace.then_some(PackageManager::Pnpm))
 }

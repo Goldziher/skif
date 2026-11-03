@@ -16,7 +16,16 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 - **Several projects in one run**: `-r`/`--recursive` lints every workspace and standalone package at or below the
   start path, and so does a run started where neither the path nor an ancestor holds a `package.json`. Results are
   merged into one report with one exit code; `--format json` adds a `roots` array. Each root uses its nearest
-  `skif.toml`, searched upwards to the start path.
+  `skif.toml`, searched upwards to the start path. `root-package-manager-field` does not report for a standalone
+  package below another root.
+- **Workspaces without a root `package.json`**: a directory with a `pnpm-workspace.yaml` or a `rush.json` and no
+  `package.json` is linted as a workspace, with its members linted and the rules about the root manifest skipped,
+  instead of failing the run.
+- **Rush**: `rush.json` (JSONC) declares a workspace. `projects[].projectFolder` are the members and
+  `pnpmVersion`, `npmVersion` or `yarnVersion` name the package manager.
+- **`[workspace] discover-ignore`**: directories a recursive run does not search for roots. The default is
+  `__fixtures__`, `fixtures`, `__mocks__` and `__snapshots__`; setting the key replaces the list
+  ([ADR 0023](adrs/0023-root-discovery-semantics-nested-roots-rush-and-fixture-directories.md)).
 - **Single-package mode**: a package that declares no workspace is linted on its own, with no workspace required.
   `root-package-private-field` and `root-package-dependencies` do not report for it.
 - **`recursive` option** for `lint` and `lintAsync` in the npm addon.

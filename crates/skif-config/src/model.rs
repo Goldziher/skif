@@ -233,8 +233,15 @@ pub enum PackageManager {
     Bun,
 }
 
+/// Directory names that recursive root discovery skips by default: they hold fixtures and test doubles, not projects.
+pub const DEFAULT_DISCOVER_IGNORE: [&str; 4] = ["__fixtures__", "fixtures", "__mocks__", "__snapshots__"];
+
+fn default_discover_ignore() -> Vec<String> {
+    DEFAULT_DISCOVER_IGNORE.iter().map(|name| (*name).to_owned()).collect()
+}
+
 /// `[workspace]`
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 pub struct Workspace {
@@ -244,6 +251,22 @@ pub struct Workspace {
     /// Overrides package-manager detection.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub package_manager: Option<PackageManager>,
+    /// Gitignore-style patterns, relative to the directory a recursive run starts in, of directories that root
+    /// discovery (`-r`) does not enter, so no project below them is found. A bare name matches at any depth; a
+    /// pattern with a slash is anchored at the start directory. Replaces the default list
+    /// (`__fixtures__`, `fixtures`, `__mocks__`, `__snapshots__`); `[]` skips nothing. Read from the configuration
+    /// file that governs the start directory.
+    pub discover_ignore: Vec<String>,
+}
+
+impl Default for Workspace {
+    fn default() -> Self {
+        Self {
+            ignore_packages: Selector::default(),
+            package_manager: None,
+            discover_ignore: default_discover_ignore(),
+        }
+    }
 }
 
 /// `[lint]`

@@ -16,6 +16,7 @@ use crate::package::{Package, PackageId};
 use crate::parallel::map_ordered;
 use crate::pattern::{self, Expander, Pattern};
 use crate::pnpm::{self, YamlSource};
+use crate::rush;
 
 const MANIFEST: &str = "package.json";
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
@@ -30,6 +31,8 @@ pub enum WorkspaceSource {
     YarnNohoistWorkspaces,
     /// `packages:` in `pnpm-workspace.yaml`.
     PnpmWorkspaceYaml,
+    /// `projects[].projectFolder` in `rush.json`.
+    RushJson,
     /// Nothing declares a workspace: the root package is the only package.
     SinglePackage,
 }
@@ -91,8 +94,13 @@ pub struct Workspace {
     /// Members whose manifest could not be read or parsed, and workspace patterns that cannot be used (a `..`
     /// segment, too many brace alternatives); the rest of the workspace is still discovered.
     pub manifest_errors: Vec<WorkspaceError>,
+    /// Whether the root directory holds a `package.json`. A workspace declared by `pnpm-workspace.yaml` or
+    /// `rush.json` alone has none: its root package is then an empty stand-in that is excluded from analysis.
+    pub has_root_manifest: bool,
     /// Indexed by [`PackageId`]: whether `[workspace] ignore-packages` excludes the package.
     ignored: Vec<bool>,
+    /// Whether this is a standalone package found below another root of a recursive run.
+    nested: bool,
 }
 
 struct Declared {
@@ -268,15 +276,30 @@ impl Workspace {
             return Err(WorkspaceError::NotADirectory(root));
         }
         let manifest_path = root.join(MANIFEST);
-        if !fs.is_file(&manifest_path) {
+        let yaml_path = root.join(PNPM_WORKSPACE);
+        let rush_path = root.join(rush::FILE);
+        let has_root_manifest = fs.is_file(&manifest_path);
+        let has_rush = fs.is_file(&rush_path);
+        if !has_root_manifest && !has_rush && !fs.is_file(&yaml_path) {
             return Err(WorkspaceError::MissingRootManifest(root));
         }
-        let source = fs
-            .read_to_string(&manifest_path)
-            .map_err(|error| io_error(&manifest_path, error))?;
-        let root_package = Package::parse(PathBuf::new(), source, true)?;
+        let root_package = if has_root_manifest {
+            let source = fs
+                .read_to_string(&manifest_path)
+                .map_err(|error| io_error(&manifest_path, error))?;
+            Package::parse(PathBuf::new(), source, true)?
+        } else {
+            Package::parse(PathBuf::new(), Arc::from("{}"), true)?
+        };
+        let rush = if has_rush {
+            let text = fs
+                .read_to_string(&rush_path)
+                .map_err(|error| io_error(&rush_path, error))?;
+            Some(rush::parse(text)?)
+        } else {
+            None
+        };
 
-        let yaml_path = root.join(PNPM_WORKSPACE);
         let (pnpm_workspace, pnpm_config) = if fs.is_file(&yaml_path) {
             let text = fs
                 .read_to_string(&yaml_path)
@@ -301,6 +324,7 @@ impl Workspace {
             &root,
             config,
             &root_package.manifest.value,
+            rush.as_ref().and_then(|rush| rush.package_manager),
             pnpm_workspace.is_some(),
         );
 
@@ -337,10 +361,16 @@ impl Workspace {
                 Some(packages) => Some(from_yaml(yaml, packages)),
                 None => implicit_patterns.then(|| implicit_declared(yaml)),
             });
+        let from_rush = rush.map(|rush| Declared {
+            source: WorkspaceSource::RushJson,
+            file: PathBuf::from(rush::FILE),
+            implicit: false,
+            patterns: rush.projects,
+        });
         let chosen = if package_manager == Some(PackageManager::Pnpm) && yaml_declared.is_some() {
             yaml_declared
         } else {
-            from_json.or(yaml_declared)
+            from_json.or(yaml_declared).or(from_rush)
         };
         // A plain package with no workspace declaration is linted on its own.
         let declared = chosen.unwrap_or_else(|| Declared {
@@ -425,10 +455,13 @@ impl Workspace {
             }
         }
         let ignore = &config.workspace.ignore_packages;
-        let ignored: Vec<bool> = std::iter::once(&root_package)
+        let mut ignored: Vec<bool> = std::iter::once(&root_package)
             .chain(&packages)
             .map(|package| package.is_selected_by(ignore))
             .collect();
+        if !has_root_manifest && let Some(slot) = ignored.first_mut() {
+            *slot = true;
+        }
 
         // A `pnpm-workspace.yaml` that only holds settings selects pnpm's default patterns; when those find no
         // package besides the root, the directory is a single package, not a monorepo.
@@ -453,7 +486,9 @@ impl Workspace {
             },
             pnpm_workspace,
             manifest_errors,
+            has_root_manifest,
             ignored,
+            nested: false,
         })
     }
 
@@ -501,6 +536,19 @@ impl Workspace {
             .iter()
             .map(|package| self.root.join(&package.dir))
             .collect()
+    }
+
+    /// Whether this is a standalone package found below another root of a recursive run (see
+    /// [`set_nested`](Self::set_nested)).
+    #[must_use]
+    pub const fn is_nested(&self) -> bool {
+        self.nested
+    }
+
+    /// Marks the workspace as a standalone package nested below another root, which the root-manifest rules that only
+    /// make sense for a repository's outermost project (`root-package-manager-field`) skip.
+    pub const fn set_nested(&mut self, nested: bool) {
+        self.nested = nested;
     }
 
     /// Excludes the members at `dirs` (absolute paths) from analysis as `ignore-packages` would, because another
