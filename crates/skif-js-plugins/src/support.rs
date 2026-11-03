@@ -170,6 +170,16 @@ pub(crate) fn strings(value: &ConfigValue) -> Vec<&str> {
     }
 }
 
+/// The `resolve.extensions` list of a bundler config: extensions with a leading dot, webpack's `'...'` placeholder and
+/// entries that are not extensions left out.
+pub(crate) fn extension_inputs(value: &ConfigValue) -> Vec<PluginInput> {
+    strings(value)
+        .into_iter()
+        .filter(|extension| extension.len() > 1 && extension.starts_with('.') && !extension.starts_with(".."))
+        .map(|extension| PluginInput::Extension(extension.to_owned()))
+        .collect()
+}
+
 /// The value at a key path.
 pub(crate) fn get_in<'a>(value: &'a ConfigValue, path: &[&str]) -> Option<&'a ConfigValue> {
     path.iter().try_fold(value, |current, key| current.get(key))

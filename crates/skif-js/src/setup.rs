@@ -126,6 +126,8 @@ pub(crate) struct PackageSetup {
     pub conditions: Vec<String>,
     /// Directories bare specifiers are looked up in, relative to the package directory.
     pub module_dirs: Vec<String>,
+    /// File extensions (with the leading dot) imports may omit, from bundler `resolve.extensions`.
+    pub extensions: Vec<String>,
 }
 
 /// Settings for the whole workspace.
@@ -264,6 +266,7 @@ impl Setup {
                     build_dirs: plugin.build_dirs,
                     conditions: plugin.conditions,
                     module_dirs: plugin.module_dirs,
+                    extensions: plugin.extensions,
                 })
             })
             .collect();

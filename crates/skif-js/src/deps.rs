@@ -227,7 +227,7 @@ fn is_repository_root(fs: &dyn FileSystem, dir: &Path) -> bool {
     fs.is_dir(&git) || fs.is_file(&git)
 }
 
-fn parse_tsconfig(fs: &dyn FileSystem, path: &Path) -> Option<ConfigValue> {
+pub(crate) fn parse_tsconfig(fs: &dyn FileSystem, path: &Path) -> Option<ConfigValue> {
     let text = fs.read_to_string(path).ok()?;
     extract_config_object(&format!("module.exports = {text}"), Path::new("tsconfig.js"))
 }

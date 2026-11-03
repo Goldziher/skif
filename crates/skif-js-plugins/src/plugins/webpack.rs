@@ -6,7 +6,7 @@ use crate::files::find_files;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::babel;
 use crate::support::{
-    alias_inputs, config_unknown, get_in, html_script_sources, join_rel, key_unknown, looks_like_file, module_input,
+    alias_inputs, config_unknown, extension_inputs, get_in, html_script_sources, join_rel, key_unknown, looks_like_file, module_input,
     objects, strings,
 };
 
@@ -50,6 +50,9 @@ pub(crate) fn bundler_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> 
         }
         if let Some(alias) = get_in(object, &["resolve", "alias"]) {
             out.extend(alias_inputs(alias, config));
+        }
+        if let Some(extensions) = get_in(object, &["resolve", "extensions"]) {
+            out.extend(extension_inputs(extensions));
         }
         if let Some(modules) = get_in(object, &["resolve", "modules"]) {
             for directory in strings(modules) {

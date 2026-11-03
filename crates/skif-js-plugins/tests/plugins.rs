@@ -515,6 +515,21 @@ fn postcss() {
 }
 
 #[test]
+fn postcss_plugins_loaded_with_require_count_as_dependencies() {
+    let results = resolve(
+        &[(
+            "postcss.config.js",
+            "module.exports = { plugins: [require('autoprefixer'), require('tailwindcss')({ content: [] }), [require('postcss-nested'), {}]] };",
+        )],
+        &["postcss"],
+    );
+    assert_deps(
+        output(&results, "postcss"),
+        &["autoprefixer", "tailwindcss", "postcss-nested", "postcss"],
+    );
+}
+
+#[test]
 fn babel() {
     let results = resolve(
         &[(
@@ -1067,6 +1082,26 @@ fn tsconfig_paths_outdir_and_conditions() {
         }]
     );
     assert_eq!(ts.conditions, ["source"]);
+}
+
+#[test]
+fn bundler_resolve_extensions_are_collected() {
+    let webpack = resolve(
+        &[(
+            "webpack.config.js",
+            "module.exports = { resolve: { extensions: ['.ts', '...', '.page', 'bare'] } };",
+        )],
+        &["webpack"],
+    );
+    assert_eq!(output(&webpack, "webpack").extensions, [".ts", ".page"]);
+    let vite = resolve(
+        &[(
+            "vite.config.ts",
+            "export default defineConfig({ resolve: { extensions: ['.mjs', '.custom'] } });",
+        )],
+        &["vite"],
+    );
+    assert_eq!(output(&vite, "vite").extensions, [".mjs", ".custom"]);
 }
 
 #[test]

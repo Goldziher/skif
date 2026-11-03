@@ -6,7 +6,7 @@ use crate::config_load::load_config;
 use crate::files::find_files;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::postcss;
-use crate::support::{alias_inputs, get_in, html_entries, join_rel, package_name, path_unknown, strings, values_of};
+use crate::support::{alias_inputs, extension_inputs, get_in, html_entries, join_rel, package_name, path_unknown, strings, values_of};
 
 /// The `vite` plugin.
 pub struct Vite;
@@ -59,6 +59,9 @@ impl Plugin for Vite {
         }
         if let Some(alias) = get_in(config.value, &["resolve", "alias"]) {
             out.extend(alias_inputs(alias, config));
+        }
+        if let Some(extensions) = get_in(config.value, &["resolve", "extensions"]) {
+            out.extend(extension_inputs(extensions));
         }
         if let Some(postcss) = get_in(config.value, &["css", "postcss"]) {
             out.extend(css_postcss(postcss, config, cx));
