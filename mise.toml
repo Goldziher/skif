@@ -97,12 +97,13 @@ description = "Fail when schema/skif.schema.json differs from the schema `skif s
 run = "scripts/check-schema.sh"
 
 [tasks."consistency"]
-description = "Check version surfaces, exact oxc pins, workspace-inherited dependencies, vendored headers and crate notices"
+description = "Check version surfaces, exact oxc pins, workspace-inherited dependencies, vendored headers, rule ids, plugin lists and crate notices"
 run = [
   "scripts/check-versions.sh",
   "scripts/check-pins.sh",
   "scripts/check-headers.sh",
   "scripts/check-rule-ids.sh",
+  "scripts/check-plugin-list.sh",
   "scripts/check-dependency-tree.sh",
   "scripts/check-package-contents.sh",
 ]

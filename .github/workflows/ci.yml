@@ -198,6 +198,8 @@ jobs:
         run: scripts/check-headers.sh
       - name: Check that rule ids are never dropped
         run: scripts/check-rule-ids.sh
+      - name: Check that the plugin lists in the docs match the plugin table
+        run: scripts/check-plugin-list.sh
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
