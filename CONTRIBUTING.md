@@ -32,7 +32,7 @@ the same checks on commit; do not commit with `--no-verify`. Commits are convent
 `mise run schema:check` regenerates the JSON Schema of `skif.toml` and fails when `schema/skif.schema.json`
 differs; refresh it with `cargo run -p skif-cli -- schema > schema/skif.schema.json`. The `consistency` CI job
 also runs `scripts/check-*.sh` (version surfaces, exact oxc pins, workspace-inherited dependencies, vendored
-file headers, and the LICENSE and ATTRIBUTIONS files each published crate must ship).
+file headers, rule ids against the code, plugin lists against the plugin table, and the LICENSE and ATTRIBUTIONS files each published crate must ship).
 
 ## Adding a rule
 
