@@ -9,13 +9,15 @@
     "dev": "node scripts/sync-rules.mjs && astro dev",
     "start": "node scripts/sync-rules.mjs && astro dev",
     "build": "node scripts/sync-rules.mjs && astro build",
-    "preview": "astro preview",
-    "astro": "astro"
+    "preview": "node scripts/sync-rules.mjs && astro preview",
+    "check": "node scripts/sync-rules.mjs && astro check",
+    "astro": "node scripts/sync-rules.mjs && astro"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.42.6",
     "astro": "^7.4.1",
     "sharp": "^0.35.5",
+    "starlight-links-validator": "^0.27.0",
     "starlight-llms-txt": "^0.12.0"
   }
 }

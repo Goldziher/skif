@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import starlightLinksValidator from "starlight-links-validator";
 import starlightLlmsTxt from "starlight-llms-txt";
 
 export default defineConfig({
@@ -47,6 +48,7 @@ export default defineConfig({
         },
       ],
       plugins: [
+        starlightLinksValidator({ errorOnRelativeLinks: false }),
         starlightLlmsTxt({
           exclude: ["reference/cli", "reference/configuration", "reference/architecture", "rules/**"],
           promote: ["index*", "start/**", "guides/**"],
