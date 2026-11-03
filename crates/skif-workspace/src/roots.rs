@@ -195,7 +195,10 @@ pub fn scan_candidates(start: &Path, fs: &dyn FileSystem, options: &DiscoverOpti
         if names.contains(&PNPM_WORKSPACE) || (manifest && manifest_declares_workspace(fs, &dir)) {
             found.workspaces.insert(dir.clone());
         }
-        let files = IGNORE_FILES.iter().filter(|name| names.contains(name)).map(|name| dir.join(name));
+        let files = IGNORE_FILES
+            .iter()
+            .filter(|name| names.contains(name))
+            .map(|name| dir.join(name));
         let ignores = pushed(ignores, matcher_from(fs, &dir, files));
         let children: Vec<PathBuf> = entries
             .into_iter()
@@ -277,12 +280,7 @@ fn links_in(fs: &dyn FileSystem, parent: &Path) -> BTreeSet<PathBuf> {
 /// `dir` as the OS resolves it when `dir` or a directory between `root` and `dir` is a symbolic link, else `dir`.
 /// The walk never enters links, so a member reached through one has to be resolved to be recognised when the walk
 /// finds its target.
-fn resolved(
-    fs: &dyn FileSystem,
-    root: &Path,
-    dir: &Path,
-    links: &mut HashMap<PathBuf, BTreeSet<PathBuf>>,
-) -> PathBuf {
+fn resolved(fs: &dyn FileSystem, root: &Path, dir: &Path, links: &mut HashMap<PathBuf, BTreeSet<PathBuf>>) -> PathBuf {
     let linked = dir
         .ancestors()
         .take_while(|ancestor| *ancestor != root && ancestor.starts_with(root))
@@ -603,7 +601,10 @@ mod tests {
         let options = DiscoverOptions::default().with_max_depth(2);
         let found = scan_candidates(Path::new("/r"), &fs, &options);
         assert_eq!(found.truncated, [PathBuf::from("/r/a/b")]);
-        assert!(scan_candidates(Path::new("/r"), &fs, &DiscoverOptions::default()).truncated.is_empty());
+        assert_eq!(
+            scan_candidates(Path::new("/r"), &fs, &DiscoverOptions::default()).truncated,
+            [] as [std::path::PathBuf; 0]
+        );
     }
 
     #[test]

@@ -2,6 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::fmt::Write as _;
 use std::path::Path;
 
 use skif_js_syntax::{ConfigValue, extract_config_object};
@@ -231,9 +232,9 @@ fn leaves(value: &ConfigValue) -> usize {
 fn doubling_constants(depth: usize) -> String {
     let mut source = String::from("const a1 = ['x'];\n");
     for level in 2..=depth {
-        source.push_str(&format!("const a{level} = [a{prev}, a{prev}];\n", prev = level - 1));
+        writeln!(source, "const a{level} = [a{prev}, a{prev}];", prev = level - 1).unwrap();
     }
-    source.push_str(&format!("export default {{ v: a{depth} }};"));
+    write!(source, "export default {{ v: a{depth} }};").unwrap();
     source
 }
 
@@ -250,7 +251,7 @@ fn constants_that_double_per_level_are_evaluated_once_and_bounded() {
 fn long_constant_chains_and_cycles_terminate() {
     let mut source = String::from("const c1 = 'x';\n");
     for level in 2..=30 {
-        source.push_str(&format!("const c{level} = c{};\n", level - 1));
+        writeln!(source, "const c{level} = c{};", level - 1).unwrap();
     }
     source.push_str("const p = [q];\nconst q = [p];\nexport default { v: c30, cycle: p };");
     let value = extract("c.js", &source).unwrap();

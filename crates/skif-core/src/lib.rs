@@ -42,6 +42,7 @@ pub mod span;
 pub mod timing;
 
 pub use builder::{DiagnosticBuilder, diagnostic};
+pub use cached_fs::CachedFs;
 pub use dependency::DependencyKind;
 pub use diagnostic::Diagnostic;
 pub use display::slash;
@@ -49,7 +50,6 @@ pub use fix::{
     EditError, FileChange, Fix, FixOp, FixSafety, InsertPosition, JsonAction, PathSeg, TextEdit, YamlAction,
     apply_text_edits,
 };
-pub use cached_fs::CachedFs;
 pub use fs::{DirEntry, FileSystem, MemoryFs, OsFs};
 pub use package_id::PackageId;
 pub use report::{Report, Summary};

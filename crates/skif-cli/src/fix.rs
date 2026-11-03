@@ -194,7 +194,8 @@ static NOTHING_FIXED: InstallStatus = InstallStatus::Skipped {
 /// The install status that stands for all roots: the failures (all of them, named by root, when several), else a
 /// run, else the first skip.
 fn merged_install<'a>(runs: &[RootFix<'a>]) -> Cow<'a, InstallStatus> {
-    let installs: Vec<(&'a Path, &'a InstallStatus)> = runs.iter().map(|root| (root.prefix, &root.run.install)).collect();
+    let installs: Vec<(&'a Path, &'a InstallStatus)> =
+        runs.iter().map(|root| (root.prefix, &root.run.install)).collect();
     merge_installs(&installs)
 }
 
@@ -208,7 +209,11 @@ fn merge_installs<'a>(installs: &[(&Path, &'a InstallStatus)]) -> Cow<'a, Instal
         .collect();
     if failed.len() > 1 {
         return Cow::Owned(InstallStatus::Failed {
-            command: failed.iter().map(|(_, command, _)| *command).collect::<Vec<_>>().join("; "),
+            command: failed
+                .iter()
+                .map(|(_, command, _)| *command)
+                .collect::<Vec<_>>()
+                .join("; "),
             message: failed
                 .iter()
                 .map(|(prefix, _, message)| format!("{}: {message}", roots::display(prefix)))
@@ -266,11 +271,7 @@ mod install_tests {
         let ran = InstallStatus::Ran {
             command: "yarn".to_owned(),
         };
-        let merged = merge_installs(&[
-            (Path::new("a"), &a),
-            (Path::new("ok"), &ran),
-            (Path::new("pkgs/b"), &b),
-        ]);
+        let merged = merge_installs(&[(Path::new("a"), &a), (Path::new("ok"), &ran), (Path::new("pkgs/b"), &b)]);
         assert_eq!(
             *merged,
             failed("npm install; pnpm install", "a: exit 1; pkgs/b: no network")
@@ -285,7 +286,10 @@ mod install_tests {
         };
         let skipped = InstallStatus::Skipped { reason: "nothing" };
         assert_eq!(*merge_installs(&[(Path::new("x"), &skipped), (Path::new("a"), &a)]), a);
-        assert_eq!(*merge_installs(&[(Path::new("x"), &skipped), (Path::new("y"), &ran)]), ran);
+        assert_eq!(
+            *merge_installs(&[(Path::new("x"), &skipped), (Path::new("y"), &ran)]),
+            ran
+        );
         assert_eq!(*merge_installs(&[(Path::new("x"), &skipped)]), skipped);
     }
 }

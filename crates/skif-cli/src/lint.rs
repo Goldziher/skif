@@ -9,8 +9,8 @@ use serde_json::{Map, Value};
 use skif::render::RenderOptions;
 use skif::timing;
 use skif::{
-    CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IgnoreEntry, Linter, OsFs, Prefer, Report, Selector,
-    Workspace,
+    CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IgnoreEntry, Linter, OsFs, Prefer, Report,
+    Selector, Workspace,
 };
 use skif_report::{escape_controls, render_json_with};
 
@@ -346,7 +346,7 @@ fn note_truncated(truncated: &[PathBuf]) {
     let shown: Vec<String> = truncated
         .iter()
         .take(SHOWN)
-        .map(|dir| escape_controls(&roots::display(dir)))
+        .map(|dir| escape_controls(&roots::display(dir)).into_owned())
         .collect();
     let more = truncated.len().saturating_sub(SHOWN);
     let tail = if more > 0 {

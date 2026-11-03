@@ -168,7 +168,11 @@ impl Builder {
         }
         if index < self.options.workspaces_with_nested {
             for nested in 0..self.options.nested_per_workspace {
-                self.package(&format!("{dir}/tools/nested{nested}"), &format!("ws{index}-tool{nested}"), None);
+                self.package(
+                    &format!("{dir}/tools/nested{nested}"),
+                    &format!("ws{index}-tool{nested}"),
+                    None,
+                );
             }
         }
     }
@@ -194,7 +198,10 @@ impl Builder {
         }
         for service in 0..go_services {
             self.file(format!("go/svc{service}/go.mod"), "module example.com/svc\n\ngo 1.22\n");
-            self.file(format!("go/svc{service}/cmd/main.go"), "package main\n\nfunc main() {}\n");
+            self.file(
+                format!("go/svc{service}/cmd/main.go"),
+                "package main\n\nfunc main() {}\n",
+            );
             self.file(format!("go/svc{service}/internal/store/store.go"), "package store\n");
         }
     }

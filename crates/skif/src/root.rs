@@ -68,10 +68,8 @@ fn workspace_members(root: &Path, fs: &dyn FileSystem) -> BTreeSet<PathBuf> {
     let ceiling = config_ceiling(root, fs);
     let dir = config_dir(root, &ceiling, fs).unwrap_or(root);
     let config = load_config(dir, fs, &ConfigOverrides::default()).unwrap_or_default();
-    Workspace::discover_with_fs(root, &config, fs).map_or_else(
-        |_| declared_member_dirs(fs, root),
-        |workspace| workspace.member_dirs(),
-    )
+    Workspace::discover_with_fs(root, &config, fs)
+        .map_or_else(|_| declared_member_dirs(fs, root), |workspace| workspace.member_dirs())
 }
 
 /// Finds the workspace that `start` belongs to.
