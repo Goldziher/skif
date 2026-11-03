@@ -39,6 +39,7 @@ pub mod package_id;
 pub mod report;
 pub mod rule;
 pub mod span;
+pub mod timing;
 
 pub use builder::{DiagnosticBuilder, diagnostic};
 pub use dependency::DependencyKind;

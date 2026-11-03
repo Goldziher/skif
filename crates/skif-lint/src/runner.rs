@@ -91,12 +91,13 @@ fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) 
             return Err(LintError::Cancelled);
         }
         let mut part = root.fork();
-        provider
-            .run(cx, cx.enabled, &mut part)
-            .map_err(|source| LintError::Provider {
-                provider: provider.id(),
-                source,
-            })?;
+        skif_core::timing::phase(format_args!("provider {}", provider.id()), || {
+            provider.run(cx, cx.enabled, &mut part)
+        })
+        .map_err(|source| LintError::Provider {
+            provider: provider.id(),
+            source,
+        })?;
         root.merge(part);
     }
     if root.is_cancelled() {

@@ -257,6 +257,12 @@ impl Workspace {
         fs: &dyn FileSystem,
         sequential: bool,
     ) -> Result<Self, WorkspaceError> {
+        skif_core::timing::phase(format_args!("workspace discovery {}", root.display()), || {
+            Self::load(root, config, fs, sequential)
+        })
+    }
+
+    fn load(root: &Path, config: &Config, fs: &dyn FileSystem, sequential: bool) -> Result<Self, WorkspaceError> {
         let root = root.to_path_buf();
         if !fs.is_dir(&root) {
             return Err(WorkspaceError::NotADirectory(root));
