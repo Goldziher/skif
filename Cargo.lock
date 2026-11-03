@@ -2114,6 +2114,7 @@ dependencies = [
  "skif-report",
  "skif-rules",
  "skif-workspace",
+ "tempfile",
  "thiserror",
  "toml",
 ]
