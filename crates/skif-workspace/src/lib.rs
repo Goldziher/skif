@@ -21,6 +21,7 @@ mod parallel;
 mod pattern;
 mod pnpm;
 mod roots;
+mod rush;
 mod workspace;
 
 pub use catalogs::Catalogs;

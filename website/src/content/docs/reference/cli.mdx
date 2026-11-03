@@ -23,8 +23,11 @@ The root is used for configuration, reported paths, fix writes and the install s
 the fallback in step 4) skif lints each workspace and each standalone package below `PATH` in parallel and merges
 the results into one report with one exit code, the worst over the roots. Reported paths are relative to the
 invocation directory, human output is grouped by root, and `--format json` adds a `roots` array. `node_modules`,
-hidden directories and directories excluded by a `.gitignore` or `.ignore` are not searched. `--fix` plans, writes
-and installs per root.
+hidden directories, directories excluded by a `.gitignore` or `.ignore` and directories matching
+`[workspace] discover-ignore` (by default `__fixtures__`, `fixtures`, `__mocks__` and `__snapshots__`) are not
+searched. A root that cannot be loaded is reported in the `errors` array of the JSON document and does not stop the
+others; the exit code is then `2`. `root-package-manager-field` is not reported for a standalone package below
+another root. `--fix` plans, writes and installs per root.
 
 ## Subcommands
 

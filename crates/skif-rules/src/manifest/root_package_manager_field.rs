@@ -14,6 +14,9 @@ pub static META: RuleMeta = RuleMeta {
 };
 
 /// Reports a root manifest that declares neither `packageManager` nor `devEngines.packageManager`.
+///
+/// A standalone package nested below another root of a recursive run is not reported: it is an example or a
+/// fixture of that repository, which pins its package manager once at the top.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RootPackageManagerField;
 
@@ -29,7 +32,7 @@ impl Rule for RootPackageManagerField {
 
     fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>) {
         let root = &cx.workspace.root_package;
-        if cx.workspace.is_ignored(root.id) || declares(&root.manifest.value) {
+        if cx.workspace.is_nested() || cx.workspace.is_ignored(root.id) || declares(&root.manifest.value) {
             return;
         }
         out.emit(
@@ -111,5 +114,24 @@ mod tests {
         let files = [("package.json", json.as_str()), ("packages/a/package.json", MEMBER)];
         let ignored = config("[workspace]\nignore-packages = [\"root\"]\n");
         assert_eq!(lint(META.id, &files, &ignored), [] as [skif_core::Diagnostic; 0]);
+    }
+
+    #[test]
+    fn a_nested_standalone_package_is_not_reported() {
+        let json = root_json("");
+        let files = [("package.json", json.as_str()), ("packages/a/package.json", MEMBER)];
+        let config = config("");
+        let report = |nested: bool| {
+            let mut workspace = crate::testing::workspace(&files, &config);
+            workspace.set_nested(nested);
+            let registry = skif_lint::Registry::new(crate::providers()).unwrap();
+            skif_lint::run_unsorted(&registry, &workspace, &config, &skif_lint::RunOptions::default())
+                .unwrap()
+                .into_iter()
+                .filter(|diagnostic| diagnostic.rule.as_str() == META.id)
+                .count()
+        };
+        assert_eq!(report(false), 1);
+        assert_eq!(report(true), 0);
     }
 }

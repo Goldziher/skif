@@ -7,7 +7,8 @@ use rayon::prelude::*;
 use skif_config::{Config, ConfigOverrides};
 use skif_core::FileSystem;
 use skif_workspace::{
-    DiscoverOptions, Workspace, claim_roots, declared_member_dirs, declares_workspace, repository_root, scan_candidates,
+    DiscoverOptions, RootKind, Workspace, claim_roots, declared_member_dirs, declares_workspace, repository_root,
+    scan_candidates,
 };
 
 use crate::error::Error;
@@ -129,6 +130,13 @@ pub struct Discovery {
 /// the git repository holding it (`start` outside one). A workspace that is listed as a member of an outer workspace
 /// is a root of its own and the outer one leaves its package to it, so every package is linted by exactly one root.
 ///
+/// A standalone package below another root is marked [`Workspace::is_nested`], which the rules that only concern a
+/// repository's outermost project (`root-package-manager-field`) honour. Directories matching
+/// `[workspace] discover-ignore` (by default `__fixtures__`, `fixtures`, `__mocks__` and `__snapshots__`) are not
+/// searched for roots; the setting is read from the configuration file that governs `start`. A workspace declared
+/// by `pnpm-workspace.yaml` or `rush.json` alone, with no root `package.json`, loads as a workspace without a root
+/// manifest.
+///
 /// A root that cannot be loaded is a [`RootFailure`]; the others still load. A workspace that cannot be loaded
 /// still claims the directories its patterns declare.
 ///
@@ -144,7 +152,7 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
         start.parent().unwrap_or(start)
     };
     let ceiling = |root: &Path| repository_ceiling(root, dir, fs);
-    let candidates = scan_candidates(dir, fs, &DiscoverOptions::default());
+    let candidates = scan_candidates(dir, fs, &discover_options(dir, fs, overrides));
     let mut workspaces: BTreeMap<PathBuf, Result<Target, Error>> = candidates
         .workspaces
         .par_iter()
@@ -160,7 +168,8 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
             (root.clone(), dirs)
         })
         .collect();
-    let slots: Vec<(PathBuf, Option<Result<Target, Error>>)> = claim_roots(fs, &candidates, &members)
+    let claimed = claim_roots(fs, &candidates, &members);
+    let slots: Vec<(PathBuf, Option<Result<Target, Error>>)> = claimed
         .iter()
         .map(|root| (root.path().to_path_buf(), workspaces.remove(root.path())))
         .collect();
@@ -175,9 +184,13 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
         truncated: candidates.truncated,
         ..Discovery::default()
     };
+    let root_dirs: BTreeSet<&Path> = claimed.iter().map(RootKind::path).collect();
     for (root, result) in loaded {
         match result {
             Ok(mut target) => {
+                let nested = !candidates.workspaces.contains(&root)
+                    && root.ancestors().skip(1).any(|ancestor| root_dirs.contains(ancestor));
+                target.workspace.set_nested(nested);
                 target.workspace.ignore_dirs(&candidates.workspaces);
                 discovery.targets.push(target);
             }
@@ -185,6 +198,17 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
         }
     }
     Ok(discovery)
+}
+
+/// The bounds of the walk started at `start`: the defaults, with the skipped directories from the configuration that
+/// governs `start` when it loads (a broken file is reported by the root that uses it, not here).
+fn discover_options(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOverrides) -> DiscoverOptions {
+    let ceiling = repository_root(fs, start).unwrap_or_else(|| start.to_path_buf());
+    let dir = config_dir(start, &ceiling, fs).unwrap_or(start);
+    match load_config(dir, fs, overrides) {
+        Ok(config) => DiscoverOptions::default().with_ignore(config.workspace.discover_ignore),
+        Err(_) => DiscoverOptions::default(),
+    }
 }
 
 /// The directory the configuration search of `root` stops at in a run started at `start`.
@@ -221,6 +245,7 @@ pub fn discover_all(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOverrid
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use skif_core::MemoryFs;
+    use skif_workspace::PackageManager;
 
     use super::*;
 
@@ -393,5 +418,98 @@ mod tests {
             .with_file("/r/p/m/package.json", r#"{"name": "m"}"#);
         let error = find_target(Path::new("/r/p/m"), &fs, &ConfigOverrides::default()).unwrap_err();
         assert!(matches!(error, Error::Workspace(_)), "{error}");
+    }
+
+    #[test]
+    fn only_standalone_packages_below_another_root_are_nested() {
+        let fs = MemoryFs::new()
+            .with_file("/s/a/package.json", r#"{"name": "a"}"#)
+            .with_file("/s/b/package.json", r#"{"name": "b"}"#)
+            .with_file("/s/b/inner/package.json", r#"{"name": "inner"}"#)
+            .with_file("/s/w/package.json", r#"{"name": "w", "workspaces": ["p/*"]}"#)
+            .with_file("/s/w/p/m/package.json", r#"{"name": "m"}"#)
+            .with_file("/s/w/examples/e/package.json", r#"{"name": "e"}"#)
+            .with_file("/s/w/examples/e/deeper/pnpm-workspace.yaml", "packages:\n  - 'q/*'\n")
+            .with_file("/s/w/examples/e/deeper/q/n/package.json", r#"{"name": "n"}"#);
+        let discovery = discover(&fs, "/s");
+        let nested: Vec<_> = discovery
+            .targets
+            .iter()
+            .map(|target| (target.root.display().to_string(), target.workspace.is_nested()))
+            .collect();
+        assert_eq!(
+            nested,
+            [
+                ("/s/a".to_owned(), false),
+                ("/s/b".to_owned(), false),
+                ("/s/b/inner".to_owned(), true),
+                ("/s/w".to_owned(), false),
+                ("/s/w/examples/e".to_owned(), true),
+                ("/s/w/examples/e/deeper".to_owned(), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_single_root_is_never_nested() {
+        let fs = MemoryFs::new()
+            .with_file("/r/package.json", r#"{"name": "r"}"#)
+            .with_file("/r/inner/package.json", r#"{"name": "inner"}"#);
+        let target = find_target(Path::new("/r/inner"), &fs, &ConfigOverrides::default()).unwrap();
+        assert!(!target.workspace.is_nested());
+    }
+
+    #[test]
+    fn a_workspace_file_without_a_root_manifest_is_a_workspace_and_not_a_failure() {
+        let fs = MemoryFs::new()
+            .with_file("/r/ws/pnpm-workspace.yaml", "packages:\n  - 'p/*'\n")
+            .with_file("/r/ws/p/m/package.json", r#"{"name": "m"}"#);
+        let discovery = discover(&fs, "/r");
+        assert!(discovery.failures.is_empty(), "{:?}", discovery.failures);
+        assert_eq!(names(&discovery), ["/r/ws"]);
+        assert!(!discovery.targets[0].workspace.has_root_manifest);
+        assert_eq!(packages_of(&discovery.targets[0]), ["m"]);
+
+        let direct = find_target(Path::new("/r/ws"), &fs, &ConfigOverrides::default()).unwrap();
+        assert_eq!(direct.root, Path::new("/r/ws"));
+        assert_eq!(packages_of(&direct), ["m"]);
+    }
+
+    #[test]
+    fn a_rush_workspace_is_one_root_with_its_projects_as_members() {
+        let fs = MemoryFs::new()
+            .with_file(
+                "/r/rush.json",
+                r#"{"npmVersion": "10.0.0", "projects": [{"packageName": "a", "projectFolder": "apps/a"}]}"#,
+            )
+            .with_file("/r/apps/a/package.json", r#"{"name": "a"}"#)
+            .with_file("/r/apps/a/examples/e/package.json", r#"{"name": "e"}"#);
+        let discovery = discover(&fs, "/r");
+        assert_eq!(names(&discovery), ["/r"]);
+        assert_eq!(packages_of(&discovery.targets[0]), ["a"]);
+        assert_eq!(
+            discovery.targets[0].workspace.package_manager,
+            Some(PackageManager::Npm)
+        );
+    }
+
+    #[test]
+    fn fixture_directories_are_skipped_unless_the_configuration_says_otherwise() {
+        let tree = MemoryFs::new()
+            .with_file("/r/real/package.json", r#"{"name": "real"}"#)
+            .with_file("/r/real/fixtures/f/package.json", r#"{"name": "f"}"#)
+            .with_file("/r/examples/e/package.json", r#"{"name": "e"}"#);
+        assert_eq!(names(&discover(&tree, "/r")), ["/r/examples/e", "/r/real"]);
+
+        let replaced = tree
+            .clone()
+            .with_file("/r/skif.toml", "[workspace]\ndiscover-ignore = [\"examples\"]\n");
+        assert_eq!(names(&discover(&replaced, "/r")), ["/r/real", "/r/real/fixtures/f"]);
+
+        let none = tree.with_file("/r/skif.toml", "[workspace]\ndiscover-ignore = []\n");
+        assert_eq!(
+            names(&discover(&none, "/r")),
+            ["/r/examples/e", "/r/real", "/r/real/fixtures/f"]
+        );
     }
 }
