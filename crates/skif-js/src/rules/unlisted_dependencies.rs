@@ -4,7 +4,7 @@ use skif_core::{Category, Fixability, RuleMeta, Severity, diagnostic};
 use skif_lint::Emitter;
 
 use super::JsRule;
-use super::support::module_location;
+use super::support::{is_fixture, module_location};
 use crate::analysis::JsAnalysis;
 
 /// Metadata of `unlisted-dependencies`.
@@ -28,7 +28,11 @@ impl JsRule for UnlistedDependencies {
         let mut seen = HashSet::new();
         for unlisted in &analysis.dependencies.unlisted {
             let module = analysis.graph.module(unlisted.module);
-            if module.ignored || analysis.ignores_dependency(unlisted.package, &unlisted.name) {
+            if module.ignored
+                || is_fixture(module)
+                || analysis.ignores_dependency(unlisted.package, &unlisted.name)
+                || analysis.declares_module(&unlisted.name)
+            {
                 continue;
             }
             if !seen.insert((unlisted.package, unlisted.name.as_str(), unlisted.module)) {

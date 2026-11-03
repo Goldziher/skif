@@ -1,20 +1,22 @@
 //! The analysis the rules read: module graph, export usage and dependency usage.
 
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use skif_config::Config;
 use skif_core::{FileSystem, timing};
-use skif_js_syntax::{Export, ExportKind};
-use skif_workspace::{PackageId, Workspace};
+use skif_js_syntax::{Export, ExportKind, ParseOptions, parse_module};
+use skif_workspace::{PackageId, Workspace, map_ordered};
 
 use crate::deps::DependencyUsage;
-use crate::discover::{discover, relative};
+use crate::discover::{Candidate, discover, relative};
 use crate::entries::entry_files;
 use crate::graph::{self, Inputs, Module, ModuleGraph};
 use crate::input::InputSource;
 use crate::resolve::ModuleResolver;
 use crate::setup::Setup;
+use crate::specifier::package_name;
 use crate::usage::ExportUsage;
 
 /// A project file nothing reaches.
@@ -38,7 +40,41 @@ pub struct JsAnalysis<'a> {
     pub dependencies: DependencyUsage,
     /// Project files outside the graph.
     pub unused_files: Vec<UnusedFile>,
+    ambient_modules: HashSet<String>,
     setup: Setup,
+}
+
+/// Names declared with `declare module 'name'` by graph modules and by declaration files nothing imports.
+fn collect_ambient_modules(
+    fs: &dyn FileSystem,
+    graph: &ModuleGraph,
+    candidates: &[Candidate],
+    sequential: bool,
+) -> HashSet<String> {
+    let mut names: HashSet<String> = graph
+        .modules()
+        .iter()
+        .flat_map(|module| module.info.ambient_modules.iter().cloned())
+        .collect();
+    let declaration_files: Vec<&Path> = candidates
+        .iter()
+        .filter(|candidate| candidate.rel.ends_with(".d.ts") && graph.id_of(&candidate.abs).is_none())
+        .map(|candidate| candidate.abs.as_path())
+        .collect();
+    let options = ParseOptions {
+        in_file_references: false,
+        member_accesses: false,
+    };
+    let found = map_ordered(&declaration_files, sequential, |path| {
+        fs.read_to_string(path)
+            .ok()
+            .filter(|source| source.contains("declare module"))
+            .and_then(|source| parse_module(path, &source, &options).ok())
+            .map(|info| info.ambient_modules)
+            .unwrap_or_default()
+    });
+    names.extend(found.into_iter().flatten());
+    names
 }
 
 impl<'a> JsAnalysis<'a> {
@@ -84,6 +120,7 @@ impl<'a> JsAnalysis<'a> {
             DependencyUsage::compute(workspace, &setup, &graph, fs.as_ref())
         });
 
+        let ambient_modules = collect_ambient_modules(fs.as_ref(), &graph, &candidates, sequential);
         let unused_files = candidates
             .iter()
             .filter(|candidate| graph.id_of(&candidate.abs).is_none())
@@ -92,6 +129,9 @@ impl<'a> JsAnalysis<'a> {
                 let Some(package) = setup.package(candidate.owner) else {
                     return false;
                 };
+                if package.entries_incomplete {
+                    return false;
+                }
                 let Some(in_package) = relative(&candidate.abs, &package.dir) else {
                     return false;
                 };
@@ -110,8 +150,18 @@ impl<'a> JsAnalysis<'a> {
             exports,
             dependencies,
             unused_files,
+            ambient_modules,
             setup,
         }
+    }
+
+    /// Whether the project declares package `name` itself with `declare module 'name'`, so importing it needs no
+    /// dependency.
+    #[must_use]
+    pub fn declares_module(&self, name: &str) -> bool {
+        self.ambient_modules
+            .iter()
+            .any(|declared| declared == name || package_name(declared).as_deref() == Some(name))
     }
 
     /// Whether `[js] production` is on.
@@ -124,6 +174,12 @@ impl<'a> JsAnalysis<'a> {
     #[must_use]
     pub fn ignores_dependency(&self, id: PackageId, name: &str) -> bool {
         self.setup.ignores_dependency(id, name)
+    }
+
+    /// Whether the entry files of package `id` are not fully known, so nothing can be reported unused in it.
+    #[must_use]
+    pub fn entries_incomplete(&self, id: PackageId) -> bool {
+        self.setup.package(id).is_some_and(|package| package.entries_incomplete)
     }
 
     /// Whether the package is excluded from analysis (`ignore-packages`).
@@ -154,7 +210,24 @@ impl<'a> JsAnalysis<'a> {
             .filter(|export| export.name != "export=")
             .filter(|export| !self.is_tagged_public(export))
             .filter(|export| !self.exports.is_used(module.id, &export.name))
+            .filter(|export| !self.in_used_signature(module, export, &mut HashSet::new()))
             .collect()
+    }
+
+    /// Whether `export` appears in the signature of another export of its module that is itself used.
+    fn in_used_signature(&self, module: &Module, export: &Export, visited: &mut HashSet<String>) -> bool {
+        export.referenced_in.iter().any(|name| {
+            if self.exports.is_used(module.id, name) {
+                return true;
+            }
+            visited.insert(name.clone())
+                && module
+                    .info
+                    .exports
+                    .iter()
+                    .filter(|container| container.name == *name)
+                    .any(|container| self.in_used_signature(module, container, visited))
+        })
     }
 
     fn is_tagged_public(&self, export: &Export) -> bool {
