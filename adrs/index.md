@@ -29,6 +29,7 @@ old one.
 | 0019 | [Reality Reconciliation: Crate List, Schema File, Test Tooling and Consistency Checks](0019-reality-reconciliation-crate-list-schema-file-test-tooling-and-consistency.md) | accepted |
 | 0020 | [JS Rule Set, Default Severities, Addon Profile and Windows Support](0020-js-rule-set-severities-addon-profile-and-windows-support.md) | accepted |
 | 0021 | [oxc Lockstep With poly: One Release, Coordinated Bumps, a CI Build Against the Git Copy](0021-oxc-lockstep-with-poly.md) | accepted |
+| 0022 | [Multi-Root Analysis, Single-Package Mode and the Plugin Set](0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md) | accepted |
 
 ## Effective statements
 
@@ -44,6 +45,8 @@ the lines below stay as written; this table says which record governs.
 | [0010](0010-js-analysis-on-oxc.md), lines 89-91 | fifteen issue types map to fifteen rules | [0020](0020-js-rule-set-severities-addon-profile-and-windows-support.md): thirteen rules; the two namespace rules are withdrawn |
 | [0010](0010-js-analysis-on-oxc.md), consequences | exact oxc pins conflict with a host on a different oxc; such a host leaves `js-analysis` off or aligns its pin | [0021](0021-oxc-lockstep-with-poly.md): skif tracks the oxc release poly pins, so poly patches skif's oxc crates to its git copy |
 | [0011](0011-plugin-model.md), line 88 | the first 21 plugins ship in 0.2.0 | [0017](0017-release-policy-a-single-complete-0-1-0.md): they ship in 0.1.0 |
+| [0011](0011-plugin-model.md), line 88 | the first set is 21 plugins | [0022](0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md): the table holds 25 plugins |
+| [0012](0012-reporting.md), JSON document | one summary, no per-root data | [0022](0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md): a multi-root run adds a `roots` array |
 | [0013](0013-distribution-and-naming.md), lines 53, 76 and 86 | the floating Action tag is `v1` | [0017](0017-release-policy-a-single-complete-0-1-0.md): `v0` while the version is 0.x |
 | [0013](0013-distribution-and-naming.md), npm channel | a launcher spawns a binary from eight platform packages | [0018](0018-npm-distribution-via-napi-rs.md): a napi addon from six platform packages, no Windows npm packages |
 | [0014](0014-git-hook-integration.md), line 69 | JS analysis is compiled in "from 0.2.0 on" | [0017](0017-release-policy-a-single-complete-0-1-0.md): from 0.1.0 on |

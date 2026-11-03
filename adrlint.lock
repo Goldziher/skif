@@ -105,3 +105,8 @@ blake3 = "b415e4f435e95b85047ac0283d42686c81df426a21ae4d3bbc95f28812f0a72b"
 number = 21
 status = "accepted"
 blake3 = "f7ece8304004557fc1b80a4767033d4f538ec11c686bc9abb73ab1129f2a8227"
+
+[adrs."adrs/0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md"]
+number = 22
+status = "accepted"
+blake3 = "658b5006d492a1d8b75ec6e4d25ea5abd4d29e29ccdf47cd66ed9422492f9c0f"
