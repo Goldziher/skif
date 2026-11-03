@@ -55,7 +55,7 @@ impl<'a> JsAnalysis<'a> {
         sequential: bool,
     ) -> Self {
         let setup = Setup::new(workspace, config, fs, sources);
-        let candidates = discover(fs.as_ref(), workspace);
+        let candidates = discover(fs.as_ref(), workspace, sequential);
         let entries = entry_files(fs.as_ref(), workspace, &setup, &candidates);
         let resolver = ModuleResolver::new(Arc::clone(fs), workspace, &setup);
         let inputs = Inputs {
