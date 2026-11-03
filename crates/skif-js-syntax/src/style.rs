@@ -80,6 +80,14 @@ pub fn parse_stylesheet(path: &Path, source: &str) -> ModuleInfo {
     }
 }
 
+/// Whether `specifier` contains a Sass variable. A leading `$name` segment is an alias root (`$lib/x.css`), not one.
+fn has_variable(specifier: &str) -> bool {
+    let rest = specifier
+        .strip_prefix('$')
+        .map_or(specifier, |after| after.find('/').map_or("", |at| &after[at..]));
+    rest.contains('$')
+}
+
 /// The specifier to resolve, or `None` for one that is not a file or package.
 fn normalize(raw: &str) -> Option<String> {
     let specifier = raw.trim();
@@ -89,7 +97,7 @@ fn normalize(raw: &str) -> Option<String> {
             .any(|prefix| specifier.starts_with(prefix))
         || specifier.contains("#{")
         || specifier.contains("@{")
-        || specifier.contains('$');
+        || has_variable(specifier);
     if skipped {
         return None;
     }
@@ -456,5 +464,10 @@ mod tests {
     fn stylesheet_extensions() {
         assert!(is_stylesheet(Path::new("a/B.SCSS")));
         assert!(!is_stylesheet(Path::new("a.ts")));
+    }
+    #[test]
+    fn alias_roots_starting_with_a_dollar_are_imports_but_variables_are_not() {
+        let source = "@import \"$lib/theme.css\";\n@import \"pkg/$name\";\n@import \"$lib/$part.css\";";
+        assert_eq!(specifiers("a.css", source), ["$lib/theme.css"]);
     }
 }
