@@ -23,6 +23,7 @@ mod entries;
 mod globs;
 mod graph;
 mod input;
+mod lockfile;
 mod manifest_paths;
 mod plugin_source;
 mod provider;

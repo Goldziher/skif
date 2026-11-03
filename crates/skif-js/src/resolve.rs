@@ -6,6 +6,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, PoisonError, RwLock};
 
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use oxc_resolver::{FileMetadata, ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery};
 use serde_json::Value;
 use skif_core::{FileSystem, OsFs};
@@ -169,20 +170,99 @@ impl<K: Eq + Hash, V: Clone> Memo<K, V> {
 
 /// Resolves specifiers for the whole workspace. Cheap to share between threads.
 pub(crate) struct ModuleResolver {
-    with_tsconfig: ResolverGeneric<ResolverFs>,
-    plain: ResolverGeneric<ResolverFs>,
-    style_with_tsconfig: ResolverGeneric<ResolverFs>,
-    style_plain: ResolverGeneric<ResolverFs>,
+    script: Resolvers,
+    style: Resolvers,
     fs: Arc<dyn FileSystem>,
     root: PathBuf,
+    /// The name the repository's Bazel `MODULE.bazel` or `WORKSPACE` gives it, which prefixes root-relative requires.
+    workspace_name: Option<String>,
+    /// The `.gitignore` files of the root and of the packages, with the directory each applies to.
+    ignores: Vec<(PathBuf, Gitignore)>,
     members: BTreeMap<String, Member>,
     scopes: Vec<AliasScope>,
     /// `exports` conditions that select source files, besides the built-in `source`.
     conditions: Vec<String>,
     /// Packages that are not workspace members, by directory, parsed once; `None` when there is no readable manifest.
     directory_packages: Memo<PathBuf, Option<Arc<Member>>>,
-    /// Outcomes of the lookup-directory probe by importer directory and specifier, misses included.
+    /// Outcomes of the lookup-directory probe by the innermost package directory of the importer and specifier, misses
+    /// included.
     module_dir_probes: Memo<(PathBuf, String), Option<Resolved>>,
+}
+
+/// Which language a specifier is written in.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Script,
+    Style,
+}
+
+/// The resolvers of one language: with the `tsconfig` of the importer, and without for files it cannot be applied to.
+struct Resolvers {
+    with_tsconfig: ResolverGeneric<ResolverFs>,
+    plain: ResolverGeneric<ResolverFs>,
+}
+
+impl Resolvers {
+    fn new(fs: &Arc<dyn FileSystem>, options: impl Fn(bool) -> ResolveOptions) -> Self {
+        let make =
+            |tsconfig| ResolverGeneric::new_with_file_system(ResolverFs { fs: Arc::clone(fs) }, options(tsconfig));
+        Self {
+            with_tsconfig: make(true),
+            plain: make(false),
+        }
+    }
+
+    fn attempt(&self, importer: &Path, specifier: &str) -> Result<PathBuf, ResolveError> {
+        match self.with_tsconfig.resolve_file(importer, specifier) {
+            Ok(resolution) => Ok(resolution.path().to_path_buf()),
+            Err(error @ (ResolveError::NotFound(_) | ResolveError::MatchedAliasNotFound(..))) => Err(error),
+            Err(_) => self
+                .plain
+                .resolve_file(importer, specifier)
+                .map(|resolution| resolution.path().to_path_buf()),
+        }
+    }
+}
+
+/// The `name` argument of a Bazel `module(...)` or `workspace(...)` call.
+fn bazel_workspace_name(fs: &dyn FileSystem, root: &Path) -> Option<String> {
+    ["MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel"].iter().find_map(|file| {
+        let text = fs.read_to_string(&root.join(file)).ok()?;
+        let call = if *file == "MODULE.bazel" { "module(" } else { "workspace(" };
+        let at = text.match_indices(call).find_map(|(at, _)| {
+            text[..at]
+                .chars()
+                .next_back()
+                .is_none_or(|before| !(before.is_alphanumeric() || before == '_'))
+                .then_some(at)
+        })?;
+        let body = &text[at + call.len()..];
+        let body = &body[..body.find(')')?];
+        let at = body.match_indices("name").find_map(|(at, _)| {
+            body[..at]
+                .chars()
+                .next_back()
+                .is_none_or(|before| !(before.is_alphanumeric() || before == '_'))
+                .then_some(at)
+        })?;
+        let value = body[at + "name".len()..].trim_start().strip_prefix('=')?.trim_start();
+        let quote = value.chars().next().filter(|quote| matches!(quote, '"' | '\''))?;
+        let value = &value[1..];
+        let name = &value[..value.find(quote)?];
+        (!name.is_empty()).then(|| name.to_owned())
+    })
+}
+
+/// The `.gitignore` of `dir`, if it has one.
+fn read_gitignore(fs: &dyn FileSystem, dir: &Path) -> Option<(PathBuf, Gitignore)> {
+    let text = fs.read_to_string(&dir.join(".gitignore")).ok()?;
+    let mut builder = GitignoreBuilder::new(dir);
+    for line in text.lines() {
+        if builder.add_line(None, line).is_err() {
+            continue;
+        }
+    }
+    Some((dir.to_path_buf(), builder.build().ok()?))
 }
 
 /// Options for specifiers written in stylesheets: stylesheet extensions and the `style` export condition.
@@ -204,13 +284,14 @@ fn options(tsconfig: bool, conditions: &[String]) -> ResolveOptions {
     ResolveOptions {
         tsconfig: tsconfig.then_some(TsconfigDiscovery::Auto),
         extensions: owned(&[
-            ".ts", ".tsx", ".mts", ".cts", ".d.ts", ".js", ".jsx", ".mjs", ".cjs", ".json", ".vue", ".svelte", ".astro",
+            ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".json", ".vue", ".svelte", ".astro", ".d.ts",
         ]),
+        // A declaration file only stands in for a runtime file that is not there: the runtime file is what is loaded.
         extension_alias: vec![
-            (".js".to_owned(), owned(&[".ts", ".tsx", ".d.ts", ".js"])),
+            (".js".to_owned(), owned(&[".ts", ".tsx", ".js", ".d.ts"])),
             (".jsx".to_owned(), owned(&[".tsx", ".jsx"])),
-            (".mjs".to_owned(), owned(&[".mts", ".d.mts", ".mjs"])),
-            (".cjs".to_owned(), owned(&[".cts", ".d.cts", ".cjs"])),
+            (".mjs".to_owned(), owned(&[".mts", ".mjs", ".d.mts"])),
+            (".cjs".to_owned(), owned(&[".cts", ".cjs", ".d.cts"])),
         ],
         condition_names: owned(&["import", "require", "node", "default", "types"])
             .into_iter()
@@ -233,12 +314,8 @@ impl ModuleResolver {
             .collect();
         conditions.sort();
         conditions.dedup();
-        let make = |tsconfig| {
-            ResolverGeneric::new_with_file_system(ResolverFs { fs: Arc::clone(&fs) }, options(tsconfig, &conditions))
-        };
-        let make_style = |tsconfig| {
-            ResolverGeneric::new_with_file_system(ResolverFs { fs: Arc::clone(&fs) }, style_options(tsconfig))
-        };
+        let script = Resolvers::new(&fs, |tsconfig| options(tsconfig, &conditions));
+        let style = Resolvers::new(&fs, style_options);
         let members = workspace
             .all_packages()
             .filter_map(|package| {
@@ -304,11 +381,22 @@ impl ModuleResolver {
             })
             .collect();
         scopes.sort_by_key(|scope| std::cmp::Reverse(scope.dir.components().count()));
+        let mut ignore_dirs = vec![workspace.root.clone()];
+        for package in workspace.all_packages() {
+            let dir = workspace.root.join(&package.dir);
+            if !ignore_dirs.contains(&dir) {
+                ignore_dirs.push(dir);
+            }
+        }
+        let ignores = ignore_dirs
+            .iter()
+            .filter_map(|dir| read_gitignore(fs.as_ref(), dir))
+            .collect();
         Self {
-            with_tsconfig: make(true),
-            plain: make(false),
-            style_with_tsconfig: make_style(true),
-            style_plain: make_style(false),
+            script,
+            style,
+            workspace_name: bazel_workspace_name(fs.as_ref(), &workspace.root),
+            ignores,
             fs,
             root: workspace.root.clone(),
             members,
@@ -327,15 +415,40 @@ impl ModuleResolver {
         }
     }
 
-    fn attempt(&self, importer: &Path, specifier: &str) -> Result<PathBuf, ResolveError> {
-        match self.with_tsconfig.resolve_file(importer, specifier) {
-            Ok(resolution) => Ok(resolution.path().to_path_buf()),
-            Err(error @ (ResolveError::NotFound(_) | ResolveError::MatchedAliasNotFound(..))) => Err(error),
-            Err(_) => self
-                .plain
-                .resolve_file(importer, specifier)
-                .map(|resolution| resolution.path().to_path_buf()),
+    const fn resolvers(&self, kind: Kind) -> &Resolvers {
+        match kind {
+            Kind::Script => &self.script,
+            Kind::Style => &self.style,
         }
+    }
+
+    /// Whether `path` is listed in a `.gitignore`, so it may be generated and absent from a fresh checkout.
+    fn is_generated(&self, path: &Path) -> bool {
+        self.ignores.iter().any(|(dir, ignore)| {
+            path.starts_with(dir) && ignore.matched_path_or_any_parents(path, false).is_ignore()
+        })
+    }
+
+    /// What a relative specifier that names nothing is: unresolved, or unknown when it points at an ignored path.
+    fn missing(&self, importer: &Path, specifier: &str) -> Resolved {
+        let generated = specifier.starts_with('.')
+            && importer
+                .parent()
+                .is_some_and(|dir| self.is_generated(&join_normalized(dir, specifier)));
+        if generated {
+            Resolved::Ignored
+        } else {
+            Resolved::Unresolved
+        }
+    }
+
+    /// The outcome of an alias: an alias into `node_modules` names the package it points at.
+    fn aliased(found: Resolved) -> Outcome {
+        let package = match &found {
+            Resolved::External(name) => Some(name.clone()),
+            _ => None,
+        };
+        Outcome { target: found, package }
     }
 
     /// Resolves `specifier` as written in the file `importer`.
@@ -347,49 +460,54 @@ impl ModuleResolver {
         if has_foreign_scheme(specifier) {
             return outcome(Resolved::Ignored, None);
         }
+        self.resolve_module(Kind::Script, importer, specifier)
+    }
+
+    /// A specifier that is neither relative, a builtin nor foreign: lookup directories, installed packages, aliases.
+    ///
+    /// Lookup directories (`baseUrl`, `resolve.modules`) and the workspace-name prefix come first, as they do for
+    /// TypeScript and the bundlers; an alias is tried when nothing is installed.
+    fn resolve_module(&self, kind: Kind, importer: &Path, specifier: &str) -> Outcome {
+        let outcome = |target, package| Outcome { target, package };
         if let Some(name) = node_modules_specifier_package(specifier) {
             return self.package_target(&name, specifier);
         }
         let name = package_name(specifier);
+        if name.is_some()
+            && let Some(found) = self
+                .through_workspace_name(specifier)
+                .or_else(|| self.through_module_dirs(importer, specifier))
+        {
+            return outcome(found, None);
+        }
         let member_name = name.clone().filter(|name| self.members.contains_key(name));
-        if let Ok(path) = self.attempt(importer, specifier) {
+        if let Ok(path) = self.resolvers(kind).attempt(importer, specifier) {
             if let Some(installed) = node_modules_package(&path) {
                 let package = name.unwrap_or(installed);
                 return self.package_target(&package, specifier);
             }
-            outcome(self.classify(path), member_name)
-        } else {
-            let aliased = self.through_alias(importer, specifier);
-            // An alias whose target is missing is not final: bundlers fall through to their lookup directories.
-            if let Some(found) = aliased
-                .as_ref()
-                .filter(|resolved| !matches!(resolved, Resolved::Unresolved))
-            {
-                return outcome(found.clone(), None);
-            }
-            if (name.is_some() || aliased.is_some())
-                && let Some(found) = self.through_module_dirs(importer, specifier)
-            {
-                return outcome(found, None);
-            }
-            if let Some(aliased) = aliased {
-                return outcome(aliased, None);
-            }
-            match name {
-                Some(name) => self.package_target(&name, specifier),
-                None => outcome(Resolved::Unresolved, None),
-            }
+            return outcome(self.classify(path), member_name);
         }
-    }
-
-    fn style_attempt(&self, importer: &Path, specifier: &str) -> Result<PathBuf, ResolveError> {
-        match self.style_with_tsconfig.resolve_file(importer, specifier) {
-            Ok(resolution) => Ok(resolution.path().to_path_buf()),
-            Err(error @ (ResolveError::NotFound(_) | ResolveError::MatchedAliasNotFound(..))) => Err(error),
-            Err(_) => self
-                .style_plain
-                .resolve_file(importer, specifier)
-                .map(|resolution| resolution.path().to_path_buf()),
+        let aliased = self.through_alias(importer, specifier);
+        // An alias whose target is missing is not final: bundlers fall through to their lookup directories.
+        if let Some(found) = aliased
+            .as_ref()
+            .filter(|resolved| !matches!(resolved, Resolved::Unresolved))
+        {
+            return Self::aliased(found.clone());
+        }
+        if aliased.is_some()
+            && name.is_none()
+            && let Some(found) = self.through_module_dirs(importer, specifier)
+        {
+            return outcome(found, None);
+        }
+        if let Some(aliased) = aliased {
+            return outcome(aliased, None);
+        }
+        match name {
+            Some(name) => self.package_target(&name, specifier),
+            None => outcome(self.missing(importer, specifier), None),
         }
     }
 
@@ -411,7 +529,31 @@ impl ModuleResolver {
             format!("{prefix}{name}/_index"),
         ]
         .iter()
-        .find_map(|candidate| self.style_attempt(importer, candidate).ok())
+        .find_map(|candidate| self.style.attempt(importer, candidate).ok())
+    }
+
+    /// A root-relative stylesheet (`@import "/src/x.css"`): a file system path, else relative to the package that
+    /// holds the importer, to the repository root or to the `public` directory, as dev servers serve it.
+    ///
+    /// Nothing found is unknown rather than unresolved: the server may map the path to anything.
+    fn root_relative_style(&self, importer: &Path, specifier: &str) -> Resolved {
+        if let Some(path) = self.local_style(importer, specifier) {
+            return self.classify(path);
+        }
+        let rest = specifier.trim_start_matches('/');
+        let package_dir = self
+            .scopes
+            .iter()
+            .find(|scope| importer.starts_with(&scope.dir))
+            .map_or(self.root.as_path(), |scope| scope.dir.as_path());
+        [
+            package_dir.join(rest),
+            self.root.join(rest),
+            package_dir.join("public").join(rest),
+        ]
+        .iter()
+        .find_map(|candidate| self.local_style(importer, &candidate.to_string_lossy()))
+        .map_or(Resolved::Ignored, |path| self.classify(path))
     }
 
     /// Resolves `specifier` as written in the stylesheet `importer`.
@@ -423,7 +565,10 @@ impl ModuleResolver {
         if has_foreign_scheme(specifier) {
             return outcome(Resolved::Ignored, None);
         }
-        let relative = specifier.starts_with(['.', '/']);
+        if specifier.starts_with('/') {
+            return outcome(self.root_relative_style(importer, specifier), None);
+        }
+        let relative = specifier.starts_with('.');
         let preprocessed = importer
             .extension()
             .and_then(|extension| extension.to_str())
@@ -438,57 +583,43 @@ impl ModuleResolver {
                 return outcome(self.classify(path), None);
             }
             if relative {
-                return outcome(Resolved::Unresolved, None);
+                return outcome(self.missing(importer, specifier), None);
             }
         }
-        if let Some(name) = node_modules_specifier_package(specifier) {
-            return self.package_target(&name, specifier);
+        self.resolve_module(Kind::Style, importer, specifier)
+    }
+
+    /// `ws/<path>` where `ws` is the name the Bazel workspace gives the repository: the file `<path>` under the root.
+    fn through_workspace_name(&self, specifier: &str) -> Option<Resolved> {
+        let name = self.workspace_name.as_deref()?;
+        let rest = specifier.strip_prefix(name)?.strip_prefix('/')?;
+        if rest.is_empty() {
+            return None;
         }
-        let name = package_name(specifier);
-        let member_name = name.clone().filter(|name| self.members.contains_key(name));
-        if let Ok(path) = self.style_attempt(importer, specifier) {
-            if let Some(installed) = node_modules_package(&path) {
-                let package = name.unwrap_or(installed);
-                return self.package_target(&package, specifier);
-            }
-            return outcome(self.classify(path), member_name);
-        }
-        let aliased = self.through_alias(importer, specifier);
-        // An alias whose target is missing is not final: bundlers fall through to their lookup directories.
-        if let Some(found) = aliased
-            .as_ref()
-            .filter(|resolved| !matches!(resolved, Resolved::Unresolved))
-        {
-            return outcome(found.clone(), None);
-        }
-        if (name.is_some() || aliased.is_some())
-            && let Some(found) = self.through_module_dirs(importer, specifier)
-        {
-            return outcome(found, None);
-        }
-        if let Some(aliased) = aliased {
-            return outcome(aliased, None);
-        }
-        match name {
-            Some(name) => self.package_target(&name, specifier),
-            None => outcome(Resolved::Unresolved, None),
-        }
+        let path = join_normalized(&self.root, rest);
+        self.script
+            .plain
+            .resolve(&self.root, &path.to_string_lossy())
+            .ok()
+            .map(|resolution| self.classify(resolution.path().to_path_buf()))
     }
 
     /// Looks a bare specifier up in the lookup directories of the importer's package (`baseUrl`, `paths` wildcards,
     /// `resolve.modules`), in order. A specifier that names a file there is a file import, never a package.
     fn through_module_dirs(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
-        let directory = importer.parent()?;
+        // The packages whose directories hold the importer form a chain, so the innermost one identifies them all.
+        let innermost = self.scopes.iter().find(|scope| importer.starts_with(&scope.dir))?;
         self.module_dir_probes
-            .get_or_compute((directory.to_path_buf(), specifier.to_owned()), || {
+            .get_or_compute((innermost.dir.clone(), specifier.to_owned()), || {
                 self.scopes
                     .iter()
-                    .filter(|scope| importer.starts_with(&scope.dir))
+                    .filter(|scope| innermost.dir.starts_with(&scope.dir))
                     .flat_map(|scope| &scope.module_dirs)
                     .find_map(|dir| {
                         let path = join_normalized(dir, specifier);
-                        self.plain
-                            .resolve(directory, &path.to_string_lossy())
+                        self.script
+                            .plain
+                            .resolve(&innermost.dir, &path.to_string_lossy())
                             .ok()
                             .map(|resolution| self.classify(resolution.path().to_path_buf()))
                     })
@@ -518,11 +649,18 @@ impl ModuleResolver {
                     continue;
                 };
                 let path = join_normalized(target, rest);
-                if let Ok(resolution) = self.plain.resolve(directory, &path.to_string_lossy()) {
+                // An alias into `node_modules` is the package there, installed or not.
+                if let Some(package) = node_modules_package(&path) {
+                    return Some(Resolved::External(package));
+                }
+                if let Ok(resolution) = self.script.plain.resolve(directory, &path.to_string_lossy()) {
                     return Some(self.classify(resolution.path().to_path_buf()));
                 }
                 if let Some(found) = self.through_package_directory(target, rest) {
                     return Some(found);
+                }
+                if self.is_generated(&path) {
+                    return Some(Resolved::Ignored);
                 }
             }
         }
@@ -610,13 +748,15 @@ impl ModuleResolver {
                 .filter_map(|field| member.manifest.get(*field)?.as_str())
                 .find_map(|target| self.map_member_target(member, target))
                 .or_else(|| {
-                    self.plain
+                    self.script
+                        .plain
                         .resolve(&member.dir, ".")
                         .ok()
                         .map(|resolution| resolution.path().to_path_buf())
                 })
                 .or_else(|| map_to_source(self.fs.as_ref(), &member.dir, "src/index")),
             Some(sub) => self
+                .script
                 .plain
                 .resolve(&member.dir, &format!("./{sub}"))
                 .ok()
@@ -925,5 +1065,150 @@ mod tests {
         assert_eq!(r.resolve(importer, "@bare").target, Resolved::Ignored);
         assert_eq!(r.resolve(importer, "@gone").target, Resolved::Unresolved);
         assert_eq!(r.resolve(importer, "@kit/nothing").target, Resolved::Unresolved);
+    }
+    fn file(path: &str) -> Resolved {
+        Resolved::File(PathBuf::from(path))
+    }
+
+    #[test]
+    fn declaration_files_only_stand_in_for_missing_runtime_files() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            ("src/main.js", ""),
+            ("src/Card.js", ""),
+            ("src/Card.d.ts", ""),
+            ("src/Types.d.ts", ""),
+            ("src/Typed.ts", ""),
+            ("src/Typed.d.ts", ""),
+        ]);
+        let importer = Path::new("/ws/src/main.js");
+        assert_eq!(r.resolve(importer, "./Card").target, file("/ws/src/Card.js"));
+        assert_eq!(r.resolve(importer, "./Card.js").target, file("/ws/src/Card.js"));
+        assert_eq!(r.resolve(importer, "./Types").target, file("/ws/src/Types.d.ts"));
+        assert_eq!(r.resolve(importer, "./Typed").target, file("/ws/src/Typed.ts"));
+    }
+
+    #[test]
+    fn lookup_directories_beat_installed_packages() {
+        let inputs = WorkspaceInputs {
+            module_dirs: vec!["src".to_owned()],
+            ..WorkspaceInputs::default()
+        };
+        let r = resolver_with(
+            &[
+                ("package.json", ROOT),
+                ("src/main.ts", ""),
+                ("src/utils/index.ts", ""),
+                ("node_modules/utils/package.json", r#"{"name":"utils","main":"index.js"}"#),
+                ("node_modules/utils/index.js", ""),
+                ("node_modules/react/package.json", r#"{"name":"react","main":"index.js"}"#),
+                ("node_modules/react/index.js", ""),
+            ],
+            inputs,
+        );
+        let importer = Path::new("/ws/src/main.ts");
+        let local = r.resolve(importer, "utils");
+        assert_eq!(local.target, file("/ws/src/utils/index.ts"));
+        assert_eq!(local.package, None);
+        assert_eq!(r.resolve(importer, "react").package.as_deref(), Some("react"));
+    }
+
+    #[test]
+    fn alias_into_node_modules_is_the_package_even_when_not_installed() {
+        let inputs = WorkspaceInputs {
+            aliases: vec![alias("svelte", Some("node_modules/svelte"))],
+            ..WorkspaceInputs::default()
+        };
+        let r = resolver_with(&[("package.json", ROOT), ("src/main.js", "")], inputs);
+        let outcome = r.resolve(Path::new("/ws/src/main.js"), "svelte");
+        assert_eq!(outcome.target, Resolved::External("svelte".to_owned()));
+        assert_eq!(outcome.package.as_deref(), Some("svelte"));
+        let nested = r.resolve(Path::new("/ws/src/main.js"), "svelte/store");
+        assert_eq!(nested.package.as_deref(), Some("svelte"));
+    }
+
+    #[test]
+    fn root_relative_stylesheets_resolve_from_the_package_root() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            ("src/styles/main.css", ""),
+            ("src/styles/reset.css", ""),
+            ("public/fonts.css", ""),
+        ]);
+        let importer = Path::new("/ws/src/styles/main.css");
+        assert_eq!(
+            r.resolve_style(importer, "/src/styles/reset.css").target,
+            file("/ws/src/styles/reset.css")
+        );
+        assert_eq!(r.resolve_style(importer, "/fonts.css").target, file("/ws/public/fonts.css"));
+        assert_eq!(r.resolve_style(importer, "/served/by/server.css").target, Resolved::Ignored);
+        assert_eq!(r.resolve_style(importer, "./missing.css").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn dollar_aliases_resolve_in_stylesheets() {
+        let r = resolver(&[("package.json", ROOT), ("src/lib/theme.css", ""), ("src/routes/page.css", "")]);
+        let importer = Path::new("/ws/src/routes/page.css");
+        assert_eq!(r.resolve_style(importer, "$lib/theme.css").target, file("/ws/src/lib/theme.css"));
+    }
+
+    #[test]
+    fn ignored_targets_are_unknown_rather_than_unresolved() {
+        let inputs = WorkspaceInputs {
+            aliases: vec![alias("@gen", Some("generated"))],
+            ..WorkspaceInputs::default()
+        };
+        let r = resolver_with(
+            &[
+                ("package.json", ROOT),
+                (".gitignore", "src/consts/\ngenerated\n!generated/kept.ts\n"),
+                ("src/main.ts", ""),
+            ],
+            inputs,
+        );
+        let importer = Path::new("/ws/src/main.ts");
+        assert_eq!(r.resolve(importer, "./consts/index").target, Resolved::Ignored);
+        assert_eq!(r.resolve(importer, "@gen/x").target, Resolved::Ignored);
+        assert_eq!(r.resolve(importer, "./other/index").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn bazel_workspace_name_prefixes_root_relative_requires() {
+        for (marker, text) in [
+            ("MODULE.bazel", "module(\n    name = \"mono\",\n    version = \"1.0\",\n)\n"),
+            ("WORKSPACE", "workspace(name = 'mono')\n"),
+        ] {
+            let r = resolver(&[
+                ("package.json", ROOT),
+                (marker, text),
+                ("src/main.js", ""),
+                ("lib/util.js", ""),
+            ]);
+            let importer = Path::new("/ws/src/main.js");
+            let found = r.resolve(importer, "mono/lib/util");
+            assert_eq!(found.target, file("/ws/lib/util.js"), "{marker}");
+            assert_eq!(found.package, None, "{marker}");
+            assert_eq!(
+                r.resolve(importer, "mono/lib/missing").target,
+                Resolved::External("mono".to_owned()),
+                "{marker}"
+            );
+            assert_eq!(
+                r.resolve(importer, "other/lib/util").target,
+                Resolved::External("other".to_owned()),
+                "{marker}"
+            );
+        }
+    }
+
+    #[test]
+    fn bazel_name_is_read_from_the_module_call_only() {
+        let fs = MemoryFs::new().with_file(
+            "/ws/MODULE.bazel",
+            "bazel_dep(name = \"rules_x\", version = \"1\")\nmodule(repo_name = \"r\", name = \"mono\")\n",
+        );
+        assert_eq!(bazel_workspace_name(&fs, Path::new("/ws")).as_deref(), Some("mono"));
+        let none = MemoryFs::new().with_file("/ws/MODULE.bazel", "bazel_dep(name = \"rules_x\")\n");
+        assert_eq!(bazel_workspace_name(&none, Path::new("/ws")), None);
     }
 }
