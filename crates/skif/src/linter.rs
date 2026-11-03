@@ -40,7 +40,8 @@ pub fn builtin_providers(config: &Config, fs: Arc<dyn FileSystem>) -> Vec<Box<dy
 pub struct RunOptions<'a> {
     /// Set to stop the run before the next rule or provider starts; the run then fails with a cancellation error.
     pub cancel: Option<&'a AtomicBool>,
-    /// Run rules on a dedicated pool of this many threads; `None` uses the global pool.
+    /// Run discovery, graph building and rules on a dedicated pool of this many threads; `None` uses the global
+    /// pool. `1` runs everything on the calling thread and spawns no threads.
     pub threads: Option<NonZeroUsize>,
     /// Run only these rules (a subset of the otherwise enabled ones); `None` runs every enabled rule.
     pub rules: Option<&'a [String]>,
@@ -147,6 +148,26 @@ impl Linter {
         &self.config
     }
 
+    /// Discovers the workspace at `root` through `fs` under this linter's configuration, loading members on the
+    /// pool `options.threads` selects (see [`Workspace::discover_with_threads`]). Use it with
+    /// [`run_with`](Self::run_with) so one thread budget covers both stages.
+    ///
+    /// # Errors
+    /// [`Error::Workspace`] when discovery fails or the pool cannot be built.
+    pub fn discover_with_fs(
+        &self,
+        root: &Path,
+        fs: &dyn FileSystem,
+        options: &RunOptions<'_>,
+    ) -> Result<Workspace, Error> {
+        Ok(Workspace::discover_with_threads(
+            root,
+            &self.config,
+            fs,
+            options.threads,
+        )?)
+    }
+
     /// Lints `workspace` with the default execution settings.
     ///
     /// # Errors
@@ -162,8 +183,10 @@ impl Linter {
     /// pool cannot be built, and [`Error::Lint`] when a provider fails or the run is cancelled.
     pub fn run_with(&self, workspace: &Workspace, options: &RunOptions<'_>) -> Result<Report, Error> {
         let config = self.restricted(options.rules)?;
+        let sequential = options.threads.is_some_and(|threads| threads.get() == 1);
         let pool = options
             .threads
+            .filter(|_| !sequential)
             .map(|threads| {
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(threads.get())
@@ -175,6 +198,7 @@ impl Linter {
             pool: pool.as_ref(),
             cancel: options.cancel,
             config_path: options.config_path,
+            sequential,
         };
         Ok(skif_lint::run(&self.registry, workspace, &config, &run_options)?)
     }

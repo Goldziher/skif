@@ -2191,7 +2191,6 @@ dependencies = [
  "indexmap",
  "insta",
  "oxc_resolver",
- "rayon",
  "serde",
  "serde_json",
  "skif-config",

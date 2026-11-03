@@ -44,13 +44,15 @@ pub struct JsAnalysis<'a> {
 impl<'a> JsAnalysis<'a> {
     /// Discovers files, builds the graph and computes usage.
     ///
-    /// `sources` supply plugin-provided entries, project files, ignores and references.
+    /// `sources` supply plugin-provided entries, project files, ignores and references. With `sequential`, parsing
+    /// runs on the calling thread and rayon is not used; otherwise it runs on the current rayon pool.
     #[must_use]
     pub fn build(
         workspace: &'a Workspace,
         config: &Config,
         fs: &Arc<dyn FileSystem>,
         sources: &[Arc<dyn InputSource>],
+        sequential: bool,
     ) -> Self {
         let setup = Setup::new(workspace, config, fs, sources);
         let candidates = discover(fs.as_ref(), workspace);
@@ -62,6 +64,7 @@ impl<'a> JsAnalysis<'a> {
             root: &workspace.root,
             candidates: &candidates,
             setup: &setup,
+            sequential,
         };
         let graph = graph::build(&inputs, &entries);
         let exports = ExportUsage::compute(&graph, setup.include_entry_exports);

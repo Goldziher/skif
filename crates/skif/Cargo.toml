@@ -73,6 +73,10 @@ name = "js"
 required-features = ["js-analysis"]
 
 [[test]]
+name = "threads"
+required-features = ["js-analysis"]
+
+[[test]]
 name = "docs"
 required-features = ["js-analysis"]
 

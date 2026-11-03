@@ -13,13 +13,15 @@ use crate::registry::Registry;
 /// Host-controlled execution settings.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RunOptions<'a> {
-    /// Thread pool to run rules on; `None` uses the current (global) pool.
+    /// Thread pool to run rules on; `None` uses the current (global) pool. Ignored when `sequential` is set.
     pub pool: Option<&'a rayon::ThreadPool>,
     /// Set to stop the run before the next rule or provider starts.
     pub cancel: Option<&'a AtomicBool>,
     /// The configuration file the configuration was loaded from, relative to the workspace root. Diagnostics about
     /// the configuration itself point at it; `None` falls back to `skif.toml`.
     pub config_path: Option<&'a Path>,
+    /// Run everything on the calling thread: no rayon pool is used or created and `pool` is ignored.
+    pub sequential: bool,
 }
 
 /// A lint run failed.
@@ -73,11 +75,12 @@ pub fn run_unsorted(
         config,
         enabled: &enabled,
         config_path: options.config_path,
+        sequential: options.sequential,
     };
     let job = || execute(registry, &cx, options);
     match options.pool {
-        Some(pool) => pool.install(job),
-        None => job(),
+        Some(pool) if !options.sequential => pool.install(job),
+        _ => job(),
     }
 }
 

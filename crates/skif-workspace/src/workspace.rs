@@ -1,10 +1,10 @@
 //! Workspace discovery: root manifest, patterns, members, catalogs and package manager.
 
 use std::collections::BTreeSet;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rayon::prelude::*;
 use serde_json::Value;
 use skif_config::{Config, PackageManager};
 use skif_core::{DirEntry, FileSystem, LineIndex, OsFs, PathSeg, Span};
@@ -13,6 +13,7 @@ use crate::catalogs::{self, Catalogs};
 use crate::detect;
 use crate::error::WorkspaceError;
 use crate::package::{Package, PackageId};
+use crate::parallel::map_ordered;
 use crate::pattern::{self, Expander, Pattern};
 use crate::pnpm::{self, YamlSource};
 
@@ -219,6 +220,43 @@ impl Workspace {
     /// # Errors
     /// See [`WorkspaceError`]; a broken member manifest is not an error but is listed in `manifest_errors`.
     pub fn discover_with_fs(root: &Path, config: &Config, fs: &dyn FileSystem) -> Result<Self, WorkspaceError> {
+        Self::discover_inner(root, config, fs, false)
+    }
+
+    /// Discovers the workspace at `root` through `fs`, loading members under `threads`.
+    ///
+    /// `Some(1)` loads members on the calling thread and spawns no threads; `Some(n)` loads them on a dedicated
+    /// pool of `n` threads that is gone when this returns; `None` uses the current rayon pool, as
+    /// [`discover_with_fs`](Self::discover_with_fs) does. The result does not depend on `threads`.
+    ///
+    /// # Errors
+    /// [`WorkspaceError::ThreadPool`] when the pool cannot be built, otherwise as
+    /// [`discover_with_fs`](Self::discover_with_fs).
+    pub fn discover_with_threads(
+        root: &Path,
+        config: &Config,
+        fs: &dyn FileSystem,
+        threads: Option<NonZeroUsize>,
+    ) -> Result<Self, WorkspaceError> {
+        match threads {
+            None => Self::discover_inner(root, config, fs, false),
+            Some(threads) if threads.get() == 1 => Self::discover_inner(root, config, fs, true),
+            Some(threads) => {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(threads.get())
+                    .build()
+                    .map_err(|error| WorkspaceError::ThreadPool(error.to_string()))?;
+                pool.install(|| Self::discover_inner(root, config, fs, false))
+            }
+        }
+    }
+
+    fn discover_inner(
+        root: &Path,
+        config: &Config,
+        fs: &dyn FileSystem,
+        sequential: bool,
+    ) -> Result<Self, WorkspaceError> {
         let root = root.to_path_buf();
         if !fs.is_dir(&root) {
             return Err(WorkspaceError::NotADirectory(root));
@@ -366,7 +404,7 @@ impl Workspace {
         }
 
         let dirs: Vec<&String> = selected.iter().collect();
-        let members: Vec<Member> = dirs.par_iter().map(|dir| load_member(fs, &root, dir)).collect();
+        let members: Vec<Member> = map_ordered(&dirs, sequential, |dir| load_member(fs, &root, dir));
         let mut packages = Vec::new();
         let mut dirs_without_manifest = Vec::new();
         for member in members {
