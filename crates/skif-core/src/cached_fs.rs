@@ -2,10 +2,9 @@
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::hash::RandomState;
+use std::hash::{BuildHasher, RandomState};
 use std::io;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, PoisonError, RwLock};
 
 use crate::fs::{DirEntry, FileSystem};
@@ -33,7 +32,7 @@ impl<V: Clone> Sharded<V> {
     }
 
     fn shard(&self, key: &Path) -> &RwLock<HashMap<PathBuf, V>> {
-        let index = usize::try_from(std::hash::BuildHasher::hash_one(&self.hasher, key) % SHARDS).unwrap_or(0);
+        let index = usize::try_from(self.hasher.hash_one(key) % SHARDS).unwrap_or(0);
         &self.shards[index]
     }
 
