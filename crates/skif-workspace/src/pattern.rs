@@ -203,9 +203,9 @@ impl Expander<'_> {
     /// Non-hidden subdirectories of `dir`; symbolic links to directories only when `follow_symlinks`.
     fn child_dirs(&self, dir: &str, follow_symlinks: bool) -> Vec<String> {
         self.fs
-            .read_dir(&self.absolute(dir))
+            .read_dir_shared(&self.absolute(dir))
             .unwrap_or_default()
-            .into_iter()
+            .iter()
             .filter(|entry| entry.is_dir && (follow_symlinks || !entry.is_symlink))
             .filter_map(|entry| entry.path.file_name().map(|name| name.to_string_lossy().into_owned()))
             .filter(|name| !is_ignored_name(name))
