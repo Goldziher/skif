@@ -2,7 +2,7 @@ use skif_core::{Category, Fixability, RuleMeta, Severity, diagnostic};
 use skif_lint::Emitter;
 
 use super::JsRule;
-use super::support::module_location;
+use super::support::{is_fixture, module_location};
 use crate::analysis::JsAnalysis;
 use crate::graph::Target;
 
@@ -25,7 +25,7 @@ impl JsRule for UnresolvedImports {
 
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
         for module in analysis.graph.modules() {
-            if module.ignored || analysis.is_skipped(module.owner) {
+            if module.ignored || is_fixture(module) || analysis.is_skipped(module.owner) {
                 continue;
             }
             let package = analysis.workspace.package(module.owner);
