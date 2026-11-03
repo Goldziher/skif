@@ -124,7 +124,7 @@ pub struct LintArgs {
     #[arg(long)]
     pub no_install: bool,
 
-    /// Exit 1 when there are more than N warnings.
+    /// Exit 1 when there are more than N warnings (counted over all roots).
     #[arg(long, value_name = "N")]
     pub max_warnings: Option<usize>,
 
