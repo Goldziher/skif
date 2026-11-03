@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use rayon::prelude::*;
 use serde_json::Value;
 use skif_config::Config;
 use skif_core::{DirEntry, FileSystem};
@@ -179,41 +180,61 @@ pub struct Candidates {
 /// the repository root and `start` and by `.git/info/exclude`.
 #[must_use]
 pub fn scan_candidates(start: &Path, fs: &dyn FileSystem, options: &DiscoverOptions) -> Candidates {
-    let mut found = Candidates::default();
-    let mut stack = vec![(start.to_path_buf(), 0_usize, inherited_ignores(fs, start))];
-    while let Some((dir, depth, ignores)) = stack.pop() {
-        let Ok(entries) = fs.read_dir(&dir) else { continue };
-        let names: Vec<&str> = entries
-            .iter()
-            .filter(|entry| entry.is_file)
-            .filter_map(|entry| entry.path.file_name().and_then(|name| name.to_str()))
-            .collect();
-        let manifest = names.contains(&MANIFEST);
-        if manifest {
-            found.packages.insert(dir.clone());
-        }
-        if names.contains(&PNPM_WORKSPACE) || (manifest && manifest_declares_workspace(fs, &dir)) {
-            found.workspaces.insert(dir.clone());
-        }
-        let files = IGNORE_FILES
-            .iter()
-            .filter(|name| names.contains(name))
-            .map(|name| dir.join(name));
-        let ignores = pushed(ignores, matcher_from(fs, &dir, files));
-        let children: Vec<PathBuf> = entries
-            .into_iter()
-            .filter(|entry| descends(entry) && !is_ignored(&ignores, &entry.path))
-            .map(|entry| entry.path)
-            .collect();
-        if depth >= options.max_depth {
-            if !children.is_empty() {
-                found.truncated.push(dir);
-            }
-            continue;
-        }
-        stack.extend(children.into_iter().map(|child| (child, depth + 1, ignores.clone())));
-    }
+    let mut found = visit(
+        fs,
+        options.max_depth,
+        start.to_path_buf(),
+        0,
+        inherited_ignores(fs, start),
+    );
     found.truncated.sort();
+    found
+}
+
+/// Scans one directory and, in parallel, the directories below it. Results merge into sets and a list sorted at
+/// the end, so the outcome does not depend on the order the threads finish in.
+fn visit(fs: &dyn FileSystem, max_depth: usize, dir: PathBuf, depth: usize, ignores: Ignores) -> Candidates {
+    let mut found = Candidates::default();
+    let Ok(entries) = fs.read_dir_shared(&dir) else {
+        return found;
+    };
+    let names: Vec<&str> = entries
+        .iter()
+        .filter(|entry| entry.is_file)
+        .filter_map(|entry| entry.path.file_name().and_then(|name| name.to_str()))
+        .collect();
+    let manifest = names.contains(&MANIFEST);
+    if manifest {
+        found.packages.insert(dir.clone());
+    }
+    if names.contains(&PNPM_WORKSPACE) || (manifest && manifest_declares_workspace(fs, &dir)) {
+        found.workspaces.insert(dir.clone());
+    }
+    let files = IGNORE_FILES
+        .iter()
+        .filter(|name| names.contains(name))
+        .map(|name| dir.join(name));
+    let ignores = pushed(ignores, matcher_from(fs, &dir, files));
+    let children: Vec<PathBuf> = entries
+        .iter()
+        .filter(|entry| descends(entry) && !is_ignored(&ignores, &entry.path))
+        .map(|entry| entry.path.clone())
+        .collect();
+    if depth >= max_depth {
+        if !children.is_empty() {
+            found.truncated.push(dir);
+        }
+        return found;
+    }
+    let below: Vec<Candidates> = children
+        .into_par_iter()
+        .map(|child| visit(fs, max_depth, child, depth + 1, ignores.clone()))
+        .collect();
+    for child in below {
+        found.packages.extend(child.packages);
+        found.workspaces.extend(child.workspaces);
+        found.truncated.extend(child.truncated);
+    }
     found
 }
 
