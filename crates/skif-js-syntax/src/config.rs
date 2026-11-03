@@ -1,5 +1,6 @@
 //! Static evaluation of the value a tool configuration file exports. Nothing is executed.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -16,6 +17,13 @@ use serde::{Deserialize, Serialize};
 use crate::finder::static_string;
 
 const MAX_DEPTH: u32 = 32;
+
+/// How many constants may be evaluated inside one another; a longer chain is unknown.
+const MAX_CONST_CHAIN: usize = 64;
+
+/// The largest value a constant may evaluate to. Constants that reference each other twice at every level
+/// (`const b = [a, a]; const c = [b, b]; …`) double in size per level; a value past this is unknown.
+const MAX_CONST_NODES: usize = 10_000;
 
 /// A statically known value from a config file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -126,6 +134,8 @@ pub fn extract_config_object(source: &str, path: &Path) -> Option<ConfigValue> {
         consts: &scope,
         bindings: &bindings,
         file,
+        evaluated: RefCell::new(HashMap::new()),
+        chain: RefCell::new(Vec::new()),
     };
     exported_expression(program).map(|expr| eval.expr(expr, 0))
 }
@@ -322,11 +332,24 @@ fn exported_expression<'p, 'a>(program: &'p Program<'a>) -> Option<&'p Expressio
     None
 }
 
+/// The number of values `value` consists of, itself included.
+fn node_count(value: &ConfigValue) -> usize {
+    1 + match value {
+        ConfigValue::Array(items) => items.iter().map(node_count).sum(),
+        ConfigValue::Object(entries) => entries.iter().map(|(_, item)| node_count(item)).sum(),
+        _ => 0,
+    }
+}
+
 struct Evaluator<'c, 'p, 'a> {
     consts: &'c HashMap<String, &'p Expression<'a>>,
     bindings: &'c ModuleBindings,
     /// File name of the config file, which `__filename` and `import.meta.url` name.
     file: &'c str,
+    /// The value of every top-level constant evaluated so far.
+    evaluated: RefCell<HashMap<String, ConfigValue>>,
+    /// The constants being evaluated, outermost first; a constant that refers back to one of them is unknown.
+    chain: RefCell<Vec<String>>,
 }
 
 impl Evaluator<'_, '_, '_> {
@@ -358,10 +381,7 @@ impl Evaluator<'_, '_, '_> {
             }
             Expression::ArrayExpression(a) => self.array(&a.elements, depth),
             Expression::ObjectExpression(o) => self.object(&o.properties, depth),
-            Expression::Identifier(id) => self
-                .consts
-                .get(id.name.as_str())
-                .map_or_else(|| self.global(id.name.as_str()), |init| self.expr(init, depth)),
+            Expression::Identifier(id) => self.identifier(id.name.as_str()),
             Expression::CallExpression(c) => self.call(c, depth),
             Expression::ArrowFunctionExpression(f) => match f.get_expression() {
                 Some(body) => self.expr(body, depth),
@@ -375,6 +395,34 @@ impl Evaluator<'_, '_, '_> {
                 .map_or(ConfigValue::Unknown, |b| self.returned(&b.statements, depth)),
             _ => ConfigValue::Unknown,
         }
+    }
+
+    /// A top-level constant's value, evaluated once however often it is referenced, or a path global.
+    ///
+    /// The value does not depend on where it is referenced from, so it is evaluated from a fresh depth budget.
+    fn identifier(&self, name: &str) -> ConfigValue {
+        let Some(init) = self.consts.get(name) else {
+            return self.global(name);
+        };
+        if let Some(known) = self.evaluated.borrow().get(name) {
+            return known.clone();
+        }
+        {
+            let chain = self.chain.borrow();
+            if chain.len() >= MAX_CONST_CHAIN || chain.iter().any(|active| active == name) {
+                return ConfigValue::Unknown;
+            }
+        }
+        self.chain.borrow_mut().push(name.to_owned());
+        let value = self.expr(init, 0);
+        self.chain.borrow_mut().pop();
+        let value = if node_count(&value) > MAX_CONST_NODES {
+            ConfigValue::Unknown
+        } else {
+            value
+        };
+        self.evaluated.borrow_mut().insert(name.to_owned(), value.clone());
+        value
     }
 
     /// The path of the config file's directory (`__dirname`) or of the file itself (`__filename`).
