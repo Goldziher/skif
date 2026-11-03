@@ -5,7 +5,13 @@
     "workspace": {
       "$ref": "#/$defs/Workspace",
       "default": {
-        "ignore-packages": []
+        "ignore-packages": [],
+        "discover-ignore": [
+          "__fixtures__",
+          "fixtures",
+          "__mocks__",
+          "__snapshots__"
+        ]
       }
     },
     "lint": {
@@ -114,6 +120,19 @@
             }
           ],
           "description": "Overrides package-manager detection."
+        },
+        "discover-ignore": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Gitignore-style patterns, relative to the directory a recursive run starts in, of directories that root\ndiscovery (`-r`) does not enter, so no project below them is found. A bare name matches at any depth; a\npattern with a slash is anchored at the start directory. Replaces the default list\n(`__fixtures__`, `fixtures`, `__mocks__`, `__snapshots__`); `[]` skips nothing. Read from the configuration\nfile that governs the start directory.",
+          "default": [
+            "__fixtures__",
+            "fixtures",
+            "__mocks__",
+            "__snapshots__"
+          ]
         }
       },
       "description": "`[workspace]`"

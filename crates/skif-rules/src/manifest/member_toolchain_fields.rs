@@ -60,6 +60,9 @@ impl Rule for MemberToolchainFields {
     }
 
     fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>) {
+        if !cx.workspace.has_root_manifest {
+            return;
+        }
         let mode = cx
             .config
             .rule(META.id)

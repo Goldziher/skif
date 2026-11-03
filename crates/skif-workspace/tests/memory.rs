@@ -965,3 +965,107 @@ fn pnpm_pattern_spans_follow_duplicates_flow_lists_and_bom() {
         written(&[("a", "a"), ("b", "\"b\"")])
     );
 }
+
+#[test]
+fn a_pnpm_workspace_file_alone_is_a_workspace_without_a_root_manifest() {
+    let workspace = discover(
+        &[
+            ("pnpm-workspace.yaml", "packages:\n  - \"pkgs/*\"\n"),
+            ("pkgs/a/package.json", r#"{"name":"a"}"#),
+            ("pkgs/b/package.json", r#"{"name":"b"}"#),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    assert!(!workspace.has_root_manifest);
+    assert_eq!(workspace.package_manager, Some(PackageManager::Pnpm));
+    assert_eq!(workspace.facts.source, WorkspaceSource::PnpmWorkspaceYaml);
+    assert_eq!(dirs(&workspace), ["pkgs/a", "pkgs/b"]);
+    assert!(
+        workspace.is_ignored(workspace.root_package.id),
+        "the stand-in root is not analysed"
+    );
+    assert!(
+        workspace
+            .packages
+            .iter()
+            .all(|package| !workspace.is_ignored(package.id))
+    );
+}
+
+#[test]
+fn a_root_with_a_manifest_reports_it() {
+    let manifest = root(r#"["p/*"]"#);
+    let member = pkg("a");
+    let workspace = discover(
+        &[
+            ("package.json", manifest.as_str()),
+            ("p/a/package.json", member.as_str()),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    assert!(workspace.has_root_manifest);
+    assert!(!workspace.is_ignored(workspace.root_package.id));
+}
+
+const RUSH: &str = r#"
+// Rush configuration
+{
+  "rushVersion": "5.100.0",
+  "pnpmVersion": "9.1.0",
+  /* members */
+  "projects": [
+    { "packageName": "a", "projectFolder": "apps/a" },
+    { "packageName": "b", "projectFolder": "libs/b", },
+    { "packageName": "gone", "projectFolder": "libs/gone" },
+  ],
+}
+"#;
+
+#[test]
+fn rush_json_declares_the_members_and_the_package_manager() {
+    let workspace = discover(
+        &[
+            ("rush.json", RUSH),
+            ("apps/a/package.json", r#"{"name":"a"}"#),
+            ("libs/b/package.json", r#"{"name":"b"}"#),
+            ("libs/other/package.json", r#"{"name":"other"}"#),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    assert!(!workspace.has_root_manifest);
+    assert_eq!(workspace.facts.source, WorkspaceSource::RushJson);
+    assert_eq!(workspace.package_manager, Some(PackageManager::Pnpm));
+    assert_eq!(dirs(&workspace), ["apps/a", "libs/b"]);
+    let unmatched: Vec<&str> = workspace
+        .facts
+        .patterns
+        .iter()
+        .filter(|fact| fact.matched == 0)
+        .map(|fact| fact.pattern.as_str())
+        .collect();
+    assert_eq!(unmatched, ["libs/gone"]);
+    let fact = &workspace.facts.patterns[0];
+    assert_eq!(fact.file, Path::new("rush.json"));
+    let span = fact.span.unwrap();
+    assert_eq!(&RUSH[span.start as usize..span.end as usize], "\"apps/a\"");
+}
+
+#[test]
+fn the_config_override_beats_the_rush_package_manager() {
+    let config = Config::from_toml_str("[workspace]\npackage-manager = \"npm\"\n").unwrap();
+    let workspace = discover(
+        &[("rush.json", RUSH), ("apps/a/package.json", r#"{"name":"a"}"#)],
+        &config,
+    )
+    .unwrap();
+    assert_eq!(workspace.package_manager, Some(PackageManager::Npm));
+}
+
+#[test]
+fn a_broken_rush_json_is_an_invalid_manifest() {
+    let error = discover(&[("rush.json", "{\"projects\": [")], &Config::default()).unwrap_err();
+    assert!(matches!(error, WorkspaceError::InvalidManifest { .. }), "{error}");
+}

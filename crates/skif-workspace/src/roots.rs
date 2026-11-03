@@ -8,11 +8,12 @@ use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use rayon::prelude::*;
 use serde_json::Value;
-use skif_config::Config;
+use skif_config::{Config, DEFAULT_DISCOVER_IGNORE};
 use skif_core::{DirEntry, FileSystem};
 
 use crate::pattern::{self, Expander, Pattern};
 use crate::pnpm;
+use crate::rush;
 use crate::workspace::Workspace;
 
 const MANIFEST: &str = "package.json";
@@ -27,7 +28,8 @@ const IGNORE_FILES: [&str; 2] = [".gitignore", ".ignore"];
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum RootKind {
-    /// A directory declaring a workspace: a `package.json` with `workspaces`, or a `pnpm-workspace.yaml`.
+    /// A directory declaring a workspace: a `package.json` with `workspaces`, a `pnpm-workspace.yaml` or a
+    /// `rush.json`. It need not hold a `package.json`.
     Workspace(PathBuf),
     /// A `package.json` that belongs to no workspace found below the start directory.
     Package(PathBuf),
@@ -44,24 +46,38 @@ impl RootKind {
 }
 
 /// Bounds for [`discover_roots`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct DiscoverOptions {
     /// Directories deeper than this below the start directory are not entered.
     pub max_depth: usize,
+    /// Gitignore-style patterns, relative to the start directory, of directories the walk does not enter. A bare
+    /// name matches at any depth, a pattern with a slash is anchored at the start directory and `!` re-includes. The
+    /// start directory itself is never skipped. Defaults to [`DEFAULT_DISCOVER_IGNORE`].
+    pub ignore: Vec<String>,
 }
 
 impl Default for DiscoverOptions {
     fn default() -> Self {
-        Self { max_depth: 32 }
+        Self {
+            max_depth: 32,
+            ignore: DEFAULT_DISCOVER_IGNORE.iter().map(|name| (*name).to_owned()).collect(),
+        }
     }
 }
 
 impl DiscoverOptions {
     /// Sets [`max_depth`](Self::max_depth).
     #[must_use]
-    pub const fn with_max_depth(mut self, max_depth: usize) -> Self {
+    pub fn with_max_depth(mut self, max_depth: usize) -> Self {
         self.max_depth = max_depth;
+        self
+    }
+
+    /// Sets [`ignore`](Self::ignore), replacing the defaults.
+    #[must_use]
+    pub fn with_ignore(mut self, ignore: impl IntoIterator<Item = String>) -> Self {
+        self.ignore = ignore.into_iter().collect();
         self
     }
 }
@@ -73,11 +89,11 @@ fn manifest_declares_workspace(fs: &dyn FileSystem, dir: &Path) -> bool {
         .is_some_and(|manifest| manifest.get("workspaces").is_some())
 }
 
-/// Whether `dir` declares a workspace: it holds a `pnpm-workspace.yaml`, or its `package.json` has a `workspaces`
-/// key.
+/// Whether `dir` declares a workspace: it holds a `pnpm-workspace.yaml` or a `rush.json`, or its `package.json` has
+/// a `workspaces` key.
 #[must_use]
 pub fn declares_workspace(fs: &dyn FileSystem, dir: &Path) -> bool {
-    fs.is_file(&dir.join(PNPM_WORKSPACE)) || manifest_declares_workspace(fs, dir)
+    fs.is_file(&dir.join(PNPM_WORKSPACE)) || fs.is_file(&dir.join(rush::FILE)) || manifest_declares_workspace(fs, dir)
 }
 
 fn has_git(fs: &dyn FileSystem, dir: &Path) -> bool {
@@ -151,6 +167,21 @@ fn inherited_ignores(fs: &dyn FileSystem, start: &Path) -> Ignores {
     ignores
 }
 
+/// The matcher for `options.ignore`, rooted at `start`; `None` when it holds no usable pattern. A pattern that is not a
+/// valid glob is skipped.
+fn skip_matcher(start: &Path, options: &DiscoverOptions) -> Option<Gitignore> {
+    let mut builder = GitignoreBuilder::new(start);
+    let mut any = false;
+    for pattern in &options.ignore {
+        any |= builder.add_line(None, pattern).is_ok();
+    }
+    if any { builder.build().ok() } else { None }
+}
+
+fn is_skipped(skip: Option<&Gitignore>, path: &Path) -> bool {
+    skip.is_some_and(|matcher| matcher.matched(path, true).is_ignore())
+}
+
 fn descends(entry: &DirEntry) -> bool {
     entry.is_dir
         && !entry.is_symlink
@@ -176,13 +207,17 @@ pub struct Candidates {
 ///
 /// What a directory holds is decided from its listing, so a directory without a manifest costs one read. The walk
 /// skips `node_modules`, hidden directories, symbolic links and directories excluded by a `.gitignore` or `.ignore`
-/// at or below `start`, and, when `start` lies in a git repository, by the `.gitignore` and `.ignore` files between
-/// the repository root and `start` and by `.git/info/exclude`.
+/// at or below `start`, directories matching `options.ignore` and, when `start` lies in a git repository, by the
+/// `.gitignore` and `.ignore` files between the repository root and `start` and by `.git/info/exclude`.
 #[must_use]
 pub fn scan_candidates(start: &Path, fs: &dyn FileSystem, options: &DiscoverOptions) -> Candidates {
+    let skip = skip_matcher(start, options);
     let mut found = visit(
         fs,
-        options.max_depth,
+        &Walk {
+            max_depth: options.max_depth,
+            skip: skip.as_ref(),
+        },
         start.to_path_buf(),
         0,
         inherited_ignores(fs, start),
@@ -191,9 +226,15 @@ pub fn scan_candidates(start: &Path, fs: &dyn FileSystem, options: &DiscoverOpti
     found
 }
 
+/// What stays the same during one walk.
+struct Walk<'a> {
+    max_depth: usize,
+    skip: Option<&'a Gitignore>,
+}
+
 /// Scans one directory and, in parallel, the directories below it. Results merge into sets and a list sorted at
 /// the end, so the outcome does not depend on the order the threads finish in.
-fn visit(fs: &dyn FileSystem, max_depth: usize, dir: PathBuf, depth: usize, ignores: Ignores) -> Candidates {
+fn visit(fs: &dyn FileSystem, walk: &Walk<'_>, dir: PathBuf, depth: usize, ignores: Ignores) -> Candidates {
     let mut found = Candidates::default();
     let Ok(entries) = fs.read_dir_shared(&dir) else {
         return found;
@@ -207,7 +248,10 @@ fn visit(fs: &dyn FileSystem, max_depth: usize, dir: PathBuf, depth: usize, igno
     if manifest {
         found.packages.insert(dir.clone());
     }
-    if names.contains(&PNPM_WORKSPACE) || (manifest && manifest_declares_workspace(fs, &dir)) {
+    if names.contains(&PNPM_WORKSPACE)
+        || names.contains(&rush::FILE)
+        || (manifest && manifest_declares_workspace(fs, &dir))
+    {
         found.workspaces.insert(dir.clone());
     }
     let files = IGNORE_FILES
@@ -217,10 +261,10 @@ fn visit(fs: &dyn FileSystem, max_depth: usize, dir: PathBuf, depth: usize, igno
     let ignores = pushed(ignores, matcher_from(fs, &dir, files));
     let children: Vec<PathBuf> = entries
         .iter()
-        .filter(|entry| descends(entry) && !is_ignored(&ignores, &entry.path))
+        .filter(|entry| descends(entry) && !is_ignored(&ignores, &entry.path) && !is_skipped(walk.skip, &entry.path))
         .map(|entry| entry.path.clone())
         .collect();
-    if depth >= max_depth {
+    if depth >= walk.max_depth {
         if !children.is_empty() {
             found.truncated.push(dir);
         }
@@ -228,7 +272,7 @@ fn visit(fs: &dyn FileSystem, max_depth: usize, dir: PathBuf, depth: usize, igno
     }
     let below: Vec<Candidates> = children
         .into_par_iter()
-        .map(|child| visit(fs, max_depth, child, depth + 1, ignores.clone()))
+        .map(|child| visit(fs, walk, child, depth + 1, ignores.clone()))
         .collect();
     for child in below {
         found.packages.extend(child.packages);
@@ -256,18 +300,24 @@ fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
         Some(Value::Object(object)) => object.get("packages").and_then(Value::as_array),
         _ => None,
     };
-    items
-        .into_iter()
-        .flatten()
-        .filter_map(|item| item.as_str().map(str::to_owned))
-        .collect()
+    if let Some(items) = items {
+        return items
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_owned))
+            .collect();
+    }
+    fs.read_to_string(&root.join(rush::FILE))
+        .ok()
+        .and_then(|text| rush::parse(text).ok())
+        .map(|parsed| parsed.projects.into_iter().map(|(_, folder, _)| folder).collect())
+        .unwrap_or_default()
 }
 
 /// The absolute directories the patterns declared at `root` select (negations applied), read straight from
-/// `pnpm-workspace.yaml` or the `workspaces` of `package.json`.
+/// `pnpm-workspace.yaml`, the `workspaces` of `package.json` or the projects of `rush.json`.
 ///
-/// This is how the members of a workspace that cannot be discovered (a broken root manifest, a root without a
-/// `package.json`) are still claimed. Only directories with a `package.json` count, and the result is empty when the
+/// This is how the members of a workspace that cannot be discovered (a broken root manifest or `rush.json`) are
+/// still claimed. Only directories with a `package.json` count, and the result is empty when the
 /// patterns cannot be read.
 #[must_use]
 pub fn declared_member_dirs(fs: &dyn FileSystem, root: &Path) -> BTreeSet<PathBuf> {
@@ -673,5 +723,86 @@ mod tests {
             .collect();
         assert_eq!(ignored, ["b"]);
         assert_eq!(workspace.packages.len(), 2);
+    }
+
+    fn rush_repo() -> MemoryFs {
+        MemoryFs::new()
+            .with_file(
+                "/r/rush.json",
+                "// rush\n{\"pnpmVersion\": \"9.0.0\", \"projects\": [{\"packageName\": \"a\", \"projectFolder\": \"apps/a\"}, {\"packageName\": \"b\", \"projectFolder\": \"libs/b\"}]}",
+            )
+            .with_file("/r/apps/a/package.json", r#"{"name": "a"}"#)
+            .with_file("/r/libs/b/package.json", r#"{"name": "b"}"#)
+            .with_file("/r/libs/b/sub/package.json", r#"{"name": "sub"}"#)
+    }
+
+    #[test]
+    fn a_rush_json_declares_one_workspace_whose_projects_are_members() {
+        assert_eq!(discover(&rush_repo()), ["ws:/r"]);
+        assert!(declares_workspace(&rush_repo(), Path::new("/r")));
+    }
+
+    #[test]
+    fn a_broken_rush_json_still_claims_nothing_but_is_a_root() {
+        let fs = MemoryFs::new()
+            .with_file("/r/rush.json", "{\"projects\": [")
+            .with_file("/r/apps/a/package.json", r#"{"name": "a"}"#);
+        assert_eq!(discover(&fs), ["ws:/r", "pkg:/r/apps/a"]);
+    }
+
+    #[test]
+    fn declared_member_dirs_reads_the_rush_projects() {
+        assert_eq!(
+            declared_member_dirs(&rush_repo(), Path::new("/r")),
+            BTreeSet::from([PathBuf::from("/r/apps/a"), PathBuf::from("/r/libs/b")])
+        );
+    }
+
+    fn fixture_tree() -> MemoryFs {
+        MemoryFs::new()
+            .with_file("/r/package.json", r#"{"name": "root"}"#)
+            .with_file("/r/real/package.json", r#"{"name": "real"}"#)
+            .with_file("/r/real/fixtures/x/package.json", r#"{"name": "x"}"#)
+            .with_file("/r/__fixtures__/y/package.json", r#"{"name": "y"}"#)
+            .with_file("/r/real/__mocks__/m/package.json", r#"{"name": "m"}"#)
+            .with_file("/r/real/__snapshots__/s/package.json", r#"{"name": "s"}"#)
+            .with_file("/r/test/e2e/z/package.json", r#"{"name": "z"}"#)
+    }
+
+    #[test]
+    fn fixture_directories_are_not_searched_for_roots_by_default() {
+        assert_eq!(
+            discover(&fixture_tree()),
+            ["pkg:/r", "pkg:/r/real", "pkg:/r/test/e2e/z"]
+        );
+    }
+
+    #[test]
+    fn the_start_directory_is_never_skipped_even_when_it_is_named_like_a_fixture() {
+        let fs = MemoryFs::new().with_file("/r/fixtures/a/package.json", r#"{"name": "a"}"#);
+        let roots = discover_roots(Path::new("/r/fixtures"), &fs, &DiscoverOptions::default());
+        assert_eq!(paths(&roots), ["pkg:/r/fixtures/a"]);
+    }
+
+    #[test]
+    fn the_skipped_directories_are_configurable() {
+        let options = |patterns: &[&str]| {
+            DiscoverOptions::default().with_ignore(patterns.iter().map(|pattern| (*pattern).to_owned()))
+        };
+        let found = |options: &DiscoverOptions| paths(&discover_roots(Path::new("/r"), &fixture_tree(), options));
+        assert_eq!(found(&options(&[])).len(), 7);
+        assert_eq!(
+            found(&options(&["test/e2e"])),
+            [
+                "pkg:/r",
+                "pkg:/r/__fixtures__/y",
+                "pkg:/r/real",
+                "pkg:/r/real/__mocks__/m",
+                "pkg:/r/real/__snapshots__/s",
+                "pkg:/r/real/fixtures/x"
+            ]
+        );
+        assert_eq!(found(&options(&["fixtures"])).len(), 6);
+        assert!(found(&options(&["fixtures", "!real/fixtures"])).contains(&"pkg:/r/real/fixtures/x".to_owned()));
     }
 }
