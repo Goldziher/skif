@@ -73,6 +73,28 @@ fn lists_file(entries: &[DirEntry], name: &str) -> bool {
         .any(|entry| entry.is_file && entry.path.file_name().is_some_and(|candidate| candidate == name))
 }
 
+/// Manifest fields that make a `package.json` describe a project of its own rather than mark a directory.
+const PACKAGE_FIELDS: &[&str] = &[
+    "name",
+    "workspaces",
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+];
+
+/// Whether `dir/package.json` is a real package: a marker such as `{"type":"module"}` is not. An unreadable or
+/// invalid manifest counts as a package, as it did before.
+fn is_package_manifest(fs: &dyn FileSystem, dir: &Path) -> bool {
+    let Ok(text) = fs.read_to_string(&dir.join("package.json")) else {
+        return true;
+    };
+    match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(serde_json::Value::Object(fields)) => PACKAGE_FIELDS.iter().any(|field| fields.contains_key(*field)),
+        _ => true,
+    }
+}
+
 /// The matchers of the ignore files listed in `entries`, the listing of `dir`, if any.
 ///
 /// Only files the listing names are opened, so a directory without ignore files costs no `open`.
@@ -130,7 +152,7 @@ impl Walk<'_> {
         let Ok(entries) = self.fs.read_dir_shared(&frame.dir) else {
             return Vec::new();
         };
-        if frame.skip_if_project && lists_file(&entries, "package.json") {
+        if frame.skip_if_project && lists_file(&entries, "package.json") && is_package_manifest(self.fs, &frame.dir) {
             return Vec::new();
         }
         let mut matchers = frame.matchers.clone();
@@ -188,7 +210,8 @@ impl Walk<'_> {
 ///
 /// Files of a nested package belong to that package; packages excluded by `ignore-packages` contribute nothing.
 /// A directory with its own `package.json` that is not a member of the workspace is a separate project: it and
-/// everything below it are skipped.
+/// everything below it are skipped. A manifest without `name`, `workspaces` or dependency fields only marks the
+/// directory (`{"type":"module"}`) and does not count.
 /// `.gitignore` and `.ignore` files are honoured with the semantics of the `ignore` crate, hidden directories
 /// (except tool configuration ones) and common build output are skipped, and symbolic links to directories are
 /// not followed.
@@ -250,6 +273,19 @@ mod tests {
         let files = discover(&fs, &workspace, false);
         let listed: Vec<(&str, usize)> = files.iter().map(|c| (c.rel.as_str(), c.owner.index())).collect();
         assert_eq!(listed, [("packages/a/src/z.ts", 1), ("tools/run.js", 0)]);
+    }
+
+    #[test]
+    fn marker_manifests_do_not_hide_a_directory() {
+        let fs = MemoryFs::new()
+            .with_file("/ws/package.json", r#"{"name":"r"}"#)
+            .with_file("/ws/scripts/package.json", r#"{"type":"module"}"#)
+            .with_file("/ws/scripts/run.js", "")
+            .with_file("/ws/vendored/package.json", r#"{"name":"other"}"#)
+            .with_file("/ws/vendored/index.js", "")
+            .with_file("/ws/apps/package.json", r#"{"dependencies":{"a":"1"}}"#)
+            .with_file("/ws/apps/main.js", "");
+        assert_eq!(files(&fs), ["scripts/run.js"]);
     }
 
     fn files(fs: &MemoryFs) -> Vec<String> {
