@@ -95,6 +95,22 @@ fn require_resolve_is_the_package() {
 }
 
 #[test]
+fn nested_require_is_the_package_but_a_whole_config_is_not() {
+    let value = extract(
+        "postcss.config.js",
+        "module.exports = { plugins: [require('autoprefixer'), require('tailwindcss')({ config: 1 }), require('./local')] };",
+    );
+    let plugins = get(&value, &["plugins"]).as_array().unwrap();
+    assert_eq!(plugins[0], s("autoprefixer"));
+    assert_eq!(plugins[1], s("tailwindcss"));
+    assert_eq!(plugins[2], ConfigValue::Unknown);
+    assert_eq!(
+        extract("c.js", "module.exports = require('shared-config');"),
+        ConfigValue::Unknown
+    );
+}
+
+#[test]
 fn storybook_absolute_path_idiom() {
     let source = "import { dirname, join } from 'path';\n\
         function getAbsolutePath(value) { return dirname(require.resolve(join(value, 'package.json'))); }\n\

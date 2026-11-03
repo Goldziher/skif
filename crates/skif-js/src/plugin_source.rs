@@ -83,6 +83,7 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
             .collect(),
         conditions: output.conditions,
         module_dirs: output.module_dirs,
+        extensions: output.extensions,
         entries_incomplete: output.entries_incomplete,
     }
 }

@@ -158,6 +158,24 @@ fn peers_come_from_the_npm_lockfile_too() {
     );
 }
 
+#[test]
+fn peers_come_from_bun_and_yarn_lockfiles_too() {
+    let bun = r#"{"lockfileVersion":1,"packages":{"@testing-library/react":["@testing-library/react@16.0.0","",{"peerDependencies":{"@testing-library/dom":"^10.0.0","react":"^18",},},"sha512-x"],}}"#;
+    let yarn = "__metadata:\n  version: 8\n\n\"@testing-library/react@npm:^16.0.0\":\n  version: 16.0.0\n  peerDependencies:\n    \"@testing-library/dom\": ^10.0.0\n    react: ^18.0.0\n";
+    for (lockfile, text) in [("bun.lock", bun), ("yarn.lock", yarn)] {
+        let diagnostics = lint(&[
+            ("package.json", TESTING_APP),
+            ("src/a.test.tsx", TESTING_TEST),
+            (lockfile, text),
+        ]);
+        assert_eq!(
+            names(&diagnostics, "unused-dev-dependencies"),
+            Vec::<String>::new(),
+            "{lockfile}: {diagnostics:#?}"
+        );
+    }
+}
+
 const TOOLS: &str = r#"{"name":"app","private":true,"packageManager":"pnpm@10.0.0","scripts":{"e2e":"npx playwright test","start":"webpack serve --mode development","ui":"vitest --ui","cov":"vitest run --coverage","deploy":"node node_modules/@google/clasp deploy","filtered":"pnpm --filter web build","fetch":"npx cowsay hi","each":"pnpm -r --filter web exec vite"},"dependencies":{"@google/clasp":"1.0.0","playwright":"1.0.0"},"devDependencies":{"@vitest/coverage-v8":"3.0.0","@vitest/ui":"3.0.0","pnpm":"10.0.0","vitest":"3.0.0","webpack":"5.0.0","webpack-cli":"5.0.0","webpack-dev-server":"5.0.0"}}"#;
 
 #[test]
@@ -282,6 +300,39 @@ fn ignored_generated_targets_are_not_unresolved() {
         strings(&["./missing"]),
         "{diagnostics:#?}"
     );
+}
+
+#[test]
+fn tsconfig_in_a_directory_that_is_not_a_package_applies_below_it() {
+    let diagnostics = lint(&[
+        ("package.json", r#"{"name":"app","private":true,"main":"packages/app/main.js"}"#),
+        (
+            "packages/tsconfig.json",
+            r#"{"compilerOptions":{"paths":{"@scope/*":["./*/index.ts"]}},"include":["./lib"]}"#,
+        ),
+        ("packages/app/main.js", "import { x } from '@scope/lib';\nexport const y = x;\n"),
+        ("packages/lib/index.ts", "export const x = 1;\n"),
+    ]);
+    assert_eq!(names(&diagnostics, "unresolved-imports"), Vec::<String>::new(), "{diagnostics:#?}");
+    assert_eq!(names(&diagnostics, "unlisted-dependencies"), Vec::<String>::new(), "{diagnostics:#?}");
+}
+
+#[test]
+fn bundler_resolve_extensions_make_extensionless_imports_resolve() {
+    let files = [
+        ("package.json", r#"{"name":"app","private":true,"main":"src/main.js","devDependencies":{"webpack":"5.0.0"}}"#),
+        ("src/main.js", "import { page } from './page';\nexport const y = page;\n"),
+        ("src/page.view", "export const page = 1;\n"),
+    ];
+    let without = lint(&files);
+    assert_eq!(names(&without, "unresolved-imports").len(), 1, "{without:#?}");
+    let mut with = files.to_vec();
+    with.push((
+        "webpack.config.js",
+        "module.exports = { entry: './src/main.js', resolve: { extensions: ['.js', '.view'] } };\n",
+    ));
+    let diagnostics = lint(&with);
+    assert_eq!(names(&diagnostics, "unresolved-imports"), Vec::<String>::new(), "{diagnostics:#?}");
 }
 
 #[test]
