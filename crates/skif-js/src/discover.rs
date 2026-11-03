@@ -73,24 +73,18 @@ fn lists_file(entries: &[DirEntry], name: &str) -> bool {
         .any(|entry| entry.is_file && entry.path.file_name().is_some_and(|candidate| candidate == name))
 }
 
-/// Manifest fields that make a `package.json` describe a project of its own rather than mark a directory.
-const PACKAGE_FIELDS: &[&str] = &[
-    "name",
-    "workspaces",
-    "dependencies",
-    "devDependencies",
-    "peerDependencies",
-    "optionalDependencies",
-];
+/// Fields a `package.json` may hold and still be only a marker for the files below it (module type, side effects,
+/// subpath imports), not a package of its own.
+const MARKER_FIELDS: &[&str] = &["type", "sideEffects", "imports"];
 
-/// Whether `dir/package.json` is a real package: a marker such as `{"type":"module"}` is not. An unreadable or
-/// invalid manifest counts as a package, as it did before.
+/// Whether `dir/package.json` is a real package: a manifest holding only marker fields such as `{"type":"module"}`
+/// is not. An unreadable or invalid manifest counts as a package.
 fn is_package_manifest(fs: &dyn FileSystem, dir: &Path) -> bool {
     let Ok(text) = fs.read_to_string(&dir.join("package.json")) else {
         return true;
     };
     match serde_json::from_str::<serde_json::Value>(&text) {
-        Ok(serde_json::Value::Object(fields)) => PACKAGE_FIELDS.iter().any(|field| fields.contains_key(*field)),
+        Ok(serde_json::Value::Object(fields)) => fields.keys().any(|key| !MARKER_FIELDS.contains(&key.as_str())),
         _ => true,
     }
 }
