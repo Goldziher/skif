@@ -1,14 +1,15 @@
 //! Static evaluation of the value a tool configuration file exports. Nothing is executed.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    Argument, ArrayExpressionElement, BinaryOperator, BindingPattern, Declaration, ExportDefaultDeclarationKind,
-    Expression, ImportDeclarationSpecifier, NewExpression, ObjectPropertyKind, Program, Statement,
-    StaticMemberExpression, TemplateLiteral, UnaryOperator, VariableDeclarationKind,
+    Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget, BinaryOperator,
+    BindingPattern, CallExpression, Declaration, ExportDefaultDeclarationKind, Expression, Function,
+    ImportDeclarationSpecifier, NewExpression, ObjectPropertyKind, Program, Statement, StaticMemberExpression,
+    TemplateLiteral, UnaryOperator, VariableDeclaration, VariableDeclarationKind,
 };
 use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
 use oxc_span::SourceType;
@@ -24,6 +25,16 @@ const MAX_CONST_CHAIN: usize = 64;
 /// The largest value a constant may evaluate to. Constants that reference each other twice at every level
 /// (`const b = [a, a]; const c = [b, b]; …`) double in size per level; a value past this is unknown.
 const MAX_CONST_NODES: usize = 10_000;
+
+/// How many function calls one evaluation may make; a function that calls itself twice at every level is unknown
+/// past this.
+const MAX_CALLS: usize = 256;
+
+/// Packages whose default export or named exports list files by glob.
+const GLOB_PACKAGES: &[&str] = &["glob", "fast-glob", "globby", "tinyglobby"];
+
+/// Members of a glob function that list files too (`fg.sync`, `glob.globSync`).
+const GLOB_MEMBERS: &[&str] = &["sync", "async", "glob", "globSync", "globbySync", "stream"];
 
 /// A statically known value from a config file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -111,8 +122,14 @@ impl ConfigValue {
 /// identifiers that name a top-level `const` initialised with something static; and paths computed from the config
 /// file's own location (`__dirname`, `import.meta.dirname`, `new URL('./x', import.meta.url)`, `path.resolve`,
 /// `path.join`, `path.dirname` and `fileURLToPath`, however `path` was imported), which evaluate to strings relative to
-/// the config file's directory (`"."`, `"./src"`, `"../shared"`). Everything else is
-/// [`ConfigValue::Unknown`]. Returns `None` when the file does not parse or exports nothing recognisable.
+/// the config file's directory (`"."`, `"./src"`, `"../shared"`).
+///
+/// Functions are followed: a returned config function may declare local `const`/`let` bindings and local functions,
+/// assign members of a local object, and call top-level or local functions with known arguments; `await x` and
+/// `Promise.resolve(x)` evaluate to `x`; `require.resolve('pkg')` evaluates to `'pkg'`, and the storybook idiom
+/// `dirname(require.resolve(join('pkg', 'package.json')))` to `'pkg'`. A call of a glob function (`glob`,
+/// `fast-glob`, `globby`, `tinyglobby`, however imported) evaluates to the array of its literal patterns, so a
+/// dynamic `entry` becomes entry globs. Everything else is [`ConfigValue::Unknown`]. Returns `None` when the file does not parse or exports nothing recognisable.
 #[must_use]
 pub fn extract_config_object(source: &str, path: &Path) -> Option<ConfigValue> {
     let source_type = SourceType::from_path(path).ok()?;
@@ -127,37 +144,88 @@ pub fn extract_config_object(source: &str, path: &Path) -> Option<ConfigValue> {
         return None;
     }
     let program = &ret.program;
-    let scope = top_level_consts(program);
+    let top = top_level(program);
     let bindings = module_bindings(program);
     let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
     let eval = Evaluator {
-        consts: &scope,
+        consts: &top.consts,
+        functions: &top.functions,
         bindings: &bindings,
         file,
         evaluated: RefCell::new(HashMap::new()),
         chain: RefCell::new(Vec::new()),
+        frames: RefCell::new(Vec::new()),
+        calls: Cell::new(0),
     };
-    exported_expression(program).map(|expr| eval.expr(expr, 0))
+    match exported(program)? {
+        Exported::Expression(expr) => Some(eval.expr(expr, 0)),
+        Exported::Function(function) => Some(eval.invoke(Callable::Function(function), &[], false, 0)),
+    }
 }
 
-fn top_level_consts<'p, 'a>(program: &'p Program<'a>) -> HashMap<String, &'p Expression<'a>> {
-    let mut map = HashMap::new();
+/// The top-level `const` initialisers and function declarations of a module.
+struct TopLevel<'p, 'a> {
+    consts: HashMap<String, &'p Expression<'a>>,
+    functions: HashMap<String, Callable<'p, 'a>>,
+}
+
+/// A function the evaluator can call.
+#[derive(Clone, Copy)]
+enum Callable<'p, 'a> {
+    Function(&'p Function<'a>),
+    Arrow(&'p ArrowFunctionExpression<'a>),
+}
+
+impl<'p, 'a> Callable<'p, 'a> {
+    fn of_expression(expr: &'p Expression<'a>) -> Option<Self> {
+        match expr.get_inner_expression() {
+            Expression::ArrowFunctionExpression(f) => Some(Self::Arrow(f)),
+            Expression::FunctionExpression(f) => Some(Self::Function(f)),
+            _ => None,
+        }
+    }
+}
+
+/// What a name is bound to inside a function being evaluated.
+#[derive(Clone)]
+enum Binding<'p, 'a> {
+    Value(ConfigValue),
+    Callable(Callable<'p, 'a>),
+}
+
+type Frame<'p, 'a> = HashMap<String, Binding<'p, 'a>>;
+
+fn top_level<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
+    let mut top = TopLevel {
+        consts: HashMap::new(),
+        functions: HashMap::new(),
+    };
     for stmt in &program.body {
         let decl = match stmt {
             Statement::ExportDeclaration(e) => Some(&e.declaration),
             other => other.as_declaration(),
         };
-        if let Some(Declaration::VariableDeclaration(v)) = decl
-            && v.kind == VariableDeclarationKind::Const
-        {
-            for d in &v.declarations {
-                if let (BindingPattern::BindingIdentifier(id), Some(init)) = (&d.id, &d.init) {
-                    map.insert(id.name.as_str().to_string(), init);
+        match decl {
+            Some(Declaration::VariableDeclaration(v)) if v.kind == VariableDeclarationKind::Const => {
+                for d in &v.declarations {
+                    if let (BindingPattern::BindingIdentifier(id), Some(init)) = (&d.id, &d.init) {
+                        top.consts.insert(id.name.as_str().to_string(), init);
+                        if let Some(callable) = Callable::of_expression(init) {
+                            top.functions.insert(id.name.as_str().to_string(), callable);
+                        }
+                    }
                 }
             }
+            Some(Declaration::FunctionDeclaration(f)) => {
+                if let Some(id) = &f.id {
+                    top.functions
+                        .insert(id.name.as_str().to_string(), Callable::Function(f));
+                }
+            }
+            _ => {}
         }
     }
-    map
+    top
 }
 
 /// Functions of `path`, whose results are computed lexically.
@@ -170,6 +238,8 @@ struct ModuleBindings {
     path_functions: HashMap<String, String>,
     url_modules: HashSet<String>,
     file_url_to_path: HashSet<String>,
+    /// Local names of glob functions and glob modules.
+    glob_names: HashSet<String>,
 }
 
 impl ModuleBindings {
@@ -188,6 +258,12 @@ impl ModuleBindings {
             }
             ("url", Some("fileURLToPath")) => {
                 self.file_url_to_path.insert(local);
+            }
+            (package, _) if GLOB_PACKAGES.contains(&package) => {
+                self.glob_names.insert(local);
+            }
+            ("fs", Some("globSync")) | ("fs/promises", Some("glob")) => {
+                self.glob_names.insert(local);
             }
             _ => {}
         }
@@ -305,25 +381,31 @@ fn apply_path_function(function: &str, args: &[ConfigValue]) -> ConfigValue {
     ConfigValue::String(path)
 }
 
-fn exported_expression<'p, 'a>(program: &'p Program<'a>) -> Option<&'p Expression<'a>> {
+/// What a module exports.
+enum Exported<'p, 'a> {
+    Expression(&'p Expression<'a>),
+    Function(&'p Function<'a>),
+}
+
+fn exported<'p, 'a>(program: &'p Program<'a>) -> Option<Exported<'p, 'a>> {
     for stmt in &program.body {
         match stmt {
             Statement::ExportDefaultDeclaration(e) => {
                 return match &e.declaration {
-                    ExportDefaultDeclarationKind::FunctionDeclaration(_)
-                    | ExportDefaultDeclarationKind::ClassDeclaration(_)
+                    ExportDefaultDeclarationKind::FunctionDeclaration(f) => Some(Exported::Function(f)),
+                    ExportDefaultDeclarationKind::ClassDeclaration(_)
                     | ExportDefaultDeclarationKind::TSInterfaceDeclaration(_) => None,
-                    other => other.as_expression(),
+                    other => other.as_expression().map(Exported::Expression),
                 };
             }
-            Statement::TSExportAssignment(e) => return Some(&e.expression),
+            Statement::TSExportAssignment(e) => return Some(Exported::Expression(&e.expression)),
             Statement::ExpressionStatement(s) => {
                 if let Expression::AssignmentExpression(a) = &s.expression
-                    && let oxc_ast::ast::AssignmentTarget::StaticMemberExpression(m) = &a.left
+                    && let AssignmentTarget::StaticMemberExpression(m) = &a.left
                     && matches!(&m.object, Expression::Identifier(id) if id.name.as_str() == "module")
                     && m.property.name.as_str() == "exports"
                 {
-                    return Some(&a.right);
+                    return Some(Exported::Expression(&a.right));
                 }
             }
             _ => {}
@@ -343,6 +425,7 @@ fn node_count(value: &ConfigValue) -> usize {
 
 struct Evaluator<'c, 'p, 'a> {
     consts: &'c HashMap<String, &'p Expression<'a>>,
+    functions: &'c HashMap<String, Callable<'p, 'a>>,
     bindings: &'c ModuleBindings,
     /// File name of the config file, which `__filename` and `import.meta.url` name.
     file: &'c str,
@@ -350,10 +433,14 @@ struct Evaluator<'c, 'p, 'a> {
     evaluated: RefCell<HashMap<String, ConfigValue>>,
     /// The constants being evaluated, outermost first; a constant that refers back to one of them is unknown.
     chain: RefCell<Vec<String>>,
+    /// The bindings of the functions being evaluated, outermost first.
+    frames: RefCell<Vec<Frame<'p, 'a>>>,
+    /// How many functions have been called so far.
+    calls: Cell<usize>,
 }
 
-impl Evaluator<'_, '_, '_> {
-    fn expr(&self, expr: &Expression<'_>, depth: u32) -> ConfigValue {
+impl<'p, 'a> Evaluator<'_, 'p, 'a> {
+    fn expr(&self, expr: &'p Expression<'a>, depth: u32) -> ConfigValue {
         if depth > MAX_DEPTH {
             return ConfigValue::Unknown;
         }
@@ -379,30 +466,31 @@ impl Evaluator<'_, '_, '_> {
                     _ => ConfigValue::Unknown,
                 }
             }
+            Expression::AwaitExpression(a) => self.expr(&a.argument, depth),
             Expression::ArrayExpression(a) => self.array(&a.elements, depth),
             Expression::ObjectExpression(o) => self.object(&o.properties, depth),
-            Expression::Identifier(id) => self.identifier(id.name.as_str()),
+            Expression::Identifier(id) => self.identifier(id.name.as_str(), depth),
             Expression::CallExpression(c) => self.call(c, depth),
-            Expression::ArrowFunctionExpression(f) => match f.get_expression() {
-                Some(body) => self.expr(body, depth),
-                None => f
-                    .get_function_body()
-                    .map_or(ConfigValue::Unknown, |b| self.returned(&b.statements, depth)),
-            },
-            Expression::FunctionExpression(f) => f
-                .body
-                .as_ref()
-                .map_or(ConfigValue::Unknown, |b| self.returned(&b.statements, depth)),
+            Expression::ArrowFunctionExpression(f) => self.invoke(Callable::Arrow(f), &[], false, depth),
+            Expression::FunctionExpression(f) => self.invoke(Callable::Function(f), &[], false, depth),
             _ => ConfigValue::Unknown,
         }
     }
 
-    /// A top-level constant's value, evaluated once however often it is referenced, or a path global.
-    ///
-    /// The value does not depend on where it is referenced from, so it is evaluated from a fresh depth budget.
-    fn identifier(&self, name: &str) -> ConfigValue {
-        let Some(init) = self.consts.get(name) else {
-            return self.global(name);
+    /// The value of a name: a binding of a function being evaluated, a top-level constant (evaluated once however
+    /// often it is referenced), a top-level function called without arguments, or a path global.
+    fn identifier(&self, name: &str, depth: u32) -> ConfigValue {
+        if let Some(binding) = self.lookup(name) {
+            return match binding {
+                Binding::Value(value) => value,
+                Binding::Callable(_) => ConfigValue::Unknown,
+            };
+        }
+        let Some(&init) = self.consts.get(name) else {
+            return match self.functions.get(name) {
+                Some(callable) => self.invoke(*callable, &[], true, depth),
+                None => self.global(name),
+            };
         };
         if let Some(known) = self.evaluated.borrow().get(name) {
             return known.clone();
@@ -414,7 +502,11 @@ impl Evaluator<'_, '_, '_> {
             }
         }
         self.chain.borrow_mut().push(name.to_owned());
+        // The value does not depend on where it is referenced from: evaluate it outside any function's bindings and
+        // from a fresh depth budget.
+        let saved = std::mem::take(&mut *self.frames.borrow_mut());
         let value = self.expr(init, 0);
+        *self.frames.borrow_mut() = saved;
         self.chain.borrow_mut().pop();
         let value = if node_count(&value) > MAX_CONST_NODES {
             ConfigValue::Unknown
@@ -423,6 +515,25 @@ impl Evaluator<'_, '_, '_> {
         };
         self.evaluated.borrow_mut().insert(name.to_owned(), value.clone());
         value
+    }
+
+    /// The innermost binding of `name` in the functions being evaluated.
+    fn lookup(&self, name: &str) -> Option<Binding<'p, 'a>> {
+        self.frames
+            .borrow()
+            .iter()
+            .rev()
+            .find_map(|frame| frame.get(name).cloned())
+    }
+
+    /// Binds `name` in the innermost frame, or replaces the binding where it is already made.
+    fn assign(&self, name: &str, binding: Binding<'p, 'a>) {
+        let mut frames = self.frames.borrow_mut();
+        if let Some(frame) = frames.iter_mut().rev().find(|frame| frame.contains_key(name)) {
+            frame.insert(name.to_owned(), binding);
+        } else if let Some(frame) = frames.last_mut() {
+            frame.insert(name.to_owned(), binding);
+        }
     }
 
     /// The path of the config file's directory (`__dirname`) or of the file itself (`__filename`).
@@ -434,7 +545,7 @@ impl Evaluator<'_, '_, '_> {
         }
     }
 
-    fn template(&self, template: &TemplateLiteral<'_>, depth: u32) -> ConfigValue {
+    fn template(&self, template: &'p TemplateLiteral<'a>, depth: u32) -> ConfigValue {
         let mut out = String::new();
         for (index, quasi) in template.quasis.iter().enumerate() {
             out.push_str(
@@ -454,7 +565,7 @@ impl Evaluator<'_, '_, '_> {
     }
 
     /// `import.meta.dirname`, `import.meta.filename`, `import.meta.url` and the `pathname` of a `new URL(…)`.
-    fn member(&self, member: &StaticMemberExpression<'_>, depth: u32) -> ConfigValue {
+    fn member(&self, member: &'p StaticMemberExpression<'a>, depth: u32) -> ConfigValue {
         let property = member.property.name.as_str();
         match (member.object.get_inner_expression(), property) {
             (Expression::ImportMeta(_), "dirname") => ConfigValue::String(".".to_owned()),
@@ -465,7 +576,7 @@ impl Evaluator<'_, '_, '_> {
     }
 
     /// `new URL('./x', import.meta.url)` as the path it names.
-    fn url(&self, new: &NewExpression<'_>, depth: u32) -> ConfigValue {
+    fn url(&self, new: &'p NewExpression<'a>, depth: u32) -> ConfigValue {
         let is_url =
             matches!(new.callee.get_inner_expression(), Expression::Identifier(id) if id.name.as_str() == "URL");
         let mut args = new.arguments.iter().map(|arg| {
@@ -482,8 +593,27 @@ impl Evaluator<'_, '_, '_> {
         }
     }
 
+    /// Whether `callee` is the function `wanted` of the `path` module, however it was imported.
+    fn is_path_function(&self, callee: &Expression<'_>, wanted: &str) -> bool {
+        match callee.get_inner_expression() {
+            Expression::Identifier(id) => self
+                .bindings
+                .path_functions
+                .get(id.name.as_str())
+                .is_some_and(|function| function == wanted),
+            Expression::StaticMemberExpression(member) => {
+                member.property.name.as_str() == wanted
+                    && matches!(
+                        member.object.get_inner_expression(),
+                        Expression::Identifier(object) if self.bindings.path_modules.contains(object.name.as_str())
+                    )
+            }
+            _ => false,
+        }
+    }
+
     /// A call of a `path` or `url` function, or of `process.cwd()`; `None` for any other call.
-    fn path_call(&self, call: &oxc_ast::ast::CallExpression<'_>, depth: u32) -> Option<ConfigValue> {
+    fn path_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
         let function = match call.callee.get_inner_expression() {
             Expression::Identifier(id) => {
                 let name = id.name.as_str();
@@ -510,19 +640,110 @@ impl Evaluator<'_, '_, '_> {
             }
             _ => return None,
         };
-        let args: Vec<ConfigValue> = call
-            .arguments
+        Some(apply_path_function(function, &self.arguments(call, depth)))
+    }
+
+    /// The values of a call's arguments; a spread argument is unknown.
+    fn arguments(&self, call: &'p CallExpression<'a>, depth: u32) -> Vec<ConfigValue> {
+        call.arguments
             .iter()
             .map(|arg| {
                 arg.as_expression()
                     .map_or(ConfigValue::Unknown, |e| self.expr(e, depth))
             })
-            .collect();
-        Some(apply_path_function(function, &args))
+            .collect()
     }
 
-    fn call(&self, call: &oxc_ast::ast::CallExpression<'_>, depth: u32) -> ConfigValue {
-        if let Some(value) = self.path_call(call, depth) {
+    /// `dirname(require.resolve(join(pkg, 'package.json')))`, the directory of a package, which is `pkg` itself.
+    fn package_directory(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+        if !self.is_path_function(&call.callee, "dirname") {
+            return None;
+        }
+        let Some(Expression::CallExpression(resolve)) = single_argument(call).map(Expression::get_inner_expression)
+        else {
+            return None;
+        };
+        if !is_require_resolve(resolve) {
+            return None;
+        }
+        let Some(Expression::CallExpression(join)) = single_argument(resolve).map(Expression::get_inner_expression)
+        else {
+            return None;
+        };
+        if !self.is_path_function(&join.callee, "join") {
+            return None;
+        }
+        let mut arguments = join.arguments.iter().filter_map(Argument::as_expression);
+        let (package, file) = (arguments.next()?, arguments.next()?);
+        if arguments.next().is_some() || static_string(file).as_deref() != Some("package.json") {
+            return None;
+        }
+        Some(self.expr(package, depth))
+    }
+
+    /// `require.resolve(x)` and `Promise.resolve(x)`, which evaluate to `x`.
+    fn resolve_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+        let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+            return None;
+        };
+        let Expression::Identifier(object) = member.object.get_inner_expression() else {
+            return None;
+        };
+        let known = matches!(
+            (object.name.as_str(), member.property.name.as_str()),
+            ("require" | "Promise", "resolve")
+        );
+        known.then(|| single_argument(call).map_or(ConfigValue::Unknown, |arg| self.expr(arg, depth)))
+    }
+
+    /// A call of a glob function as the array of its literal patterns.
+    fn glob_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+        let is_glob = match call.callee.get_inner_expression() {
+            Expression::Identifier(id) => self.bindings.glob_names.contains(id.name.as_str()),
+            Expression::StaticMemberExpression(member) => {
+                GLOB_MEMBERS.contains(&member.property.name.as_str())
+                    && matches!(
+                        member.object.get_inner_expression(),
+                        Expression::Identifier(object) if self.bindings.glob_names.contains(object.name.as_str())
+                    )
+            }
+            _ => false,
+        };
+        if !is_glob {
+            return None;
+        }
+        Some(match call.arguments.first().and_then(Argument::as_expression) {
+            Some(patterns) => match self.expr(patterns, depth) {
+                ConfigValue::String(pattern) => ConfigValue::Array(vec![ConfigValue::String(pattern)]),
+                array @ ConfigValue::Array(_) => array,
+                _ => ConfigValue::Unknown,
+            },
+            None => ConfigValue::Unknown,
+        })
+    }
+
+    /// A call of a top-level function or of a function declared inside the function being evaluated.
+    fn local_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+        let Expression::Identifier(id) = call.callee.get_inner_expression() else {
+            return None;
+        };
+        let name = id.name.as_str();
+        let (callable, isolate) = match self.lookup(name) {
+            Some(Binding::Callable(callable)) => (callable, false),
+            Some(Binding::Value(_)) => return None,
+            None => (*self.functions.get(name)?, true),
+        };
+        Some(self.invoke(callable, &self.arguments(call, depth), isolate, depth))
+    }
+
+    fn call(&self, call: &'p CallExpression<'a>, depth: u32) -> ConfigValue {
+        let special = self
+            .package_directory(call, depth)
+            .or_else(|| self.path_call(call, depth))
+            .or_else(|| self.resolve_call(call, depth))
+            .or_else(|| self.glob_call(call, depth))
+            .or_else(|| self.local_call(call, depth));
+        if let Some(value) = special {
             return value;
         }
         let callee = match call.callee.get_inner_expression() {
@@ -537,19 +758,173 @@ impl Evaluator<'_, '_, '_> {
         }
     }
 
-    /// Value returned by a function body that is a single expression or ends in `return <expr>`.
-    fn returned(&self, statements: &[Statement<'_>], depth: u32) -> ConfigValue {
-        match statements {
-            [Statement::ExpressionStatement(s)] => self.expr(&s.expression, depth),
-            [.., Statement::ReturnStatement(r)] => r
-                .argument
+    /// Calls `callable` with `args`. With `isolate`, the function cannot see the bindings of the function evaluating it.
+    fn invoke(&self, callable: Callable<'p, 'a>, args: &[ConfigValue], isolate: bool, depth: u32) -> ConfigValue {
+        if self.calls.get() >= MAX_CALLS {
+            return ConfigValue::Unknown;
+        }
+        self.calls.set(self.calls.get() + 1);
+        let params = match callable {
+            Callable::Function(f) => &f.params,
+            Callable::Arrow(f) => &f.params,
+        };
+        let mut frame = Frame::new();
+        for (index, param) in params.items.iter().enumerate() {
+            if let BindingPattern::BindingIdentifier(id) = &param.pattern {
+                let value = args.get(index).cloned().unwrap_or(ConfigValue::Unknown);
+                frame.insert(id.name.as_str().to_owned(), Binding::Value(value));
+            }
+        }
+        let saved = if isolate {
+            std::mem::take(&mut *self.frames.borrow_mut())
+        } else {
+            Vec::new()
+        };
+        self.frames.borrow_mut().push(frame);
+        let value = match callable {
+            Callable::Arrow(f) => match f.get_expression() {
+                Some(body) => self.expr(body, depth),
+                None => f
+                    .get_function_body()
+                    .map_or(ConfigValue::Unknown, |b| self.returned(&b.statements, depth)),
+            },
+            Callable::Function(f) => f
+                .body
                 .as_ref()
-                .map_or(ConfigValue::Unknown, |e| self.expr(e, depth)),
-            _ => ConfigValue::Unknown,
+                .map_or(ConfigValue::Unknown, |b| self.returned(&b.statements, depth)),
+        };
+        self.frames.borrow_mut().pop();
+        if isolate {
+            *self.frames.borrow_mut() = saved;
+        }
+        value
+    }
+
+    /// Value returned by a function body: its single expression or the first `return <expr>`. Declarations before
+    /// it are bound in the innermost frame.
+    fn returned(&self, statements: &'p [Statement<'a>], depth: u32) -> ConfigValue {
+        if let [Statement::ExpressionStatement(s)] = statements {
+            return self.expr(&s.expression, depth);
+        }
+        for statement in statements {
+            match statement {
+                Statement::ReturnStatement(r) => {
+                    return r
+                        .argument
+                        .as_ref()
+                        .map_or(ConfigValue::Unknown, |e| self.expr(e, depth));
+                }
+                Statement::ExpressionStatement(s) => self.mutation(&s.expression, depth),
+                other => match other.as_declaration() {
+                    Some(Declaration::VariableDeclaration(v)) => self.declare(v, depth),
+                    Some(Declaration::FunctionDeclaration(f)) => {
+                        if let Some(id) = &f.id {
+                            self.assign(id.name.as_str(), Binding::Callable(Callable::Function(f)));
+                        }
+                    }
+                    _ => {}
+                },
+            }
+        }
+        ConfigValue::Unknown
+    }
+
+    /// Binds the names a `const`/`let`/`var` declaration declares; destructured names stay unbound.
+    fn declare(&self, declaration: &'p VariableDeclaration<'a>, depth: u32) {
+        for declarator in &declaration.declarations {
+            let BindingPattern::BindingIdentifier(id) = &declarator.id else {
+                continue;
+            };
+            let value = declarator
+                .init
+                .as_ref()
+                .map_or(ConfigValue::Unknown, |init| self.expr(init, depth));
+            let value = if node_count(&value) > MAX_CONST_NODES {
+                ConfigValue::Unknown
+            } else {
+                value
+            };
+            self.assign(id.name.as_str(), Binding::Value(value));
         }
     }
 
-    fn array(&self, elements: &[ArrayExpressionElement<'_>], depth: u32) -> ConfigValue {
+    /// Applies what an expression statement does to a local object: `name = x`, `name.key = x`, and anything else
+    /// that reaches into the object (`name.list.push(x)`, `name.a.b = x`), which leaves it partly unknown.
+    fn mutation(&self, expr: &'p Expression<'a>, depth: u32) {
+        match expr.get_inner_expression() {
+            Expression::AwaitExpression(a) => self.mutation(&a.argument, depth),
+            Expression::AssignmentExpression(a) => {
+                let assign = a.operator == AssignmentOperator::Assign;
+                match &a.left {
+                    AssignmentTarget::AssignmentTargetIdentifier(id) => {
+                        let value = if assign {
+                            self.expr(&a.right, depth)
+                        } else {
+                            ConfigValue::Unknown
+                        };
+                        self.assign(id.name.as_str(), Binding::Value(value));
+                    }
+                    AssignmentTarget::StaticMemberExpression(m) => {
+                        if let Expression::Identifier(object) = m.object.get_inner_expression()
+                            && assign
+                        {
+                            let value = self.expr(&a.right, depth);
+                            self.set_key(object.name.as_str(), m.property.name.as_str(), value);
+                        } else if let Some(root) = member_root(&m.object) {
+                            self.taint(root);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Expression::CallExpression(c) => {
+                let object_assign = matches!(
+                    c.callee.get_inner_expression(),
+                    Expression::StaticMemberExpression(m)
+                        if m.property.name.as_str() == "assign"
+                            && matches!(m.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == "Object")
+                );
+                let target = if object_assign {
+                    c.arguments.first().and_then(Argument::as_expression)
+                } else if let Expression::StaticMemberExpression(m) = c.callee.get_inner_expression() {
+                    Some(&m.object)
+                } else {
+                    None
+                };
+                if let Some(root) = target.and_then(member_root) {
+                    self.taint(root);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Sets `key` of the local object `name`.
+    fn set_key(&self, name: &str, key: &str, value: ConfigValue) {
+        let mut frames = self.frames.borrow_mut();
+        let binding = frames.iter_mut().rev().find_map(|frame| frame.get_mut(name));
+        if let Some(Binding::Value(ConfigValue::Object(entries))) = binding {
+            match entries.iter_mut().find(|(existing, _)| existing == key) {
+                Some((_, slot)) => *slot = value,
+                None => entries.push((key.to_owned(), value)),
+            }
+        }
+    }
+
+    /// Records that the local `name` was changed in a way the evaluator does not follow.
+    fn taint(&self, name: &str) {
+        let mut frames = self.frames.borrow_mut();
+        let binding = frames.iter_mut().rev().find_map(|frame| frame.get_mut(name));
+        match binding {
+            Some(Binding::Value(ConfigValue::Object(entries))) => {
+                entries.push(("...".to_owned(), ConfigValue::Unknown))
+            }
+            Some(Binding::Value(ConfigValue::Array(items))) => items.push(ConfigValue::Unknown),
+            _ => {}
+        }
+    }
+
+    fn array(&self, elements: &'p [ArrayExpressionElement<'a>], depth: u32) -> ConfigValue {
         let mut out = Vec::new();
         for element in elements {
             match element {
@@ -567,7 +942,7 @@ impl Evaluator<'_, '_, '_> {
         ConfigValue::Array(out)
     }
 
-    fn object(&self, properties: &[ObjectPropertyKind<'_>], depth: u32) -> ConfigValue {
+    fn object(&self, properties: &'p [ObjectPropertyKind<'a>], depth: u32) -> ConfigValue {
         let mut out: Vec<(String, ConfigValue)> = Vec::new();
         for property in properties {
             match property {
@@ -590,5 +965,32 @@ impl Evaluator<'_, '_, '_> {
             }
         }
         ConfigValue::Object(out)
+    }
+}
+
+/// The only argument of a call, when it is a plain expression.
+fn single_argument<'p, 'a>(call: &'p CallExpression<'a>) -> Option<&'p Expression<'a>> {
+    let mut arguments = call.arguments.iter();
+    match (arguments.next(), arguments.next()) {
+        (Some(only), None) => only.as_expression(),
+        _ => None,
+    }
+}
+
+fn is_require_resolve(call: &CallExpression<'_>) -> bool {
+    matches!(
+        call.callee.get_inner_expression(),
+        Expression::StaticMemberExpression(m)
+            if m.property.name.as_str() == "resolve"
+                && matches!(m.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == "require")
+    )
+}
+
+/// The identifier at the start of a member chain (`config` in `config.a.b`).
+fn member_root<'a>(expr: &'a Expression<'_>) -> Option<&'a str> {
+    match expr.get_inner_expression() {
+        Expression::Identifier(id) => Some(id.name.as_str()),
+        Expression::StaticMemberExpression(m) => member_root(&m.object),
+        _ => None,
     }
 }
