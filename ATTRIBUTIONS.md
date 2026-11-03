@@ -151,7 +151,8 @@ source file is copied, apart from the data noted below.
 - Analysis is static: configuration files are read with oxc, never executed, and tools are not run to ask for
   their entries.
 - The list of binaries that are never reported as unlisted is adapted from knip's `constants.ts`.
-- The plugin table is declarative data with optional resolvers, keyed by the same plugin names as knip.
+- The plugin table is declarative data with optional resolvers, keyed by knip's plugin names. `aws-cdk` and
+  `browser-extension` are skif's own: knip has no plugin of either name at the pinned commit.
 - Rule ids, severities and configuration (`skif.toml`) are skif's own.
 
 ### License Compatibility

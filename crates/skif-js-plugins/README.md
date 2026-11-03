@@ -17,4 +17,4 @@ The table holds 25 plugins: `typescript`, `eslint`, `prettier`, `vite`, `vitest`
 
 The behaviour of each plugin (enablers, config file names, entry patterns and which configuration values name
 dependencies) follows [knip](https://github.com/webpro-nl/knip) (ISC licence), checked at commit
-`da07b6e9887f9a1eb08545da29755b7f9d309bca`. The implementation is independent.
+`da07b6e9887f9a1eb08545da29755b7f9d309bca`. The implementation is independent. `aws-cdk` and `browser-extension` have no knip counterpart at that commit.
