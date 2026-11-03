@@ -30,6 +30,12 @@ pub(crate) fn entry_files(
                 entries.insert(candidate.abs.clone());
             }
         }
+        entries.extend(
+            candidates
+                .iter()
+                .filter(|candidate| candidate.owner != id && package_setup.external_entry.is_match(&candidate.rel))
+                .map(|candidate| candidate.abs.clone()),
+        );
         for target in manifest_targets(&package.manifest.value) {
             if target.contains('*') {
                 let patterns = source_patterns(&target)
