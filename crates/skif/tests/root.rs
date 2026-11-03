@@ -121,3 +121,72 @@ fn a_negated_member_is_not_claimed() {
         Path::new("/repo/y/dist")
     );
 }
+
+#[test]
+fn a_manifest_above_the_repository_is_never_the_workspace() {
+    let fs = MemoryFs::new()
+        .with_file("/package.json", r#"{"name": "stray"}"#)
+        .with_file("/repo/.git/HEAD", "ref")
+        .with_file("/repo/a/package.json", r#"{"name": "a"}"#)
+        .with_file("/repo/b/package.json", r#"{"name": "b"}"#);
+    for start in ["/repo", "/repo/missing"] {
+        let error = find_workspace_root(Path::new(start), &fs).unwrap_err();
+        assert!(matches!(error, Error::NoWorkspace(_)), "{start}: {error}");
+    }
+    assert_eq!(
+        find_workspace_root(Path::new("/repo/a"), &fs).unwrap(),
+        Path::new("/repo/a")
+    );
+}
+
+#[test]
+fn the_repository_root_itself_can_be_the_workspace() {
+    let fs = MemoryFs::new()
+        .with_file("/package.json", r#"{"name": "stray"}"#)
+        .with_file("/repo/.git/HEAD", "ref")
+        .with_file("/repo/package.json", r#"{"workspaces": ["packages/*"]}"#)
+        .with_file("/repo/packages/a/package.json", r#"{"name": "a"}"#);
+    assert_eq!(
+        find_workspace_root(Path::new("/repo/packages/a/src"), &fs).unwrap(),
+        Path::new("/repo")
+    );
+}
+
+fn conflicting_declarations(config: &str) -> MemoryFs {
+    MemoryFs::new()
+        .with_file("/repo/package.json", r#"{"workspaces": ["npmpkgs/*"]}"#)
+        .with_file("/repo/pnpm-workspace.yaml", "packages:\n  - 'yarnpkgs/*'\n")
+        .with_file("/repo/skif.toml", config)
+        .with_file("/repo/npmpkgs/x/package.json", r#"{"name": "x"}"#)
+        .with_file("/repo/yarnpkgs/y/package.json", r#"{"name": "y"}"#)
+}
+
+#[test]
+fn an_ancestor_claims_members_with_its_configured_package_manager() {
+    let npm = conflicting_declarations("[workspace]\npackage-manager = \"npm\"\n");
+    assert_eq!(
+        find_workspace_root(Path::new("/repo/npmpkgs/x"), &npm).unwrap(),
+        Path::new("/repo")
+    );
+    assert_eq!(
+        find_workspace_root(Path::new("/repo/yarnpkgs/y"), &npm).unwrap(),
+        Path::new("/repo/yarnpkgs/y")
+    );
+
+    let pnpm = conflicting_declarations("[workspace]\npackage-manager = \"pnpm\"\n");
+    assert_eq!(
+        find_workspace_root(Path::new("/repo/yarnpkgs/y"), &pnpm).unwrap(),
+        Path::new("/repo")
+    );
+}
+
+#[test]
+fn an_ancestor_that_cannot_be_discovered_still_claims_its_declared_members() {
+    let fs = MemoryFs::new()
+        .with_file("/repo/pnpm-workspace.yaml", "packages:\n  - 'p/*'\n")
+        .with_file("/repo/p/m/package.json", r#"{"name": "m"}"#);
+    assert_eq!(
+        find_workspace_root(Path::new("/repo/p/m"), &fs).unwrap(),
+        Path::new("/repo")
+    );
+}

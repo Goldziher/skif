@@ -275,7 +275,11 @@ fn the_exit_code_is_the_worst_across_roots() {
     fs::write(dir.path().join("ws-two").join("skif.toml"), "[[").unwrap();
     let broken = run(skif().args(["--format", "json"]).arg(dir.path()));
     assert_eq!(broken.code, 2, "{}{}", broken.stdout, broken.stderr);
-    assert_eq!(broken.json()["error"]["kind"], "config");
+    let report = broken.json();
+    assert_eq!(root_paths(&report), ["solo", "ws-one"]);
+    assert_eq!(report["errors"][0]["path"], "ws-two");
+    assert_eq!(report["errors"][0]["kind"], "config");
+    assert!(broken.stderr.contains("error: ws-two:"), "{}", broken.stderr);
 }
 
 #[test]
@@ -364,4 +368,184 @@ fn lint_to_json_supports_recursion() {
     let single = skif_cli::lint_to_json(&dir.path().join("solo"), &skif::ConfigOverrides::default(), false).unwrap();
     let report: Value = serde_json::from_str(&single).unwrap();
     assert!(report.get("roots").is_none());
+}
+
+fn put(root: &Path, relative: &str, content: &str) {
+    let path = root.join(relative);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, content).unwrap();
+}
+
+fn package(name: &str) -> String {
+    format!(r#"{{"name": "{name}", "version": "0.0.0", "private": true}}"#)
+}
+
+fn workspace(name: &str, patterns: &str) -> String {
+    format!(r#"{{"name": "{name}", "version": "0.0.0", "private": true, "workspaces": [{patterns}]}}"#)
+}
+
+fn packages_of(report: &Value, root: &str) -> Vec<String> {
+    let entry = report["roots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["path"] == root)
+        .unwrap_or_else(|| panic!("{root} in {report}"));
+    strings(&entry["packages"])
+}
+
+#[test]
+fn a_manifest_above_the_repository_does_not_hijack_the_run() {
+    let dir = tempfile::tempdir().unwrap();
+    put(dir.path(), "package.json", &package("stray"));
+    fs::create_dir_all(dir.path().join("repo").join(".git")).unwrap();
+    put(dir.path(), "repo/a/package.json", &package("a"));
+    put(dir.path(), "repo/b/package.json", &package("b"));
+    let (_, report) = json(&dir.path().join("repo"), &[]);
+    assert_eq!(root_paths(&report), ["a", "b"]);
+}
+
+#[test]
+fn roots_are_claimed_with_each_workspace_s_configured_package_manager() {
+    let dir = tempfile::tempdir().unwrap();
+    put(dir.path(), "package.json", &workspace("root", r#""npmpkgs/*""#));
+    put(dir.path(), "pnpm-workspace.yaml", "packages:\n  - 'yarnpkgs/*'\n");
+    put(dir.path(), "skif.toml", "[workspace]\npackage-manager = \"npm\"\n");
+    put(dir.path(), "npmpkgs/x/package.json", &package("x"));
+    put(dir.path(), "yarnpkgs/y/package.json", &package("y"));
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(root_paths(&report), [".", "yarnpkgs/y"]);
+    assert_eq!(packages_of(&report, "."), [".", "npmpkgs/x"]);
+}
+
+#[test]
+fn a_nested_workspace_is_a_root_and_every_package_is_linted_once() {
+    let dir = tempfile::tempdir().unwrap();
+    put(dir.path(), "package.json", &workspace("root", r#""packages/*""#));
+    put(dir.path(), "packages/inner/package.json", &workspace("inner", r#""x/*""#));
+    put(dir.path(), "packages/inner/x/y/package.json", &package("y"));
+    put(dir.path(), "packages/plain/package.json", &package("plain"));
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(root_paths(&report), [".", "packages/inner"]);
+    assert_eq!(packages_of(&report, "."), [".", "packages/plain"]);
+    assert_eq!(
+        packages_of(&report, "packages/inner"),
+        ["packages/inner", "packages/inner/x/y"]
+    );
+
+    let (_, direct) = json(&dir.path().join("packages").join("inner"), &[]);
+    assert!(direct.get("roots").is_none());
+    assert_eq!(direct["summary"]["packages"], 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_member_is_linted_once() {
+    let dir = tempfile::tempdir().unwrap();
+    put(dir.path(), "package.json", &workspace("root", r#""pk/*""#));
+    put(dir.path(), "store/m/package.json", &package("m"));
+    fs::create_dir_all(dir.path().join("pk")).unwrap();
+    std::os::unix::fs::symlink(dir.path().join("store").join("m"), dir.path().join("pk").join("m")).unwrap();
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(root_paths(&report), ["."]);
+    assert_eq!(packages_of(&report, "."), [".", "pk/m"]);
+}
+
+#[test]
+fn ignore_files_above_the_start_apply_inside_a_repository() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join(".git")).unwrap();
+    put(dir.path(), ".gitignore", "dist/\n");
+    put(dir.path(), "sub/app/package.json", &package("app"));
+    put(dir.path(), "sub/dist/package.json", &package("dist"));
+    let (_, report) = json(&dir.path().join("sub"), &["-r"]);
+    assert_eq!(root_paths(&report), ["app"]);
+}
+
+#[test]
+fn a_walk_cut_by_the_depth_limit_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    put(dir.path(), "a/package.json", &package("a"));
+    let deep: Vec<String> = (0..34).map(|level| format!("d{level}")).collect();
+    put(dir.path(), &format!("{}/package.json", deep.join("/")), &package("deep"));
+    let result = run(skif().args(["--format", "json", "-r"]).arg(dir.path()));
+    assert!(result.code <= 1, "{}{}", result.stdout, result.stderr);
+    assert!(
+        result.stderr.contains("warning: the search for roots stopped 32 levels down"),
+        "{}",
+        result.stderr
+    );
+    assert_eq!(root_paths(&result.json()), ["a"]);
+}
+
+#[test]
+fn a_root_that_cannot_be_loaded_does_not_stop_the_others() {
+    let dir = tempfile::tempdir().unwrap();
+    put(dir.path(), "good/package.json", &package("good"));
+    put(dir.path(), "bad/package.json", "{");
+    put(dir.path(), "ws/pnpm-workspace.yaml", "packages:\n  - 'p/*'\n");
+    put(dir.path(), "ws/package.json", "{");
+    put(dir.path(), "ws/p/m/package.json", &package("m"));
+    let result = run(skif().args(["--format", "json", "-r"]).arg(dir.path()));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    let report = result.json();
+    assert_eq!(root_paths(&report), ["good"]);
+    let failed: Vec<&str> = report["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(failed, ["bad", "ws"]);
+}
+
+#[test]
+fn a_project_is_judged_by_the_same_config_whichever_way_it_is_reached() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join(".git")).unwrap();
+    put(dir.path(), "I/skif.toml", "[rules]\nempty-dependencies = \"off\"\n");
+    put(dir.path(), "I/package.json", &workspace("i", r#""pkgs/*""#));
+    put(dir.path(), "I/pkgs/a/package.json", &package("a"));
+    put(
+        dir.path(),
+        "I/examples/e/package.json",
+        r#"{"name": "e", "version": "0.0.0", "private": true, "devDependencies": {}}"#,
+    );
+    let rules = |report: &Value, path: &str| -> BTreeSet<String> {
+        report["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|d| d["location"]["path"] == path)
+            .map(|d| d["rule"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let (_, recursive) = json(&dir.path().join("I"), &["-r"]);
+    let (_, direct) = json(&dir.path().join("I").join("examples").join("e"), &[]);
+    let through_the_tree = rules(&recursive, "examples/e/package.json");
+    assert!(!through_the_tree.contains("empty-dependencies"), "{recursive}");
+    assert_eq!(rules(&direct, "package.json"), through_the_tree, "{direct}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_write_failure_in_a_later_root_still_reports_the_earlier_fixes() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = fixture("multi/siblings");
+    let locked = dir.path().join("ws-one");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+    let writable = fs::write(locked.join("probe"), "").is_ok();
+    let result = run(skif().args(["--fix", "--no-install"]).arg(dir.path()));
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    if writable {
+        return;
+    }
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert!(result.stdout.contains("  fixed solo/package.json"), "{}", result.stdout);
+    assert!(
+        result.stderr.contains("fixes were written to earlier roots"),
+        "{}",
+        result.stderr
+    );
 }

@@ -493,4 +493,21 @@ impl Workspace {
     pub fn is_ignored(&self, id: PackageId) -> bool {
         self.ignored.get(id.index()).copied().unwrap_or(false)
     }
+
+    /// The absolute directories of the members, the root excluded.
+    #[must_use]
+    pub fn member_dirs(&self) -> BTreeSet<PathBuf> {
+        self.packages.iter().map(|package| self.root.join(&package.dir)).collect()
+    }
+
+    /// Excludes the members at `dirs` (absolute paths) from analysis as `ignore-packages` would, because another
+    /// root lints them. The packages stay in the workspace, so dependencies on them still resolve.
+    pub fn ignore_dirs(&mut self, dirs: &BTreeSet<PathBuf>) {
+        let root = &self.root;
+        for (slot, package) in self.ignored.iter_mut().skip(1).zip(&self.packages) {
+            if dirs.contains(&root.join(&package.dir)) {
+                *slot = true;
+            }
+        }
+    }
 }
