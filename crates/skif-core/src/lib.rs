@@ -29,6 +29,7 @@
 //! ```
 
 pub mod builder;
+pub mod cached_fs;
 pub mod dependency;
 pub mod diagnostic;
 pub mod display;
