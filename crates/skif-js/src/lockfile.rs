@@ -292,8 +292,7 @@ mod tests {
 
     #[test]
     fn bun_lock_peers_and_bins() {
-        let entries = bun(
-            r#"{
+        let entries = bun(r#"{
   "lockfileVersion": 1,
   "workspaces": { "": { "name": "app", }, },
   "packages": {
@@ -301,8 +300,7 @@ mod tests {
     "oxlint": ["oxlint@1.0.0", "", { "bin": { "oxlint": "bin.js" } }, "sha512-y"],
     "app": ["app@workspace:."],
   },
-}"#,
-        );
+}"#);
         assert!(entries["@s/react"].peers.contains("@s/dom") && entries["@s/react"].peers.contains("react"));
         assert!(entries["oxlint"].bins.contains("oxlint"));
     }

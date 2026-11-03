@@ -75,9 +75,11 @@ fn load(fs: &dyn FileSystem, file: &Path, depth: usize) -> Option<Options> {
                 .map(|(pattern, targets)| {
                     let targets = match targets {
                         ConfigValue::String(target) => vec![target.clone()],
-                        ConfigValue::Array(items) => {
-                            items.iter().filter_map(ConfigValue::as_str).map(str::to_owned).collect()
-                        }
+                        ConfigValue::Array(items) => items
+                            .iter()
+                            .filter_map(ConfigValue::as_str)
+                            .map(str::to_owned)
+                            .collect(),
                         _ => Vec::new(),
                     };
                     (pattern.clone(), targets)
@@ -91,24 +93,26 @@ fn load(fs: &dyn FileSystem, file: &Path, depth: usize) -> Option<Options> {
 
 /// The nearest config at or above `dir`, not above `root`, that sets `baseUrl` or `paths`.
 pub(crate) fn nearest(fs: &dyn FileSystem, root: &Path, dir: &Path) -> Option<TsPaths> {
-    dir.ancestors().take_while(|ancestor| ancestor.starts_with(root)).find_map(|ancestor| {
-        ["tsconfig.json", "jsconfig.json"].iter().find_map(|name| {
-            let file = ancestor.join(name);
-            if !fs.is_file(&file) {
-                return None;
-            }
-            let options = load(fs, &file, 0)?;
-            if options.base_url.is_none() && options.paths.is_none() {
-                return None;
-            }
-            let (paths_dir, paths) = options.paths.unwrap_or_else(|| (ancestor.to_path_buf(), Vec::new()));
-            Some(TsPaths {
-                base_url: options.base_url,
-                paths_dir,
-                paths,
+    dir.ancestors()
+        .take_while(|ancestor| ancestor.starts_with(root))
+        .find_map(|ancestor| {
+            ["tsconfig.json", "jsconfig.json"].iter().find_map(|name| {
+                let file = ancestor.join(name);
+                if !fs.is_file(&file) {
+                    return None;
+                }
+                let options = load(fs, &file, 0)?;
+                if options.base_url.is_none() && options.paths.is_none() {
+                    return None;
+                }
+                let (paths_dir, paths) = options.paths.unwrap_or_else(|| (ancestor.to_path_buf(), Vec::new()));
+                Some(TsPaths {
+                    base_url: options.base_url,
+                    paths_dir,
+                    paths,
+                })
             })
         })
-    })
 }
 
 /// The part of `specifier` a `paths` pattern captures, with the length of the fixed prefix (an exact pattern ranks
@@ -142,7 +146,11 @@ impl TsPaths {
             .collect();
         matched.sort_by_key(|(prefix, _)| Reverse(*prefix));
         let mut candidates: Vec<PathBuf> = matched.into_iter().flat_map(|(_, paths)| paths).collect();
-        candidates.extend(self.base_url.as_ref().map(|base_url| join_normalized(base_url, specifier)));
+        candidates.extend(
+            self.base_url
+                .as_ref()
+                .map(|base_url| join_normalized(base_url, specifier)),
+        );
         candidates
     }
 }
@@ -172,14 +180,20 @@ mod tests {
             ]
         );
         assert_eq!(paths.candidates("@s/ui"), [PathBuf::from("/ws/packages/ui/src")]);
-        assert!(paths.candidates("other").is_empty());
+        assert_eq!(paths.candidates("other"), Vec::<PathBuf>::new());
     }
 
     #[test]
     fn extends_supplies_paths_relative_to_the_defining_config() {
         let fs = MemoryFs::new()
-            .with_file("/ws/base/tsconfig.base.json", r#"{"compilerOptions":{"paths":{"@b/*":["./lib/*"]}}}"#)
-            .with_file("/ws/app/jsconfig.json", r#"{"extends":"../base/tsconfig.base","compilerOptions":{}}"#);
+            .with_file(
+                "/ws/base/tsconfig.base.json",
+                r#"{"compilerOptions":{"paths":{"@b/*":["./lib/*"]}}}"#,
+            )
+            .with_file(
+                "/ws/app/jsconfig.json",
+                r#"{"extends":"../base/tsconfig.base","compilerOptions":{}}"#,
+            );
         let paths = nearest(&fs, Path::new("/ws"), Path::new("/ws/app/src")).unwrap();
         assert_eq!(paths.candidates("@b/x"), [PathBuf::from("/ws/base/lib/x")]);
     }
