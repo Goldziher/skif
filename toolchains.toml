@@ -7,12 +7,17 @@ format = "Rust is formatted by rustfmt before poly formats the rest of the tree.
 "format:check" = "Rust formatting is verified by rustfmt before poly checks the rest of the tree."
 
 [file_overrides]
+"crates/skif-cli/tests/fixtures/multi/nested/tools/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
+"crates/skif-cli/tests/fixtures/multi/pnpm-settings-only/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
+"crates/skif-cli/tests/fixtures/multi/siblings/ws-one/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
+"crates/skif-cli/tests/fixtures/multi/siblings/ws-two/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "crates/skif-rules/tests/fixtures/clean/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "crates/skif-workspace/fixtures/catalogs-package-json/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "crates/skif-workspace/fixtures/catalogs/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "crates/skif-workspace/fixtures/ignore-paths/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "crates/skif-workspace/fixtures/nested-star/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "crates/skif-workspace/fixtures/pnpm-glob/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
+"crates/skif-workspace/fixtures/pnpm-settings-only/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "crates/skif-workspace/fixtures/root-star-pnpm/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "crates/skif-workspace/fixtures/without-package-json/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "fixtures/e2e/pnpm/clean/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
