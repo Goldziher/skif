@@ -559,3 +559,111 @@ fn a_write_failure_in_a_later_root_still_reports_the_earlier_fixes() {
         result.stderr
     );
 }
+
+fn paths_reporting(report: &Value, rule: &str) -> BTreeSet<String> {
+    report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| d["rule"] == rule)
+        .map(|d| d["location"]["path"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+fn error_count(report: &Value) -> usize {
+    report.get("errors").and_then(Value::as_array).map_or(0, Vec::len)
+}
+
+#[test]
+fn the_package_manager_field_is_asked_of_workspaces_and_the_outermost_root_only() {
+    let dir = tempfile::tempdir().unwrap();
+    put(dir.path(), "package.json", &workspace("root", r#""packages/*""#));
+    put(dir.path(), "packages/a/package.json", &package("a"));
+    put(dir.path(), "examples/e/package.json", &package("e"));
+    put(dir.path(), "libs/w/package.json", &workspace("w", r#""p/*""#));
+    put(dir.path(), "libs/w/p/m/package.json", &package("m"));
+    put(dir.path(), "libs/w/demo/package.json", &package("demo"));
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(root_paths(&report), [".", "examples/e", "libs/w", "libs/w/demo"]);
+    assert_eq!(
+        paths_reporting(&report, "root-package-manager-field"),
+        BTreeSet::from(["package.json".to_owned(), "libs/w/package.json".to_owned()]),
+        "{report}"
+    );
+
+    let (_, single) = json(&dir.path().join("examples").join("e"), &[]);
+    assert_eq!(
+        paths_reporting(&single, "root-package-manager-field"),
+        BTreeSet::from(["package.json".to_owned()]),
+        "a package linted on its own is its own outermost root"
+    );
+}
+
+#[test]
+fn standalone_packages_without_a_common_root_each_get_the_package_manager_check() {
+    let dir = tempfile::tempdir().unwrap();
+    put(dir.path(), "a/package.json", &package("a"));
+    put(dir.path(), "b/package.json", &package("b"));
+    put(dir.path(), "b/inner/package.json", &package("inner"));
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(
+        paths_reporting(&report, "root-package-manager-field"),
+        BTreeSet::from(["a/package.json".to_owned(), "b/package.json".to_owned()]),
+        "{report}"
+    );
+}
+
+#[test]
+fn a_workspace_file_without_a_root_manifest_lints_its_members() {
+    let dir = tempfile::tempdir().unwrap();
+    put(dir.path(), "ws/pnpm-workspace.yaml", "packages:\n  - 'p/*'\n");
+    put(dir.path(), "ws/p/m/package.json", &package("m"));
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(error_count(&report), 0, "{report}");
+    assert_eq!(root_paths(&report), ["ws"]);
+    assert_eq!(packages_of(&report, "ws"), ["ws/p/m"]);
+    assert_eq!(report["summary"]["packages"], 1);
+    assert!(
+        diagnostic_paths(&report).iter().all(|path| path != "ws/package.json"),
+        "{report}"
+    );
+
+    let (_, direct) = json(&dir.path().join("ws"), &[]);
+    assert!(direct.get("roots").is_none());
+    assert_eq!(direct["summary"]["packages"], 1);
+}
+
+#[test]
+fn a_rush_json_makes_its_projects_the_members_of_one_root() {
+    let dir = tempfile::tempdir().unwrap();
+    put(
+        dir.path(),
+        "rush.json",
+        "// Rush\n{\n  \"pnpmVersion\": \"9.0.0\",\n  \"projects\": [\n    { \"packageName\": \"a\", \"projectFolder\": \"apps/a\" },\n    { \"packageName\": \"b\", \"projectFolder\": \"libs/b\" },\n  ],\n}\n",
+    );
+    put(dir.path(), "apps/a/package.json", &package("a"));
+    put(dir.path(), "libs/b/package.json", &package("b"));
+    put(dir.path(), "libs/b/example/package.json", &package("example"));
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(error_count(&report), 0, "{report}");
+    assert_eq!(root_paths(&report), ["."]);
+    assert_eq!(packages_of(&report, "."), ["apps/a", "libs/b"]);
+}
+
+#[test]
+fn fixture_directories_are_not_searched_for_roots_unless_configured() {
+    let dir = tempfile::tempdir().unwrap();
+    put(dir.path(), "real/package.json", &package("real"));
+    put(dir.path(), "fixtures/f/package.json", &package("f"));
+    put(dir.path(), "real/__mocks__/m/package.json", &package("m"));
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(root_paths(&report), ["real"]);
+
+    put(dir.path(), "skif.toml", "[workspace]\ndiscover-ignore = []\n");
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(root_paths(&report), ["fixtures/f", "real", "real/__mocks__/m"]);
+
+    put(dir.path(), "skif.toml", "[workspace]\ndiscover-ignore = [\"real\"]\n");
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(root_paths(&report), ["fixtures/f"]);
+}

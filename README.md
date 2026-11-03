@@ -83,8 +83,10 @@ highest|lowest`, `--no-install`, `--max-warnings N`, `--ignore-rule`, `--ignore-
 `skif [PATH]` lints one root: the nearest ancestor workspace that lists the package as a member, otherwise the
 package itself, which is then linted in single-package mode (no workspace is needed). When neither `PATH` nor an
 ancestor holds a `package.json`, or with `-r`/`--recursive`, skif lints every workspace and standalone package
-below `PATH` and reports them in one run with one exit code; `.gitignore`d directories, `node_modules` and hidden
-directories are skipped.
+below `PATH` and reports them in one run with one exit code; `.gitignore`d directories, `node_modules`, hidden
+directories and fixture directories (`[workspace] discover-ignore`) are skipped. A `pnpm-workspace.yaml` or a
+`rush.json` without a root `package.json` is a workspace too. A root that fails to load is listed under `errors` in
+the JSON report and does not stop the others ([ADR 0023](adrs/0023-root-discovery-semantics-nested-roots-rush-and-fixture-directories.md)).
 
 The full contract is [ADR 0016](adrs/0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md).
 

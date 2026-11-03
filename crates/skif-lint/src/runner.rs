@@ -52,7 +52,11 @@ pub fn run(
     options: &RunOptions<'_>,
 ) -> Result<Report, LintError> {
     let diagnostics = run_unsorted(registry, workspace, config, options)?;
-    Ok(Report::new(diagnostics, workspace.all_packages().count()))
+    let root_stand_in = usize::from(!workspace.has_root_manifest);
+    Ok(Report::new(
+        diagnostics,
+        workspace.all_packages().count() - root_stand_in,
+    ))
 }
 
 /// Runs every enabled rule and returns the diagnostics in merge order, before [`Report`] sorting: providers in
