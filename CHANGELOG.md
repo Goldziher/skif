@@ -39,6 +39,7 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Changed
 
+- Minimum supported versions raised: Rust 1.99.
 - **The project is renamed to skif.** It continues as an independent Rust dependency linter for
   JavaScript and TypeScript monorepos, hosted at `github.com/Goldziher/skif`.
 - **The code is a library-first workspace** of `skif-*` crates with a thin `skif` command line on top.
