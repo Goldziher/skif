@@ -18,7 +18,7 @@ struct Pattern {
     segments: Vec<Segment>,
 }
 
-/// Splits on `/` outside braces so `{a/b,c}` stays one segment.
+/// Splits on `/` outside braces; groups containing `/` were expanded before.
 fn split_segments(pattern: &str) -> Vec<&str> {
     let mut parts = Vec::new();
     let mut depth = 0_u32;
@@ -103,7 +103,7 @@ fn walk(fs: &dyn FileSystem, dir: &Path, parts: &mut Vec<String>, patterns: &[Pa
 pub(crate) fn find_files(fs: &dyn FileSystem, dir: &Path, globs: &[String]) -> Vec<String> {
     let patterns: Vec<Pattern> = globs
         .iter()
-        .flat_map(|g| crate::glob::expand_empty_alternatives(g))
+        .flat_map(|g| crate::glob::expand_path_alternatives(g))
         .filter_map(|g| compile(&g))
         .collect();
     let mut out = Vec::new();
@@ -113,4 +113,33 @@ pub(crate) fn find_files(fs: &dyn FileSystem, dir: &Path, globs: &[String]) -> V
     out.sort();
     out.dedup();
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use skif_core::MemoryFs;
+
+    use super::*;
+
+    fn fs_with(paths: &[&str]) -> MemoryFs {
+        let mut fs = MemoryFs::new();
+        for path in paths {
+            fs.insert(format!("/ws/{path}"), "");
+        }
+        fs
+    }
+
+    #[test]
+    fn brace_groups_containing_a_slash_match_across_segments() {
+        let fs = fs_with(&["src/app/a.ts", "lib/b.ts", "other/c.ts", "src/app/a.js"]);
+        let found = find_files(&fs, Path::new("/ws"), &["{src/app,lib}/*.ts".to_owned()]);
+        assert_eq!(found, ["lib/b.ts", "src/app/a.ts"]);
+    }
+
+    #[test]
+    fn nested_and_empty_groups_match() {
+        let fs = fs_with(&["a.ts", "src/a.ts", "src/lib/a.ts", "x/a.ts"]);
+        let found = find_files(&fs, Path::new("/ws"), &["{,src/{,lib/}}a.ts".to_owned()]);
+        assert_eq!(found, ["a.ts", "src/a.ts", "src/lib/a.ts"]);
+    }
 }
