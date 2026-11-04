@@ -7,7 +7,7 @@ use skif_core::{Diagnostic, Fix, FixSafety, Report, Severity, Span, Summary};
 
 use crate::options::RenderOptions;
 use crate::style::Painter;
-use crate::text::{escape_controls, frame, line_of};
+use crate::text::{escape_controls, frame};
 
 /// Renders `report` grouped by file, with code frames when sources were supplied via
 /// [`RenderOptions::with_source`], followed by a summary line.
@@ -32,9 +32,8 @@ pub fn render_human(report: &Report, options: &RenderOptions, out: &mut dyn Writ
                 .then_with(|| a.message.cmp(&b.message))
         });
         writeln!(out, "{}", paint.bold(&escape_controls(&path)))?;
-        let source = options.source(&path);
         for diagnostic in diagnostics {
-            write_diagnostic(out, paint, options, &path, source, diagnostic)?;
+            write_diagnostic(out, paint, options, &path, diagnostic)?;
         }
         writeln!(out)?;
     }
@@ -50,13 +49,12 @@ fn write_diagnostic(
     paint: Painter,
     options: &RenderOptions,
     path: &str,
-    source: Option<&str>,
     diagnostic: &Diagnostic,
 ) -> io::Result<()> {
     let span = diagnostic.location.span;
     let framed = span.and_then(|span| {
-        source
-            .and_then(|text| line_of(text, span.start_line))
+        options
+            .source_line(path, span.start_line)
             .map(|line| (span, frame(line, span.start_col, same_line_end(&span))))
     });
     let width = span.map_or(1, |span| digits(span.start_line));
