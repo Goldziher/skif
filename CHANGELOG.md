@@ -68,10 +68,15 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   `unused-exports`, `unused-types`, `unused-enum-members`, `unused-namespace-members`, `duplicate-exports`,
   `circular-imports` and `unparseable-files`. Unused files, exports, types and dev dependencies default to warnings. Production mode,
   `--no-js` and `[js]` settings per workspace are supported.
-- **A plugin table of 25 plugins** that reads the static configuration of common tools to find entry files and the
+- **A plugin table of 60 plugins** that reads the static configuration of common tools to find entry files and the
   dependencies they use, without running any tool: `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`,
   `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`,
-  `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk` and `browser-extension`.
+  `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`,
+  `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`,
+  `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`,
+  `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`,
+  `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn` and `syncpack`.
+  The set is extended in [ADR 0025](adrs/0025-plugin-set-extension-thirty-five-more-tools.md).
 - **Output formats**: human, JSON, SARIF and GitHub annotations, selected with `--format`.
 - **Atomic fixes**: `--fix` and `--fix-unsafe` plan all edits first, write them atomically and lint again;
   edits keep key order, indentation and newline style. `--fix` runs the package manager's install unless
