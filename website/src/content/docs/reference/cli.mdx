@@ -35,6 +35,7 @@ another root. `--fix` plans, writes and installs per root.
 | --- | --- |
 | `skif rules` | List every rule with its category, default level and fixability. `--format json` prints one JSON document. |
 | `skif schema` | Print the JSON Schema of `skif.toml`. |
+| `skif config [PATH] [-r]` | Print the effective configuration of each root. `--show` annotates every value with its file and line and lists the files that were not applied; `--explain <KEY> [--package <NAME>]` lists every file that touched a key; `--format json` prints data. |
 | `skif init [PATH]` | Write a starter `skif.toml` into `PATH` (default `.`). Refuses to overwrite an existing configuration. |
 
 ## Flags
@@ -56,11 +57,13 @@ another root. `--fix` plans, writes and installs per root.
 | `--ignore-package <NAME>` | Ignore a package by name or glob in every rule. Repeatable. |
 | `--ignore-dependency <NAME>` | Ignore a dependency in every rule. Repeatable. |
 | `--ignore-rule-for-package <RULE:PACKAGE>` | Ignore one rule for one package. Repeatable. |
+| `--config <FILE>` | Use this configuration file, and the files it extends, instead of discovering `skif.toml` files. |
+| `--no-config` | Read no configuration file: the defaults plus the flags. Conflicts with `--config`. |
 | `--no-js` | Skip JavaScript analysis. Overrides `[js] enabled`. |
 | `--production` | Only analyse production code in JavaScript analysis. Overrides `[js] production`. |
 | `--color <auto\|always\|never>` | When to colour human output. |
 
-Flags are the top layer of the [configuration precedence](../configuration/#precedence): defaults, then the file,
+Flags are the top layer of the [configuration precedence](../configuration/#precedence): defaults, then the files,
 then the command line. Array flags replace the file's arrays rather than append.
 
 ## Exit codes

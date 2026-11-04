@@ -3,16 +3,19 @@ title: Configuration
 description: The skif.toml reference, section by section, with precedence and examples.
 ---
 
-skif reads one TOML file, `skif.toml` or `.skif.toml`, at the workspace root. Having both is an error naming both
-paths. There is no `package.json` key, no JSON, YAML or JavaScript variant, and no compatibility reader for sherif,
+skif reads TOML files named `skif.toml` or `.skif.toml`. A root takes the files from its own directory up to the
+root of the git repository and merges them (see [Layered configuration](#layered-configuration)). Having both names
+in one directory is an error naming both paths. There is no `package.json` key, no JSON, YAML or JavaScript variant, and no compatibility reader for sherif,
 syncpack or knip configuration. `skif init` writes a starter file and `skif schema` prints its JSON Schema.
 
 Keys are kebab-case, matching rule ids. Unknown keys and wrong types are errors that name the file, line and key.
 
 ## Precedence
 
-Defaults, then the file, then the command line (`defaults < file < CLI`). Each layer sets only the keys it
-contains, and arrays replace rather than append.
+Defaults, then the files, then the command line (`defaults < files < CLI`). Each layer sets only the keys it
+contains, and arrays replace rather than append, except where a key says otherwise (see below). Within the files,
+the order is the base of each file from the farthest to the nearest, then `[js.workspaces]`, then package files.
+`[[overrides]]` apply on top of the base to the packages and files they select.
 
 ## Editor support
 
@@ -34,6 +37,8 @@ file. Print the schema with `skif schema`.
 | `[workspace-protocol]` | `workspace:` protocol policy |
 | `[[dependency-families]]` | Packages that must share a version |
 | `[js]` | JavaScript analysis |
+| `root`, `extends`, `reset` | How files combine |
+| `[[overrides]]` | Rule levels, severity caps, suppressions and JS inputs for selected packages or files |
 
 ### `[workspace]`
 
@@ -184,6 +189,98 @@ tables take `entry`, `project`, `ignore`, `ignore-dependencies` and `ignore-bina
 The table holds 25 built-in plugins:
 
 `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk` and `browser-extension`.
+
+## Layered configuration
+
+A root takes every configuration file from its own directory up to the root of the git repository (the nearest
+directory with a `.git` entry, a directory or a worktree file), farthest first, and merges them. Outside a repository
+the search covers the root alone in a single-workspace run and the start directory in a recursive run. A file above
+the repository is never read. A file with `root = true` ends the search at itself. `skif` inside a project and `skif
+-r` from the top therefore give that project the same configuration. The guide
+[Sharing configuration](../../guides/sharing-configuration/) shows complete examples.
+
+### `root`, `extends` and `reset`
+
+```toml
+root = true
+extends = ["../presets/node-cli.toml"]
+reset = ["version-groups"]
+```
+
+- `root = true` stops the upward search at this file. It is only valid in a file found by discovery.
+- `extends` lists files, relative to the declaring file or absolute. They apply before the declaring file, in
+  order. A file reached twice applies once. A cycle, a missing file or more than 16 nested files is an error naming
+  the file.
+- `reset` discards what was inherited for the listed keys before this file applies. Allowed values:
+  `version-groups`, `semver-groups`, `ignore`, `dependency-families`, `overrides`.
+
+### Merge rules
+
+| Value | Rule |
+| --- | --- |
+| Scalars (`fail-on-warnings`, `package-manager`, `mode`, ...) | The later file replaces |
+| Tables (`[workspace]`, `[lint]`, `[policy]`, `[catalog]`, `[js]`, ...) | Merge key by key |
+| Arrays of strings | The later file replaces |
+| `extend-ignore-packages` (`[workspace]`), `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries` (`[js]`), `extend-exclude` (`[catalog]`) | Append to the inherited list, after the plain key of the same file |
+| `[rules]` | Per rule: a level keeps the inherited options; a table of options replaces the options and keeps the level |
+| `[js.plugins]` | Per plugin: `true` or `false` keeps the options; a table replaces them |
+| `[[ignore]]`, `[[overrides]]` | Append |
+| `[[version-groups]]`, `[[semver-groups]]` | The nearer file's entries come first, so with first match wins the project beats the org |
+| `[[dependency-families]]` | Replace the family of the same `name`, append the others |
+
+### `[[overrides]]`
+
+```toml
+[[overrides]]
+packages = ["./legacy/**", "@acme/old-*"]   # directories start with ./, other entries are names
+files = ["**/src/generated/**"]             # file globs, anchored at the declaring file
+max-level = "warn"                          # cap the severity of matched diagnostics
+
+[overrides.rules]
+unused-exports = "off"
+
+[[overrides.ignore]]
+rules = ["unlisted-dependencies"]
+dependencies = ["jquery"]
+
+[overrides.js]                              # needs packages, no files
+entry = ["src/server.ts"]
+extend-ignore-dependencies = ["@acme/test-utils"]
+```
+
+At least one of `packages` and `files` is required; when both are set a diagnostic must match both. An override
+changes how diagnostics in the selected packages or files are reported, and which JS inputs those packages get. It
+never changes what a workspace-wide analysis computes, so a package leaves version policy through a root-level
+version group with `policy = "ignored"`.
+
+Package-scoped keys, the only ones an override or a package file may hold: `rules` (levels only), `max-level`,
+`ignore`, and in `js`: `entry`, `project`, `ignore`, `ignore-dependencies`, `ignore-binaries`, the matching
+`extend-` keys and `plugins`. Any other key, including rule options, `js.enabled` and `js.production`, is an error
+that names the key, the file and the line. `[lint] max-level` caps a whole root and is allowed in a base file.
+A rule that is `off` in the base and on in an override runs; its diagnostics outside the override are dropped.
+
+### Package files
+
+A `skif.toml` in the directory of a workspace member applies to that package only, as if it were an override with
+`packages = ["./"]`. It uses the top-level spelling (`[rules]`, `[js]`, `[[ignore]]`, `[lint] max-level`) and the
+same package-scoped keys. Its `[[ignore]]` entries need no filter. `root`, `extends` and `[[overrides]]` are not
+allowed in it.
+
+### Paths
+
+Patterns that select packages or files in an override, and `extends` paths, are relative to the directory of the
+file that declares them. `$ROOT/` at the start of a pattern anchors it at the root being linted instead, which a
+shared preset needs. A pattern that would leave its anchor never matches. Values are read in the scope they
+configure: top-level `[js]` globs are relative to the root, `js` globs of an override or package file are relative
+to each package. `ignore-packages`, `[[ignore]] packages`, group selectors and `[js.workspaces]` keys stay relative
+to the root.
+
+### Inspecting the result
+
+`skif config --show` prints the effective configuration of each root with the file and line of every value, and
+lists the files that were not applied. `skif config --explain <key> [--package <name>]` prints every file that
+touched a key and the final value. `--config <FILE>` lints with that file (and what it extends) only, and
+`--no-config` reads no file.
 
 ## Selectors
 
