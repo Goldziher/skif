@@ -24,8 +24,17 @@ impl MemberUse {
     }
 }
 
+/// How a name reached a module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Via {
+    /// Imported by name, as the default export or through a use that may touch anything.
+    Named,
+    /// Read as a member of a namespace (`ns.member`, `export * as ns` followed by `ns.member`).
+    Namespace,
+}
+
 enum Task {
-    Name(ModuleId, String, MemberUse),
+    Name(ModuleId, String, MemberUse, Via),
     All(ModuleId),
 }
 
@@ -34,6 +43,10 @@ enum Task {
 pub struct ExportUsage {
     used: HashMap<ModuleId, HashMap<String, MemberUse>>,
     all: HashSet<ModuleId>,
+    /// Modules some export of which was reached by name or as a whole.
+    reached_by_name: HashSet<ModuleId>,
+    /// Modules some export of which was reached as a namespace member.
+    reached_by_namespace: HashSet<ModuleId>,
 }
 
 /// The re-exports of one module, resolved to the modules they come from.
@@ -69,8 +82,20 @@ impl ReexportIndex {
                     let Some(import) = module.info.imports.get(resolved.import) else {
                         continue;
                     };
-                    if let (ImportKind::ExportFrom, Target::Module(id)) = (import.kind, &resolved.target) {
-                        sources.entry(import.specifier.as_str()).or_insert(*id);
+                    let Target::Module(id) = &resolved.target else {
+                        continue;
+                    };
+                    // `export { x }` of an imported binding names the source of the `import`, not of an
+                    // `export … from`, so any import of the specifier locates the module; an `export … from`
+                    // wins when there are several.
+                    match import.kind {
+                        ImportKind::ExportFrom => {
+                            sources.insert(import.specifier.as_str(), *id);
+                        }
+                        ImportKind::ImportMetaGlob | ImportKind::SideEffect => {}
+                        _ => {
+                            sources.entry(import.specifier.as_str()).or_insert(*id);
+                        }
                     }
                 }
                 let mut reexports = Reexports::default();
@@ -171,17 +196,19 @@ impl ExportUsage {
                         all: name.escapes,
                     };
                     match &name.kind {
-                        ImportedKind::Default => queue.push_back(Task::Name(target, "default".to_owned(), access)),
-                        ImportedKind::Named(export) => queue.push_back(Task::Name(target, export.clone(), access)),
+                        ImportedKind::Default => {
+                            queue.push_back(Task::Name(target, "default".to_owned(), access, Via::Named));
+                        }
+                        ImportedKind::Named(export) => {
+                            queue.push_back(Task::Name(target, export.clone(), access, Via::Named));
+                        }
                         ImportedKind::Namespace => {
                             if name.escapes || name.local.is_none() {
                                 queue.push_back(Task::All(target));
                             } else {
-                                queue.extend(
-                                    name.accessed_members
-                                        .iter()
-                                        .map(|member| Task::Name(target, member.clone(), MemberUse::everything())),
-                                );
+                                queue.extend(name.accessed_members.iter().map(|member| {
+                                    Task::Name(target, member.clone(), MemberUse::everything(), Via::Namespace)
+                                }));
                             }
                         }
                     }
@@ -191,7 +218,7 @@ impl ExportUsage {
         while let Some(task) = queue.pop_front() {
             match task {
                 Task::All(id) => usage.mark_all(&index, id, &mut queue),
-                Task::Name(id, name, access) => usage.mark_name(&index, id, &name, &access, &mut queue),
+                Task::Name(id, name, access, via) => usage.mark_name(&index, id, &name, &access, via, &mut queue),
             }
         }
         usage
@@ -203,7 +230,12 @@ impl ExportUsage {
         }
         for (target, named) in &index.modules[id.index()].all {
             match named {
-                Some((_, source)) => queue.push_back(Task::Name(*target, source.clone(), MemberUse::everything())),
+                Some((_, source)) => queue.push_back(Task::Name(
+                    *target,
+                    source.clone(),
+                    MemberUse::everything(),
+                    Via::Named,
+                )),
                 None => queue.push_back(Task::All(*target)),
             }
         }
@@ -215,8 +247,13 @@ impl ExportUsage {
         id: ModuleId,
         name: &str,
         access: &MemberUse,
+        via: Via,
         queue: &mut VecDeque<Task>,
     ) {
+        match via {
+            Via::Named => self.reached_by_name.insert(id),
+            Via::Namespace => self.reached_by_namespace.insert(id),
+        };
         if self.all.contains(&id) {
             return;
         }
@@ -231,15 +268,23 @@ impl ExportUsage {
         }
         let reexports = &index.modules[id.index()];
         for (target, source) in reexports.named.get(name).into_iter().flatten() {
-            queue.push_back(Task::Name(*target, source.clone(), access.clone()));
+            queue.push_back(Task::Name(*target, source.clone(), access.clone(), via));
         }
+        // `export * as name from` (or `import * as name; export { name }`): only the members read through `name`
+        // are used, unless the namespace is used as a whole.
         for target in reexports.namespaces.get(name).into_iter().flatten() {
-            queue.push_back(Task::All(*target));
+            if access.all || access.members.is_empty() {
+                queue.push_back(Task::All(*target));
+            } else {
+                queue.extend(access.members.iter().map(|member| {
+                    Task::Name(*target, member.clone(), MemberUse::everything(), Via::Namespace)
+                }));
+            }
         }
         if !reexports.defined.contains(name) && name != "default" {
             for target in &reexports.stars {
                 if index.exposed[target.index()].contains(name) {
-                    queue.push_back(Task::Name(*target, name.to_owned(), access.clone()));
+                    queue.push_back(Task::Name(*target, name.to_owned(), access.clone(), via));
                 }
             }
         }
@@ -249,6 +294,18 @@ impl ExportUsage {
     #[must_use]
     pub fn is_used(&self, module: ModuleId, name: &str) -> bool {
         self.all.contains(&module) || self.used.get(&module).is_some_and(|names| names.contains_key(name))
+    }
+
+    /// Whether every use of `module` reads members of a namespace: it is imported with `import * as ns` or re-exported
+    /// with `export * as ns` and only `ns.member` is accessed, never `{ member }` by name and never the whole namespace.
+    ///
+    /// The unused exports of such a module are `unused-namespace-exports` and `unused-namespace-types`, not
+    /// `unused-exports` and `unused-types`.
+    #[must_use]
+    pub fn is_namespace_only(&self, module: ModuleId) -> bool {
+        self.reached_by_namespace.contains(&module)
+            && !self.reached_by_name.contains(&module)
+            && !self.all.contains(&module)
     }
 
     /// Whether member `member` of export `name` of `module` is used, or the export is used as a whole.

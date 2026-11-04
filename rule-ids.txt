@@ -30,7 +30,9 @@ unused-dev-dependencies
 unused-enum-members
 unused-exports
 unused-files
+unused-namespace-exports
 unused-namespace-members
+unused-namespace-types
 unused-optional-peer-dependencies
 unused-types
 version-mismatch
