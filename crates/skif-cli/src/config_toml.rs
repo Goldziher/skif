@@ -1,7 +1,12 @@
 //! A configuration rendered as TOML with a comment on every value that some file set.
 
+use std::fmt::Write as _;
+
 use skif::join_key;
 use toml::{Table, Value};
+
+/// Asked for the comment text of a dotted origin key and item; `None` writes no comment.
+type Origin<'a> = Option<&'a dyn Fn(&str, Item) -> Option<String>>;
 
 /// What a comment is asked about.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -36,7 +41,7 @@ fn is_entries(value: &Value) -> bool {
     matches!(value, Value::Array(items) if !items.is_empty() && items.iter().all(Value::is_table))
 }
 
-fn comment(out: &mut String, origin: Option<&dyn Fn(&str, Item) -> Option<String>>, key: &str, item: Item) {
+fn comment(out: &mut String, origin: Origin<'_>, key: &str, item: Item) {
     if let Some(text) = origin.and_then(|origin| origin(key, item)) {
         out.push_str("  # from ");
         out.push_str(&text);
@@ -49,16 +54,10 @@ fn separate(out: &mut String) {
     }
 }
 
-fn emit(
-    out: &mut String,
-    key: &str,
-    header: &str,
-    table: &Table,
-    origin: Option<&dyn Fn(&str, Item) -> Option<String>>,
-) {
+fn emit(out: &mut String, key: &str, header: &str, table: &Table, origin: Origin<'_>) {
     for (name, value) in table {
         if !value.is_table() && !is_entries(value) {
-            out.push_str(&format!("{} = {value}", toml_key(name)));
+            let _ = write!(out, "{} = {value}", toml_key(name));
             comment(out, origin, &join_key(key, name), Item::Value);
             out.push('\n');
         }
@@ -77,14 +76,14 @@ fn emit(
                 let plain = child.values().any(|v| !v.is_table() && !is_entries(v));
                 if plain || child.is_empty() || !line.is_empty() {
                     separate(out);
-                    out.push_str(&format!("[{child_header}]{line}\n"));
+                    let _ = writeln!(out, "[{child_header}]{line}");
                 }
                 emit(out, &child_key, &child_header, child, origin);
             }
             Value::Array(items) if is_entries(value) => {
                 for (index, item) in items.iter().enumerate() {
                     separate(out);
-                    out.push_str(&format!("[[{child_header}]]"));
+                    let _ = write!(out, "[[{child_header}]]");
                     comment(out, origin, &format!("{child_key}[{index}]"), Item::Header);
                     out.push('\n');
                     if let Value::Table(entry) = item {

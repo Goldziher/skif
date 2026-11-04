@@ -872,9 +872,9 @@ mod tests {
             ("tool", tool.as_str()),
         ];
         for policy in ["same-range", "same-minor"] {
-            let toml = format!("[[version-groups]]\npolicy = \"{policy}\"\n");
+            let group_toml = format!("[[version-groups]]\npolicy = \"{policy}\"\n");
             assert_eq!(
-                states(&toml, &members),
+                states(&group_toml, &members),
                 [] as [(std::string::String, std::string::String, &str); 0],
                 "{policy}"
             );
@@ -893,8 +893,8 @@ mod tests {
             ("site", site.as_str()),
             ("tool", tool.as_str()),
         ];
-        let toml = "[[version-groups]]\ndependencies = [\"lib\"]\npolicy = \"same-minor\"\n";
-        let flagged: Vec<String> = states(toml, &members)
+        let group_toml = "[[version-groups]]\ndependencies = [\"lib\"]\npolicy = \"same-minor\"\n";
+        let flagged: Vec<String> = states(group_toml, &members)
             .into_iter()
             .map(|(package, _, _)| package)
             .collect();
@@ -904,7 +904,7 @@ mod tests {
 
     #[test]
     fn same_minor_groups_compare_major_before_minor() {
-        let toml = "[[version-groups]]\ndependencies = [\"ts\"]\npolicy = \"same-minor\"\n";
+        let group_toml = "[[version-groups]]\ndependencies = [\"ts\"]\npolicy = \"same-minor\"\n";
         let cases: [(&str, &str, &[&'static str]); 5] = [
             ("~5.4.2", "5.4.9", &[]),
             ("~5.4.2", "~5.5.0", &["SameMinorMismatch", "SameMinorMismatch"]),
@@ -924,7 +924,10 @@ mod tests {
             let app = manifest("app", "1.0.0", &format!(r#""ts":"{first}""#));
             let lib = manifest("lib", "1.0.0", &format!(r#""ts":"{second}""#));
             let members = [("app", app.as_str()), ("lib", lib.as_str())];
-            let actual: Vec<&str> = states(toml, &members).into_iter().map(|(_, _, state)| state).collect();
+            let actual: Vec<&str> = states(group_toml, &members)
+                .into_iter()
+                .map(|(_, _, state)| state)
+                .collect();
             assert_eq!(actual, expected, "{first} {second}");
         }
     }

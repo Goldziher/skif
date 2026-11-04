@@ -16,6 +16,15 @@ use crate::setup::Setup;
 use crate::specifier::{RUNTIME_PACKAGES, package_name, typed_package, types_package};
 use crate::tsconfig_paths::resolve_extends;
 
+/// Where a dependency an import names is listed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Listed {
+    /// In the manifest of this package (the importer or a package that contains it, or the root).
+    Package(PackageId),
+    /// In a manifest above the workspace root, which skif does not judge.
+    External,
+}
+
 /// Packages that are used by tooling rather than imports and never reported as unused.
 const ALWAYS_USED: &[&str] = &["typescript", "knip", "skif"];
 
