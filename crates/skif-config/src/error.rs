@@ -32,6 +32,23 @@ pub enum ConfigError {
     /// Both `skif.toml` and `.skif.toml` exist.
     #[error("both {} and {} exist; keep only one", .first.display(), .second.display())]
     Ambiguous { first: PathBuf, second: PathBuf },
+    /// A configuration file extends itself, directly or through other files.
+    #[error("configuration files extend each other in a cycle: {}", join_paths(.chain))]
+    ExtendsCycle { chain: Vec<PathBuf> },
+    /// A key is used in a place that cannot hold it: a root-scoped setting in an override, or `root` in a file that
+    /// is not discovered.
+    #[error("{}", render(.path.as_deref(), .line.as_ref(), .column.as_ref(), &scope_message(.key, .hint)))]
+    Scope {
+        /// The offending key, as a dotted path.
+        key: String,
+        path: Option<PathBuf>,
+        /// 1-based line of the key.
+        line: Option<usize>,
+        /// 1-based column (in characters) of the key.
+        column: Option<usize>,
+        /// Where the setting belongs.
+        hint: String,
+    },
     /// A rule ID in the configuration is not in the registry.
     #[error("unknown rule \"{rule}\"{}", suggestion_hint(.suggestion.as_deref()))]
     UnknownRule { rule: String, suggestion: Option<String> },
@@ -61,6 +78,75 @@ impl ConfigError {
         }
     }
 
+    /// A copy of this error; `std::io::Error` is not `Clone`, so an I/O error keeps its kind and message.
+    pub(crate) fn duplicate(&self) -> Self {
+        match self {
+            Self::Parse {
+                path,
+                message,
+                span,
+                line,
+                column,
+            } => Self::Parse {
+                path: path.clone(),
+                message: message.clone(),
+                span: span.clone(),
+                line: *line,
+                column: *column,
+            },
+            Self::Invalid { path, message } => Self::Invalid {
+                path: path.clone(),
+                message: message.clone(),
+            },
+            Self::Io { path, source } => Self::Io {
+                path: path.clone(),
+                source: std::io::Error::new(source.kind(), source.to_string()),
+            },
+            Self::Ambiguous { first, second } => Self::Ambiguous {
+                first: first.clone(),
+                second: second.clone(),
+            },
+            Self::ExtendsCycle { chain } => Self::ExtendsCycle { chain: chain.clone() },
+            Self::Scope {
+                key,
+                path,
+                line,
+                column,
+                hint,
+            } => Self::Scope {
+                key: key.clone(),
+                path: path.clone(),
+                line: *line,
+                column: *column,
+                hint: hint.clone(),
+            },
+            Self::UnknownRule { rule, suggestion } => Self::UnknownRule {
+                rule: rule.clone(),
+                suggestion: suggestion.clone(),
+            },
+            Self::InvalidRuleOptions { rule, key, message } => Self::InvalidRuleOptions {
+                rule: rule.clone(),
+                key: key.clone(),
+                message: message.clone(),
+            },
+        }
+    }
+
+    pub(crate) fn scope(
+        key: impl Into<String>,
+        path: Option<&Path>,
+        position: Option<(usize, usize)>,
+        hint: impl Into<String>,
+    ) -> Self {
+        Self::Scope {
+            key: key.into(),
+            path: path.map(Path::to_path_buf),
+            line: position.map(|(line, _)| line),
+            column: position.map(|(_, column)| column),
+            hint: hint.into(),
+        }
+    }
+
     pub(crate) fn invalid(path: Option<&Path>, message: impl Into<String>) -> Self {
         Self::Invalid {
             path: path.map(Path::to_path_buf),
@@ -69,7 +155,19 @@ impl ConfigError {
     }
 }
 
-fn line_column(source: &str, offset: usize) -> (usize, usize) {
+fn scope_message(key: &str, hint: &str) -> String {
+    format!("`{key}` is not allowed here; {hint}")
+}
+
+fn join_paths(paths: &[PathBuf]) -> String {
+    paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" -> ")
+}
+
+pub(crate) fn line_column(source: &str, offset: usize) -> (usize, usize) {
     let offset = u32::try_from(offset.min(source.len())).unwrap_or(u32::MAX);
     let (line, column) = LineIndex::new(source).line_col(offset);
     (line as usize, column as usize)

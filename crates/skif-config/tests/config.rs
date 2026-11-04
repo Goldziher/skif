@@ -307,6 +307,7 @@ fn full_fixture_sections() {
             min_packages: 3,
             exclude: vec!["react".into()],
             report_unused_entries: true,
+            ..Catalog::default()
         }
     );
     assert!(config.workspace_protocol.internal && config.workspace_protocol.allow_local_paths);

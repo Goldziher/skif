@@ -1,5 +1,7 @@
 //! Compiled name selectors: glob lists with `!` negation and the `$LOCAL` token.
 
+use std::path::Path;
+
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -8,6 +10,9 @@ use crate::error::ConfigError;
 
 /// The token that selects workspace packages (for dependencies: those that are themselves workspace packages).
 pub const LOCAL: &str = "$LOCAL";
+
+/// The prefix that anchors a pattern at the root being linted instead of the file that declares it.
+pub const ROOT: &str = "$ROOT";
 
 /// A list of name patterns compiled once.
 ///
@@ -161,6 +166,75 @@ impl<'de> Deserialize<'de> for Selector {
         let patterns = Vec::<String>::deserialize(deserializer)?;
         Self::compile(patterns).map_err(D::Error::custom)
     }
+}
+
+/// Compiles `patterns` of a file in `declared_in` for the root `root`, rewriting the path patterns to absolute ones.
+///
+/// A pattern starting with `./` or `../` is anchored at `declared_in`, one starting with `$ROOT/` at `root`; with
+/// `paths_only` every other pattern is anchored at `declared_in` too, otherwise it is a name pattern and stays as
+/// written. A path pattern that would leave its anchor never matches and is dropped.
+pub(crate) fn anchor_patterns(
+    patterns: &[String],
+    declared_in: &Path,
+    root: &Path,
+    paths_only: bool,
+) -> Result<Selector, ConfigError> {
+    let mut anchored = Vec::with_capacity(patterns.len());
+    for pattern in patterns {
+        let (negation, body) = pattern
+            .strip_prefix('!')
+            .map_or(("", pattern.as_str()), |body| ("!", body));
+        let target = if body == ROOT || body.starts_with("$ROOT/") {
+            Some((root, body.strip_prefix("$ROOT/").unwrap_or("")))
+        } else if matches!(body, "." | "..") || body.starts_with("./") || body.starts_with("../") || paths_only {
+            Some((declared_in, body))
+        } else {
+            None
+        };
+        match target {
+            None => anchored.push(pattern.clone()),
+            Some((base, rest)) => anchored.extend(anchored_path(base, rest).map(|path| format!("{negation}{path}"))),
+        }
+    }
+    Selector::new(anchored)
+}
+
+/// `rest` below `base` as an absolute glob, or `None` when `rest` climbs out of `base`.
+fn anchored_path(base: &Path, rest: &str) -> Option<String> {
+    let mut below: Vec<&str> = Vec::new();
+    for segment in rest.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                below.pop()?;
+            }
+            other => below.push(other),
+        }
+    }
+    let base = skif_core::slash(base);
+    let mut path = escape_glob(base.trim_end_matches('/'));
+    for segment in below {
+        path.push('/');
+        path.push_str(segment);
+    }
+    if path.is_empty() {
+        path.push('/');
+    }
+    Some(path)
+}
+
+fn escape_glob(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        if "*?[]{}".contains(character) {
+            escaped.push('[');
+            escaped.push(character);
+            escaped.push(']');
+        } else {
+            escaped.push(character);
+        }
+    }
+    escaped
 }
 
 #[cfg(test)]

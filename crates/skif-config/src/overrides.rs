@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use indexmap::IndexMap;
 
 use crate::rules::Level;
@@ -15,4 +17,8 @@ pub struct ConfigOverrides {
     pub fail_on_warnings: Option<bool>,
     pub production: Option<bool>,
     pub no_js: bool,
+    /// Use this file (and what it extends) instead of discovering configuration files (`--config`).
+    pub config_file: Option<PathBuf>,
+    /// Read no configuration file at all: the defaults plus these overrides (`--no-config`).
+    pub no_config: bool,
 }

@@ -86,6 +86,11 @@ fn overrides(args: &LintArgs) -> ConfigOverrides {
         fail_on_warnings: args.fail_on_warnings.then_some(true),
         production: args.production.then_some(true),
         no_js: args.no_js,
+        config_file: args
+            .config
+            .as_ref()
+            .map(|file| std::path::absolute(file).unwrap_or_else(|_| file.clone())),
+        no_config: args.no_config,
     }
 }
 
