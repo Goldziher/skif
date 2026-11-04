@@ -1,4 +1,6 @@
-use skif_core::{Category, Fixability, RuleMeta, Severity, diagnostic};
+use std::path::Path;
+
+use skif_core::{Category, Fixability, RuleMeta, Severity, diagnostic, slash};
 use skif_lint::Emitter;
 
 use super::JsRule;
@@ -18,6 +20,11 @@ pub static META: RuleMeta = RuleMeta {
 /// Reports files in the module graph whose imports and exports could not be read.
 pub struct UnparseableFiles;
 
+/// The message of a file the parser gave up on, with `/` separators on every platform.
+fn unparseable_message(path: &Path, error: &str) -> String {
+    format!("`{}` could not be parsed: {error}", slash(path))
+}
+
 impl JsRule for UnparseableFiles {
     fn meta(&self) -> &'static RuleMeta {
         &META
@@ -32,7 +39,7 @@ impl JsRule for UnparseableFiles {
             let span = module.info.parse_diagnostics.first().map(|issue| issue.span);
             let mut builder = diagnostic(
                 &META,
-                format!("`{}` could not be parsed: {error}", module.path.display()),
+                unparseable_message(&module.path, error),
                 module_location(module, span),
             )
             .help("fix the syntax error, or add the file to `ignore`; its imports and exports are not analysed");
@@ -41,5 +48,19 @@ impl JsRule for UnparseableFiles {
             }
             out.emit(builder.build());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_message_names_the_file_with_forward_slashes() {
+        let path = Path::new("packages").join("a").join("broken.ts");
+        assert_eq!(
+            unparseable_message(&path, "unexpected token"),
+            "`packages/a/broken.ts` could not be parsed: unexpected token"
+        );
     }
 }

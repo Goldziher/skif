@@ -99,7 +99,7 @@ An unknown key exits `2` and names the closest keys.
 | `github` | GitHub Actions workflow-command annotations. |
 
 In `--format json` mode stdout holds exactly one JSON document in every case, including failures. A failure is an
-`error` document with a `kind` (`config`, `workspace`, `io`, `usage` or `ci-refusal`), a message and, when known,
+`error` document with a `kind` (`config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`, a bug in skif), a message and, when known,
 `path`, `line` and `column`. `--output` never receives an error document: on failure the file is not written and
 the error goes to stdout.
 

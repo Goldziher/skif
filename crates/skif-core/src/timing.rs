@@ -2,6 +2,7 @@
 //! duration to stderr when it ends. Nothing is measured or printed otherwise.
 
 use std::fmt::Display;
+use std::io::Write;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -16,8 +17,13 @@ pub fn enabled() -> bool {
     *ENABLED.get_or_init(|| std::env::var_os(ENV_VAR).is_some_and(|value| !value.is_empty() && value != "0"))
 }
 
+/// A closed or broken stderr is ignored: `eprintln!` would panic on it, and a trace is not worth failing a run for.
 fn print(label: &dyn Display, elapsed: Duration) {
-    eprintln!("skif timing: {label}: {:.1} ms", elapsed.as_secs_f64() * 1000.0);
+    let _ = writeln!(
+        std::io::stderr().lock(),
+        "skif timing: {label}: {:.1} ms",
+        elapsed.as_secs_f64() * 1000.0
+    );
 }
 
 /// Runs `work` and, with timings on, prints how long it took under `label`.

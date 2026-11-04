@@ -1,8 +1,8 @@
 //! The `skif` command line as a library: a thin consumer of the `skif` library.
 //!
 //! It is the only code that reads the environment, prints, prompts, writes files and spawns a process; [`run`]
-//! returns an exit code and no function below calls `std::process::exit`. The `skif` binary and the npm addon
-//! both call [`run`].
+//! returns an exit code and no function below calls `std::process::exit`, except the panic hook that
+//! [`install_panic_hook`] puts in place for the `skif` binary. The binary and the npm addon both call [`run`].
 
 use std::ffi::OsString;
 
@@ -41,6 +41,26 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         Some(Command::Init(args)) => commands::init(&args),
         Some(Command::Config(args)) => config::run(&args),
     }
+}
+
+/// Keeps the JSON contract when skif itself panics: in `--format json` mode stdout still receives exactly one
+/// `error` document (kind `internal`) and the process exits 2, instead of aborting with a bare message on stderr.
+///
+/// For the `skif` binary only; an embedding host owns its own panic handling. Without `--format json` the default
+/// hook is left alone.
+pub fn install_panic_hook(raw: &[OsString]) {
+    if !wants_json(raw) {
+        return;
+    }
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default(info);
+        emit_error(
+            &CliError::new(Kind::Internal, format!("internal error: {info}")),
+            Format::Json,
+        );
+        std::process::exit(2);
+    }));
 }
 
 /// Help and version go to stdout with exit 0; usage errors exit 2, as a JSON `error` document when `--format json`

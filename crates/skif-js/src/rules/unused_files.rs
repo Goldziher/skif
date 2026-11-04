@@ -1,4 +1,6 @@
-use skif_core::{Category, Fix, FixOp, FixSafety, Fixability, RuleMeta, Severity, diagnostic};
+use std::path::Path;
+
+use skif_core::{Category, Fix, FixOp, FixSafety, Fixability, RuleMeta, Severity, diagnostic, slash};
 use skif_lint::Emitter;
 
 use super::JsRule;
@@ -17,6 +19,12 @@ pub static META: RuleMeta = RuleMeta {
 /// Reports project files that no entry file imports, directly or through other files.
 pub struct UnusedFiles;
 
+/// The message of a file no entry reaches, with `/` separators on every platform so reports and SARIF fingerprints
+/// do not depend on the OS that produced them.
+fn unreachable_message(path: &Path) -> String {
+    format!("`{}` is not reachable from any entry file", slash(path))
+}
+
 impl JsRule for UnusedFiles {
     fn meta(&self) -> &'static RuleMeta {
         &META
@@ -24,19 +32,15 @@ impl JsRule for UnusedFiles {
 
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
         for file in &analysis.unused_files {
-            let mut builder = diagnostic(
-                &META,
-                format!("`{}` is not reachable from any entry file", file.path.display()),
-                file_location(file.path.clone()),
-            )
-            .help("delete it, or add it to `entry` when a tool loads it");
+            let mut builder = diagnostic(&META, unreachable_message(&file.path), file_location(file.path.clone()))
+                .help("delete it, or add it to `entry` when a tool loads it");
             if let Some(package) = analysis.workspace.package(file.owner) {
                 builder = builder.package(package.display_name());
             }
             out.emit(
                 builder
                     .fix(Fix {
-                        title: format!("Delete `{}`", file.path.display()),
+                        title: format!("Delete `{}`", slash(&file.path)),
                         safety: FixSafety::Unsafe,
                         ops: vec![FixOp::DeleteFile {
                             path: file.path.clone(),
@@ -45,5 +49,19 @@ impl JsRule for UnusedFiles {
                     .build(),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_message_names_the_file_with_forward_slashes() {
+        let path = Path::new("packages").join("lib").join("src").join("unused.ts");
+        assert_eq!(
+            unreachable_message(&path),
+            "`packages/lib/src/unused.ts` is not reachable from any entry file"
+        );
     }
 }
