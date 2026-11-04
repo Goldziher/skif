@@ -1,0 +1,20 @@
+[
+  {
+    "rule": "catalog-mismatch",
+    "severity": "warning",
+    "package": "web",
+    "dependency": "react",
+    "detail": "DiffersToCatalog",
+    "path": "packages/web/package.json",
+    "fixable": true
+  },
+  {
+    "rule": "unresolved-catalog-references",
+    "severity": "error",
+    "package": "lib",
+    "dependency": "zod",
+    "detail": "DependsOnMissingCatalogDefinition",
+    "path": "packages/lib/package.json",
+    "fixable": false
+  }
+]

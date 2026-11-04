@@ -1,0 +1,4 @@
+description = "Ranges rank by the lowest version they admit, so ^14.1.2 outranks ^14 and the shorthand is the one reported; syncpack lets the shorthand win."
+source = "skif"
+tags = ["highest", "range", "fix", "deviation"]
+compare = "bytes"

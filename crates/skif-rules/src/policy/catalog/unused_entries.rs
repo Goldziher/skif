@@ -116,7 +116,10 @@ fn entry_span(workspace: &Workspace, source: &Path, catalog: &CatalogName, depen
             workspace.root_package().manifest.field_span(&pointer)
         });
     }
-    let yaml = workspace.pnpm_workspace.as_ref().filter(|yaml| yaml.path == source)?;
+    let yaml = [&workspace.pnpm_workspace, &workspace.yarnrc]
+        .into_iter()
+        .flatten()
+        .find(|yaml| yaml.path == source)?;
     yaml_key_span(&yaml.source, &yaml.line_index, catalog, dependency)
 }
 
