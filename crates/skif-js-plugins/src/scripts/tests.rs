@@ -134,6 +134,7 @@ fn table() {
         bins("   \t  ", &[]),
         bins("git commit -m \"feat: x\" && git push", &[]),
         bins("exit 1", &[]),
+        bins("tsc && break || continue", &["tsc"]),
         bins("test -f a && vite", &["vite"]),
         // Environment assignments.
         bins("NODE_ENV=production webpack", &["webpack"]),
@@ -341,6 +342,7 @@ fn table() {
         files("bun run src/a.ts", &[], &["src/a.ts"]),
         files("bun src/b.ts", &[], &["src/b.ts"]),
         bins("bun test", &[]),
+        bins("bun check --no-script", &[]),
         bins("bun install", &[]),
         bins("bun run vite", &["vite:bun-run"]),
         bins("corepack pnpm exec vitest", &["vitest:pnpm-exec"]),
@@ -549,7 +551,8 @@ fn current_script_breaks_cycles() {
 #[test]
 fn ignored_binaries() {
     for name in [
-        "cd", "echo", "rm", "cp", "mkdir", "exit", "test", "[", "true", "false", "git", "jq", "gh", "kubectl", "deno",
+        "cd", "echo", "rm", "cp", "mkdir", "exit", "break", "continue", "test", "[", "true", "false", "git", "jq",
+        "gh", "kubectl", "deno",
     ] {
         assert!(is_ignored_binary(name), "{name}");
     }
