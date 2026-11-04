@@ -95,6 +95,16 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 - **Git hooks** for pre-commit, Poly and Lefthook, and a GitHub Action (`Goldziher/skif@v0`).
 - **Licence notices in every artefact**: release archives, the npm package and each npm platform package carry
   `LICENSE` and `ATTRIBUTIONS.md`; the release workflow and `scripts/check-npm-tarballs.sh` fail without them.
+- **Embedding API**: `Executor` is a reusable thread pool a host passes in `RunOptions::with_executor`, so a run
+  does not spawn threads of its own. `Linter::with_fs`, `discover_targets`, `find_target` and `find_workspace_root`
+  remember directory listings, existence checks and small configuration files for one run (a `Linter` starts every
+  run from an empty cache). `FixPlan::base_hash` and `content_hash` let a host refuse to write over a file that
+  changed after the fixes were planned, and `skif` does. `ConfigOverrides` has `with_*` builders; `Config`,
+  `ConfigOverrides`, the configuration sections, `LintContext` and `skif_lint::RunOptions` are `#[non_exhaustive]`.
+  The `skif` crates warn on missing documentation, and CI runs the facade tests and doctests per feature and
+  `cargo-semver-checks` (advisory until 0.1.0 is published).
+- The documentation shows several roots (`discover_targets`) and layered configuration (`resolve_config`,
+  `ConfigLoader`, `ResolvedConfig`) with an example that is compiled as a doctest.
 
 ### Changed
 
@@ -106,6 +116,12 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   the gnu Linux archives document their glibc floor (older systems use the musl archives); `cargo publish` runs a
   workspace dry run before the first upload; the Action's cache key includes the libc; `run-skif.sh` unpacks zips
   without `unzip`; the Action reports a missing release series instead of exiting silently.
+- **Rule providers run concurrently** and the catalog analysis is computed once per run (`LintContext::shared`)
+  instead of once per catalog rule; the diagnostics are still merged in registration order. A configuration file is
+  parsed once, and human and SARIF output find the source line of a diagnostic without rescanning the file.
+- The `policy` feature of the `skif` crate is removed (the policy rules always shipped with `manifest`);
+  `serde_json` is a dependency of `skif` only with the `schema` feature. `RunOptions` of `skif-lint` is built with
+  `with_*` methods and takes an `Executor` instead of a rayon pool.
 - Minimum supported versions raised: Rust 1.99.
 - **The project is renamed to skif.** It continues as an independent Rust dependency linter for
   JavaScript and TypeScript monorepos, hosted at `github.com/Goldziher/skif`.
