@@ -760,6 +760,22 @@ fn origins_record_the_file_line_and_operation() {
 }
 
 #[test]
+fn origin_keys_quote_names_that_contain_dots() {
+    let resolved = resolve(
+        &[(
+            "/r/skif.toml",
+            "[js.workspaces.\"pkg/a.b\"]\nentry = [\"x\"]\n[js.workspaces.\"pkg/c\"]\nentry = [\"y\"]\n",
+        )],
+        "/r",
+    );
+    let dotted = resolved.origins.last("js.workspaces.\"pkg/a.b\".entry").unwrap();
+    assert_eq!((dotted.line, dotted.column), (2, 1));
+    let plain = resolved.origins.last("js.workspaces.pkg/c.entry").unwrap();
+    assert_eq!(plain.line, 4);
+    assert_eq!(resolved.origins.get("js.workspaces.pkg/a.b.entry"), []);
+}
+
+#[test]
 fn origins_of_extended_files_point_at_them() {
     let files = [
         ("/r/skif.toml", "extends = [\"base.toml\"]\n"),
