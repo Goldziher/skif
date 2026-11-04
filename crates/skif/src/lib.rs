@@ -4,8 +4,7 @@
 //! prints, prompts, exits, reads the environment or the working directory, or writes files. Everything is read
 //! through a [`FileSystem`] ([`OsFs`] on disk, [`MemoryFs`] for unsaved buffers and tests), every path in a
 //! diagnostic or edit is relative to the workspace root, and fixes are returned as data ([`FixPlan`]) for the caller
-//! to show, merge or write. The one exception is the opt-in `SKIF_TIMINGS` trace of [`timing`], which reads that
-//! variable once and writes phase durations to stderr; it is off unless the host's environment turns it on.
+//! to show, merge or write. The phase timings of `skif_core::timing` are off unless the host installs a sink there.
 //!
 //! ```
 //! use std::path::Path;
@@ -68,7 +67,6 @@ pub use skif_config::{
     ConfigSource, IgnoreEntry, Level, Op, Origins, Override, OverrideScope, PackageJs, PackageManager, Prefer,
     ResetKey, ResolvedConfig, RuleConfig, Selector, SourceKind, join_key,
 };
-pub use skif_core::timing;
 pub use skif_core::{
     CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixSafety,
     Fixability, InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathSeg, Related, Report, RuleId, RuleMeta,

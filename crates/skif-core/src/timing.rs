@@ -1,5 +1,6 @@
-//! Opt-in phase timings for diagnosing slow runs: set `SKIF_TIMINGS=1` and every instrumented phase prints its
-//! duration to stderr when it ends. Nothing is measured or printed otherwise.
+//! Opt-in phase timings for diagnosing slow runs. The library never reads the environment and never prints: a host
+//! that wants the trace installs a sink with [`enable`] (or [`enable_stderr`]), and every instrumented phase then
+//! reports its duration to that sink when it ends. Nothing is measured while no sink is installed.
 
 use std::fmt::Display;
 use std::io::Write;
@@ -7,26 +8,46 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-/// The environment variable that switches the timings on (any value other than empty or `0`).
-pub const ENV_VAR: &str = "SKIF_TIMINGS";
+type Sink = Box<dyn Fn(&str) + Send + Sync>;
 
-/// Whether timings are on.
+/// The process-wide sink; once installed it stays for the life of the process.
+static SINK: OnceLock<Sink> = OnceLock::new();
+
+/// Switches the timings on and sends one line per finished phase to `sink`.
+///
+/// The sink is process-wide and set once: a second call changes nothing and returns `false`. Concurrent runs in one
+/// process share it, and their phases are not told apart.
+#[allow(clippy::must_use_candidate, reason = "installing the sink is the point; the flag is informational")]
+pub fn enable(sink: impl Fn(&str) + Send + Sync + 'static) -> bool {
+    SINK.set(Box::new(sink)).is_ok()
+}
+
+/// Switches the timings on and writes each line to stderr; see [`enable`].
+///
+/// A closed or broken stderr is ignored: a trace is not worth failing a run for.
+#[allow(clippy::must_use_candidate, reason = "installing the sink is the point; the flag is informational")]
+pub fn enable_stderr() -> bool {
+    enable(|line| {
+        let _ = writeln!(std::io::stderr().lock(), "{line}");
+    })
+}
+
+/// Whether a sink is installed.
 #[must_use]
 pub fn enabled() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var_os(ENV_VAR).is_some_and(|value| !value.is_empty() && value != "0"))
+    SINK.get().is_some()
 }
 
-/// A closed or broken stderr is ignored: `eprintln!` would panic on it, and a trace is not worth failing a run for.
 fn print(label: &dyn Display, elapsed: Duration) {
-    let _ = writeln!(
-        std::io::stderr().lock(),
-        "skif timing: {label}: {:.1} ms",
-        elapsed.as_secs_f64() * 1000.0
-    );
+    if let Some(sink) = SINK.get() {
+        sink(&format!(
+            "skif timing: {label}: {:.1} ms",
+            elapsed.as_secs_f64() * 1000.0
+        ));
+    }
 }
 
-/// Runs `work` and, with timings on, prints how long it took under `label`.
+/// Runs `work` and, with timings on, reports how long it took under `label`.
 ///
 /// The label is only formatted when timings are on, so it may be built with `format_args!`.
 pub fn phase<T>(label: impl Display, work: impl FnOnce() -> T) -> T {
@@ -79,8 +100,28 @@ impl Tally {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
+
+    static LINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+    #[test]
+    fn phases_report_to_the_installed_sink_only() {
+        assert_eq!(phase("before the sink", || 1), 1);
+        assert!(enable(|line| LINES.lock().unwrap().push(line.to_owned())));
+        assert!(!enable(|_| {}));
+        assert!(enabled());
+        assert_eq!(phase("during the sink", || 2), 2);
+        let lines = LINES.lock().unwrap();
+        assert_eq!(lines.iter().filter(|line| line.contains("before the sink")).count(), 0);
+        let during: Vec<&String> = lines.iter().filter(|line| line.contains("during the sink")).collect();
+        assert_eq!(during.len(), 1);
+        assert!(during[0].starts_with("skif timing: during the sink: "), "{}", during[0]);
+        assert!(during[0].ends_with(" ms"), "{}", during[0]);
+    }
 
     #[test]
     fn work_runs_and_returns_its_value_with_timings_off_or_on() {
