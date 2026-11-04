@@ -36,6 +36,18 @@ fn package_manager(value: &Value) -> Option<PackageManager> {
     .map(|(_, manager)| manager)
 }
 
+/// `folder` as a glob that selects exactly that directory: `projectFolder` is a literal path, so the characters a glob
+/// would interpret are written as one-character classes.
+fn literal(folder: &str) -> String {
+    folder
+        .chars()
+        .map(|character| match character {
+            '*' | '?' | '[' | ']' | '{' | '}' => format!("[{character}]"),
+            other => other.to_string(),
+        })
+        .collect()
+}
+
 /// Parses `source`, the contents of `rush.json`.
 ///
 /// # Errors
@@ -56,7 +68,7 @@ pub(crate) fn parse(source: Arc<str>) -> Result<Rush, WorkspaceError> {
                 PathSeg::Index(index),
                 PathSeg::Key("projectFolder".into()),
             ];
-            Some((index, folder.to_owned(), manifest.field_value_span(&pointer)))
+            Some((index, literal(folder), manifest.field_value_span(&pointer)))
         })
         .collect();
     Ok(Rush {
@@ -80,6 +92,16 @@ mod tests {
         assert_eq!(folders, [(0, "apps/a"), (2, "libs/c")]);
         assert!(rush.projects.iter().all(|(_, _, span)| span.is_some()));
         assert_eq!(rush.package_manager, Some(PackageManager::Pnpm));
+    }
+
+    #[test]
+    fn folders_are_literal_paths_not_globs() {
+        let rush = parse(Arc::from(
+            r#"{"projects": [{"projectFolder": "apps/[a]{x}*?"}, {"projectFolder": "plain/dir"}]}"#,
+        ))
+        .unwrap();
+        let folders: Vec<&str> = rush.projects.iter().map(|(_, folder, _)| folder.as_str()).collect();
+        assert_eq!(folders, ["apps/[[]a[]][{]x[}][*][?]", "plain/dir"]);
     }
 
     #[test]
