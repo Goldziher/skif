@@ -1396,7 +1396,7 @@ fn tsx() {
     assert!(out.provided_binaries.contains(&"tsx".to_string()));
     assert_entries(&out.entries, &["**/test/**/*.{c,m,}{j,t}s"]);
     let results = resolve_with_scripts(&[], &["tsx"], &[("dev", "tsx watch src/index.ts")]);
-    assert!(output(&results, "tsx").entries.is_empty());
+    assert_eq!(output(&results, "tsx").entries, [] as [std::string::String; 0]);
 }
 
 #[test]

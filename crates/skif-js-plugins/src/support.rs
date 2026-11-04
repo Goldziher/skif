@@ -95,14 +95,6 @@ pub(crate) fn config_ref(base: &str, specifier: &str) -> Option<PluginInput> {
     package_name(specifier).map(PluginInput::Dependency)
 }
 
-/// Every module a config names in a string or a list of strings; see [`module_input`].
-pub(crate) fn module_inputs(base: &str, value: &ConfigValue) -> Vec<PluginInput> {
-    strings(value)
-        .into_iter()
-        .filter_map(|name| module_input(base, name, false))
-        .collect()
-}
-
 /// Every `script` of the scripts a config holds as a string or a list of strings.
 pub(crate) fn script_inputs(value: &ConfigValue) -> Vec<PluginInput> {
     strings(value)

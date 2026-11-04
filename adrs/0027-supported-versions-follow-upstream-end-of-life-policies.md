@@ -34,7 +34,7 @@ Chosen option: "Support only versions that upstream still supports; where upstre
 | Target | Upstream policy | Supported by skif |
 | --- | --- | --- |
 | Node.js | [release schedule](https://github.com/nodejs/Release/blob/main/schedule.json): 20 ended 2026-04-30, 22 ends 2027-04-30, 24 ends 2028-04-30, 26 ends 2029-04-30 (25 ended 2026-06-01) | 22, 24 and 26; `engines.node` is `>=22`; odd-numbered lines are never supported |
-| Bun | no end-of-life policy ([bun.sh](https://bun.sh/docs)); one major, 1.x | all of 1.x, tested on the latest 1.x release; the second major joins once 2.x exists; `>=1.3` is the floor the package declares |
+| Bun | no end-of-life policy ([bun.sh](https://bun.sh/docs)); one major, 1.x | all of 1.x, tested on the latest 1.x release; the second major joins once 2.x exists; the package declares `>=1` |
 | Rust | the [xberg-io toolchains](../toolchains.toml) baseline | the MSRV is `rust-version` in `Cargo.toml` (1.99); CI builds on it and on stable; raising it is allowed in any release and is a `Changed` entry |
 | npm | no end-of-life policy ([npm docs](https://docs.npmjs.com/policies/) and the [CLI security policy](https://github.com/npm/cli/blob/latest/SECURITY.md) state none) | the latest two majors |
 | pnpm | no formal end-of-life policy; its [compatibility table](https://pnpm.io/installation#compatibility) lists 10, 11 and 12 | the latest two majors |
