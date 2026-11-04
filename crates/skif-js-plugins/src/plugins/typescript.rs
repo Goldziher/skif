@@ -118,8 +118,24 @@ fn paths(options: &ConfigValue, config: &ConfigAst<'_>) -> Vec<PluginInput> {
         .unwrap_or_default()
     {
         let find = strip_wildcard(key);
+        // A wildcard inside the key (`*.svg`) cannot be a prefix alias.
+        if find.contains('*') {
+            continue;
+        }
         for target in strings(targets) {
-            let path = config.join(&join_rel(root, strip_wildcard(target)));
+            let stripped = strip_wildcard(target);
+            // A wildcard inside the target (`./icons/*.svg`) cannot be followed as a directory: the alias is known
+            // not to be a package, but its target is computed.
+            if stripped.contains('*') {
+                if !find.is_empty() {
+                    out.push(PluginInput::Alias {
+                        find: find.to_owned(),
+                        target: None,
+                    });
+                }
+                continue;
+            }
+            let path = config.join(&join_rel(root, stripped));
             out.push(if find.is_empty() {
                 PluginInput::ModuleDir(path)
             } else {

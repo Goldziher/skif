@@ -36,6 +36,12 @@ const PAGE_KEYS: &[&[&str]] = &[
     &["options_ui", "page"],
     &["side_panel", "default_path"],
     &["devtools_page"],
+    &["background", "page"],
+    &["sidebar_action", "default_panel"],
+    &["chrome_url_overrides", "newtab"],
+    &["chrome_url_overrides", "history"],
+    &["chrome_url_overrides", "bookmarks"],
+    &["sandbox", "pages"],
 ];
 
 impl Plugin for BrowserExtension {

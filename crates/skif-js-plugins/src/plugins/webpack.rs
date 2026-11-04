@@ -6,7 +6,7 @@ use crate::files::find_files;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::babel;
 use crate::support::{
-    alias_inputs, config_unknown, extension_inputs, get_in, html_script_sources, join_rel, key_unknown,
+    alias_inputs, config_unknown, extension_inputs, get_in, html_script_sources, key_unknown, local_script_path,
     looks_like_file, module_input, objects, strings,
 };
 
@@ -76,14 +76,9 @@ fn html_template_entries(cx: &PluginContext<'_>) -> Vec<PluginInput> {
         };
         let html_dir = html_path.rsplit_once('/').map_or("", |(dir, _)| dir);
         for src in html_script_sources(&html) {
-            if src.contains("://") || src.starts_with("//") || src.contains("<%") {
-                continue;
-            }
-            let path = match src.strip_prefix('/') {
-                Some(rooted) => rooted.to_owned(),
-                None => join_rel(html_dir, &src),
-            };
-            if looks_like_file(&path) {
+            if let Some(path) = local_script_path(&src, "", html_dir)
+                && looks_like_file(&path)
+            {
                 out.push(PluginInput::Entry(path));
             }
         }
