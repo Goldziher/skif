@@ -32,6 +32,7 @@ old one.
 | 0022 | [Multi-Root Analysis, Single-Package Mode and the Plugin Set](0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md) | accepted |
 | 0023 | [Root Discovery Semantics: Nested Roots, Workspaces Without a Root Manifest, Rush and Fixture Directories](0023-root-discovery-semantics-nested-roots-rush-and-fixture-directories.md) | accepted |
 | 0024 | [Layered Configuration: Cascading Files, Extends, Overrides and Package Files](0024-layered-configuration-cascading-files-extends-overrides-and-package-files.md) | accepted |
+| 0026 | [Parity and Diff Tasks on a Pinned Corpus: Findings Against knip and syncpack, With Committed Baselines](0026-parity-and-diff-tasks-on-a-pinned-corpus.md) | accepted |
 
 ## Effective statements
 
@@ -68,3 +69,10 @@ the lines below stay as written; this table says which record governs.
 | [0011](0011-plugin-model.md), lines 102 and 128 | `mise run parity` reports the per-repository diff and blocks a release on a regression | [0019](0019-reality-reconciliation-crate-list-schema-file-test-tooling-and-consistency.md): that task does not exist and no release depends on parity |
 | [0014](0014-git-hook-integration.md), line 23 | the ai-rulez launcher is named `scripts/pre-commit/run-ai-rulez.sh` | that path belongs to the ai-rulez project, not to this repository; it describes ai-rulez's launcher and no such file exists here |
 | [0020](0020-js-rule-set-severities-addon-profile-and-windows-support.md), lines 30 and 50 | the JS rules are thirteen and `docs/rules.md` and `rule-ids.txt` list thirteen | `docs/rules.md` and `rule-ids.txt` list fourteen: `unparseable-files` (category `js`, default severity warning) is registered as well |
+| [0001](0001-mission-and-scope.md), lines 103 and 112 (as corrected by 0019) | `mise run parity` and `mise run diff:syncpack` do not exist; `mise run bench` reports the comparison | [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md): both tasks exist (`skif-bench parity` and `syncpack-diff`) on `tools/bench/corpus.toml`, with committed count baselines and a scheduled drift check; no release depends on them |
+| [0006](0006-specifier-and-semver-model.md), `diff:syncpack` mentions | `mise run diff:syncpack` is withdrawn (0019) | [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md): the task exists again and compares skif with the pinned syncpack |
+| [0009](0009-version-and-catalog-policies.md), lines 140-141 and 157 (as corrected by 0019) | parity with syncpack is a number reported by `mise run bench` | [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md): `mise run diff:syncpack` reports it per policy fixture and corpus repository against a committed baseline |
+| [0010](0010-js-analysis-on-oxc.md), lines 128 and 140 (as corrected by 0019) | parity is a number reported by `mise run bench` | [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md): `mise run parity` reports the per-repository differences from knip against a committed baseline |
+| [0011](0011-plugin-model.md), lines 102 and 128 (as corrected by 0019) | no `parity` task exists and no release depends on parity | [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md): `mise run parity` exists; it is a scheduled drift check and still not a release gate |
+| [0019](0019-reality-reconciliation-crate-list-schema-file-test-tooling-and-consistency.md), corpus comparison | there are no `parity` or `diff:syncpack` tasks | [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md): there are |
+| [0001](0001-mission-and-scope.md), performance targets | the benchmark prints a pass or fail line | [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md): `skif-bench run` exits non-zero when a target fails and has a 10,000-file module graph case |
