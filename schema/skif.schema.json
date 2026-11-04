@@ -4,24 +4,21 @@
   "properties": {
     "root": {
       "type": "boolean",
-      "description": "Stops the upward search for configuration files: no file above this one contributes. Only valid in a file\nfound by discovery, not in one reached through `extends`.",
-      "default": false
+      "description": "Stops the upward search for configuration files: no file above this one contributes. Only valid in a file\nfound by discovery, not in one reached through `extends`."
     },
     "extends": {
       "type": "array",
       "items": {
         "type": "string"
       },
-      "description": "Configuration files to inherit, relative to this file. They apply before this file does, in the order listed.",
-      "default": []
+      "description": "Configuration files to inherit, relative to this file. They apply before this file does, in the order listed."
     },
     "reset": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/ResetKey"
       },
-      "description": "Inherited lists to discard before this file applies.",
-      "default": []
+      "description": "Inherited lists to discard before this file applies."
     },
     "workspace": {
       "$ref": "#/$defs/Workspace",
@@ -119,8 +116,7 @@
       "items": {
         "$ref": "#/$defs/Override"
       },
-      "description": "Scoped rules for packages and files; only package-scoped keys are allowed in them.",
-      "default": []
+      "description": "Scoped rules for packages and files; only package-scoped keys are allowed in them."
     }
   },
   "description": "The complete `skif.toml` model.",
@@ -217,6 +213,16 @@
       },
       "description": "`[lint]`"
     },
+    "Level": {
+      "type": "string",
+      "enum": [
+        "off",
+        "info",
+        "warn",
+        "error"
+      ],
+      "description": "The level a rule is configured to: `off`, `info`, `warn` or `error`."
+    },
     "RuleConfigSchema": {
       "anyOf": [
         {
@@ -227,16 +233,6 @@
         }
       ],
       "description": "Schema stand-in for a `[rules]` value: a level string or a table of severity plus options.\nIt only describes the shape for the JSON Schema and is never constructed."
-    },
-    "Level": {
-      "type": "string",
-      "enum": [
-        "off",
-        "info",
-        "warn",
-        "error"
-      ],
-      "description": "The level a rule is configured to: `off`, `info`, `warn` or `error`."
     },
     "RuleTableSchema": {
       "type": "object",
@@ -738,7 +734,8 @@
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Package names, or directories (`./apps/old/**`). At least one of `packages` and `files` must be set."
         },
         "files": {
           "type": "array",

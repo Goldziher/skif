@@ -248,5 +248,5 @@ fn each_config_file_is_read_once_per_run() {
         .filter(|(path, _)| path.file_name().is_some_and(|name| name == "skif.toml"))
         .collect();
     assert_eq!(configs.len(), 3, "{reads:?}");
-    assert!(configs.iter().all(|(_, &count)| count == 1), "{configs:?}");
+    assert!(configs.iter().all(|(_, count)| **count == 1), "{configs:?}");
 }
