@@ -31,6 +31,8 @@ pub enum Command {
     Init(InitArgs),
     /// Show the configuration files a root is built from, the merged result, and where each key was set.
     Config(ConfigArgs),
+    /// Explain why the JavaScript analysis counts a file, or one export of it, as used.
+    ExplainUsage(ExplainUsageArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -62,6 +64,16 @@ impl From<RulesFormat> for Format {
 #[derive(Debug, clap::Args)]
 pub struct InitArgs {
     /// Directory to write `skif.toml` into.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ExplainUsageArgs {
+    /// A file, or `FILE#EXPORT` for one of its exports, relative to the workspace root (or absolute).
+    pub target: String,
+
+    /// A path inside a project, resolved to its workspace root as for linting.
     #[arg(default_value = ".")]
     pub path: PathBuf,
 }

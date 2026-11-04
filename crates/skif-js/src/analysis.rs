@@ -41,7 +41,7 @@ pub struct JsAnalysis<'a> {
     /// Project files outside the graph.
     pub unused_files: Vec<UnusedFile>,
     ambient_modules: HashSet<String>,
-    setup: Setup,
+    pub(crate) setup: Setup,
 }
 
 /// Names declared with `declare module 'name'` by graph modules and by declaration files nothing imports.
@@ -217,7 +217,7 @@ impl<'a> JsAnalysis<'a> {
     }
 
     /// Whether `export` appears in the signature of another export of its module that is itself used.
-    fn in_used_signature(&self, module: &Module, export: &Export, visited: &mut HashSet<String>) -> bool {
+    pub(crate) fn in_used_signature(&self, module: &Module, export: &Export, visited: &mut HashSet<String>) -> bool {
         export.referenced_in.iter().any(|name| {
             if self.exports.is_used(module.id, name) {
                 return true;
@@ -232,7 +232,7 @@ impl<'a> JsAnalysis<'a> {
         })
     }
 
-    fn is_tagged_public(&self, export: &Export) -> bool {
+    pub(crate) fn is_tagged_public(&self, export: &Export) -> bool {
         export.tags.iter().any(|tag| match tag.as_str() {
             "public" | "beta" | "alpha" => true,
             "internal" => self.setup.production,
