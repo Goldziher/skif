@@ -1,0 +1,4 @@
+description = "With catalog mode off, instances that catalog-mismatch reports (a sibling uses catalog:) are left to it: the version groups do not also align them to the highest version, whose fix would conflict with the catalog fix."
+source = "skif"
+tags = ["catalog", "mode-off", "ownership"]
+valid-states = ["IsCatalog"]

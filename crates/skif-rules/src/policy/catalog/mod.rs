@@ -20,13 +20,18 @@ pub(crate) use analysis::{is_catalogable, owned_dependencies, usages};
 pub use mismatch::CatalogMismatch;
 pub use missing_entry::CatalogMissingEntry;
 pub use not_used::CatalogNotUsed;
+use skif_config::CatalogMode;
 use skif_lint::Rule;
 pub use unresolved_references::UnresolvedCatalogReferences;
 pub use unused_entries::UnusedCatalogEntries;
 
-/// The rule that reports the plain instances of the dependencies a catalog owns (see [`owned_dependencies`]).
-pub(crate) fn owning_rule() -> &'static str {
-    not_used::META.id
+/// The rule that reports the plain instances of the dependencies a catalog owns (see [`owned_dependencies`]):
+/// `catalog-mismatch` while `[catalog] mode` is `off`, `catalog-not-used` otherwise.
+pub(crate) fn owning_rule(mode: CatalogMode) -> &'static str {
+    match mode {
+        CatalogMode::Off => mismatch::META.id,
+        CatalogMode::Prefer | CatalogMode::Enforce => not_used::META.id,
+    }
 }
 
 /// The catalog rules, in the order their diagnostics are merged.
