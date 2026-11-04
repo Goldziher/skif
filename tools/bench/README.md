@@ -55,7 +55,7 @@ Directly:
 cargo run --release -p skif-bench -- generate --packages 500 --out DIR [--seed S] [--pm pnpm|npm|yarn|bun] [--catalog] [--mismatch-rate F] [--force]
 cargo run --release -p skif-bench -- corpus fetch [--suite bench|parity] [--only NAME,...] [--file corpus.toml] [--dir target/bench-corpus]
 cargo run --release -p skif-bench -- run [--skif PATH] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus] [--warmup 3] [--runs 10] [--skif-arg ARG]... [--no-enforce]
-cargo run --release -p skif-bench -- parity [--skif PATH] [--only NAME,...] [--install] [--recursive] [--check | --write-baseline]
+cargo run --release -p skif-bench -- parity [--skif PATH] [--only NAME,...] [--install] [--recursive] [--repo-knip-config] [--include-test-files] [--check | --write-baseline]
 cargo run --release -p skif-bench -- syncpack-diff [--skif PATH] [--only NAME,...] [--no-fixtures] [--no-corpus] [--check | --write-baseline]
 ```
 
@@ -104,13 +104,26 @@ nearly every import as unresolved or unlisted. `--install` installs each reposit
 repository is skipped, with the reason in the report, when its package manager is not on `PATH`, the install fails or
 times out (`install = false` in `corpus.toml` for Rush, which has no lockfile in the tree), skif fails, or knip prints
 no JSON. Without `--install` the run is quick but dominated by that noise; the baseline records which way it was made and
-`--check` rejects a mismatch. `--recursive` runs skif with `-r`; skif then reports paths relative to each root, so
-only single-root repositories compare.
+`--check` rejects a mismatch. A repository may set `install-command` (program first; `rules-js` installs with
+`npx pnpm@9`) and `install-timeout-secs` (`vercel-examples`) in `corpus.toml`.
+
+**Scope.** knip runs with an empty configuration (`--config` to a `{}` file in the scratch directory), so a repository's
+own ignores and disabled issue types do not hide findings; `--repo-knip-config` uses the repository's own. skif runs with
+`--recursive` on repositories that set `recursive = true` in `corpus.toml` (nested roots that are not workspace members),
+or on all with `--recursive`; paths stay relative to the start directory, as in knip's report. Enum and namespace
+members are keyed by the member name on both sides. knip's stdout may carry banners around its JSON; the first object
+that is a knip report is used.
+
+**Known deviations.** In `files`, a file only knip reports is not counted as a difference when it is outside skif's
+project set (`non-code-file`), in a fixture directory (`fixture-file`) or a test file (`test-file`); those are reported
+in their own column and section, with the reason, and `--check` ignores them. `--include-test-files` counts the last
+two as differences (not usable with a baseline, nor is `--repo-knip-config`). See
+[ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md).
 
 ## Policy diff against syncpack
 
 `skif-bench syncpack-diff` compares skif's policy rules (`version-mismatch`, `semver-range-mismatch`,
-`banned-dependency`, `invalid-local-version`, `policy-conflict` and the catalog rules) with `syncpack@<pinned> json`.
+`banned-dependency`, `invalid-local-version`, `policy-conflict`, `unresolved-catalog-references` and the catalog rules) with `syncpack@<pinned> json`.
 syncpack has no JSON lint reporter, but `json` prints every dependency instance with its status code, and skif's
 diagnostic `detail` carries the same status code names (`DiffersToHighestOrLowestSemver`, `IsBanned`, ...). A finding is
 keyed by status code, `package.json` path and dependency. Two targets:
@@ -120,7 +133,15 @@ keyed by status code, `package.json` path and dependency. Two targets:
   `prefer`; semver groups with `range`; `[policy] prefer` and `dependency-types`). A case that uses another option
   (catalogs, the workspace protocol, dependency families, rules, ignores) has no syncpack equivalent and is skipped; the
   report counts the skipped cases and names the cases whose findings differ.
-- **Every `parity` repository**, with the default configuration on both sides.
+- **Every `parity` repository**, with the default skif configuration and an empty syncpack configuration (skif ignores
+  syncpack settings, and a legacy `syncpack` key in a `package.json` breaks syncpack 15). syncpack reads
+  `--dependency-types prod,dev,local`, which is skif's default scope plus the own-version instance; for a `rush.json`
+  repository every `projectFolder` is passed as a `--source`, since syncpack has no Rush support.
+
+**Known deviations.** A one-sided finding that the manifests show to be an intended difference (`satisfied-local-range`,
+`missing-local-version`, `floating-specifier`, `shorthand-ranking`, `npm-alias`, `unread-by-syncpack`) is taken out of
+the counts, reported per target in its own column and section with the reason, and ignored by `--check`; what stays
+one-sided is unexplained. See [ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md).
 
 ## Baselines and the drift check
 

@@ -2,6 +2,7 @@
 
 mod corpus;
 mod diff;
+mod evidence;
 mod parity;
 mod proc;
 mod run;
@@ -151,10 +152,20 @@ struct ParityArgs {
     /// Install dependencies first (`--ignore-scripts`); knip reports far fewer false findings with them.
     #[arg(long)]
     install: bool,
-    /// Run skif with --recursive. Paths are then relative to each root, so only single-root repositories compare.
+    /// Run skif with --recursive on every repository, not only those marked `recursive` in the corpus manifest. Paths
+    /// stay relative to the start directory, as in knip's report; nested roots that are not workspace members are
+    /// analysed against their own manifests.
     #[arg(long)]
     recursive: bool,
-    /// Seconds each install, skif run and knip run may take.
+    /// Run knip with the repository's own configuration instead of an empty one. The repository's ignores and
+    /// disabled rules then hide findings, so a baseline cannot be recorded or checked this way.
+    #[arg(long)]
+    repo_knip_config: bool,
+    /// Count test and fixture files in the knip-only `files` instead of reporting them as known deviations. Files
+    /// outside skif's project set (css, mdx, json, ...) are always known deviations. Not usable with a baseline.
+    #[arg(long)]
+    include_test_files: bool,
+    /// Seconds each skif run and knip run may take, and each install unless the corpus manifest sets its own.
     #[arg(long, default_value_t = 1800)]
     timeout_secs: u64,
     #[command(flatten)]
@@ -293,6 +304,8 @@ fn main() -> Result<()> {
             only: args.only,
             install: args.install,
             recursive: args.recursive,
+            repo_knip_config: args.repo_knip_config,
+            include_test_files: args.include_test_files,
             timeout: Duration::from_secs(args.timeout_secs),
             gate: args.gate.gate(args.baseline),
         }),
