@@ -31,15 +31,8 @@ impl Rule for Spots {
 
     fn check(&self, _cx: &LintContext<'_>, out: &mut Emitter<'_>) {
         for (package, path) in SPOTS {
-            let mut builder = diagnostic(
-                self.meta,
-                "finding",
-                Location::new(
-                    PathBuf::from(path),
-                    None,
-                ),
-            )
-            .dependency("left-pad");
+            let mut builder =
+                diagnostic(self.meta, "finding", Location::new(PathBuf::from(path), None)).dependency("left-pad");
             if let Some(package) = package {
                 builder = builder.package(package);
             }

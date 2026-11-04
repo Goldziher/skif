@@ -142,11 +142,7 @@ fn fix_of(instance: &Instance<'_>, verdict: &Verdict) -> Option<Fix> {
             instance.set_specifier(target)?,
         )
     };
-    Some(Fix::new(
-        title,
-        FixSafety::Unsafe,
-        vec![op],
-    ))
+    Some(Fix::new(title, FixSafety::Unsafe, vec![op]))
 }
 
 /// A finding about a configured version group, located in the configuration file.
@@ -158,10 +154,7 @@ fn group_diagnostic(state: State, config_file: &Path, group: &ConfiguredGroup, w
     diagnostic(
         state.rule(),
         format!("the version group {name} {what}"),
-        Location::new(
-            config_file.to_path_buf(),
-            None,
-        ),
+        Location::new(config_file.to_path_buf(), None),
     )
     .help(help)
     .detail(state.name())

@@ -139,10 +139,7 @@ impl JsRule for CircularImports {
             for member in cycle.iter().skip(1) {
                 builder = builder.related(Related::new(
                     "part of the same cycle".to_owned(),
-                    Location::new(
-                        modules[*member].path.clone(),
-                        None,
-                    ),
+                    Location::new(modules[*member].path.clone(), None),
                 ));
             }
             if let Some(package) = analysis.workspace.package(first.owner) {

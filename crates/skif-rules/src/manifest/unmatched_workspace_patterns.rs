@@ -32,17 +32,9 @@ fn remove_pattern(workspace: &Workspace, fact: &PatternFact) -> FixOp {
     };
     let route: Vec<PathSeg> = base.into_iter().chain([PathSeg::Index(fact.index)]).collect();
     if yaml {
-        FixOp::yaml(
-            fact.file.clone(),
-            route,
-            YamlAction::Remove,
-        )
+        FixOp::yaml(fact.file.clone(), route, YamlAction::Remove)
     } else {
-        FixOp::json(
-            fact.file.clone(),
-            route,
-            JsonAction::Remove,
-        )
+        FixOp::json(fact.file.clone(), route, JsonAction::Remove)
     }
 }
 
@@ -68,10 +60,7 @@ impl Rule for UnmatchedWorkspacePatterns {
             let mut builder = diagnostic(
                 &META,
                 format!("workspace pattern `{}` does not match any directory", fact.pattern),
-                Location::new(
-                    fact.file.clone(),
-                    fact.span,
-                ),
+                Location::new(fact.file.clone(), fact.span),
             )
             .help("remove the pattern, or create the directories it is meant to match");
             if keeps_a_member_pattern && workspace.facts.source != WorkspaceSource::RushJson {

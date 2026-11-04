@@ -17,7 +17,12 @@ impl Source {
     /// Indexes the lines of `text` once.
     pub(crate) fn new(text: String) -> Self {
         let starts = std::iter::once(0)
-            .chain(text.bytes().enumerate().filter(|&(_, byte)| byte == b'\n').map(|(at, _)| at + 1))
+            .chain(
+                text.bytes()
+                    .enumerate()
+                    .filter(|&(_, byte)| byte == b'\n')
+                    .map(|(at, _)| at + 1),
+            )
             .collect();
         Self { text, starts }
     }

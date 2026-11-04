@@ -69,10 +69,7 @@ fn merge_order() -> Vec<String> {
 }
 
 fn pools() -> Vec<Executor> {
-    [1, 2, 4, 8]
-        .into_iter()
-        .map(|n| Executor::new(n).unwrap())
-        .collect()
+    [1, 2, 4, 8].into_iter().map(|n| Executor::new(n).unwrap()).collect()
 }
 
 #[test]

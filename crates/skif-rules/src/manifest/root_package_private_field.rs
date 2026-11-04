@@ -56,11 +56,7 @@ impl Rule for RootPackagePrivateField {
                     vec![json_op(
                         root,
                         Vec::new(),
-                        JsonAction::insert(
-                            "private".to_owned(),
-                            Value::Bool(true),
-                            InsertPosition::End,
-                        ),
+                        JsonAction::insert("private".to_owned(), Value::Bool(true), InsertPosition::End),
                     )],
                 ))
                 .build(),

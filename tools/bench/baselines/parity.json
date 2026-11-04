@@ -1,0 +1,587 @@
+{
+  "schema": 1,
+  "tool": "knip@6.44.1",
+  "installed": true,
+  "entries": {
+    "angular": {
+      "status": "compared",
+      "categories": {
+        "binaries": {
+          "skif_only": 1,
+          "tool_only": 4,
+          "both": 0
+        },
+        "dependencies": {
+          "skif_only": 0,
+          "tool_only": 48,
+          "both": 140
+        },
+        "devDependencies": {
+          "skif_only": 0,
+          "tool_only": 22,
+          "both": 42
+        },
+        "duplicates": {
+          "skif_only": 6,
+          "tool_only": 4,
+          "both": 0
+        },
+        "enumMembers": {
+          "skif_only": 75,
+          "tool_only": 20,
+          "both": 0
+        },
+        "exports": {
+          "skif_only": 230,
+          "tool_only": 331,
+          "both": 539
+        },
+        "files": {
+          "skif_only": 0,
+          "tool_only": 3477,
+          "both": 1476
+        },
+        "optionalPeerDependencies": {
+          "skif_only": 1,
+          "tool_only": 0,
+          "both": 2
+        },
+        "types": {
+          "skif_only": 56,
+          "tool_only": 128,
+          "both": 173
+        },
+        "unlisted": {
+          "skif_only": 6,
+          "tool_only": 0,
+          "both": 1
+        },
+        "unresolved": {
+          "skif_only": 50,
+          "tool_only": 0,
+          "both": 9
+        }
+      }
+    },
+    "babel": {
+      "status": "compared",
+      "categories": {
+        "dependencies": {
+          "skif_only": 29,
+          "tool_only": 0,
+          "both": 0
+        },
+        "devDependencies": {
+          "skif_only": 198,
+          "tool_only": 5,
+          "both": 60
+        },
+        "duplicates": {
+          "skif_only": 17,
+          "tool_only": 3,
+          "both": 0
+        },
+        "exports": {
+          "skif_only": 16,
+          "tool_only": 4,
+          "both": 61
+        },
+        "files": {
+          "skif_only": 229,
+          "tool_only": 1,
+          "both": 1
+        },
+        "types": {
+          "skif_only": 0,
+          "tool_only": 5,
+          "both": 1
+        },
+        "unlisted": {
+          "skif_only": 33,
+          "tool_only": 3,
+          "both": 9
+        },
+        "unresolved": {
+          "skif_only": 1,
+          "tool_only": 0,
+          "both": 0
+        }
+      }
+    },
+    "cal-com": {
+      "status": "skipped",
+      "reason": "knip failed: ERROR: Error loading vitest.workspace.ts ((0 , _config.defineWorkspace) is not a function)",
+      "categories": {}
+    },
+    "create-t3-turbo": {
+      "status": "compared",
+      "categories": {
+        "binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "dependencies": {
+          "skif_only": 27,
+          "tool_only": 0,
+          "both": 6
+        },
+        "devDependencies": {
+          "skif_only": 5,
+          "tool_only": 0,
+          "both": 0
+        },
+        "exports": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "files": {
+          "skif_only": 18,
+          "tool_only": 0,
+          "both": 4
+        },
+        "types": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 0
+        },
+        "unlisted": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 2
+        }
+      }
+    },
+    "jest": {
+      "status": "compared",
+      "categories": {
+        "binaries": {
+          "skif_only": 0,
+          "tool_only": 2,
+          "both": 0
+        },
+        "dependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 6
+        },
+        "devDependencies": {
+          "skif_only": 7,
+          "tool_only": 2,
+          "both": 44
+        },
+        "duplicates": {
+          "skif_only": 0,
+          "tool_only": 2,
+          "both": 1
+        },
+        "exports": {
+          "skif_only": 0,
+          "tool_only": 20,
+          "both": 29
+        },
+        "files": {
+          "skif_only": 10,
+          "tool_only": 1149,
+          "both": 1
+        },
+        "types": {
+          "skif_only": 0,
+          "tool_only": 2,
+          "both": 17
+        },
+        "unlisted": {
+          "skif_only": 45,
+          "tool_only": 77,
+          "both": 42
+        },
+        "unresolved": {
+          "skif_only": 3,
+          "tool_only": 5,
+          "both": 1
+        }
+      }
+    },
+    "mastra": {
+      "status": "skipped",
+      "reason": "knip failed: \u001b[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vi",
+      "categories": {}
+    },
+    "n8n": {
+      "status": "compared",
+      "categories": {
+        "binaries": {
+          "skif_only": 4,
+          "tool_only": 0,
+          "both": 0
+        },
+        "dependencies": {
+          "skif_only": 18,
+          "tool_only": 0,
+          "both": 0
+        },
+        "devDependencies": {
+          "skif_only": 25,
+          "tool_only": 0,
+          "both": 0
+        },
+        "duplicates": {
+          "skif_only": 8,
+          "tool_only": 0,
+          "both": 0
+        },
+        "exports": {
+          "skif_only": 1651,
+          "tool_only": 0,
+          "both": 0
+        },
+        "files": {
+          "skif_only": 123,
+          "tool_only": 0,
+          "both": 0
+        },
+        "namespaceMembers": {
+          "skif_only": 9,
+          "tool_only": 0,
+          "both": 0
+        },
+        "types": {
+          "skif_only": 1159,
+          "tool_only": 0,
+          "both": 0
+        },
+        "unlisted": {
+          "skif_only": 13,
+          "tool_only": 0,
+          "both": 0
+        },
+        "unresolved": {
+          "skif_only": 91,
+          "tool_only": 0,
+          "both": 0
+        }
+      }
+    },
+    "next-js": {
+      "status": "compared",
+      "categories": {
+        "binaries": {
+          "skif_only": 0,
+          "tool_only": 13,
+          "both": 1
+        },
+        "dependencies": {
+          "skif_only": 0,
+          "tool_only": 6,
+          "both": 19
+        },
+        "devDependencies": {
+          "skif_only": 99,
+          "tool_only": 34,
+          "both": 168
+        },
+        "duplicates": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 5
+        },
+        "exports": {
+          "skif_only": 13,
+          "tool_only": 448,
+          "both": 287
+        },
+        "files": {
+          "skif_only": 40,
+          "tool_only": 19936,
+          "both": 3390
+        },
+        "optionalPeerDependencies": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "types": {
+          "skif_only": 5,
+          "tool_only": 115,
+          "both": 195
+        },
+        "unlisted": {
+          "skif_only": 273,
+          "tool_only": 26,
+          "both": 9
+        },
+        "unresolved": {
+          "skif_only": 50,
+          "tool_only": 13,
+          "both": 2
+        }
+      }
+    },
+    "npm-cli": {
+      "status": "compared",
+      "categories": {
+        "binaries": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 17
+        },
+        "dependencies": {
+          "skif_only": 0,
+          "tool_only": 115,
+          "both": 19
+        },
+        "devDependencies": {
+          "skif_only": 0,
+          "tool_only": 51,
+          "both": 23
+        },
+        "exports": {
+          "skif_only": 0,
+          "tool_only": 4,
+          "both": 0
+        },
+        "files": {
+          "skif_only": 28,
+          "tool_only": 224,
+          "both": 82
+        },
+        "unlisted": {
+          "skif_only": 1,
+          "tool_only": 0,
+          "both": 0
+        },
+        "unresolved": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        }
+      }
+    },
+    "opencode": {
+      "status": "compared",
+      "categories": {
+        "binaries": {
+          "skif_only": 1,
+          "tool_only": 9,
+          "both": 0
+        },
+        "dependencies": {
+          "skif_only": 9,
+          "tool_only": 1,
+          "both": 26
+        },
+        "devDependencies": {
+          "skif_only": 2,
+          "tool_only": 7,
+          "both": 42
+        },
+        "duplicates": {
+          "skif_only": 0,
+          "tool_only": 17,
+          "both": 2
+        },
+        "exports": {
+          "skif_only": 88,
+          "tool_only": 77,
+          "both": 336
+        },
+        "files": {
+          "skif_only": 62,
+          "tool_only": 525,
+          "both": 174
+        },
+        "namespaceMembers": {
+          "skif_only": 1,
+          "tool_only": 0,
+          "both": 0
+        },
+        "types": {
+          "skif_only": 191,
+          "tool_only": 36,
+          "both": 83
+        },
+        "unlisted": {
+          "skif_only": 2,
+          "tool_only": 1,
+          "both": 5
+        },
+        "unresolved": {
+          "skif_only": 0,
+          "tool_only": 4,
+          "both": 0
+        }
+      }
+    },
+    "rules-js": {
+      "status": "skipped",
+      "reason": "install: pnpm install failed: Error: ERR_PNPM_INVALID_DEPENDENCY_NAME",
+      "categories": {}
+    },
+    "rushstack": {
+      "status": "skipped",
+      "reason": "install: install is disabled for this repository: Rush workspace (rush.json); no lockfile in the tree, so it is never installed.",
+      "categories": {}
+    },
+    "tanstack-query": {
+      "status": "compared",
+      "categories": {
+        "dependencies": {
+          "skif_only": 27,
+          "tool_only": 0,
+          "both": 0
+        },
+        "devDependencies": {
+          "skif_only": 15,
+          "tool_only": 0,
+          "both": 0
+        },
+        "duplicates": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 0
+        },
+        "exports": {
+          "skif_only": 63,
+          "tool_only": 0,
+          "both": 0
+        },
+        "files": {
+          "skif_only": 143,
+          "tool_only": 0,
+          "both": 0
+        },
+        "types": {
+          "skif_only": 37,
+          "tool_only": 0,
+          "both": 0
+        },
+        "unresolved": {
+          "skif_only": 42,
+          "tool_only": 0,
+          "both": 0
+        }
+      }
+    },
+    "vercel-examples": {
+      "status": "skipped",
+      "reason": "install: pnpm install timed out",
+      "categories": {}
+    },
+    "vscode": {
+      "status": "compared",
+      "categories": {
+        "binaries": {
+          "skif_only": 0,
+          "tool_only": 11,
+          "both": 3
+        },
+        "dependencies": {
+          "skif_only": 1,
+          "tool_only": 16,
+          "both": 33
+        },
+        "devDependencies": {
+          "skif_only": 4,
+          "tool_only": 12,
+          "both": 42
+        },
+        "duplicates": {
+          "skif_only": 0,
+          "tool_only": 3,
+          "both": 0
+        },
+        "enumMembers": {
+          "skif_only": 95,
+          "tool_only": 919,
+          "both": 0
+        },
+        "exports": {
+          "skif_only": 128,
+          "tool_only": 1029,
+          "both": 2930
+        },
+        "files": {
+          "skif_only": 3,
+          "tool_only": 682,
+          "both": 1879
+        },
+        "namespaceMembers": {
+          "skif_only": 184,
+          "tool_only": 226,
+          "both": 0
+        },
+        "types": {
+          "skif_only": 93,
+          "tool_only": 860,
+          "both": 1708
+        },
+        "unlisted": {
+          "skif_only": 3,
+          "tool_only": 1343,
+          "both": 32
+        },
+        "unresolved": {
+          "skif_only": 116,
+          "tool_only": 21,
+          "both": 8
+        }
+      }
+    },
+    "vue-core": {
+      "status": "compared",
+      "categories": {
+        "dependencies": {
+          "skif_only": 4,
+          "tool_only": 0,
+          "both": 6
+        },
+        "devDependencies": {
+          "skif_only": 0,
+          "tool_only": 8,
+          "both": 1
+        },
+        "duplicates": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 0
+        },
+        "enumMembers": {
+          "skif_only": 0,
+          "tool_only": 6,
+          "both": 0
+        },
+        "exports": {
+          "skif_only": 1,
+          "tool_only": 4,
+          "both": 20
+        },
+        "files": {
+          "skif_only": 0,
+          "tool_only": 2,
+          "both": 5
+        },
+        "optionalPeerDependencies": {
+          "skif_only": 1,
+          "tool_only": 0,
+          "both": 0
+        },
+        "types": {
+          "skif_only": 0,
+          "tool_only": 3,
+          "both": 14
+        },
+        "unlisted": {
+          "skif_only": 0,
+          "tool_only": 30,
+          "both": 61
+        },
+        "unresolved": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        }
+      }
+    }
+  }
+}

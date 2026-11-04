@@ -64,9 +64,11 @@ impl RuleProvider for PolicyProvider {
             // groups keep it.
             let catalog_owns = enabled.contains(catalog::owning_rule());
             let usages = catalog_owns.then(|| catalog::usages(cx));
-            let owned = usages.as_deref().map_or_else(std::collections::BTreeSet::new, |usages| {
-                catalog::owned_dependencies(usages, cx.workspace, &cx.config.catalog)
-            });
+            let owned = usages
+                .as_deref()
+                .map_or_else(std::collections::BTreeSet::new, |usages| {
+                    catalog::owned_dependencies(usages, cx.workspace, &cx.config.catalog)
+                });
             let analysis = analysis::Analysis::run_with(cx.workspace, cx.config, &owned);
             report::emit(&analysis, cx.config_file(), out);
         }

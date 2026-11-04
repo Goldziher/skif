@@ -1095,7 +1095,10 @@ fn package_by_name_finds_the_root_and_members_and_the_first_of_a_duplicate_wins(
     assert_eq!(found(""), None);
     for (id, package) in workspace.iter() {
         if let Some(name) = package.name.as_deref() {
-            let first = workspace.all_packages().find(|p| p.name.as_deref() == Some(name)).map(|p| p.id);
+            let first = workspace
+                .all_packages()
+                .find(|p| p.name.as_deref() == Some(name))
+                .map(|p| p.id);
             assert_eq!(workspace.package_by_name(name).map(|p| p.id), first, "{name} {id}");
         }
     }
@@ -1105,9 +1108,18 @@ fn package_by_name_finds_the_root_and_members_and_the_first_of_a_duplicate_wins(
 fn equal_specifiers_are_parsed_once_per_workspace() {
     let workspace = discover(
         &[
-            ("package.json", r#"{"workspaces":["pkgs/*"],"devDependencies":{"x":"^1.2.3"}}"#),
-            ("pkgs/a/package.json", r#"{"name":"a","dependencies":{"x":"^1.2.3","y":"~2.0.0"}}"#),
-            ("pkgs/b/package.json", r#"{"name":"b","dependencies":{"x":"^1.2.3"},"peerDependencies":{"y":"~2.0.0"}}"#),
+            (
+                "package.json",
+                r#"{"workspaces":["pkgs/*"],"devDependencies":{"x":"^1.2.3"}}"#,
+            ),
+            (
+                "pkgs/a/package.json",
+                r#"{"name":"a","dependencies":{"x":"^1.2.3","y":"~2.0.0"}}"#,
+            ),
+            (
+                "pkgs/b/package.json",
+                r#"{"name":"b","dependencies":{"x":"^1.2.3"},"peerDependencies":{"y":"~2.0.0"}}"#,
+            ),
         ],
         &Config::default(),
     )
@@ -1123,6 +1135,9 @@ fn equal_specifiers_are_parsed_once_per_workspace() {
     for spec in ["^1.2.3", "~2.0.0"] {
         let all = parsed(spec);
         assert!(all.len() >= 2, "{spec}");
-        assert!(all.windows(2).all(|pair| std::sync::Arc::ptr_eq(&pair[0], &pair[1])), "{spec}");
+        assert!(
+            all.windows(2).all(|pair| std::sync::Arc::ptr_eq(&pair[0], &pair[1])),
+            "{spec}"
+        );
     }
 }

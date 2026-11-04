@@ -409,10 +409,7 @@ mod tests {
                 contents: "body".into()
             }
         );
-        assert_eq!(
-            FixOp::delete_file("d.txt"),
-            FixOp::DeleteFile { path: "d.txt".into() }
-        );
+        assert_eq!(FixOp::delete_file("d.txt"), FixOp::DeleteFile { path: "d.txt".into() });
         assert_eq!(
             JsonAction::insert("k".into(), serde_json::json!(1), InsertPosition::End),
             JsonAction::Insert {

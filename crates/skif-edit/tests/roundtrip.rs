@@ -155,7 +155,9 @@ fn reference(root: &Value, path: &[PathSeg], action: &JsonAction) -> Value {
                 _ => unreachable!("generated paths are valid"),
             }
         }
-        JsonAction::Insert { key, value, position , ..} => {
+        JsonAction::Insert {
+            key, value, position, ..
+        } => {
             let target = at_mut(&mut result, path);
             let Value::Object(map) = &*target else { unreachable!() };
             let mut list = entries(map);
@@ -204,16 +206,8 @@ fn choose(
     };
     match kind % 5 {
         1 => pick(&|node| !node.0.is_empty()).map(|path| (path, JsonAction::Remove)),
-        2 => pick(&|node| node.1.is_object()).map(|path| {
-            (
-                path,
-                JsonAction::insert(
-                    new_key,
-                    new_value.clone(),
-                    position,
-                ),
-            )
-        }),
+        2 => pick(&|node| node.1.is_object())
+            .map(|path| (path, JsonAction::insert(new_key, new_value.clone(), position))),
         3 => pick(&|node| node.1.is_object()).map(|path| (path, JsonAction::SortKeys)),
         4 => pick(&|node| node.2).map(|path| (path, JsonAction::RenameKey("zz".to_owned()))),
         _ => None,

@@ -26,9 +26,9 @@ pub(crate) fn op(op: &FixOp) -> String {
             };
             format!("yaml {verb} {}", pointer_text(route))
         }
-        FixOp::Text { path, edit , ..} => format!("text edit {}..{} in {}", edit.start, edit.end, path.display()),
+        FixOp::Text { path, edit, .. } => format!("text edit {}..{} in {}", edit.start, edit.end, path.display()),
         FixOp::CreateFile { path, .. } => format!("create {}", path.display()),
-        FixOp::DeleteFile { path , ..} => format!("delete {}", path.display()),
+        FixOp::DeleteFile { path, .. } => format!("delete {}", path.display()),
         _ => "unknown operation".to_owned(),
     }
 }

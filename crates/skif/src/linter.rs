@@ -214,9 +214,9 @@ impl Linter {
         }
         let sequential = options.threads.is_some_and(|threads| threads.get() == 1);
         let built = match (options.executor, options.threads) {
-            (None, Some(threads)) if !sequential => Some(
-                Executor::new(threads.get()).map_err(|error| Error::ThreadPool(error.to_string()))?,
-            ),
+            (None, Some(threads)) if !sequential => {
+                Some(Executor::new(threads.get()).map_err(|error| Error::ThreadPool(error.to_string()))?)
+            }
             _ => None,
         };
         let mut run_options = skif_lint::RunOptions::default().sequential(sequential);

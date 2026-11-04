@@ -3,8 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
-use skif_core::{FileSystem, LineIndex};
 use serde::Deserialize as _;
+use skif_core::{FileSystem, LineIndex};
 use toml::de::{DeTable, DeValue, Deserializer};
 use toml::{Table, Value};
 

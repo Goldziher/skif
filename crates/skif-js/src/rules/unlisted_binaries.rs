@@ -36,10 +36,7 @@ impl JsRule for UnlistedBinaries {
                         "script `{}` runs `{}`, which no dependency provides",
                         binary.script, binary.name
                     ),
-                    Location::new(
-                        package.manifest.path.clone(),
-                        span,
-                    ),
+                    Location::new(package.manifest.path.clone(), span),
                 )
                 .package(package.display_name())
                 .dependency(binary.name.clone())

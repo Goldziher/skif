@@ -1,0 +1,381 @@
+{
+  "schema": 1,
+  "tool": "syncpack@15.3.3",
+  "installed": false,
+  "entries": {
+    "angular": {
+      "status": "compared",
+      "categories": {
+        "DependsOnInvalidLocalPackage": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 0
+        },
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 32,
+          "tool_only": 32,
+          "both": 51
+        },
+        "DiffersToLocal": {
+          "skif_only": 1,
+          "tool_only": 0,
+          "both": 0
+        },
+        "InvalidLocalVersion": {
+          "skif_only": 0,
+          "tool_only": 3,
+          "both": 0
+        }
+      }
+    },
+    "babel": {
+      "status": "compared",
+      "categories": {
+        "DiffersToCatalog": {
+          "skif_only": 0,
+          "tool_only": 7,
+          "both": 0
+        },
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 0,
+          "tool_only": 2,
+          "both": 6
+        },
+        "DiffersToLocal": {
+          "skif_only": 0,
+          "tool_only": 140,
+          "both": 0
+        },
+        "NonSemverMismatch": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        }
+      }
+    },
+    "cal-com": {
+      "status": "skipped",
+      "reason": "syncpack failed: ✗ Config property 'filter' is not recognised",
+      "categories": {}
+    },
+    "create-t3-turbo": {
+      "status": "compared",
+      "categories": {
+        "DependsOnInvalidLocalPackage": {
+          "skif_only": 0,
+          "tool_only": 48,
+          "both": 0
+        },
+        "DiffersToCatalog": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 0
+        },
+        "InvalidLocalVersion": {
+          "skif_only": 0,
+          "tool_only": 14,
+          "both": 0
+        }
+      }
+    },
+    "fixtures": {
+      "status": "compared",
+      "categories": {
+        "DependsOnInvalidLocalPackage": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 4
+        },
+        "DiffersToCatalog": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        },
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 0,
+          "tool_only": 2,
+          "both": 17
+        },
+        "DiffersToLocal": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 3
+        },
+        "InvalidLocalVersion": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 6
+        },
+        "NonSemverMismatch": {
+          "skif_only": 1,
+          "tool_only": 0,
+          "both": 2
+        }
+      },
+      "cases": {
+        "compared": 37,
+        "identical": 35,
+        "skipped": 120,
+        "differing": [
+          "invalid-local-version/missing-version-field-not-reported",
+          "version-mismatch/latest-ranks-as-highest"
+        ]
+      }
+    },
+    "jest": {
+      "status": "compared",
+      "categories": {
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 0,
+          "tool_only": 40,
+          "both": 0
+        },
+        "NonSemverMismatch": {
+          "skif_only": 25,
+          "tool_only": 0,
+          "both": 0
+        }
+      }
+    },
+    "mastra": {
+      "status": "compared",
+      "categories": {
+        "DiffersToCatalog": {
+          "skif_only": 0,
+          "tool_only": 61,
+          "both": 15
+        },
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 1,
+          "tool_only": 36,
+          "both": 239
+        },
+        "DiffersToLocal": {
+          "skif_only": 0,
+          "tool_only": 134,
+          "both": 0
+        }
+      }
+    },
+    "n8n": {
+      "status": "compared",
+      "categories": {
+        "DependsOnInvalidLocalPackage": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 0
+        },
+        "DiffersToCatalog": {
+          "skif_only": 0,
+          "tool_only": 12,
+          "both": 11
+        },
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 1,
+          "tool_only": 7,
+          "both": 11
+        },
+        "DiffersToLocal": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 1
+        },
+        "InvalidLocalVersion": {
+          "skif_only": 0,
+          "tool_only": 2,
+          "both": 0
+        },
+        "NonSemverMismatch": {
+          "skif_only": 1,
+          "tool_only": 0,
+          "both": 0
+        }
+      }
+    },
+    "next-js": {
+      "status": "compared",
+      "categories": {
+        "DependsOnInvalidLocalPackage": {
+          "skif_only": 0,
+          "tool_only": 5,
+          "both": 0
+        },
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 1,
+          "tool_only": 20,
+          "both": 68
+        },
+        "DiffersToLocal": {
+          "skif_only": 0,
+          "tool_only": 3,
+          "both": 1
+        },
+        "InvalidLocalVersion": {
+          "skif_only": 0,
+          "tool_only": 10,
+          "both": 0
+        }
+      }
+    },
+    "npm-cli": {
+      "status": "compared",
+      "categories": {
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 57
+        },
+        "DiffersToLocal": {
+          "skif_only": 0,
+          "tool_only": 27,
+          "both": 0
+        }
+      }
+    },
+    "opencode": {
+      "status": "compared",
+      "categories": {
+        "DependsOnInvalidLocalPackage": {
+          "skif_only": 0,
+          "tool_only": 3,
+          "both": 0
+        },
+        "DiffersToCatalog": {
+          "skif_only": 0,
+          "tool_only": 8,
+          "both": 18
+        },
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 3,
+          "tool_only": 3,
+          "both": 4
+        },
+        "DiffersToLocal": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 0
+        },
+        "InvalidLocalVersion": {
+          "skif_only": 0,
+          "tool_only": 7,
+          "both": 0
+        }
+      }
+    },
+    "rules-js": {
+      "status": "compared",
+      "categories": {
+        "DependsOnInvalidLocalPackage": {
+          "skif_only": 0,
+          "tool_only": 4,
+          "both": 0
+        },
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 0,
+          "tool_only": 4,
+          "both": 3
+        },
+        "InvalidLocalVersion": {
+          "skif_only": 0,
+          "tool_only": 5,
+          "both": 0
+        },
+        "NonSemverMismatch": {
+          "skif_only": 1,
+          "tool_only": 0,
+          "both": 0
+        }
+      }
+    },
+    "rushstack": {
+      "status": "compared",
+      "categories": {
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 147,
+          "tool_only": 0,
+          "both": 0
+        },
+        "DiffersToLocal": {
+          "skif_only": 28,
+          "tool_only": 0,
+          "both": 0
+        }
+      }
+    },
+    "tanstack-query": {
+      "status": "compared",
+      "categories": {
+        "DiffersToCatalog": {
+          "skif_only": 0,
+          "tool_only": 25,
+          "both": 644
+        },
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 40,
+          "tool_only": 2,
+          "both": 26
+        },
+        "DiffersToLocal": {
+          "skif_only": 0,
+          "tool_only": 444,
+          "both": 0
+        },
+        "InvalidLocalVersion": {
+          "skif_only": 0,
+          "tool_only": 165,
+          "both": 0
+        }
+      }
+    },
+    "vercel-examples": {
+      "status": "compared",
+      "categories": {
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 0
+        },
+        "InvalidLocalVersion": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 0
+        }
+      }
+    },
+    "vscode": {
+      "status": "compared",
+      "categories": {
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 5,
+          "tool_only": 2,
+          "both": 79
+        },
+        "DiffersToLocal": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 1
+        }
+      }
+    },
+    "vue-core": {
+      "status": "compared",
+      "categories": {
+        "DiffersToCatalog": {
+          "skif_only": 0,
+          "tool_only": 0,
+          "both": 2
+        },
+        "DiffersToHighestOrLowestSemver": {
+          "skif_only": 0,
+          "tool_only": 2,
+          "both": 1
+        },
+        "InvalidLocalVersion": {
+          "skif_only": 0,
+          "tool_only": 1,
+          "both": 0
+        }
+      }
+    }
+  }
+}

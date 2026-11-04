@@ -13,7 +13,10 @@ pub enum SourceKind {
     /// A file in a directory above the root.
     Ancestor,
     /// A file reached through the `extends` of `by`.
-    Extends { by: PathBuf },
+    Extends {
+        /// The file whose `extends` names this one.
+        by: PathBuf,
+    },
     /// The file given with `--config`.
     Explicit,
     /// A file in the directory of a workspace member, applied to that package only.

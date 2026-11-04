@@ -72,11 +72,7 @@ fn removal_fix(module: &Module, export: &Export, range: (u32, u32)) -> Fix {
     } else {
         format!("Remove the unused export `{}`", export.name)
     };
-    Fix::new(
-        title,
-        FixSafety::Unsafe,
-        vec![delete_range(module, range.0, range.1)],
-    )
+    Fix::new(title, FixSafety::Unsafe, vec![delete_range(module, range.0, range.1)])
 }
 
 /// Reports the unused exports of every module that are types (`want_type`) or values.

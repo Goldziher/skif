@@ -16,7 +16,7 @@ crate-type = ["cdylib"]
 [dependencies]
 napi.workspace = true
 napi-derive.workspace = true
-skif = { workspace = true, features = ["manifest", "policy", "js-analysis", "report"] }
+skif = { workspace = true, features = ["manifest", "js-analysis", "report"] }
 skif-cli.workspace = true
 
 [features]

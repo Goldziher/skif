@@ -312,18 +312,11 @@ mod selection_tests {
     );
 
     fn alternative(title: &str) -> Fix {
-        Fix {
-            title: title.to_owned(),
-            safety: FixSafety::Unsafe,
-            ops: Vec::new(),
-        }
+        Fix::new(title, FixSafety::Unsafe, Vec::new())
     }
 
     fn report(titles: &[&str]) -> Report {
-        let location = Location {
-            path: "package.json".into(),
-            span: None,
-        };
+        let location = Location::new("package.json", None);
         let mut builder = diagnostic(&AMBIGUOUS, "finding", location);
         for title in titles {
             builder = builder.fix(alternative(title));
@@ -349,8 +342,13 @@ mod selection_tests {
     #[test]
     fn no_prompt_leaves_alternatives_to_the_configured_preference_even_on_a_terminal() {
         let report = report(&["pin one", "pin two"]);
-        let selection = selection(&lint_args(&["--fix-unsafe", "--no-prompt"]), terminal(), &report, Prefer::Lowest)
-            .unwrap();
+        let selection = selection(
+            &lint_args(&["--fix-unsafe", "--no-prompt"]),
+            terminal(),
+            &report,
+            Prefer::Lowest,
+        )
+        .unwrap();
         assert_eq!(selection.alternatives, Alternatives::Preferred(Prefer::Lowest));
         assert!(selection.choices.is_empty());
     }
