@@ -15,7 +15,7 @@ pub static META: RuleMeta = RuleMeta {
     category: Category::Catalog,
     default: Some(Severity::Warning),
     fixable: Fixability::None,
-    summary: "A catalog entry that no manifest references.",
+    summary: "A catalog entry that no manifest references; reported only when `[catalog] report-unused-entries` is `true`.",
 };
 
 /// Reports catalog entries nobody uses, when `[catalog] report-unused-entries` is on.

@@ -76,7 +76,7 @@ A `catalog:` specifier names a catalog or an entry that does not exist.
 
 ## unused-catalog-entries
 
-A catalog entry that no manifest references.
+A catalog entry that no manifest references; reported only when `[catalog] report-unused-entries` is `true`.
 
 - Category: catalog
 - Default severity: warning

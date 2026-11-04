@@ -63,13 +63,25 @@ fail-on-warnings = true    # exit non-zero when only warnings were reported
 
 ### `[rules]`
 
-A rule is a level string, or a table with a level and the rule's own options.
+A rule is a level string, or a table with a `level` and the rule's own options. `severity` is accepted as an alias of
+`level`; setting both in one table is an error, and neither name can be a rule option.
 
 ```toml
 [rules]
 unsorted-dependencies = "warn"      # off | info | warn | error
 empty-dependencies = "off"
+member-toolchain-fields = { level = "error", mode = "match-root" }
+unused-exports = { ignore-tags = ["lintignore"] }
 ```
+
+Rules with options:
+
+| Rule | Option | Values |
+| --- | --- | --- |
+| `member-toolchain-fields` | `mode` | `forbid` (default) reports every `packageManager` or `engines` field a member declares; `match-root` allows a field equal to the root's. |
+| `unused-exports`, `unused-types` | `ignore-tags` | JSDoc tag names, without the `@` (a list of strings), that exempt an export. It is read from `unused-exports` and applies to `unused-types` as well. `public`, `beta` and `alpha` always exempt. |
+
+An unknown option is an error that names the rule.
 
 An unknown rule id is rejected with a closest-match suggestion. See the [rules](../../rules/) for ids.
 
@@ -138,7 +150,7 @@ range = "^"      # one of * ^ ~ > >= < <=
 mode = "prefer"              # off | prefer | enforce
 min-packages = 2             # packages using a dependency before an entry is suggested
 exclude = ["typescript"]
-report-unused-entries = true
+report-unused-entries = true  # default false: `unused-catalog-entries` reports nothing unless this is set
 ```
 
 ### `[workspace-protocol]`

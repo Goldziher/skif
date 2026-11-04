@@ -1,7 +1,7 @@
 use crate::model::Config;
 use crate::rules::Level;
 
-/// Schema stand-in for a `[rules]` value: a level string or a table of severity plus options.
+/// Schema stand-in for a `[rules]` value: a level string or a table of `level` plus options.
 /// It only describes the shape for the JSON Schema and is never constructed.
 #[allow(dead_code)]
 #[derive(schemars::JsonSchema)]
@@ -16,6 +16,9 @@ pub enum RuleConfigSchema {
 #[derive(schemars::JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct RuleTableSchema {
+    /// The level of the rule; the key that is written back. Set either `level` or `severity`, not both.
+    pub level: Option<Level>,
+    /// Alias of `level`.
     pub severity: Option<Level>,
     /// Rule-specific options; their shape is defined by the owning rule.
     #[serde(flatten)]

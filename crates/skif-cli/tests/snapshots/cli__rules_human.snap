@@ -23,7 +23,7 @@ catalog-not-used                   catalog    warning  sometimes  A dependency t
 catalog-mismatch                   catalog    error    sometimes  A dependency is declared with a version while other packages take it from a catalog.
 catalog-missing-entry              catalog    warning  sometimes  A dependency that should come from a catalog has no catalog entry.
 unresolved-catalog-references      catalog    error    none       A `catalog:` specifier names a catalog or an entry that does not exist.
-unused-catalog-entries             catalog    warning  none       A catalog entry that no manifest references.
+unused-catalog-entries             catalog    warning  none       A catalog entry that no manifest references; reported only when `[catalog] report-unused-entries` is `true`.
 workspace-protocol                 policy     error    none       A dependency on a workspace package does not use the `workspace:` protocol.
 unsynced-dependency-family         policy     error    none       Members of a dependency family declared in one package are on different versions.
 unused-dependencies                js         error    unsafe     A package in `dependencies` is never imported, required or run by a script.
