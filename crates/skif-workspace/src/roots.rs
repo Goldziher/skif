@@ -386,7 +386,7 @@ fn resolved(fs: &dyn FileSystem, root: &Path, dir: &Path, links: &mut HashMap<Pa
             })
         });
     if linked {
-        std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf())
+        fs.canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf())
     } else {
         dir.to_path_buf()
     }
@@ -627,6 +627,52 @@ mod tests {
         let fs = MemoryFs::new().with_file("/r/w/package.json", r#"{"workspaces": ["p/*"]"#);
         let roots = discover_roots(Path::new("/r"), &fs, &DiscoverOptions::default());
         assert_eq!(roots.len(), 1);
+    }
+
+    /// A tree where `/r/pkgs/a` is a link to `/r/real/a`.
+    struct Linked(MemoryFs);
+
+    impl FileSystem for Linked {
+        fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+            self.0.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+            if path == Path::new("/r/pkgs") {
+                return Ok(vec![DirEntry::new(PathBuf::from("/r/pkgs/a"), true, false).symlink()]);
+            }
+            self.0.read_dir(path)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.0.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.0.is_dir(path)
+        }
+
+        fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
+            Ok(path
+                .strip_prefix("/r/pkgs/a")
+                .map_or_else(|_| path.to_path_buf(), |rest| Path::new("/r/real/a").join(rest)))
+        }
+    }
+
+    #[test]
+    fn a_linked_member_is_resolved_through_the_file_system_not_the_disk() {
+        let fs = Linked(MemoryFs::new().with_file("/r/real/a/package.json", r#"{"name": "a"}"#));
+        let mut links = HashMap::new();
+        assert_eq!(
+            resolved(&fs, Path::new("/r"), Path::new("/r/pkgs/a"), &mut links),
+            Path::new("/r/real/a"),
+            "a path that does not exist on disk is resolved by the file system's own canonicalize"
+        );
+        assert_eq!(
+            resolved(&fs, Path::new("/r"), Path::new("/r/pkgs/b"), &mut links),
+            Path::new("/r/pkgs/b"),
+            "a directory that is not a link stays as it is"
+        );
     }
 
     #[test]
