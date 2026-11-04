@@ -19,11 +19,11 @@ depend on the current directory.
 
 ## Configuration lookup
 
-`skif.toml` or `.skif.toml` is searched from the root upwards. In a single-root run the search stops at the root, so
-only the root's own file counts. In a multi-root run (see below) each root takes the nearest file between the root
-and the start directory, and a root with none uses the defaults; a file above the start directory is never read.
-There are no per-package configuration files; per-package differences are expressed with `[[ignore]]`, group
-selectors and `[js.workspaces."<dir>"]`.
+`skif.toml` or `.skif.toml` is searched from the root upwards to the root of the git repository, and every file found
+is merged, the nearest last. A file with `root = true` ends the search. Outside a repository the search covers the
+root alone in a single-root run and the start directory in a multi-root run. A file above the repository is never
+read. A member directory may hold a package file, and `[[overrides]]` select packages and files. See
+[Sharing configuration](../sharing-configuration/).
 
 ## Package manager detection
 
