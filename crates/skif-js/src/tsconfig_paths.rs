@@ -127,13 +127,16 @@ pub(crate) fn resolve_extends(
 }
 
 /// The `baseUrl` and `paths` configs of a workspace, parsed once per config file.
+/// A parsed config's file and the directory `${configDir}` stands for.
+type ConfigKey = (PathBuf, PathBuf);
+
 pub(crate) struct TsConfigs {
     fs: Arc<dyn FileSystem>,
     root: PathBuf,
     /// Workspace members by name, with their absolute directory, for `extends` that names a package.
     members: Vec<(String, PathBuf)>,
     /// Parsed configs by file and the directory `${configDir}` stands for.
-    loaded: RwLock<HashMap<(PathBuf, PathBuf), Option<Arc<Options>>>>,
+    loaded: RwLock<HashMap<ConfigKey, Option<Arc<Options>>>>,
 }
 
 impl TsConfigs {

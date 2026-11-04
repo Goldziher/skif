@@ -306,7 +306,10 @@ mod tests {
             [PathBuf::from("/p/src/start.ts")]
         );
         let not_node = MemoryFs::new().with_file("/p/bin/tool", "#!/bin/sh\nrequire('../lib/start');\n");
-        assert!(bin_stub_sources(&not_node, Path::new("/p"), "bin/tool").is_empty());
+        assert_eq!(
+            bin_stub_sources(&not_node, Path::new("/p"), "bin/tool"),
+            [] as [std::path::PathBuf; 0]
+        );
     }
 
     #[test]

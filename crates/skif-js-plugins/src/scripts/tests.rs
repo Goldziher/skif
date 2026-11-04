@@ -118,7 +118,7 @@ fn parse(script: &str) -> ScriptInfo {
 
 #[test]
 fn table() {
-    let cases = [
+    let cases = vec![
         // Plain tools.
         bins("vitest run", &["vitest"]),
         bins("prettier --write .", &["prettier"]),
