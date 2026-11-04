@@ -3,14 +3,14 @@
 use crate::plugin::Plugin;
 use crate::plugins::{
     angular, astro, aws_cdk, babel, browser_extension, changesets, commitlint, cspell, cypress, docusaurus, drizzle,
-    esbuild, eslint, expo, github_actions, graphql_codegen, husky, jest, karma, lefthook, lint_staged, markdownlint,
-    mastra, metro, mocha, next, node, nodemon, nuxt, nx, oxlint, playwright, pm2, pnpm, postcss, prettier, prisma,
-    react_native, release_it, rollup, rspack, semantic_release, simple_git_hooks, storybook, stylelint, svelte,
-    sveltekit, syncpack, tailwind, ts_node, tsdown, tsup, tsx, turbo, typescript, vite, vitepress, vitest, webpack,
-    wrangler, yarn,
+    esbuild, eslint, expo, expo_router, github_actions, graphql_codegen, husky, jest, karma, lefthook, lint_staged,
+    markdownlint, mastra, metro, mocha, next, node, nodemon, nuxt, nx, oxlint, playwright, pm2, pnpm, postcss, prettier,
+    prisma, react_native, release_it, rollup, rspack, semantic_release, simple_git_hooks, storybook, stylelint, svelte,
+    sveltekit, syncpack, tailwind, tanstack_router, ts_node, tsdown, tsup, tsx, turbo, typescript, vite, vitepress,
+    vitest, webpack, wrangler, yarn,
 };
 
-static PLUGINS: [&dyn Plugin; 61] = [
+static PLUGINS: [&dyn Plugin; 63] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -72,6 +72,8 @@ static PLUGINS: [&dyn Plugin; 61] = [
     &yarn::Yarn,
     &syncpack::Syncpack,
     &node::Node,
+    &expo_router::ExpoRouter,
+    &tanstack_router::TanstackRouter,
 ];
 
 /// Every plugin, in the order of the table (ADR 0011, ADR 0022, ADR 0025, ADR 0029).

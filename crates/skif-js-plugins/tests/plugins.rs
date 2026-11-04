@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 61] = [
+const ADR_IDS: [&str; 63] = [
     "typescript",
     "eslint",
     "prettier",
@@ -76,6 +76,8 @@ const ADR_IDS: [&str; 61] = [
     "yarn",
     "syncpack",
     "node",
+    "expo-router",
+    "tanstack-router",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -1540,6 +1542,42 @@ fn expo() {
     let out = output(&results, "expo");
     assert_deps(out, &["expo-router", "expo-camera"]);
     assert_entries(&out.entries, &["plugins/custom.js"]);
+}
+
+#[test]
+fn expo_router_makes_the_app_directory_the_routes() {
+    let results = resolve(&[], &["expo-router"]);
+    assert_entries(
+        &output(&results, "expo-router").production_entries,
+        &["app/**/*.{js,jsx,ts,tsx}", "src/app/**/*.{js,jsx,ts,tsx}"],
+    );
+    let app = r#"{ "expo": { "plugins": [["expo-router", { "root": "./screens/" }], "expo-font"] } }"#;
+    let results = resolve(&[("app.json", app)], &["expo-router"]);
+    assert_entries(
+        &output(&results, "expo-router").production_entries,
+        &["screens/**/*.{js,jsx,ts,tsx}"],
+    );
+    let results = resolve(&[], &["expo"]);
+    assert!(results.iter().all(|(id, _)| *id != "expo-router"));
+}
+
+#[test]
+fn tanstack_router_keeps_the_route_tree_the_router_and_the_routes() {
+    let results = resolve(&[], &["@tanstack/react-start"]);
+    assert_entries(
+        &output(&results, "tanstack-router").production_entries,
+        &[
+            "src/routeTree.gen.{ts,js}",
+            "src/{router,start,client,server}.{js,jsx,ts,tsx}",
+            "src/routes/**/*.{js,jsx,ts,tsx}",
+        ],
+    );
+    let config = r#"{ "generatedRouteTree": "./app/tree.gen.ts", "routesDirectory": "./app/pages" }"#;
+    let results = resolve(&[("tsr.config.json", config)], &["@tanstack/react-router"]);
+    assert_entries(
+        &output(&results, "tanstack-router").production_entries,
+        &["app/tree.gen.ts", "app/pages/**/*.{js,jsx,ts,tsx}"],
+    );
 }
 
 #[test]
