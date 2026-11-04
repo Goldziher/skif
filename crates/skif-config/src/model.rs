@@ -18,6 +18,7 @@ use crate::schema::RuleConfigSchema;
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct Config {
     /// Stops the upward search for configuration files: no file above this one contributes. Only valid in a file
     /// found by discovery, not in one reached through `extends`.
@@ -122,20 +123,28 @@ impl Config {
         Self::parse(&source, Some(path))
     }
 
-    /// Parses and validates one file on its own, leaving `extend-*` keys as written.
-    pub(crate) fn parse_file(source: &str, path: Option<&Path>) -> Result<Self, ConfigError> {
-        let config: Self = toml::from_str(source).map_err(|err| ConfigError::from_toml(&err, source, path))?;
+    /// Parses and validates the typed form of an already parsed document, leaving `extend-*` keys as written.
+    pub(crate) fn from_document(
+        document: toml::Spanned<toml::de::DeTable<'_>>,
+        source: &str,
+        path: Option<&Path>,
+    ) -> Result<Self, ConfigError> {
+        let config = Self::deserialize(toml::de::Deserializer::from(document))
+            .map_err(|err| ConfigError::from_toml(&err, source, path))?;
         config.validate_at(path)?;
         Ok(config)
     }
 
-    /// Parses a standalone file: like [`Config::parse_file`], with `extend-*` keys folded into the lists they extend.
+    /// Parses a standalone file: the document is parsed once, its `extend-*` keys are folded into the lists they
+    /// extend.
     fn parse(source: &str, path: Option<&Path>) -> Result<Self, ConfigError> {
-        let config = Self::parse_file(source, path)?;
+        let from_toml = |err: &toml::de::Error| ConfigError::from_toml(err, source, path);
+        let document = toml::de::DeTable::parse(source).map_err(|err| from_toml(&err))?;
+        let config = Self::from_document(document.clone(), source, path)?;
         if !config.has_extend_keys() {
             return Ok(config);
         }
-        let table: toml::Table = toml::from_str(source).map_err(|err| ConfigError::from_toml(&err, source, path))?;
+        let table = toml::Table::deserialize(toml::de::Deserializer::from(document)).map_err(|err| from_toml(&err))?;
         let mut merger = crate::merge::Merger::default();
         merger.apply(0, &table, &std::collections::HashMap::new());
         let folded = merger.into_table();
@@ -331,6 +340,7 @@ fn default_discover_ignore() -> Vec<String> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct Workspace {
     /// Package names or globs excluded from every check.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
@@ -365,6 +375,7 @@ impl Default for Workspace {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct Lint {
     /// Exit non-zero when only warnings were reported.
     pub fail_on_warnings: bool,
@@ -403,6 +414,7 @@ pub enum Prefer {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct Policy {
     pub prefer: Prefer,
     /// Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`); name `peer` or `optional` to include them.
@@ -501,6 +513,7 @@ pub enum SemverRange {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[non_exhaustive]
 pub struct SemverGroup {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
@@ -561,6 +574,7 @@ impl Default for Catalog {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct WorkspaceProtocol {
     /// Require `workspace:` for dependencies on other workspace packages.
     pub internal: bool,
@@ -572,6 +586,7 @@ pub struct WorkspaceProtocol {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DependencyFamily {
     pub name: String,
     #[serde(default)]
@@ -589,6 +604,7 @@ const fn default_true() -> bool {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct Js {
     pub enabled: bool,
     pub entry: Vec<String>,
@@ -637,6 +653,7 @@ impl Default for Js {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct JsWorkspace {
     pub entry: Vec<String>,
     pub project: Vec<String>,
@@ -673,6 +690,7 @@ pub struct PluginOptions {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct PackageJs {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub entry: Vec<String>,
@@ -716,6 +734,7 @@ impl PackageJs {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct Override {
     /// Package names, or directories (`./apps/old/**`). At least one of `packages` and `files` must be set.
     #[serde(skip_serializing_if = "Selector::is_empty")]
@@ -772,6 +791,7 @@ impl Override {
 
 /// Where an [`Override`] was declared, with its patterns resolved to absolute ones.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct OverrideScope {
     /// The directory of the declaring file.
     pub declared_in: PathBuf,
