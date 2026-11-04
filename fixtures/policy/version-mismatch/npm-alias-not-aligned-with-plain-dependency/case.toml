@@ -1,0 +1,4 @@
+description = "An npm: alias of another package is a separate dependency: it is not aligned with the plain dependency of the same name, as syncpack would."
+source = "skif"
+tags = ["alias", "deviation"]
+valid-states = ["IsHighestOrLowestSemver"]

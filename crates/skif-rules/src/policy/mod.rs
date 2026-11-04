@@ -61,8 +61,8 @@ impl RuleProvider for PolicyProvider {
     fn run(&self, cx: &LintContext<'_>, enabled: &EnabledRules, out: &mut Emitter<'_>) -> Result<(), ProviderError> {
         if rules().iter().any(|meta| enabled.contains(meta.id)) {
             // The catalog rules own a dependency only while the rule that reports it is on; otherwise the version
-            // groups keep it.
-            let catalog_owns = enabled.contains(catalog::owning_rule());
+            // groups keep it. Either way exactly one rule reports an instance.
+            let catalog_owns = enabled.contains(catalog::owning_rule(cx.config.catalog.mode));
             let usages = catalog_owns.then(|| catalog::usages(cx));
             let owned = usages
                 .as_deref()
@@ -220,6 +220,42 @@ mod tests {
             mismatched("[catalog]\nmode = \"prefer\"\nmin-packages = 3\n"),
             both(),
             "below min-packages the catalog rules do not report the dependency"
+        );
+    }
+
+    #[test]
+    fn with_the_catalog_off_a_sibling_using_it_leaves_the_plain_instances_to_catalog_mismatch() {
+        const ROOT: &str = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0"}"#;
+        const YAML: &str = "packages:\n  - \"packages/*\"\ncatalog:\n  \"react\": \"^18.3.1\"\n";
+        let package = |name: &str, react: &str| {
+            format!(
+                r#"{{"name":"{name}","version":"1.0.0","private":true,"dependencies":{{"react":"{react}"}}}}"#
+            )
+        };
+        let (app, lib, web) = (package("app", "catalog:"), package("lib", "^18.2.0"), package("web", "^18.3.1"));
+        let files = [
+            ("package.json", ROOT),
+            ("pnpm-workspace.yaml", YAML),
+            ("packages/app/package.json", app.as_str()),
+            ("packages/lib/package.json", lib.as_str()),
+            ("packages/web/package.json", web.as_str()),
+        ];
+        assert_eq!(lint("version-mismatch", &files, &config("")).len(), 0);
+        let mismatches = lint("catalog-mismatch", &files, &config(""));
+        assert_eq!(mismatches.len(), 2);
+        let fixed = apply_fixes(&files, &mismatches);
+        let fixed_react = |path: &str| {
+            fixed
+                .iter()
+                .find(|(candidate, _)| candidate == path)
+                .is_some_and(|(_, text)| text.contains(r#""react":"catalog:""#) || text.contains(r#""react": "catalog:""#))
+        };
+        assert!(fixed_react("packages/lib/package.json") && fixed_react("packages/web/package.json"));
+        let mismatch_off = "[rules]\ncatalog-mismatch = \"off\"\n";
+        assert_eq!(
+            lint("version-mismatch", &files, &config(mismatch_off)).len(),
+            1,
+            "with the rule that reports them off, the version groups keep the instances"
         );
     }
 
