@@ -348,6 +348,8 @@ pub(super) const NODE_VALUE_FLAGS: &[&str] = &[
     "disable-warning",
     "redirect-warnings",
 ];
+/// Reporters of the Node.js test runner that need no package.
+pub(super) const NODE_BUILTIN_REPORTERS: &[&str] = &["spec", "tap", "dot", "junit", "lcov"];
 pub(super) const NODE_MODULE_FLAGS: &[&str] = &["r", "require", "import", "loader", "experimental-loader"];
 
 pub(super) const CONCURRENTLY_VALUE_FLAGS: &[&str] = &[

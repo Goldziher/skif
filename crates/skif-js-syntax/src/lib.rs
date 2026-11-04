@@ -5,8 +5,9 @@
 //! public API, every public type is `Send + Sync`, and an oxc allocator lives only for the duration of one call.
 //!
 //! Supported inputs are `.js .mjs .cjs .jsx .ts .mts .cts .tsx` and `.d.ts` files, plus the `<script>` blocks (and
-//! Astro frontmatter) of `.vue`, `.svelte` and `.astro` files. Stylesheets go through [`parse_stylesheet`]. Other extensions, including `.mdx`, yield
-//! [`SyntaxError::Unsupported`].
+//! Astro frontmatter), the `<style>` imports and the markup identifiers of `.vue`, `.svelte` and `.astro` files:
+//! component tags and the expressions of the template count as uses of the imports they name. Stylesheets go
+//! through [`parse_stylesheet`]. Other extensions, including `.mdx`, yield [`SyntaxError::Unsupported`].
 
 mod collect;
 mod comments;
@@ -20,6 +21,7 @@ mod semantic;
 mod sfc;
 mod signature_refs;
 mod style;
+mod template;
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -55,26 +57,11 @@ pub fn parse_module(path: &Path, source: &str, options: &ParseOptions) -> Result
         .unwrap_or_default()
         .to_ascii_lowercase();
     match extension.as_str() {
-        "vue" | "svelte" | "astro" => {
-            let mut info = ModuleInfo::default();
-            for block in sfc::script_blocks(source, extension == "astro") {
-                let name = match (block.typescript, block.jsx) {
-                    (true, true) => "block.tsx",
-                    (true, false) => "block.ts",
-                    (false, true) => "block.jsx",
-                    (false, false) => "block.js",
-                };
-                let source_type = source_type_for(Path::new(name)).ok_or_else(|| unsupported(&extension))?;
-                let base = u32::try_from(block.start).unwrap_or(u32::MAX);
-                let part = parse_block(&source[block.start..block.end], base, source_type, &lines, *options);
-                info.merge(part);
-            }
-            Ok(info)
-        }
+        "vue" | "svelte" | "astro" => parse_component(&extension, source, &lines, *options),
         "mdx" => Err(unsupported(&extension)),
         _ => {
             let source_type = source_type_for(path).ok_or_else(|| unsupported(&extension))?;
-            Ok(parse_block(source, 0, source_type, &lines, *options))
+            Ok(parse_block(source, 0, source_type, &lines, *options, None))
         }
     }
 }
@@ -95,7 +82,15 @@ fn unsupported(extension: &str) -> SyntaxError {
     }
 }
 
-fn parse_block(src: &str, base: u32, source_type: SourceType, lines: &LineIndex, options: ParseOptions) -> ModuleInfo {
+/// Parses one block of code. With `uses`, also records how every name is used in the block.
+fn parse_block(
+    src: &str,
+    base: u32,
+    source_type: SourceType,
+    lines: &LineIndex,
+    options: ParseOptions,
+    uses: Option<&mut members::Uses>,
+) -> ModuleInfo {
     let allocator = Allocator::default();
     let parser_options = OxcParseOptions {
         preserve_parens: false,
@@ -140,7 +135,11 @@ fn parse_block(src: &str, base: u32, source_type: SourceType, lines: &LineIndex,
     finder::Finder::new(&ctx, &mut info).visit_program(&ret.program);
     info.imports.sort_by_key(|i| i.span.start);
     if options.member_accesses {
-        members::track(&ret.program, &mut info);
+        let excluded: HashSet<(u32, u32)> = collected.reexport_spans.iter().copied().collect();
+        members::track(&ret.program, &mut info, &excluded);
+        if let Some(uses) = uses {
+            *uses = members::uses(&ret.program);
+        }
     }
     if options.in_file_references {
         mark_in_file_references(&ret.program, &collected.export_clause_spans, &mut info);
@@ -154,6 +153,99 @@ fn parse_block(src: &str, base: u32, source_type: SourceType, lines: &LineIndex,
         .collect();
     comments::collect(&ctx, &ret.program, &mut info);
     info
+}
+
+/// Parses a `.vue`, `.svelte` or `.astro` file: its script blocks (and Astro frontmatter), the imports of its style
+/// blocks and `src` attributes, and the identifiers its markup uses.
+///
+/// Spans of every fact are offsets into `source`. Script blocks are analysed as one module: an import of one block
+/// that another block or the markup reads counts as used there.
+fn parse_component(
+    extension: &str,
+    source: &str,
+    lines: &LineIndex,
+    options: ParseOptions,
+) -> Result<ModuleInfo, SyntaxError> {
+    let blocks = sfc::blocks(source, extension == "astro");
+    let mut parts = Vec::new();
+    let mut all_uses = Vec::new();
+    for block in blocks.scripts.iter().filter(|block| block.parse) {
+        let name = match (block.typescript, block.jsx) {
+            (true, true) => "block.tsx",
+            (true, false) => "block.ts",
+            (false, true) => "block.jsx",
+            (false, false) => "block.js",
+        };
+        let source_type = source_type_for(Path::new(name)).ok_or_else(|| unsupported(extension))?;
+        let base = u32::try_from(block.start).unwrap_or(u32::MAX);
+        let mut uses = members::Uses::new();
+        let part = parse_block(
+            &source[block.start..block.end],
+            base,
+            source_type,
+            lines,
+            options,
+            Some(&mut uses),
+        );
+        parts.push(part);
+        all_uses.push(uses);
+    }
+    if options.member_accesses {
+        for (index, part) in parts.iter_mut().enumerate() {
+            let mut others = members::Uses::new();
+            for (other, uses) in all_uses.iter().enumerate() {
+                if other != index {
+                    members::merge_uses(&mut others, uses);
+                }
+            }
+            members::credit(part, &others);
+        }
+    }
+    let mut info = ModuleInfo::default();
+    for part in parts {
+        info.merge(part);
+    }
+    add_style_and_source_imports(&mut info, &blocks, source, lines);
+    if options.member_accesses {
+        let flavor = match extension {
+            "vue" => template::Flavor::Vue,
+            "svelte" => template::Flavor::Svelte,
+            _ => template::Flavor::Astro,
+        };
+        let mut uses = members::Uses::new();
+        for (start, end) in blocks.markup(source) {
+            template::scan(&source[start..end], flavor, &mut uses);
+        }
+        members::credit(&mut info, &uses);
+    }
+    Ok(info)
+}
+
+/// Adds the imports of `<style>` blocks and of `src="…"` attributes of `<script>` and `<style>` tags.
+fn add_style_and_source_imports(info: &mut ModuleInfo, blocks: &sfc::Blocks, source: &str, lines: &LineIndex) {
+    for style in &blocks.styles {
+        let path = format!("block.{}", style.extension);
+        let base = u32::try_from(style.start).unwrap_or(u32::MAX);
+        for mut import in parse_stylesheet(Path::new(&path), &source[style.start..style.end]).imports {
+            import.span = lines.span(
+                base.saturating_add(import.span.start),
+                base.saturating_add(import.span.end),
+            );
+            info.imports.push(import);
+        }
+    }
+    for reference in &blocks.sources {
+        info.imports.push(Import {
+            specifier: reference.specifier.clone(),
+            kind: ImportKind::SideEffect,
+            names: Vec::new(),
+            span: lines.span(
+                u32::try_from(reference.start).unwrap_or(u32::MAX),
+                u32::try_from(reference.end).unwrap_or(u32::MAX),
+            ),
+        });
+    }
+    info.imports.sort_by_key(|import| import.span.start);
 }
 
 fn mark_in_file_references(program: &oxc_ast::ast::Program<'_>, excluded: &[oxc_span::Span], info: &mut ModuleInfo) {

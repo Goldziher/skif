@@ -231,6 +231,20 @@ expression: json.stdout
       "summary": "An exported type or interface is not imported by any other module."
     },
     {
+      "id": "unused-namespace-exports",
+      "category": "js",
+      "default": "warning",
+      "fixable": "unsafe",
+      "summary": "An exported value of a module that is only read through a namespace import is never accessed."
+    },
+    {
+      "id": "unused-namespace-types",
+      "category": "js",
+      "default": "warning",
+      "fixable": "unsafe",
+      "summary": "An exported type of a module that is only read through a namespace import is never accessed."
+    },
+    {
       "id": "unused-enum-members",
       "category": "js",
       "default": "warning",

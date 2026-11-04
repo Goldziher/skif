@@ -492,11 +492,44 @@ fn namespace_that_escapes_is_flagged() {
         "import * as ns from 'x'; use(ns);",
         "import * as ns from 'x'; ns[key];",
         "import * as ns from 'x'; const { a, ...rest } = ns;",
-        "import * as ns from 'x'; export { ns };",
+        "import * as ns from 'x'; export default ns;",
+        "import * as ns from 'x'; export { ns }; use(ns);",
     ] {
         let info = parse("a.ts", source);
         assert!(info.imports[0].names[0].escapes, "{source}");
     }
+}
+
+#[test]
+fn an_export_clause_of_an_imported_binding_is_a_re_export_edge() {
+    let info = parse(
+        "a.ts",
+        "import * as ns from './ns';\nimport d, { n, type T } from './m';\nexport { ns, d as renamed, n, T };\n",
+    );
+    let exports: Vec<_> = info
+        .exports
+        .iter()
+        .map(|e| (e.name.as_str(), e.kind, e.from.as_deref(), e.imported_name.as_deref(), e.is_type))
+        .collect();
+    assert_eq!(
+        exports,
+        [
+            ("ns", ExportKind::StarReExport, Some("./ns"), Some("*"), false),
+            ("renamed", ExportKind::ReExport, Some("./m"), Some("default"), false),
+            ("n", ExportKind::ReExport, Some("./m"), Some("n"), false),
+            ("T", ExportKind::ReExport, Some("./m"), Some("T"), true),
+        ]
+    );
+    let namespace = &info.imports[0].names[0];
+    assert!(!namespace.escapes, "the export clause alone is not an escaping use");
+    assert_eq!(info.imports.len(), 2, "no import is added for the re-export");
+}
+
+#[test]
+fn a_local_export_clause_stays_a_local_export() {
+    let info = parse("a.ts", "const a = 1;\nexport { a };\n");
+    assert_eq!(info.exports[0].kind, ExportKind::Value);
+    assert_eq!(info.exports[0].from, None);
 }
 
 #[test]
@@ -754,4 +787,71 @@ fn directive_helpers() {
     let server = parse("a.ts", "\"use server\";\nexport async function a() {}");
     assert!(server.is_server_actions() && !server.is_client_boundary());
     assert!(!parse("a.ts", "const s = 'use client';").is_client_boundary());
+}
+
+fn accessed(info: &ModuleInfo, local: &str) -> (Vec<String>, bool) {
+    let name = info
+        .imports
+        .iter()
+        .flat_map(|import| &import.names)
+        .find(|name| name.local.as_deref() == Some(local))
+        .expect("the import exists");
+    (name.accessed_members.clone(), name.escapes)
+}
+
+#[test]
+fn component_templates_credit_the_imports_they_use() {
+    let vue = "<script setup lang=\"ts\">\nimport * as util from './util';\nimport * as whole from './whole';\nimport MyCard from './MyCard.vue';\nimport * as unused from './unused';\n</script>\n<template><my-card :n=\"util.double(2)\" :all=\"whole\">{{ util.triple }}</my-card></template>\n";
+    let info = parse("App.vue", vue);
+    assert_eq!(accessed(&info, "util"), (vec!["double".to_owned(), "triple".to_owned()], false));
+    assert_eq!(accessed(&info, "whole"), (Vec::<String>::new(), true));
+    assert_eq!(accessed(&info, "MyCard"), (Vec::<String>::new(), true));
+    assert_eq!(accessed(&info, "unused"), (Vec::<String>::new(), false));
+
+    let svelte = "<script>\n  import * as util from './util';\n  import Widget from './Widget.svelte';\n</script>\n{#if util.ready}<Widget on:click={util.go} />{/if}\n";
+    let info = parse("A.svelte", svelte);
+    assert_eq!(accessed(&info, "util"), (vec!["go".to_owned(), "ready".to_owned()], false));
+    assert!(accessed(&info, "Widget").1);
+
+    let astro = "---\nimport * as util from './util';\nimport Layout from './Layout.astro';\n---\n<Layout title={util.title}><p>util is not an expression here</p></Layout>\n";
+    let info = parse("page.astro", astro);
+    assert_eq!(accessed(&info, "util"), (vec!["title".to_owned()], false));
+    assert!(accessed(&info, "Layout").1);
+}
+
+#[test]
+fn script_blocks_of_one_component_share_their_imports() {
+    let svelte = "<script context=\"module\">\n  import * as util from './util';\n</script>\n<script>\n  export let n = util.double(1);\n</script>\n";
+    let info = parse("A.svelte", svelte);
+    assert_eq!(accessed(&info, "util"), (vec!["double".to_owned()], false));
+
+    let vue = "<script>\nimport * as util from './util';\nexport default {};\n</script>\n<script setup>\nconst n = util;\n</script>\n";
+    let info = parse("B.vue", vue);
+    assert!(accessed(&info, "util").1, "a use as a whole in the other block escapes");
+}
+
+#[test]
+fn component_style_blocks_and_src_attributes_are_imports_located_in_the_file() {
+    let vue = "<template/>\n<style lang=\"scss\">\n@use 'lib/theme';\n</style>\n<style>\n@import './plain.css';\n</style>\n<style src=\"./ext.css\"></style>\n<script src=\"./logic.ts\"></script>\n";
+    let info = parse("A.vue", vue);
+    let found: Vec<(&str, &str)> = info
+        .imports
+        .iter()
+        .map(|import| (import.specifier.as_str(), slice(vue, import.span.start, import.span.end)))
+        .collect();
+    assert_eq!(found[0], ("lib/theme", "@use 'lib/theme'"));
+    assert_eq!(found[1], ("./plain.css", "@import './plain.css'"));
+    assert_eq!(found[2].0, "./ext.css");
+    assert_eq!(found[3].0, "./logic.ts");
+    assert!(found[2].1.starts_with("<style src"));
+    assert!(info.imports.iter().all(|import| import.kind == ImportKind::SideEffect));
+}
+
+#[test]
+fn data_script_blocks_are_not_parsed() {
+    let astro = "---\nimport a from './a';\n---\n<script type=\"application/ld+json\">{\"@type\": \"Thing\"}</script>\n<script>import './client';</script>\n";
+    let info = parse("p.astro", astro);
+    assert!(!info.fatal && info.parse_diagnostics.is_empty(), "{:?}", info.parse_diagnostics);
+    let specifiers: Vec<&str> = info.imports.iter().map(|i| i.specifier.as_str()).collect();
+    assert_eq!(specifiers, ["./a", "./client"]);
 }

@@ -202,42 +202,6 @@ expression: diagnostics
   {
     "rule": "unused-exports",
     "severity": "warning",
-    "message": "export `beta` is never imported by another module",
-    "help": "remove it, or tag it `@public` when it is part of a public API",
-    "location": {
-      "path": "src/namespace.ts",
-      "span": {
-        "start": 37,
-        "end": 41,
-        "start-line": 2,
-        "start-col": 14,
-        "end-line": 2,
-        "end-col": 18
-      }
-    },
-    "package": "reexports",
-    "fixes": [
-      {
-        "title": "Remove the unused export `beta`",
-        "safety": "unsafe",
-        "ops": [
-          {
-            "text": {
-              "path": "src/namespace.ts",
-              "edit": {
-                "start": 24,
-                "end": 31,
-                "replacement": ""
-              }
-            }
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "rule": "unused-exports",
-    "severity": "warning",
     "message": "export `sideEffect` is never imported by another module",
     "help": "remove it, or tag it `@public` when it is part of a public API",
     "location": {
@@ -263,6 +227,42 @@ expression: diagnostics
               "edit": {
                 "start": 0,
                 "end": 7,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-namespace-exports",
+    "severity": "warning",
+    "message": "export `beta` is never read through a namespace import",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "src/namespace.ts",
+      "span": {
+        "start": 37,
+        "end": 41,
+        "start-line": 2,
+        "start-col": 14,
+        "end-line": 2,
+        "end-col": 18
+      }
+    },
+    "package": "reexports",
+    "fixes": [
+      {
+        "title": "Remove the unused export `beta`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/namespace.ts",
+              "edit": {
+                "start": 24,
+                "end": 31,
                 "replacement": ""
               }
             }

@@ -63,6 +63,63 @@ impl Declared {
 pub(crate) struct Collected {
     /// Spans of identifiers inside export clauses; references there do not count as in-file use.
     pub export_clause_spans: Vec<OxcSpan>,
+    /// `(start, end)` of the identifiers of `export { x }` clauses whose `x` is an imported binding. The clause is a
+    /// re-export of the import, so it is not a use of the binding that escapes member tracking.
+    pub reexport_spans: Vec<(u32, u32)>,
+}
+
+/// Spans collected from export clauses.
+#[derive(Default)]
+struct ClauseSpans {
+    clause: Vec<OxcSpan>,
+    reexport: Vec<(u32, u32)>,
+}
+
+/// The top-level names the export clauses can refer to.
+struct Scope<'d> {
+    declarations: &'d HashMap<String, Declared>,
+    imports: HashMap<String, ImportBinding>,
+}
+
+/// What an imported local binding refers to, to recognise `import x from "m"; export { x }` as a re-export.
+struct ImportBinding {
+    specifier: String,
+    kind: ImportedKind,
+    is_type: bool,
+}
+
+/// Every binding the top-level import declarations introduce, by local name.
+fn import_bindings(program: &Program<'_>) -> HashMap<String, ImportBinding> {
+    let mut bindings = HashMap::new();
+    for stmt in &program.body {
+        let Statement::ImportDeclaration(d) = stmt else { continue };
+        let type_only = d.import_kind.is_type();
+        let Some(specifiers) = &d.specifiers else { continue };
+        for s in specifiers {
+            let (kind, local, is_type) = match s {
+                ImportDeclarationSpecifier::ImportSpecifier(s) => (
+                    imported_kind(module_export_name(&s.imported)),
+                    s.local.name.as_str(),
+                    type_only || s.import_kind.is_type(),
+                ),
+                ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => {
+                    (ImportedKind::Default, s.local.name.as_str(), type_only)
+                }
+                ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => {
+                    (ImportedKind::Namespace, s.local.name.as_str(), type_only)
+                }
+            };
+            bindings.insert(
+                local.to_string(),
+                ImportBinding {
+                    specifier: crate::js_string(d.source.value),
+                    kind,
+                    is_type,
+                },
+            );
+        }
+    }
+    bindings
 }
 
 pub(crate) fn module_export_name(name: &ModuleExportName<'_>) -> String {
@@ -367,7 +424,11 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
         }
     }
 
-    let mut export_clause_spans = Vec::new();
+    let scope = Scope {
+        declarations: &local_decls,
+        imports: import_bindings(program),
+    };
+    let mut spans = ClauseSpans::default();
     for stmt in &program.body {
         match stmt {
             Statement::ImportDeclaration(d) => collect_import(ctx, d, info),
@@ -379,7 +440,7 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
                     source: None,
                     export_kind: ImportOrExportKind::Value,
                 };
-                collect_named_export(ctx, &named, &local_decls, info, &mut export_clause_spans);
+                collect_named_export(ctx, &named, &scope, info, &mut spans);
             }
             Statement::ExportNamedDeclaration(e) => {
                 let named = NamedExport {
@@ -389,7 +450,7 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
                     source: None,
                     export_kind: e.export_kind,
                 };
-                collect_named_export(ctx, &named, &local_decls, info, &mut export_clause_spans);
+                collect_named_export(ctx, &named, &scope, info, &mut spans);
             }
             Statement::ExportFromDeclaration(e) => {
                 let named = NamedExport {
@@ -399,10 +460,10 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
                     source: Some(&e.source),
                     export_kind: e.export_kind,
                 };
-                collect_named_export(ctx, &named, &local_decls, info, &mut export_clause_spans);
+                collect_named_export(ctx, &named, &scope, info, &mut spans);
             }
             Statement::ExportDefaultDeclaration(e) => {
-                collect_default_export(ctx, e, info, &mut export_clause_spans);
+                collect_default_export(ctx, e, info, &mut spans.clause);
             }
             Statement::ExportAllDeclaration(e) => {
                 let span = ctx.span(e.span);
@@ -433,7 +494,7 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
                 let mut export = Export::bare("export=".to_string(), ExportKind::Value, ctx.span(e.span));
                 export.tags = ctx.tags_at(e.span.start);
                 if let oxc_ast::ast::Expression::Identifier(id) = &e.expression {
-                    export_clause_spans.push(id.span);
+                    spans.clause.push(id.span);
                     export.local_name = Some(id.name.as_str().to_string());
                 }
                 info.exports.push(export);
@@ -441,7 +502,10 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
             _ => {}
         }
     }
-    Collected { export_clause_spans }
+    Collected {
+        export_clause_spans: spans.clause,
+        reexport_spans: spans.reexport,
+    }
 }
 
 fn collect_import(ctx: &Ctx<'_>, d: &oxc_ast::ast::ImportDeclaration<'_>, info: &mut ModuleInfo) {
@@ -499,9 +563,9 @@ struct NamedExport<'n, 'a> {
 fn collect_named_export(
     ctx: &Ctx<'_>,
     e: &NamedExport<'_, '_>,
-    local_decls: &HashMap<String, Declared>,
+    scope: &Scope<'_>,
     info: &mut ModuleInfo,
-    clause_spans: &mut Vec<OxcSpan>,
+    spans: &mut ClauseSpans,
 ) {
     let stmt_tags = ctx.tags_at(e.span.start);
     if let Some(decl) = e.declaration {
@@ -562,9 +626,26 @@ fn collect_named_export(
                 accessed_members: Vec::new(),
                 escapes: false,
             });
+        } else if let Some(binding) = scope.imports.get(&local) {
+            let name_span = module_export_span(&s.local);
+            spans.clause.push(name_span);
+            spans.reexport.push((name_span.start, name_span.end));
+            let (kind, imported) = match &binding.kind {
+                ImportedKind::Namespace => (ExportKind::StarReExport, "*".to_owned()),
+                ImportedKind::Default => (ExportKind::ReExport, "default".to_owned()),
+                ImportedKind::Named(name) => (ExportKind::ReExport, name.clone()),
+            };
+            let mut export = Export::bare(exported, kind, ctx.span(s.span));
+            export.is_type = is_type || binding.is_type;
+            export.local_name = Some(local);
+            export.from = Some(binding.specifier.clone());
+            export.imported_name = Some(imported);
+            export.tags = tags;
+            export.removal = Some(rem);
+            info.exports.push(export);
         } else {
-            clause_spans.push(module_export_span(&s.local));
-            let decl = local_decls.get(&local);
+            spans.clause.push(module_export_span(&s.local));
+            let decl = scope.declarations.get(&local);
             let mut export = Export::bare(
                 exported.clone(),
                 decl.map_or(ExportKind::Value, |d| d.kind),

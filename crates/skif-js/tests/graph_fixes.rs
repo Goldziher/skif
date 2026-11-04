@@ -462,6 +462,18 @@ fn bindings_used_only_in_component_templates_keep_their_members() {
         ("src/index.ts", "import './App.vue';\n"),
     ];
     let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unused-enum-members"),
+        ["src/color.ts: Color.Green"],
+        "{diagnostics:#?}"
+    );
+
+    let mut whole = files.to_vec();
+    whole[2] = (
+        "src/App.vue",
+        "<script setup lang=\"ts\">\nimport { Color } from './color';\n</script>\n<template><Pick :options=\"Color\" /></template>\n",
+    );
+    let diagnostics = lint_files(&whole, "");
     assert_eq!(found(&diagnostics, "unused-enum-members"), none(), "{diagnostics:#?}");
 
     let mut control = files.to_vec();
@@ -470,8 +482,9 @@ fn bindings_used_only_in_component_templates_keep_their_members() {
         "<script setup lang=\"ts\">\nimport { Color } from './color';\n</script>\n<template><div /></template>\n",
     );
     let diagnostics = lint_files(&control, "");
-    assert!(
-        !found(&diagnostics, "unused-enum-members").is_empty(),
+    assert_eq!(
+        found(&diagnostics, "unused-enum-members"),
+        ["src/color.ts: Color.Green", "src/color.ts: Color.Red"],
         "{diagnostics:#?}"
     );
 }

@@ -20,7 +20,9 @@
 | [`unused-enum-members`](#unused-enum-members) | js | warning | none |
 | [`unused-exports`](#unused-exports) | js | warning | unsafe |
 | [`unused-files`](#unused-files) | js | warning | unsafe |
+| [`unused-namespace-exports`](#unused-namespace-exports) | js | warning | unsafe |
 | [`unused-namespace-members`](#unused-namespace-members) | js | warning | none |
+| [`unused-namespace-types`](#unused-namespace-types) | js | warning | unsafe |
 | [`unused-optional-peer-dependencies`](#unused-optional-peer-dependencies) | js | warning | none |
 | [`unused-types`](#unused-types) | js | warning | unsafe |
 | [`empty-dependencies`](#empty-dependencies) | manifest | error | safe |
@@ -170,6 +172,14 @@ A project file is not reachable from any entry file.
 - Default severity: warning
 - Fixable: unsafe
 
+## unused-namespace-exports
+
+An exported value of a module that is only read through a namespace import is never accessed.
+
+- Category: js
+- Default severity: warning
+- Fixable: unsafe
+
 ## unused-namespace-members
 
 An exported member of a TypeScript namespace is never read.
@@ -177,6 +187,14 @@ An exported member of a TypeScript namespace is never read.
 - Category: js
 - Default severity: warning
 - Fixable: none
+
+## unused-namespace-types
+
+An exported type of a module that is only read through a namespace import is never accessed.
+
+- Category: js
+- Default severity: warning
+- Fixable: unsafe
 
 ## unused-optional-peer-dependencies
 

@@ -31,9 +31,34 @@ static SPEC: PluginSpec = PluginSpec {
 /// Layer sources fetched from a remote location rather than installed.
 const REMOTE_PREFIXES: &[&str] = &["gh:", "github:", "gitlab:", "bitbucket:", "https://", "http://"];
 
+/// Modules Nuxt generates, which no file backs.
+const VIRTUAL_MODULES: &[&str] = &[
+    "#app",
+    "#app/*",
+    "#build/*",
+    "#components",
+    "#imports",
+    "#internal/*",
+    "#spa-template",
+];
+
 impl Plugin for Nuxt {
     fn spec(&self) -> &'static PluginSpec {
         &SPEC
+    }
+
+    fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        // Nuxt writes its aliases to `.nuxt/tsconfig.json`, which only exists after `nuxt prepare`.
+        let source_dir = if cx.fs.is_dir(&cx.dir.join("app")) { "app" } else { "." };
+        let mut out: Vec<PluginInput> = [("~", source_dir), ("@", source_dir), ("~~", "."), ("@@", ".")]
+            .into_iter()
+            .map(|(find, target)| PluginInput::Alias {
+                find: find.to_owned(),
+                target: Some(target.to_owned()),
+            })
+            .collect();
+        out.extend(VIRTUAL_MODULES.iter().map(|pattern| PluginInput::VirtualModule((*pattern).to_owned())));
+        out
     }
 
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {

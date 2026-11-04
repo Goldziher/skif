@@ -46,6 +46,9 @@ pub struct WorkspaceInputs {
     pub ignore_dependencies: Vec<String>,
     /// Binary names (globs allowed) that are never reported as unlisted.
     pub ignore_binaries: Vec<String>,
+    /// Specifier patterns (globs allowed) the tool resolves at build time, such as `@generated/*` or `#imports`. They
+    /// are no dependencies and no file backs them, so they are never reported as unlisted or unresolved.
+    pub virtual_modules: Vec<String>,
     /// Packages the tool uses without importing them, such as an `ESLint` parser named in a config.
     pub dependencies: Vec<String>,
     /// Binaries the tool runs without a script naming them.
@@ -77,6 +80,7 @@ impl WorkspaceInputs {
         self.ignore.extend(other.ignore);
         self.ignore_dependencies.extend(other.ignore_dependencies);
         self.ignore_binaries.extend(other.ignore_binaries);
+        self.virtual_modules.extend(other.virtual_modules);
         self.dependencies.extend(other.dependencies);
         self.binaries.extend(other.binaries);
         self.config_files.extend(other.config_files);

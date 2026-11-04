@@ -13,7 +13,9 @@ mod unused_dev_dependencies;
 mod unused_enum_members;
 mod unused_exports;
 mod unused_files;
+mod unused_namespace_exports;
 mod unused_namespace_members;
+mod unused_namespace_types;
 mod unused_optional_peer_dependencies;
 mod unused_types;
 
@@ -31,7 +33,9 @@ pub use unused_dev_dependencies::UnusedDevDependencies;
 pub use unused_enum_members::UnusedEnumMembers;
 pub use unused_exports::UnusedExports;
 pub use unused_files::UnusedFiles;
+pub use unused_namespace_exports::UnusedNamespaceExports;
 pub use unused_namespace_members::UnusedNamespaceMembers;
+pub use unused_namespace_types::UnusedNamespaceTypes;
 pub use unused_optional_peer_dependencies::UnusedOptionalPeerDependencies;
 pub use unused_types::UnusedTypes;
 
@@ -59,6 +63,8 @@ pub fn rules() -> Vec<Box<dyn JsRule>> {
         Box::new(UnusedFiles),
         Box::new(UnusedExports),
         Box::new(UnusedTypes),
+        Box::new(UnusedNamespaceExports),
+        Box::new(UnusedNamespaceTypes),
         Box::new(UnusedEnumMembers),
         Box::new(UnusedNamespaceMembers),
         Box::new(DuplicateExports),
