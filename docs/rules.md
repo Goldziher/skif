@@ -108,7 +108,7 @@ A script runs a binary that no listed dependency provides.
 
 ## unlisted-dependencies
 
-A file imports a package that neither its `package.json` nor the root `package.json` lists.
+A file imports a package that neither its `package.json` nor any `package.json` above it lists.
 
 - Category: js
 - Default severity: error

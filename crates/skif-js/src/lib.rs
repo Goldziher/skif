@@ -17,6 +17,7 @@
 //! No oxc type appears in the public API.
 
 mod analysis;
+mod ancestors;
 mod deps;
 mod discover;
 mod entries;

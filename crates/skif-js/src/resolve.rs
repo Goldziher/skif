@@ -18,7 +18,7 @@ use crate::setup::Setup;
 use crate::specifier::{
     has_foreign_scheme, is_builtin, node_modules_package, node_modules_specifier_package, package_name, subpath,
 };
-use crate::tsconfig_paths::{self, TsPaths};
+use crate::tsconfig_paths::{TsConfigs, TsPaths};
 
 /// Extensions that are parsed and followed.
 pub(crate) const CODE_EXTENSIONS: &[&str] = &[
@@ -89,6 +89,27 @@ pub(crate) fn join_normalized(base: &Path, relative: &str) -> PathBuf {
         }
     }
     path
+}
+
+/// A path as the specifier the resolver is asked for: with `/` separators, which it accepts for absolute paths on
+/// every platform.
+fn specifier_of(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    if cfg!(windows) {
+        text.replace('\\', "/")
+    } else {
+        text.into_owned()
+    }
+}
+
+/// Whether `path` lies below `root`. Windows paths are compared without regard to case, as the file system does.
+fn is_below(path: &Path, root: &Path) -> bool {
+    if cfg!(windows) {
+        let lower = |path: &Path| PathBuf::from(path.to_string_lossy().to_lowercase());
+        lower(path).starts_with(lower(root))
+    } else {
+        path.starts_with(root)
+    }
 }
 
 /// What a specifier points at.
@@ -190,6 +211,8 @@ pub(crate) struct ModuleResolver {
     module_dir_probes: Memo<(PathBuf, String), Option<Resolved>>,
     /// The nearest `baseUrl` and `paths` by directory, `None` when no config at or above it sets them.
     nearest_paths: Memo<PathBuf, Option<Arc<TsPaths>>>,
+    /// The `tsconfig.json` and `jsconfig.json` files read so far.
+    tsconfigs: TsConfigs,
 }
 
 /// Which language a specifier is written in.
@@ -335,7 +358,7 @@ impl ModuleResolver {
         extensions.dedup();
         let script = Resolvers::new(&fs, |tsconfig| options(tsconfig, &conditions, &extensions));
         let style = Resolvers::new(&fs, style_options);
-        let members = workspace
+        let members: BTreeMap<String, Member> = workspace
             .all_packages()
             .filter_map(|package| {
                 let name = package.name.clone()?;
@@ -411,6 +434,14 @@ impl ModuleResolver {
             .iter()
             .filter_map(|dir| read_gitignore(fs.as_ref(), dir))
             .collect();
+        let tsconfigs = TsConfigs::new(
+            Arc::clone(&fs),
+            workspace.root.clone(),
+            members
+                .iter()
+                .map(|(name, member)| (name.clone(), member.dir.clone()))
+                .collect(),
+        );
         Self {
             script,
             style,
@@ -424,11 +455,12 @@ impl ModuleResolver {
             directory_packages: Memo::new(),
             module_dir_probes: Memo::new(),
             nearest_paths: Memo::new(),
+            tsconfigs,
         }
     }
 
     fn classify(&self, path: PathBuf) -> Resolved {
-        if path.starts_with(&self.root) && (is_code_file(&path) || is_stylesheet(&path)) {
+        if is_below(&path, &self.root) && (is_code_file(&path) || is_stylesheet(&path)) {
             Resolved::File(path)
         } else {
             Resolved::Asset
@@ -490,6 +522,12 @@ impl ModuleResolver {
     fn resolve_module(&self, kind: Kind, importer: &Path, specifier: &str) -> Outcome {
         let outcome = |target, package| Outcome { target, package };
         if let Some(name) = node_modules_specifier_package(specifier) {
+            // A `node_modules` directory that is part of the sources is followed like any other path.
+            if let Ok(path) = self.resolvers(kind).attempt(importer, specifier)
+                && node_modules_package(&path).is_none()
+            {
+                return outcome(self.classify(path), None);
+            }
             return self.package_target(&name, specifier);
         }
         let name = package_name(specifier);
@@ -626,7 +664,7 @@ impl ModuleResolver {
         let path = join_normalized(&self.root, rest);
         self.script
             .plain
-            .resolve(&self.root, &path.to_string_lossy())
+            .resolve(&self.root, &specifier_of(&path))
             .ok()
             .map(|resolution| self.classify(resolution.path().to_path_buf()))
     }
@@ -646,7 +684,7 @@ impl ModuleResolver {
                         let path = join_normalized(dir, specifier);
                         self.script
                             .plain
-                            .resolve(&innermost.dir, &path.to_string_lossy())
+                            .resolve(&innermost.dir, &specifier_of(&path))
                             .ok()
                             .map(|resolution| self.classify(resolution.path().to_path_buf()))
                     })
@@ -658,7 +696,7 @@ impl ModuleResolver {
     fn through_nearest_tsconfig(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
         let directory = importer.parent()?;
         let config = self.nearest_paths.get_or_compute(directory.to_path_buf(), || {
-            tsconfig_paths::nearest(self.fs.as_ref(), &self.root, directory).map(Arc::new)
+            self.tsconfigs.nearest(directory).map(Arc::new)
         })?;
         config.candidates(specifier).into_iter().find_map(|path| {
             if let Some(package) = node_modules_package(&path) {
@@ -666,7 +704,7 @@ impl ModuleResolver {
             }
             self.script
                 .plain
-                .resolve(directory, &path.to_string_lossy())
+                .resolve(directory, &specifier_of(&path))
                 .ok()
                 .map(|resolution| self.classify(resolution.path().to_path_buf()))
         })
@@ -699,7 +737,7 @@ impl ModuleResolver {
                 if let Some(package) = node_modules_package(&path) {
                     return Some(Resolved::External(package));
                 }
-                if let Ok(resolution) = self.script.plain.resolve(directory, &path.to_string_lossy()) {
+                if let Ok(resolution) = self.script.plain.resolve(directory, &specifier_of(&path)) {
                     return Some(self.classify(resolution.path().to_path_buf()));
                 }
                 if let Some(found) = self.through_package_directory(target, rest) {

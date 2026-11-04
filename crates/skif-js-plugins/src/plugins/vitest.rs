@@ -3,7 +3,9 @@
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{alias_inputs, entry_glob, get_in, module_input, name_of, objects, package_name, strings};
+use crate::support::{
+    alias_inputs, entry_glob, get_in, module_input, name_of, objects, package_name, project_files, strings,
+};
 
 /// The `vitest` plugin.
 pub struct Vitest;
@@ -44,15 +46,15 @@ impl Plugin for Vitest {
         &SPEC
     }
 
-    fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
+    fn resolve_config(&self, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
-        collect(config.value, config, &mut out, 0);
+        collect(config.value, config, cx, &mut out, 0);
         out
     }
 }
 
 /// Handles a config object, a workspace array of them, and the `test.workspace` / `test.projects` they nest.
-fn collect(value: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<PluginInput>, depth: u8) {
+fn collect(value: &ConfigValue, config: &ConfigAst<'_>, cx: &PluginContext<'_>, out: &mut Vec<PluginInput>, depth: u8) {
     if depth > 8 {
         return;
     }
@@ -66,9 +68,24 @@ fn collect(value: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<PluginInpu
         test_options(test, config, out);
         for key in ["workspace", "projects"] {
             if let Some(projects) = test.get(key) {
-                collect(projects, config, out, depth + 1);
+                collect(projects, config, cx, out, depth + 1);
+                string_projects(projects, config, cx, out);
             }
         }
+    }
+}
+
+const PROJECT_CONFIGS: &str = "{vitest,vite}.config.{js,mjs,ts,cjs,mts,cts}";
+
+/// `projects: ["packages/*"]`: each string is a config file, or a directory (or glob) holding a `vitest.config.*` or
+/// `vite.config.*`.
+fn string_projects(projects: &ConfigValue, config: &ConfigAst<'_>, cx: &PluginContext<'_>, out: &mut Vec<PluginInput>) {
+    for project in strings(projects) {
+        out.extend(
+            project_files(cx, config.base, project, PROJECT_CONFIGS)
+                .into_iter()
+                .map(PluginInput::ConfigFile),
+        );
     }
 }
 

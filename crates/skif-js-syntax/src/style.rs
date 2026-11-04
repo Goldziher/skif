@@ -45,7 +45,7 @@ pub fn parse_stylesheet(path: &Path, source: &str) -> ModuleInfo {
         .unwrap_or_default()
         .to_ascii_lowercase();
     let flavor = match extension.as_str() {
-        "scss" => Flavor::Scss,
+        "scss" | "pcss" => Flavor::Scss,
         "sass" => Flavor::Sass,
         "less" => Flavor::Less,
         _ => Flavor::Css,
@@ -64,8 +64,8 @@ pub fn parse_stylesheet(path: &Path, source: &str) -> ModuleInfo {
         .into_iter()
         .filter_map(|found| {
             let specifier = normalize(&found.specifier)?;
-            let start = u32::try_from(found.start).ok()?;
-            let end = u32::try_from(found.end).ok()?;
+            let start = u32::try_from(found.start.min(source.len())).ok()?;
+            let end = u32::try_from(found.end.min(source.len())).ok()?;
             Some(Import {
                 specifier,
                 kind: ImportKind::SideEffect,
@@ -204,18 +204,20 @@ impl Scanner<'_> {
         None
     }
 
+    /// Skips `url(…)`. Only a quote right after the parenthesis starts a string: in an unquoted URL an apostrophe is
+    /// part of the file name.
     fn skip_url(&mut self) {
         self.pos += 4;
+        while self.cur().is_some_and(|byte| byte.is_ascii_whitespace()) {
+            self.pos += 1;
+        }
+        if matches!(self.cur(), Some(b'"' | b'\'')) {
+            self.read_string();
+        }
         while let Some(byte) = self.cur() {
-            match byte {
-                b'"' | b'\'' => {
-                    self.read_string();
-                }
-                b')' => {
-                    self.pos += 1;
-                    return;
-                }
-                _ => self.pos += 1,
+            self.pos += 1;
+            if byte == b')' {
+                return;
             }
         }
     }
@@ -458,6 +460,28 @@ mod tests {
         let info = parse_stylesheet(Path::new("a.scss"), "@import \"a#{$b}\";\n@import \"b\";");
         assert_eq!(info.imports.len(), 1);
         assert_eq!(info.imports[0].span.start_line, 2);
+    }
+
+    #[test]
+    fn pcss_line_comments_are_skipped() {
+        assert_eq!(
+            specifiers("a.pcss", "// @import \"gone\";\n@import \"kept\";"),
+            ["kept"]
+        );
+    }
+
+    #[test]
+    fn unquoted_url_with_an_apostrophe_does_not_swallow_the_next_import() {
+        let source = ".a { background: url(it's.png); } @import \"kept\";";
+        assert_eq!(specifiers("a.css", source), ["kept"]);
+    }
+
+    #[test]
+    fn unterminated_url_keeps_spans_inside_the_source() {
+        let source = "@import url(a.css";
+        let info = parse_stylesheet(Path::new("a.css"), source);
+        assert_eq!(info.imports.len(), 1);
+        assert!(info.imports[0].span.end as usize <= source.len());
     }
 
     #[test]

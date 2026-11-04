@@ -41,8 +41,13 @@ fn load(dir: &Path, base: &Path, memory: &mut MemoryFs, config: &mut Option<Stri
 
 /// Lints `memory` with the JS provider and the plugin table, the way the CLI does.
 fn lint_memory(memory: MemoryFs, toml: &str) -> Vec<Diagnostic> {
+    lint_memory_at(memory, toml, ROOT)
+}
+
+/// Like `lint_memory`, with the workspace rooted at `root` (a directory inside the memory file system).
+fn lint_memory_at(memory: MemoryFs, toml: &str, root: &str) -> Vec<Diagnostic> {
     let config = Config::from_toml_str(toml).unwrap();
-    let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+    let workspace = Workspace::discover_with_fs(Path::new(root), &config, &memory).unwrap();
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
     let registry = Registry::new(vec![Box::new(provider)]).unwrap();
@@ -655,4 +660,223 @@ fn node_modules_specifiers_use_the_package_and_are_never_unresolved() {
     );
     assert!(found(&diagnostics, "unresolved-imports").is_empty(), "{diagnostics:?}");
     assert!(found(&diagnostics, "unused-dependencies").is_empty(), "{diagnostics:?}");
+}
+
+#[test]
+fn entries_named_by_a_root_plugin_config_match_files_of_member_packages() {
+    let diagnostics = lint_files(
+        &[
+            (
+                "package.json",
+                r#"{"name":"root","private":true,"workspaces":["apps/*"],"devDependencies":{"@playwright/test":"1"}}"#,
+            ),
+            (
+                "playwright.config.ts",
+                "export default { projects: [{ testDir: './apps/web/playwright', testMatch: /.*\\.e2e\\.ts/ }] };\n",
+            ),
+            ("apps/web/package.json", r#"{"name":"web","private":true}"#),
+            ("apps/web/src/index.ts", "export {};\n"),
+            ("apps/web/playwright/signup.e2e.ts", "export const signup = 1;\n"),
+            ("apps/web/orphan.ts", "export const orphan = 1;\n"),
+        ],
+        "",
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["apps/web/orphan.ts: apps/web/orphan.ts"]
+    );
+}
+
+#[test]
+fn a_package_may_import_what_the_package_that_contains_it_lists() {
+    let diagnostics = lint_files(
+        &[
+            (
+                "package.json",
+                r#"{"name":"root","private":true,"workspaces":["packages/*","packages/store/*"]}"#,
+            ),
+            (
+                "packages/store/package.json",
+                r#"{"name":"store","version":"1.0.0","main":"index.ts","dependencies":{"zod":"3"}}"#,
+            ),
+            ("packages/store/index.ts", "import 'zod';\n"),
+            (
+                "packages/store/app/package.json",
+                r#"{"name":"app","version":"1.0.0","main":"index.ts"}"#,
+            ),
+            ("packages/store/app/index.ts", "import 'zod';\nimport 'missing';\n"),
+        ],
+        "",
+    );
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        ["packages/store/app/index.ts: missing"]
+    );
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none());
+}
+
+fn nested_root_files(extra: &[(&'static str, &'static str)]) -> MemoryFs {
+    let files = [
+        ("/ws/.git/HEAD", "ref: refs/heads/main\n"),
+        (
+            "/ws/package.json",
+            r#"{"name":"top","private":true,"devDependencies":{"lodash":"4","jest":"29"}}"#,
+        ),
+        (
+            "/ws/fixtures/e2e/package.json",
+            r#"{"name":"e2e","private":true,"main":"index.js"}"#,
+        ),
+        ("/ws/fixtures/e2e/index.js", "require('lodash');\n"),
+    ];
+    files
+        .iter()
+        .chain(extra)
+        .fold(MemoryFs::new(), |memory, (path, text)| memory.with_file(path, text))
+}
+
+#[test]
+fn a_nested_root_may_import_what_the_manifests_above_it_list() {
+    let diagnostics = lint_memory_at(nested_root_files(&[]), "", "/ws/fixtures/e2e");
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none(), "{diagnostics:#?}");
+}
+
+#[test]
+fn a_nested_root_enables_the_plugins_of_tools_the_manifests_above_it_list() {
+    let memory = nested_root_files(&[
+        (
+            "/ws/fixtures/e2e/jest.config.js",
+            "module.exports = { snapshotSerializers: ['./serializers/string.js'] };\n",
+        ),
+        ("/ws/fixtures/e2e/serializers/string.js", "module.exports = {};\n"),
+    ]);
+    let diagnostics = lint_memory_at(memory, "", "/ws/fixtures/e2e");
+    assert_eq!(found(&diagnostics, "unused-files"), none(), "{diagnostics:#?}");
+}
+
+#[test]
+fn extension_less_bin_stubs_and_flavoured_output_directories_lead_to_source() {
+    let diagnostics = lint_files(
+        &[
+            (
+                "package.json",
+                r#"{"name":"cli","version":"1.0.0","main":"lib-esm/index.js","bin":{"cli":"bin/cli"},"dependencies":{"commander":"1","left":"1"}}"#,
+            ),
+            ("bin/cli", "#!/usr/bin/env node\nrequire('../lib-commonjs/start');\n"),
+            ("src/start.ts", "import 'commander';\nimport './helper';\n"),
+            ("src/helper.ts", "export {};\n"),
+            ("src/index.ts", "import 'left';\n"),
+        ],
+        "",
+    );
+    assert_eq!(found(&diagnostics, "unused-files"), none(), "{diagnostics:#?}");
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
+}
+
+#[test]
+fn a_package_whose_published_entries_have_no_source_is_not_judged() {
+    let diagnostics = lint_files(
+        &[
+            (
+                "package.json",
+                r#"{"name":"lib","version":"1.0.0","main":"lib-commonjs/missing.js","dependencies":{"left":"1"}}"#,
+            ),
+            ("src/other.ts", "import 'left';\n"),
+        ],
+        "",
+    );
+    assert_eq!(found(&diagnostics, "unused-files"), none(), "{diagnostics:#?}");
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
+}
+
+#[test]
+fn single_file_components_are_project_files() {
+    let diagnostics = lint_files(
+        &[
+            ("package.json", r#"{"name":"app","private":true,"main":"src/index.ts"}"#),
+            (
+                "src/index.ts",
+                "import Used from './Used.vue';\nexport const used = Used;\n",
+            ),
+            ("src/Used.vue", "<script>\nexport default {};\n</script>\n"),
+            ("src/Orphan.vue", "<script>\nexport default {};\n</script>\n"),
+            ("src/Orphan.svelte", "<script>\nexport let a = 1;\n</script>\n"),
+        ],
+        "",
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["src/Orphan.svelte: src/Orphan.svelte", "src/Orphan.vue: src/Orphan.vue"]
+    );
+}
+
+#[test]
+fn binaries_named_like_a_listed_package_are_not_reported_without_node_modules() {
+    let diagnostics = lint_files(
+        &[(
+            "package.json",
+            r#"{"name":"app","private":true,"scripts":{"a":"docusaurus-start","b":"nitro dev","c":"stencil build","d":"oxfmt ."},"devDependencies":{"docusaurus":"3","nitropack":"2","@stencil/core":"4"}}"#,
+        )],
+        "",
+    );
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), ["package.json: oxfmt"]);
+}
+
+#[test]
+fn a_namespace_import_that_is_re_exported_through_a_local_binding_keeps_its_members_used() {
+    let diagnostics = lint_files(
+        &[
+            ("package.json", r#"{"name":"app","private":true,"main":"router.ts"}"#),
+            (
+                "router.ts",
+                "import * as record from './record/Record.resource';\nexport function run(operation: 'create') {\n  return record[operation].execute();\n}\nexport const all = record.description;\n",
+            ),
+            (
+                "record/Record.resource.ts",
+                "import * as create from './create.operation';\nexport { create };\nexport const description = [...create.description];\n",
+            ),
+            (
+                "record/create.operation.ts",
+                "export const description = [1];\nexport function execute() {\n  return description;\n}\n",
+            ),
+        ],
+        "",
+    );
+    assert_eq!(found(&diagnostics, "unused-exports"), none(), "{diagnostics:#?}");
+}
+
+#[test]
+fn out_and_target_are_skipped_only_at_the_package_root() {
+    let diagnostics = lint_files(
+        &[
+            ("package.json", r#"{"name":"app","private":true,"main":"src/index.ts"}"#),
+            ("src/index.ts", "export {};\n"),
+            ("src/out/orphan.ts", "export const a = 1;\n"),
+            ("out/generated.ts", "export const b = 1;\n"),
+            ("target/generated.ts", "export const c = 1;\n"),
+        ],
+        "",
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["src/out/orphan.ts: src/out/orphan.ts"]
+    );
+}
+
+#[test]
+fn jsx_files_do_not_use_react_when_the_tsconfig_selects_another_runtime() {
+    let diagnostics = lint_files(
+        &[
+            (
+                "package.json",
+                r#"{"name":"app","private":true,"main":"src/index.tsx","dependencies":{"react":"18","preact":"10"},"devDependencies":{"typescript":"5"}}"#,
+            ),
+            (
+                "tsconfig.json",
+                r#"{"compilerOptions":{"jsx":"react-jsx","jsxImportSource":"preact"}}"#,
+            ),
+            ("src/index.tsx", "export const App = () => <div />;\n"),
+        ],
+        "",
+    );
+    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: react"]);
 }

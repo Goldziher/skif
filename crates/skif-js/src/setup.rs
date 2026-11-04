@@ -8,11 +8,15 @@ use skif_config::{Config, Js, JsWorkspace, PackageJs};
 use skif_core::FileSystem;
 use skif_workspace::{PackageId, Workspace};
 
+use crate::ancestors;
 use crate::globs::{Globs, Names};
 use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
 use crate::scripts::{self, ScriptFacts};
 
 const EXTENSIONS: &str = "{js,mjs,cjs,jsx,ts,tsx,mts,cts}";
+
+/// The extensions of project files: scripts and the single-file components the resolver follows.
+const PROJECT_EXTENSIONS: &str = "{js,mjs,cjs,jsx,ts,tsx,mts,cts,vue,svelte,astro}";
 
 fn default_entry() -> Vec<String> {
     vec![
@@ -36,7 +40,7 @@ fn test_directories() -> Vec<String> {
 }
 
 fn default_project() -> Vec<String> {
-    vec![format!("**/*.{EXTENSIONS}")]
+    vec![format!("**/*.{PROJECT_EXTENSIONS}")]
 }
 
 fn test_files() -> Vec<String> {
@@ -137,6 +141,9 @@ pub(crate) struct PackageSetup {
     pub entry: Globs,
     /// Entry globs that point outside the package directory (`../shared/setup.ts`), relative to the workspace root.
     pub external_entry: Globs,
+    /// Entry globs from plugins and tool configuration. Unlike the defaults they also match files that belong to a
+    /// workspace package nested below this one: a root `playwright.config.ts` names the tests of the packages.
+    pub shared_entry: Globs,
     /// The tool configuration of the package could not be fully read, so its entry files are not all known.
     /// Files and dependencies cannot be judged unused then.
     pub entries_incomplete: bool,
@@ -195,6 +202,14 @@ fn workspace_relative(dir: &str, pattern: &str) -> Option<String> {
     Some(format!("{negation}{}", parts.join("/")))
 }
 
+/// Whether an entry glob from a plugin may match files of nested workspace packages. A glob that starts with `**/`
+/// is a per-package default (every package has its own test files) and one that leaves the package is handled as
+/// an external entry.
+fn is_shared_pattern(pattern: &str) -> bool {
+    let body = pattern.trim_start_matches('!').trim_start_matches("./");
+    !body.starts_with("**/") && !body.starts_with("../") && !body.starts_with('/')
+}
+
 /// Options of `unused-exports`, which `unused-types` shares.
 #[derive(Debug, Default, serde::Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
@@ -212,6 +227,7 @@ impl Setup {
     ) -> Self {
         let js = &config.js;
         let production = js.production;
+        let ancestor_dependencies = ancestors::external_dependencies(fs.as_ref(), &workspace.root);
         let ignore_tags = config
             .rule("unused-exports")
             .and_then(|rule| skif_lint::parse_options::<UnusedExportsOptions>(&rule.options).ok())
@@ -236,6 +252,7 @@ impl Setup {
                     workspace,
                     package,
                     fs: fs.as_ref(),
+                    ancestor_dependencies: &ancestor_dependencies,
                 };
                 for source in sources {
                     plugin.extend(source.inputs(&request));
@@ -248,6 +265,15 @@ impl Setup {
                     user.entry
                 };
                 entry.extend(ambient_declarations());
+                let mut shared_sources: Vec<&String> = plugin.production_entry.iter().collect();
+                if !production {
+                    shared_sources.extend(plugin.entry.iter());
+                }
+                let shared_entry: Vec<String> = shared_sources
+                    .into_iter()
+                    .filter(|pattern| is_shared_pattern(pattern))
+                    .cloned()
+                    .collect();
                 if !production {
                     entry.extend(test_files());
                     entry.extend(test_directories());
@@ -292,6 +318,7 @@ impl Setup {
                     dir: abs_dir,
                     entry: Globs::new(entry),
                     external_entry,
+                    shared_entry: Globs::new(shared_entry),
                     entries_incomplete: plugin.entries_incomplete,
                     project: Globs::new(project),
                     ignore: Globs::new(ignore),
@@ -324,6 +351,15 @@ impl Setup {
         self.packages.get(id.index()).and_then(Option::as_ref)
     }
 
+    /// Marks the packages whose published entry points could not be mapped to source files.
+    pub(crate) fn mark_entries_incomplete(&mut self, ids: &[PackageId]) {
+        for id in ids {
+            if let Some(Some(package)) = self.packages.get_mut(id.index()) {
+                package.entries_incomplete = true;
+            }
+        }
+    }
+
     /// Whether the dependency `name` of package `id` is on an ignore list.
     pub(crate) fn ignores_dependency(&self, id: PackageId, name: &str) -> bool {
         self.global_ignore_dependencies.is_match(name)
@@ -343,7 +379,15 @@ impl Setup {
 
 #[cfg(test)]
 mod tests {
-    use super::workspace_relative;
+    use super::{is_shared_pattern, workspace_relative};
+
+    #[test]
+    fn only_rooted_plugin_globs_are_shared_with_nested_packages() {
+        assert!(is_shared_pattern("apps/web/playwright/**/*.ts"));
+        assert!(is_shared_pattern("!apps/web/legacy/**"));
+        assert!(!is_shared_pattern("**/*.test.ts"));
+        assert!(!is_shared_pattern("../shared/setup.ts"));
+    }
 
     #[test]
     fn patterns_outside_the_package_become_workspace_relative() {

@@ -17,10 +17,12 @@ pub const IGNORED_BINARIES: &[&str] = &[
     "alias",
     "bg",
     "bind",
+    "break",
     "builtin",
     "cd",
     "command",
     "compgen",
+    "continue",
     "declare",
     "dirs",
     "disown",
@@ -533,11 +535,6 @@ pub(super) const YARN_COMMANDS: &[&str] = &[
     "why",
     "workspace",
     "workspaces",
-];
-pub(super) const BUN_COMMANDS: &[&str] = &[
-    "add", "audit", "build", "ci", "create", "dedupe", "exec", "help", "i", "info", "init", "install", "link", "login",
-    "logout", "outdated", "patch", "pm", "publish", "remove", "repl", "rm", "run", "test", "unlink", "update",
-    "upgrade", "why", "x",
 ];
 
 #[derive(Clone, Copy)]

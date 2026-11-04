@@ -98,6 +98,9 @@ pub struct InputRequest<'a> {
     pub package: &'a Package,
     /// File access, for reading tool configuration files.
     pub fs: &'a dyn FileSystem,
+    /// The dependencies listed by the `package.json` files above the workspace root (a nested root sees the tools
+    /// of the project that contains it), sorted and without duplicates.
+    pub ancestor_dependencies: &'a [String],
 }
 
 impl std::fmt::Debug for InputRequest<'_> {

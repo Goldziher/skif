@@ -186,7 +186,7 @@ expression: json.stdout
       "category": "js",
       "default": "error",
       "fixable": "none",
-      "summary": "A file imports a package that neither its `package.json` nor the root `package.json` lists."
+      "summary": "A file imports a package that neither its `package.json` nor any `package.json` above it lists."
     },
     {
       "id": "unresolved-imports",

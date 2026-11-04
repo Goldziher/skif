@@ -1,11 +1,12 @@
 //! What the `scripts` of a package run.
 
+use indexmap::IndexSet;
 use serde_json::Value;
 use skif_js_plugins::scripts::{ScriptContext, is_ignored_binary, parse_script};
 use skif_workspace::Package;
 
 /// A binary a script runs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ScriptBinary {
     pub name: String,
     /// The script that runs it.
@@ -25,56 +26,61 @@ pub(crate) struct ScriptFacts {
     pub dependencies: Vec<String>,
 }
 
-fn push_unique<T: PartialEq>(items: &mut Vec<T>, item: T) {
-    if !items.contains(&item) {
-        items.push(item);
-    }
+/// Whether a `scripts` key is a comment: npm has no comment syntax, so projects write `"#note"` or `"//note"` keys
+/// whose values are prose, not commands.
+fn is_comment_key(name: &str) -> bool {
+    name.starts_with('#') || name.starts_with("//")
 }
 
 pub(crate) fn analyze(package: &Package) -> ScriptFacts {
-    let mut facts = ScriptFacts::default();
     let Some(scripts) = package.manifest.value.get("scripts").and_then(Value::as_object) else {
-        return facts;
+        return ScriptFacts::default();
     };
-    let context = scripts
+    let commands: Vec<(&String, &str)> = scripts
         .iter()
+        .filter(|(name, _)| !is_comment_key(name))
         .filter_map(|(name, body)| Some((name, body.as_str()?)))
-        .fold(ScriptContext::new(), |context, (name, body)| {
-            context.with_script(name, body)
-        });
-    for (name, body) in scripts {
-        let Some(body) = body.as_str() else { continue };
+        .collect();
+    let context = commands.iter().fold(ScriptContext::new(), |context, &(name, body)| {
+        context.with_script(name, body)
+    });
+    let mut binaries = IndexSet::new();
+    let mut ephemeral_binaries = IndexSet::new();
+    let mut package_managers = IndexSet::new();
+    let mut files = IndexSet::new();
+    let mut dependencies = IndexSet::new();
+    for (name, body) in commands {
         let info = parse_script(body, &context.clone().with_current_script(name));
         for binary in info.binaries {
             if binary.filtered || is_ignored_binary(&binary.name) {
                 continue;
             }
             let target = if binary.via.is_ephemeral() {
-                &mut facts.ephemeral_binaries
+                &mut ephemeral_binaries
             } else {
-                &mut facts.binaries
+                &mut binaries
             };
-            push_unique(
-                target,
-                ScriptBinary {
-                    name: binary.name,
-                    script: name.clone(),
-                },
-            );
+            target.insert(ScriptBinary {
+                name: binary.name,
+                script: name.clone(),
+            });
         }
-        for manager in info.package_managers {
-            push_unique(&mut facts.package_managers, manager);
-        }
-        for file in info.files {
-            push_unique(&mut facts.files, file.path);
-        }
-        for dependency in info.dependencies {
-            if !dependency.ephemeral {
-                push_unique(&mut facts.dependencies, dependency.name);
-            }
-        }
+        package_managers.extend(info.package_managers);
+        files.extend(info.files.into_iter().map(|file| file.path));
+        dependencies.extend(
+            info.dependencies
+                .into_iter()
+                .filter(|dependency| !dependency.ephemeral)
+                .map(|dependency| dependency.name),
+        );
     }
-    facts
+    ScriptFacts {
+        binaries: binaries.into_iter().collect(),
+        ephemeral_binaries: ephemeral_binaries.into_iter().collect(),
+        package_managers: package_managers.into_iter().collect(),
+        files: files.into_iter().collect(),
+        dependencies: dependencies.into_iter().collect(),
+    }
 }
 
 #[cfg(test)]
@@ -103,6 +109,15 @@ mod tests {
             "{:?}",
             facts.files
         );
+    }
+
+    #[test]
+    fn comment_keys_are_not_commands() {
+        let facts = analyze(&package(
+            r##"{"name":"p","scripts":{"#note":"The build runs first","//test":"Ensure the suite passes","test":"vitest run"}}"##,
+        ));
+        let names: Vec<&str> = facts.binaries.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(names, ["vitest"]);
     }
 
     #[test]

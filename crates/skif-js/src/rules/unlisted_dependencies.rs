@@ -13,7 +13,7 @@ pub static META: RuleMeta = RuleMeta {
     category: Category::Js,
     default: Some(Severity::Error),
     fixable: Fixability::None,
-    summary: "A file imports a package that neither its `package.json` nor the root `package.json` lists.",
+    summary: "A file imports a package that neither its `package.json` nor any `package.json` above it lists.",
 };
 
 /// Reports imports of packages the manifest does not list, once per file and package.
