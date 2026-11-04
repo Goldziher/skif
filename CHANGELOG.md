@@ -15,9 +15,17 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 - **Several projects in one run**: `-r`/`--recursive` lints every workspace and standalone package at or below the
   start path, and so does a run started where neither the path nor an ancestor holds a `package.json`. Results are
-  merged into one report with one exit code; `--format json` adds a `roots` array. Each root uses its nearest
-  `skif.toml`, searched upwards to the start path. `root-package-manager-field` does not report for a standalone
+  merged into one report with one exit code; `--format json` adds a `roots` array. Each root merges the
+  `skif.toml` files from its directory up to the git repository root. `root-package-manager-field` does not report for a standalone
   package below another root.
+- **Layered configuration**: every `skif.toml` from a root up to the git repository root merges, nearest last, so
+  an organisation file at the top applies to every project below it. `root = true` stops the search, `extends`
+  includes preset files, `reset` drops inherited lists, and `extend-` keys append to ignore lists. `[[overrides]]`
+  scope rule levels, `max-level`, suppressions and JS inputs to packages or files; a `skif.toml` in a workspace
+  member directory does the same for that package; `$ROOT/` anchors a pattern at the root being linted. `skif
+  config --show` and `--explain` print the effective configuration with the file and line of every value, and
+  `--config` and `--no-config` bypass discovery
+  ([ADR 0024](adrs/0024-layered-configuration-cascading-files-extends-overrides-and-package-files.md)).
 - **Workspaces without a root `package.json`**: a directory with a `pnpm-workspace.yaml` or a `rush.json` and no
   `package.json` is linted as a workspace, with its members linted and the rules about the root manifest skipped,
   instead of failing the run.
