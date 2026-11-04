@@ -4,13 +4,13 @@ use crate::plugin::Plugin;
 use crate::plugins::{
     angular, astro, aws_cdk, babel, browser_extension, changesets, commitlint, cspell, cypress, docusaurus, drizzle,
     esbuild, eslint, expo, github_actions, graphql_codegen, husky, jest, karma, lefthook, lint_staged, markdownlint,
-    mastra, metro, mocha, next, nodemon, nuxt, nx, oxlint, playwright, pm2, pnpm, postcss, prettier, prisma,
+    mastra, metro, mocha, next, node, nodemon, nuxt, nx, oxlint, playwright, pm2, pnpm, postcss, prettier, prisma,
     react_native, release_it, rollup, rspack, semantic_release, simple_git_hooks, storybook, stylelint, svelte,
     sveltekit, syncpack, tailwind, ts_node, tsdown, tsup, tsx, turbo, typescript, vite, vitepress, vitest, webpack,
     wrangler, yarn,
 };
 
-static PLUGINS: [&dyn Plugin; 60] = [
+static PLUGINS: [&dyn Plugin; 61] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -71,9 +71,10 @@ static PLUGINS: [&dyn Plugin; 60] = [
     &pnpm::Pnpm,
     &yarn::Yarn,
     &syncpack::Syncpack,
+    &node::Node,
 ];
 
-/// Every plugin, in the order of the table (ADR 0011, ADR 0022, ADR 0025).
+/// Every plugin, in the order of the table (ADR 0011, ADR 0022, ADR 0025, ADR 0029).
 #[must_use]
 pub fn plugins() -> &'static [&'static dyn Plugin] {
     &PLUGINS

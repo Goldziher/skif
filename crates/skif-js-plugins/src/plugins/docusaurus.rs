@@ -21,9 +21,63 @@ static SPEC: PluginSpec = PluginSpec {
     ..PluginSpec::DEFAULT
 };
 
+/// The Babel config Docusaurus projects customise.
+const BABEL_CONFIG: &str = "babel.config.{js,cjs,mjs,json,cts,mts,ts}";
+
+/// The `@docusaurus/core` client API, which `@docusaurus/core` aliases to files of its own package.
+const CORE_CLIENT_API: &[&str] = &[
+    "BrowserOnly",
+    "ComponentCreator",
+    "constants",
+    "ExecutionEnvironment",
+    "Head",
+    "Interpolate",
+    "isInternalUrl",
+    "Link",
+    "Noop",
+    "renderRoutes",
+    "router",
+    "Translate",
+    "useBaseUrl",
+    "useBrokenLinks",
+    "useDocusaurusContext",
+    "useGlobalData",
+    "useIsBrowser",
+    "useIsomorphicLayoutEffect",
+    "useRouteContext",
+];
+
 impl Plugin for Docusaurus {
     fn spec(&self) -> &'static PluginSpec {
         &SPEC
+    }
+
+    fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        let mut out = vec![
+            PluginInput::LinkedConfig {
+                plugin: "babel",
+                path: BABEL_CONFIG.to_owned(),
+            },
+            PluginInput::Alias {
+                find: "@site".to_owned(),
+                target: Some(".".to_owned()),
+            },
+            PluginInput::OptionalDependency("@docusaurus/module-type-aliases".to_owned()),
+            // Modules Docusaurus generates at build time.
+            PluginInput::VirtualModule("@generated/*".to_owned()),
+            PluginInput::VirtualModule(format!("@docusaurus/{{{}}}", CORE_CLIENT_API.join(","))),
+        ];
+        let classic = ["@docusaurus/theme-classic", "@docusaurus/preset-classic"]
+            .iter()
+            .any(|name| cx.has_dependency(name));
+        if classic {
+            out.extend(
+                ["@theme/*", "@theme-init/*", "@theme-original/*"]
+                    .into_iter()
+                    .map(|pattern| PluginInput::VirtualModule(pattern.to_owned())),
+            );
+        }
+        out
     }
 
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {

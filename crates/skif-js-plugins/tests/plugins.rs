@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 60] = [
+const ADR_IDS: [&str; 61] = [
     "typescript",
     "eslint",
     "prettier",
@@ -75,6 +75,7 @@ const ADR_IDS: [&str; 60] = [
     "pnpm",
     "yarn",
     "syncpack",
+    "node",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -211,7 +212,8 @@ fn plugins_are_send_and_sync() {
 
 #[test]
 fn nothing_is_enabled_without_enablers() {
-    assert_eq!(resolve(&[], &[]), [] as [(&str, skif_js_plugins::PluginOutput); 0]);
+    let enabled: Vec<PluginId> = resolve(&[], &[]).into_iter().map(|(id, _)| id).collect();
+    assert_eq!(enabled, ["node"], "only the runtime plugin needs no enabler");
 }
 
 #[test]
@@ -1729,4 +1731,114 @@ fn yarn() {
 fn syncpack() {
     let results = resolve(&[], &["syncpack"]);
     assert_entries(&output(&results, "syncpack").entries, &["syncpack.config.{js,cjs}"]);
+}
+
+fn has_virtual(out: &PluginOutput, pattern: &str) -> bool {
+    out.virtual_modules.iter().any(|candidate| candidate == pattern)
+}
+
+#[test]
+fn the_node_plugin_adds_the_test_runner_entries_only_for_a_script_that_runs_it() {
+    let results = resolve_with_scripts(&[], &[], &[("test", "node --test --test-reporter=spec")]);
+    let out = output(&results, "node");
+    assert_entries(&out.production_entries, &["server.js"]);
+    assert_entries(
+        &out.entries,
+        &["**/test/**/*.{cjs,mjs,js,cts,mts,ts}", "**/test-*.{cjs,mjs,js,cts,mts,ts}"],
+    );
+    let results = resolve_with_scripts(&[], &[], &[("start", "node app.js")]);
+    let out = output(&results, "node");
+    assert_eq!(out.entries, ["server.js"]);
+}
+
+#[test]
+fn docusaurus_declares_its_virtual_modules_and_reads_the_babel_config() {
+    let files = [
+        ("docusaurus.config.js", "module.exports = {};"),
+        ("babel.config.js", "module.exports = { presets: ['custom'] };"),
+    ];
+    let results = resolve(&files, &["@docusaurus/core", "@docusaurus/preset-classic"]);
+    let out = output(&results, "docusaurus");
+    for pattern in ["@generated/*", "@theme/*", "@theme-original/*"] {
+        assert!(has_virtual(out, pattern), "{pattern}: {:?}", out.virtual_modules);
+    }
+    assert!(out.virtual_modules.iter().any(|pattern| pattern.starts_with("@docusaurus/{BrowserOnly,")));
+    assert!(out.aliases.contains(&alias("@site", Some("."))), "{:?}", out.aliases);
+    assert_deps(out, &["babel-preset-custom"]);
+    assert!(out.config_files.iter().any(|file| file.ends_with("babel.config.js")));
+
+    let results = resolve(&files, &["@docusaurus/core"]);
+    assert!(!has_virtual(output(&results, "docusaurus"), "@theme/*"), "no theme without the classic theme");
+}
+
+#[test]
+fn nuxt_declares_its_virtual_modules_and_source_aliases() {
+    let results = resolve(&[("nuxt.config.ts", "export default defineNuxtConfig({});")], &["nuxt"]);
+    let out = output(&results, "nuxt");
+    for pattern in ["#imports", "#components", "#app", "#app/*", "#build/*"] {
+        assert!(has_virtual(out, pattern), "{pattern}: {:?}", out.virtual_modules);
+    }
+    for find in ["~", "@"] {
+        assert!(out.aliases.contains(&alias(find, Some("."))), "{find}: {:?}", out.aliases);
+    }
+    assert!(out.aliases.contains(&alias("~~", Some("."))));
+
+    let results = resolve(&[("app/app.vue", "<template/>")], &["nuxt"]);
+    assert!(output(&results, "nuxt").aliases.contains(&alias("~", Some("app"))));
+}
+
+#[test]
+fn angular_links_the_typescript_and_karma_configs_of_its_targets() {
+    let angular = r#"{ "projects": { "web": { "architect": {
+      "build": {
+        "builder": "@angular-devkit/build-angular:browser",
+        "options": { "tsConfig": "projects/web/tsconfig.app.json" }
+      },
+      "test": {
+        "builder": "@angular-devkit/build-angular:karma",
+        "options": { "karmaConfig": "projects/web/karma.conf.js", "tsConfig": "projects/web/tsconfig.spec.json" }
+      }
+    } } } }"#;
+    let files = [
+        ("angular.json", angular),
+        ("projects/web/tsconfig.app.json", r#"{"compilerOptions":{"types":["node"]}}"#),
+        ("projects/web/tsconfig.spec.json", r#"{"compilerOptions":{"jsxImportSource":"preact"}}"#),
+        ("projects/web/karma.conf.js", "module.exports = { frameworks: ['jasmine'] };"),
+    ];
+    let results = resolve(&files, &["@angular/cli"]);
+    let out = output(&results, "angular");
+    assert_deps(out, &["@types/node", "preact", "karma-jasmine"]);
+    for file in ["tsconfig.app.json", "tsconfig.spec.json", "karma.conf.js"] {
+        assert!(out.config_files.iter().any(|path| path.ends_with(file)), "{file}: {:?}", out.config_files);
+    }
+}
+
+#[test]
+fn expo_and_metro_read_the_babel_config() {
+    let files = [("babel.config.js", "module.exports = { presets: ['custom'] };")];
+    let results = resolve(&files, &["expo"]);
+    assert_deps(output(&results, "expo"), &["babel-preset-custom"]);
+    assert_deps(output(&results, "metro"), &["babel-preset-custom"]);
+}
+
+#[test]
+fn a_karma_config_function_gives_its_set_argument_to_the_plugin() {
+    let config = "module.exports = function (config) {\n  config.set({ frameworks: ['jasmine'], plugins: ['karma-chrome-launcher'], \
+                  basePath: 'src', files: ['**/*.spec.ts'] });\n};";
+    let results = resolve(&[("karma.conf.js", config)], &["karma"]);
+    let out = output(&results, "karma");
+    assert_deps(out, &["karma-jasmine", "karma-chrome-launcher"]);
+    assert_entries(&out.entries, &["src/**/*.spec.ts"]);
+}
+
+#[test]
+fn a_linked_config_is_read_once_even_when_two_plugins_link_it() {
+    let results = resolve(
+        &[("babel.config.js", "module.exports = { presets: ['custom'] };")],
+        &["expo", "@babel/core"],
+    );
+    let babel_files = &output(&results, "babel").config_files;
+    assert_eq!(babel_files.len(), 1);
+    let expo_files = &output(&results, "expo").config_files;
+    assert_eq!(expo_files.len(), 1);
 }

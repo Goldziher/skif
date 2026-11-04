@@ -71,6 +71,12 @@ fn target_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'_>, name: &str, tar
     }
     for options in &option_sets {
         out.extend(option_entries(config, cx, options, production));
+        if let Some(ts_config) = options.get("tsConfig").and_then(ConfigValue::as_str) {
+            out.push(PluginInput::LinkedConfig {
+                plugin: "typescript",
+                path: config.join(ts_config),
+            });
+        }
     }
     if builder.is_some_and(|builder| builder.ends_with(":karma")) {
         let options = target.get("options");
@@ -78,7 +84,10 @@ fn target_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'_>, name: &str, tar
             .and_then(|options| options.get("karmaConfig"))
             .and_then(ConfigValue::as_str)
         {
-            Some(karma_config) => out.push(PluginInput::ConfigFile(config.join(karma_config))),
+            Some(karma_config) => out.push(PluginInput::LinkedConfig {
+                plugin: "karma",
+                path: config.join(karma_config),
+            }),
             None => out.extend(
                 DEFAULT_KARMA_PACKAGES
                     .iter()

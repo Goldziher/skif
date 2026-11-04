@@ -15,9 +15,19 @@ static SPEC: PluginSpec = PluginSpec {
     ..PluginSpec::DEFAULT
 };
 
+/// Expo projects configure their `babel-preset-expo` preset here.
+const BABEL_CONFIG: &str = "babel.config.{js,cjs,mjs,json,cts,mts,ts}";
+
 impl Plugin for Expo {
     fn spec(&self) -> &'static PluginSpec {
         &SPEC
+    }
+
+    fn resolve_workspace(&self, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        vec![PluginInput::LinkedConfig {
+            plugin: "babel",
+            path: BABEL_CONFIG.to_owned(),
+        }]
     }
 
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
