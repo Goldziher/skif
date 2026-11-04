@@ -193,10 +193,23 @@ pub(crate) fn anchor_patterns(
         };
         match target {
             None => anchored.push(pattern.clone()),
-            Some((base, rest)) => anchored.extend(anchored_path(base, rest).map(|path| format!("{negation}{path}"))),
+            Some((base, rest)) => {
+                for path in anchored_path(base, rest).into_iter().flat_map(with_directory) {
+                    anchored.push(format!("{negation}{path}"));
+                }
+            }
         }
     }
     Selector::new(anchored)
+}
+
+/// `dir/**` also selects `dir` itself: a glob ending in `/**` matches what is below the directory, not the directory,
+/// and `./apps/old/**` is meant to select the package that lives at `apps/old` too.
+fn with_directory(path: String) -> Vec<String> {
+    match path.strip_suffix("/**") {
+        Some(directory) if !directory.is_empty() => vec![directory.to_owned(), path],
+        _ => vec![path],
+    }
 }
 
 /// `rest` below `base` as an absolute glob, or `None` when `rest` climbs out of `base`.
@@ -280,6 +293,27 @@ mod tests {
                 "{patterns:?} vs {name} local={local}"
             );
         }
+    }
+
+    #[test]
+    fn an_anchored_recursive_pattern_also_selects_the_directory_itself() {
+        let anchored =
+            |pattern: &str| anchor_patterns(&[pattern.to_owned()], Path::new("/r"), Path::new("/r"), false).unwrap();
+        let selector = anchored("./apps/old/**");
+        assert!(selector.matches("/r/apps/old", false));
+        assert!(selector.matches("/r/apps/old/x/y", false));
+        assert!(!selector.matches("/r/apps/older", false));
+        assert!(!selector.matches("/r/apps", false));
+        let negated = anchor_patterns(
+            &["./apps/**".to_owned(), "!./apps/old/**".to_owned()],
+            Path::new("/r"),
+            Path::new("/r"),
+            false,
+        )
+        .unwrap();
+        assert!(negated.matches("/r/apps/new", false));
+        assert!(!negated.matches("/r/apps/old", false));
+        assert!(!negated.matches("/r/apps/old/x", false));
     }
 
     #[test]
