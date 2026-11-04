@@ -54,8 +54,42 @@ description = "Generate a synthetic monorepo: mise run bench:generate -- --packa
 run = "cargo run --release --locked -p skif-bench -- generate"
 
 [tasks."bench:corpus"]
-description = "Fetch the pinned benchmark corpus into target/bench-corpus"
+description = "Fetch the pinned benchmark corpus (the timed repositories) into target/bench-corpus"
+run = "cargo run --release --locked -p skif-bench -- corpus fetch --suite bench"
+
+[tasks."bench:publish"]
+description = "Run the benchmark, write tools/bench/results/summary.{json,md} and refresh the numbers table in tools/bench/README.md"
+run = [
+  "cargo build --release --locked -p skif-cli",
+  "cargo run --release --locked -p skif-bench -- run --skif target/release/skif --out tools/bench/results --no-enforce",
+  "node tools/bench/refresh-numbers.mjs",
+]
+
+[tasks.parity]
+description = "Compare skif's findings with the pinned knip on the corpus: mise run parity -- [--install] [--only jest] [--check | --write-baseline]"
+run = [
+  "cargo build --release --locked -p skif-cli",
+  "cargo run --release --locked -p skif-bench -- parity --skif target/release/skif",
+]
+
+[tasks."diff:syncpack"]
+description = "Compare skif's policy findings with the pinned syncpack on the policy fixtures and the corpus: mise run diff:syncpack -- [--check | --write-baseline]"
+run = [
+  "cargo build --release --locked -p skif-cli",
+  "cargo run --release --locked -p skif-bench -- syncpack-diff --skif target/release/skif",
+]
+
+[tasks."corpus:fetch"]
+description = "Fetch the pinned parity corpus into target/bench-corpus (add --suite bench for the timed repositories)"
 run = "cargo run --release --locked -p skif-bench -- corpus fetch"
+
+[tasks."corpus:check"]
+description = "Check parity and the syncpack diff against the committed baselines (what the scheduled corpus workflow runs; needs network, Node and the package managers)"
+run = [
+  "cargo build --release --locked -p skif-cli",
+  "cargo run --release --locked -p skif-bench -- parity --skif target/release/skif --install --check",
+  "cargo run --release --locked -p skif-bench -- syncpack-diff --skif target/release/skif --check",
+]
 
 [tasks."docs:dev"]
 description = "Serve the documentation site locally (installs website dependencies first)"
