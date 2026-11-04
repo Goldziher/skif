@@ -8,13 +8,13 @@ use skif_workspace::{PatternFact, Workspace, WorkspaceSource};
 use super::support::key;
 
 /// Metadata of `unmatched-workspace-patterns`.
-pub static META: RuleMeta = RuleMeta {
-    id: "unmatched-workspace-patterns",
-    category: Category::Workspace,
-    default: Some(Severity::Warning),
-    fixable: Fixability::Unsafe,
-    summary: "A workspace pattern does not match any directory.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unmatched-workspace-patterns",
+    Category::Workspace,
+    Some(Severity::Warning),
+    Fixability::Unsafe,
+    "A workspace pattern does not match any directory.",
+);
 
 /// Reports positive workspace patterns that select no directory.
 ///
@@ -32,17 +32,17 @@ fn remove_pattern(workspace: &Workspace, fact: &PatternFact) -> FixOp {
     };
     let route: Vec<PathSeg> = base.into_iter().chain([PathSeg::Index(fact.index)]).collect();
     if yaml {
-        FixOp::Yaml {
-            path: fact.file.clone(),
+        FixOp::yaml(
+            fact.file.clone(),
             route,
-            action: YamlAction::Remove,
-        }
+            YamlAction::Remove,
+        )
     } else {
-        FixOp::Json {
-            path: fact.file.clone(),
-            pointer: route,
-            action: JsonAction::Remove,
-        }
+        FixOp::json(
+            fact.file.clone(),
+            route,
+            JsonAction::Remove,
+        )
     }
 }
 
@@ -68,18 +68,18 @@ impl Rule for UnmatchedWorkspacePatterns {
             let mut builder = diagnostic(
                 &META,
                 format!("workspace pattern `{}` does not match any directory", fact.pattern),
-                Location {
-                    path: fact.file.clone(),
-                    span: fact.span,
-                },
+                Location::new(
+                    fact.file.clone(),
+                    fact.span,
+                ),
             )
             .help("remove the pattern, or create the directories it is meant to match");
             if keeps_a_member_pattern && workspace.facts.source != WorkspaceSource::RushJson {
-                builder = builder.fix(Fix {
-                    title: format!("Remove the pattern `{}`", fact.pattern),
-                    safety: FixSafety::Unsafe,
-                    ops: vec![remove_pattern(workspace, fact)],
-                });
+                builder = builder.fix(Fix::new(
+                    format!("Remove the pattern `{}`", fact.pattern),
+                    FixSafety::Unsafe,
+                    vec![remove_pattern(workspace, fact)],
+                ));
             }
             out.emit(builder.build());
         }

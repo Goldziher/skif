@@ -1,4 +1,8 @@
 // Vendored from syncpack crates/syncpack-specifier/src/lib.rs @958d306 (MIT, Copyright (c) 2017-2023 Jamie Mason). Modified for skif; see ATTRIBUTIONS.md.
+//! npm dependency specifier parsing and comparison, vendored from syncpack.
+//!
+//! This crate is an implementation detail of `skif` and carries no stability promise: its public items, including
+//! the `nodejs_semver` types that appear in them, may change in any release.
 #![allow(
     clippy::match_same_arms,
     reason = "parser arms are grouped by leading byte with explanatory comments; merging them would hide the dispatch table"

@@ -12,7 +12,7 @@ documentation = "https://docs.rs/skif-workspace"
 keywords = ["monorepo", "workspace", "pnpm", "package-json", "skif"]
 categories = ["development-tools"]
 readme = "README.md"
-include = ["src/**", "tests/**", "fixtures/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
+include = ["src/**", "benches/**", "tests/**", "fixtures/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
 
 [dependencies]
 globset.workspace = true
@@ -20,6 +20,7 @@ ignore.workspace = true
 indexmap.workspace = true
 jsonc-parser.workspace = true
 rayon.workspace = true
+rustc-hash.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true
 serde_json.workspace = true
@@ -27,6 +28,13 @@ skif-config.workspace = true
 skif-core.workspace = true
 skif-specifier.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "discover"
+harness = false
 
 [lints]
 workspace = true

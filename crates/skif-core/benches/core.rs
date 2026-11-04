@@ -73,10 +73,7 @@ fn diagnostics(count: usize) -> Vec<Diagnostic> {
                 1 => Severity::Warning,
                 _ => Severity::Info,
             };
-            let location = Location {
-                path: format!("packages/pkg-{package}/package.json").into(),
-                span: None,
-            };
+            let location = Location::file(format!("packages/pkg-{package}/package.json"));
             let message = format!("dependency dep-{i} is out of sync");
             let mut diagnostic =
                 Diagnostic::new(RuleId::from_static(RULES[i % RULES.len()]), severity, message, location);

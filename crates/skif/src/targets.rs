@@ -572,7 +572,7 @@ mod tests {
         let discovery = discover(&fs, "/r");
         assert!(discovery.failures.is_empty(), "{:?}", discovery.failures);
         assert_eq!(names(&discovery), ["/r/ws"]);
-        assert!(!discovery.targets[0].workspace.has_root_manifest);
+        assert!(!discovery.targets[0].workspace.has_root_manifest());
         assert_eq!(packages_of(&discovery.targets[0]), ["m"]);
 
         let direct = find_target(Path::new("/r/ws"), &fs, &ConfigOverrides::default()).unwrap();

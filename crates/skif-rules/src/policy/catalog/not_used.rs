@@ -4,13 +4,13 @@ use skif_lint::{Emitter, LintContext, Rule};
 use super::analysis::{FindingKind, emit, enforce_severity, findings, use_catalog_fix};
 
 /// Metadata of `catalog-not-used`.
-pub static META: RuleMeta = RuleMeta {
-    id: "catalog-not-used",
-    category: Category::Catalog,
-    default: Some(Severity::Warning),
-    fixable: Fixability::Sometimes,
-    summary: "A dependency that has a catalog entry is declared with a version instead of `catalog:`.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "catalog-not-used",
+    Category::Catalog,
+    Some(Severity::Warning),
+    Fixability::Sometimes,
+    "A dependency that has a catalog entry is declared with a version instead of `catalog:`.",
+);
 
 /// Reports dependencies declared with a version although a catalog defines them.
 #[derive(Debug, Clone, Copy, Default)]

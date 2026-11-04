@@ -5,13 +5,13 @@ use super::JsRule;
 use crate::analysis::JsAnalysis;
 
 /// Metadata of `unlisted-binaries`. Warning until the rule reaches corpus parity with knip; `unused-dependencies`, `unlisted-dependencies` and `unresolved-imports` stay errors.
-pub static META: RuleMeta = RuleMeta {
-    id: "unlisted-binaries",
-    category: Category::Js,
-    default: Some(Severity::Warning),
-    fixable: Fixability::None,
-    summary: "A script runs a binary that no listed dependency provides.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unlisted-binaries",
+    Category::Js,
+    Some(Severity::Warning),
+    Fixability::None,
+    "A script runs a binary that no listed dependency provides.",
+);
 
 /// Reports binaries run by `package.json` scripts that come from no dependency.
 pub struct UnlistedBinaries;
@@ -36,10 +36,10 @@ impl JsRule for UnlistedBinaries {
                         "script `{}` runs `{}`, which no dependency provides",
                         binary.script, binary.name
                     ),
-                    Location {
-                        path: package.manifest.path.clone(),
+                    Location::new(
+                        package.manifest.path.clone(),
                         span,
-                    },
+                    ),
                 )
                 .package(package.display_name())
                 .dependency(binary.name.clone())

@@ -5,13 +5,13 @@ use skif_workspace::PackageManager;
 use super::analysis::{FindingKind, emit, enforce_severity, findings, use_catalog_fix};
 
 /// Metadata of `catalog-missing-entry`.
-pub static META: RuleMeta = RuleMeta {
-    id: "catalog-missing-entry",
-    category: Category::Catalog,
-    default: Some(Severity::Warning),
-    fixable: Fixability::Sometimes,
-    summary: "A dependency that should come from a catalog has no catalog entry.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "catalog-missing-entry",
+    Category::Catalog,
+    Some(Severity::Warning),
+    Fixability::Sometimes,
+    "A dependency that should come from a catalog has no catalog entry.",
+);
 
 /// Reports dependencies used in enough packages to belong in a catalog that has no entry for them.
 #[derive(Debug, Clone, Copy, Default)]

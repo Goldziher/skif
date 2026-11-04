@@ -20,7 +20,7 @@ fn discover(files: &[(&str, &str)], config: &Config) -> Result<Workspace, Worksp
 
 fn dirs(workspace: &Workspace) -> Vec<String> {
     workspace
-        .packages
+        .packages()
         .iter()
         .map(|p| p.dir.to_str().unwrap().to_owned())
         .collect()
@@ -162,7 +162,7 @@ fn pattern_spans_in_package_json() {
     let workspace = run(&["packages/a", "tool"]);
     let fact = &workspace.facts.patterns[1];
     let span = fact.span.unwrap();
-    let source = &workspace.root_package.manifest.source;
+    let source = workspace.root_package().manifest.source();
     assert_eq!(&source[span.start as usize..span.end as usize], "\"tool\"");
     assert_eq!(fact.file, PathBuf::from("package.json"));
 }
@@ -294,8 +294,8 @@ fn dependency_entry_spans() {
         &Config::default(),
     )
     .unwrap();
-    let root = &workspace.root_package;
-    let source = &root.manifest.source;
+    let root = workspace.root_package();
+    let source = root.manifest.source();
     let text = |span: skif_core::Span| source[span.start as usize..span.end as usize].to_owned();
 
     let entries: Vec<(DependencyKind, &str)> = root.dependencies.iter().map(|d| (d.kind, d.name.as_str())).collect();
@@ -325,10 +325,10 @@ fn field_span_addresses_entries_and_elements() {
         &Config::default(),
     )
     .unwrap();
-    let manifest = &workspace.root_package.manifest;
+    let manifest = &workspace.root_package().manifest;
     let text = |pointer: &[PathSeg]| {
         let span = manifest.field_span(pointer).unwrap();
-        manifest.source[span.start as usize..span.end as usize].to_owned()
+        manifest.source()[span.start as usize..span.end as usize].to_owned()
     };
     assert_eq!(text(&[PathSeg::Key("name".into())]), "\"name\":\"r\"");
     assert_eq!(text(&[PathSeg::Key("workspaces".into()), PathSeg::Index(1)]), "\"b\"");
@@ -343,9 +343,9 @@ fn crlf_and_bom_manifests() {
         &Config::default(),
     )
     .unwrap();
-    let root = &workspace.root_package;
+    let root = workspace.root_package();
     let entry = &root.dependencies[0];
-    let source = &root.manifest.source;
+    let source = root.manifest.source();
     assert_eq!(
         &source[entry.key_span.start as usize..entry.key_span.end as usize],
         "\"is-number\""
@@ -394,7 +394,7 @@ fn invalid_member_json_is_collected_not_fatal() {
     assert!(
         matches!(&workspace.manifest_errors[0], WorkspaceError::InvalidManifest { path, .. } if path == Path::new("a/package.json"))
     );
-    assert_eq!(workspace.packages[0].dependencies.len(), 1);
+    assert_eq!(workspace.packages()[0].dependencies.len(), 1);
 }
 
 #[test]
@@ -414,7 +414,7 @@ fn package_matching_and_ignore() {
     )
     .unwrap();
     let ignored: Vec<&str> = workspace
-        .packages
+        .packages()
         .iter()
         .filter(|p| workspace.is_ignored(p.id))
         .map(skif_workspace::Package::display_name)
@@ -423,8 +423,8 @@ fn package_matching_and_ignore() {
     assert_eq!(workspace.all_packages().count(), 6);
     assert!(workspace.all_packages().next().unwrap().is_root);
     assert!(workspace.package_by_name("@repo/c").is_some());
-    assert!(workspace.packages[0].is_selected_by(&Selector::new(["pkgs/**"]).unwrap()));
-    assert!(!workspace.packages[0].is_selected_by(&Selector::new(["tools/**"]).unwrap()));
+    assert!(workspace.packages()[0].is_selected_by(&Selector::new(["pkgs/**"]).unwrap()));
+    assert!(!workspace.packages()[0].is_selected_by(&Selector::new(["tools/**"]).unwrap()));
 }
 
 #[test]
@@ -437,15 +437,15 @@ fn private_and_version() {
         &Config::default(),
     )
     .unwrap();
-    assert!(workspace.root_package.private);
-    assert_eq!(workspace.root_package.display_name(), ".");
-    assert_eq!(workspace.packages[0].version.as_deref(), Some("1.2.3"));
-    assert!(!workspace.packages[0].private);
+    assert!(workspace.root_package().private);
+    assert_eq!(workspace.root_package().display_name(), ".");
+    assert_eq!(workspace.packages()[0].version.as_deref(), Some("1.2.3"));
+    assert!(!workspace.packages()[0].private);
 }
 
 fn text_of(manifest: &skif_workspace::Manifest, pointer: &[PathSeg]) -> Option<String> {
     let span = manifest.field_span(pointer)?;
-    Some(manifest.source[span.start as usize..span.end as usize].to_owned())
+    Some(manifest.source()[span.start as usize..span.end as usize].to_owned())
 }
 
 fn key(name: &str) -> PathSeg {
@@ -465,7 +465,7 @@ fn span_table_covers_sections_entries_and_the_whole_document() {
         &Config::default(),
     )
     .unwrap();
-    let manifest = &workspace.root_package.manifest;
+    let manifest = &workspace.root_package().manifest;
     let cases: Vec<(Vec<PathSeg>, Option<&str>)> = vec![
         (vec![], Some(source)),
         (vec![key("name")], Some("\"name\": \"r\"")),
@@ -485,7 +485,7 @@ fn span_table_covers_sections_entries_and_the_whole_document() {
 }
 
 #[test]
-fn span_lookup_does_not_depend_on_reparsing_the_source() {
+fn span_lookups_agree_before_and_after_the_table_is_built_and_in_clones() {
     let workspace = discover(
         &[
             ("package.json", r#"{"workspaces":["a"],"name":"r"}"#),
@@ -494,9 +494,14 @@ fn span_lookup_does_not_depend_on_reparsing_the_source() {
         &Config::default(),
     )
     .unwrap();
-    let mut manifest = workspace.root_package.manifest.clone();
-    manifest.source = std::sync::Arc::from("not json at all");
-    assert!(manifest.field_span(&[key("name")]).is_some());
+    let manifest = workspace.root_package().manifest.clone();
+    let fresh = workspace.root_package().manifest.clone();
+    let first = manifest.field_span(&[key("name")]);
+    assert!(first.is_some());
+    assert_eq!(manifest.field_span(&[key("name")]), first);
+    assert_eq!(manifest.clone().field_span(&[key("name")]), first);
+    assert_eq!(fresh.field_span(&[key("name")]), first);
+    assert_eq!(manifest.field_span(&[key("missing")]), None);
 }
 
 #[test]
@@ -512,7 +517,7 @@ fn dependency_entries_carry_their_parsed_specifier() {
         &Config::default(),
     )
     .unwrap();
-    let entries = &workspace.packages[0].dependencies;
+    let entries = &workspace.packages()[0].dependencies;
     let parsed: Vec<(&str, bool)> = entries
         .iter()
         .map(|entry| (entry.parsed.get_raw(), entry.parsed.is_workspace_protocol()))
@@ -550,13 +555,13 @@ fn package_ids_are_dense_and_follow_directory_order_even_with_broken_members() {
         .unwrap();
     for _ in 0..5 {
         let workspace = discover(&borrowed, &Config::default()).unwrap();
-        let names: Vec<&str> = workspace.packages.iter().filter_map(|p| p.name.as_deref()).collect();
+        let names: Vec<&str> = workspace.packages().iter().filter_map(|p| p.name.as_deref()).collect();
         let mut sorted = names.clone();
         sorted.sort_unstable();
         assert_eq!(names, sorted);
         assert_eq!(workspace.manifest_errors.len(), 6);
-        assert_eq!(workspace.packages.len(), 34);
-        assert_eq!(workspace.root_package.id, PackageId::ROOT);
+        assert_eq!(workspace.packages().len(), 34);
+        assert_eq!(workspace.root_package().id, PackageId::ROOT);
         let ids: Vec<usize> = workspace.package_ids().map(PackageId::index).collect();
         assert_eq!(ids, (0..=34).collect::<Vec<_>>());
         for (id, package) in workspace.iter() {
@@ -599,8 +604,8 @@ fn field_key_and_value_spans_are_separate() {
         &Config::default(),
     )
     .unwrap();
-    let manifest = &workspace.root_package.manifest;
-    let text = |span: skif_core::Span| manifest.source[span.start as usize..span.end as usize].to_owned();
+    let manifest = &workspace.root_package().manifest;
+    let text = |span: skif_core::Span| manifest.source()[span.start as usize..span.end as usize].to_owned();
     let name = [PathSeg::Key("name".into())];
     assert_eq!(text(manifest.field_key_span(&name).unwrap()), "\"name\"");
     assert_eq!(text(manifest.field_value_span(&name).unwrap()), "\"r\"");
@@ -825,7 +830,7 @@ fn implicit_patterns_that_select_no_member_make_a_single_package() {
     )
     .unwrap();
     assert_eq!(workspace.facts.source, WorkspaceSource::SinglePackage);
-    assert!(workspace.packages.is_empty());
+    assert!(workspace.packages().is_empty());
 }
 
 #[test]
@@ -893,7 +898,7 @@ fn a_dependency_declared_twice_in_a_section_is_collected_once_with_the_last_valu
     )
     .unwrap();
     let entries: Vec<(DependencyKind, &str, &str)> = workspace
-        .root_package
+        .root_package()
         .dependencies
         .iter()
         .map(|entry| (entry.kind, entry.name.as_str(), entry.specifier.as_str()))
@@ -977,17 +982,17 @@ fn a_pnpm_workspace_file_alone_is_a_workspace_without_a_root_manifest() {
         &Config::default(),
     )
     .unwrap();
-    assert!(!workspace.has_root_manifest);
+    assert!(!workspace.has_root_manifest());
     assert_eq!(workspace.package_manager, Some(PackageManager::Pnpm));
     assert_eq!(workspace.facts.source, WorkspaceSource::PnpmWorkspaceYaml);
     assert_eq!(dirs(&workspace), ["pkgs/a", "pkgs/b"]);
     assert!(
-        workspace.is_ignored(workspace.root_package.id),
+        workspace.is_ignored(workspace.root_package().id),
         "the stand-in root is not analysed"
     );
     assert!(
         workspace
-            .packages
+            .packages()
             .iter()
             .all(|package| !workspace.is_ignored(package.id))
     );
@@ -1005,8 +1010,8 @@ fn a_root_with_a_manifest_reports_it() {
         &Config::default(),
     )
     .unwrap();
-    assert!(workspace.has_root_manifest);
-    assert!(!workspace.is_ignored(workspace.root_package.id));
+    assert!(workspace.has_root_manifest());
+    assert!(!workspace.is_ignored(workspace.root_package().id));
 }
 
 const RUSH: &str = r#"
@@ -1035,7 +1040,7 @@ fn rush_json_declares_the_members_and_the_package_manager() {
         &Config::default(),
     )
     .unwrap();
-    assert!(!workspace.has_root_manifest);
+    assert!(!workspace.has_root_manifest());
     assert_eq!(workspace.facts.source, WorkspaceSource::RushJson);
     assert_eq!(workspace.package_manager, Some(PackageManager::Pnpm));
     assert_eq!(dirs(&workspace), ["apps/a", "libs/b"]);
@@ -1068,4 +1073,56 @@ fn the_config_override_beats_the_rush_package_manager() {
 fn a_broken_rush_json_is_an_invalid_manifest() {
     let error = discover(&[("rush.json", "{\"projects\": [")], &Config::default()).unwrap_err();
     assert!(matches!(error, WorkspaceError::InvalidManifest { .. }), "{error}");
+}
+
+#[test]
+fn package_by_name_finds_the_root_and_members_and_the_first_of_a_duplicate_wins() {
+    let workspace = discover(
+        &[
+            ("package.json", r#"{"name":"root","workspaces":["pkgs/*"]}"#),
+            ("pkgs/a/package.json", r#"{"name":"dup","version":"1.0.0"}"#),
+            ("pkgs/b/package.json", r#"{"name":"dup","version":"2.0.0"}"#),
+            ("pkgs/c/package.json", r#"{"name":"root","version":"3.0.0"}"#),
+            ("pkgs/d/package.json", r#"{"version":"4.0.0"}"#),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    let found = |name: &str| workspace.package_by_name(name).map(|package| package.dir.clone());
+    assert_eq!(found("dup"), Some(PathBuf::from("pkgs/a")));
+    assert_eq!(found("root"), Some(PathBuf::new()));
+    assert_eq!(found("missing"), None);
+    assert_eq!(found(""), None);
+    for (id, package) in workspace.iter() {
+        if let Some(name) = package.name.as_deref() {
+            let first = workspace.all_packages().find(|p| p.name.as_deref() == Some(name)).map(|p| p.id);
+            assert_eq!(workspace.package_by_name(name).map(|p| p.id), first, "{name} {id}");
+        }
+    }
+}
+
+#[test]
+fn equal_specifiers_are_parsed_once_per_workspace() {
+    let workspace = discover(
+        &[
+            ("package.json", r#"{"workspaces":["pkgs/*"],"devDependencies":{"x":"^1.2.3"}}"#),
+            ("pkgs/a/package.json", r#"{"name":"a","dependencies":{"x":"^1.2.3","y":"~2.0.0"}}"#),
+            ("pkgs/b/package.json", r#"{"name":"b","dependencies":{"x":"^1.2.3"},"peerDependencies":{"y":"~2.0.0"}}"#),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    let parsed = |spec: &str| -> Vec<std::sync::Arc<skif_specifier::Specifier>> {
+        workspace
+            .all_packages()
+            .flat_map(|package| package.dependencies.iter())
+            .filter(|entry| entry.specifier == spec)
+            .map(|entry| std::sync::Arc::clone(&entry.parsed))
+            .collect()
+    };
+    for spec in ["^1.2.3", "~2.0.0"] {
+        let all = parsed(spec);
+        assert!(all.len() >= 2, "{spec}");
+        assert!(all.windows(2).all(|pair| std::sync::Arc::ptr_eq(&pair[0], &pair[1])), "{spec}");
+    }
 }

@@ -7,13 +7,13 @@ use super::members::report;
 use crate::analysis::JsAnalysis;
 
 /// Metadata of `unused-namespace-members`.
-pub static META: RuleMeta = RuleMeta {
-    id: "unused-namespace-members",
-    category: Category::Js,
-    default: Some(Severity::Warning),
-    fixable: Fixability::None,
-    summary: "An exported member of a TypeScript namespace is never read.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unused-namespace-members",
+    Category::Js,
+    Some(Severity::Warning),
+    Fixability::None,
+    "An exported member of a TypeScript namespace is never read.",
+);
 
 /// Reports exported members of used TypeScript namespaces that no module reads.
 pub struct UnusedNamespaceMembers;

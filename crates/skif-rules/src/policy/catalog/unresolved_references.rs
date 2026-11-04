@@ -4,13 +4,13 @@ use skif_lint::{Emitter, LintContext, Rule};
 use super::support::{active_packages, value_location};
 
 /// Metadata of `unresolved-catalog-references`.
-pub static META: RuleMeta = RuleMeta {
-    id: "unresolved-catalog-references",
-    category: Category::Catalog,
-    default: Some(Severity::Error),
-    fixable: Fixability::None,
-    summary: "A `catalog:` specifier names a catalog or an entry that does not exist.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unresolved-catalog-references",
+    Category::Catalog,
+    Some(Severity::Error),
+    Fixability::None,
+    "A `catalog:` specifier names a catalog or an entry that does not exist.",
+);
 
 /// Reports `catalog:` specifiers that no catalog entry answers, whatever the catalog mode.
 #[derive(Debug, Clone, Copy, Default)]

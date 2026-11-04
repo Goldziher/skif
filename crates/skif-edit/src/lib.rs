@@ -92,11 +92,11 @@ fn plan_checked(source: &str, kind: FileKind, ops: &[&FixOp]) -> Result<(Vec<Tex
     let edits = planned
         .into_iter()
         .map(|edit| {
-            Ok(TextEdit {
-                start: u32::try_from(edit.start).map_err(|_| EditPlanError::SourceTooLarge)?,
-                end: u32::try_from(edit.end).map_err(|_| EditPlanError::SourceTooLarge)?,
-                replacement: edit.replacement,
-            })
+            Ok(TextEdit::new(
+                u32::try_from(edit.start).map_err(|_| EditPlanError::SourceTooLarge)?,
+                u32::try_from(edit.end).map_err(|_| EditPlanError::SourceTooLarge)?,
+                edit.replacement,
+            ))
         })
         .collect::<Result<Vec<_>, EditPlanError>>()?;
     let output = apply_text_edits(source, &edits)?;

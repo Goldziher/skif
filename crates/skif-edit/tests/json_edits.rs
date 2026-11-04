@@ -357,14 +357,14 @@ fn several_ops_in_one_file() {
 
 #[test]
 fn text_ops_pass_through() {
-    let op = FixOp::Text {
-        path: "package.json".into(),
-        edit: TextEdit {
-            start: 1,
-            end: 1,
-            replacement: " ".to_owned(),
-        },
-    };
+    let op = FixOp::text(
+        "package.json",
+        TextEdit::new(
+            1,
+            1,
+            " ".to_owned(),
+        ),
+    );
     assert_eq!(apply("{}", FileKind::Json, &[&op]).unwrap(), "{ }");
 }
 
@@ -517,16 +517,16 @@ fn independent_ops_do_not_conflict() {
     assert_eq!(
         edits,
         vec![
-            TextEdit {
-                start: 9,
-                end: 10,
-                replacement: "2".to_owned()
-            },
-            TextEdit {
-                start: 19,
-                end: 20,
-                replacement: "3".to_owned()
-            },
+            TextEdit::new(
+                9,
+                10,
+                "2".to_owned(),
+            ),
+            TextEdit::new(
+                19,
+                20,
+                "3".to_owned(),
+            ),
         ]
     );
 }
@@ -565,10 +565,10 @@ fn planning_errors() {
         plan_edits("{", FileKind::Json, &[&json_op(&[], JsonAction::SortKeys)]).unwrap_err(),
         EditPlanError::Parse { .. }
     ));
-    let create = FixOp::CreateFile {
-        path: "x".into(),
-        contents: String::new(),
-    };
+    let create = FixOp::create_file(
+        "x",
+        String::new(),
+    );
     assert!(matches!(
         plan_edits(source, FileKind::Json, &[&create]).unwrap_err(),
         EditPlanError::Unsupported { .. }
@@ -611,14 +611,14 @@ fn byte_order_mark_is_skipped_and_kept() {
 #[test]
 fn text_edits_keep_their_offsets_with_a_byte_order_mark() {
     let input = "\u{feff}{\"a\": 1}";
-    let op = FixOp::Text {
-        path: "package.json".into(),
-        edit: TextEdit {
-            start: 5,
-            end: 6,
-            replacement: "x".to_owned(),
-        },
-    };
+    let op = FixOp::text(
+        "package.json",
+        TextEdit::new(
+            5,
+            6,
+            "x".to_owned(),
+        ),
+    );
     assert_eq!(apply_json(input, &[op]), "\u{feff}{\"x\": 1}");
 }
 
@@ -751,14 +751,14 @@ fn duplicate_keys_resolve_to_the_last_occurrence() {
 #[test]
 fn edits_that_would_break_the_document_are_rejected() {
     let source = "{\"a\": 1}";
-    let op = FixOp::Text {
-        path: "package.json".into(),
-        edit: TextEdit {
-            start: 1,
-            end: 1,
-            replacement: "\"b\": 2 \"c\": 3,".to_owned(),
-        },
-    };
+    let op = FixOp::text(
+        "package.json",
+        TextEdit::new(
+            1,
+            1,
+            "\"b\": 2 \"c\": 3,".to_owned(),
+        ),
+    );
     let error = apply(source, FileKind::Json, &[&op]).unwrap_err();
     assert!(matches!(error, EditPlanError::InvalidOutput { .. }), "{error}");
     let error = plan_edits(source, FileKind::Json, &[&op]).unwrap_err();

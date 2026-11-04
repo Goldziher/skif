@@ -9,13 +9,13 @@ use super::support::module_location;
 use crate::analysis::JsAnalysis;
 
 /// Metadata of `duplicate-exports`.
-pub static META: RuleMeta = RuleMeta {
-    id: "duplicate-exports",
-    category: Category::Js,
-    default: Some(Severity::Warning),
-    fixable: Fixability::None,
-    summary: "One binding is exported under several names.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "duplicate-exports",
+    Category::Js,
+    Some(Severity::Warning),
+    Fixability::None,
+    "One binding is exported under several names.",
+);
 
 /// Reports a binding exported twice, such as `export const a = 1; export default a;`.
 ///
@@ -61,13 +61,13 @@ impl JsRule for DuplicateExports {
                     module_location(module, Some(second.span)),
                 )
                 .help("keep one export name for the binding")
-                .related(Related {
-                    message: format!("first exported as `{}` here", first.name),
-                    location: Location {
-                        path: module.path.clone(),
-                        span: Some(first.span),
-                    },
-                });
+                .related(Related::new(
+                    format!("first exported as `{}` here", first.name),
+                    Location::new(
+                        module.path.clone(),
+                        Some(first.span),
+                    ),
+                ));
                 if let Some(package) = analysis.workspace.package(module.owner) {
                     builder = builder.package(package.display_name());
                 }

@@ -5,13 +5,13 @@ use skif_lint::{Emitter, LintContext, OptionsError, Rule, parse_options};
 use super::support::{active_members, field_location, json_op, key};
 
 /// Metadata of `member-toolchain-fields`.
-pub static META: RuleMeta = RuleMeta {
-    id: "member-toolchain-fields",
-    category: Category::Manifest,
-    default: Some(Severity::Warning),
-    fixable: Fixability::Unsafe,
-    summary: "Member packages should not declare `packageManager` or `engines`; the root package owns the toolchain.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "member-toolchain-fields",
+    Category::Manifest,
+    Some(Severity::Warning),
+    Fixability::Unsafe,
+    "Member packages should not declare `packageManager` or `engines`; the root package owns the toolchain.",
+);
 
 /// The toolchain fields only the root should declare.
 const FIELDS: [&str; 2] = ["packageManager", "engines"];
@@ -60,7 +60,7 @@ impl Rule for MemberToolchainFields {
     }
 
     fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>) {
-        if !cx.workspace.has_root_manifest {
+        if !cx.workspace.has_root_manifest() {
             return;
         }
         let mode = cx
@@ -69,12 +69,12 @@ impl Rule for MemberToolchainFields {
             .and_then(|rule| parse_options::<MemberToolchainFieldsOptions>(&rule.options).ok())
             .unwrap_or_default()
             .mode;
-        let root = &cx.workspace.root_package.manifest.value;
+        let root = cx.workspace.root_package().manifest.value();
         // A published package states the engines it supports and the manager it is developed with; only the
         // private members of the workspace take their toolchain from the root.
         for package in active_members(cx.workspace).filter(|package| package.private) {
             for field in FIELDS {
-                let Some(value) = package.manifest.value.get(field) else {
+                let Some(value) = package.manifest.value().get(field) else {
                     continue;
                 };
                 if mode == ForbidMode::MatchRoot && root.get(field) == Some(value) {
@@ -91,11 +91,11 @@ impl Rule for MemberToolchainFields {
                         .help(format!(
                             "remove `{field}` from this package.json and declare it once in the root"
                         ))
-                        .fix(Fix {
-                            title: format!("Remove `{field}`"),
-                            safety: FixSafety::Unsafe,
-                            ops: vec![json_op(package, vec![key(field)], JsonAction::Remove)],
-                        })
+                        .fix(Fix::new(
+                            format!("Remove `{field}`"),
+                            FixSafety::Unsafe,
+                            vec![json_op(package, vec![key(field)], JsonAction::Remove)],
+                        ))
                         .build(),
                 );
             }
