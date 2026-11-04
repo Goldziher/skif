@@ -13,6 +13,12 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Added
 
+- **Why is this used**: `skif explain-usage <FILE[#EXPORT]> [PATH]` prints the entry rule of a file, every import of it
+  with file and line, the shortest chain of imports from an entry file, and for an export the modules that use it,
+  following re-exports.
+- **`expo-router` and `tanstack-router` plugins**: `app/**` and `src/app/**` (or the `root` option of the `expo-router`
+  config plugin) are routes of an Expo Router app; the generated route tree, `src/{router,start,client,server}.*` and
+  the routes directory of TanStack Router and Start (`tsr.config.json` moves them) are entries.
 - **Yarn catalogs**: `catalog` and `catalogs` in `.yarnrc.yml` (Yarn 4.10+) are read with the other catalog sources, so
   their `catalog:` references resolve instead of being reported by `unresolved-catalog-references`; entries added by
   a fix and `unused-catalog-entries` locate in that file.
@@ -99,14 +105,15 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   `unused-exports`, `unused-types`, `unused-namespace-exports`, `unused-namespace-types`, `unused-enum-members`,
   `unused-namespace-members`, `duplicate-exports`, `circular-imports` and `unparseable-files`. Unused files, exports, types and dev dependencies default to warnings. Production mode,
   `--no-js` and `[js]` settings per workspace are supported.
-- **A plugin table of 61 plugins** that reads the static configuration of common tools to find entry files and the
+- **A plugin table of 63 plugins** that reads the static configuration of common tools to find entry files and the
   dependencies they use, without running any tool: `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`,
   `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`,
   `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`,
   `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`,
   `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`,
   `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`,
-  `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack` and `node`.
+  `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack`, `node`, `expo-router` and
+  `tanstack-router`.
   The set is extended in [ADR 0025](adrs/0025-plugin-set-extension-thirty-five-more-tools.md) and ADR 0029.
 - **Output formats**: human, JSON, SARIF and GitHub annotations, selected with `--format`.
 - **Atomic fixes**: `--fix` and `--fix-unsafe` plan all edits first, write them atomically and lint again;
@@ -168,6 +175,13 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Fixed
 
+- **Knip parity in the JS analysis** (found by running both tools on the pinned corpus): `unused-enum-members` and
+  `unused-namespace-members` now count a member read in the declaring file and skip only an enum used as a whole there;
+  the types in a destructured export (`export const { a, b } = make((p: Props) => p)`) belong to it; a file loaded with
+  `new URL("./x", import.meta.url)` is used as a whole; `require("x") as typeof import("x")` no longer uses every export;
+  `export const X` with `export type X` is reported once; `*` in a wildcard `exports` target matches across directories;
+  `*_spec.*` files are test entries; directories ending in `-fixtures` or `_fixtures` and `__testfixtures__` count as
+  fixtures; `duplicate-exports` ignores export clauses and follows `export const b = a`.
 - **Catalog ownership with `mode = "off"`**: an instance whose sibling uses `catalog:` was reported by both
   `catalog-mismatch` and `version-mismatch` with conflicting fix targets. `catalog-mismatch` now owns it and the version
   groups leave it alone while that rule is enabled.
