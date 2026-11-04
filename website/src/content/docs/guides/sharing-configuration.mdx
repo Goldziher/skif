@@ -1,0 +1,154 @@
+---
+title: Sharing configuration
+description: One organisation-wide skif.toml, presets, per-package overrides, package files and nested projects.
+---
+
+A repository with many projects usually wants one set of rules, with exceptions where they are earned. skif merges
+every `skif.toml` from a project up to the git repository root, so the policy is written once and each project adds
+to it. The [configuration reference](../../reference/configuration/#layered-configuration) lists every key; this
+page walks through a repository.
+
+```text
+acme/                          .git is here
+  skif.toml                    organisation policy
+  presets/node-cli.toml        extended, never discovered
+  apps/marketing-site/         single package, no file: organisation policy only
+  legacy/old-portal/           no file: the legacy override below applies
+  services/billing/            pnpm workspace
+    skif.toml                  billing settings, inherits the organisation file
+    packages/api/
+    packages/legacy-ui/skif.toml   package file
+    tools/codegen/skif.toml        root = true
+```
+
+## An organisation file at the repository root
+
+```toml
+# acme/skif.toml
+[lint]
+fail-on-warnings = true
+
+[rules]
+unused-exports = "warn"
+
+[[version-groups]]
+label = "one React"
+dependencies = ["react", "react-dom"]
+policy = "same-range"
+
+[js]
+ignore-binaries = ["docker", "terraform"]
+```
+
+Run `skif -r` from `acme/`, or `skif` inside any project: both give a project the same configuration.
+
+## Adding to it in a project
+
+```toml
+# acme/services/billing/skif.toml
+[workspace]
+extend-ignore-packages = ["@billing/sandbox-*"]
+
+[rules]
+circular-imports = "error"
+
+[[version-groups]]
+label = "stripe is pinned"
+dependencies = ["stripe"]
+policy = "pinned"
+pin = "14.21.0"
+
+[js]
+extend-ignore-dependencies = ["@billing/fixtures"]
+```
+
+Scalars replace what is inherited and tables merge key by key. Lists replace unless the key starts with `extend-`,
+which appends. The `stripe` group is placed before the organisation's groups, so it wins for `stripe` and the React
+group still applies. Use `reset = ["version-groups"]` to drop the inherited groups instead.
+
+## Presets with `extends`
+
+```toml
+# acme/presets/node-cli.toml
+[rules]
+unused-exports = "off"
+
+[[overrides]]
+packages = ["$ROOT/"]
+[overrides.js]
+extend-ignore-binaries = ["node"]
+```
+
+```toml
+# any project
+extends = ["../../presets/node-cli.toml"]
+```
+
+Paths are relative to the file that declares them. `$ROOT/` anchors a pattern at the project being linted, not at
+`presets/`.
+
+## Per-package and per-directory overrides
+
+```toml
+# acme/skif.toml
+[[overrides]]
+packages = ["./legacy/**"]
+max-level = "warn"
+[overrides.rules]
+unused-files = "off"
+
+[[overrides]]
+files = ["**/src/generated/**"]
+[overrides.rules]
+unused-exports = "off"
+```
+
+Patterns here are relative to `acme/` whichever project is linted. Overrides only change how diagnostics in the
+selected packages or files are reported, and the JS inputs of those packages. Version groups, catalogs and the
+other workspace-wide settings stay in the base file.
+
+## Package files
+
+```toml
+# acme/services/billing/packages/legacy-ui/skif.toml
+[lint]
+max-level = "warn"
+
+[rules]
+unused-dev-dependencies = "off"
+
+[js]
+ignore = ["src/vendor/**"]     # relative to this package
+
+[[ignore]]                     # the package is the filter
+rules = ["unlisted-dependencies"]
+dependencies = ["jquery"]
+```
+
+A package file holds package-scoped keys only. Anything workspace-wide is an error that names the key and says where
+it belongs.
+
+## Vendored and nested projects
+
+```toml
+# acme/services/billing/tools/codegen/skif.toml
+root = true
+extends = ["../../../../skif.toml"]
+
+[js]
+entry = ["bin/codegen.mjs"]
+```
+
+`root = true` stops the upward search at this file, so billing's settings do not apply. Extending the organisation
+file brings its policy back. A vendored project with `root = true` and no `extends` uses only its own file.
+
+## Debugging with `skif config`
+
+```bash
+skif config --show                                   # effective configuration, file and line of every value
+skif config --explain rules.circular-imports.level   # every file that touched the key
+skif --config ci/skif.toml                           # use one file, skip discovery
+skif --no-config                                     # defaults plus flags
+```
+
+Reach for `--show` whenever a result depends on files you did not open.

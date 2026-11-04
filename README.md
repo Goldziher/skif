@@ -212,8 +212,10 @@ pre-commit:
 
 ## Configuration
 
-skif reads one TOML file, `skif.toml` or `.skif.toml`, at the workspace root; having both is an
-error. There is no `package.json` key and no compatibility reader for sherif, syncpack or knip
+skif reads `skif.toml` or `.skif.toml` files; having both in one directory is an error. A root merges every
+file from its directory up to the git repository root, so an organisation file at the top applies to every project
+below it; `root = true` stops the search, `extends` pulls in presets, and `[[overrides]]` and package files scope
+rule levels, severity caps, suppressions and JS inputs to packages or directories. There is no `package.json` key and no compatibility reader for sherif, syncpack or knip
 configuration. `skif init` writes a starter file and `skif schema` prints its JSON Schema.
 
 ```toml
@@ -231,8 +233,10 @@ packages = ["legacy-app"]
 
 Top-level sections: `[workspace]`, `[lint]`, `[rules]`, `[[ignore]]`, `[policy]`,
 `[[version-groups]]`, `[[semver-groups]]`, `[catalog]`, `[workspace-protocol]`,
-`[[dependency-families]]` and `[js]`. See
-[ADR 0004](adrs/0004-configuration-model.md).
+`[[dependency-families]]`, `[js]` and `[[overrides]]`. `skif config --show` prints the effective configuration with
+the file and line of every value, and `--config` and `--no-config` bypass discovery. See
+[ADR 0004](adrs/0004-configuration-model.md) and
+[ADR 0024](adrs/0024-layered-configuration-cascading-files-extends-overrides-and-package-files.md).
 
 ## Output
 

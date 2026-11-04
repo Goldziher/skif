@@ -72,6 +72,7 @@ export default defineConfig({
           label: "Guides",
           items: [
             { label: "Single packages and monorepos", slug: "guides/workspaces" },
+            { label: "Sharing configuration", slug: "guides/sharing-configuration" },
             { label: "Integrations", slug: "guides/integrations" },
             { label: "Library usage", slug: "guides/library" },
             { label: "Comparison", slug: "guides/comparison" },
