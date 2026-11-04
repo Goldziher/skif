@@ -26,6 +26,12 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   config --show` and `--explain` print the effective configuration with the file and line of every value, and
   `--config` and `--no-config` bypass discovery
   ([ADR 0024](adrs/0024-layered-configuration-cascading-files-extends-overrides-and-package-files.md)).
+- **`--no-prompt`**: never ask which alternative fix to apply; a diagnostic with several alternatives stays unfixed
+  unless `--select` decides. Both git hooks pass it.
+- **`--color <auto|always|never>`**: overrides the terminal check that decides whether human output is coloured.
+- **Facade API for layered configuration and several roots**: `discover_targets`, `discover_all`, `find_target`,
+  `load_target`, `Target`, `Discovery` and `RootFailure` in `skif`, and `ConfigLoader`, `ResolvedConfig` and `Origins`
+  in `skif-config` (re-exported by the facade).
 - **Workspaces without a root `package.json`**: a directory with a `pnpm-workspace.yaml` or a `rush.json` and no
   `package.json` is linted as a workspace, with its members linted and the rules about the root manifest skipped,
   instead of failing the run.
@@ -77,6 +83,9 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Changed
 
+- The JSON Schema of `skif.toml` offers `level` (with `severity` as its alias) in a rule table, and the rule
+  reference and configuration page document the rule options (`mode` of `member-toolchain-fields`, `ignore-tags` of
+  `unused-exports`) and that `unused-catalog-entries` reports only with `[catalog] report-unused-entries = true`.
 - Minimum supported versions raised: Rust 1.99.
 - **The project is renamed to skif.** It continues as an independent Rust dependency linter for
   JavaScript and TypeScript monorepos, hosted at `github.com/Goldziher/skif`.

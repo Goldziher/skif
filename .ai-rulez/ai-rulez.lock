@@ -2,9 +2,9 @@
 # Refresh it with `ai-rulez lock`; `ai-rulez generate --locked` fails when it is stale.
 
 version = 1
-ai_rulez_version = '5.7.0'
+ai_rulez_version = '5.10.0'
 scope = 'all'
-tree = 'sha256:152db5a677a92eacf3ea414eea3fb27a485cddb52348a1f833704c207ec752b2'
+tree = 'sha256:3daef0436aec839b53b0487b12d3969767f9e493c60167c5614cedee022733b4'
 
 [[served]]
 name = 'adr-workflow'
@@ -82,13 +82,13 @@ digest = 'sha256:c57056e3a74a261b3a9d47638726c7d1f64c76b255838b6aaa3e635f3ffa861
 kind = 'context'
 id = 'architecture'
 path = 'context/architecture.md'
-digest = 'sha256:1c0f2df646c45c46c982efbdc25ca16e7c2a34afddf226a8ba7d39f79378c7b4'
+digest = 'sha256:7aa177d61190c33fff467ec3429ae334dfdd04824a9dd22ec492e6ff2026f344'
 
 [[item]]
 kind = 'context'
 id = 'development'
 path = 'context/development.md'
-digest = 'sha256:0d7be911170b127b82d04e6123724b99e1f5d4b32fafa66af12f8a63c0c2570b'
+digest = 'sha256:43ec10f0e93fc3907eb6e04b116164808cb0cb1dca76489badc2f9f1e8b8bdab'
 
 [[item]]
 kind = 'context'
@@ -100,7 +100,7 @@ digest = 'sha256:e9c6df79b2a88560e4f432fdaab739d857fad86e3a536603afdb6537ae90c90
 kind = 'rule'
 id = 'rule-conventions'
 path = 'rules/rule-conventions.md'
-digest = 'sha256:1d1931c39ce7fceed4095c52ab3f8dcb9670052797e23d0f46f556d51d4d3d53'
+digest = 'sha256:20526e673fad3816eac6b0c6f900a188f039faadba56015fab770b8d539a8125'
 
 [[item]]
 kind = 'settings'

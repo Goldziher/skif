@@ -70,3 +70,24 @@ updates:
         update-types:
           - "minor"
           - "patch"
+
+  - package-ecosystem: "npm"
+    directory: "/npm-package"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:30"
+    open-pull-requests-limit: 5
+    assignees:
+      - "Goldziher"
+    commit-message:
+      prefix: "build(deps)"
+      prefix-development: "build(dev-deps)"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
+    groups:
+      npm-package:
+        update-types:
+          - "minor"
+          - "patch"

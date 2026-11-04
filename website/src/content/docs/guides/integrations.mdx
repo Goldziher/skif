@@ -60,6 +60,10 @@ Both hooks run `scripts/pre-commit/run-skif.sh`, which needs neither Rust nor No
 `SKIF_BINARY` (an error if it is not executable), `skif` on `PATH`, then the release pinned by the hook revision,
 downloaded once into `~/.cache/skif/pre-commit` and verified against `checksums.txt`.
 
+The hooks run when `package.json`, `pnpm-workspace.yaml`, `skif.toml` or `.skif.toml` change. A configuration file
+that is only reached through `extends` can have any name and does not trigger them; add its path to the hook's
+`files` pattern, or run `skif` yourself after changing it.
+
 ### Poly
 
 Add skif as a managed source in `poly.toml`:

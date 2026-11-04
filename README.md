@@ -78,7 +78,9 @@ Exit codes: `0` clean (warnings within `--max-warnings`), `1` problems remain, `
 (bad configuration, bad flags, refused `--fix`, failed install). `--fix` is refused when `CI` is
 truthy. `--format` is `human`, `json`, `sarif` or `github`; in `--format json` mode failures are also JSON. Other flags: `--output FILE`, `--select
 highest|lowest`, `--no-install`, `--max-warnings N`, `--ignore-rule`, `--ignore-package`,
-`--ignore-dependency`, `--ignore-rule-for-package RULE:PACKAGE`, `--no-js`, `--production`, `--color`, `-r`/`--recursive`.
+`--ignore-dependency`, `--ignore-rule-for-package RULE:PACKAGE`, `--no-js`, `--production`, `--no-prompt` (never ask which
+alternative fix to apply), `--color auto|always|never`, `--config FILE` and `--no-config` (use one configuration file, or none, instead of
+discovery), `-r`/`--recursive`.
 
 `skif [PATH]` lints one root: the nearest ancestor workspace that lists the package as a member, otherwise the
 package itself, which is then linted in single-package mode (no workspace is needed). When neither `PATH` nor an
@@ -144,6 +146,15 @@ Each release attaches one archive per target, plus `checksums.txt`:
 Each archive holds the `skif` binary (`skif.exe` on Windows) and the licence. Verify a download with
 `sha256sum --check --ignore-missing checksums.txt`.
 
+## Supported versions
+
+skif supports the versions of Node.js, Bun, Rust and the package managers its upstream still supports; where an
+upstream has no end-of-life policy, the latest two major versions. Today that is Node.js 22, 24 and 26, all of Bun
+1.x, and the latest two majors of npm, pnpm and Yarn 2+. Yarn Classic (1.x) workspaces are read but not tested.
+Older versions may work, but there is no guarantee: they are not tested, not blocked, and bugs reproducible only on
+them are not fixed. A version is dropped in the first release after it reaches end-of-life
+([ADR 0027](adrs/0027-supported-versions-follow-upstream-end-of-life-policies.md)).
+
 ## Git hooks
 
 skif belongs in a pre-commit hook: a mismatched version or an unsorted dependency map is cheapest to fix
@@ -162,7 +173,7 @@ repos:
     rev: v0.1.0 # use the latest release tag
     hooks:
       - id: skif       # skif --no-js
-      - id: skif-fix   # skif --fix --no-install --no-js (opt-in, rewrites manifests)
+      - id: skif-fix   # skif --fix --no-install --no-prompt --no-js (opt-in, rewrites manifests)
 ```
 
 Both hooks run `scripts/pre-commit/run-skif.sh`, which needs neither Rust nor Node. It uses, in order:

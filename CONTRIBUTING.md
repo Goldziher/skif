@@ -23,7 +23,9 @@ mise run setup
 mise run check
 ```
 
-It runs the format check, the lint (clippy with warnings denied, then poly) and the tests. Hooks run
+It runs the format check, the lint (clippy with warnings denied, then poly), the tests, `schema:check`,
+`consistency`, the rustdoc build with warnings denied and the facade feature matrix: what CI enforces, except
+`mise run deny` and the MSRV build. Hooks run
 the same checks on commit; do not commit with `--no-verify`. Commits are conventional (`feat:`, `fix:`,
 `perf:`, `docs:`, `refactor:`, `test:`, `build:`, `ci:`, `chore:`).
 
@@ -37,8 +39,8 @@ file headers, rule ids against the code, plugin lists against the plugin table, 
 ## Adding a rule
 
 1. Give the rule a stable kebab-case ID. IDs are the public contract; add it to `rule-ids.txt`.
-2. Implement it in `skif-rules` (manifest, policy, catalog) or `skif-js` (JS), with a fixture under
-   `fixtures/` and a snapshot test for the diagnostics. Never edit `.snap` files by hand.
+2. Implement it in `skif-rules` (manifest, policy, catalog) or `skif-js` (JS), with a fixture (under the crate's
+   `tests/fixtures` or the top-level `fixtures/`) and a snapshot test for the diagnostics. Never edit `.snap` files by hand.
 3. Fixers must keep the original indentation and newline style of the edited file.
 4. Regenerate the reference with `SKIF_UPDATE_DOCS=1 cargo test -p skif --features js-analysis --test docs`
    and commit `docs/rules.md`; `scripts/check-rule-ids.sh` compares it with `rule-ids.txt`.
