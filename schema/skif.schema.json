@@ -2,6 +2,27 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "root": {
+      "type": "boolean",
+      "description": "Stops the upward search for configuration files: no file above this one contributes. Only valid in a file\nfound by discovery, not in one reached through `extends`.",
+      "default": false
+    },
+    "extends": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Configuration files to inherit, relative to this file. They apply before this file does, in the order listed.",
+      "default": []
+    },
+    "reset": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ResetKey"
+      },
+      "description": "Inherited lists to discard before this file applies.",
+      "default": []
+    },
     "workspace": {
       "$ref": "#/$defs/Workspace",
       "default": {
@@ -92,12 +113,31 @@
         "workspaces": {},
         "plugins": {}
       }
+    },
+    "overrides": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Override"
+      },
+      "description": "Scoped rules for packages and files; only package-scoped keys are allowed in them.",
+      "default": []
     }
   },
   "description": "The complete `skif.toml` model.",
   "title": "Config",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "ResetKey": {
+      "type": "string",
+      "enum": [
+        "version-groups",
+        "semver-groups",
+        "ignore",
+        "dependency-families",
+        "overrides"
+      ],
+      "description": "The inherited lists that `reset` can discard."
+    },
     "Workspace": {
       "type": "object",
       "additionalProperties": false,
@@ -133,6 +173,13 @@
             "__mocks__",
             "__snapshots__"
           ]
+        },
+        "extend-ignore-packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Appended to `ignore-packages` instead of replacing it. Folded away when the configuration is resolved."
         }
       },
       "description": "`[workspace]`"
@@ -155,6 +202,17 @@
           "type": "boolean",
           "description": "Exit non-zero when only warnings were reported.",
           "default": false
+        },
+        "max-level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Level"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Caps the severity of every diagnostic: a rule configured above this level reports at it."
         }
       },
       "description": "`[lint]`"
@@ -432,6 +490,13 @@
         "report-unused-entries": {
           "type": "boolean",
           "default": false
+        },
+        "extend-exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Appended to `exclude` instead of replacing it. Folded away when the configuration is resolved."
         }
       },
       "description": "`[catalog]`"
@@ -553,6 +618,27 @@
           },
           "description": "Plugin switches keyed by plugin name.",
           "default": {}
+        },
+        "extend-ignore": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Appended to `ignore` instead of replacing it. Folded away when the configuration is resolved."
+        },
+        "extend-ignore-dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Appended to `ignore-dependencies` instead of replacing it. Folded away when the configuration is resolved."
+        },
+        "extend-ignore-binaries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Appended to `ignore-binaries` instead of replacing it. Folded away when the configuration is resolved."
         }
       },
       "description": "`[js]`"
@@ -643,6 +729,117 @@
         }
       },
       "description": "Table form of a plugin entry."
+    },
+    "Override": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "File globs. When both lists are set, a diagnostic must match both."
+        },
+        "max-level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Level"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Caps the severity of every matched diagnostic."
+        },
+        "rules": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/RuleConfigSchema"
+          },
+          "description": "Rule levels; options are root-scoped and not allowed here."
+        },
+        "ignore": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IgnoreEntry"
+          },
+          "description": "Suppressions limited to the selected packages and files; an entry may omit every filter."
+        },
+        "js": {
+          "$ref": "#/$defs/PackageJs",
+          "description": "JavaScript inputs for the selected packages; needs `packages` and no `files`."
+        }
+      },
+      "description": "One `[[overrides]]` entry: settings for the packages and files it selects.\n\nPatterns are anchored at the directory of the file that declares them: a package pattern starting with `./` is a\ndirectory below it, any other is a package name (or a `$LOCAL`-style token); a file pattern is always a path\nbelow it. A `$ROOT/` prefix anchors a pattern at the root being linted instead, and a path that would leave the\nanchor never matches.\n\nOnly package-scoped keys are allowed. An override never changes what a workspace-wide analysis computes; it\nchanges how the diagnostics located in the selected packages or files are reported, and the JavaScript inputs of\nthe selected packages."
+    },
+    "PackageJs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "project": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ignore": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ignore-dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ignore-binaries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "extend-ignore": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "extend-ignore-dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "extend-ignore-binaries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "plugins": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/PluginConfig"
+          },
+          "description": "Plugin switches and options for the selected packages."
+        }
+      },
+      "description": "`[js]` keys an override can set for the packages it selects.\n\nGlobs are relative to each selected package. The `extend-*` keys append to what the package inherits; the others\nreplace it."
     }
   }
 }

@@ -21,7 +21,7 @@ Arguments:
 
 Options:
   -r, --recursive
-          Lint every workspace and standalone package at or below PATH, each with its nearest `skif.toml`
+          Lint every workspace and standalone package at or below PATH, each with the `skif.toml` files that govern it
 
       --format <FORMAT>
           Output format [default: human, or human plus GitHub annotations when `GITHUB_ACTIONS=true`]
@@ -75,6 +75,12 @@ Options:
 
       --no-js
           Skip JavaScript analysis
+
+      --config <FILE>
+          Use this configuration file (and the files it extends) instead of discovering `skif.toml` files
+
+      --no-config
+          Read no configuration file: the defaults plus the flags
 
       --production
           Only analyse production code in JavaScript analysis

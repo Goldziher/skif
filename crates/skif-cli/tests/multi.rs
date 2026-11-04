@@ -177,7 +177,7 @@ fn a_directory_with_a_manifest_lints_only_its_workspace_unless_recursive() {
 }
 
 #[test]
-fn a_nested_root_inherits_the_nearest_config_above_it_up_to_the_start() {
+fn a_nested_root_inherits_the_configs_above_it_up_to_the_start() {
     let dir = fixture("multi/nested");
     let (_, inherited) = json(dir.path(), &["-r"]);
     let rules_in_tools: BTreeSet<String> = inherited["diagnostics"]
@@ -197,7 +197,7 @@ fn a_nested_root_inherits_the_nearest_config_above_it_up_to_the_start() {
     let (_, own) = json(dir.path(), &["-r"]);
     assert!(
         diagnostic_paths(&own).iter().all(|path| !path.starts_with("tools/")),
-        "the root's own config replaces the inherited one"
+        "the root's own config overrides what it inherits"
     );
 }
 

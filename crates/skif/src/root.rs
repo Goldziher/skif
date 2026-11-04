@@ -3,7 +3,9 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use skif_config::{CONFIG_FILE_NAMES, Config, ConfigError, ConfigOverrides};
+use skif_config::{
+    CONFIG_FILE_NAMES, Ceiling, Config, ConfigCache, ConfigError, ConfigLoader, ConfigOverrides, ResolvedConfig,
+};
 use skif_core::FileSystem;
 use skif_workspace::{Workspace, declared_member_dirs, declares_workspace, repository_root};
 
@@ -15,13 +17,6 @@ const MANIFEST: &str = "package.json";
 /// and the root itself outside a repository.
 pub(crate) fn config_ceiling(root: &Path, fs: &dyn FileSystem) -> PathBuf {
     repository_root(fs, root).unwrap_or_else(|| root.to_path_buf())
-}
-
-/// The nearest directory from `root` up to and including `ceiling` that holds a configuration file.
-pub(crate) fn config_dir<'a>(root: &'a Path, ceiling: &Path, fs: &dyn FileSystem) -> Option<&'a Path> {
-    root.ancestors()
-        .take_while(|dir| dir.starts_with(ceiling))
-        .find(|dir| config_file(dir, fs).is_some())
 }
 
 /// Whether a directory strictly above `root`, up to and including `ceiling`, holds a `package.json` or a workspace
@@ -73,10 +68,10 @@ pub(crate) fn locate(start: &Path, fs: &dyn FileSystem) -> Result<Located, Error
 
 /// The member directories of the workspace at `root`, discovered with its own configuration; the declared
 /// patterns when it cannot be discovered.
-fn workspace_members(root: &Path, fs: &dyn FileSystem) -> BTreeSet<PathBuf> {
-    let ceiling = config_ceiling(root, fs);
-    let dir = config_dir(root, &ceiling, fs).unwrap_or(root);
-    let config = load_config(dir, fs, &ConfigOverrides::default()).unwrap_or_default();
+fn workspace_members(root: &Path, fs: &dyn FileSystem, cache: &ConfigCache) -> BTreeSet<PathBuf> {
+    let config = resolve_config(root, &Ceiling::Vcs, fs, &ConfigOverrides::default(), cache)
+        .map(|resolved| resolved.config)
+        .unwrap_or_default();
     Workspace::discover_with_fs(root, &config, fs)
         .map_or_else(|_| declared_member_dirs(fs, root), |workspace| workspace.member_dirs())
 }
@@ -120,9 +115,10 @@ pub fn find_workspace_root(start: &Path, fs: &dyn FileSystem) -> Result<PathBuf,
     if declares_workspace(fs, &project) {
         return Ok(project);
     }
+    let cache = ConfigCache::new();
     Ok(ancestors
         .into_iter()
-        .find(|dir| workspace_members(dir, fs).contains(&project))
+        .find(|dir| workspace_members(dir, fs, &cache).contains(&project))
         .unwrap_or(project))
 }
 
@@ -147,27 +143,38 @@ pub fn config_file(root: &Path, fs: &dyn FileSystem) -> Option<&'static str> {
         .find(|name| fs.is_file(&root.join(name)))
 }
 
-fn with_path(mut error: ConfigError, file: &Path) -> ConfigError {
-    if let ConfigError::Parse { path, .. } | ConfigError::Invalid { path, .. } = &mut error {
-        *path = Some(file.to_path_buf());
-    }
-    error
-}
-
-fn read_config(path: &Path, fs: &dyn FileSystem) -> Result<Config, ConfigError> {
-    let text = fs.read_to_string(path).map_err(|source| ConfigError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    Config::from_toml_str(&text).map_err(|error| with_path(error, path))
-}
-
-/// Loads `skif.toml` or `.skif.toml` from `root` through `fs` and layers `overrides` over it (defaults < file < overrides).
+/// Resolves the configuration of `root` through `fs`: every `skif.toml` or `.skif.toml` from `root` up to `ceiling`
+/// (stopping after a file with `root = true`), with what they `extend`, merged farthest first, then `overrides` on top
+/// (defaults < files < overrides). Returns the merged configuration with the files it came from and where each key
+/// was set.
 ///
-/// No file means the default configuration.
+/// `cache` remembers which directories hold a configuration file and every file parsed, so pass one cache to all
+/// the roots of a run, in parallel if you like: each file is read once.
 ///
 /// # Errors
-/// [`ConfigError::Ambiguous`] when both files exist, [`ConfigError::Io`] when one cannot be read,
+/// [`ConfigError::Ambiguous`] when a directory of the chain has both files, [`ConfigError::Io`] when a file cannot be
+/// read, [`ConfigError::Parse`], [`ConfigError::Invalid`] and [`ConfigError::Scope`] (carrying the file, line and
+/// column) for bad contents, [`ConfigError::ExtendsCycle`] for files that extend each other, and
+/// [`ConfigError::Invalid`] for an override that is not a valid selector.
+pub fn resolve_config(
+    root: &Path,
+    ceiling: &Ceiling,
+    fs: &dyn FileSystem,
+    overrides: &ConfigOverrides,
+    cache: &ConfigCache,
+) -> Result<ResolvedConfig, ConfigError> {
+    ConfigLoader::new(fs, cache).load(root, ceiling, overrides)
+}
+
+/// Loads the configuration of `root` through `fs` and layers `overrides` over it (defaults < files < overrides).
+///
+/// The files are `root`'s own `skif.toml` or `.skif.toml` and those of its parent directories up to the root of the
+/// git repository (`root` alone outside one), stopping after a file with `root = true`; each file also brings in the
+/// files it `extends`. No file means the default configuration. See [`resolve_config`] for the other ceilings and
+/// for where each setting came from.
+///
+/// # Errors
+/// [`ConfigError::Ambiguous`] when both files exist in a directory, [`ConfigError::Io`] when one cannot be read,
 /// [`ConfigError::Parse`] / [`ConfigError::Invalid`] (carrying the file, line and column) for bad contents, and
 /// [`ConfigError::Invalid`] for an override that is not a valid selector.
 ///
@@ -182,21 +189,5 @@ fn read_config(path: &Path, fs: &dyn FileSystem) -> Result<Config, ConfigError> 
 /// # Ok::<(), skif::ConfigError>(())
 /// ```
 pub fn load_config(root: &Path, fs: &dyn FileSystem, overrides: &ConfigOverrides) -> Result<Config, ConfigError> {
-    let found: Vec<PathBuf> = CONFIG_FILE_NAMES
-        .iter()
-        .map(|name| root.join(name))
-        .filter(|path| fs.is_file(path))
-        .collect();
-    let mut config = match found.as_slice() {
-        [] => Config::default(),
-        [path] => read_config(path, fs)?,
-        [first, second, ..] => {
-            return Err(ConfigError::Ambiguous {
-                first: first.clone(),
-                second: second.clone(),
-            });
-        }
-    };
-    config.apply(overrides)?;
-    Ok(config)
+    Ok(resolve_config(root, &Ceiling::Vcs, fs, overrides, &ConfigCache::new())?.config)
 }

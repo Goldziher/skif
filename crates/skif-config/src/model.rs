@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use crate::dependency_types::DependencyTypes;
 use crate::error::ConfigError;
 use crate::overrides::ConfigOverrides;
 use crate::rules::{Level, RuleConfig, rules_map};
-use crate::selector::Selector;
+use crate::selector::{Selector, anchor_patterns};
 
 #[cfg(feature = "schema")]
 use crate::schema::RuleConfigSchema;
@@ -19,6 +19,16 @@ use crate::schema::RuleConfigSchema;
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 pub struct Config {
+    /// Stops the upward search for configuration files: no file above this one contributes. Only valid in a file
+    /// found by discovery, not in one reached through `extends`.
+    #[serde(skip_serializing_if = "is_false")]
+    pub root: bool,
+    /// Configuration files to inherit, relative to this file. They apply before this file does, in the order listed.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extends: Vec<String>,
+    /// Inherited lists to discard before this file applies.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reset: Vec<ResetKey>,
     pub workspace: Workspace,
     pub lint: Lint,
     #[serde(with = "rules_map")]
@@ -32,6 +42,41 @@ pub struct Config {
     pub workspace_protocol: WorkspaceProtocol,
     pub dependency_families: Vec<DependencyFamily>,
     pub js: Js,
+    /// Scoped rules for packages and files; only package-scoped keys are allowed in them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub overrides: Vec<Override>,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+/// The inherited lists that `reset` can discard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum ResetKey {
+    VersionGroups,
+    SemverGroups,
+    Ignore,
+    DependencyFamilies,
+    Overrides,
+}
+
+impl ResetKey {
+    /// The key as written in `skif.toml`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::VersionGroups => "version-groups",
+            Self::SemverGroups => "semver-groups",
+            Self::Ignore => "ignore",
+            Self::DependencyFamilies => "dependency-families",
+            Self::Overrides => "overrides",
+        }
+    }
 }
 
 /// Why `patterns` are not a valid selector, when they are not.
@@ -72,10 +117,34 @@ impl Config {
         Self::parse(&source, Some(path))
     }
 
-    fn parse(source: &str, path: Option<&Path>) -> Result<Self, ConfigError> {
+    /// Parses and validates one file on its own, leaving `extend-*` keys as written.
+    pub(crate) fn parse_file(source: &str, path: Option<&Path>) -> Result<Self, ConfigError> {
         let config: Self = toml::from_str(source).map_err(|err| ConfigError::from_toml(&err, source, path))?;
         config.validate_at(path)?;
         Ok(config)
+    }
+
+    /// Parses a standalone file: like [`Config::parse_file`], with `extend-*` keys folded into the lists they extend.
+    fn parse(source: &str, path: Option<&Path>) -> Result<Self, ConfigError> {
+        let config = Self::parse_file(source, path)?;
+        if !config.has_extend_keys() {
+            return Ok(config);
+        }
+        let table: toml::Table = toml::from_str(source).map_err(|err| ConfigError::from_toml(&err, source, path))?;
+        let mut merger = crate::merge::Merger::default();
+        merger.apply(0, &table, &std::collections::HashMap::new());
+        let folded = merger.into_table();
+        toml::Value::Table(folded)
+            .try_into()
+            .map_err(|err: toml::de::Error| ConfigError::invalid(path, err.message()))
+    }
+
+    fn has_extend_keys(&self) -> bool {
+        !self.workspace.extend_ignore_packages.is_empty()
+            || !self.js.extend_ignore.is_empty()
+            || !self.js.extend_ignore_dependencies.is_empty()
+            || !self.js.extend_ignore_binaries.is_empty()
+            || !self.catalog.extend_exclude.is_empty()
     }
 
     /// Serializes back to TOML.
@@ -94,7 +163,7 @@ impl Config {
         self.validate_at(None)
     }
 
-    fn validate_at(&self, path: Option<&Path>) -> Result<(), ConfigError> {
+    pub(crate) fn validate_at(&self, path: Option<&Path>) -> Result<(), ConfigError> {
         let invalid = |message: String| Err(ConfigError::invalid(path, message));
         for (index, group) in self.version_groups.iter().enumerate() {
             if let Some(message) = group.inconsistency() {
@@ -114,6 +183,11 @@ impl Config {
                 return invalid(format!(
                     "ignore[{index}]: set at least one of `rules`, `packages` or `dependencies`; an entry without filters would suppress every diagnostic"
                 ));
+            }
+        }
+        for (index, scoped) in self.overrides.iter().enumerate() {
+            if let Some(message) = scoped.inconsistency() {
+                return invalid(format!("overrides[{index}]: {message}"));
             }
         }
         if self.catalog.min_packages == 0 {
@@ -136,14 +210,20 @@ impl Config {
         Ok(())
     }
 
-    /// Fails on the first rule ID (in `[rules]` or `[[ignore]]`) that is not in `known`, suggesting the closest ID.
+    /// Fails on the first rule ID (in `[rules]`, `[[ignore]]` or an override) that is not in `known`, suggesting the closest ID.
     ///
     /// # Errors
     /// [`ConfigError::UnknownRule`].
     pub fn validate_rules(&self, known: &[&str]) -> Result<(), ConfigError> {
         let configured = self.rules.keys();
         let ignored = self.ignore.iter().flat_map(|entry| entry.rules.iter());
-        for id in configured.chain(ignored) {
+        let scoped = self.overrides.iter().flat_map(|scoped| {
+            scoped
+                .rules
+                .keys()
+                .chain(scoped.ignore.iter().flat_map(|entry| entry.rules.iter()))
+        });
+        for id in configured.chain(ignored).chain(scoped) {
             if !known.contains(&id.as_str()) {
                 return Err(ConfigError::UnknownRule {
                     rule: id.clone(),
@@ -257,12 +337,17 @@ pub struct Workspace {
     /// (`__fixtures__`, `fixtures`, `__mocks__`, `__snapshots__`); `[]` skips nothing. Read from the configuration
     /// file that governs the start directory.
     pub discover_ignore: Vec<String>,
+    /// Appended to `ignore-packages` instead of replacing it. Folded away when the configuration is resolved.
+    #[serde(skip_serializing_if = "Selector::is_empty")]
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub extend_ignore_packages: Selector,
 }
 
 impl Default for Workspace {
     fn default() -> Self {
         Self {
             ignore_packages: Selector::default(),
+            extend_ignore_packages: Selector::default(),
             package_manager: None,
             discover_ignore: default_discover_ignore(),
         }
@@ -276,6 +361,9 @@ impl Default for Workspace {
 pub struct Lint {
     /// Exit non-zero when only warnings were reported.
     pub fail_on_warnings: bool,
+    /// Caps the severity of every diagnostic: a rule configured above this level reports at it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_level: Option<Level>,
 }
 
 /// One `[[ignore]]` suppression. An empty list does not narrow that dimension, but at least one list must be set:
@@ -445,6 +533,9 @@ pub struct Catalog {
     pub min_packages: usize,
     pub exclude: Vec<String>,
     pub report_unused_entries: bool,
+    /// Appended to `exclude` instead of replacing it. Folded away when the configuration is resolved.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extend_exclude: Vec<String>,
 }
 
 impl Default for Catalog {
@@ -454,6 +545,7 @@ impl Default for Catalog {
             min_packages: 2,
             exclude: Vec::new(),
             report_unused_entries: false,
+            extend_exclude: Vec::new(),
         }
     }
 }
@@ -503,6 +595,15 @@ pub struct Js {
     pub workspaces: IndexMap<String, JsWorkspace>,
     /// Plugin switches keyed by plugin name.
     pub plugins: IndexMap<String, PluginConfig>,
+    /// Appended to `ignore` instead of replacing it. Folded away when the configuration is resolved.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extend_ignore: Vec<String>,
+    /// Appended to `ignore-dependencies` instead of replacing it. Folded away when the configuration is resolved.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extend_ignore_dependencies: Vec<String>,
+    /// Appended to `ignore-binaries` instead of replacing it. Folded away when the configuration is resolved.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extend_ignore_binaries: Vec<String>,
 }
 
 impl Default for Js {
@@ -518,6 +619,9 @@ impl Default for Js {
             include_entry_exports: false,
             workspaces: IndexMap::new(),
             plugins: IndexMap::new(),
+            extend_ignore: Vec::new(),
+            extend_ignore_dependencies: Vec::new(),
+            extend_ignore_binaries: Vec::new(),
         }
     }
 }
@@ -553,4 +657,146 @@ pub struct PluginOptions {
     pub config: Vec<String>,
     pub entry: Vec<String>,
     pub project: Vec<String>,
+}
+
+/// `[js]` keys an override can set for the packages it selects.
+///
+/// Globs are relative to each selected package. The `extend-*` keys append to what the package inherits; the others
+/// replace it.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+pub struct PackageJs {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub entry: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub project: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ignore: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ignore_dependencies: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ignore_binaries: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extend_ignore: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extend_ignore_dependencies: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extend_ignore_binaries: Vec<String>,
+    /// Plugin switches and options for the selected packages.
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub plugins: IndexMap<String, PluginConfig>,
+}
+
+impl PackageJs {
+    /// Whether no key is set.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+/// One `[[overrides]]` entry: settings for the packages and files it selects.
+///
+/// Patterns are anchored at the directory of the file that declares them: a package pattern starting with `./` is a
+/// directory below it, any other is a package name (or a `$LOCAL`-style token); a file pattern is always a path
+/// below it. A `$ROOT/` prefix anchors a pattern at the root being linted instead, and a path that would leave the
+/// anchor never matches.
+///
+/// Only package-scoped keys are allowed. An override never changes what a workspace-wide analysis computes; it
+/// changes how the diagnostics located in the selected packages or files are reported, and the JavaScript inputs of
+/// the selected packages.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+pub struct Override {
+    /// Package names, or directories (`./apps/old/**`). At least one of `packages` and `files` must be set.
+    #[serde(skip_serializing_if = "Selector::is_empty")]
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub packages: Selector,
+    /// File globs. When both lists are set, a diagnostic must match both.
+    #[serde(skip_serializing_if = "Selector::is_empty")]
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub files: Selector,
+    /// Caps the severity of every matched diagnostic.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_level: Option<Level>,
+    /// Rule levels; options are root-scoped and not allowed here.
+    #[serde(with = "rules_map", skip_serializing_if = "IndexMap::is_empty")]
+    #[cfg_attr(feature = "schema", schemars(with = "IndexMap<String, RuleConfigSchema>"))]
+    pub rules: IndexMap<String, RuleConfig>,
+    /// Suppressions limited to the selected packages and files; an entry may omit every filter.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ignore: Vec<IgnoreEntry>,
+    /// JavaScript inputs for the selected packages; needs `packages` and no `files`.
+    #[serde(skip_serializing_if = "PackageJs::is_empty")]
+    pub js: PackageJs,
+    /// Where the override was declared. Set on a resolved configuration only.
+    #[serde(skip)]
+    pub scope: Option<OverrideScope>,
+}
+
+impl Override {
+    pub(crate) fn inconsistency(&self) -> Option<&'static str> {
+        if self.packages.is_empty() && self.files.is_empty() {
+            return Some(
+                "set at least one of `packages` and `files`; an override without a selector would apply everywhere",
+            );
+        }
+        if !self.js.is_empty() && (self.packages.is_empty() || !self.files.is_empty()) {
+            return Some("`js` needs `packages` and cannot be combined with `files`");
+        }
+        if self.rules.values().any(|rule| !rule.options.is_empty()) {
+            return Some("rule options are root-scoped; an override can only set rule levels");
+        }
+        None
+    }
+
+    /// Whether this override covers a diagnostic located in `package` (its name and absolute directory) and/or in
+    /// `file` (absolute). When both selectors are set both must match; a selector that is set but has nothing to
+    /// match against (a diagnostic without a package or file) does not match.
+    ///
+    /// False for an override without a [`scope`](Self::scope), which only a resolved configuration has.
+    #[must_use]
+    pub fn applies_to(&self, package: Option<(&str, &Path)>, file: Option<&Path>) -> bool {
+        self.scope.as_ref().is_some_and(|scope| scope.applies_to(package, file))
+    }
+}
+
+/// Where an [`Override`] was declared, with its patterns resolved to absolute ones.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OverrideScope {
+    /// The directory of the declaring file.
+    pub declared_in: PathBuf,
+    /// Index of the declaring file in the resolved configuration's sources.
+    pub source: usize,
+    has_packages: bool,
+    has_files: bool,
+    packages: Selector,
+    files: Selector,
+}
+
+impl OverrideScope {
+    /// Anchors the patterns of `scoped`, declared by the file `source` in `declared_in`, for the root `root`.
+    ///
+    /// # Errors
+    /// [`ConfigError::Invalid`] when an anchored pattern is not a valid glob.
+    pub fn new(scoped: &Override, declared_in: &Path, source: usize, root: &Path) -> Result<Self, ConfigError> {
+        Ok(Self {
+            declared_in: declared_in.to_path_buf(),
+            source,
+            has_packages: !scoped.packages.is_empty(),
+            has_files: !scoped.files.is_empty(),
+            packages: anchor_patterns(scoped.packages.patterns(), declared_in, root, false)?,
+            files: anchor_patterns(scoped.files.patterns(), declared_in, root, true)?,
+        })
+    }
+
+    fn applies_to(&self, package: Option<(&str, &Path)>, file: Option<&Path>) -> bool {
+        let package_ok = !self.has_packages
+            || package
+                .is_some_and(|(name, dir)| self.packages.matches_any([name, skif_core::slash(dir).as_str()], true));
+        let file_ok = !self.has_files || file.is_some_and(|file| self.files.matches(&skif_core::slash(file), false));
+        package_ok && file_ok
+    }
 }
