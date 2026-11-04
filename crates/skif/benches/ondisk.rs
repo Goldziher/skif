@@ -48,10 +48,7 @@ fn bench_recursive(c: &mut Criterion) {
     let dir = tempfile::tempdir().expect("temporary directory");
     write(dir.path(), &repo);
     let root = std::fs::canonicalize(dir.path()).expect("temporary directory resolves");
-    let no_js = ConfigOverrides {
-        no_js: true,
-        ..ConfigOverrides::default()
-    };
+    let no_js = ConfigOverrides::default().with_no_js(true);
 
     let mut group = c.benchmark_group("recursive_on_disk");
     group.sample_size(10);

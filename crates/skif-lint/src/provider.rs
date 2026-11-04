@@ -9,7 +9,10 @@ use crate::emitter::Emitter;
 /// A rule owns its options: configuration keeps the raw `[rules]` table and the rule defines, validates and reads
 /// its typed form (see [`parse_options`]).
 pub trait Rule: Send + Sync {
+    /// The rule's identity, default severity and documentation.
     fn meta(&self) -> &'static RuleMeta;
+
+    /// Looks for the rule's problem across the workspace and reports each one through `out`.
     fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>);
 
     /// JSON Schema of the rule's options, or `None` when it takes no options.
@@ -155,6 +158,7 @@ pub struct ProviderError {
 }
 
 impl ProviderError {
+    /// A failure described by `message` alone.
     #[must_use]
     pub fn new(message: impl Into<String>) -> Self {
         Self {
@@ -163,6 +167,7 @@ impl ProviderError {
         }
     }
 
+    /// A failure described by `message` and caused by `source`.
     #[must_use]
     pub fn with_source(message: impl Into<String>, source: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self {
@@ -182,6 +187,7 @@ pub struct RulesProvider {
 }
 
 impl RulesProvider {
+    /// A provider named `id` running `rules`; their diagnostics are merged in this order.
     #[must_use]
     pub fn new(id: &'static str, rules: Vec<Box<dyn Rule>>) -> Self {
         Self { id, rules }

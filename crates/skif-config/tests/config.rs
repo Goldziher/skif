@@ -61,11 +61,9 @@ fn invalid_selectors_and_dependency_types_are_parse_errors_naming_the_value() {
 #[test]
 fn invalid_cli_ignore_patterns_leave_the_config_untouched() {
     let mut config = full();
-    let overrides = ConfigOverrides {
-        rules: [("version-mismatch".to_string(), Level::Error)].into_iter().collect(),
-        ignore_packages: vec!["bad[".into()],
-        ..ConfigOverrides::default()
-    };
+    let overrides = ConfigOverrides::default()
+        .with_rules([("version-mismatch".to_string(), Level::Error)])
+        .with_ignore_packages(vec!["bad[".into()]);
     let error = config.apply(&overrides).unwrap_err();
     assert!(error.to_string().contains("\"bad[\""), "{error}");
     assert_eq!(config, full());
@@ -422,21 +420,17 @@ fn file_errors_carry_the_path() {
 #[test]
 fn cli_overrides_win_over_file_and_defaults() {
     let mut config = full();
-    let overrides = ConfigOverrides {
-        rules: [
+    let overrides = ConfigOverrides::default()
+        .with_rules([
             ("version-mismatch".to_string(), Level::Error),
             ("brand-new".to_string(), Level::Warn),
-        ]
-        .into_iter()
-        .collect(),
-        ignore_rules: vec!["unused-exports".into()],
-        ignore_packages: vec!["cli-only".into()],
-        ignore_dependencies: vec!["left-pad".into()],
-        fail_on_warnings: Some(false),
-        production: Some(false),
-        no_js: true,
-        ..ConfigOverrides::default()
-    };
+        ])
+        .with_ignore_rules(vec!["unused-exports".into()])
+        .with_ignore_packages(vec!["cli-only".into()])
+        .with_ignore_dependencies(vec!["left-pad".into()])
+        .with_fail_on_warnings(Some(false))
+        .with_production(Some(false))
+        .with_no_js(true);
     config.apply(&overrides).unwrap();
 
     assert_eq!(config.rule("version-mismatch").unwrap().severity, Some(Level::Error));

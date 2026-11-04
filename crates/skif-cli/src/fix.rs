@@ -293,3 +293,98 @@ mod install_tests {
         assert_eq!(*merge_installs(&[(Path::new("x"), &skipped)]), skipped);
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod selection_tests {
+    use clap::Parser;
+    use skif::{Category, Fix, Fixability, Location, RuleMeta, Severity, diagnostic};
+
+    use super::*;
+    use crate::args::Cli;
+
+    static AMBIGUOUS: RuleMeta = RuleMeta::new(
+        "demo-ambiguous",
+        Category::Manifest,
+        Some(Severity::Warning),
+        Fixability::Unsafe,
+        "demo",
+    );
+
+    fn alternative(title: &str) -> Fix {
+        Fix {
+            title: title.to_owned(),
+            safety: FixSafety::Unsafe,
+            ops: Vec::new(),
+        }
+    }
+
+    fn report(titles: &[&str]) -> Report {
+        let location = Location {
+            path: "package.json".into(),
+            span: None,
+        };
+        let mut builder = diagnostic(&AMBIGUOUS, "finding", location);
+        for title in titles {
+            builder = builder.fix(alternative(title));
+        }
+        Report::new(vec![builder.build()], 1)
+    }
+
+    fn terminal() -> Env {
+        Env {
+            ci: false,
+            no_color: false,
+            stdin_tty: true,
+            stdout_tty: true,
+            github_actions: false,
+        }
+    }
+
+    fn lint_args(flags: &[&str]) -> LintArgs {
+        let argv = std::iter::once("skif").chain(flags.iter().copied());
+        Cli::try_parse_from(argv).unwrap().lint
+    }
+
+    #[test]
+    fn no_prompt_leaves_alternatives_to_the_configured_preference_even_on_a_terminal() {
+        let report = report(&["pin one", "pin two"]);
+        let selection = selection(&lint_args(&["--fix-unsafe", "--no-prompt"]), terminal(), &report, Prefer::Lowest)
+            .unwrap();
+        assert_eq!(selection.alternatives, Alternatives::Preferred(Prefer::Lowest));
+        assert!(selection.choices.is_empty());
+    }
+
+    #[test]
+    fn a_non_terminal_run_never_asks() {
+        let report = report(&["pin one", "pin two"]);
+        let piped = Env {
+            stdout_tty: false,
+            ..terminal()
+        };
+        let selection = selection(&lint_args(&["--fix-unsafe"]), piped, &report, Prefer::Highest).unwrap();
+        assert_eq!(selection.alternatives, Alternatives::Preferred(Prefer::Highest));
+        assert!(selection.choices.is_empty());
+    }
+
+    #[test]
+    fn select_takes_the_first_alternative_without_asking() {
+        let report = report(&["pin one", "pin two"]);
+        let selection = selection(
+            &lint_args(&["--fix-unsafe", "--select", "lowest"]),
+            terminal(),
+            &report,
+            Prefer::Highest,
+        )
+        .unwrap();
+        assert_eq!(selection.alternatives, Alternatives::First);
+    }
+
+    #[test]
+    fn a_skipped_choice_is_reported_as_needs_choice() {
+        let skipped = SkipReason::NeedsChoice {
+            alternatives: vec!["pin one".to_owned(), "pin two".to_owned()],
+        };
+        assert_eq!(skip_parts(&skipped), ("needs-choice", "pin one, pin two".to_owned()));
+    }
+}

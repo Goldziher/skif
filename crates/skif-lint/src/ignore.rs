@@ -1,3 +1,4 @@
+use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 
 use skif_config::{Config, IgnoreEntry, Selector};
@@ -52,10 +53,13 @@ impl Suppressions {
     /// Whether an `[[ignore]]` entry of one of the overrides in `applicable` (indices into the configuration's
     /// overrides) matches `diagnostic`.
     pub fn suppressed_in_scope(&self, diagnostic: &Diagnostic, applicable: &[usize]) -> bool {
+        let versioned = OnceCell::new();
         applicable.iter().any(|index| {
-            self.scoped
-                .get(*index)
-                .is_some_and(|entries| entries.iter().any(|entry| self.entry_matches(entry, diagnostic)))
+            self.scoped.get(*index).is_some_and(|entries| {
+                entries
+                    .iter()
+                    .any(|entry| self.entry_matches(entry, diagnostic, &versioned))
+            })
         })
     }
 
@@ -63,7 +67,10 @@ impl Suppressions {
         if self.package_flag(diagnostic, &self.ignored) {
             return true;
         }
-        self.entries.iter().any(|entry| self.entry_matches(entry, diagnostic))
+        let versioned = OnceCell::new();
+        self.entries
+            .iter()
+            .any(|entry| self.entry_matches(entry, diagnostic, &versioned))
     }
 
     /// Whether the diagnostic's package is flagged in `flags`. A diagnostic with a [`PackageId`] is looked up by it;
@@ -79,7 +86,7 @@ impl Suppressions {
             .is_some_and(|ids| !ids.is_empty() && ids.iter().all(|id| flags.get(id.index()).copied().unwrap_or(false)))
     }
 
-    fn entry_matches(&self, entry: &Entry, diagnostic: &Diagnostic) -> bool {
+    fn entry_matches(&self, entry: &Entry, diagnostic: &Diagnostic, versioned: &OnceCell<Option<String>>) -> bool {
         let rule_ok = entry.rules.is_empty() || entry.rules.contains(diagnostic.rule.as_str());
         let package_ok = entry
             .packages
@@ -89,20 +96,18 @@ impl Suppressions {
             || diagnostic
                 .dependency
                 .as_deref()
-                .is_some_and(|dependency| self.dependency_matches(&entry.dependencies, dependency, diagnostic));
+                .is_some_and(|dependency| {
+                    self.dependency_matches(&entry.dependencies, dependency, versioned_name(diagnostic, versioned))
+                });
         rule_ok && package_ok && dependency_ok
     }
 
     /// Matches `selector` against the dependency of `diagnostic`: its name, and `name@specifier` when the diagnostic
     /// carries the raw specifier (a dependency recorded as `name@specifier` is matched as written). The dependency
     /// is `$LOCAL` when its name is a workspace package.
-    fn dependency_matches(&self, selector: &Selector, dependency: &str, diagnostic: &Diagnostic) -> bool {
+    fn dependency_matches(&self, selector: &Selector, dependency: &str, versioned: Option<&str>) -> bool {
         let name = dependency_name(dependency);
-        let versioned = diagnostic
-            .specifier
-            .as_deref()
-            .map(|specifier| format!("{name}@{specifier}"));
-        let candidates = [dependency, name].into_iter().chain(versioned.as_deref());
+        let candidates = [dependency, name].into_iter().chain(versioned);
         selector.matches_any(candidates, self.by_name.contains_key(name))
     }
 }
@@ -121,6 +126,16 @@ fn build_entries(workspace: &Workspace, ignore: &[IgnoreEntry]) -> Vec<Entry> {
             dependencies: entry.dependencies.clone(),
         })
         .collect()
+}
+
+/// `name@specifier` of the diagnostic's dependency, built the first time an entry needs it and reused for the rest.
+fn versioned_name<'c>(diagnostic: &Diagnostic, cell: &'c OnceCell<Option<String>>) -> Option<&'c str> {
+    cell.get_or_init(|| {
+        let dependency = diagnostic.dependency.as_deref()?;
+        let specifier = diagnostic.specifier.as_deref()?;
+        Some(format!("{}@{specifier}", dependency_name(dependency)))
+    })
+    .as_deref()
 }
 
 fn dependency_name(dependency: &str) -> &str {

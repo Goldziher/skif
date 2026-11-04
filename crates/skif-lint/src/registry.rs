@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use skif_config::{Config, ConfigError};
 use skif_core::RuleMeta;
@@ -10,15 +10,20 @@ use crate::provider::RuleProvider;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum RegistryError {
+    /// Two rules share an ID.
     #[error("rule id \"{id}\" is registered more than once")]
-    DuplicateRule { id: String },
+    DuplicateRule {
+        /// The rule ID that appears twice.
+        id: String,
+    },
 }
 
 /// The rules of every registered provider; the single source for rule listings and validation.
 pub struct Registry {
     pub(crate) providers: Vec<Box<dyn RuleProvider>>,
     metas: Vec<&'static RuleMeta>,
-    owners: HashMap<&'static str, usize>,
+    /// Rule ID to its position in `metas` and to the provider that owns it.
+    index: HashMap<&'static str, (usize, usize)>,
 }
 
 impl Registry {
@@ -27,22 +32,20 @@ impl Registry {
     /// # Errors
     /// [`RegistryError::DuplicateRule`] when a rule ID appears twice, within or across providers.
     pub fn new(providers: Vec<Box<dyn RuleProvider>>) -> Result<Self, RegistryError> {
-        let mut seen = HashSet::new();
-        let mut metas = Vec::new();
-        let mut owners = HashMap::new();
-        for (index, provider) in providers.iter().enumerate() {
+        let mut metas: Vec<&'static RuleMeta> = Vec::new();
+        let mut index: HashMap<&'static str, (usize, usize)> = HashMap::new();
+        for (owner, provider) in providers.iter().enumerate() {
             for meta in provider.rules() {
-                if !seen.insert(meta.id) {
+                if index.insert(meta.id, (metas.len(), owner)).is_some() {
                     return Err(RegistryError::DuplicateRule { id: meta.id.to_owned() });
                 }
-                owners.insert(meta.id, index);
                 metas.push(meta);
             }
         }
         Ok(Self {
             providers,
             metas,
-            owners,
+            index,
         })
     }
 
@@ -54,7 +57,8 @@ impl Registry {
     /// Metadata of rule `id`.
     #[must_use]
     pub fn get(&self, id: &str) -> Option<&'static RuleMeta> {
-        self.rules().find(|meta| meta.id == id)
+        let (position, _) = *self.index.get(id)?;
+        self.metas.get(position).copied()
     }
 
     /// Resolves which rules run, and at which severity, under `config`.
@@ -92,7 +96,7 @@ impl Registry {
     }
 
     fn owner(&self, id: &str) -> Option<&dyn RuleProvider> {
-        let index = *self.owners.get(id)?;
-        self.providers.get(index).map(AsRef::as_ref)
+        let (_, owner) = *self.index.get(id)?;
+        self.providers.get(owner).map(AsRef::as_ref)
     }
 }

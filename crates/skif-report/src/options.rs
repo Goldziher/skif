@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use skif_core::RuleMeta;
 
 use crate::path::{collapse_dots, is_absolute_text, relativize};
-use crate::text::{line_of, utf16_column};
+use crate::text::{Source, utf16_column};
 
 /// Configuration for every renderer; the caller decides colour, root and sources.
 #[derive(Debug, Clone, Default)]
@@ -21,7 +21,7 @@ pub struct RenderOptions {
     /// The repository top-level, when the workspace root is below it; GitHub annotations are relative to it.
     pub repo_root: Option<PathBuf>,
     rules: Vec<&'static RuleMeta>,
-    sources: BTreeMap<String, String>,
+    sources: BTreeMap<String, Source>,
 }
 
 impl RenderOptions {
@@ -66,7 +66,7 @@ impl RenderOptions {
     #[must_use]
     pub fn with_source(mut self, path: impl AsRef<Path>, text: impl Into<String>) -> Self {
         let key = relativize(path.as_ref(), self.root.as_deref());
-        self.sources.insert(key, text.into());
+        self.sources.insert(key, Source::new(text.into()));
         self
     }
 
@@ -94,8 +94,7 @@ impl RenderOptions {
 
     /// The column in UTF-16 code units for a column counted in scalar values, when the text of the file is known.
     pub(crate) fn utf16_column(&self, display_path: &str, line: u32, column: u32) -> Option<u32> {
-        let text = self.source(display_path)?;
-        let line = line_of(text, line)?;
+        let line = self.source_line(display_path, line)?;
         Some(utf16_column(line, column))
     }
 
@@ -104,9 +103,9 @@ impl RenderOptions {
         &self.rules
     }
 
-    /// Source text registered for an already displayed path.
-    pub(crate) fn source(&self, display_path: &str) -> Option<&str> {
-        self.sources.get(display_path).map(String::as_str)
+    /// The 1-based `line` of the source registered for an already displayed path, without its line terminator.
+    pub(crate) fn source_line(&self, display_path: &str, line: u32) -> Option<&str> {
+        self.sources.get(display_path)?.line(line)
     }
 }
 

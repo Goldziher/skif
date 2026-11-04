@@ -6,13 +6,30 @@ use std::fmt::Write as _;
 
 use unicode_width::UnicodeWidthChar;
 
-/// The 1-based `line` of `source` without its line terminator.
-pub(crate) fn line_of(source: &str, line: u32) -> Option<&str> {
-    let index = usize::try_from(line.checked_sub(1)?).ok()?;
-    source
-        .split('\n')
-        .nth(index)
-        .map(|text| text.strip_suffix('\r').unwrap_or(text))
+/// The text of a file with the offset at which each line starts, so a line is a slice instead of a scan.
+#[derive(Debug, Clone)]
+pub(crate) struct Source {
+    text: String,
+    starts: Vec<usize>,
+}
+
+impl Source {
+    /// Indexes the lines of `text` once.
+    pub(crate) fn new(text: String) -> Self {
+        let starts = std::iter::once(0)
+            .chain(text.bytes().enumerate().filter(|&(_, byte)| byte == b'\n').map(|(at, _)| at + 1))
+            .collect();
+        Self { text, starts }
+    }
+
+    /// The 1-based `line` without its line terminator.
+    pub(crate) fn line(&self, line: u32) -> Option<&str> {
+        let index = usize::try_from(line.checked_sub(1)?).ok()?;
+        let start = *self.starts.get(index)?;
+        let end = self.starts.get(index + 1).map_or(self.text.len(), |next| next - 1);
+        let text = self.text.get(start..end)?;
+        Some(text.strip_suffix('\r').unwrap_or(text))
+    }
 }
 
 /// Converts a 1-based column counted in Unicode scalar values to one counted in UTF-16 code units.
@@ -146,11 +163,14 @@ mod tests {
     }
 
     #[test]
-    fn line_of_handles_crlf_and_bounds() {
-        let text = "a\r\nb\n";
-        assert_eq!(line_of(text, 1), Some("a"));
-        assert_eq!(line_of(text, 2), Some("b"));
-        assert_eq!(line_of(text, 4), None);
-        assert_eq!(line_of(text, 0), None);
+    fn lines_of_a_source_handle_crlf_and_bounds() {
+        let source = Source::new("a\r\nb\n".to_owned());
+        assert_eq!(source.line(1), Some("a"));
+        assert_eq!(source.line(2), Some("b"));
+        assert_eq!(source.line(3), Some(""));
+        assert_eq!(source.line(4), None);
+        assert_eq!(source.line(0), None);
+        assert_eq!(Source::new(String::new()).line(1), Some(""));
+        assert_eq!(Source::new(String::new()).line(2), None);
     }
 }

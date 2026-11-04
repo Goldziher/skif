@@ -78,20 +78,20 @@ fn repo_root(root: &Path) -> Option<PathBuf> {
 }
 
 fn overrides(args: &LintArgs) -> ConfigOverrides {
-    ConfigOverrides {
-        rules: args.rules.iter().cloned().collect(),
-        ignore_rules: args.ignore_rule.clone(),
-        ignore_packages: args.ignore_package.clone(),
-        ignore_dependencies: args.ignore_dependency.clone(),
-        fail_on_warnings: args.fail_on_warnings.then_some(true),
-        production: args.production.then_some(true),
-        no_js: args.no_js,
-        config_file: args
-            .config
-            .as_ref()
-            .map(|file| std::path::absolute(file).unwrap_or_else(|_| file.clone())),
-        no_config: args.no_config,
-    }
+    ConfigOverrides::default()
+        .with_rules(args.rules.iter().cloned())
+        .with_ignore_rules(args.ignore_rule.clone())
+        .with_ignore_packages(args.ignore_package.clone())
+        .with_ignore_dependencies(args.ignore_dependency.clone())
+        .with_fail_on_warnings(args.fail_on_warnings.then_some(true))
+        .with_production(args.production.then_some(true))
+        .with_no_js(args.no_js)
+        .with_config_file(
+            args.config
+                .as_ref()
+                .map(|file| std::path::absolute(file).unwrap_or_else(|_| file.clone())),
+        )
+        .with_no_config(args.no_config)
 }
 
 /// The flags that are not plain configuration overrides, applied over a loaded configuration.

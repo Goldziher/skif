@@ -50,20 +50,18 @@ pub struct LintOptions {
 
 impl LintOptions {
     fn overrides(self) -> ConfigOverrides {
-        ConfigOverrides {
-            ignore_rules: self.ignore_rules.unwrap_or_default(),
-            ignore_packages: self.ignore_packages.unwrap_or_default(),
-            ignore_dependencies: self.ignore_dependencies.unwrap_or_default(),
-            fail_on_warnings: self.fail_on_warnings,
-            production: self.production,
-            no_js: self.no_js.unwrap_or(false),
-            config_file: self.config.map(|file| {
+        ConfigOverrides::default()
+            .with_ignore_rules(self.ignore_rules.unwrap_or_default())
+            .with_ignore_packages(self.ignore_packages.unwrap_or_default())
+            .with_ignore_dependencies(self.ignore_dependencies.unwrap_or_default())
+            .with_fail_on_warnings(self.fail_on_warnings)
+            .with_production(self.production)
+            .with_no_js(self.no_js.unwrap_or(false))
+            .with_config_file(self.config.map(|file| {
                 let file = PathBuf::from(file);
                 std::path::absolute(&file).unwrap_or(file)
-            }),
-            no_config: self.no_config.unwrap_or(false),
-            ..ConfigOverrides::default()
-        }
+            }))
+            .with_no_config(self.no_config.unwrap_or(false))
     }
 }
 
