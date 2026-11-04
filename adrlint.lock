@@ -120,3 +120,23 @@ blake3 = "f3fdba8d95ce99232126e077300ac2392e25e487840627a540d4ae3866cc2bb4"
 number = 24
 status = "accepted"
 blake3 = "fbf9381474b84ce7181b68da8fbafe7ca0b4b10ba7e64d67a1e77dbdc0e32bbf"
+
+[adrs."adrs/0025-plugin-set-extension-thirty-five-more-tools.md"]
+number = 25
+status = "accepted"
+blake3 = "360379efa09c560c31adcb35c0a6569b908373c2d9532adbc2dade85e473ab2b"
+
+[adrs."adrs/0026-parity-and-diff-tasks-on-a-pinned-corpus.md"]
+number = 26
+status = "accepted"
+blake3 = "9695adcc9bffab30731cf2e875208eae4d5c7738893bb7c1f51f0a480a16d614"
+
+[adrs."adrs/0027-supported-versions-follow-upstream-end-of-life-policies.md"]
+number = 27
+status = "accepted"
+blake3 = "51df22d9d0237a861ce146129356c03546c36153e1d1b6ebc0b88d2f15d7f579"
+
+[adrs."adrs/0028-cli-flag-contract-completion-and-withdrawn-confirmations.md"]
+number = 28
+status = "accepted"
+blake3 = "9f5af6c20448742c6516412e920ceaffa49b456383d4b8dd286313078963e1a7"

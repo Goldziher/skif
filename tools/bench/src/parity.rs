@@ -5,6 +5,7 @@
 //! committed baselines say what the agreement was, and `--check` fails when it moves.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -353,17 +354,19 @@ fn markdown(tool: &str, installed: bool, entries: &BTreeMap<String, Entry>) -> S
     for (name, entry) in entries {
         if entry.status == COMPARED {
             let sum = |f: fn(&Counts) -> usize| entry.categories.values().map(f).sum::<usize>();
-            out.push_str(&format!(
-                "| {name} | compared | {} | {} | {} |\n",
+            let _ = writeln!(
+                out,
+                "| {name} | compared | {} | {} | {} |",
                 sum(|c| c.skif_only),
                 sum(|c| c.tool_only),
                 sum(|c| c.both)
-            ));
+            );
         } else {
-            out.push_str(&format!(
-                "| {name} | skipped: {} | - | - | - |\n",
+            let _ = writeln!(
+                out,
+                "| {name} | skipped: {} | - | - | - |",
                 entry.reason.as_deref().unwrap_or("")
-            ));
+            );
         }
     }
     out

@@ -326,7 +326,7 @@ mod tests {
     fn check_accepts_small_drift_and_rejects_large() {
         let base = baseline(&[("r", Entry::compared(counts(0, 100, 1000)))]);
         let near = baseline(&[("r", Entry::compared(counts(2, 108, 1090)))]);
-        assert!(check(&base, &near, TOLERANCE).is_empty());
+        assert_eq!(check(&base, &near, TOLERANCE), [] as [std::string::String; 0]);
         let far = baseline(&[("r", Entry::compared(counts(3, 100, 1000)))]);
         assert_eq!(check(&base, &far, TOLERANCE).len(), 1);
     }

@@ -7,6 +7,7 @@
 //! that does not translate to a syncpack configuration is skipped with the reason.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -431,17 +432,19 @@ fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
                 .cases
                 .as_ref()
                 .map_or_else(|| "-".to_owned(), |c| c.differing.len().to_string());
-            out.push_str(&format!(
-                "| {name} | compared | {} | {} | {} | {differing} |\n",
+            let _ = writeln!(
+                out,
+                "| {name} | compared | {} | {} | {} | {differing} |",
                 sum(|c| c.skif_only),
                 sum(|c| c.tool_only),
                 sum(|c| c.both)
-            ));
+            );
         } else {
-            out.push_str(&format!(
-                "| {name} | skipped: {} | - | - | - | - |\n",
+            let _ = writeln!(
+                out,
+                "| {name} | skipped: {} | - | - | - | - |",
                 entry.reason.as_deref().unwrap_or("")
-            ));
+            );
         }
     }
     out
