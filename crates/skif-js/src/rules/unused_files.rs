@@ -8,13 +8,13 @@ use super::support::file_location;
 use crate::analysis::JsAnalysis;
 
 /// Metadata of `unused-files`. Warning until the rule reaches corpus parity with knip; `unused-dependencies`, `unlisted-dependencies` and `unresolved-imports` stay errors.
-pub static META: RuleMeta = RuleMeta {
-    id: "unused-files",
-    category: Category::Js,
-    default: Some(Severity::Warning),
-    fixable: Fixability::Unsafe,
-    summary: "A project file is not reachable from any entry file.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unused-files",
+    Category::Js,
+    Some(Severity::Warning),
+    Fixability::Unsafe,
+    "A project file is not reachable from any entry file.",
+);
 
 /// Reports project files that no entry file imports, directly or through other files.
 pub struct UnusedFiles;
@@ -39,13 +39,13 @@ impl JsRule for UnusedFiles {
             }
             out.emit(
                 builder
-                    .fix(Fix {
-                        title: format!("Delete `{}`", slash(&file.path)),
-                        safety: FixSafety::Unsafe,
-                        ops: vec![FixOp::DeleteFile {
-                            path: file.path.clone(),
-                        }],
-                    })
+                    .fix(Fix::new(
+                        format!("Delete `{}`", slash(&file.path)),
+                        FixSafety::Unsafe,
+                        vec![FixOp::delete_file(
+                            file.path.clone(),
+                        )],
+                    ))
                     .build(),
             );
         }

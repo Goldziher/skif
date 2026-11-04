@@ -339,11 +339,11 @@ pub(super) fn emit(
 
 /// An unsafe fix that rewrites `instance` to `catalog`, after `catalog_ops`.
 pub(super) fn use_catalog_fix(instance: Instance<'_>, catalog: &CatalogName, catalog_ops: &[FixOp]) -> Fix {
-    Fix {
-        title: format!("Use `{}` for `{}`", catalog.reference(), instance.entry.name),
-        safety: FixSafety::Unsafe,
-        ops: use_catalog_ops(instance, catalog, catalog_ops),
-    }
+    Fix::new(
+        format!("Use `{}` for `{}`", catalog.reference(), instance.entry.name),
+        FixSafety::Unsafe,
+        use_catalog_ops(instance, catalog, catalog_ops),
+    )
 }
 
 #[cfg(test)]

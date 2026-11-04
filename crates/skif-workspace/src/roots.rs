@@ -362,12 +362,15 @@ pub fn declared_member_dirs(fs: &dyn FileSystem, root: &Path) -> BTreeSet<PathBu
 
 /// The directories below `parent` that are symbolic links.
 fn links_in(fs: &dyn FileSystem, parent: &Path) -> BTreeSet<PathBuf> {
-    fs.read_dir(parent)
+    fs.read_dir_shared(parent)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter(|entry| entry.is_symlink)
+                .map(|entry| entry.path.clone())
+                .collect()
+        })
         .unwrap_or_default()
-        .into_iter()
-        .filter(|entry| entry.is_symlink)
-        .map(|entry| entry.path)
-        .collect()
 }
 
 /// `dir` as the OS resolves it when `dir` or a directory between `root` and `dir` is a symbolic link, else `dir`.
@@ -819,7 +822,7 @@ mod tests {
             .filter_map(|(_, package)| package.name.clone())
             .collect();
         assert_eq!(ignored, ["b"]);
-        assert_eq!(workspace.packages.len(), 2);
+        assert_eq!(workspace.packages().len(), 2);
     }
 
     fn rush_repo() -> MemoryFs {

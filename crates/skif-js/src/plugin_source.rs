@@ -82,7 +82,7 @@ fn scripts(request: &InputRequest<'_>) -> IndexMap<String, String> {
     request
         .package
         .manifest
-        .value
+        .value()
         .get("scripts")
         .and_then(serde_json::Value::as_object)
         .map(|scripts| {

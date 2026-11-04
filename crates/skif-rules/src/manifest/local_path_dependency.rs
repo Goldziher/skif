@@ -6,13 +6,13 @@ use skif_workspace::{PackageManager, Workspace};
 use super::support::{active_packages, json_op, key, value_location};
 
 /// Metadata of `local-path-dependency`.
-pub static META: RuleMeta = RuleMeta {
-    id: "local-path-dependency",
-    category: Category::Manifest,
-    default: Some(Severity::Error),
-    fixable: Fixability::Sometimes,
-    summary: "A dependency points at a path on disk (`link:`, `file:`, `portal:` or a relative path) instead of a registry or workspace version.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "local-path-dependency",
+    Category::Manifest,
+    Some(Severity::Error),
+    Fixability::Sometimes,
+    "A dependency points at a path on disk (`link:`, `file:`, `portal:` or a relative path) instead of a registry or workspace version.",
+);
 
 /// Reports dependencies that point at local paths. Those naming a workspace package can be replaced by the
 /// workspace specifier of the detected package manager.
@@ -70,15 +70,15 @@ impl Rule for LocalPathDependency {
                         .help(format!(
                             "depend on the workspace package with `{replacement}` instead of a path"
                         ))
-                        .fix(Fix {
-                            title: format!("Use `{replacement}` for `{}`", entry.name),
-                            safety: FixSafety::Unsafe,
-                            ops: vec![json_op(
+                        .fix(Fix::new(
+                            format!("Use `{replacement}` for `{}`", entry.name),
+                            FixSafety::Unsafe,
+                            vec![json_op(
                                 package,
                                 vec![key(entry.kind.field()), key(&entry.name)],
                                 JsonAction::Set(Value::String(replacement.to_owned())),
                             )],
-                        }),
+                        )),
                     _ => builder.help("publish the package or vendor it; paths outside the workspace packages do not install elsewhere"),
                 };
                 out.emit(builder.build());

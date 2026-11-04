@@ -14,10 +14,10 @@ use crate::graph::Module;
 
 /// A position in a module.
 pub(super) fn module_location(module: &Module, span: Option<Span>) -> Location {
-    Location {
-        path: module.path.clone(),
+    Location::new(
+        module.path.clone(),
         span,
-    }
+    )
 }
 
 /// Whether the module sits in a `fixtures` or `__fixtures__` directory. Fixtures are test data (often deliberately
@@ -31,43 +31,43 @@ pub(super) fn is_fixture(module: &Module) -> bool {
 
 /// A dependency entry of a manifest, from its key through its value.
 pub(super) fn entry_location(package: &Package, entry: &DependencyEntry) -> Location {
-    Location {
-        path: package.manifest.path.clone(),
-        span: Some(
+    Location::new(
+        package.manifest.path.clone(),
+        Some(
             package
                 .manifest
-                .line_index
+                .line_index()
                 .span(entry.key_span.start, entry.value_span.end),
         ),
-    }
+    )
 }
 
 /// Removes a dependency entry from its manifest section.
 pub(super) fn remove_dependency_fix(package: &Package, entry: &DependencyEntry) -> Fix {
-    Fix {
-        title: format!("Remove `{}` from `{}`", entry.name, entry.kind.field()),
-        safety: FixSafety::Unsafe,
-        ops: vec![FixOp::Json {
-            path: package.manifest.path.clone(),
-            pointer: vec![
+    Fix::new(
+        format!("Remove `{}` from `{}`", entry.name, entry.kind.field()),
+        FixSafety::Unsafe,
+        vec![FixOp::json(
+            package.manifest.path.clone(),
+            vec![
                 PathSeg::Key(entry.kind.field().to_owned()),
                 PathSeg::Key(entry.name.clone()),
             ],
-            action: JsonAction::Remove,
-        }],
-    }
+            JsonAction::Remove,
+        )],
+    )
 }
 
 /// Deletes a byte range of a module.
 pub(super) fn delete_range(module: &Module, start: u32, end: u32) -> FixOp {
-    FixOp::Text {
-        path: module.path.clone(),
-        edit: TextEdit {
+    FixOp::text(
+        module.path.clone(),
+        TextEdit::new(
             start,
             end,
-            replacement: String::new(),
-        },
-    }
+            String::new(),
+        ),
+    )
 }
 
 /// Reports every dependency of the given sections that nothing uses.
@@ -105,5 +105,5 @@ fn unused_dependency(meta: &'static RuleMeta, package: &Package, entry: &Depende
 
 /// The path of a package-relative file for diagnostics that have no module.
 pub(super) fn file_location(path: PathBuf) -> Location {
-    Location { path, span: None }
+    Location::new(path, None)
 }

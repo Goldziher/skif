@@ -8,13 +8,13 @@ use skif_workspace::Package;
 use super::catalog::support::{active_packages, value_location};
 
 /// Metadata of `workspace-protocol`.
-pub static META: RuleMeta = RuleMeta {
-    id: "workspace-protocol",
-    category: Category::Policy,
-    default: Some(Severity::Error),
-    fixable: Fixability::None,
-    summary: "A dependency on a workspace package does not use the `workspace:` protocol.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "workspace-protocol",
+    Category::Policy,
+    Some(Severity::Error),
+    Fixability::None,
+    "A dependency on a workspace package does not use the `workspace:` protocol.",
+);
 
 /// Reports dependencies on other workspace packages that are written as plain versions, `catalog:` references or
 /// paths, when `[workspace-protocol] internal` is set.

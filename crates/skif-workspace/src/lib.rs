@@ -48,4 +48,9 @@ const _: () = {
     let _ = assert_send_sync::<DependencyEntry>;
     let _ = assert_send_sync::<Catalogs>;
     let _ = assert_send_sync::<WorkspaceError>;
+    let _ = assert_send_sync::<FieldSpans>;
+    let _ = assert_send_sync::<YamlSource>;
+    let _ = assert_send_sync::<DiscoveryFacts>;
+    let _ = assert_send_sync::<PatternFact>;
+    let _ = assert_send_sync::<WorkspaceSource>;
 };

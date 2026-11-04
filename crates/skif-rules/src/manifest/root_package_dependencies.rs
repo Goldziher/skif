@@ -4,13 +4,13 @@ use skif_lint::{Emitter, LintContext, Rule};
 use super::support::{entry_location, field_location, move_to_dev_dependencies, section};
 
 /// Metadata of `root-package-dependencies`.
-pub static META: RuleMeta = RuleMeta {
-    id: "root-package-dependencies",
-    category: Category::Manifest,
-    default: Some(Severity::Warning),
-    fixable: Fixability::Unsafe,
-    summary: "The root package should only have `devDependencies`; runtime dependencies belong to the packages that use them.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "root-package-dependencies",
+    Category::Manifest,
+    Some(Severity::Warning),
+    Fixability::Unsafe,
+    "The root package should only have `devDependencies`; runtime dependencies belong to the packages that use them.",
+);
 
 /// Reports a non-empty `dependencies` section in the root manifest.
 #[derive(Debug, Clone, Copy, Default)]
@@ -26,7 +26,7 @@ impl Rule for RootPackageDependencies {
         if cx.workspace.facts.source == skif_workspace::WorkspaceSource::SinglePackage {
             return;
         }
-        let root = &cx.workspace.root_package;
+        let root = cx.workspace.root_package();
         if cx.workspace.is_ignored(root.id) {
             return;
         }
@@ -50,17 +50,17 @@ impl Rule for RootPackageDependencies {
             .iter()
             .filter(|entry| entry.kind == DependencyKind::Dependencies)
         {
-            builder = builder.related(skif_core::Related {
-                message: format!("`{}` is a runtime dependency of the root", entry.name),
-                location: entry_location(root, entry),
-            });
+            builder = builder.related(skif_core::Related::new(
+                format!("`{}` is a runtime dependency of the root", entry.name),
+                entry_location(root, entry),
+            ));
         }
         if let Some(ops) = move_to_dev_dependencies(root, &names) {
-            builder = builder.fix(Fix {
-                title: "Move the root `dependencies` to `devDependencies`".to_owned(),
-                safety: FixSafety::Unsafe,
+            builder = builder.fix(Fix::new(
+                "Move the root `dependencies` to `devDependencies`".to_owned(),
+                FixSafety::Unsafe,
                 ops,
-            });
+            ));
         }
         out.emit(builder.build());
     }

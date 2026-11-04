@@ -98,6 +98,20 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Changed
 
+- **Library timings are a hook, not an environment read**: `skif_core::timing` no longer looks at `SKIF_TIMINGS` or
+  writes to stderr on its own. A host installs a sink with `timing::enable` (or `enable_stderr`); the `skif` command
+  line does so when `SKIF_TIMINGS` is set. The `skif` crate no longer re-exports `timing`.
+- **Data types that rules and hosts build are `#[non_exhaustive]`** (`Span`, `Location`, `Related`, `Fix`,
+  `TextEdit`, `RuleMeta`, the struct variants of `FixOp` and `JsonAction::Insert`, `Package`, `Manifest`,
+  `DependencyEntry`, `FieldSpans`); build them with `Span::new`, `Location::new`, `Related::new`, `Fix::new`,
+  `TextEdit::new`, `RuleMeta::new`, `FixOp::{json, yaml, text, create_file, delete_file}` and `JsonAction::insert`.
+- **`Workspace` and `Manifest` keep their invariants private**: use `Workspace::{root_package, packages,
+  has_root_manifest}` and `Manifest::{source, line_index, value, shared_value}`. `PackageId::from_index` is hidden
+  from the documentation.
+- **`FileSystem`** gains `read_bytes` and `modified` (with defaults), and `&F`, `Box<F>` and `Arc<F>` are file systems.
+- **Faster discovery**: `Workspace::package_by_name` is a hash lookup, each distinct specifier is parsed once per
+  workspace, a manifest builds its span table on the first span lookup, and line indexes of ASCII text skip the
+  character walk.
 - The JSON Schema of `skif.toml` offers `level` (with `severity` as its alias) in a rule table, and the rule
   reference and configuration page document the rule options (`mode` of `member-toolchain-fields`, `ignore-tags` of
   `unused-exports`) and that `unused-catalog-entries` reports only with `[catalog] report-unused-entries = true`.

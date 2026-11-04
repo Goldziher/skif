@@ -15,14 +15,14 @@ fn discover(name: &str) -> Workspace {
 
 fn dirs(workspace: &Workspace) -> Vec<String> {
     workspace
-        .packages
+        .packages()
         .iter()
         .map(|p| p.dir.to_str().unwrap().to_owned())
         .collect()
 }
 
 fn names(workspace: &Workspace) -> Vec<String> {
-    let mut names: Vec<String> = workspace.packages.iter().filter_map(|p| p.name.clone()).collect();
+    let mut names: Vec<String> = workspace.packages().iter().filter_map(|p| p.name.clone()).collect();
     names.sort();
     names
 }
@@ -52,8 +52,8 @@ fn empty_dir_has_no_root_manifest() {
 #[test]
 fn basic() {
     let workspace = discover("basic");
-    assert_eq!(workspace.root_package.name.as_deref(), Some("basic"));
-    assert!(workspace.root_package.is_root);
+    assert_eq!(workspace.root_package().name.as_deref(), Some("basic"));
+    assert!(workspace.root_package().is_root);
     assert_eq!(dirs(&workspace), ["docs", "packages/abc", "packages/def"]);
     assert_eq!(workspace.facts.source, WorkspaceSource::PackageJsonWorkspaces);
     assert_eq!(unmatched(&workspace), ["examples/*", "website"]);
@@ -85,7 +85,7 @@ fn yarn_nohoist() {
 fn a_package_without_a_workspace_is_a_single_package() {
     let workspace = Workspace::discover(&fixture("no-workspace-pnpm"), &Config::default()).unwrap();
     assert_eq!(workspace.facts.source, WorkspaceSource::SinglePackage);
-    assert!(workspace.packages.is_empty());
+    assert!(workspace.packages().is_empty());
     assert_eq!(workspace.facts.patterns, [] as [skif_workspace::PatternFact; 0]);
 }
 
@@ -93,7 +93,7 @@ fn a_package_without_a_workspace_is_a_single_package() {
 fn a_pnpm_workspace_file_with_only_settings_and_no_member_is_a_single_package() {
     let workspace = Workspace::discover(&fixture("pnpm-settings-only"), &Config::default()).unwrap();
     assert_eq!(workspace.facts.source, WorkspaceSource::SinglePackage);
-    assert!(workspace.packages.is_empty());
+    assert!(workspace.packages().is_empty());
     assert!(workspace.pnpm_workspace.is_some());
 }
 
@@ -207,7 +207,7 @@ fn dependency_spans_in_fixture() {
     let workspace = discover("catalogs");
     let a = workspace.package_by_name("a").unwrap();
     let entry = a.dependencies.iter().find(|d| d.name == "typescript").unwrap();
-    let source = &a.manifest.source;
+    let source = a.manifest.source();
     assert_eq!(
         &source[entry.value_span.start as usize..entry.value_span.end as usize],
         "\"catalog:\""

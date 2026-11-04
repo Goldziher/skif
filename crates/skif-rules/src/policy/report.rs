@@ -115,15 +115,15 @@ fn related_of(analysis: &Analysis<'_>, id: InstanceId, verdict: &Verdict) -> Opt
         ),
         _ => return None,
     };
-    Some(Related {
-        message: format!(
+    Some(Related::new(
+        format!(
             "`{}@{}` in {} {why}",
             counterpart.name,
             counterpart.raw(),
             counterpart.package.display_name()
         ),
-        location: counterpart.location(),
-    })
+        counterpart.location(),
+    ))
 }
 
 /// The fix of a fixable state: the entry is removed when banned, and set to the chosen specifier otherwise.
@@ -142,11 +142,11 @@ fn fix_of(instance: &Instance<'_>, verdict: &Verdict) -> Option<Fix> {
             instance.set_specifier(target)?,
         )
     };
-    Some(Fix {
+    Some(Fix::new(
         title,
-        safety: FixSafety::Unsafe,
-        ops: vec![op],
-    })
+        FixSafety::Unsafe,
+        vec![op],
+    ))
 }
 
 /// A finding about a configured version group, located in the configuration file.
@@ -158,10 +158,10 @@ fn group_diagnostic(state: State, config_file: &Path, group: &ConfiguredGroup, w
     diagnostic(
         state.rule(),
         format!("the version group {name} {what}"),
-        Location {
-            path: config_file.to_path_buf(),
-            span: None,
-        },
+        Location::new(
+            config_file.to_path_buf(),
+            None,
+        ),
     )
     .help(help)
     .detail(state.name())

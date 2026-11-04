@@ -155,7 +155,7 @@ fn reference(root: &Value, path: &[PathSeg], action: &JsonAction) -> Value {
                 _ => unreachable!("generated paths are valid"),
             }
         }
-        JsonAction::Insert { key, value, position } => {
+        JsonAction::Insert { key, value, position , ..} => {
             let target = at_mut(&mut result, path);
             let Value::Object(map) = &*target else { unreachable!() };
             let mut list = entries(map);
@@ -207,11 +207,11 @@ fn choose(
         2 => pick(&|node| node.1.is_object()).map(|path| {
             (
                 path,
-                JsonAction::Insert {
-                    key: new_key,
-                    value: new_value.clone(),
+                JsonAction::insert(
+                    new_key,
+                    new_value.clone(),
                     position,
-                },
+                ),
             )
         }),
         3 => pick(&|node| node.1.is_object()).map(|path| (path, JsonAction::SortKeys)),
@@ -237,7 +237,7 @@ proptest! {
         let source = format_document(&doc, &layout);
         let (path, action) = choose(&doc, selector, kind, new_key, new_value, position);
         let expected = reference(&doc, &path, &action);
-        let op = FixOp::Json { path: "package.json".into(), pointer: path, action };
+        let op = FixOp::json("package.json", path, action);
 
         let edited = apply(&source, FileKind::Json, &[&op]).expect("edit applies");
 

@@ -202,7 +202,7 @@ pub(crate) fn plan(source: &str, ops: &[&FixOp]) -> Result<Vec<Planned>, EditPla
             }
             FixOp::Json {
                 pointer,
-                action: JsonAction::Insert { key, value, position },
+                action: JsonAction::Insert { key, value, position, .. },
                 ..
             } => {
                 doc.queue_insertion(

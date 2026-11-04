@@ -141,14 +141,14 @@ fn span(source: &str, start: usize, end: usize) -> Span {
     };
     let (start_line, start_col) = position(start);
     let (end_line, end_col) = position(end);
-    Span {
-        start: u32::try_from(start).unwrap_or(u32::MAX),
-        end: u32::try_from(end).unwrap_or(u32::MAX),
+    Span::new(
+        u32::try_from(start).unwrap_or(u32::MAX),
+        u32::try_from(end).unwrap_or(u32::MAX),
         start_line,
         start_col,
         end_line,
         end_col,
-    }
+    )
 }
 
 /// `(specifier, start, end)` of the specifiers written in `new URL("./x", import.meta.url)` and in mock calls.

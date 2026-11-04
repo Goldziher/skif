@@ -8,13 +8,13 @@ use skif_workspace::{Catalogs, DependencyEntry};
 use super::support::{active_packages, entry_location};
 
 /// Metadata of `incompatible-peer-dependencies`.
-pub static META: RuleMeta = RuleMeta {
-    id: "incompatible-peer-dependencies",
-    category: Category::Manifest,
-    default: Some(Severity::Warning),
-    fixable: Fixability::None,
-    summary: "The version a package installs in `devDependencies` does not satisfy the range it declares in `peerDependencies`.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "incompatible-peer-dependencies",
+    Category::Manifest,
+    Some(Severity::Warning),
+    Fixability::None,
+    "The version a package installs in `devDependencies` does not satisfy the range it declares in `peerDependencies`.",
+);
 
 /// Reports packages whose `devDependencies` version falls outside their own `peerDependencies` range.
 #[derive(Debug, Clone, Copy, Default)]
@@ -94,10 +94,10 @@ impl Rule for IncompatiblePeerDependencies {
                         "install a version of `{}` that satisfies `{}` in devDependencies, or widen the peer range",
                         peer.name, peer.specifier
                     ))
-                    .related(Related {
-                        message: format!("`{}` is installed as `{}` here", dev.name, dev.specifier),
-                        location: entry_location(package, dev),
-                    })
+                    .related(Related::new(
+                        format!("`{}` is installed as `{}` here", dev.name, dev.specifier),
+                        entry_location(package, dev),
+                    ))
                     .build(),
                 );
             }

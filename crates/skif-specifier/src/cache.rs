@@ -1,23 +1,34 @@
 // Added for skif (not in syncpack): caller-owned replacement for the upstream thread-local cache; see ATTRIBUTIONS.md.
 use {
     crate::Specifier,
+    rustc_hash::{FxBuildHasher, FxHashMap},
     std::{
-        collections::HashMap,
-        sync::{Arc, RwLock},
+        hash::BuildHasher,
+        sync::{Arc, PoisonError, RwLock},
     },
 };
+
+/// Independently locked parts of the cache, so parallel member loading rarely waits on one lock.
+const SHARDS: usize = 16;
+
+type Shard = RwLock<FxHashMap<Box<str>, Arc<Specifier>>>;
 
 /// A caller-owned, thread-safe cache which deduplicates parsed [`Specifier`]s
 /// by their raw string.
 #[derive(Debug, Default)]
 pub struct SpecifierCache {
-    entries: RwLock<HashMap<Box<str>, Arc<Specifier>>>,
+    shards: [Shard; SHARDS],
 }
 
 impl SpecifierCache {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn shard(&self, raw: &str) -> &Shard {
+        let index = usize::try_from(FxBuildHasher.hash_one(raw) % SHARDS as u64).unwrap_or(0);
+        &self.shards[index]
     }
 
     /// Return the cached Specifier for `raw`, parsing and storing it on first use.
@@ -28,25 +39,21 @@ impl SpecifierCache {
     /// only ever holds fully-constructed values.
     #[must_use]
     pub fn get_or_parse(&self, raw: &str) -> Arc<Specifier> {
-        if let Some(found) = self
-            .entries
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(raw)
-        {
+        let shard = self.shard(raw);
+        if let Some(found) = shard.read().unwrap_or_else(PoisonError::into_inner).get(raw) {
             return Arc::clone(found);
         }
         let parsed = Specifier::new(raw);
-        let mut entries = self.entries.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut entries = shard.write().unwrap_or_else(PoisonError::into_inner);
         Arc::clone(entries.entry(raw.into()).or_insert(parsed))
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.entries
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .len()
+        self.shards
+            .iter()
+            .map(|shard| shard.read().unwrap_or_else(PoisonError::into_inner).len())
+            .sum()
     }
 
     #[must_use]

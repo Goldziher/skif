@@ -5,13 +5,13 @@ use skif_lint::{Emitter, LintContext, Rule};
 use super::support::{active_packages, field_location, json_op, section};
 
 /// Metadata of `empty-dependencies`.
-pub static META: RuleMeta = RuleMeta {
-    id: "empty-dependencies",
-    category: Category::Manifest,
-    default: Some(Severity::Error),
-    fixable: Fixability::Safe,
-    summary: "A dependency section (`dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`) is an empty object.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "empty-dependencies",
+    Category::Manifest,
+    Some(Severity::Error),
+    Fixability::Safe,
+    "A dependency section (`dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`) is an empty object.",
+);
 
 /// Reports dependency sections that are present but empty, in the root and in every member.
 #[derive(Debug, Clone, Copy, Default)]
@@ -38,11 +38,11 @@ impl Rule for EmptyDependencies {
                     .package(package.display_name())
                     .package_id(package.id)
                     .help(format!("remove the empty `{field}` field"))
-                    .fix(Fix {
-                        title: format!("Remove the empty `{field}` field"),
-                        safety: FixSafety::Safe,
-                        ops: vec![json_op(package, section(kind), JsonAction::Remove)],
-                    })
+                    .fix(Fix::new(
+                        format!("Remove the empty `{field}` field"),
+                        FixSafety::Safe,
+                        vec![json_op(package, section(kind), JsonAction::Remove)],
+                    ))
                     .build(),
                 );
             }

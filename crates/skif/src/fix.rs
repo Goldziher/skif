@@ -43,7 +43,7 @@ fn names(title: &str, prefer: Prefer) -> bool {
 /// ```
 /// use skif::{Fix, FixSafety, Prefer, preferred_alternative};
 ///
-/// let fix = |title: &str| Fix { title: title.to_owned(), safety: FixSafety::Unsafe, ops: Vec::new() };
+/// let fix = |title: &str| Fix::new(title.to_owned(), FixSafety::Unsafe, Vec::new());
 /// let fixes = [fix("Use the highest version"), fix("Use the lowest version")];
 /// assert_eq!(preferred_alternative(&fixes, Prefer::Lowest), Some(1));
 /// assert_eq!(preferred_alternative(&fixes[..1], Prefer::Lowest), None);
@@ -277,7 +277,7 @@ fn op_path(op: &FixOp) -> Option<&Path> {
         | FixOp::Yaml { path, .. }
         | FixOp::Text { path, .. }
         | FixOp::CreateFile { path, .. }
-        | FixOp::DeleteFile { path } => Some(path),
+        | FixOp::DeleteFile { path , ..} => Some(path),
         _ => None,
     }
 }
