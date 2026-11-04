@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use indexmap::IndexMap;
-use skif_config::PluginConfig;
+use skif_config::{Override, PluginConfig, PluginOptions};
 use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins};
 
 use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
@@ -12,13 +12,63 @@ use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInpu
 #[derive(Debug, Clone)]
 pub struct PluginSource {
     plugins: IndexMap<String, PluginConfig>,
+    /// The `[[overrides]]` that set `js.plugins`, applied to the packages they select.
+    scoped: Vec<Override>,
 }
 
 impl PluginSource {
     /// A source that applies the `[js.plugins]` switches and overrides in `plugins` on top of detection.
     #[must_use]
     pub fn new(plugins: IndexMap<String, PluginConfig>) -> Self {
-        Self { plugins }
+        Self {
+            plugins,
+            scoped: Vec::new(),
+        }
+    }
+
+    /// Also applies the `js.plugins` of the `[[overrides]]` blocks in `overrides` to the packages they select, in
+    /// order, after the table given to [`new`](Self::new).
+    #[must_use]
+    pub fn with_overrides(mut self, overrides: &[Override]) -> Self {
+        self.scoped = overrides
+            .iter()
+            .filter(|scoped| !scoped.js.plugins.is_empty())
+            .cloned()
+            .collect();
+        self
+    }
+
+    /// The plugin table for one package: the global table with the matching overrides folded in.
+    fn plugins_for(&self, name: &str, dir: &Path) -> IndexMap<String, PluginConfig> {
+        let mut plugins = self.plugins.clone();
+        for scoped in self.scoped.iter().filter(|scoped| scoped.applies_to(Some((name, dir)), None)) {
+            for (plugin, incoming) in &scoped.js.plugins {
+                let merged = merge(plugins.get(plugin), incoming);
+                plugins.insert(plugin.clone(), merged);
+            }
+        }
+        plugins
+    }
+}
+
+/// `incoming` over `inherited`: a switch keeps the options, a table replaces them and keeps an inherited switch it
+/// does not set itself.
+fn merge(inherited: Option<&PluginConfig>, incoming: &PluginConfig) -> PluginConfig {
+    let inherited_enabled = match inherited {
+        Some(PluginConfig::Enabled(enabled)) => Some(*enabled),
+        Some(PluginConfig::Options(options)) => options.enabled,
+        None => None,
+    };
+    match (incoming, inherited) {
+        (PluginConfig::Enabled(enabled), Some(PluginConfig::Options(options))) => PluginConfig::Options(PluginOptions {
+            enabled: Some(*enabled),
+            ..options.clone()
+        }),
+        (PluginConfig::Options(options), _) if options.enabled.is_none() => PluginConfig::Options(PluginOptions {
+            enabled: inherited_enabled,
+            ..options.clone()
+        }),
+        _ => incoming.clone(),
     }
 }
 
@@ -110,6 +160,7 @@ impl InputSource for PluginSource {
         let inherited = inherited_dependencies(request);
         let scripts = scripts(request);
         let dir = request.workspace.root.join(Path::new(&package.dir));
+        let plugins = self.plugins_for(package.display_name(), if package.is_root { &request.workspace.root } else { &dir });
         let context = PluginContext {
             dir: &dir,
             is_root: package.is_root,
@@ -118,7 +169,7 @@ impl InputSource for PluginSource {
             inherited_dependencies: &inherited,
             scripts: &scripts,
             fs: request.fs,
-            plugins: &self.plugins,
+            plugins: &plugins,
         };
         resolve_plugins(&context)
             .into_iter()
