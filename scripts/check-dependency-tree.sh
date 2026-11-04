@@ -10,6 +10,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 failures=0
+errors="$(mktemp)"
+trap 'rm -f "$errors"' EXIT
 
 if cargo tree -p skif --no-default-features -e normal --prefix none --locked | grep -q '^oxc_'; then
   echo "::error::skif without default features depends on an oxc crate"
@@ -23,7 +25,13 @@ done < <(cargo tree -p skif-core -e normal --prefix none --locked | awk '$1 ~ /^
 
 allowed=" skif-js-syntax skif-js-plugins skif-js "
 for oxc in oxc_allocator oxc_ast oxc_ast_visit oxc_parser oxc_semantic oxc_span oxc_str oxc_resolver; do
-  if ! tree="$(cargo tree -e normal --invert "$oxc" --depth 1 --prefix none --locked 2>/dev/null)"; then
+  if ! tree="$(cargo tree -e normal --invert "$oxc" --depth 1 --prefix none --locked 2>"$errors")"; then
+    if grep -q 'did not match any packages' "$errors"; then
+      echo "::warning::${oxc} is not in the dependency graph; nothing to check for it"
+      continue
+    fi
+    echo "::error::cargo tree failed for ${oxc}: $(cat "$errors")"
+    failures=$((failures + 1))
     continue
   fi
   while IFS= read -r crate; do
