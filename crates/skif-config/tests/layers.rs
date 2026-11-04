@@ -392,7 +392,7 @@ fn extends_resolves_relative_to_the_declaring_file_depth_first() {
     assert_eq!(resolved.config.js.entry, ["own"]);
     assert_eq!(resolved.config.js.project, ["b"]);
     assert_eq!(resolved.config.js.ignore, ["base"]);
-    assert!(resolved.config.extends.is_empty());
+    assert_eq!(resolved.config.extends, [] as [std::string::String; 0]);
 }
 
 #[test]
@@ -560,7 +560,7 @@ fn root_scoped_keys_in_an_override_are_scope_errors_with_a_position() {
         assert_eq!(key, expected_key, "{text}");
         assert_eq!(line, Some(expected_line), "{text}");
         assert_eq!(path, Some(PathBuf::from("/r/skif.toml")));
-        assert!(!hint.is_empty());
+        assert_ne!(hint, "");
     }
 }
 
@@ -719,7 +719,7 @@ fn origins_record_the_file_line_and_operation() {
     assert_eq!((first.source, first.op), (1, Op::Prepend));
     let second = origins.last("version-groups[1]").unwrap();
     assert_eq!((second.source, second.op), (0, Op::Prepend));
-    assert!(origins.get("catalog.mode").is_empty());
+    assert_eq!(origins.get("catalog.mode"), []);
 }
 
 #[test]

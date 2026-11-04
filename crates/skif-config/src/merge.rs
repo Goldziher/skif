@@ -322,18 +322,15 @@ fn merge_families(table: &mut Table, lists: &mut BTreeMap<String, Vec<Assignment
                 .iter()
                 .position(|family| family.get("name").and_then(Value::as_str) == Some(name))
         });
-        match position {
-            Some(at) => {
-                existing[at] = item.clone();
-                tracked[at] = Assignment {
-                    op: Op::Set,
-                    ..assignment
-                };
-            }
-            None => {
-                existing.push(item.clone());
-                tracked.push(assignment);
-            }
+        if let Some(at) = position {
+            existing[at] = item.clone();
+            tracked[at] = Assignment {
+                op: Op::Set,
+                ..assignment
+            };
+        } else {
+            existing.push(item.clone());
+            tracked.push(assignment);
         }
     }
 }

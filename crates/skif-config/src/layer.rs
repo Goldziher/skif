@@ -35,7 +35,6 @@ const ROOT_SCOPED_JS: [&str; 4] = ["enabled", "production", "include-entry-expor
 
 /// A configuration file, parsed and validated on its own.
 pub(crate) struct ParsedFile {
-    pub path: PathBuf,
     /// The directory holding the file.
     pub dir: PathBuf,
     pub table: Table,
@@ -68,7 +67,6 @@ impl ParsedFile {
             .map(|items| items.iter().filter_map(Value::as_str).map(str::to_owned).collect())
             .unwrap_or_default();
         Ok(Self {
-            path: path.to_path_buf(),
             dir: path.parent().map(Path::to_path_buf).unwrap_or_default(),
             table,
             spans,

@@ -435,6 +435,7 @@ fn cli_overrides_win_over_file_and_defaults() {
         fail_on_warnings: Some(false),
         production: Some(false),
         no_js: true,
+        ..ConfigOverrides::default()
     };
     config.apply(&overrides).unwrap();
 
