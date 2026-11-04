@@ -16,7 +16,14 @@ include = ["src/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "RE
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/skif-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
 bin-dir = "{ bin }{ binary-ext }"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+
+[package.metadata.binstall.overrides.aarch64-pc-windows-msvc]
+pkg-fmt = "zip"
 
 [lib]
 name = "skif_cli"
