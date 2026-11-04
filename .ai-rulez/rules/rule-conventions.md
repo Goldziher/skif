@@ -14,7 +14,7 @@ x-ai-rulez:
   docs); changing one is a breaking change that needs a superseding ADR and a changelog entry.
 - Every rule is registered in the rule registry, whose constructor rejects duplicate IDs, and is
   documented in the generated rules reference.
-- New or changed rules need a fixture under `fixtures/` and an insta snapshot test of the diagnostics; never
+- New or changed rules need a fixture (the crate's `tests/fixtures` or the top-level `fixtures/`) and an insta snapshot test of the diagnostics; never
   edit `.snap` files by hand.
 - Fixers keep the original indentation and newline style of the edited file, and a fix applied then re-linted
   leaves no fixable diagnostic.
