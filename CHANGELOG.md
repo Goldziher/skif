@@ -32,6 +32,13 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   corpus of 16 public repositories (`skif-bench corpus fetch`, `mise run corpus:fetch`). Counts are committed under
   `tools/bench/baselines`, `--check` fails on drift, and a weekly `corpus` workflow runs it
   ([ADR 0026](adrs/0026-parity-and-diff-tasks-on-a-pinned-corpus.md)).
+- **Known deviations in the comparison harness**: `mise run parity` and `mise run diff:syncpack` report intended
+  differences from knip and syncpack apart from the one-sided counts (a separate column and section with the reason),
+  and `--check` ignores them. syncpack runs with `--dependency-types prod,dev,local` and an empty configuration,
+  Rush projects are fed to it as sources and `unresolved-catalog-references` is compared; knip runs with an empty
+  configuration (`--repo-knip-config` opts out), enum and namespace members are keyed by member name, noisy stdout
+  no longer skips a repository, and `corpus.toml` takes `recursive`, `install-command` and `install-timeout-secs` per
+  repository ([ADR 0030](adrs/0030-harness-known-deviations-and-comparison-scope.md)).
 - **Benchmark targets are enforced**: `skif-bench run` exits non-zero when an ADR 0001 target fails, measures a
   10,000-file module graph, and `mise run bench:publish` writes `tools/bench/results` and refreshes the numbers table.
 - **Several projects in one run**: `-r`/`--recursive` lints every workspace and standalone package at or below the

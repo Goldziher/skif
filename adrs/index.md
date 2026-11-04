@@ -37,6 +37,7 @@ old one.
 | 0027 | [Supported Versions Follow Upstream End-of-Life Policies](0027-supported-versions-follow-upstream-end-of-life-policies.md) | accepted |
 | 0028 | [CLI Flag Contract Completion and Withdrawn Confirmations](0028-cli-flag-contract-completion-and-withdrawn-confirmations.md) | accepted |
 | 0029 | [Namespace Export Rules, Virtual Modules, Linked Configs and the node Plugin](0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md) | accepted |
+| 0030 | [Harness Known Deviations and Comparison Scope: Where skif Differs From syncpack and knip by Design](0030-harness-known-deviations-and-comparison-scope.md) | accepted |
 
 ## Effective statements
 
@@ -91,3 +92,5 @@ the lines below stay as written; this table says which record governs.
 | [0001](0001-mission-and-scope.md), performance targets | the benchmark prints a pass or fail line | [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md): `skif-bench run` exits non-zero when a target fails and has a 10,000-file module graph case |
 | [0020](0020-js-rule-set-severities-addon-profile-and-windows-support.md), "Rule set" | `unused-namespace-exports` and `unused-namespace-types` are withdrawn | [0029](0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md): both rules are registered, default severity warning, and take over the findings of modules that are only read through a namespace |
 | [0025](0025-plugin-set-extension-thirty-five-more-tools.md), plugin count | the table holds 60 plugins | [0029](0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md): the table holds 61 plugins; `node` is added |
+| [0009](0009-version-and-catalog-policies.md), policy scope and differences from syncpack | the default dependency scope and the differences from syncpack are not listed | [0030](0030-harness-known-deviations-and-comparison-scope.md): version, range and catalog policies cover `dependencies` and `devDependencies` by default, and six differences from syncpack are known deviations |
+| [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md), parity and diff counts | one-sided counts per target; knip and syncpack run in their own default scope | [0030](0030-harness-known-deviations-and-comparison-scope.md): both run in skif's scope with empty configurations, and intended differences are reported apart as known deviations and ignored by `--check` |
