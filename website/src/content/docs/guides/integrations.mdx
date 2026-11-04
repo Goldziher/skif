@@ -99,7 +99,7 @@ pre-commit:
 
 ## npm and Bun
 
-The `skif` package is a native addon built with napi-rs for Node 24+ and Bun. It is ESM, has no install script,
+The `skif` package is a native addon built with napi-rs for the Node.js lines that are not end-of-life (22, 24 and 26 today; see the [Node.js release schedule](https://nodejs.org/en/about/previous-releases)) and Bun 1.x; older versions may work but are not supported. It is ESM only (from CommonJS use `import()`, or `require()` on Node 22.12+), has no install script,
 and downloads nothing at install time: one platform package per target is an optional dependency, so your package
 manager installs only the one that matches the machine. Windows is not supported by the npm package; use the
 release archive, Scoop or Cargo there.

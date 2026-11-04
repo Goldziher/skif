@@ -13,6 +13,8 @@ pub enum Kind {
     Io,
     Usage,
     CiRefusal,
+    /// A bug in skif: a failed rule provider, a thread pool that cannot be built, a panic.
+    Internal,
 }
 
 impl Kind {
@@ -24,6 +26,7 @@ impl Kind {
             Self::Io => "io",
             Self::Usage => "usage",
             Self::CiRefusal => "ci-refusal",
+            Self::Internal => "internal",
         }
     }
 }
@@ -130,6 +133,10 @@ impl From<skif::Error> for CliError {
             skif::Error::Workspace(error) => error.into(),
             skif::Error::NoWorkspace(_) => Self::new(Kind::Workspace, message),
             skif::Error::UnknownRule(_) | skif::Error::Registry(_) => Self::new(Kind::Config, message),
+            skif::Error::RelativePath(_) => Self::new(Kind::Usage, message),
+            skif::Error::ThreadPool(_) | skif::Error::Lint(LintError::Provider { .. } | LintError::Cancelled) => {
+                Self::new(Kind::Internal, message)
+            }
             _ => Self::new(Kind::Io, message),
         }
     }
@@ -138,5 +145,48 @@ impl From<skif::Error> for CliError {
 impl From<skif::FixError> for CliError {
     fn from(error: skif::FixError) -> Self {
         Self::new(Kind::Io, error.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+
+    #[test]
+    fn kinds_have_stable_names() {
+        assert_eq!(Kind::Internal.as_str(), "internal");
+        assert_eq!(Kind::Usage.as_str(), "usage");
+    }
+
+    #[test]
+    fn a_relative_path_is_a_usage_error() {
+        let error = CliError::from(skif::Error::RelativePath(PathBuf::from("relative")));
+        assert_eq!(error.kind, Kind::Usage);
+    }
+
+    #[test]
+    fn failures_of_the_engine_are_internal_errors() {
+        assert_eq!(
+            CliError::from(skif::Error::ThreadPool("no threads".to_owned())).kind,
+            Kind::Internal
+        );
+        assert_eq!(
+            CliError::from(skif::Error::Lint(LintError::Cancelled)).kind,
+            Kind::Internal
+        );
+    }
+
+    #[test]
+    fn missing_workspaces_and_unknown_rules_keep_their_kinds() {
+        assert_eq!(
+            CliError::from(skif::Error::NoWorkspace(PathBuf::from("/repo"))).kind,
+            Kind::Workspace
+        );
+        assert_eq!(
+            CliError::from(skif::Error::UnknownRule("x".to_owned())).kind,
+            Kind::Config
+        );
     }
 }

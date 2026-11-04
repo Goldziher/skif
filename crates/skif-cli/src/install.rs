@@ -69,7 +69,7 @@ pub fn install(manager: PackageManager, root: &Path, quiet: bool) -> InstallStat
     };
     let arguments = arguments(manager, root);
     let command = format!("{name} {}", arguments.join(" "));
-    let executable = match which::which(name) {
+    let executable = match which::which_global(name) {
         Ok(path) => path,
         Err(error) => {
             return InstallStatus::Failed {

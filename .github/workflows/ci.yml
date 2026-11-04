@@ -183,6 +183,79 @@ jobs:
           find scripts mise-tasks -name '*.sh' -print0 | xargs -0 shellcheck
       - name: Test the npm publish probe
         run: bash scripts/test-npm-published.sh
+      - name: Test the release scripts (Homebrew, Scoop, crates.io, version bump, archive and release gates)
+        run: bash scripts/test-release-scripts.sh
+      - name: Test the install scripts (pre-commit launcher and the Action's resolve, install and run steps)
+        run: bash scripts/test-install-scripts.sh
+
+  # The hooks as pre-commit runs them: this checkout is the hook repository, the fixtures are the projects.
+  pre-commit-hook:
+    name: pre-commit hooks
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build skif
+        run: cargo build --locked -p skif-cli
+      - name: Install pre-commit
+        run: pipx install pre-commit
+      - name: Run the hooks against a clean and a dirty fixture
+        run: bash scripts/test-pre-commit-hook.sh target/debug/skif
+
+  # `uses: ./` against the newest published release: the Action resolves, downloads, verifies and runs it on every
+  # runner OS. Before the first release there is nothing to download, so the job reports that and passes.
+  action:
+    name: GitHub Action (${{ matrix.os }})
+    timeout-minutes: 15
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-26, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Find the newest published release
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty')"
+          echo "tag=${tag}" >>"$GITHUB_OUTPUT"
+          if [ -z "$tag" ]; then
+            echo "::notice::no published release yet; the Action self-test starts with the first one"
+          fi
+      - name: Install only
+        id: install
+        if: steps.release.outputs.tag != ''
+        uses: ./
+        with:
+          version: ${{ steps.release.outputs.tag }}
+          install-only: true
+      - name: The installed binary is the requested release
+        if: steps.release.outputs.tag != ''
+        shell: bash
+        env:
+          VERSION: ${{ steps.install.outputs.version }}
+          BINARY: ${{ steps.install.outputs.path }}
+        run: |
+          set -euo pipefail
+          out="$("$BINARY" --version)"
+          echo "$out"
+          grep -qF "$VERSION" <<<"$out"
+          [ "$(command -v skif)" ]
+      - name: Run through the Action
+        if: steps.release.outputs.tag != ''
+        uses: ./
+        with:
+          version: ${{ steps.release.outputs.tag }}
+          args: --version
 
   consistency:
     name: Version consistency
@@ -215,8 +288,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # node-24 is the engines floor; node and bun are the versions pinned in mise.toml.
-        runtime: [node-24, node, bun]
+        # node-22 is the engines floor; node and bun are the versions pinned in mise.toml.
+        runtime: [node-22, node, bun]
     steps:
       - uses: actions/checkout@v7
       # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
@@ -240,8 +313,8 @@ jobs:
         run: |
           set -euo pipefail
           case "${{ matrix.runtime }}" in
-            # Node 24 is the engines floor, not a pinned tool, so it bypasses the locked lockfile.
-            node-24) MISE_LOCKED=0 mise exec node@24 -- bash scripts/npm-smoke.sh node ;;
+            # Node 22 is the engines floor, not a pinned tool, so it bypasses the locked lockfile.
+            node-22) MISE_LOCKED=0 mise exec node@22 -- bash scripts/npm-smoke.sh node ;;
             *) bash scripts/npm-smoke.sh "${{ matrix.runtime }}" ;;
           esac
 

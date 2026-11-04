@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Fails unless every published crate carries the root LICENSE and ATTRIBUTIONS.md (byte-identical copies) and
-# ships both in its package, as the MIT notices of vendored and derived code require (ADR 0015).
+# Fails unless every published crate and the npm package carry the root LICENSE and ATTRIBUTIONS.md (byte-identical
+# copies) and ship both in their package, as the MIT notices of vendored and derived code require (ADR 0015).
 #
 # Usage: scripts/check-package-contents.sh
 set -euo pipefail
@@ -30,8 +30,16 @@ for manifest in crates/*/Cargo.toml; do
   done
 done
 
+# The npm umbrella packs from npm-package/, so it needs the same copies (the platform packages get them at publish).
+for notice in LICENSE ATTRIBUTIONS.md; do
+  if ! cmp -s "$notice" "npm-package/${notice}"; then
+    echo "::error file=npm-package/${notice}::npm-package must carry a copy of the root ${notice}"
+    failures=$((failures + 1))
+  fi
+done
+
 if [[ "$failures" -gt 0 ]]; then
   echo "${failures} package content problem(s)" >&2
   exit 1
 fi
-echo "every published crate ships LICENSE and ATTRIBUTIONS.md"
+echo "every published crate and the npm package ship LICENSE and ATTRIBUTIONS.md"

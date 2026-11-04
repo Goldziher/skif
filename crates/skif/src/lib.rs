@@ -4,7 +4,8 @@
 //! prints, prompts, exits, reads the environment or the working directory, or writes files. Everything is read
 //! through a [`FileSystem`] ([`OsFs`] on disk, [`MemoryFs`] for unsaved buffers and tests), every path in a
 //! diagnostic or edit is relative to the workspace root, and fixes are returned as data ([`FixPlan`]) for the caller
-//! to show, merge or write.
+//! to show, merge or write. The one exception is the opt-in `SKIF_TIMINGS` trace of [`timing`], which reads that
+//! variable once and writes phase durations to stderr; it is off unless the host's environment turns it on.
 //!
 //! ```
 //! use std::path::Path;

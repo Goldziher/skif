@@ -15,12 +15,16 @@ use crate::fix::{self, FixRun, RootFix};
 use crate::roots;
 use crate::write::write_atomic;
 
-/// Writes `bytes` to stdout; a failure (a closed pipe, a full disk) is an error, not something to swallow.
+/// Writes `bytes` to stdout; a failure (a full disk, a closed descriptor) is an error, not something to swallow.
+/// A reader that went away (`skif | head`) is not a failure of the run: the output is simply no longer wanted.
 pub fn write_stdout(bytes: &[u8]) -> Result<(), CliError> {
     let mut out = io::stdout().lock();
-    out.write_all(bytes)
-        .and_then(|()| out.flush())
-        .map_err(|error| CliError::new(Kind::Io, format!("cannot write to stdout: {error}")))
+    match out.write_all(bytes).and_then(|()| out.flush()) {
+        Err(error) if error.kind() != io::ErrorKind::BrokenPipe => {
+            Err(CliError::new(Kind::Io, format!("cannot write to stdout: {error}")))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Writes `text` and a newline to stderr. A closed or broken stderr is ignored: `eprintln!` would panic on it, and
