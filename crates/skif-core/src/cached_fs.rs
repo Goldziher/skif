@@ -6,6 +6,7 @@ use std::hash::{BuildHasher, RandomState};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, PoisonError, RwLock};
+use std::time::SystemTime;
 
 use crate::fs::{DirEntry, FileSystem};
 
@@ -67,6 +68,17 @@ fn is_config_file(path: &Path) -> bool {
         )
         || name.contains(".config.")
         || (name.starts_with('.') && (name.ends_with("rc") || name.contains("rc.")))
+}
+
+/// The listing in path order, which the lookups by binary search rely on; a host file system that returns entries
+/// in another order gets them sorted here instead of silently answering "no such file".
+fn sorted(entries: Arc<[DirEntry]>) -> Arc<[DirEntry]> {
+    if entries.is_sorted_by(|a, b| a.path <= b.path) {
+        return entries;
+    }
+    let mut owned = entries.to_vec();
+    owned.sort_by(|a, b| a.path.cmp(&b.path));
+    Arc::from(owned)
 }
 
 fn not_found(path: &Path) -> io::Error {
@@ -185,6 +197,7 @@ impl<F: FileSystem> FileSystem for CachedFs<F> {
         }
         match self.inner.read_dir_shared(path) {
             Ok(entries) => {
+                let entries = sorted(entries);
                 self.listings.insert(path, Ok(Arc::clone(&entries)));
                 Ok(entries)
             }
@@ -229,6 +242,14 @@ impl<F: FileSystem> FileSystem for CachedFs<F> {
 
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
         self.inner.canonicalize(path)
+    }
+
+    fn read_bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
+        self.inner.read_bytes(path)
+    }
+
+    fn modified(&self, path: &Path) -> Option<SystemTime> {
+        self.inner.modified(path)
     }
 }
 
@@ -435,5 +456,43 @@ mod tests {
         assert!(!fs.is_file(&dir.path().join("package.json")));
         fs.clear();
         assert!(fs.is_file(&dir.path().join("package.json")));
+    }
+
+    /// A host file system whose listings are not in path order.
+    struct Unsorted(MemoryFs);
+
+    impl FileSystem for Unsorted {
+        fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+            self.0.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+            let mut entries = self.0.read_dir(path)?;
+            entries.reverse();
+            Ok(entries)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.0.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.0.is_dir(path)
+        }
+    }
+
+    #[test]
+    fn unsorted_host_listings_are_sorted_before_lookups() {
+        let fs = CachedFs::new(Unsorted(
+            MemoryFs::new()
+                .with_file("/ws/a.json", "")
+                .with_file("/ws/b.json", "")
+                .with_file("/ws/c.json", ""),
+        ));
+        let entries = fs.read_dir_shared(Path::new("/ws")).unwrap();
+        assert!(entries.windows(2).all(|pair| pair[0].path < pair[1].path));
+        for name in ["a", "b", "c"] {
+            assert!(fs.is_file(&Path::new("/ws").join(format!("{name}.json"))), "{name}");
+        }
     }
 }
