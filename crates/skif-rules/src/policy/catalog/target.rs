@@ -12,7 +12,7 @@ use super::support::key;
 /// A file that can hold catalogs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CatalogFile {
-    /// `pnpm-workspace.yaml`.
+    /// `pnpm-workspace.yaml` or `.yarnrc.yml`.
     Yaml(PathBuf),
     /// The root `package.json`, for bun.
     RootJson(PathBuf),
@@ -37,7 +37,7 @@ pub(crate) fn existing_file(workspace: &Workspace) -> Option<CatalogFile> {
 }
 
 /// The file a first catalog would be created in: `pnpm-workspace.yaml` for pnpm, the root `package.json` for bun.
-/// npm has no catalogs and yarn's live in a file skif does not edit.
+/// npm has no catalogs, and yarn's `.yarnrc.yml` is only edited once it declares one.
 pub(crate) fn creatable_file(workspace: &Workspace) -> Option<CatalogFile> {
     match workspace.package_manager? {
         PackageManager::Pnpm => workspace

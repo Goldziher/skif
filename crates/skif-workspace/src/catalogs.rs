@@ -1,4 +1,4 @@
-//! Dependency catalogs from `pnpm-workspace.yaml`, the root `package.json` and bun's `workspaces` object.
+//! Dependency catalogs from `pnpm-workspace.yaml`, `.yarnrc.yml`, the root `package.json` and bun's `workspaces` object.
 
 use std::path::{Path, PathBuf};
 
@@ -132,6 +132,21 @@ pub(crate) fn from_package_json(manifest: &Value, source: &Path) -> Catalogs {
     if let Some(workspaces) = manifest.get("workspaces").filter(|value| value.is_object()) {
         catalogs.merge(from_json(workspaces.get("catalog"), workspaces.get("catalogs")));
     }
+    if catalogs.is_empty() {
+        Catalogs::default()
+    } else {
+        catalogs.with_source(source)
+    }
+}
+
+/// Catalogs declared in `.yarnrc.yml` (Yarn 4.10+): `catalog` is the default catalog, `catalogs` holds the named
+/// ones. A file that is not valid YAML declares none: Yarn itself reports that, and the file is not skif's to lint.
+pub(crate) fn from_yarnrc(text: &str, source: &Path) -> Catalogs {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let Ok(document) = serde_saphyr::from_str::<Value>(text) else {
+        return Catalogs::default();
+    };
+    let catalogs = from_json(document.get("catalog"), document.get("catalogs"));
     if catalogs.is_empty() {
         Catalogs::default()
     } else {
