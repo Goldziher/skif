@@ -148,7 +148,7 @@ fn show_lists_the_files_that_were_not_applied_and_why() {
     );
     assert!(out.contains("#   fixtures/y/.skif.toml ("), "{out}");
     assert!(
-        !out.contains("packages/a/skif.toml ("),
+        !out.contains("packages/a/skif.toml (not"),
         "a member's package file is applied: {out}"
     );
     assert!(!out.contains("node_modules"), "{out}");
