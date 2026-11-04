@@ -196,3 +196,43 @@ fn recursion_and_call_blowup_stay_bounded() {
     );
     assert_eq!(get(&value, &["a"]), &ConfigValue::Unknown);
 }
+
+#[test]
+fn karma_function_form_evaluates_the_object_given_to_set() {
+    let value = extract(
+        "karma.conf.js",
+        "module.exports = function (config) {\n  const base = '/src';\n  config.set({\n    basePath: base,\n    frameworks: ['jasmine'],\n    \
+         plugins: [require('karma-jasmine')],\n  });\n};",
+    );
+    assert_eq!(get(&value, &["basePath"]), &s("/src"));
+    assert_eq!(get(&value, &["frameworks"]), &strings(&["jasmine"]));
+}
+
+#[test]
+fn karma_set_with_a_local_object_and_an_arrow_function() {
+    let value = extract(
+        "karma.conf.js",
+        "module.exports = (karma) => {\n  const configuration = { frameworks: ['mocha'] };\n  configuration.browsers = ['Chrome'];\n  \
+         karma.set(configuration);\n};",
+    );
+    assert_eq!(get(&value, &["frameworks"]), &strings(&["mocha"]));
+    assert_eq!(get(&value, &["browsers"]), &strings(&["Chrome"]));
+}
+
+#[test]
+fn a_set_call_on_something_else_is_not_the_config() {
+    let value = extract(
+        "karma.conf.js",
+        "module.exports = function (config) {\n  cache.set({ frameworks: ['nope'] });\n  return { frameworks: ['yes'] };\n};",
+    );
+    assert_eq!(get(&value, &["frameworks"]), &strings(&["yes"]));
+}
+
+#[test]
+fn karma_default_export_function_with_a_set_call() {
+    let value = extract(
+        "karma.conf.ts",
+        "export default function (config: any) { config.set({ basePath: '..' }); }",
+    );
+    assert_eq!(get(&value, &["basePath"]), &s(".."));
+}
