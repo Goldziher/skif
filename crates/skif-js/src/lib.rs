@@ -21,6 +21,7 @@ mod ancestors;
 mod deps;
 mod discover;
 mod entries;
+mod explain;
 mod globs;
 mod graph;
 mod input;

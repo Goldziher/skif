@@ -14,6 +14,7 @@ mod config;
 mod config_toml;
 mod env;
 mod error;
+mod explain;
 mod fix;
 mod install;
 mod lint;
@@ -42,6 +43,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         Some(Command::Schema) => commands::schema(),
         Some(Command::Init(args)) => commands::init(&args),
         Some(Command::Config(args)) => config::run(&args),
+        Some(Command::ExplainUsage(args)) => explain::run(&args),
     }
 }
 
