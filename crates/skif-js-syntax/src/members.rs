@@ -5,8 +5,8 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use oxc_ast::ast::{
-    BindingPattern, ComputedMemberExpression, Expression, IdentifierReference, StaticMemberExpression, TSQualifiedName,
-    TSTypeName, VariableDeclarator,
+    BindingPattern, ComputedMemberExpression, ExportNamedDeclaration, Expression, IdentifierReference,
+    StaticMemberExpression, TSQualifiedName, TSTypeName, TSTypeQuery, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 
@@ -177,5 +177,125 @@ pub(crate) fn credit(info: &mut ModuleInfo, uses: &Uses) {
             n.accessed_members.dedup();
             n.escapes |= slot.escapes();
         }
+    }
+}
+
+/// How the enums and namespaces declared in a program are used by the program itself.
+struct LocalReads<'w> {
+    wanted: &'w HashSet<String>,
+    reads: HashMap<String, BTreeSet<String>>,
+    escaped: HashSet<String>,
+}
+
+impl LocalReads<'_> {
+    /// Records `local.member` and reports whether `local` is one of the wanted declarations.
+    fn read(&mut self, local: &str, member: &str) -> bool {
+        if !self.wanted.contains(local) {
+            return false;
+        }
+        self.reads.entry(local.to_owned()).or_default().insert(member.to_owned());
+        true
+    }
+}
+
+impl<'a> Visit<'a> for LocalReads<'_> {
+    fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
+        if self.wanted.contains(it.name.as_str()) {
+            self.escaped.insert(it.name.as_str().to_owned());
+        }
+    }
+
+    // `export { E }` publishes the declaration; it does not read it.
+    fn visit_export_named_declaration(&mut self, _: &ExportNamedDeclaration<'a>) {}
+
+    // `typeof E` and `keyof typeof E` name the declaration at type level only.
+    fn visit_ts_type_query(&mut self, _: &TSTypeQuery<'a>) {}
+
+    fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
+        if let Expression::Identifier(id) = &it.object
+            && self.read(id.name.as_str(), it.property.name.as_str())
+        {
+            return;
+        }
+        walk::walk_static_member_expression(self, it);
+    }
+
+    fn visit_computed_member_expression(&mut self, it: &ComputedMemberExpression<'a>) {
+        if let Expression::Identifier(id) = &it.object
+            && let Expression::StringLiteral(s) = &it.expression
+            && let Some(member) = s.value.as_str()
+            && self.read(id.name.as_str(), member)
+        {
+            return;
+        }
+        walk::walk_computed_member_expression(self, it);
+    }
+
+    // A type annotation (`x: E`) mentions the declaration without reading any member; `E.A` as a type reads `A`.
+    fn visit_ts_type_name(&mut self, it: &TSTypeName<'a>) {
+        if let TSTypeName::QualifiedName(name) = it {
+            self.visit_ts_qualified_name(name);
+        }
+    }
+
+    fn visit_ts_qualified_name(&mut self, it: &TSQualifiedName<'a>) {
+        if let TSTypeName::IdentifierReference(id) = &it.left {
+            self.read(id.name.as_str(), it.right.name.as_str());
+        } else {
+            self.visit_ts_type_name(&it.left);
+        }
+    }
+
+    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        if let Some(Expression::Identifier(id)) = it.init.as_ref().map(Expression::get_inner_expression)
+            && self.wanted.contains(id.name.as_str())
+            && let BindingPattern::ObjectPattern(pattern) = &it.id
+            && pattern.rest.is_none()
+            && let Some(keys) = pattern
+                .properties
+                .iter()
+                .map(|p| p.key.static_name().map(|k| crate::js_string(k.as_js_str())))
+                .collect::<Option<Vec<String>>>()
+        {
+            for key in keys {
+                self.read(id.name.as_str(), &key);
+            }
+            self.visit_binding_pattern(&it.id);
+            return;
+        }
+        walk::walk_variable_declarator(self, it);
+    }
+}
+
+/// Fills [`crate::model::Export::members_read_in_file`] and [`crate::model::Export::members_escape_in_file`] of every
+/// enum and namespace export from the uses in `program`.
+pub(crate) fn mark_local_reads(program: &oxc_ast::ast::Program<'_>, info: &mut ModuleInfo) {
+    let wanted: HashSet<String> = info
+        .exports
+        .iter()
+        .filter(|export| !export.enum_members.is_empty() || !export.namespace_members.is_empty())
+        .filter_map(|export| export.local_name.clone())
+        .collect();
+    if wanted.is_empty() {
+        return;
+    }
+    let mut tracker = LocalReads {
+        wanted: &wanted,
+        reads: HashMap::new(),
+        escaped: HashSet::new(),
+    };
+    tracker.visit_program(program);
+    for export in &mut info.exports {
+        let Some(local) = export.local_name.as_deref() else {
+            continue;
+        };
+        let reads = tracker
+            .reads
+            .get(local)
+            .map(|members| members.iter().cloned().collect())
+            .unwrap_or_default();
+        let escapes = tracker.escaped.contains(local);
+        export.members_read_in_file = reads;
+        export.members_escape_in_file = escapes;
     }
 }

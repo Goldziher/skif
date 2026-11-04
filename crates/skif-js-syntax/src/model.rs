@@ -172,6 +172,16 @@ pub struct Export {
     /// Names of the other value exports of this file whose signature mentions this export's local binding.
     #[serde(default)]
     pub referenced_in: Vec<String>,
+    /// Members of an enum or namespace export read in this file by name (`E.A`, `E['A']`, `const { A } = E`); sorted.
+    #[serde(default)]
+    pub members_read_in_file: Vec<String>,
+    /// The enum or namespace is used in this file in a way that may touch any member (`Object.values(E)`, `E[key]`,
+    /// `for (const k in E)`, a spread, passed as a value). References in type positions do not count.
+    #[serde(default)]
+    pub members_escape_in_file: bool,
+    /// `export const b = a`: the identifier the exported constant is initialised with.
+    #[serde(default)]
+    pub alias_of: Option<String>,
 }
 
 /// A syntax problem reported by the parser. The analysis of the file continues on the parser's recovered program.

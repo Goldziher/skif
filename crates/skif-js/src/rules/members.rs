@@ -9,8 +9,9 @@ use crate::analysis::JsAnalysis;
 
 /// Reports members of exports of `kind` that are used nowhere.
 ///
-/// The export itself must be used; unused exports are reported by `unused-exports`. Exports that are also referenced
-/// inside their own file are skipped, because the member reads there are not tracked.
+/// The export itself must be used; unused exports are reported by `unused-exports`. A member read in the declaring
+/// file (`E.A`) counts as a use. An export that the file uses as a whole (`Object.values(E)`, `E[key]`, a spread,
+/// passed as a value) is skipped, because any of its members may be read.
 pub(super) fn report(
     meta: &'static RuleMeta,
     kind: ExportKind,
@@ -24,7 +25,7 @@ pub(super) fn report(
             continue;
         }
         for export in module.info.exports.iter().filter(|export| export.kind == kind) {
-            if export.referenced_in_file
+            if export.members_escape_in_file
                 || export.tags.iter().any(|tag| tag == "public")
                 || !analysis.exports.is_used(module.id, &export.name)
             {
@@ -32,6 +33,7 @@ pub(super) fn report(
             }
             for member in members_of(export) {
                 if member.tags.iter().any(|tag| tag == "public")
+                    || export.members_read_in_file.contains(&member.name)
                     || analysis.exports.is_member_used(module.id, &export.name, &member.name)
                 {
                     continue;

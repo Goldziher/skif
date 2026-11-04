@@ -17,10 +17,11 @@ pub static META: RuleMeta = RuleMeta::new(
     "One binding is exported under several names.",
 );
 
-/// Reports a binding exported twice, such as `export const a = 1; export default a;`.
+/// Reports a binding exported twice, such as `export const a = 1; export default a;`, and a constant initialised with
+/// another exported binding (`export const b = a` with `a` exported too).
 ///
-/// Entry modules are skipped (framework route files alias one handler as `GET` and `POST`), and so are groups made of
-/// export-clause aliases alone (`export { h as GET, h as POST }`).
+/// Entry modules are skipped (framework route files alias one handler as `GET` and `POST`). Export clauses
+/// (`export { h as GET }`) are deliberate aliases and never count.
 pub struct DuplicateExports;
 
 impl JsRule for DuplicateExports {
@@ -35,10 +36,10 @@ impl JsRule for DuplicateExports {
             }
             let mut by_binding: BTreeMap<&str, Vec<&skif_js_syntax::Export>> = BTreeMap::new();
             for export in &module.info.exports {
-                if matches!(export.kind, ExportKind::ReExport | ExportKind::StarReExport) {
+                if matches!(export.kind, ExportKind::ReExport | ExportKind::StarReExport) || is_clause_alias(export) {
                     continue;
                 }
-                if let Some(local) = export.local_name.as_deref() {
+                if let Some(local) = export.alias_of.as_deref().or(export.local_name.as_deref()) {
                     by_binding.entry(local).or_default().push(export);
                 }
             }
@@ -49,7 +50,10 @@ impl JsRule for DuplicateExports {
                 let (Some(first), Some(second)) = (exports.first(), exports.get(1)) else {
                     continue;
                 };
-                if names.len() < 2 || exports.iter().all(|export| is_clause_alias(export)) {
+                let target_is_exported = exports
+                    .iter()
+                    .any(|export| export.alias_of.is_none() && export.local_name.as_deref() == Some(local));
+                if names.len() < 2 || !target_is_exported {
                     continue;
                 }
                 let mut builder = diagnostic(
@@ -74,7 +78,7 @@ impl JsRule for DuplicateExports {
     }
 }
 
-/// Whether the export is a specifier of an `export { local as name }` clause.
+/// Whether the export is a specifier of an `export { local as name }` clause (without `from`).
 fn is_clause_alias(export: &Export) -> bool {
     export.removal.is_some_and(|removal| {
         matches!(removal.kind, RemovalKind::Specifier | RemovalKind::Statement) && !removal.default_expression

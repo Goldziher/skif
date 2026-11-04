@@ -46,6 +46,7 @@ fn default_project() -> Vec<String> {
 fn test_files() -> Vec<String> {
     vec![
         format!("**/*.{{test,spec}}.{EXTENSIONS}"),
+        format!("**/*_spec.{EXTENSIONS}"),
         format!("**/__tests__/**/*.{EXTENSIONS}"),
     ]
 }

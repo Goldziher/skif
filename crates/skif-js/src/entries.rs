@@ -9,7 +9,8 @@ use skif_workspace::{PackageId, Workspace};
 use crate::discover::{Candidate, relative};
 use crate::globs::Globs;
 use crate::manifest_paths::{
-    bin_stub_sources, bin_targets, manifest_targets, map_to_source, should_have_source, source_patterns,
+    bin_stub_sources, bin_targets, crossing_stars, manifest_targets, map_to_source, should_have_source,
+    source_patterns,
 };
 use crate::resolve::is_code_file;
 use crate::setup::{PackageSetup, Setup};
@@ -56,7 +57,8 @@ pub(crate) fn entry_files(
                 mapped_any = true;
                 let patterns = source_patterns(&target)
                     .into_iter()
-                    .chain(std::iter::once(target.trim_start_matches("./").to_owned()));
+                    .chain(std::iter::once(target.trim_start_matches("./").to_owned()))
+                    .map(|pattern| crossing_stars(&pattern));
                 let globs = Globs::new(patterns);
                 entries.extend(
                     owned()
