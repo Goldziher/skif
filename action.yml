@@ -71,7 +71,7 @@ runs:
       uses: actions/cache@v6
       with:
         path: ${{ steps.resolve.outputs.bin-dir }}
-        key: skif-${{ steps.resolve.outputs.tag }}-${{ runner.os }}-${{ runner.arch }}
+        key: skif-${{ steps.resolve.outputs.tag }}-${{ steps.resolve.outputs.asset }}
 
     - name: Install skif
       id: install

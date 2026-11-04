@@ -14,6 +14,10 @@ categories = ["development-tools"]
 readme = "README.md"
 include = ["src/**", "benches/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
 
+# docs.rs builds with every feature so the fix, report, schema and JS-analysis halves of the facade are documented.
+[package.metadata.docs.rs]
+all-features = true
+
 [features]
 default = ["manifest", "policy"]
 # Manifest rules (`skif-rules`).
