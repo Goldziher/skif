@@ -10,6 +10,7 @@ merge or write. [Poly](https://github.com/Goldziher/poly) is the first host.
 
 ```rust
 use std::path::Path;
+use std::sync::Arc;
 use skif::{ConfigOverrides, Linter, MemoryFs, Workspace, find_workspace_root, load_config};
 
 let fs = MemoryFs::new()
@@ -19,7 +20,7 @@ let fs = MemoryFs::new()
 let root = find_workspace_root(Path::new("/repo/packages/a"), &fs)?;
 let config = load_config(&root, &fs, &ConfigOverrides::default())?;
 let workspace = Workspace::discover_with_fs(&root, &config, &fs)?;
-let report = Linter::new(&config)?.run(&workspace)?;
+let report = Linter::with_fs(&config, Arc::new(fs.clone()))?.run(&workspace)?;
 # Ok::<(), skif::Error>(())
 ```
 
@@ -27,16 +28,18 @@ let report = Linter::new(&config)?.run(&workspace)?;
 
 | Feature | Default | Brings in |
 | --- | --- | --- |
-| `manifest` | yes | the manifest rules |
-| `policy` | yes | version, semver and catalog policies |
+| `manifest` | yes | the built-in rules: manifest rules, version and semver group policies and catalog rules |
 | `js-analysis` | no | the oxc based JS and TypeScript analysis and the plugin table |
 | `fix` | no | `apply_fixes` and `FixPlan` |
 | `yaml-fix` | no | YAML edits for `pnpm-workspace.yaml` (implies `fix`) |
 | `report` | no | the human, JSON, SARIF and GitHub renderers, as `skif::render` |
 | `schema` | no | `config_schema` |
 
-`js-analysis` is off by default so a host that already embeds oxc keeps its own copy. No `oxc`, `nodejs_semver`
-or `rayon` type appears in a public signature.
+`js-analysis` is off by default so a host that already embeds oxc keeps its own copy. No `oxc` or `rayon` type
+appears in a public signature; a host that lints often passes an `Executor` (a reusable thread pool) in
+`RunOptions`. The data model is part of the contract: `serde_json` (fix values and manifest values), `toml` (rule
+options), `indexmap` (the ordered maps of `Config`) and `nodejs_semver` (parsed specifier ranges). A major release of
+any of them is a breaking release of `skif`.
 
 ## Configuration from a host
 
@@ -44,6 +47,63 @@ or `rayon` type appears in a public signature.
 `std::fs`. A host builds `ConfigOverrides` directly instead of command-line flags, and `skif-config` exposes a
 builder for constructing a `Config` without a file. Option validation happens when the `Linter` is built, so a
 host must build it to catch a misspelled rule option.
+
+## Several roots and layered configuration
+
+`discover_targets(start, fs, overrides)` finds every workspace and standalone package at or below `start` and loads
+each as a `Target`: its root, its `Workspace`, and the configuration that governs it. A root that cannot be loaded is
+a `RootFailure` in `Discovery::failures`; the others still load. `discover_all` is the same call that fails with the
+first failing root. A root's configuration is every `skif.toml` or `.skif.toml` from the root up to the ceiling (the
+git repository root, or the start directory outside one), merged farthest first, with what they `extend`; the
+files below a root that no configuration was built from are listed by `unapplied_config_files`.
+
+`resolve_config(root, ceiling, fs, overrides, cache)` is the same resolution for one root. It returns a
+`ResolvedConfig`: the merged `Config`, the `sources` that were applied, and the `origins` of every key, which is
+what `skif config --explain` prints. `ConfigLoader` is the type behind it, for hosts that load package-level files
+(`add_package_files`) themselves. Share one `ConfigCache` between the roots of a run, from several threads if you
+like: each file is read once.
+
+```rust
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use skif::{Ceiling, ConfigCache, ConfigOverrides, Linter, MemoryFs, RunOptions, discover_targets, resolve_config};
+
+let fs = MemoryFs::new()
+    .with_file("/r/skif.toml", "[lint]\nfail-on-warnings = true\n")
+    .with_file("/r/a/package.json", r#"{"name": "a", "version": "1.0.0"}"#)
+    .with_file("/r/b/skif.toml", "")
+    .with_file("/r/b/package.json", r#"{"name": "b", "version": "1.0.0"}"#);
+
+// Layered configuration: every skif.toml from the root up to the ceiling, merged farthest first. The cache is
+// shared by the roots of a run so each file is read once; `origins` says which file set which key.
+let cache = ConfigCache::new();
+let ceiling = Ceiling::VcsOr(PathBuf::from("/r"));
+let resolved = resolve_config(Path::new("/r/a"), &ceiling, &fs, &ConfigOverrides::default(), &cache)?;
+assert!(resolved.config.lint.fail_on_warnings);
+assert_eq!(resolved.sources.len(), 1);
+assert!(resolved.origins.last("lint.fail-on-warnings").is_some());
+
+// Multi-root: every workspace and standalone package below a directory, each with its own configuration.
+let discovery = discover_targets(Path::new("/r"), &fs, &ConfigOverrides::default())?;
+assert!(discovery.failures.is_empty());
+assert_eq!(discovery.targets.len(), 2);
+for target in &discovery.targets {
+    let linter = Linter::with_fs(&target.config, Arc::new(fs.clone()))?;
+    let config_path = target.config_path();
+    let mut options = RunOptions::default();
+    if let Some(path) = &config_path {
+        options = options.with_config_path(path);
+    }
+    let report = linter.run_with(&target.workspace, &options)?;
+    assert!(report.summary.packages >= 1);
+}
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+A `Linter` built with `Linter::with_fs` remembers directory listings, existence checks and small configuration
+files read through the file system for one run and starts every `run_with` from an empty cache, so a host that edits
+files between runs sees the edits. `discover_targets`, `find_target` and `find_workspace_root` do the same for
+the duration of one call.
 
 ## Writing a rule provider
 
