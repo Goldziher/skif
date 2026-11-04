@@ -57,12 +57,15 @@ pub use fix::{
 };
 pub use linter::{Linter, RunOptions, builtin_providers};
 pub use root::{config_file, find_workspace_root, load_config, resolve_config};
-pub use targets::{Discovery, RootFailure, Target, discover_all, discover_targets, find_target, load_target};
+pub use targets::{
+    Discovery, RootFailure, Target, UnappliedConfig, UnappliedReason, discover_all, discover_targets, find_target,
+    load_target, unapplied_config_files,
+};
 
 pub use skif_config::{
     Assignment, CONFIG_FILE_NAMES, Ceiling, Config, ConfigCache, ConfigError, ConfigLoader, ConfigOverrides,
     ConfigSource, IgnoreEntry, Level, Op, Origins, Override, OverrideScope, PackageJs, PackageManager, Prefer,
-    ResetKey, ResolvedConfig, RuleConfig, Selector, SourceKind,
+    ResetKey, ResolvedConfig, RuleConfig, Selector, SourceKind, join_key,
 };
 pub use skif_core::timing;
 pub use skif_core::{

@@ -6,9 +6,13 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 use serde_json::{Map, Value, json};
-use skif::{Assignment, CachedFs, Config, ConfigOverrides, ConfigSource, Op, OsFs, SourceKind, Target, slash};
+use skif::{
+    Assignment, CachedFs, Config, ConfigOverrides, ConfigSource, Op, OsFs, SourceKind, Target, slash,
+    unapplied_config_files,
+};
 
 use crate::args::{ConfigArgs, Format, RulesFormat};
+use crate::config_toml::{self, Item};
 use crate::error::{CliError, Kind};
 use crate::lint::canonical;
 use crate::output::{emit_error, stderr_line, write_stdout};
@@ -68,11 +72,23 @@ fn execute(args: &ConfigArgs) -> Result<u8, CliError> {
         failures,
         ..
     } = roots::resolve(&start, args.recursive, &fs, &ConfigOverrides::default())?;
+    let roots: Vec<&Path> = targets.iter().map(|target| target.root.as_path()).collect();
     let views: Vec<RootView<'_>> = targets
         .iter()
         .map(|target| RootView {
             target,
             path: relative(&base, &target.root),
+            unapplied: if args.explain.is_none() {
+                unapplied_config_files(target, &roots, &fs)
+                    .into_iter()
+                    .map(|file| Unapplied {
+                        path: relative(&base, &file.path),
+                        reason: file.reason.describe(),
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            },
         })
         .collect();
     let text = match (&args.explain, args.format) {
@@ -89,9 +105,16 @@ fn execute(args: &ConfigArgs) -> Result<u8, CliError> {
     Ok(if failures.is_empty() { CLEAN } else { COULD_NOT_RUN })
 }
 
+/// A configuration file below a root that its configuration was not built from.
+struct Unapplied {
+    path: String,
+    reason: &'static str,
+}
+
 struct RootView<'a> {
     target: &'a Target,
     path: String,
+    unapplied: Vec<Unapplied>,
 }
 
 fn kind_label(kind: &SourceKind) -> &'static str {
@@ -100,6 +123,7 @@ fn kind_label(kind: &SourceKind) -> &'static str {
         SourceKind::Ancestor => "ancestor",
         SourceKind::Extends { .. } => "extends",
         SourceKind::Explicit => "explicit",
+        SourceKind::Package => "package",
         _ => "unknown",
     }
 }
@@ -136,10 +160,55 @@ fn strip_nulls(value: Value) -> Value {
     }
 }
 
-fn config_toml(config: &Config) -> Result<String, CliError> {
-    let value = strip_nulls(to_value(config)?);
+/// The key an origin is recorded under for the value or header at `key` of the rendered configuration: a rule is
+/// recorded as `rules.ID.level` and `rules.ID.options`, whatever form it is written in.
+fn origin_key(key: &str, item: Item) -> Option<String> {
+    let Some(rest) = key.strip_prefix("rules.") else {
+        return Some(key.to_owned());
+    };
+    let (id, field) = rest
+        .split_once('.')
+        .map_or((rest, None), |(id, field)| (id, Some(field)));
+    match (field, item) {
+        (None, Item::Header) => None,
+        (None, Item::Value) | (Some("level"), _) => Some(format!("rules.{id}.level")),
+        (Some(_), _) => Some(format!("rules.{id}.options")),
+    }
+}
+
+/// The files that decided the value at `key`: the last file that set it and the ones that appended after it.
+fn origin_text(target: &Target, base: &Path, key: &str, item: Item) -> Option<String> {
+    let assignments = target.origins.get(&origin_key(key, item)?);
+    let start = assignments
+        .iter()
+        .rposition(|assignment| matches!(assignment.op, Op::Set | Op::Reset))
+        .unwrap_or(0);
+    let mut places: Vec<String> = Vec::new();
+    for assignment in assignments[start..]
+        .iter()
+        .filter(|assignment| assignment.op != Op::Reset)
+    {
+        let located = Located::of(target, base, assignment);
+        if located.path.is_empty() {
+            continue;
+        }
+        let place = located.short();
+        if !places.contains(&place) {
+            places.push(place);
+        }
+    }
+    (!places.is_empty()).then(|| places.join(", "))
+}
+
+fn config_toml(target: &Target, base: &Path) -> Result<String, CliError> {
+    let value = strip_nulls(to_value(&target.config)?);
     let table = toml::Value::try_from(&value).map_err(|error| CliError::new(Kind::Io, error.to_string()))?;
-    toml::to_string(&table).map_err(|error| CliError::new(Kind::Io, error.to_string()))
+    let toml::Value::Table(table) = table else {
+        return Err(CliError::new(Kind::Io, "the configuration is not a table".to_owned()));
+    };
+    Ok(config_toml::render(&table, &|key, item| {
+        origin_text(target, base, key, item)
+    }))
 }
 
 fn show_human(views: &[RootView<'_>], base: &Path) -> Result<String, CliError> {
@@ -156,8 +225,14 @@ fn show_human(views: &[RootView<'_>], base: &Path) -> Result<String, CliError> {
         for (number, source) in view.target.sources.iter().enumerate() {
             let _ = writeln!(out, "#   {}. {}", number + 1, describe_source(base, source));
         }
+        if !view.unapplied.is_empty() {
+            out.push_str("# configuration files not applied:\n");
+            for file in &view.unapplied {
+                let _ = writeln!(out, "#   {} ({})", file.path, file.reason);
+            }
+        }
         out.push('\n');
-        out.push_str(&config_toml(&view.target.config)?);
+        out.push_str(&config_toml(view.target, base)?);
     }
     Ok(out)
 }
@@ -182,6 +257,27 @@ fn with_errors(members: &mut Map<String, Value>, failures: &[RootError]) {
     }
 }
 
+/// Every key some file set, with the assignments that built it, oldest first.
+fn origins_json(target: &Target, base: &Path) -> Value {
+    Value::Object(
+        target
+            .origins
+            .iter()
+            .map(|(key, assignments)| {
+                (
+                    key.to_owned(),
+                    Value::Array(
+                        locations(target, base, assignments)
+                            .iter()
+                            .map(Located::to_json)
+                            .collect(),
+                    ),
+                )
+            })
+            .collect(),
+    )
+}
+
 fn show_json(views: &[RootView<'_>], base: &Path, failures: &[RootError]) -> Result<String, CliError> {
     let roots = views
         .iter()
@@ -189,7 +285,13 @@ fn show_json(views: &[RootView<'_>], base: &Path, failures: &[RootError]) -> Res
             Ok(json!({
                 "path": view.path,
                 "sources": view.target.sources.iter().map(|source| source_json(base, source)).collect::<Vec<_>>(),
+                "not-applied": view
+                    .unapplied
+                    .iter()
+                    .map(|file| json!({"path": file.path, "reason": file.reason}))
+                    .collect::<Vec<_>>(),
                 "config": to_value(&view.target.config)?,
+                "origins": origins_json(view.target, base),
             }))
         })
         .collect::<Result<Vec<Value>, CliError>>()?;
@@ -222,6 +324,15 @@ impl Located {
                 Op::Reset => "reset",
                 _ => "set",
             },
+        }
+    }
+
+    /// `file:line` for a comment; the file alone when the line is unknown.
+    fn short(&self) -> String {
+        if self.line == 0 {
+            self.path.clone()
+        } else {
+            format!("{}:{}", self.path, self.line)
         }
     }
 
