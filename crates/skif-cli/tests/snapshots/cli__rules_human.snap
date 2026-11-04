@@ -28,7 +28,7 @@ workspace-protocol                 policy     error    none       A dependency o
 unsynced-dependency-family         policy     error    none       Members of a dependency family declared in one package are on different versions.
 unused-dependencies                js         error    unsafe     A package in `dependencies` is never imported, required or run by a script.
 unused-dev-dependencies            js         warning  unsafe     A package in `devDependencies` is never imported, required or run by a script.
-unlisted-dependencies              js         error    none       A file imports a package that neither its `package.json` nor the root `package.json` lists.
+unlisted-dependencies              js         error    none       A file imports a package that neither its `package.json` nor any `package.json` above it lists.
 unresolved-imports                 js         error    none       An import specifier does not resolve to a file or a package.
 unlisted-binaries                  js         warning  none       A script runs a binary that no listed dependency provides.
 unused-optional-peer-dependencies  js         warning  none       An optional peer dependency is imported but not installed as a dependency or dev dependency.

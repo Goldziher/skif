@@ -104,15 +104,28 @@ fn ancestors_above_the_repository_root_are_not_searched() {
 }
 
 #[test]
-fn ancestor_binaries_do_not_make_imports_listed() {
+fn ancestor_manifests_make_imports_listed() {
+    let child = r#"{"name":"child","private":true,"main":"index.js"}"#;
     let diagnostics = lint_at(
         "/ws/child",
         &[
             ("/ws/package.json", PARENT),
-            (
-                "/ws/child/package.json",
-                r#"{"name":"child","private":true,"main":"index.js"}"#,
-            ),
+            ("/ws/child/package.json", child),
+            ("/ws/child/index.js", "import 'oxlint';\nimport 'other';\n"),
+        ],
+    );
+    assert_eq!(names(&diagnostics, "unlisted-dependencies"), strings(&["other"]));
+}
+
+#[test]
+fn manifests_above_the_repository_root_do_not_make_imports_listed() {
+    let child = r#"{"name":"child","private":true,"main":"index.js"}"#;
+    let diagnostics = lint_at(
+        "/ws/child",
+        &[
+            ("/package.json", PARENT),
+            ("/ws/.git/HEAD", ""),
+            ("/ws/child/package.json", child),
             ("/ws/child/index.js", "import 'oxlint';\n"),
         ],
     );

@@ -5,7 +5,9 @@
 //! (`packages/tsconfig.json`, `src/legacy/jsconfig.json`), test files a config excludes and JavaScript files.
 
 use std::cmp::Reverse;
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, PoisonError, RwLock};
 
 use skif_core::FileSystem;
 use skif_js_syntax::ConfigValue;
@@ -16,11 +18,14 @@ use crate::resolve::join_normalized;
 /// How many `extends` links are followed.
 const MAX_EXTENDS: usize = 8;
 
+/// The placeholder TypeScript 5.5 replaces with the directory of the configuration that is being resolved.
+const CONFIG_DIR: &str = "${configDir}";
+
 /// `paths` entries: the pattern and its targets.
 type PathEntries = Vec<(String, Vec<String>)>;
 
-/// The module resolution options a config sets directly or through relative `extends`.
-#[derive(Default)]
+/// The module resolution options a config sets directly or through `extends`.
+#[derive(Clone, Default)]
 struct Options {
     base_url: Option<PathBuf>,
     /// The directory of the config that set `paths`, and the entries.
@@ -45,74 +50,189 @@ fn json_file(path: &str) -> String {
     }
 }
 
-fn load(fs: &dyn FileSystem, file: &Path, depth: usize) -> Option<Options> {
-    let config = parse_tsconfig(fs, file)?;
-    let dir = file.parent()?;
-    let mut options = Options::default();
-    if depth < MAX_EXTENDS
-        && let Some(extends) = config.get("extends")
-    {
-        let parents: Vec<&str> = match extends {
-            ConfigValue::String(parent) => vec![parent.as_str()],
-            ConfigValue::Array(items) => items.iter().filter_map(ConfigValue::as_str).collect(),
-            _ => Vec::new(),
-        };
-        // Later entries override earlier ones; packages are not followed.
-        for parent in parents.into_iter().filter(|parent| parent.starts_with('.')) {
-            if let Some(inherited) = load(fs, &join_normalized(dir, &json_file(parent)), depth + 1) {
-                options.base_url = inherited.base_url.or(options.base_url);
-                options.paths = inherited.paths.or(options.paths);
+/// `relative` below `base`; a `relative` that is absolute (a `${configDir}` target) stands on its own.
+fn join_any(base: &Path, relative: &str) -> PathBuf {
+    let path = Path::new(relative);
+    if !path.is_absolute() {
+        return join_normalized(base, relative);
+    }
+    let mut joined = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => joined.push(component),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                joined.pop();
             }
+            Component::Normal(name) => joined.push(name),
         }
     }
-    if let Some(compiler) = config.get("compilerOptions") {
-        if let Some(base_url) = compiler.get("baseUrl").and_then(ConfigValue::as_str) {
-            options.base_url = Some(join_normalized(dir, base_url));
-        }
-        if let Some(paths) = compiler.get("paths").and_then(ConfigValue::as_object) {
-            let entries = paths
-                .iter()
-                .map(|(pattern, targets)| {
-                    let targets = match targets {
-                        ConfigValue::String(target) => vec![target.clone()],
-                        ConfigValue::Array(items) => items
-                            .iter()
-                            .filter_map(ConfigValue::as_str)
-                            .map(str::to_owned)
-                            .collect(),
-                        _ => Vec::new(),
-                    };
-                    (pattern.clone(), targets)
-                })
-                .collect();
-            options.paths = Some((dir.to_path_buf(), entries));
-        }
-    }
-    Some(options)
+    joined
 }
 
-/// The nearest config at or above `dir`, not above `root`, that sets `baseUrl` or `paths`.
-pub(crate) fn nearest(fs: &dyn FileSystem, root: &Path, dir: &Path) -> Option<TsPaths> {
-    dir.ancestors()
-        .take_while(|ancestor| ancestor.starts_with(root))
-        .find_map(|ancestor| {
-            ["tsconfig.json", "jsconfig.json"].iter().find_map(|name| {
-                let file = ancestor.join(name);
-                if !fs.is_file(&file) {
-                    return None;
+fn with_config_dir(value: &str, config_dir: &Path) -> String {
+    if value.contains(CONFIG_DIR) {
+        let dir = config_dir.to_string_lossy().replace('\\', "/");
+        value.replace(CONFIG_DIR, dir.trim_end_matches('/'))
+    } else {
+        value.to_owned()
+    }
+}
+
+/// Splits `@scope/name/rest` or `name/rest` into the package name and the subpath (possibly empty).
+fn split_package(specifier: &str) -> (&str, &str) {
+    let name_end = if specifier.starts_with('@') {
+        specifier
+            .match_indices('/')
+            .nth(1)
+            .map_or(specifier.len(), |(index, _)| index)
+    } else {
+        specifier.find('/').unwrap_or(specifier.len())
+    };
+    let (name, rest) = specifier.split_at(name_end);
+    (name, rest.trim_start_matches('/'))
+}
+
+/// The config file an `extends` entry of the config in `dir` names: a relative path, or a package (workspace member or
+/// installed) with an optional subpath. `None` when nothing is found.
+pub(crate) fn resolve_extends(
+    fs: &dyn FileSystem,
+    members: &[(String, PathBuf)],
+    dir: &Path,
+    parent: &str,
+) -> Option<PathBuf> {
+    if parent.starts_with('.') || Path::new(parent).is_absolute() {
+        return Some(join_any(dir, &json_file(parent)));
+    }
+    let (name, subpath) = split_package(parent);
+    let in_package = |package_dir: &Path| -> Option<PathBuf> {
+        let candidates = if subpath.is_empty() {
+            vec![package_dir.join("tsconfig.json")]
+        } else {
+            vec![
+                join_normalized(package_dir, &json_file(subpath)),
+                join_normalized(package_dir, &format!("{subpath}/tsconfig.json")),
+            ]
+        };
+        candidates.into_iter().find(|candidate| fs.is_file(candidate))
+    };
+    members
+        .iter()
+        .filter(|(member, _)| member == name)
+        .find_map(|(_, member_dir)| in_package(member_dir))
+        .or_else(|| {
+            dir.ancestors()
+                .find_map(|ancestor| in_package(&ancestor.join("node_modules").join(name)))
+        })
+}
+
+/// The `baseUrl` and `paths` configs of a workspace, parsed once per config file.
+pub(crate) struct TsConfigs {
+    fs: Arc<dyn FileSystem>,
+    root: PathBuf,
+    /// Workspace members by name, with their absolute directory, for `extends` that names a package.
+    members: Vec<(String, PathBuf)>,
+    /// Parsed configs by file and the directory `${configDir}` stands for.
+    loaded: RwLock<HashMap<(PathBuf, PathBuf), Option<Arc<Options>>>>,
+}
+
+impl TsConfigs {
+    pub(crate) fn new(fs: Arc<dyn FileSystem>, root: PathBuf, members: Vec<(String, PathBuf)>) -> Self {
+        Self {
+            fs,
+            root,
+            members,
+            loaded: RwLock::new(HashMap::new()),
+        }
+    }
+
+    fn load(&self, file: &Path, config_dir: &Path, depth: usize) -> Option<Arc<Options>> {
+        let key = (file.to_path_buf(), config_dir.to_path_buf());
+        if let Some(known) = self.loaded.read().unwrap_or_else(PoisonError::into_inner).get(&key) {
+            return known.clone();
+        }
+        let options = self.parse(file, config_dir, depth).map(Arc::new);
+        self.loaded
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(key, options.clone());
+        options
+    }
+
+    fn parse(&self, file: &Path, config_dir: &Path, depth: usize) -> Option<Options> {
+        let config = parse_tsconfig(self.fs.as_ref(), file)?;
+        let dir = file.parent()?;
+        let mut options = Options::default();
+        if depth < MAX_EXTENDS
+            && let Some(extends) = config.get("extends")
+        {
+            let parents: Vec<&str> = match extends {
+                ConfigValue::String(parent) => vec![parent.as_str()],
+                ConfigValue::Array(items) => items.iter().filter_map(ConfigValue::as_str).collect(),
+                _ => Vec::new(),
+            };
+            // Later entries override earlier ones.
+            for parent in parents {
+                if let Some(path) = resolve_extends(self.fs.as_ref(), &self.members, dir, parent)
+                    && let Some(inherited) = self.load(&path, config_dir, depth + 1)
+                {
+                    options.base_url = inherited.base_url.clone().or(options.base_url);
+                    options.paths = inherited.paths.clone().or(options.paths);
                 }
-                let options = load(fs, &file, 0)?;
-                if options.base_url.is_none() && options.paths.is_none() {
-                    return None;
-                }
-                let (paths_dir, paths) = options.paths.unwrap_or_else(|| (ancestor.to_path_buf(), Vec::new()));
-                Some(TsPaths {
-                    base_url: options.base_url,
-                    paths_dir,
-                    paths,
+            }
+        }
+        if let Some(compiler) = config.get("compilerOptions") {
+            if let Some(base_url) = compiler.get("baseUrl").and_then(ConfigValue::as_str) {
+                options.base_url = Some(join_any(dir, &with_config_dir(base_url, config_dir)));
+            }
+            if let Some(paths) = compiler.get("paths").and_then(ConfigValue::as_object) {
+                let entries = paths
+                    .iter()
+                    .map(|(pattern, targets)| {
+                        let targets = match targets {
+                            ConfigValue::String(target) => vec![with_config_dir(target, config_dir)],
+                            ConfigValue::Array(items) => items
+                                .iter()
+                                .filter_map(ConfigValue::as_str)
+                                .map(|target| with_config_dir(target, config_dir))
+                                .collect(),
+                            _ => Vec::new(),
+                        };
+                        (pattern.clone(), targets)
+                    })
+                    .collect();
+                options.paths = Some((dir.to_path_buf(), entries));
+            }
+        }
+        Some(options)
+    }
+
+    /// The nearest config at or above `dir`, not above the workspace root, that sets `baseUrl` or `paths`.
+    pub(crate) fn nearest(&self, dir: &Path) -> Option<TsPaths> {
+        dir.ancestors()
+            .take_while(|ancestor| ancestor.starts_with(&self.root))
+            .find_map(|ancestor| {
+                ["tsconfig.json", "jsconfig.json"].iter().find_map(|name| {
+                    let file = ancestor.join(name);
+                    if !self.fs.is_file(&file) {
+                        return None;
+                    }
+                    let options = self.load(&file, ancestor, 0)?;
+                    if options.base_url.is_none() && options.paths.is_none() {
+                        return None;
+                    }
+                    let (paths_dir, paths) = options
+                        .paths
+                        .clone()
+                        .unwrap_or_else(|| (ancestor.to_path_buf(), Vec::new()));
+                    Some(TsPaths {
+                        base_url: options.base_url.clone(),
+                        paths_dir,
+                        paths,
+                    })
                 })
             })
-        })
+    }
 }
 
 /// The part of `specifier` a `paths` pattern captures, with the length of the fixed prefix (an exact pattern ranks
@@ -139,7 +259,7 @@ impl TsPaths {
                 let (prefix, captured) = match_pattern(pattern, specifier)?;
                 let paths = targets
                     .iter()
-                    .map(|target| join_normalized(base, &target.replacen('*', captured, 1)))
+                    .map(|target| join_any(base, &target.replacen('*', captured, 1)))
                     .collect();
                 Some((prefix, paths))
             })
@@ -194,7 +314,50 @@ mod tests {
                 "/ws/app/jsconfig.json",
                 r#"{"extends":"../base/tsconfig.base","compilerOptions":{}}"#,
             );
-        let paths = nearest(&fs, Path::new("/ws"), Path::new("/ws/app/src")).unwrap();
+        let paths = configs(fs, &[]).nearest(Path::new("/ws/app/src")).unwrap();
         assert_eq!(paths.candidates("@b/x"), [PathBuf::from("/ws/base/lib/x")]);
+    }
+
+    fn configs(fs: MemoryFs, members: &[(&str, &str)]) -> TsConfigs {
+        let members = members
+            .iter()
+            .map(|(name, dir)| ((*name).to_owned(), PathBuf::from(dir)))
+            .collect();
+        TsConfigs::new(Arc::new(fs), PathBuf::from("/ws"), members)
+    }
+
+    #[test]
+    fn extends_follows_workspace_packages_and_installed_packages() {
+        let fs = MemoryFs::new()
+            .with_file(
+                "/ws/packages/tsconfig/base.json",
+                r#"{"compilerOptions":{"paths":{"@m/*":["./m/*"]}}}"#,
+            )
+            .with_file(
+                "/ws/node_modules/@acme/config/tsconfig.json",
+                r#"{"compilerOptions":{"baseUrl":"./lib"}}"#,
+            )
+            .with_file("/ws/apps/a/tsconfig.json", r#"{"extends":"@x/tsconfig/base.json"}"#)
+            .with_file("/ws/apps/b/tsconfig.json", r#"{"extends":"@acme/config"}"#);
+        let configs = configs(fs, &[("@x/tsconfig", "/ws/packages/tsconfig")]);
+        let a = configs.nearest(Path::new("/ws/apps/a/src")).unwrap();
+        assert_eq!(a.candidates("@m/q"), [PathBuf::from("/ws/packages/tsconfig/m/q")]);
+        let b = configs.nearest(Path::new("/ws/apps/b")).unwrap();
+        assert_eq!(
+            b.candidates("plain"),
+            [PathBuf::from("/ws/node_modules/@acme/config/lib/plain")]
+        );
+    }
+
+    #[test]
+    fn config_dir_placeholder_is_the_directory_of_the_resolved_config() {
+        let fs = MemoryFs::new()
+            .with_file(
+                "/ws/base/tsconfig.json",
+                r#"{"compilerOptions":{"paths":{"@/*":["${configDir}/src/*"]}}}"#,
+            )
+            .with_file("/ws/app/tsconfig.json", r#"{"extends":"../base/tsconfig.json"}"#);
+        let paths = configs(fs, &[]).nearest(Path::new("/ws/app/src")).unwrap();
+        assert_eq!(paths.candidates("@/util"), [PathBuf::from("/ws/app/src/util")]);
     }
 }

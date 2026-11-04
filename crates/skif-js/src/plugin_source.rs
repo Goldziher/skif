@@ -144,8 +144,8 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
     }
 }
 
-/// Names of the dependencies of every ancestor workspace, so a tool installed at the repository root is known in the
-/// packages below it.
+/// Names of the dependencies of every ancestor workspace and of the manifests above the workspace root, so a tool
+/// installed at the repository root is known in the packages below it and in a nested root.
 fn inherited_dependencies(request: &InputRequest<'_>) -> Vec<String> {
     let dir = &request.package.dir;
     let mut names: Vec<String> = request
@@ -153,6 +153,7 @@ fn inherited_dependencies(request: &InputRequest<'_>) -> Vec<String> {
         .iter()
         .filter(|(_, other)| other.dir != *dir && (other.is_root || dir.starts_with(&other.dir)))
         .flat_map(|(_, other)| other.dependencies.iter().map(|entry| entry.name.clone()))
+        .chain(request.ancestor_dependencies.iter().cloned())
         .collect();
     names.sort();
     names.dedup();

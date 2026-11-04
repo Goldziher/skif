@@ -186,6 +186,11 @@ jest = { enabled = true, config = ["jest.config.cjs"] }
 tables take `entry`, `project`, `ignore`, `ignore-dependencies` and `ignore-binaries`. A plugin entry is `true`,
 `false` or a table with `enabled`, `config`, `entry` and `project`.
 
+A dependency counts as listed when the package's own `package.json`, the `package.json` of a package that contains
+it, or any `package.json` above the analysed root up to the git repository root lists it; the same manifests enable
+plugins. The default `project` globs include `.vue`, `.svelte` and `.astro` files, whose templates are not analysed,
+so an export or dependency used only from a template can be reported; list such files in `ignore` when that happens.
+
 The table holds 25 built-in plugins:
 
 `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk` and `browser-extension`.

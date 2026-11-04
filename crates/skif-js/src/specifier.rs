@@ -93,7 +93,7 @@ pub(crate) fn package_name(specifier: &str) -> Option<String> {
 /// Returns `None` when the specifier has no `node_modules` segment followed by a package name.
 pub(crate) fn node_modules_specifier_package(specifier: &str) -> Option<String> {
     let specifier = specifier.split(['?', '#']).next()?;
-    let segments: Vec<&str> = specifier.split('/').collect();
+    let segments: Vec<&str> = specifier.split(['/', '\\']).collect();
     let position = segments.iter().rposition(|segment| *segment == "node_modules")?;
     let rest = segments.get(position + 1..)?;
     let first = rest.first().copied().filter(|part| !part.is_empty())?;
@@ -187,6 +187,7 @@ mod tests {
             ("/abs/node_modules/", None),
             ("my_node_modules/x", None),
             ("lodash", None),
+            ("..\\node_modules\\lodash\\fp", Some("lodash")),
         ];
         for (specifier, expected) in cases {
             assert_eq!(
