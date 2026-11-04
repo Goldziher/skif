@@ -11,7 +11,8 @@ use crate::layer::ParsedFile;
 use crate::merge::{Merged, Merger};
 use crate::model::{Config, OverrideScope};
 use crate::overrides::ConfigOverrides;
-use crate::provenance::{ConfigSource, ResolvedConfig, SourceKind};
+use crate::package_file;
+use crate::provenance::{Assignment, ConfigSource, Op, ResolvedConfig, SourceKind};
 
 /// How many files deep `extends` may nest.
 const MAX_EXTENDS_DEPTH: usize = 16;
@@ -183,6 +184,57 @@ impl<'a> ConfigLoader<'a> {
         };
         resolved.config.apply(overrides)?;
         Ok(resolved)
+    }
+
+    /// Adds the package files of the member directories `members` (never the root) to `resolved`, each as an
+    /// override scoped to its directory, outermost directory first, after everything `resolved` already holds.
+    ///
+    /// Call it with the member directories of the root's workspace once they are known. A directory without a
+    /// configuration file adds nothing.
+    ///
+    /// # Errors
+    /// [`ConfigError::Ambiguous`] when a member directory has both file names, [`ConfigError::Io`] /
+    /// [`ConfigError::Parse`] / [`ConfigError::Invalid`] for an unreadable or invalid file, and
+    /// [`ConfigError::Scope`] when the file has a root-scoped key, naming the key and its position.
+    pub fn add_package_files(
+        &self,
+        resolved: &mut ResolvedConfig,
+        root: &Path,
+        members: &[PathBuf],
+    ) -> Result<(), ConfigError> {
+        let mut members: Vec<&PathBuf> = members.iter().collect();
+        members.sort_by_key(|dir| (dir.components().count(), (*dir).clone()));
+        for dir in members {
+            let path = match self.cache.dir(dir, self.fs).configs.as_slice() {
+                [] => continue,
+                [path] => path.clone(),
+                [first, second, ..] => {
+                    return Err(ConfigError::Ambiguous {
+                        first: first.clone(),
+                        second: second.clone(),
+                    });
+                }
+            };
+            let file = self.cache.file(&path, self.fs)?;
+            let mut scoped = package_file::to_override(&file, &path)?;
+            let source = resolved.sources.len();
+            scoped.scope = Some(OverrideScope::new(&scoped, dir, source, root)?);
+            resolved.sources.push(ConfigSource {
+                path,
+                kind: SourceKind::Package,
+            });
+            resolved.origins.push(
+                format!("overrides[{}]", resolved.config.overrides.len()),
+                Assignment {
+                    source,
+                    line: 1,
+                    column: 1,
+                    op: Op::Append,
+                },
+            );
+            resolved.config.overrides.push(scoped);
+        }
+        Ok(())
     }
 
     /// The nearest directory at or above `start` holding a `.git` entry.

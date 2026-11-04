@@ -13,6 +13,7 @@ mod layer;
 mod merge;
 mod model;
 mod overrides;
+mod package_file;
 mod provenance;
 mod rules;
 #[cfg(feature = "schema")]

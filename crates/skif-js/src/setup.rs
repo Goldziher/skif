@@ -1,10 +1,10 @@
 //! Per-package analysis settings: configured, default and plugin-provided globs merged once.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use globset::Glob;
-use skif_config::{Config, Js, JsWorkspace};
+use skif_config::{Config, Js, JsWorkspace, PackageJs};
 use skif_core::FileSystem;
 use skif_workspace::{PackageId, Workspace};
 
@@ -60,25 +60,58 @@ fn normalize_dir(dir: &str) -> &str {
     dir.trim_start_matches("./").trim_end_matches('/')
 }
 
-fn configured(js: &Js, dir: &str, is_root: bool) -> Configured {
-    if is_root {
-        return Configured {
+impl Configured {
+    /// Applies the `js` keys of an override: the plain keys replace what is there, the `extend-` keys append.
+    fn fold(&mut self, js: &PackageJs) {
+        let replace = |target: &mut Vec<String>, value: &[String]| {
+            if !value.is_empty() {
+                *target = value.to_vec();
+            }
+        };
+        replace(&mut self.entry, &js.entry);
+        replace(&mut self.project, &js.project);
+        replace(&mut self.ignore, &js.ignore);
+        replace(&mut self.ignore_dependencies, &js.ignore_dependencies);
+        replace(&mut self.ignore_binaries, &js.ignore_binaries);
+        self.ignore.extend(js.extend_ignore.iter().cloned());
+        self.ignore_dependencies
+            .extend(js.extend_ignore_dependencies.iter().cloned());
+        self.ignore_binaries.extend(js.extend_ignore_binaries.iter().cloned());
+    }
+}
+
+/// What the configuration sets for the package `name` in `abs_dir`: the root package takes the top-level `[js]`, any
+/// other the matching `[js.workspaces]` table (an exact key wins over a glob key), then the `js` of each
+/// `[[overrides]]` block that selects the package, in configuration order.
+fn configured(config: &Config, name: &str, abs_dir: &Path, dir: &str, is_root: bool) -> Configured {
+    let js = &config.js;
+    let mut user = if is_root {
+        Configured {
             entry: js.entry.clone(),
             project: js.project.clone(),
             ignore: js.ignore.clone(),
             ignore_dependencies: js.ignore_dependencies.clone(),
             ignore_binaries: js.ignore_binaries.clone(),
-        };
+        }
+    } else {
+        workspace_override(js, dir)
+            .map(|workspace| Configured {
+                entry: workspace.entry.clone(),
+                project: workspace.project.clone(),
+                ignore: workspace.ignore.clone(),
+                ignore_dependencies: workspace.ignore_dependencies.clone(),
+                ignore_binaries: workspace.ignore_binaries.clone(),
+            })
+            .unwrap_or_default()
+    };
+    for scoped in config
+        .overrides
+        .iter()
+        .filter(|scoped| !scoped.js.is_empty() && scoped.applies_to(Some((name, abs_dir)), None))
+    {
+        user.fold(&scoped.js);
     }
-    workspace_override(js, dir)
-        .map(|workspace| Configured {
-            entry: workspace.entry.clone(),
-            project: workspace.project.clone(),
-            ignore: workspace.ignore.clone(),
-            ignore_dependencies: workspace.ignore_dependencies.clone(),
-            ignore_binaries: workspace.ignore_binaries.clone(),
-        })
-        .unwrap_or_default()
+    user
 }
 
 /// The `[js.workspaces]` table for `dir`: an exact key wins over a glob key such as `packages/*`.
@@ -191,7 +224,9 @@ impl Setup {
                     return None;
                 }
                 let dir_name = package.dir.to_string_lossy().replace('\\', "/");
-                let user = configured(js, &dir_name, package.is_root);
+                let abs_dir = workspace.root.join(&package.dir);
+                let match_dir = if package.is_root { workspace.root.as_path() } else { abs_dir.as_path() };
+                let user = configured(config, package.display_name(), match_dir, &dir_name, package.is_root);
                 let mut plugin = WorkspaceInputs::default();
                 let request = InputRequest {
                     workspace,
@@ -250,7 +285,7 @@ impl Setup {
                 );
                 Some(PackageSetup {
                     id,
-                    dir: workspace.root.join(&package.dir),
+                    dir: abs_dir,
                     entry: Globs::new(entry),
                     external_entry,
                     entries_incomplete: plugin.entries_incomplete,

@@ -12,6 +12,7 @@ mod ignore;
 mod provider;
 mod registry;
 mod runner;
+mod scoped;
 
 pub use context::{DEFAULT_CONFIG_FILE, EnabledRules, LintContext};
 pub use emitter::Emitter;

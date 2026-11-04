@@ -16,6 +16,8 @@ pub enum SourceKind {
     Extends { by: PathBuf },
     /// The file given with `--config`.
     Explicit,
+    /// A file in the directory of a workspace member, applied to that package only.
+    Package,
 }
 
 /// One configuration file applied to a root.
@@ -30,7 +32,7 @@ impl ConfigSource {
     /// Whether the file was found by discovery (or given explicitly) rather than reached through `extends`.
     #[must_use]
     pub const fn is_discovered(&self) -> bool {
-        !matches!(self.kind, SourceKind::Extends { .. })
+        matches!(self.kind, SourceKind::Root | SourceKind::Ancestor | SourceKind::Explicit)
     }
 }
 

@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
-use skif_config::{Ceiling, Config, ConfigCache, ConfigOverrides, ConfigSource, Origins};
+use skif_config::{Ceiling, Config, ConfigCache, ConfigLoader, ConfigOverrides, ConfigSource, Origins};
 use skif_core::FileSystem;
 use skif_workspace::{
     DiscoverOptions, RootKind, Workspace, claim_roots, declared_member_dirs, declares_workspace, repository_root,
@@ -51,6 +51,9 @@ impl Target {
 /// Loads the configuration for `root` from every config file in `root` or a parent up to the `ceiling`, merged (see
 /// [`resolve_config`](crate::resolve_config)), and discovers the workspace at `root`.
 ///
+/// A `skif.toml` in the directory of a workspace member (a package file) is applied as an override scoped to that
+/// package, after the files of the chain (see [`ConfigLoader::add_package_files`]); `--no-config` skips them.
+///
 /// `cache` is shared by the roots of a run so each config file is read once; it may be used from several threads.
 ///
 /// # Errors
@@ -63,9 +66,13 @@ pub fn load_target(
     overrides: &ConfigOverrides,
     cache: &ConfigCache,
 ) -> Result<Target, Error> {
-    let resolved = resolve_config(root, ceiling, fs, overrides, cache)?;
-    let file = resolved.nearest_file().map(Path::to_path_buf);
+    let mut resolved = resolve_config(root, ceiling, fs, overrides, cache)?;
     let workspace = Workspace::discover_with_fs(root, &resolved.config, fs)?;
+    if !overrides.no_config {
+        let members: Vec<PathBuf> = workspace.member_dirs().into_iter().collect();
+        ConfigLoader::new(fs, cache).add_package_files(&mut resolved, root, &members)?;
+    }
+    let file = resolved.nearest_file().map(Path::to_path_buf);
     Ok(Target {
         root: root.to_path_buf(),
         config: resolved.config,

@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use skif_config::{Config, Selector};
+use skif_config::{Config, IgnoreEntry, Selector};
 use skif_core::Diagnostic;
 use skif_workspace::{PackageId, Workspace};
 
-/// `[[ignore]]` entries and `workspace.ignore-packages`, resolved against a workspace.
+/// `[[ignore]]` entries (those of `[[overrides]]` too, limited to the override's scope) and
+/// `workspace.ignore-packages`, resolved against a workspace.
 ///
 /// Packages are resolved to [`PackageId`]s once; every per-diagnostic check afterwards is an index into a vector
 /// by the diagnostic's [`PackageId`], or, for diagnostics that only carry a display name, a lookup of that name.
@@ -15,6 +16,8 @@ pub struct Suppressions {
     /// Indexed by package id.
     ignored: Vec<bool>,
     entries: Vec<Entry>,
+    /// The entries of each `[[overrides]]` block, by the block's index.
+    scoped: Vec<Vec<Entry>>,
 }
 
 #[derive(Debug)]
@@ -32,25 +35,28 @@ impl Suppressions {
             by_name.entry(package.display_name().to_owned()).or_default().push(id);
         }
         let ignored = workspace.package_ids().map(|id| workspace.is_ignored(id)).collect();
-        let entries = config
-            .ignore
+        let entries = build_entries(workspace, &config.ignore);
+        let scoped = config
+            .overrides
             .iter()
-            .map(|entry| Entry {
-                rules: entry.rules.iter().cloned().collect(),
-                packages: (!entry.packages.is_empty()).then(|| {
-                    workspace
-                        .iter()
-                        .map(|(_, package)| package.is_selected_by(&entry.packages))
-                        .collect()
-                }),
-                dependencies: entry.dependencies.clone(),
-            })
+            .map(|scoped| build_entries(workspace, &scoped.ignore))
             .collect();
         Self {
             by_name,
             ignored,
             entries,
+            scoped,
         }
+    }
+
+    /// Whether an `[[ignore]]` entry of one of the overrides in `applicable` (indices into the configuration's
+    /// overrides) matches `diagnostic`.
+    pub fn suppressed_in_scope(&self, diagnostic: &Diagnostic, applicable: &[usize]) -> bool {
+        applicable.iter().any(|index| {
+            self.scoped
+                .get(*index)
+                .is_some_and(|entries| entries.iter().any(|entry| self.entry_matches(entry, diagnostic)))
+        })
     }
 
     pub fn suppresses(&self, diagnostic: &Diagnostic) -> bool {
@@ -99,6 +105,22 @@ impl Suppressions {
         let candidates = [dependency, name].into_iter().chain(versioned.as_deref());
         selector.matches_any(candidates, self.by_name.contains_key(name))
     }
+}
+
+fn build_entries(workspace: &Workspace, ignore: &[IgnoreEntry]) -> Vec<Entry> {
+    ignore
+        .iter()
+        .map(|entry| Entry {
+            rules: entry.rules.iter().cloned().collect(),
+            packages: (!entry.packages.is_empty()).then(|| {
+                workspace
+                    .iter()
+                    .map(|(_, package)| package.is_selected_by(&entry.packages))
+                    .collect()
+            }),
+            dependencies: entry.dependencies.clone(),
+        })
+        .collect()
 }
 
 fn dependency_name(dependency: &str) -> &str {
