@@ -8,9 +8,10 @@ use std::sync::atomic::AtomicBool;
 
 use skif_config::{Config, Level};
 use skif_core::{FileSystem, OsFs, Report, RuleMeta};
-use skif_lint::{Registry, RuleProvider};
+use skif_lint::{Executor, Registry, RuleProvider};
 use skif_workspace::Workspace;
 
+use crate::cache;
 use crate::error::Error;
 
 /// The rule providers compiled into this build, in registration order.
@@ -43,6 +44,10 @@ pub struct RunOptions<'a> {
     /// Run discovery, graph building and rules on a dedicated pool of this many threads; `None` uses the global
     /// pool. `1` runs everything on the calling thread and spawns no threads.
     pub threads: Option<NonZeroUsize>,
+    /// Run rules on this reusable pool instead of building one per run; a host that lints often (an editor) creates
+    /// one [`Executor`] and passes it to every run. Takes precedence over `threads`, except `threads = 1`, which
+    /// stays on the calling thread.
+    pub executor: Option<&'a Executor>,
     /// Run only these rules (a subset of the otherwise enabled ones); `None` runs every enabled rule.
     pub rules: Option<&'a [String]>,
     /// The configuration file the configuration was loaded from, relative to the workspace root (see
@@ -62,6 +67,13 @@ impl<'a> RunOptions<'a> {
     #[must_use]
     pub const fn with_threads(mut self, threads: NonZeroUsize) -> Self {
         self.threads = Some(threads);
+        self
+    }
+
+    /// Runs rules on the shared `executor` pool.
+    #[must_use]
+    pub const fn with_executor(mut self, executor: &'a Executor) -> Self {
+        self.executor = Some(executor);
         self
     }
 
@@ -104,7 +116,12 @@ impl<'a> RunOptions<'a> {
 pub struct Linter {
     registry: Registry,
     config: Config,
+    /// The memoising layer between the built-in JS analysis and the host's file system, emptied at the start of every
+    /// run; `None` when the providers were supplied by the host.
+    cache: Option<Arc<SharedCache>>,
 }
+
+type SharedCache = skif_core::CachedFs<cache::Through<Arc<dyn FileSystem>>>;
 
 impl Linter {
     /// Builds a linter over the built-in rules; the JS analysis (feature `js-analysis`) reads the real file system.
@@ -118,10 +135,18 @@ impl Linter {
 
     /// Builds a linter over the built-in rules whose JS analysis reads source files through `fs`.
     ///
+    /// Directory listings, existence checks and small configuration files read through `fs` are remembered for the
+    /// duration of one run: every [`run_with`](Self::run_with) starts from an empty cache, so a host that edits files
+    /// between runs sees them.
+    ///
     /// # Errors
     /// As [`Linter::new`].
     pub fn with_fs(config: &Config, fs: Arc<dyn FileSystem>) -> Result<Self, Error> {
-        Self::with_providers(config, builtin_providers(config, fs))
+        let cache = cache::shared(fs);
+        let providers = builtin_providers(config, Arc::clone(&cache) as Arc<dyn FileSystem>);
+        let mut linter = Self::with_providers(config, providers)?;
+        linter.cache = Some(cache);
+        Ok(linter)
     }
 
     /// Builds a linter over exactly `providers`; pass [`builtin_providers`] plus your own to extend the built-ins.
@@ -134,6 +159,7 @@ impl Linter {
         Ok(Self {
             registry,
             config: config.clone(),
+            cache: None,
         })
     }
 
@@ -183,23 +209,26 @@ impl Linter {
     /// pool cannot be built, and [`Error::Lint`] when a provider fails or the run is cancelled.
     pub fn run_with(&self, workspace: &Workspace, options: &RunOptions<'_>) -> Result<Report, Error> {
         let config = self.restricted(options.rules)?;
+        if let Some(cache) = &self.cache {
+            cache.clear();
+        }
         let sequential = options.threads.is_some_and(|threads| threads.get() == 1);
-        let pool = options
-            .threads
-            .filter(|_| !sequential)
-            .map(|threads| {
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(threads.get())
-                    .build()
-                    .map_err(|error| Error::ThreadPool(error.to_string()))
-            })
-            .transpose()?;
-        let run_options = skif_lint::RunOptions {
-            pool: pool.as_ref(),
-            cancel: options.cancel,
-            config_path: options.config_path,
-            sequential,
+        let built = match (options.executor, options.threads) {
+            (None, Some(threads)) if !sequential => Some(
+                Executor::new(threads.get()).map_err(|error| Error::ThreadPool(error.to_string()))?,
+            ),
+            _ => None,
         };
+        let mut run_options = skif_lint::RunOptions::default().sequential(sequential);
+        if let Some(executor) = options.executor.or(built.as_ref()) {
+            run_options = run_options.with_executor(executor);
+        }
+        if let Some(cancel) = options.cancel {
+            run_options = run_options.with_cancel(cancel);
+        }
+        if let Some(path) = options.config_path {
+            run_options = run_options.with_config_path(path);
+        }
         Ok(skif_lint::run(&self.registry, workspace, &config, &run_options)?)
     }
 

@@ -69,7 +69,7 @@ pub fn write_plan(plan: &FixPlan, root: &Path) -> Result<(), CliError> {
     let jobs = plan
         .changes
         .iter()
-        .map(|change| prepare(change, &root))
+        .map(|change| prepare(plan, change, &root))
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut dirs = CreatedDirs::default();
@@ -156,11 +156,23 @@ fn rollback(undo: Vec<Undo>) {
 }
 
 /// Validates one change and reads what a rollback would need.
-fn prepare<'a>(change: &'a FileChange, root: &Path) -> Result<Job<'a>, CliError> {
+fn prepare<'a>(plan: &FixPlan, change: &'a FileChange, root: &Path) -> Result<Job<'a>, CliError> {
     match change {
         FileChange::Modify { path, new_contents, .. } => {
             let target = target(root, path)?;
             let original = fs::read(&target).map_err(|error| CliError::io("cannot read", path, &error))?;
+            if plan
+                .base_hash(path)
+                .is_some_and(|base| skif::content_hash(&original) != base)
+            {
+                return Err(CliError::new(
+                    Kind::Io,
+                    format!(
+                        "refusing to modify {}: it changed after the fixes were planned",
+                        path.display()
+                    ),
+                ));
+            }
             Ok(Job::Write {
                 target,
                 bytes: new_contents.as_bytes(),

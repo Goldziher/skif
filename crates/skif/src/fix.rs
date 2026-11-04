@@ -180,9 +180,28 @@ pub struct FixPlan {
     pub applied: Vec<AppliedFix>,
     /// Fixes left out, in diagnostic order.
     pub skipped: Vec<SkippedFix>,
+    /// [`content_hash`] of the contents each modified file had when it was planned.
+    bases: BTreeMap<PathBuf, u64>,
+}
+
+/// A stable 64-bit hash (FNV-1a) of file contents, for the staleness guard of a [`FixPlan`]: see
+/// [`FixPlan::base_hash`]. It is not cryptographic and will not change between releases.
+#[must_use]
+pub fn content_hash(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 impl FixPlan {
+    /// The [`content_hash`] of the file at `path` as the plan read it, for a file the plan modifies. A host that
+    /// writes the plan later compares it with the hash of the file as it is then and refuses to write over a file
+    /// that changed in between.
+    #[must_use]
+    pub fn base_hash(&self, path: &Path) -> Option<u64> {
+        self.bases.get(path).copied()
+    }
+
     /// Whether the plan changes no file.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -446,9 +465,10 @@ impl<'a> Planner<'a> {
 
     /// The contents every accepted fix amounts to. Each file is checked as a whole: the accepted fixes were planned one
     /// at a time, so only the combined result proves that they still form a document that parses.
-    fn finish(mut self) -> Result<Vec<FileChange>, Invalid> {
+    fn finish(mut self) -> Result<(Vec<FileChange>, BTreeMap<PathBuf, u64>), Invalid> {
         let entries = std::mem::take(&mut self.entries);
         let mut changes = Vec::with_capacity(entries.len());
+        let mut bases = BTreeMap::new();
         for (path, entry) in entries {
             let culprit = self
                 .contributors
@@ -477,6 +497,7 @@ impl<'a> Planner<'a> {
                         None => edits,
                     };
                     let new_contents = apply_text_edits(&source, &edits).map_err(|error| invalid(error.to_string()))?;
+                    bases.insert(path.clone(), content_hash(source.as_bytes()));
                     FileChange::Modify {
                         path: path.clone(),
                         edits,
@@ -485,7 +506,7 @@ impl<'a> Planner<'a> {
                 }
             });
         }
-        Ok(changes)
+        Ok((changes, bases))
     }
 }
 
@@ -641,9 +662,11 @@ fn plan_once(
             }),
         }
     }
+    let (changes, bases) = planner.finish()?;
     Ok(FixPlan {
-        changes: planner.finish()?,
+        changes,
         applied,
         skipped,
+        bases,
     })
 }

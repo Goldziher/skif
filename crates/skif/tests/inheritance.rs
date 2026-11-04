@@ -172,18 +172,12 @@ fn no_config_and_an_explicit_file_bypass_discovery() {
         "/elsewhere/ci.toml",
         "[lint]\nfail-on-warnings = false\n[js]\nentry = [\"ci\"]\n",
     );
-    let none = ConfigOverrides {
-        no_config: true,
-        ..ConfigOverrides::default()
-    };
+    let none = ConfigOverrides::default().with_no_config(true);
     for target in discover_all(Path::new("/acme"), &fs, &none).unwrap() {
         assert!(target.sources.is_empty() && !target.config.lint.fail_on_warnings);
         assert_eq!(target.config_path(), None);
     }
-    let explicit = ConfigOverrides {
-        config_file: Some(PathBuf::from("/elsewhere/ci.toml")),
-        ..ConfigOverrides::default()
-    };
+    let explicit = ConfigOverrides::default().with_config_file(Some(PathBuf::from("/elsewhere/ci.toml")));
     for target in discover_all(Path::new("/acme"), &fs, &explicit).unwrap() {
         assert!(!target.config.lint.fail_on_warnings);
         assert_eq!(target.config.js.entry, ["ci"]);
@@ -358,10 +352,7 @@ fn a_package_file_with_a_root_scoped_key_is_a_scope_error() {
 #[test]
 fn no_config_skips_package_files() {
     let fs = workspace_with(Some("[rules]\nempty-dependencies = \"off\"\n"), "");
-    let overrides = ConfigOverrides {
-        no_config: true,
-        ..ConfigOverrides::default()
-    };
+    let overrides = ConfigOverrides::default().with_no_config(true);
     assert_eq!(
         load_ws(&fs, &overrides).unwrap().config.overrides,
         [] as [skif::Override; 0]

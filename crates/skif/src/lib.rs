@@ -9,6 +9,7 @@
 //!
 //! ```
 //! use std::path::Path;
+//! use std::sync::Arc;
 //! use skif::{ConfigOverrides, Linter, MemoryFs, Workspace, find_workspace_root, load_config};
 //!
 //! let fs = MemoryFs::new()
@@ -18,29 +19,76 @@
 //! let root = find_workspace_root(Path::new("/repo/packages/a"), &fs)?;
 //! let config = load_config(&root, &fs, &ConfigOverrides::default())?;
 //! let workspace = Workspace::discover_with_fs(&root, &config, &fs)?;
-//! let report = Linter::new(&config)?.run(&workspace)?;
+//! // The linter reads source files (with `js-analysis`) through the same file system as discovery.
+//! let report = Linter::with_fs(&config, Arc::new(fs.clone()))?.run(&workspace)?;
 //! assert_eq!(report.summary.packages, 2);
 //! # Ok::<(), skif::Error>(())
+//! ```
+//!
+//! A host that lints many projects discovers every root below a directory with [`discover_targets`] (or
+//! [`discover_all`]) and resolves the layered configuration of a single root with [`resolve_config`] and a
+//! [`ConfigCache`] (the [`ConfigLoader`] behind it is public for hosts that load packages themselves):
+//!
+//! ```
+//! use std::path::{Path, PathBuf};
+//! use std::sync::Arc;
+//! use skif::{Ceiling, ConfigCache, ConfigOverrides, Linter, MemoryFs, RunOptions, discover_targets, resolve_config};
+//!
+//! let fs = MemoryFs::new()
+//!     .with_file("/r/skif.toml", "[lint]\nfail-on-warnings = true\n")
+//!     .with_file("/r/a/package.json", r#"{"name": "a", "version": "1.0.0"}"#)
+//!     .with_file("/r/b/skif.toml", "")
+//!     .with_file("/r/b/package.json", r#"{"name": "b", "version": "1.0.0"}"#);
+//!
+//! // Layered configuration: every skif.toml from the root up to the ceiling, merged farthest first. The cache is
+//! // shared by the roots of a run so each file is read once; `origins` says which file set which key.
+//! let cache = ConfigCache::new();
+//! let ceiling = Ceiling::VcsOr(PathBuf::from("/r"));
+//! let resolved = resolve_config(Path::new("/r/a"), &ceiling, &fs, &ConfigOverrides::default(), &cache)?;
+//! assert!(resolved.config.lint.fail_on_warnings);
+//! assert_eq!(resolved.sources.len(), 1);
+//! assert!(resolved.origins.last("lint.fail-on-warnings").is_some());
+//!
+//! // Multi-root: every workspace and standalone package below a directory, each with its own configuration.
+//! let discovery = discover_targets(Path::new("/r"), &fs, &ConfigOverrides::default())?;
+//! assert!(discovery.failures.is_empty());
+//! assert_eq!(discovery.targets.len(), 2);
+//! for target in &discovery.targets {
+//!     let linter = Linter::with_fs(&target.config, Arc::new(fs.clone()))?;
+//!     let config_path = target.config_path();
+//!     let mut options = RunOptions::default();
+//!     if let Some(path) = &config_path {
+//!         options = options.with_config_path(path);
+//!     }
+//!     let report = linter.run_with(&target.workspace, &options)?;
+//!     assert!(report.summary.packages >= 1);
+//! }
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! # Features
 //!
 //! | Feature | Default | Brings in |
 //! | --- | --- | --- |
-//! | `manifest` | yes | the manifest rules |
-//! | `policy` | yes | version, semver and catalog policies |
+//! | `manifest` | yes | the built-in rules: manifest rules, version and semver group policies and catalog rules |
 //! | `js-analysis` | no | the oxc based JS and TypeScript analysis and the plugin table (`Linter` adds it to the built-in rules) |
 //! | `fix` | no | `apply_fixes` and `FixPlan` |
 //! | `yaml-fix` | no | YAML edits for `pnpm-workspace.yaml` (implies `fix`) |
 //! | `report` | no | the human, JSON, SARIF and GitHub renderers, as `skif::render` |
 //! | `schema` | no | `config_schema` |
 //!
-//! No `oxc`, `nodejs_semver` or `rayon` type appears in a public signature. Two data-model types remain public on
-//! purpose (ADR 0003, ADR 0008): [`JsonAction`] and [`YamlAction`] carry a `serde_json::Value`, because a fix is
+//! No `oxc` or `rayon` type appears in a public signature; reusable thread pools are an [`Executor`]. The data
+//! model is the contract for four libraries: `serde_json` ([`JsonAction`], the manifest values of a [`Package`]),
+//! `toml` (rule options), `indexmap` (the ordered maps of [`Config`]) and `nodejs_semver` (the parsed ranges of a
+//! dependency specifier). A major release of any of them is a breaking release of skif. Two data-model types remain
+//! public on purpose (ADR 0003, ADR 0008): [`JsonAction`] and [`YamlAction`] carry a `serde_json::Value`, because a fix is
 //! data a host may serialize, and [`RuleProvider::validate_options`] receives the `toml::Table` of a rule's options,
 //! because a rule's options are TOML in `skif.toml`. The renderers that take `serde_json` members
 //! (`render_json_with`) are not part of the facade; only the fixed renderers are re-exported as [`render`].
 
+#![warn(missing_docs)]
+
+mod cache;
 mod error;
 #[cfg(feature = "fix")]
 mod fix;
@@ -53,7 +101,7 @@ mod targets;
 pub use error::Error;
 #[cfg(feature = "fix")]
 pub use fix::{
-    Alternatives, AppliedFix, FixError, FixPlan, FixSelection, SkipReason, SkippedFix, apply_fixes,
+    Alternatives, AppliedFix, FixError, FixPlan, FixSelection, SkipReason, SkippedFix, apply_fixes, content_hash,
     preferred_alternative,
 };
 pub use linter::{Linter, RunOptions, builtin_providers};
@@ -75,7 +123,8 @@ pub use skif_core::{
     Severity, Span, Summary, TextEdit, YamlAction, diagnostic, slash,
 };
 pub use skif_lint::{
-    Emitter, EnabledRules, LintContext, LintError, ProviderError, RegistryError, Rule, RuleProvider, RulesProvider,
+    Emitter, EnabledRules, Executor, ExecutorError, LintContext, LintError, ProviderError, RegistryError, Rule,
+    RuleProvider, RulesProvider,
 };
 pub use skif_workspace::{DiscoverOptions, Package, PackageId, RootKind, Workspace, WorkspaceError, discover_roots};
 
@@ -105,6 +154,10 @@ const _: () = {
     let _ = assert_send_sync::<Config>;
     let _ = assert_send_sync::<ConfigCache>;
     let _ = assert_send_sync::<Report>;
+    let _ = assert_send_sync::<Executor>;
+    let _ = assert_send_sync::<ResolvedConfig>;
+    let _ = assert_send_sync::<Target>;
+    let _ = assert_send_sync::<Discovery>;
     let _ = assert_send_sync::<Workspace>;
     #[cfg(feature = "fix")]
     {

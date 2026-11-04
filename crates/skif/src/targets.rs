@@ -106,6 +106,8 @@ fn load_in_repository(
 /// project, otherwise [`load_target`]'s errors for the chosen root. An ancestor workspace that lists the project but
 /// cannot be loaded is that error, not a silent fallback to the project alone.
 pub fn find_target(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOverrides) -> Result<Target, Error> {
+    let cached = crate::cache::per_call(fs);
+    let fs: &dyn FileSystem = &cached;
     let Located { project, ancestors } = locate(start, fs)?;
     let cache = ConfigCache::new();
     if declares_workspace(fs, &project) {
@@ -171,6 +173,8 @@ pub struct Discovery {
 /// # Errors
 /// [`Error::RelativePath`] for a relative `start`.
 pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOverrides) -> Result<Discovery, Error> {
+    let cached = crate::cache::per_call(fs);
+    let fs: &dyn FileSystem = &cached;
     if !start.has_root() {
         return Err(Error::RelativePath(start.to_path_buf()));
     }
@@ -259,6 +263,7 @@ impl UnappliedReason {
 pub struct UnappliedConfig {
     /// Absolute path of the file.
     pub path: PathBuf,
+    /// Why the file was not applied.
     pub reason: UnappliedReason,
 }
 
