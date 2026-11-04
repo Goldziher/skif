@@ -121,7 +121,11 @@ fn computed_entries_are_flagged_as_incomplete() {
         ("rollup", "rollup.config.js", "export default { input: pick() };"),
         ("tsup", "tsup.config.ts", "export default { entry: pick() };"),
         ("tsdown", "tsdown.config.ts", "export default { entry: pick() };"),
-        ("esbuild", "esbuild.config.mjs", "export default { entryPoints: pick() };"),
+        (
+            "esbuild",
+            "esbuild.config.mjs",
+            "export default { entryPoints: pick() };",
+        ),
         (
             "vite",
             "vite.config.ts",
@@ -145,7 +149,11 @@ fn static_entries_are_complete() {
         ("rollup", "rollup.config.js", "export default { input: 'src/a.js' };"),
         ("tsup", "tsup.config.ts", "export default { entry: ['src/a.ts'] };"),
         ("tsdown", "tsdown.config.ts", "export default { entry: ['src/a.ts'] };"),
-        ("esbuild", "esbuild.config.mjs", "export default { entryPoints: ['src/a.ts'] };"),
+        (
+            "esbuild",
+            "esbuild.config.mjs",
+            "export default { entryPoints: ['src/a.ts'] };",
+        ),
         (
             "vite",
             "vite.config.ts",
