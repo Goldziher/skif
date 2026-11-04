@@ -42,10 +42,7 @@ fn builtin_rules_include_the_js_analysis_over_the_given_file_system() {
 
 #[test]
 fn no_js_turns_the_analysis_off() {
-    let found = rules(&ConfigOverrides {
-        no_js: true,
-        ..ConfigOverrides::default()
-    });
+    let found = rules(&ConfigOverrides::default().with_no_js(true));
     assert!(!found.contains("unused-dependencies"), "{found:?}");
     assert!(!found.contains("unlisted-dependencies"), "{found:?}");
 }

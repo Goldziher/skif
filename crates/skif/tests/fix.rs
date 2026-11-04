@@ -8,7 +8,7 @@ use skif::{
     Alternatives, Category, ConfigOverrides, Diagnostic, Emitter, FileChange, FileSystem, Fix, FixOp, FixSafety,
     FixSelection, Fixability, InsertPosition, JsonAction, LintContext, Linter, Location, MemoryFs, PathSeg, Prefer,
     Report, Rule, RuleMeta, RulesProvider, RunOptions, Severity, SkipReason, TextEdit, Workspace, apply_fixes,
-    diagnostic, load_config, preferred_alternative,
+    content_hash, diagnostic, load_config, preferred_alternative,
 };
 
 const ROOT_MANIFEST: &str = "{\n  \"name\": \"root\",\n  \"workspaces\": [\"packages/*\"]\n}\n";
@@ -187,6 +187,21 @@ fn plan_is_data_and_leaves_the_file_system_untouched() {
         &*fs.read_to_string(Path::new("/ws/packages/a/package.json")).unwrap(),
         MEMBER_MANIFEST
     );
+}
+
+#[test]
+fn a_plan_records_the_hash_of_every_file_it_modifies() {
+    let fs = fs();
+    let (workspace, report) = report(&fs);
+    let selection = FixSelection::new(FixSafety::Unsafe).with_alternatives(Alternatives::First);
+    let plan = apply_fixes(&workspace, &report, &selection, &fs).unwrap();
+
+    let root = content_hash(ROOT_MANIFEST.as_bytes());
+    let member = content_hash(MEMBER_MANIFEST.as_bytes());
+    assert_ne!(root, member);
+    assert_eq!(plan.base_hash(Path::new("package.json")), Some(root));
+    assert_eq!(plan.base_hash(Path::new("packages/a/package.json")), Some(member));
+    assert_eq!(plan.base_hash(Path::new("untouched.json")), None);
 }
 
 #[test]
