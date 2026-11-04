@@ -45,7 +45,7 @@ fn rendering_format(args: &LintArgs, env: Env) -> (Format, bool) {
 }
 
 /// A path as the OS resolves it: symlinks and `..` gone, and no Windows `\\?\` prefix on a plain drive path.
-fn canonical(path: &Path) -> Result<PathBuf, CliError> {
+pub fn canonical(path: &Path) -> Result<PathBuf, CliError> {
     let resolved = std::fs::canonicalize(path).map_err(|error| CliError::io("cannot resolve", path, &error))?;
     Ok(simplified(resolved))
 }

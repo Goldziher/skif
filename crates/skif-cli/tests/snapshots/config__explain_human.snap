@@ -1,0 +1,10 @@
+---
+source: crates/skif-cli/tests/config.rs
+expression: human.stdout
+---
+lint.fail-on-warnings
+  value: true
+  set by, oldest first:
+    ../skif.toml:2:1  set
+    ../presets/base.toml:3:1  set
+    skif.toml:4:1  set
