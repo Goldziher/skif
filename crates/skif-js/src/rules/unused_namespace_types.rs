@@ -7,13 +7,13 @@ use crate::analysis::JsAnalysis;
 
 /// Metadata of `unused-namespace-types`. Warning like `unused-types`, whose findings it takes over for modules that
 /// are only read through a namespace.
-pub static META: RuleMeta = RuleMeta {
-    id: "unused-namespace-types",
-    category: Category::Js,
-    default: Some(Severity::Warning),
-    fixable: Fixability::Unsafe,
-    summary: "An exported type of a module that is only read through a namespace import is never accessed.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unused-namespace-types",
+    Category::Js,
+    Some(Severity::Warning),
+    Fixability::Unsafe,
+    "An exported type of a module that is only read through a namespace import is never accessed.",
+);
 
 /// Reports exported interfaces and type aliases that no `ns.Type` read of a namespace-only module touches.
 pub struct UnusedNamespaceTypes;
