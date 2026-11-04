@@ -232,11 +232,22 @@
           "$ref": "#/$defs/RuleTableSchema"
         }
       ],
-      "description": "Schema stand-in for a `[rules]` value: a level string or a table of severity plus options.\nIt only describes the shape for the JSON Schema and is never constructed."
+      "description": "Schema stand-in for a `[rules]` value: a level string or a table of `level` plus options.\nIt only describes the shape for the JSON Schema and is never constructed."
     },
     "RuleTableSchema": {
       "type": "object",
       "properties": {
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Level"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The level of the rule; the key that is written back. Set either `level` or `severity`, not both."
+        },
         "severity": {
           "anyOf": [
             {
@@ -245,7 +256,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "Alias of `level`."
         }
       },
       "additionalProperties": true,
