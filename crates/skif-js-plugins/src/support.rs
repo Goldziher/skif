@@ -85,6 +85,32 @@ pub(crate) fn module_input(base: &str, specifier: &str, bare_is_file: bool) -> O
     package_name(specifier).map(PluginInput::Dependency)
 }
 
+/// A reference from one config file to another: a relative path is a further config file of the same tool, a bare name
+/// a shared config package (`extends: ["config-standard"]`).
+pub(crate) fn config_ref(base: &str, specifier: &str) -> Option<PluginInput> {
+    let specifier = specifier.trim();
+    if is_relative(specifier) {
+        return Some(PluginInput::ConfigFile(join_rel(base, specifier)));
+    }
+    package_name(specifier).map(PluginInput::Dependency)
+}
+
+/// Every module a config names in a string or a list of strings; see [`module_input`].
+pub(crate) fn module_inputs(base: &str, value: &ConfigValue) -> Vec<PluginInput> {
+    strings(value)
+        .into_iter()
+        .filter_map(|name| module_input(base, name, false))
+        .collect()
+}
+
+/// Every `script` of the scripts a config holds as a string or a list of strings.
+pub(crate) fn script_inputs(value: &ConfigValue) -> Vec<PluginInput> {
+    strings(value)
+        .into_iter()
+        .map(|script| PluginInput::Script(script.to_owned()))
+        .collect()
+}
+
 /// The entry for a glob or path written in a config. Negated patterns yield nothing.
 pub(crate) fn entry_glob(base: &str, pattern: &str) -> Option<String> {
     let pattern = pattern.trim();

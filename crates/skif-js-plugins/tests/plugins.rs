@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 25] = [
+const ADR_IDS: [&str; 60] = [
     "typescript",
     "eslint",
     "prettier",
@@ -40,6 +40,41 @@ const ADR_IDS: [&str; 25] = [
     "mastra",
     "aws-cdk",
     "browser-extension",
+    "tsdown",
+    "oxlint",
+    "angular",
+    "karma",
+    "esbuild",
+    "svelte",
+    "nuxt",
+    "astro",
+    "drizzle",
+    "ts-node",
+    "tsx",
+    "nx",
+    "cypress",
+    "mocha",
+    "sveltekit",
+    "prisma",
+    "graphql-codegen",
+    "docusaurus",
+    "vitepress",
+    "wrangler",
+    "expo",
+    "react-native",
+    "metro",
+    "release-it",
+    "semantic-release",
+    "lefthook",
+    "simple-git-hooks",
+    "stylelint",
+    "markdownlint",
+    "cspell",
+    "nodemon",
+    "pm2",
+    "pnpm",
+    "yarn",
+    "syncpack",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -82,6 +117,31 @@ fn resolve_inheriting(
         scripts: &scripts,
         fs: &fs,
         plugins,
+    };
+    resolve_plugins(&ctx)
+}
+
+fn resolve_with_scripts(
+    files: &[(&str, &str)],
+    dependencies: &[&str],
+    scripts: &[(&str, &str)],
+) -> Vec<(PluginId, PluginOutput)> {
+    let fs = fs_with(files);
+    let dependencies: Vec<String> = dependencies.iter().map(|d| (*d).to_string()).collect();
+    let scripts: IndexMap<String, String> = scripts
+        .iter()
+        .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+        .collect();
+    let plugins = IndexMap::new();
+    let ctx = PluginContext {
+        dir: Path::new(DIR),
+        is_root: true,
+        package_name: Some("app"),
+        dependencies: &dependencies,
+        inherited_dependencies: &[],
+        scripts: &scripts,
+        fs: &fs,
+        plugins: &plugins,
     };
     resolve_plugins(&ctx)
 }
@@ -1169,4 +1229,504 @@ fn enabled_plugins_without_config_files_use_conventions() {
         &output(&results, "storybook").entries,
         &["**/*.{mdx,stories.{mdx,js,jsx,mjs,ts,tsx}}"],
     );
+}
+
+#[test]
+fn tsdown() {
+    let config = r#"export default defineConfig({
+      entry: ["src/index.ts", "!src/skip.ts"],
+      deps: { neverBundle: ["lodash"] },
+    });"#;
+    let results = resolve(&[("tsdown.config.ts", config)], &["tsdown"]);
+    let out = output(&results, "tsdown");
+    assert_entries(&out.production_entries, &["src/index.ts"]);
+    assert!(!out.entries.iter().any(|e| e.contains("skip")));
+    assert_deps(out, &["lodash"]);
+}
+
+#[test]
+fn oxlint() {
+    let config = r#"{
+      "extends": ["./base.json", "oxlint-config-shared"],
+      "jsPlugins": ["oxlint-plugin-a", "./local-plugin.js"],
+      "overrides": [{ "files": ["*.ts"], "jsPlugins": [{ "specifier": "oxlint-plugin-b" }] }]
+    }"#;
+    let results = resolve(&[(".oxlintrc.json", config), ("base.json", "{}")], &["oxlint"]);
+    let out = output(&results, "oxlint");
+    assert_deps(out, &["oxlint-config-shared", "oxlint-plugin-a", "oxlint-plugin-b"]);
+    assert_entries(&out.entries, &["local-plugin.js"]);
+    assert!(out.config_files.iter().any(|f| f.ends_with("base.json")));
+}
+
+#[test]
+fn angular_builders_and_entries() {
+    let config = r#"{
+      "projects": { "web": { "architect": {
+        "build": {
+          "builder": "@angular-devkit/build-angular:browser",
+          "options": { "main": "src/main.ts", "polyfills": ["zone.js"], "styles": ["src/styles.css", { "input": "src/theme.scss" }] },
+          "configurations": { "production": { "fileReplacements": [{ "replace": "src/env.ts", "with": "src/env.prod.ts" }] } }
+        },
+        "test": {
+          "builder": "@angular-devkit/build-angular:karma",
+          "options": { "karmaConfig": "karma.conf.js", "include": ["src/**/*.spec.ts"] }
+        }
+      } } }
+    }"#;
+    let results = resolve(&[("angular.json", config)], &["@angular/cli"]);
+    let out = output(&results, "angular");
+    assert_deps(out, &["@angular-devkit/build-angular", "zone.js"]);
+    assert_absent(out, &["karma-jasmine"]);
+    assert_entries(
+        &out.production_entries,
+        &["src/main.ts", "src/styles.css", "src/theme.scss", "src/env.prod.ts"],
+    );
+    assert_entries(&out.entries, &["src/**/*.spec.ts"]);
+}
+
+#[test]
+fn angular_karma_builder_without_config_uses_the_default_packages() {
+    let config = r#"{ "projects": { "web": { "architect": { "test": { "builder": "@angular/build:karma" } } } } }"#;
+    let results = resolve(&[("angular.json", config)], &["@angular/cli"]);
+    let out = output(&results, "angular");
+    assert_deps(out, &["@angular/build", "karma-jasmine", "karma-chrome-launcher"]);
+    assert_entries(&out.entries, &["**/*.spec.ts"]);
+}
+
+#[test]
+fn karma() {
+    let config = r#"module.exports = {
+      frameworks: ["jasmine"],
+      plugins: ["karma-chrome-launcher"],
+      basePath: "src",
+      files: ["**/*.spec.ts", { pattern: "assets/*.json" }],
+    };"#;
+    let results = resolve(&[("karma.conf.js", config)], &["karma"]);
+    let out = output(&results, "karma");
+    assert_deps(out, &["karma-jasmine", "karma-chrome-launcher"]);
+    assert_entries(&out.entries, &["src/**/*.spec.ts", "src/assets/*.json"]);
+}
+
+#[test]
+fn esbuild() {
+    let config =
+        r#"export default { entryPoints: ["src/main.ts", { in: "src/worker.ts", out: "worker" }], bundle: true };"#;
+    let results = resolve(&[("esbuild.config.mjs", config)], &["esbuild"]);
+    assert_entries(
+        &output(&results, "esbuild").production_entries,
+        &["src/main.ts", "src/worker.ts"],
+    );
+}
+
+#[test]
+fn svelte() {
+    let results = resolve(&[], &["svelte"]);
+    assert_entries(&output(&results, "svelte").entries, &["svelte.config.{js,cjs,mjs,ts}"]);
+}
+
+#[test]
+fn sveltekit() {
+    let config = "export default { kit: { files: { lib: 'src/shared' } } };";
+    let results = resolve(&[("svelte.config.js", config)], &["@sveltejs/kit"]);
+    let out = output(&results, "sveltekit");
+    assert!(
+        out.aliases.contains(&alias("$lib", Some("src/shared"))),
+        "{:?}",
+        out.aliases
+    );
+    assert!(out.production_entries.iter().any(|e| e.starts_with("src/routes/")));
+    let results = resolve(&[], &["@sveltejs/kit"]);
+    let out = output(&results, "sveltekit");
+    assert!(
+        out.aliases.contains(&alias("$lib", Some("src/lib"))),
+        "{:?}",
+        out.aliases
+    );
+}
+
+#[test]
+fn nuxt() {
+    let config = r#"export default defineNuxtConfig({
+      modules: ["@nuxt/ui", ["@pinia/nuxt", {}]],
+      extends: ["@org/layer", "github:org/repo"],
+      css: ["~/assets/main.css", "normalize.css"],
+    });"#;
+    let results = resolve(&[("nuxt.config.ts", config)], &["nuxt"]);
+    let out = output(&results, "nuxt");
+    assert_deps(out, &["@nuxt/ui", "@pinia/nuxt", "@org/layer", "normalize.css"]);
+    assert_absent(out, &["github"]);
+    assert!(out.production_entries.iter().any(|e| e.starts_with("server/")));
+}
+
+#[test]
+fn astro() {
+    let results = resolve_with_scripts(&[], &["astro"], &[("check", "astro check && tsc")]);
+    let out = output(&results, "astro");
+    assert_deps(out, &["@astrojs/check"]);
+    assert!(out.production_entries.iter().any(|e| e.starts_with("src/pages/")));
+    let results = resolve_with_scripts(&[], &["astro"], &[("build", "astro build")]);
+    assert_absent(output(&results, "astro"), &["@astrojs/check"]);
+}
+
+#[test]
+fn drizzle() {
+    let config =
+        r#"export default defineConfig({ schema: ["./src/db/schema.ts", "./src/db/other.ts"], out: "./drizzle" });"#;
+    let results = resolve(&[("drizzle.config.ts", config)], &["drizzle-kit"]);
+    assert_entries(
+        &output(&results, "drizzle").production_entries,
+        &["src/db/schema.ts", "src/db/other.ts"],
+    );
+}
+
+#[test]
+fn ts_node() {
+    let results = resolve(&[], &["ts-node"]);
+    assert!(
+        output(&results, "ts-node")
+            .provided_binaries
+            .contains(&"ts-node-esm".to_string())
+    );
+}
+
+#[test]
+fn tsx() {
+    let results = resolve_with_scripts(&[], &["tsx"], &[("test", "tsx --test src/")]);
+    let out = output(&results, "tsx");
+    assert!(out.provided_binaries.contains(&"tsx".to_string()));
+    assert_entries(&out.entries, &["**/test/**/*.{c,m,}{j,t}s"]);
+    let results = resolve_with_scripts(&[], &["tsx"], &[("dev", "tsx watch src/index.ts")]);
+    assert!(output(&results, "tsx").entries.is_empty());
+}
+
+#[test]
+fn nx() {
+    let nx_json = r#"{
+      "targetDefaults": { "@nx/vite:build": {}, "build": {} },
+      "plugins": [{ "plugin": "@nx/eslint/plugin" }, "@nx/jest/plugin"],
+      "generators": { "@nx/react": {} }
+    }"#;
+    let project = r#"{ "targets": {
+      "serve": { "executor": "nx:run-commands", "options": { "commands": ["tsx scripts/a.ts", { "command": "prettier --check ." }] } },
+      "lint": { "executor": "@nx/eslint:lint" }
+    } }"#;
+    let results = resolve(&[("nx.json", nx_json), ("project.json", project)], &["nx"]);
+    let out = output(&results, "nx");
+    assert_deps(out, &["@nx/vite", "@nx/eslint", "@nx/jest", "@nx/react", "nx"]);
+    assert!(
+        out.referenced_binaries.contains(&"tsx".to_string()),
+        "{:?}",
+        out.referenced_binaries
+    );
+}
+
+#[test]
+fn cypress() {
+    let config = r#"export default defineConfig({
+      e2e: { specPattern: "tests/**/*.cy.ts", supportFile: false },
+      component: { specPattern: ["src/**/*.cy.tsx"] },
+    });"#;
+    let results = resolve(&[("cypress.config.ts", config)], &["cypress"]);
+    assert_entries(
+        &output(&results, "cypress").entries,
+        &[
+            "tests/**/*.cy.ts",
+            "src/**/*.cy.tsx",
+            "cypress/e2e/**/*.cy.{js,jsx,ts,tsx}",
+        ],
+    );
+}
+
+#[test]
+fn mocha() {
+    let config = r#"{
+      "spec": ["test/**/*.spec.js"],
+      "require": ["ts-node/register", "./setup.js"],
+      "reporter": "mocha-junit-reporter"
+    }"#;
+    let results = resolve(&[(".mocharc.json", config)], &["mocha"]);
+    let out = output(&results, "mocha");
+    assert_deps(out, &["ts-node", "mocha-junit-reporter"]);
+    assert_entries(&out.entries, &["test/**/*.spec.js", "setup.js"]);
+    let builtin = resolve(&[(".mocharc.json", r#"{"reporter":"spec"}"#)], &["mocha"]);
+    assert!(deps(output(&builtin, "mocha")).is_empty());
+}
+
+#[test]
+fn prisma() {
+    let manifest = r#"{"name":"app","prisma":{"schema":"db/schema","seed":"tsx db/seed.ts"}}"#;
+    let results = resolve(&[("package.json", manifest)], &["prisma"]);
+    let out = output(&results, "prisma");
+    assert_entries(&out.entries, &["db/schema/**/*.prisma", "prisma/schema.prisma"]);
+    assert!(
+        out.referenced_binaries.contains(&"tsx".to_string()),
+        "{:?}",
+        out.referenced_binaries
+    );
+    let config = r#"export default { schema: "prisma/main.prisma" };"#;
+    let results = resolve(&[("prisma.config.ts", config)], &["@prisma/client"]);
+    assert_entries(&output(&results, "prisma").entries, &["prisma/main.prisma"]);
+}
+
+#[test]
+fn graphql_codegen() {
+    let config = r#"export default {
+      generates: {
+        "src/gql/": { preset: "client", plugins: ["typescript-operations", "@scope/custom-plugin"] },
+        "schema.graphql": { plugins: [{ "schema-ast": {} }] },
+        "types.ts": ["typescript"],
+      },
+    };"#;
+    let results = resolve(&[("codegen.ts", config)], &["@graphql-codegen/cli"]);
+    let out = output(&results, "graphql-codegen");
+    assert_deps(
+        out,
+        &[
+            "@graphql-codegen/client-preset",
+            "@graphql-codegen/typescript-operations",
+            "@scope/custom-plugin",
+            "@graphql-codegen/schema-ast",
+            "@graphql-codegen/typescript",
+        ],
+    );
+    assert_entries(&out.production_entries, &["src/gql/**", "types.ts"]);
+}
+
+#[test]
+fn docusaurus() {
+    let config = r#"export default {
+      presets: [["classic", {}]],
+      plugins: ["@docusaurus/plugin-content-blog", "my-thing", "./local-plugin.js"],
+      themes: ["@docusaurus/theme-mermaid"],
+    };"#;
+    let results = resolve(&[("docusaurus.config.ts", config)], &["@docusaurus/core"]);
+    let out = output(&results, "docusaurus");
+    assert_deps(
+        out,
+        &[
+            "@docusaurus/preset-classic",
+            "@docusaurus/plugin-content-blog",
+            "docusaurus-plugin-my-thing",
+            "@docusaurus/theme-mermaid",
+        ],
+    );
+    assert_entries(&out.entries, &["local-plugin.js"]);
+}
+
+#[test]
+fn vitepress() {
+    let results = resolve(&[], &["vitepress"]);
+    assert_entries(
+        &output(&results, "vitepress").entries,
+        &["{,docs/}.vitepress/config.{js,ts,mjs,mts,cjs,cts}"],
+    );
+}
+
+#[test]
+fn wrangler() {
+    let results = resolve(
+        &[("wrangler.toml", "name = \"w\"\nmain = \"src/worker.ts\"\n")],
+        &["wrangler"],
+    );
+    assert_entries(&output(&results, "wrangler").production_entries, &["src/worker.ts"]);
+}
+
+#[test]
+fn expo() {
+    let app = r#"{ "expo": { "plugins": ["expo-router", ["expo-camera", {}], "./plugins/custom.js"] } }"#;
+    let results = resolve(&[("app.json", app)], &["expo"]);
+    let out = output(&results, "expo");
+    assert_deps(out, &["expo-router", "expo-camera"]);
+    assert_entries(&out.entries, &["plugins/custom.js"]);
+}
+
+#[test]
+fn react_native() {
+    let config = r#"module.exports = {
+      dependencies: { "react-native-foo": { platforms: { ios: null } } },
+      platforms: { windows: { npmPackageName: "react-native-windows" } },
+    };"#;
+    let results = resolve(&[("react-native.config.js", config)], &["react-native"]);
+    assert_deps(
+        output(&results, "react-native"),
+        &["react-native-foo", "react-native-windows"],
+    );
+    let results = resolve(&[], &["react-native"]);
+    assert_deps(output(&results, "react-native"), &["@react-native-community/cli"]);
+}
+
+#[test]
+fn metro() {
+    let results = resolve(&[], &["@react-native/metro-config"]);
+    assert_entries(
+        &output(&results, "metro").production_entries,
+        &["src/**/*.{ios,android,windows,web}.{js,jsx,json,ts,tsx}"],
+    );
+}
+
+#[test]
+fn release_it() {
+    let config = r#"{
+      "plugins": { "@release-it/conventional-changelog": {} },
+      "hooks": { "before:init": ["tsx scripts/check.ts"], "after:release": "echo done" },
+      "github": { "releaseNotes": "git log --oneline" }
+    }"#;
+    let results = resolve(&[(".release-it.json", config)], &["release-it"]);
+    let out = output(&results, "release-it");
+    assert_deps(out, &["@release-it/conventional-changelog"]);
+    assert!(
+        out.referenced_binaries.contains(&"tsx".to_string()),
+        "{:?}",
+        out.referenced_binaries
+    );
+}
+
+#[test]
+fn semantic_release() {
+    let manifest = r#"{"name":"app","release":{
+      "extends": "@org/semantic-config",
+      "plugins": ["@semantic-release/changelog", ["@semantic-release/git", {}], "@semantic-release/npm"]
+    }}"#;
+    let results = resolve(&[("package.json", manifest)], &["semantic-release"]);
+    let out = output(&results, "semantic-release");
+    assert_deps(
+        out,
+        &[
+            "@org/semantic-config",
+            "@semantic-release/changelog",
+            "@semantic-release/git",
+        ],
+    );
+    assert_absent(out, &["@semantic-release/npm"]);
+}
+
+#[test]
+fn lefthook() {
+    let config = "pre-commit:\n  commands:\n    lint:\n      run: oxlint --fix {staged_files}\n";
+    let results = resolve(&[("lefthook.yml", config)], &["lefthook"]);
+    let out = output(&results, "lefthook");
+    assert!(
+        out.referenced_binaries.contains(&"oxlint".to_string()),
+        "{:?}",
+        out.referenced_binaries
+    );
+}
+
+#[test]
+fn simple_git_hooks() {
+    let manifest = r#"{"name":"app","simple-git-hooks":{"pre-commit":"tsx scripts/lint.ts"}}"#;
+    let results = resolve(&[("package.json", manifest)], &["simple-git-hooks"]);
+    let out = output(&results, "simple-git-hooks");
+    assert_deps(out, &["simple-git-hooks"]);
+    assert!(
+        out.referenced_binaries.contains(&"tsx".to_string()),
+        "{:?}",
+        out.referenced_binaries
+    );
+}
+
+#[test]
+fn stylelint() {
+    let config = r#"{
+      "extends": ["stylelint-config-standard", "./base.json"],
+      "plugins": ["stylelint-order"],
+      "customSyntax": "postcss-scss",
+      "overrides": [{ "files": ["*.vue"], "extends": "stylelint-config-recommended-vue" }]
+    }"#;
+    let results = resolve(&[(".stylelintrc.json", config), ("base.json", "{}")], &["stylelint"]);
+    let out = output(&results, "stylelint");
+    assert_deps(
+        out,
+        &[
+            "stylelint-config-standard",
+            "stylelint-order",
+            "postcss-scss",
+            "stylelint-config-recommended-vue",
+        ],
+    );
+    assert!(out.config_files.iter().any(|f| f.ends_with("base.json")));
+}
+
+#[test]
+fn markdownlint() {
+    let config = r#"{
+      "config": { "extends": "markdownlint-config-x" },
+      "customRules": ["markdownlint-rule-foo"],
+      "markdownItPlugins": [["markdown-it-katex"]],
+      "outputFormatters": [["markdownlint-cli2-formatter-default"], ["markdownlint-cli2-formatter-json"]]
+    }"#;
+    let results = resolve(&[(".markdownlint-cli2.jsonc", config)], &["markdownlint-cli2"]);
+    let out = output(&results, "markdownlint");
+    assert_deps(
+        out,
+        &[
+            "markdownlint-config-x",
+            "markdownlint-rule-foo",
+            "markdown-it-katex",
+            "markdownlint-cli2-formatter-json",
+        ],
+    );
+    assert_absent(out, &["markdownlint-cli2-formatter-default"]);
+}
+
+#[test]
+fn cspell() {
+    let config = r#"{ "import": ["@cspell/dict-fr-fr/cspell-ext.json", "./words.json"] }"#;
+    let results = resolve(&[("cspell.json", config), ("words.json", "{}")], &["cspell"]);
+    let out = output(&results, "cspell");
+    assert_deps(out, &["@cspell/dict-fr-fr"]);
+    assert!(out.config_files.iter().any(|f| f.ends_with("words.json")));
+}
+
+#[test]
+fn nodemon() {
+    let config = r#"{ "exec": "tsx src/server.ts", "events": { "start": "echo hi" } }"#;
+    let results = resolve(&[("nodemon.json", config)], &["nodemon"]);
+    let out = output(&results, "nodemon");
+    assert!(
+        out.referenced_binaries.contains(&"tsx".to_string()),
+        "{:?}",
+        out.referenced_binaries
+    );
+}
+
+#[test]
+fn pm2() {
+    let config = r#"module.exports = { apps: [{ name: "a", script: "./dist/server.js" }, { script: "npm" }] };"#;
+    let results = resolve(&[("ecosystem.config.cjs", config)], &["pm2"]);
+    let out = output(&results, "pm2");
+    assert_entries(&out.entries, &["dist/server.js"]);
+    assert!(!out.entries.iter().any(|e| e == "npm"));
+}
+
+#[test]
+fn pnpm() {
+    let workspace =
+        "packages:\n  - 'pkg/*'\npackageExtensions:\n  'react-foo@*':\n    peerDependencies:\n      react: '*'\n";
+    let results = resolve(&[("pnpm-workspace.yaml", workspace)], &[]);
+    let out = output(&results, "pnpm");
+    assert_deps(out, &["react"]);
+    assert_entries(&out.entries, &[".pnpmfile.{cjs,mjs}"]);
+}
+
+#[test]
+fn yarn() {
+    let rc = "yarnPath: .yarn/releases/yarn-4.cjs\nplugins:\n  - path: .yarn/plugins/a.cjs\n  - ./b.cjs\n";
+    let results = resolve(&[(".yarnrc.yml", rc)], &[]);
+    let out = output(&results, "yarn");
+    assert_entries(
+        &out.entries,
+        &[
+            ".yarn/releases/yarn-4.cjs",
+            ".yarn/plugins/a.cjs",
+            "b.cjs",
+            "yarn.config.cjs",
+        ],
+    );
+}
+
+#[test]
+fn syncpack() {
+    let results = resolve(&[], &["syncpack"]);
+    assert_entries(&output(&results, "syncpack").entries, &["syncpack.config.{js,cjs}"]);
 }

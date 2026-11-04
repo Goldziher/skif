@@ -23,32 +23,46 @@ impl Plugin for Tsup {
     }
 
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
-        let mut out = Vec::new();
-        if config_unknown(config.value) {
+        entry_inputs(config, &["entry", "entryPoints"])
+    }
+}
+
+/// The production entries of the builds in a bundler config: the first of `keys` a build sets, as a string, a list,
+/// an object of named entries or a list of `{ in, out }` objects. Shared by the bundlers that take the tsup shape.
+pub(crate) fn entry_inputs(config: &ConfigAst<'_>, keys: &[&str]) -> Vec<PluginInput> {
+    let mut out = Vec::new();
+    if config_unknown(config.value) {
+        out.push(PluginInput::EntriesIncomplete);
+    }
+    for build in objects(config.value) {
+        let key = keys
+            .iter()
+            .copied()
+            .find(|key| build.get(key).is_some())
+            .or_else(|| keys.last().copied())
+            .unwrap_or("entry");
+        if let Some(entry) = build.get(key) {
+            let paths: Vec<&str> = match entry {
+                ConfigValue::Object(_) => values_of(entry).into_iter().flat_map(strings).collect(),
+                ConfigValue::Array(items) => items
+                    .iter()
+                    .flat_map(|item| match item {
+                        ConfigValue::Object(_) => item.get("in").map(strings).unwrap_or_default(),
+                        other => strings(other),
+                    })
+                    .collect(),
+                other => strings(other),
+            };
+            out.extend(
+                paths
+                    .into_iter()
+                    .filter_map(|path| entry_glob(config.base, path))
+                    .map(PluginInput::ProductionEntry),
+            );
+        }
+        if key_unknown(build, key) {
             out.push(PluginInput::EntriesIncomplete);
         }
-        for build in objects(config.value) {
-            if let Some(entry) = build.get("entry").or_else(|| build.get("entryPoints")) {
-                let paths = match entry {
-                    ConfigValue::Object(_) => values_of(entry).into_iter().flat_map(strings).collect(),
-                    other => strings(other),
-                };
-                out.extend(
-                    paths
-                        .into_iter()
-                        .filter_map(|path| entry_glob(config.base, path))
-                        .map(PluginInput::ProductionEntry),
-                );
-            }
-            let key = if build.get("entry").is_some() {
-                "entry"
-            } else {
-                "entryPoints"
-            };
-            if key_unknown(build, key) {
-                out.push(PluginInput::EntriesIncomplete);
-            }
-        }
-        out
     }
+    out
 }
