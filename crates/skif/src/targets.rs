@@ -231,6 +231,70 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
     Ok(discovery)
 }
 
+/// Why a configuration file below a root was not applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum UnappliedReason {
+    /// The file is not in the root's own directory or in the directory of one of its workspace members, the only
+    /// places configuration is read from.
+    NotAMember,
+    /// The file is in a member's directory but was not loaded for this run.
+    NotLoaded,
+}
+
+impl UnappliedReason {
+    /// A short sentence for output.
+    #[must_use]
+    pub const fn describe(self) -> &'static str {
+        match self {
+            Self::NotAMember => "not in the root or a workspace member directory",
+            Self::NotLoaded => "in a workspace member directory but not loaded for this run",
+        }
+    }
+}
+
+/// A `skif.toml` below a root that no configuration of that root was built from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct UnappliedConfig {
+    /// Absolute path of the file.
+    pub path: PathBuf,
+    pub reason: UnappliedReason,
+}
+
+/// The `skif.toml` and `.skif.toml` files below `target.root` that its configuration was not built from, sorted by
+/// path.
+///
+/// Configuration is read from the root, the directories above it, what those files extend, and the directory of each
+/// workspace member (a package file). Any other file is reported here with the reason. The walk skips `node_modules`,
+/// hidden directories and what git ignores, but enters directories `workspace.discover-ignore` skips (a fixture
+/// directory is a likely home for such a file). A file in the directory of a deeper root of the same run
+/// (`other_roots`) belongs to that root and is not reported.
+#[must_use]
+pub fn unapplied_config_files(target: &Target, other_roots: &[&Path], fs: &dyn FileSystem) -> Vec<UnappliedConfig> {
+    let candidates = scan_candidates(&target.root, fs, &DiscoverOptions::default().with_ignore(Vec::new()));
+    let members = target.workspace.member_dirs();
+    candidates
+        .config_files
+        .into_iter()
+        .filter_map(|path| {
+            let dir = path.parent()?;
+            let owned_elsewhere = other_roots
+                .iter()
+                .any(|other| *other != target.root && other.starts_with(&target.root) && dir.starts_with(other));
+            if dir == target.root || owned_elsewhere || target.sources.iter().any(|source| source.path == path) {
+                return None;
+            }
+            let reason = if members.contains(dir) {
+                UnappliedReason::NotLoaded
+            } else {
+                UnappliedReason::NotAMember
+            };
+            Some(UnappliedConfig { path, reason })
+        })
+        .collect()
+}
+
 /// The bounds of the walk started at `start`: the defaults, with the skipped directories from the configuration that
 /// governs `start` when it loads (a broken file is reported by the root that uses it, not here).
 fn discover_options(

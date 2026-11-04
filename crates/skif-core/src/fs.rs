@@ -65,6 +65,15 @@ pub trait FileSystem: Send + Sync {
     fn is_file(&self, path: &Path) -> bool;
     /// Whether `path` is a directory.
     fn is_dir(&self, path: &Path) -> bool;
+    /// `path` as the file system resolves it: absolute, with every symbolic link followed.
+    ///
+    /// The default returns `path` unchanged, which is right for a tree that has no links (such as [`MemoryFs`]).
+    ///
+    /// # Errors
+    /// Any IO error from resolving the path, such as it not existing.
+    fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
+        Ok(path.to_path_buf())
+    }
 }
 
 /// The real file system.
@@ -104,6 +113,10 @@ impl FileSystem for OsFs {
 
     fn is_dir(&self, path: &Path) -> bool {
         path.is_dir()
+    }
+
+    fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
+        std::fs::canonicalize(path)
     }
 }
 

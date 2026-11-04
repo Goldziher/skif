@@ -12,6 +12,7 @@ use skif_lint::{Emitter, LintContext};
 use skif_specifier::Specifier;
 use skif_workspace::{DependencyEntry, Package, PackageId, Workspace};
 
+use super::super::specifiers::floor_version;
 use super::names::{CatalogName, defined_catalogs, defining, referenced};
 use super::support::{active_packages, set_specifier, value_location};
 use super::target::{CatalogFile, add_entry, creatable_file, create_default_catalog, existing_file};
@@ -144,9 +145,15 @@ fn entry_version(plain: &[Instance<'_>]) -> Option<String> {
     {
         return None;
     }
+    // Ranked as the version groups rank them, by the lowest version each specifier admits, so `^18` never outranks
+    // `^18.3.1`.
     plain
         .iter()
-        .max_by(|a, b| a.entry.parsed.cmp(&b.entry.parsed))
+        .max_by(|a, b| {
+            floor_version(&a.entry.parsed)
+                .cmp(&floor_version(&b.entry.parsed))
+                .then_with(|| a.entry.parsed.cmp(&b.entry.parsed))
+        })
         .map(|best| best.entry.specifier.clone())
 }
 
@@ -336,5 +343,55 @@ pub(super) fn use_catalog_fix(instance: Instance<'_>, catalog: &CatalogName, cat
         title: format!("Use `{}` for `{}`", catalog.reference(), instance.entry.name),
         safety: FixSafety::Unsafe,
         ops: use_catalog_ops(instance, catalog, catalog_ops),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::{config, workspace};
+
+    fn entry_versions(specifiers: &[&str]) -> Option<String> {
+        let files: Vec<(String, String)> = specifiers
+            .iter()
+            .enumerate()
+            .map(|(index, specifier)| {
+                (
+                    format!("packages/p{index}/package.json"),
+                    format!(r#"{{"name":"p{index}","version":"1.0.0","dependencies":{{"react":"{specifier}"}}}}"#),
+                )
+            })
+            .collect();
+        let mut borrowed: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str()))
+            .collect();
+        borrowed.push((
+            "package.json",
+            r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"]}"#,
+        ));
+        let workspace = workspace(&borrowed, &config(""));
+        let plain: Vec<Instance<'_>> = workspace
+            .all_packages()
+            .flat_map(|package| {
+                package
+                    .dependencies
+                    .iter()
+                    .filter(|entry| entry.name == "react")
+                    .map(move |entry| Instance { package, entry })
+            })
+            .collect();
+        entry_version(&plain)
+    }
+
+    #[test]
+    fn the_entry_takes_the_most_specific_highest_version_not_the_vaguest() {
+        assert_eq!(entry_versions(&["^18", "^18.3.1"]).as_deref(), Some("^18.3.1"));
+        assert_eq!(entry_versions(&["^18.3.1", "^18"]).as_deref(), Some("^18.3.1"));
+        assert_eq!(
+            entry_versions(&["^18.2.0", "^18.3.1", "^17.0.0"]).as_deref(),
+            Some("^18.3.1")
+        );
+        assert_eq!(entry_versions(&["^18", "^18"]).as_deref(), Some("^18"));
     }
 }

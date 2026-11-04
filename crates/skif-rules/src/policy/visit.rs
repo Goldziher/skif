@@ -192,7 +192,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
     }
 
     fn same_range(&mut self, ids: &[InstanceId]) {
-        let members = self.members(ids);
+        let members = self.rewritable(ids, None);
         let (ranged, odd): (Vec<InstanceId>, Vec<InstanceId>) = members
             .iter()
             .copied()
@@ -214,7 +214,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
     }
 
     fn same_minor(&mut self, ids: &[InstanceId]) {
-        let members = self.members(ids);
+        let members = self.rewritable(ids, None);
         let versions: Vec<Option<(u64, u64)>> = members
             .iter()
             .map(|&id| self.spec(id).get_node_version().map(|v| (v.major(), v.minor())))
@@ -281,17 +281,25 @@ impl<'a, 'w> Visitor<'a, 'w> {
     fn snapped_to(&mut self, ids: &[InstanceId], packages: &[String]) {
         let Some(&first) = ids.first() else { return };
         let first = self.instances.get(first);
-        // The first package of `snap-to` that declares the dependency is the target.
+        // The first package of `snap-to` that declares the dependency is the target. Where it declares it in several
+        // sections, a production dependency beats a development one beats any other, and a peer range stated as a
+        // compatibility window is never the target.
         let target = packages
             .iter()
             .find_map(|package| {
-                self.instances.named(&first.name).iter().find(|&&id| {
-                    let instance = self.instances.get(id);
-                    instance.alias_target() == first.alias_target()
-                        && instance.package.name.as_deref() == Some(package.as_str())
-                })
+                self.instances
+                    .named(&first.name)
+                    .iter()
+                    .copied()
+                    .filter(|&id| {
+                        let instance = self.instances.get(id);
+                        instance.alias_target() == first.alias_target()
+                            && instance.package.name.as_deref() == Some(package.as_str())
+                            && !self.is_peer_window(id)
+                    })
+                    .min_by_key(|&id| self.instances.get(id).kind().map_or(0, section_rank))
             })
-            .map(|&id| Arc::clone(self.spec(id)));
+            .map(|id| Arc::clone(self.spec(id)));
         let Some(target) = target else {
             for id in self.rewritable(ids, None) {
                 self.mark(id, State::DependsOnMissingSnapTarget, None);
@@ -422,7 +430,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
             .find_map(|prefix| raw.strip_prefix(prefix))
             .unwrap_or(raw);
         let from = self.instances.get(id).package.dir.join(target);
-        normalized(&from) == normalized(&self.instances.get(local).package.dir)
+        normalized(&from).is_some_and(|from| Some(from) == normalized(&self.instances.get(local).package.dir))
     }
 
     /// Aligns every instance on the highest (or lowest) version in use, each carrying its own semver group's range.
@@ -508,6 +516,15 @@ impl<'a, 'w> Visitor<'a, 'w> {
     }
 }
 
+/// How early a section is preferred as the source of a snap target: production, then development, then the rest.
+const fn section_rank(kind: DependencyKind) -> u8 {
+    match kind {
+        DependencyKind::Dependencies => 0,
+        DependencyKind::DevDependencies => 1,
+        _ => 2,
+    }
+}
+
 /// Whether the specifier is one exact version. Prerelease tags in capitals and build metadata (`1.0.0-RC.1`,
 /// `1.0.0+build.5`) are exact versions even though the specifier parser only knows lowercase tags.
 fn is_exact_version(specifier: &Specifier) -> bool {
@@ -528,19 +545,21 @@ fn is_floating(specifier: &Specifier) -> bool {
     matches!(specifier, Specifier::Latest(_) | Specifier::Tag(_))
 }
 
-/// `path` with `.` and `..` components resolved lexically.
-fn normalized(path: &Path) -> PathBuf {
+/// `path` with `.` and `..` components resolved lexically; `None` when a `..` climbs out of the path.
+fn normalized(path: &Path) -> Option<PathBuf> {
     let mut resolved = PathBuf::new();
     for component in path.components() {
         match component {
             Component::CurDir => {}
             Component::ParentDir => {
-                resolved.pop();
+                if !resolved.pop() {
+                    return None;
+                }
             }
             other => resolved.push(other),
         }
     }
-    resolved
+    Some(resolved)
 }
 
 #[cfg(test)]
@@ -694,6 +713,26 @@ mod tests {
     }
 
     #[test]
+    fn a_link_that_climbs_out_of_the_workspace_never_names_a_local_package() {
+        let root = r#"{"name":"top","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["x"],"dependencies":{"x":"link:../x"}}"#;
+        let x = manifest("x", "1.0.0", "");
+        let files = [("package.json", root), ("x/package.json", x.as_str())];
+        let config = config("");
+        let workspace = workspace(&files, &config);
+        let analysis = Analysis::run(&workspace, &config, true);
+        let flagged: Vec<&str> = analysis
+            .instances
+            .iter()
+            .filter_map(|(id, instance)| analysis.verdicts[id.index()].as_ref().map(|_| instance.name.as_str()))
+            .collect();
+        assert_eq!(
+            flagged,
+            ["x"],
+            "`link:../x` from the root package does not point at the member `x`"
+        );
+    }
+
+    #[test]
     fn links_are_compared_by_resolved_directory() {
         let good = manifest("good", "1.0.0", r#""lib":"link:../lib""#);
         let bad = manifest("bad", "1.0.0", r#""lib":"link:../other""#);
@@ -821,6 +860,49 @@ mod tests {
     }
 
     #[test]
+    fn workspace_dependents_of_a_local_package_take_no_part_in_same_range_and_same_minor_groups() {
+        let lib = manifest("lib", "1.2.0", "");
+        let app = manifest("app", "1.0.0", r#""lib":"workspace:*""#);
+        let tool = manifest("tool", "1.0.0", r#""lib":"workspace:^""#);
+        let site = manifest("site", "1.0.0", r#""lib":"workspace:~""#);
+        let members = [
+            ("app", app.as_str()),
+            ("lib", lib.as_str()),
+            ("site", site.as_str()),
+            ("tool", tool.as_str()),
+        ];
+        for policy in ["same-range", "same-minor"] {
+            let toml = format!("[[version-groups]]\npolicy = \"{policy}\"\n");
+            assert_eq!(
+                states(&toml, &members),
+                [] as [(std::string::String, std::string::String, &str); 0],
+                "{policy}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_dependents_of_a_local_package_still_align_in_a_same_minor_group() {
+        let lib = manifest("lib", "1.2.0", "");
+        let app = manifest("app", "1.0.0", r#""lib":"~1.2.0""#);
+        let tool = manifest("tool", "1.0.0", r#""lib":"workspace:*""#);
+        let site = manifest("site", "1.0.0", r#""lib":"~1.3.0""#);
+        let members = [
+            ("app", app.as_str()),
+            ("lib", lib.as_str()),
+            ("site", site.as_str()),
+            ("tool", tool.as_str()),
+        ];
+        let toml = "[[version-groups]]\ndependencies = [\"lib\"]\npolicy = \"same-minor\"\n";
+        let flagged: Vec<String> = states(toml, &members)
+            .into_iter()
+            .map(|(package, _, _)| package)
+            .collect();
+        assert!(flagged.contains(&"site".to_owned()), "{flagged:?}");
+        assert!(!flagged.contains(&"tool".to_owned()), "{flagged:?}");
+    }
+
+    #[test]
     fn same_minor_groups_compare_major_before_minor() {
         let toml = "[[version-groups]]\ndependencies = [\"ts\"]\npolicy = \"same-minor\"\n";
         let cases: [(&str, &str, &[&'static str]); 5] = [
@@ -863,6 +945,16 @@ mod tests {
             let actual: Vec<&str> = states(toml, &members).into_iter().map(|(_, _, state)| state).collect();
             assert_eq!(actual, expected, "{specifier}");
         }
+    }
+
+    #[test]
+    fn a_snap_target_in_several_sections_is_the_production_dependency_not_the_peer_window() {
+        let app = manifest("app", "1.0.0", r#""react":"^18.2.0""#);
+        let lib = r#"{"name":"lib","version":"1.0.0","peerDependencies":{"react":">=17 <19"},"dependencies":{"react":"^18.3.1"}}"#;
+        let members = [("app", app.as_str()), ("lib", lib)];
+        let toml = "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"snapped-to\"\nsnap-to = [\"lib\"]\n";
+        let flagged = states(toml, &members);
+        assert_eq!(flagged, [one("app", "react", "DiffersToSnapTarget")]);
     }
 
     #[test]
@@ -1022,10 +1114,11 @@ mod tests {
     #[test]
     fn lexical_normalization_resolves_dots() {
         assert_eq!(
-            normalized(Path::new("packages/app/../lib/./x")),
-            Path::new("packages/lib/x")
+            normalized(Path::new("packages/app/../lib/./x")).as_deref(),
+            Some(Path::new("packages/lib/x"))
         );
-        assert_eq!(normalized(Path::new("")), Path::new(""));
-        assert_eq!(normalized(Path::new("a/../..")), Path::new(""));
+        assert_eq!(normalized(Path::new("")).as_deref(), Some(Path::new("")));
+        assert_eq!(normalized(Path::new("a/../..")), None);
+        assert_eq!(normalized(Path::new("../x")), None);
     }
 }

@@ -226,6 +226,10 @@ impl<F: FileSystem> FileSystem for CachedFs<F> {
         }
         is_dir
     }
+
+    fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
+        self.inner.canonicalize(path)
+    }
 }
 
 #[cfg(test)]

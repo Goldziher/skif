@@ -56,8 +56,8 @@ pub(crate) struct Instance<'w> {
     pub(crate) specifier: Arc<Specifier>,
     /// Whether `name` is itself a package of the workspace (what `$LOCAL` selects).
     pub(crate) is_local: bool,
-    /// Whether the catalog rules report this instance against its catalog, so that no version group takes it unless
-    /// one names it explicitly.
+    /// Whether the catalog rules report this instance against its catalog, so that the catch-all group does not take
+    /// it. A configured version group whose selectors match it still governs it.
     pub(crate) catalog_owned: bool,
 }
 

@@ -30,7 +30,7 @@ pub use model::{
     SemverGroup, SemverRange, VersionGroup, VersionPolicy, Workspace, WorkspaceProtocol,
 };
 pub use overrides::ConfigOverrides;
-pub use provenance::{Assignment, ConfigSource, Op, Origins, ResolvedConfig, SourceKind};
+pub use provenance::{Assignment, ConfigSource, Op, Origins, ResolvedConfig, SourceKind, join_key};
 pub use rules::{Level, RuleConfig, RuleOptions};
 #[cfg(feature = "schema")]
 pub use schema::json_schema;

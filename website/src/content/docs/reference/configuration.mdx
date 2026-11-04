@@ -289,8 +289,11 @@ to the root.
 
 ### Inspecting the result
 
-`skif config --show` prints the effective configuration of each root with the file and line of every value, and
-lists the files that were not applied. `skif config --explain <key> [--package <name>]` prints every file that
+`skif config --show` prints the effective configuration of each root as TOML with a `# from <file>:<line>` comment on
+every value some file set (the last file to set it, plus the files that appended to a list), and lists the
+`skif.toml` files below the root that were not applied, with the reason: only the root's own directory and the
+directories of its workspace members are read. `--format json` adds the same as data: `origins` (every key with the
+assignments that built it) and `not-applied` (path and reason). `skif config --explain <key> [--package <name>]` prints every file that
 touched a key and the final value. `--config <FILE>` lints with that file (and what it extends) only, and
 `--no-config` reads no file.
 
