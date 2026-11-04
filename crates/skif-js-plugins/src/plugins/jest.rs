@@ -2,9 +2,12 @@
 
 use skif_js_syntax::ConfigValue;
 
+use crate::config_load::from_json;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::babel;
-use crate::support::{conventional, entry_glob, is_relative, module_input, name_of, objects, package_name, strings};
+use crate::support::{
+    conventional, entry_glob, is_relative, module_input, name_of, objects, package_name, project_files, strings,
+};
 
 /// The `jest` plugin.
 pub struct Jest;
@@ -30,9 +33,9 @@ impl Plugin for Jest {
         &SPEC
     }
 
-    fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
+    fn resolve_config(&self, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
-        collect(config.value, config, &mut out, 0);
+        collect(config.value, config, cx, &mut out, 0);
         out
     }
 }
@@ -45,14 +48,58 @@ fn prefixed(config: &ConfigAst<'_>, name: &str, namespace: &str) -> Option<Plugi
     Some(PluginInput::Dependency(conventional(name, namespace)))
 }
 
-fn collect(value: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<PluginInput>, depth: u8) {
+const PROJECT_CONFIGS: &str = "jest.config.{js,ts,mjs,mts,cjs,cts,json}";
+
+fn collect(value: &ConfigValue, config: &ConfigAst<'_>, cx: &PluginContext<'_>, out: &mut Vec<PluginInput>, depth: u8) {
     if depth > 4 {
         return;
     }
     for object in objects(value) {
         collect_object(object, config, out);
         if let Some(projects) = object.get("projects") {
-            collect(projects, config, out, depth + 1);
+            collect(projects, config, cx, out, depth + 1);
+            string_projects(projects, config, cx, out, depth);
+        }
+    }
+}
+
+/// `projects: ["<rootDir>/packages/*"]`: each string is a directory (or glob) with its own `jest.config.*` or a
+/// `package.json#jest`, or a config file.
+fn string_projects(
+    projects: &ConfigValue,
+    config: &ConfigAst<'_>,
+    cx: &PluginContext<'_>,
+    out: &mut Vec<PluginInput>,
+    depth: u8,
+) {
+    for project in strings(projects) {
+        out.extend(
+            project_files(cx, config.base, project, PROJECT_CONFIGS)
+                .into_iter()
+                .map(PluginInput::ConfigFile),
+        );
+        for manifest in project_files(cx, config.base, project, "package.json") {
+            let Ok(text) = cx.fs.read_to_string(&cx.dir.join(&manifest)) else {
+                continue;
+            };
+            let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+                continue;
+            };
+            let Some(jest) = json.get("jest").map(from_json) else {
+                continue;
+            };
+            let path = cx.dir.join(&manifest);
+            if path == config.path {
+                continue;
+            }
+            let base = manifest.rsplit_once('/').map_or("", |(parent, _)| parent);
+            let project_config = ConfigAst {
+                path: &path,
+                base,
+                value: &jest,
+                source: "",
+            };
+            collect(&jest, &project_config, cx, out, depth + 1);
         }
     }
 }
