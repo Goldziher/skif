@@ -172,10 +172,32 @@ pub fn extract_config_object(source: &str, path: &Path) -> Option<ConfigValue> {
         chain: RefCell::new(Vec::new()),
         frames: RefCell::new(Vec::new()),
         calls: Cell::new(0),
+        config_setter: RefCell::new(None),
+        captured: RefCell::new(None),
     };
-    match exported(program)? {
-        Exported::Expression(expr) => Some(eval.expr(expr, 0)),
-        Exported::Function(function) => Some(eval.invoke(Callable::Function(function), &[], false, 0)),
+    let exported = exported(program)?;
+    let callable = match exported {
+        Exported::Expression(expr) => Callable::of_expression(expr),
+        Exported::Function(function) => Some(Callable::Function(function)),
+    };
+    *eval.config_setter.borrow_mut() = callable.and_then(first_parameter);
+    let value = match exported {
+        Exported::Expression(expr) => eval.expr(expr, 0),
+        Exported::Function(function) => eval.invoke(Callable::Function(function), &[], false, 0),
+    };
+    let captured = eval.captured.borrow_mut().take();
+    Some(captured.unwrap_or(value))
+}
+
+/// Name of the first parameter of `callable`, when it is a plain identifier.
+fn first_parameter(callable: Callable<'_, '_>) -> Option<String> {
+    let params = match callable {
+        Callable::Function(f) => &f.params,
+        Callable::Arrow(f) => &f.params,
+    };
+    match &params.items.first()?.pattern {
+        BindingPattern::BindingIdentifier(id) => Some(id.name.as_str().to_owned()),
+        _ => None,
     }
 }
 
@@ -457,6 +479,8 @@ impl<'a> Visit<'a> for OptionFinder<'_, '_, 'a> {
                 chain: RefCell::new(Vec::new()),
                 frames: RefCell::new(Vec::new()),
                 calls: Cell::new(0),
+                config_setter: RefCell::new(None),
+                captured: RefCell::new(None),
             };
             for argument in &it.arguments {
                 let Some(Expression::ObjectExpression(options)) =
@@ -481,6 +505,7 @@ impl<'a> Visit<'a> for OptionFinder<'_, '_, 'a> {
 }
 
 /// What a module exports.
+#[derive(Clone, Copy)]
 enum Exported<'p, 'a> {
     Expression(&'p Expression<'a>),
     Function(&'p Function<'a>),
@@ -536,6 +561,11 @@ struct Evaluator<'c, 'p, 'a> {
     frames: RefCell<Vec<Frame<'p, 'a>>>,
     /// How many functions have been called so far.
     calls: Cell<usize>,
+    /// The first parameter of an exported config function (`config` in `module.exports = function (config) { … }`):
+    /// the object the function hands the real config to with `config.set({ … })`.
+    config_setter: RefCell<Option<String>>,
+    /// The argument of the last `<config_setter>.set(…)` call evaluated.
+    captured: RefCell<Option<ConfigValue>>,
 }
 
 impl<'p, 'a> Evaluator<'_, 'p, 'a> {
@@ -843,7 +873,29 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         Some(self.invoke(callable, &self.arguments(call, depth), isolate, depth))
     }
 
+    /// Records the argument of `<config_setter>.set(…)` as the config; returns whether `call` is such a call.
+    fn capture_set(&self, call: &'p CallExpression<'a>, depth: u32) -> bool {
+        let Some(setter) = self.config_setter.borrow().clone() else {
+            return false;
+        };
+        let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+            return false;
+        };
+        let on_setter =
+            matches!(member.object.get_inner_expression(), Expression::Identifier(id) if id.name.as_str() == setter);
+        let Some(argument) = single_argument(call).filter(|_| on_setter && member.property.name.as_str() == "set")
+        else {
+            return false;
+        };
+        let value = self.expr(argument, depth);
+        *self.captured.borrow_mut() = Some(value);
+        true
+    }
+
     fn call(&self, call: &'p CallExpression<'a>, depth: u32) -> ConfigValue {
+        if self.capture_set(call, depth) {
+            return ConfigValue::Unknown;
+        }
         let special = required_package(call, depth)
             .or_else(|| self.package_directory(call, depth))
             .or_else(|| self.path_call(call, depth))
@@ -989,6 +1041,9 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 }
             }
             Expression::CallExpression(c) => {
+                if self.capture_set(c, depth) {
+                    return;
+                }
                 let object_assign = matches!(
                     c.callee.get_inner_expression(),
                     Expression::StaticMemberExpression(m)
