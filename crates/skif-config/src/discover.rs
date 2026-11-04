@@ -105,6 +105,7 @@ pub struct ConfigCache {
 }
 
 impl ConfigCache {
+    /// An empty cache.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -144,6 +145,7 @@ pub struct ConfigLoader<'a> {
 }
 
 impl<'a> ConfigLoader<'a> {
+    /// A loader reading through `fs` and remembering what it reads in `cache`.
     #[must_use]
     pub const fn new(fs: &'a dyn FileSystem, cache: &'a ConfigCache) -> Self {
         Self { fs, cache }

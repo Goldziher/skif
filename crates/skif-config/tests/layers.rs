@@ -802,11 +802,9 @@ fn no_config_and_an_explicit_file_replace_discovery() {
         .load(
             root,
             &Ceiling::Vcs,
-            &ConfigOverrides {
-                no_config: true,
-                fail_on_warnings: Some(false),
-                ..ConfigOverrides::default()
-            },
+            &ConfigOverrides::default()
+                .with_no_config(true)
+                .with_fail_on_warnings(Some(false)),
         )
         .unwrap();
     assert!(none.sources.is_empty() && !none.config.lint.fail_on_warnings);
@@ -815,10 +813,7 @@ fn no_config_and_an_explicit_file_replace_discovery() {
         .load(
             root,
             &Ceiling::Vcs,
-            &ConfigOverrides {
-                config_file: Some(PathBuf::from("/elsewhere/custom.toml")),
-                ..ConfigOverrides::default()
-            },
+            &ConfigOverrides::default().with_config_file(Some(PathBuf::from("/elsewhere/custom.toml"))),
         )
         .unwrap();
     assert_eq!(explicit.config.js.entry, ["custom"]);
@@ -829,10 +824,7 @@ fn no_config_and_an_explicit_file_replace_discovery() {
         .load(
             root,
             &Ceiling::Vcs,
-            &ConfigOverrides {
-                ignore_rules: vec!["x".into()],
-                ..ConfigOverrides::default()
-            },
+            &ConfigOverrides::default().with_ignore_rules(vec!["x".into()]),
         )
         .unwrap();
     assert!(cli.config.lint.fail_on_warnings);

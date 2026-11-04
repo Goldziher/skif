@@ -22,9 +22,11 @@ pub enum SourceKind {
 
 /// One configuration file applied to a root.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ConfigSource {
     /// Absolute, lexically normalized path.
     pub path: PathBuf,
+    /// How the file was reached.
     pub kind: SourceKind,
 }
 
@@ -80,6 +82,7 @@ pub struct Assignment {
     pub line: usize,
     /// 1-based column (in characters) of the key in that file; 0 when unknown.
     pub column: usize,
+    /// What the assignment did to the key.
     pub op: Op,
 }
 
@@ -91,6 +94,7 @@ pub struct Assignment {
 /// configuration. The last assignment of a key is the one that decides its value, except for `Append` and `Prepend`,
 /// which add to what the earlier ones set.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct Origins {
     entries: IndexMap<String, Vec<Assignment>>,
 }
@@ -116,11 +120,13 @@ impl Origins {
         self.entries.iter().map(|(key, list)| (key.as_str(), list.as_slice()))
     }
 
+    /// Number of keys with an assignment.
     #[must_use]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    /// Whether no key has an assignment.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
@@ -133,11 +139,13 @@ impl Origins {
 
 /// The configuration of one root with where it came from.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct ResolvedConfig {
     /// The merged configuration, with the CLI overrides applied when it came from [`ConfigLoader::load`](crate::ConfigLoader::load).
     pub config: crate::Config,
     /// The files that were applied, in the order they were applied: farthest first, each after what it extends.
     pub sources: Vec<ConfigSource>,
+    /// Where each key of `config` was set.
     pub origins: Origins,
 }
 
