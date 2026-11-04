@@ -112,6 +112,13 @@ impl<'a, 'w> Visitor<'a, 'w> {
         self.spec(id).get_raw() == other.get_raw()
     }
 
+    /// Whether every instance of `ids` is written the same way. One pass: a member that is a member of `ids` itself
+    /// differs from some other member exactly when they are not all equal.
+    fn all_equal(&self, ids: &[InstanceId]) -> bool {
+        ids.first()
+            .is_none_or(|&first| ids.iter().all(|&other| self.equals(other, self.spec(first))))
+    }
+
     fn same_version(&self, id: InstanceId, other: &Specifier) -> bool {
         self.spec(id).has_same_version_number_as(other) || self.equals(id, other)
     }
@@ -197,8 +204,8 @@ impl<'a, 'w> Visitor<'a, 'w> {
             .iter()
             .copied()
             .partition(|&id| self.spec(id).get_node_range().is_some());
-        for id in odd {
-            if members.iter().any(|&other| !self.equals(other, self.spec(id))) {
+        if !odd.is_empty() && !self.all_equal(&members) {
+            for id in odd {
                 self.mark(id, State::SameRangeMismatch, None);
             }
         }
@@ -459,8 +466,8 @@ impl<'a, 'w> Visitor<'a, 'w> {
             self.without_semver(ids);
             return;
         };
-        for id in floating {
-            if ids.iter().any(|&other| !self.equals(other, self.spec(id))) {
+        if !floating.is_empty() && !self.all_equal(ids) {
+            for id in floating {
                 self.mark(id, State::NonSemverMismatch, None);
             }
         }

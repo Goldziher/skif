@@ -285,7 +285,7 @@ let report = Linter::new(&config)?.run(&workspace)?;
 # Ok::<(), skif::Error>(())
 ```
 
-Cargo features: `manifest` and `policy` (default), `js-analysis` (off by default, so a host keeps its own oxc), `fix`, `yaml-fix`,
+Cargo features: `manifest` (default: manifest, version-group, semver-group and catalog rules), `js-analysis` (off by default, so a host keeps its own oxc), `fix`, `yaml-fix`,
 `report`, `schema`. See [ADR 0003](adrs/0003-library-first-embedding.md) and
 [ADR 0002](adrs/0002-crate-layout-and-publishing.md) for the crate layout.
 

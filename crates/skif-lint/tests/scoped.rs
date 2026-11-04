@@ -284,10 +284,7 @@ fn an_override_ignore_may_omit_every_filter_and_follows_its_dependency_filter() 
 fn the_command_line_level_beats_an_override() {
     let mut config = resolved("[[overrides]]\npackages = [\"a\"]\n[overrides.rules]\ndemo = \"error\"\n");
     config
-        .apply(&ConfigOverrides {
-            rules: [("demo".to_owned(), Level::Info)].into_iter().collect(),
-            ..ConfigOverrides::default()
-        })
+        .apply(&ConfigOverrides::default().with_rules([("demo".to_owned(), Level::Info)]))
         .unwrap();
     assert!(
         findings(&config)
@@ -301,10 +298,7 @@ fn the_command_line_level_beats_an_override() {
 fn the_command_line_cannot_be_undone_by_an_enabling_override() {
     let mut config = resolved("[[overrides]]\npackages = [\"a\"]\n[overrides.rules]\nquiet = \"error\"\n");
     config
-        .apply(&ConfigOverrides {
-            ignore_rules: vec!["quiet".to_owned()],
-            ..ConfigOverrides::default()
-        })
+        .apply(&ConfigOverrides::default().with_ignore_rules(vec!["quiet".to_owned()]))
         .unwrap();
     assert!(!registry().enabled(&config).contains("quiet"));
 }

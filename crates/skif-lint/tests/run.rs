@@ -9,7 +9,7 @@ use std::time::Duration;
 use common::{FixedRule, config, item, leak_meta, location, workspace};
 use skif_core::{Report, RuleMeta, Severity};
 use skif_lint::{
-    Emitter, LintContext, LintError, Registry, Rule, RulesProvider, RunOptions, diagnostic, run, run_unsorted,
+    Emitter, Executor, LintContext, LintError, Registry, Rule, RulesProvider, RunOptions, diagnostic, run, run_unsorted,
 };
 
 const PROVIDERS: usize = 2;
@@ -68,10 +68,10 @@ fn merge_order() -> Vec<String> {
         .collect()
 }
 
-fn pools() -> Vec<rayon::ThreadPool> {
+fn pools() -> Vec<Executor> {
     [1, 2, 4, 8]
         .into_iter()
-        .map(|n| rayon::ThreadPoolBuilder::new().num_threads(n).build().unwrap())
+        .map(|n| Executor::new(n).unwrap())
         .collect()
 }
 
@@ -99,11 +99,7 @@ fn merge_order_is_providers_then_rules_then_emission_regardless_of_scheduling() 
     for _ in 0..10 {
         assert_eq!(messages(&RunOptions::default()), expected);
         for pool in &pools {
-            let options = RunOptions {
-                pool: Some(pool),
-                cancel: None,
-                ..RunOptions::default()
-            };
+            let options = RunOptions::default().with_executor(pool);
             assert_eq!(messages(&options), expected);
         }
     }
@@ -124,11 +120,7 @@ fn report_is_the_sorted_merge_and_identical_across_runs_and_pools() {
     for _ in 0..5 {
         assert_eq!(run(&registry, &ws, &cfg, &RunOptions::default()).unwrap(), expected);
         for pool in &pools {
-            let options = RunOptions {
-                pool: Some(pool),
-                cancel: None,
-                ..RunOptions::default()
-            };
+            let options = RunOptions::default().with_executor(pool);
             assert_eq!(run(&registry, &ws, &cfg, &options).unwrap(), expected);
         }
     }
@@ -173,11 +165,7 @@ fn preset_cancel_flag_runs_nothing() {
     let cfg = config("");
     let ws = workspace(&cfg);
     let cancel = AtomicBool::new(true);
-    let options = RunOptions {
-        pool: None,
-        cancel: Some(&cancel),
-        ..RunOptions::default()
-    };
+    let options = RunOptions::default().with_cancel(&cancel);
     assert!(matches!(run(&registry, &ws, &cfg, &options), Err(LintError::Cancelled)));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
@@ -197,11 +185,7 @@ fn cancel_during_a_provider_skips_later_providers() {
     .unwrap();
     let cfg = config("");
     let ws = workspace(&cfg);
-    let options = RunOptions {
-        pool: None,
-        cancel: Some(&cancel),
-        ..RunOptions::default()
-    };
+    let options = RunOptions::default().with_cancel(&cancel).sequential(true);
     assert!(matches!(run(&registry, &ws, &cfg, &options), Err(LintError::Cancelled)));
     assert_eq!(first_calls.load(Ordering::SeqCst), 1);
     assert_eq!(second_calls.load(Ordering::SeqCst), 0);

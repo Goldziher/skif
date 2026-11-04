@@ -146,7 +146,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        features: ["", manifest, policy, js-analysis, fix, yaml-fix, report, schema]
+        features: ["", manifest, js-analysis, fix, yaml-fix, report, schema]
     steps:
       - uses: actions/checkout@v7
       # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
@@ -160,6 +160,35 @@ jobs:
         env:
           FEATURES: ${{ matrix.features }}
         run: cargo check -p skif --locked --no-default-features --features "$FEATURES"
+      - name: Test the facade (unit tests and doctests) with only this feature
+        env:
+          FEATURES: ${{ matrix.features }}
+        run: cargo test -p skif --locked --no-default-features --features "$FEATURES" --lib --doc
+
+  # Public API compatibility of the facade against the latest crates.io release. Advisory: it has nothing to compare
+  # with until 0.1.0 is published, and the step is skipped until then.
+  semver:
+    name: Public API (cargo-semver-checks)
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Find the published baseline
+        id: baseline
+        run: |
+          if curl --fail --silent --show-error --user-agent "skif-ci (https://github.com/Goldziher/skif)" \
+            https://crates.io/api/v1/crates/skif > /dev/null; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skif is not on crates.io yet; nothing to compare against."
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: obi1kenobi/cargo-semver-checks-action@v2
+        if: steps.baseline.outputs.published == 'true'
+        with:
+          package: skif
+          feature-group: all-features
 
   deny:
     name: Licences, advisories, bans and sources

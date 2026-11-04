@@ -27,7 +27,7 @@ impl Rule for CatalogMissingEntry {
             return;
         }
         let severity = enforce_severity(cx);
-        for finding in findings(cx) {
+        for finding in findings(cx).iter(cx.workspace) {
             let name = &finding.instance.entry.name;
             match &finding.kind {
                 FindingKind::MissingFromCatalog { catalog, catalog_ops } => emit(

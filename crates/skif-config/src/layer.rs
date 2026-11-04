@@ -4,7 +4,8 @@
 use std::path::{Path, PathBuf};
 
 use skif_core::{FileSystem, LineIndex};
-use toml::de::{DeTable, DeValue};
+use serde::Deserialize as _;
+use toml::de::{DeTable, DeValue, Deserializer};
 use toml::{Table, Value};
 
 use crate::error::ConfigError;
@@ -59,8 +60,8 @@ impl ParsedFile {
         let mut spans = Spans::new();
         collect_table("", document.get_ref(), &LineIndex::new(source), &mut spans);
         check_overrides(document.get_ref(), &spans, path)?;
-        Config::parse_file(source, Some(path))?;
-        let table: Table = toml::from_str(source).map_err(|error| from_toml(&error))?;
+        Config::from_document(document.clone(), source, Some(path))?;
+        let table = Table::deserialize(Deserializer::from(document)).map_err(|error| from_toml(&error))?;
         let root = table.get("root").and_then(Value::as_bool).unwrap_or(false);
         let extends: Vec<String> = table
             .get("extends")

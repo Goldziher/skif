@@ -47,6 +47,7 @@ pub type RuleOptions = toml::Table;
 /// an alias. Both names are reserved: they are never passed on as rule options, so a rule cannot define an option
 /// called `level` or `severity`, and setting both in one table is an error.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct RuleConfig {
     /// `None` keeps the rule's default severity.
     pub severity: Option<Level>,

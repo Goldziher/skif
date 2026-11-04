@@ -2100,7 +2100,6 @@ name = "skif"
 version = "0.0.0"
 dependencies = [
  "criterion",
- "indexmap",
  "rayon",
  "serde-saphyr",
  "serde_json",

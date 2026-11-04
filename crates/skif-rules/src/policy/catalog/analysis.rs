@@ -4,6 +4,7 @@
 //! the findings of their own kind.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use serde_json::{Map, Value};
 use skif_config::{Catalog, CatalogMode, Selector};
@@ -59,17 +60,21 @@ impl FindingKind {
 }
 
 #[derive(Debug)]
-pub(super) struct Finding<'w> {
-    pub instance: Instance<'w>,
-    pub kind: FindingKind,
+pub(super) struct Finding<'a> {
+    pub instance: Instance<'a>,
+    pub kind: &'a FindingKind,
 }
 
-#[derive(Default)]
-struct Usage<'w> {
+/// A dependency entry by position: its package and its index in `Package::dependencies`.
+type Slot = (PackageId, usize);
+
+/// The instances of one external dependency, by position.
+#[derive(Debug, Default)]
+struct Usage {
     /// Instances with a concrete specifier, candidates for a catalog.
-    plain: Vec<Instance<'w>>,
+    plain: Vec<Slot>,
     /// Instances already written as `catalog:`.
-    references: Vec<Instance<'w>>,
+    references: Vec<Slot>,
     packages: BTreeSet<PackageId>,
 }
 
@@ -88,45 +93,81 @@ pub(crate) fn is_catalogable(specifier: &Specifier) -> bool {
 
 /// Instances of every external dependency, grouped by name. Peer dependencies state a compatibility range, not a
 /// version to install, so they are neither candidates nor counted.
-fn usages<'w>(workspace: &'w Workspace, exclude: &Selector) -> BTreeMap<&'w str, Usage<'w>> {
-    let mut usages: BTreeMap<&str, Usage<'_>> = BTreeMap::new();
-    for package in active_packages(workspace) {
-        for entry in package
-            .dependencies
-            .iter()
-            .filter(|entry| entry.kind != DependencyKind::PeerDependencies)
-            .filter(|entry| !exclude.matches(&entry.name, false))
-            .filter(|entry| workspace.package_by_name(&entry.name).is_none())
-        {
-            let usage = usages.entry(entry.name.as_str()).or_default();
-            usage.packages.insert(package.id);
-            let instance = Instance { package, entry };
-            if entry.parsed.is_catalog() {
-                usage.references.push(instance);
-            } else if is_catalogable(&entry.parsed) {
-                usage.plain.push(instance);
+///
+/// It refers to entries by position rather than by reference, so one value can be computed once per run and shared by
+/// the catalog rules and the policy provider (see [`LintContext::shared`]).
+#[derive(Debug, Default)]
+pub(crate) struct UsageIndex {
+    by_name: BTreeMap<String, Usage>,
+}
+
+impl UsageIndex {
+    /// Walks every active package once, skipping dependencies `settings.exclude` names and those that are
+    /// workspace packages.
+    pub(crate) fn build(workspace: &Workspace, settings: &Catalog) -> Self {
+        let exclude = Selector::new(settings.exclude.iter().cloned()).unwrap_or_default();
+        let mut by_name: BTreeMap<String, Usage> = BTreeMap::new();
+        for package in active_packages(workspace) {
+            for (position, entry) in package
+                .dependencies
+                .iter()
+                .enumerate()
+                .filter(|(_, entry)| entry.kind != DependencyKind::PeerDependencies)
+                .filter(|(_, entry)| !exclude.matches(&entry.name, false))
+                .filter(|(_, entry)| workspace.package_by_name(&entry.name).is_none())
+            {
+                if !by_name.contains_key(entry.name.as_str()) {
+                    by_name.insert(entry.name.clone(), Usage::default());
+                }
+                let Some(usage) = by_name.get_mut(entry.name.as_str()) else {
+                    continue;
+                };
+                usage.packages.insert(package.id);
+                if entry.parsed.is_catalog() {
+                    usage.references.push((package.id, position));
+                } else if is_catalogable(&entry.parsed) {
+                    usage.plain.push((package.id, position));
+                }
             }
         }
+        Self { by_name }
     }
-    usages
+}
+
+/// The instances at `slots`, in order.
+fn instances<'w>(workspace: &'w Workspace, slots: &[Slot]) -> Vec<Instance<'w>> {
+    slots
+        .iter()
+        .filter_map(|&(id, position)| {
+            let package = workspace.package(id)?;
+            Some(Instance {
+                package,
+                entry: package.dependencies.get(position)?,
+            })
+        })
+        .collect()
 }
 
 /// The dependencies the catalog rules own under `settings`: with `mode` other than `off`, every dependency that
 /// has a catalog entry, is not excluded and is used in at least `min-packages` packages. The policy rules leave the
 /// plain instances of these dependencies to the catalog rules, which report them against the catalog.
-pub(crate) fn owned_dependencies<'w>(workspace: &'w Workspace, settings: &Catalog) -> BTreeSet<&'w str> {
+pub(crate) fn owned_dependencies<'i>(
+    usages: &'i UsageIndex,
+    workspace: &Workspace,
+    settings: &Catalog,
+) -> BTreeSet<&'i str> {
     if settings.mode == CatalogMode::Off {
         return BTreeSet::new();
     }
-    let exclude = Selector::new(settings.exclude.iter().cloned()).unwrap_or_default();
-    usages(workspace, &exclude)
-        .into_iter()
+    usages
+        .by_name
+        .iter()
         .filter(|(name, usage)| {
             !usage.plain.is_empty()
                 && usage.packages.len() >= settings.min_packages
                 && !defining(&workspace.catalogs, name).is_empty()
         })
-        .map(|(name, _)| name)
+        .map(|(name, _)| name.as_str())
         .collect()
 }
 
@@ -247,50 +288,82 @@ fn finding_kind(workspace: &Workspace, name: &str, decision: &Decision, creation
     }
 }
 
-/// Every instance the catalog rules report, grouped by dependency name.
+/// Every instance the catalog rules report, by position, with what is reported about it.
+///
+/// Several instances of a dependency share one entry of `kinds`. The set holds no borrows, so it is computed once per
+/// run and shared by the rules that read it (see [`findings`]).
+#[derive(Debug, Default)]
+pub(super) struct FindingSet {
+    kinds: Vec<FindingKind>,
+    items: Vec<(Slot, usize)>,
+}
+
+impl FindingSet {
+    /// The findings in dependency-name order, each with its instance resolved against `workspace`.
+    pub(super) fn iter<'a>(&'a self, workspace: &'a Workspace) -> impl Iterator<Item = Finding<'a>> + 'a {
+        self.items.iter().filter_map(move |&((id, position), kind)| {
+            let package = workspace.package(id)?;
+            Some(Finding {
+                instance: Instance {
+                    package,
+                    entry: package.dependencies.get(position)?,
+                },
+                kind: self.kinds.get(kind)?,
+            })
+        })
+    }
+
+    fn compute(workspace: &Workspace, settings: &Catalog, usages: &UsageIndex) -> Self {
+        let mut decided: Vec<(&str, &Usage, Decision)> = Vec::new();
+        for (name, usage) in &usages.by_name {
+            if usage.plain.is_empty() {
+                continue;
+            }
+            let decision = match settings.mode {
+                CatalogMode::Off => match sibling_catalog(workspace, name, &instances(workspace, &usage.references)) {
+                    Some(catalog) => Decision::Differs(catalog),
+                    None => continue,
+                },
+                _ if usage.packages.len() >= settings.min_packages => {
+                    decide_policy(workspace, name, &instances(workspace, &usage.plain))
+                }
+                _ => continue,
+            };
+            decided.push((name.as_str(), usage, decision));
+        }
+        let creations: Map<String, Value> = decided
+            .iter()
+            .filter_map(|(name, _, decision)| match decision {
+                Decision::Missing {
+                    version,
+                    placement: Placement::Create(_),
+                    ..
+                } => Some(((*name).to_owned(), Value::String(version.clone()))),
+                _ => None,
+            })
+            .collect();
+        let mut set = Self::default();
+        for (name, usage, decision) in decided {
+            let at = set.kinds.len();
+            set.kinds.push(finding_kind(workspace, name, &decision, &creations));
+            set.items.extend(usage.plain.iter().map(|slot| (*slot, at)));
+        }
+        set
+    }
+}
+
+/// The usages of external dependencies in the workspace, computed once per run.
+pub(crate) fn usages(cx: &LintContext<'_>) -> Arc<UsageIndex> {
+    cx.shared(|| UsageIndex::build(cx.workspace, &cx.config.catalog))
+}
+
+/// Every instance the catalog rules report, grouped by dependency name, computed once per run however many rules
+/// read it.
 ///
 /// With `mode = "off"` only instances that differ from a catalog their siblings use are reported. Otherwise a
 /// dependency is owned by the catalog policy once it is declared in at least `min-packages` packages.
-pub(super) fn findings<'w>(cx: &LintContext<'w>) -> Vec<Finding<'w>> {
-    let workspace = cx.workspace;
-    let settings = &cx.config.catalog;
-    let exclude = Selector::new(settings.exclude.iter().cloned()).unwrap_or_default();
-    let mut decided: Vec<(&str, Vec<Instance<'w>>, Decision)> = Vec::new();
-    for (name, usage) in usages(workspace, &exclude) {
-        if usage.plain.is_empty() {
-            continue;
-        }
-        let decision = match settings.mode {
-            CatalogMode::Off => match sibling_catalog(workspace, name, &usage.references) {
-                Some(catalog) => Decision::Differs(catalog),
-                None => continue,
-            },
-            _ if usage.packages.len() >= settings.min_packages => decide_policy(workspace, name, &usage.plain),
-            _ => continue,
-        };
-        decided.push((name, usage.plain, decision));
-    }
-    let creations: Map<String, Value> = decided
-        .iter()
-        .filter_map(|(name, _, decision)| match decision {
-            Decision::Missing {
-                version,
-                placement: Placement::Create(_),
-                ..
-            } => Some(((*name).to_owned(), Value::String(version.clone()))),
-            _ => None,
-        })
-        .collect();
-    decided
-        .into_iter()
-        .flat_map(|(name, plain, decision)| {
-            let kind = finding_kind(workspace, name, &decision, &creations);
-            plain.into_iter().map(move |instance| Finding {
-                instance,
-                kind: kind.clone(),
-            })
-        })
-        .collect()
+pub(super) fn findings(cx: &LintContext<'_>) -> Arc<FindingSet> {
+    cx.shared(|| FindingSet::compute(cx.workspace, &cx.config.catalog, &usages(cx)))
 }
 
 /// The operations rewriting `instance` to `catalog`, after `catalog_ops`.

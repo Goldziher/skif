@@ -10,7 +10,9 @@ pub enum ConfigError {
     /// The TOML is malformed, has an unknown key, or a value of the wrong type.
     #[error("{}", render(.path.as_deref(), .line.as_ref(), .column.as_ref(), .message))]
     Parse {
+        /// The file, when the text came from one.
         path: Option<PathBuf>,
+        /// What the parser reported.
         message: String,
         /// Byte range in the source, when the parser reports one.
         span: Option<Range<usize>>,
@@ -21,26 +23,42 @@ pub enum ConfigError {
     },
     /// The file parsed but its contents are inconsistent.
     #[error("{}", render(.path.as_deref(), None, None, .message))]
-    Invalid { path: Option<PathBuf>, message: String },
+    Invalid {
+        /// The file, when the text came from one.
+        path: Option<PathBuf>,
+        /// What is inconsistent.
+        message: String,
+    },
     /// The configuration file could not be read.
     #[error("cannot read {}: {source}", .path.display())]
     Io {
+        /// The file that could not be read.
         path: PathBuf,
+        /// The underlying error.
         #[source]
         source: std::io::Error,
     },
     /// Both `skif.toml` and `.skif.toml` exist.
     #[error("both {} and {} exist; keep only one", .first.display(), .second.display())]
-    Ambiguous { first: PathBuf, second: PathBuf },
+    Ambiguous {
+        /// The file that was found first.
+        first: PathBuf,
+        /// The other file in the same directory.
+        second: PathBuf,
+    },
     /// A configuration file extends itself, directly or through other files.
     #[error("configuration files extend each other in a cycle: {}", join_paths(.chain))]
-    ExtendsCycle { chain: Vec<PathBuf> },
+    ExtendsCycle {
+        /// The files in the order they extend one another, ending at the first one again.
+        chain: Vec<PathBuf>,
+    },
     /// A key is used in a place that cannot hold it: a root-scoped setting in an override, or `root` in a file that
     /// is not discovered.
     #[error("{}", render(.path.as_deref(), .line.as_ref(), .column.as_ref(), &scope_message(.key, .hint)))]
     Scope {
         /// The offending key, as a dotted path.
         key: String,
+        /// The file, when the text came from one.
         path: Option<PathBuf>,
         /// 1-based line of the key.
         line: Option<usize>,
@@ -51,13 +69,20 @@ pub enum ConfigError {
     },
     /// A rule ID in the configuration is not in the registry.
     #[error("unknown rule \"{rule}\"{}", suggestion_hint(.suggestion.as_deref()))]
-    UnknownRule { rule: String, suggestion: Option<String> },
+    UnknownRule {
+        /// The ID that is not registered.
+        rule: String,
+        /// The closest registered ID, when there is one.
+        suggestion: Option<String>,
+    },
     /// The options configured for a rule are invalid, as judged by the rule that owns them.
     #[error("invalid options for rule \"{rule}\"{}: {message}", key_hint(.key.as_deref()))]
     InvalidRuleOptions {
+        /// The rule whose options are invalid.
         rule: String,
         /// The offending option key, when known.
         key: Option<String>,
+        /// What is wrong.
         message: String,
     },
 }
