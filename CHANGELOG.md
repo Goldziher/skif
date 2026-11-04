@@ -29,6 +29,13 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 - **Single-package mode**: a package that declares no workspace is linted on its own, with no workspace required.
   `root-package-private-field` and `root-package-dependencies` do not report for it.
 - **`recursive` option** for `lint` and `lintAsync` in the npm addon.
+- **`skif config`**: `skif config [PATH] [-r] --show` prints the configuration files a root is built from, in the
+  order they apply (root, ancestor, extended by, explicit), and the effective merged configuration as TOML or, with
+  `--format json`, JSON. `--explain <KEY>` lists every assignment of a key (`rules.ID.level`, `js.ignore-dependencies`,
+  `version-groups[0]`) with file, line, column and operation, and its final value; `--package <NAME>` adds the
+  overrides that apply to that package. `skif init` names the files the new file will inherit from.
+- **`--config <FILE>` and `--no-config`**: use one configuration file (and what it extends) instead of discovering
+  `skif.toml` files, or read none. The npm addon gains the `config` and `noConfig` options.
 - **One pass over the file system**: a run reads each directory and each configuration file at most once; one caching
   file system is shared by root discovery, workspace discovery, plugin file searches, JS discovery and the module
   resolver, and JS discovery walks sibling directories in parallel.

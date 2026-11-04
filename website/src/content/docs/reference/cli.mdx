@@ -8,6 +8,7 @@ skif [OPTIONS] [PATH]
 skif rules [--format human|json]
 skif schema
 skif init [PATH]
+skif config [PATH] [-r] (--show | --explain <KEY> [--package <NAME>]) [--format human|json]
 ```
 
 `skif [PATH]` lints the project containing `PATH` (default `.`). The root is resolved in this order:
@@ -35,7 +36,8 @@ another root. `--fix` plans, writes and installs per root.
 | --- | --- |
 | `skif rules` | List every rule with its category, default level and fixability. `--format json` prints one JSON document. |
 | `skif schema` | Print the JSON Schema of `skif.toml`. |
-| `skif init [PATH]` | Write a starter `skif.toml` into `PATH` (default `.`). Refuses to overwrite an existing configuration. |
+| `skif init [PATH]` | Write a starter `skif.toml` into `PATH` (default `.`). Refuses to overwrite an existing configuration. When configuration files above `PATH` already apply, prints a note naming the files the new one inherits from. |
+| `skif config [PATH]` | Show how the configuration of the root at `PATH` was built (see below). |
 
 ## Flags
 
@@ -56,12 +58,28 @@ another root. `--fix` plans, writes and installs per root.
 | `--ignore-package <NAME>` | Ignore a package by name or glob in every rule. Repeatable. |
 | `--ignore-dependency <NAME>` | Ignore a dependency in every rule. Repeatable. |
 | `--ignore-rule-for-package <RULE:PACKAGE>` | Ignore one rule for one package. Repeatable. |
+| `--config <FILE>` | Use this configuration file (and the files it extends) for every root instead of discovering `skif.toml` files. Conflicts with `--no-config`. |
+| `--no-config` | Read no configuration file: the defaults plus the other flags. |
 | `--no-js` | Skip JavaScript analysis. Overrides `[js] enabled`. |
 | `--production` | Only analyse production code in JavaScript analysis. Overrides `[js] production`. |
 | `--color <auto\|always\|never>` | When to colour human output. |
 
 Flags are the top layer of the [configuration precedence](../configuration/#precedence): defaults, then the file,
 then the command line. Array flags replace the file's arrays rather than append.
+
+## Inspecting the configuration
+
+`skif config [PATH] [-r]` answers which files configure a root and where a value came from. With `-r` it reports every
+root at or below `PATH`. Paths are printed relative to the root (or, with `-r`, to `PATH`) with forward slashes.
+
+| Flag | Meaning |
+| --- | --- |
+| `--show` | Print the configuration files in the order they apply, each as `root`, `ancestor`, `extended by <file>` or `explicit`, then the effective merged configuration as TOML. |
+| `--explain <KEY>` | Print every assignment of `KEY` (`lint.fail-on-warnings`, `rules.ID.level`, `js.ignore-dependencies`, `version-groups[0]`), oldest first, as `file:line:column` with the operation `set`, `append`, `prepend` or `reset`, and the final value. A table or list key also lists the keys below it that a file set. |
+| `--package <NAME>` | With `--explain`, also list the `[[overrides]]` that apply to the workspace package `NAME`, with the file and line that declared each. |
+| `--format <human\|json>` | `json` prints one document with the same `version` and `skif` members as the other JSON outputs. |
+
+An unknown key exits `2` and names the closest keys.
 
 ## Exit codes
 

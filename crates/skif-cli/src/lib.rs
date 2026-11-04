@@ -9,6 +9,7 @@ use std::ffi::OsString;
 use clap::Parser;
 
 mod args;
+mod config;
 mod commands;
 mod env;
 mod error;
@@ -38,6 +39,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         Some(Command::Rules(args)) => commands::rules(&args),
         Some(Command::Schema) => commands::schema(),
         Some(Command::Init(args)) => commands::init(&args),
+        Some(Command::Config(args)) => config::run(&args),
     }
 }
 

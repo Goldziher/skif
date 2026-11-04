@@ -1,0 +1,40 @@
+---
+source: crates/skif-cli/tests/config.rs
+expression: json.stdout
+---
+{
+  "version": 1,
+  "skif": "0.0.0",
+  "key": "lint.fail-on-warnings",
+  "roots": [
+    {
+      "path": ".",
+      "entries": [
+        {
+          "key": "lint.fail-on-warnings",
+          "value": true,
+          "set-by": [
+            {
+              "path": "../skif.toml",
+              "line": 2,
+              "column": 1,
+              "op": "set"
+            },
+            {
+              "path": "../presets/base.toml",
+              "line": 3,
+              "column": 1,
+              "op": "set"
+            },
+            {
+              "path": "skif.toml",
+              "line": 4,
+              "column": 1,
+              "op": "set"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

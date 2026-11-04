@@ -6,7 +6,7 @@
 
 use std::ffi::OsString;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use napi::bindgen_prelude::{AsyncTask, Result, panic_to_error};
 use napi::{Env, Task};
@@ -41,6 +41,11 @@ pub struct LintOptions {
     pub ignore_packages: Option<Vec<String>>,
     /// Dependency names to skip (`--ignore-dependency`).
     pub ignore_dependencies: Option<Vec<String>>,
+    /// Use this configuration file (and the files it extends) instead of discovering `skif.toml` files
+    /// (`--config`). Ignored when `noConfig` is set.
+    pub config: Option<String>,
+    /// Read no configuration file: the defaults plus the other options (`--no-config`).
+    pub no_config: Option<bool>,
 }
 
 impl LintOptions {
@@ -52,6 +57,11 @@ impl LintOptions {
             fail_on_warnings: self.fail_on_warnings,
             production: self.production,
             no_js: self.no_js.unwrap_or(false),
+            config_file: self.config.map(|file| {
+                let file = PathBuf::from(file);
+                std::path::absolute(&file).unwrap_or(file)
+            }),
+            no_config: self.no_config.unwrap_or(false),
             ..ConfigOverrides::default()
         }
     }

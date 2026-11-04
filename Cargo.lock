@@ -2144,6 +2144,7 @@ dependencies = [
  "skif",
  "skif-report",
  "tempfile",
+ "toml",
  "which",
 ]
 
