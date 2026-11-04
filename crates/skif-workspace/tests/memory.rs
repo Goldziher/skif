@@ -217,6 +217,43 @@ fn bun_catalogs_under_workspaces_object() {
 }
 
 #[test]
+fn yarn_catalogs_come_from_yarnrc() {
+    let manifest = r#"{"name":"r","packageManager":"yarn@4.10.0","workspaces":["a"]}"#;
+    let yarnrc = "nodeLinker: node-modules\ncatalog:\n  react: ^18.3.1\ncatalogs:\n  legacy:\n    react: ^17.0.2\n";
+    let workspace = discover(
+        &[
+            ("package.json", manifest),
+            (".yarnrc.yml", yarnrc),
+            ("a/package.json", "{}"),
+        ],
+        &Config::default(),
+    )
+    .unwrap();
+    assert_eq!(workspace.catalogs.resolve("react", "catalog:"), Some("^18.3.1"));
+    assert_eq!(workspace.catalogs.resolve("react", "catalog:legacy"), Some("^17.0.2"));
+    assert_eq!(workspace.catalogs.source(), Some(Path::new(".yarnrc.yml")));
+    assert_eq!(workspace.yarnrc.as_ref().map(|yarnrc| yarnrc.path.as_path()), Some(Path::new(".yarnrc.yml")));
+}
+
+#[test]
+fn a_yarnrc_without_catalogs_or_with_invalid_yaml_declares_none() {
+    let manifest = r#"{"name":"r","packageManager":"yarn@4.10.0","workspaces":["a"]}"#;
+    for yarnrc in ["nodeLinker: node-modules\n", "catalog: [unclosed\n"] {
+        let workspace = discover(
+            &[
+                ("package.json", manifest),
+                (".yarnrc.yml", yarnrc),
+                ("a/package.json", "{}"),
+            ],
+            &Config::default(),
+        )
+        .unwrap();
+        assert!(workspace.catalogs.is_empty(), "{yarnrc}");
+        assert!(workspace.yarnrc.is_none(), "{yarnrc}");
+    }
+}
+
+#[test]
 fn catalog_resolution() {
     let manifest = r#"{"workspaces":["a"],"catalog":{"x":"1"},"catalogs":{"default":{"x":"2","y":"3"},"n":{"x":"4"}}}"#;
     let workspace = discover(

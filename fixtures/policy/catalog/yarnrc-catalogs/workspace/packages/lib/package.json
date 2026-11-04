@@ -1,0 +1,9 @@
+{
+  "name": "lib",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "react-dom": "catalog:react17",
+    "zod": "catalog:"
+  }
+}

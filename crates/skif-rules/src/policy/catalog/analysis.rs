@@ -148,16 +148,27 @@ fn instances<'w>(workspace: &'w Workspace, slots: &[Slot]) -> Vec<Instance<'w>> 
         .collect()
 }
 
-/// The dependencies the catalog rules own under `settings`: with `mode` other than `off`, every dependency that
-/// has a catalog entry, is not excluded and is used in at least `min-packages` packages. The policy rules leave the
-/// plain instances of these dependencies to the catalog rules, which report them against the catalog.
+/// The dependencies the catalog rules own under `settings`. The policy rules leave the plain instances of these
+/// dependencies to the catalog rules, which report them against the catalog, so exactly one rule owns each instance.
+///
+/// With `mode` other than `off` that is every dependency that has a catalog entry, is not excluded and is used in at
+/// least `min-packages` packages. With `mode = "off"` it is every dependency a sibling already takes from a catalog
+/// (`catalog-mismatch` reports the plain instances, see [`FindingSet::compute`]).
 pub(crate) fn owned_dependencies<'i>(
     usages: &'i UsageIndex,
     workspace: &Workspace,
     settings: &Catalog,
 ) -> BTreeSet<&'i str> {
     if settings.mode == CatalogMode::Off {
-        return BTreeSet::new();
+        return usages
+            .by_name
+            .iter()
+            .filter(|(name, usage)| {
+                !usage.plain.is_empty()
+                    && sibling_catalog(workspace, name, &instances(workspace, &usage.references)).is_some()
+            })
+            .map(|(name, _)| name.as_str())
+            .collect();
     }
     usages
         .by_name

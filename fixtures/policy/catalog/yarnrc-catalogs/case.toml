@@ -1,0 +1,5 @@
+description = "Yarn 4.10+ catalogs in .yarnrc.yml (catalog: and catalogs:) resolve catalog: references; a missing definition is still unresolved and a plain sibling differs to the catalog."
+source = "skif"
+tags = ["catalog", "yarn", "mode-off", "fix"]
+valid-states = ["IsCatalog"]
+compare = "bytes"

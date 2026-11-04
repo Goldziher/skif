@@ -6,7 +6,7 @@ workspace protocol, dependency families and the policy conflicts between them
 tests in `crates/skif-rules/tests` (`policy_conformance.rs` and `policy_catalog_conformance.rs`) walk them, run the
 policy rules and compare the result with `expected.json`.
 
-There are 157 cases in 14 groups. Each case is a minimal monorepo plus the `skif.toml` under
+There are 161 cases in 14 groups. Each case is a minimal monorepo plus the `skif.toml` under
 test and the diagnostics skif must report for it, so a failing case points at one behaviour.
 
 ## Attribution
@@ -39,7 +39,7 @@ Groups: `version-mismatch`, `pinned`, `banned`, `ignored`, `same-range`, `same-m
 | Group | Cases |
 | --- | --- |
 | `banned` | 4 |
-| `catalog` | 27 |
+| `catalog` | 28 |
 | `dependency-families` | 7 |
 | `ignored` | 6 |
 | `invalid-local-version` | 8 |
@@ -50,7 +50,7 @@ Groups: `version-mismatch`, `pinned`, `banned`, `ignored`, `same-range`, `same-m
 | `selectors` | 14 |
 | `semver-groups` | 13 |
 | `snapped-to` | 6 |
-| `version-mismatch` | 24 |
+| `version-mismatch` | 27 |
 | `workspace-protocol` | 8 |
 
 ## File schemas
@@ -61,7 +61,7 @@ A complete workspace root. Packages are `packages/<name>/package.json` with `nam
 directory name; the root package is named `monorepo`. Every package has a valid exact `version`
 (`1.0.0`, root `0.0.0`) unless the case is about versions, and every manifest is `private`.
 `packageManager` in the root selects the package manager (`pnpm`, `npm`, `bun`). pnpm cases carry a
-`pnpm-workspace.yaml` (with `catalog:` / `catalogs:` where relevant); Bun cases keep catalogs in the
+`pnpm-workspace.yaml` (with `catalog:` / `catalogs:` where relevant); Yarn cases keep them in `.yarnrc.yml`; Bun cases keep catalogs in the
 root `package.json` (`catalog` / `catalogs`, or under `workspaces` when the case says so); npm cases
 use the `workspaces` array. Dependency names are real-looking but nothing is installed.
 
@@ -191,6 +191,13 @@ syncpack.
   `workspace:` specifiers, `*`/`latest` and a `link:`/`file:` path to the package
   (`version-mismatch/local-package-wins-range-differs`).
 * A `catalog:` instance leaves the preferred-semver group; the remaining instances still align.
+* Ranges rank by the lowest version they admit, so `^14.1.2` outranks `^14` and the shorthand is the one reported;
+  syncpack lets the shorthand win (`version-mismatch/range-ranks-by-lowest-admitted-version`).
+* An `npm:` alias of another package is not aligned with the plain dependency of the same name
+  (`version-mismatch/npm-alias-not-aligned-with-plain-dependency`).
+* One rule owns each instance: while a sibling uses `catalog:`, `catalog-mismatch` reports the plain instances even
+  with `mode = "off"` and the version groups leave them alone
+  (`version-mismatch/catalog-sibling-owns-instances-mode-off`).
 
 ## ADR gaps and contradictions found while writing the fixtures
 

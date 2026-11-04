@@ -13,6 +13,9 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Added
 
+- **Yarn catalogs**: `catalog` and `catalogs` in `.yarnrc.yml` (Yarn 4.10+) are read with the other catalog sources, so
+  their `catalog:` references resolve instead of being reported by `unresolved-catalog-references`; entries added by
+  a fix and `unused-catalog-entries` locate in that file.
 - **Namespace export rules**: `unused-namespace-exports` and `unused-namespace-types` report the exports of a module
   that is only read through `import * as ns` or `export * as ns` and that no `ns.member` read touches. A namespace used
   as a whole counts as using everything, and `import * as ns; export { ns }` is a namespace re-export that forwards only
@@ -158,6 +161,9 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Fixed
 
+- **Catalog ownership with `mode = "off"`**: an instance whose sibling uses `catalog:` was reported by both
+  `catalog-mismatch` and `version-mismatch` with conflicting fix targets. `catalog-mismatch` now owns it and the version
+  groups leave it alone while that rule is enabled.
 - `same-range` and `same-minor` version groups no longer flag `workspace:` dependents of a local package.
 - A `snapped-to` group takes the snap package's production dependency as the target, not a peer range written as a
   compatibility window; a catalog entry created from several specifiers takes the one with the highest lowest version,
