@@ -33,10 +33,12 @@ if [ -z "$version" ]; then
   fi
 fi
 
+# `|| tag=""`: grep finds nothing when the series has no release, and pipefail would end the script before the
+# error message below.
 if [ "$version" = "latest" ]; then
-  tag="$(newest_release)"
+  tag="$(newest_release)" || tag=""
 elif [[ "$version" =~ ^v?[0-9]+$ ]]; then
-  tag="$(newest_release "${version#v}")"
+  tag="$(newest_release "${version#v}")" || tag=""
 else
   case "$version" in
   v*) tag="$version" ;;

@@ -34,6 +34,10 @@ jobs:
   meta:
     name: Resolve release metadata
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # `gh run list` reads the CI runs of the tagged commit.
+      actions: read
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -89,6 +93,16 @@ jobs:
 
       - name: Verify version consistency
         run: scripts/check-versions.sh "${{ steps.version.outputs.version }}"
+
+      # A real release is irreversible, so the tagged commit must be on main and have passed ci.yml. Dry runs
+      # (pull requests, dispatch with dry-run) build from arbitrary branches and skip the gate.
+      - name: Verify the tag is on main with green CI
+        if: steps.version.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: scripts/check-release-gate.sh "$TAG"
 
       - name: Detect a complete GitHub release
         id: release
@@ -196,6 +210,8 @@ jobs:
         if: ${{ !matrix.alpine }}
         env:
           TARGET: ${{ matrix.target }}
+          # The MSVC runtime is linked statically so skif.exe starts without the VC++ redistributable.
+          RUSTFLAGS: ${{ contains(matrix.target, 'windows') && '-C target-feature=+crt-static' || '' }}
         run: cargo build --release --locked -p skif-cli --target "$TARGET"
         shell: bash
 
@@ -229,15 +245,15 @@ jobs:
         run: |
           set -euo pipefail
           stage="$(mktemp -d)"
-          cp LICENSE "$stage/"
+          cp LICENSE ATTRIBUTIONS.md "$stage/"
           case "$TARGET" in
           *windows*)
             cp "target/$TARGET/release/skif.exe" "$stage/"
-            (cd "$stage" && 7z a -tzip "$GITHUB_WORKSPACE/skif-$TARGET.zip" skif.exe LICENSE)
+            (cd "$stage" && 7z a -tzip "$GITHUB_WORKSPACE/skif-$TARGET.zip" skif.exe LICENSE ATTRIBUTIONS.md)
             ;;
           *)
             cp "target/$TARGET/release/skif" "$stage/"
-            tar czf "skif-$TARGET.tar.gz" -C "$stage" skif LICENSE
+            tar czf "skif-$TARGET.tar.gz" -C "$stage" skif LICENSE ATTRIBUTIONS.md
             ;;
           esac
         shell: bash
@@ -272,9 +288,31 @@ jobs:
         run: gh release upload "$TAG" skif-"$TARGET".* --clobber
         shell: bash
 
+  # The aarch64 Windows binary is cross-built on an x64 runner, which cannot run it. Execute the packaged archive
+  # on a real ARM64 Windows runner before it can be released.
+  smoke_windows_arm64:
+    name: Smoke test aarch64-pc-windows-msvc
+    needs: [meta, build]
+    if: needs.build.result == 'success'
+    runs-on: windows-11-arm
+    steps:
+      - name: Download the archive
+        uses: actions/download-artifact@v8
+        with:
+          name: archive-aarch64-pc-windows-msvc
+          path: archive
+
+      - name: Unpack and run
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir unpacked
+          tar -xf archive/skif-aarch64-pc-windows-msvc.zip -C unpacked
+          ./unpacked/skif.exe --version
+
   checksums:
     name: Generate checksums
-    needs: [meta, build]
+    needs: [meta, build, smoke_windows_arm64]
     if: needs.meta.outputs.release_complete != 'true'
     permissions:
       contents: write
@@ -303,6 +341,9 @@ jobs:
             exit 1
           fi
           echo "All eight archives are present"
+
+      - name: Verify every archive ships the binary, LICENSE and ATTRIBUTIONS.md
+        run: bash scripts/check-archive.sh artifacts/skif-*
 
       - name: Generate checksums
         run: |
@@ -422,8 +463,8 @@ jobs:
           # glibc targets cross-build with napi-rs's bundled sysroot (--use-napi-cross) so the addon loads on old
           # distributions; musl targets cross-build with zig (-x). Darwin builds natively.
           # glibc floor: the addons target napi-rs's sysroot (glibc 2.17), while the binary archives of the `build`
-          # job are linked on the runner (ubuntu-latest, newer glibc), so `skif-*-linux-gnu.tar.gz` needs a newer
-          # system than the npm addon does. Distributions older than the runner use the musl archives.
+          # job are linked on the runner (ubuntu-latest), so `skif-*-linux-gnu.tar.gz` needs the runner's glibc (2.39 on Ubuntu 24.04) or newer,
+          # more than the npm addon does. Older distributions use the musl archives; the docs state the floor.
           # The generated loader (index.js, index.d.ts) lists every platform and is the same in each build; the
           # x86_64 glibc build uploads it for the umbrella package, which is gitignored and exists nowhere else.
           - target: x86_64-unknown-linux-gnu
@@ -571,7 +612,7 @@ jobs:
         run: >-
           docker run --rm
           -v "$PWD/npm-package":/addon:ro -v "$PWD/scripts/load-addon.mjs":/check/load-addon.mjs:ro
-          node:24-alpine node /check/load-addon.mjs /addon
+          node:22-alpine node /check/load-addon.mjs /addon
 
   publish_npm:
     name: Publish npm (skif)
@@ -625,6 +666,14 @@ jobs:
           # npm/<platform>/package.json for every target in package.json's napi config, then the .node files into them.
           pnpm exec napi create-npm-dirs
           pnpm exec napi artifacts --output-dir artifacts --npm-dir npm
+          # napi writes no licence files; the MIT and ISC notices of derived code travel with every addon.
+          for dir in npm/*/; do
+            cp ../LICENSE ../ATTRIBUTIONS.md "$dir"
+            tmp="$(mktemp)"
+            jq '.files = ((.files // []) + ["LICENSE", "ATTRIBUTIONS.md"] | unique)' "${dir}package.json" >"$tmp"
+            cat "$tmp" >"${dir}package.json"
+            rm -f "$tmp"
+          done
           # Writes the umbrella's optionalDependencies. The platform packages are published below, idempotently.
           pnpm exec napi prepublish -t npm --no-gh-release --skip-optional-publish
 
@@ -685,8 +734,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # node-24 is the engines floor; node and bun are the versions pinned in mise.toml.
-        runtime: [node-24, node, bun]
+        # node-22 is the engines floor; node and bun are the versions pinned in mise.toml.
+        runtime: [node-22, node, bun]
     steps:
       - name: Setup Node.js and Bun
         uses: xberg-io/actions/setup-mise@v1
@@ -702,8 +751,8 @@ jobs:
           set -euo pipefail
           run_published() {
             case "$RUNTIME" in
-            # Node 24 is the engines floor, not a pinned tool, so it bypasses the locked mise configuration.
-            node-24) MISE_LOCKED=0 mise exec node@24 -- npm exec --yes "skif@${VERSION}" -- --version ;;
+            # Node 22 is the engines floor, not a pinned tool, so it bypasses the locked mise configuration.
+            node-22) MISE_LOCKED=0 mise exec node@22 -- npm exec --yes "skif@${VERSION}" -- --version ;;
             node) npm exec --yes "skif@${VERSION}" -- --version ;;
             bun) bunx --bun "skif@${VERSION}" --version ;;
             esac

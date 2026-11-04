@@ -82,15 +82,23 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   edits keep key order, indentation and newline style. `--fix` runs the package manager's install unless
   `--no-install` is given.
 - **`skif.toml` configuration** with a committed JSON Schema (`skif schema`), `skif init` and `skif rules`.
-- **npm package as a napi-rs addon** for Node 24+ and Bun on macOS and Linux (glibc and musl), plus release
+- **npm package as a napi-rs addon** for non-EoL Node.js (22, 24, 26) and Bun 1.x on macOS and
+  Linux (glibc and musl), plus release
   archives for Windows, `cargo binstall`, Homebrew and Scoop.
 - **Git hooks** for pre-commit, Poly and Lefthook, and a GitHub Action (`Goldziher/skif@v0`).
+- **Licence notices in every artefact**: release archives, the npm package and each npm platform package carry
+  `LICENSE` and `ATTRIBUTIONS.md`; the release workflow and `scripts/check-npm-tarballs.sh` fail without them.
 
 ### Changed
 
 - The JSON Schema of `skif.toml` offers `level` (with `severity` as its alias) in a rule table, and the rule
   reference and configuration page document the rule options (`mode` of `member-toolchain-fields`, `ignore-tags` of
   `unused-exports`) and that `unused-catalog-entries` reports only with `[catalog] report-unused-entries = true`.
+- **Release hardening**: a release is refused unless the tag is on `main` with a green `ci.yml` run; the Windows
+  binaries link the C runtime statically; the aarch64 Windows binary is executed on an ARM64 runner before release;
+  the gnu Linux archives document their glibc floor (older systems use the musl archives); `cargo publish` runs a
+  workspace dry run before the first upload; the Action's cache key includes the libc; `run-skif.sh` unpacks zips
+  without `unzip`; the Action reports a missing release series instead of exiting silently.
 - Minimum supported versions raised: Rust 1.99.
 - **The project is renamed to skif.** It continues as an independent Rust dependency linter for
   JavaScript and TypeScript monorepos, hosted at `github.com/Goldziher/skif`.

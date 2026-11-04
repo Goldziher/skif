@@ -7,7 +7,10 @@ exports.
 
 ## Requirements
 
-Node.js 24 or newer, or Bun. The package is ESM.
+Node.js versions that are not end-of-life (22, 24 and 26 today; see the
+[Node.js release schedule](https://nodejs.org/en/about/previous-releases)) or Bun 1.x. Older versions may work but are not
+supported. The package is ESM only; from CommonJS use `import()`, or `require()` on
+Node.js 22.12 or newer.
 
 ## Install
 

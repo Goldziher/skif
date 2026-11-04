@@ -37,9 +37,40 @@ pub(crate) fn relativize(path: &Path, root: Option<&Path>) -> String {
         .map_or_else(|| stripped.clone(), str::to_owned)
 }
 
+/// Lexically collapses `.` and `dir/..` components of a relative `/`-separated path, so `web/../skif.toml` reads
+/// `skif.toml`; a leading `..` that has nothing to cancel stays. GitHub does not resolve a non-normalised `file=`.
+pub(crate) fn collapse_dots(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." if parts.last().is_some_and(|last| *last != "..") => {
+                parts.pop();
+            }
+            other => parts.push(other),
+        }
+    }
+    parts.join("/")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dots_collapse_lexically() {
+        for (path, expected) in [
+            ("web/../skif.toml", "skif.toml"),
+            ("web/app/../../skif.toml", "skif.toml"),
+            ("web/../../skif.toml", "../skif.toml"),
+            ("../skif.toml", "../skif.toml"),
+            ("./a/./b.json", "a/b.json"),
+            ("a//b", "a/b"),
+            ("a/b.json", "a/b.json"),
+        ] {
+            assert_eq!(collapse_dots(path), expected, "{path}");
+        }
+    }
 
     #[test]
     fn absolute_text_needs_a_drive_separator() {
