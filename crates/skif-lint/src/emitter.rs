@@ -5,16 +5,19 @@ use skif_core::Diagnostic;
 
 use crate::context::{EnabledRules, LintContext};
 use crate::ignore::Suppressions;
+use crate::scoped::Scopes;
 
 /// Collects the diagnostics of one or more rules and applies policy centrally.
 ///
 /// [`emit`](Self::emit) sets the effective severity (the configured level, else the severity the rule proposed with
-/// [`Diagnostic::default_severity`], else the rule's default), drops diagnostics of disabled rules and
-/// drops diagnostics matched by `[[ignore]]` entries or `workspace.ignore-packages`.
+/// [`Diagnostic::default_severity`], else the rule's default, then the levels and caps of the `[[overrides]]` that
+/// cover the diagnostic and `[lint] max-level`), drops diagnostics of disabled rules and drops diagnostics matched
+/// by `[[ignore]]` entries (those of an override only within its scope) or `workspace.ignore-packages`.
 #[derive(Debug)]
 pub struct Emitter<'a> {
     enabled: &'a EnabledRules,
     suppressions: Arc<Suppressions>,
+    scopes: Arc<Scopes>,
     cancel: Option<&'a AtomicBool>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -26,6 +29,7 @@ impl<'a> Emitter<'a> {
         Self {
             enabled: cx.enabled,
             suppressions: Arc::new(Suppressions::new(cx.workspace, cx.config)),
+            scopes: Arc::new(Scopes::new(cx.workspace, cx.config)),
             cancel: None,
             diagnostics: Vec::new(),
         }
@@ -44,6 +48,7 @@ impl<'a> Emitter<'a> {
         Self {
             enabled: self.enabled,
             suppressions: Arc::clone(&self.suppressions),
+            scopes: Arc::clone(&self.scopes),
             cancel: self.cancel,
             diagnostics: Vec::new(),
         }
@@ -62,12 +67,13 @@ impl<'a> Emitter<'a> {
 
     /// Reports a diagnostic; it is kept only if its rule is enabled and it is not suppressed.
     pub fn emit(&mut self, mut diagnostic: Diagnostic) {
-        let Some(severity) = self.enabled.effective(&diagnostic) else {
+        let applicable = self.scopes.applicable(&diagnostic);
+        let Some(severity) = self.scopes.severity(self.enabled, &diagnostic, &applicable) else {
             return;
         };
         diagnostic.severity = severity;
         diagnostic.default_severity = None;
-        if self.suppressions.suppresses(&diagnostic) {
+        if self.suppressions.suppresses(&diagnostic) || self.suppressions.suppressed_in_scope(&diagnostic, &applicable) {
             return;
         }
         self.diagnostics.push(diagnostic);

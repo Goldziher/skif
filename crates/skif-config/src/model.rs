@@ -45,6 +45,11 @@ pub struct Config {
     /// Scoped rules for packages and files; only package-scoped keys are allowed in them.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub overrides: Vec<Override>,
+    /// Rule levels set on the command line. They also sit in `rules`; this copy tells the engine to let them beat
+    /// the levels of overrides. Set by [`apply`](Self::apply), never read from a file.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub cli_levels: IndexMap<String, Level>,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -250,9 +255,11 @@ impl Config {
         let ignore_dependencies = Selector::new(overrides.ignore_dependencies.iter().cloned())?;
         for (id, level) in &overrides.rules {
             self.rules.entry(id.clone()).or_default().severity = Some(*level);
+            self.cli_levels.insert(id.clone(), *level);
         }
         for id in &overrides.ignore_rules {
             self.rules.entry(id.clone()).or_default().severity = Some(Level::Off);
+            self.cli_levels.insert(id.clone(), Level::Off);
         }
         if !ignore_packages.is_empty() {
             self.workspace.ignore_packages = ignore_packages;
