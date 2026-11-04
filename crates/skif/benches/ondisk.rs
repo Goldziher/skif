@@ -41,6 +41,9 @@ fn lint_recursive(root: &Path, overrides: &ConfigOverrides, cached: bool) -> usi
 }
 
 fn bench_recursive(c: &mut Criterion) {
+    if std::env::var_os("SKIF_TIMINGS").is_some_and(|value| !value.is_empty() && value != "0") {
+        let _ = skif_core::timing::enable_stderr();
+    }
     let repo = ondisk::build(&OnDiskOptions::default());
     let dir = tempfile::tempdir().expect("temporary directory");
     write(dir.path(), &repo);

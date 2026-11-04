@@ -5,13 +5,13 @@ use skif_lint::{Emitter, LintContext, Rule};
 use super::analysis::{FindingKind, emit, findings, use_catalog_fix};
 
 /// Metadata of `catalog-mismatch`.
-pub static META: RuleMeta = RuleMeta {
-    id: "catalog-mismatch",
-    category: Category::Catalog,
-    default: Some(Severity::Error),
-    fixable: Fixability::Sometimes,
-    summary: "A dependency is declared with a version while other packages take it from a catalog.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "catalog-mismatch",
+    Category::Catalog,
+    Some(Severity::Error),
+    Fixability::Sometimes,
+    "A dependency is declared with a version while other packages take it from a catalog.",
+);
 
 /// Reports instances that differ from the catalog entry their siblings use. An error under a catalog policy
 /// (`[catalog] mode` other than `off`), a warning without one; a level set for the rule always wins.

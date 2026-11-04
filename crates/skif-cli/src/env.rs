@@ -34,6 +34,17 @@ impl Env {
     }
 }
 
+/// The variable that switches the phase timings on.
+const TIMINGS_VAR: &str = "SKIF_TIMINGS";
+
+/// Turns the phase timings on, to stderr, when `SKIF_TIMINGS` is set to anything but empty or `0`. The library
+/// never looks at the variable; this is the only place that does.
+pub fn enable_timings() {
+    if std::env::var_os(TIMINGS_VAR).is_some_and(|value| !value.is_empty() && value != "0") {
+        let _ = skif_core::timing::enable_stderr();
+    }
+}
+
 /// `GITHUB_WORKSPACE`, the directory GitHub checked the repository out to.
 pub fn github_workspace() -> Option<PathBuf> {
     std::env::var_os("GITHUB_WORKSPACE")

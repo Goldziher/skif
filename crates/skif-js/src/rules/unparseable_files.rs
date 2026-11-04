@@ -9,13 +9,13 @@ use crate::analysis::JsAnalysis;
 
 /// Metadata of `unparseable-files`. The parser could not recover from a syntax error, so what the file imports and
 /// exports is unknown and the other JS rules treat it as empty.
-pub static META: RuleMeta = RuleMeta {
-    id: "unparseable-files",
-    category: Category::Js,
-    default: Some(Severity::Warning),
-    fixable: Fixability::None,
-    summary: "A file reachable from an entry file has a syntax error the parser could not recover from.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unparseable-files",
+    Category::Js,
+    Some(Severity::Warning),
+    Fixability::None,
+    "A file reachable from an entry file has a syntax error the parser could not recover from.",
+);
 
 /// Reports files in the module graph whose imports and exports could not be read.
 pub struct UnparseableFiles;

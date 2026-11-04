@@ -484,7 +484,7 @@ impl DependencyUsage {
     fn collect_member_bins(&mut self, workspace: &Workspace) {
         for package in workspace.all_packages() {
             let Some(name) = package.name.as_deref() else { continue };
-            for bin in bins_of(&package.manifest.value, name) {
+            for bin in bins_of(package.manifest.value(), name) {
                 self.member_bins.entry(bin).or_default().push(name.to_owned());
             }
         }
@@ -575,7 +575,7 @@ impl DependencyUsage {
         }
         if package
             .manifest
-            .value
+            .value()
             .get("engines")
             .and_then(|engines| engines.get(name))
             .is_some()

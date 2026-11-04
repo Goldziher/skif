@@ -7,13 +7,13 @@ use crate::analysis::JsAnalysis;
 use crate::graph::Target;
 
 /// Metadata of `unresolved-imports`.
-pub static META: RuleMeta = RuleMeta {
-    id: "unresolved-imports",
-    category: Category::Js,
-    default: Some(Severity::Error),
-    fixable: Fixability::None,
-    summary: "An import specifier does not resolve to a file or a package.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unresolved-imports",
+    Category::Js,
+    Some(Severity::Error),
+    Fixability::None,
+    "An import specifier does not resolve to a file or a package.",
+);
 
 /// Reports relative, aliased and `#` specifiers that point nowhere.
 pub struct UnresolvedImports;

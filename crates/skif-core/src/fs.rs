@@ -5,6 +5,7 @@ use std::io;
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 /// A directory entry returned by [`FileSystem::read_dir`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,7 +75,64 @@ pub trait FileSystem: Send + Sync {
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
         Ok(path.to_path_buf())
     }
+    /// Reads a file as raw bytes, for files that are not UTF-8.
+    ///
+    /// The default reads the file as text, so it fails for text that is not valid UTF-8.
+    ///
+    /// # Errors
+    /// Any IO error from reading the file.
+    fn read_bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
+        self.read_to_string(path).map(|text| text.as_bytes().to_vec())
+    }
+    /// When the file at `path` was last modified; `None` when the file system cannot tell (the default), which a
+    /// staleness check must treat as "unknown".
+    fn modified(&self, path: &Path) -> Option<SystemTime> {
+        let _ = path;
+        None
+    }
 }
+
+/// Forwards every [`FileSystem`] method to the target of a pointer type, so `&F`, `Box<F>` and `Arc<F>` can be used
+/// wherever a file system is expected.
+macro_rules! forward_file_system {
+    ($($pointer:ty),+ $(,)?) => {$(
+        impl<F: FileSystem + ?Sized> FileSystem for $pointer {
+            fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+                (**self).read_to_string(path)
+            }
+
+            fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+                (**self).read_dir(path)
+            }
+
+            fn read_dir_shared(&self, path: &Path) -> io::Result<Arc<[DirEntry]>> {
+                (**self).read_dir_shared(path)
+            }
+
+            fn is_file(&self, path: &Path) -> bool {
+                (**self).is_file(path)
+            }
+
+            fn is_dir(&self, path: &Path) -> bool {
+                (**self).is_dir(path)
+            }
+
+            fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
+                (**self).canonicalize(path)
+            }
+
+            fn read_bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
+                (**self).read_bytes(path)
+            }
+
+            fn modified(&self, path: &Path) -> Option<SystemTime> {
+                (**self).modified(path)
+            }
+        }
+    )+};
+}
+
+forward_file_system!(&F, Box<F>, Arc<F>);
 
 /// The real file system.
 #[derive(Debug, Clone, Copy, Default)]
@@ -117,6 +175,14 @@ impl FileSystem for OsFs {
 
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
         std::fs::canonicalize(path)
+    }
+
+    fn read_bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
+        std::fs::read(path)
+    }
+
+    fn modified(&self, path: &Path) -> Option<SystemTime> {
+        std::fs::metadata(path).and_then(|metadata| metadata.modified()).ok()
     }
 }
 
@@ -327,5 +393,31 @@ mod tests {
                 ("real".into(), true, false)
             ]
         );
+    }
+
+    #[test]
+    fn pointers_to_a_file_system_are_file_systems() {
+        fn is_file(fs: impl FileSystem, path: &str) -> bool {
+            fs.is_file(Path::new(path))
+        }
+        let fs = tree();
+        assert!(is_file(&fs, "/ws/ab"));
+        assert!(is_file(Box::new(fs.clone()), "/ws/ab"));
+        assert!(is_file(Arc::new(fs.clone()), "/ws/ab"));
+        let dynamic: Arc<dyn FileSystem> = Arc::new(fs);
+        assert!(is_file(Arc::clone(&dynamic), "/ws/ab"));
+        assert!(!is_file(dynamic, "/ws/a"));
+    }
+
+    #[test]
+    fn bytes_default_to_the_text_and_modification_time_to_unknown() {
+        let fs = tree();
+        assert_eq!(fs.read_bytes(Path::new("/ws/ab")).unwrap(), b"file");
+        assert_eq!(fs.modified(Path::new("/ws/ab")), None);
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.bin"), [0xff, 0xfe]).unwrap();
+        assert_eq!(OsFs.read_bytes(&dir.path().join("a.bin")).unwrap(), [0xff, 0xfe]);
+        assert!(OsFs.modified(&dir.path().join("a.bin")).is_some());
+        assert!(OsFs.modified(&dir.path().join("missing")).is_none());
     }
 }

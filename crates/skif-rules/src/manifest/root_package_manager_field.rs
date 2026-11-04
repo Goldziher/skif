@@ -5,13 +5,13 @@ use skif_lint::{Emitter, LintContext, Rule};
 use super::support::document_location;
 
 /// Metadata of `root-package-manager-field`.
-pub static META: RuleMeta = RuleMeta {
-    id: "root-package-manager-field",
-    category: Category::Manifest,
-    default: Some(Severity::Error),
-    fixable: Fixability::None,
-    summary: "The root `package.json` must declare the package manager in `packageManager` or `devEngines.packageManager`.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "root-package-manager-field",
+    Category::Manifest,
+    Some(Severity::Error),
+    Fixability::None,
+    "The root `package.json` must declare the package manager in `packageManager` or `devEngines.packageManager`.",
+);
 
 /// Reports a root manifest that declares neither `packageManager` nor `devEngines.packageManager`.
 ///
@@ -31,8 +31,8 @@ impl Rule for RootPackageManagerField {
     }
 
     fn check(&self, cx: &LintContext<'_>, out: &mut Emitter<'_>) {
-        let root = &cx.workspace.root_package;
-        if cx.workspace.is_nested() || cx.workspace.is_ignored(root.id) || declares(&root.manifest.value) {
+        let root = cx.workspace.root_package();
+        if cx.workspace.is_nested() || cx.workspace.is_ignored(root.id) || declares(root.manifest.value()) {
             return;
         }
         out.emit(

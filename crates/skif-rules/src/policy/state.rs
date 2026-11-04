@@ -9,49 +9,49 @@ use skif_core::{Category, Fixability, RuleMeta, Severity};
 use skif_specifier::Specifier;
 
 /// Metadata of `version-mismatch`.
-pub static VERSION_MISMATCH: RuleMeta = RuleMeta {
-    id: "version-mismatch",
-    category: Category::Policy,
-    default: Some(Severity::Error),
-    fixable: Fixability::Sometimes,
-    summary: "A dependency instance differs from the version its version group requires (highest, lowest, pinned, local or snapped).",
-};
+pub static VERSION_MISMATCH: RuleMeta = RuleMeta::new(
+    "version-mismatch",
+    Category::Policy,
+    Some(Severity::Error),
+    Fixability::Sometimes,
+    "A dependency instance differs from the version its version group requires (highest, lowest, pinned, local or snapped).",
+);
 
 /// Metadata of `banned-dependency`.
-pub static BANNED_DEPENDENCY: RuleMeta = RuleMeta {
-    id: "banned-dependency",
-    category: Category::Policy,
-    default: Some(Severity::Error),
-    fixable: Fixability::Unsafe,
-    summary: "A dependency is declared although a banned version group forbids it.",
-};
+pub static BANNED_DEPENDENCY: RuleMeta = RuleMeta::new(
+    "banned-dependency",
+    Category::Policy,
+    Some(Severity::Error),
+    Fixability::Unsafe,
+    "A dependency is declared although a banned version group forbids it.",
+);
 
 /// Metadata of `semver-range-mismatch`.
-pub static SEMVER_RANGE_MISMATCH: RuleMeta = RuleMeta {
-    id: "semver-range-mismatch",
-    category: Category::Policy,
-    default: Some(Severity::Error),
-    fixable: Fixability::Unsafe,
-    summary: "A dependency uses a semver range other than the one its semver group requires.",
-};
+pub static SEMVER_RANGE_MISMATCH: RuleMeta = RuleMeta::new(
+    "semver-range-mismatch",
+    Category::Policy,
+    Some(Severity::Error),
+    Fixability::Unsafe,
+    "A dependency uses a semver range other than the one its semver group requires.",
+);
 
 /// Metadata of `policy-conflict`.
-pub static POLICY_CONFLICT: RuleMeta = RuleMeta {
-    id: "policy-conflict",
-    category: Category::Policy,
-    default: Some(Severity::Warning),
-    fixable: Fixability::Sometimes,
-    summary: "Two policies require incompatible outcomes for one dependency, or a group cannot be applied as configured.",
-};
+pub static POLICY_CONFLICT: RuleMeta = RuleMeta::new(
+    "policy-conflict",
+    Category::Policy,
+    Some(Severity::Warning),
+    Fixability::Sometimes,
+    "Two policies require incompatible outcomes for one dependency, or a group cannot be applied as configured.",
+);
 
 /// Metadata of `invalid-local-version`.
-pub static INVALID_LOCAL_VERSION: RuleMeta = RuleMeta {
-    id: "invalid-local-version",
-    category: Category::Policy,
-    default: Some(Severity::Error),
-    fixable: Fixability::None,
-    summary: "A workspace package has a `version` that is not an exact semver version, so dependents cannot align with it.",
-};
+pub static INVALID_LOCAL_VERSION: RuleMeta = RuleMeta::new(
+    "invalid-local-version",
+    Category::Policy,
+    Some(Severity::Error),
+    Fixability::None,
+    "A workspace package has a `version` that is not an exact semver version, so dependents cannot align with it.",
+);
 
 /// A non-valid state of a dependency instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

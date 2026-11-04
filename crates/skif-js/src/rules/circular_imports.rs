@@ -8,13 +8,13 @@ use crate::analysis::JsAnalysis;
 use crate::graph::Target;
 
 /// Metadata of `circular-imports`.
-pub static META: RuleMeta = RuleMeta {
-    id: "circular-imports",
-    category: Category::Js,
-    default: None,
-    fixable: Fixability::None,
-    summary: "Modules import each other in a cycle.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "circular-imports",
+    Category::Js,
+    None,
+    Fixability::None,
+    "Modules import each other in a cycle.",
+);
 
 /// Reports strongly connected components of value imports. Type-only and dynamic imports do not count.
 pub struct CircularImports;
@@ -137,13 +137,13 @@ impl JsRule for CircularImports {
             )
             .help("move the shared code into a module both sides can import");
             for member in cycle.iter().skip(1) {
-                builder = builder.related(Related {
-                    message: "part of the same cycle".to_owned(),
-                    location: Location {
-                        path: modules[*member].path.clone(),
-                        span: None,
-                    },
-                });
+                builder = builder.related(Related::new(
+                    "part of the same cycle".to_owned(),
+                    Location::new(
+                        modules[*member].path.clone(),
+                        None,
+                    ),
+                ));
             }
             if let Some(package) = analysis.workspace.package(first.owner) {
                 builder = builder.package(package.display_name());

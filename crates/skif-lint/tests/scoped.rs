@@ -34,10 +34,10 @@ impl Rule for Spots {
             let mut builder = diagnostic(
                 self.meta,
                 "finding",
-                Location {
-                    path: PathBuf::from(path),
-                    span: None,
-                },
+                Location::new(
+                    PathBuf::from(path),
+                    None,
+                ),
             )
             .dependency("left-pad");
             if let Some(package) = package {

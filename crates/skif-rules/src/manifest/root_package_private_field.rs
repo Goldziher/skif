@@ -5,13 +5,13 @@ use skif_lint::{Emitter, LintContext, Rule};
 use super::support::{document_location, field_location, json_op, key};
 
 /// Metadata of `root-package-private-field`.
-pub static META: RuleMeta = RuleMeta {
-    id: "root-package-private-field",
-    category: Category::Manifest,
-    default: Some(Severity::Error),
-    fixable: Fixability::Safe,
-    summary: "The root `package.json` must set `\"private\": true` so it cannot be published by accident.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "root-package-private-field",
+    Category::Manifest,
+    Some(Severity::Error),
+    Fixability::Safe,
+    "The root `package.json` must set `\"private\": true` so it cannot be published by accident.",
+);
 
 /// Reports a root manifest whose `private` field is missing or not `true`.
 #[derive(Debug, Clone, Copy, Default)]
@@ -27,11 +27,11 @@ impl Rule for RootPackagePrivateField {
         if cx.workspace.facts.source == skif_workspace::WorkspaceSource::SinglePackage {
             return;
         }
-        let root = &cx.workspace.root_package;
+        let root = cx.workspace.root_package();
         if cx.workspace.is_ignored(root.id) {
             return;
         }
-        let current = root.manifest.value.get("private");
+        let current = root.manifest.value().get("private");
         if current == Some(&Value::Bool(true)) {
             return;
         }
@@ -50,19 +50,19 @@ impl Rule for RootPackagePrivateField {
                 .package(root.display_name())
                 .package_id(root.id)
                 .help("set `\"private\": true` in the root package.json to prevent publishing it to a registry")
-                .fix(Fix {
-                    title: "Set `private` to `true`".to_owned(),
-                    safety: FixSafety::Safe,
-                    ops: vec![json_op(
+                .fix(Fix::new(
+                    "Set `private` to `true`".to_owned(),
+                    FixSafety::Safe,
+                    vec![json_op(
                         root,
                         Vec::new(),
-                        JsonAction::Insert {
-                            key: "private".to_owned(),
-                            value: Value::Bool(true),
-                            position: InsertPosition::End,
-                        },
+                        JsonAction::insert(
+                            "private".to_owned(),
+                            Value::Bool(true),
+                            InsertPosition::End,
+                        ),
                     )],
-                })
+                ))
                 .build(),
         );
     }

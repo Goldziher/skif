@@ -2142,6 +2142,7 @@ dependencies = [
  "serde",
  "serde_json",
  "skif",
+ "skif-core",
  "skif-report",
  "tempfile",
  "toml",
@@ -2171,6 +2172,7 @@ version = "0.0.0"
 dependencies = [
  "criterion",
  "insta",
+ "memchr",
  "proptest",
  "schemars",
  "serde",
@@ -2309,17 +2311,20 @@ dependencies = [
  "criterion",
  "nodejs-semver",
  "proptest",
+ "rustc-hash",
 ]
 
 [[package]]
 name = "skif-workspace"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "globset",
  "ignore",
  "indexmap",
  "jsonc-parser",
  "rayon",
+ "rustc-hash",
  "serde",
  "serde-saphyr",
  "serde_json",

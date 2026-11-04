@@ -28,10 +28,10 @@ pub fn active_members(workspace: &Workspace) -> impl Iterator<Item = &Package> {
 
 /// The node at `pointer` in the package's manifest.
 pub fn field_location(package: &Package, pointer: &[PathSeg]) -> Location {
-    Location {
-        path: package.manifest.path.clone(),
-        span: package.manifest.field_span(pointer),
-    }
+    Location::new(
+        package.manifest.path.clone(),
+        package.manifest.field_span(pointer),
+    )
 }
 
 /// The opening brace of the manifest: the anchor for a field that is missing.
@@ -39,43 +39,43 @@ pub fn document_location(package: &Package) -> Location {
     let span = package.manifest.field_span(&[]).map(|root| {
         package
             .manifest
-            .line_index
+            .line_index()
             .span(root.start, root.start.saturating_add(1))
     });
-    Location {
-        path: package.manifest.path.clone(),
+    Location::new(
+        package.manifest.path.clone(),
         span,
-    }
+    )
 }
 
 /// A dependency entry from its key through its value.
 pub fn entry_location(package: &Package, entry: &DependencyEntry) -> Location {
-    Location {
-        path: package.manifest.path.clone(),
-        span: Some(
+    Location::new(
+        package.manifest.path.clone(),
+        Some(
             package
                 .manifest
-                .line_index
+                .line_index()
                 .span(entry.key_span.start, entry.value_span.end),
         ),
-    }
+    )
 }
 
 /// The specifier string of a dependency entry.
 pub fn value_location(package: &Package, entry: &DependencyEntry) -> Location {
-    Location {
-        path: package.manifest.path.clone(),
-        span: Some(entry.value_span),
-    }
+    Location::new(
+        package.manifest.path.clone(),
+        Some(entry.value_span),
+    )
 }
 
 /// A JSON edit of the package's own manifest.
 pub fn json_op(package: &Package, pointer: Vec<PathSeg>, action: JsonAction) -> FixOp {
-    FixOp::Json {
-        path: package.manifest.path.clone(),
+    FixOp::json(
+        package.manifest.path.clone(),
         pointer,
         action,
-    }
+    )
 }
 
 /// A dependency map with its keys in byte order.
@@ -101,7 +101,7 @@ pub fn move_to_dev_dependencies(package: &Package, names: &[&str]) -> Option<Vec
     let all = moved.len() == prod.len();
     let dev_field = DependencyKind::DevDependencies.field();
     let dev = package.dependency_map(DependencyKind::DevDependencies);
-    if dev.is_none() && package.manifest.value.get(dev_field).is_some() {
+    if dev.is_none() && package.manifest.value().get(dev_field).is_some() {
         return None;
     }
     let mut ops = Vec::new();
@@ -116,11 +116,11 @@ pub fn move_to_dev_dependencies(package: &Package, names: &[&str]) -> Option<Vec
         None => ops.push(json_op(
             package,
             Vec::new(),
-            JsonAction::Insert {
-                key: dev_field.to_owned(),
-                value: Value::Object(sorted(moved.clone())),
-                position: InsertPosition::End,
-            },
+            JsonAction::insert(
+                dev_field.to_owned(),
+                Value::Object(sorted(moved.clone())),
+                InsertPosition::End,
+            ),
         )),
         Some(dev) => {
             if moved
@@ -144,11 +144,11 @@ pub fn move_to_dev_dependencies(package: &Package, names: &[&str]) -> Option<Vec
                             json_op(
                                 package,
                                 section(DependencyKind::DevDependencies),
-                                JsonAction::Insert {
-                                    key: name.clone(),
-                                    value: value.clone(),
-                                    position: InsertPosition::Sorted,
-                                },
+                                JsonAction::insert(
+                                    name.clone(),
+                                    value.clone(),
+                                    InsertPosition::Sorted,
+                                ),
                             )
                         }),
                 );

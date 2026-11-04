@@ -48,20 +48,20 @@ fn report(fixes: usize) -> Report {
                 RuleId::from_static("version-mismatch"),
                 Severity::Warning,
                 format!("dep-{i:03} is out of sync"),
-                Location {
-                    path: MEMBER.into(),
-                    span: None,
-                },
+                Location::new(
+                    MEMBER,
+                    None,
+                ),
             );
-            diagnostic.fixes.push(Fix {
-                title: format!("align dep-{i:03}"),
-                safety: FixSafety::Safe,
-                ops: vec![FixOp::Json {
-                    path: MEMBER.into(),
-                    pointer: vec![PathSeg::Key("dependencies".into()), PathSeg::Key(format!("dep-{i:03}"))],
-                    action: JsonAction::Set(json!("^2.0.0")),
-                }],
-            });
+            diagnostic.fixes.push(Fix::new(
+                format!("align dep-{i:03}"),
+                FixSafety::Safe,
+                vec![FixOp::json(
+                    MEMBER,
+                    vec![PathSeg::Key("dependencies".into()), PathSeg::Key(format!("dep-{i:03}"))],
+                    JsonAction::Set(json!("^2.0.0")),
+                )],
+            ));
             diagnostic
         })
         .collect();

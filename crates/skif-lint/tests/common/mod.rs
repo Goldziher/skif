@@ -9,13 +9,13 @@ use skif_workspace::{MemoryFs, Workspace};
 
 pub fn leak_meta(id: &str, default: Option<Severity>) -> &'static RuleMeta {
     let id: &'static str = Box::leak(id.to_owned().into_boxed_str());
-    Box::leak(Box::new(RuleMeta {
+    Box::leak(Box::new(RuleMeta::new(
         id,
-        category: Category::Manifest,
+        Category::Manifest,
         default,
-        fixable: Fixability::None,
-        summary: "test rule",
-    }))
+        Fixability::None,
+        "test rule",
+    )))
 }
 
 pub fn config(toml: &str) -> Config {
@@ -35,10 +35,10 @@ pub fn workspace(config: &Config) -> Workspace {
 }
 
 pub fn location() -> Location {
-    Location {
-        path: PathBuf::from("package.json"),
-        span: None,
-    }
+    Location::new(
+        PathBuf::from("package.json"),
+        None,
+    )
 }
 
 /// One diagnostic a [`FixedRule`] emits.

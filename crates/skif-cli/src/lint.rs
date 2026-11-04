@@ -7,7 +7,7 @@ use std::sync::Arc;
 use clap::ColorChoice;
 use serde_json::{Map, Value};
 use skif::render::RenderOptions;
-use skif::timing;
+use skif_core::timing;
 use skif::{
     CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IgnoreEntry, Linter, OsFs, Prefer, Report,
     Selector, Workspace,

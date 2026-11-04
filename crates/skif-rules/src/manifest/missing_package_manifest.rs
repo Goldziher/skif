@@ -3,13 +3,13 @@ use skif_core::{Category, Fix, FixOp, FixSafety, Fixability, Location, RuleMeta,
 use skif_lint::{Emitter, LintContext, Rule};
 
 /// Metadata of `missing-package-manifest`.
-pub static META: RuleMeta = RuleMeta {
-    id: "missing-package-manifest",
-    category: Category::Workspace,
-    default: Some(Severity::Warning),
-    fixable: Fixability::Unsafe,
-    summary: "A directory matched by the workspace patterns has no `package.json`.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "missing-package-manifest",
+    Category::Workspace,
+    Some(Severity::Warning),
+    Fixability::Unsafe,
+    "A directory matched by the workspace patterns has no `package.json`.",
+);
 
 /// Reports non-empty directories matched by the workspace patterns that lack a `package.json`.
 ///
@@ -28,10 +28,10 @@ impl Rule for MissingPackageManifest {
             let mut builder = diagnostic(
                 &META,
                 format!("`{}` matches a workspace pattern but has no package.json", slash(dir)),
-                Location {
-                    path: dir.clone(),
-                    span: None,
-                },
+                Location::new(
+                    dir.clone(),
+                    None,
+                ),
             )
             .help("add a package.json, or narrow the workspace patterns so the directory is not matched");
             if let Some(name) = dir.file_name().and_then(|name| name.to_str()) {
@@ -41,14 +41,14 @@ impl Rule for MissingPackageManifest {
                     "private": true,
                 }));
                 if let Ok(contents) = contents {
-                    builder = builder.fix(Fix {
-                        title: format!("Create `{}`", slash(&manifest)),
-                        safety: FixSafety::Unsafe,
-                        ops: vec![FixOp::CreateFile {
-                            path: manifest,
-                            contents: format!("{contents}\n"),
-                        }],
-                    });
+                    builder = builder.fix(Fix::new(
+                        format!("Create `{}`", slash(&manifest)),
+                        FixSafety::Unsafe,
+                        vec![FixOp::create_file(
+                            manifest,
+                            format!("{contents}\n"),
+                        )],
+                    ));
                 }
             }
             out.emit(builder.build());

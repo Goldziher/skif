@@ -39,6 +39,7 @@ inquire.workspace = true
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+skif-core.workspace = true
 skif-report.workspace = true
 skif = { workspace = true, features = ["manifest", "policy", "js-analysis", "fix", "yaml-fix", "report", "schema"] }
 toml.workspace = true

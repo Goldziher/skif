@@ -1,5 +1,8 @@
 //! Core diagnostic, fix and report types for skif.
 //!
+//! This crate is an implementation detail of `skif`: it carries no stability promise of its own. Depend on the
+//! `skif` facade, which re-exports what is meant to be used.
+//!
 //! The crate is library-first and deliberately free of side effects:
 //!
 //! - **No IO outside [`fs`].** Nothing else here reads or writes files. Paths are workspace-relative [`std::path::PathBuf`]s that the
@@ -22,7 +25,7 @@
 //!     RuleId::new("unused-dependency").unwrap_or_else(|_| RuleId::from_static("fallback")),
 //!     Severity::Warning,
 //!     "dependency is never imported",
-//!     Location { path: "package.json".into(), span: None },
+//!     Location::file("package.json"),
 //! );
 //! let report = Report::new(vec![diagnostic], 1);
 //! assert_eq!(report.summary.warnings, 1);
@@ -71,4 +74,12 @@ const _: () = {
     let _ = assert_send_sync::<MemoryFs>;
     let _ = assert_send_sync::<OsFs>;
     let _ = assert_send_sync::<CachedFs<OsFs>>;
+    let _ = assert_send_sync::<std::sync::Arc<dyn FileSystem>>;
+    let _ = assert_send_sync::<Box<dyn FileSystem>>;
+    let _ = assert_send_sync::<Location>;
+    let _ = assert_send_sync::<Related>;
+    let _ = assert_send_sync::<TextEdit>;
+    let _ = assert_send_sync::<DirEntry>;
+    let _ = assert_send_sync::<Summary>;
+    let _ = assert_send_sync::<RuleId>;
 };

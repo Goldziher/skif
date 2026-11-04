@@ -7,13 +7,13 @@ use super::support::entry_location;
 use crate::analysis::JsAnalysis;
 
 /// Metadata of `unused-optional-peer-dependencies`.
-pub static META: RuleMeta = RuleMeta {
-    id: "unused-optional-peer-dependencies",
-    category: Category::Js,
-    default: Some(Severity::Warning),
-    fixable: Fixability::None,
-    summary: "An optional peer dependency is imported but not installed as a dependency or dev dependency.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unused-optional-peer-dependencies",
+    Category::Js,
+    Some(Severity::Warning),
+    Fixability::None,
+    "An optional peer dependency is imported but not installed as a dependency or dev dependency.",
+);
 
 /// Reports optional peer dependencies the code imports while the package does not install them itself.
 pub struct UnusedOptionalPeerDependencies;
@@ -30,7 +30,7 @@ impl JsRule for UnusedOptionalPeerDependencies {
             }
             let Some(meta) = package
                 .manifest
-                .value
+                .value()
                 .get("peerDependenciesMeta")
                 .and_then(Value::as_object)
             else {

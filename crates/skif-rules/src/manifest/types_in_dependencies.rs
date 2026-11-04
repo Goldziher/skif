@@ -4,13 +4,13 @@ use skif_lint::{Emitter, LintContext, Rule};
 use super::support::{active_members, entry_location, move_to_dev_dependencies};
 
 /// Metadata of `types-in-dependencies`.
-pub static META: RuleMeta = RuleMeta {
-    id: "types-in-dependencies",
-    category: Category::Manifest,
-    default: Some(Severity::Error),
-    fixable: Fixability::Unsafe,
-    summary: "A private package lists `@types/*` packages in `dependencies`; type packages belong in `devDependencies`.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "types-in-dependencies",
+    Category::Manifest,
+    Some(Severity::Error),
+    Fixability::Unsafe,
+    "A private package lists `@types/*` packages in `dependencies`; type packages belong in `devDependencies`.",
+);
 
 /// Reports `@types/*` entries in the `dependencies` of private member packages.
 #[derive(Debug, Clone, Copy, Default)]
@@ -52,17 +52,17 @@ impl Rule for TypesInDependencies {
                 "move `@types/*` packages to `devDependencies`; a private package is never installed as a dependency",
             );
             for entry in rest {
-                builder = builder.related(Related {
-                    message: format!("`{}` is also a type package in `dependencies`", entry.name),
-                    location: entry_location(package, entry),
-                });
+                builder = builder.related(Related::new(
+                    format!("`{}` is also a type package in `dependencies`", entry.name),
+                    entry_location(package, entry),
+                ));
             }
             if let Some(ops) = move_to_dev_dependencies(package, &names) {
-                builder = builder.fix(Fix {
-                    title: "Move the `@types/*` packages to `devDependencies`".to_owned(),
-                    safety: FixSafety::Unsafe,
+                builder = builder.fix(Fix::new(
+                    "Move the `@types/*` packages to `devDependencies`".to_owned(),
+                    FixSafety::Unsafe,
                     ops,
-                });
+                ));
             }
             out.emit(builder.build());
         }

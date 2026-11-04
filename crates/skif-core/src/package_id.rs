@@ -20,6 +20,7 @@ impl PackageId {
     }
 
     /// The id at position `index` (saturating at `u32::MAX`); only the issuing workspace should call this.
+    #[doc(hidden)]
     #[must_use]
     pub fn from_index(index: usize) -> Self {
         Self(u32::try_from(index).unwrap_or(u32::MAX))

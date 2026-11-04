@@ -4,13 +4,13 @@ use skif_lint::{Emitter, LintContext, Rule};
 use super::support::{active_packages, field_location, json_op, key, section};
 
 /// Metadata of `unsorted-dependencies`.
-pub static META: RuleMeta = RuleMeta {
-    id: "unsorted-dependencies",
-    category: Category::Manifest,
-    default: Some(Severity::Error),
-    fixable: Fixability::Safe,
-    summary: "The entries of a dependency section are not in alphabetical (byte) order.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unsorted-dependencies",
+    Category::Manifest,
+    Some(Severity::Error),
+    Fixability::Safe,
+    "The entries of a dependency section are not in alphabetical (byte) order.",
+);
 
 /// Reports dependency sections whose keys are not sorted.
 #[derive(Debug, Clone, Copy, Default)]
@@ -47,11 +47,11 @@ impl Rule for UnsortedDependencies {
                         "sort the keys of `{field}`; `{}` should come before `{}`",
                         sorted[first], keys[first]
                     ))
-                    .fix(Fix {
-                        title: format!("Sort `{field}`"),
-                        safety: FixSafety::Safe,
-                        ops: vec![json_op(package, section(kind), JsonAction::SortKeys)],
-                    });
+                    .fix(Fix::new(
+                        format!("Sort `{field}`"),
+                        FixSafety::Safe,
+                        vec![json_op(package, section(kind), JsonAction::SortKeys)],
+                    ));
                 if let Some(specifier) = map.get(keys[first]).and_then(|value| value.as_str()) {
                     builder = builder.specifier(specifier);
                 }

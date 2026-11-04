@@ -10,13 +10,13 @@ use super::names::{CatalogName, referenced};
 use super::support::key;
 
 /// Metadata of `unused-catalog-entries`.
-pub static META: RuleMeta = RuleMeta {
-    id: "unused-catalog-entries",
-    category: Category::Catalog,
-    default: Some(Severity::Warning),
-    fixable: Fixability::None,
-    summary: "A catalog entry that no manifest references; reported only when `[catalog] report-unused-entries` is `true`.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unused-catalog-entries",
+    Category::Catalog,
+    Some(Severity::Warning),
+    Fixability::None,
+    "A catalog entry that no manifest references; reported only when `[catalog] report-unused-entries` is `true`.",
+);
 
 /// Reports catalog entries nobody uses, when `[catalog] report-unused-entries` is on.
 #[derive(Debug, Clone, Copy, Default)]
@@ -41,7 +41,7 @@ impl Rule for UnusedCatalogEntries {
             .flat_map(|package| &package.dependencies)
             .filter_map(|entry| Some((referenced(&entry.specifier)?, entry.name.as_str())))
             .collect();
-        let root = &workspace.root_package.manifest.value;
+        let root = workspace.root_package().manifest.value();
         let sections: [&[&str]; 3] = [&["pnpm", "overrides"], &["overrides"], &["resolutions"]];
         for section in sections {
             if let Some(overrides) = section.iter().try_fold(root, |value, key| value.get(key)) {
@@ -66,16 +66,16 @@ impl Rule for UnusedCatalogEntries {
                 let mut builder = diagnostic(
                     &META,
                     format!("{} defines `{name}` but no package references it", catalog.display()),
-                    Location {
-                        path: source.to_path_buf(),
-                        span: entry_span(workspace, source, &catalog, name),
-                    },
+                    Location::new(
+                        source.to_path_buf(),
+                        entry_span(workspace, source, &catalog, name),
+                    ),
                 )
                 .dependency(name.clone())
                 .specifier(version.clone())
                 .help("remove the entry or reference it with `catalog:`");
-                if source == workspace.root_package.manifest.path.as_path() {
-                    builder = builder.package_id(workspace.root_package.id);
+                if source == workspace.root_package().manifest.path.as_path() {
+                    builder = builder.package_id(workspace.root_package().id);
                 }
                 out.emit(builder.build());
             }
@@ -108,7 +108,7 @@ fn collect_override_references<'v>(entries: &'v Value, used: &mut BTreeSet<(Cata
 }
 
 fn entry_span(workspace: &Workspace, source: &Path, catalog: &CatalogName, dependency: &str) -> Option<Span> {
-    if source == workspace.root_package.manifest.path.as_path() {
+    if source == workspace.root_package().manifest.path.as_path() {
         let section: Vec<PathSeg> = match catalog {
             CatalogName::Default => vec![key("catalog")],
             CatalogName::Named(name) => vec![key("catalogs"), key(name)],
@@ -116,7 +116,7 @@ fn entry_span(workspace: &Workspace, source: &Path, catalog: &CatalogName, depen
         let nested: Vec<PathSeg> = std::iter::once(key("workspaces")).chain(section.clone()).collect();
         return [section, nested].into_iter().find_map(|mut pointer| {
             pointer.push(key(dependency));
-            workspace.root_package.manifest.field_span(&pointer)
+            workspace.root_package().manifest.field_span(&pointer)
         });
     }
     let yaml = workspace.pnpm_workspace.as_ref().filter(|yaml| yaml.path == source)?;
