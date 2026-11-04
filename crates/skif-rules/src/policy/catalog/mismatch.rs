@@ -29,7 +29,7 @@ impl Rule for CatalogMismatch {
         }
         // With no catalog policy (`mode = "off"`) the mismatch is a hint about a catalog some packages happen to use.
         let severity = (cx.config.catalog.mode == CatalogMode::Off).then_some(Severity::Warning);
-        for finding in findings(cx) {
+        for finding in findings(cx).iter(cx.workspace) {
             let FindingKind::DiffersToCatalog { catalog } = &finding.kind else {
                 continue;
             };

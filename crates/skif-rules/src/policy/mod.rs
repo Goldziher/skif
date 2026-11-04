@@ -63,7 +63,11 @@ impl RuleProvider for PolicyProvider {
             // The catalog rules own a dependency only while the rule that reports it is on; otherwise the version
             // groups keep it.
             let catalog_owns = enabled.contains(catalog::owning_rule());
-            let analysis = analysis::Analysis::run(cx.workspace, cx.config, catalog_owns);
+            let usages = catalog_owns.then(|| catalog::usages(cx));
+            let owned = usages.as_deref().map_or_else(std::collections::BTreeSet::new, |usages| {
+                catalog::owned_dependencies(usages, cx.workspace, &cx.config.catalog)
+            });
+            let analysis = analysis::Analysis::run_with(cx.workspace, cx.config, &owned);
             report::emit(&analysis, cx.config_file(), out);
         }
         Ok(())
@@ -395,10 +399,7 @@ mod tests {
         let config = config(
             "[[version-groups]]\ndependencies = [\"ghost\"]\npolicy = \"pinned\"\npin = \"1.0.0\"\n\n[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"\"\n",
         );
-        let options = skif_lint::RunOptions {
-            config_path: Some(std::path::Path::new("config/skif.toml")),
-            ..skif_lint::RunOptions::default()
-        };
+        let options = skif_lint::RunOptions::default().with_config_path(std::path::Path::new("config/skif.toml"));
         let named = crate::testing::lint_with("policy-conflict", &files, &config, &options);
         assert!(named.iter().any(|d| d.detail.as_deref() == Some("UnusedGroup")));
         assert!(named.iter().any(|d| d.detail.as_deref() == Some("InvalidPin")));

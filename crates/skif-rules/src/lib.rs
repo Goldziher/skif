@@ -8,6 +8,8 @@
 //! group and semver group policies. [`providers`] returns every built-in [`RuleProvider`], ready to register in a
 //! [`skif_lint::Registry`].
 
+#![warn(missing_docs)]
+
 pub mod manifest;
 pub mod policy;
 

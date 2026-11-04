@@ -26,7 +26,7 @@ impl Rule for CatalogNotUsed {
             return;
         }
         let severity = enforce_severity(cx);
-        for finding in findings(cx) {
+        for finding in findings(cx).iter(cx.workspace) {
             let name = &finding.instance.entry.name;
             let specifier = &finding.instance.entry.specifier;
             match &finding.kind {

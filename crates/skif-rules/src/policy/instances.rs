@@ -10,7 +10,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
-use skif_config::Config;
 use skif_core::{DependencyKind, FixOp, JsonAction, Location, PathSeg};
 use skif_specifier::Specifier;
 use skif_workspace::{DependencyEntry, Package, Workspace};
@@ -130,18 +129,14 @@ impl<'w> Instances<'w> {
     /// section, and each package's own version, which dependents are aligned with whatever section they use.
     ///
     /// Which of them a version group governs is decided when they are assigned to groups (see
-    /// [`Groups::assign`](super::groups::Groups::assign)). With `catalog_owns`, dependencies the catalog rules report
-    /// (see [`catalog::owned_dependencies`]) are flagged [`catalog_owned`](Instance::catalog_owned).
-    pub(crate) fn collect(workspace: &'w Workspace, config: &Config, catalog_owns: bool) -> Self {
+    /// [`Groups::assign`](super::groups::Groups::assign)). Dependencies named in `owned` (see
+    /// [`catalog::owned_dependencies`]) are flagged [`catalog_owned`](Instance::catalog_owned): the catalog rules
+    /// report them.
+    pub(crate) fn collect_with(workspace: &'w Workspace, owned: &BTreeSet<&str>) -> Self {
         let local_names: HashSet<&str> = workspace
             .all_packages()
             .filter_map(|package| package.name.as_deref())
             .collect();
-        let owned = if catalog_owns {
-            catalog::owned_dependencies(workspace, &config.catalog)
-        } else {
-            BTreeSet::new()
-        };
         let mut items = Vec::new();
         for package in support::active_packages(workspace) {
             if let (Some(name), Some(version)) = (&package.name, &package.version) {
@@ -174,6 +169,18 @@ impl<'w> Instances<'w> {
             items,
             by_name,
         }
+    }
+
+    /// [`collect_with`](Self::collect_with) for the dependencies the catalog rules own under `config`, or none.
+    #[cfg(test)]
+    pub(crate) fn collect(workspace: &'w Workspace, config: &skif_config::Config, catalog_owns: bool) -> Self {
+        let usages = catalog::UsageIndex::build(workspace, &config.catalog);
+        let owned = if catalog_owns {
+            catalog::owned_dependencies(&usages, workspace, &config.catalog)
+        } else {
+            BTreeSet::new()
+        };
+        Self::collect_with(workspace, &owned)
     }
 
     /// The workspace the instances were read from.
