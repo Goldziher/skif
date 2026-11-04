@@ -77,6 +77,22 @@ cache_root() {
   fi
 }
 
+# Git Bash on Windows often has no unzip, and GNU tar cannot read zips: fall back to bsdtar, then Python.
+extract_zip() {
+  local archive="$1" member="$2" destination="$3"
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -q "$archive" "$member" -d "$destination"
+  elif tar --version 2>/dev/null | grep -qi bsdtar; then
+    tar -xf "$archive" -C "$destination" "$member"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -I -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extract(sys.argv[2], sys.argv[3])' \
+      "$archive" "$member" "$destination"
+  else
+    echo "skif: no unzip, bsdtar or python3 to unpack ${archive}" >&2
+    return 1
+  fi
+}
+
 download() {
   local target ext exe archive cache dest expected actual tmp
   target="$(detect_target)"
@@ -120,7 +136,7 @@ download() {
 
   mkdir -p "${tmp}/extract"
   if [[ "$ext" == "zip" ]]; then
-    unzip -q "${tmp}/${archive}" "$exe" -d "${tmp}/extract"
+    extract_zip "${tmp}/${archive}" "$exe" "${tmp}/extract"
   else
     tar -xzf "${tmp}/${archive}" -C "${tmp}/extract" "$exe"
   fi

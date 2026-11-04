@@ -4,7 +4,7 @@
 # Environment:
 #   VERSION     version being released (required)
 #   DRY_RUN     "true" packages and verifies every crate (cargo publish --workspace --dry-run) but
-#               uploads nothing
+#               uploads nothing; a real first run performs the same dry run before it uploads anything
 #   CRATES_API  registry API base, overridable for tests (default https://crates.io/api/v1/crates)
 #
 # A crate whose directory does not exist yet is skipped with a log line, a version already on the
@@ -69,9 +69,11 @@ publish() {
   return 1
 }
 
-if [ "$dry_run" = "true" ]; then
-  # Packages and builds every crate in dependency order against the local copies of its siblings,
-  # which is what a real publish would upload.
+# Packages and builds every crate in dependency order against the local copies of its siblings, which is what a
+# real publish would upload. A real run does it first too, so a packaging error in the last crate stops the
+# release before the first one is live. A re-run (the first crate is already on the registry) skips it: cargo
+# refuses to package versions that already exist.
+if [ "$dry_run" = "true" ] || ! published "${crates[0]}"; then
   echo "::group::cargo publish --workspace --dry-run"
   cargo publish --workspace --dry-run --locked
   echo "::endgroup::"
