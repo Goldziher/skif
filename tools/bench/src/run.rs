@@ -10,6 +10,8 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::corpus;
+use crate::proc::find_on_path;
+use crate::sources;
 use skif_bench::generate::{self, Options, PackageManager};
 
 /// ADR 0001: manifest and policy rules on 500 packages.
@@ -17,6 +19,11 @@ const MANIFEST_TARGET_PACKAGES: usize = 500;
 const MANIFEST_TARGET_MS: f64 = 50.0;
 /// ADR 0001: JS analysis versus knip on the corpus.
 const KNIP_SPEEDUP_TARGET: f64 = 5.0;
+/// ADR 0001: parse and build the module graph of 10,000 files.
+const GRAPH_TARGET_FILES: usize = 10_000;
+const GRAPH_TARGET_MS: f64 = 2000.0;
+/// Version of the `summary.json` layout.
+const SUMMARY_SCHEMA: u32 = 1;
 const GENERATED_SEED: u64 = 1;
 const GENERATED_MISMATCH_RATE: f64 = 0.05;
 
@@ -32,6 +39,12 @@ pub struct RunOptions {
     pub out: PathBuf,
     pub warmup: u32,
     pub runs: u32,
+    /// Total source files of the module graph case; `0` skips it.
+    pub graph_files: usize,
+    /// Packages the graph case spreads its files over.
+    pub graph_packages: usize,
+    /// Return an error when an ADR 0001 check fails.
+    pub enforce: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +110,7 @@ struct TargetResult {
     target: String,
     kind: &'static str,
     packages: Option<usize>,
+    files: Option<usize>,
     results: Vec<ToolResult>,
 }
 
@@ -109,18 +123,15 @@ struct TargetCheck {
 
 #[derive(Debug, Serialize)]
 struct Summary {
+    schema: u32,
+    skif: String,
+    host: String,
     hyperfine: String,
     warmup: u32,
     runs: u32,
     skipped_tools: Vec<String>,
     targets: Vec<TargetResult>,
     adr_0001_checks: Vec<TargetCheck>,
-}
-
-fn find_on_path(name: &str) -> Option<PathBuf> {
-    env::split_paths(&env::var_os("PATH")?)
-        .map(|dir| dir.join(name))
-        .find(|candidate| candidate.is_file())
 }
 
 /// Quotes one argument for hyperfine's no-shell command splitting.
@@ -161,6 +172,7 @@ struct Target {
     name: String,
     kind: &'static str,
     packages: Option<usize>,
+    files: Option<usize>,
     dir: PathBuf,
     tools: Vec<Tool>,
 }
@@ -235,6 +247,19 @@ fn checks(targets: &[TargetResult]) -> Vec<TargetCheck> {
                 passed: skif.mean_ms < MANIFEST_TARGET_MS,
             });
         }
+        if target.kind == "graph"
+            && let (Some(files), Some(skif)) = (target.files, find(Tool::Skif.label()))
+            && files >= GRAPH_TARGET_FILES
+        {
+            out.push(TargetCheck {
+                target: target.target.clone(),
+                description: format!(
+                    "parse and module graph of {files} files < {GRAPH_TARGET_MS} ms, whole run including every JS rule (measured {:.1} ms)",
+                    skif.mean_ms
+                ),
+                passed: skif.mean_ms < GRAPH_TARGET_MS,
+            });
+        }
         if target.kind == "corpus"
             && let (Some(skif), Some(knip)) = (find(Tool::Skif.label()), find(Tool::Knip.label()))
         {
@@ -307,6 +332,13 @@ fn markdown(summary: &Summary) -> String {
     out
 }
 
+fn skif_version(skif: &Path) -> String {
+    Command::new(skif).arg("--version").output().map_or_else(
+        |_| "unknown".to_owned(),
+        |o| String::from_utf8_lossy(&o.stdout).trim().to_owned(),
+    )
+}
+
 fn hyperfine_version() -> Result<String> {
     let output = Command::new("hyperfine")
         .arg("--version")
@@ -329,10 +361,38 @@ fn available_tools(skipped: &mut Vec<String>) -> Vec<Tool> {
     tools
 }
 
+/// The ADR 0001 module graph case: one pnpm workspace whose packages hold `graph_files` TypeScript files in total.
+fn graph_target(options: &RunOptions) -> Result<Target> {
+    let packages = options.graph_packages.max(1);
+    let per_package = options.graph_files.div_ceil(packages);
+    let dir = options.generated_dir.join(format!("graph-{}", packages * per_package));
+    if dir.exists() {
+        fs::remove_dir_all(&dir).with_context(|| format!("cleaning {}", dir.display()))?;
+    }
+    let mut generated = generate::build(&Options {
+        packages,
+        seed: GENERATED_SEED,
+        package_manager: PackageManager::Pnpm,
+        catalog: false,
+        mismatch_rate: 0.0,
+    })?;
+    sources::add_sources(&mut generated, per_package);
+    generate::write(&generated, &dir)?;
+    Ok(Target {
+        name: format!("graph: {} files in {packages} packages", packages * per_package),
+        kind: "graph",
+        packages: Some(packages),
+        files: Some(packages * per_package),
+        dir: fs::canonicalize(&dir)?,
+        tools: vec![Tool::Skif],
+    })
+}
+
 /// Runs the whole benchmark and writes `summary.json` and `summary.md` into `options.out`.
 ///
 /// # Errors
-/// Fails when hyperfine or skif is missing, the corpus cannot be fetched, or a measurement fails.
+/// Fails when hyperfine or skif is missing, the corpus cannot be fetched, a measurement fails, or (with
+/// `options.enforce`) an ADR 0001 target check fails; the summary is written before that last error.
 pub fn run(options: &RunOptions) -> Result<()> {
     let version = hyperfine_version()?;
     let skif = fs::canonicalize(&options.skif).with_context(|| {
@@ -369,18 +429,24 @@ pub fn run(options: &RunOptions) -> Result<()> {
             name: format!("generated: {size} packages ({})", options.package_manager.as_str()),
             kind: "generated",
             packages: Some(size),
+            files: None,
             dir: fs::canonicalize(&dir)?,
             tools,
         });
     }
+    if options.graph_files > 0 {
+        targets.push(graph_target(options)?);
+    }
     if options.use_corpus {
-        for (repo, dir) in corpus::fetch_all(&options.corpus_file, &options.corpus_dir)? {
+        let (_, repos) = corpus::fetch_suite(&options.corpus_file, "bench", &[], &options.corpus_dir)?;
+        for (repo, dir) in repos {
             let mut tools = vec![Tool::Skif, Tool::SkifManifest];
             tools.extend(comparison.iter().copied());
             targets.push(Target {
                 name: format!("corpus: {} ({})", repo.name, repo.package_manager),
                 kind: "corpus",
                 packages: None,
+                files: None,
                 dir: fs::canonicalize(&dir)?,
                 tools,
             });
@@ -400,11 +466,15 @@ pub fn run(options: &RunOptions) -> Result<()> {
             target: target.name.clone(),
             kind: target.kind,
             packages: target.packages,
+            files: target.files,
             results: tool_results(&read_results(&export)?),
         });
     }
 
     let summary = Summary {
+        schema: SUMMARY_SCHEMA,
+        skif: skif_version(&skif),
+        host: format!("{} {}", env::consts::OS, env::consts::ARCH),
         hyperfine: version,
         warmup: options.warmup,
         runs: options.runs,
@@ -420,6 +490,13 @@ pub fn run(options: &RunOptions) -> Result<()> {
     fs::write(options.out.join("summary.md"), &table)?;
     println!("{table}");
     eprintln!("bench: wrote {}/summary.{{md,json}}", options.out.display());
+    let failed: Vec<&TargetCheck> = summary.adr_0001_checks.iter().filter(|check| !check.passed).collect();
+    if options.enforce && !failed.is_empty() {
+        for check in &failed {
+            eprintln!("bench: FAILED {}: {}", check.target, check.description);
+        }
+        bail!("{} ADR 0001 target check(s) failed", failed.len());
+    }
     Ok(())
 }
 
@@ -464,6 +541,7 @@ mod tests {
             target: "t".into(),
             kind: "generated",
             packages: Some(MANIFEST_TARGET_PACKAGES),
+            files: None,
             results: vec![ToolResult {
                 tool: "skif --no-js".into(),
                 mean_ms,
@@ -476,5 +554,27 @@ mod tests {
         };
         assert!(checks(&[target(10.0)])[0].passed);
         assert!(!checks(&[target(80.0)])[0].passed);
+    }
+
+    #[test]
+    fn checks_flag_a_slow_graph_run_and_ignore_small_graphs() {
+        let target = |files, mean_ms| TargetResult {
+            target: "g".into(),
+            kind: "graph",
+            packages: Some(100),
+            files: Some(files),
+            results: vec![ToolResult {
+                tool: "skif".into(),
+                mean_ms,
+                stddev_ms: None,
+                median_ms: mean_ms,
+                min_ms: mean_ms,
+                max_ms: mean_ms,
+                relative_to_skif: None,
+            }],
+        };
+        assert!(checks(&[target(10_000, 900.0)])[0].passed);
+        assert!(!checks(&[target(10_000, 2500.0)])[0].passed);
+        assert!(checks(&[target(500, 2500.0)]).is_empty());
     }
 }

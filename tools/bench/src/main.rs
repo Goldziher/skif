@@ -1,18 +1,28 @@
 //! Benchmark harness for skif: generates synthetic monorepos, fetches the pinned corpus and runs hyperfine.
 
 mod corpus;
+mod diff;
+mod parity;
+mod proc;
 mod run;
+mod sources;
+mod syncpack;
 
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 
+use crate::diff::{Gate, Tolerance};
 use crate::run::RunOptions;
 use skif_bench::generate::{self, Options, PackageManager};
 
 const DEFAULT_CORPUS_FILE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/corpus.toml");
+const DEFAULT_PARITY_BASELINE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/baselines/parity.json");
+const DEFAULT_SYNCPACK_BASELINE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/baselines/syncpack.json");
+const DEFAULT_POLICY_FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/policy");
 
 #[derive(Parser)]
 #[command(name = "skif-bench", version, about)]
@@ -32,6 +42,10 @@ enum Command {
     },
     /// Benchmark skif (and any installed comparison tools) with hyperfine.
     Run(RunArgs),
+    /// Compare skif's findings with a pinned knip on the corpus.
+    Parity(ParityArgs),
+    /// Compare skif's policy findings with a pinned syncpack on the policy fixtures and the corpus.
+    SyncpackDiff(SyncpackArgs),
 }
 
 #[derive(Args)]
@@ -57,11 +71,14 @@ struct GenerateArgs {
     /// Delete the output directory first.
     #[arg(long)]
     force: bool,
+    /// TypeScript modules to add to every package (an import chain ending in `src/index.ts`); 0 writes manifests only.
+    #[arg(long, default_value_t = 0)]
+    source_files_per_package: usize,
 }
 
 #[derive(Subcommand)]
 enum CorpusAction {
-    /// Clone every repository of the corpus at its pinned commit (idempotent).
+    /// Fetch every repository of a suite at its pinned commit (idempotent).
     Fetch(CorpusArgs),
 }
 
@@ -73,6 +90,111 @@ struct CorpusArgs {
     /// Cache directory the repositories are cloned into.
     #[arg(long, default_value = "target/bench-corpus")]
     dir: PathBuf,
+    /// Suite to fetch: `bench` (timed) or `parity` (compared with knip and syncpack).
+    #[arg(long, default_value = "parity")]
+    suite: String,
+    /// Only these repositories of the suite.
+    #[arg(long, value_delimiter = ',')]
+    only: Vec<String>,
+}
+
+#[derive(Args)]
+struct GateArgs {
+    /// Record this run in the baseline file.
+    #[arg(long)]
+    write_baseline: bool,
+    /// Fail when this run drifts from the baseline file.
+    #[arg(long)]
+    check: bool,
+    /// A count may move by this percentage of its baseline value...
+    #[arg(long, default_value_t = 10)]
+    tolerance_percent: usize,
+    /// ...or by this many, whichever is larger.
+    #[arg(long, default_value_t = 5)]
+    tolerance_abs: usize,
+}
+
+impl GateArgs {
+    fn gate(&self, baseline: PathBuf) -> Gate {
+        Gate {
+            baseline,
+            write: self.write_baseline,
+            check: self.check,
+            tolerance: Tolerance {
+                percent: self.tolerance_percent,
+                absolute: self.tolerance_abs,
+            },
+        }
+    }
+}
+
+#[derive(Args)]
+struct ParityArgs {
+    /// The skif binary under test.
+    #[arg(long, default_value = "target/release/skif")]
+    skif: PathBuf,
+    /// Corpus manifest.
+    #[arg(long, default_value = DEFAULT_CORPUS_FILE)]
+    corpus_file: PathBuf,
+    /// Corpus cache directory.
+    #[arg(long, default_value = "target/bench-corpus")]
+    corpus_dir: PathBuf,
+    /// Where the full report (with sample findings) is written.
+    #[arg(long, default_value = "target/bench-results")]
+    out: PathBuf,
+    /// Baseline file (counts only).
+    #[arg(long, default_value = DEFAULT_PARITY_BASELINE)]
+    baseline: PathBuf,
+    /// Only these repositories of the parity suite.
+    #[arg(long, value_delimiter = ',')]
+    only: Vec<String>,
+    /// Install dependencies first (`--ignore-scripts`); knip reports far fewer false findings with them.
+    #[arg(long)]
+    install: bool,
+    /// Run skif with --recursive. Paths are then relative to each root, so only single-root repositories compare.
+    #[arg(long)]
+    recursive: bool,
+    /// Seconds each install, skif run and knip run may take.
+    #[arg(long, default_value_t = 1800)]
+    timeout_secs: u64,
+    #[command(flatten)]
+    gate: GateArgs,
+}
+
+#[derive(Args)]
+struct SyncpackArgs {
+    /// The skif binary under test.
+    #[arg(long, default_value = "target/release/skif")]
+    skif: PathBuf,
+    /// Corpus manifest.
+    #[arg(long, default_value = DEFAULT_CORPUS_FILE)]
+    corpus_file: PathBuf,
+    /// Corpus cache directory.
+    #[arg(long, default_value = "target/bench-corpus")]
+    corpus_dir: PathBuf,
+    /// The policy conformance fixtures.
+    #[arg(long, default_value = DEFAULT_POLICY_FIXTURES)]
+    fixtures: PathBuf,
+    /// Where the full report (with sample findings) is written.
+    #[arg(long, default_value = "target/bench-results")]
+    out: PathBuf,
+    /// Baseline file (counts only).
+    #[arg(long, default_value = DEFAULT_SYNCPACK_BASELINE)]
+    baseline: PathBuf,
+    /// Only these repositories of the parity suite.
+    #[arg(long, value_delimiter = ',')]
+    only: Vec<String>,
+    /// Skip the policy fixtures.
+    #[arg(long)]
+    no_fixtures: bool,
+    /// Skip the corpus repositories.
+    #[arg(long)]
+    no_corpus: bool,
+    /// Seconds each skif run and syncpack run may take.
+    #[arg(long, default_value_t = 300)]
+    timeout_secs: u64,
+    #[command(flatten)]
+    gate: GateArgs,
 }
 
 #[derive(Args)]
@@ -110,6 +232,15 @@ struct RunArgs {
     /// Hyperfine measured runs.
     #[arg(long, default_value_t = 10)]
     runs: u32,
+    /// Source files of the module graph case (ADR 0001: 10,000 files); 0 skips it.
+    #[arg(long, default_value_t = 10_000)]
+    graph_files: usize,
+    /// Packages the module graph case spreads its files over.
+    #[arg(long, default_value_t = 100)]
+    graph_packages: usize,
+    /// Exit 0 even when an ADR 0001 target check fails.
+    #[arg(long)]
+    no_enforce: bool,
 }
 
 fn generate_command(args: &GenerateArgs) -> Result<()> {
@@ -120,13 +251,14 @@ fn generate_command(args: &GenerateArgs) -> Result<()> {
             bail!("{} is not empty (use --force to replace it)", args.out.display());
         }
     }
-    let generated = generate::build(&Options {
+    let mut generated = generate::build(&Options {
         packages: args.packages,
         seed: args.seed,
         package_manager: args.pm,
         catalog: args.catalog,
         mismatch_rate: args.mismatch_rate,
     })?;
+    sources::add_sources(&mut generated, args.source_files_per_package);
     generate::write(&generated, &args.out)?;
     println!(
         "{}",
@@ -135,6 +267,7 @@ fn generate_command(args: &GenerateArgs) -> Result<()> {
             "packages": generated.packages,
             "dependency-entries": generated.dependency_entries,
             "injected-issues": generated.issues,
+            "source-files-per-package": args.source_files_per_package,
         }))?
     );
     Ok(())
@@ -146,11 +279,35 @@ fn main() -> Result<()> {
         Command::Corpus {
             action: CorpusAction::Fetch(args),
         } => {
-            for (repo, dir) in corpus::fetch_all(&args.file, &args.dir)? {
+            let (_, fetched) = corpus::fetch_suite(&args.file, &args.suite, &args.only, &args.dir)?;
+            for (repo, dir) in fetched {
                 println!("{} {} {}", repo.name, &repo.rev[..12], dir.display());
             }
             Ok(())
         }
+        Command::Parity(args) => parity::run(&parity::Options {
+            skif: args.skif,
+            corpus_file: args.corpus_file,
+            corpus_dir: args.corpus_dir,
+            out: args.out,
+            only: args.only,
+            install: args.install,
+            recursive: args.recursive,
+            timeout: Duration::from_secs(args.timeout_secs),
+            gate: args.gate.gate(args.baseline),
+        }),
+        Command::SyncpackDiff(args) => syncpack::run(&syncpack::Options {
+            skif: args.skif,
+            corpus_file: args.corpus_file,
+            corpus_dir: args.corpus_dir,
+            fixtures: args.fixtures,
+            out: args.out,
+            only: args.only,
+            no_fixtures: args.no_fixtures,
+            no_corpus: args.no_corpus,
+            timeout: Duration::from_secs(args.timeout_secs),
+            gate: args.gate.gate(args.baseline),
+        }),
         Command::Run(args) => run::run(&RunOptions {
             skif: args.skif,
             skif_args: args.skif_args,
@@ -163,6 +320,9 @@ fn main() -> Result<()> {
             out: args.out,
             warmup: args.warmup,
             runs: args.runs,
+            graph_files: args.graph_files,
+            graph_packages: args.graph_packages,
+            enforce: !args.no_enforce,
         }),
     }
 }

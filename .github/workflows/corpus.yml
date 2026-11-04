@@ -1,0 +1,69 @@
+name: corpus
+
+# Findings parity with knip and the policy diff against syncpack on the pinned corpus (ADR 0026). It needs the
+# network, Node and every package manager, so it runs weekly and on demand, never on pull requests.
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Comma-separated corpus repositories to check (default: all)"
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  corpus:
+    name: Parity and syncpack diff against the baselines
+    timeout-minutes: 240
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: xberg-io/actions/setup-mise@v1
+        with:
+          tools: node pnpm bun
+      # ~keep Node 25+ no longer bundles corepack, so yarn's corepack shim is installed explicitly.
+      - name: Enable corepack
+        run: |
+          npm install --global corepack@latest
+          corepack enable
+      - name: Build skif and the harness
+        run: cargo build --release --locked -p skif-cli -p skif-bench
+      - name: Parity with knip
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          args=(--skif target/release/skif --install --check)
+          if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
+          target/release/skif-bench parity "${args[@]}"
+      - name: Policy diff against syncpack
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          args=(--skif target/release/skif --check)
+          if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
+          target/release/skif-bench syncpack-diff "${args[@]}"
+      - name: Upload the full reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-reports
+          path: |
+            target/bench-results/parity.*
+            target/bench-results/syncpack.*
