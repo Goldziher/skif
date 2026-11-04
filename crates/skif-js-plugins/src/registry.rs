@@ -2,12 +2,15 @@
 
 use crate::plugin::Plugin;
 use crate::plugins::{
-    aws_cdk, babel, browser_extension, changesets, commitlint, eslint, github_actions, husky, jest, lint_staged,
-    mastra, next, playwright, postcss, prettier, rollup, rspack, storybook, tailwind, tsup, turbo, typescript, vite,
-    vitest, webpack,
+    angular, astro, aws_cdk, babel, browser_extension, changesets, commitlint, cspell, cypress, docusaurus, drizzle,
+    esbuild, eslint, expo, github_actions, graphql_codegen, husky, jest, karma, lefthook, lint_staged, markdownlint,
+    mastra, metro, mocha, next, nodemon, nuxt, nx, oxlint, playwright, pm2, pnpm, postcss, prettier, prisma,
+    react_native, release_it, rollup, rspack, semantic_release, simple_git_hooks, storybook, stylelint, svelte,
+    sveltekit, syncpack, tailwind, ts_node, tsdown, tsup, tsx, turbo, typescript, vite, vitepress, vitest, webpack,
+    wrangler, yarn,
 };
 
-static PLUGINS: [&dyn Plugin; 25] = [
+static PLUGINS: [&dyn Plugin; 60] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -33,9 +36,44 @@ static PLUGINS: [&dyn Plugin; 25] = [
     &mastra::Mastra,
     &aws_cdk::AwsCdk,
     &browser_extension::BrowserExtension,
+    &tsdown::Tsdown,
+    &oxlint::Oxlint,
+    &angular::Angular,
+    &karma::Karma,
+    &esbuild::Esbuild,
+    &svelte::Svelte,
+    &nuxt::Nuxt,
+    &astro::Astro,
+    &drizzle::Drizzle,
+    &ts_node::TsNode,
+    &tsx::Tsx,
+    &nx::Nx,
+    &cypress::Cypress,
+    &mocha::Mocha,
+    &sveltekit::Sveltekit,
+    &prisma::Prisma,
+    &graphql_codegen::GraphqlCodegen,
+    &docusaurus::Docusaurus,
+    &vitepress::Vitepress,
+    &wrangler::Wrangler,
+    &expo::Expo,
+    &react_native::ReactNative,
+    &metro::Metro,
+    &release_it::ReleaseIt,
+    &semantic_release::SemanticRelease,
+    &lefthook::Lefthook,
+    &simple_git_hooks::SimpleGitHooks,
+    &stylelint::Stylelint,
+    &markdownlint::Markdownlint,
+    &cspell::Cspell,
+    &nodemon::Nodemon,
+    &pm2::Pm2,
+    &pnpm::Pnpm,
+    &yarn::Yarn,
+    &syncpack::Syncpack,
 ];
 
-/// Every plugin, in the order ADR 0011 lists them.
+/// Every plugin, in the order of the table (ADR 0011, ADR 0022, ADR 0025).
 #[must_use]
 pub fn plugins() -> &'static [&'static dyn Plugin] {
     &PLUGINS

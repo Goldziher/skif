@@ -32,6 +32,7 @@ old one.
 | 0022 | [Multi-Root Analysis, Single-Package Mode and the Plugin Set](0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md) | accepted |
 | 0023 | [Root Discovery Semantics: Nested Roots, Workspaces Without a Root Manifest, Rush and Fixture Directories](0023-root-discovery-semantics-nested-roots-rush-and-fixture-directories.md) | accepted |
 | 0024 | [Layered Configuration: Cascading Files, Extends, Overrides and Package Files](0024-layered-configuration-cascading-files-extends-overrides-and-package-files.md) | accepted |
+| 0025 | [Plugin Set Extension: Thirty-Five More Tools](0025-plugin-set-extension-thirty-five-more-tools.md) | accepted |
 | 0027 | [Supported Versions Follow Upstream End-of-Life Policies](0027-supported-versions-follow-upstream-end-of-life-policies.md) | accepted |
 | 0028 | [CLI Flag Contract Completion and Withdrawn Confirmations](0028-cli-flag-contract-completion-and-withdrawn-confirmations.md) | accepted |
 
@@ -51,6 +52,7 @@ the lines below stay as written; this table says which record governs.
 | [0010](0010-js-analysis-on-oxc.md), consequences | exact oxc pins conflict with a host on a different oxc; such a host leaves `js-analysis` off or aligns its pin | [0021](0021-oxc-lockstep-with-poly.md): skif tracks the oxc release poly pins, so poly patches skif's oxc crates to its git copy |
 | [0011](0011-plugin-model.md), line 88 | the first 21 plugins ship in 0.2.0 | [0017](0017-release-policy-a-single-complete-0-1-0.md): they ship in 0.1.0 |
 | [0011](0011-plugin-model.md), line 88 | the first set is 21 plugins | [0022](0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md): the table holds 25 plugins |
+| [0022](0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md), plugin set | the table holds 25 plugins | [0025](0025-plugin-set-extension-thirty-five-more-tools.md): the table holds 60 plugins |
 | [0012](0012-reporting.md), JSON document | one summary, no per-root data | [0022](0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md): a multi-root run adds a `roots` array |
 | [0022](0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md), root discovery | a workspace listed as a member of an outer workspace is not a root | [0023](0023-root-discovery-semantics-nested-roots-rush-and-fixture-directories.md): a directory that declares a workspace is always a root of its own |
 | [0022](0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md), per-root configuration | the start directory is the ceiling of the configuration search in a multi-root run | [0023](0023-root-discovery-semantics-nested-roots-rush-and-fixture-directories.md): the ceiling is the root of the git repository holding the root |
