@@ -53,6 +53,10 @@ pub struct Entry {
     pub categories: BTreeMap<String, Counts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cases: Option<CaseSummary>,
+    /// One-sided findings that belong to a named, intended difference, by deviation id. They are not part of
+    /// `categories` and the drift check ignores them.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub known_deviations: Known,
 }
 
 impl Entry {
@@ -62,6 +66,7 @@ impl Entry {
             reason: Some(reason.into()),
             categories: BTreeMap::new(),
             cases: None,
+            known_deviations: Known::new(),
         }
     }
 
@@ -71,7 +76,14 @@ impl Entry {
             reason: None,
             categories,
             cases: None,
+            known_deviations: Known::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_known(mut self, known: Known) -> Self {
+        self.known_deviations = known;
+        self
     }
 }
 
@@ -100,6 +112,119 @@ impl Tolerance {
     fn allowed(self, baseline: usize) -> usize {
         self.absolute.max((baseline * self.percent).div_ceil(100))
     }
+}
+
+/// A named class of intended difference between skif and a comparison tool.
+#[derive(Debug, Clone, Copy)]
+pub struct Deviation {
+    pub id: &'static str,
+    pub reason: &'static str,
+}
+
+/// Which tool a one-sided finding belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Skif,
+    Tool,
+}
+
+/// How many one-sided findings a deviation explains.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KnownCounts {
+    pub skif_only: usize,
+    pub tool_only: usize,
+}
+
+/// Known-deviation counts by deviation id.
+pub type Known = BTreeMap<String, KnownCounts>;
+
+/// The findings left after the known deviations are taken out, and what was taken out.
+#[derive(Debug, Default)]
+pub struct Split {
+    pub skif: Keys,
+    pub tool: Keys,
+    pub known: Known,
+    /// A few `<category>|<key>` per deviation id, for the full report only.
+    pub samples: BTreeMap<String, Vec<String>>,
+}
+
+/// Takes the one-sided findings that `classify` assigns to a deviation (given the side, category and key) out of
+/// both sets. Findings present on both sides are never classified.
+pub fn split_known(skif: &Keys, tool: &Keys, classify: &dyn Fn(Side, &str, &str) -> Option<&'static str>) -> Split {
+    let empty = BTreeSet::new();
+    let mut split = Split::default();
+    for category in skif.keys().chain(tool.keys()).collect::<BTreeSet<_>>() {
+        let a = skif.get(category).unwrap_or(&empty);
+        let b = tool.get(category).unwrap_or(&empty);
+        for (side, own, other) in [(Side::Skif, a, b), (Side::Tool, b, a)] {
+            for key in own {
+                let target = if side == Side::Skif {
+                    &mut split.skif
+                } else {
+                    &mut split.tool
+                };
+                match (!other.contains(key)).then(|| classify(side, category, key)).flatten() {
+                    Some(id) => {
+                        let counts = split.known.entry(id.to_owned()).or_default();
+                        if side == Side::Skif {
+                            counts.skif_only += 1;
+                        } else {
+                            counts.tool_only += 1;
+                        }
+                        let samples = split.samples.entry(id.to_owned()).or_default();
+                        if samples.len() < SAMPLE_LIMIT {
+                            samples.push(format!("{category}|{key}"));
+                        }
+                    }
+                    None => {
+                        target.entry(category.clone()).or_default().insert(key.clone());
+                    }
+                }
+            }
+        }
+    }
+    split
+}
+
+/// Total findings explained by known deviations.
+pub fn known_total(known: &Known) -> usize {
+    known.values().map(|c| c.skif_only + c.tool_only).sum()
+}
+
+/// A markdown section that lists, per target, how many findings each known deviation explains, followed by the
+/// deviation reasons. Empty when no target has one.
+pub fn known_section(tool: &str, deviations: &[Deviation], entries: &BTreeMap<String, Entry>) -> String {
+    use std::fmt::Write as _;
+    if entries.values().all(|e| e.known_deviations.is_empty()) {
+        return String::new();
+    }
+    let mut out = format!(
+        "\n## Known deviations\n\nIntended differences, reported apart from the counts above and ignored by `--check`. Each cell is skif only / {tool} only.\n\n| Target |"
+    );
+    for deviation in deviations {
+        let _ = write!(out, " {} |", deviation.id);
+    }
+    out.push_str("\n| --- |");
+    for _ in deviations {
+        out.push_str(" ---: |");
+    }
+    out.push('\n');
+    for (name, entry) in entries.iter().filter(|(_, e)| !e.known_deviations.is_empty()) {
+        let _ = write!(out, "| {name} |");
+        for deviation in deviations {
+            let cell = entry
+                .known_deviations
+                .get(deviation.id)
+                .map_or_else(|| "-".to_owned(), |c| format!("{} / {}", c.skif_only, c.tool_only));
+            let _ = write!(out, " {cell} |");
+        }
+        out.push('\n');
+    }
+    out.push('\n');
+    for deviation in deviations {
+        let _ = writeln!(out, "* `{}`: {}", deviation.id, deviation.reason);
+    }
+    out
 }
 
 /// Splits the findings of skif and a tool into only-skif, only-tool and both, per category.
@@ -364,5 +489,76 @@ mod tests {
         let base = baseline(&[("fixtures", case(&["a/one"]))]);
         let now = baseline(&[("fixtures", case(&["a/one", "b/two"]))]);
         assert_eq!(check(&base, &now, TOLERANCE), ["fixtures: case b/two now differs"]);
+    }
+
+    #[test]
+    fn split_known_takes_only_classified_one_sided_findings() {
+        let skif = keys(&[("a", &["both", "s-known", "s-real"])]);
+        let tool = keys(&[("a", &["both", "t-known", "t-real"]), ("b", &["t-known"])]);
+        let classify = |side: Side, category: &str, key: &str| {
+            (key.ends_with("known") && category != "b").then_some(if side == Side::Skif { "x" } else { "y" })
+        };
+        let split = split_known(&skif, &tool, &classify);
+        assert_eq!(split.skif, keys(&[("a", &["both", "s-real"])]));
+        assert_eq!(split.tool, keys(&[("a", &["both", "t-real"]), ("b", &["t-known"])]));
+        assert_eq!(
+            split.known["x"],
+            KnownCounts {
+                skif_only: 1,
+                tool_only: 0
+            }
+        );
+        assert_eq!(
+            split.known["y"],
+            KnownCounts {
+                skif_only: 0,
+                tool_only: 1
+            }
+        );
+        assert_eq!(known_total(&split.known), 2);
+        assert_eq!(split.samples["x"], ["a|s-known"]);
+        let (counts, _) = compare(&split.skif, &split.tool);
+        assert_eq!(
+            counts["a"],
+            Counts {
+                skif_only: 1,
+                tool_only: 1,
+                both: 1
+            }
+        );
+    }
+
+    #[test]
+    fn check_ignores_known_deviations() {
+        let known = |n| {
+            BTreeMap::from([(
+                "x".to_owned(),
+                KnownCounts {
+                    skif_only: 0,
+                    tool_only: n,
+                },
+            )])
+        };
+        let base = baseline(&[("r", Entry::compared(counts(1, 1, 1)).with_known(known(5)))]);
+        let now = baseline(&[("r", Entry::compared(counts(1, 1, 1)).with_known(known(500)))]);
+        assert_eq!(check(&base, &now, TOLERANCE), [] as [String; 0]);
+    }
+
+    #[test]
+    fn known_section_lists_reasons_only_when_something_is_known() {
+        let deviation = [Deviation { id: "x", reason: "why" }];
+        let plain = BTreeMap::from([("r".to_owned(), Entry::compared(BTreeMap::new()))]);
+        assert_eq!(known_section("t", &deviation, &plain), "");
+        let known = BTreeMap::from([(
+            "x".to_owned(),
+            KnownCounts {
+                skif_only: 1,
+                tool_only: 2,
+            },
+        )]);
+        let with = BTreeMap::from([("r".to_owned(), Entry::compared(BTreeMap::new()).with_known(known))]);
+        let section = known_section("t", &deviation, &with);
+        assert!(section.contains("| r | 1 / 2 |"));
+        assert!(section.contains("* `x`: why"));
     }
 }

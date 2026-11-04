@@ -7,6 +7,9 @@
 #   suites           bench = timed by `skif-bench run`; parity = compared with knip and syncpack
 #   sparse           optional list of directories; when set only these (plus root files) are checked out
 #   install          false when `parity --install` cannot work (the reason is in `notes`)
+#   install-command  optional install command (program first) replacing the package manager's default
+#   install-timeout-secs  optional install time limit, replacing the global --timeout-secs for the install only
+#   recursive        true when skif must run with --recursive here (nested roots that are not workspace members)
 #   notes            why the repository is in the corpus and what to expect from it
 
 [tools]
@@ -67,6 +70,8 @@ url = "https://github.com/aspect-build/rules_js.git"
 rev = "25bca017a89e5f7099b4a5a92ad336c48864523e"
 package-manager = "pnpm"
 suites = ["parity"]
+# pnpm 10 rejects the committed lockfile (ERR_PNPM_INVALID_DEPENDENCY_NAME), so the install runs with pnpm 9.
+install-command = ["npx", "--yes", "pnpm@9", "install", "--ignore-scripts", "--frozen-lockfile"]
 notes = "Many e2e and example roots, some without a root package.json."
 
 [[repo]]
@@ -108,7 +113,8 @@ url = "https://github.com/microsoft/vscode.git"
 rev = "6b7063d8883d0d6af80246f2f79df95cb8251059"
 package-manager = "pnpm"
 suites = ["parity"]
-notes = "Very large application tree."
+recursive = true
+notes = "Very large application tree; extensions/copilot is a nested root with its own workspace."
 
 [[repo]]
 name = "n8n"
@@ -132,6 +138,7 @@ url = "https://github.com/vercel/examples.git"
 rev = "de867239d0a7dd55c9130f1e3f87fcf877db96e8"
 package-manager = "pnpm"
 suites = ["parity"]
+install-timeout-secs = 5400
 notes = "Hundreds of standalone example projects below one workspace."
 
 [[repo]]
