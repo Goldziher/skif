@@ -53,6 +53,11 @@ impl Globs {
         }
     }
 
+    /// Whether no include glob exists, so nothing can match.
+    pub(crate) const fn is_empty(&self) -> bool {
+        !self.has_include
+    }
+
     /// Whether `path` matches an include glob and no exclude glob.
     pub(crate) fn is_match(&self, path: &str) -> bool {
         self.has_include && self.include.is_match(path) && !self.exclude.is_match(path)

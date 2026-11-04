@@ -82,3 +82,25 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   JavaScript and TypeScript monorepos, hosted at `github.com/Goldziher/skif`.
 - **The code is a library-first workspace** of `skif-*` crates with a thin `skif` command line on top.
   Architecture decisions are recorded in `adrs/`.
+
+### Fixed
+
+- **JS analysis, ancestors and nesting**: a dependency listed by a `package.json` above a package (the package that
+  contains it, the root, or a manifest above a nested root up to the git root) counts as listed for its imports and
+  enables the plugins of its tools; the listing manifest's dependency is used, not unused. Entry globs that plugins
+  derive from the root configuration (a Playwright `testDir`, a Jest `testMatch`) match files of member packages.
+- **JS analysis, build output**: `lib-commonjs`, `lib-esm`, `dist-cjs`, `esm5` and similar output directories map back
+  to `src`; extension-less `#!/usr/bin/env node` bin stubs are read for the sources they load; a package whose
+  published entry points have no source behind them is not judged for unused files and dependencies.
+- **JS analysis, configuration**: `tsconfig` `extends` follows workspace and installed packages and `${configDir}` is
+  expanded; tsconfig files are parsed once; `projects` of Jest and Vitest given as directories, globs or config
+  files are read; `.vue`, `.svelte` and `.astro` files are project files; `jsxImportSource` in a `tsconfig` stops JSX
+  files from crediting `react`; `src/out`, `lib/target` and `coverage` below a package root are source folders.
+- **Scripts**: `"#note"` and `"//note"` keys are comments, `break` and `continue` are shell builtins, and `bun <word>`
+  no longer reports the word as a binary. A binary named like a listed package that is not installed
+  (`docusaurus-start` from `docusaurus`) is not reported.
+- **Config evaluation and stylesheets**: URLs with a scheme and `.href` are unknown paths; `path.posix`, `import * as
+  path` and `import { default as path }` are understood; `.pcss` files take `//` comments; an apostrophe in an unquoted
+  `url()` no longer swallows the next `@import`; `tsconfig` `paths` with an inner wildcard are not followed as
+  directories; browser-extension `chrome_url_overrides`, `sandbox.pages`, `sidebar_action` and `background.page` are
+  pages; `%PUBLIC_URL%` and template placeholders in HTML script tags are handled.
