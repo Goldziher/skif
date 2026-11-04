@@ -11,8 +11,8 @@
 //!
 //! The rules are `unused-dependencies`, `unused-dev-dependencies`, `unlisted-dependencies`, `unresolved-imports`,
 //! `unlisted-binaries`, `unused-optional-peer-dependencies`, `unused-files`, `unused-exports`, `unused-types`,
-//! `unused-enum-members`, `unused-namespace-members`, `duplicate-exports`, `unparseable-files` and `circular-imports` (off
-//! by default).
+//! `unused-namespace-exports`, `unused-namespace-types`, `unused-enum-members`, `unused-namespace-members`,
+//! `duplicate-exports`, `unparseable-files` and `circular-imports` (off by default).
 //!
 //! No oxc type appears in the public API.
 
@@ -46,7 +46,8 @@ pub use provider::{JsProvider, PROVIDER_ID};
 pub use rules::{
     CircularImports, DuplicateExports, JsRule, UnlistedBinaries, UnlistedDependencies, UnparseableFiles,
     UnresolvedImports, UnusedDependencies, UnusedDevDependencies, UnusedEnumMembers, UnusedExports, UnusedFiles,
-    UnusedNamespaceMembers, UnusedOptionalPeerDependencies, UnusedTypes, rules,
+    UnusedNamespaceExports, UnusedNamespaceMembers, UnusedNamespaceTypes, UnusedOptionalPeerDependencies, UnusedTypes,
+    rules,
 };
 pub use usage::{ExportUsage, MemberUse};
 

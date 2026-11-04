@@ -13,6 +13,20 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Added
 
+- **Namespace export rules**: `unused-namespace-exports` and `unused-namespace-types` report the exports of a module
+  that is only read through `import * as ns` or `export * as ns` and that no `ns.member` read touches. A namespace used
+  as a whole counts as using everything, and `import * as ns; export { ns }` is a namespace re-export that forwards only
+  the members read through it. The findings of such modules move from `unused-exports` and `unused-types` to the new
+  rules ([ADR 0029](adrs/0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md)).
+- **Single-file component templates**: `.vue`, `.svelte` and `.astro` files credit imports used from the markup
+  (component tags, `{{ }}`, `{ }`, `:prop`, `@event`, `v-*`, Svelte blocks and directives), analyse every `<script>`
+  block together and the Astro frontmatter, and treat `<style>` blocks and `src` attributes as imports.
+- **Plugin virtual modules and linked configs**: `docusaurus` (`@generated/*`, `@theme/*`, the core client API,
+  `@site`) and `nuxt` (`#imports`, `#app`, `#components`, `~`, `@`) declare modules the tool resolves itself, `angular`
+  links the `tsConfig` and `karmaConfig` of its targets to the `typescript` and `karma` plugins, and `expo`, `metro` and
+  `docusaurus` read `babel.config.*`. The new `node` plugin makes `server.js` a production entry and adds the test
+  runner's files when a script runs `node --test`; `node --test-reporter` names a package unless it is built in.
+- **Karma function-form configs** (`module.exports = function (config) { config.set({ … }) }`) are evaluated.
 - **Parity and diff against knip and syncpack**: `mise run parity` compares skif's findings with a pinned knip, and
   `mise run diff:syncpack` compares its policy findings with a pinned syncpack, on the policy fixtures and a pinned
   corpus of 16 public repositories (`skif-bench corpus fetch`, `mise run corpus:fetch`). Counts are committed under
@@ -70,20 +84,20 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 - **Version, semver-range and catalog policies**: version groups, semver groups, banned dependencies,
   dependency families, workspace-protocol and catalog rules, with catalog resolution for pnpm, package.json
   and bun catalogs and recursive workspace globs (`**`) with pnpm semantics.
-- **JS analysis on oxc** with 14 rules: `unused-files`, `unused-dependencies`, `unused-dev-dependencies`,
+- **JS analysis on oxc** with 16 rules: `unused-files`, `unused-dependencies`, `unused-dev-dependencies`,
   `unused-optional-peer-dependencies`, `unlisted-dependencies`, `unlisted-binaries`, `unresolved-imports`,
-  `unused-exports`, `unused-types`, `unused-enum-members`, `unused-namespace-members`, `duplicate-exports`,
-  `circular-imports` and `unparseable-files`. Unused files, exports, types and dev dependencies default to warnings. Production mode,
+  `unused-exports`, `unused-types`, `unused-namespace-exports`, `unused-namespace-types`, `unused-enum-members`,
+  `unused-namespace-members`, `duplicate-exports`, `circular-imports` and `unparseable-files`. Unused files, exports, types and dev dependencies default to warnings. Production mode,
   `--no-js` and `[js]` settings per workspace are supported.
-- **A plugin table of 60 plugins** that reads the static configuration of common tools to find entry files and the
+- **A plugin table of 61 plugins** that reads the static configuration of common tools to find entry files and the
   dependencies they use, without running any tool: `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`,
   `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`,
   `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`,
   `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`,
   `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`,
   `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`,
-  `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn` and `syncpack`.
-  The set is extended in [ADR 0025](adrs/0025-plugin-set-extension-thirty-five-more-tools.md).
+  `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack` and `node`.
+  The set is extended in [ADR 0025](adrs/0025-plugin-set-extension-thirty-five-more-tools.md) and ADR 0029.
 - **Output formats**: human, JSON, SARIF and GitHub annotations, selected with `--format`.
 - **Atomic fixes**: `--fix` and `--fix-unsafe` plan all edits first, write them atomically and lint again;
   edits keep key order, indentation and newline style. `--fix` runs the package manager's install unless

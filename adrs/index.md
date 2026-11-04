@@ -36,6 +36,7 @@ old one.
 | 0026 | [Parity and Diff Tasks on a Pinned Corpus: Findings Against knip and syncpack, With Committed Baselines](0026-parity-and-diff-tasks-on-a-pinned-corpus.md) | accepted |
 | 0027 | [Supported Versions Follow Upstream End-of-Life Policies](0027-supported-versions-follow-upstream-end-of-life-policies.md) | accepted |
 | 0028 | [CLI Flag Contract Completion and Withdrawn Confirmations](0028-cli-flag-contract-completion-and-withdrawn-confirmations.md) | accepted |
+| 0029 | [Namespace Export Rules, Virtual Modules, Linked Configs and the node Plugin](0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md) | accepted |
 
 ## Effective statements
 
@@ -88,3 +89,5 @@ the lines below stay as written; this table says which record governs.
 | [0011](0011-plugin-model.md), lines 102 and 128 (as corrected by 0019) | no `parity` task exists and no release depends on parity | [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md): `mise run parity` exists; it is a scheduled drift check and still not a release gate |
 | [0019](0019-reality-reconciliation-crate-list-schema-file-test-tooling-and-consistency.md), corpus comparison | there are no `parity` or `diff:syncpack` tasks | [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md): there are |
 | [0001](0001-mission-and-scope.md), performance targets | the benchmark prints a pass or fail line | [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md): `skif-bench run` exits non-zero when a target fails and has a 10,000-file module graph case |
+| [0020](0020-js-rule-set-severities-addon-profile-and-windows-support.md), "Rule set" | `unused-namespace-exports` and `unused-namespace-types` are withdrawn | [0029](0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md): both rules are registered, default severity warning, and take over the findings of modules that are only read through a namespace |
+| [0025](0025-plugin-set-extension-thirty-five-more-tools.md), plugin count | the table holds 60 plugins | [0029](0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md): the table holds 61 plugins; `node` is added |

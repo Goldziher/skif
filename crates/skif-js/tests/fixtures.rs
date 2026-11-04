@@ -228,9 +228,12 @@ fn reexport_chains_and_member_tracking() {
             "src/chain/b.ts: b2",
             "src/chain/c.ts: c",
             "src/chain/index.ts: c",
-            "src/namespace.ts: beta",
             "src/side.ts: sideEffect",
         ]
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-exports"),
+        ["src/namespace.ts: beta"]
     );
     assert_eq!(found(&diagnostics, "unused-types"), ["src/shape.ts: Unused2"]);
     assert_eq!(

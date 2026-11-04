@@ -27,7 +27,7 @@ impl JsRule for UnusedExports {
     }
 
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
-        report(&META, false, analysis, out);
+        report(&META, Scope::Imports, false, analysis, out);
     }
 }
 
@@ -79,19 +79,37 @@ fn removal_fix(module: &Module, export: &Export, range: (u32, u32)) -> Fix {
     }
 }
 
-/// Reports the unused exports of every module that are types (`want_type`) or values.
-pub(super) fn report(meta: &'static RuleMeta, want_type: bool, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
+/// Which modules a rule reports the unused exports of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Scope {
+    /// Modules some other module imports by name, or uses as a whole, or nobody uses.
+    Imports,
+    /// Modules that are only read as a namespace (`ns.member`).
+    Namespaces,
+}
+
+/// Reports the unused exports of every module in `scope` that are types (`want_type`) or values.
+pub(super) fn report(
+    meta: &'static RuleMeta,
+    scope: Scope,
+    want_type: bool,
+    analysis: &JsAnalysis<'_>,
+    out: &mut Emitter<'_>,
+) {
     for module in analysis.graph.modules() {
+        if analysis.exports.is_namespace_only(module.id) != (scope == Scope::Namespaces) {
+            continue;
+        }
         let unused = analysis.unused_exports(module);
         let fixes = fixes(module, &unused);
         let package = analysis.workspace.package(module.owner);
         for export in unused.iter().copied().filter(|export| export.is_type == want_type) {
             let noun = if want_type { "type" } else { "export" };
-            let mut builder = diagnostic(
-                meta,
-                format!("{noun} `{}` is never imported by another module", export.name),
-                module_location(module, Some(export.span)),
-            );
+            let message = match scope {
+                Scope::Imports => format!("{noun} `{}` is never imported by another module", export.name),
+                Scope::Namespaces => format!("{noun} `{}` is never read through a namespace import", export.name),
+            };
+            let mut builder = diagnostic(meta, message, module_location(module, Some(export.span)));
             builder = if export.referenced_in_file {
                 builder.help("it is only used in this file; remove the `export` keyword")
             } else {
