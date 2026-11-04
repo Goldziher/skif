@@ -116,9 +116,32 @@ run = [
   "npx -y ai-rulez@latest generate --no-local --strict-config --check",
 ]
 
+[tasks."docs:rust"]
+description = "Build the rustdoc of the workspace with warnings denied (the CI Documentation job)"
+env = { RUSTDOCFLAGS = "-D warnings" }
+run = "cargo doc --workspace --no-deps --all-features --locked"
+
+[tasks.features]
+description = "Check the facade with each feature on its own (the CI feature matrix)"
+run = '''
+set -e
+for features in "" manifest policy js-analysis fix yaml-fix report schema; do
+  echo "skif features: ${features:-<none>}"
+  cargo check -p skif --locked --no-default-features --features "$features"
+done
+'''
+
 [tasks.check]
-description = "Full local gate: format check, lint, test"
-run = [{ task = "format:check" }, { task = "lint" }, { task = "test" }]
+description = "Full local gate: what CI enforces except deny (needs cargo-deny) and the MSRV build"
+run = [
+  { task = "format:check" },
+  { task = "lint" },
+  { task = "test" },
+  { task = "schema:check" },
+  { task = "consistency" },
+  { task = "docs:rust" },
+  { task = "features" },
+]
 
 [tasks.clean]
 description = "Clean build artifacts"
