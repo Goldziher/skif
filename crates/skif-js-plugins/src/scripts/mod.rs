@@ -137,6 +137,8 @@ pub struct ScriptInfo {
     pub turbo_tasks: Vec<String>,
     /// Package managers (`npm`, `pnpm`, `yarn`) the script invokes, which a manifest may list as a dependency.
     pub package_managers: Vec<String>,
+    /// The script runs the Node.js test runner (`node --test`), which finds test files by convention.
+    pub node_test: bool,
 }
 
 /// Parses `script` and follows references to other scripts of the same package.

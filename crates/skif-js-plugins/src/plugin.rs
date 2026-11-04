@@ -18,6 +18,8 @@ pub type PluginId = &'static str;
 /// Why a plugin turns on for a workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Enabler {
+    /// Every workspace: the tool is part of the runtime (`node`).
+    Always,
     /// The workspace depends on exactly this package.
     Dependency(&'static str),
     /// The workspace depends on a package whose name starts with this prefix (`@storybook/`).
@@ -128,6 +130,18 @@ pub enum PluginInput {
     ModuleDir(String),
     /// A file extension bare imports may omit (`resolve.extensions`), with its leading dot.
     Extension(String),
+    /// A config file of another plugin, which reads it with its own resolver (an Angular target's `tsConfig` is a
+    /// `typescript` config, a Docusaurus project's `babel.config.js` a `babel` one). `path` is relative to the
+    /// workspace directory and may be a glob. The file counts as a config file of the plugin that links it.
+    LinkedConfig {
+        /// The plugin that reads the file.
+        plugin: PluginId,
+        /// The file or glob, relative to the workspace directory.
+        path: String,
+    },
+    /// A specifier pattern the tool resolves at build time (`@generated/*`, `#imports`): it is no dependency, so it is
+    /// never listed as unlisted, unused or unresolved.
+    VirtualModule(String),
     /// The config computes its entry points in a way that cannot be evaluated statically, so the entries found are
     /// not all of them. Sets [`PluginOutput::entries_incomplete`].
     EntriesIncomplete,
@@ -292,6 +306,8 @@ pub struct PluginOutput {
     pub build_dirs: Vec<BuildDir>,
     /// `exports` conditions that select source files.
     pub conditions: Vec<String>,
+    /// Specifier patterns the tool resolves at build time; see [`PluginInput::VirtualModule`].
+    pub virtual_modules: Vec<String>,
     /// Directories bare specifiers are looked up in, relative to the workspace directory, in lookup order.
     pub module_dirs: Vec<String>,
     /// File extensions (with the leading dot) imports may omit, from bundler `resolve.extensions`.

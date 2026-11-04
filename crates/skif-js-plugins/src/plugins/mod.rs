@@ -26,6 +26,7 @@ pub mod mastra;
 pub mod metro;
 pub mod mocha;
 pub mod next;
+pub mod node;
 pub mod nodemon;
 pub mod nuxt;
 pub mod nx;

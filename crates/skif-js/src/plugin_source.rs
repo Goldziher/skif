@@ -118,6 +118,7 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
         ignore: output.ignore,
         ignore_dependencies: names(&output.referenced_dependencies, true).collect(),
         ignore_binaries,
+        virtual_modules: output.virtual_modules,
         dependencies: names(&output.referenced_dependencies, false).collect(),
         binaries: output.referenced_binaries,
         config_files: output.config_files,

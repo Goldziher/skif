@@ -12,7 +12,7 @@ use skif_workspace::{PackageId, map_ordered};
 use crate::discover::{Candidate, relative};
 use crate::resolve::{ModuleResolver, Resolved};
 use crate::setup::Setup;
-use crate::source_scan::{add_textual_imports, is_template_file, mark_template_usage};
+use crate::source_scan::add_textual_imports;
 
 /// Identifies a module within one [`ModuleGraph`]. Ids follow discovery order, which is deterministic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -254,9 +254,6 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
             .first()
             .map_or_else(|| "syntax error".to_owned(), |issue| issue.message.clone())
     });
-    if is_template_file(path) {
-        mark_template_usage(&mut info, &source);
-    }
     let parsed_imports = info.imports.len();
     if !style {
         add_textual_imports(&mut info, &source);

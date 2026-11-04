@@ -2,7 +2,7 @@ use skif_core::{Category, Fixability, RuleMeta, Severity};
 use skif_lint::Emitter;
 
 use super::JsRule;
-use super::unused_exports::report;
+use super::unused_exports::{Scope, report};
 use crate::analysis::JsAnalysis;
 
 /// Metadata of `unused-types`. Warning until the rule reaches corpus parity with knip; `unused-dependencies`, `unlisted-dependencies` and `unresolved-imports` stay errors.
@@ -23,6 +23,6 @@ impl JsRule for UnusedTypes {
     }
 
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
-        report(&META, true, analysis, out);
+        report(&META, Scope::Imports, true, analysis, out);
     }
 }

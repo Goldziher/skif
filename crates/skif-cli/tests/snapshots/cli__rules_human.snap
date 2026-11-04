@@ -35,6 +35,8 @@ unused-optional-peer-dependencies  js         warning  none       An optional pe
 unused-files                       js         warning  unsafe     A project file is not reachable from any entry file.
 unused-exports                     js         warning  unsafe     An exported value is not imported by any other module.
 unused-types                       js         warning  unsafe     An exported type or interface is not imported by any other module.
+unused-namespace-exports           js         warning  unsafe     An exported value of a module that is only read through a namespace import is never accessed.
+unused-namespace-types             js         warning  unsafe     An exported type of a module that is only read through a namespace import is never accessed.
 unused-enum-members                js         warning  none       A member of an exported enum is never read.
 unused-namespace-members           js         warning  none       An exported member of a TypeScript namespace is never read.
 duplicate-exports                  js         warning  none       One binding is exported under several names.

@@ -544,12 +544,17 @@ impl<'c> Walker<'c> {
             let Some(value) = &flag.value else {
                 continue;
             };
-            if tables::NODE_MODULE_FLAGS.contains(&flag.name.as_str()) {
+            if tables::NODE_MODULE_FLAGS.contains(&flag.name.as_str())
+                || (flag.name == "test-reporter" && !tables::NODE_BUILTIN_REPORTERS.contains(&value.text.as_str()))
+            {
                 self.module_ref(&value.text, frame.span(&value.span));
             } else if flag.name == "run" {
                 let map = Map::Fixed(frame.span(&value.span));
                 self.run_script_name(&value.text, &map, st.filtered);
             }
+        }
+        if parsed.has(&["test"]) {
+            self.info.node_test = true;
         }
         if files && let Some(&i) = parsed.positionals.first() {
             self.file(&args[i].text, frame.span(&args[i].span));
