@@ -78,7 +78,7 @@ Exit codes: `0` clean (warnings within `--max-warnings`), `1` problems remain, `
 (bad configuration, bad flags, refused `--fix`, failed install). `--fix` is refused when `CI` is
 truthy. `--format` is `human`, `json`, `sarif` or `github`; in `--format json` mode failures are also JSON. Other flags: `--output FILE`, `--select
 highest|lowest`, `--no-install`, `--max-warnings N`, `--ignore-rule`, `--ignore-package`,
-`--ignore-dependency`, `--ignore-rule-for-package RULE:PACKAGE`, `--no-js`, `--production`, `--color`, `-r`/`--recursive`.
+`--ignore-dependency`, `--ignore-rule-for-package RULE:PACKAGE`, `--no-js`, `--production`, `--color`, `--no-prompt`, `--config FILE`, `--no-config`, `-r`/`--recursive`.
 
 `skif [PATH]` lints one root: the nearest ancestor workspace that lists the package as a member, otherwise the
 package itself, which is then linted in single-package mode (no workspace is needed). When neither `PATH` nor an

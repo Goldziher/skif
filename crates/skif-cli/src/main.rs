@@ -1,7 +1,10 @@
 //! The `skif` binary: [`skif_cli::run`] with the process arguments.
 
+use std::ffi::OsString;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    ExitCode::from(skif_cli::run(std::env::args_os()))
+    let args: Vec<OsString> = std::env::args_os().collect();
+    skif_cli::install_panic_hook(&args);
+    ExitCode::from(skif_cli::run(args))
 }

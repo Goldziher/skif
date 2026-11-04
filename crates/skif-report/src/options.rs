@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use skif_core::RuleMeta;
 
-use crate::path::{is_absolute_text, relativize};
+use crate::path::{collapse_dots, is_absolute_text, relativize};
 use crate::text::{line_of, utf16_column};
 
 /// Configuration for every renderer; the caller decides colour, root and sources.
@@ -85,7 +85,7 @@ impl RenderOptions {
                 if is_absolute_text(&prefix) || prefix.is_empty() || prefix == "." {
                     shown
                 } else {
-                    format!("{prefix}/{shown}")
+                    collapse_dots(&format!("{prefix}/{shown}"))
                 }
             }
             _ => shown,
@@ -107,5 +107,17 @@ impl RenderOptions {
     /// Source text registered for an already displayed path.
     pub(crate) fn source(&self, display_path: &str) -> Option<&str> {
         self.sources.get(display_path).map(String::as_str)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn annotation_paths_of_files_above_the_root_are_normalised() {
+        let options = RenderOptions::default().with_root("/repo/web").with_repo_root("/repo");
+        assert_eq!(options.repo_path(Path::new("../skif.toml")), "skif.toml");
+        assert_eq!(options.repo_path(Path::new("src/a.ts")), "web/src/a.ts");
     }
 }

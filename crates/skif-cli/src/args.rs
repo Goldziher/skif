@@ -268,4 +268,31 @@ mod tests {
         use clap::CommandFactory;
         Cli::command().debug_assert();
     }
+
+    fn long_flags(command: &clap::Command, flags: &mut std::collections::BTreeSet<String>) {
+        flags.extend(
+            command
+                .get_arguments()
+                .filter_map(|arg| arg.get_long().map(str::to_owned)),
+        );
+        for subcommand in command.get_subcommands() {
+            long_flags(subcommand, flags);
+        }
+    }
+
+    /// The CLI reference is written by hand; this fails when a flag is added to the command line and not to it.
+    #[test]
+    fn every_long_flag_is_in_the_cli_reference() {
+        use clap::CommandFactory;
+        let reference = include_str!("../../../website/src/content/docs/reference/cli.mdx");
+        let mut flags = std::collections::BTreeSet::new();
+        long_flags(&Cli::command(), &mut flags);
+        flags.remove("help");
+        flags.remove("version");
+        let missing: Vec<&String> = flags
+            .iter()
+            .filter(|flag| !reference.contains(&format!("--{flag}")))
+            .collect();
+        assert!(missing.is_empty(), "flags missing from reference/cli.mdx: {missing:?}");
+    }
 }
