@@ -103,6 +103,26 @@ pub(crate) fn script_inputs(value: &ConfigValue) -> Vec<PluginInput> {
         .collect()
 }
 
+/// The files, relative to the workspace, a `projects` string of a test runner names: a config file or a glob of them,
+/// or a directory (or glob of directories) holding a file called like one of `names` (a brace group of file names).
+/// `<rootDir>` stands for `base`. Negated strings name nothing.
+pub(crate) fn project_files(cx: &PluginContext<'_>, base: &str, project: &str, names: &str) -> Vec<String> {
+    let project = project.trim();
+    if project.is_empty() || project.starts_with('!') {
+        return Vec::new();
+    }
+    let rest = project
+        .strip_prefix("<rootDir>")
+        .map_or(project, |rest| rest.trim_start_matches('/'));
+    let relative = join_rel(base, &extglob_to_braces(rest));
+    let pattern = if looks_like_file(&relative) {
+        relative
+    } else {
+        join_rel(&relative, names)
+    };
+    crate::files::find_files(cx.fs, cx.dir, &[pattern])
+}
+
 /// The entry for a glob or path written in a config. Negated patterns yield nothing.
 pub(crate) fn entry_glob(base: &str, pattern: &str) -> Option<String> {
     let pattern = pattern.trim();
@@ -269,15 +289,25 @@ pub(crate) fn html_entries(cx: &PluginContext<'_>, base: &str, file: &str) -> Ve
     let html_dir = html_path.rsplit_once('/').map_or("", |(dir, _)| dir);
     html_script_sources(&html)
         .into_iter()
-        .filter(|src| !src.contains("://") && !src.starts_with("//"))
-        .map(|src| {
-            let path = match src.strip_prefix('/') {
-                Some(root_relative) => join_rel(base, root_relative),
-                None => join_rel(html_dir, &src),
-            };
-            PluginInput::ProductionEntry(path)
-        })
+        .filter_map(|src| local_script_path(&src, base, html_dir))
+        .map(PluginInput::ProductionEntry)
         .collect()
+}
+
+/// The path, relative to the workspace, of the local script `src` loaded by the HTML file in `html_dir`. `base` is the
+/// directory a root-relative `src` starts at. `None` for remote URLs and template placeholders (`<% … %>`);
+/// `%PUBLIC_URL%` is the `public` directory.
+pub(crate) fn local_script_path(src: &str, base: &str, html_dir: &str) -> Option<String> {
+    if src.contains("://") || src.starts_with("//") || src.contains("<%") {
+        return None;
+    }
+    if let Some(rest) = src.strip_prefix("%PUBLIC_URL%") {
+        return Some(join_rel(base, &format!("public/{}", rest.trim_start_matches('/'))));
+    }
+    Some(match src.strip_prefix('/') {
+        Some(root_relative) => join_rel(base, root_relative),
+        None => join_rel(html_dir, src),
+    })
 }
 
 /// The `src` of every `<script>` tag of an HTML document.

@@ -91,13 +91,15 @@ impl<'a> JsAnalysis<'a> {
         sequential: bool,
     ) -> Self {
         let phase = |name: &str| format!("js {name} {}", workspace.root.display());
-        let setup = timing::phase(phase("setup (plugins, configs)"), || {
+        let mut setup = timing::phase(phase("setup (plugins, configs)"), || {
             Setup::new(workspace, config, fs, sources)
         });
         let candidates = timing::phase(phase("discover"), || discover(fs.as_ref(), workspace, sequential));
-        let entries = timing::phase(phase("entries"), || {
+        let found = timing::phase(phase("entries"), || {
             entry_files(fs.as_ref(), workspace, &setup, &candidates)
         });
+        setup.mark_entries_incomplete(&found.unmapped);
+        let entries = found.files;
         let resolver = timing::phase(phase("resolver"), || {
             ModuleResolver::new(Arc::clone(fs), workspace, &setup)
         });

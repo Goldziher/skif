@@ -9,11 +9,12 @@ use skif_core::{FileSystem, Span};
 use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object};
 use skif_workspace::{PackageId, Workspace};
 
+use crate::ancestors::{external_manifests, listed_names};
 use crate::graph::{ModuleGraph, ModuleId};
 use crate::lockfile;
-use crate::resolve::join_normalized;
 use crate::setup::Setup;
 use crate::specifier::{RUNTIME_PACKAGES, package_name, typed_package, types_package};
+use crate::tsconfig_paths::resolve_extends;
 
 /// Packages that are used by tooling rather than imports and never reported as unused.
 const ALWAYS_USED: &[&str] = &["typescript", "knip", "skif"];
@@ -181,6 +182,25 @@ pub(crate) fn peers_of(manifest: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Words too common in package names to tie a binary to a package.
+const GENERIC_WORDS: &[&str] = &[
+    "cli", "core", "dev", "kit", "tool", "tools", "js", "node", "bin", "run", "start",
+];
+
+fn words(name: &str) -> impl Iterator<Item = &str> {
+    name.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|word| word.len() > 1 && !GENERIC_WORDS.contains(word))
+}
+
+/// Whether the package `dependency` is named like the binary `bin`: they share a word, or one name starts with the
+/// other.
+fn resembles(dependency: &str, bin: &str) -> bool {
+    let short = unscoped(dependency);
+    (bin.len() > 2 && short.starts_with(bin))
+        || (short.len() > 2 && bin.starts_with(short))
+        || words(dependency).any(|word| words(bin).any(|other| other == word))
+}
+
 fn unscoped(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or(name)
 }
@@ -221,12 +241,6 @@ fn parse_installed(text: &str, name: &str) -> Option<Arc<Installed>> {
     }))
 }
 
-/// Whether `dir` is where the repository starts: it holds the `.git` entry.
-fn is_repository_root(fs: &dyn FileSystem, dir: &Path) -> bool {
-    let git = dir.join(".git");
-    fs.is_dir(&git) || fs.is_file(&git)
-}
-
 pub(crate) fn parse_tsconfig(fs: &dyn FileSystem, path: &Path) -> Option<ConfigValue> {
     let text = fs.read_to_string(path).ok()?;
     extract_config_object(&format!("module.exports = {text}"), Path::new("tsconfig.js"))
@@ -234,7 +248,7 @@ pub(crate) fn parse_tsconfig(fs: &dyn FileSystem, path: &Path) -> Option<ConfigV
 
 /// Whether the `tsconfig.json` at `path` makes TypeScript include every installed `@types/*` package: it exists, no
 /// `compilerOptions.types` is set along its `extends` chain, and `typeRoots`, when set, keeps `node_modules/@types`.
-fn includes_all_types(fs: &dyn FileSystem, path: &Path, depth: usize) -> bool {
+fn includes_all_types(fs: &dyn FileSystem, members: &[(String, PathBuf)], path: &Path, depth: usize) -> bool {
     const MAX_DEPTH: usize = 8;
     let Some(config) = parse_tsconfig(fs, path) else {
         return false;
@@ -253,22 +267,73 @@ fn includes_all_types(fs: &dyn FileSystem, path: &Path, depth: usize) -> bool {
             }
         }
     }
-    let Some(extends) = config.get("extends") else {
-        return true;
-    };
-    let parents: Vec<&str> = match extends {
-        ConfigValue::String(one) => vec![one.as_str()],
-        ConfigValue::Array(many) => many.iter().filter_map(ConfigValue::as_str).collect(),
-        _ => Vec::new(),
-    };
     let dir = path.parent().unwrap_or(path);
-    parents.iter().filter(|parent| parent.starts_with('.')).all(|parent| {
-        let mut target = join_normalized(dir, parent);
-        if target.extension().is_none_or(|extension| extension != "json") {
-            target.as_mut_os_string().push(".json");
-        }
-        depth >= MAX_DEPTH || includes_all_types(fs, &target, depth + 1)
-    })
+    extends_of(&config)
+        .iter()
+        .filter_map(|parent| resolve_extends(fs, members, dir, parent))
+        .all(|target| depth >= MAX_DEPTH || includes_all_types(fs, members, &target, depth + 1))
+}
+
+/// The `extends` entries of a parsed `tsconfig.json`, in order.
+fn extends_of(config: &ConfigValue) -> Vec<&str> {
+    match config.get("extends") {
+        Some(ConfigValue::String(one)) => vec![one.as_str()],
+        Some(ConfigValue::Array(many)) => many.iter().filter_map(ConfigValue::as_str).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The `compilerOptions.jsxImportSource` the `tsconfig.json` at `path` sets itself or inherits; a later `extends`
+/// entry overrides an earlier one.
+fn jsx_import_source(fs: &dyn FileSystem, members: &[(String, PathBuf)], path: &Path, depth: usize) -> Option<String> {
+    const MAX_DEPTH: usize = 8;
+    let config = parse_tsconfig(fs, path)?;
+    if let Some(source) = config
+        .get("compilerOptions")
+        .and_then(|options| options.get("jsxImportSource"))
+        .and_then(ConfigValue::as_str)
+    {
+        return Some(source.to_owned());
+    }
+    if depth >= MAX_DEPTH {
+        return None;
+    }
+    let dir = path.parent().unwrap_or(path);
+    extends_of(&config)
+        .iter()
+        .rev()
+        .filter_map(|parent| resolve_extends(fs, members, dir, parent))
+        .find_map(|target| jsx_import_source(fs, members, &target, depth + 1))
+}
+
+/// The workspace members that have a name, with their absolute directory.
+fn member_dirs(workspace: &Workspace) -> Vec<(String, PathBuf)> {
+    workspace
+        .all_packages()
+        .filter_map(|package| Some((package.name.clone()?, workspace.root.join(&package.dir))))
+        .collect()
+}
+
+/// For every package, the packages whose directory contains it, innermost first, and the root last.
+fn package_ancestors(workspace: &Workspace) -> Vec<Vec<PackageId>> {
+    let root = workspace.iter().find(|(_, package)| package.is_root).map(|(id, _)| id);
+    let mut all = vec![Vec::new(); workspace.package_ids().count()];
+    for (id, package) in workspace.iter() {
+        let mut containing: Vec<(PackageId, usize)> = workspace
+            .iter()
+            .filter(|(other_id, other)| {
+                *other_id != id && !other.is_root && package.dir != other.dir && package.dir.starts_with(&other.dir)
+            })
+            .map(|(other_id, other)| (other_id, other.dir.components().count()))
+            .collect();
+        containing.sort_by_key(|(_, depth)| std::cmp::Reverse(*depth));
+        all[id.index()] = containing
+            .into_iter()
+            .map(|(other, _)| other)
+            .chain(root.filter(|root| *root != id))
+            .collect();
+    }
+    all
 }
 
 /// Dependency and binary usage of every package.
@@ -276,6 +341,15 @@ fn includes_all_types(fs: &dyn FileSystem, path: &Path, depth: usize) -> bool {
 pub struct DependencyUsage {
     referenced: Vec<HashSet<String>>,
     listed: Vec<HashSet<String>>,
+    /// For every package, the packages whose directory contains it, innermost first and the root last.
+    ancestors: Vec<Vec<PackageId>>,
+    /// For every package, the listed dependencies whose binaries are known: they are installed or in the lockfile.
+    known_bins: Vec<HashSet<String>>,
+    /// For every package, whether its `tsconfig.json` sets a `jsxImportSource` other than `react`, so JSX files do not
+    /// use React.
+    other_jsx_runtime: Vec<bool>,
+    /// Names listed by the manifests above the workspace root.
+    external_listed: HashSet<String>,
     hosts: Vec<HashMap<String, Vec<String>>>,
     bins: Vec<HashMap<String, Vec<String>>>,
     member_bins: BTreeMap<String, Vec<String>>,
@@ -294,6 +368,9 @@ impl DependencyUsage {
         let mut usage = Self {
             referenced: vec![HashSet::new(); count],
             listed: vec![HashSet::new(); count],
+            known_bins: vec![HashSet::new(); count],
+            other_jsx_runtime: vec![false; count],
+            ancestors: package_ancestors(workspace),
             hosts: vec![HashMap::new(); count],
             bins: vec![HashMap::new(); count],
             members: workspace.all_packages().filter_map(|p| p.name.clone()).collect(),
@@ -301,6 +378,7 @@ impl DependencyUsage {
         };
         usage.read_manifests(workspace, fs);
         usage.collect_ambient_types(workspace, fs);
+        usage.collect_jsx_runtimes(workspace, fs);
         usage.collect_ancestor_bins(workspace, fs);
         usage.collect_member_bins(workspace);
         usage.collect_imports(workspace, setup, graph);
@@ -323,6 +401,7 @@ impl DependencyUsage {
                 else {
                     continue;
                 };
+                self.known_bins[id.index()].insert(name.clone());
                 for bin in &installed.bins {
                     self.bins[id.index()].entry(bin.clone()).or_default().push(name.clone());
                 }
@@ -340,8 +419,14 @@ impl DependencyUsage {
     /// globals-only ones a package (and the root, which hoists them) lists are used when the package has a
     /// `tsconfig.json` that does not narrow them.
     fn collect_ambient_types(&mut self, workspace: &Workspace, fs: &dyn FileSystem) {
+        let members = member_dirs(workspace);
         for (id, package) in workspace.iter() {
-            if !includes_all_types(fs, &workspace.root.join(&package.dir).join("tsconfig.json"), 0) {
+            if !includes_all_types(
+                fs,
+                &members,
+                &workspace.root.join(&package.dir).join("tsconfig.json"),
+                0,
+            ) {
                 continue;
             }
             for scope in [id, PackageId::ROOT] {
@@ -351,46 +436,37 @@ impl DependencyUsage {
                     .cloned()
                     .collect();
                 for name in types {
-                    self.reference(scope, &name);
+                    self.reference_in(scope, &name);
                 }
             }
         }
     }
 
-    /// Binaries of the dependencies listed by the directories above the workspace, up to the repository root.
+    fn collect_jsx_runtimes(&mut self, workspace: &Workspace, fs: &dyn FileSystem) {
+        let members = member_dirs(workspace);
+        for (id, package) in workspace.iter() {
+            let config = workspace.root.join(&package.dir).join("tsconfig.json");
+            self.other_jsx_runtime[id.index()] = jsx_import_source(fs, &members, &config, 0)
+                .is_some_and(|source| package_name(&source).is_some_and(|name| name != "react"));
+        }
+    }
+
+    /// The dependencies of the directories above the workspace, up to the repository root: their binaries are on the
+    /// `PATH`, and the packages below may import what they list.
     fn collect_ancestor_bins(&mut self, workspace: &Workspace, fs: &dyn FileSystem) {
         let mut cache = HashMap::new();
-        let mut dir = workspace.root.as_path();
-        while !is_repository_root(fs, dir) {
-            let Some(parent) = dir.parent() else { break };
-            dir = parent;
-            let Some(manifest) = fs
-                .read_to_string(&dir.join("package.json"))
-                .ok()
-                .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-            else {
-                continue;
-            };
-            for section in [
-                "dependencies",
-                "devDependencies",
-                "optionalDependencies",
-                "peerDependencies",
-            ] {
-                let Some(listed) = manifest.get(section).and_then(Value::as_object) else {
-                    continue;
-                };
-                for name in listed.keys() {
-                    self.ancestor_bins.insert(unscoped(name).to_owned());
-                    self.ancestor_bins.extend(
-                        BINARY_PACKAGES
-                            .iter()
-                            .filter(|(_, package)| *package == name.as_str())
-                            .map(|(bin, _)| (*bin).to_owned()),
-                    );
-                    if let Some(installed) = read_installed(fs, dir, dir, name, &mut cache) {
-                        self.ancestor_bins.extend(installed.bins.iter().cloned());
-                    }
+        for (dir, manifest) in external_manifests(fs, &workspace.root) {
+            for name in listed_names(&manifest) {
+                self.external_listed.insert(name.to_owned());
+                self.ancestor_bins.insert(unscoped(name).to_owned());
+                self.ancestor_bins.extend(
+                    BINARY_PACKAGES
+                        .iter()
+                        .filter(|(_, package)| *package == name)
+                        .map(|(bin, _)| (*bin).to_owned()),
+                );
+                if let Some(installed) = read_installed(fs, &dir, &dir, name, &mut cache) {
+                    self.ancestor_bins.extend(installed.bins.iter().cloned());
                 }
             }
         }
@@ -405,18 +481,23 @@ impl DependencyUsage {
         }
     }
 
-    /// The closest manifest that lists `name`: the package itself, then the root.
-    fn find_listed(&self, id: PackageId, name: &str) -> Option<PackageId> {
-        if self.listed[id.index()].contains(name) {
-            Some(id)
-        } else if id != PackageId::ROOT && self.listed[PackageId::ROOT.index()].contains(name) {
-            Some(PackageId::ROOT)
-        } else {
-            None
+    /// The closest manifest that lists `name`: the package itself, the packages whose directory contains it, then the
+    /// manifests above the workspace root.
+    fn find_listed(&self, id: PackageId, name: &str) -> Option<Listed> {
+        std::iter::once(id)
+            .chain(self.ancestors[id.index()].iter().copied())
+            .find(|scope| self.listed[scope.index()].contains(name))
+            .map(Listed::Package)
+            .or_else(|| self.external_listed.contains(name).then_some(Listed::External))
+    }
+
+    fn reference(&mut self, listed: Listed, name: &str) {
+        if let Listed::Package(id) = listed {
+            self.reference_in(id, name);
         }
     }
 
-    fn reference(&mut self, id: PackageId, name: &str) {
+    fn reference_in(&mut self, id: PackageId, name: &str) {
         self.referenced[id.index()].insert(name.to_owned());
     }
 
@@ -437,6 +518,7 @@ impl DependencyUsage {
                 let span = module.info.jsx_import_source_span;
                 self.handle_import(workspace, module.owner, &source, false, module.id, span);
             } else if module.info.has_jsx
+                && !self.other_jsx_runtime[module.owner.index()]
                 && let Some(found) = self.find_listed(module.owner, "react")
             {
                 // The automatic JSX runtime imports `react/jsx-runtime` on behalf of the file.
@@ -474,6 +556,14 @@ impl DependencyUsage {
         if type_only && types.is_some() {
             return;
         }
+        // A peer dependency of a listed package is provided by whoever installs that package.
+        let scopes = std::iter::once(owner).chain(self.ancestors[owner.index()].iter().copied());
+        if scopes
+            .into_iter()
+            .any(|scope| self.hosts[scope.index()].contains_key(name))
+        {
+            return;
+        }
         if package
             .manifest
             .value
@@ -484,7 +574,7 @@ impl DependencyUsage {
             return;
         }
         if package.private && self.members.contains(name) {
-            self.reference(owner, name);
+            self.reference_in(owner, name);
             return;
         }
         self.unlisted.push(UnlistedImport {
@@ -533,11 +623,11 @@ impl DependencyUsage {
 
     /// Marks the dependencies that provide binary `bin` as used by `id`. False when none does.
     fn provide_binary(&mut self, id: PackageId, bin: &str) -> bool {
-        let mut provided: Vec<(PackageId, String)> = Vec::new();
-        let scopes = [id, PackageId::ROOT];
-        for scope in scopes.into_iter().take(if id == PackageId::ROOT { 1 } else { 2 }) {
+        let mut provided: Vec<(Listed, String)> = Vec::new();
+        let scopes = std::iter::once(id).chain(self.ancestors[id.index()].iter().copied());
+        for scope in scopes {
             if let Some(deps) = self.bins[scope.index()].get(bin) {
-                provided.extend(deps.iter().map(|dep| (scope, dep.clone())));
+                provided.extend(deps.iter().map(|dep| (Listed::Package(scope), dep.clone())));
             }
             provided.extend(
                 self.listed[scope.index()]
@@ -545,15 +635,28 @@ impl DependencyUsage {
                     .filter(|dep| {
                         unscoped(dep) == bin || BINARY_PACKAGES.iter().any(|(b, package)| *b == bin && package == dep)
                     })
-                    .map(|dep| (scope, dep.clone())),
+                    .map(|dep| (Listed::Package(scope), dep.clone())),
             );
+        }
+        if provided.is_empty() {
+            // Nothing is installed to say what a listed dependency provides, so one named like the binary is
+            // assumed to (`docusaurus-start` from `docusaurus`, `nitro` from `nitropack`) instead of reporting it.
+            let scopes = std::iter::once(id).chain(self.ancestors[id.index()].iter().copied());
+            for scope in scopes {
+                provided.extend(
+                    self.listed[scope.index()]
+                        .iter()
+                        .filter(|dep| !self.known_bins[scope.index()].contains(*dep) && resembles(dep, bin))
+                        .map(|dep| (Listed::Package(scope), dep.clone())),
+                );
+            }
         }
         if let Some(members) = self.member_bins.get(bin).cloned() {
             for member in members {
                 if let Some(found) = self.find_listed(id, &member) {
                     provided.push((found, member));
                 } else {
-                    provided.push((id, String::new()));
+                    provided.push((Listed::Package(id), String::new()));
                 }
             }
         }

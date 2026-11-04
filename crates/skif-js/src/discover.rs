@@ -30,6 +30,10 @@ const SKIPPED_DIRS: &[&str] = &[
     "target",
 ];
 
+/// Directory names that are build or tool output at the top of a package but a legitimate source folder name
+/// further down (`src/out/`, `lib/target/`): they are skipped only directly inside a package directory.
+const PACKAGE_ROOT_ONLY_DIRS: &[&str] = &["out", "target", "coverage"];
+
 /// Hidden directories that hold tool configuration and sources; every other hidden directory is skipped.
 const HIDDEN_DIRS: &[&str] = &[
     ".storybook",
@@ -141,6 +145,12 @@ struct Walk<'a> {
 }
 
 impl Walk<'_> {
+    /// Whether a directory called `name` inside `parent` is skipped by name: the names that can also be source
+    /// folders are skipped only directly inside a package directory.
+    fn skips_here(&self, parent: &Path, name: &str) -> bool {
+        !PACKAGE_ROOT_ONLY_DIRS.contains(&name) || parent == self.root || self.owners.contains_key(parent)
+    }
+
     /// The source files below `frame`, subdirectories walked in parallel unless `sequential`.
     fn directory(&self, frame: &Frame) -> Vec<Candidate> {
         let Ok(entries) = self.fs.read_dir_shared(&frame.dir) else {
@@ -166,7 +176,7 @@ impl Walk<'_> {
                 if frame.depth >= MAX_DEPTH
                     || entry.is_symlink
                     || self.skipped.contains(&entry.path)
-                    || (package.is_none() && skipped_by_name(name))
+                    || (package.is_none() && skipped_by_name(name) && self.skips_here(&frame.dir, name))
                     || is_ignored(&matchers, &entry.path, true)
                 {
                     continue;

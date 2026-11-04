@@ -5,11 +5,23 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use skif_core::FileSystem;
 
+use crate::resolve::{is_code_file, join_normalized};
+
 /// Conditions an import from a package can match, in the order the Node.js and TypeScript resolvers apply them.
 const CONDITIONS: &[&str] = &["import", "require", "node", "default", "types"];
 
-/// Directories that hold build output; their source twin is `src`.
-const OUT_DIRS: &[&str] = &["dist", "build", "lib", "out", "esm", "cjs"];
+/// Directories that hold build output; their source twin is `src`. A suffix after `-`, `_` or `.` names the flavour
+/// (`lib-commonjs`, `dist-esm`, `esm5`, `lib.es6`).
+const OUT_DIRS: &[&str] = &[
+    "dist", "build", "lib", "out", "esm", "cjs", "esm5", "esm2015", "es", "es5", "es6", "es2015", "es2017", "es2020",
+    "commonjs", "umd", "amd", "types",
+];
+
+/// Whether `directory`, the first segment of a published path, is build output.
+pub(crate) fn is_out_dir(directory: &str) -> bool {
+    let base = directory.split(['-', '_', '.']).next().unwrap_or(directory);
+    OUT_DIRS.contains(&base)
+}
 
 /// Manifest fields that point at a single entry file, in order of preference for a package import.
 pub(crate) const ENTRY_FIELDS: &[&str] = &["source", "module", "main", "types", "typings"];
@@ -58,7 +70,7 @@ pub(crate) fn source_candidates(target: &str) -> Vec<String> {
     let extensions: &[&str] = variants.unwrap_or(CODE_EXTENSIONS);
     let mut bases = Vec::new();
     if let Some((first, rest)) = stem.split_once('/')
-        && OUT_DIRS.contains(&first)
+        && is_out_dir(first)
     {
         bases.push(format!("src/{rest}"));
     }
@@ -87,12 +99,83 @@ pub(crate) fn source_patterns(target: &str) -> Vec<String> {
     let extensions = "{ts,tsx,js,jsx,mts,cts,mjs,cjs}";
     let mut patterns = Vec::new();
     if let Some((first, rest)) = stem.split_once('/')
-        && OUT_DIRS.contains(&first)
+        && is_out_dir(first)
     {
         patterns.push(format!("src/{rest}.{extensions}"));
     }
     patterns.push(format!("{stem}.{extensions}"));
     patterns
+}
+
+/// The files a bin stub loads. A published `bin` file without a script extension (`bin/tool`, a `#!/usr/bin/env node`
+/// stub) is not a module, so the relative specifiers it `require`s or imports are read from its text and mapped back to
+/// source like any published path.
+pub(crate) fn bin_stub_sources(fs: &dyn FileSystem, package_dir: &Path, target: &str) -> Vec<PathBuf> {
+    let stub = package_dir.join(target.trim_start_matches("./"));
+    if is_code_file(&stub) {
+        return Vec::new();
+    }
+    let Ok(text) = fs.read_to_string(&stub) else {
+        return Vec::new();
+    };
+    if !text.starts_with("#!") || !text.lines().next().is_some_and(|line| line.contains("node")) {
+        return Vec::new();
+    }
+    let directory = stub.parent().unwrap_or(package_dir);
+    relative_specifiers(&text)
+        .into_iter()
+        .filter_map(|specifier| {
+            let loaded = join_normalized(directory, &specifier);
+            let published = loaded
+                .strip_prefix(package_dir)
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
+            map_to_source(fs, package_dir, &published)
+                .or_else(|| map_to_source(fs, package_dir, &format!("{published}/index")))
+        })
+        .collect()
+}
+
+/// The `./` and `../` string literals that follow `require(`, `import(`, `import` or `from` in `text`.
+fn relative_specifiers(text: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for marker in ["require(", "import(", "import ", "from "] {
+        for (at, _) in text.match_indices(marker) {
+            let rest = text[at + marker.len()..].trim_start();
+            let Some(quote) = rest.chars().next().filter(|c| matches!(*c, '\'' | '"' | '`')) else {
+                continue;
+            };
+            let body = &rest[1..];
+            if let Some(end) = body.find(quote) {
+                let specifier = &body[..end];
+                if specifier.starts_with("./") || specifier.starts_with("../") {
+                    found.push(specifier.to_owned());
+                }
+            }
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
+}
+
+/// The values of the `bin` field of a manifest.
+pub(crate) fn bin_targets(manifest: &Value) -> Vec<String> {
+    let mut targets = Vec::new();
+    if let Some(bin) = manifest.get("bin") {
+        collect_strings(bin, &mut targets);
+    }
+    targets
+}
+
+/// Whether a published path is build output or a bin file, i.e. it should have a source file behind it.
+pub(crate) fn should_have_source(target: &str) -> bool {
+    let clean = target.trim_start_matches("./");
+    !has_other_extension(clean)
+        && clean
+            .split_once('/')
+            .is_some_and(|(first, _)| is_out_dir(first) || first == "bin")
 }
 
 fn collect_strings(value: &Value, out: &mut Vec<String>) {
@@ -195,6 +278,35 @@ mod tests {
         assert_eq!(candidates.first().map(String::as_str), Some("src/utils/index.ts"));
         assert!(candidates.contains(&"dist/utils/index.js".to_owned()));
         assert_eq!(source_candidates("./styles.css"), ["styles.css"]);
+    }
+
+    #[test]
+    fn flavoured_output_directories_map_to_src() {
+        for directory in ["lib-commonjs", "lib-esm", "dist-cjs", "esm5", "lib.es6"] {
+            let candidates = source_candidates(&format!("./{directory}/start.js"));
+            assert_eq!(
+                candidates.first().map(String::as_str),
+                Some("src/start.ts"),
+                "{directory}"
+            );
+        }
+        assert_eq!(source_candidates("./library/start.js")[0], "library/start.ts");
+    }
+
+    #[test]
+    fn bin_stub_requires_map_to_source() {
+        let fs = MemoryFs::new()
+            .with_file(
+                "/p/bin/tool",
+                "#!/usr/bin/env node\nrequire('../lib-commonjs/start');\n",
+            )
+            .with_file("/p/src/start.ts", "");
+        assert_eq!(
+            bin_stub_sources(&fs, Path::new("/p"), "./bin/tool"),
+            [PathBuf::from("/p/src/start.ts")]
+        );
+        let not_node = MemoryFs::new().with_file("/p/bin/tool", "#!/bin/sh\nrequire('../lib/start');\n");
+        assert!(bin_stub_sources(&not_node, Path::new("/p"), "bin/tool").is_empty());
     }
 
     #[test]
