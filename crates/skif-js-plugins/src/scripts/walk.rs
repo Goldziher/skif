@@ -822,8 +822,10 @@ impl<'c> Walker<'c> {
                 if self.ctx.scripts.contains_key(cmd) {
                     let map = Map::Fixed(frame.span(&args[ci].span));
                     self.run_script_name(cmd, &map, filtered);
-                } else if !tables::BUN_COMMANDS.contains(&cmd) && !tables::LIFECYCLE.contains(&cmd) {
-                    self.bun_target(&args[ci..], frame, filtered);
+                } else if is_path_like(cmd) {
+                    // `bun check` may name a script of the workspace root, which this package's scripts cannot
+                    // tell, so only a file is certain.
+                    self.file(cmd, frame.span(&args[ci].span));
                 }
             }
         }
