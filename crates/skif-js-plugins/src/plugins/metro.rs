@@ -1,6 +1,6 @@
 //! Metro: platform-specific source files are production entries.
 
-use crate::plugin::{Enabler, Plugin, PluginSpec};
+use crate::plugin::{Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 
 /// The `metro` plugin.
 pub struct Metro;
@@ -21,5 +21,13 @@ static SPEC: PluginSpec = PluginSpec {
 impl Plugin for Metro {
     fn spec(&self) -> &'static PluginSpec {
         &SPEC
+    }
+
+    /// Metro transforms sources with the project's Babel config.
+    fn resolve_workspace(&self, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        vec![PluginInput::LinkedConfig {
+            plugin: "babel",
+            path: "babel.config.{js,cjs,mjs,json,cts,mts,ts}".to_owned(),
+        }]
     }
 }

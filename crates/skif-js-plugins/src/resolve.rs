@@ -59,6 +59,7 @@ fn detected(spec: &PluginSpec, ctx: &PluginContext<'_>) -> bool {
 
 fn enabler_matches(enabler: &Enabler, ctx: &PluginContext<'_>) -> bool {
     match *enabler {
+        Enabler::Always => true,
         Enabler::Dependency(name) => ctx.has_dependency_in_ancestors(name),
         Enabler::DependencyPrefix(prefix) => ctx
             .dependencies
@@ -92,7 +93,16 @@ fn parent_of(relative: &str) -> &str {
 struct Collector<'a, 'b> {
     ctx: &'a PluginContext<'b>,
     out: PluginOutput,
-    queue: VecDeque<(String, u8)>,
+    queue: VecDeque<Queued>,
+}
+
+/// A config file waiting to be read.
+struct Queued {
+    /// Path relative to the workspace directory.
+    path: String,
+    depth: u8,
+    /// The plugin that reads it; `None` for the plugin being run.
+    reader: Option<PluginId>,
 }
 
 impl Collector<'_, '_> {
@@ -109,9 +119,15 @@ impl Collector<'_, '_> {
                 PluginInput::Binary(name) => push_unique(&mut self.out.referenced_binaries, name),
                 PluginInput::ConfigFile(path) => {
                     if depth < MAX_CONFIG_DEPTH && self.ctx.fs.is_file(&self.ctx.dir.join(&path)) {
-                        self.queue.push_back((path, depth + 1));
+                        self.queue.push_back(Queued {
+                            path,
+                            depth: depth + 1,
+                            reader: None,
+                        });
                     }
                 }
+                PluginInput::LinkedConfig { plugin, path } => self.linked_config(plugin, &path, depth),
+                PluginInput::VirtualModule(pattern) => push_unique(&mut self.out.virtual_modules, pattern),
                 PluginInput::Script(text) => self.script(&text, from),
                 PluginInput::ScriptAt { dir, script } => self.script_at(&dir, &script),
                 PluginInput::Ignore(glob) => push_unique(&mut self.out.ignore, glob),
@@ -132,6 +148,27 @@ impl Collector<'_, '_> {
                 PluginInput::Extension(extension) => push_unique(&mut self.out.extensions, extension),
                 PluginInput::EntriesIncomplete => self.out.entries_incomplete = true,
             }
+        }
+    }
+
+    /// Queues the files `path` names for `plugin`, a glob matching none of them queueing nothing.
+    fn linked_config(&mut self, plugin: PluginId, path: &str, depth: u8) {
+        if depth >= MAX_CONFIG_DEPTH || registry::plugin(plugin).is_none() {
+            return;
+        }
+        let files = if path.contains(['*', '?', '{', '[']) {
+            find_files(self.ctx.fs, self.ctx.dir, &[path.to_owned()])
+        } else if self.ctx.fs.is_file(&self.ctx.dir.join(path)) {
+            vec![path.to_owned()]
+        } else {
+            Vec::new()
+        };
+        for path in files {
+            self.queue.push_back(Queued {
+                path,
+                depth: depth + 1,
+                reader: Some(plugin),
+            });
         }
     }
 
@@ -226,7 +263,11 @@ fn run_plugin(
     }
     collector
         .queue
-        .extend(find_files(ctx.fs, ctx.dir, &patterns).into_iter().map(|p| (p, 0)));
+        .extend(find_files(ctx.fs, ctx.dir, &patterns).into_iter().map(|path| Queued {
+            path,
+            depth: 0,
+            reader: None,
+        }));
 
     let mut visited = BTreeSet::new();
     drain(&mut collector, plugin, &mut visited);
@@ -315,10 +356,15 @@ fn split_last_segment(pattern: &str) -> (Option<&str>, &str) {
 /// Reads every queued config file, which may queue further ones.
 fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut BTreeSet<String>) {
     let ctx = collector.ctx;
-    while let Some((relative, depth)) = collector.queue.pop_front() {
-        if !visited.insert(relative.clone()) {
+    while let Some(Queued { path: relative, depth, reader }) = collector.queue.pop_front() {
+        let key = reader.map_or_else(|| relative.clone(), |id| format!("{id}:{relative}"));
+        if !visited.insert(key) {
             continue;
         }
+        let reader: &dyn Plugin = match reader.and_then(registry::plugin) {
+            Some(linked) => linked,
+            None => plugin,
+        };
         let path = ctx.dir.join(&relative);
         let Ok(source) = ctx.fs.read_to_string(&path) else {
             continue;
@@ -333,7 +379,7 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             value: &value,
             source: &source,
         };
-        let inputs = plugin.resolve_config(&ast, ctx);
+        let inputs = reader.resolve_config(&ast, ctx);
         collector.absorb(inputs, &path, depth);
     }
 }

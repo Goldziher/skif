@@ -300,6 +300,7 @@ impl Setup {
                 ignore.extend(plugin.ignore);
                 let mut ignore_dependencies = user.ignore_dependencies;
                 ignore_dependencies.extend(plugin.ignore_dependencies);
+                ignore_dependencies.extend(plugin.virtual_modules);
                 let mut ignore_binaries = user.ignore_binaries;
                 ignore_binaries.extend(plugin.ignore_binaries);
 
