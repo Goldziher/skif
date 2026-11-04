@@ -17,13 +17,22 @@ pub(super) fn module_location(module: &Module, span: Option<Span>) -> Location {
     Location::new(module.path.clone(), span)
 }
 
-/// Whether the module sits in a `fixtures` or `__fixtures__` directory. Fixtures are test data (often deliberately
-/// broken sources), so their imports are not held against the project.
+/// Whether a directory name marks test data: `fixtures`, `__fixtures__`, `__testfixtures__` or a name ending in
+/// `-fixtures` or `_fixtures`.
+fn is_fixture_directory(name: &str) -> bool {
+    matches!(name, "fixtures" | "__fixtures__" | "__testfixtures__")
+        || name.ends_with("-fixtures")
+        || name.ends_with("_fixtures")
+}
+
+/// Whether the module sits in a fixture directory (see [`is_fixture_directory`]). Fixtures are test data (often
+/// deliberately broken sources), so their imports are not held against the project. Other directories of test data
+/// go on `[js] ignore`.
 pub(super) fn is_fixture(module: &Module) -> bool {
     module
         .path
         .components()
-        .any(|part| matches!(part.as_os_str().to_str(), Some("fixtures" | "__fixtures__")))
+        .any(|part| part.as_os_str().to_str().is_some_and(is_fixture_directory))
 }
 
 /// A dependency entry of a manifest, from its key through its value.
@@ -96,4 +105,25 @@ fn unused_dependency(meta: &'static RuleMeta, package: &Package, entry: &Depende
 /// The path of a package-relative file for diagnostics that have no module.
 pub(super) fn file_location(path: PathBuf) -> Location {
     Location::new(path, None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_fixture_directory;
+
+    #[test]
+    fn fixture_directories_are_recognised_by_name() {
+        for name in [
+            "fixtures",
+            "__fixtures__",
+            "__testfixtures__",
+            "colorize-fixtures",
+            "e2e_fixtures",
+        ] {
+            assert!(is_fixture_directory(name), "{name}");
+        }
+        for name in ["fixture", "src", "fixtures-api", "test_root", "my-fixtures-lib"] {
+            assert!(!is_fixture_directory(name), "{name}");
+        }
+    }
 }

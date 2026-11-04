@@ -1,2 +1,2 @@
 export const x = 1;
-export { x as y };
+export const y = x;

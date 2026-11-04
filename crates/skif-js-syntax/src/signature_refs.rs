@@ -100,9 +100,10 @@ fn containers(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<Stri
         }
         Declaration::VariableDeclaration(variables) => {
             for declarator in &variables.declarations {
-                let Some(id) = declarator.id.get_binding_identifier() else {
+                let ids = declarator.id.get_binding_identifiers();
+                if ids.is_empty() {
                     continue;
-                };
+                }
                 let names = if let Some(annotation) = &declarator.type_annotation {
                     let mut visitor = TypeNames {
                         names: HashSet::new(),
@@ -115,7 +116,7 @@ fn containers(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<Stri
                 } else {
                     continue;
                 };
-                out.push((id.name.as_str().to_owned(), names));
+                out.extend(ids.iter().map(|id| (id.name.as_str().to_owned(), names.clone())));
             }
         }
         _ => {}

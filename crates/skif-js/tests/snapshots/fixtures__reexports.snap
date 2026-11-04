@@ -11,12 +11,12 @@ expression: diagnostics
     "location": {
       "path": "src/dupe.ts",
       "span": {
-        "start": 29,
-        "end": 35,
+        "start": 33,
+        "end": 34,
         "start-line": 2,
-        "start-col": 10,
+        "start-col": 14,
         "end-line": 2,
-        "end-col": 16
+        "end-col": 15
       }
     },
     "related": [

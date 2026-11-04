@@ -90,3 +90,69 @@ fn signature_references_name_the_containing_exports() {
     assert_eq!(containing("Body"), [] as [std::string::String; 0]);
     assert_eq!(containing("Skipped"), [] as [std::string::String; 0]);
 }
+
+#[test]
+fn every_binding_of_a_destructured_export_contains_the_types_of_its_initialiser() {
+    let info = parse(
+        "a.ts",
+        "export type Props = { a: string };\n\
+         export const { use: useCtx, provider: Provider } = make({ init: (props: Props) => props });\n",
+    );
+    let containing = info
+        .exports
+        .iter()
+        .find(|export| export.name == "Props")
+        .map(|export| export.referenced_in.clone())
+        .unwrap();
+    assert_eq!(containing, ["Provider", "useCtx"]);
+}
+
+#[test]
+fn members_read_in_the_declaring_file_are_recorded_and_whole_uses_are_flagged() {
+    let info = parse(
+        "a.ts",
+        "export enum Color { Red, Green, Blue }\n\
+         export const first = Color.Red;\n\
+         export const second = Color['Green'];\n\
+         export function describe(c: Color, k: keyof typeof Color): string { return String(c) + k; }\n\
+         export enum Mode { A, B }\n\
+         export const modes = Object.values(Mode);\n\
+         export enum Hidden { A, B }\n\
+         export { Hidden as Renamed };\n\
+         export const { A } = Mode;\n",
+    );
+    let facts = |name: &str| {
+        info.exports
+            .iter()
+            .find(|export| export.name == name)
+            .map(|export| (export.members_read_in_file.clone(), export.members_escape_in_file))
+            .unwrap()
+    };
+    assert_eq!(facts("Color"), (vec!["Green".to_owned(), "Red".to_owned()], false));
+    assert_eq!(facts("Mode"), (vec!["A".to_owned()], true));
+    assert_eq!(facts("Hidden"), (Vec::<String>::new(), false));
+}
+
+#[test]
+fn a_constant_records_the_identifier_it_is_initialised_with() {
+    let info = parse("a.ts", "export function f() {}\nexport const g = f;\nexport const h = f();\n");
+    let alias = |name: &str| {
+        info.exports
+            .iter()
+            .find(|export| export.name == name)
+            .and_then(|export| export.alias_of.clone())
+    };
+    assert_eq!(alias("g"), Some("f".to_owned()));
+    assert_eq!(alias("h"), None);
+    assert_eq!(alias("f"), None);
+}
+
+#[test]
+fn typeof_import_asserting_a_require_is_not_a_use_of_the_whole_module() {
+    let info = parse(
+        "a.ts",
+        "const { used } = require('./x') as typeof import('./x');\nconst whole: typeof import('./y') = null as never;\n",
+    );
+    assert_eq!(imported(&info, "./x"), ["used"]);
+    assert_eq!(imported(&info, "./y"), ["*"]);
+}

@@ -107,6 +107,24 @@ pub(crate) fn source_patterns(target: &str) -> Vec<String> {
     patterns
 }
 
+/// Rewrites a published path with `*` into a glob with the semantics of the `exports` field, where `*` also matches
+/// `/`: `src/*.ts` becomes `src/**/*.ts` and `dist/*/index.js` becomes `dist/**/index.js`.
+pub(crate) fn crossing_stars(pattern: &str) -> String {
+    let components: Vec<&str> = pattern.split('/').collect();
+    let last = components.len().saturating_sub(1);
+    let mut rewritten: Vec<&str> = Vec::with_capacity(components.len() + 1);
+    for (index, component) in components.into_iter().enumerate() {
+        if component == "*" && index != last {
+            rewritten.push("**");
+        } else if component.starts_with('*') && !component.starts_with("**") && index == last {
+            rewritten.extend(["**", component]);
+        } else {
+            rewritten.push(component);
+        }
+    }
+    rewritten.join("/")
+}
+
 /// The files a bin stub loads. A published `bin` file without a script extension (`bin/tool`, a `#!/usr/bin/env node`
 /// stub) is not a module, so the relative specifiers it `require`s or imports are read from its text and mapped back to
 /// source like any published path.
@@ -380,5 +398,14 @@ mod tests {
     fn patterns_for_wildcards() {
         let patterns = source_patterns("./dist/feature/*.js");
         assert_eq!(patterns[0], "src/feature/*.{ts,tsx,js,jsx,mts,cts,mjs,cjs}");
+    }
+
+    #[test]
+    fn exports_stars_cross_directories() {
+        assert_eq!(crossing_stars("src/*.ts"), "src/**/*.ts");
+        assert_eq!(crossing_stars("*.ts"), "**/*.ts");
+        assert_eq!(crossing_stars("dist/*/index.js"), "dist/**/index.js");
+        assert_eq!(crossing_stars("src/index.ts"), "src/index.ts");
+        assert_eq!(crossing_stars("src/foo-*.ts"), "src/foo-*.ts");
     }
 }

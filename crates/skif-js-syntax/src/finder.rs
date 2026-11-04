@@ -1,13 +1,13 @@
 //! Nested module references: `require`, dynamic `import()`, `import.meta.glob`, `import x = require()`, `CommonJS`
 //! exports and JSX.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use oxc_ast::ast::{
     Argument, AssignmentExpression, AssignmentTarget, BindingPattern, CallExpression, ComputedMemberExpression,
     Expression, FormalParameters, IdentifierReference, ImportExpression, JSXElement, JSXFragment,
-    StaticMemberExpression, TSExternalModuleDeclaration, TSImportEqualsDeclaration, TSImportType,
-    TSImportTypeQualifier, TSModuleReference, VariableDeclarator,
+    StaticMemberExpression, TSAsExpression, TSExternalModuleDeclaration, TSImportEqualsDeclaration, TSImportType,
+    TSImportTypeQualifier, TSModuleReference, TSType, TSTypeQueryExprName, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 
@@ -19,6 +19,8 @@ pub(crate) struct Finder<'c, 's> {
     info: &'c mut ModuleInfo,
     /// Bindings for a call or `import()` expression, keyed by the expression's start offset.
     pending: HashMap<u32, Vec<ImportedName>>,
+    /// Start offsets of `typeof import("x")` types that only type the result of the `require("x")` they follow.
+    redundant_types: HashSet<u32>,
 }
 
 impl<'c, 's> Finder<'c, 's> {
@@ -27,6 +29,7 @@ impl<'c, 's> Finder<'c, 's> {
             ctx,
             info,
             pending: HashMap::new(),
+            redundant_types: HashSet::new(),
         }
     }
 }
@@ -202,7 +205,24 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
         walk::walk_ts_import_equals_declaration(self, it);
     }
 
+    // `require("x") as typeof import("x")` loads the module once; the bindings of the `require` name what is used, and
+    // the assertion must not count as a use of the whole module.
+    fn visit_ts_as_expression(&mut self, it: &TSAsExpression<'a>) {
+        if module_call_start(&it.expression).is_some()
+            && let TSType::TSTypeQuery(query) = &it.type_annotation
+            && let TSTypeQueryExprName::TSImportType(import) = &query.expr_name
+            && import.qualifier.is_none()
+        {
+            self.redundant_types.insert(import.span.start);
+        }
+        walk::walk_ts_as_expression(self, it);
+    }
+
     fn visit_ts_import_type(&mut self, it: &TSImportType<'a>) {
+        if self.redundant_types.contains(&it.span.start) {
+            walk::walk_ts_import_type(self, it);
+            return;
+        }
         let mut bound = match &it.qualifier {
             Some(qualifier) => name(imported_kind(first_qualifier(qualifier).to_string()), None, false),
             None => name(ImportedKind::Namespace, None, true),

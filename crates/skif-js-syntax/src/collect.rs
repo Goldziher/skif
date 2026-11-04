@@ -44,6 +44,8 @@ struct Declared {
     is_type: bool,
     enum_members: Vec<Member>,
     namespace_members: Vec<Member>,
+    /// `const b = a`: the identifier the declaration is initialised with.
+    alias_of: Option<String>,
 }
 
 impl Declared {
@@ -55,6 +57,7 @@ impl Declared {
             is_type,
             enum_members: Vec::new(),
             namespace_members: Vec::new(),
+            alias_of: None,
         }
     }
 }
@@ -183,13 +186,23 @@ fn enum_member_name(id: &TSEnumMemberName<'_>) -> Option<String> {
 fn declared(ctx: &Ctx<'_>, decl: &Declaration<'_>) -> Vec<Declared> {
     match decl {
         Declaration::VariableDeclaration(v) => {
-            let mut ids = Vec::new();
+            let mut out = Vec::new();
             for d in &v.declarations {
+                let mut ids = Vec::new();
                 binding_ids(&d.id, &mut ids);
+                let alias_of = match (&d.id, d.init.as_ref().map(oxc_ast::ast::Expression::get_inner_expression)) {
+                    (BindingPattern::BindingIdentifier(_), Some(oxc_ast::ast::Expression::Identifier(id))) => {
+                        Some(id.name.as_str().to_string())
+                    }
+                    _ => None,
+                };
+                out.extend(ids.into_iter().map(|(name, span)| {
+                    let mut declared = Declared::simple(&name, span, ExportKind::Value, false);
+                    declared.alias_of.clone_from(&alias_of);
+                    declared
+                }));
             }
-            ids.into_iter()
-                .map(|(name, span)| Declared::simple(&name, span, ExportKind::Value, false))
-                .collect()
+            out
         }
         Declaration::FunctionDeclaration(f) => {
             f.id.iter()
@@ -386,6 +399,9 @@ fn export_from_declared(ctx: &Ctx<'_>, d: Declared, tags: Vec<String>, removal: 
         removal,
         referenced_in_file: false,
         referenced_in: Vec::new(),
+        members_read_in_file: Vec::new(),
+        members_escape_in_file: false,
+        alias_of: d.alias_of,
     }
 }
 
@@ -405,6 +421,9 @@ impl Export {
             removal: None,
             referenced_in_file: false,
             referenced_in: Vec::new(),
+            members_read_in_file: Vec::new(),
+            members_escape_in_file: false,
+            alias_of: None,
         }
     }
 }

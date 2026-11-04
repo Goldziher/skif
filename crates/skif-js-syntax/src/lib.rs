@@ -144,6 +144,7 @@ fn parse_block(
     if options.in_file_references {
         mark_in_file_references(&ret.program, &collected.export_clause_spans, &mut info);
         signature_refs::mark(&ret.program, &mut info);
+        members::mark_local_reads(&ret.program, &mut info);
     }
     info.directives = ret
         .program

@@ -100,6 +100,10 @@ pub(super) fn report(
         let fixes = fixes(module, &unused);
         let package = analysis.workspace.package(module.owner);
         for export in unused.iter().copied().filter(|export| export.is_type == want_type) {
+            // `export const X` with `export type X` is one name: only the value is reported.
+            if want_type && unused.iter().any(|other| !other.is_type && other.name == export.name) {
+                continue;
+            }
             let noun = if want_type { "type" } else { "export" };
             let message = match scope {
                 Scope::Imports => format!("{noun} `{}` is never imported by another module", export.name),
