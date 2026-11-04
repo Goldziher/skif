@@ -1,24 +1,83 @@
-use std::collections::BTreeMap;
+use std::any::{Any, TypeId};
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use skif_config::Config;
 use skif_core::{Diagnostic, RuleMeta, Severity};
 use skif_workspace::Workspace;
 
+/// Values computed once per run and shared by every rule and provider (see [`LintContext::shared`]).
+#[derive(Default)]
+pub(crate) struct SharedCache {
+    slots: Mutex<HashMap<TypeId, Arc<OnceLock<Arc<dyn Any + Send + Sync>>>>>,
+}
+
+impl std::fmt::Debug for SharedCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SharedCache").finish_non_exhaustive()
+    }
+}
+
+impl SharedCache {
+    fn get_or_init<T: Any + Send + Sync>(&self, init: impl FnOnce() -> T) -> Arc<T> {
+        let slot = {
+            let mut slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
+            Arc::clone(slots.entry(TypeId::of::<T>()).or_default())
+        };
+        let value: &Arc<dyn Any + Send + Sync> = slot.get_or_init(|| Arc::new(init()));
+        Arc::clone(value)
+            .downcast::<T>()
+            .unwrap_or_else(|_| unreachable!("a cache slot only ever holds the type it is keyed by"))
+    }
+}
+
 /// Read-only inputs shared by every rule.
+///
+/// Only the run constructs a context; the type is `#[non_exhaustive]` so inputs can be added without breaking hosts.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct LintContext<'a> {
+    /// The workspace being linted.
     pub workspace: &'a Workspace,
+    /// The configuration the run was started with.
     pub config: &'a Config,
+    /// Which rules run, and at which severity.
     pub enabled: &'a EnabledRules,
     /// The configuration file `config` was loaded from, relative to the workspace root; `None` when the host
     /// does not know it (for example a configuration built in memory).
     pub config_path: Option<&'a Path>,
     /// Providers run their work on the calling thread and must not use rayon.
     pub sequential: bool,
+    shared: &'a SharedCache,
 }
 
-impl LintContext<'_> {
+impl<'a> LintContext<'a> {
+    pub(crate) const fn new(
+        workspace: &'a Workspace,
+        config: &'a Config,
+        enabled: &'a EnabledRules,
+        config_path: Option<&'a Path>,
+        sequential: bool,
+        shared: &'a SharedCache,
+    ) -> Self {
+        Self {
+            workspace,
+            config,
+            enabled,
+            config_path,
+            sequential,
+            shared,
+        }
+    }
+
+    /// A value of type `T` computed at most once per run: the first caller runs `init`, later and concurrent callers
+    /// (other rules, other providers) get the same value. Use it for analyses several rules need, keyed by the type
+    /// of the value; the value must not depend on anything that varies between rules.
+    pub fn shared<T: Any + Send + Sync>(&self, init: impl FnOnce() -> T) -> Arc<T> {
+        self.shared.get_or_init(init)
+    }
+
     /// Name of the configuration file used by diagnostics about the configuration itself, relative to the
     /// workspace root: [`config_path`](Self::config_path), or [`DEFAULT_CONFIG_FILE`] when unknown.
     #[must_use]

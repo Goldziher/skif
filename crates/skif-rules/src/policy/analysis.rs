@@ -1,5 +1,7 @@
 //! One analysis of the whole workspace: instances, group assignment and the state of every instance.
 
+use std::collections::BTreeSet;
+
 use skif_config::Config;
 use skif_workspace::Workspace;
 
@@ -28,10 +30,21 @@ pub(crate) struct Analysis<'w> {
 }
 
 impl<'w> Analysis<'w> {
-    /// Runs the version groups; with `catalog_owns`, dependencies the catalog rules report are left to them (see
-    /// [`Instances::collect`]).
+    /// Runs the version groups with the catalog rules owning the dependencies `catalog_owns` selects, as the
+    /// provider does.
+    #[cfg(test)]
     pub(crate) fn run(workspace: &'w Workspace, config: &Config, catalog_owns: bool) -> Self {
         let instances = Instances::collect(workspace, config, catalog_owns);
+        Self::from_instances(workspace, config, instances)
+    }
+
+    /// Runs the version groups; the dependencies in `owned` are left to the catalog rules (see
+    /// [`Instances::collect_with`]).
+    pub(crate) fn run_with(workspace: &'w Workspace, config: &Config, owned: &BTreeSet<&str>) -> Self {
+        Self::from_instances(workspace, config, Instances::collect_with(workspace, owned))
+    }
+
+    fn from_instances(workspace: &'w Workspace, config: &Config, instances: Instances<'w>) -> Self {
         let (verdicts, unused_groups, invalid_pins) = {
             let groups = Groups::compile(workspace, config);
             let assignment = groups.assign(&instances);

@@ -116,10 +116,7 @@ fn reported_config_file(path: Option<&Path>) -> String {
     .unwrap();
     let cfg = config("");
     let ws = workspace(&cfg);
-    let options = RunOptions {
-        config_path: path,
-        ..RunOptions::default()
-    };
+    let options = path.map_or_else(RunOptions::default, |path| RunOptions::default().with_config_path(path));
     run(&registry, &ws, &cfg, &options)
         .unwrap()
         .diagnostics
