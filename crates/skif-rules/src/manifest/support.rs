@@ -28,10 +28,7 @@ pub fn active_members(workspace: &Workspace) -> impl Iterator<Item = &Package> {
 
 /// The node at `pointer` in the package's manifest.
 pub fn field_location(package: &Package, pointer: &[PathSeg]) -> Location {
-    Location::new(
-        package.manifest.path.clone(),
-        package.manifest.field_span(pointer),
-    )
+    Location::new(package.manifest.path.clone(), package.manifest.field_span(pointer))
 }
 
 /// The opening brace of the manifest: the anchor for a field that is missing.
@@ -42,10 +39,7 @@ pub fn document_location(package: &Package) -> Location {
             .line_index()
             .span(root.start, root.start.saturating_add(1))
     });
-    Location::new(
-        package.manifest.path.clone(),
-        span,
-    )
+    Location::new(package.manifest.path.clone(), span)
 }
 
 /// A dependency entry from its key through its value.
@@ -63,19 +57,12 @@ pub fn entry_location(package: &Package, entry: &DependencyEntry) -> Location {
 
 /// The specifier string of a dependency entry.
 pub fn value_location(package: &Package, entry: &DependencyEntry) -> Location {
-    Location::new(
-        package.manifest.path.clone(),
-        Some(entry.value_span),
-    )
+    Location::new(package.manifest.path.clone(), Some(entry.value_span))
 }
 
 /// A JSON edit of the package's own manifest.
 pub fn json_op(package: &Package, pointer: Vec<PathSeg>, action: JsonAction) -> FixOp {
-    FixOp::json(
-        package.manifest.path.clone(),
-        pointer,
-        action,
-    )
+    FixOp::json(package.manifest.path.clone(), pointer, action)
 }
 
 /// A dependency map with its keys in byte order.
@@ -144,11 +131,7 @@ pub fn move_to_dev_dependencies(package: &Package, names: &[&str]) -> Option<Vec
                             json_op(
                                 package,
                                 section(DependencyKind::DevDependencies),
-                                JsonAction::insert(
-                                    name.clone(),
-                                    value.clone(),
-                                    InsertPosition::Sorted,
-                                ),
+                                JsonAction::insert(name.clone(), value.clone(), InsertPosition::Sorted),
                             )
                         }),
                 );

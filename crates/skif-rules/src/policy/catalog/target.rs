@@ -124,11 +124,7 @@ pub(crate) fn create_default_catalog(file: &CatalogFile, entries: Map<String, Va
         CatalogFile::RootJson(path) => FixOp::json(
             path.clone(),
             Vec::new(),
-            JsonAction::insert(
-                "catalog".to_owned(),
-                Value::Object(entries),
-                InsertPosition::End,
-            ),
+            JsonAction::insert("catalog".to_owned(), Value::Object(entries), InsertPosition::End),
         ),
     }
 }

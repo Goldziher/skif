@@ -48,10 +48,7 @@ fn report(fixes: usize) -> Report {
                 RuleId::from_static("version-mismatch"),
                 Severity::Warning,
                 format!("dep-{i:03} is out of sync"),
-                Location::new(
-                    MEMBER,
-                    None,
-                ),
+                Location::new(MEMBER, None),
             );
             diagnostic.fixes.push(Fix::new(
                 format!("align dep-{i:03}"),

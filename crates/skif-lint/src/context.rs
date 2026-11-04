@@ -7,10 +7,13 @@ use skif_config::Config;
 use skif_core::{Diagnostic, RuleMeta, Severity};
 use skif_workspace::Workspace;
 
+/// One shared value, computed by the first rule that asks for it.
+type Slot = Arc<OnceLock<Arc<dyn Any + Send + Sync>>>;
+
 /// Values computed once per run and shared by every rule and provider (see [`LintContext::shared`]).
 #[derive(Default)]
 pub(crate) struct SharedCache {
-    slots: Mutex<HashMap<TypeId, Arc<OnceLock<Arc<dyn Any + Send + Sync>>>>>,
+    slots: Mutex<HashMap<TypeId, Slot>>,
 }
 
 impl std::fmt::Debug for SharedCache {

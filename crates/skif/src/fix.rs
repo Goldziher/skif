@@ -296,7 +296,7 @@ fn op_path(op: &FixOp) -> Option<&Path> {
         | FixOp::Yaml { path, .. }
         | FixOp::Text { path, .. }
         | FixOp::CreateFile { path, .. }
-        | FixOp::DeleteFile { path , ..} => Some(path),
+        | FixOp::DeleteFile { path, .. } => Some(path),
         _ => None,
     }
 }

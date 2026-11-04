@@ -18,10 +18,7 @@ pub(crate) fn active_packages(workspace: &Workspace) -> impl Iterator<Item = &Pa
 
 /// The specifier string of a dependency entry.
 pub(crate) fn value_location(package: &Package, entry: &DependencyEntry) -> Location {
-    Location::new(
-        package.manifest.path.clone(),
-        Some(entry.value_span),
-    )
+    Location::new(package.manifest.path.clone(), Some(entry.value_span))
 }
 
 /// Replaces the specifier of `entry` with `specifier` in its own manifest.

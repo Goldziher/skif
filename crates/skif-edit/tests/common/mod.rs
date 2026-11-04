@@ -17,11 +17,7 @@ pub fn path(segments: &[&str]) -> Vec<PathSeg> {
 }
 
 pub fn json_op(pointer: &[&str], action: JsonAction) -> FixOp {
-    FixOp::json(
-        PathBuf::from("package.json"),
-        path(pointer),
-        action,
-    )
+    FixOp::json(PathBuf::from("package.json"), path(pointer), action)
 }
 
 pub fn set(pointer: &[&str], value: Value) -> FixOp {
@@ -33,14 +29,7 @@ pub fn remove(pointer: &[&str]) -> FixOp {
 }
 
 pub fn insert(pointer: &[&str], key: &str, value: Value, position: InsertPosition) -> FixOp {
-    json_op(
-        pointer,
-        JsonAction::insert(
-            key.to_owned(),
-            value,
-            position,
-        ),
-    )
+    json_op(pointer, JsonAction::insert(key.to_owned(), value, position))
 }
 
 pub fn sort_keys(pointer: &[&str]) -> FixOp {
@@ -52,11 +41,7 @@ pub fn rename(pointer: &[&str], new_key: &str) -> FixOp {
 }
 
 pub fn yaml_op(route: &[&str], action: YamlAction) -> FixOp {
-    FixOp::yaml(
-        PathBuf::from("pnpm-workspace.yaml"),
-        path(route),
-        action,
-    )
+    FixOp::yaml(PathBuf::from("pnpm-workspace.yaml"), path(route), action)
 }
 
 pub fn sample() -> Value {

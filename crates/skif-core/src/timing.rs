@@ -17,7 +17,10 @@ static SINK: OnceLock<Sink> = OnceLock::new();
 ///
 /// The sink is process-wide and set once: a second call changes nothing and returns `false`. Concurrent runs in one
 /// process share it, and their phases are not told apart.
-#[allow(clippy::must_use_candidate, reason = "installing the sink is the point; the flag is informational")]
+#[allow(
+    clippy::must_use_candidate,
+    reason = "installing the sink is the point; the flag is informational"
+)]
 pub fn enable(sink: impl Fn(&str) + Send + Sync + 'static) -> bool {
     SINK.set(Box::new(sink)).is_ok()
 }
@@ -25,7 +28,10 @@ pub fn enable(sink: impl Fn(&str) + Send + Sync + 'static) -> bool {
 /// Switches the timings on and writes each line to stderr; see [`enable`].
 ///
 /// A closed or broken stderr is ignored: a trace is not worth failing a run for.
-#[allow(clippy::must_use_candidate, reason = "installing the sink is the point; the flag is informational")]
+#[allow(
+    clippy::must_use_candidate,
+    reason = "installing the sink is the point; the flag is informational"
+)]
 pub fn enable_stderr() -> bool {
     enable(|line| {
         let _ = writeln!(std::io::stderr().lock(), "{line}");

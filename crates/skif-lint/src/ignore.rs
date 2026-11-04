@@ -93,12 +93,9 @@ impl Suppressions {
             .as_ref()
             .is_none_or(|flags| self.package_flag(diagnostic, flags));
         let dependency_ok = entry.dependencies.is_empty()
-            || diagnostic
-                .dependency
-                .as_deref()
-                .is_some_and(|dependency| {
-                    self.dependency_matches(&entry.dependencies, dependency, versioned_name(diagnostic, versioned))
-                });
+            || diagnostic.dependency.as_deref().is_some_and(|dependency| {
+                self.dependency_matches(&entry.dependencies, dependency, versioned_name(diagnostic, versioned))
+            });
         rule_ok && package_ok && dependency_ok
     }
 
@@ -174,14 +171,7 @@ mod tests {
     }
 
     fn make(package: Option<&str>, dependency: Option<&str>) -> Diagnostic {
-        let mut builder = diagnostic(
-            &META,
-            "m",
-            Location::new(
-                "package.json",
-                None,
-            ),
-        );
+        let mut builder = diagnostic(&META, "m", Location::new("package.json", None));
         if let Some(package) = package {
             builder = builder.package(package);
         }

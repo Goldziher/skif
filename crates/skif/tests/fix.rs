@@ -19,13 +19,7 @@ static ALTERNATIVES: RuleMeta = meta("demo-alt", Fixability::Unsafe);
 static CONFLICT: RuleMeta = meta("demo-conflict", Fixability::Unsafe);
 
 const fn meta(id: &'static str, fixable: Fixability) -> RuleMeta {
-    RuleMeta::new(
-        id,
-        Category::Manifest,
-        Some(Severity::Warning),
-        fixable,
-        "demo",
-    )
+    RuleMeta::new(id, Category::Manifest, Some(Severity::Warning), fixable, "demo")
 }
 
 fn fs() -> MemoryFs {
@@ -48,11 +42,7 @@ fn set_version(path: &str, version: &str) -> FixOp {
 }
 
 fn fix(title: &str, safety: FixSafety, ops: Vec<FixOp>) -> Fix {
-    Fix::new(
-        title.to_owned(),
-        safety,
-        ops,
-    )
+    Fix::new(title.to_owned(), safety, ops)
 }
 
 fn private_fix() -> Fix {
@@ -62,11 +52,7 @@ fn private_fix() -> Fix {
         vec![FixOp::json(
             "package.json",
             Vec::new(),
-            JsonAction::insert(
-                "private".into(),
-                json!(true),
-                InsertPosition::End,
-            ),
+            JsonAction::insert("private".into(), json!(true), InsertPosition::End),
         )],
     )
 }
@@ -98,10 +84,7 @@ impl Rule for DemoRule {
     }
 
     fn check(&self, _cx: &LintContext<'_>, out: &mut Emitter<'_>) {
-        let location = Location::new(
-            PathBuf::from(self.path),
-            None,
-        );
+        let location = Location::new(PathBuf::from(self.path), None);
         let mut builder = diagnostic(self.meta, format!("{} finding", self.meta.id), location);
         for fix in &self.fixes {
             builder = builder.fix(fix.clone());
@@ -354,19 +337,13 @@ fn creating_a_file_another_fix_edits_is_a_conflict() {
     let create = fix(
         "create",
         FixSafety::Safe,
-        vec![FixOp::create_file(
-            "packages/a/package.json",
-            "{}".to_owned(),
-        )],
+        vec![FixOp::create_file("packages/a/package.json", "{}".to_owned())],
     );
     let diagnostics: Vec<Diagnostic> = [("demo-a", edit), ("demo-b", create)]
         .into_iter()
         .map(|(id, fix)| {
             let meta: &'static RuleMeta = Box::leak(Box::new(meta(id, Fixability::Safe)));
-            let location = Location::new(
-                "packages/a/package.json",
-                None,
-            );
+            let location = Location::new("packages/a/package.json", None);
             diagnostic(meta, id, location).fix(fix).build()
         })
         .collect();
@@ -382,22 +359,14 @@ fn create_and_delete_become_changes() {
     let fs = fs();
     let workspace = workspace(&fs);
     let meta: &'static RuleMeta = Box::leak(Box::new(meta("demo-files", Fixability::Safe)));
-    let location = Location::new(
-        "package.json",
-        None,
-    );
+    let location = Location::new("package.json", None);
     let diagnostic = diagnostic(meta, "files", location)
         .fix(fix(
             "files",
             FixSafety::Safe,
             vec![
-                FixOp::create_file(
-                    "new/skif.txt",
-                    "x".to_owned(),
-                ),
-                FixOp::delete_file(
-                    "packages/a/package.json",
-                ),
+                FixOp::create_file("new/skif.txt", "x".to_owned()),
+                FixOp::delete_file("packages/a/package.json"),
             ],
         ))
         .build();
@@ -477,10 +446,7 @@ fn report_of(diagnostics: Vec<(&'static str, Vec<Fix>)>) -> Report {
         .into_iter()
         .map(|(id, fixes)| {
             let meta: &'static RuleMeta = Box::leak(Box::new(meta(id, Fixability::Safe)));
-            let location = Location::new(
-                "package.json",
-                None,
-            );
+            let location = Location::new("package.json", None);
             fixes
                 .into_iter()
                 .fold(diagnostic(meta, id, location), skif::DiagnosticBuilder::fix)
@@ -494,14 +460,7 @@ fn text_fix(title: &str, path: &str, start: u32, end: u32, replacement: &str) ->
     fix(
         title,
         FixSafety::Safe,
-        vec![FixOp::text(
-            path,
-            TextEdit::new(
-                start,
-                end,
-                replacement.to_owned(),
-            ),
-        )],
+        vec![FixOp::text(path, TextEdit::new(start, end, replacement.to_owned()))],
     )
 }
 
@@ -583,10 +542,7 @@ fn creating_over_an_existing_file_is_refused() {
     let create = fix(
         "create",
         FixSafety::Safe,
-        vec![FixOp::create_file(
-            "package.json",
-            "{}".to_owned(),
-        )],
+        vec![FixOp::create_file("package.json", "{}".to_owned())],
     );
     let plan = apply_fixes(
         &workspace,

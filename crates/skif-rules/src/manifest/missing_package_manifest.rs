@@ -28,10 +28,7 @@ impl Rule for MissingPackageManifest {
             let mut builder = diagnostic(
                 &META,
                 format!("`{}` matches a workspace pattern but has no package.json", slash(dir)),
-                Location::new(
-                    dir.clone(),
-                    None,
-                ),
+                Location::new(dir.clone(), None),
             )
             .help("add a package.json, or narrow the workspace patterns so the directory is not matched");
             if let Some(name) = dir.file_name().and_then(|name| name.to_str()) {
@@ -44,10 +41,7 @@ impl Rule for MissingPackageManifest {
                     builder = builder.fix(Fix::new(
                         format!("Create `{}`", slash(&manifest)),
                         FixSafety::Unsafe,
-                        vec![FixOp::create_file(
-                            manifest,
-                            format!("{contents}\n"),
-                        )],
+                        vec![FixOp::create_file(manifest, format!("{contents}\n"))],
                     ));
                 }
             }

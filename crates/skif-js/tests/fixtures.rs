@@ -199,7 +199,7 @@ fn removing_an_unused_export_keeps_the_declaration() {
     let diagnostic = only(&diagnostics, "unused-exports", "unusedFormat");
     let fix = fix_of(diagnostic);
     assert_eq!(fix.safety, FixSafety::Unsafe);
-    let [FixOp::Text { path, edit , ..}] = fix.ops.as_slice() else {
+    let [FixOp::Text { path, edit, .. }] = fix.ops.as_slice() else {
         panic!("one text edit expected, got {:?}", fix.ops);
     };
     let source = fs::read_to_string(fixture_dir("monorepo").join(path)).unwrap();

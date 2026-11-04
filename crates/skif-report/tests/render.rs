@@ -13,23 +13,11 @@ fn span_of(needle: &str) -> Span {
 }
 
 fn fix(title: &str, safety: FixSafety) -> Fix {
-    Fix::new(
-        title.to_owned(),
-        safety,
-        vec![FixOp::delete_file("x")],
-    )
+    Fix::new(title.to_owned(), safety, vec![FixOp::delete_file("x")])
 }
 
 fn diag(rule: &'static str, severity: Severity, path: &str, span: Option<Span>, message: &str) -> Diagnostic {
-    Diagnostic::new(
-        RuleId::from_static(rule),
-        severity,
-        message,
-        Location::new(
-            path,
-            span,
-        ),
-    )
+    Diagnostic::new(RuleId::from_static(rule), severity, message, Location::new(path, span))
 }
 
 fn rich() -> Report {
@@ -47,10 +35,7 @@ fn rich() -> Report {
     mismatch.fixes = vec![fix("Use ^18.3.1", FixSafety::Unsafe)];
     mismatch.related = vec![Related::new(
         "other declaration".to_owned(),
-        Location::new(
-            "packages/api/package.json",
-            Some(span_of("\"^4.0.0\"")),
-        ),
+        Location::new("packages/api/package.json", Some(span_of("\"^4.0.0\""))),
     )];
     let mut unused = diag(
         "unused-dependency",

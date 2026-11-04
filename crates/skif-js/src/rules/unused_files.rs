@@ -42,9 +42,7 @@ impl JsRule for UnusedFiles {
                     .fix(Fix::new(
                         format!("Delete `{}`", slash(&file.path)),
                         FixSafety::Unsafe,
-                        vec![FixOp::delete_file(
-                            file.path.clone(),
-                        )],
+                        vec![FixOp::delete_file(file.path.clone())],
                     ))
                     .build(),
             );

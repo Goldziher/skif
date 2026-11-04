@@ -12,7 +12,10 @@ const DEPENDENCIES_PER_PACKAGE: usize = 10;
 
 /// A pnpm-style monorepo of `packages` members; every member depends on the next few, so `^1.2.3` repeats.
 fn monorepo(packages: usize) -> MemoryFs {
-    let mut fs = MemoryFs::new().with_file("/ws/package.json", r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#);
+    let mut fs = MemoryFs::new().with_file(
+        "/ws/package.json",
+        r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+    );
     for index in 0..packages {
         let mut dependencies = String::new();
         for offset in 1..=DEPENDENCIES_PER_PACKAGE {
@@ -34,7 +37,8 @@ fn bench_discover(c: &mut Criterion) {
         let fs = monorepo(packages);
         group.bench_with_input(BenchmarkId::from_parameter(packages), &fs, |b, fs| {
             b.iter(|| {
-                Workspace::discover_with_fs(Path::new("/ws"), &Config::default(), black_box(fs)).map(|workspace| workspace.packages().len())
+                Workspace::discover_with_fs(Path::new("/ws"), &Config::default(), black_box(fs))
+                    .map(|workspace| workspace.packages().len())
             });
         });
     }

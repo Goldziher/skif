@@ -67,10 +67,12 @@ pub fn apply_fixes(files: Files<'_>, diagnostics: &[Diagnostic]) -> Vec<(String,
     {
         match op {
             FixOp::Json { path, .. } | FixOp::Yaml { path, .. } => by_file.entry(name(path)).or_default().push(op),
-            FixOp::CreateFile { path, contents: text , ..} => {
+            FixOp::CreateFile {
+                path, contents: text, ..
+            } => {
                 contents.insert(name(path), text.clone());
             }
-            FixOp::DeleteFile { path , ..} => {
+            FixOp::DeleteFile { path, .. } => {
                 contents.remove(&name(path));
             }
             other => panic!("unexpected fix operation {other:?}"),

@@ -35,10 +35,7 @@ pub fn workspace(config: &Config) -> Workspace {
 }
 
 pub fn location() -> Location {
-    Location::new(
-        PathBuf::from("package.json"),
-        None,
-    )
+    Location::new(PathBuf::from("package.json"), None)
 }
 
 /// One diagnostic a [`FixedRule`] emits.

@@ -7,11 +7,11 @@ use std::sync::Arc;
 use clap::ColorChoice;
 use serde_json::{Map, Value};
 use skif::render::RenderOptions;
-use skif_core::timing;
 use skif::{
     CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IgnoreEntry, Linter, OsFs, Prefer, Report,
     Selector, Workspace,
 };
+use skif_core::timing;
 use skif_report::{escape_controls, render_json_with};
 
 use crate::args::{Format, LintArgs, Select};

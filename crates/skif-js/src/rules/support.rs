@@ -14,10 +14,7 @@ use crate::graph::Module;
 
 /// A position in a module.
 pub(super) fn module_location(module: &Module, span: Option<Span>) -> Location {
-    Location::new(
-        module.path.clone(),
-        span,
-    )
+    Location::new(module.path.clone(), span)
 }
 
 /// Whether the module sits in a `fixtures` or `__fixtures__` directory. Fixtures are test data (often deliberately
@@ -60,14 +57,7 @@ pub(super) fn remove_dependency_fix(package: &Package, entry: &DependencyEntry) 
 
 /// Deletes a byte range of a module.
 pub(super) fn delete_range(module: &Module, start: u32, end: u32) -> FixOp {
-    FixOp::text(
-        module.path.clone(),
-        TextEdit::new(
-            start,
-            end,
-            String::new(),
-        ),
-    )
+    FixOp::text(module.path.clone(), TextEdit::new(start, end, String::new()))
 }
 
 /// Reports every dependency of the given sections that nothing uses.

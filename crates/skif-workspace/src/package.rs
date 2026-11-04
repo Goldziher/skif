@@ -6,8 +6,8 @@ use std::sync::Arc;
 use serde_json::{Map, Value};
 use skif_config::Selector;
 use skif_core::DependencyKind;
-use skif_specifier::SpecifierCache;
 pub use skif_core::PackageId;
+use skif_specifier::SpecifierCache;
 
 use crate::error::WorkspaceError;
 use crate::manifest::{DependencyEntry, Manifest};

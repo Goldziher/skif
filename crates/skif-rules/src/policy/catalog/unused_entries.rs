@@ -66,10 +66,7 @@ impl Rule for UnusedCatalogEntries {
                 let mut builder = diagnostic(
                     &META,
                     format!("{} defines `{name}` but no package references it", catalog.display()),
-                    Location::new(
-                        source.to_path_buf(),
-                        entry_span(workspace, source, &catalog, name),
-                    ),
+                    Location::new(source.to_path_buf(), entry_span(workspace, source, &catalog, name)),
                 )
                 .dependency(name.clone())
                 .specifier(version.clone())

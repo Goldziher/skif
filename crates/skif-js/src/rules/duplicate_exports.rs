@@ -63,10 +63,7 @@ impl JsRule for DuplicateExports {
                 .help("keep one export name for the binding")
                 .related(Related::new(
                     format!("first exported as `{}` here", first.name),
-                    Location::new(
-                        module.path.clone(),
-                        Some(first.span),
-                    ),
+                    Location::new(module.path.clone(), Some(first.span)),
                 ));
                 if let Some(package) = analysis.workspace.package(module.owner) {
                     builder = builder.package(package.display_name());

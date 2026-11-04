@@ -371,12 +371,12 @@ pub fn plan_fixes(files: &BTreeMap<String, String>, diagnostics: &[Diagnostic]) 
                     }
                     touched.insert(name);
                 }
-                FixOp::CreateFile { path, contents , ..} => {
+                FixOp::CreateFile { path, contents, .. } => {
                     let name = normalized(path);
                     clash |= next.contains_key(&name);
                     next_created.insert(name, contents.clone());
                 }
-                FixOp::DeleteFile { path , ..} => {
+                FixOp::DeleteFile { path, .. } => {
                     let name = normalized(path);
                     clash |= next.contains_key(&name) || next_created.contains_key(&name);
                     next_deleted.insert(name);
