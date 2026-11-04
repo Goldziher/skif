@@ -82,3 +82,16 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   JavaScript and TypeScript monorepos, hosted at `github.com/Goldziher/skif`.
 - **The code is a library-first workspace** of `skif-*` crates with a thin `skif` command line on top.
   Architecture decisions are recorded in `adrs/`.
+
+### Fixed
+
+- `same-range` and `same-minor` version groups no longer flag `workspace:` dependents of a local package.
+- A `snapped-to` group takes the snap package's production dependency as the target, not a peer range written as a
+  compatibility window; a catalog entry created from several specifiers takes the one with the highest lowest version,
+  as version groups do; a `link:` path that climbs out of the workspace never names a local package.
+- An override pattern `./dir/**` also selects the package located at `dir`.
+- A configuration ceiling that is not above the root, or a relative root, is an error instead of silently reading no
+  configuration; `.` and `..` in a root no longer make the same file be read twice.
+- `"workspaces": []`, `null` and `false` in a `package.json` no longer make the directory a workspace; Rush
+  `projectFolder` values are matched literally; linked workspace members are resolved through the file system in use.
+- Origins of keys that contain a dot (`js.workspaces."pkg/a.b"`) no longer collide with nested tables.
