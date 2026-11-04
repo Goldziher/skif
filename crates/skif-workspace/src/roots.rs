@@ -8,7 +8,7 @@ use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use rayon::prelude::*;
 use serde_json::Value;
-use skif_config::{Config, DEFAULT_DISCOVER_IGNORE};
+use skif_config::{CONFIG_FILE_NAMES, Config, DEFAULT_DISCOVER_IGNORE};
 use skif_core::{DirEntry, FileSystem};
 
 use crate::pattern::{self, Expander, Pattern};
@@ -86,7 +86,20 @@ fn manifest_declares_workspace(fs: &dyn FileSystem, dir: &Path) -> bool {
     fs.read_to_string(&dir.join(MANIFEST))
         .ok()
         .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .is_some_and(|manifest| manifest.get("workspaces").is_some())
+        .is_some_and(|manifest| declares_patterns(manifest.get("workspaces")))
+}
+
+/// Whether a `workspaces` value lists any pattern: a non-empty array, or an object with a non-empty `packages`.
+/// `[]`, `null` and `false` declare nothing.
+fn declares_patterns(workspaces: Option<&Value>) -> bool {
+    match workspaces {
+        Some(Value::Array(items)) => !items.is_empty(),
+        Some(Value::Object(object)) => object
+            .get("packages")
+            .and_then(Value::as_array)
+            .is_some_and(|items| !items.is_empty()),
+        _ => false,
+    }
 }
 
 /// Whether `dir` declares a workspace: it holds a `pnpm-workspace.yaml` or a `rush.json`, or its `package.json` has
@@ -199,6 +212,8 @@ pub struct Candidates {
     pub workspaces: BTreeSet<PathBuf>,
     /// Directories with a `package.json`, workspaces included.
     pub packages: BTreeSet<PathBuf>,
+    /// The `skif.toml` and `.skif.toml` files found, whatever the directory they are in.
+    pub config_files: BTreeSet<PathBuf>,
     /// Directories at the depth limit that have subdirectories the walk did not enter, sorted.
     pub truncated: Vec<PathBuf>,
 }
@@ -248,6 +263,12 @@ fn visit(fs: &dyn FileSystem, walk: &Walk<'_>, dir: PathBuf, depth: usize, ignor
     if manifest {
         found.packages.insert(dir.clone());
     }
+    found.config_files.extend(
+        CONFIG_FILE_NAMES
+            .iter()
+            .filter(|name| names.contains(name))
+            .map(|name| dir.join(name)),
+    );
     if names.contains(&PNPM_WORKSPACE)
         || names.contains(&rush::FILE)
         || (manifest && manifest_declares_workspace(fs, &dir))
@@ -276,6 +297,7 @@ fn visit(fs: &dyn FileSystem, walk: &Walk<'_>, dir: PathBuf, depth: usize, ignor
         .collect();
     for child in below {
         found.packages.extend(child.packages);
+        found.config_files.extend(child.config_files);
         found.workspaces.extend(child.workspaces);
         found.truncated.extend(child.truncated);
     }
@@ -364,7 +386,7 @@ fn resolved(fs: &dyn FileSystem, root: &Path, dir: &Path, links: &mut HashMap<Pa
             })
         });
     if linked {
-        std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf())
+        fs.canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf())
     } else {
         dir.to_path_buf()
     }
@@ -605,6 +627,81 @@ mod tests {
         let fs = MemoryFs::new().with_file("/r/w/package.json", r#"{"workspaces": ["p/*"]"#);
         let roots = discover_roots(Path::new("/r"), &fs, &DiscoverOptions::default());
         assert_eq!(roots.len(), 1);
+    }
+
+    /// A tree where `/r/pkgs/a` is a link to `/r/real/a`.
+    struct Linked(MemoryFs);
+
+    impl FileSystem for Linked {
+        fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+            self.0.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+            if path == Path::new("/r/pkgs") {
+                return Ok(vec![DirEntry::new(PathBuf::from("/r/pkgs/a"), true, false).symlink()]);
+            }
+            self.0.read_dir(path)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.0.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.0.is_dir(path)
+        }
+
+        fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
+            Ok(path
+                .strip_prefix("/r/pkgs/a")
+                .map_or_else(|_| path.to_path_buf(), |rest| Path::new("/r/real/a").join(rest)))
+        }
+    }
+
+    #[test]
+    fn a_linked_member_is_resolved_through_the_file_system_not_the_disk() {
+        let fs = Linked(MemoryFs::new().with_file("/r/real/a/package.json", r#"{"name": "a"}"#));
+        let mut links = HashMap::new();
+        assert_eq!(
+            resolved(&fs, Path::new("/r"), Path::new("/r/pkgs/a"), &mut links),
+            Path::new("/r/real/a"),
+            "a path that does not exist on disk is resolved by the file system's own canonicalize"
+        );
+        assert_eq!(
+            resolved(&fs, Path::new("/r"), Path::new("/r/pkgs/b"), &mut links),
+            Path::new("/r/pkgs/b"),
+            "a directory that is not a link stays as it is"
+        );
+    }
+
+    #[test]
+    fn an_empty_workspaces_value_does_not_make_a_workspace() {
+        for value in ["[]", "null", "false", r#"{"packages": []}"#, r#"{"nohoist": ["x"]}"#] {
+            let manifest = format!(r#"{{"name": "a", "workspaces": {value}}}"#);
+            let fs = MemoryFs::new().with_file("/r/a/package.json", manifest);
+            assert_eq!(discover(&fs), ["pkg:/r/a"], "workspaces: {value}");
+        }
+    }
+
+    #[test]
+    fn the_walk_lists_the_configuration_files_it_passes() {
+        let fs = MemoryFs::new()
+            .with_file("/r/skif.toml", "")
+            .with_file("/r/a/package.json", r#"{"name": "a"}"#)
+            .with_file("/r/a/.skif.toml", "")
+            .with_file("/r/a/deep/skif.toml", "")
+            .with_file("/r/node_modules/x/skif.toml", "");
+        let found = scan_candidates(Path::new("/r"), &fs, &DiscoverOptions::default());
+        let files: Vec<&Path> = found.config_files.iter().map(PathBuf::as_path).collect();
+        assert_eq!(
+            files,
+            [
+                Path::new("/r/a/.skif.toml"),
+                Path::new("/r/a/deep/skif.toml"),
+                Path::new("/r/skif.toml")
+            ]
+        );
     }
 
     #[test]

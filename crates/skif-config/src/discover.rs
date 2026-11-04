@@ -111,22 +111,24 @@ impl ConfigCache {
     }
 
     fn file(&self, path: &Path, fs: &dyn FileSystem) -> Result<Arc<ParsedFile>, ConfigError> {
+        let path = normalize(path);
         let cell = {
             let mut files = self.files.lock().unwrap_or_else(PoisonError::into_inner);
-            Arc::clone(files.entry(path.to_path_buf()).or_default())
+            Arc::clone(files.entry(path.clone()).or_default())
         };
-        cell.get_or_init(|| ParsedFile::read(path, fs).map(Arc::new))
+        cell.get_or_init(|| ParsedFile::read(&path, fs).map(Arc::new))
             .as_ref()
             .map(Arc::clone)
             .map_err(ConfigError::duplicate)
     }
 
     fn dir(&self, dir: &Path, fs: &dyn FileSystem) -> DirInfo {
+        let dir = normalize(dir);
         let cell = {
             let mut dirs = self.dirs.lock().unwrap_or_else(PoisonError::into_inner);
-            Arc::clone(dirs.entry(dir.to_path_buf()).or_default())
+            Arc::clone(dirs.entry(dir.clone()).or_default())
         };
-        cell.get_or_init(|| DirInfo::probe(dir, fs)).clone()
+        cell.get_or_init(|| DirInfo::probe(&dir, fs)).clone()
     }
 }
 
@@ -149,12 +151,15 @@ impl<'a> ConfigLoader<'a> {
 
     /// The configuration of `root` from the files of its chain, without CLI overrides.
     ///
+    /// `root` must be an absolute path; `.` and `..` components are resolved lexically.
+    ///
     /// # Errors
     /// [`ConfigError::Ambiguous`] when a directory of the chain has both file names, [`ConfigError::Io`] when a file
     /// or an extended file cannot be read, [`ConfigError::Parse`] / [`ConfigError::Invalid`] / [`ConfigError::Scope`]
     /// for bad contents (carrying the file, line and column), [`ConfigError::ExtendsCycle`] when files extend each
     /// other, and [`ConfigError::Invalid`] when `extends` nests more than 16 files deep.
     pub fn resolve(&self, root: &Path, ceiling: &Ceiling) -> Result<ResolvedConfig, ConfigError> {
+        let root = &checked_root(root)?;
         skif_core::timing::phase(format_args!("config {}", root.display()), || {
             let files = self.discover(root, ceiling)?;
             self.resolve_files(root, files)
@@ -175,6 +180,7 @@ impl<'a> ConfigLoader<'a> {
         ceiling: &Ceiling,
         overrides: &ConfigOverrides,
     ) -> Result<ResolvedConfig, ConfigError> {
+        let root = &checked_root(root)?;
         let mut resolved = if overrides.no_config {
             ResolvedConfig::default()
         } else if let Some(file) = &overrides.config_file {
@@ -202,6 +208,7 @@ impl<'a> ConfigLoader<'a> {
         root: &Path,
         members: &[PathBuf],
     ) -> Result<(), ConfigError> {
+        let root = &checked_root(root)?;
         let mut members: Vec<&PathBuf> = members.iter().collect();
         members.sort_by_key(|dir| (dir.components().count(), (*dir).clone()));
         for dir in members {
@@ -249,10 +256,20 @@ impl<'a> ConfigLoader<'a> {
     fn discover(&self, root: &Path, ceiling: &Ceiling) -> Result<Vec<(PathBuf, SourceKind)>, ConfigError> {
         let limit = match ceiling {
             Ceiling::Vcs => self.repository_root(root).unwrap_or_else(|| root.to_path_buf()),
-            Ceiling::VcsOr(fallback) => self.repository_root(root).unwrap_or_else(|| fallback.clone()),
-            Ceiling::Dir(dir) => dir.clone(),
+            Ceiling::VcsOr(fallback) => self.repository_root(root).unwrap_or_else(|| normalize(fallback)),
+            Ceiling::Dir(dir) => normalize(dir),
             Ceiling::RootOnly => root.to_path_buf(),
         };
+        if !root.starts_with(&limit) {
+            return Err(ConfigError::invalid(
+                None,
+                format!(
+                    "the configuration ceiling {} is not the root {} or a directory above it",
+                    limit.display(),
+                    root.display()
+                ),
+            ));
+        }
         let mut chain = Vec::new();
         for dir in root.ancestors().take_while(|dir| dir.starts_with(&limit)) {
             match self.cache.dir(dir, self.fs).configs.as_slice() {
@@ -380,6 +397,19 @@ impl Walk<'_, '_> {
             sources,
             origins,
         })
+    }
+}
+
+/// `root` without `.` components and with `..` resolved lexically, which every directory the chain probes is derived
+/// from; a relative root is an error, since the ancestors of a relative path never reach the repository.
+fn checked_root(root: &Path) -> Result<PathBuf, ConfigError> {
+    if root.has_root() {
+        Ok(normalize(root))
+    } else {
+        Err(ConfigError::invalid(
+            None,
+            format!("the root {} is not an absolute path", root.display()),
+        ))
     }
 }
 

@@ -336,6 +336,43 @@ fn without_a_repository_the_ceiling_is_the_fallback() {
 }
 
 #[test]
+fn a_ceiling_that_is_not_above_the_root_is_an_error_rather_than_no_configuration() {
+    let files = [("/r/a/skif.toml", "[lint]\nfail-on-warnings = true\n")];
+    let fs = fs(&files);
+    for ceiling in [
+        Ceiling::Dir(PathBuf::from("/elsewhere")),
+        Ceiling::Dir(PathBuf::from("/r/a/b")),
+        Ceiling::VcsOr(PathBuf::from("/elsewhere")),
+    ] {
+        let error = try_resolve(&fs, "/r/a", &ceiling).unwrap_err();
+        assert!(matches!(error, ConfigError::Invalid { .. }), "{ceiling:?}: {error}");
+        assert!(error.to_string().contains("ceiling"), "{error}");
+    }
+}
+
+#[test]
+fn a_relative_root_is_an_error() {
+    let error = try_resolve(&fs(&[]), "r/a", &Ceiling::Vcs).unwrap_err();
+    assert!(matches!(error, ConfigError::Invalid { .. }), "{error}");
+    assert!(error.to_string().contains("not an absolute path"), "{error}");
+}
+
+#[test]
+fn dot_segments_in_the_root_do_not_change_what_is_read() {
+    let files = [
+        ("/r/.git/HEAD", ""),
+        ("/r/skif.toml", "[lint]\nfail-on-warnings = true\n"),
+        ("/r/a/skif.toml", ""),
+    ];
+    let fs = fs(&files);
+    let plain = try_resolve(&fs, "/r/a", &Ceiling::Vcs).unwrap();
+    let dotted = try_resolve(&fs, "/r/./a/b/..", &Ceiling::Vcs).unwrap();
+    assert_eq!(dotted.sources, plain.sources);
+    assert_eq!(dotted.config, plain.config);
+    assert_eq!(dotted.sources.len(), 2);
+}
+
+#[test]
 fn a_repository_wins_over_the_fallback() {
     let files = [
         ("/s/skif.toml", "[lint]\nfail-on-warnings = true\n"),
@@ -720,6 +757,22 @@ fn origins_record_the_file_line_and_operation() {
     let second = origins.last("version-groups[1]").unwrap();
     assert_eq!((second.source, second.op), (0, Op::Prepend));
     assert_eq!(origins.get("catalog.mode"), []);
+}
+
+#[test]
+fn origin_keys_quote_names_that_contain_dots() {
+    let resolved = resolve(
+        &[(
+            "/r/skif.toml",
+            "[js.workspaces.\"pkg/a.b\"]\nentry = [\"x\"]\n[js.workspaces.\"pkg/c\"]\nentry = [\"y\"]\n",
+        )],
+        "/r",
+    );
+    let dotted = resolved.origins.last("js.workspaces.\"pkg/a.b\".entry").unwrap();
+    assert_eq!((dotted.line, dotted.column), (2, 1));
+    let plain = resolved.origins.last("js.workspaces.pkg/c.entry").unwrap();
+    assert_eq!(plain.line, 4);
+    assert_eq!(resolved.origins.get("js.workspaces.pkg/a.b.entry"), []);
 }
 
 #[test]

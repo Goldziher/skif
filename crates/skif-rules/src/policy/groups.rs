@@ -4,7 +4,9 @@
 //! (ADR 0009). After the configured version groups sits a catch-all preferred-semver group. The catch-all takes the
 //! instances in the sections `[policy] dependency-types` names (production and development dependencies by default)
 //! that the catalog rules do not report, and nothing else: a group that names a section itself governs that section
-//! whatever the policy default says, and a group that names a dependency governs it even when a catalog owns it.
+//! whatever the policy default says. A configured group governs every instance its selectors match, a dependency a
+//! catalog owns included, whether or not the group names a dependency; only the catch-all leaves those to the
+//! catalog rules.
 //! Semver groups are independent of version groups: the first matching one decides the range an instance should use.
 
 use std::collections::BTreeMap;

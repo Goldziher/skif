@@ -39,6 +39,24 @@ impl ConfigSource {
     }
 }
 
+/// Appends `key` to the dotted origin path `prefix`.
+///
+/// A key that contains `.`, `[`, `]` or `"` is quoted (`js.plugins."a.b"`), so it cannot be mistaken for nested
+/// tables or a list index.
+#[must_use]
+pub fn join_key(prefix: &str, key: &str) -> String {
+    let segment = if key.is_empty() || key.contains(['.', '[', ']', '"']) {
+        format!("\"{}\"", key.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        key.to_owned()
+    };
+    if prefix.is_empty() {
+        segment
+    } else {
+        format!("{prefix}.{segment}")
+    }
+}
+
 /// What a file did to a key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -133,5 +151,19 @@ impl ResolvedConfig {
             .rev()
             .find(|source| source.is_discovered())
             .map(|source| source.path.as_path())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::join_key;
+
+    #[test]
+    fn keys_with_separators_are_quoted() {
+        assert_eq!(join_key("", "lint"), "lint");
+        assert_eq!(join_key("js.plugins", "vitest"), "js.plugins.vitest");
+        assert_eq!(join_key("js.plugins", "a.b"), "js.plugins.\"a.b\"");
+        assert_eq!(join_key("js.plugins", "a[0]"), "js.plugins.\"a[0]\"");
+        assert_eq!(join_key("x", "q\"r"), "x.\"q\\\"r\"");
     }
 }

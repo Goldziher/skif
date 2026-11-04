@@ -11,6 +11,7 @@ use clap::Parser;
 mod args;
 mod commands;
 mod config;
+mod config_toml;
 mod env;
 mod error;
 mod fix;

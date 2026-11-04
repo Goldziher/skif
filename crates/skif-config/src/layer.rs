@@ -10,6 +10,7 @@ use toml::{Table, Value};
 use crate::error::ConfigError;
 use crate::merge::Spans;
 use crate::model::Config;
+use crate::provenance::join_key;
 
 /// The keys an `[[overrides]]` entry has.
 const OVERRIDE_KEYS: [&str; 6] = ["packages", "files", "max-level", "rules", "ignore", "js"];
@@ -84,11 +85,7 @@ impl ParsedFile {
 fn collect_table(prefix: &str, table: &DeTable<'_>, index: &LineIndex, spans: &mut Spans) {
     for (key, value) in table {
         let name: &str = key.get_ref();
-        let path = if prefix.is_empty() {
-            name.to_owned()
-        } else {
-            format!("{prefix}.{name}")
-        };
+        let path = join_key(prefix, name);
         spans.insert(path.clone(), locate(index, key.span().start));
         collect_value(&path, value.get_ref(), index, spans);
     }
