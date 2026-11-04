@@ -44,6 +44,12 @@ if (report.summary.errors !== 0) fail("the clean fixture reported errors: " + JS
 const asyncOutcome = await addon.lintAsync(fixture, { noJs: false });
 if (JSON.stringify(JSON.parse(asyncOutcome.report)) !== JSON.stringify(report)) fail("lintAsync differs from lint");
 
+const isolated = await addon.lintAsync(fixture, { noConfig: true });
+if (!isolated.report) fail("noConfig produced no report: " + JSON.stringify(isolated.error));
+
+const noFile = await addon.lintAsync(fixture, { config: missing + "/skif.toml" });
+if (noFile.report || !noFile.error) fail("a missing config file did not fail: " + JSON.stringify(noFile));
+
 const failure = await addon.lintAsync(missing);
 if (failure.report !== undefined && failure.report !== null) fail("a missing path produced a report");
 if (!failure.error || !failure.error.kind || !failure.error.message) fail("no structured error: " + JSON.stringify(failure));

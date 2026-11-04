@@ -6,9 +6,12 @@ use std::io::{ErrorKind, Write};
 
 use serde::Serialize;
 use serde_json::json;
-use skif::{CONFIG_FILE_NAMES, Config, Linter, RuleMeta, slash};
+use skif::{
+    CONFIG_FILE_NAMES, Ceiling, Config, ConfigCache, ConfigOverrides, Linter, OsFs, RuleMeta, resolve_config, slash,
+};
 
 use crate::args::{Format, InitArgs, RulesArgs, RulesFormat};
+use crate::config::relative;
 use crate::error::{CliError, Kind};
 use crate::output::{emit_error, write_stdout};
 
@@ -107,6 +110,25 @@ pub fn schema() -> u8 {
     finish(write_stdout(skif::config_schema().as_bytes()), Format::Human)
 }
 
+/// The configuration files that already apply to `dir`, relative to it: what a file written there will inherit from.
+fn inherited_files(dir: &std::path::Path) -> Vec<String> {
+    resolve_config(
+        dir,
+        &Ceiling::Vcs,
+        &OsFs,
+        &ConfigOverrides::default(),
+        &ConfigCache::new(),
+    )
+    .map(|resolved| {
+        resolved
+            .sources
+            .iter()
+            .map(|source| relative(dir, &source.path))
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
 fn write_starter(args: &InitArgs) -> Result<(), CliError> {
     let dir = std::path::absolute(&args.path).map_err(|error| CliError::io("cannot resolve", &args.path, &error))?;
     if !dir.is_dir() {
@@ -125,6 +147,7 @@ fn write_starter(args: &InitArgs) -> Result<(), CliError> {
             )
         });
     }
+    let inherited = inherited_files(&dir);
     let target = dir.join(CONFIG_FILE_NAMES[0]);
     let mut file = OpenOptions::new()
         .write(true)
@@ -139,7 +162,11 @@ fn write_starter(args: &InitArgs) -> Result<(), CliError> {
         })?;
     file.write_all(STARTER_CONFIG.as_bytes())
         .map_err(|error| CliError::io("cannot write", &target, &error))?;
-    write_stdout(format!("Created {}\n", slash(&target)).as_bytes())
+    let mut message = format!("Created {}\n", slash(&target));
+    if !inherited.is_empty() {
+        let _ = writeln!(message, "Note: it will inherit from {}", inherited.join(", "));
+    }
+    write_stdout(message.as_bytes())
 }
 
 pub fn init(args: &InitArgs) -> u8 {

@@ -1,0 +1,9 @@
+---
+source: crates/skif-cli/tests/config.rs
+expression: "header.join(\"\\n\")"
+---
+# root: .
+# sources, in the order applied:
+#   1. ../skif.toml (ancestor)
+#   2. ../presets/base.toml (extended by skif.toml)
+#   3. skif.toml (root)

@@ -29,6 +29,8 @@ pub enum Command {
     Schema,
     /// Write a starter `skif.toml`; refuses to overwrite an existing configuration.
     Init(InitArgs),
+    /// Show the configuration files a root is built from, the merged result, and where each key was set.
+    Config(ConfigArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -38,7 +40,7 @@ pub struct RulesArgs {
     pub format: RulesFormat,
 }
 
-/// Output format of `skif rules`.
+/// Output format of `skif rules` and `skif config`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
 pub enum RulesFormat {
     /// An aligned table.
@@ -62,6 +64,34 @@ pub struct InitArgs {
     /// Directory to write `skif.toml` into.
     #[arg(default_value = ".")]
     pub path: PathBuf,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ConfigArgs {
+    /// A path inside a project, resolved to its root as for linting.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+
+    /// Report every workspace and standalone package at or below PATH, each with its own configuration.
+    #[arg(short, long)]
+    pub recursive: bool,
+
+    /// Print the configuration files in the order they apply, then the effective configuration.
+    #[arg(long, conflicts_with = "explain", required_unless_present = "explain")]
+    pub show: bool,
+
+    /// Print every assignment of a configuration key (`lint.fail-on-warnings`, `rules.ID.level`, `version-groups[0]`)
+    /// and its final value.
+    #[arg(long, value_name = "KEY")]
+    pub explain: Option<String>,
+
+    /// With --explain, also list the overrides that apply to this package.
+    #[arg(long, value_name = "NAME", requires = "explain")]
+    pub package: Option<String>,
+
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = RulesFormat::Human)]
+    pub format: RulesFormat,
 }
 
 /// Output format.
