@@ -1,0 +1,10 @@
+extends = ["presets/base.toml"]
+
+[js]
+enabled = false
+
+[[overrides]]
+packages = ["./web/packages/gen"]
+
+[overrides.rules]
+empty-dependencies = "info"
