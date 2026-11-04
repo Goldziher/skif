@@ -78,3 +78,13 @@ cargo build --release
 ```
 
 The binary is `target/release/skif`.
+
+## Supported versions
+
+skif supports the versions of Node.js, Bun, Rust and the package managers its upstream still supports; where an
+upstream has no end-of-life policy, the latest two major versions. Today that is Node.js 22, 24 and 26, all of Bun
+1.x, and the latest two majors of npm, pnpm and Yarn 2+. Yarn Classic (1.x) workspaces are read but not tested.
+
+Older versions may work, but there is no guarantee: they are not tested, not blocked (`engines` is advisory), and
+bugs reproducible only on them are not fixed. A version is dropped in the first release after it reaches
+end-of-life ([ADR 0027](https://github.com/Goldziher/skif/blob/main/adrs/0027-supported-versions-follow-upstream-end-of-life-policies.md)).

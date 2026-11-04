@@ -22,6 +22,7 @@ skif -r              # lint every workspace and standalone package at or below t
 skif --fix           # apply safe fixes, lint again, then run the package manager's install
 skif --format json   # one JSON document on stdout
 skif rules           # list every rule
+skif config --show    # print the configuration files and the effective configuration
 skif init            # write a starter skif.toml
 ```
 
