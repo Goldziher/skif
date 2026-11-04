@@ -6,7 +6,8 @@
 # The directory must hold exactly the umbrella `skif` and the six platform packages, no more and no fewer. The
 # umbrella must ship the generated loader (index.js, index.d.ts) and the bin, and list the six platform packages
 # as optional dependencies; each platform package must ship its .node addon. This is what turns a missing
-# artifact (the loader is generated, not committed) into a failed job instead of a broken release.
+# artifact (the loader is generated, not committed) into a failed job instead of a broken release. Every package
+# also carries LICENSE and ATTRIBUTIONS.md, the notices the MIT and ISC code inside the addon requires.
 set -euo pipefail
 
 dir="${1:?usage: check-npm-tarballs.sh <directory-of-tarballs> <version>}"
@@ -51,7 +52,7 @@ require() {
 }
 
 if [[ -f "${dir}/skif-${version}.tgz" ]]; then
-  for member in index.js index.d.ts bin/skif.js package.json LICENSE README.md; do
+  for member in index.js index.d.ts bin/skif.js package.json LICENSE ATTRIBUTIONS.md README.md; do
     require "skif-${version}.tgz" "$member"
   done
   declared="$(tar -xzOf "${dir}/skif-${version}.tgz" package/package.json |
@@ -68,6 +69,8 @@ for platform in "${platforms[@]}"; do
   [[ -f "${dir}/${tarball}" ]] || continue
   require "$tarball" "skif.${platform}.node"
   require "$tarball" "package.json"
+  require "$tarball" "LICENSE"
+  require "$tarball" "ATTRIBUTIONS.md"
 done
 
 if [[ "$failures" -ne 0 ]]; then

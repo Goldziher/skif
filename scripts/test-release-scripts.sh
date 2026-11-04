@@ -1,0 +1,231 @@
+#!/usr/bin/env bash
+# Tests the release scripts against stubs and fixtures, so the first real tag is not their first run:
+#   homebrew-update.sh, scoop-update.sh   formula and manifest output from a checksums.txt (missing asset, bad hash)
+#   publish-crates.sh                     crates.io probe 200 / 404 / 429 and the publish order, with stub cargo and curl
+#   release-bump.sh, check-versions.sh    a bump on a temp copy of the tree, then the consistency check
+#   check-archive.sh, check-release-gate.sh
+#
+# Usage: scripts/test-release-scripts.sh
+# The literals checked below contain `$` on purpose; nothing is meant to expand.
+# shellcheck disable=SC2016
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+repo="$PWD"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+failures=0
+fail() {
+  echo "FAIL $*" >&2
+  failures=$((failures + 1))
+}
+
+# expect <label> <expected exit status> <command...>: runs the command, output to ${work}/out.
+expect() {
+  local label="$1" want="$2" status=0
+  shift 2
+  "$@" >"${work}/out" 2>&1 || status=$?
+  if [[ "$status" -ne "$want" ]]; then
+    fail "${label}: exit ${status}, want ${want}"
+    sed 's/^/    /' "${work}/out" >&2
+  fi
+}
+
+expect_in_out() {
+  grep -qF -- "$2" "${work}/out" || fail "$1: output does not contain '$2'"
+}
+
+# ---------------------------------------------------------------- checksums fixtures
+hex() { printf '%064d' "$1"; }
+sums="${work}/checksums.txt"
+n=0
+while IFS= read -r asset; do
+  [[ "$asset" == checksums.txt ]] && continue
+  n=$((n + 1))
+  printf '%s  %s\n' "$(hex "$n")" "$asset" >>"$sums"
+done < <(bash scripts/release-assets.sh)
+
+# ---------------------------------------------------------------- homebrew
+expect "homebrew formula" 0 bash scripts/homebrew-update.sh 1.2.3 "$sums" Acme/skif
+formula="$(bash scripts/homebrew-update.sh 1.2.3 "$sums" Acme/skif)"
+for want in 'version "1.2.3"' 'https://github.com/Acme/skif/releases/download/v1.2.3/skif-aarch64-apple-darwin.tar.gz' \
+  "$(hex 1)" "$(hex 2)" "$(hex 3)" "$(hex 4)"; do
+  grep -qF -- "$want" <<<"$formula" || fail "homebrew formula lacks '${want}'"
+done
+
+grep -v 'skif-x86_64-apple-darwin' "$sums" >"${work}/missing-asset.txt"
+expect "homebrew missing asset" 1 bash scripts/homebrew-update.sh 1.2.3 "${work}/missing-asset.txt"
+expect_in_out "homebrew missing asset" "skif-x86_64-apple-darwin.tar.gz"
+
+sed 's/^[0-9]\{64\}/not-a-hash/' "$sums" >"${work}/bad-hash.txt"
+expect "homebrew bad hash" 1 bash scripts/homebrew-update.sh 1.2.3 "${work}/bad-hash.txt"
+expect_in_out "homebrew bad hash" "not a sha256"
+expect "homebrew no checksums file" 1 bash scripts/homebrew-update.sh 1.2.3 "${work}/nope.txt"
+expect "homebrew usage" 1 bash scripts/homebrew-update.sh
+
+# ---------------------------------------------------------------- scoop
+if command -v jq >/dev/null 2>&1; then
+  manifest="$(bash scripts/scoop-update.sh 1.2.3 "$sums" Acme/skif)"
+  [[ "$(jq -r '.version' <<<"$manifest")" == 1.2.3 ]] || fail "scoop manifest version"
+  [[ "$(jq -r '.architecture."64bit".url' <<<"$manifest")" == \
+    https://github.com/Acme/skif/releases/download/v1.2.3/skif-x86_64-pc-windows-msvc.zip ]] || fail "scoop x64 url"
+  [[ "$(jq -r '.architecture."64bit".hash' <<<"$manifest")" == "$(hex 7)" ]] || fail "scoop x64 hash"
+  [[ "$(jq -r '.architecture.arm64.hash' <<<"$manifest")" == "$(hex 8)" ]] || fail "scoop arm64 hash"
+  [[ "$(jq -r '.autoupdate.hash.url' <<<"$manifest")" == *'/v$version/checksums.txt' ]] || fail "scoop autoupdate hash url"
+
+  grep -v 'windows-msvc.zip' "$sums" >"${work}/no-windows.txt"
+  expect "scoop missing asset" 1 bash scripts/scoop-update.sh 1.2.3 "${work}/no-windows.txt"
+  expect "scoop bad hash" 1 bash scripts/scoop-update.sh 1.2.3 "${work}/bad-hash.txt"
+else
+  echo "skip scoop tests: jq is not installed" >&2
+fi
+
+# ---------------------------------------------------------------- publish-crates
+stubs="${work}/stubs"
+mkdir -p "$stubs"
+cat >"${stubs}/curl" <<'STUB'
+#!/usr/bin/env bash
+# Prints the HTTP status the crates.io probe asked for with -w '%{http_code}'.
+printf '%s' "${STUB_HTTP_CODE:?}"
+STUB
+cat >"${stubs}/cargo" <<'STUB'
+#!/usr/bin/env bash
+# Logs every call; `cargo publish -p <crate>` follows STUB_CARGO_MODE:
+#   ok | rate-limit-once | rate-limit-always | exists
+echo "$*" >>"${STUB_LOG:?}"
+[[ "$1 $2" == "publish -p" ]] || exit 0
+crate="$3"
+case "${STUB_CARGO_MODE:-ok}" in
+ok) exit 0 ;;
+exists)
+  echo "error: crate ${crate}@1.2.3 already exists on crates.io index" >&2
+  exit 101
+  ;;
+rate-limit-always)
+  echo "error: failed to publish: 429 Too Many Requests" >&2
+  exit 101
+  ;;
+rate-limit-once)
+  marker="${STUB_LOG}.${crate}.limited"
+  if [[ ! -e "$marker" ]]; then
+    : >"$marker"
+    echo "error: failed to publish: 429 Too Many Requests" >&2
+    exit 101
+  fi
+  exit 0
+  ;;
+esac
+STUB
+chmod +x "${stubs}/curl" "${stubs}/cargo"
+
+# crates_case <label> <expected status> <http code> <cargo mode> <extra env...>; the log is left in ${work}/cargo.log.
+crates_case() {
+  local label="$1" want="$2" code="$3" mode="$4"
+  shift 4
+  rm -f "${work}"/cargo.log*
+  expect "publish-crates: ${label}" "$want" env PATH="${stubs}:${PATH}" STUB_LOG="${work}/cargo.log" \
+    STUB_HTTP_CODE="$code" STUB_CARGO_MODE="$mode" VERSION=1.2.3 MAX_ATTEMPTS=3 BACKOFF_SECONDS=0 SETTLE_SECONDS=0 \
+    "$@" bash scripts/publish-crates.sh
+}
+published_crates() { sed -n 's/^publish -p \([^ ]*\) .*/\1/p' "${work}/cargo.log" | uniq; }
+
+crates_case "unpublished crates go out leaves first after a workspace dry run" 0 404 ok
+if [[ "$(head -n 1 "${work}/cargo.log")" != publish\ --workspace\ --dry-run* ]]; then
+  fail "publish-crates: the first cargo call is not the workspace dry run"
+fi
+order="$(published_crates | paste -sd, -)"
+case "$order" in
+skif-core,skif-specifier,*,skif,skif-cli) ;;
+*) fail "publish-crates: unexpected publish order: ${order}" ;;
+esac
+[[ "$(published_crates | wc -l | tr -d ' ')" -eq 13 ]] || fail "publish-crates: expected 13 crates, got ${order}"
+
+crates_case "versions already on crates.io are skipped" 0 200 ok
+[[ ! -s "${work}/cargo.log" ]] || fail "publish-crates: cargo ran although every version is published"
+
+crates_case "dry run uploads nothing" 0 404 ok DRY_RUN=true
+[[ -z "$(published_crates)" ]] || fail "publish-crates: a dry run published"
+grep -q -- '--dry-run' "${work}/cargo.log" || fail "publish-crates: the dry run did not run cargo publish --dry-run"
+
+crates_case "429 is retried" 0 404 rate-limit-once
+[[ "$(grep -c '^publish -p skif-core ' "${work}/cargo.log")" -eq 2 ]] || fail "publish-crates: skif-core was not retried once"
+
+crates_case "a persistent 429 fails the release" 1 404 rate-limit-always
+[[ "$(grep -c '^publish -p skif-core ' "${work}/cargo.log")" -eq 3 ]] || fail "publish-crates: expected 3 attempts"
+
+crates_case "'already exists' is a skip" 0 404 exists
+crates_case "a missing VERSION is refused" 1 404 ok VERSION=
+
+# ---------------------------------------------------------------- release-bump + check-versions
+tree="${work}/tree"
+mkdir -p "$tree"
+tar -cf - Cargo.toml crates/*/Cargo.toml npm-package/package.json poly-hooks.toml .pre-commit-hooks.yaml scripts |
+  tar -xf - -C "$tree"
+current="$(bash scripts/check-versions.sh 2>/dev/null | sed -n 's/.*agree on \(.*\)/\1/p')"
+[[ -n "$current" ]] || fail "check-versions: the repository itself is inconsistent"
+
+expect "release-bump rejects a bad version" 1 env SKIP_CARGO_UPDATE=1 bash "${tree}/scripts/release-bump.sh" 1.2
+expect "release-bump bumps every surface" 0 env SKIP_CARGO_UPDATE=1 bash "${tree}/scripts/release-bump.sh" 9.8.7
+expect "check-versions after the bump" 0 bash "${tree}/scripts/check-versions.sh" 9.8.7
+[[ "$(jq -r '.version' "${tree}/npm-package/package.json")" == 9.8.7 ]] || fail "release-bump: npm-package version"
+grep -qF 'SKIF_VERSION="${SKIF_VERSION:-v9.8.7}"' "${tree}/scripts/pre-commit/run-skif.sh" || fail "release-bump: launcher pin"
+grep -qF '"=9.8.7"' "${tree}/Cargo.toml" || fail "release-bump: internal dependency pin"
+
+jq '.version = "0.0.1"' "${tree}/npm-package/package.json" >"${work}/package.json"
+cat "${work}/package.json" >"${tree}/npm-package/package.json"
+expect "check-versions catches a drifted npm version" 1 bash "${tree}/scripts/check-versions.sh" 9.8.7
+expect_in_out "check-versions drift" "npm-package/package.json version"
+
+# ---------------------------------------------------------------- check-archive
+archive_dir="${work}/archives"
+mkdir -p "${archive_dir}/full" "${archive_dir}/bare"
+for member in skif skif.exe LICENSE ATTRIBUTIONS.md; do echo "$member" >"${archive_dir}/full/${member}"; done
+for member in skif skif.exe LICENSE; do echo "$member" >"${archive_dir}/bare/${member}"; done
+tar czf "${archive_dir}/skif-x86_64-unknown-linux-gnu.tar.gz" -C "${archive_dir}/full" skif LICENSE ATTRIBUTIONS.md
+tar czf "${archive_dir}/skif-bare-unknown-linux-gnu.tar.gz" -C "${archive_dir}/bare" skif LICENSE
+expect "check-archive accepts a complete tarball" 0 bash scripts/check-archive.sh "${archive_dir}/skif-x86_64-unknown-linux-gnu.tar.gz"
+expect "check-archive rejects a tarball without ATTRIBUTIONS.md" 1 bash scripts/check-archive.sh "${archive_dir}/skif-bare-unknown-linux-gnu.tar.gz"
+expect_in_out "check-archive missing notice" "ATTRIBUTIONS.md"
+if command -v python3 >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
+  zip_members() { (cd "$1" && python3 -I -m zipfile -c "$2" "${@:3}"); }
+  zip_members "${archive_dir}/full" "${archive_dir}/skif-x86_64-pc-windows-msvc.zip" skif.exe LICENSE ATTRIBUTIONS.md
+  zip_members "${archive_dir}/bare" "${archive_dir}/skif-bare-pc-windows-msvc.zip" skif.exe LICENSE
+  expect "check-archive accepts a complete zip" 0 bash scripts/check-archive.sh "${archive_dir}/skif-x86_64-pc-windows-msvc.zip"
+  expect "check-archive rejects an incomplete zip" 1 bash scripts/check-archive.sh "${archive_dir}/skif-bare-pc-windows-msvc.zip"
+fi
+expect "check-archive needs an archive" 2 bash scripts/check-archive.sh
+
+# ---------------------------------------------------------------- check-release-gate
+cat >"${stubs}/gh" <<'STUB'
+#!/usr/bin/env bash
+# `gh run list ... --jq length` prints the number of green runs the test configured.
+printf '%s\n' "${STUB_GREEN_RUNS:?}"
+STUB
+chmod +x "${stubs}/gh"
+
+gate="${work}/gate-repo"
+git init -q -b main "$gate"
+git_in() { git -C "$gate" -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false -c tag.gpgsign=false "$@"; }
+git_in commit -q --allow-empty -m "on main"
+git_in tag v1.0.0
+git_in checkout -q -b feature
+git_in commit -q --allow-empty -m "only on a branch"
+git_in tag v1.1.0
+
+gate_case() {
+  local label="$1" want="$2" tag="$3" green="$4"
+  expect "release gate: ${label}" "$want" env PATH="${stubs}:${PATH}" STUB_GREEN_RUNS="$green" MAIN_REF=main \
+    bash -c 'cd "$1" && bash "$2/scripts/check-release-gate.sh" "$3"' _ "$gate" "$repo" "$tag"
+}
+gate_case "a green tag on main passes" 0 v1.0.0 1
+gate_case "a tag without a green CI run is refused" 1 v1.0.0 0
+expect_in_out "release gate: no green run" "no successful ci.yml run"
+gate_case "a tag that is not on main is refused" 1 v1.1.0 1
+expect_in_out "release gate: not on main" "not an ancestor"
+
+if [[ "$failures" -ne 0 ]]; then
+  echo "${failures} case(s) failed" >&2
+  exit 1
+fi
+echo "release scripts: all cases passed"
