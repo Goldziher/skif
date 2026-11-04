@@ -250,3 +250,121 @@ fn each_config_file_is_read_once_per_run() {
     assert_eq!(configs.len(), 3, "{reads:?}");
     assert!(configs.iter().all(|(_, count)| **count == 1), "{configs:?}");
 }
+
+/// A workspace whose members `a` and `b` can carry package files.
+fn workspace_with(a_file: Option<&str>, root_file: &str) -> MemoryFs {
+    let fs = MemoryFs::new()
+        .with_file("/ws/skif.toml", root_file)
+        .with_file("/ws/package.json", r#"{"name": "ws", "private": true, "workspaces": ["packages/*"]}"#)
+        .with_file("/ws/packages/a/package.json", package("a"))
+        .with_file("/ws/packages/b/package.json", package("b"));
+    match a_file {
+        Some(text) => fs.with_file("/ws/packages/a/skif.toml", text),
+        None => fs,
+    }
+}
+
+fn load_ws(fs: &MemoryFs, overrides: &ConfigOverrides) -> Result<Target, skif::Error> {
+    load_target(Path::new("/ws"), &Ceiling::RootOnly, fs, overrides, &ConfigCache::new())
+}
+
+#[test]
+fn a_package_file_becomes_an_override_scoped_to_its_package() {
+    let fs = workspace_with(
+        Some("[rules]\nempty-dependencies = \"off\"\n\n[lint]\nmax-level = \"warn\"\n\n[[ignore]]\nrules = [\"unused-files\"]\n"),
+        "[rules]\nempty-dependencies = \"error\"\n",
+    );
+    let target = load_ws(&fs, &ConfigOverrides::default()).unwrap();
+    let [scoped] = target.config.overrides.as_slice() else {
+        panic!("{:?}", target.config.overrides)
+    };
+    assert_eq!(scoped.max_level, Some(Level::Warn));
+    assert_eq!(scoped.rules["empty-dependencies"].severity, Some(Level::Off));
+    assert_eq!(scoped.ignore.len(), 1);
+    assert!(scoped.applies_to(Some(("a", Path::new("/ws/packages/a"))), None));
+    assert!(!scoped.applies_to(Some(("b", Path::new("/ws/packages/b"))), None));
+    assert!(!scoped.applies_to(None, Some(Path::new("/ws/package.json"))));
+
+    let last = target.sources.last().unwrap();
+    assert_eq!(last.kind, SourceKind::Package);
+    assert_eq!(last.path, Path::new("/ws/packages/a/skif.toml"));
+    assert_eq!(target.config_file, Some(PathBuf::from("/ws/skif.toml")));
+    assert_eq!(target.config_path(), Some(PathBuf::from("skif.toml")));
+    assert_eq!(target.origins.last("overrides[0]").unwrap().source, target.sources.len() - 1);
+    assert_eq!(target.config.rules["empty-dependencies"].severity, Some(Level::Error));
+}
+
+#[test]
+fn package_files_apply_after_the_overrides_of_the_chain_outermost_first() {
+    let fs = workspace_with(
+        Some("[rules]\nempty-dependencies = \"info\"\n"),
+        "[[overrides]]\npackages = [\"b\"]\nmax-level = \"warn\"\n",
+    )
+    .with_file("/ws/packages/b/skif.toml", "[rules]\nempty-dependencies = \"warn\"\n");
+    let target = load_ws(&fs, &ConfigOverrides::default()).unwrap();
+    let origins: Vec<_> = target
+        .config
+        .overrides
+        .iter()
+        .map(|scoped| scoped.scope.as_ref().unwrap().declared_in.clone())
+        .collect();
+    assert_eq!(
+        origins,
+        [
+            PathBuf::from("/ws"),
+            PathBuf::from("/ws/packages/a"),
+            PathBuf::from("/ws/packages/b")
+        ]
+    );
+}
+
+#[test]
+fn a_package_file_with_a_root_scoped_key_is_a_scope_error() {
+    for (text, key) in [
+        ("[workspace]\nignore-packages = [\"x\"]\n", "workspace"),
+        ("[lint]\nfail-on-warnings = true\n", "lint.fail-on-warnings"),
+        ("[js]\nproduction = true\n", "js.production"),
+        ("[rules.empty-dependencies]\nlevel = \"warn\"\nfoo = 1\n", "rules.empty-dependencies.foo"),
+        ("extends = [\"../../skif.toml\"]\n", "extends"),
+        ("root = true\n", "root"),
+        ("[[version-groups]]\ndependencies = [\"x\"]\n", "version-groups"),
+    ] {
+        let fs = workspace_with(Some(text), "");
+        let error = load_ws(&fs, &ConfigOverrides::default()).unwrap_err();
+        match error {
+            skif::Error::Config(skif::ConfigError::Scope { key: found, path, line, .. }) => {
+                assert_eq!(found, key, "{text}");
+                assert_eq!(path.as_deref(), Some(Path::new("/ws/packages/a/skif.toml")));
+                assert!(line.is_some(), "{text}");
+            }
+            other => panic!("{text}: {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn no_config_skips_package_files() {
+    let fs = workspace_with(Some("[rules]\nempty-dependencies = \"off\"\n"), "");
+    let overrides = ConfigOverrides {
+        no_config: true,
+        ..ConfigOverrides::default()
+    };
+    assert!(load_ws(&fs, &overrides).unwrap().config.overrides.is_empty());
+}
+
+#[test]
+fn a_file_in_a_directory_that_is_not_a_member_is_not_a_package_file() {
+    let fs = workspace_with(None, "").with_file("/ws/packages/c/skif.toml", "[workspace]\nignore-packages = [\"x\"]\n");
+    assert!(load_ws(&fs, &ConfigOverrides::default()).unwrap().config.overrides.is_empty());
+}
+
+#[test]
+fn a_member_directory_is_not_a_root_of_its_own() {
+    let fs = workspace_with(Some("[rules]\nempty-dependencies = \"off\"\n"), "");
+    let targets = discover_all(Path::new("/ws"), &fs, &ConfigOverrides::default()).unwrap();
+    let roots: Vec<_> = targets.iter().map(|target| target.root.clone()).collect();
+    assert_eq!(roots, [PathBuf::from("/ws")]);
+    let direct = find_target(Path::new("/ws/packages/a"), &fs, &ConfigOverrides::default()).unwrap();
+    assert_eq!(direct.root, Path::new("/ws"));
+    assert_eq!(direct.config.overrides, targets[0].config.overrides);
+}
