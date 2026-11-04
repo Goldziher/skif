@@ -15,7 +15,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
 use crate::corpus::{self, Repo, Tools};
-use crate::diff::{self, BASELINE_SCHEMA, Baseline, COMPARED, Counts, Entry, Gate, Keys, Samples};
+use crate::diff::{self, BASELINE_SCHEMA, Baseline, COMPARED, Counts, Deviation, Entry, Gate, Keys, Samples, Side};
 use crate::proc::{capture, find_on_path};
 
 /// skif rule to knip issue type.
@@ -53,6 +53,34 @@ const KNIP_CATEGORIES: [(&str, &str); 14] = [
     ("duplicates", "duplicates"),
 ];
 
+pub const NON_CODE_FILE: &str = "non-code-file";
+pub const TEST_FILE: &str = "test-file";
+pub const FIXTURE_FILE: &str = "fixture-file";
+
+/// The intended differences between skif and knip in the `files` category.
+pub const KNIP_DEVIATIONS: [Deviation; 3] = [
+    Deviation {
+        id: NON_CODE_FILE,
+        reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
+    },
+    Deviation {
+        id: TEST_FILE,
+        reason: "skif treats test files and test directories as entries, so it never reports them as unused; knip does without its test-runner plugin",
+    },
+    Deviation {
+        id: FIXTURE_FILE,
+        reason: "skif skips fixture directories (ADR 0023); knip reports their files as unused",
+    },
+];
+
+/// Extensions skif parses and follows; every other file is outside its project set.
+const CODE_EXTENSIONS: [&str; 11] = [
+    "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "vue", "svelte", "astro",
+];
+
+const TEST_DIRECTORIES: [&str; 6] = ["test", "tests", "__tests__", "e2e", "cypress", "__mocks__"];
+const FIXTURE_DIRECTORIES: [&str; 5] = ["fixtures", "__fixtures__", "fixture", "test_root", "testdata"];
+
 /// Marker written into a checkout once its dependencies are installed, holding the pinned commit.
 const INSTALLED_MARKER: &str = ".skif-bench-installed";
 
@@ -64,6 +92,10 @@ pub struct Options {
     pub only: Vec<String>,
     pub install: bool,
     pub recursive: bool,
+    /// Run knip with the repository's own configuration instead of an empty one.
+    pub repo_knip_config: bool,
+    /// Count test and fixture files in the knip-only `files` instead of reporting them as known deviations.
+    pub include_test_files: bool,
     pub timeout: Duration,
     pub gate: Gate,
 }
@@ -79,6 +111,16 @@ pub fn normalize(raw: &str, root: &Path) -> String {
 /// The backtick-quoted names in a diagnostic message.
 fn backticked(message: &str) -> Vec<&str> {
     message.split('`').skip(1).step_by(2).collect()
+}
+
+/// The name of an enum or namespace member without its `Enum.` or `ns.` qualifier: skif names `Enum.Member`, knip
+/// names `Member`.
+fn member_name(category: &str, name: &str) -> String {
+    if matches!(category, "enumMembers" | "namespaceMembers") {
+        name.rsplit('.').next().unwrap_or(name).to_owned()
+    } else {
+        name.to_owned()
+    }
 }
 
 fn joined_sorted(mut names: Vec<String>) -> String {
@@ -120,7 +162,7 @@ pub fn skif_keys(document: &Value, root: &Path) -> Keys {
                     .and_then(Value::as_str)
                     .or_else(|| names.first().copied())
                     .unwrap_or_default();
-                format!("{path}|{name}")
+                format!("{path}|{}", member_name(category, name))
             }
         };
         keys.entry((*category).to_owned()).or_default().insert(key);
@@ -177,45 +219,105 @@ pub fn knip_keys(document: &Value, root: &Path) -> Keys {
             if category == "files" {
                 set.insert(file.clone());
             } else {
-                set.extend(names.into_iter().map(|name| format!("{file}|{name}")));
+                set.extend(
+                    names
+                        .into_iter()
+                        .map(|name| format!("{file}|{}", member_name(category, &name))),
+                );
             }
         }
     }
     keys
 }
 
+/// Whether a knip-reported unused file is a known deviation: outside skif's project set (not code), a fixture, or a
+/// test. Fixtures and tests only count when `include_test_files` is off.
+fn classify_file(path: &str, include_test_files: bool) -> Option<&'static str> {
+    let normalized = path.replace('\\', "/");
+    let (directories, name) = normalized.rsplit_once('/').unwrap_or(("", normalized.as_str()));
+    let extension = name
+        .rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase());
+    if !extension.is_some_and(|e| CODE_EXTENSIONS.contains(&e.as_str())) {
+        return Some(NON_CODE_FILE);
+    }
+    if include_test_files {
+        return None;
+    }
+    let mut parts = directories.split('/');
+    if parts.any(|p| FIXTURE_DIRECTORIES.contains(&p) || p == "__testfixtures__" || p.ends_with("-fixtures")) {
+        return Some(FIXTURE_FILE);
+    }
+    let in_test_directory = directories.split('/').any(|p| TEST_DIRECTORIES.contains(&p));
+    let test_name = [".test.", ".spec.", "_spec.", "_test."]
+        .iter()
+        .any(|marker| name.contains(marker));
+    (in_test_directory || test_name).then_some(TEST_FILE)
+}
+
+/// The knip report in its stdout, which may carry banners or log lines around the JSON (dotenv, console output of
+/// config files). Tries every `{` that starts a line or a string key, and accepts the first object that is a report.
+fn parse_knip_report(stdout: &[u8]) -> Result<Value, String> {
+    let text = String::from_utf8_lossy(stdout);
+    if text.trim().is_empty() {
+        return Err("stdout is empty".to_owned());
+    }
+    let bytes = text.as_bytes();
+    let (line_starts, inline): (Vec<usize>, Vec<usize>) = text
+        .match_indices('{')
+        .map(|(at, _)| at)
+        .filter(|&at| at == 0 || bytes[at - 1] == b'\n' || bytes.get(at + 1) == Some(&b'"'))
+        .partition(|&at| at == 0 || bytes[at - 1] == b'\n');
+    let mut first_error = None;
+    for start in line_starts.into_iter().chain(inline.into_iter().take(256)) {
+        match serde_json::Deserializer::from_str(&text[start..])
+            .into_iter::<Value>()
+            .next()
+        {
+            Some(Ok(document))
+                if document.get("issues").is_some_and(Value::is_array)
+                    || document.get("files").is_some_and(Value::is_array) =>
+            {
+                return Ok(document);
+            }
+            Some(Err(error)) => {
+                first_error.get_or_insert_with(|| error.to_string());
+            }
+            _ => {}
+        }
+    }
+    Err(first_error.map_or_else(
+        || format!("no knip report in the {} bytes of stdout", stdout.len()),
+        |error| format!("no knip report in stdout; first parse error: {error}"),
+    ))
+}
+
 fn total(keys: &Keys) -> usize {
     keys.values().map(std::collections::BTreeSet::len).sum()
 }
 
-/// The install command of a package manager, or why there is none.
-fn install_command(repo: &Repo, dir: &Path) -> Result<(String, Vec<&'static str>), String> {
+/// The install command of a repository (program first), or why there is none.
+fn install_command(repo: &Repo, dir: &Path) -> Result<(String, Vec<String>), String> {
     if !repo.install {
         return Err(format!("install is disabled for this repository: {}", repo.notes));
     }
-    match repo.package_manager.as_str() {
-        "pnpm" => Ok((
-            "pnpm".to_owned(),
-            vec!["install", "--ignore-scripts", "--frozen-lockfile"],
-        )),
-        "npm" => Ok(("npm".to_owned(), vec!["ci", "--ignore-scripts"])),
-        "bun" => Ok((
-            "bun".to_owned(),
-            vec!["install", "--ignore-scripts", "--frozen-lockfile"],
-        )),
-        "yarn" if dir.join(".yarnrc.yml").is_file() => {
-            Ok(("yarn".to_owned(), vec!["install", "--immutable", "--mode=skip-build"]))
-        }
-        "yarn" => Ok((
-            "yarn".to_owned(),
-            vec!["install", "--frozen-lockfile", "--ignore-scripts"],
-        )),
-        other => Err(format!("no install step for package manager {other}")),
+    if let Some((program, args)) = repo.install_command.split_first() {
+        return Ok((program.clone(), args.to_vec()));
     }
+    let (program, args): (&str, &[&str]) = match repo.package_manager.as_str() {
+        "pnpm" => ("pnpm", &["install", "--ignore-scripts", "--frozen-lockfile"]),
+        "npm" => ("npm", &["ci", "--ignore-scripts"]),
+        "bun" => ("bun", &["install", "--ignore-scripts", "--frozen-lockfile"]),
+        "yarn" if dir.join(".yarnrc.yml").is_file() => ("yarn", &["install", "--immutable", "--mode=skip-build"]),
+        "yarn" => ("yarn", &["install", "--frozen-lockfile", "--ignore-scripts"]),
+        other => return Err(format!("no install step for package manager {other}")),
+    };
+    Ok((program.to_owned(), args.iter().map(|a| (*a).to_owned()).collect()))
 }
 
 /// Installs the dependencies of a checkout without running lifecycle scripts; `Some(reason)` when that fails.
-fn install(repo: &Repo, dir: &Path, scratch: &Path, timeout: Duration) -> Result<Option<String>> {
+fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duration) -> Result<Option<String>> {
+    let timeout = repo.install_timeout_secs.map_or(default_timeout, Duration::from_secs);
     let marker = dir.join(INSTALLED_MARKER);
     if fs::read_to_string(&marker).is_ok_and(|rev| rev.trim() == repo.rev) {
         return Ok(None);
@@ -239,7 +341,10 @@ fn install(repo: &Repo, dir: &Path, scratch: &Path, timeout: Duration) -> Result
         timeout,
     )?;
     if run.timed_out {
-        return Ok(Some(format!("{program} install timed out")));
+        return Ok(Some(format!(
+            "{program} install timed out after {} s",
+            timeout.as_secs()
+        )));
     }
     if run.code != Some(0) {
         return Ok(Some(format!("{program} install failed: {}", run.stderr_summary())));
@@ -274,7 +379,8 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
     skif_command
         .args([".", "--format", "json", "--no-install"])
         .current_dir(&root);
-    if options.recursive {
+    let recursive = options.recursive || repo.recursive;
+    if recursive {
         skif_command.arg("--recursive");
     }
     let skif_run = capture(&mut skif_command, &scratch, "skif", options.timeout)?;
@@ -293,28 +399,44 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
     }
 
     let spec = format!("knip@{}", tools.knip);
-    let knip_run = capture(
-        Command::new("npx")
-            .args(["--yes", spec.as_str(), "--reporter", "json"])
-            .current_dir(&root)
-            .env("CI", "1"),
-        &scratch,
-        "knip",
-        options.timeout,
-    )?;
+    let mut knip_command = Command::new("npx");
+    knip_command
+        .args(["--yes", spec.as_str(), "--reporter", "json"])
+        .current_dir(&root)
+        .env("CI", "1")
+        .env("DOTENV_CONFIG_QUIET", "true");
+    if !options.repo_knip_config {
+        let config = empty_knip_config(&scratch)?;
+        knip_command.arg("--config").arg(config);
+    }
+    let knip_run = capture(&mut knip_command, &scratch, "knip", options.timeout)?;
     if knip_run.timed_out {
         return Ok(skipped("knip timed out"));
     }
-    let knip_doc: Value = match serde_json::from_slice(&knip_run.stdout) {
+    let knip_doc = match parse_knip_report(&knip_run.stdout) {
         Ok(doc) => doc,
-        Err(_) => return Ok(skipped(format!("knip failed: {}", knip_run.stderr_summary()))),
+        Err(reason) => {
+            return Ok(skipped(format!(
+                "knip failed (exit {}): {reason}; stderr: {}",
+                knip_run.code.map_or_else(|| "none".to_owned(), |c| c.to_string()),
+                knip_run.stderr_summary()
+            )));
+        }
     };
 
     let skif_found = skif_keys(&skif_doc, &root);
     let knip_found = knip_keys(&knip_doc, &root);
-    let (counts, samples) = diff::compare(&skif_found, &knip_found);
+    let split = diff::split_known(&skif_found, &knip_found, &|side, category, key| {
+        (side == Side::Tool && category == "files")
+            .then(|| classify_file(key, options.include_test_files))
+            .flatten()
+    });
+    let (counts, samples) = diff::compare(&split.skif, &split.tool);
     let detail = json!({
         "status": COMPARED,
+        "recursive": recursive,
+        "known_deviations": split.known,
+        "known_samples": split.samples,
         "skif_ms": skif_run.elapsed.as_millis(),
         "knip_ms": knip_run.elapsed.as_millis(),
         "skif_total": total(&skif_found),
@@ -322,9 +444,18 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         "categories": category_detail(&counts, &samples),
     });
     Ok(Outcome {
-        entry: Entry::compared(counts),
+        entry: Entry::compared(counts).with_known(split.known),
         detail,
     })
+}
+
+/// An empty knip configuration, so the repository's own settings (ignores, `files: off`, ignored workspaces) do not
+/// hide findings. Returns its absolute path.
+fn empty_knip_config(scratch: &Path) -> Result<PathBuf> {
+    fs::create_dir_all(scratch).with_context(|| format!("creating {}", scratch.display()))?;
+    let path = fs::canonicalize(scratch)?.join("knip-empty.json");
+    fs::write(&path, "{}\n").with_context(|| format!("writing {}", path.display()))?;
+    Ok(path)
 }
 
 fn category_detail(counts: &BTreeMap<String, Counts>, samples: &BTreeMap<String, Samples>) -> Value {
@@ -348,7 +479,7 @@ fn category_detail(counts: &BTreeMap<String, Counts>, samples: &BTreeMap<String,
 
 fn markdown(tool: &str, installed: bool, entries: &BTreeMap<String, Entry>) -> String {
     let mut out = format!(
-        "# skif findings parity with {tool}\n\nDependencies installed: {}.\n\n| Repository | Status | skif only | {tool} only | Both |\n| --- | --- | ---: | ---: | ---: |\n",
+        "# skif findings parity with {tool}\n\nDependencies installed: {}.\n\n| Repository | Status | skif only | {tool} only | Both | Known deviations |\n| --- | --- | ---: | ---: | ---: | ---: |\n",
         if installed { "yes" } else { "no" }
     );
     for (name, entry) in entries {
@@ -356,20 +487,21 @@ fn markdown(tool: &str, installed: bool, entries: &BTreeMap<String, Entry>) -> S
             let sum = |f: fn(&Counts) -> usize| entry.categories.values().map(f).sum::<usize>();
             let _ = writeln!(
                 out,
-                "| {name} | compared | {} | {} | {} |",
+                "| {name} | compared | {} | {} | {} | {} |",
                 sum(|c| c.skif_only),
                 sum(|c| c.tool_only),
-                sum(|c| c.both)
+                sum(|c| c.both),
+                diff::known_total(&entry.known_deviations)
             );
         } else {
             let _ = writeln!(
                 out,
-                "| {name} | skipped: {} | - | - | - |",
+                "| {name} | skipped: {} | - | - | - | - |",
                 entry.reason.as_deref().unwrap_or("")
             );
         }
     }
-    out
+    out + &diff::known_section(tool, &KNIP_DEVIATIONS, entries)
 }
 
 /// Runs the comparison on the parity suite and applies the baseline gate.
@@ -378,6 +510,11 @@ fn markdown(tool: &str, installed: bool, entries: &BTreeMap<String, Entry>) -> S
 /// Fails when npx or skif is missing, the corpus cannot be fetched, a command cannot start, the report cannot be
 /// written, or the gate finds drift.
 pub fn run(options: &Options) -> Result<()> {
+    if (options.repo_knip_config || options.include_test_files) && (options.gate.write || options.gate.check) {
+        bail!(
+            "--repo-knip-config and --include-test-files change what is compared: the baselines are recorded without them"
+        );
+    }
     if find_on_path("npx").is_none() {
         bail!("npx is required to run the pinned knip: install Node.js");
     }
@@ -406,6 +543,8 @@ pub fn run(options: &Options) -> Result<()> {
         "tool": tool,
         "installed": options.install,
         "recursive": options.recursive,
+        "repo_knip_config": options.repo_knip_config,
+        "include_test_files": options.include_test_files,
         "repos": details,
     });
     fs::write(
@@ -505,6 +644,9 @@ mod tests {
             sparse: Vec::new(),
             install,
             notes: "why".into(),
+            recursive: false,
+            install_timeout_secs: None,
+            install_command: Vec::new(),
         };
         let dir = Path::new("/nonexistent");
         assert_eq!(install_command(&repo("npm", true), dir).unwrap().1[0], "ci");
@@ -512,9 +654,102 @@ mod tests {
             install_command(&repo("pnpm", true), dir)
                 .unwrap()
                 .1
-                .contains(&"--ignore-scripts")
+                .iter()
+                .any(|a| a == "--ignore-scripts")
+        );
+        let mut overridden = repo("pnpm", true);
+        overridden.install_command = vec!["npx".into(), "pnpm@9".into(), "install".into()];
+        assert_eq!(
+            install_command(&overridden, dir).unwrap(),
+            ("npx".to_owned(), vec!["pnpm@9".to_owned(), "install".to_owned()])
         );
         assert!(install_command(&repo("rush", true), dir).is_err());
         assert!(install_command(&repo("pnpm", false), dir).unwrap_err().contains("why"));
+    }
+
+    #[test]
+    fn member_keys_drop_the_qualifier_on_both_sides() {
+        let skif = json!({ "diagnostics": [
+            { "rule": "unused-enum-members", "message": "enum member `Color.Red` is never used", "location": { "path": "src/e.ts" } },
+            { "rule": "unused-namespace-members", "message": "namespace member `ns.Helper` is never used", "location": { "path": "src/n.ts" } },
+        ]});
+        let knip = json!({ "issues": [
+            { "file": "src/e.ts", "enumMembers": { "Color": [{ "name": "Red" }] } },
+            { "file": "src/n.ts", "namespaceMembers": [{ "name": "ns.Helper" }] },
+        ]});
+        let root = Path::new("/r");
+        let (counts, _) = diff::compare(&skif_keys(&skif, root), &knip_keys(&knip, root));
+        assert_eq!(counts["enumMembers"].both, 1);
+        assert_eq!(counts["namespaceMembers"].both, 1);
+        assert_eq!(counts["enumMembers"].skif_only + counts["enumMembers"].tool_only, 0);
+    }
+
+    #[test]
+    fn finds_the_report_among_banners() {
+        let noisy = b"Platform libraries usePool true\n[dotenv@17] injected env (0) from .env\n{\"issues\":[{\"file\":\"a.ts\",\"exports\":[{\"name\":\"x\"}]}]}\n";
+        let doc = parse_knip_report(noisy).unwrap();
+        assert_eq!(doc["issues"][0]["file"], "a.ts");
+        let skipped_object = b"{\"log\":1}\n{\"files\":[\"b.ts\"],\"issues\":[]}\n";
+        assert_eq!(parse_knip_report(skipped_object).unwrap()["files"][0], "b.ts");
+        let pretty = b"banner\n{\n  \"issues\": []\n}\n";
+        assert!(parse_knip_report(pretty).is_ok());
+    }
+
+    #[test]
+    fn reports_why_no_report_was_found() {
+        assert_eq!(parse_knip_report(b"  \n").unwrap_err(), "stdout is empty");
+        assert!(
+            parse_knip_report(b"just text\n")
+                .unwrap_err()
+                .contains("no knip report")
+        );
+        assert!(
+            parse_knip_report(b"{\"issues\": [oops\n")
+                .unwrap_err()
+                .contains("first parse error")
+        );
+        assert!(parse_knip_report(b"{\"other\":1}\n").is_err());
+    }
+
+    #[test]
+    fn classifies_unused_files_knip_alone_reports() {
+        assert_eq!(classify_file("src/app.css", false), Some(NON_CODE_FILE));
+        assert_eq!(classify_file("docs/index.mdx", true), Some(NON_CODE_FILE));
+        assert_eq!(classify_file("pkg/test/a.ts", false), Some(TEST_FILE));
+        assert_eq!(classify_file("pkg/src/a.spec.ts", false), Some(TEST_FILE));
+        assert_eq!(classify_file("pkg/src/a_spec.ts", false), Some(TEST_FILE));
+        assert_eq!(classify_file("pkg/x/colorize-fixtures/a.ts", false), Some(FIXTURE_FILE));
+        assert_eq!(classify_file("pkg/fixtures/test/a.ts", false), Some(FIXTURE_FILE));
+        assert_eq!(classify_file("pkg/test/a.ts", true), None);
+        assert_eq!(classify_file("pkg/fixtures/a.ts", true), None);
+        assert_eq!(classify_file("pkg/src/a.ts", false), None);
+        assert_eq!(classify_file("pkg/src/latest.tsx", false), None);
+    }
+
+    #[test]
+    fn unused_files_only_known_deviations_split_off() {
+        let skif = Keys::from([("files".to_owned(), ["src/dead.ts".to_owned()].into())]);
+        let knip = Keys::from([(
+            "files".to_owned(),
+            ["src/dead.ts", "src/a.css", "test/a.ts", "src/real.ts"]
+                .map(str::to_owned)
+                .into(),
+        )]);
+        let split = diff::split_known(&skif, &knip, &|side, category, key| {
+            (side == Side::Tool && category == "files")
+                .then(|| classify_file(key, false))
+                .flatten()
+        });
+        let (counts, _) = diff::compare(&split.skif, &split.tool);
+        assert_eq!(
+            counts["files"],
+            Counts {
+                skif_only: 0,
+                tool_only: 1,
+                both: 1
+            }
+        );
+        assert_eq!(split.known[NON_CODE_FILE].tool_only, 1);
+        assert_eq!(split.known[TEST_FILE].tool_only, 1);
     }
 }

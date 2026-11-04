@@ -38,6 +38,17 @@ pub struct Repo {
     pub install: bool,
     #[serde(default)]
     pub notes: String,
+    /// `true` when skif runs with `--recursive` on this repository, because it holds nested roots that are not
+    /// workspace members. knip analyses their files from the root, and skif's paths stay relative to the start
+    /// directory, so the two stay comparable.
+    #[serde(default)]
+    pub recursive: bool,
+    /// Seconds the install may take, instead of the global timeout.
+    #[serde(default)]
+    pub install_timeout_secs: Option<u64>,
+    /// The install command (program first) to use instead of the package manager's default.
+    #[serde(default)]
+    pub install_command: Vec<String>,
 }
 
 const fn default_install() -> bool {

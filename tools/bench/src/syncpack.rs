@@ -6,7 +6,7 @@
 //! finding is keyed `<package.json>|<dependency>` within its status code. A fixture whose `skif.toml` holds anything
 //! that does not translate to a syncpack configuration is skipped with the reason.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,12 +17,13 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value, json};
 
 use crate::corpus::{self, Tools};
-use crate::diff::{self, BASELINE_SCHEMA, Baseline, CaseSummary, Counts, Entry, Gate, Keys};
+use crate::diff::{self, BASELINE_SCHEMA, Baseline, CaseSummary, Counts, Entry, Gate, Keys, Known, Samples};
+use crate::evidence::{Evidence, SYNCPACK_DEVIATIONS};
 use crate::parity::normalize;
 use crate::proc::{capture, find_on_path};
 
 /// The skif rules that report syncpack's findings.
-const POLICY_RULES: [&str; 8] = [
+const POLICY_RULES: [&str; 9] = [
     "version-mismatch",
     "semver-range-mismatch",
     "banned-dependency",
@@ -31,7 +32,13 @@ const POLICY_RULES: [&str; 8] = [
     "catalog-mismatch",
     "catalog-missing-entry",
     "catalog-not-used",
+    "unresolved-catalog-references",
 ];
+
+/// The dependency types syncpack is told to read when skif's `[policy] dependency-types` does not say otherwise: the
+/// production and development sections skif governs by default, plus the `local` instance that carries each
+/// package's own version. Plain `prod,dev` would drop `local` and with it the own-version alignment.
+const DEFAULT_DEPENDENCY_TYPES: &str = "prod,dev,local";
 
 pub const FIXTURES_ENTRY: &str = "fixtures";
 
@@ -183,6 +190,109 @@ fn translate(text: &str) -> Result<Translated, String> {
     })
 }
 
+/// The `--dependency-types` value for a fixture's `[policy] dependency-types` (or the default): always with `local`.
+fn dependency_types(translated: Option<&str>) -> String {
+    match translated {
+        None => DEFAULT_DEPENDENCY_TYPES.to_owned(),
+        Some(types) if types.split(',').any(|t| t == "local") => types.to_owned(),
+        Some("") => "local".to_owned(),
+        Some(types) => format!("{types},local"),
+    }
+}
+
+/// The `package.json` of every project in a Rush `rush.json` (JSONC), relative to the repository root. syncpack has
+/// no Rush support, so these are fed to it as sources. `Ok(empty)` when there is no `rush.json`.
+fn rush_manifests(root: &Path) -> Result<Vec<String>, String> {
+    let Ok(text) = fs::read_to_string(root.join("rush.json")) else {
+        return Ok(Vec::new());
+    };
+    Ok(rush_project_folders(&text)?
+        .into_iter()
+        .map(|folder| format!("{folder}/package.json"))
+        .filter(|manifest| root.join(manifest).is_file())
+        .collect())
+}
+
+/// The `projectFolder` of every project in the text of a `rush.json`.
+fn rush_project_folders(text: &str) -> Result<Vec<String>, String> {
+    let document: Value = serde_json::from_str(&strip_jsonc(text)).map_err(|e| format!("rush.json: {e}"))?;
+    let projects = document
+        .get("projects")
+        .and_then(Value::as_array)
+        .ok_or("rush.json: no `projects` list")?;
+    Ok(projects
+        .iter()
+        .filter_map(|project| project.get("projectFolder").and_then(Value::as_str))
+        .map(|folder| folder.trim_matches('/').to_owned())
+        .collect())
+}
+
+/// JSONC as JSON: line and block comments and trailing commas removed, strings left alone.
+fn strip_jsonc(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '"' => {
+                out.push('"');
+                i += 1;
+                while i < chars.len() {
+                    out.push(chars[i]);
+                    if chars[i] == '\\' && i + 1 < chars.len() {
+                        out.push(chars[i + 1]);
+                        i += 2;
+                        continue;
+                    }
+                    i += 1;
+                    if chars[i - 1] == '"' {
+                        break;
+                    }
+                }
+            }
+            '/' if chars.get(i + 1) == Some(&'/') => {
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+            }
+            '/' if chars.get(i + 1) == Some(&'*') => {
+                i += 2;
+                while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                    i += 1;
+                }
+                i += 2;
+            }
+            ',' if chars[i + 1..]
+                .iter()
+                .find(|c| !c.is_whitespace())
+                .is_some_and(|c| matches!(c, '}' | ']')) =>
+            {
+                i += 1;
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+/// The workspace-relative `package.json` paths syncpack read, valid or not.
+pub fn syncpack_packages(output: &str, root: &Path) -> BTreeSet<String> {
+    output
+        .lines()
+        .filter(|l| l.starts_with('{'))
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter_map(|instance| {
+            instance
+                .get("package")
+                .and_then(Value::as_str)
+                .map(|p| normalize(p, root))
+        })
+        .collect()
+}
+
 /// syncpack's invalid instances from the lines of `syncpack json`, by status code.
 pub fn syncpack_keys(output: &str, root: &Path) -> Keys {
     let mut keys = Keys::new();
@@ -233,6 +343,14 @@ pub fn skif_policy_keys(document: &Value, root: &Path) -> Keys {
     keys
 }
 
+/// What both tools found on one workspace.
+struct Pair {
+    skif: Keys,
+    syncpack: Keys,
+    /// The `package.json` files syncpack read.
+    read: BTreeSet<String>,
+}
+
 /// Both tools on one workspace: skif's policy rules with `skif_config` (or none), syncpack with `syncpack_args`.
 /// `Err(reason)` when one of them cannot run.
 fn run_pair(
@@ -243,7 +361,7 @@ fn run_pair(
     skif_config: Option<&Path>,
     syncpack_args: &[String],
     scratch: &Path,
-) -> Result<Result<(Keys, Keys), String>> {
+) -> Result<Result<Pair, String>> {
     let mut skif_command = Command::new(skif);
     skif_command
         .args([".", "--format", "json", "--no-js", "--no-install"])
@@ -283,10 +401,54 @@ fn run_pair(
     if !stdout.lines().any(|l| l.starts_with('{')) && syncpack_run.code != Some(0) {
         return Ok(Err(format!("syncpack failed: {}", syncpack_run.stderr_summary())));
     }
-    Ok(Ok((
-        skif_policy_keys(&skif_doc, workspace),
-        syncpack_keys(&stdout, workspace),
-    )))
+    Ok(Ok(Pair {
+        skif: skif_policy_keys(&skif_doc, workspace),
+        syncpack: syncpack_keys(&stdout, workspace),
+        read: syncpack_packages(&stdout, workspace),
+    }))
+}
+
+/// A comparison with the known deviations taken out of the one-sided counts.
+struct Comparison {
+    counts: BTreeMap<String, Counts>,
+    samples: BTreeMap<String, Samples>,
+    known: Known,
+    known_samples: BTreeMap<String, Vec<String>>,
+}
+
+fn compare_known(workspace: &Path, found: Pair) -> Comparison {
+    let evidence = Evidence::load(
+        workspace,
+        found.read,
+        found.skif.values().chain(found.syncpack.values()).flatten(),
+    );
+    let split = diff::split_known(&found.skif, &found.syncpack, &|side, status, key| {
+        evidence.classify(side, status, key)
+    });
+    let (counts, samples) = diff::compare(&split.skif, &split.tool);
+    Comparison {
+        counts,
+        samples,
+        known: split.known,
+        known_samples: split.samples,
+    }
+}
+
+fn add_known(total: &mut Known, known: &Known) {
+    for (id, found) in known {
+        let sum = total.entry(id.clone()).or_default();
+        sum.skif_only += found.skif_only;
+        sum.tool_only += found.tool_only;
+    }
+}
+
+/// A syncpack configuration that is empty, so a repository's own (possibly legacy) syncpack settings neither break
+/// the run nor bias it: skif ignores them.
+fn empty_config(scratch: &Path) -> Result<String> {
+    fs::create_dir_all(scratch)?;
+    let path = fs::canonicalize(scratch)?.join("empty-syncpackrc.json");
+    fs::write(&path, "{}\n")?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 fn add(total: &mut BTreeMap<String, Counts>, counts: &BTreeMap<String, Counts>) {
@@ -332,8 +494,12 @@ fn run_fixtures(options: &Options, skif: &Path, tools: &Tools) -> Result<(Entry,
     let mut summary = CaseSummary::default();
     let mut skipped: BTreeMap<String, String> = BTreeMap::new();
     let mut differing: BTreeMap<String, Value> = BTreeMap::new();
+    let mut known_total = Known::new();
+    let mut known_cases: BTreeMap<String, Value> = BTreeMap::new();
     for (name, case) in fixture_cases(&fixtures)? {
         let scratch = options.out.join("scratch").join(name.replace('/', "-"));
+        fs::create_dir_all(&scratch)?;
+        let scratch = fs::canonicalize(&scratch)?;
         let text = fs::read_to_string(case.join("skif.toml")).unwrap_or_default();
         let translated = match translate(&text) {
             Ok(translated) => translated,
@@ -343,16 +509,19 @@ fn run_fixtures(options: &Options, skif: &Path, tools: &Tools) -> Result<(Entry,
                 continue;
             }
         };
-        let mut syncpack_args = Vec::new();
-        if let Some(config) = &translated.config {
-            fs::create_dir_all(&scratch)?;
+        let config = if let Some(config) = &translated.config {
             let path = scratch.join("syncpackrc.json");
             fs::write(&path, serde_json::to_string_pretty(config)?)?;
-            syncpack_args.extend(["--config".to_owned(), path.to_string_lossy().into_owned()]);
-        }
-        if let Some(types) = &translated.dependency_types {
-            syncpack_args.extend(["--dependency-types".to_owned(), types.clone()]);
-        }
+            path.to_string_lossy().into_owned()
+        } else {
+            empty_config(&scratch)?
+        };
+        let syncpack_args = [
+            "--config".to_owned(),
+            config,
+            "--dependency-types".to_owned(),
+            dependency_types(translated.dependency_types.as_deref()),
+        ];
         let config_file = case.join("skif.toml");
         let skif_config = config_file.is_file().then_some(config_file.as_path());
         let workspace = fs::canonicalize(case.join("workspace"))?;
@@ -361,9 +530,18 @@ fn run_fixtures(options: &Options, skif: &Path, tools: &Tools) -> Result<(Entry,
                 summary.skipped += 1;
                 skipped.insert(name, reason);
             }
-            Ok((skif_found, syncpack_found)) => {
+            Ok(found) => {
                 summary.compared += 1;
-                let (counts, samples) = diff::compare(&skif_found, &syncpack_found);
+                let Comparison {
+                    counts,
+                    samples,
+                    known,
+                    known_samples,
+                } = compare_known(&workspace, found);
+                add_known(&mut known_total, &known);
+                if !known.is_empty() {
+                    known_cases.insert(name.clone(), json!({ "counts": known, "samples": known_samples }));
+                }
                 if counts.values().all(|c| c.skif_only == 0 && c.tool_only == 0) {
                     summary.identical += 1;
                 } else {
@@ -399,8 +577,9 @@ fn run_fixtures(options: &Options, skif: &Path, tools: &Tools) -> Result<(Entry,
         },
         "skipped": skipped,
         "differing": differing,
+        "known_deviations": known_cases,
     });
-    let mut entry = Entry::compared(totals);
+    let mut entry = Entry::compared(totals).with_known(known_total);
     entry.cases = Some(summary);
     Ok((entry, detail))
 }
@@ -408,22 +587,49 @@ fn run_fixtures(options: &Options, skif: &Path, tools: &Tools) -> Result<(Entry,
 fn run_repo(options: &Options, skif: &Path, tools: &Tools, name: &str, dir: &Path) -> Result<(Entry, Value)> {
     let root = fs::canonicalize(dir).with_context(|| format!("resolving {}", dir.display()))?;
     let scratch = options.out.join("scratch").join(name);
-    Ok(match run_pair(options, skif, tools, &root, None, &[], &scratch)? {
-        Err(reason) => (
-            Entry::skipped(reason.clone()),
-            json!({ "status": diff::SKIPPED, "reason": reason }),
-        ),
-        Ok((skif_found, syncpack_found)) => {
-            let (counts, _) = diff::compare(&skif_found, &syncpack_found);
-            let detail = json!({ "status": diff::COMPARED, "categories": counts });
-            (Entry::compared(counts), detail)
+    let mut syncpack_args = vec![
+        "--config".to_owned(),
+        empty_config(&scratch)?,
+        "--dependency-types".to_owned(),
+        dependency_types(None),
+    ];
+    match rush_manifests(&root) {
+        Ok(manifests) => syncpack_args.extend(manifests.into_iter().flat_map(|m| ["--source".to_owned(), m])),
+        Err(reason) => {
+            return Ok((
+                Entry::skipped(reason.clone()),
+                json!({ "status": diff::SKIPPED, "reason": reason }),
+            ));
         }
-    })
+    }
+    Ok(
+        match run_pair(options, skif, tools, &root, None, &syncpack_args, &scratch)? {
+            Err(reason) => (
+                Entry::skipped(reason.clone()),
+                json!({ "status": diff::SKIPPED, "reason": reason }),
+            ),
+            Ok(found) => {
+                let Comparison {
+                    counts,
+                    known,
+                    known_samples,
+                    ..
+                } = compare_known(&root, found);
+                let detail = json!({
+                    "status": diff::COMPARED,
+                    "categories": counts,
+                    "known_deviations": known,
+                    "known_samples": known_samples,
+                });
+                (Entry::compared(counts).with_known(known), detail)
+            }
+        },
+    )
 }
 
 fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
     let mut out = format!(
-        "# skif policy diff against {tool}\n\n| Target | Status | skif only | {tool} only | Both | Differing cases |\n| --- | --- | ---: | ---: | ---: | ---: |\n"
+        "# skif policy diff against {tool}\n\n| Target | Status | skif only | {tool} only | Both | Known deviations | Differing cases |\n| --- | --- | ---: | ---: | ---: | ---: | ---: |\n"
     );
     for (name, entry) in entries {
         if entry.status == diff::COMPARED {
@@ -434,20 +640,21 @@ fn markdown(tool: &str, entries: &BTreeMap<String, Entry>) -> String {
                 .map_or_else(|| "-".to_owned(), |c| c.differing.len().to_string());
             let _ = writeln!(
                 out,
-                "| {name} | compared | {} | {} | {} | {differing} |",
+                "| {name} | compared | {} | {} | {} | {} | {differing} |",
                 sum(|c| c.skif_only),
                 sum(|c| c.tool_only),
-                sum(|c| c.both)
+                sum(|c| c.both),
+                diff::known_total(&entry.known_deviations)
             );
         } else {
             let _ = writeln!(
                 out,
-                "| {name} | skipped: {} | - | - | - | - |",
+                "| {name} | skipped: {} | - | - | - | - | - |",
                 entry.reason.as_deref().unwrap_or("")
             );
         }
     }
-    out
+    out + &diff::known_section(tool, &SYNCPACK_DEVIATIONS, entries)
 }
 
 /// Runs the diff on the policy fixtures and the corpus and applies the baseline gate.
@@ -597,5 +804,47 @@ range = "~"
         );
         assert_eq!(syncpack, skif);
         assert_eq!(syncpack.len(), 1);
+    }
+
+    #[test]
+    fn syncpack_is_always_asked_for_the_local_instance() {
+        assert_eq!(dependency_types(None), "prod,dev,local");
+        assert_eq!(dependency_types(Some("prod,dev")), "prod,dev,local");
+        assert_eq!(dependency_types(Some("dev,local")), "dev,local");
+        assert_eq!(dependency_types(Some("")), "local");
+    }
+
+    #[test]
+    fn rush_json_comments_and_trailing_commas_are_tolerated() {
+        let text = r#"
+// header
+{
+  /* block, with "quotes" and // slashes */
+  "rushVersion": "5.0.0", // trailing
+  "url": "https://example.test/a//b",
+  "projects": [
+    { "packageName": "a", "projectFolder": "libs/a", },
+    { "packageName": "b", "projectFolder": "apps/b/" },
+  ],
+}
+"#;
+        assert_eq!(rush_project_folders(text).unwrap(), ["libs/a", "apps/b"]);
+        assert!(rush_project_folders("{}").is_err());
+        assert!(rush_project_folders("{ not json").is_err());
+    }
+
+    #[test]
+    fn lists_the_packages_syncpack_read() {
+        let output = concat!(
+            "{\"dependency\":\"a\",\"package\":\"/w/x/package.json\",\"statusType\":\"Valid\"}\n",
+            "{\"dependency\":\"a\",\"package\":\"/w/y/package.json\",\"statusType\":\"Fixable\"}\n",
+            "noise\n",
+        );
+        assert_eq!(
+            syncpack_packages(output, Path::new("/w"))
+                .into_iter()
+                .collect::<Vec<_>>(),
+            ["x/package.json", "y/package.json"]
+        );
     }
 }
