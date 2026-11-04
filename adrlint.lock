@@ -115,3 +115,8 @@ blake3 = "658b5006d492a1d8b75ec6e4d25ea5abd4d29e29ccdf47cd66ed9422492f9c0f"
 number = 23
 status = "accepted"
 blake3 = "f3fdba8d95ce99232126e077300ac2392e25e487840627a540d4ae3866cc2bb4"
+
+[adrs."adrs/0024-layered-configuration-cascading-files-extends-overrides-and-package-files.md"]
+number = 24
+status = "accepted"
+blake3 = "fbf9381474b84ce7181b68da8fbafe7ca0b4b10ba7e64d67a1e77dbdc0e32bbf"

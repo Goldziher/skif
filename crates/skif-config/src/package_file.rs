@@ -20,13 +20,19 @@ pub(crate) fn to_override(file: &ParsedFile, path: &Path) -> Result<Override, Co
         ConfigError::scope(key, Some(path), position, hint)
     };
     let mut body = Table::new();
-    body.insert("packages".to_owned(), Value::Array(vec![Value::String("./".to_owned())]));
+    body.insert(
+        "packages".to_owned(),
+        Value::Array(vec![Value::String("./".to_owned())]),
+    );
     for (key, value) in &file.table {
         match (key.as_str(), value) {
             ("rules", Value::Table(rules)) => {
                 for (id, rule) in rules {
                     let Value::Table(options) = rule else { continue };
-                    if let Some(option) = options.keys().find(|option| !matches!(option.as_str(), "level" | "severity")) {
+                    if let Some(option) = options
+                        .keys()
+                        .find(|option| !matches!(option.as_str(), "level" | "severity"))
+                    {
                         return Err(reject(
                             format!("rules.{id}.{option}"),
                             "rule options are root-scoped; a package file can only set rule levels, so set the options in `[rules]` of the root's configuration file".to_owned(),
@@ -39,7 +45,9 @@ pub(crate) fn to_override(file: &ParsedFile, path: &Path) -> Result<Override, Co
                 if let Some(name) = js.keys().find(|name| ROOT_SCOPED_JS.contains(&name.as_str())) {
                     return Err(reject(
                         format!("js.{name}"),
-                        format!("`js.{name}` applies to the whole root; set it in `[js]` of the root's configuration file"),
+                        format!(
+                            "`js.{name}` applies to the whole root; set it in `[js]` of the root's configuration file"
+                        ),
                     ));
                 }
                 body.insert(key.clone(), value.clone());

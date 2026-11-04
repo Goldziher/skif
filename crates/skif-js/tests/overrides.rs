@@ -19,11 +19,10 @@ const MANIFEST: (&str, &str) = (
 );
 
 fn lint(files: &[(&str, &str)], toml: &str) -> Vec<Diagnostic> {
-    let memory = files
-        .iter()
-        .fold(MemoryFs::new().with_file("/ws/skif.toml", toml), |memory, (path, text)| {
-            memory.with_file(Path::new(ROOT).join(path), text)
-        });
+    let memory = files.iter().fold(
+        MemoryFs::new().with_file("/ws/skif.toml", toml),
+        |memory, (path, text)| memory.with_file(Path::new(ROOT).join(path), text),
+    );
     let config = ConfigLoader::new(&memory, &ConfigCache::new())
         .resolve(Path::new(ROOT), &Ceiling::RootOnly)
         .unwrap()
@@ -50,8 +49,14 @@ fn paths(diagnostics: &[Diagnostic], rule: &str) -> Vec<String> {
 fn unused_dependency_files() -> Vec<(&'static str, &'static str)> {
     vec![
         MANIFEST,
-        ("packages/a/package.json", r#"{"name":"@x/a","dependencies":{"left":"1","right":"1"}}"#),
-        ("packages/b/package.json", r#"{"name":"@x/b","dependencies":{"left":"1","right":"1"}}"#),
+        (
+            "packages/a/package.json",
+            r#"{"name":"@x/a","dependencies":{"left":"1","right":"1"}}"#,
+        ),
+        (
+            "packages/b/package.json",
+            r#"{"name":"@x/b","dependencies":{"left":"1","right":"1"}}"#,
+        ),
         ("packages/a/src/index.ts", "export {};\n"),
         ("packages/b/src/index.ts", "export {};\n"),
     ]
@@ -120,7 +125,7 @@ fn entry_from_an_override_makes_files_used_in_that_package_only() {
     );
     let scoped = lint(
         &files,
-        "[[overrides]]\npackages = [\"./packages/a\"]\n[overrides.js]\nentry = [\"src/server.ts\"]\n",
+        "[[overrides]]\npackages = [\"./packages/a\"]\n[overrides.js]\nentry = [\"src/index.ts\", \"src/server.ts\"]\n",
     );
     assert_eq!(paths(&scoped, "unused-files"), ["packages/b/src/server.ts"]);
 }

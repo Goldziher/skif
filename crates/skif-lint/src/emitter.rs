@@ -73,7 +73,8 @@ impl<'a> Emitter<'a> {
         };
         diagnostic.severity = severity;
         diagnostic.default_severity = None;
-        if self.suppressions.suppresses(&diagnostic) || self.suppressions.suppressed_in_scope(&diagnostic, &applicable) {
+        if self.suppressions.suppresses(&diagnostic) || self.suppressions.suppressed_in_scope(&diagnostic, &applicable)
+        {
             return;
         }
         self.diagnostics.push(diagnostic);

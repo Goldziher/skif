@@ -41,7 +41,11 @@ impl PluginSource {
     /// The plugin table for one package: the global table with the matching overrides folded in.
     fn plugins_for(&self, name: &str, dir: &Path) -> IndexMap<String, PluginConfig> {
         let mut plugins = self.plugins.clone();
-        for scoped in self.scoped.iter().filter(|scoped| scoped.applies_to(Some((name, dir)), None)) {
+        for scoped in self
+            .scoped
+            .iter()
+            .filter(|scoped| scoped.applies_to(Some((name, dir)), None))
+        {
             for (plugin, incoming) in &scoped.js.plugins {
                 let merged = merge(plugins.get(plugin), incoming);
                 plugins.insert(plugin.clone(), merged);
@@ -60,10 +64,12 @@ fn merge(inherited: Option<&PluginConfig>, incoming: &PluginConfig) -> PluginCon
         None => None,
     };
     match (incoming, inherited) {
-        (PluginConfig::Enabled(enabled), Some(PluginConfig::Options(options))) => PluginConfig::Options(PluginOptions {
-            enabled: Some(*enabled),
-            ..options.clone()
-        }),
+        (PluginConfig::Enabled(enabled), Some(PluginConfig::Options(options))) => {
+            PluginConfig::Options(PluginOptions {
+                enabled: Some(*enabled),
+                ..options.clone()
+            })
+        }
         (PluginConfig::Options(options), _) if options.enabled.is_none() => PluginConfig::Options(PluginOptions {
             enabled: inherited_enabled,
             ..options.clone()
@@ -160,7 +166,10 @@ impl InputSource for PluginSource {
         let inherited = inherited_dependencies(request);
         let scripts = scripts(request);
         let dir = request.workspace.root.join(Path::new(&package.dir));
-        let plugins = self.plugins_for(package.display_name(), if package.is_root { &request.workspace.root } else { &dir });
+        let plugins = self.plugins_for(
+            package.display_name(),
+            if package.is_root { &request.workspace.root } else { &dir },
+        );
         let context = PluginContext {
             dir: &dir,
             is_root: package.is_root,

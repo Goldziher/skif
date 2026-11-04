@@ -21,7 +21,11 @@ const COULD_NOT_RUN: u8 = 2;
 pub fn relative(base: &Path, path: &Path) -> String {
     let base: Vec<Component<'_>> = base.components().collect();
     let target: Vec<Component<'_>> = path.components().collect();
-    let common = base.iter().zip(&target).take_while(|(left, right)| left == right).count();
+    let common = base
+        .iter()
+        .zip(&target)
+        .take_while(|(left, right)| left == right)
+        .count();
     if common == 0 {
         return slash(path);
     }
@@ -405,7 +409,11 @@ fn near_keys(key: &str, candidates: &BTreeSet<String>) -> Vec<String> {
         .collect();
     close.sort();
     if !close.is_empty() {
-        return close.into_iter().take(5).map(|(_, candidate)| candidate.clone()).collect();
+        return close
+            .into_iter()
+            .take(5)
+            .map(|(_, candidate)| candidate.clone())
+            .collect();
     }
     let shares = |prefix: &str| -> Vec<String> {
         candidates
@@ -592,7 +600,10 @@ mod tests {
         let config = Config::default();
         let json = json!({"lint": {"fail-on-warnings": true}, "version-groups": [{"policy": "banned"}]});
         assert_eq!(value_of(&config, &json, "lint.fail-on-warnings"), Some(json!(true)));
-        assert_eq!(value_of(&config, &json, "version-groups[0].policy"), Some(json!("banned")));
+        assert_eq!(
+            value_of(&config, &json, "version-groups[0].policy"),
+            Some(json!("banned"))
+        );
         assert_eq!(value_of(&config, &json, "version-groups[1]"), None);
         assert_eq!(value_of(&config, &json, "lint.nope"), None);
     }
