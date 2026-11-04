@@ -24,7 +24,7 @@ generated; do not edit it.
 - Format: `mise run format`, verify with `mise run format:check`
 - Advisories and licenses: `mise run deny` (needs `cargo-deny` installed)
 - Architecture decision records: `mise run adr:lint`
-- Full gate before pushing: `mise run check`
+- Full gate before pushing: `mise run check` (format, lint, tests, schema, consistency, rustdoc, facade features)
 - Update or upgrade dependencies: `mise run update` / `mise run upgrade`
 - Regenerate or check AI governance outputs: `mise run governance:generate` / `mise run governance:check`
 - Review snapshot changes: `cargo insta review`

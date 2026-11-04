@@ -35,7 +35,7 @@ All crates publish to crates.io as `skif-*`. `skif` is the embeddable facade; th
 | `skif-cli` | The `skif` binary: clap, terminal output, file writes, exit codes. |
 | `skif-node` | The napi-rs addon behind the npm package; not published to crates.io. |
 
-Sample monorepos live in `fixtures/` and in each crate's `fixtures/` directory.
+Sample monorepos live in the top-level `fixtures/` (`e2e`, `policy`) and in each crate's `tests/fixtures` directory.
 
 Library crates do no I/O beyond the `FileSystem` trait; reading, writing and terminal output belong to
 `skif-cli`.
@@ -43,4 +43,4 @@ Library crates do no I/O beyond the `FileSystem` trait; reading, writing and ter
 ## Rules
 
 Rule IDs are kebab-case and are the public contract (`--ignore-rule`, config files, docs). Rules report
-`Error` or `Warning`; fixable rules also emit fix operations. Fixes preserve indentation and newline style.
+diagnostics at a severity (`error`, `warning` or `info`; a rule's configured level is `off`, `info`, `warn` or `error`); fixable rules also emit fix operations. Fixes preserve indentation and newline style.

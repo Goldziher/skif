@@ -22,7 +22,7 @@ done
 # Every header names the syncpack commit that ATTRIBUTIONS.md records, and ATTRIBUTIONS.md keeps the sections
 # and the Modifications lists the licences require.
 # shellcheck disable=SC2016
-recorded="$(sed -nE 's/^- \*\*Upstream commit\*\*: `([0-9a-f]{40})`.*/\1/p' ATTRIBUTIONS.md | sed -n '2p')"
+recorded="$(sed -n '/^## syncpack specifier$/,/^## knip$/p' ATTRIBUTIONS.md | sed -nE 's/^- \*\*Upstream commit\*\*: `([0-9a-f]{40})`.*/\1/p' | head -n 1)"
 for file in crates/skif-specifier/src/*.rs; do
   commit="$(head -n 1 "$file" | sed -nE 's/^\/\/ Vendored from syncpack [^ ]+ @([0-9a-f]+) .*/\1/p')"
   if [[ -n "$commit" && "$recorded" != "$commit"* ]]; then

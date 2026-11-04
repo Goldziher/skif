@@ -27,19 +27,7 @@ pnpm run preview  # serve the built site
   from the rule metadata (`SKIF_UPDATE_DOCS=1 cargo test -p skif --features js-analysis --test docs`), so edit
   rule text in the Rust metadata, never in the generated pages.
 
-## Branding assets to replace
-
-The files below are placeholders (a plain "skif" wordmark or a solid colour). Replace them with the real
-branding, keeping the file names so nothing else changes:
-
-- `src/assets/logo.svg`: the header wordmark.
-- `src/assets/mark.svg`: the hero image on the home page.
-- `src/assets/banner.svg`: the wide banner.
-- `public/favicon.svg`: the browser tab icon.
-- `public/favicon-32.png`: 32x32 PNG favicon.
-- `public/apple-touch-icon.png`: 180x180 PNG.
-- `public/og.png`: 1280x640 social preview image.
-- `src/styles/custom.css`: the accent palette (`--sl-color-accent*`, `--sk-*`).
+## Custom domain
 
 If the site moves to a custom domain, set `site` in `astro.config.mjs`, drop `base`, update the absolute
 `/skif/...` paths in its `head` entries, add `public/CNAME` and update the sitemap URL in `public/robots.txt`.
