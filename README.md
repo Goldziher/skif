@@ -100,7 +100,7 @@ from source with `cargo build --release`.
 cargo install skif-cli
 cargo binstall skif-cli
 
-# npm (Node 24+ and Bun; macOS and Linux only, no Windows npm packages); the package is `skif`
+# npm (non-EoL Node.js (22, 24, 26) and Bun 1.x; macOS and Linux only, no Windows npm packages); the package is `skif`
 pnpm add -D skif        # or: npm install -D skif / yarn add -D skif / bun add -D skif
 pnpm dlx skif           # run without installing; also: npx skif / yarn dlx skif / bunx skif
 
@@ -114,7 +114,7 @@ scoop install skif
 
 `cargo install skif` installs the library crate, not the binary; the command-line tool is `skif-cli`.
 
-Channels follow [ADR 0013](adrs/0013-distribution-and-naming.md). The npm package is a napi-rs addon for Node 24+ and Bun, with no Windows npm packages; Windows users get the GitHub release archive, `cargo binstall`, Scoop or cargo.
+Channels follow [ADR 0013](adrs/0013-distribution-and-naming.md). The npm package is a napi-rs addon for non-EoL Node.js (22, 24, 26) and Bun 1.x, with no Windows npm packages; Windows users get the GitHub release archive, `cargo binstall`, Scoop or cargo.
 
 ### GitHub Action
 
@@ -141,8 +141,14 @@ Each release attaches one archive per target, plus `checksums.txt`:
 | Linux x64 / arm64, musl (static, Alpine) | `skif-x86_64-unknown-linux-musl.tar.gz`, `skif-aarch64-unknown-linux-musl.tar.gz` |
 | Windows x64 / arm64 | `skif-x86_64-pc-windows-msvc.zip`, `skif-aarch64-pc-windows-msvc.zip` |
 
-Each archive holds the `skif` binary (`skif.exe` on Windows) and the licence. Verify a download with
+Each archive holds the `skif` binary (`skif.exe` on Windows), the `LICENSE` and the `ATTRIBUTIONS.md` notices of derived code. Verify a download with
 `sha256sum --check --ignore-missing checksums.txt`.
+
+The glibc archives are linked on the GitHub-hosted `ubuntu-latest` runner (Ubuntu 24.04, glibc 2.39 at the time
+of writing), so they need that glibc or newer. They do not start on older systems such as RHEL 8, Debian 11, Ubuntu
+20.04 or Amazon Linux 2; use the static musl archives there (they run on any Linux, glibc or musl). The Action,
+the pre-commit launcher, `cargo binstall` and Homebrew all pick the glibc archive on a glibc system, so on an older
+one download the musl archive directly. The npm addon targets glibc 2.17 and is not affected.
 
 ## Git hooks
 
