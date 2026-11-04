@@ -8,13 +8,13 @@ use super::support::{is_fixture, module_location};
 use crate::analysis::JsAnalysis;
 
 /// Metadata of `unlisted-dependencies`.
-pub static META: RuleMeta = RuleMeta {
-    id: "unlisted-dependencies",
-    category: Category::Js,
-    default: Some(Severity::Error),
-    fixable: Fixability::None,
-    summary: "A file imports a package that neither its `package.json` nor any `package.json` above it lists.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unlisted-dependencies",
+    Category::Js,
+    Some(Severity::Error),
+    Fixability::None,
+    "A file imports a package that neither its `package.json` nor any `package.json` above it lists.",
+);
 
 /// Reports imports of packages the manifest does not list, once per file and package.
 pub struct UnlistedDependencies;

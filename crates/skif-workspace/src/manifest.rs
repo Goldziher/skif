@@ -1,16 +1,16 @@
 //! `package.json` parsing: one pass produces the JSON value, the line index, the span table and every dependency
 //! entry with its parsed specifier.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use jsonc_parser::ast::{self, ObjectPropName};
 use jsonc_parser::common::{Range, Ranged};
 use jsonc_parser::{CollectOptions, ParseOptions, parse_to_ast};
+use rustc_hash::FxHashMap;
 use serde_json::Value;
 use skif_core::{DependencyKind, LineIndex, PathSeg, Span};
-use skif_specifier::Specifier;
+use skif_specifier::{Specifier, SpecifierCache};
 
 use crate::error::WorkspaceError;
 
@@ -21,6 +21,7 @@ const SPAN_DEPTH: usize = 3;
 
 /// One `"name": "specifier"` entry of a dependency section.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DependencyEntry {
     /// Which section the entry is in.
     pub kind: DependencyKind,
@@ -38,6 +39,7 @@ pub struct DependencyEntry {
 
 /// The spans of one node of a manifest: the whole entry, its key and its value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FieldSpans {
     /// For an object member the key through the value; for an array element or the document, the node itself.
     pub entry: Span,
@@ -48,17 +50,19 @@ pub struct FieldSpans {
 }
 
 /// A parsed `package.json`.
+///
+/// The text, its line index, the parsed value and the span table belong together: spans index the text, and the
+/// value is parsed from it. They are read through accessors so a host cannot change one without the others.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Manifest {
     /// Workspace-relative path with `/` separators, e.g. `packages/a/package.json`.
     pub path: PathBuf,
-    /// The file contents exactly as read (a BOM and CRLF line endings are preserved, so spans index this text).
-    pub source: Arc<str>,
-    /// Offset-to-line/column conversion for `source`.
-    pub line_index: Arc<LineIndex>,
-    /// The parsed document; key order is preserved.
-    pub value: Value,
-    spans: HashMap<Box<[PathSeg]>, FieldSpans>,
+    pub(crate) source: Arc<str>,
+    pub(crate) line_index: Arc<LineIndex>,
+    pub(crate) value: Arc<Value>,
+    /// Built on the first span lookup: most manifests of a clean workspace never need one.
+    spans: OnceLock<FxHashMap<Box<[PathSeg]>, FieldSpans>>,
 }
 
 pub(crate) fn to_u32(n: usize) -> u32 {
@@ -121,7 +125,23 @@ struct Spans<'a> {
     bom: usize,
     line_index: &'a LineIndex,
     path: Vec<PathSeg>,
-    table: HashMap<Box<[PathSeg]>, FieldSpans>,
+    table: FxHashMap<Box<[PathSeg]>, FieldSpans>,
+}
+
+/// The span table of a manifest that parsed once already.
+fn span_table(source: &str, line_index: &LineIndex) -> FxHashMap<Box<[PathSeg]>, FieldSpans> {
+    let Ok((root, bom)) = parse_ast(source) else {
+        return FxHashMap::default();
+    };
+    let mut spans = Spans {
+        bom,
+        line_index,
+        path: Vec::new(),
+        table: FxHashMap::default(),
+    };
+    spans.insert(root.range(), None, root.range());
+    spans.record(&root);
+    spans.table
 }
 
 impl Spans<'_> {
@@ -164,7 +184,7 @@ impl Spans<'_> {
 /// Drops the entries from `from` on whose name is declared again later in the same section: with duplicate keys the
 /// last one wins, as it does for the JSON value and for the span table.
 fn keep_last_duplicates(entries: &mut Vec<DependencyEntry>, from: usize) {
-    let last: HashMap<&str, usize> = entries[from..]
+    let last: FxHashMap<&str, usize> = entries[from..]
         .iter()
         .enumerate()
         .map(|(index, entry)| (entry.name.as_str(), index))
@@ -195,6 +215,19 @@ impl Manifest {
     /// # Errors
     /// [`WorkspaceError::InvalidManifest`] with the 1-based line and column of the problem.
     pub fn parse(path: PathBuf, source: Arc<str>) -> Result<(Self, Vec<DependencyEntry>), WorkspaceError> {
+        Self::parse_with(path, source, &SpecifierCache::new())
+    }
+
+    /// Like [`parse`](Self::parse), parsing each distinct specifier once through `cache`: `^18.3.1` written in a
+    /// hundred manifests is parsed and stored once.
+    ///
+    /// # Errors
+    /// As [`parse`](Self::parse).
+    pub fn parse_with(
+        path: PathBuf,
+        source: Arc<str>,
+        cache: &SpecifierCache,
+    ) -> Result<(Self, Vec<DependencyEntry>), WorkspaceError> {
         let line_index = Arc::new(LineIndex::new(&source));
         let (root, bom) =
             parse_ast(&source).map_err(|(offset, message)| invalid(&path, &line_index, offset, message))?;
@@ -222,7 +255,7 @@ impl Manifest {
                         kind,
                         name: prop_name(&dependency.name).to_owned(),
                         specifier: specifier.value.to_string(),
-                        parsed: Specifier::new(&specifier.value),
+                        parsed: cache.get_or_parse(&specifier.value),
                         key_span: shift(dependency.name.range(), bom, &line_index),
                         value_span: shift(specifier.range, bom, &line_index),
                     });
@@ -231,35 +264,52 @@ impl Manifest {
             keep_last_duplicates(&mut entries, section_start);
         }
 
-        let mut spans = Spans {
-            bom,
-            line_index: &line_index,
-            path: Vec::new(),
-            table: HashMap::new(),
-        };
-        spans.insert(root.range(), None, root.range());
-        spans.record(&root);
-        let spans = spans.table;
-
-        let value = to_json(&root);
+        let value = Arc::new(to_json(&root));
         Ok((
             Self {
                 path,
                 source,
                 line_index,
                 value,
-                spans,
+                spans: OnceLock::new(),
             },
             entries,
         ))
+    }
+
+    /// The file contents exactly as read (a BOM and CRLF line endings are preserved, so spans index this text).
+    #[must_use]
+    pub fn source(&self) -> &Arc<str> {
+        &self.source
+    }
+
+    /// Offset-to-line/column conversion for [`source`](Self::source).
+    #[must_use]
+    pub fn line_index(&self) -> &Arc<LineIndex> {
+        &self.line_index
+    }
+
+    /// The parsed document; key order is preserved.
+    ///
+    /// `serde_json::Value` is part of the data model of this crate on purpose: it is the one JSON representation
+    /// every consumer already has.
+    #[must_use]
+    pub fn value(&self) -> &Value {
+        &self.value
+    }
+
+    /// The parsed document, shared: cloning the handle does not copy the document.
+    #[must_use]
+    pub fn shared_value(&self) -> Arc<Value> {
+        Arc::clone(&self.value)
     }
 
     /// The span of the node at `pointer`: for an object key, the whole entry from the key through its value; for an
     /// array index, the element; for an empty pointer, the whole document. `None` when the path does not exist or is
     /// longer than three segments.
     ///
-    /// A lookup in the table recorded while parsing; the file is not parsed again. With duplicate keys the last one
-    /// wins, as in the JSON value.
+    /// A lookup in a table built from the file on the first query, so manifests nobody asks about pay nothing for
+    /// it. With duplicate keys the last one wins, as in the JSON value.
     #[must_use]
     pub fn field_span(&self, pointer: &[PathSeg]) -> Option<Span> {
         self.field_spans(pointer).map(|spans| spans.entry)
@@ -282,6 +332,9 @@ impl Manifest {
     /// [`field_span`](Self::field_span).
     #[must_use]
     pub fn field_spans(&self, pointer: &[PathSeg]) -> Option<FieldSpans> {
-        self.spans.get(pointer).copied()
+        self.spans
+            .get_or_init(|| span_table(&self.source, &self.line_index))
+            .get(pointer)
+            .copied()
     }
 }

@@ -123,6 +123,7 @@ pub enum Fixability {
 /// Static description of a rule, used for documentation and listings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub struct RuleMeta {
     /// Rule identifier.
     pub id: &'static str,

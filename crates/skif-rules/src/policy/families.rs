@@ -12,13 +12,13 @@ use super::catalog::support::{active_packages, value_location};
 use super::specifiers::{alias_target, floor_version, major};
 
 /// Metadata of `unsynced-dependency-family`.
-pub static META: RuleMeta = RuleMeta {
-    id: "unsynced-dependency-family",
-    category: Category::Policy,
-    default: Some(Severity::Error),
-    fixable: Fixability::None,
-    summary: "Members of a dependency family declared in one package are on different versions.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unsynced-dependency-family",
+    Category::Policy,
+    Some(Severity::Error),
+    Fixability::None,
+    "Members of a dependency family declared in one package are on different versions.",
+);
 
 /// The Storybook packages released in lockstep with `storybook`. `@storybook/*` also holds packages on their own
 /// version line (`@storybook/csf`, `@storybook/test-runner`, `@storybook/addon-styling`), so the family is a list.

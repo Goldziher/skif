@@ -18,17 +18,17 @@ pub(crate) fn active_packages(workspace: &Workspace) -> impl Iterator<Item = &Pa
 
 /// The specifier string of a dependency entry.
 pub(crate) fn value_location(package: &Package, entry: &DependencyEntry) -> Location {
-    Location {
-        path: package.manifest.path.clone(),
-        span: Some(entry.value_span),
-    }
+    Location::new(
+        package.manifest.path.clone(),
+        Some(entry.value_span),
+    )
 }
 
 /// Replaces the specifier of `entry` with `specifier` in its own manifest.
 pub(crate) fn set_specifier(package: &Package, entry: &DependencyEntry, specifier: &str) -> FixOp {
-    FixOp::Json {
-        path: package.manifest.path.clone(),
-        pointer: vec![key(entry.kind.field()), key(&entry.name)],
-        action: JsonAction::Set(Value::String(specifier.to_owned())),
-    }
+    FixOp::json(
+        package.manifest.path.clone(),
+        vec![key(entry.kind.field()), key(&entry.name)],
+        JsonAction::Set(Value::String(specifier.to_owned())),
+    )
 }

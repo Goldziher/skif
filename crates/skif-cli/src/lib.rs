@@ -31,6 +31,7 @@ use output::emit_error;
 /// code. Both the `skif` binary and the npm addon call this, so their behaviour cannot drift.
 pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
     let raw: Vec<OsString> = args.into_iter().collect();
+    env::enable_timings();
     let cli = match Cli::try_parse_from(&raw) {
         Ok(cli) => cli,
         Err(error) => return usage(&raw, &error),

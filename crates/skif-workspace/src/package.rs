@@ -6,6 +6,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value};
 use skif_config::Selector;
 use skif_core::DependencyKind;
+use skif_specifier::SpecifierCache;
 pub use skif_core::PackageId;
 
 use crate::error::WorkspaceError;
@@ -13,6 +14,7 @@ use crate::manifest::{DependencyEntry, Manifest};
 
 /// One `package.json` of the workspace.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Package {
     /// Identifies the package in its workspace; [`PackageId::ROOT`] for a package parsed on its own.
     pub id: PackageId,
@@ -40,12 +42,25 @@ impl Package {
     /// # Errors
     /// [`WorkspaceError::InvalidManifest`] when the JSON is invalid.
     pub fn parse(dir: PathBuf, source: Arc<str>, is_root: bool) -> Result<Self, WorkspaceError> {
+        Self::parse_with(dir, source, is_root, &SpecifierCache::new())
+    }
+
+    /// Like [`parse`](Self::parse), sharing parsed specifiers with every other package parsed through `cache`.
+    ///
+    /// # Errors
+    /// [`WorkspaceError::InvalidManifest`] when the JSON is invalid.
+    pub fn parse_with(
+        dir: PathBuf,
+        source: Arc<str>,
+        is_root: bool,
+        cache: &SpecifierCache,
+    ) -> Result<Self, WorkspaceError> {
         let manifest_path = if dir.as_os_str().is_empty() {
             PathBuf::from("package.json")
         } else {
             PathBuf::from(format!("{}/package.json", dir.to_string_lossy()))
         };
-        let (manifest, dependencies) = Manifest::parse(manifest_path, source)?;
+        let (manifest, dependencies) = Manifest::parse_with(manifest_path, source, cache)?;
         let text = |field: &str| manifest.value.get(field).and_then(Value::as_str).map(str::to_owned);
         Ok(Self {
             id: PackageId::ROOT,

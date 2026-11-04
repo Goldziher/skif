@@ -140,13 +140,13 @@ mod tests {
 
     use super::*;
 
-    const META: RuleMeta = RuleMeta {
-        id: "demo",
-        category: Category::Manifest,
-        default: Some(Severity::Warning),
-        fixable: Fixability::None,
-        summary: "demo",
-    };
+    const META: RuleMeta = RuleMeta::new(
+        "demo",
+        Category::Manifest,
+        Some(Severity::Warning),
+        Fixability::None,
+        "demo",
+    );
 
     fn workspace(config: &Config) -> Workspace {
         let fs = MemoryFs::new()
@@ -162,10 +162,10 @@ mod tests {
         let mut builder = diagnostic(
             &META,
             "m",
-            Location {
-                path: "package.json".into(),
-                span: None,
-            },
+            Location::new(
+                "package.json",
+                None,
+            ),
         );
         if let Some(package) = package {
             builder = builder.package(package);

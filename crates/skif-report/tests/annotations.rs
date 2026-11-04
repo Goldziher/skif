@@ -10,29 +10,29 @@ use skif_report::{Format, RenderOptions, render};
 const MANIFEST: &str =
     "{\n  \"name\": \"web\",\n  \"dependencies\": {\n    \"réact\": \"^18.0.0\",\n    \"lodash\": \"^4.0.0\"\n  }\n}\n";
 
-static VERSION_MISMATCH: RuleMeta = RuleMeta {
-    id: "version-mismatch",
-    category: Category::Policy,
-    default: Some(Severity::Error),
-    fixable: Fixability::Sometimes,
-    summary: "A dependency is declared with different versions.",
-};
+static VERSION_MISMATCH: RuleMeta = RuleMeta::new(
+    "version-mismatch",
+    Category::Policy,
+    Some(Severity::Error),
+    Fixability::Sometimes,
+    "A dependency is declared with different versions.",
+);
 
-static UNUSED: RuleMeta = RuleMeta {
-    id: "unused-dependency",
-    category: Category::Manifest,
-    default: Some(Severity::Warning),
-    fixable: Fixability::Safe,
-    summary: "A dependency is never imported.",
-};
+static UNUSED: RuleMeta = RuleMeta::new(
+    "unused-dependency",
+    Category::Manifest,
+    Some(Severity::Warning),
+    Fixability::Safe,
+    "A dependency is never imported.",
+);
 
-static SORTED_KEYS: RuleMeta = RuleMeta {
-    id: "sorted-keys",
-    category: Category::Manifest,
-    default: None,
-    fixable: Fixability::None,
-    summary: "Keys are not sorted.",
-};
+static SORTED_KEYS: RuleMeta = RuleMeta::new(
+    "sorted-keys",
+    Category::Manifest,
+    None,
+    Fixability::None,
+    "Keys are not sorted.",
+);
 
 fn span_of(needle: &str) -> Span {
     let start = u32::try_from(MANIFEST.find(needle).unwrap()).unwrap();
@@ -41,11 +41,11 @@ fn span_of(needle: &str) -> Span {
 }
 
 fn fix(title: &str, safety: FixSafety) -> Fix {
-    Fix {
-        title: title.to_owned(),
+    Fix::new(
+        title.to_owned(),
         safety,
-        ops: vec![FixOp::DeleteFile { path: "x".into() }],
-    }
+        vec![FixOp::delete_file("x")],
+    )
 }
 
 fn diag(rule: &'static str, severity: Severity, path: &str, span: Option<Span>, message: &str) -> Diagnostic {
@@ -53,10 +53,10 @@ fn diag(rule: &'static str, severity: Severity, path: &str, span: Option<Span>, 
         RuleId::from_static(rule),
         severity,
         message,
-        Location {
-            path: path.into(),
+        Location::new(
+            path,
             span,
-        },
+        ),
     )
 }
 
@@ -73,13 +73,13 @@ fn rich() -> Report {
     mismatch.dependency = Some("réact".to_owned());
     mismatch.detail = Some("DiffersToHighestOrLowestSemver".to_owned());
     mismatch.fixes = vec![fix("Use ^18.3.1", FixSafety::Unsafe)];
-    mismatch.related = vec![Related {
-        message: "other declaration".to_owned(),
-        location: Location {
-            path: "packages/api/package.json".into(),
-            span: Some(span_of("\"^4.0.0\"")),
-        },
-    }];
+    mismatch.related = vec![Related::new(
+        "other declaration".to_owned(),
+        Location::new(
+            "packages/api/package.json",
+            Some(span_of("\"^4.0.0\"")),
+        ),
+    )];
     let mut unused = diag(
         "unused-dependency",
         Severity::Warning,

@@ -20,6 +20,7 @@ pub enum FixSafety {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct Fix {
     /// Short description shown to the user.
     pub title: String,
@@ -38,6 +39,14 @@ impl Fix {
             safety,
             ops,
         }
+    }
+}
+
+impl JsonAction {
+    /// Inserts `key` with `value` into the object node at `position`.
+    #[must_use]
+    pub const fn insert(key: String, value: serde_json::Value, position: InsertPosition) -> Self {
+        Self::Insert { key, value, position }
     }
 }
 
@@ -78,6 +87,7 @@ pub enum JsonAction {
     /// Remove the node.
     Remove,
     /// Insert a key into the object node.
+    #[non_exhaustive]
     Insert {
         /// New key.
         key: String,
@@ -113,6 +123,7 @@ pub enum YamlAction {
 #[non_exhaustive]
 pub enum FixOp {
     /// Structured edit of a JSON file.
+    #[non_exhaustive]
     Json {
         /// Workspace-relative file.
         #[serde(serialize_with = "crate::display::serialize_path")]
@@ -123,6 +134,7 @@ pub enum FixOp {
         action: JsonAction,
     },
     /// Structured edit of a YAML file.
+    #[non_exhaustive]
     Yaml {
         /// Workspace-relative file.
         #[serde(serialize_with = "crate::display::serialize_path")]
@@ -133,6 +145,7 @@ pub enum FixOp {
         action: YamlAction,
     },
     /// Byte-range edit of a text file.
+    #[non_exhaustive]
     Text {
         /// Workspace-relative file.
         #[serde(serialize_with = "crate::display::serialize_path")]
@@ -141,6 +154,7 @@ pub enum FixOp {
         edit: TextEdit,
     },
     /// Create a file.
+    #[non_exhaustive]
     CreateFile {
         /// Workspace-relative file.
         #[serde(serialize_with = "crate::display::serialize_path")]
@@ -149,6 +163,7 @@ pub enum FixOp {
         contents: String,
     },
     /// Delete a file.
+    #[non_exhaustive]
     DeleteFile {
         /// Workspace-relative file.
         #[serde(serialize_with = "crate::display::serialize_path")]
@@ -156,10 +171,57 @@ pub enum FixOp {
     },
 }
 
+impl FixOp {
+    /// A structured edit of the JSON file `path`; `pointer` addresses the node, empty for the root.
+    #[must_use]
+    pub fn json(path: impl Into<PathBuf>, pointer: Vec<PathSeg>, action: JsonAction) -> Self {
+        Self::Json {
+            path: path.into(),
+            pointer,
+            action,
+        }
+    }
+
+    /// A structured edit of the YAML file `path`; `route` addresses the node, empty for the root.
+    #[must_use]
+    pub fn yaml(path: impl Into<PathBuf>, route: Vec<PathSeg>, action: YamlAction) -> Self {
+        Self::Yaml {
+            path: path.into(),
+            route,
+            action,
+        }
+    }
+
+    /// A byte-range edit of the text file `path`.
+    #[must_use]
+    pub fn text(path: impl Into<PathBuf>, edit: TextEdit) -> Self {
+        Self::Text {
+            path: path.into(),
+            edit,
+        }
+    }
+
+    /// Creates the file `path` with `contents`.
+    #[must_use]
+    pub fn create_file(path: impl Into<PathBuf>, contents: impl Into<String>) -> Self {
+        Self::CreateFile {
+            path: path.into(),
+            contents: contents.into(),
+        }
+    }
+
+    /// Deletes the file `path`.
+    #[must_use]
+    pub fn delete_file(path: impl Into<PathBuf>) -> Self {
+        Self::DeleteFile { path: path.into() }
+    }
+}
+
 /// Replacement of the half-open byte range `[start, end)`; `start == end` inserts.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct TextEdit {
     /// First byte replaced.
     pub start: u32,
@@ -313,6 +375,53 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+
+    #[test]
+    fn constructors_build_the_variants() {
+        let pointer = vec![PathSeg::Key("a".into())];
+        assert_eq!(
+            FixOp::json("p.json", pointer.clone(), JsonAction::Remove),
+            FixOp::Json {
+                path: "p.json".into(),
+                pointer: pointer.clone(),
+                action: JsonAction::Remove
+            }
+        );
+        assert_eq!(
+            FixOp::yaml("p.yaml", pointer.clone(), YamlAction::Remove),
+            FixOp::Yaml {
+                path: "p.yaml".into(),
+                route: pointer,
+                action: YamlAction::Remove
+            }
+        );
+        assert_eq!(
+            FixOp::text("t.txt", TextEdit::new(0, 1, "x")),
+            FixOp::Text {
+                path: "t.txt".into(),
+                edit: TextEdit::new(0, 1, "x")
+            }
+        );
+        assert_eq!(
+            FixOp::create_file("n.txt", "body"),
+            FixOp::CreateFile {
+                path: "n.txt".into(),
+                contents: "body".into()
+            }
+        );
+        assert_eq!(
+            FixOp::delete_file("d.txt"),
+            FixOp::DeleteFile { path: "d.txt".into() }
+        );
+        assert_eq!(
+            JsonAction::insert("k".into(), serde_json::json!(1), InsertPosition::End),
+            JsonAction::Insert {
+                key: "k".into(),
+                value: serde_json::json!(1),
+                position: InsertPosition::End
+            }
+        );
+    }
 
     fn edit(start: u32, end: u32, replacement: &str) -> TextEdit {
         TextEdit {

@@ -51,7 +51,7 @@ pub(crate) fn entry_files(
         );
         let mut published_without_source = false;
         let mut mapped_any = false;
-        for target in manifest_targets(&package.manifest.value) {
+        for target in manifest_targets(package.manifest.value()) {
             if target.contains('*') {
                 mapped_any = true;
                 let patterns = source_patterns(&target)
@@ -72,7 +72,7 @@ pub(crate) fn entry_files(
                 published_without_source = true;
             }
         }
-        for target in bin_targets(&package.manifest.value) {
+        for target in bin_targets(package.manifest.value()) {
             let sources = bin_stub_sources(fs, &package_setup.dir, &target);
             mapped_any |= !sources.is_empty();
             entries.extend(sources);

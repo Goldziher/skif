@@ -10,13 +10,13 @@ use crate::analysis::JsAnalysis;
 use crate::graph::Module;
 
 /// Metadata of `unused-exports`. Warning until the rule reaches corpus parity with knip; `unused-dependencies`, `unlisted-dependencies` and `unresolved-imports` stay errors.
-pub static META: RuleMeta = RuleMeta {
-    id: "unused-exports",
-    category: Category::Js,
-    default: Some(Severity::Warning),
-    fixable: Fixability::Unsafe,
-    summary: "An exported value is not imported by any other module.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unused-exports",
+    Category::Js,
+    Some(Severity::Warning),
+    Fixability::Unsafe,
+    "An exported value is not imported by any other module.",
+);
 
 /// Reports exported values (functions, classes, constants, enums, re-exports) that no module imports.
 pub struct UnusedExports;
@@ -72,11 +72,11 @@ fn removal_fix(module: &Module, export: &Export, range: (u32, u32)) -> Fix {
     } else {
         format!("Remove the unused export `{}`", export.name)
     };
-    Fix {
+    Fix::new(
         title,
-        safety: FixSafety::Unsafe,
-        ops: vec![delete_range(module, range.0, range.1)],
-    }
+        FixSafety::Unsafe,
+        vec![delete_range(module, range.0, range.1)],
+    )
 }
 
 /// Reports the unused exports of every module that are types (`want_type`) or values.

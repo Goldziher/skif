@@ -5,9 +5,11 @@ use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use rustc_hash::FxHashMap;
 use serde_json::Value;
 use skif_config::{Config, PackageManager};
 use skif_core::{DirEntry, FileSystem, LineIndex, OsFs, PathSeg, Span};
+use skif_specifier::SpecifierCache;
 
 use crate::catalogs::{self, Catalogs};
 use crate::detect;
@@ -82,9 +84,9 @@ pub struct Workspace {
     /// Config override, then `packageManager`/`devEngines`, then lockfiles, then `pnpm-workspace.yaml`.
     pub package_manager: Option<PackageManager>,
     /// The root package.
-    pub root_package: Package,
+    root_package: Package,
     /// Member packages sorted by directory, root excluded.
-    pub packages: Vec<Package>,
+    packages: Vec<Package>,
     /// Catalogs from all sources.
     pub catalogs: Catalogs,
     /// Pattern and directory observations.
@@ -96,7 +98,9 @@ pub struct Workspace {
     pub manifest_errors: Vec<WorkspaceError>,
     /// Whether the root directory holds a `package.json`. A workspace declared by `pnpm-workspace.yaml` or
     /// `rush.json` alone has none: its root package is then an empty stand-in that is excluded from analysis.
-    pub has_root_manifest: bool,
+    has_root_manifest: bool,
+    /// Package name to id, the root first: with a name declared twice the first package wins.
+    by_name: FxHashMap<Box<str>, PackageId>,
     /// Indexed by [`PackageId`]: whether `[workspace] ignore-packages` excludes the package.
     ignored: Vec<bool>,
     /// Whether this is a standalone package found below another root of a recursive run.
@@ -153,7 +157,7 @@ fn has_content(entry: &DirEntry) -> bool {
     })
 }
 
-fn load_member(fs: &dyn FileSystem, root: &Path, dir: &str) -> Member {
+fn load_member(fs: &dyn FileSystem, root: &Path, dir: &str, cache: &SpecifierCache) -> Member {
     let manifest = root.join(dir).join(MANIFEST);
     if !fs.is_file(&manifest) {
         return if fs
@@ -166,7 +170,7 @@ fn load_member(fs: &dyn FileSystem, root: &Path, dir: &str) -> Member {
         };
     }
     match fs.read_to_string(&manifest) {
-        Ok(text) => match Package::parse(PathBuf::from(dir), text, false) {
+        Ok(text) => match Package::parse_with(PathBuf::from(dir), text, false, cache) {
             Ok(package) => Member::Loaded(Box::new(package)),
             Err(error) => Member::Failed(error),
         },
@@ -283,13 +287,14 @@ impl Workspace {
         if !has_root_manifest && !has_rush && !fs.is_file(&yaml_path) {
             return Err(WorkspaceError::MissingRootManifest(root));
         }
+        let specifiers = SpecifierCache::new();
         let root_package = if has_root_manifest {
             let source = fs
                 .read_to_string(&manifest_path)
                 .map_err(|error| io_error(&manifest_path, error))?;
-            Package::parse(PathBuf::new(), source, true)?
+            Package::parse_with(PathBuf::new(), source, true, &specifiers)?
         } else {
-            Package::parse(PathBuf::new(), Arc::from("{}"), true)?
+            Package::parse_with(PathBuf::new(), Arc::from("{}"), true, &specifiers)?
         };
         let rush = if has_rush {
             let text = fs
@@ -440,7 +445,7 @@ impl Workspace {
         }
 
         let dirs: Vec<&String> = selected.iter().collect();
-        let members: Vec<Member> = map_ordered(&dirs, sequential, |dir| load_member(fs, &root, dir));
+        let members: Vec<Member> = map_ordered(&dirs, sequential, |dir| load_member(fs, &root, dir, &specifiers));
         let mut packages = Vec::new();
         let mut dirs_without_manifest = Vec::new();
         for member in members {
@@ -471,6 +476,13 @@ impl Workspace {
             declared.source
         };
 
+        let mut by_name = FxHashMap::default();
+        for package in std::iter::once(&root_package).chain(&packages) {
+            if let Some(name) = package.name.as_deref() {
+                by_name.entry(Box::<str>::from(name)).or_insert(package.id);
+            }
+        }
+
         Ok(Self {
             root,
             package_manager,
@@ -487,9 +499,29 @@ impl Workspace {
             pnpm_workspace,
             manifest_errors,
             has_root_manifest,
+            by_name,
             ignored,
             nested: false,
         })
+    }
+
+    /// The root package.
+    #[must_use]
+    pub const fn root_package(&self) -> &Package {
+        &self.root_package
+    }
+
+    /// The member packages sorted by directory, the root excluded.
+    #[must_use]
+    pub fn packages(&self) -> &[Package] {
+        &self.packages
+    }
+
+    /// Whether the root directory holds a `package.json`. A workspace declared by `pnpm-workspace.yaml` or
+    /// `rush.json` alone has none: its root package is then an empty stand-in that is excluded from analysis.
+    #[must_use]
+    pub const fn has_root_manifest(&self) -> bool {
+        self.has_root_manifest
     }
 
     /// The root first, then the members.
@@ -516,11 +548,11 @@ impl Workspace {
         }
     }
 
-    /// Looks a package up by its `name`.
+    /// Looks a package up by its `name`; with a name declared twice, the first package (the root, then the members in
+    /// directory order) wins.
     #[must_use]
     pub fn package_by_name(&self, name: &str) -> Option<&Package> {
-        self.all_packages()
-            .find(|package| package.name.as_deref() == Some(name))
+        self.by_name.get(name).and_then(|&id| self.package(id))
     }
 
     /// Whether `[workspace] ignore-packages` excludes the package with `id`.

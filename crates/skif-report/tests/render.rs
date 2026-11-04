@@ -13,11 +13,11 @@ fn span_of(needle: &str) -> Span {
 }
 
 fn fix(title: &str, safety: FixSafety) -> Fix {
-    Fix {
-        title: title.to_owned(),
+    Fix::new(
+        title.to_owned(),
         safety,
-        ops: vec![FixOp::DeleteFile { path: "x".into() }],
-    }
+        vec![FixOp::delete_file("x")],
+    )
 }
 
 fn diag(rule: &'static str, severity: Severity, path: &str, span: Option<Span>, message: &str) -> Diagnostic {
@@ -25,10 +25,10 @@ fn diag(rule: &'static str, severity: Severity, path: &str, span: Option<Span>, 
         RuleId::from_static(rule),
         severity,
         message,
-        Location {
-            path: path.into(),
+        Location::new(
+            path,
             span,
-        },
+        ),
     )
 }
 
@@ -45,13 +45,13 @@ fn rich() -> Report {
     mismatch.dependency = Some("réact".to_owned());
     mismatch.detail = Some("DiffersToHighestOrLowestSemver".to_owned());
     mismatch.fixes = vec![fix("Use ^18.3.1", FixSafety::Unsafe)];
-    mismatch.related = vec![Related {
-        message: "other declaration".to_owned(),
-        location: Location {
-            path: "packages/api/package.json".into(),
-            span: Some(span_of("\"^4.0.0\"")),
-        },
-    }];
+    mismatch.related = vec![Related::new(
+        "other declaration".to_owned(),
+        Location::new(
+            "packages/api/package.json",
+            Some(span_of("\"^4.0.0\"")),
+        ),
+    )];
     let mut unused = diag(
         "unused-dependency",
         Severity::Warning,

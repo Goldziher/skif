@@ -7,13 +7,13 @@ use super::members::report;
 use crate::analysis::JsAnalysis;
 
 /// Metadata of `unused-enum-members`.
-pub static META: RuleMeta = RuleMeta {
-    id: "unused-enum-members",
-    category: Category::Js,
-    default: Some(Severity::Warning),
-    fixable: Fixability::None,
-    summary: "A member of an exported enum is never read.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unused-enum-members",
+    Category::Js,
+    Some(Severity::Warning),
+    Fixability::None,
+    "A member of an exported enum is never read.",
+);
 
 /// Reports members of used enums that no module reads.
 pub struct UnusedEnumMembers;

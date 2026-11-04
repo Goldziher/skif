@@ -4,8 +4,7 @@ Embeddable facade of [skif](https://github.com/Goldziher/skif), a dependency and
 JavaScript and TypeScript monorepos (npm, pnpm, yarn and bun).
 
 The crate discovers a workspace, runs the rules and plans fixes. It never prints, prompts, exits, reads the
-working directory or writes files, and reads the environment only for the opt-in `SKIF_TIMINGS` phase trace on
-stderr (off unless set): everything is read through a `FileSystem` (`OsFs` on disk, `MemoryFs` for editor
+environment or the working directory, or writes files: everything is read through a `FileSystem` (`OsFs` on disk, `MemoryFs` for editor
 buffers and tests), and fixes come back as a `FixPlan` for the caller to show, merge or write.
 
 ```rust

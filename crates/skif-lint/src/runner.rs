@@ -52,7 +52,7 @@ pub fn run(
     options: &RunOptions<'_>,
 ) -> Result<Report, LintError> {
     let diagnostics = run_unsorted(registry, workspace, config, options)?;
-    let root_stand_in = usize::from(!workspace.has_root_manifest);
+    let root_stand_in = usize::from(!workspace.has_root_manifest());
     Ok(Report::new(
         diagnostics,
         workspace.all_packages().count() - root_stand_in,

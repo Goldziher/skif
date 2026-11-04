@@ -21,11 +21,11 @@ fn package_json() -> String {
 }
 
 fn op(pointer: Vec<PathSeg>, action: JsonAction) -> FixOp {
-    FixOp::Json {
-        path: "package.json".into(),
+    FixOp::json(
+        "package.json",
         pointer,
         action,
-    }
+    )
 }
 
 fn key(name: &str) -> PathSeg {
@@ -41,11 +41,11 @@ fn bench_json_edit(c: &mut Criterion) {
     let remove = op(vec![key("dependencies"), key("dep-0100")], JsonAction::Remove);
     let insert = op(
         vec![key("dependencies")],
-        JsonAction::Insert {
-            key: "dep-new".to_owned(),
-            value: json!("^1.0.0"),
-            position: InsertPosition::Sorted,
-        },
+        JsonAction::insert(
+            "dep-new".to_owned(),
+            json!("^1.0.0"),
+            InsertPosition::Sorted,
+        ),
     );
     let sort = op(vec![key("dependencies")], JsonAction::SortKeys);
     let rename = op(

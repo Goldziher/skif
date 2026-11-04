@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct Span {
     /// Byte offset of the first byte.
     pub start: u32,
@@ -29,6 +30,7 @@ pub struct Span {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct Location {
     /// Workspace-relative path.
     #[serde(serialize_with = "crate::display::serialize_path")]
@@ -59,11 +61,38 @@ impl Location {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct Related {
     /// Why this location is relevant.
     pub message: String,
     /// Where it is.
     pub location: Location,
+}
+
+impl Related {
+    /// A secondary location at `location` that is relevant because of `message`.
+    #[must_use]
+    pub fn new(message: impl Into<String>, location: Location) -> Self {
+        Self {
+            message: message.into(),
+            location,
+        }
+    }
+}
+
+impl Span {
+    /// A span from its byte range and the 1-based lines and columns of both ends.
+    #[must_use]
+    pub const fn new(start: u32, end: u32, start_line: u32, start_col: u32, end_line: u32, end_col: u32) -> Self {
+        Self {
+            start,
+            end,
+            start_line,
+            start_col,
+            end_line,
+            end_col,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,23 +124,23 @@ impl LineIndex {
     #[must_use]
     pub fn new(source: &str) -> Self {
         let line_starts = std::iter::once(0)
-            .chain(
-                source
-                    .bytes()
-                    .enumerate()
-                    .filter(|&(_, b)| b == b'\n')
-                    .map(|(i, _)| to_u32(i + 1)),
-            )
+            .chain(memchr::memchr_iter(b'\n', source.as_bytes()).map(|i| to_u32(i + 1)))
             .collect();
-        let wide_chars = source
-            .char_indices()
-            .filter(|&(_, c)| c.len_utf8() > 1)
-            .map(|(i, c)| WideChar {
-                offset: to_u32(i),
-                utf8_len: to_u32(c.len_utf8()),
-                utf16_len: to_u32(c.len_utf16()),
-            })
-            .collect();
+        // Most files are pure ASCII, which `is_ascii` answers with a vectorised scan; only the others pay for a
+        // character walk.
+        let wide_chars = if source.is_ascii() {
+            Vec::new()
+        } else {
+            source
+                .char_indices()
+                .filter(|&(_, c)| c.len_utf8() > 1)
+                .map(|(i, c)| WideChar {
+                    offset: to_u32(i),
+                    utf8_len: to_u32(c.len_utf8()),
+                    utf16_len: to_u32(c.len_utf16()),
+                })
+                .collect()
+        };
         Self {
             line_starts,
             wide_chars,
@@ -175,6 +204,34 @@ impl LineIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constructors_fill_every_field() {
+        let span = Span::new(1, 4, 1, 2, 1, 5);
+        assert_eq!(
+            span,
+            Span {
+                start: 1,
+                end: 4,
+                start_line: 1,
+                start_col: 2,
+                end_line: 1,
+                end_col: 5
+            }
+        );
+        let related = Related::new("why", Location::new("a.json", Some(span)));
+        assert_eq!(related.message, "why");
+        assert_eq!(related.location.span, Some(span));
+    }
+
+    #[test]
+    fn non_ascii_and_ascii_text_index_alike_up_to_the_wide_characters() {
+        let ascii = LineIndex::new("ab\ncd");
+        assert_eq!(ascii.utf16_col(4), 2);
+        let wide = LineIndex::new("é\nab");
+        assert_eq!(wide.line_col(3), (2, 1));
+        assert_eq!(wide.utf16_col(2), 2);
+    }
 
     #[test]
     fn ascii_single_line() {

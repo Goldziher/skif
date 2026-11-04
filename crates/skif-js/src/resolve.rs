@@ -139,7 +139,7 @@ pub(crate) struct Outcome {
 
 struct Member {
     dir: PathBuf,
-    manifest: Value,
+    manifest: Arc<Value>,
     /// Absolute output directories with the source directory each is built from.
     build_dirs: Vec<(PathBuf, PathBuf)>,
 }
@@ -382,7 +382,7 @@ impl ModuleResolver {
                     name,
                     Member {
                         dir,
-                        manifest: package.manifest.value.clone(),
+                        manifest: package.manifest.shared_value(),
                         build_dirs,
                     },
                 ))
@@ -780,7 +780,7 @@ impl ModuleResolver {
             let text = self.fs.read_to_string(&dir.join("package.json")).ok()?;
             Some(Arc::new(Member {
                 dir: dir.to_path_buf(),
-                manifest: serde_json::from_str(&text).ok()?,
+                manifest: Arc::new(serde_json::from_str(&text).ok()?),
                 build_dirs: Vec::new(),
             }))
         })

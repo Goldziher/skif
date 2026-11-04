@@ -6,13 +6,13 @@ use super::support::report_unused_dependencies;
 use crate::analysis::JsAnalysis;
 
 /// Metadata of `unused-dependencies`.
-pub static META: RuleMeta = RuleMeta {
-    id: "unused-dependencies",
-    category: Category::Js,
-    default: Some(Severity::Error),
-    fixable: Fixability::Unsafe,
-    summary: "A package in `dependencies` is never imported, required or run by a script.",
-};
+pub static META: RuleMeta = RuleMeta::new(
+    "unused-dependencies",
+    Category::Js,
+    Some(Severity::Error),
+    Fixability::Unsafe,
+    "A package in `dependencies` is never imported, required or run by a script.",
+);
 
 /// Reports `dependencies` and `optionalDependencies` that nothing uses.
 pub struct UnusedDependencies;
