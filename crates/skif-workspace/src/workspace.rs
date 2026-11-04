@@ -22,6 +22,7 @@ use crate::rush;
 
 const MANIFEST: &str = "package.json";
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
+const YARNRC: &str = ".yarnrc.yml";
 
 /// Where the workspace patterns were declared.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,6 +94,8 @@ pub struct Workspace {
     pub facts: DiscoveryFacts,
     /// `pnpm-workspace.yaml` when present.
     pub pnpm_workspace: Option<YamlSource>,
+    /// `.yarnrc.yml` when present and it declares catalogs (Yarn 4.10+).
+    pub yarnrc: Option<YamlSource>,
     /// Members whose manifest could not be read or parsed, and workspace patterns that cannot be used (a `..`
     /// segment, too many brace alternatives); the rest of the workspace is still discovered.
     pub manifest_errors: Vec<WorkspaceError>,
@@ -385,11 +388,28 @@ impl Workspace {
             patterns: Vec::new(),
         });
 
+        let yarnrc_path = root.join(YARNRC);
+        let (yarnrc, yarn_catalogs) = if fs.is_file(&yarnrc_path) {
+            let text = fs
+                .read_to_string(&yarnrc_path)
+                .map_err(|error| io_error(&yarnrc_path, error))?;
+            let catalogs = catalogs::from_yarnrc(&text, Path::new(YARNRC));
+            let source = (!catalogs.is_empty()).then(|| YamlSource {
+                path: PathBuf::from(YARNRC),
+                line_index: Arc::new(LineIndex::new(&text)),
+                source: text,
+                overrides: Vec::new(),
+            });
+            (source, catalogs)
+        } else {
+            (None, Catalogs::default())
+        };
         let mut catalogs = pnpm_config.map(|parsed| parsed.catalogs).unwrap_or_default();
         catalogs.merge(catalogs::from_package_json(
             &root_package.manifest.value,
             &root_package.manifest.path,
         ));
+        catalogs.merge(yarn_catalogs);
 
         let expander = Expander { fs, root: &root };
         let mut facts = Vec::new();
@@ -497,6 +517,7 @@ impl Workspace {
                 yarn_classic,
             },
             pnpm_workspace,
+            yarnrc,
             manifest_errors,
             has_root_manifest,
             by_name,
