@@ -9,6 +9,7 @@ skif rules [--format human|json]
 skif schema
 skif init [PATH]
 skif config [PATH] [-r] (--show | --explain <KEY> [--package <NAME>]) [--format human|json]
+skif explain-usage <FILE[#EXPORT]> [PATH]
 ```
 
 `skif [PATH]` lints the project containing `PATH` (default `.`). The root is resolved in this order:
@@ -38,6 +39,7 @@ another root. `--fix` plans, writes and installs per root.
 | `skif schema` | Print the JSON Schema of `skif.toml`. |
 | `skif init [PATH]` | Write a starter `skif.toml` into `PATH` (default `.`). Refuses to overwrite an existing configuration. When configuration files above `PATH` already apply, prints a note naming the files the new one inherits from. |
 | `skif config [PATH]` | Show how the configuration of the root at `PATH` was built (see below). |
+| `skif explain-usage <FILE[#EXPORT]> [PATH]` | Explain why the JavaScript analysis counts a file, or one export of it, as used (see below). |
 
 ## Flags
 
@@ -80,6 +82,17 @@ root at or below `PATH`. Paths are printed relative to the root (or, with `-r`, 
 | `--format <human\|json>` | `json` prints one document with the same `version` and `skif` members as the other JSON outputs. |
 
 An unknown key exits `2` and names the closest keys.
+
+## Explaining usage
+
+`skif explain-usage <FILE[#EXPORT]> [PATH]` answers why a file is not reported as unused, or why an export is not
+reported as unused. `FILE` is relative to the workspace root, as in diagnostics, or absolute. The report names the
+entry rule when the file is an entry file, lists every import of it with the importing file and line (and which names the
+import brings in), and shows the shortest chain of imports from an entry file. With `#EXPORT` it lists the modules that
+import that export by name or as a whole, follows re-exports (`export { x } from`, `export *`) into the modules that
+use them, and ends with whether another module uses the export. A file the analysis never reached is said to be
+unreached, or not part of the analysed project. The command builds the whole JavaScript analysis, so it costs as much
+as the JavaScript part of a lint run. It exits `2` when the root cannot be loaded.
 
 ## Exit codes
 
