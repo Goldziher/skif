@@ -3,6 +3,8 @@
 //! Renderers write to a [`std::io::Write`], never read the environment or detect terminals, and take
 //! their configuration from [`RenderOptions`].
 
+#![warn(missing_docs)]
+
 mod github;
 mod human;
 mod json;
