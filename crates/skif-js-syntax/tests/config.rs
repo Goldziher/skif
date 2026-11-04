@@ -210,6 +210,53 @@ fn computed_paths_are_relative_to_the_config_directory() {
 }
 
 #[test]
+fn path_module_forms_are_understood() {
+    let cases: Vec<(&str, &str, &str)> = vec![
+        (
+            "namespace import",
+            "import * as path from 'path';\nexport default { a: path.join(import.meta.dirname, 'src') };",
+            "./src",
+        ),
+        (
+            "default specifier of a named import",
+            "import { default as p } from 'node:path';\nexport default { a: p.resolve(import.meta.dirname, 'lib') };",
+            "./lib",
+        ),
+        (
+            "posix flavour",
+            "import path from 'node:path';\nexport default { a: path.posix.join(import.meta.dirname, 'src') };",
+            "./src",
+        ),
+        (
+            "process.cwd is the config directory",
+            "import path from 'node:path';\nexport default { a: path.resolve(process.cwd(), 'src') };",
+            "./src",
+        ),
+        (
+            "dirname of the config directory",
+            "import path from 'node:path';\nexport default { a: path.dirname(import.meta.dirname) };",
+            "..",
+        ),
+    ];
+    for (name, source, expected) in cases {
+        let value = extract("c.mjs", source).unwrap();
+        assert_eq!(value.get("a"), Some(&s(expected)), "{name}");
+    }
+}
+
+#[test]
+fn urls_with_a_scheme_and_win32_paths_stay_unknown() {
+    let value = extract(
+        "c.mjs",
+        "import path from 'node:path';\nimport { fileURLToPath } from 'node:url';\nexport default { a: new URL('b', 'https://example.com/a').pathname, b: fileURLToPath('file:///abs/x'), c: new URL('./x', import.meta.url).href, d: path.win32.join(import.meta.dirname, 'src') };",
+    )
+    .unwrap();
+    for key in ["a", "b", "c", "d"] {
+        assert_eq!(value.get(key), Some(&ConfigValue::Unknown), "{key}");
+    }
+}
+
+#[test]
 fn paths_that_cannot_be_known_stay_unknown() {
     let value = extract(
         "c.js",

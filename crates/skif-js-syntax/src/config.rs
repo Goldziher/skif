@@ -141,7 +141,11 @@ impl ConfigValue {
 /// `Promise.resolve(x)` evaluate to `x`; `require.resolve('pkg')` evaluates to `'pkg'`, and the storybook idiom
 /// `dirname(require.resolve(join('pkg', 'package.json')))` to `'pkg'`. A call of a glob function (`glob`,
 /// `fast-glob`, `globby`, `tinyglobby`, however imported) evaluates to the array of its literal patterns, so a
-/// dynamic `entry` becomes entry globs. Everything else is [`ConfigValue::Unknown`]. Returns `None` when the file does not parse or exports nothing recognisable.
+/// dynamic `entry` becomes entry globs. `process.cwd()` and a first `path.resolve` argument that is not absolute are
+/// taken to be the config file's directory, which is right when the tool runs from the package that holds the
+/// config and a heuristic otherwise. The directory itself is `"."`, so `dirname(__dirname)` is `".."`. A URL with a
+/// scheme (`new URL(x, 'https://…')`, `fileURLToPath('file:///…')`) and `.href` are [`ConfigValue::Unknown`], as is
+/// everything else. Returns `None` when the file does not parse or exports nothing recognisable.
 #[must_use]
 pub fn extract_config_object(source: &str, path: &Path) -> Option<ConfigValue> {
     let source_type = SourceType::from_path(path).ok()?;
@@ -259,13 +263,13 @@ impl ModuleBindings {
     fn bind(&mut self, module: &str, member: Option<&str>, local: &str) {
         let local = local.to_owned();
         match (module.strip_prefix("node:").unwrap_or(module), member) {
-            ("path" | "path/posix", None) => {
+            ("path" | "path/posix", None | Some("default")) => {
                 self.path_modules.insert(local);
             }
             ("path" | "path/posix", Some(name)) if PATH_FUNCTIONS.contains(&name) => {
                 self.path_functions.insert(local, name.to_owned());
             }
-            ("url", None) => {
+            ("url", None | Some("default")) => {
                 self.url_modules.insert(local);
             }
             ("url", Some("fileURLToPath")) => {
@@ -383,7 +387,8 @@ fn apply_path_function(function: &str, args: &[ConfigValue]) -> ConfigValue {
     };
     let absolute = |part: &&str| part.starts_with(['/', '\\']);
     let path = match (function, parts.as_slice()) {
-        ("fileURLToPath", [file]) => (*file).to_owned(),
+        // Only a path derived from `import.meta.url` is known; a URL with a scheme names something else.
+        ("fileURLToPath", [file]) if !file.contains(':') => (*file).to_owned(),
         ("dirname", [path]) => normalized(&[*path, ".."]),
         ("normalize", [path]) => normalized(&[*path]),
         ("resolve", parts) if !parts.iter().any(absolute) => normalized(parts),
@@ -665,7 +670,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         match (member.object.get_inner_expression(), property) {
             (Expression::ImportMeta(_), "dirname") => ConfigValue::String(".".to_owned()),
             (Expression::ImportMeta(_), "filename" | "url") => ConfigValue::String(format!("./{}", self.file)),
-            (object @ Expression::NewExpression(_), "pathname" | "href") => self.expr(object, depth),
+            (object @ Expression::NewExpression(_), "pathname") => self.expr(object, depth),
             _ => ConfigValue::Unknown,
         }
     }
@@ -680,7 +685,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         });
         match (is_url, args.next(), args.next(), args.next()) {
             (true, Some(ConfigValue::String(relative)), Some(ConfigValue::String(base)), None)
-                if !relative.starts_with('/') =>
+                if !relative.starts_with('/') && !relative.contains(':') && !base.contains(':') =>
             {
                 ConfigValue::String(normalized(&[base.as_str(), "..", relative.as_str()]))
             }
@@ -719,7 +724,14 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 }
             }
             Expression::StaticMemberExpression(member) => {
-                let Expression::Identifier(object) = member.object.get_inner_expression() else {
+                // `path.posix.join` computes like `path.join` for the relative paths a config holds.
+                let object = match member.object.get_inner_expression() {
+                    Expression::StaticMemberExpression(inner) if inner.property.name.as_str() == "posix" => {
+                        inner.object.get_inner_expression()
+                    }
+                    other => other,
+                };
+                let Expression::Identifier(object) = object else {
                     return None;
                 };
                 let (object, property) = (object.name.as_str(), member.property.name.as_str());
