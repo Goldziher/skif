@@ -32,7 +32,10 @@ impl ConfigSource {
     /// Whether the file was found by discovery (or given explicitly) rather than reached through `extends`.
     #[must_use]
     pub const fn is_discovered(&self) -> bool {
-        matches!(self.kind, SourceKind::Root | SourceKind::Ancestor | SourceKind::Explicit)
+        matches!(
+            self.kind,
+            SourceKind::Root | SourceKind::Ancestor | SourceKind::Explicit
+        )
     }
 }
 

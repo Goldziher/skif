@@ -137,9 +137,8 @@ fn an_override_raises_the_level_in_its_scope_only() {
 
 #[test]
 fn an_override_lowers_the_level_in_its_scope_only() {
-    let config = resolved(
-        "[rules]\ndemo = \"error\"\n[[overrides]]\npackages = [\"b\"]\n[overrides.rules]\ndemo = \"info\"\n",
-    );
+    let config =
+        resolved("[rules]\ndemo = \"error\"\n[[overrides]]\npackages = [\"b\"]\n[overrides.rules]\ndemo = \"info\"\n");
     assert_eq!(
         by_package(&findings(&config), "demo"),
         [
@@ -201,14 +200,16 @@ fn the_global_max_level_caps_every_diagnostic() {
 #[test]
 fn a_cap_never_raises_a_level() {
     let config = resolved("[lint]\nmax-level = \"error\"\n[rules]\ndemo = \"info\"\n");
-    assert!(findings(&config).iter().all(|(_, _, _, severity)| *severity == Severity::Info));
+    assert!(
+        findings(&config)
+            .iter()
+            .all(|(_, _, _, severity)| *severity == Severity::Info)
+    );
 }
 
 #[test]
 fn an_override_max_level_caps_its_scope_only() {
-    let config = resolved(
-        "[rules]\ndemo = \"error\"\n[[overrides]]\npackages = [\"a\"]\nmax-level = \"warn\"\n",
-    );
+    let config = resolved("[rules]\ndemo = \"error\"\n[[overrides]]\npackages = [\"a\"]\nmax-level = \"warn\"\n");
     assert_eq!(
         by_package(&findings(&config), "demo"),
         [
@@ -226,7 +227,10 @@ fn a_cap_applies_after_the_level_of_an_override() {
         "[lint]\nmax-level = \"warn\"\n[[overrides]]\npackages = [\"a\"]\n[overrides.rules]\ndemo = \"error\"\n",
     );
     let found = by_package(&findings(&config), "demo");
-    assert!(found.iter().all(|(_, severity)| *severity == Severity::Warning), "{found:?}");
+    assert!(
+        found.iter().all(|(_, severity)| *severity == Severity::Warning),
+        "{found:?}"
+    );
 }
 
 #[test]
@@ -272,9 +276,7 @@ fn an_override_ignore_may_omit_every_filter_and_follows_its_dependency_filter() 
     let found = findings(&everything);
     assert!(found.iter().all(|(_, package, ..)| package != "b"), "{found:?}");
 
-    let other = resolved(
-        "[[overrides]]\npackages = [\"b\"]\n[[overrides.ignore]]\ndependencies = [\"lodash\"]\n",
-    );
+    let other = resolved("[[overrides]]\npackages = [\"b\"]\n[[overrides.ignore]]\ndependencies = [\"lodash\"]\n");
     assert!(findings(&other).iter().any(|(_, package, ..)| package == "b"));
 }
 
@@ -287,10 +289,12 @@ fn the_command_line_level_beats_an_override() {
             ..ConfigOverrides::default()
         })
         .unwrap();
-    assert!(findings(&config)
-        .iter()
-        .filter(|f| f.0 == "demo")
-        .all(|(_, _, _, severity)| *severity == Severity::Info));
+    assert!(
+        findings(&config)
+            .iter()
+            .filter(|f| f.0 == "demo")
+            .all(|(_, _, _, severity)| *severity == Severity::Info)
+    );
 }
 
 #[test]

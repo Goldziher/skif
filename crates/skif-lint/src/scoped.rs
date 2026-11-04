@@ -66,7 +66,11 @@ impl Scopes {
             overrides: config.overrides.clone(),
             relevant,
             max_level: config.lint.max_level,
-            cli_levels: config.cli_levels.iter().map(|(id, level)| (id.clone(), *level)).collect(),
+            cli_levels: config
+                .cli_levels
+                .iter()
+                .map(|(id, level)| (id.clone(), *level))
+                .collect(),
         }
     }
 
@@ -100,9 +104,7 @@ impl Scopes {
         self.overrides
             .iter()
             .enumerate()
-            .filter(|(index, scoped)| {
-                self.relevant[*index] && scoped.applies_to(package, Some(file.as_path()))
-            })
+            .filter(|(index, scoped)| self.relevant[*index] && scoped.applies_to(package, Some(file.as_path())))
             .map(|(index, _)| index)
             .collect()
     }

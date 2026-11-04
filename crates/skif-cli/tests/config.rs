@@ -46,7 +46,11 @@ fn chain() -> TempDir {
         "ws/packages/a/package.json",
         r#"{"name":"@acme/a","version":"1.0.0"}"#,
     );
-    put(dir.path(), "ws/packages/b/package.json", r#"{"name":"b","version":"1.0.0"}"#);
+    put(
+        dir.path(),
+        "ws/packages/b/package.json",
+        r#"{"name":"b","version":"1.0.0"}"#,
+    );
     dir
 }
 
@@ -84,7 +88,9 @@ fn show_lists_the_sources_in_apply_order_then_the_merged_config() {
 #[test]
 fn show_json_has_the_envelope_the_sources_and_the_config() {
     let dir = chain();
-    let result = run(skif().args(["config", "--show", "--format", "json"]).arg(dir.path().join("ws")));
+    let result = run(skif()
+        .args(["config", "--show", "--format", "json"])
+        .arg(dir.path().join("ws")));
     assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
     let document = result.json();
     assert_eq!(document["version"], 1);
@@ -124,7 +130,13 @@ fn explain_walks_the_whole_chain() {
 fn explain_a_rule_level_lists_each_file_that_set_it() {
     let dir = chain();
     let result = run(skif()
-        .args(["config", "--explain", "rules.unsorted-dependencies.level", "--format", "json"])
+        .args([
+            "config",
+            "--explain",
+            "rules.unsorted-dependencies.level",
+            "--format",
+            "json",
+        ])
         .arg(dir.path().join("ws")));
     assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
     let document = result.json();
@@ -163,7 +175,11 @@ fn explain_with_a_package_lists_the_overrides_that_apply() {
     let human = run(skif()
         .args(["config", "--explain", "lint.fail-on-warnings", "--package", "@acme/a"])
         .arg(&ws));
-    assert!(human.stdout.contains("package @acme/a (packages/a)"), "{}", human.stdout);
+    assert!(
+        human.stdout.contains("package @acme/a (packages/a)"),
+        "{}",
+        human.stdout
+    );
     assert!(human.stdout.contains("overrides[0]  ../skif.toml"), "{}", human.stdout);
 
     let other = run(skif()
@@ -180,7 +196,9 @@ fn an_unknown_key_exits_two_and_names_near_keys() {
     let human = run(skif().args(["config", "--explain", "lint.fail-on-warning"]).arg(&ws));
     assert_eq!(human.code, 2);
     assert!(
-        human.stderr.contains("unknown configuration key `lint.fail-on-warning`"),
+        human
+            .stderr
+            .contains("unknown configuration key `lint.fail-on-warning`"),
         "{}",
         human.stderr
     );
@@ -209,7 +227,10 @@ fn show_or_explain_is_required_and_they_conflict() {
     let ws = dir.path().join("ws");
     assert_eq!(run(skif().arg("config").arg(&ws)).code, 2);
     assert_eq!(
-        run(skif().args(["config", "--show", "--explain", "lint.fail-on-warnings"]).arg(&ws)).code,
+        run(skif()
+            .args(["config", "--show", "--explain", "lint.fail-on-warnings"])
+            .arg(&ws))
+        .code,
         2
     );
     assert_eq!(
@@ -241,7 +262,11 @@ fn recursive_reports_every_root_with_its_own_sources() {
     assert_eq!(explained.code, 0, "{}{}", explained.stdout, explained.stderr);
     assert!(explained.stdout.contains("# root: one"), "{}", explained.stdout);
     assert!(explained.stdout.contains("# root: two"), "{}", explained.stdout);
-    assert!(explained.stdout.contains("two/skif.toml:2:1  set"), "{}", explained.stdout);
+    assert!(
+        explained.stdout.contains("two/skif.toml:2:1  set"),
+        "{}",
+        explained.stdout
+    );
 }
 
 #[test]

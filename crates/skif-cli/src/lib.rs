@@ -9,8 +9,8 @@ use std::ffi::OsString;
 use clap::Parser;
 
 mod args;
-mod config;
 mod commands;
+mod config;
 mod env;
 mod error;
 mod fix;

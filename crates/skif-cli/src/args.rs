@@ -86,7 +86,7 @@ pub struct ConfigArgs {
     pub explain: Option<String>,
 
     /// With --explain, also list the overrides that apply to this package.
-    #[arg(long, value_name = "NAME", requires = "explain")]
+    #[arg(long, value_name = "NAME", requires = "explain", conflicts_with = "show")]
     pub package: Option<String>,
 
     /// Output format.

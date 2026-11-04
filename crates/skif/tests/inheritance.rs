@@ -255,7 +255,10 @@ fn each_config_file_is_read_once_per_run() {
 fn workspace_with(a_file: Option<&str>, root_file: &str) -> MemoryFs {
     let fs = MemoryFs::new()
         .with_file("/ws/skif.toml", root_file)
-        .with_file("/ws/package.json", r#"{"name": "ws", "private": true, "workspaces": ["packages/*"]}"#)
+        .with_file(
+            "/ws/package.json",
+            r#"{"name": "ws", "private": true, "workspaces": ["packages/*"]}"#,
+        )
         .with_file("/ws/packages/a/package.json", package("a"))
         .with_file("/ws/packages/b/package.json", package("b"));
     match a_file {
@@ -271,7 +274,9 @@ fn load_ws(fs: &MemoryFs, overrides: &ConfigOverrides) -> Result<Target, skif::E
 #[test]
 fn a_package_file_becomes_an_override_scoped_to_its_package() {
     let fs = workspace_with(
-        Some("[rules]\nempty-dependencies = \"off\"\n\n[lint]\nmax-level = \"warn\"\n\n[[ignore]]\nrules = [\"unused-files\"]\n"),
+        Some(
+            "[rules]\nempty-dependencies = \"off\"\n\n[lint]\nmax-level = \"warn\"\n\n[[ignore]]\nrules = [\"unused-files\"]\n",
+        ),
         "[rules]\nempty-dependencies = \"error\"\n",
     );
     let target = load_ws(&fs, &ConfigOverrides::default()).unwrap();
@@ -290,7 +295,10 @@ fn a_package_file_becomes_an_override_scoped_to_its_package() {
     assert_eq!(last.path, Path::new("/ws/packages/a/skif.toml"));
     assert_eq!(target.config_file, Some(PathBuf::from("/ws/skif.toml")));
     assert_eq!(target.config_path(), Some(PathBuf::from("skif.toml")));
-    assert_eq!(target.origins.last("overrides[0]").unwrap().source, target.sources.len() - 1);
+    assert_eq!(
+        target.origins.last("overrides[0]").unwrap().source,
+        target.sources.len() - 1
+    );
     assert_eq!(target.config.rules["empty-dependencies"].severity, Some(Level::Error));
 }
 
@@ -324,7 +332,10 @@ fn a_package_file_with_a_root_scoped_key_is_a_scope_error() {
         ("[workspace]\nignore-packages = [\"x\"]\n", "workspace"),
         ("[lint]\nfail-on-warnings = true\n", "lint.fail-on-warnings"),
         ("[js]\nproduction = true\n", "js.production"),
-        ("[rules.empty-dependencies]\nlevel = \"warn\"\nfoo = 1\n", "rules.empty-dependencies.foo"),
+        (
+            "[rules.empty-dependencies]\nlevel = \"warn\"\nfoo = 1\n",
+            "rules.empty-dependencies.foo",
+        ),
         ("extends = [\"../../skif.toml\"]\n", "extends"),
         ("root = true\n", "root"),
         ("[[version-groups]]\ndependencies = [\"x\"]\n", "version-groups"),
@@ -332,7 +343,9 @@ fn a_package_file_with_a_root_scoped_key_is_a_scope_error() {
         let fs = workspace_with(Some(text), "");
         let error = load_ws(&fs, &ConfigOverrides::default()).unwrap_err();
         match error {
-            skif::Error::Config(skif::ConfigError::Scope { key: found, path, line, .. }) => {
+            skif::Error::Config(skif::ConfigError::Scope {
+                key: found, path, line, ..
+            }) => {
                 assert_eq!(found, key, "{text}");
                 assert_eq!(path.as_deref(), Some(Path::new("/ws/packages/a/skif.toml")));
                 assert!(line.is_some(), "{text}");
@@ -349,13 +362,19 @@ fn no_config_skips_package_files() {
         no_config: true,
         ..ConfigOverrides::default()
     };
-    assert!(load_ws(&fs, &overrides).unwrap().config.overrides.is_empty());
+    assert_eq!(
+        load_ws(&fs, &overrides).unwrap().config.overrides,
+        [] as [skif::Override; 0]
+    );
 }
 
 #[test]
 fn a_file_in_a_directory_that_is_not_a_member_is_not_a_package_file() {
     let fs = workspace_with(None, "").with_file("/ws/packages/c/skif.toml", "[workspace]\nignore-packages = [\"x\"]\n");
-    assert!(load_ws(&fs, &ConfigOverrides::default()).unwrap().config.overrides.is_empty());
+    assert_eq!(
+        load_ws(&fs, &ConfigOverrides::default()).unwrap().config.overrides,
+        [] as [skif::Override; 0]
+    );
 }
 
 #[test]

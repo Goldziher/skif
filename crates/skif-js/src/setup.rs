@@ -225,7 +225,11 @@ impl Setup {
                 }
                 let dir_name = package.dir.to_string_lossy().replace('\\', "/");
                 let abs_dir = workspace.root.join(&package.dir);
-                let match_dir = if package.is_root { workspace.root.as_path() } else { abs_dir.as_path() };
+                let match_dir = if package.is_root {
+                    workspace.root.as_path()
+                } else {
+                    abs_dir.as_path()
+                };
                 let user = configured(config, package.display_name(), match_dir, &dir_name, package.is_root);
                 let mut plugin = WorkspaceInputs::default();
                 let request = InputRequest {
