@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use toml::{Table, Value};
 
-use crate::provenance::{Assignment, Op, Origins};
+use crate::provenance::{Assignment, Op, Origins, join_key};
 
 /// Positions of the keys of one file: dotted key path (`rules.unused-files`, `version-groups[0]`) to 1-based
 /// `(line, column)`.
@@ -141,14 +141,6 @@ impl Merger {
     }
 }
 
-fn join(path: &str, key: &str) -> String {
-    if path.is_empty() {
-        key.to_owned()
-    } else {
-        format!("{path}.{key}")
-    }
-}
-
 /// The table at `key`, created (or replaced, when it is something else) when missing.
 fn section<'t>(parent: &'t mut Table, key: &str) -> &'t mut Table {
     let slot = parent
@@ -183,7 +175,7 @@ fn merge_table(base: &mut Table, layer: &Table, path: &str, cx: &mut Cx<'_>) {
         {
             continue;
         }
-        let child = join(path, key);
+        let child = join_key(path, key);
         if path == "js.plugins" {
             let merged = merge_plugin(base.get(key), value);
             base.insert(key.clone(), merged);
@@ -198,7 +190,7 @@ fn merge_table(base: &mut Table, layer: &Table, path: &str, cx: &mut Cx<'_>) {
     for (_, key, extend) in EXTEND_KEYS.iter().filter(|(table, _, _)| *table == path) {
         if let Some(Value::Array(extra)) = layer.get(*extend) {
             list(base, key).extend(extra.iter().cloned());
-            cx.record(&join(path, key), &join(path, extend), Op::Append);
+            cx.record(&join_key(path, key), &join_key(path, extend), Op::Append);
         }
     }
 }
@@ -262,7 +254,7 @@ fn merge_rules(table: &mut Table, layer: &Table, cx: &mut Cx<'_>) {
     for (id, value) in layer {
         let (level, options) = split_rule(value);
         let (inherited_level, inherited_options) = base.get(id).map_or_else(|| (None, Table::new()), split_rule);
-        let own = format!("rules.{id}");
+        let own = join_key("rules", id);
         if level.is_some() {
             let at = [format!("{own}.level"), format!("{own}.severity")]
                 .into_iter()

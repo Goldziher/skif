@@ -86,6 +86,94 @@ fn show_lists_the_sources_in_apply_order_then_the_merged_config() {
 }
 
 #[test]
+fn show_comments_each_value_with_the_file_and_line_that_set_it() {
+    let dir = chain();
+    let result = run(skif().args(["config", "--show"]).arg(dir.path().join("ws")));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let out = &result.stdout;
+    assert!(out.contains("fail-on-warnings = true  # from skif.toml:4\n"), "{out}");
+    assert!(
+        out.contains("unsorted-dependencies = \"off\"  # from skif.toml:7\n"),
+        "{out}"
+    );
+    assert!(out.contains("[[overrides]]  # from ../skif.toml:"), "{out}");
+    let value = out.lines().find(|line| line.starts_with("fail-on-warnings")).unwrap();
+    assert!(
+        !value.contains("presets"),
+        "the last file to set a value is the one named: {value}"
+    );
+    let toml: toml::Table = out.parse().unwrap();
+    assert!(toml.contains_key("lint"), "the comments keep the output valid TOML");
+}
+
+#[test]
+fn show_json_gives_the_origins_of_each_key() {
+    let dir = chain();
+    let result = run(skif()
+        .args(["config", "--show", "--format", "json"])
+        .arg(dir.path().join("ws")));
+    let document = result.json();
+    let origins = &document["roots"][0]["origins"];
+    let set_by = origins["rules.unsorted-dependencies.level"].as_array().unwrap();
+    assert_eq!(
+        paths(&origins["rules.unsorted-dependencies.level"]),
+        ["../presets/base.toml", "skif.toml"]
+    );
+    assert_eq!(set_by[1]["line"], 7);
+    assert_eq!(set_by[1]["op"], "set");
+    assert_eq!(document["roots"][0]["not-applied"], serde_json::json!([]));
+}
+
+/// A workspace with a package file in a member, and configuration files that nothing reads.
+fn with_stray_files() -> TempDir {
+    let dir = chain();
+    put(dir.path(), "ws/packages/a/skif.toml", "[lint]\nmax-level = \"warn\"\n");
+    put(dir.path(), "ws/tools/x/skif.toml", "[lint]\nmax-level = \"info\"\n");
+    put(dir.path(), "ws/fixtures/y/.skif.toml", "");
+    put(dir.path(), "ws/node_modules/z/skif.toml", "");
+    dir
+}
+
+#[test]
+fn show_lists_the_files_that_were_not_applied_and_why() {
+    let dir = with_stray_files();
+    let ws = dir.path().join("ws");
+    let human = run(skif().args(["config", "--show"]).arg(&ws));
+    assert_eq!(human.code, 0, "{}{}", human.stdout, human.stderr);
+    let out = &human.stdout;
+    assert!(out.contains("# configuration files not applied:\n"), "{out}");
+    assert!(
+        out.contains("#   tools/x/skif.toml (not in the root or a workspace member directory)\n"),
+        "{out}"
+    );
+    assert!(out.contains("#   fixtures/y/.skif.toml ("), "{out}");
+    assert!(
+        !out.contains("packages/a/skif.toml ("),
+        "a member's package file is applied: {out}"
+    );
+    assert!(!out.contains("node_modules"), "{out}");
+
+    let json = run(skif().args(["config", "--show", "--format", "json"]).arg(&ws));
+    let document = json.json();
+    let root = &document["roots"][0];
+    assert_eq!(
+        paths(&root["not-applied"]),
+        ["fixtures/y/.skif.toml", "tools/x/skif.toml"]
+    );
+    assert_eq!(
+        root["not-applied"][1]["reason"],
+        "not in the root or a workspace member directory"
+    );
+    let kinds: Vec<&str> = root["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds.last(), Some(&"package"));
+}
+
+#[test]
 fn show_json_has_the_envelope_the_sources_and_the_config() {
     let dir = chain();
     let result = run(skif()
