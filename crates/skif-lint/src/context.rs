@@ -33,12 +33,15 @@ pub const DEFAULT_CONFIG_FILE: &str = "skif.toml";
 /// The effective severity of every enabled rule.
 ///
 /// A configured level overrides [`RuleMeta::default`]; `off`, or no default and no level,
-/// disables the rule. A rule that sets [`Diagnostic::default_severity`] replaces its [`RuleMeta::default`] for that
-/// finding, but never a configured level; see [`effective`](Self::effective).
+/// disables the rule. A rule that is off at the base but turned on by an `[[overrides]]` block is enabled too: it
+/// runs, and the [`Emitter`](crate::Emitter) keeps only the diagnostics inside the override's scope. A rule that sets
+/// [`Diagnostic::default_severity`] replaces its [`RuleMeta::default`] for that finding, but never a configured
+/// level; see [`effective`](Self::effective).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EnabledRules {
-    /// The effective severity, and whether the configuration set it (as opposed to the rule's default).
-    severities: BTreeMap<&'static str, (Severity, bool)>,
+    /// Per enabled rule: the base severity (`None` when only overrides turn the rule on), and whether the
+    /// configuration set it (as opposed to the rule's default).
+    severities: BTreeMap<&'static str, (Option<Severity>, bool)>,
 }
 
 impl EnabledRules {
@@ -49,23 +52,32 @@ impl EnabledRules {
             .into_iter()
             .filter_map(|meta| {
                 let configured = config.rule(meta.id).and_then(|rule| rule.severity);
-                let severity = configured.map_or(meta.default, skif_config::Level::severity)?;
-                Some((meta.id, (severity, configured.is_some())))
+                let severity = configured.map_or(meta.default, skif_config::Level::severity);
+                let scoped_on = !config.cli_levels.contains_key(meta.id)
+                    && config.overrides.iter().any(|scoped| {
+                        scoped
+                            .rules
+                            .get(meta.id)
+                            .and_then(|rule| rule.severity)
+                            .is_some_and(|level| level.severity().is_some())
+                    });
+                (severity.is_some() || scoped_on).then_some((meta.id, (severity, configured.is_some())))
             })
             .collect();
         Self { severities }
     }
 
-    /// Whether rule `id` runs.
+    /// Whether rule `id` runs, at the base or in some override.
     #[must_use]
     pub fn contains(&self, id: &str) -> bool {
         self.severities.contains_key(id)
     }
 
-    /// The effective severity of rule `id`, or `None` when it is disabled or unknown.
+    /// The base severity of rule `id`, or `None` when it is disabled at the base (even if an override enables it) or
+    /// unknown.
     #[must_use]
     pub fn severity(&self, id: &str) -> Option<Severity> {
-        self.severities.get(id).map(|(severity, _)| *severity)
+        self.severities.get(id).and_then(|(severity, _)| *severity)
     }
 
     /// Whether the configuration sets the level of rule `id`, as opposed to the level coming from the rule's own
@@ -75,15 +87,22 @@ impl EnabledRules {
         self.severities.get(id).is_some_and(|(_, configured)| *configured)
     }
 
-    /// The severity `diagnostic` is reported with, or `None` when its rule is disabled: the configured level when
-    /// there is one, otherwise the severity the rule proposed for the finding, otherwise the rule's default.
+    /// The severity `diagnostic` is reported with outside any override, or `None` when its rule is disabled at the
+    /// base: the configured level when there is one, otherwise the severity the rule proposed for the finding,
+    /// otherwise the rule's default.
     #[must_use]
     pub fn effective(&self, diagnostic: &Diagnostic) -> Option<Severity> {
         let (severity, configured) = *self.severities.get(diagnostic.rule.as_str())?;
+        let severity = severity?;
         Some(if configured {
             severity
         } else {
             diagnostic.default_severity.unwrap_or(severity)
         })
+    }
+
+    /// The base severity and configured flag of an enabled rule.
+    pub(crate) fn base(&self, id: &str) -> Option<(Option<Severity>, bool)> {
+        self.severities.get(id).copied()
     }
 }

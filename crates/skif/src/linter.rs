@@ -215,6 +215,7 @@ impl Linter {
         for meta in self.registry.rules() {
             if !selected.iter().any(|id| id == meta.id) {
                 config.rules.entry(meta.id.to_owned()).or_default().severity = Some(Level::Off);
+                config.cli_levels.insert(meta.id.to_owned(), Level::Off);
             }
         }
         Ok(Cow::Owned(config))
