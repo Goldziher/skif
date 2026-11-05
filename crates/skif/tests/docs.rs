@@ -122,6 +122,11 @@ fn every_documented_rule_is_listed_in_rule_ids() {
     let linter = Linter::new(&Config::default()).unwrap();
     let mut registered: Vec<&str> = linter.rules().map(|meta| meta.id).collect();
     registered.sort_unstable();
+    assert!(
+        registered.len() > 30,
+        "the registry holds only {} rules",
+        registered.len()
+    );
     let recorded = std::fs::read_to_string(repo_file("rule-ids.txt")).unwrap();
     let mut recorded: Vec<&str> = recorded.lines().filter(|line| !line.trim().is_empty()).collect();
     recorded.sort_unstable();
