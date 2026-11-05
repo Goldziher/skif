@@ -11,6 +11,7 @@ use skif_workspace::map_ordered;
 
 use crate::analysis::JsAnalysis;
 use crate::config_check;
+use crate::git_index::IndexCache;
 use crate::input::InputSource;
 use crate::rules::{JsRule, rules};
 use crate::setup::UnusedExportsOptions;
@@ -26,6 +27,8 @@ pub struct JsProvider {
     fs: Arc<dyn FileSystem>,
     sources: Vec<Arc<dyn InputSource>>,
     rules: Vec<Box<dyn JsRule>>,
+    /// The parsed git indexes, shared by every root this provider analyses.
+    indexes: IndexCache,
 }
 
 impl JsProvider {
@@ -36,6 +39,7 @@ impl JsProvider {
             fs,
             sources: Vec::new(),
             rules: rules(),
+            indexes: IndexCache::default(),
         }
     }
 
@@ -100,7 +104,14 @@ impl RuleProvider for JsProvider {
         if active.is_empty() || out.is_cancelled() {
             return Ok(());
         }
-        let mut analysis = JsAnalysis::build(cx.workspace, cx.config, &self.fs, &self.sources, cx.sequential);
+        let mut analysis = JsAnalysis::build_cached(
+            cx.workspace,
+            cx.config,
+            &self.fs,
+            &self.sources,
+            cx.sequential,
+            &self.indexes,
+        );
         analysis.enabled_rules = Some(active.iter().map(|rule| rule.meta().id.to_owned()).collect());
         analysis.config_path = cx.config_path.map(std::path::Path::to_path_buf);
         let (last, concurrent): (Vec<&dyn JsRule>, Vec<&dyn JsRule>) =

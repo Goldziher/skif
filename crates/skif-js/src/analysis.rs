@@ -12,7 +12,7 @@ use skif_workspace::{PackageId, Workspace, map_ordered};
 use crate::deps::DependencyUsage;
 use crate::discover::{Candidate, discover, relative};
 use crate::entries::entry_files;
-use crate::git_index::{IndexedFs, TrackedTree};
+use crate::git_index::{IndexCache, Listing, indexed_fs};
 use crate::graph::{self, Inputs, Module, ModuleGraph};
 use crate::input::InputSource;
 use crate::resolve::ModuleResolver;
@@ -82,14 +82,31 @@ fn collect_ambient_modules(
     names
 }
 
-/// `fs` with the tracked files served from the git index, unless `[js] discovery = "walk"` or the workspace is not
-/// in a git work tree with a usable index.
-fn indexed_fs(fs: &Arc<dyn FileSystem>, workspace: &Workspace, config: &Config) -> Option<Arc<dyn FileSystem>> {
-    if config.js.discovery == JsDiscovery::Walk {
-        return None;
-    }
-    let tree = TrackedTree::load(fs.as_ref(), &workspace.root)?;
-    Some(Arc::new(IndexedFs::new(Arc::clone(fs), tree)))
+/// `fs` with the files tracked by git listed from the git index, as `[js] discovery` says: `auto` checks the
+/// modification time of each directory against the index, `git` trusts the index alone and `walk` does not use it.
+/// `None` for `walk` and when the workspace is not in a git work tree with a usable index.
+fn overlay(
+    fs: &Arc<dyn FileSystem>,
+    workspace: &Workspace,
+    config: &Config,
+    cache: &IndexCache,
+) -> Option<Arc<dyn FileSystem>> {
+    let listing = match config.js.discovery {
+        JsDiscovery::Walk => return None,
+        JsDiscovery::Git => Listing::IndexOnly,
+        JsDiscovery::Auto => Listing::VerifyDirectories,
+    };
+    indexed_fs(fs, &workspace.root, cache, listing)
+}
+
+/// The file system of `workspace` for the discovery `config` selects: the git index overlay when it applies, `fs`
+/// itself otherwise.
+///
+/// This is the file system the analysis lists and reads through. It is exposed for tools that want to measure or
+/// reuse the listing.
+#[must_use]
+pub fn discovery_file_system(fs: &Arc<dyn FileSystem>, workspace: &Workspace, config: &Config) -> Arc<dyn FileSystem> {
+    overlay(fs, workspace, config, &IndexCache::default()).unwrap_or_else(|| Arc::clone(fs))
 }
 
 impl<'a> JsAnalysis<'a> {
@@ -105,8 +122,21 @@ impl<'a> JsAnalysis<'a> {
         sources: &[Arc<dyn InputSource>],
         sequential: bool,
     ) -> Self {
+        Self::build_cached(workspace, config, fs, sources, sequential, &IndexCache::default())
+    }
+
+    /// Like [`build`](Self::build), reading the git index through `cache` so that the roots of one run share it.
+    pub(crate) fn build_cached(
+        workspace: &'a Workspace,
+        config: &Config,
+        fs: &Arc<dyn FileSystem>,
+        sources: &[Arc<dyn InputSource>],
+        sequential: bool,
+        cache: &IndexCache,
+    ) -> Self {
         let phase = |name: &str| format!("js {name} {}", workspace.root.display());
-        let indexed = timing::phase(phase("git index"), || indexed_fs(fs, workspace, config));
+        let indexed = timing::phase(phase("git index"), || overlay(fs, workspace, config, cache));
+        let listed_from_index = indexed.is_some();
         let fs = indexed.as_ref().unwrap_or(fs);
         let mut setup = timing::phase(phase("setup (plugins, configs)"), || {
             Setup::new(workspace, config, fs, sources, sequential)
@@ -167,6 +197,8 @@ impl<'a> JsAnalysis<'a> {
                     && !package.ignore.matches_any(&in_package)
                     && !setup.global_ignore.matches_any(&candidate.rel)
             })
+            // The index may still list a file deleted since it was written; one `stat` per unused file settles it.
+            .filter(|candidate| !listed_from_index || fs.kind(&candidate.abs).is_file)
             .map(|candidate| UnusedFile {
                 path: PathBuf::from(&candidate.rel),
                 owner: candidate.owner,

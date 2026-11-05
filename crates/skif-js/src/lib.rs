@@ -41,7 +41,7 @@ mod specifier;
 mod tsconfig_paths;
 mod usage;
 
-pub use analysis::{JsAnalysis, UnusedFile};
+pub use analysis::{JsAnalysis, UnusedFile, discovery_file_system};
 pub use deps::{DependencyUsage, UnlistedBinary, UnlistedImport};
 pub use explain::{Absence, EntryReason, ExportReport, ExportUser, Importer, ReExport, UsageReport, Verdict};
 pub use graph::{Module, ModuleGraph, ModuleId, ResolvedImport, Target};
