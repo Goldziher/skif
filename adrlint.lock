@@ -195,3 +195,8 @@ blake3 = "002f1db1ac01bf7c636b0aa33bfd4e65543564ae520e6664e97f9ebf91065b19"
 number = 39
 status = "accepted"
 blake3 = "fd132199e75f583701e8a349ea6e58531ecb31ac06ae9f3313f6e9b2ef69fb0f"
+
+[adrs."adrs/0040-version-groups-own-their-instances-the-catalog-rules-leave-claimed-instances.md"]
+number = 40
+status = "accepted"
+blake3 = "add7617f4f3b0db3309a7a057b60a99765c25fad3bc1e7c0c0636b1e5abf63df"

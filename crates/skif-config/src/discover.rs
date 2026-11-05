@@ -12,7 +12,7 @@ use crate::merge::{Merged, Merger};
 use crate::model::{Config, OverrideScope};
 use crate::overrides::ConfigOverrides;
 use crate::package_file;
-use crate::provenance::{Assignment, ConfigSource, Op, ResolvedConfig, SourceKind};
+use crate::provenance::{Assignment, ConfigSource, Op, Origins, ResolvedConfig, SourceKind};
 
 /// How many files deep `extends` may nest.
 const MAX_EXTENDS_DEPTH: usize = 16;
@@ -393,13 +393,43 @@ impl Walk<'_, '_> {
             let scope = OverrideScope::new(scoped, declared_in, source, root)?;
             scoped.scope = Some(scope);
         }
-        config.validate()?;
+        config.validate().map_err(|error| located(error, &origins, &sources))?;
         Ok(ResolvedConfig {
             config,
             sources,
             origins,
         })
     }
+}
+
+/// `error`, a problem found in the merged configuration, attributed to the file and line that set the offending key.
+///
+/// The message starts with the key it is about (`version-groups[0].dependency-types: ...`,
+/// `catalog.min-packages must ...`); the nearest enclosing key some file set names the file. An error that names no
+/// such key is returned as it is.
+fn located(error: ConfigError, origins: &Origins, sources: &[ConfigSource]) -> ConfigError {
+    let message = match &error {
+        ConfigError::Invalid { path: None, message } => message.clone(),
+        _ => return error,
+    };
+    let mut key = message.split([':', ' ']).next().unwrap_or_default();
+    while !key.is_empty() {
+        if let Some(assignment) = origins.last(key)
+            && let Some(source) = sources.get(assignment.source)
+        {
+            let line = if assignment.line > 0 {
+                format!(" (line {})", assignment.line)
+            } else {
+                String::new()
+            };
+            return ConfigError::invalid(Some(&source.path), format!("{message}{line}"));
+        }
+        key = match key.rfind(['.', '[']) {
+            Some(cut) => &key[..cut],
+            None => break,
+        };
+    }
+    error
 }
 
 /// `root` without `.` components and with `..` resolved lexically, which every directory the chain probes is derived

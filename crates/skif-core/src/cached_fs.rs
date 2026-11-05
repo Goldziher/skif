@@ -88,9 +88,12 @@ fn sorted(entries: Arc<[DirEntry]>) -> Arc<[DirEntry]> {
 /// Whether a sibling in `entries` is named like `path` but for the case of ASCII letters.
 fn differs_by_case_only(entries: &[DirEntry], path: &Path) -> bool {
     path.file_name().is_some_and(|name| {
-        entries
-            .iter()
-            .any(|entry| entry.path.file_name().is_some_and(|other| other.eq_ignore_ascii_case(name)))
+        entries.iter().any(|entry| {
+            entry
+                .path
+                .file_name()
+                .is_some_and(|other| other.eq_ignore_ascii_case(name))
+        })
     })
 }
 
@@ -375,11 +378,12 @@ mod tests {
     impl CaseInsensitive {
         fn find(&self, path: &Path) -> Option<DirEntry> {
             let name = path.file_name()?;
-            self.0
-                .read_dir(path.parent()?)
-                .ok()?
-                .into_iter()
-                .find(|entry| entry.path.file_name().is_some_and(|other| other.eq_ignore_ascii_case(name)))
+            self.0.read_dir(path.parent()?).ok()?.into_iter().find(|entry| {
+                entry
+                    .path
+                    .file_name()
+                    .is_some_and(|other| other.eq_ignore_ascii_case(name))
+            })
         }
     }
 
@@ -420,7 +424,10 @@ mod tests {
             let _ = warm.is_file(Path::new(sibling));
         }
         assert!(warm.read_dir_shared(Path::new("/ws")).is_ok());
-        assert!(warm.is_file(probe), "answered from the listing, which spells the name differently");
+        assert!(
+            warm.is_file(probe),
+            "answered from the listing, which spells the name differently"
+        );
         assert!(!warm.is_file(Path::new("/ws/other.json")));
     }
 

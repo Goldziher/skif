@@ -1305,7 +1305,10 @@ impl Default for Js {
 }
 
 /// `ignore-exports-used-in-file`: `true`, or a table naming the kinds of export it applies to.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// It is read by hand rather than as an untagged enum, so that a mistyped kind is reported by name (`unknown field
+/// "fucntion"`) instead of serde's "data did not match any variant".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 #[non_exhaustive]
@@ -1314,6 +1317,31 @@ pub enum IgnoreExportsUsedInFile {
     All(bool),
     /// Ignores the kinds set to `true`.
     Kinds(ExportKinds),
+}
+
+impl<'de> Deserialize<'de> for IgnoreExportsUsedInFile {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = IgnoreExportsUsedInFile;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("`true`, `false` or a table of export kinds")
+            }
+
+            fn visit_bool<E: serde::de::Error>(self, value: bool) -> Result<Self::Value, E> {
+                Ok(IgnoreExportsUsedInFile::All(value))
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+                ExportKinds::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+                    .map(IgnoreExportsUsedInFile::Kinds)
+            }
+        }
+
+        deserializer.deserialize_any(Visitor)
+    }
 }
 
 impl Default for IgnoreExportsUsedInFile {
@@ -1462,27 +1490,27 @@ impl PluginOptions {
 /// `[js]` keys an override can set for the packages it selects.
 ///
 /// Globs are relative to each selected package. The `extend-*` keys append to what the package inherits; the others
-/// replace it.
+/// replace it, and set to an empty list they clear it.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 #[non_exhaustive]
 pub struct PackageJs {
-    /// Replaces the entry globs.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub entry: Vec<String>,
-    /// Replaces the project globs.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub project: Vec<String>,
-    /// Replaces the ignore globs.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub ignore: Vec<String>,
-    /// Replaces the ignored dependencies.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub ignore_dependencies: Vec<String>,
-    /// Replaces the ignored binaries.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub ignore_binaries: Vec<String>,
+    /// Replaces the entry globs; an empty list clears what the package inherits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry: Option<Vec<String>>,
+    /// Replaces the project globs; an empty list clears what the package inherits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<Vec<String>>,
+    /// Replaces the ignore globs; an empty list clears what the package inherits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignore: Option<Vec<String>>,
+    /// Replaces the ignored dependencies; an empty list clears what the package inherits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignore_dependencies: Option<Vec<String>>,
+    /// Replaces the ignored binaries; an empty list clears what the package inherits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignore_binaries: Option<Vec<String>>,
     /// Appended to the ignore globs.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extend_ignore: Vec<String>,
@@ -1492,9 +1520,9 @@ pub struct PackageJs {
     /// Appended to the ignored binaries.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extend_ignore_binaries: Vec<String>,
-    /// Replaces the ignored unresolved specifiers.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub ignore_unresolved: Vec<String>,
+    /// Replaces the ignored unresolved specifiers; an empty list clears what the package inherits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignore_unresolved: Option<Vec<String>>,
     /// Appended to the ignored unresolved specifiers.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extend_ignore_unresolved: Vec<String>,

@@ -79,9 +79,9 @@ fn normalize_dir(dir: &str) -> &str {
 impl Configured {
     /// Applies the `js` keys of an override: the plain keys replace what is there, the `extend-` keys append.
     fn fold(&mut self, js: &PackageJs) {
-        let replace = |target: &mut Vec<String>, value: &[String]| {
-            if !value.is_empty() {
-                *target = value.to_vec();
+        let replace = |target: &mut Vec<String>, value: &Option<Vec<String>>| {
+            if let Some(value) = value {
+                target.clone_from(value);
             }
         };
         replace(&mut self.entry, &js.entry);

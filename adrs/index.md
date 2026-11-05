@@ -47,6 +47,7 @@ old one.
 | 0037 | [Override Sections, Custom Types, the Local Type and Ignored Semver Groups: Completing the syncpack Dependency Types](0037-override-sections-custom-types-and-ignored-semver-groups.md) | accepted |
 | 0038 | [Git Index File Discovery and Resolver Probe Avoidance: How the JS Analysis Stops Walking the Work Tree](0038-git-index-file-discovery-and-resolver-probe-avoidance.md) | accepted |
 | 0039 | [`skif migrate`: A One-Shot Translator from sherif, syncpack and knip Configuration](0039-skif-migrate-a-one-shot-translator-from-sherif-syncpack-and-knip.md) | accepted |
+| 0040 | [Version Groups Own Their Instances: The Catalog Rules Leave Claimed Instances Alone](0040-version-groups-own-their-instances-the-catalog-rules-leave-claimed-instances.md) | accepted |
 
 ## Effective statements
 
@@ -114,3 +115,4 @@ the lines below stay as written; this table says which record governs.
 | [0010](0010-js-analysis-on-oxc.md), file discovery | source files are found by walking the work tree | [0038](0038-git-index-file-discovery-and-resolver-probe-avoidance.md): when the work tree has a usable git index, tracked directories are listed from it and the walk makes no system call for them; `[js] discovery = "walk"` always walks and finds untracked files |
 | [0001](0001-mission-and-scope.md), line 106, and [0004](0004-configuration-model.md), lines 47, 120 and 143 | users migrating from sherif, syncpack or knip rewrite their configuration by hand; no converter is planned | [0039](0039-skif-migrate-a-one-shot-translator-from-sherif-syncpack-and-knip.md): `skif migrate` translates the configuration once; skif still has no compatibility reader |
 | [0002](0002-crate-layout-and-publishing.md), crate list | skif is a workspace of fourteen crates | [0039](0039-skif-migrate-a-one-shot-translator-from-sherif-syncpack-and-knip.md): `skif-migrate` is a further published crate |
+| [0009](0009-version-and-catalog-policies.md), the dependency a catalog owns | a dependency a catalog owns is not also reported as a version mismatch, and the catalog rules do not consult version groups | [0040](0040-version-groups-own-their-instances-the-catalog-rules-leave-claimed-instances.md): a configured version group that matches an instance claims it and the catalog rules skip it |

@@ -46,15 +46,12 @@ impl Catalogs {
     #[must_use]
     pub fn with_source(mut self, source: impl Into<PathBuf>) -> Self {
         let source = source.into();
-        let defined = (!self.default.is_empty())
-            .then_some(None)
-            .into_iter()
-            .chain(
-                self.named
-                    .iter()
-                    .filter(|(_, entries)| !entries.is_empty())
-                    .map(|(name, _)| Some(name.clone())),
-            );
+        let defined = (!self.default.is_empty()).then_some(None).into_iter().chain(
+            self.named
+                .iter()
+                .filter(|(_, entries)| !entries.is_empty())
+                .map(|(name, _)| Some(name.clone())),
+        );
         self.sources = defined.map(|key| (key, source.clone())).collect();
         self.source = Some(source);
         self
@@ -211,10 +208,7 @@ mod tests {
 
     #[test]
     fn whole_numbers_are_versions_and_fractions_are_not_guessed() {
-        let catalogs = from_json(
-            Some(&json!({"major": 18, "fraction": 1.10, "text": "1.10"})),
-            None,
-        );
+        let catalogs = from_json(Some(&json!({"major": 18, "fraction": 1.10, "text": "1.10"})), None);
         assert_eq!(catalogs.resolve("major", "catalog:"), Some("18"));
         assert_eq!(catalogs.resolve("fraction", "catalog:"), None);
         assert_eq!(catalogs.resolve("text", "catalog:"), Some("1.10"));
@@ -222,7 +216,10 @@ mod tests {
 
     #[test]
     fn a_reference_with_a_space_names_no_catalog() {
-        let catalogs = from_json(Some(&json!({"react": "^18.3.1"})), Some(&json!({"legacy": {"react": "^17.0.0"}})));
+        let catalogs = from_json(
+            Some(&json!({"react": "^18.3.1"})),
+            Some(&json!({"legacy": {"react": "^17.0.0"}})),
+        );
         assert_eq!(catalogs.resolve("react", "catalog:"), Some("^18.3.1"));
         assert_eq!(catalogs.resolve("react", "catalog: legacy"), None);
         assert_eq!(catalogs.resolve("react", "catalog: "), None);

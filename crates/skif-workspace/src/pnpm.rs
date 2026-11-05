@@ -84,7 +84,13 @@ fn mapping_entry(line: &str) -> Option<(&str, usize, usize)> {
 /// plain scalar, as in the selector `foo@npm:bar`, is part of the key.
 fn key_colon(line: &str) -> Option<usize> {
     line.char_indices()
-        .find(|&(index, c)| c == ':' && line[index + 1..].chars().next().is_none_or(|next| matches!(next, ' ' | '\t')))
+        .find(|&(index, c)| {
+            c == ':'
+                && line[index + 1..]
+                    .chars()
+                    .next()
+                    .is_none_or(|next| matches!(next, ' ' | '\t'))
+        })
         .map(|(index, _)| index)
 }
 
@@ -264,7 +270,8 @@ mod tests {
 
     #[test]
     fn keys_with_a_colon_and_a_space_before_the_colon_are_located() {
-        let text = "overrides:\n  foo@npm:bar: 1.0.0\n  \"a\" : ^2.0.0\n  'b'\t: 3.0.0\n  c:\n    - x\n  \"d:e\": 4.0.0\n";
+        let text =
+            "overrides:\n  foo@npm:bar: 1.0.0\n  \"a\" : ^2.0.0\n  'b'\t: 3.0.0\n  c:\n    - x\n  \"d:e\": 4.0.0\n";
         let source = yaml(text);
         for (selector, expected) in [
             ("foo@npm:bar", "foo@npm:bar: 1.0.0"),
@@ -272,7 +279,11 @@ mod tests {
             ("b", "'b'\t: 3.0.0"),
             ("d:e", "\"d:e\": 4.0.0"),
         ] {
-            assert_eq!(slice(text, source.override_span(selector)), Some(expected), "{selector}");
+            assert_eq!(
+                slice(text, source.override_span(selector)),
+                Some(expected),
+                "{selector}"
+            );
         }
     }
 

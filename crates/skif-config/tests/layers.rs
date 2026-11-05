@@ -929,6 +929,10 @@ fn a_custom_type_nobody_defines_is_still_rejected_after_the_merge() {
     let message = error.to_string();
     assert!(message.contains("unknown dependency type \"nodes\""), "{message}");
     assert!(message.contains("did you mean \"node\""), "{message}");
+    assert!(
+        message.starts_with("/r/p/skif.toml"),
+        "the file that names the type is reported: {message}"
+    );
 }
 
 #[test]
