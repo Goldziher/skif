@@ -1,0 +1,9 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "storybook": "^8.4.0",
+    "@storybook/cli": "^8.3.0"
+  }
+}

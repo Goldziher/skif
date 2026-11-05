@@ -1,0 +1,7 @@
+[[custom-types]]
+name = "node"
+path = "engines.node"
+strategy = "version"
+
+[policy]
+dependency-types = ["prod", "dev", "node"]

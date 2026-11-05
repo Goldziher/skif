@@ -1,0 +1,3 @@
+description = "A version group that names the overrides type pins the entries of overrides and leaves the same dependency in prod alone."
+source = "syncpack:src/rcfile.rs::compute_all_dependency_types"
+tags = ["dependency-types", "overrides", "pinned", "fix"]

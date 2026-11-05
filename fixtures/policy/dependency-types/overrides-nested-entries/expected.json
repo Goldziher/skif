@@ -1,0 +1,20 @@
+[
+  {
+    "rule": "version-mismatch",
+    "severity": "error",
+    "package": "monorepo",
+    "dependency": "react",
+    "detail": "DiffersToHighestOrLowestSemver",
+    "path": "package.json",
+    "fixable": true
+  },
+  {
+    "rule": "version-mismatch",
+    "severity": "error",
+    "package": "monorepo",
+    "dependency": "react-dom",
+    "detail": "DiffersToHighestOrLowestSemver",
+    "path": "package.json",
+    "fixable": true
+  }
+]
