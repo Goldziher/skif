@@ -13,6 +13,13 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Added
 
+- **`skif migrate`**: translates the configuration of sherif (the `sherif` key of `package.json`), syncpack
+  (`.syncpackrc*`, `syncpack.config.*`, the `syncpack` key) and knip (`knip.json(c)`, `knip.{js,ts,...}`, the `knip`
+  key) into a `skif.toml`, reading JavaScript and TypeScript configs statically and the flags of the `package.json`
+  scripts that run each tool. `--from sherif|syncpack|knip|auto`, `--profile exact|full`, `--merge`, `--force`,
+  `--dry-run`, `--output`, `--source`, `--strict` and `--format json`; the report lists what was translated, what skif
+  covers by default, what needs a human and the checks skif runs that the old tools did not. New crate `skif-migrate`;
+  `skif-js-plugins` makes `load_config` and `scripts::split_commands` public. See ADR 0039 and the migration guide.
 - **Config model constructors**: every `skif-config` model struct is `#[non_exhaustive]` and builds from `Default` or a
   constructor plus `with_*` methods (`SemverGroup::new`, `DependencyFamily::new`, `VersionGroup`, `IgnoreEntry`,
   `Catalog`, `PluginOptions`, `Workspace`, `Lint`, `Policy`, `WorkspaceProtocol`, `Js`), so `ConfigBuilder::semver_group`
