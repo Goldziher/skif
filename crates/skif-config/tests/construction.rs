@@ -4,9 +4,9 @@
 //! through `Default`, constructors and `with_*` methods.
 
 use skif_config::{
-    Catalog, CatalogMode, Config, ConfigBuilder, DependencyFamily, DependencyTypes, IgnoreEntry, Js, Level,
-    Lint, PackageManager, PluginConfig, PluginOptions, Policy, Prefer, Selector, SemverGroup,
-    SemverRange, VersionGroup, VersionPolicy, Workspace, WorkspaceProtocol,
+    Catalog, CatalogMode, Config, ConfigBuilder, DependencyFamily, DependencyTypes, IgnoreEntry, Js, Level, Lint,
+    PackageManager, PluginConfig, PluginOptions, Policy, Prefer, Selector, SemverGroup, SemverRange, VersionGroup,
+    VersionPolicy, Workspace, WorkspaceProtocol,
 };
 
 #[test]

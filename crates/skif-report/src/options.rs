@@ -13,11 +13,11 @@ use crate::text::{Source, utf16_column};
 #[non_exhaustive]
 pub struct RenderOptions {
     /// Emit ANSI colour codes (human format only).
-    color: bool,
+    pub(crate) color: bool,
     /// Root stripped from absolute paths so that output is relative.
     root: Option<PathBuf>,
     /// Version of the tool, reported as `skif` in JSON output; the version of this crate when unset.
-    tool_version: Option<String>,
+    pub(crate) tool_version: Option<String>,
     /// The repository top-level, when the workspace root is below it; GitHub annotations are relative to it.
     repo_root: Option<PathBuf>,
     rules: Vec<&'static RuleMeta>,

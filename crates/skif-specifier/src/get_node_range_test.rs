@@ -201,6 +201,9 @@ fn any_range_specifiers_share_one_parsed_range() {
         let range = Specifier::new(value)
             .get_node_range()
             .unwrap_or_else(|| panic!("`{value}` should have a range"));
-        assert!(std::sync::Arc::ptr_eq(&first, &range), "`{value}` should reuse the parsed range");
+        assert!(
+            std::sync::Arc::ptr_eq(&first, &range),
+            "`{value}` should reuse the parsed range"
+        );
     }
 }

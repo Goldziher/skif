@@ -22,6 +22,7 @@
     },
     "workspace": {
       "$ref": "#/$defs/Workspace",
+      "description": "`[workspace]`: package-manager detection and which packages are skipped.",
       "default": {
         "ignore-packages": [],
         "discover-ignore": [
@@ -34,6 +35,7 @@
     },
     "lint": {
       "$ref": "#/$defs/Lint",
+      "description": "`[lint]`: how diagnostics are reported.",
       "default": {
         "fail-on-warnings": false
       }
@@ -43,6 +45,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/RuleConfigSchema"
       },
+      "description": "`[rules]`: the level and options of every configured rule, in file order.",
       "default": {}
     },
     "ignore": {
@@ -50,10 +53,12 @@
       "items": {
         "$ref": "#/$defs/IgnoreEntry"
       },
+      "description": "`[[ignore]]`: suppressions for diagnostics.",
       "default": []
     },
     "policy": {
       "$ref": "#/$defs/Policy",
+      "description": "`[policy]`: defaults for the version policies.",
       "default": {
         "prefer": "highest",
         "dependency-types": []
@@ -64,6 +69,7 @@
       "items": {
         "$ref": "#/$defs/VersionGroup"
       },
+      "description": "`[[version-groups]]`: how dependency versions must relate, first match wins.",
       "default": []
     },
     "semver-groups": {
@@ -71,10 +77,12 @@
       "items": {
         "$ref": "#/$defs/SemverGroup"
       },
+      "description": "`[[semver-groups]]`: the range type dependencies must use, first match wins.",
       "default": []
     },
     "catalog": {
       "$ref": "#/$defs/Catalog",
+      "description": "`[catalog]`: when catalog entries are suggested and reported.",
       "default": {
         "mode": "off",
         "min-packages": 2,
@@ -84,6 +92,7 @@
     },
     "workspace-protocol": {
       "$ref": "#/$defs/WorkspaceProtocol",
+      "description": "`[workspace-protocol]`: how dependencies on workspace packages are written.",
       "default": {
         "internal": false,
         "allow-local-paths": false
@@ -94,10 +103,12 @@
       "items": {
         "$ref": "#/$defs/DependencyFamily"
       },
+      "description": "`[[dependency-families]]`: packages that must share a version.",
       "default": []
     },
     "js": {
       "$ref": "#/$defs/Js",
+      "description": "`[js]`: the JavaScript and TypeScript analysis.",
       "default": {
         "enabled": true,
         "entry": [],
@@ -124,13 +135,32 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
     "ResetKey": {
-      "type": "string",
-      "enum": [
-        "version-groups",
-        "semver-groups",
-        "ignore",
-        "dependency-families",
-        "overrides"
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "version-groups",
+          "description": "Discard the inherited `version-groups`."
+        },
+        {
+          "type": "string",
+          "const": "semver-groups",
+          "description": "Discard the inherited `semver-groups`."
+        },
+        {
+          "type": "string",
+          "const": "ignore",
+          "description": "Discard the inherited `ignore` entries."
+        },
+        {
+          "type": "string",
+          "const": "dependency-families",
+          "description": "Discard the inherited `dependency-families`."
+        },
+        {
+          "type": "string",
+          "const": "overrides",
+          "description": "Discard the inherited `overrides`."
+        }
       ],
       "description": "The inherited lists that `reset` can discard."
     },
@@ -181,12 +211,27 @@
       "description": "`[workspace]`"
     },
     "PackageManager": {
-      "type": "string",
-      "enum": [
-        "npm",
-        "pnpm",
-        "yarn",
-        "bun"
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "npm",
+          "description": "npm."
+        },
+        {
+          "type": "string",
+          "const": "pnpm",
+          "description": "pnpm."
+        },
+        {
+          "type": "string",
+          "const": "yarn",
+          "description": "Yarn."
+        },
+        {
+          "type": "string",
+          "const": "bun",
+          "description": "Bun."
+        }
       ],
       "description": "Package managers that can be forced with `[workspace] package-manager`."
     },
@@ -214,12 +259,27 @@
       "description": "`[lint]`"
     },
     "Level": {
-      "type": "string",
-      "enum": [
-        "off",
-        "info",
-        "warn",
-        "error"
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "off",
+          "description": "The rule does not run."
+        },
+        {
+          "type": "string",
+          "const": "info",
+          "description": "Diagnostics are informational."
+        },
+        {
+          "type": "string",
+          "const": "warn",
+          "description": "Diagnostics are warnings."
+        },
+        {
+          "type": "string",
+          "const": "error",
+          "description": "Diagnostics are errors."
+        }
       ],
       "description": "The level a rule is configured to: `off`, `info`, `warn` or `error`."
     },
@@ -272,6 +332,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Rule IDs to suppress; an empty list does not narrow the entry by rule.",
           "default": []
         },
         "packages": {
@@ -299,6 +360,7 @@
       "properties": {
         "prefer": {
           "$ref": "#/$defs/Prefer",
+          "description": "Which version `preferred-semver` favours.",
           "default": "highest"
         },
         "dependency-types": {
@@ -313,10 +375,17 @@
       "description": "`[policy]`"
     },
     "Prefer": {
-      "type": "string",
-      "enum": [
-        "highest",
-        "lowest"
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "highest",
+          "description": "Prefer the highest version in use."
+        },
+        {
+          "type": "string",
+          "const": "lowest",
+          "description": "Prefer the lowest version in use."
+        }
       ],
       "description": "Which version `preferred-semver` favours."
     },
@@ -328,13 +397,15 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "A name shown in diagnostics."
         },
         "dependencies": {
           "type": "array",
           "items": {
             "type": "string"
           },
+          "description": "Dependency names the group covers; empty covers every dependency.",
           "default": []
         },
         "packages": {
@@ -342,6 +413,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Package names the group covers; empty covers every package.",
           "default": []
         },
         "dependency-types": {
@@ -349,6 +421,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Dependency types the group covers; empty covers every type.",
           "default": []
         },
         "specifier-types": {
@@ -356,10 +429,12 @@
           "items": {
             "type": "string"
           },
+          "description": "Specifier types the group covers (`exact`, `range`, `tag`, ...), optionally negated with `!`; empty covers every type.",
           "default": []
         },
         "policy": {
           "$ref": "#/$defs/VersionPolicy",
+          "description": "The policy the group enforces.",
           "default": "preferred-semver"
         },
         "pin": {
@@ -392,15 +467,42 @@
       "description": "One `[[version-groups]]` entry; first match wins. Selectors accept `!` negation and `$LOCAL`."
     },
     "VersionPolicy": {
-      "type": "string",
-      "enum": [
-        "pinned",
-        "banned",
-        "ignored",
-        "same-range",
-        "same-minor",
-        "snapped-to",
-        "preferred-semver"
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "pinned",
+          "description": "Every matched dependency must use the `pin` version."
+        },
+        {
+          "type": "string",
+          "const": "banned",
+          "description": "The matched dependencies must not be used."
+        },
+        {
+          "type": "string",
+          "const": "ignored",
+          "description": "The matched dependencies are not checked."
+        },
+        {
+          "type": "string",
+          "const": "same-range",
+          "description": "Every range must overlap every other range."
+        },
+        {
+          "type": "string",
+          "const": "same-minor",
+          "description": "Every matched dependency must share a major and minor version."
+        },
+        {
+          "type": "string",
+          "const": "snapped-to",
+          "description": "Versions must match those declared by the `snap-to` packages."
+        },
+        {
+          "type": "string",
+          "const": "preferred-semver",
+          "description": "Versions must match the highest or lowest one in use."
+        }
       ],
       "description": "The policy of a version group."
     },
@@ -412,13 +514,15 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "A name shown in diagnostics."
         },
         "dependencies": {
           "type": "array",
           "items": {
             "type": "string"
           },
+          "description": "Dependency names the group covers; empty covers every dependency.",
           "default": []
         },
         "packages": {
@@ -426,6 +530,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Package names the group covers; empty covers every package.",
           "default": []
         },
         "dependency-types": {
@@ -433,6 +538,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Dependency types the group covers; empty covers every type.",
           "default": []
         },
         "specifier-types": {
@@ -440,10 +546,12 @@
           "items": {
             "type": "string"
           },
+          "description": "Specifier types the group covers, optionally negated with `!`; empty covers every type.",
           "default": []
         },
         "range": {
-          "$ref": "#/$defs/SemverRange"
+          "$ref": "#/$defs/SemverRange",
+          "description": "The range type the matched dependencies must use."
         }
       },
       "required": [
@@ -455,20 +563,43 @@
       "oneOf": [
         {
           "type": "string",
-          "enum": [
-            "*",
-            "^",
-            "~",
-            ">",
-            ">=",
-            "<",
-            "<="
-          ]
+          "const": "",
+          "description": "No range operator: an exact version."
         },
         {
           "type": "string",
-          "const": "",
-          "description": "No range operator: an exact version."
+          "const": "*",
+          "description": "Any version (`*`)."
+        },
+        {
+          "type": "string",
+          "const": "^",
+          "description": "Compatible versions (`^`)."
+        },
+        {
+          "type": "string",
+          "const": "~",
+          "description": "Patch-level changes (`~`)."
+        },
+        {
+          "type": "string",
+          "const": ">",
+          "description": "Greater than (`>`)."
+        },
+        {
+          "type": "string",
+          "const": ">=",
+          "description": "Greater than or equal (`>=`)."
+        },
+        {
+          "type": "string",
+          "const": "<",
+          "description": "Less than (`<`)."
+        },
+        {
+          "type": "string",
+          "const": "<=",
+          "description": "Less than or equal (`<=`)."
         }
       ],
       "description": "The range type a semver group enforces."
@@ -479,6 +610,7 @@
       "properties": {
         "mode": {
           "$ref": "#/$defs/CatalogMode",
+          "description": "How strongly catalogs are preferred.",
           "default": "off"
         },
         "min-packages": {
@@ -493,10 +625,12 @@
           "items": {
             "type": "string"
           },
+          "description": "Dependencies never suggested for a catalog.",
           "default": []
         },
         "report-unused-entries": {
           "type": "boolean",
+          "description": "Report catalog entries no package references.",
           "default": false
         },
         "extend-exclude": {
@@ -510,11 +644,22 @@
       "description": "`[catalog]`"
     },
     "CatalogMode": {
-      "type": "string",
-      "enum": [
-        "off",
-        "prefer",
-        "enforce"
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "off",
+          "description": "Catalog rules suggest nothing."
+        },
+        {
+          "type": "string",
+          "const": "prefer",
+          "description": "Suggest moving shared dependencies into a catalog."
+        },
+        {
+          "type": "string",
+          "const": "enforce",
+          "description": "Require shared dependencies to come from a catalog."
+        }
       ],
       "description": "`[catalog] mode`"
     },
@@ -540,13 +685,15 @@
       "additionalProperties": false,
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "The family name; a built-in family of the same name is replaced."
         },
         "packages": {
           "type": "array",
           "items": {
             "type": "string"
           },
+          "description": "Package names or globs that must share a version.",
           "default": []
         },
         "enabled": {
@@ -566,6 +713,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
+          "description": "Run the JavaScript analysis.",
           "default": true
         },
         "entry": {
@@ -573,6 +721,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Entry-point globs, added to the ones plugins and `package.json` provide.",
           "default": []
         },
         "project": {
@@ -580,6 +729,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Globs of the files that belong to the project.",
           "default": []
         },
         "ignore": {
@@ -587,6 +737,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Globs of files that are not analysed.",
           "default": []
         },
         "ignore-dependencies": {
@@ -594,6 +745,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Dependencies never reported as unused or unlisted.",
           "default": []
         },
         "ignore-binaries": {
@@ -601,14 +753,17 @@
           "items": {
             "type": "string"
           },
+          "description": "Binaries never reported as unlisted.",
           "default": []
         },
         "production": {
           "type": "boolean",
+          "description": "Analyse production code only.",
           "default": false
         },
         "include-entry-exports": {
           "type": "boolean",
+          "description": "Report unused exports of entry files too.",
           "default": false
         },
         "workspaces": {
@@ -660,6 +815,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Entry-point globs relative to the workspace directory.",
           "default": []
         },
         "project": {
@@ -667,6 +823,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Project file globs relative to the workspace directory.",
           "default": []
         },
         "ignore": {
@@ -674,6 +831,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Globs of files that are not analysed.",
           "default": []
         },
         "ignore-dependencies": {
@@ -681,6 +839,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Dependencies never reported as unused or unlisted.",
           "default": []
         },
         "ignore-binaries": {
@@ -688,6 +847,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Binaries never reported as unlisted.",
           "default": []
         }
       },
@@ -696,10 +856,12 @@
     "PluginConfig": {
       "anyOf": [
         {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "A bare switch: `true` forces the plugin on, `false` off."
         },
         {
-          "$ref": "#/$defs/PluginOptions"
+          "$ref": "#/$defs/PluginOptions",
+          "description": "The table form with options."
         }
       ],
       "description": "`[js.plugins] <name> = true | { ... }`"
@@ -712,13 +874,15 @@
           "type": [
             "boolean",
             "null"
-          ]
+          ],
+          "description": "Forces the plugin on or off; unset keeps its detection."
         },
         "config": {
           "type": "array",
           "items": {
             "type": "string"
           },
+          "description": "Config-file globs the plugin reads.",
           "default": []
         },
         "entry": {
@@ -726,6 +890,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Entry-point globs the plugin contributes.",
           "default": []
         },
         "project": {
@@ -733,6 +898,7 @@
           "items": {
             "type": "string"
           },
+          "description": "Project file globs the plugin contributes.",
           "default": []
         }
       },
@@ -796,49 +962,57 @@
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Replaces the entry globs."
         },
         "project": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Replaces the project globs."
         },
         "ignore": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Replaces the ignore globs."
         },
         "ignore-dependencies": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Replaces the ignored dependencies."
         },
         "ignore-binaries": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Replaces the ignored binaries."
         },
         "extend-ignore": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Appended to the ignore globs."
         },
         "extend-ignore-dependencies": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Appended to the ignored dependencies."
         },
         "extend-ignore-binaries": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Appended to the ignored binaries."
         },
         "plugins": {
           "type": "object",

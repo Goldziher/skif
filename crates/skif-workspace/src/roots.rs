@@ -8,9 +8,9 @@ use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use rayon::prelude::*;
 use serde_json::Value;
-use skif_config::{CONFIG_FILE_NAMES, DEFAULT_DISCOVER_IGNORE};
 #[cfg(test)]
 use skif_config::Config;
+use skif_config::{CONFIG_FILE_NAMES, DEFAULT_DISCOVER_IGNORE};
 use skif_core::{DirEntry, FileSystem};
 
 use crate::manifest::parse_value;

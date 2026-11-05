@@ -38,6 +38,8 @@ impl Latest {
 
     #[cfg(test)]
     #[must_use]
+    /// Builds the specifier from `raw`, panicking when it is not of this kind; a test helper, not API.
+    #[doc(hidden)]
     pub fn create_test(raw: &str) -> Self {
         Self::new(raw)
     }

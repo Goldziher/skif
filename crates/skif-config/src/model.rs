@@ -226,9 +226,16 @@ impl Config {
         if let Some(message) = selector_problem(&self.catalog.exclude) {
             return invalid(format!("catalog.exclude: {message}"));
         }
-        let mut discover_ignore = ignore::gitignore::GitignoreBuilder::new("");
         for (index, pattern) in self.workspace.discover_ignore.iter().enumerate() {
-            if let Err(err) = discover_ignore.add_line(None, pattern) {
+            // The gitignore parser reads an unclosed class such as `[bad` literally; a typo like that is reported.
+            let glob = pattern.strip_prefix('!').unwrap_or(pattern).trim_start_matches('/');
+            let mut builder = ignore::gitignore::GitignoreBuilder::new("");
+            let checked = builder
+                .add_line(None, pattern)
+                .map(|_| ())
+                .map_err(|err| err.to_string())
+                .and_then(|()| globset::Glob::new(glob).map(|_| ()).map_err(|err| err.to_string()));
+            if let Err(err) = checked {
                 return invalid(format!("workspace.discover-ignore[{index}]: {err}"));
             }
         }
@@ -1307,8 +1314,8 @@ impl OverrideScope {
     }
 
     fn applies_to_slashed(&self, package: Option<(&str, &str)>, file: Option<&str>) -> bool {
-        let package_ok = !self.has_packages
-            || package.is_some_and(|(name, dir)| self.packages.matches_any([name, dir], true));
+        let package_ok =
+            !self.has_packages || package.is_some_and(|(name, dir)| self.packages.matches_any([name, dir], true));
         let file_ok = !self.has_files || file.is_some_and(|file| self.files.matches(file, false));
         package_ok && file_ok
     }
