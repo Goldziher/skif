@@ -5,8 +5,11 @@ use std::path::Path;
 
 use skif_js_syntax::{ConfigValue, extract_config_object};
 
-/// Parses `source`, choosing the format from the file name. `None` when the file is not understood.
-pub(crate) fn load_config(path: &Path, source: &str) -> Option<ConfigValue> {
+/// Parses `source`, choosing the format from the file name: JavaScript and TypeScript are evaluated statically
+/// (nothing is executed), JSON and JSONC, YAML and TOML are parsed. Values that cannot be known without running
+/// code come back as [`ConfigValue::Unknown`]. `None` when the file is not understood.
+#[must_use]
+pub fn load_config(path: &Path, source: &str) -> Option<ConfigValue> {
     if path.parent().and_then(Path::file_name).is_some_and(|n| n == ".husky") {
         return Some(ConfigValue::String(source.to_string()));
     }

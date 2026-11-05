@@ -5,8 +5,9 @@ description: The skif.toml reference, section by section, with precedence and ex
 
 skif reads TOML files named `skif.toml` or `.skif.toml`. A root takes the files from its own directory up to the
 root of the git repository and merges them (see [Layered configuration](#layered-configuration)). Having both names
-in one directory is an error naming both paths. There is no `package.json` key, no JSON, YAML or JavaScript variant, and no compatibility reader for sherif,
-syncpack or knip configuration. `skif init` writes a starter file and `skif schema` prints its JSON Schema.
+in one directory is an error naming both paths. There is no `package.json` key and no JSON, YAML or JavaScript variant, and skif does not read sherif, syncpack or knip
+configuration while linting; `skif migrate` translates it once (see the [migration guide](../../guides/migrating/)).
+`skif init` writes a starter file and `skif schema` prints its JSON Schema.
 
 Keys are kebab-case, matching rule ids. Unknown keys and wrong types are errors that name the file, line and key.
 

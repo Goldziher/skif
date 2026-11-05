@@ -1,0 +1,15 @@
+{
+  "name": "demo",
+  "private": true,
+  "scripts": {
+    "lint:monorepo": "sherif --fail-on-warnings -i react -p ./apps/legacy"
+  },
+  "sherif": {
+    "failOnWarnings": false,
+    "ignoreDependency": ["react@17.0.2", "@types/*"],
+    "ignoreRule": ["unordered-dependencies", "non-existant-packages"],
+    "ignorePackage": ["@demo/legacy"],
+    "select": "lowest",
+    "fix": true
+  }
+}

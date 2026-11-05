@@ -244,8 +244,10 @@ pre-commit:
 skif reads `skif.toml` or `.skif.toml` files; having both in one directory is an error. A root merges every
 file from its directory up to the git repository root, so an organisation file at the top applies to every project
 below it; `root = true` stops the search, `extends` pulls in presets, and `[[overrides]]` and package files scope
-rule levels, severity caps, suppressions and JS inputs to packages or directories. There is no `package.json` key and no compatibility reader for sherif, syncpack or knip
-configuration. `skif init` writes a starter file and `skif schema` prints its JSON Schema.
+rule levels, severity caps, suppressions and JS inputs to packages or directories. There is no `package.json` key, and skif does not read sherif, syncpack or knip
+configuration while linting: `skif migrate` translates it once into a `skif.toml` and reports what it could not
+translate (`skif migrate --dry-run` prints the result, `--merge` adds it to an existing file, `--profile full` keeps
+skif's extra checks). `skif init` writes a starter file and `skif schema` prints its JSON Schema.
 
 ```toml
 [workspace]

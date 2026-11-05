@@ -1,0 +1,7 @@
+{
+  "name": "demo",
+  "private": true,
+  "scripts": {
+    "lint:versions": "syncpack lint --dependency-types prod,dev --dependencies react"
+  }
+}

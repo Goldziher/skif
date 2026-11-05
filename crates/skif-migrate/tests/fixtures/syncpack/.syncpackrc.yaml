@@ -1,0 +1,54 @@
+customTypes:
+  engines:
+    path: engines.node
+    strategy: version
+  optional:
+    path: optionalDependencies
+    strategy: versionsByName
+  toolchain:
+    path: packageManager
+    strategy: name@version
+  localish:
+    path: version
+    namePath: name
+    strategy: name~version
+versionGroups:
+  - label: Pin react
+    dependencies: [react, react-dom]
+    pinVersion: 18.3.1
+  - label: Dev tools may differ
+    dependencyTypes: [dev]
+    packages: ["@demo/tools"]
+    isIgnored: true
+  - label: No moment
+    dependencies: [moment]
+    isBanned: true
+  - label: Same range for types
+    dependencies: ["@types/**"]
+    policy: sameRange
+  - label: Follow core
+    dependencies: ["@demo/*"]
+    dependencyTypes: ["!local"]
+    snapTo: ["@demo/core"]
+  - label: Overrides only
+    dependencyTypes: [overrides]
+  - label: Engines in sync
+    dependencyTypes: [engines]
+    preferVersion: lowestSemver
+semverGroups:
+  - label: Exact in prod
+    dependencyTypes: [prod]
+    range: ""
+  - label: Leave peers alone
+    dependencyTypes: [peer]
+    isIgnored: true
+  - range: "^"
+    dependencyTypes: ["!dev", "!optional"]
+dependencyGroups:
+  - aliasName: react
+    dependencies: [react, react-dom]
+source:
+  - package.json
+  - packages/*/package.json
+sortAz: [dependencies, scripts]
+updateGroups: []
