@@ -371,6 +371,17 @@ mod tests {
     }
 
     #[test]
+    fn a_group_with_a_negated_dependency_type_claims_the_instance_for_every_catalog_mode() {
+        let files = react_files();
+        for mode in ["off", "enforce"] {
+            let toml = format!(
+                "[catalog]\nmode = \"{mode}\"\n\n[[version-groups]]\npackages = [\"app\"]\ndependency-types = [\"!node\"]\npolicy = \"ignored\"\n"
+            );
+            assert_eq!(reports(&files, &toml), [] as [(String, String); 0], "mode {mode}");
+        }
+    }
+
+    #[test]
     fn a_claimed_instance_does_not_count_toward_the_catalog_thresholds() {
         let files = react_files();
         let toml = "[catalog]\nmode = \"enforce\"\n\n[[version-groups]]\npackages = [\"app\"]\npolicy = \"ignored\"\n";
