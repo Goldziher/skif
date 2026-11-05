@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 
 use serde_json::{Map, Value};
-use skif_config::{CustomStrategy, CustomType, DependencyType};
+use skif_config::{CustomStrategy, CustomType, DependencyType, PackageManager};
 use skif_core::{FixOp, JsonAction, Location, PathSeg, YamlAction};
 use skif_workspace::{Package, Workspace};
 
@@ -109,6 +109,12 @@ fn last_package_of_path(path: &str) -> &str {
     &path[start..]
 }
 
+/// Whether an override value points at something else instead of naming a version: npm's `$name` (the version of the
+/// direct dependency `name`) and pnpm's `-` (remove the override).
+fn is_reference(value: &str) -> bool {
+    value.starts_with('$') || value == "-"
+}
+
 /// Splits `name@version`; the name of a scoped package starts with an `@` of its own.
 fn split_name_version(value: &str) -> Option<(&str, &str)> {
     let at = value.get(1..)?.rfind('@')? + 1;
@@ -149,7 +155,10 @@ pub(crate) fn collect(workspace: &Workspace, package: &Package, custom: &[Custom
         let mut pointer: Vec<PathSeg> = path.iter().map(|segment| key(segment)).collect();
         walk_overrides(package, &ty, entries, &mut pointer, None, &mut found);
     }
+    // Only pnpm reads the `overrides` of `pnpm-workspace.yaml`: a stale file in a Yarn or npm repository declares none.
+    let reads_pnpm_workspace = matches!(workspace.package_manager, None | Some(PackageManager::Pnpm));
     if package.is_root
+        && reads_pnpm_workspace
         && let Some(yaml) = &workspace.pnpm_workspace
     {
         for (selector, version) in &yaml.overrides {
@@ -190,7 +199,7 @@ fn walk_overrides(
             Some(override_name(selector))
         };
         match (value, name) {
-            (Value::String(version), Some(name)) => found.push(Found {
+            (Value::String(version), Some(name)) if !is_reference(version) => found.push(Found {
                 ty: ty.clone(),
                 name: name.to_owned(),
                 version: version.clone(),

@@ -8,11 +8,10 @@ use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use rayon::prelude::*;
 use serde_json::Value;
-#[cfg(test)]
-use skif_config::Config;
-use skif_config::{CONFIG_FILE_NAMES, DEFAULT_DISCOVER_IGNORE};
+use skif_config::{CONFIG_FILE_NAMES, Config, DEFAULT_DISCOVER_IGNORE, PackageManager};
 use skif_core::{DirEntry, FileSystem};
 
+use crate::detect;
 use crate::manifest::parse_value;
 use crate::pattern::{self, Expander, Pattern};
 use crate::pnpm;
@@ -314,19 +313,37 @@ fn visit(fs: &dyn FileSystem, walk: &Walk<'_>, dir: PathBuf, depth: usize, ignor
     found
 }
 
+/// The patterns `root` declares, from the source `Workspace::discover` would choose: `pnpm-workspace.yaml` for a pnpm
+/// workspace, else the `workspaces` of `package.json`, then a leftover `pnpm-workspace.yaml`, then `rush.json`. A
+/// stale `pnpm-workspace.yaml` in a Yarn or npm repository does not decide the members.
 fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
+    let yaml_path = root.join(PNPM_WORKSPACE);
     let from_yaml = fs
-        .read_to_string(&root.join(PNPM_WORKSPACE))
+        .read_to_string(&yaml_path)
         .ok()
         .and_then(|text| pnpm::parse(Path::new(PNPM_WORKSPACE), &text).ok())
         .and_then(|parsed| parsed.packages);
-    if let Some(patterns) = from_yaml {
-        return patterns;
-    }
     let manifest = fs
         .read_to_string(&root.join(MANIFEST))
         .ok()
         .and_then(|text| parse_value(&text));
+    let rush = fs
+        .read_to_string(&root.join(rush::FILE))
+        .ok()
+        .and_then(|text| rush::parse(text).ok());
+    let package_manager = detect::detect(
+        fs,
+        root,
+        &Config::default(),
+        manifest.as_ref().unwrap_or(&Value::Null),
+        rush.as_ref().and_then(|rush| rush.package_manager),
+        fs.is_file(&yaml_path),
+    );
+    if package_manager == Some(PackageManager::Pnpm)
+        && let Some(patterns) = from_yaml.clone()
+    {
+        return patterns;
+    }
     let items = match manifest.as_ref().and_then(|manifest| manifest.get("workspaces")) {
         Some(Value::Array(items)) => Some(items),
         Some(Value::Object(object)) => object.get("packages").and_then(Value::as_array),
@@ -338,10 +355,10 @@ fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
             .filter_map(|item| item.as_str().map(str::to_owned))
             .collect();
     }
-    fs.read_to_string(&root.join(rush::FILE))
-        .ok()
-        .and_then(|text| rush::parse(text).ok())
-        .map(|parsed| parsed.projects.into_iter().map(|(_, folder, _)| folder).collect())
+    if let Some(patterns) = from_yaml {
+        return patterns;
+    }
+    rush.map(|parsed| parsed.projects.into_iter().map(|(_, folder, _)| folder).collect())
         .unwrap_or_default()
 }
 
@@ -795,6 +812,34 @@ mod tests {
         assert_eq!(
             declared_member_dirs(&fs, Path::new("/r")),
             BTreeSet::from([PathBuf::from("/r/p/m")])
+        );
+    }
+
+    #[test]
+    fn a_stale_pnpm_workspace_file_does_not_decide_the_members_of_a_yarn_repository() {
+        let fs = MemoryFs::new()
+            .with_file(
+                "/r/package.json",
+                r#"{"packageManager": "yarn@4.1.0", "workspaces": ["apps/*"]}"#,
+            )
+            .with_file("/r/pnpm-workspace.yaml", "packages:\n  - 'old/*'\n")
+            .with_file("/r/apps/a/package.json", r#"{"name": "a"}"#)
+            .with_file("/r/old/o/package.json", r#"{"name": "o"}"#);
+        assert_eq!(
+            declared_member_dirs(&fs, Path::new("/r")),
+            BTreeSet::from([PathBuf::from("/r/apps/a")])
+        );
+        let pnpm = MemoryFs::new()
+            .with_file(
+                "/r/package.json",
+                r#"{"packageManager": "pnpm@9.0.0", "workspaces": ["apps/*"]}"#,
+            )
+            .with_file("/r/pnpm-workspace.yaml", "packages:\n  - 'old/*'\n")
+            .with_file("/r/apps/a/package.json", r#"{"name": "a"}"#)
+            .with_file("/r/old/o/package.json", r#"{"name": "o"}"#);
+        assert_eq!(
+            declared_member_dirs(&pnpm, Path::new("/r")),
+            BTreeSet::from([PathBuf::from("/r/old/o")])
         );
     }
 

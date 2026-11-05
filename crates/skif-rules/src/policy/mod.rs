@@ -443,6 +443,31 @@ mod tests {
     }
 
     #[test]
+    fn override_values_that_reference_something_else_are_not_versions() {
+        let root = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0","dependencies":{"react":"^18.3.1"},"overrides":{"react":"^18.3.1","react-dom":"$react"},"pnpm":{"overrides":{"react":"-"}}}"#;
+        let files = [("package.json", root)];
+        let toml = "[policy]\ndependency-types = [\"prod\", \"overrides\", \"pnpm-overrides\"]\n";
+        assert_eq!(reports(&files, toml), [] as [(String, String); 0]);
+    }
+
+    #[test]
+    fn the_overrides_of_a_stale_pnpm_workspace_file_are_read_only_for_pnpm() {
+        let manifest = |manager: &str| {
+            format!(
+                r#"{{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"{manager}","overrides":{{"react":"^18.3.1"}}}}"#
+            )
+        };
+        let yaml = "packages:\n  - \"packages/*\"\noverrides:\n  react: 17.0.0\n";
+        let toml = "[policy]\ndependency-types = [\"overrides\", \"pnpm-overrides\"]\n";
+        let yarn = manifest("yarn@4.1.0");
+        let files = [("package.json", yarn.as_str()), ("pnpm-workspace.yaml", yaml)];
+        assert_eq!(reports(&files, toml), [] as [(String, String); 0]);
+        let pnpm = manifest("pnpm@9.15.0");
+        let files = [("package.json", pnpm.as_str()), ("pnpm-workspace.yaml", yaml)];
+        assert_eq!(reports(&files, toml), [report("version-mismatch", "monorepo")]);
+    }
+
+    #[test]
     fn catalog_mismatch_defaults_to_a_warning() {
         assert_eq!(catalog::CatalogMismatch.meta().default, Some(Severity::Warning));
     }
