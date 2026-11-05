@@ -46,7 +46,7 @@ The documentation site is at <https://goldziher.github.io/skif/>; its sources li
 | Embeddable library facade (`skif` crate) | Available |
 | `skif.toml` configuration: rule levels, ignores, workspace settings | Available |
 | Version groups, semver groups, catalog and workspace-protocol policies | Available ([ADR 0009](adrs/0009-version-and-catalog-policies.md)) |
-| Unused / unlisted / unresolved dependency and dead-code analysis, 16 `js` rules and a table of 63 plugins | Available ([ADR 0010](adrs/0010-js-analysis-on-oxc.md), [ADR 0011](adrs/0011-plugin-model.md), [ADR 0025](adrs/0025-plugin-set-extension-thirty-five-more-tools.md)) |
+| Unused / unlisted / unresolved dependency and dead-code analysis, 16 `js` rules and a table of 102 plugins | Available ([ADR 0010](adrs/0010-js-analysis-on-oxc.md), [ADR 0011](adrs/0011-plugin-model.md), [ADR 0025](adrs/0025-plugin-set-extension-thirty-five-more-tools.md), [ADR 0036](adrs/0036-thirty-nine-more-knip-plugins-by-real-world-usage.md)) |
 | Several projects in one run (`-r`), and single packages that declare no workspace | Available ([ADR 0022](adrs/0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md)) |
 | Human, JSON, SARIF and GitHub annotation output | Available ([ADR 0012](adrs/0012-reporting.md)) |
 | npm package as a napi-rs addon | Available ([ADR 0018](adrs/0018-npm-distribution-via-napi-rs.md)) |
