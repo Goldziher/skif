@@ -175,6 +175,23 @@ fn a_file_glob_override_selects_by_file_path() {
 }
 
 #[test]
+fn package_and_file_overrides_apply_in_configuration_order() {
+    let package = "[[overrides]]\npackages = [\"a\"]\n[overrides.rules]\ndemo = \"error\"\n";
+    let file = "[[overrides]]\nfiles = [\"**/generated/**\"]\n[overrides.rules]\ndemo = \"info\"\n";
+    let file_last = by_package(&findings(&resolved(&format!("{package}{file}"))), "demo");
+    assert!(file_last.contains(&("a".to_owned(), Severity::Error)), "{file_last:?}");
+    assert!(
+        file_last.contains(&("a+gen".to_owned(), Severity::Info)),
+        "{file_last:?}"
+    );
+    let package_last = by_package(&findings(&resolved(&format!("{file}{package}"))), "demo");
+    assert!(
+        package_last.contains(&("a+gen".to_owned(), Severity::Error)),
+        "{package_last:?}"
+    );
+}
+
+#[test]
 fn packages_and_files_must_both_match() {
     let config = resolved(
         "[[overrides]]\npackages = [\"b\"]\nfiles = [\"**/generated/**\"]\n[overrides.rules]\ndemo = \"off\"\n",
