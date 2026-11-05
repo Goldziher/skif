@@ -4,6 +4,7 @@ use {
     std::sync::Arc,
 };
 
+/// Any version: `*`, `latest` or `x`.
 #[derive(Debug)]
 pub struct Latest {
     /// "*", "latest", "x"
@@ -21,6 +22,7 @@ impl PartialEq for Latest {
 }
 
 impl Latest {
+    /// Parses `raw` into a [`Specifier`].
     #[must_use]
     pub fn create(raw: &str) -> Specifier {
         Specifier::Latest(Self::new(raw))
@@ -40,6 +42,7 @@ impl Latest {
         Self::new(raw)
     }
 
+    /// The padded version the specifier orders by.
     #[must_use]
     pub fn get_node_version(&self) -> Arc<nodejs_semver::Version> {
         self.node_version.clone()

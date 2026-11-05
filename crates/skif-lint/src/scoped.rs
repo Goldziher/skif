@@ -28,8 +28,8 @@ pub struct Scopes {
 #[derive(Debug)]
 struct PackageFacts {
     name: String,
-    /// The absolute directory.
-    dir: PathBuf,
+    /// The absolute directory, written with `/` separators.
+    dir: String,
     /// The workspace-relative directory; empty for the root.
     relative: PathBuf,
 }
@@ -45,11 +45,11 @@ impl Scopes {
                 by_name.entry(name.clone()).or_default().push(index);
                 PackageFacts {
                     name,
-                    dir: if package.dir.as_os_str().is_empty() {
+                    dir: skif_core::slash(&if package.dir.as_os_str().is_empty() {
                         workspace.root.clone()
                     } else {
                         workspace.root.join(&package.dir)
-                    },
+                    }),
                     relative: package.dir.clone(),
                 }
             })
@@ -99,12 +99,12 @@ impl Scopes {
             return Vec::new();
         }
         let package = self.package_of(diagnostic);
-        let package = package.map(|facts| (facts.name.as_str(), facts.dir.as_path()));
-        let file = self.root.join(&diagnostic.location.path);
+        let package = package.map(|facts| (facts.name.as_str(), facts.dir.as_str()));
+        let file = skif_core::slash(&self.root.join(&diagnostic.location.path));
         self.overrides
             .iter()
             .enumerate()
-            .filter(|(index, scoped)| self.relevant[*index] && scoped.applies_to(package, Some(file.as_path())))
+            .filter(|(index, scoped)| self.relevant[*index] && scoped.applies_to_slashed(package, Some(file.as_str())))
             .map(|(index, _)| index)
             .collect()
     }

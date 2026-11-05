@@ -1,6 +1,7 @@
 // Vendored from syncpack crates/syncpack-specifier/src/alias.rs @958d306 (MIT, Copyright (c) 2017-2023 Jamie Mason). Modified for skif; see ATTRIBUTIONS.md.
 use {crate::Specifier, std::sync::Arc};
 
+/// An npm alias, `npm:name@range`.
 #[derive(Debug, PartialEq)]
 pub struct Alias {
     /// "npm:@fluidframework/build-tools@~0.44.0"
@@ -14,6 +15,7 @@ pub struct Alias {
 }
 
 impl Alias {
+    /// Parses `raw` into a [`Specifier`].
     #[must_use]
     pub fn create(raw: &str) -> Specifier {
         let name = raw.strip_prefix("npm:").map(|after_prefix| {

@@ -4,6 +4,7 @@ use {
     std::sync::Arc,
 };
 
+/// A `workspace:` specifier.
 #[derive(Debug, PartialEq)]
 pub struct WorkspaceProtocol {
     /// The complete raw string
@@ -59,6 +60,7 @@ impl WorkspaceProtocol {
     }
 
     /// Create a `WorkspaceProtocol` as Specifier variant (for compatibility)
+    /// Parses `raw` into a [`Specifier`].
     #[must_use]
     pub fn create(raw: &str) -> Specifier {
         // This is the old API - just delegate to new and wrap

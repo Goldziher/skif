@@ -1,6 +1,7 @@
 // Vendored from syncpack crates/syncpack-specifier/src/exact.rs @958d306 (MIT, Copyright (c) 2017-2023 Jamie Mason). Modified for skif; see ATTRIBUTIONS.md.
 use {crate::Specifier, std::sync::Arc};
 
+/// An exact version such as `1.2.3`.
 #[derive(Debug, PartialEq)]
 pub struct Exact {
     /// "1.2.3"
@@ -16,6 +17,7 @@ pub struct Exact {
 }
 
 impl Exact {
+    /// Parses `raw` into a [`Specifier`].
     #[must_use]
     pub fn create(raw: &str) -> Specifier {
         // Strip leading = if present (npm allows =1.2.3 as equivalent to 1.2.3)

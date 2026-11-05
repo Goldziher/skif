@@ -1,6 +1,7 @@
 // Vendored from syncpack crates/syncpack-specifier/src/complex_semver.rs @958d306 (MIT, Copyright (c) 2017-2023 Jamie Mason). Modified for skif; see ATTRIBUTIONS.md.
 use {crate::Specifier, std::sync::Arc};
 
+/// A compound range: several comparators or `||` alternatives.
 #[derive(Debug, PartialEq)]
 pub struct ComplexSemver {
     /// "1.3.0 || <1.0.0 >2.0.0"
@@ -18,6 +19,7 @@ pub struct ComplexSemver {
 }
 
 impl ComplexSemver {
+    /// Parses `raw` into a [`Specifier`].
     #[must_use]
     pub fn create(raw: &str) -> Specifier {
         match Specifier::new_node_range(raw) {

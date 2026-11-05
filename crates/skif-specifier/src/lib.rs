@@ -3,6 +3,7 @@
 //!
 //! This crate is an implementation detail of `skif` and carries no stability promise: its public items, including
 //! the `nodejs_semver` types that appear in them, may change in any release.
+#![warn(missing_docs)]
 #![allow(
     clippy::match_same_arms,
     reason = "parser arms are grouped by leading byte with explanatory comments; merging them would hide the dispatch table"
@@ -17,18 +18,25 @@ use {
     std::sync::Arc,
 };
 
+/// The npm aliases specifier form.
 pub mod alias;
 mod cache;
+/// The `catalog:` references specifier form.
 pub mod catalog;
+/// The compound ranges specifier form.
 pub mod complex_semver;
+/// The exact versions specifier form.
 pub mod exact;
+/// The `file:` paths specifier form.
 pub mod file;
+/// The `link:` paths specifier form.
 pub mod link;
 
 #[cfg(test)]
 mod get_node_range_test;
 #[cfg(test)]
 mod get_semver_number_test;
+/// The git URLs specifier form.
 pub mod git;
 #[cfg(test)]
 mod hardening_test;
@@ -46,31 +54,44 @@ mod new_test;
 
 #[cfg(test)]
 mod eq_hash_test;
+/// The `latest`, `*` and `x` specifier form.
 pub mod latest;
+/// The bare major versions specifier form.
 pub mod major;
+/// The major and minor versions specifier form.
 pub mod minor;
 #[cfg(test)]
 mod ordering_test;
+/// The byte-level classifiers behind [`Specifier::create`]
 pub mod parser;
+/// The single-comparator ranges specifier form.
 pub mod range;
+/// The ranges over a major version specifier form.
 pub mod range_major;
+/// The ranges over a major and minor version specifier form.
 pub mod range_minor;
 
 #[cfg(test)]
 mod satisfies_all_test;
 
+/// The range operator of a specifier
 pub mod semver_range;
+/// The dist-tags specifier form.
 pub mod tag;
+/// How far an update may move a version
 pub mod update_target;
+/// The tarball URLs specifier form.
 pub mod url;
 #[cfg(test)]
 mod with_node_version_test;
 #[cfg(test)]
 mod with_range_test;
+/// The `workspace:` specifiers specifier form.
 pub mod workspace_protocol;
 
 #[cfg(test)]
 mod test_faker;
+/// The part of a `workspace:` specifier after the protocol
 pub mod workspace_specifier;
 
 pub use cache::SpecifierCache;
@@ -124,6 +145,13 @@ pub const CONFIG_IDENTIFIERS: [&str; 18] = [
 /// - "1.2" -> "1.2.999999"
 pub const HUGE: u64 = 999_999;
 
+/// The range `*`, `latest`, `x` and `workspace:*` stand for, `>=0.0.0 <=999999.999999.999999`, parsed once.
+fn any_range() -> Option<Arc<nodejs_semver::Range>> {
+    static ANY: std::sync::LazyLock<Option<Arc<nodejs_semver::Range>>> =
+        std::sync::LazyLock::new(|| Specifier::new_node_range(&format!(">=0.0.0 <={HUGE}.{HUGE}.{HUGE}")));
+    ANY.clone()
+}
+
 /// Remove semver range characters from the start of a semver version number
 #[must_use]
 pub fn strip_semver_range(value: &str) -> &str {
@@ -133,25 +161,44 @@ pub fn strip_semver_range(value: &str) -> &str {
         .unwrap_or(value)
 }
 
+/// A parsed `package.json` dependency specifier.
 #[derive(Debug)]
 pub enum Specifier {
+    /// An npm alias (`npm:foo@1.2.3`).
     Alias(alias::Alias),                                      // "npm:foo@1.2.3"
+    /// A catalog reference (`catalog:`, `catalog:react18`).
     Catalog(catalog::Catalog),                                // "catalog:", "catalog:react18"
+    /// A compound range (`>=1.2.3 <2.0.0`).
     ComplexSemver(complex_semver::ComplexSemver),             // ">=1.2.3 <2.0.0"
+    /// An exact version (`1.2.3`).
     Exact(exact::Exact),                                      // "1.2.3"
+    /// A `file:` path.
     File(file::File),                                         // "file:../path"
+    /// A `link:` path.
     Link(link::Link),                                         // "link:../path"
+    /// A git URL or shorthand (`github:user/repo#v1.2.3`).
     Git(git::Git),                                            // "github:user/repo#v1.2.3"
+    /// Any version (`latest`, `*`).
     Latest(latest::Latest),                                   // "latest", "*"
+    /// A bare major version (`1`).
     Major(major::Major),                                      // "1"
+    /// A major and minor version (`1.2`).
     Minor(minor::Minor),                                      // "1.2"
+    /// No specifier: the `version` property is missing.
     None,                                                     // Missing .version property
+    /// A single-comparator range (`~1.2.3`).
     Range(range::Range),                                      // "~1.2.3"
+    /// A range over a major version (`^1`).
     RangeMajor(range_major::RangeMajor),                      // "^1"
+    /// A range over a major and minor version (`~1.2`).
     RangeMinor(range_minor::RangeMinor),                      // "~1.2"
+    /// A dist-tag (`alpha`, `beta`).
     Tag(tag::Tag),                                            // "alpha", "beta"
+    /// A string that is not a specifier (`}wat{`).
     Unsupported(String),                                      // "}wat{"
+    /// A tarball URL.
     Url(url::Url),                                            // "https://example.com/package.tgz"
+    /// A `workspace:` specifier (`workspace:^`, `workspace:*`).
     WorkspaceProtocol(workspace_protocol::WorkspaceProtocol), // "workspace:^", "workspace:*", "workspace:~", "workspace:^1.2.3"
 }
 
@@ -447,23 +494,13 @@ impl Specifier {
                     .or_else(|| {
                         use crate::{semver_range::SemverRange, workspace_specifier::WorkspaceSpecifier};
                         match &s.inner_specifier {
-                            WorkspaceSpecifier::RangeOnly(SemverRange::Any) => {
-                                // "workspace:*" → ">=0.0.0 <=999999.999999.999999"
-                                let huge = HUGE.to_string();
-                                let range_str = format!(">=0.0.0 <={huge}.{huge}.{huge}");
-                                Self::new_node_range(&range_str)
-                            }
+                            WorkspaceSpecifier::RangeOnly(SemverRange::Any) => any_range(),
                             _ => None,
                         }
                     })
             }
             Self::Exact(s) => Some(s.node_range.clone()),
-            Self::Latest(_) => {
-                // "*", "latest", "x" → ">=0.0.0 <=999999.999999.999999"
-                let huge = HUGE.to_string();
-                let range_str = format!(">=0.0.0 <={huge}.{huge}.{huge}");
-                Self::new_node_range(&range_str)
-            }
+            Self::Latest(_) => any_range(),
             Self::Major(m) => {
                 // "1" → ">=1.0.0 <2.0.0"
                 let range_str = format!(">={}.0.0 <{}.0.0", m.raw, m.raw.parse::<u64>().ok()?.checked_add(1)?);
@@ -905,6 +942,7 @@ impl Specifier {
         matches!(self, Self::WorkspaceProtocol(_))
     }
 
+    /// Whether this is a `link:` path.
     #[must_use]
     pub fn is_link(&self) -> bool {
         matches!(self, Self::Link(_))
@@ -1035,3 +1073,12 @@ impl std::hash::Hash for Specifier {
         self.get_raw().hash(state);
     }
 }
+
+const _: () = {
+    fn assert_send_sync<T: Send + Sync>() {}
+    let _ = assert_send_sync::<Specifier>;
+    let _ = assert_send_sync::<SpecifierCache>;
+    let _ = assert_send_sync::<SemverRange>;
+    let _ = assert_send_sync::<UpdateTarget>;
+    let _ = assert_send_sync::<workspace_specifier::WorkspaceSpecifier>;
+};
