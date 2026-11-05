@@ -8,9 +8,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::SystemTime;
 
-use crate::fs::{DirEntry, FileSystem};
+use crate::fs::{DirEntry, FileSystem, PathKind};
 
 const SHARDS: u64 = 64;
+
+/// A directory is listed, instead of probing its children one by one, once this many of its children were probed
+/// without a cached listing: several probes of one directory (every extension of an import) then cost one listing.
+const LIST_AFTER_PROBES: u32 = 3;
 
 /// Configuration files above this size are read every time instead of being held.
 const MAX_CACHED_TEXT: usize = 128 * 1024;
@@ -89,9 +93,11 @@ fn not_found(path: &Path) -> io::Error {
 ///
 /// - Directory listings are kept (shared, see [`FileSystem::read_dir_shared`]), including the absence of a
 ///   directory.
-/// - `is_file` and `is_dir` are answered from the listing of the parent directory when it is already cached, so
-///   probing many names in one directory costs one listing, not one `stat` per name. Otherwise the inner file system
-///   is asked once and the answer, a negative one included, is kept.
+/// - `is_file`, `is_dir` and `kind` are answered from the listing of the parent directory when it is already cached,
+///   so probing many names in one directory costs one listing, not one `stat` per name. Otherwise the inner file
+///   system is asked once, for file and directory together, and the answer, a negative one included, is kept. A
+///   directory whose children are probed repeatedly (except `node_modules` and scope directories, whose listing
+///   costs a `stat` per link) is listed after a few probes and answers the rest from the listing.
 /// - Small configuration files (manifests, `tsconfig`, ignore files, tool configuration) are kept after the first
 ///   read, a missing one included. Other files are read through every time.
 ///
@@ -100,8 +106,8 @@ fn not_found(path: &Path) -> io::Error {
 pub struct CachedFs<F> {
     inner: F,
     listings: Sharded<Listing>,
-    files: Sharded<bool>,
-    dirs: Sharded<bool>,
+    kinds: Sharded<PathKind>,
+    probes: Sharded<u32>,
     texts: Sharded<Option<Arc<str>>>,
 }
 
@@ -112,8 +118,8 @@ impl<F: FileSystem> CachedFs<F> {
         Self {
             inner,
             listings: Sharded::new(),
-            files: Sharded::new(),
-            dirs: Sharded::new(),
+            kinds: Sharded::new(),
+            probes: Sharded::new(),
             texts: Sharded::new(),
         }
     }
@@ -127,22 +133,40 @@ impl<F: FileSystem> CachedFs<F> {
     /// Forgets everything, so the next query observes the file system as it is now.
     pub fn clear(&self) {
         self.listings.clear();
-        self.files.clear();
-        self.dirs.clear();
+        self.kinds.clear();
+        self.probes.clear();
         self.texts.clear();
     }
 
-    /// `(is_dir, is_file)` of `path` according to the cached listing of its parent; `None` when that is not cached.
-    fn kind_in_parent(&self, path: &Path) -> Option<(bool, bool)> {
+    /// The kind of `path` according to the cached listing of its parent; `None` when that is not cached.
+    fn kind_in_parent(&self, path: &Path) -> Option<PathKind> {
         let listing = self.listings.get(path.parent()?)?;
         let Ok(entries) = listing else {
-            return Some((false, false));
+            return Some(PathKind::NONE);
         };
         Some(
             entries
                 .binary_search_by(|entry| entry.path.as_path().cmp(path))
-                .map_or((false, false), |index| (entries[index].is_dir, entries[index].is_file)),
+                .map_or(PathKind::NONE, |index| PathKind {
+                    is_file: entries[index].is_file,
+                    is_dir: entries[index].is_dir,
+                }),
         )
+    }
+
+    /// Counts a probe of a child of `path`'s parent and lists the parent once it was probed often enough. Whether the
+    /// listing is now cached is not reported: [`CachedFs::kind_in_parent`] tells.
+    fn list_parent_when_probed(&self, path: &Path) {
+        let Some(parent) = path.parent() else { return };
+        let name = parent.file_name().and_then(OsStr::to_str).unwrap_or_default();
+        if name == "node_modules" || name.starts_with('@') {
+            return;
+        }
+        let probed = self.probes.get(parent).unwrap_or(0).saturating_add(1);
+        self.probes.insert(parent, probed);
+        if probed >= LIST_AFTER_PROBES {
+            let _ = self.read_dir_shared(parent);
+        }
     }
 }
 
@@ -168,7 +192,7 @@ impl<F: FileSystem> FileSystem for CachedFs<F> {
         if let Some(cached) = self.texts.get(path) {
             return cached.ok_or_else(|| not_found(path));
         }
-        if self.kind_in_parent(path).is_some_and(|(_, is_file)| !is_file) {
+        if self.kind_in_parent(path).is_some_and(|kind| !kind.is_file) {
             return Err(not_found(path));
         }
         match self.inner.read_to_string(path) {
@@ -211,33 +235,27 @@ impl<F: FileSystem> FileSystem for CachedFs<F> {
     }
 
     fn is_file(&self, path: &Path) -> bool {
-        if let Some((_, is_file)) = self.kind_in_parent(path) {
-            return is_file;
-        }
-        if let Some(known) = self.files.get(path) {
-            return known;
-        }
-        let is_file = self.inner.is_file(path);
-        self.files.insert(path, is_file);
-        if is_file {
-            self.dirs.insert(path, false);
-        }
-        is_file
+        self.kind(path).is_file
     }
 
     fn is_dir(&self, path: &Path) -> bool {
-        if let Some((is_dir, _)) = self.kind_in_parent(path) {
-            return is_dir;
+        self.kind(path).is_dir
+    }
+
+    fn kind(&self, path: &Path) -> PathKind {
+        if let Some(kind) = self.kind_in_parent(path) {
+            return kind;
         }
-        if let Some(known) = self.dirs.get(path) {
-            return known;
+        if let Some(kind) = self.kinds.get(path) {
+            return kind;
         }
-        let is_dir = self.inner.is_dir(path);
-        self.dirs.insert(path, is_dir);
-        if is_dir {
-            self.files.insert(path, false);
+        self.list_parent_when_probed(path);
+        if let Some(kind) = self.kind_in_parent(path) {
+            return kind;
         }
-        is_dir
+        let kind = self.inner.kind(path);
+        self.kinds.insert(path, kind);
+        kind
     }
 
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
@@ -365,11 +383,46 @@ mod tests {
         let fs = cached();
         for _ in 0..3 {
             assert!(fs.is_file(Path::new("/ws/package.json")));
-            assert!(!fs.is_file(Path::new("/ws/nope.json")));
+            assert!(!fs.is_file(Path::new("/ws/src/nope.json")));
             assert!(fs.is_dir(Path::new("/ws/src")));
-            assert!(!fs.is_dir(Path::new("/ws/nope")));
+            assert!(!fs.is_dir(Path::new("/ws/nope/dir")));
         }
-        assert_eq!(count(&fs.inner().stats), 4);
+        // A file costs one stat; the three other paths are asked "file?" and "directory?" once each.
+        assert_eq!(count(&fs.inner().stats), 1 + 2 + 2 + 2);
+        assert_eq!(count(&fs.inner().listings), 0);
+    }
+
+    #[test]
+    fn a_directory_probed_repeatedly_is_listed_once() {
+        let fs = cached();
+        for name in ["a.ts", "b.ts", "c.ts", "d.ts", "index.ts"] {
+            assert_eq!(fs.is_file(&Path::new("/ws/src").join(name)), name == "index.ts");
+        }
+        assert!(fs.is_dir(Path::new("/ws/src/deep")));
+        assert_eq!(count(&fs.inner().listings), 1);
+        // Two probes were stats; the third listed the directory and the rest were answered from the listing.
+        assert_eq!(count(&fs.inner().stats), 2 * 2);
+    }
+
+    #[test]
+    fn module_directories_are_never_listed_by_probing() {
+        let fs = CachedFs::new(Counting::new(
+            MemoryFs::new().with_file("/ws/node_modules/a/package.json", "{}"),
+        ));
+        for name in ["a", "b", "c", "d", "e"] {
+            let _ = fs.is_dir(&Path::new("/ws/node_modules").join(name));
+        }
+        assert_eq!(count(&fs.inner().listings), 0);
+    }
+
+    #[test]
+    fn kind_reports_file_directory_and_nothing_with_one_stat_each() {
+        let fs = cached();
+        assert_eq!(fs.kind(Path::new("/ws/package.json")), PathKind::FILE);
+        assert_eq!(fs.kind(Path::new("/ws/src")), PathKind::DIR);
+        assert_eq!(fs.kind(Path::new("/other/x")), PathKind::NONE);
+        assert_eq!(fs.kind(Path::new("/ws/package.json")), PathKind::FILE);
+        assert_eq!(count(&fs.inner().stats), 1 + 2 + 2);
     }
 
     #[test]

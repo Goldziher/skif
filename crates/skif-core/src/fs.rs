@@ -41,6 +41,33 @@ impl DirEntry {
     }
 }
 
+/// What a path is, with symbolic links followed. A path that does not exist is neither.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PathKind {
+    /// The path is a regular file.
+    pub is_file: bool,
+    /// The path is a directory.
+    pub is_dir: bool,
+}
+
+impl PathKind {
+    /// A path that is neither a file nor a directory.
+    pub const NONE: Self = Self {
+        is_file: false,
+        is_dir: false,
+    };
+    /// A regular file.
+    pub const FILE: Self = Self {
+        is_file: true,
+        is_dir: false,
+    };
+    /// A directory.
+    pub const DIR: Self = Self {
+        is_file: false,
+        is_dir: true,
+    };
+}
+
 /// Read-only file system access used by discovery.
 pub trait FileSystem: Send + Sync {
     /// Reads a UTF-8 file.
@@ -66,6 +93,18 @@ pub trait FileSystem: Send + Sync {
     fn is_file(&self, path: &Path) -> bool;
     /// Whether `path` is a directory.
     fn is_dir(&self, path: &Path) -> bool;
+    /// What `path` is, in one query.
+    ///
+    /// The default asks [`FileSystem::is_file`] and then [`FileSystem::is_dir`]; an implementation that can answer both
+    /// with one lookup (a `stat`) overrides it. An implementation that answers `is_file` or `is_dir` through `kind`
+    /// must override `kind` as well.
+    fn kind(&self, path: &Path) -> PathKind {
+        let is_file = self.is_file(path);
+        PathKind {
+            is_file,
+            is_dir: !is_file && self.is_dir(path),
+        }
+    }
     /// `path` as the file system resolves it: absolute, with every symbolic link followed.
     ///
     /// The default returns `path` unchanged, which is right for a tree that has no links (such as [`MemoryFs`]).
@@ -115,6 +154,10 @@ macro_rules! forward_file_system {
 
             fn is_dir(&self, path: &Path) -> bool {
                 (**self).is_dir(path)
+            }
+
+            fn kind(&self, path: &Path) -> PathKind {
+                (**self).kind(path)
             }
 
             fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
@@ -173,6 +216,13 @@ impl FileSystem for OsFs {
 
     fn is_dir(&self, path: &Path) -> bool {
         path.is_dir()
+    }
+
+    fn kind(&self, path: &Path) -> PathKind {
+        std::fs::metadata(path).map_or(PathKind::NONE, |metadata| PathKind {
+            is_file: metadata.is_file(),
+            is_dir: metadata.is_dir(),
+        })
     }
 
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {

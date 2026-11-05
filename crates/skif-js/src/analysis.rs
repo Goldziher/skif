@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use skif_config::Config;
+use skif_config::{Config, JsDiscovery};
 use skif_core::{FileSystem, timing};
 use skif_js_syntax::{Export, ExportKind, ParseOptions, parse_module};
 use skif_workspace::{PackageId, Workspace, map_ordered};
@@ -12,6 +12,7 @@ use skif_workspace::{PackageId, Workspace, map_ordered};
 use crate::deps::DependencyUsage;
 use crate::discover::{Candidate, discover, relative};
 use crate::entries::entry_files;
+use crate::git_index::{IndexedFs, TrackedTree};
 use crate::graph::{self, Inputs, Module, ModuleGraph};
 use crate::input::InputSource;
 use crate::resolve::ModuleResolver;
@@ -81,6 +82,16 @@ fn collect_ambient_modules(
     names
 }
 
+/// `fs` with the tracked files served from the git index, unless `[js] discovery = "walk"` or the workspace is not
+/// in a git work tree with a usable index.
+fn indexed_fs(fs: &Arc<dyn FileSystem>, workspace: &Workspace, config: &Config) -> Option<Arc<dyn FileSystem>> {
+    if config.js.discovery == JsDiscovery::Walk {
+        return None;
+    }
+    let tree = TrackedTree::load(fs.as_ref(), &workspace.root)?;
+    Some(Arc::new(IndexedFs::new(Arc::clone(fs), tree)))
+}
+
 impl<'a> JsAnalysis<'a> {
     /// Discovers files, builds the graph and computes usage.
     ///
@@ -95,8 +106,10 @@ impl<'a> JsAnalysis<'a> {
         sequential: bool,
     ) -> Self {
         let phase = |name: &str| format!("js {name} {}", workspace.root.display());
+        let indexed = timing::phase(phase("git index"), || indexed_fs(fs, workspace, config));
+        let fs = indexed.as_ref().unwrap_or(fs);
         let mut setup = timing::phase(phase("setup (plugins, configs)"), || {
-            Setup::new(workspace, config, fs, sources)
+            Setup::new(workspace, config, fs, sources, sequential)
         });
         let mut candidates = timing::phase(phase("discover"), || discover(fs.as_ref(), workspace, sequential));
         if !setup.js_ignored.is_empty() {
@@ -126,10 +139,16 @@ impl<'a> JsAnalysis<'a> {
             ExportUsage::compute_by(&graph, |owner| setup.includes_entry_exports(owner))
         });
         let dependencies = timing::phase(phase("dependencies"), || {
-            DependencyUsage::compute(workspace, &setup, &graph, fs.as_ref())
+            DependencyUsage::compute(workspace, &setup, &graph, fs.as_ref(), sequential)
         });
 
-        let ambient_modules = collect_ambient_modules(fs.as_ref(), &graph, &candidates, sequential);
+        let mut ambient_modules = collect_ambient_modules(fs.as_ref(), &graph, &candidates, sequential);
+        // `declare module 'pkg/sub'` also declares `pkg`: both spellings are looked up by name.
+        let packages: Vec<String> = ambient_modules
+            .iter()
+            .filter_map(|declared| package_name(declared))
+            .collect();
+        ambient_modules.extend(packages);
         let unused_files = candidates
             .iter()
             .filter(|candidate| graph.id_of(&candidate.abs).is_none())
@@ -170,9 +189,7 @@ impl<'a> JsAnalysis<'a> {
     /// dependency.
     #[must_use]
     pub fn declares_module(&self, name: &str) -> bool {
-        self.ambient_modules
-            .iter()
-            .any(|declared| declared == name || package_name(declared).as_deref() == Some(name))
+        self.ambient_modules.contains(name)
     }
 
     /// Whether `[js] production` is on.

@@ -52,9 +52,10 @@ impl oxc_resolver::FileSystem for ResolverFs {
     }
 
     fn metadata(&self, path: &Path) -> io::Result<FileMetadata> {
-        if self.fs.is_file(path) {
+        let kind = self.fs.kind(path);
+        if kind.is_file {
             Ok(FileMetadata::new(true, false, false))
-        } else if self.fs.is_dir(path) {
+        } else if kind.is_dir {
             Ok(FileMetadata::new(false, true, false))
         } else {
             Err(io::Error::new(io::ErrorKind::NotFound, "not found"))
@@ -205,6 +206,40 @@ impl<K: Eq + Hash, V: Clone> Memo<K, V> {
     }
 }
 
+/// Outcomes of the lookup-directory probe by scope index and specifier, misses included. A hit allocates nothing.
+struct ModuleDirProbes(RwLock<HashMap<usize, HashMap<String, Option<Resolved>>>>);
+
+impl ModuleDirProbes {
+    fn new() -> Self {
+        Self(RwLock::new(HashMap::new()))
+    }
+
+    fn get_or_compute(
+        &self,
+        scope: usize,
+        specifier: &str,
+        compute: impl FnOnce() -> Option<Resolved>,
+    ) -> Option<Resolved> {
+        if let Some(known) = self
+            .0
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&scope)
+            .and_then(|probes| probes.get(specifier))
+        {
+            return known.clone();
+        }
+        let value = compute();
+        self.0
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(scope)
+            .or_default()
+            .insert(specifier.to_owned(), value.clone());
+        value
+    }
+}
+
 /// Resolves specifiers for the whole workspace. Cheap to share between threads.
 pub(crate) struct ModuleResolver {
     script: Resolvers,
@@ -217,13 +252,16 @@ pub(crate) struct ModuleResolver {
     ignores: Vec<(PathBuf, Gitignore)>,
     members: BTreeMap<String, Member>,
     scopes: Vec<AliasScope>,
+    /// The position in `scopes` of the scope of each package directory.
+    scope_index: HashMap<PathBuf, usize>,
+    /// Whether any scope has lookup directories; without one the lookup-directory probe has nothing to do.
+    has_module_dirs: bool,
     /// `exports` conditions that select source files, besides the built-in `source`.
     conditions: Vec<String>,
     /// Packages that are not workspace members, by directory, parsed once; `None` when there is no readable manifest.
     directory_packages: Memo<PathBuf, Option<Arc<Member>>>,
-    /// Outcomes of the lookup-directory probe by the innermost package directory of the importer and specifier, misses
-    /// included.
-    module_dir_probes: Memo<(PathBuf, String), Option<Resolved>>,
+    /// Outcomes of the lookup-directory probe by the innermost scope of the importer and specifier.
+    module_dir_probes: ModuleDirProbes,
     /// The nearest `baseUrl` and `paths` by directory, `None` when no config at or above it sets them.
     nearest_paths: Memo<PathBuf, Option<Arc<TsPaths>>>,
     /// The `tsconfig.json` and `jsconfig.json` files read so far.
@@ -438,6 +476,12 @@ impl ModuleResolver {
             })
             .collect();
         scopes.sort_by_key(|scope| std::cmp::Reverse(scope.dir.components().count()));
+        let scope_index = scopes
+            .iter()
+            .enumerate()
+            .map(|(position, scope)| (scope.dir.clone(), position))
+            .collect();
+        let has_module_dirs = scopes.iter().any(|scope| !scope.module_dirs.is_empty());
         let mut ignore_dirs = vec![workspace.root.clone()];
         for package in workspace.all_packages() {
             let dir = workspace.root.join(&package.dir);
@@ -466,9 +510,11 @@ impl ModuleResolver {
             root: workspace.root.clone(),
             members,
             scopes,
+            scope_index,
+            has_module_dirs,
             conditions,
             directory_packages: Memo::new(),
-            module_dir_probes: Memo::new(),
+            module_dir_probes: ModuleDirProbes::new(),
             nearest_paths: Memo::new(),
             tsconfigs,
         }
@@ -578,7 +624,10 @@ impl ModuleResolver {
         {
             return outcome(found, None);
         }
-        let member_name = name.clone().filter(|name| self.members.contains_key(name));
+        let member_name = name
+            .as_ref()
+            .filter(|name| self.members.contains_key(name.as_str()))
+            .cloned();
         if let Ok(path) = self.resolvers(kind).attempt(importer, specifier) {
             if let Some(installed) = node_modules_package(&path) {
                 let package = name.unwrap_or(installed);
@@ -659,10 +708,9 @@ impl ModuleResolver {
         }
         let rest = specifier.trim_start_matches('/');
         let package_dir = self
-            .scopes
-            .iter()
-            .find(|scope| importer.starts_with(&scope.dir))
-            .map_or(self.root.as_path(), |scope| scope.dir.as_path());
+            .scopes_of(importer)
+            .next()
+            .map_or(self.root.as_path(), |(_, scope)| scope.dir.as_path());
         [
             package_dir.join(rest),
             self.root.join(rest),
@@ -721,26 +769,38 @@ impl ModuleResolver {
             .map(|resolution| self.classify(resolution.path().to_path_buf()))
     }
 
+    /// The scopes whose directory holds `importer`, innermost first, with their position in `scopes`.
+    ///
+    /// Found by walking up the importer's ancestors instead of testing every scope.
+    fn scopes_of<'a>(&'a self, importer: &'a Path) -> impl Iterator<Item = (usize, &'a AliasScope)> + 'a {
+        importer
+            .ancestors()
+            .filter_map(|dir| self.scope_index.get(dir))
+            .map(|&position| (position, &self.scopes[position]))
+    }
+
     /// Looks a bare specifier up in the lookup directories of the importer's package (`baseUrl`, `paths` wildcards,
     /// `resolve.modules`), in order. A specifier that names a file there is a file import, never a package.
     fn through_module_dirs(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
+        if !self.has_module_dirs {
+            return None;
+        }
         // The packages whose directories hold the importer form a chain, so the innermost one identifies them all.
-        let innermost = self.scopes.iter().find(|scope| importer.starts_with(&scope.dir))?;
-        self.module_dir_probes
-            .get_or_compute((innermost.dir.clone(), specifier.to_owned()), || {
-                self.scopes
-                    .iter()
-                    .filter(|scope| innermost.dir.starts_with(&scope.dir))
-                    .flat_map(|scope| &scope.module_dirs)
-                    .find_map(|dir| {
-                        let path = join_normalized(dir, specifier);
-                        self.script
-                            .plain
-                            .resolve(&innermost.dir, &specifier_of(&path))
-                            .ok()
-                            .map(|resolution| self.classify(resolution.path().to_path_buf()))
-                    })
-            })
+        let (position, innermost) = self.scopes_of(importer).next()?;
+        self.module_dir_probes.get_or_compute(position, specifier, || {
+            self.scopes
+                .iter()
+                .filter(|scope| innermost.dir.starts_with(&scope.dir))
+                .flat_map(|scope| &scope.module_dirs)
+                .find_map(|dir| {
+                    let path = join_normalized(dir, specifier);
+                    self.script
+                        .plain
+                        .resolve(&innermost.dir, &specifier_of(&path))
+                        .ok()
+                        .map(|resolution| self.classify(resolution.path().to_path_buf()))
+                })
+        })
     }
 
     /// Follows `paths` and `baseUrl` of the nearest `tsconfig.json` or `jsconfig.json` at or above the importer, also
@@ -806,7 +866,7 @@ impl ModuleResolver {
         let mut computed = false;
         let mut matched = false;
         let directory = importer.parent()?;
-        for scope in self.scopes.iter().filter(|scope| importer.starts_with(&scope.dir)) {
+        for (_, scope) in self.scopes_of(importer) {
             for alias in &scope.aliases {
                 let Some(rest) = alias_rest(specifier, &alias.find) else {
                     continue;
@@ -984,7 +1044,7 @@ mod tests {
         let workspace = Workspace::discover_with_fs(root, &config, &fs).unwrap();
         let fs: Arc<dyn FileSystem> = Arc::new(fs);
         let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(RootInputs(inputs))];
-        let setup = Setup::new(&workspace, &config, &fs, &sources);
+        let setup = Setup::new(&workspace, &config, &fs, &sources, true);
         ModuleResolver::new(fs, &workspace, &setup)
     }
 

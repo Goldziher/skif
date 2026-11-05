@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use skif_config::{Config, IgnoreExportsUsedInFile, Js, JsWorkspace, PackageJs};
 use skif_core::FileSystem;
 use skif_js_syntax::{Export, ExportKind};
-use skif_workspace::{PackageId, Workspace};
+use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::ancestors;
 use crate::globs::{Globs, Names};
@@ -403,6 +403,7 @@ impl Setup {
         config: &Config,
         fs: &Arc<dyn FileSystem>,
         sources: &[Arc<dyn InputSource>],
+        sequential: bool,
     ) -> Self {
         let js = &config.js;
         let production = js.production;
@@ -435,108 +436,106 @@ impl Setup {
             .filter(|key| !package_dirs.iter().any(|dir| key_selects(key, dir)))
             .cloned()
             .collect();
-        let mut packages: Vec<Option<PackageSetup>> = workspace
-            .iter()
-            .map(|(id, package)| {
-                if workspace.is_ignored(id) || js_ignored.contains(&id) {
-                    return None;
-                }
-                let dir_name = package.dir.to_string_lossy().replace('\\', "/");
-                let abs_dir = workspace.root.join(&package.dir);
-                let match_dir = if package.is_root {
-                    workspace.root.as_path()
-                } else {
-                    abs_dir.as_path()
-                };
-                let user = configured(config, package.display_name(), match_dir, &dir_name, package.is_root);
-                let mut plugin = WorkspaceInputs::default();
-                let request = InputRequest {
-                    workspace,
-                    package,
-                    fs: fs.as_ref(),
-                    ancestor_dependencies: &ancestor_dependencies,
-                };
-                for source in sources {
-                    plugin.extend(source.inputs(&request));
-                }
-                let scripts = scripts::analyze(package);
+        let members: Vec<(PackageId, &Package)> = workspace.iter().collect();
+        let mut packages: Vec<Option<PackageSetup>> = map_ordered(&members, sequential, |&(id, package)| {
+            if workspace.is_ignored(id) || js_ignored.contains(&id) {
+                return None;
+            }
+            let dir_name = package.dir.to_string_lossy().replace('\\', "/");
+            let abs_dir = workspace.root.join(&package.dir);
+            let match_dir = if package.is_root {
+                workspace.root.as_path()
+            } else {
+                abs_dir.as_path()
+            };
+            let user = configured(config, package.display_name(), match_dir, &dir_name, package.is_root);
+            let mut plugin = WorkspaceInputs::default();
+            let request = InputRequest {
+                workspace,
+                package,
+                fs: fs.as_ref(),
+                ancestor_dependencies: &ancestor_dependencies,
+            };
+            for source in sources {
+                plugin.extend(source.inputs(&request));
+            }
+            let scripts = scripts::analyze(package);
 
-                let mut entry = listed::user_globs(&user.entry, production, &default_entry());
-                entry.extend(ambient_declarations());
-                let mut shared_sources: Vec<&String> = plugin.production_entry.iter().collect();
-                if !production {
-                    shared_sources.extend(plugin.entry.iter());
-                }
-                let shared_entry: Vec<String> = shared_sources
-                    .into_iter()
-                    .filter(|pattern| is_shared_pattern(pattern))
-                    .cloned()
-                    .collect();
-                if !production {
-                    entry.extend(plugin.entry);
-                }
-                entry.extend(plugin.production_entry);
+            let mut entry = listed::user_globs(&user.entry, production, &default_entry());
+            entry.extend(ambient_declarations());
+            let mut shared_sources: Vec<&String> = plugin.production_entry.iter().collect();
+            if !production {
+                shared_sources.extend(plugin.entry.iter());
+            }
+            let shared_entry: Vec<String> = shared_sources
+                .into_iter()
+                .filter(|pattern| is_shared_pattern(pattern))
+                .cloned()
+                .collect();
+            if !production {
+                entry.extend(plugin.entry);
+            }
+            entry.extend(plugin.production_entry);
 
-                let mut project = listed::user_globs(&user.project, production, &default_project());
-                project.extend(plugin.project);
-                if production {
-                    project.extend(
-                        test_files()
-                            .into_iter()
-                            .chain(test_directories())
-                            .map(|glob| format!("!{glob}")),
-                    );
-                }
-
-                let mut ignore = user.ignore;
-                ignore.extend(plugin.ignore);
-                let mut ignore_dependencies = plugin.ignore_dependencies;
-                ignore_dependencies.extend(plugin.virtual_modules);
-                let ignore_binaries = plugin.ignore_binaries;
-                let mut aliases = path_aliases(&user.paths);
-                aliases.extend(plugin.aliases);
-
-                let mut referenced_dependencies = plugin.dependencies;
-                referenced_dependencies.extend(scripts.dependencies.iter().cloned());
-                let (outside, entry): (Vec<String>, Vec<String>) = entry
-                    .into_iter()
-                    .partition(|pattern| pattern.trim_start_matches('!').starts_with("../"));
-                let external_entry = Globs::new(
-                    outside
-                        .iter()
-                        .filter_map(|pattern| workspace_relative(&dir_name, pattern)),
+            let mut project = listed::user_globs(&user.project, production, &default_project());
+            project.extend(plugin.project);
+            if production {
+                project.extend(
+                    test_files()
+                        .into_iter()
+                        .chain(test_directories())
+                        .map(|glob| format!("!{glob}")),
                 );
-                Some(PackageSetup {
-                    id,
-                    dir: abs_dir,
-                    entry: Globs::new(entry),
-                    external_entry,
-                    shared_entry: Globs::new(shared_entry),
-                    entries_incomplete: plugin.entries_incomplete,
-                    project: Globs::new(project),
-                    ignore: Globs::new(ignore),
-                    ignore_dependencies: Names::new(ignore_dependencies),
-                    ignore_binaries: Names::new(ignore_binaries),
-                    user_ignore_dependencies: Listed::new(&user.ignore_dependencies, production),
-                    user_ignore_binaries: Listed::new(&user.ignore_binaries, production),
-                    ignore_unresolved: Listed::new(&user.ignore_unresolved, production),
-                    ignore_members: Listed::new(&user.ignore_members, production),
-                    include_entry_exports: user.include_entry_exports.unwrap_or(js.include_entry_exports),
-                    used_in_file: user
-                        .ignore_exports_used_in_file
-                        .unwrap_or_else(|| js.ignore_exports_used_in_file.clone()),
-                    referenced_dependencies,
-                    referenced_binaries: plugin.binaries,
-                    scripts,
-                    config_files: plugin.config_files,
-                    aliases,
-                    build_dirs: plugin.build_dirs,
-                    conditions: plugin.conditions,
-                    module_dirs: plugin.module_dirs,
-                    extensions: plugin.extensions,
-                })
+            }
+
+            let mut ignore = user.ignore;
+            ignore.extend(plugin.ignore);
+            let mut ignore_dependencies = plugin.ignore_dependencies;
+            ignore_dependencies.extend(plugin.virtual_modules);
+            let ignore_binaries = plugin.ignore_binaries;
+            let mut aliases = path_aliases(&user.paths);
+            aliases.extend(plugin.aliases);
+
+            let mut referenced_dependencies = plugin.dependencies;
+            referenced_dependencies.extend(scripts.dependencies.iter().cloned());
+            let (outside, entry): (Vec<String>, Vec<String>) = entry
+                .into_iter()
+                .partition(|pattern| pattern.trim_start_matches('!').starts_with("../"));
+            let external_entry = Globs::new(
+                outside
+                    .iter()
+                    .filter_map(|pattern| workspace_relative(&dir_name, pattern)),
+            );
+            Some(PackageSetup {
+                id,
+                dir: abs_dir,
+                entry: Globs::new(entry),
+                external_entry,
+                shared_entry: Globs::new(shared_entry),
+                entries_incomplete: plugin.entries_incomplete,
+                project: Globs::new(project),
+                ignore: Globs::new(ignore),
+                ignore_dependencies: Names::new(ignore_dependencies),
+                ignore_binaries: Names::new(ignore_binaries),
+                user_ignore_dependencies: Listed::new(&user.ignore_dependencies, production),
+                user_ignore_binaries: Listed::new(&user.ignore_binaries, production),
+                ignore_unresolved: Listed::new(&user.ignore_unresolved, production),
+                ignore_members: Listed::new(&user.ignore_members, production),
+                include_entry_exports: user.include_entry_exports.unwrap_or(js.include_entry_exports),
+                used_in_file: user
+                    .ignore_exports_used_in_file
+                    .unwrap_or_else(|| js.ignore_exports_used_in_file.clone()),
+                referenced_dependencies,
+                referenced_binaries: plugin.binaries,
+                scripts,
+                config_files: plugin.config_files,
+                aliases,
+                build_dirs: plugin.build_dirs,
+                conditions: plugin.conditions,
+                module_dirs: plugin.module_dirs,
+                extensions: plugin.extensions,
             })
-            .collect();
+        });
         forward_workspace_binaries(&mut packages, workspace);
         Self {
             packages,
