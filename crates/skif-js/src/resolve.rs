@@ -364,7 +364,9 @@ fn read_gitignore(fs: &dyn FileSystem, dir: &Path) -> Option<(PathBuf, Gitignore
 /// directory.
 fn style_forms(specifier: &str) -> [String; 3] {
     let trimmed = specifier.trim_end_matches('/');
-    let (dir, name) = trimmed.rsplit_once('/').map_or(("", trimmed), |(dir, name)| (dir, name));
+    let (dir, name) = trimmed
+        .rsplit_once('/')
+        .map_or(("", trimmed), |(dir, name)| (dir, name));
     let prefix = if dir.is_empty() {
         String::new()
     } else {

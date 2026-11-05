@@ -12,7 +12,7 @@ documentation = "https://docs.rs/skif-specifier"
 keywords = ["npm", "semver", "specifier", "monorepo", "skif"]
 categories = ["parser-implementations"]
 readme = "README.md"
-include = ["src/**", "benches/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
+include = ["/src/**", "/benches/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md", "/README.md"]
 
 [lib]
 name = "skif_specifier"

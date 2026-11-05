@@ -14,8 +14,8 @@ const SECTIONS: [&str; 4] = [
 
 /// Whether `dir` is where the repository starts: it holds the `.git` entry.
 fn is_repository_root(fs: &dyn FileSystem, dir: &Path) -> bool {
-    let git = dir.join(".git");
-    fs.is_dir(&git) || fs.is_file(&git)
+    let kind = fs.kind(&dir.join(".git"));
+    kind.is_dir || kind.is_file
 }
 
 /// The parsed `package.json` of every directory above `root`, up to and including the repository root, innermost

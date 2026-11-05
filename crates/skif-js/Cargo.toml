@@ -11,7 +11,7 @@ description = "JavaScript and TypeScript module graph and dependency rules for s
 documentation = "https://docs.rs/skif-js"
 keywords = ["javascript", "typescript", "unused", "dependencies", "monorepo"]
 readme = "README.md"
-include = ["src/**", "benches/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
+include = ["/src/**", "/benches/**", "/tests/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md", "/README.md"]
 categories = ["development-tools"]
 
 [dependencies]

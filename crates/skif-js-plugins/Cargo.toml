@@ -12,7 +12,7 @@ documentation = "https://docs.rs/skif-js-plugins"
 keywords = ["npm", "scripts", "dependencies", "monorepo", "skif"]
 categories = ["development-tools", "parser-implementations"]
 readme = "README.md"
-include = ["src/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
+include = ["/src/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md", "/README.md"]
 
 [lib]
 name = "skif_js_plugins"

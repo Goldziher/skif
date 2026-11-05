@@ -12,7 +12,7 @@ documentation = "https://docs.rs/skif-core"
 keywords = ["linter", "diagnostics", "monorepo", "package-json", "skif"]
 categories = ["development-tools"]
 readme = "README.md"
-include = ["src/**", "benches/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
+include = ["/src/**", "/benches/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md", "/README.md"]
 
 [features]
 default = []

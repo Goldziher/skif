@@ -296,7 +296,8 @@ fn the_audit_flags_a_type_from_a_crate_outside_the_allow_list() {
 #[test]
 fn the_audit_flags_a_foreign_type_in_a_trait_method_and_a_re_export() {
     let allowed = allow_list();
-    let in_trait = "pub trait Provider {\n    fn id(&self) -> &str;\n    fn hit(\n        &self,\n    ) -> regex::Match;\n}\n";
+    let in_trait =
+        "pub trait Provider {\n    fn id(&self) -> &str;\n    fn hit(\n        &self,\n    ) -> regex::Match;\n}\n";
     assert_eq!(
         violations(in_trait, &allowed).len(),
         1,
@@ -312,7 +313,9 @@ fn the_audit_flags_a_foreign_type_in_a_trait_method_and_a_re_export() {
     );
     let re_export = "pub use regex::Regex;\n";
     assert!(
-        violations(re_export, &allowed).iter().any(|leak| leak.contains("`regex::`")),
+        violations(re_export, &allowed)
+            .iter()
+            .any(|leak| leak.contains("`regex::`")),
         "{:?}",
         violations(re_export, &allowed)
     );

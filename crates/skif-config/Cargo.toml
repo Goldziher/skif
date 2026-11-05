@@ -12,7 +12,7 @@ documentation = "https://docs.rs/skif-config"
 keywords = ["linter", "configuration", "toml", "monorepo", "skif"]
 categories = ["development-tools", "config"]
 readme = "README.md"
-include = ["src/**", "tests/**", "fixtures/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
+include = ["/src/**", "/tests/**", "/fixtures/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md", "/README.md"]
 
 # docs.rs builds with every feature so the JSON Schema half of the crate is documented.
 [package.metadata.docs.rs]
