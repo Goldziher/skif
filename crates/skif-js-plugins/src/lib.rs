@@ -19,6 +19,7 @@ mod script_config;
 pub mod scripts;
 mod support;
 
+pub use config_load::load_config;
 pub use plugin::{
     BuildDir, ConfigAst, DepRef, Enabler, KNIP_COMMIT, PathAlias, Plugin, PluginContext, PluginId, PluginInput,
     PluginOutput, PluginSpec,
