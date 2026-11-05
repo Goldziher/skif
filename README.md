@@ -122,13 +122,13 @@ scoop install skif
 
 `cargo install skif` installs the library crate, not the binary; the command-line tool is `skif-cli`.
 
-Channels follow [ADR 0013](adrs/0013-distribution-and-naming.md). The npm package is a napi-rs addon for non-EoL Node.js (22, 24, 26) and Bun 1.x, with no Windows npm packages; Windows users get the GitHub release archive, `cargo binstall`, Scoop or cargo.
+Channels follow [ADR 0013](adrs/0013-distribution-and-naming.md). The npm package is a napi-rs addon for non-EoL Node.js (22, 24, 26) and Bun 1.x, with no Windows npm packages by decision (ADR 0018; `npx skif` fails on Windows); Windows users get the GitHub release archive, `cargo binstall`, Scoop or cargo.
 
 ### GitHub Action
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: Goldziher/skif@v0
+- uses: Goldziher/skif@v0.1
   with:
     fail-on-warnings: true
 ```
@@ -136,11 +136,12 @@ Channels follow [ADR 0013](adrs/0013-distribution-and-naming.md). The npm packag
 Inputs: `version` (defaults to the action's own tag), `args` (extra skif arguments), `working-directory`,
 `fail-on-warnings`, `install-only` to put `skif` on `PATH` without running it, and the advanced `token` and
 `repository` (see [`action.yml`](action.yml)). Every release of the
-action installs the skif version it was published with, whatever ref uses it: `@v0` is a floating tag that moves
-to each 0.x release, and a full tag such as `@v0.1.0` or a commit SHA never changes the installed version; set
-`version` to override it. The action downloads the release archive for the runner, verifies it against the
+action installs the skif version it was published with, whatever ref uses it: a release moves `@vN` for a stable
+major N and `@v0.M` for a 0.x line (`@v0` never moves, because a 0.x minor may break), and a full tag such as
+`@v0.1.0` or a commit SHA never changes the installed version; set `version` to override it. The action downloads the release archive for the runner, verifies it against the
 release's `checksums.txt` (again on every cache hit) and, where the `gh` CLI has the `attestation` command, against
-its build-provenance attestation (`gh attestation verify`; `verify-attestation: false` switches it off for a mirror).
+its build-provenance attestation, which must come from the `publish.yaml` workflow (`gh attestation verify
+--signer-workflow`; `verify-attestation: false` switches it off for a mirror).
 
 ### Prebuilt binaries
 
@@ -169,8 +170,9 @@ The glibc archives are linked against glibc 2.34 (cargo-zigbuild) and start on a
 such as Ubuntu 22.04, Debian 12 and RHEL 9. The static musl archives run on any Linux, glibc or musl, and are the
 choice for older systems such as RHEL 8, Debian 11, Ubuntu 20.04 or Amazon Linux 2. The Action, the pre-commit
 launcher and the Homebrew formula pick the musl archive themselves when the glibc is older than 2.34 or cannot be
-identified. `cargo binstall` cannot detect the glibc version: on an older system run
-`cargo binstall --targets x86_64-unknown-linux-musl skif-cli` (or `aarch64-unknown-linux-musl`). The npm addon targets
+identified. `cargo binstall` cannot see the glibc version, so on Linux it always installs the static musl archive of the
+matching architecture (the crate's binstall metadata redirects the `-gnu` targets to it); it runs on any glibc,
+including older than 2.34. For the glibc archive, download it from the release page. The npm addon targets
 glibc 2.17 and is not affected.
 
 ## Git hooks

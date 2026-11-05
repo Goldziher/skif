@@ -152,6 +152,8 @@ if [[ -n "$target" && "$target" != *windows* ]]; then
     SKIF_CACHE_DIR="$attest_cache" SKIF_RELEASE_URL="file://${release}" SKIF_VERSION=1.2.3 bash "$launcher"
   grep -qF "attestation verify" "${work}/gh.log" || fail "launcher: gh attestation verify was not called"
   grep -qF -- "--repo Goldziher/skif" "${work}/gh.log" || fail "launcher: the attestation is not checked against the release repository"
+  grep -qF -- "--signer-workflow Goldziher/skif/.github/workflows/publish.yaml" "${work}/gh.log" ||
+    fail "launcher: the attestation is not pinned to the publish workflow"
   expect "launcher: failed attestation" 1 env PATH="$basic_path" STUB_GH_AUTH=1 STUB_ATTEST_FAIL=1 SKIF_CACHE_DIR="${work}/cache-attest-bad" \
     SKIF_RELEASE_URL="file://${release}" SKIF_VERSION=1.2.3 bash "$launcher" --version
   expect_in_out "launcher: failed attestation" "attestation verification failed"
@@ -293,6 +295,14 @@ resolve_case "a v-prefixed version" 0 macOS X64 v0.1.0 ""
 resolve_case "a floating major tag resolves to the newest 0.x" 0 Windows X64 "" v0
 [[ "$(output_of tag)" == v0.2.1 && "$(output_of asset)" == skif-x86_64-pc-windows-msvc.zip && "$(output_of ext)" == zip ]] ||
   fail "resolve: floating major on Windows x64"
+resolve_case "a floating minor tag stays inside its 0.x line" 0 macOS ARM64 "" v0.1
+[[ "$(output_of tag)" == v0.1.0 ]] || fail "resolve: v0.1 must not move to a later 0.x minor, got $(output_of tag)"
+resolve_case "a floating minor tag takes the newest patch" 0 macOS ARM64 "" v0.2
+[[ "$(output_of tag)" == v0.2.1 ]] || fail "resolve: v0.2 must resolve to its newest patch, got $(output_of tag)"
+resolve_case "a floating major tag of a stable series" 0 macOS ARM64 "" v1
+[[ "$(output_of tag)" == v1.0.0 ]] || fail "resolve: v1 must resolve to the newest 1.x, got $(output_of tag)"
+resolve_case "a minor series without a release" 1 macOS ARM64 "" v0.7
+expect_in_out "resolve: unreleased minor" "No published release found"
 resolve_case "an action pinned to a full tag" 0 Windows ARM64 "" v0.2.0
 [[ "$(output_of tag)" == v0.2.0 && "$(output_of asset)" == skif-aarch64-pc-windows-msvc.zip ]] || fail "resolve: full tag on Windows arm64"
 resolve_case "a branch ref falls back to the newest release" 0 Linux X64 "" main
@@ -358,7 +368,7 @@ install_case "a verified archive" 0 "$action_release"
 grep -qxF "${work}/action/bin" "${work}/gh-path" || fail "install: BIN_DIR is not on PATH"
 [[ ! -e "${work}/action/bin/LICENSE" ]] || fail "install: only the binary may land in the PATH directory"
 [[ -f "$archive_asset" ]] || fail "install: the verified archive is not kept for cache re-verification"
-grep -qF -- "attestation verify skif-x86_64-unknown-linux-gnu.tar.gz --repo Acme/skif" "${work}/attest.log" ||
+grep -qF -- "attestation verify skif-x86_64-unknown-linux-gnu.tar.gz --repo Acme/skif --signer-workflow Acme/skif/.github/workflows/publish.yaml" "${work}/attest.log" ||
   fail "install: the archive was not checked against its attestation: $(cat "${work}/attest.log")"
 
 tampered="${work}/action-tampered"
@@ -422,6 +432,8 @@ run_case "no arguments" "" ARGS= FAIL_ON_WARNINGS=false
 run_case "arguments are split on spaces" "--format sarif --output skif.sarif" ARGS="--format sarif --output skif.sarif"
 run_case "fail-on-warnings is appended" "--no-js --fail-on-warnings" ARGS="--no-js" FAIL_ON_WARNINGS=true
 run_case "globs are passed through unexpanded" "*.json" ARGS="*.json"
+run_case "one argument per line keeps spaces" "--config my dir/skif.toml --no-js" ARGS=$'--config\nmy dir/skif.toml\n--no-js'
+run_case "blank lines and a trailing newline are dropped" "--no-js" ARGS=$'\n--no-js\n\n'
 
 if [[ "$failures" -ne 0 ]]; then
   echo "${failures} case(s) failed" >&2

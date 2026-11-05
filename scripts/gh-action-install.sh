@@ -62,7 +62,7 @@ fi
     if [ "${VERIFY_ATTESTATION:-true}" = "false" ]; then
       echo "::notice::attestation verification is disabled"
     elif gh attestation verify --help >/dev/null 2>&1; then
-      gh attestation verify "$ASSET" --repo "$REPO"
+      gh attestation verify "$ASSET" --repo "$REPO" --signer-workflow "${REPO}/.github/workflows/publish.yaml"
       echo "Attestation OK: ${ASSET} was built by ${REPO}'s release workflow"
     else
       echo "::warning::this gh CLI has no 'attestation' command; ${ASSET} is verified by checksum only"

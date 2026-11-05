@@ -166,14 +166,37 @@ crates_case "a missing VERSION is refused" 1 404 ok VERSION=
 # ---------------------------------------------------------------- release-bump + check-versions
 tree="${work}/tree"
 mkdir -p "$tree"
-tar -cf - Cargo.toml crates/*/Cargo.toml npm-package/package.json poly-hooks.toml .pre-commit-hooks.yaml action.yml scripts |
+tar -cf - Cargo.toml Cargo.lock crates/*/Cargo.toml npm-package/package.json poly-hooks.toml .pre-commit-hooks.yaml action.yml scripts \
+  .github/workflows/publish.yaml |
   tar -xf - -C "$tree"
 current="$(bash scripts/check-versions.sh 2>/dev/null | sed -n 's/.*agree on \(.*\)/\1/p')"
 [[ -n "$current" ]] || fail "check-versions: the repository itself is inconsistent"
 
 expect "release-bump rejects a bad version" 1 env SKIP_CARGO_UPDATE=1 bash "${tree}/scripts/release-bump.sh" 1.2
 expect "release-bump bumps every surface" 0 env SKIP_CARGO_UPDATE=1 bash "${tree}/scripts/release-bump.sh" 9.8.7
+expect "check-versions after a bump that skipped Cargo.lock" 1 bash "${tree}/scripts/check-versions.sh" 9.8.7
+expect_in_out "check-versions stale lock" "Cargo.lock: skif"
+# A bump that cannot refresh the lock must fail rather than warn: a stub cargo fails, then one that rewrites the lock.
+bump_stubs="${work}/bump-stubs"
+mkdir -p "$bump_stubs"
+printf '#!/usr/bin/env bash\necho "cargo: no network" >&2\nexit 101\n' >"${bump_stubs}/cargo"
+chmod +x "${bump_stubs}/cargo"
+expect "release-bump fails when cargo update fails" 1 env PATH="${bump_stubs}:${PATH}" bash "${tree}/scripts/release-bump.sh" 9.8.7
+expect_in_out "release-bump cargo failure" "cargo update --workspace failed"
+cat >"${bump_stubs}/cargo" <<'STUB'
+#!/usr/bin/env bash
+# Stands in for `cargo update --workspace`: points the workspace packages of Cargo.lock at the manifest version.
+version="$(awk '/^\[workspace\.package\]/{p=1;next} /^\[/{p=0} p && /^version *= *"/{gsub(/"/,"",$3);print $3;exit}' Cargo.toml)"
+awk -v v="$version" '/^name = "skif/ { skif = 1 } /^name = "/ && !/^name = "skif/ { skif = 0 } skif && /^version = / { print "version = \"" v "\""; next } { print }' Cargo.lock >Cargo.lock.new
+mv Cargo.lock.new Cargo.lock
+STUB
+expect "release-bump refreshes Cargo.lock through cargo" 0 env PATH="${bump_stubs}:${PATH}" bash "${tree}/scripts/release-bump.sh" 9.8.7
 expect "check-versions after the bump" 0 bash "${tree}/scripts/check-versions.sh" 9.8.7
+sed -i.bak 's/^\( *glibc: \)"2.34"/\1"2.31"/' "${tree}/.github/workflows/publish.yaml"
+expect "check-versions catches a drifted glibc matrix value" 1 bash "${tree}/scripts/check-versions.sh" 9.8.7
+expect_in_out "check-versions glibc floor" "SKIF_GLIBC_FLOOR"
+mv "${tree}/.github/workflows/publish.yaml.bak" "${tree}/.github/workflows/publish.yaml"
+expect "check-versions with the glibc matrix restored" 0 bash "${tree}/scripts/check-versions.sh" 9.8.7
 [[ "$(jq -r '.version' "${tree}/npm-package/package.json")" == 9.8.7 ]] || fail "release-bump: npm-package version"
 grep -qF 'SKIF_VERSION="${SKIF_VERSION:-v9.8.7}"' "${tree}/scripts/pre-commit/run-skif.sh" || fail "release-bump: launcher pin"
 grep -qF 'BAKED_VERSION: "9.8.7"' "${tree}/action.yml" || fail "release-bump: the Action's baked version"
@@ -300,6 +323,7 @@ cat >"${pm_stubs}/npm" <<'STUB'
 # `npm view <package> versions --json`: pre-releases and majors with no stable release must not count.
 case "$2" in
 npm) echo '["10.9.0","10.9.2","11.0.0","11.4.1","12.0.0-rc.1","9.9.4"]' ;;
+bun) echo '["1.1.0","1.2.20","1.10.1","2.0.0-canary.1","2.0.1","1.2.3"]' ;;
 @yarnpkg/cli-dist) echo '["2.4.3","3.8.7","3.2.0","4.9.2","4.10.0","5.0.0-alpha.1"]' ;;
 *) echo '[]' ;;
 esac
@@ -307,7 +331,8 @@ STUB
 chmod +x "${pm_stubs}/npm"
 pm_case() {
   local label="$1" want="$2" pm="$3" slot="$4"
-  expect "resolve-pm-version: ${label}" 0 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh "$pm" "$slot"
+  shift 4
+  expect "resolve-pm-version: ${label}" 0 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh "$pm" "$slot" "$@"
   [[ "$(cat "${work}/out")" == "$want" ]] || fail "resolve-pm-version: ${label}: got '$(cat "${work}/out")', want ${want}"
 }
 pm_case "npm newest ignores a release candidate" 11.4.1 npm newest
@@ -315,7 +340,10 @@ pm_case "npm previous" 10.9.2 npm previous
 pm_case "yarn reads the berry package, newest" 4.10.0 yarn newest
 pm_case "yarn previous sorts numerically" 3.8.7 yarn previous
 expect "resolve-pm-version: no such major" 1 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh pnpm newest
-expect "resolve-pm-version: unknown package manager" 2 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh bun newest
+pm_case "bun restricted to 1.x ignores Bun 2 and sorts numerically" 1.10.1 bun newest 1
+pm_case "bun without a major takes the newest major" 2.0.1 bun newest
+expect "resolve-pm-version: a non-numeric major" 2 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh bun newest one
+expect "resolve-pm-version: unknown package manager" 2 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh deno newest
 expect "resolve-pm-version: unknown slot" 2 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh npm oldest
 
 # ---------------------------------------------------------------- check-release-gate

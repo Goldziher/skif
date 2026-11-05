@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 defined="$(grep -hoE '^[[:space:]]+id: "[a-z0-9-]+"' crates/skif-js-plugins/src/plugins/*.rs |
-  sed -E 's/^[[:space:]]+id: "(.*)"$/\1/' | sort)"
+  sed -E 's/^[[:space:]]+id: "(.*)"$/\1/' | sort || true)"
 if [[ -z "$defined" ]]; then
   echo "::error::no plugin ids found under crates/skif-js-plugins/src/plugins" >&2
   exit 1

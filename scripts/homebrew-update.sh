@@ -5,9 +5,12 @@
 #
 # The formula installs the prebuilt archives (macOS and Linux, arm64 and x86_64), with hashes read
 # from the release's own checksums.txt rather than recomputed. On Linux it installs the glibc archive only when the
-# system glibc is at least 2.34 (the floor those archives are built for) and the statically linked musl archive on
+# system glibc is at least the floor in scripts/lib/libc.sh (the floor those archives are built for) and the statically linked musl archive on
 # anything older.
 set -euo pipefail
+
+# shellcheck source=lib/libc.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/libc.sh"
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
   echo "Usage: $0 <version> <checksums-file> [release-repo]" >&2
@@ -76,8 +79,8 @@ class Skif < Formula
   end
 
   on_linux do
-    # The glibc archives need glibc 2.34; older systems get the static musl archives.
-    glibc_ok = OS::Linux::Glibc.system_version >= Version.new("2.34")
+    # The glibc archives need glibc @@GLIBC_FLOOR@@; older systems get the static musl archives.
+    glibc_ok = OS::Linux::Glibc.system_version >= Version.new("@@GLIBC_FLOOR@@")
     on_arm do
       if glibc_ok
         url "@@BASE_URL@@/@@LINUX_ARM_ASSET@@"
@@ -111,6 +114,7 @@ FORMULA
 
 formula="$(render | sed \
   -e "s|@@VERSION@@|${version}|g" \
+  -e "s|@@GLIBC_FLOOR@@|${SKIF_GLIBC_FLOOR}|g" \
   -e "s|@@BASE_URL@@|${base_url}|g" \
   -e "s|@@MACOS_ARM_ASSET@@|${macos_arm_asset}|g" \
   -e "s|@@MACOS_INTEL_ASSET@@|${macos_intel_asset}|g" \

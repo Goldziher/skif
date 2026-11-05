@@ -9,14 +9,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/libc.sh"
 
 repo="${REPOSITORY:-Goldziher/skif}"
 
-# Resolve a floating `latest` or major-only `v3` reference to the newest matching stable release.
-# A floating major tag carries no release assets of its own, so the assets always come from the
-# newest full `vN.x.y` release in that series. The releases API is newest-first; drafts,
-# pre-releases and the major-only tag itself are skipped.
+# Resolve a floating `latest`, major-only `v3` or minor `v0.2` reference to the newest matching stable release.
+# A floating tag carries no release assets of its own, so the assets always come from the newest full `vX.Y.Z`
+# release in that series. The releases API is newest-first; drafts, pre-releases and the floating tag itself are
+# skipped. Releases tag `vN` for a stable major N >= 1 and `v0.M` for a 0.x line (a 0.x minor may break, so `v0`
+# is not moved).
 newest_release() {
-  local major="${1:-}" pattern
-  if [ -n "$major" ]; then
-    pattern="^v${major}\\.[0-9]+\\.[0-9]+$"
+  local series="${1:-}" pattern
+  if [ -n "$series" ]; then
+    case "$series" in
+    *.*) pattern="^v${series//./\\.}\\.[0-9]+$" ;;
+    *) pattern="^v${series}\\.[0-9]+\\.[0-9]+$" ;;
+    esac
   else
     pattern='^v[0-9]+\.[0-9]+\.[0-9]+$'
   fi
@@ -35,7 +39,7 @@ fi
 if [ -z "$version" ]; then
   # A full release tag (`v0.1.0`) or a floating major tag (`v0`) when the action is pinned to
   # one; anything else (a branch, a SHA, a local `./` checkout) falls back to the newest release.
-  if [[ "${ACTION_REF:-}" =~ ^v?[0-9]+(\.[0-9]+\.[0-9]+([+.-][0-9A-Za-z.]+)?)?$ ]]; then
+  if [[ "${ACTION_REF:-}" =~ ^v?[0-9]+(\.[0-9]+(\.[0-9]+([+.-][0-9A-Za-z.]+)?)?)?$ ]]; then
     version="$ACTION_REF"
   else
     version="latest"
@@ -46,7 +50,7 @@ fi
 # error message below.
 if [ "$version" = "latest" ]; then
   tag="$(newest_release)" || tag=""
-elif [[ "$version" =~ ^v?[0-9]+$ ]]; then
+elif [[ "$version" =~ ^v?[0-9]+(\.[0-9]+)?$ ]]; then
   tag="$(newest_release "${version#v}")" || tag=""
 else
   case "$version" in

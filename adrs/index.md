@@ -49,6 +49,7 @@ old one.
 | 0039 | [`skif migrate`: A One-Shot Translator from sherif, syncpack and knip Configuration](0039-skif-migrate-a-one-shot-translator-from-sherif-syncpack-and-knip.md) | accepted |
 | 0040 | [Version Groups Own Their Instances: The Catalog Rules Leave Claimed Instances Alone](0040-version-groups-own-their-instances-the-catalog-rules-leave-claimed-instances.md) | accepted |
 | 0041 | [`skif migrate`: Composable Migration Steps, Full Validation and an In-Place Merge](0041-skif-migrate-composable-steps-full-validation-and-in-place-merge.md) | accepted |
+| 0043 | [Floating Tags for 0.x Releases, musl for cargo binstall and No Windows npm Addon](0043-floating-tags-for-0x-releases-and-musl-binstall.md) | accepted |
 
 ## Effective statements
 
@@ -118,3 +119,4 @@ the lines below stay as written; this table says which record governs.
 | [0002](0002-crate-layout-and-publishing.md), crate list | skif is a workspace of fourteen crates | [0039](0039-skif-migrate-a-one-shot-translator-from-sherif-syncpack-and-knip.md): `skif-migrate` is a further published crate |
 | [0009](0009-version-and-catalog-policies.md), the dependency a catalog owns | a dependency a catalog owns is not also reported as a version mismatch, and the catalog rules do not consult version groups | [0040](0040-version-groups-own-their-instances-the-catalog-rules-leave-claimed-instances.md): a configured version group that matches an instance claims it and the catalog rules skip it |
 | [0039](0039-skif-migrate-a-one-shot-translator-from-sherif-syncpack-and-knip.md), "Typed target, checked output" and "Profiles" | keys the model lacks are removed from the validated copy; `--merge` loses the existing comments when both files define a table; the `exact` profile writes plain `off` values | [0041](0041-skif-migrate-composable-steps-full-validation-and-in-place-merge.md): the full text is validated; `--merge` edits in place; profile values carry a marker and the file records its sources, so migrating tools in steps equals one run |
+| [0013](0013-distribution-and-naming.md), floating major tag and binstall | a release moves `vN`, and `cargo binstall` takes the archive of the host triple | [0043](0043-floating-tags-for-0x-releases-and-musl-binstall.md): a 0.x release moves `v0.M` and never `v0`, and the Linux gnu triples of `cargo binstall` take the musl archives |
