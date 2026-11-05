@@ -2,7 +2,7 @@
 
 mod empty_dependencies;
 mod incompatible_peer_dependencies;
-mod local_path_dependency;
+pub(crate) mod local_path_dependency;
 mod member_toolchain_fields;
 mod missing_package_manifest;
 mod root_package_dependencies;

@@ -21,7 +21,7 @@ pub struct LocalPathDependency;
 
 const PROTOCOLS: [&str; 3] = ["link:", "file:", "portal:"];
 
-fn is_local_path(specifier: &str) -> bool {
+pub(crate) fn is_local_path(specifier: &str) -> bool {
     PROTOCOLS.iter().any(|protocol| specifier.starts_with(protocol))
         || specifier.starts_with("./")
         || specifier.starts_with("../")
@@ -33,7 +33,7 @@ fn is_local_path(specifier: &str) -> bool {
 fn workspace_specifier(workspace: &Workspace) -> Option<&'static str> {
     match workspace.package_manager? {
         PackageManager::Npm => Some("*"),
-        PackageManager::Yarn if workspace.facts.yarn_classic => None,
+        _ if !workspace.supports_workspace_protocol() => None,
         PackageManager::Pnpm | PackageManager::Yarn | PackageManager::Bun => Some("workspace:*"),
         _ => None,
     }

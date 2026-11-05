@@ -16,7 +16,10 @@ pub static META: RuleMeta = RuleMeta::new(
     "The version a package installs in `devDependencies` does not satisfy the range it declares in `peerDependencies`.",
 );
 
-/// Reports packages whose `devDependencies` version falls outside their own `peerDependencies` range.
+/// Reports packages whose `devDependencies` version cannot fall inside their own `peerDependencies` range.
+///
+/// A dev range is judged by overlap with the peer range, not by its lowest version: `^18.0.0` installs 18.3.x from a
+/// lockfile, so it does not conflict with a peer of `^18.2.0`. An exact dev version is the one version it names.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct IncompatiblePeerDependencies;
 
@@ -29,9 +32,9 @@ fn resolve(catalogs: &Catalogs, entry: &DependencyEntry) -> Option<Arc<Specifier
     }
 }
 
-/// Whether the lowest version a dev specifier installs can be told: not for tags, URLs, upper-bounded or compound
+/// Whether the versions a dev specifier installs can be told: not for tags, URLs, upper-bounded or compound
 /// ranges, or workspace links.
-fn has_lowest_version(specifier: &Specifier) -> bool {
+fn has_known_versions(specifier: &Specifier) -> bool {
     let raw = specifier.get_raw();
     let upper_bounded = raw.starts_with('<') || (raw.starts_with('>') && !raw.starts_with(">="));
     let plain = matches!(
@@ -46,13 +49,13 @@ fn has_lowest_version(specifier: &Specifier) -> bool {
     plain && !upper_bounded
 }
 
-/// Whether `dev` installs a version outside `peer`; `false` whenever either side cannot be evaluated.
+/// Whether no version `dev` allows falls inside `peer`; `false` whenever either side cannot be evaluated.
 fn conflicts(peer: &Specifier, dev: &Specifier) -> bool {
-    if peer.is_workspace_protocol() || !has_lowest_version(dev) {
+    if peer.is_workspace_protocol() || !has_known_versions(dev) {
         return false;
     }
-    match (peer.get_node_range(), dev.get_node_version()) {
-        (Some(range), Some(version)) => !range.satisfies(&version),
+    match (peer.get_node_range(), dev.get_node_range()) {
+        (Some(peer_range), Some(dev_range)) => !peer_range.allows_any(&dev_range),
         _ => false,
     }
 }
@@ -120,13 +123,17 @@ mod tests {
         let cases = [
             ("same caret", "^18.0.0", "^18.2.0", false),
             ("exact dev inside", "^18.0.0", "18.3.1", false),
-            ("dev below peer", "^18.2.0", "^18.0.0", true),
+            ("dev range reaches into the peer range", "^18.2.0", "^18.0.0", false),
+            ("dev tilde below the peer floor", "^18.2.0", "~18.1.0", true),
+            ("exact dev below the peer floor", "^18.2.0", "18.1.0", true),
             ("dev in another major", "^18.0.0", "^17.0.2", true),
             ("or-range satisfied", "^17.0.0 || ^18.0.0", "^18.1.0", false),
             ("or-range violated", "^17.0.0 || ^18.0.0", "^16.0.0", true),
+            ("dev or-range touching the peer", "^18.0.0", "^17.0.0 || ^18.0.0", false),
             ("star peer", "*", "^1.0.0", false),
             ("major shorthand dev", "^18.0.0", "18", false),
             ("minor shorthand dev violating", "^18.2.0", "18.1", true),
+            ("minor shorthand dev inside", "^18.2.0", "18.2", false),
             ("upper-bounded dev is not judged", "^18.0.0", "<19.0.0", false),
             ("tag dev is not judged", "^18.0.0", "next", false),
             ("hyphen peer", "16.0.0 - 18.0.0", "^17.0.0", false),

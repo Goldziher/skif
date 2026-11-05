@@ -1,8 +1,8 @@
 //! Catalog rules: `catalog-not-used`, `catalog-mismatch`, `catalog-missing-entry`, `unresolved-catalog-references`
 //! and `unused-catalog-entries` (ADR 0009).
 //!
-//! Catalogs come from `pnpm-workspace.yaml`, the root `package.json` and bun's `workspaces` object
-//! ([`skif_workspace::Catalogs`]). Fixes are unsafe: they change which version is installed.
+//! Catalogs come from `pnpm-workspace.yaml`, the root `package.json`, bun's `workspaces` object and Yarn's
+//! `.yarnrc.yml` ([`skif_workspace::Catalogs`]), each read only for the package manager that uses it. Fixes are unsafe: they change which version is installed.
 
 mod analysis;
 mod mismatch;
