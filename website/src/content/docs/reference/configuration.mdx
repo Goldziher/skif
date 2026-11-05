@@ -421,6 +421,9 @@ Package-scoped keys, the only ones an override or a package file may hold: `rule
 `ignore`, and in `js`: `entry`, `project`, `ignore`, `ignore-dependencies`, `ignore-binaries`, the matching
 `extend-` keys and `plugins`. Any other key, including rule options, `js.enabled` and `js.production`, is an error
 that names the key, the file and the line. `[lint] max-level` caps a whole root and is allowed in a base file.
+A plain `js` key replaces the inherited list, and `= []` clears it (`ignore-dependencies = []` lets a package report
+what the workspace table ignores). A `dependency-types` entry may name a `[[custom-types]]` entry of an inherited
+file; the names are resolved on the merged configuration.
 A rule that is `off` in the base and on in an override runs; its diagnostics outside the override are dropped.
 
 ### Package files
