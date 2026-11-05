@@ -23,7 +23,12 @@ const lines = [
   "",
 ];
 for (const target of summary.targets) {
-  lines.push(`**${target.target}**`, "", "| Tool | Mean (ms) | Median (ms) | vs skif |", "| --- | ---: | ---: | ---: |");
+  lines.push(
+    `**${target.target}**`,
+    "",
+    "| Tool | Mean (ms) | Median (ms) | vs skif |",
+    "| --- | ---: | ---: | ---: |",
+  );
   for (const row of target.results) {
     const relative = row.relative_to_skif == null ? "-" : `${row.relative_to_skif.toFixed(1)}x`;
     lines.push(`| ${row.tool} | ${ms(row.mean_ms)} | ${ms(row.median_ms)} | ${relative} |`);

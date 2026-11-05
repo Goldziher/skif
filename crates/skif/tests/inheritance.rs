@@ -87,7 +87,10 @@ fn target<'a>(targets: &'a [Target], root: &str) -> &'a Target {
 #[test]
 fn each_root_gets_the_files_that_govern_it() {
     let targets = discover_all(Path::new("/acme"), &acme(), &ConfigOverrides::default()).unwrap();
-    let roots: Vec<_> = targets.iter().map(|target| target.root.to_str().unwrap()).collect();
+    let roots: Vec<String> = targets
+        .iter()
+        .map(|target| target.root.to_str().unwrap().replace('\\', "/"))
+        .collect();
     assert_eq!(
         roots,
         [

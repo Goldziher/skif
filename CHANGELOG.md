@@ -296,7 +296,6 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 - **CI covers the supported versions of ADR 0027**: the npm addon and published-package checks run on Node 22, 24 and
   26 and the latest Bun 1.x; the end-to-end suite runs the latest two majors of npm, pnpm and Yarn 2+ (resolved from
   the registry) and the latest Bun.
-
 - **Library timings are a hook, not an environment read**: `skif_core::timing` no longer looks at `SKIF_TIMINGS` or
   writes to stderr on its own. A host installs a sink with `timing::enable` (or `enable_stderr`); the `skif` command
   line does so when `SKIF_TIMINGS` is set. The `skif` crate no longer re-exports `timing`.
@@ -336,10 +335,8 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 - **Monorepo JS corrections** ([ADR 0044](adrs/0044-monorepo-js-corrections-builtins-html-entries-referenced-paths-extglob-helpers-and-stylesheets.md)):
   `buffer/` and `events/` name npm packages, not builtins; the vitest plugin adds `index.html` scripts without the vite
   plugin; the `paths` of a `tsconfig` referenced in another package stay with that package; extglob groups
-  (`*.(ts|tsx)`, `@(a|b)`, `+(…)`) work in plugin globs; a config helper imported from a sibling package credits that
-  package instead of reporting its files; stylesheet imports through `baseUrl`, `paths` and `resolve.modules` use the
+  (`*.(ts|tsx)`, `@(a|b)`, `+(…)`) work in plugin globs; stylesheet imports through `baseUrl`, `paths` and `resolve.modules` use the
   stylesheet resolver, partials included; bundler `resolve.extensions` apply per package.
-
 - **Catalog rules respect version groups** ([ADR 0040](adrs/0040-version-groups-own-their-instances-the-catalog-rules-leave-claimed-instances.md)):
   an instance a configured `[[version-groups]]` entry matches belongs to that group, whatever its policy
   (`pinned`, `banned`, `ignored`, `snapped-to`, an aligned policy with a selector), as in syncpack's first-match-wins
@@ -380,7 +377,6 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   `size-limit.config.*`, the electron-vite default entries next to configured ones, `load-plugin` naming in `remark`,
   Biome's `"//"` root config, and `c8 check-coverage` are handled. The remaining differences are listed in the plugin
   reference.
-
 - **Root discovery reads manifests like the loader**: a root `package.json` with a byte order mark, comments or
   trailing commas that declares `workspaces` is a workspace root for `-r`, and `declared_member_dirs` reads it too.
 - **`[workspace] discover-ignore` is validated**: an invalid pattern is a configuration error naming
