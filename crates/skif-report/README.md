@@ -46,6 +46,11 @@ change; removing or renaming one, or changing its type or meaning, bumps `versio
 reported as `{"version": 1, "error": {"kind": "...", "message": "...", "path": "...", "line": 1, "column": 1}}`;
 `kind` and `message` are always present and `path`, `line` and `column` only when the failure has a location.
 
+A run over several roots (`skif -r`) adds two top-level members through `render_json_with`, which takes them as
+extra fields: `roots`, an array with one `{ "path", "packages", "summary" }` object per root (`packages` lists the
+package directories, `summary` has the counts of that root), and `errors`, present only when a root could not be
+loaded, with one `{ "path", "kind", "message" }` object per failed root. The other roots are still linted.
+
 ## SARIF and GitHub annotations
 
 `Format::Sarif` writes a SARIF 2.1.0 log (one run, one result per diagnostic, with the rule metadata and
