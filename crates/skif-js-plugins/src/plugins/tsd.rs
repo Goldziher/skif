@@ -1,6 +1,8 @@
-//! `tsd`: type test files, or the `testFiles` and `directory` of the `tsd` key.
+//! `tsd`: type test files, or the `testFiles` and `directory` of the `tsd` key. `tsd --files <glob>` and `tsd <dir>`
+//! name test files on the command line.
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
+use crate::script_config::{flag_values, positionals};
 use crate::support::{entry_glob, join_rel, strings};
 
 /// The `tsd` plugin.
@@ -41,5 +43,26 @@ impl Plugin for Tsd {
             .filter_map(|pattern| entry_glob(config.base, pattern))
             .map(PluginInput::Entry)
             .collect()
+    }
+
+    fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        let mut out = Vec::new();
+        for script in cx.scripts.values() {
+            out.extend(
+                flag_values(script, SPEC.binaries, &["--files", "-f"])
+                    .iter()
+                    .filter_map(|pattern| entry_glob("", pattern))
+                    .map(PluginInput::Entry),
+            );
+            let directories = positionals(script, SPEC.binaries, &[])
+                .into_iter()
+                .filter_map(|words| words.into_iter().next());
+            out.extend(
+                directories
+                    .filter_map(|directory| entry_glob("", &join_rel(&directory, "**/*.test-d.{ts,tsx}")))
+                    .map(PluginInput::Entry),
+            );
+        }
+        out
     }
 }
