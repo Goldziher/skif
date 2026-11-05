@@ -271,3 +271,14 @@ fn the_exact_profile_turns_off_every_default_rule_the_tool_did_not_run() {
     assert!(left.is_subset(&sherif), "{left:?}");
     assert!(extra.contains("unused-files"));
 }
+
+#[test]
+fn config_hints_as_errors_are_written_as_warn_unless_strict_hints_is_given() {
+    let dir = project(r#"{ "name": "demo", "scripts": { "knip": "knip --treat-config-hints-as-errors" } }"#);
+    let plain = run(migrate(dir.path()).args(["--from", "knip", "--dry-run"]));
+    assert_eq!(plain.code, 0, "{}{}", plain.stdout, plain.stderr);
+    assert!(plain.stdout.contains("stale-js-config = \"warn\""), "{}", plain.stdout);
+    let strict = run(migrate(dir.path()).args(["--from", "knip", "--dry-run", "--strict-hints"]));
+    assert_eq!(strict.code, 0, "{}{}", strict.stdout, strict.stderr);
+    assert!(strict.stdout.contains("stale-js-config = \"error\""), "{}", strict.stdout);
+}

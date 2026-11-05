@@ -13,6 +13,16 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Changed
 
+- **`skif migrate` rule coverage and overrides**: which rules a tool runs comes from data tables checked against the
+  rule list (`tool-rules.txt` beside the sherif and knip tables). The `exact` profile also turns off
+  `catalog-not-used`, `catalog-missing-entry` and `unresolved-catalog-references` unless syncpack has a
+  `policy: catalog` group, and `unparseable-files`, which knip does not report. knip's `treatConfigHintsAsErrors` is
+  written as `stale-js-config = "warn"` because skif's hints differ from knip's; `--strict-hints` writes `error`. New
+  `[policy] override-reading = "skif" | "syncpack"`: `syncpack` reads `resolutions`, `overrides` and `pnpm-overrides`
+  as syncpack 15 does (the key is the dependency name; nested objects and `pnpm.overrides` of a manifest are not
+  read), and migrating syncpack writes it
+  ([ADR 0045](adrs/0045-migrate-tool-rule-tables-warn-for-config-hints-and-syncpack-override-reading.md)).
+
 - **Distribution hardening**: `scripts/check-versions.sh` also compares the workspace packages of `Cargo.lock`, and
   `scripts/release-bump.sh` fails when `cargo update --workspace` fails. The glibc floor lives in
   `scripts/lib/libc.sh` (the Homebrew formula takes it from there) and `check-versions.sh` checks the build matrix
@@ -37,7 +47,7 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   configuration errors.
 - **`stale-js-config` rule** (js, warning): reports `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
   `ignore-workspaces` entries that matched nothing and `[js.workspaces]` keys that select no package, like knip's
-  configuration hints; `[rules] stale-js-config = "error"` is `--treat-config-hints-as-errors`. There are 40 rules, 17
+  configuration hints; `[rules] stale-js-config = "error"` is `--treat-config-hints-as-errors` (`skif migrate` writes `warn` unless `--strict-hints` is given). There are 40 rules, 17
   of them `js` rules.
 - **Override sections and custom types in the version policies**: `dependency-types` now also names `local`,
   `resolutions`, `overrides`, `pnpm-overrides` (`pnpm.overrides` and the `overrides` of `pnpm-workspace.yaml`) and the

@@ -2,6 +2,7 @@
 
 const RENAMES: &str = include_str!("rule-renames.txt");
 const KNIP_TYPES: &str = include_str!("knip-types.txt");
+const TOOL_RULES: &str = include_str!("tool-rules.txt");
 
 fn rows(text: &'static str) -> impl Iterator<Item = Vec<&'static str>> {
     text.lines()
@@ -17,6 +18,14 @@ pub(crate) fn sherif_rule(name: &str) -> Option<&'static str> {
 /// The skif rule ids a sherif rule maps to, for the rules that sherif ran.
 pub(crate) fn sherif_rules() -> Vec<&'static str> {
     rows(RENAMES).map(|row| row[1]).collect()
+}
+
+/// The skif rules syncpack 15 reports under `condition`: `always`, `catalog-policy` or `sort-az`.
+pub(crate) fn syncpack_rules(condition: &str) -> Vec<&'static str> {
+    rows(TOOL_RULES)
+        .filter(|row| row[1] == "syncpack" && row[2] == condition)
+        .map(|row| row[0])
+        .collect()
 }
 
 /// A knip issue type.
@@ -87,6 +96,37 @@ mod tests {
         for row in rows(RENAMES).filter(|row| row[0] != row[1]) {
             assert!(retired.contains(&(row[0], row[1])), "{} is not a retired id", row[0]);
         }
+    }
+
+    fn covered_rules() -> Vec<&'static str> {
+        let mut covered: Vec<&'static str> = rows(RENAMES).map(|row| row[1]).collect();
+        covered.extend(knip_types().into_iter().flat_map(|knip| knip.rules));
+        covered.extend(rows(TOOL_RULES).filter(|row| row[1] == "syncpack").map(|row| row[0]));
+        covered
+    }
+
+    #[test]
+    fn every_rule_is_covered_by_a_tool_or_declared_uncovered() {
+        let covered = covered_rules();
+        let uncovered: Vec<&str> = rows(TOOL_RULES).filter(|row| row[1] == "none").map(|row| row[0]).collect();
+        for id in rule_ids() {
+            assert!(
+                covered.contains(&id.as_str()) != uncovered.contains(&id.as_str()),
+                "{id} must be in exactly one of the tool tables or the `none` rows"
+            );
+        }
+        for id in &uncovered {
+            assert!(rows(TOOL_RULES).any(|row| row[0] == *id && row.len() > 3), "{id} has no reason");
+        }
+    }
+
+    #[test]
+    fn syncpack_conditions_are_known() {
+        for row in rows(TOOL_RULES).filter(|row| row[1] == "syncpack") {
+            assert!(["always", "catalog-policy", "sort-az"].contains(&row[2]), "{}", row[0]);
+        }
+        assert!(syncpack_rules("catalog-policy").contains(&"catalog-not-used"));
+        assert!(!syncpack_rules("always").contains(&"catalog-not-used"));
     }
 
     #[test]

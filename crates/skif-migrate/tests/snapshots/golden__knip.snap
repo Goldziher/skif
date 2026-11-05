@@ -61,7 +61,7 @@ unused-enum-members = "error"
 unused-namespace-members = "error"
 unused-catalog-entries = "error"
 unresolved-catalog-references = "error"
-stale-js-config = "error"
+stale-js-config = "warn"
 
 # knip ignoreIssues for src/api/**
 [[overrides]]

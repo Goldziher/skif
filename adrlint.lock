@@ -220,3 +220,8 @@ blake3 = "e796ad22b1d65f0848b646cf7bc37173d328a7e7d81e4a5ccfdd863fb11439bd"
 number = 44
 status = "accepted"
 blake3 = "f52730f7cdab1a8abbab336e27426261fcca2fbaee859044398d50100e746d84"
+
+[adrs."adrs/0045-migrate-tool-rule-tables-warn-for-config-hints-and-syncpack-override-reading.md"]
+number = 45
+status = "accepted"
+blake3 = "f34e9b3cacf63fb0986f5deb0ff33554d72952c98f08ab81d6e61e4b512960af"

@@ -31,7 +31,7 @@ file. Print the schema with `skif schema`.
 | `[lint]` | `fail-on-warnings` |
 | `[rules]` | Per-rule levels and options |
 | `[[ignore]]` | Suppressions |
-| `[policy]` | `prefer`, `dependency-types` |
+| `[policy]` | `prefer`, `dependency-types`, `override-reading` |
 | `[[version-groups]]` | Version policies per dependency group |
 | `[[semver-groups]]` | Range policies per dependency group |
 | `[[custom-types]]` | Manifest fields that hold versions and take part in the version policies |
@@ -107,6 +107,7 @@ dependencies = ["left-pad"]
 [policy]
 prefer = "highest"                   # highest | lowest
 dependency-types = ["peer"]          # empty means dependencies and devDependencies; name peer or optional to include them
+override-reading = "skif"            # skif | syncpack; how resolutions, overrides and pnpm-overrides entries are read
 ```
 
 `dependency-types` (here and in version and semver groups) names where a version is declared. Each entry may be
@@ -131,6 +132,12 @@ Values that are references rather than versions (npm's `$name`, pnpm's `-`) are 
 `pnpm-workspace.yaml` are read only when pnpm is the package manager. A group that names no type covers the types
 `[policy] dependency-types` governs, so `policy = "banned"` for a dependency does not reach its `peerDependencies`
 unless the group names `peer`.
+
+`override-reading` chooses how those entries are read. `"skif"` (the default) is described above. `"syncpack"` reads
+them as syncpack 15 does: the key of an entry is the dependency name (`parent@4>child` and `react@<18` are dependencies
+of their own, never aligned with `child` or `react`), only string values count (a nested npm object is skipped), and
+`pnpm-overrides` is the `overrides` of `pnpm-workspace.yaml` only, so `pnpm.overrides` of a `package.json` is not read.
+`skif migrate` writes `"syncpack"` when it migrates syncpack, so a clean syncpack run stays clean.
 
 ### `[[version-groups]]`
 
@@ -326,7 +333,7 @@ their own file always count as used. **`ignore-members`** lists enum and namespa
 
 **`stale-js-config`** (a warning) reports `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
 `ignore-workspaces` entries that matched nothing in the run, and `[js.workspaces]` keys that select no package, like
-knip's configuration hints. `[rules] stale-js-config = "error"` is knip's `--treat-config-hints-as-errors`. An
+knip's configuration hints. `[rules] stale-js-config = "error"` is knip's `--treat-config-hints-as-errors` (`skif migrate` writes `warn` unless `--strict-hints` is given). An
 `ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off, and the
 dependency lists are not judged when a package has entry files skif cannot determine.
 
