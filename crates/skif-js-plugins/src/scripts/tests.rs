@@ -319,6 +319,18 @@ fn table() {
         bins("pnpm --filter web exec vitest", &["vitest:pnpm-exec"]),
         bins("pnpm --filter=web exec vitest", &["vitest:pnpm-exec"]),
         bins("pnpm -F web build", &[]),
+        bins("pnpm --filter sub exec rimraf dist", &["rimraf:pnpm-exec"]),
+        bins("pnpm --filter sub biome check", &["biome:pnpm-exec"]),
+        bins("npm exec -w web -- vitest", &["vitest:npm-exec"]),
+        // Wrappers forward to the command they run.
+        bins("git ls-files | xargs prettier --write", &["prettier"]),
+        bins("ls | xargs -n 1 -I {} eslint {}", &["eslint"]),
+        bins("watch -n1 stylelint src", &["stylelint"]),
+        bins("watch -n 1 stylelint src", &["stylelint"]),
+        bins("nice -n 10 tsc", &["tsc"]),
+        bins("sudo -u root vite", &["vite"]),
+        bins("timeout 30 playwright test", &["playwright"]),
+        bins("timeout -s KILL 30 playwright test", &["playwright"]),
         // A recursive run names scripts of the members, never a binary of this package.
         bins("pnpm -r build", &[]),
         bins("pnpm --recursive build", &[]),
@@ -337,6 +349,8 @@ fn table() {
         files("yarn node scripts/a.js", &[], &["scripts/a.js"]),
         bins("yarn workspace web run build", &[]),
         bins("yarn workspace web exec vitest", &["vitest:yarn-exec"]),
+        bins("yarn workspace web run biome check", &["biome:yarn-run"]),
+        bins("yarn workspace web biome check", &["biome:yarn-run"]),
         bins("yarn workspaces foreach -A run build", &[]),
         // bun and corepack.
         files("bun run src/a.ts", &[], &["src/a.ts"]),

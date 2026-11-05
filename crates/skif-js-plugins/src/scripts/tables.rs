@@ -216,8 +216,29 @@ pub fn is_ignored_binary(name: &str) -> bool {
     IGNORED_BINARIES.contains(&name)
 }
 
-/// Commands that only forward to the command in their arguments.
-pub(super) const PASSTHROUGH: &[&str] = &["command", "env", "exec", "nohup", "time"];
+/// Commands that only forward to the command in their arguments: the flags that take a value, and how many
+/// positional arguments precede the command (`timeout 5 cmd`).
+pub(super) const PASSTHROUGH: &[(&str, &[&str], usize)] = &[
+    ("command", &[], 0),
+    ("env", &[], 0),
+    ("exec", &[], 0),
+    ("nohup", &[], 0),
+    ("time", &[], 0),
+    ("xargs", &["I", "n", "P", "L", "s", "d", "E", "a", "J", "R", "S", "replace"], 0),
+    ("nice", &["n", "adjustment"], 0),
+    ("sudo", &["u", "g", "h", "p", "C", "D", "R", "T", "U", "user", "group", "host", "prompt", "chdir"], 0),
+    ("timeout", &["s", "k", "signal", "kill-after"], 1),
+    ("watch", &["n", "interval"], 0),
+    ("unbuffer", &[], 0),
+];
+
+/// The value flags and leading positional count of the pass-through command `name`.
+pub(super) fn passthrough(name: &str) -> Option<(&'static [&'static str], usize)> {
+    PASSTHROUGH
+        .iter()
+        .find(|(known, _, _)| *known == name)
+        .map(|&(_, flags, positionals)| (flags, positionals))
+}
 
 pub(super) const SHELLS: &[&str] = &["ash", "bash", "dash", "ksh", "sh", "zsh"];
 
