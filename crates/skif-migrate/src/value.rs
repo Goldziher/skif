@@ -206,16 +206,15 @@ pub(crate) fn pattern_list(
         } else {
             path.to_owned()
         };
-        match pattern_entry(item, glob) {
-            Some(entry) => out.push(entry),
-            None => {
-                let message = if matches!(item, ConfigValue::Unknown) {
-                    "the value is only known at run time"
-                } else {
-                    "expected a string or a regular expression"
-                };
-                state.note(src, NoteClass::Human, item_path, message);
-            }
+        if let Some(entry) = pattern_entry(item, glob) {
+            out.push(entry)
+        } else {
+            let message = if matches!(item, ConfigValue::Unknown) {
+                "the value is only known at run time"
+            } else {
+                "expected a string or a regular expression"
+            };
+            state.note(src, NoteClass::Human, item_path, message);
         }
     }
     out

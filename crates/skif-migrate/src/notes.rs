@@ -99,9 +99,11 @@ pub struct Note {
     pub suggestion: Option<String>,
 }
 
+type Section = (&'static str, fn(NoteClass) -> bool);
+
 pub(crate) fn render_summary(migration: &Migration) -> String {
     let mut out = String::new();
-    let sections: [(&str, fn(NoteClass) -> bool); 3] = [
+    let sections: [Section; 3] = [
         ("Translated", |class| {
             matches!(class, NoteClass::Exact | NoteClass::Approximate)
         }),

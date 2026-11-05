@@ -22,6 +22,7 @@ skif-js-plugins.workspace = true
 skif-js-syntax.workspace = true
 thiserror.workspace = true
 toml.workspace = true
+toml_edit = "0.25.17"
 
 [dev-dependencies]
 insta.workspace = true

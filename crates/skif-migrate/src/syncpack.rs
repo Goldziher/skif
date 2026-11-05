@@ -592,6 +592,10 @@ fn version_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigVal
     state.note(src, NoteClass::Exact, path, "written to [[version-groups]]");
 }
 
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "callers skip the group on `None`; kept for policies that cannot be written"
+)]
 fn group_policy(
     state: &mut State<'_>,
     src: &Src,

@@ -670,12 +670,6 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, plan: &
     let strict = invocation.has("strict", Some("s"));
     if production || strict {
         plan.production = true;
-        state.note(
-            src,
-            NoteClass::Exact,
-            flag_path(if strict { "--strict" } else { "--production" }),
-            "written to [js] production",
-        );
     }
     if strict {
         state.note_with(
@@ -683,7 +677,14 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, plan: &
             NoteClass::Unsupported,
             flag_path("--strict"),
             "knip's strict mode also reports only direct dependencies and checks no other workspace",
-            "skif only has the production half of it",
+            "skif only has the production half of it, which is written to [js] production",
+        );
+    } else if production {
+        state.note(
+            src,
+            NoteClass::Exact,
+            flag_path("--production"),
+            "written to [js] production",
         );
     }
     if invocation.has("include-entry-exports", None) {
