@@ -119,6 +119,17 @@ fn extend_keys_append_to_the_inherited_list() {
 }
 
 #[test]
+fn extend_ignore_unresolved_appends_to_the_inherited_list() {
+    let config = two(
+        "[js]\nignore-unresolved = [\"a\"]\n",
+        "[js]\nextend-ignore-unresolved = [\"b\"]\n",
+    )
+    .config;
+    assert_eq!(config.js.ignore_unresolved, ["a", "b"]);
+    assert!(config.js.extend_ignore_unresolved.is_empty());
+}
+
+#[test]
 fn within_one_file_the_key_applies_before_its_extend_key() {
     let config = two(
         "[js]\nignore-dependencies = [\"inherited\"]\n",

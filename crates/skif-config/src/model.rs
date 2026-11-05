@@ -174,6 +174,7 @@ impl Config {
             || !self.js.extend_ignore.is_empty()
             || !self.js.extend_ignore_dependencies.is_empty()
             || !self.js.extend_ignore_binaries.is_empty()
+            || !self.js.extend_ignore_unresolved.is_empty()
             || !self.catalog.extend_exclude.is_empty()
     }
 
@@ -272,6 +273,34 @@ impl Config {
                     rule: id.clone(),
                     suggestion: closest(id, known),
                 });
+            }
+        }
+        Ok(())
+    }
+
+    /// Fails on the first plugin id (in `[js.plugins]`, a `[js.workspaces]` table or an override) that is not in `known`,
+    /// suggesting the closest id.
+    ///
+    /// # Errors
+    /// [`ConfigError::Invalid`] naming the key.
+    pub fn validate_plugins(&self, known: &[&str]) -> Result<(), ConfigError> {
+        let workspaces = self
+            .js
+            .workspaces
+            .iter()
+            .map(|(dir, workspace)| (format!("js.workspaces.\"{dir}\".plugins"), &workspace.plugins));
+        let overrides = self
+            .overrides
+            .iter()
+            .enumerate()
+            .map(|(index, scoped)| (format!("overrides[{index}].js.plugins"), &scoped.js.plugins));
+        let tables = std::iter::once(("js.plugins".to_owned(), &self.js.plugins))
+            .chain(workspaces)
+            .chain(overrides);
+        for (key, table) in tables {
+            if let Some(id) = table.keys().find(|id| !known.contains(&id.as_str())) {
+                let hint = closest(id, known).map_or_else(String::new, |close| format!("; did you mean `{close}`?"));
+                return Err(ConfigError::invalid(None, format!("{key}.{id}: unknown plugin `{id}`{hint}")));
             }
         }
         Ok(())
@@ -972,11 +1001,20 @@ pub struct Js {
     pub ignore_dependencies: Vec<String>,
     /// Binaries never reported as unlisted.
     pub ignore_binaries: Vec<String>,
+    /// Import specifiers never reported as unresolved. Entries are exact specifiers, globs or regular expressions
+    /// (`/^@org\/.+$/`), see the `[js]` documentation.
+    pub ignore_unresolved: Vec<String>,
+    /// Workspace directories (globs) the JavaScript analysis skips. Manifest and policy rules still check them.
+    pub ignore_workspaces: Vec<String>,
+    /// Exports that other code in the same file uses are not reported: `true` for every kind, or a table of kinds.
+    pub ignore_exports_used_in_file: IgnoreExportsUsedInFile,
+    /// Enum and namespace member names (globs or regular expressions) never reported as unused.
+    pub ignore_members: Vec<String>,
     /// Analyse production code only.
     pub production: bool,
     /// Report unused exports of entry files too.
     pub include_entry_exports: bool,
-    /// Per-workspace overrides keyed by directory.
+    /// Per-workspace overrides keyed by directory. The key `"."` is the root workspace.
     pub workspaces: IndexMap<String, JsWorkspace>,
     /// Plugin switches keyed by plugin name.
     pub plugins: IndexMap<String, PluginConfig>,
@@ -989,6 +1027,9 @@ pub struct Js {
     /// Appended to `ignore-binaries` instead of replacing it. Folded away when the configuration is resolved.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extend_ignore_binaries: Vec<String>,
+    /// Appended to `ignore-unresolved` instead of replacing it. Folded away when the configuration is resolved.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extend_ignore_unresolved: Vec<String>,
 }
 
 impl Js {
@@ -1045,6 +1086,10 @@ impl Default for Js {
             ignore: Vec::new(),
             ignore_dependencies: Vec::new(),
             ignore_binaries: Vec::new(),
+            ignore_unresolved: Vec::new(),
+            ignore_workspaces: Vec::new(),
+            ignore_exports_used_in_file: IgnoreExportsUsedInFile::default(),
+            ignore_members: Vec::new(),
             production: false,
             include_entry_exports: false,
             workspaces: IndexMap::new(),
@@ -1052,8 +1097,55 @@ impl Default for Js {
             extend_ignore: Vec::new(),
             extend_ignore_dependencies: Vec::new(),
             extend_ignore_binaries: Vec::new(),
+            extend_ignore_unresolved: Vec::new(),
         }
     }
+}
+
+/// `ignore-exports-used-in-file`: `true`, or a table naming the kinds of export it applies to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+#[non_exhaustive]
+pub enum IgnoreExportsUsedInFile {
+    /// `true` ignores every kind of export, `false` none.
+    All(bool),
+    /// Ignores the kinds set to `true`.
+    Kinds(ExportKinds),
+}
+
+impl Default for IgnoreExportsUsedInFile {
+    fn default() -> Self {
+        Self::All(false)
+    }
+}
+
+/// The kinds of export `ignore-exports-used-in-file` can name, as in knip.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
+#[allow(clippy::struct_excessive_bools)]
+pub struct ExportKinds {
+    /// `const`, `let` and `var` exports.
+    pub variable: bool,
+    /// `function` exports.
+    pub function: bool,
+    /// `class` exports.
+    pub class: bool,
+    /// `enum` exports.
+    #[serde(rename = "enum")]
+    pub enumeration: bool,
+    /// TypeScript `namespace` exports.
+    pub namespace: bool,
+    /// Type alias exports. skif does not tell type aliases from interfaces, so this and `interface` are the same.
+    #[serde(rename = "type")]
+    pub type_alias: bool,
+    /// Interface exports, see `type`.
+    pub interface: bool,
+    /// Enum and namespace members. skif always counts a member read in its own file as used, so this key is
+    /// accepted for compatibility and has no further effect.
+    pub member: bool,
 }
 
 /// `[js.workspaces."<dir>"]`
@@ -1072,6 +1164,20 @@ pub struct JsWorkspace {
     pub ignore_dependencies: Vec<String>,
     /// Binaries never reported as unlisted.
     pub ignore_binaries: Vec<String>,
+    /// Import specifiers never reported as unresolved in this workspace.
+    pub ignore_unresolved: Vec<String>,
+    /// Report unused exports of entry files of this workspace; unset inherits `[js] include-entry-exports`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_entry_exports: Option<bool>,
+    /// Exports used in their own file that are not reported in this workspace; unset inherits `[js]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignore_exports_used_in_file: Option<IgnoreExportsUsedInFile>,
+    /// Enum and namespace member names never reported as unused in this workspace.
+    pub ignore_members: Vec<String>,
+    /// Module aliases as in a `tsconfig` `paths` map: `{ "alias/*" = ["./target/*"] }`, targets relative to the workspace.
+    pub paths: IndexMap<String, Vec<String>>,
+    /// Plugin switches and options for this workspace, applied over `[js.plugins]`.
+    pub plugins: IndexMap<String, PluginConfig>,
 }
 
 /// `[js.plugins] <name> = true | { ... }`
@@ -1184,6 +1290,12 @@ pub struct PackageJs {
     /// Appended to the ignored binaries.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extend_ignore_binaries: Vec<String>,
+    /// Replaces the ignored unresolved specifiers.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ignore_unresolved: Vec<String>,
+    /// Appended to the ignored unresolved specifiers.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extend_ignore_unresolved: Vec<String>,
     /// Plugin switches and options for the selected packages.
     #[serde(skip_serializing_if = "IndexMap::is_empty")]
     pub plugins: IndexMap<String, PluginConfig>,

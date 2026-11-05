@@ -140,8 +140,8 @@ pub use targets::{
 pub use skif_config::Workspace as WorkspaceConfig;
 pub use skif_config::{
     Assignment, CONFIG_FILE_NAMES, Catalog, CatalogMode, Ceiling, Config, ConfigBuilder, ConfigCache, ConfigError,
-    ConfigLoader, ConfigOverrides, ConfigSource, DependencyFamily, DependencyTypes, IgnoreEntry, Js, JsWorkspace,
-    Level, Lint, Op, Origins, Override, OverrideScope, PackageJs, PackageManager, PluginConfig, PluginOptions, Policy,
+    ConfigLoader, ConfigOverrides, ConfigSource, DependencyFamily, DependencyTypes, ExportKinds, IgnoreEntry,
+    IgnoreExportsUsedInFile, Js, JsWorkspace, Level, Lint, Op, Origins, Override, OverrideScope, PackageJs, PackageManager, PluginConfig, PluginOptions, Policy,
     Prefer, ResetKey, ResolvedConfig, RuleConfig, RuleOptions, Selector, SemverGroup, SemverRange, SourceKind,
     VersionGroup, VersionPolicy, WorkspaceProtocol, join_key,
 };

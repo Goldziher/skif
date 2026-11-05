@@ -15,11 +15,12 @@ use crate::provenance::{Assignment, Op, Origins, join_key};
 pub(crate) type Spans = HashMap<String, (usize, usize)>;
 
 /// `(table, key, extend key)`: the extend key appends to the key it names, after the key itself applied.
-const EXTEND_KEYS: [(&str, &str, &str); 5] = [
+const EXTEND_KEYS: [(&str, &str, &str); 6] = [
     ("workspace", "ignore-packages", "extend-ignore-packages"),
     ("js", "ignore", "extend-ignore"),
     ("js", "ignore-dependencies", "extend-ignore-dependencies"),
     ("js", "ignore-binaries", "extend-ignore-binaries"),
+    ("js", "ignore-unresolved", "extend-ignore-unresolved"),
     ("catalog", "exclude", "extend-exclude"),
 ];
 
