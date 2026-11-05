@@ -62,16 +62,51 @@ pub(crate) struct Found {
     pub(crate) field: Field,
 }
 
-/// The dependency an override selector replaces: `foo`, `foo@^1`, `parent>foo`, `**/foo` and `@scope/foo@1` all name
-/// one.
+/// The dependency an override selector replaces: the package name of its last segment, without the version selector.
+///
+/// Handles `name`, `name@range` (the range may start with an operator: `react@>=18`), pnpm's `parent>child` and
+/// `parent@1>child@2`, yarn's `**/name` and `parent/**/name`, and scoped names (`@scope/name@^1`).
 pub(crate) fn override_name(selector: &str) -> &str {
-    let last = selector.rsplit('>').next().unwrap_or(selector);
-    let last = last.rsplit("/**/").next().unwrap_or(last);
-    let last = last.strip_prefix("**/").unwrap_or(last);
-    match last.get(1..).and_then(|rest| rest.find('@')) {
-        Some(at) => &last[..=at],
-        None => last,
+    let last = after_last_parent_separator(selector);
+    let name = &last[..version_start(last)];
+    last_package_of_path(name)
+}
+
+/// The part of `selector` after its last `>` that separates a parent from a child. A `>` that follows `@`, a space or
+/// another operator belongs to a version range, as in `react@>=18` or `react@>1 <3`.
+fn after_last_parent_separator(selector: &str) -> &str {
+    let mut start = 0;
+    let mut previous = None;
+    for (index, c) in selector.char_indices() {
+        if c == '>' && previous.is_some_and(|before| !matches!(before, '@' | ' ' | '<' | '>' | '=' | '|')) {
+            start = index + 1;
+        }
+        previous = Some(c);
     }
+    &selector[start..]
+}
+
+/// Where the version selector of `segment` begins: its first `@` that does not start a scope.
+fn version_start(segment: &str) -> usize {
+    segment
+        .char_indices()
+        .find(|&(index, c)| c == '@' && index > 0 && !segment[..index].ends_with('/'))
+        .map_or(segment.len(), |(index, _)| index)
+}
+
+/// The last package of a yarn resolution path such as `**/name`, `parent/**/name` or `parent/@scope/name`.
+fn last_package_of_path(path: &str) -> &str {
+    let (mut start, mut offset, mut scope_open) = (0, 0, false);
+    for piece in path.split('/') {
+        if scope_open {
+            scope_open = false;
+        } else {
+            start = offset;
+            scope_open = piece.starts_with('@');
+        }
+        offset += piece.len() + 1;
+    }
+    &path[start..]
 }
 
 /// Splits `name@version`; the name of a scoped package starts with an `@` of its own.
@@ -231,6 +266,19 @@ mod tests {
             ("@a/parent@1>@b/foo@2", "@b/foo"),
             ("**/foo", "foo"),
             ("parent/**/foo", "foo"),
+            ("react@>=18", "react"),
+            ("react@>1.0.0 <3", "react"),
+            ("react@^17 || >=18", "react"),
+            ("@scope/name@^1", "@scope/name"),
+            ("@scope/name@>=1", "@scope/name"),
+            ("parent@1>child@2", "child"),
+            ("parent@>=1>child@>=2", "child"),
+            ("parent>@scope/child@^1", "@scope/child"),
+            ("**/@scope/name", "@scope/name"),
+            ("a/**/@scope/name@1", "@scope/name"),
+            ("a/@scope/name", "@scope/name"),
+            ("foo@npm:@scope/bar@1", "foo"),
+            ("foo@github:user/repo", "foo"),
         ] {
             assert_eq!(override_name(selector), name, "{selector}");
         }

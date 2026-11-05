@@ -2,6 +2,7 @@ use skif_core::{Category, Fixability, RuleMeta, Severity, diagnostic};
 use skif_lint::{Emitter, LintContext, Rule};
 
 use super::analysis::Claims;
+use super::references::override_references;
 use super::support::{active_packages, value_location};
 
 /// Metadata of `unresolved-catalog-references`.
@@ -13,7 +14,8 @@ pub static META: RuleMeta = RuleMeta::new(
     "A `catalog:` specifier names a catalog or an entry that does not exist.",
 );
 
-/// Reports `catalog:` specifiers that no catalog entry answers, whatever the catalog mode.
+/// Reports `catalog:` specifiers, in dependency sections and in override sections, that no catalog entry answers,
+/// whatever the catalog mode. An instance a configured version group claims is that group's to judge.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UnresolvedCatalogReferences;
 
@@ -39,21 +41,41 @@ impl Rule for UnresolvedCatalogReferences {
                 out.emit(
                     diagnostic(
                         &META,
-                        format!(
-                            "`{}` is declared as `{}` but no such catalog entry exists",
-                            entry.name, entry.specifier
-                        ),
+                        message(&entry.name, &entry.specifier),
                         value_location(package, entry),
                     )
                     .package(package.display_name())
                     .package_id(package.id)
                     .dependency(entry.name.clone())
                     .specifier(entry.specifier.clone())
-                    .detail("DependsOnMissingCatalogDefinition")
-                    .help("define the entry in the catalog or use a version")
+                    .detail(DETAIL)
+                    .help(HELP)
                     .build(),
                 );
             }
         }
+        for instance in override_references(cx.workspace)
+            .into_iter()
+            .filter(|instance| catalogs.resolve(&instance.name, instance.raw()).is_none())
+            .filter(|instance| !claims.claims_instance(instance))
+        {
+            out.emit(
+                diagnostic(&META, message(&instance.name, instance.raw()), instance.location())
+                    .package(instance.package.display_name())
+                    .package_id(instance.package.id)
+                    .dependency(instance.name.clone())
+                    .specifier(instance.raw().to_owned())
+                    .detail(DETAIL)
+                    .help(HELP)
+                    .build(),
+            );
+        }
     }
+}
+
+const DETAIL: &str = "DependsOnMissingCatalogDefinition";
+const HELP: &str = "define the entry in the catalog or use a version";
+
+fn message(name: &str, specifier: &str) -> String {
+    format!("`{name}` is declared as `{specifier}` but no such catalog entry exists")
 }

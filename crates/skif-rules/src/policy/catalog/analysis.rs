@@ -115,9 +115,12 @@ impl<'c> Claims<'c> {
     /// Whether a configured version group claims `entry` of `package`.
     pub(crate) fn claims(&self, package: &Package, entry: &DependencyEntry) -> bool {
         let is_local = self.workspace.package_by_name(&entry.name).is_some();
-        self.groups
-            .claim(&PolicyInstance::of_entry(package, entry, is_local, false))
-            .is_some()
+        self.claims_instance(&PolicyInstance::of_entry(package, entry, is_local, false))
+    }
+
+    /// Whether a configured version group claims `instance`.
+    pub(crate) fn claims_instance(&self, instance: &PolicyInstance<'_>) -> bool {
+        self.groups.claim(instance).is_some()
     }
 }
 
