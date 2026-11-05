@@ -133,7 +133,12 @@ fn computed_entries_are_flagged_as_incomplete() {
         ),
     ];
     for (plugin, file, source) in cases {
-        let results = run(&[(file, source)], &[plugin], &[]);
+        let dependency = if plugin == "playwright" {
+            "@playwright/test"
+        } else {
+            plugin
+        };
+        let results = run(&[(file, source)], &[dependency], &[]);
         assert!(output(&results, plugin).entries_incomplete, "{plugin}: {source}");
     }
 }
@@ -161,7 +166,12 @@ fn static_entries_are_complete() {
         ),
     ];
     for (plugin, file, source) in cases {
-        let results = run(&[(file, source)], &[plugin], &[]);
+        let dependency = if plugin == "playwright" {
+            "@playwright/test"
+        } else {
+            plugin
+        };
+        let results = run(&[(file, source)], &[dependency], &[]);
         assert!(!output(&results, plugin).entries_incomplete, "{plugin}: {source}");
     }
 }
@@ -471,14 +481,27 @@ fn jsx_react_jsx_in_a_base_tsconfig_is_not_a_react_dependency() {
 fn an_unreadable_config_marks_the_entries_of_any_plugin_incomplete() {
     let cases = [
         ("vitest", "vitest.config.ts", "export default makeConfig();"),
-        ("vitest", "vitest.config.ts", "export default { ...shared, test: { include: ['a'] } };"),
+        (
+            "vitest",
+            "vitest.config.ts",
+            "export default { ...shared, test: { include: ['a'] } };",
+        ),
         ("jest", "jest.config.js", "module.exports = loadConfig();"),
-        ("playwright", "playwright.config.ts", "export default { ...base, testDir: './e2e' };"),
+        (
+            "playwright",
+            "playwright.config.ts",
+            "export default { ...base, testDir: './e2e' };",
+        ),
         ("eslint", "eslint.config.js", "export default makeConfig();"),
         ("prettier", ".prettierrc.json", "{ not json at all"),
     ];
     for (plugin, file, source) in cases {
-        let results = run(&[(file, source)], &[plugin], &[]);
+        let dependency = if plugin == "playwright" {
+            "@playwright/test"
+        } else {
+            plugin
+        };
+        let results = run(&[(file, source)], &[dependency], &[]);
         assert!(output(&results, plugin).entries_incomplete, "{plugin}: {source}");
     }
 }
@@ -486,12 +509,29 @@ fn an_unreadable_config_marks_the_entries_of_any_plugin_incomplete() {
 #[test]
 fn a_readable_config_leaves_the_entries_complete() {
     let cases = [
-        ("vitest", "vitest.config.ts", "export default { test: { include: ['a'] } };"),
-        ("jest", "jest.config.js", "module.exports = { testMatch: ['**/*.t.js'] };"),
-        ("playwright", "playwright.config.ts", "export default { testDir: './e2e' };"),
+        (
+            "vitest",
+            "vitest.config.ts",
+            "export default { test: { include: ['a'] } };",
+        ),
+        (
+            "jest",
+            "jest.config.js",
+            "module.exports = { testMatch: ['**/*.t.js'] };",
+        ),
+        (
+            "playwright",
+            "playwright.config.ts",
+            "export default { testDir: './e2e' };",
+        ),
     ];
     for (plugin, file, source) in cases {
-        let results = run(&[(file, source)], &[plugin], &[]);
+        let dependency = if plugin == "playwright" {
+            "@playwright/test"
+        } else {
+            plugin
+        };
+        let results = run(&[(file, source)], &[dependency], &[]);
         assert!(!output(&results, plugin).entries_incomplete, "{plugin}: {source}");
     }
 }

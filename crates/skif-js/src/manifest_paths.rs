@@ -367,7 +367,10 @@ mod tests {
             ("./dist/index.js", "src/index.cts"),
             ("./dist/index.cjs", "src/index.mts"),
         ] {
-            assert!(source_candidates(output).contains(&source.to_owned()), "{output} -> {source}");
+            assert!(
+                source_candidates(output).contains(&source.to_owned()),
+                "{output} -> {source}"
+            );
         }
         assert_eq!(source_candidates("./dist/index.mjs")[0], "src/index.mts");
         assert_eq!(source_candidates("./dist/index.cjs")[0], "src/index.cts");

@@ -890,7 +890,10 @@ fn commonjs_named_exports_are_exports() {
     };
     assert_eq!(names("exports.a = 1;\nexports.b = 2;\nexports.a = 3;"), ["a", "b"]);
     assert_eq!(names("module.exports.c = function () {};"), ["c"]);
-    assert_eq!(names("function d() {}\nfunction e() {}\nmodule.exports = { d, e };"), ["d", "e"]);
+    assert_eq!(
+        names("function d() {}\nfunction e() {}\nmodule.exports = { d, e };"),
+        ["d", "e"]
+    );
     assert_eq!(names("module.exports = { d: 1, e };"), Vec::<String>::new());
     assert_eq!(names("module.exports = function () {};"), Vec::<String>::new());
     assert_eq!(names("const exports2 = {}; exports2.a = 1;"), Vec::<String>::new());

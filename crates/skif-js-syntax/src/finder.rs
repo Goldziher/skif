@@ -4,10 +4,11 @@
 use std::collections::{HashMap, HashSet};
 
 use oxc_ast::ast::{
-    Argument, AssignmentExpression, AssignmentOperator, AssignmentTarget, BindingPattern, CallExpression, ComputedMemberExpression,
-    Expression, FormalParameters, IdentifierReference, ImportExpression, JSXElement, JSXFragment,
-    ObjectPropertyKind, StaticMemberExpression, TSAsExpression, TSExternalModuleDeclaration, TSImportEqualsDeclaration, TSImportType,
-    TSImportTypeQualifier, TSModuleReference, TSType, TSTypeQueryExprName, VariableDeclarator,
+    Argument, AssignmentExpression, AssignmentOperator, AssignmentTarget, BindingPattern, CallExpression,
+    ComputedMemberExpression, Expression, FormalParameters, IdentifierReference, ImportExpression, JSXElement,
+    JSXFragment, ObjectPropertyKind, StaticMemberExpression, TSAsExpression, TSExternalModuleDeclaration,
+    TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier, TSModuleReference, TSType, TSTypeQueryExprName,
+    VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
@@ -36,7 +37,9 @@ impl Finder<'_, '_> {
                 .properties
                 .iter()
                 .map(|property| match property {
-                    ObjectPropertyKind::ObjectProperty(p) if p.shorthand => Some((crate::js_string(p.key.static_name()?.as_js_str()), p.key.span())),
+                    ObjectPropertyKind::ObjectProperty(p) if p.shorthand => {
+                        Some((crate::js_string(p.key.static_name()?.as_js_str()), p.key.span()))
+                    }
                     _ => None,
                 })
                 .collect();

@@ -140,7 +140,9 @@ mod tests {
         let facts = analyze(&package(
             r#"{"name":"p","scripts":{"a":"pnpm --filter web exec vitest","b":"yarn workspace sub run biome check","c":"pnpm -r exec tsc"}}"#,
         ));
-        assert!(facts.binaries.is_empty(), "{:?}", facts.binaries);
+        // `pnpm -r exec` runs in every package, the root included, so the root uses the binary itself.
+        let own: Vec<&str> = facts.binaries.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(own, ["tsc"]);
         let forwarded: Vec<(&str, &[String])> = facts
             .forwarded
             .iter()

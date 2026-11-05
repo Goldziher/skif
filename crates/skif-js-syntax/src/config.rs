@@ -1181,9 +1181,7 @@ fn merge_style(callee: &Expression<'_>) -> Option<MergeStyle> {
             _ => None,
         },
         Expression::StaticMemberExpression(member) => {
-            let object_is = |name: &str| {
-                matches!(member.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == name)
-            };
+            let object_is = |name: &str| matches!(member.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == name);
             match member.property.name.as_str() {
                 "assign" if object_is("Object") => Some(MergeStyle::Shallow),
                 "mergeConfig" | "merge" | "deepmerge" | "mergeDeep" => Some(MergeStyle::Deep),

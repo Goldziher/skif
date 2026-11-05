@@ -221,7 +221,8 @@ fn names_package(target: &str, package: &skif_workspace::Package) -> bool {
         }
     }
     package.name.as_deref().is_some_and(|name| {
-        target.contains(['*', '?', '[', '{']) && Glob::new(target).is_ok_and(|glob| glob.compile_matcher().is_match(name))
+        target.contains(['*', '?', '[', '{'])
+            && Glob::new(target).is_ok_and(|glob| glob.compile_matcher().is_match(name))
     })
 }
 
