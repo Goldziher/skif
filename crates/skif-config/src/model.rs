@@ -1163,12 +1163,15 @@ const fn default_true() -> bool {
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum JsDiscovery {
-    /// The git index when the workspace is in a git work tree, the directory walk otherwise.
+    /// The git index, checked against the file system: a directory modified since the index was written is listed
+    /// from disk, so untracked and deleted files are found as the walk finds them. The directory walk when the
+    /// workspace is not in a git work tree with a usable index.
     #[default]
     Auto,
-    /// The git index; the directory walk when there is no readable index.
+    /// The git index alone, without checking the file system: faster, but blind to files created or deleted since the
+    /// last `git add`. The directory walk when there is no usable index.
     Git,
-    /// Always walk the directories, which also finds untracked files.
+    /// Always walk the directories.
     Walk,
 }
 
@@ -1203,9 +1206,10 @@ pub struct Js {
     pub production: bool,
     /// Report unused exports of entry files too.
     pub include_entry_exports: bool,
-    /// How source files are found: `auto` lists them from the git index when the workspace is in a git work tree and
-    /// walks the directories otherwise, `git` requires the index (falling back to the walk when there is none), and
-    /// `walk` always walks. The index lists tracked files only; the walk also finds untracked ones.
+    /// How source files are found: `auto` lists them from the git index and re-lists from disk every directory
+    /// modified since the index was written, which gives the walk's result without walking every directory; `git`
+    /// trusts the index alone (faster, blind to untracked and deleted files); `walk` always walks. Both index modes
+    /// fall back to the walk when the workspace is not in a git work tree with a usable SHA-1 index.
     pub discovery: JsDiscovery,
     /// Per-workspace overrides keyed by directory. The key `"."` is the root workspace.
     pub workspaces: IndexMap<String, JsWorkspace>,
