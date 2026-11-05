@@ -9,7 +9,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
 use napi::bindgen_prelude::{AsyncTask, Result, panic_to_error};
-use napi::{Env, Task};
+use napi::{Env, Status, Task};
 use napi_derive::napi;
 use skif::ConfigOverrides;
 use skif_cli::CliError;
@@ -108,14 +108,16 @@ fn outcome(path: &str, overrides: &ConfigOverrides, recursive: bool) -> LintOutc
     }
 }
 
-/// Lints the workspace containing `path` (or, with `recursive`, every root at or below it) and returns the report as the versioned JSON document the CLI prints for
-/// `--format json`. Nothing is printed and no file is written. The call blocks the event loop; use [`lint_async`]
-/// in a server.
+/// Lints the workspace containing `path` (or, with `recursive`, every root at or below it) and returns the report as
+/// the versioned JSON document the CLI prints for `--format json`. Nothing is printed and no file is written. The
+/// call blocks the event loop; use [`lint_async`] in a server.
 ///
 /// # Errors
-/// Throws with the error message when no workspace is found, the configuration is invalid or discovery fails.
+/// Throws an `Error` with the failure's message, and with its `kind` and, when there is one, `path` as properties
+/// (the same fields [`lint_async`] returns in `error`) when no workspace is found, the configuration is invalid or
+/// discovery fails.
 #[napi(catch_unwind)]
-pub fn lint(path: String, options: Option<LintOptions>) -> Result<String> {
+pub fn lint(env: Env, path: String, options: Option<LintOptions>) -> Result<String> {
     let options = options.unwrap_or_default();
     let recursive = options.recursive.unwrap_or(false);
     let overrides = options.overrides();
@@ -123,9 +125,32 @@ pub fn lint(path: String, options: Option<LintOptions>) -> Result<String> {
         LintOutcome {
             report: Some(report), ..
         } => Ok(report),
-        LintOutcome { error, .. } => Err(napi::Error::from_reason(
-            error.map_or_else(|| "the lint produced no report".to_owned(), |failure| failure.message),
+        LintOutcome { error, .. } => Err(throw(
+            env,
+            error.unwrap_or_else(|| LintFailure {
+                kind: "internal".to_owned(),
+                message: "the lint produced no report".to_owned(),
+                path: None,
+            }),
         )),
+    }
+}
+
+/// Throws `failure` as a JavaScript `Error` carrying `kind` and `path`, and returns the marker that tells the
+/// binding the exception is already pending. Falls back to a plain message when the error object cannot be built.
+fn throw(env: Env, failure: LintFailure) -> napi::Error {
+    let thrown = env
+        .create_error(napi::Error::from_reason(failure.message.clone()))
+        .and_then(|mut error| {
+            error.set("kind", failure.kind.clone())?;
+            if let Some(path) = &failure.path {
+                error.set("path", path.clone())?;
+            }
+            env.throw(error)
+        });
+    match thrown {
+        Ok(()) => napi::Error::new(Status::PendingException, failure.message),
+        Err(_) => napi::Error::from_reason(failure.message),
     }
 }
 

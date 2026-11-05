@@ -485,7 +485,18 @@ fn a_walk_cut_by_the_depth_limit_says_so() {
         "{}",
         result.stderr
     );
-    assert_eq!(root_paths(&result.json()), ["a"]);
+    let report = result.json();
+    assert_eq!(root_paths(&report), ["a"]);
+    let truncated = strings(&report["truncated"]);
+    assert_eq!(truncated.len(), 1, "{report}");
+    assert!(truncated[0].starts_with("d0/d1/d2/"), "{truncated:?}");
+}
+
+#[test]
+fn a_walk_that_reaches_every_root_has_no_truncated_key() {
+    let dir = fixture("multi/siblings");
+    let (_, report) = json(dir.path(), &[]);
+    assert!(report.get("truncated").is_none(), "{report}");
 }
 
 #[test]
