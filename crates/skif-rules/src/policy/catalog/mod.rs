@@ -30,7 +30,7 @@ pub use unused_entries::UnusedCatalogEntries;
 pub(crate) fn owning_rule(mode: CatalogMode) -> &'static str {
     match mode {
         CatalogMode::Off => mismatch::META.id,
-        CatalogMode::Prefer | CatalogMode::Enforce => not_used::META.id,
+        _ => not_used::META.id,
     }
 }
 

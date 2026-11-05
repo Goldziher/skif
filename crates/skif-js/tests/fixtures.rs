@@ -368,5 +368,5 @@ fn rule_metadata_is_stable() {
     let defaults: Vec<(&str, bool)> = registry.rules().map(|meta| (meta.id, meta.default.is_some())).collect();
     assert!(defaults.contains(&("unused-files", true)));
     assert!(defaults.contains(&("circular-imports", false)));
-    assert_eq!(defaults.len(), 14);
+    assert_eq!(defaults.len(), 16);
 }
