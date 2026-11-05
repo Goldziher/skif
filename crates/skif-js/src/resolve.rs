@@ -363,15 +363,13 @@ fn read_gitignore(fs: &dyn FileSystem, dir: &Path) -> Option<(PathBuf, Gitignore
 /// The forms a stylesheet specifier can name a file by: itself, its Sass partial (`_name`) and the index partial of a
 /// directory.
 fn style_forms(specifier: &str) -> [String; 3] {
-    let (dir, name) = specifier
-        .rsplit_once('/')
-        .map_or(("", specifier), |(dir, name)| (dir, name));
+    let trimmed = specifier.trim_end_matches('/');
+    let (dir, name) = trimmed.rsplit_once('/').map_or(("", trimmed), |(dir, name)| (dir, name));
     let prefix = if dir.is_empty() {
         String::new()
     } else {
         format!("{dir}/")
     };
-    let name = name.trim_end_matches('/');
     [
         specifier.to_owned(),
         format!("{prefix}_{name}"),
@@ -1587,6 +1585,15 @@ mod tests {
             *self.kinds.lock().unwrap().entry(path.to_path_buf()).or_default() += 1;
             self.inner.kind(path)
         }
+    }
+
+    #[test]
+    fn stylesheet_forms_of_a_directory_specifier_have_no_double_slash() {
+        assert_eq!(
+            style_forms("bootstrap/scss/"),
+            ["bootstrap/scss/", "bootstrap/_scss", "bootstrap/scss/_index"]
+        );
+        assert_eq!(style_forms("theme"), ["theme", "_theme", "theme/_index"]);
     }
 
     #[test]
