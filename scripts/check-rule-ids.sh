@@ -3,7 +3,8 @@
 # documents an id that rule-ids.txt does not record yet (ADR 0007), and when the rule ids registered in code (the
 # top-level `RuleMeta` statics under crates/*/src) differ from rule-ids.txt. Rule ids are a public contract: a released id
 # is never removed, only retired through a superseding decision, and a new id is added to rule-ids.txt in the same
-# change that adds the rule.
+# change that adds the rule. Prose that states a rule count ("N rules", "the N `js` rules") in the README files, the
+# website and the contributor context must equal the count of rule ids (and, for `js` rules, the js rows of the table).
 #
 # Usage: scripts/check-rule-ids.sh
 set -euo pipefail
@@ -39,6 +40,25 @@ while IFS= read -r id; do
   echo "::error file=rule-ids.txt::rule '${id}' is registered in code but missing from rule-ids.txt"
   failures=$((failures + 1))
 done < <(comm -23 <(printf '%s\n' "$registered") <(printf '%s\n' "$recorded"))
+
+total="$(grep -c . rule-ids.txt)"
+# shellcheck disable=SC2016
+js_total="$(grep -cE '^\| \[`[a-z0-9-]+`\]\(#[a-z0-9-]+\) \| js \|' docs/rules.md || true)"
+count_files=(README.md crates/*/README.md npm-package/README.md CONTRIBUTING.md .ai-rulez/context/*.md)
+while IFS= read -r -d '' file; do count_files+=("$file"); done < <(find website/src/content -name '*.md*' -print0)
+# shellcheck disable=SC2016
+while IFS=: read -r file line claim; do
+  number="$(grep -oE '[0-9]+' <<<"$claim" | head -n1)"
+  if [[ "$claim" == *'`js` rules'* || "$claim" == *'JS analysis rules'* ]]; then
+    expected="$js_total"
+  else
+    expected="$total"
+  fi
+  if [[ "$number" != "$expected" ]]; then
+    echo "::error file=${file},line=${line}::states ${number} rules (\"${claim}\") but there are ${expected}"
+    failures=$((failures + 1))
+  fi
+done < <(grep -nEo '[0-9]+ (`js` |JS analysis )?rules' "${count_files[@]}" 2>/dev/null || true)
 
 if [[ "$failures" -gt 0 ]]; then
   echo "${failures} rule id problem(s)" >&2

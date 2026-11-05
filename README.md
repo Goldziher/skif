@@ -46,18 +46,24 @@ The documentation site is at <https://goldziher.github.io/skif/>; its sources li
 | Embeddable library facade (`skif` crate) | Available |
 | `skif.toml` configuration: rule levels, ignores, workspace settings | Available |
 | Version groups, semver groups, catalog and workspace-protocol policies | Available ([ADR 0009](adrs/0009-version-and-catalog-policies.md)) |
-| Unused / unlisted / unresolved dependency and dead-code analysis, 16 rules and a table of 63 plugins | Available ([ADR 0010](adrs/0010-js-analysis-on-oxc.md), [ADR 0011](adrs/0011-plugin-model.md), [ADR 0025](adrs/0025-plugin-set-extension-thirty-five-more-tools.md)) |
+| Unused / unlisted / unresolved dependency and dead-code analysis, 16 `js` rules and a table of 63 plugins | Available ([ADR 0010](adrs/0010-js-analysis-on-oxc.md), [ADR 0011](adrs/0011-plugin-model.md), [ADR 0025](adrs/0025-plugin-set-extension-thirty-five-more-tools.md)) |
 | Several projects in one run (`-r`), and single packages that declare no workspace | Available ([ADR 0022](adrs/0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md)) |
 | Human, JSON, SARIF and GitHub annotation output | Available ([ADR 0012](adrs/0012-reporting.md)) |
 | npm package as a napi-rs addon | Available ([ADR 0018](adrs/0018-npm-distribution-via-napi-rs.md)) |
 
+The JS analysis follows knip's issue types and its knowledge of tools, but it is not a drop-in replacement: a weekly
+job compares its findings with a pinned knip on a corpus of public repositories, and the two differ where they model
+things differently (unused-file classification, test and fixture directories, how a namespace import is read). The
+harness reports those differences per issue type and names the intended ones; see
+[`tools/bench`](tools/bench/README.md) and [ADR 0030](adrs/0030-harness-known-deviations-and-comparison-scope.md).
+
 ## Rules
 
 Run `skif rules` (or `skif rules --format json`) to list the registry; [`docs/rules.md`](docs/rules.md)
-documents all 37 rules with their categories, default severities and fix safety. Every rule has a stable
+documents all 39 rules with their categories, default severities and fix safety. Every rule has a stable
 kebab-case id, a category (`manifest`, `workspace`, `policy`, `catalog`, `js`) and a default level. Fixes are
 `safe` (applied by `--fix`), `unsafe` (applied only by `--fix-unsafe`) or `sometimes` (fixable for some
-findings). The 14 `js` rules need the JS analysis, which `--no-js` or `[js] enabled = false` turns off.
+findings). The 16 `js` rules need the JS analysis, which `--no-js` or `[js] enabled = false` turns off.
 
 ## Quick start
 
@@ -128,7 +134,8 @@ Channels follow [ADR 0013](adrs/0013-distribution-and-naming.md). The npm packag
 ```
 
 Inputs: `version` (defaults to the action's own tag), `args` (extra skif arguments), `working-directory`,
-`fail-on-warnings`, and `install-only` to put `skif` on `PATH` without running it. `@v0` is a floating tag
+`fail-on-warnings`, `install-only` to put `skif` on `PATH` without running it, and the advanced `token` and
+`repository` (see [`action.yml`](action.yml)). `@v0` is a floating tag
 that follows the newest 0.x release; pin a full tag such as `@v0.1.0` for a fixed version. The action downloads
 the release archive for the runner and verifies it against the release's `checksums.txt`.
 
@@ -272,6 +279,7 @@ caller to show, merge or write. Poly is the first host.
 
 ```rust
 use std::path::Path;
+use std::sync::Arc;
 use skif::{ConfigOverrides, Linter, MemoryFs, Workspace, find_workspace_root, load_config};
 
 let fs = MemoryFs::new()
@@ -281,7 +289,9 @@ let fs = MemoryFs::new()
 let root = find_workspace_root(Path::new("/repo/packages/a"), &fs)?;
 let config = load_config(&root, &fs, &ConfigOverrides::default())?;
 let workspace = Workspace::discover_with_fs(&root, &config, &fs)?;
-let report = Linter::new(&config)?.run(&workspace)?;
+// The linter reads source files (with `js-analysis`) through the same file system as discovery.
+let report = Linter::with_fs(&config, Arc::new(fs.clone()))?.run(&workspace)?;
+assert_eq!(report.summary.packages, 2);
 # Ok::<(), skif::Error>(())
 ```
 

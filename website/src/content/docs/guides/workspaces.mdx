@@ -31,7 +31,7 @@ First match wins:
 
 1. `[workspace] package-manager` in `skif.toml`.
 2. The root `package.json` `packageManager` field, then `devEngines.packageManager`.
-3. The package manager `rush.json` names.
+3. The package manager that `rush.json` names (`pnpmVersion`, `npmVersion` or `yarnVersion`).
 4. Lockfile presence: `pnpm-lock.yaml`, `bun.lock` / `bun.lockb`, `yarn.lock`, `package-lock.json`.
 5. A `pnpm-workspace.yaml` implies pnpm.
 6. A `.yarnrc.yml` or a `.yarn/releases` directory implies Yarn (Berry), for checkouts that do not commit `yarn.lock`.

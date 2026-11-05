@@ -45,7 +45,8 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   links the `tsConfig` and `karmaConfig` of its targets to the `typescript` and `karma` plugins, and `expo`, `metro` and
   `docusaurus` read `babel.config.*`. The new `node` plugin makes `server.js` a production entry and adds the test
   runner's files when a script runs `node --test`; `node --test-reporter` names a package unless it is built in.
-- **Karma function-form configs** (`module.exports = function (config) { config.set({ … }) }`) are evaluated.
+- **Karma function-form configs** (`module.exports = function (config) { config.set({ … }) }`) are read by static
+  interpretation; no project code runs.
 - **Parity and diff against knip and syncpack**: `mise run parity` compares skif's findings with a pinned knip, and
   `mise run diff:syncpack` compares its policy findings with a pinned syncpack, on the policy fixtures and a pinned
   corpus of 16 public repositories (`skif-bench corpus fetch`, `mise run corpus:fetch`). Counts are committed under
@@ -57,7 +58,9 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   Rush projects are fed to it as sources and `unresolved-catalog-references` is compared; knip runs with an empty
   configuration (`--repo-knip-config` opts out), enum and namespace members are keyed by member name, noisy stdout
   no longer skips a repository, and `corpus.toml` takes `recursive`, `install-command` and `install-timeout-secs` per
-  repository ([ADR 0030](adrs/0030-harness-known-deviations-and-comparison-scope.md)).
+  repository ([ADR 0030](adrs/0030-harness-known-deviations-and-comparison-scope.md)). The namespace rules are
+  compared with the `exports` and `types` items knip reports with a `namespace`, and with `nsExports` and `nsTypes`
+  ([ADR 0033](adrs/0033-knip-namespace-findings-in-the-parity-harness.md)).
 - **Benchmark targets are enforced**: `skif-bench run` exits non-zero when an ADR 0001 target fails, measures a
   10,000-file module graph, and `mise run bench:publish` writes `tools/bench/results` and refreshes the numbers table.
 - **Several projects in one run**: `-r`/`--recursive` lints every workspace and standalone package at or below the
@@ -171,7 +174,7 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   `DependencyTypes`, `Js`, `JsWorkspace`, `Lint`, `PluginConfig`, `PluginOptions`, `Policy`, `RuleOptions`,
   `SemverGroup`, `SemverRange`, `VersionGroup`, `VersionPolicy`, `WorkspaceProtocol` and, as `WorkspaceConfig`, the
   `[workspace]` table. The third-party crates that may appear in the API are listed once in the `skif` crate
-  documentation and checked by a test ([ADR 0031](adrs/0032-third-party-types-in-the-facade-api.md)).
+  documentation and checked by a test ([ADR 0032](adrs/0032-third-party-types-in-the-facade-api.md)).
 - **A `Linter` shared by concurrent runs keeps one cache for them**: the cache of the built-in JS analysis is emptied
   when the first of a group of overlapping runs starts and when the last one ends, so `skif -r` no longer wipes the
   listings that the roots already running just read, and an idle `Linter` holds nothing.
@@ -191,8 +194,8 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 - **Faster discovery**: `Workspace::package_by_name` is a hash lookup, each distinct specifier is parsed once per
   workspace, a manifest builds its span table on the first span lookup, and line indexes of ASCII text skip the
   character walk.
-- The JSON Schema of `skif.toml` offers `level` (with `severity` as its alias) in a rule table, and the rule
-  reference and configuration page document the rule options (`mode` of `member-toolchain-fields`, `ignore-tags` of
+- The JSON Schema of `skif.toml` offers `level` (with `severity` as its alias) in a rule table, and the
+  configuration page documents the rule options (`mode` of `member-toolchain-fields`, `ignore-tags` of
   `unused-exports`) and that `unused-catalog-entries` reports only with `[catalog] report-unused-entries = true`.
 - **Release hardening**: a release is refused unless the tag is on `main` with a green `ci.yml` run; the Windows
   binaries link the C runtime statically; the aarch64 Windows binary is executed on an ARM64 runner before release;
