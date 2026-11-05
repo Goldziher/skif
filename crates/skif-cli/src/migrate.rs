@@ -57,6 +57,7 @@ fn known_rules() -> Result<Vec<RuleInfo>, CliError> {
         .collect())
 }
 
+#[allow(clippy::needless_pass_by_value, reason = "used as `map_err(migrate_error)`")]
 fn migrate_error(error: MigrateError) -> CliError {
     match error {
         MigrateError::Unreadable { ref path, .. } => CliError {
@@ -260,7 +261,7 @@ fn plan_output(args: &MigrateArgs, root: &Path, migration: &Migration) -> Result
         }
         kept_existing = merged.kept_existing;
         toml = merged.toml;
-        destination = existing.clone();
+        destination.clone_from(existing);
     } else if let Some(existing) = &existing
         && !args.force
         && !to_stdout
