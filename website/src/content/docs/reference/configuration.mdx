@@ -161,6 +161,11 @@ internal = true              # require workspace: for dependencies on workspace 
 allow-local-paths = false    # accept file:/link: paths for internal dependencies
 ```
 
+The rule is silent for npm and Yarn Classic workspaces, which cannot install the protocol, and for
+`peerDependencies`, which a published library names by range. While `local-path-dependency` is on, `file:`/`link:`
+paths are left to that rule so one dependency is not reported twice; `allow-local-paths` only decides them when
+`local-path-dependency` is off.
+
 ### `[[dependency-families]]`
 
 ```toml
