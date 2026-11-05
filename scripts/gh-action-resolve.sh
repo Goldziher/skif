@@ -4,6 +4,9 @@
 # install directory is known before the actions/cache step that wraps it.
 set -euo pipefail
 
+# shellcheck source=lib/libc.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/libc.sh"
+
 repo="${REPOSITORY:-Goldziher/skif}"
 
 # Resolve a floating `latest` or major-only `v3` reference to the newest matching stable release.
@@ -23,10 +26,16 @@ newest_release() {
 }
 
 version="${VERSION_INPUT:-}"
+if [ -z "$version" ] && [ -n "${BAKED_VERSION:-}" ] && [ "$BAKED_VERSION" != "0.0.0" ]; then
+  # The release process writes the release's own version into action.yml, so every ref of a release - a full tag,
+  # the floating major tag or a commit SHA - installs the version it was published with. 0.0.0 marks a development
+  # checkout, which has no release of its own.
+  version="$BAKED_VERSION"
+fi
 if [ -z "$version" ]; then
   # A full release tag (`v0.1.0`) or a floating major tag (`v0`) when the action is pinned to
   # one; anything else (a branch, a SHA, a local `./` checkout) falls back to the newest release.
-  if [[ "$ACTION_REF" =~ ^v?[0-9]+(\.[0-9]+\.[0-9]+([+.-][0-9A-Za-z.]+)?)?$ ]]; then
+  if [[ "${ACTION_REF:-}" =~ ^v?[0-9]+(\.[0-9]+\.[0-9]+([+.-][0-9A-Za-z.]+)?)?$ ]]; then
     version="$ACTION_REF"
   else
     version="latest"
@@ -51,14 +60,11 @@ if [ -z "$tag" ]; then
   exit 1
 fi
 
-# An Alpine (musl) container job needs the musl archives: the glibc binary does not load there. `ldd --version`
-# exits non-zero on musl, so it is captured on its own instead of piped (a pipeline would fail under pipefail).
+# The glibc archives need glibc 2.34 or newer. Older glibc hosts (Ubuntu 20.04, Debian 11, RHEL 8), Alpine and any
+# libc that cannot be identified get the statically linked musl archives.
 libc=gnu
 if [ "$RUNNER_OS" = "Linux" ]; then
-  banner="$(ldd --version 2>&1 || true)"
-  if [[ "$banner" == *musl* ]] || compgen -G '/lib/ld-musl-*' >/dev/null; then
-    libc=musl
-  fi
+  libc="$(skif_libc)"
 fi
 
 case "$RUNNER_OS" in
@@ -105,6 +111,7 @@ asset="skif-${triple}.${ext}"
 checksums="checksums.txt"
 install_dir="${RUNNER_TEMP}/skif-action/${tag}-${RUNNER_OS}-${RUNNER_ARCH}"
 bin_dir="${install_dir}/bin"
+archive_dir="${install_dir}/archive"
 
 {
   echo "repo=${repo}"
@@ -113,4 +120,6 @@ bin_dir="${install_dir}/bin"
   echo "ext=${ext}"
   echo "checksums=${checksums}"
   echo "bin-dir=${bin_dir}"
+  echo "archive-dir=${archive_dir}"
+  echo "cache-dir=${install_dir}"
 } >>"$GITHUB_OUTPUT"

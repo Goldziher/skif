@@ -4,7 +4,9 @@
 # Usage: scripts/homebrew-update.sh <version> <checksums-file> [release-repo]
 #
 # The formula installs the prebuilt archives (macOS and Linux, arm64 and x86_64), with hashes read
-# from the release's own checksums.txt rather than recomputed.
+# from the release's own checksums.txt rather than recomputed. On Linux it installs the glibc archive only when the
+# system glibc is at least 2.34 (the floor those archives are built for) and the statically linked musl archive on
+# anything older.
 set -euo pipefail
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
@@ -40,11 +42,15 @@ macos_arm_asset="skif-aarch64-apple-darwin.tar.gz"
 macos_intel_asset="skif-x86_64-apple-darwin.tar.gz"
 linux_arm_asset="skif-aarch64-unknown-linux-gnu.tar.gz"
 linux_intel_asset="skif-x86_64-unknown-linux-gnu.tar.gz"
+linux_arm_musl_asset="skif-aarch64-unknown-linux-musl.tar.gz"
+linux_intel_musl_asset="skif-x86_64-unknown-linux-musl.tar.gz"
 
 macos_arm_sha="$(hash_for "$macos_arm_asset")"
 macos_intel_sha="$(hash_for "$macos_intel_asset")"
 linux_arm_sha="$(hash_for "$linux_arm_asset")"
 linux_intel_sha="$(hash_for "$linux_intel_asset")"
+linux_arm_musl_sha="$(hash_for "$linux_arm_musl_asset")"
+linux_intel_musl_sha="$(hash_for "$linux_intel_musl_asset")"
 
 render() {
   cat <<'FORMULA'
@@ -70,13 +76,25 @@ class Skif < Formula
   end
 
   on_linux do
+    # The glibc archives need glibc 2.34; older systems get the static musl archives.
+    glibc_ok = OS::Linux::Glibc.system_version >= Version.new("2.34")
     on_arm do
-      url "@@BASE_URL@@/@@LINUX_ARM_ASSET@@"
-      sha256 "@@LINUX_ARM_SHA@@"
+      if glibc_ok
+        url "@@BASE_URL@@/@@LINUX_ARM_ASSET@@"
+        sha256 "@@LINUX_ARM_SHA@@"
+      else
+        url "@@BASE_URL@@/@@LINUX_ARM_MUSL_ASSET@@"
+        sha256 "@@LINUX_ARM_MUSL_SHA@@"
+      end
     end
     on_intel do
-      url "@@BASE_URL@@/@@LINUX_INTEL_ASSET@@"
-      sha256 "@@LINUX_INTEL_SHA@@"
+      if glibc_ok
+        url "@@BASE_URL@@/@@LINUX_INTEL_ASSET@@"
+        sha256 "@@LINUX_INTEL_SHA@@"
+      else
+        url "@@BASE_URL@@/@@LINUX_INTEL_MUSL_ASSET@@"
+        sha256 "@@LINUX_INTEL_MUSL_SHA@@"
+      end
     end
   end
 
@@ -98,17 +116,21 @@ formula="$(render | sed \
   -e "s|@@MACOS_INTEL_ASSET@@|${macos_intel_asset}|g" \
   -e "s|@@LINUX_ARM_ASSET@@|${linux_arm_asset}|g" \
   -e "s|@@LINUX_INTEL_ASSET@@|${linux_intel_asset}|g" \
+  -e "s|@@LINUX_ARM_MUSL_ASSET@@|${linux_arm_musl_asset}|g" \
+  -e "s|@@LINUX_INTEL_MUSL_ASSET@@|${linux_intel_musl_asset}|g" \
   -e "s|@@MACOS_ARM_SHA@@|${macos_arm_sha}|g" \
   -e "s|@@MACOS_INTEL_SHA@@|${macos_intel_sha}|g" \
   -e "s|@@LINUX_ARM_SHA@@|${linux_arm_sha}|g" \
-  -e "s|@@LINUX_INTEL_SHA@@|${linux_intel_sha}|g")"
+  -e "s|@@LINUX_INTEL_SHA@@|${linux_intel_sha}|g" \
+  -e "s|@@LINUX_ARM_MUSL_SHA@@|${linux_arm_musl_sha}|g" \
+  -e "s|@@LINUX_INTEL_MUSL_SHA@@|${linux_intel_musl_sha}|g")"
 
 if printf '%s' "$formula" | grep -q '@@'; then
   echo "error: unsubstituted placeholder left in the formula" >&2
   exit 1
 fi
 
-for expected in "$version" "$macos_arm_sha" "$macos_intel_sha" "$linux_arm_sha" "$linux_intel_sha"; do
+for expected in "$version" "$macos_arm_sha" "$macos_intel_sha" "$linux_arm_sha" "$linux_intel_sha" "$linux_arm_musl_sha" "$linux_intel_musl_sha"; do
   printf '%s' "$formula" | grep -qF "$expected" || {
     echo "error: '${expected}' is missing from the generated formula" >&2
     exit 1

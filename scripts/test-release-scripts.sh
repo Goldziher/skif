@@ -3,7 +3,7 @@
 #   homebrew-update.sh, scoop-update.sh   formula and manifest output from a checksums.txt (missing asset, bad hash)
 #   publish-crates.sh                     crates.io probe 200 / 404 / 429 and the publish order, with stub cargo and curl
 #   release-bump.sh, check-versions.sh    a bump on a temp copy of the tree, then the consistency check
-#   check-archive.sh, check-release-gate.sh
+#   check-archive.sh, check-release-gate.sh, check-npm-tarballs.sh, check-glibc-floor.sh, e2e/resolve-pm-version.sh
 #
 # Usage: scripts/test-release-scripts.sh
 # The literals checked below contain `$` on purpose; nothing is meant to expand.
@@ -50,9 +50,15 @@ done < <(bash scripts/release-assets.sh)
 expect "homebrew formula" 0 bash scripts/homebrew-update.sh 1.2.3 "$sums" Acme/skif
 formula="$(bash scripts/homebrew-update.sh 1.2.3 "$sums" Acme/skif)"
 for want in 'version "1.2.3"' 'https://github.com/Acme/skif/releases/download/v1.2.3/skif-aarch64-apple-darwin.tar.gz' \
-  "$(hex 1)" "$(hex 2)" "$(hex 3)" "$(hex 4)"; do
+  'releases/download/v1.2.3/skif-x86_64-unknown-linux-musl.tar.gz' 'releases/download/v1.2.3/skif-aarch64-unknown-linux-musl.tar.gz' \
+  'OS::Linux::Glibc.system_version >= Version.new("2.34")' \
+  "$(hex 1)" "$(hex 2)" "$(hex 3)" "$(hex 4)" "$(hex 5)" "$(hex 6)"; do
   grep -qF -- "$want" <<<"$formula" || fail "homebrew formula lacks '${want}'"
 done
+if command -v ruby >/dev/null 2>&1; then
+  printf '%s\n' "$formula" >"${work}/skif.rb"
+  expect "homebrew formula is valid Ruby" 0 ruby -c "${work}/skif.rb"
+fi
 
 grep -v 'skif-x86_64-apple-darwin' "$sums" >"${work}/missing-asset.txt"
 expect "homebrew missing asset" 1 bash scripts/homebrew-update.sh 1.2.3 "${work}/missing-asset.txt"
@@ -160,7 +166,7 @@ crates_case "a missing VERSION is refused" 1 404 ok VERSION=
 # ---------------------------------------------------------------- release-bump + check-versions
 tree="${work}/tree"
 mkdir -p "$tree"
-tar -cf - Cargo.toml crates/*/Cargo.toml npm-package/package.json poly-hooks.toml .pre-commit-hooks.yaml scripts |
+tar -cf - Cargo.toml crates/*/Cargo.toml npm-package/package.json poly-hooks.toml .pre-commit-hooks.yaml action.yml scripts |
   tar -xf - -C "$tree"
 current="$(bash scripts/check-versions.sh 2>/dev/null | sed -n 's/.*agree on \(.*\)/\1/p')"
 [[ -n "$current" ]] || fail "check-versions: the repository itself is inconsistent"
@@ -170,6 +176,7 @@ expect "release-bump bumps every surface" 0 env SKIP_CARGO_UPDATE=1 bash "${tree
 expect "check-versions after the bump" 0 bash "${tree}/scripts/check-versions.sh" 9.8.7
 [[ "$(jq -r '.version' "${tree}/npm-package/package.json")" == 9.8.7 ]] || fail "release-bump: npm-package version"
 grep -qF 'SKIF_VERSION="${SKIF_VERSION:-v9.8.7}"' "${tree}/scripts/pre-commit/run-skif.sh" || fail "release-bump: launcher pin"
+grep -qF 'BAKED_VERSION: "9.8.7"' "${tree}/action.yml" || fail "release-bump: the Action's baked version"
 grep -qF '"=9.8.7"' "${tree}/Cargo.toml" || fail "release-bump: internal dependency pin"
 
 jq '.version = "0.0.1"' "${tree}/npm-package/package.json" >"${work}/package.json"
@@ -195,6 +202,121 @@ if command -v python3 >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
   expect "check-archive rejects an incomplete zip" 1 bash scripts/check-archive.sh "${archive_dir}/skif-bare-pc-windows-msvc.zip"
 fi
 expect "check-archive needs an archive" 2 bash scripts/check-archive.sh
+
+# ---------------------------------------------------------------- check-npm-tarballs
+platforms=(darwin-arm64 darwin-x64 linux-arm64-gnu linux-arm64-musl linux-x64-gnu linux-x64-musl)
+
+# pack_tarball <directory> <tarball name> <package.json content> <member...>: a tarball whose members all sit under package/.
+pack_tarball() {
+  local out="$1" name="$2" manifest="$3" stage member
+  shift 3
+  stage="$(mktemp -d "${work}/pack.XXXXXX")"
+  mkdir -p "${stage}/package"
+  printf '%s\n' "$manifest" >"${stage}/package/package.json"
+  for member in "$@"; do
+    mkdir -p "$(dirname "${stage}/package/${member}")"
+    echo "$member" >"${stage}/package/${member}"
+  done
+  tar czf "${out}/${name}" -C "$stage" package
+}
+
+# npm_fixture <directory> <version>: the complete umbrella plus the six platform packages.
+npm_fixture() {
+  local out="$1" version="$2" optional platform
+  mkdir -p "$out"
+  optional="$(for platform in "${platforms[@]}"; do printf '"skif-%s": "%s",' "$platform" "$version"; done)"
+  pack_tarball "$out" "skif-${version}.tgz" "{\"optionalDependencies\": {${optional%,}}}" \
+    index.js index.d.ts bin/skif.js LICENSE ATTRIBUTIONS.md README.md
+  for platform in "${platforms[@]}"; do
+    pack_tarball "$out" "skif-${platform}-${version}.tgz" '{}' "skif.${platform}.node" LICENSE ATTRIBUTIONS.md
+  done
+}
+
+npm_fixture "${work}/npm-ok" 1.2.3
+expect "check-npm-tarballs accepts the complete set" 0 bash scripts/check-npm-tarballs.sh "${work}/npm-ok" 1.2.3
+
+npm_fixture "${work}/npm-missing" 1.2.3
+rm "${work}/npm-missing/skif-linux-x64-musl-1.2.3.tgz"
+expect "check-npm-tarballs rejects a missing platform package" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-missing" 1.2.3
+expect_in_out "check-npm-tarballs missing platform" "not the umbrella plus the six platform packages"
+
+npm_fixture "${work}/npm-extra" 1.2.3
+cp "${work}/npm-extra/skif-1.2.3.tgz" "${work}/npm-extra/skif-other-1.2.3.tgz"
+expect "check-npm-tarballs rejects an extra tarball" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-extra" 1.2.3
+
+npm_fixture "${work}/npm-version" 1.2.3
+expect "check-npm-tarballs rejects a different version" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-version" 1.2.4
+
+npm_fixture "${work}/npm-no-loader" 1.2.3
+pack_tarball "${work}/npm-no-loader" skif-1.2.3.tgz \
+  "$(tar -xzOf "${work}/npm-ok/skif-1.2.3.tgz" package/package.json)" bin/skif.js LICENSE ATTRIBUTIONS.md README.md
+expect "check-npm-tarballs rejects an umbrella without the generated loader" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-loader" 1.2.3
+expect_in_out "check-npm-tarballs missing loader" "does not contain index.js"
+
+npm_fixture "${work}/npm-no-addon" 1.2.3
+pack_tarball "${work}/npm-no-addon" skif-linux-x64-gnu-1.2.3.tgz '{}' LICENSE ATTRIBUTIONS.md
+expect "check-npm-tarballs rejects a platform package without its addon" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-addon" 1.2.3
+expect_in_out "check-npm-tarballs missing addon" "skif.linux-x64-gnu.node"
+
+npm_fixture "${work}/npm-bad-optional" 1.2.3
+pack_tarball "${work}/npm-bad-optional" skif-1.2.3.tgz '{"optionalDependencies": {"skif-darwin-arm64": "1.2.3"}}' \
+  index.js index.d.ts bin/skif.js LICENSE ATTRIBUTIONS.md README.md
+expect "check-npm-tarballs rejects incomplete optionalDependencies" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-bad-optional" 1.2.3
+expect_in_out "check-npm-tarballs optionalDependencies" "optionalDependencies"
+expect "check-npm-tarballs usage" 1 bash scripts/check-npm-tarballs.sh
+
+# ---------------------------------------------------------------- check-glibc-floor
+glibc_stubs="${work}/glibc-stubs"
+mkdir -p "$glibc_stubs"
+cat >"${glibc_stubs}/objdump" <<'STUB'
+#!/usr/bin/env bash
+# Prints one dynamic symbol per version in STUB_GLIBC_VERSIONS (space separated).
+for version in ${STUB_GLIBC_VERSIONS:-}; do
+  echo "0000000000000000      DF *UND*  0000000000000000  GLIBC_${version} memcpy"
+done
+STUB
+chmod +x "${glibc_stubs}/objdump"
+echo binary >"${work}/skif-binary"
+
+floor_case() {
+  local label="$1" want="$2" versions="$3"
+  shift 3
+  expect "check-glibc-floor: ${label}" "$want" env PATH="${glibc_stubs}:${PATH}" STUB_GLIBC_VERSIONS="$versions" \
+    bash scripts/check-glibc-floor.sh "${work}/skif-binary" "$@"
+}
+floor_case "symbols at or below 2.34 pass" 0 "2.2.5 2.17 2.34 2.28"
+floor_case "a 2.35 symbol fails the 2.34 floor" 1 "2.17 2.35 2.28"
+expect_in_out "check-glibc-floor: newer symbol" "needs glibc 2.35"
+floor_case "2.100 is newer than 2.34" 1 "2.34 2.100"
+floor_case "the floor can be passed explicitly" 0 "2.35" 2.39
+floor_case "a binary without versioned symbols fails" 1 ""
+expect "check-glibc-floor: a missing binary" 1 env PATH="${glibc_stubs}:${PATH}" bash scripts/check-glibc-floor.sh "${work}/nope"
+
+# ---------------------------------------------------------------- e2e/resolve-pm-version
+pm_stubs="${work}/pm-stubs"
+mkdir -p "$pm_stubs"
+cat >"${pm_stubs}/npm" <<'STUB'
+#!/usr/bin/env bash
+# `npm view <package> versions --json`: pre-releases and majors with no stable release must not count.
+case "$2" in
+npm) echo '["10.9.0","10.9.2","11.0.0","11.4.1","12.0.0-rc.1","9.9.4"]' ;;
+@yarnpkg/cli-dist) echo '["2.4.3","3.8.7","3.2.0","4.9.2","4.10.0","5.0.0-alpha.1"]' ;;
+*) echo '[]' ;;
+esac
+STUB
+chmod +x "${pm_stubs}/npm"
+pm_case() {
+  local label="$1" want="$2" pm="$3" slot="$4"
+  expect "resolve-pm-version: ${label}" 0 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh "$pm" "$slot"
+  [[ "$(cat "${work}/out")" == "$want" ]] || fail "resolve-pm-version: ${label}: got '$(cat "${work}/out")', want ${want}"
+}
+pm_case "npm newest ignores a release candidate" 11.4.1 npm newest
+pm_case "npm previous" 10.9.2 npm previous
+pm_case "yarn reads the berry package, newest" 4.10.0 yarn newest
+pm_case "yarn previous sorts numerically" 3.8.7 yarn previous
+expect "resolve-pm-version: no such major" 1 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh pnpm newest
+expect "resolve-pm-version: unknown package manager" 2 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh bun newest
+expect "resolve-pm-version: unknown slot" 2 env PATH="${pm_stubs}:${PATH}" bash scripts/e2e/resolve-pm-version.sh npm oldest
 
 # ---------------------------------------------------------------- check-release-gate
 cat >"${stubs}/gh" <<'STUB'
