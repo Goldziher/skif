@@ -16,6 +16,18 @@ pub enum FixSafety {
     Unsafe,
 }
 
+/// The version a fix that is one of several alternatives aligns on, which `[policy] prefer` selects among them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum FixPreference {
+    /// Aligns on the highest version in use.
+    Highest,
+    /// Aligns on the lowest version in use.
+    Lowest,
+}
+
 /// A titled, ordered group of operations that repairs one diagnostic.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -28,6 +40,10 @@ pub struct Fix {
     pub safety: FixSafety,
     /// Operations, applied in order.
     pub ops: Vec<FixOp>,
+    /// Which preference selects this fix among alternatives of one diagnostic; `None` for a fix that is no
+    /// version-aligning alternative.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preference: Option<FixPreference>,
 }
 
 impl Fix {
@@ -38,7 +54,15 @@ impl Fix {
             title: title.into(),
             safety,
             ops,
+            preference: None,
         }
+    }
+
+    /// Marks the fix as the alternative that `preference` selects.
+    #[must_use]
+    pub const fn with_preference(mut self, preference: FixPreference) -> Self {
+        self.preference = Some(preference);
+        self
     }
 }
 
@@ -584,7 +608,8 @@ mod tests {
             Fix {
                 title: "Title".to_owned(),
                 safety: FixSafety::Unsafe,
-                ops: Vec::new()
+                ops: Vec::new(),
+                preference: None,
             }
         );
     }

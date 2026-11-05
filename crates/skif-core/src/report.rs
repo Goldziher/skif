@@ -98,6 +98,7 @@ mod tests {
                 title: "f".into(),
                 safety: FixSafety::Safe,
                 ops: vec![FixOp::DeleteFile { path: path.into() }],
+                preference: None,
             }]
         } else {
             Vec::new()

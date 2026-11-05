@@ -44,8 +44,10 @@ const exitCode = run(["--format", "json", "./my-monorepo"]);
 
 - `lint(path, options?)` lints the project containing `path` and returns the JSON report as a string. With
   `{ recursive: true }` it lints every workspace and standalone package at or below `path`, like `skif -r`, and
-  the report gains a `roots` array. It prints
-  nothing and writes no files. It blocks the event loop, so use `lintAsync` in a server. `{ config: "path/to/skif.toml" }`
+  the report gains a `roots` array, an `errors` array listing the roots that could not be loaded (the others are still
+  linted) and, when the depth limit stopped the search, a `truncated` array of the directories it did not enter. It
+  prints nothing and writes no files. When the lint cannot run it throws an `Error` with `kind` and, when there is one,
+  `path` properties, the fields `lintAsync` returns in `error`. It blocks the event loop, so use `lintAsync` in a server. `{ config: "path/to/skif.toml" }`
   uses that file (and the files it extends) instead of discovering configuration files, like `--config`, and
   `{ noConfig: true }` reads none, like `--no-config`.
 - `lintAsync(path, options?)` does the same on a worker thread and resolves with `{ report }` or, when the lint

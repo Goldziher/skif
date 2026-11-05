@@ -161,18 +161,7 @@ fn prepare<'a>(plan: &FixPlan, change: &'a FileChange, root: &Path) -> Result<Jo
         FileChange::Modify { path, new_contents, .. } => {
             let target = target(root, path)?;
             let original = fs::read(&target).map_err(|error| CliError::io("cannot read", path, &error))?;
-            if plan
-                .base_hash(path)
-                .is_some_and(|base| skif::content_hash(&original) != base)
-            {
-                return Err(CliError::new(
-                    Kind::Io,
-                    format!(
-                        "refusing to modify {}: it changed after the fixes were planned",
-                        path.display()
-                    ),
-                ));
-            }
+            refuse_if_stale(plan, path, &original, "modify")?;
             Ok(Job::Write {
                 target,
                 bytes: new_contents.as_bytes(),
@@ -196,7 +185,10 @@ fn prepare<'a>(plan: &FixPlan, change: &'a FileChange, root: &Path) -> Result<Jo
         FileChange::Delete { path } => {
             let target = target(root, path)?;
             match fs::read(&target) {
-                Ok(original) => Ok(Job::Remove { target, original }),
+                Ok(original) => {
+                    refuse_if_stale(plan, path, &original, "delete")?;
+                    Ok(Job::Remove { target, original })
+                }
                 Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Job::Remove {
                     target,
                     original: Vec::new(),
@@ -209,6 +201,23 @@ fn prepare<'a>(plan: &FixPlan, change: &'a FileChange, root: &Path) -> Result<Jo
             "the fix plan holds a change this skif cannot write",
         )),
     }
+}
+
+/// Fails when the plan recorded the contents `path` had and `current` differs: the file changed after planning.
+fn refuse_if_stale(plan: &FixPlan, path: &Path, current: &[u8], action: &str) -> Result<(), CliError> {
+    if plan
+        .base_hash(path)
+        .is_some_and(|base| skif::content_hash(current) != base)
+    {
+        return Err(CliError::new(
+            Kind::Io,
+            format!(
+                "refusing to {action} {}: it changed after the fixes were planned",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// The absolute target of a workspace-relative `relative` path, which must stay inside `root`: no `..`, no
@@ -249,14 +258,11 @@ fn target(root: &Path, relative: &Path) -> Result<PathBuf, CliError> {
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-/// A fresh sibling of `target` that nothing else can have created: exclusive creation, process id and a counter.
+/// A fresh sibling of `target` that nothing else can have created: exclusive creation, process id and a counter. The
+/// name does not carry the target's, so a file name at the length limit still stages.
 fn temp_path(target: &Path) -> PathBuf {
-    let name = target
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
     let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
-    target.with_file_name(format!(".{name}.{}.{sequence}.skif-tmp", std::process::id()))
+    target.with_file_name(format!(".{}.{sequence}.skif-tmp", std::process::id()))
 }
 
 fn create_parents(target: &Path, dirs: &mut CreatedDirs) -> io::Result<()> {
@@ -413,6 +419,41 @@ mod tests {
         assert!(write_plan(&failing, dir.path()).is_err());
         assert_eq!(fs::read_to_string(dir.path().join("a.json")).unwrap(), "old");
         assert_eq!(leftovers(dir.path()), [] as [std::string::String; 0]);
+    }
+
+    #[test]
+    fn a_file_that_changed_after_planning_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.json"), "edited since").unwrap();
+        let stale = plan(vec![modify("a.json", "new")]).with_base_hash("a.json", skif::content_hash(b"as planned"));
+        let error = write_plan(&stale, dir.path()).unwrap_err();
+        assert!(
+            error.to_string().contains("changed after the fixes were planned"),
+            "{error}"
+        );
+        assert_eq!(fs::read_to_string(dir.path().join("a.json")).unwrap(), "edited since");
+
+        let fresh = plan(vec![modify("a.json", "new")]).with_base_hash("a.json", skif::content_hash(b"edited since"));
+        write_plan(&fresh, dir.path()).unwrap();
+        assert_eq!(fs::read_to_string(dir.path().join("a.json")).unwrap(), "new");
+    }
+
+    #[test]
+    fn a_deleted_file_that_changed_after_planning_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("gone.json"), "edited since").unwrap();
+        let delete = |hash_of: &[u8]| {
+            plan(vec![FileChange::Delete {
+                path: "gone.json".into(),
+            }])
+            .with_base_hash("gone.json", skif::content_hash(hash_of))
+        };
+        let error = write_plan(&delete(b"as planned"), dir.path()).unwrap_err();
+        assert!(error.to_string().contains("refusing to delete"), "{error}");
+        assert!(dir.path().join("gone.json").exists());
+
+        write_plan(&delete(b"edited since"), dir.path()).unwrap();
+        assert!(!dir.path().join("gone.json").exists());
     }
 
     #[test]

@@ -22,3 +22,17 @@ if (code !== 0) {
   console.error(`run(["--version"]) exited ${code}`);
   process.exit(1);
 }
+
+// The synchronous `lint` throws the structured failure `lintAsync` returns: an Error with `kind` (and `path`).
+if (typeof addon.lint === "function") {
+  let thrown;
+  try {
+    addon.lint(join(resolve(directory), "no-such-project"));
+  } catch (error) {
+    thrown = error;
+  }
+  if (!(thrown instanceof Error) || typeof thrown.kind !== "string") {
+    console.error(`lint() on a missing path must throw an Error with a kind, got ${String(thrown)}`);
+    process.exit(1);
+  }
+}

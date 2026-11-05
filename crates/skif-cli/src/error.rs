@@ -132,9 +132,11 @@ impl From<skif::Error> for CliError {
             skif::Error::Config(error) | skif::Error::Lint(LintError::Config(error)) => error.into(),
             skif::Error::Workspace(error) => error.into(),
             skif::Error::NoWorkspace(_) => Self::new(Kind::Workspace, message),
-            skif::Error::UnknownRule(_) | skif::Error::Registry(_) => Self::new(Kind::Config, message),
+            skif::Error::UnknownRule(_) => Self::new(Kind::Config, message),
             skif::Error::RelativePath(_) => Self::new(Kind::Usage, message),
-            skif::Error::ThreadPool(_) | skif::Error::Lint(LintError::Provider { .. } | LintError::Cancelled) => {
+            skif::Error::Registry(_)
+            | skif::Error::ThreadPool(_)
+            | skif::Error::Lint(LintError::Provider { .. } | LintError::Cancelled) => {
                 Self::new(Kind::Internal, message)
             }
             _ => Self::new(Kind::Io, message),
@@ -176,6 +178,8 @@ mod tests {
             CliError::from(skif::Error::Lint(LintError::Cancelled)).kind,
             Kind::Internal
         );
+        let duplicate = skif::RegistryError::DuplicateRule { id: "twice".to_owned() };
+        assert_eq!(CliError::from(skif::Error::Registry(duplicate)).kind, Kind::Internal);
     }
 
     #[test]

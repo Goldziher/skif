@@ -55,3 +55,10 @@ pub fn render(report: &Report, format: Format, options: &RenderOptions, out: &mu
         Format::Github => render_github(report, options, out),
     }
 }
+
+const _: () = {
+    fn assert_send_sync<T: Send + Sync>() {}
+    let _ = assert_send_sync::<RenderOptions>;
+    let _ = assert_send_sync::<ErrorInfo<'static>>;
+    let _ = assert_send_sync::<Format>;
+};

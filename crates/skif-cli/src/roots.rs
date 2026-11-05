@@ -3,7 +3,6 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
 
 use rayon::prelude::*;
 use serde_json::{Value, json};
@@ -129,14 +128,16 @@ pub struct Linters {
 }
 
 impl Linters {
-    pub fn build(targets: &[Target], fs: &Arc<dyn FileSystem>) -> Result<Self, CliError> {
+    /// Builds one linter per distinct configuration. They read the disk themselves: the cache a linter keeps over its
+    /// file system serves all the roots it lints, and a second layer under it would outlive a run.
+    pub fn build(targets: &[Target]) -> Result<Self, CliError> {
         let mut linters: Vec<Linter> = Vec::new();
         let mut of_target = Vec::with_capacity(targets.len());
         for target in targets {
             let index = if let Some(index) = linters.iter().position(|linter| linter.config() == &target.config) {
                 index
             } else {
-                linters.push(Linter::with_fs(&target.config, Arc::clone(fs))?);
+                linters.push(Linter::new(&target.config)?);
                 linters.len() - 1
             };
             of_target.push(index);

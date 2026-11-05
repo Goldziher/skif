@@ -49,4 +49,7 @@ const _: () = {
     let _ = assert_send_sync::<OptionsError>;
     let _ = assert_send_sync::<LintError>;
     let _ = assert_send_sync::<RegistryError>;
+    let _ = assert_send_sync::<LintContext<'static>>;
+    let _ = assert_send_sync::<Box<dyn Rule>>;
+    let _ = assert_send_sync::<Box<dyn RuleProvider>>;
 };

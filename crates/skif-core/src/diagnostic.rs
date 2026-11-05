@@ -172,6 +172,7 @@ mod tests {
                 title: "apply".into(),
                 safety: FixSafety::Unsafe,
                 ops: all_ops(),
+                preference: None,
             }],
         }
     }

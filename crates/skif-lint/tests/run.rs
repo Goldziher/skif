@@ -182,7 +182,7 @@ fn cancel_during_a_provider_skips_later_providers() {
     .unwrap();
     let cfg = config("");
     let ws = workspace(&cfg);
-    let options = RunOptions::default().with_cancel(&cancel).sequential(true);
+    let options = RunOptions::default().with_cancel(&cancel).with_sequential(true);
     assert!(matches!(run(&registry, &ws, &cfg, &options), Err(LintError::Cancelled)));
     assert_eq!(first_calls.load(Ordering::SeqCst), 1);
     assert_eq!(second_calls.load(Ordering::SeqCst), 0);
