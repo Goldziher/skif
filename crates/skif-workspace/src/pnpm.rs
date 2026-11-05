@@ -64,9 +64,10 @@ impl YamlSource {
 fn mapping_entry(line: &str) -> Option<(&str, usize, usize)> {
     let (key, after_key) = if let Some(quote) = line.chars().next().filter(|c| matches!(c, '\'' | '"')) {
         let close = line[1..].find(quote)? + 1;
-        (&line[1..close], close + 1)
+        let tail = &line[close + 1..];
+        (&line[1..close], close + 1 + tail.len() - tail.trim_start().len())
     } else {
-        let colon = line.find(':')?;
+        let colon = key_colon(line)?;
         (line[..colon].trim_end(), colon)
     };
     let rest = line[after_key..].strip_prefix(':')?;
@@ -77,6 +78,14 @@ fn mapping_entry(line: &str) -> Option<(&str, usize, usize)> {
     }
     let (_, length) = scalar(value, false);
     Some((key, value_at, length))
+}
+
+/// The `:` that ends a plain key: the first one followed by a space, a tab or the end of the line. A `:` inside a
+/// plain scalar, as in the selector `foo@npm:bar`, is part of the key.
+fn key_colon(line: &str) -> Option<usize> {
+    line.char_indices()
+        .find(|&(index, c)| c == ':' && line[index + 1..].chars().next().is_none_or(|next| matches!(next, ' ' | '\t')))
+        .map(|(index, _)| index)
 }
 
 #[derive(Debug, Default)]
@@ -251,6 +260,20 @@ mod tests {
             );
         }
         assert_eq!(source.override_span("missing"), None);
+    }
+
+    #[test]
+    fn keys_with_a_colon_and_a_space_before_the_colon_are_located() {
+        let text = "overrides:\n  foo@npm:bar: 1.0.0\n  \"a\" : ^2.0.0\n  'b'\t: 3.0.0\n  c:\n    - x\n  \"d:e\": 4.0.0\n";
+        let source = yaml(text);
+        for (selector, expected) in [
+            ("foo@npm:bar", "foo@npm:bar: 1.0.0"),
+            ("a", "\"a\" : ^2.0.0"),
+            ("b", "'b'\t: 3.0.0"),
+            ("d:e", "\"d:e\": 4.0.0"),
+        ] {
+            assert_eq!(slice(text, source.override_span(selector)), Some(expected), "{selector}");
+        }
     }
 
     #[test]
