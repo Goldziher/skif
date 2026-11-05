@@ -99,6 +99,8 @@ fn key_text(key: &str) -> String {
 pub(crate) struct Entry {
     pub key: String,
     pub value: Val,
+    /// A comment written after the value on the same line.
+    pub comment: Option<String>,
 }
 
 /// One `[table]` or `[[array-of-tables]]` element.
@@ -113,12 +115,23 @@ pub(crate) struct Section {
 impl Section {
     /// Sets `key`, replacing an earlier value.
     pub(crate) fn set(&mut self, key: &str, value: Val) {
+        self.put(key, value, None);
+    }
+
+    /// Sets `key` and writes `comment` after the value, replacing an earlier value and comment.
+    pub(crate) fn set_commented(&mut self, key: &str, value: Val, comment: String) {
+        self.put(key, value, Some(comment));
+    }
+
+    fn put(&mut self, key: &str, value: Val, comment: Option<String>) {
         if let Some(entry) = self.entries.iter_mut().find(|entry| entry.key == key) {
             entry.value = value;
+            entry.comment = comment;
         } else {
             self.entries.push(Entry {
                 key: key.to_owned(),
                 value,
+                comment,
             });
         }
     }
@@ -130,6 +143,7 @@ impl Section {
             self.entries.push(Entry {
                 key: key.to_owned(),
                 value: Val::List(Vec::new()),
+                comment: None,
             });
             self.entries.len() - 1
         });
@@ -167,7 +181,7 @@ impl Section {
         }
         let _ = writeln!(out, "{}", self.header());
         for entry in &self.entries {
-            out.push_str(&render_entry(&entry.key, &entry.value));
+            out.push_str(&render_entry(&entry.key, &entry.value, entry.comment.as_deref()));
         }
         out
     }
@@ -177,8 +191,13 @@ impl Section {
     }
 }
 
-fn render_entry(key: &str, value: &Val) -> String {
-    let one_line = format!("{} = {}\n", key_text(key), value.render());
+fn render_entry(key: &str, value: &Val, comment: Option<&str>) -> String {
+    let one_line = format!(
+        "{} = {}{}\n",
+        key_text(key),
+        value.render(),
+        comment.map_or_else(String::new, |comment| format!(" # {comment}"))
+    );
     let Val::List(items) = value else {
         return one_line;
     };
@@ -279,7 +298,7 @@ mod tests {
     #[test]
     fn long_lists_wrap() {
         let long = Val::strs((0..12).map(|n| format!("package-number-{n}")));
-        let text = render_entry("k", &long);
+        let text = render_entry("k", &long, None);
         assert!(text.starts_with("k = [\n  \"package-number-0\",\n"));
         assert!(text.ends_with("]\n"));
     }
@@ -292,6 +311,15 @@ mod tests {
         doc.table(&["lint"]).set("fail-on-warnings", Val::Bool(true));
         let text = doc.render(&[]);
         assert_eq!(text, "\n[lint]\nfail-on-warnings = true\n\n[rules]\na = \"off\"\n");
+    }
+
+    #[test]
+    fn a_comment_follows_its_value() {
+        let mut doc = Doc::default();
+        doc.table(&["rules"])
+            .set_commented("a", Val::str("off"), "why".to_owned());
+        doc.table(&["rules"]).set("b", Val::str("error"));
+        assert_eq!(doc.render(&[]), "\n[rules]\na = \"off\" # why\nb = \"error\"\n");
     }
 
     #[test]

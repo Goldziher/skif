@@ -2,7 +2,6 @@
   "name": "demo",
   "private": true,
   "scripts": {
-    "knip": "knip --dependencies --production --treat-config-hints-as-errors --include-entry-exports",
-    "knip:strict": "pnpm knip --strict --exclude binaries --workspace apps/web"
+    "knip": "knip --dependencies --exclude binaries --treat-config-hints-as-errors --include-entry-exports --workspace apps/web"
   }
 }

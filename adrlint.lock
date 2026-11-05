@@ -200,3 +200,8 @@ blake3 = "fd132199e75f583701e8a349ea6e58531ecb31ac06ae9f3313f6e9b2ef69fb0f"
 number = 40
 status = "accepted"
 blake3 = "add7617f4f3b0db3309a7a057b60a99765c25fad3bc1e7c0c0636b1e5abf63df"
+
+[adrs."adrs/0041-skif-migrate-composable-steps-full-validation-and-in-place-merge.md"]
+number = 41
+status = "accepted"
+blake3 = "09c79f7d3935aa6bf3b5889bb5d02e092e9d3d4b91ca60cac0b099d14d59cc5d"

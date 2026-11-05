@@ -52,6 +52,16 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   `--dry-run`, `--output`, `--source`, `--strict` and `--format json`; the report lists what was translated, what skif
   covers by default, what needs a human and the checks skif runs that the old tools did not. New crate `skif-migrate`;
   `skif-js-plugins` makes `load_config` and `scripts::split_commands` public. See ADR 0039 and the migration guide.
+  `--merge` edits the existing file in place (comments and order stay, new tables go at the end under a banner), treats
+  the `off` values of the `exact` profile as replaceable (`# skif migrate: not checked by <tools>`, plus a
+  `# skif migrate: sources = [...]` line), so `--from sherif` then `--from knip --merge` ends with the same checks as
+  `--from sherif,knip`; `--force` writes the existing `.skif.toml`. syncpack groups translate `**`, `hosted-git`,
+  `resolutions`, `overrides`, `pnpmOverrides` and the default scope of syncpack 15; a custom type named like a built-in
+  token is renamed; a `policy: catalog` group with selectors is left to a human. A rule that sherif ignores but syncpack
+  still checks stays on. Per-script flags that disagree are combined with a note, per-workspace knip settings stay in
+  their workspace, knip's issue types follow knip 6 (`--dependencies` covers the catalog types, production drops the dev
+  and catalog types, `classMembers` is not a type), and scripts behind `npm run -- `, `CI=1`, `cross-env`, `dotenv --`,
+  `turbo run`, `concurrently` and `sh -c` are read. See ADR 0041.
 - **Config model constructors**: every `skif-config` model struct is `#[non_exhaustive]` and builds from `Default` or a
   constructor plus `with_*` methods (`SemverGroup::new`, `DependencyFamily::new`, `VersionGroup`, `IgnoreEntry`,
   `Catalog`, `PluginOptions`, `Workspace`, `Lint`, `Policy`, `WorkspaceProtocol`, `Js`), so `ConfigBuilder::semver_group`

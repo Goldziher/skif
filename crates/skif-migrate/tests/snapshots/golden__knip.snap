@@ -6,6 +6,7 @@ expression: migration.toml
 
 # Migrated from knip by `skif migrate` (profile: full).
 # Review the report the command printed: notes marked H or X were not translated.
+# skif migrate: sources = ["knip"]
 
 [js]
 entry = ["src/index.ts!", "scripts/*.ts", "src/index.ts"]
