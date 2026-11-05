@@ -8,8 +8,9 @@
 //! human.
 //!
 //! The output is built as text so it can carry comments and a fixed section order, then parsed again with
-//! [`Config::from_toml_str`]; a failure there is a bug in this crate and is reported as
-//! [`MigrateError::Invalid`].
+//! [`Config::from_toml_str`] in full; a failure there is a bug in this crate and is reported as
+//! [`MigrateError::Invalid`]. Configuration content never reaches that error: a construct that cannot be written
+//! becomes a [`Note`].
 
 #![warn(missing_docs)]
 
@@ -114,10 +115,11 @@ pub enum MigrateError {
         /// What was expected.
         expected: &'static str,
     },
-    /// The generated configuration is not valid `skif.toml`. This is a bug in `skif-migrate`.
+    /// The generated configuration is not valid `skif.toml`. This is a bug in `skif-migrate`: nothing a user's
+    /// configuration says can cause it.
     #[error("the generated configuration is not valid: {0}")]
     Invalid(String),
-    /// The existing configuration to merge into is not valid TOML.
+    /// The existing configuration to merge into is not valid TOML, or the merge is not a valid `skif.toml`.
     #[error("cannot merge into the existing configuration: {0}")]
     Existing(String),
 }
@@ -127,7 +129,7 @@ pub enum MigrateError {
 pub struct Migration {
     /// The generated `skif.toml`.
     pub toml: String,
-    /// The text parsed back into the typed model (without the keys of the pending list in `keys.rs`).
+    /// The text parsed back into the typed model.
     pub config: Config,
     /// Everything that was translated, approximated, left to skif's defaults or left to a human.
     pub notes: Vec<Note>,
@@ -137,7 +139,8 @@ pub struct Migration {
     pub profile: Profile,
     /// The tools that were migrated.
     pub tools: Vec<Tool>,
-    doc: doc::Doc,
+    /// The sections of `toml` without the banner, which `--merge` combines with an existing file.
+    body: String,
 }
 
 impl Migration {
@@ -149,16 +152,20 @@ impl Migration {
 
     /// Combines the generated sections with the text of an existing `skif.toml`.
     ///
-    /// Sections the existing file does not have are appended after its text, comments untouched. When both files
-    /// define the same table, the two are merged as TOML values: the existing value wins on a conflict and lists are
-    /// united, but the existing comments are not preserved (the workspace has no format-preserving TOML editor).
-    /// Merging the output of a migration into itself changes nothing.
+    /// The existing file is edited in place, so its comments and order stay. Tables it does not have are appended
+    /// after its text under a banner; in a table both files define, the keys it lacks are added, lists are united and
+    /// the existing value wins on a conflict. Values the `exact` profile added (marked with a comment) are not
+    /// conflicts: a migration of another tool replaces them with the rule it does check, so migrating tools in
+    /// several steps ends with the same checks as migrating them in one command. Merging the output of a migration
+    /// into itself changes nothing.
     ///
     /// # Errors
-    /// [`MigrateError::Existing`] when `existing` is not valid TOML, and [`MigrateError::Invalid`] when the merged
-    /// text is not a valid `skif.toml`.
+    /// [`MigrateError::Existing`] when `existing` is not valid TOML or the merged text is not a valid `skif.toml`.
     pub fn merge_into(&self, existing: &str) -> Result<Merged, MigrateError> {
-        merge::merge_into(&self.doc, &self.toml, existing)
+        let merged = merge::merge_into(self, existing)?;
+        state::validate(&merged.toml)
+            .map_err(|error| MigrateError::Existing(format!("the merged configuration is not valid: {error}")))?;
+        Ok(merged)
     }
 
     /// The report as one JSON value: `version`, `profile`, `tools`, `translated`, `default`, `needs-human`,

@@ -5,7 +5,7 @@ use skif_js_syntax::ConfigValue;
 use crate::doc::Val;
 use crate::notes::{NoteClass, Tool};
 use crate::scripts::{self, Invocation};
-use crate::state::{Level, Src, State};
+use crate::state::{Src, State};
 use crate::{MigrateError, ToolInput, tables, value};
 
 /// The flags sherif has, with their short form.
@@ -26,12 +26,22 @@ struct Setting {
 }
 
 impl Setting {
+    /// Adds `values`. The setting only has an origin when something was given: a flag without values is no setting.
     fn add(&mut self, origin: &str, values: impl IntoIterator<Item = String>) {
+        let mut given = false;
         for value in values {
+            given = true;
             if !self.values.contains(&value) {
                 self.values.push(value);
             }
         }
+        if given {
+            self.mark(origin);
+        }
+    }
+
+    /// Records that a switch was on.
+    fn mark(&mut self, origin: &str) {
         if !self.origins.iter().any(|known| known == origin) {
             self.origins.push(origin.to_owned());
         }
@@ -58,7 +68,7 @@ struct Settings {
 }
 
 pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), MigrateError> {
-    state.keep(tables::sherif_rules());
+    state.keep(Tool::Sherif, tables::sherif_rules());
     let Some(package_json) = &input.package_json else {
         return Ok(());
     };
@@ -68,11 +78,40 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
     if let Some(config) = scripts::config_key(Tool::Sherif, &package) {
         read_config(state, &src, config, &mut settings);
     }
-    for invocation in scripts::invocations(&package, Tool::Sherif) {
-        read_flags(state, &src, &invocation, &mut settings);
+    let invocations = scripts::invocations(&package, Tool::Sherif);
+    for invocation in &invocations {
+        read_flags(state, &src, invocation, &mut settings);
     }
+    scripts::note_unrecognised(state, &src, &package, Tool::Sherif);
+    note_differing_runs(state, &src, &invocations);
     emit(state, &src, &settings);
     Ok(())
+}
+
+/// skif has one configuration, so the flags of separate sherif runs are merged; say so when the runs differ.
+fn note_differing_runs(state: &mut State<'_>, src: &Src, invocations: &[Invocation]) {
+    let values = [
+        ("ignore-rule", Some("r")),
+        ("ignore-package", Some("p")),
+        ("ignore-dependency", Some("i")),
+        ("select", Some("s")),
+    ];
+    let switches = [("fail-on-warnings", None)];
+    let differing = values
+        .iter()
+        .filter_map(|(long, short)| scripts::differing_values(invocations, long, *short).map(|scripts| (long, scripts)))
+        .chain(switches.iter().filter_map(|(long, short)| {
+            scripts::differing_switch(invocations, long, *short).map(|scripts| (long, scripts))
+        }));
+    for (flag, scripts) in differing {
+        state.note_with(
+            src,
+            NoteClass::Approximate,
+            format!("{scripts}: --{flag}"),
+            format!("these scripts run sherif with different --{flag} settings; skif has one configuration, so they are combined"),
+            "check that every check should use the combined setting",
+        );
+    }
 }
 
 fn rule_id(state: &mut State<'_>, src: &Src, path: &str, name: &str) -> Option<String> {
@@ -115,7 +154,7 @@ fn read_config(state: &mut State<'_>, src: &Src, config: &ConfigValue, settings:
             }
             "failOnWarnings" => {
                 if value::boolean(state, src, &path, item) == Some(true) {
-                    settings.fail_on_warnings.add(&path, []);
+                    settings.fail_on_warnings.mark(&path);
                 }
             }
             "select" => {
@@ -125,12 +164,12 @@ fn read_config(state: &mut State<'_>, src: &Src, config: &ConfigValue, settings:
             }
             "fix" => {
                 if value::boolean(state, src, &path, item) == Some(true) {
-                    settings.fix.add(&path, []);
+                    settings.fix.mark(&path);
                 }
             }
             "noInstall" => {
                 if value::boolean(state, src, &path, item) == Some(true) {
-                    settings.no_install.add(&path, []);
+                    settings.no_install.mark(&path);
                 }
             }
             "$schema" => {}
@@ -174,16 +213,16 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, setting
         invocation.values("ignore-dependency", Some("i")),
     );
     if invocation.has("fail-on-warnings", None) {
-        settings.fail_on_warnings.add(&origin("--fail-on-warnings"), []);
+        settings.fail_on_warnings.mark(&origin("--fail-on-warnings"));
     }
     if let Some(select) = invocation.values("select", Some("s")).pop() {
         select_value(state, src, &origin("--select"), &select, settings);
     }
     if invocation.has("fix", Some("f")) {
-        settings.fix.add(&origin("--fix"), []);
+        settings.fix.mark(&origin("--fix"));
     }
     if invocation.has("no-install", None) {
-        settings.no_install.add(&origin("--no-install"), []);
+        settings.no_install.mark(&origin("--no-install"));
     }
     let known = |flag: &str| {
         INERT.contains(&flag)
@@ -209,15 +248,7 @@ fn has_version(dependency: &str) -> bool {
 
 fn emit(state: &mut State<'_>, src: &Src, settings: &Settings) {
     if !settings.ignore_rule.is_empty() {
-        for id in &settings.ignore_rule.values {
-            state.set_level(id, Level::Off);
-        }
-        state.note(
-            src,
-            NoteClass::Exact,
-            settings.ignore_rule.origin(),
-            format!("turned off in [rules]: {}", settings.ignore_rule.values.join(", ")),
-        );
+        state.ignore_rules(src, settings.ignore_rule.origin(), settings.ignore_rule.values.clone());
     }
     if !settings.ignore_package.is_empty() {
         state
