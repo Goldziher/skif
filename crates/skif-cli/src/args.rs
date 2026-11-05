@@ -308,7 +308,9 @@ mod tests {
         }
     }
 
-    /// The CLI reference is written by hand; this fails when a flag is added to the command line and not to it.
+    /// The CLI reference is written by hand; this fails when a flag is added to the command line and not to it. A flag
+    /// counts when it is a whole code span (`--fix`) or opens one with its value (`--format <...>`), so a longer flag
+    /// (`--fix-unsafe`) or prose does not document a shorter one.
     #[test]
     fn every_long_flag_is_in_the_cli_reference() {
         use clap::CommandFactory;
@@ -319,7 +321,7 @@ mod tests {
         flags.remove("version");
         let missing: Vec<&String> = flags
             .iter()
-            .filter(|flag| !reference.contains(&format!("--{flag}")))
+            .filter(|flag| !reference.contains(&format!("`--{flag}`")) && !reference.contains(&format!("`--{flag} <")))
             .collect();
         assert!(missing.is_empty(), "flags missing from reference/cli.mdx: {missing:?}");
     }
