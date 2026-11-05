@@ -207,7 +207,7 @@ pub(crate) fn pattern_list(
             path.to_owned()
         };
         if let Some(entry) = pattern_entry(item, glob) {
-            out.push(entry)
+            out.push(entry);
         } else {
             let message = if matches!(item, ConfigValue::Unknown) {
                 "the value is only known at run time"
