@@ -23,6 +23,7 @@ on:
       - scripts/check-npm-tarballs.sh
       - scripts/check-release-gate.sh
       - scripts/check-versions.sh
+      - scripts/e2e/resolve-pm-version.sh
       - scripts/load-addon.mjs
       - scripts/npm-published.sh
       - scripts/publish-crates.sh
@@ -860,7 +861,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # ADR 0027: every non-end-of-life Node line (22, 24 and 26) and the latest Bun 1.x.
+        # ADR 0027: every non-end-of-life Node line (22, 24 and 26) and the newest Bun 1.x.
         runtime: [node-22, node-24, node-26, bun]
     steps:
       - name: Setup Node.js
@@ -870,11 +871,23 @@ jobs:
           config-ref: ${{ github.sha }}
           tools: node
 
+      - name: Checkout (for the Bun version resolver)
+        if: ${{ matrix.runtime == 'bun' }}
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+          sparse-checkout: scripts/e2e
+
+      - name: Resolve the newest Bun 1.x
+        id: bun
+        if: ${{ matrix.runtime == 'bun' }}
+        run: echo "version=$(scripts/e2e/resolve-pm-version.sh bun newest 1)" >> "$GITHUB_OUTPUT"
+
       - name: Setup Bun
         if: ${{ matrix.runtime == 'bun' }}
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: ${{ steps.bun.outputs.version }}
 
       - name: Run the published package
         env:
@@ -980,7 +993,7 @@ jobs:
           fi
 
   update_major_tag:
-    name: Move the major version tag
+    name: Move the floating version tag
     needs: [meta, verify_binstall, verify_npm]
     if: needs.meta.outputs.prerelease != 'true' && needs.verify_binstall.result == 'success' && needs.verify_npm.result == 'success'
     permissions:
@@ -993,16 +1006,21 @@ jobs:
           fetch-depth: 0
           ref: ${{ needs.meta.outputs.tag }}
 
-      - name: Move the major tag to this release
+      - name: Move the floating tag to this release
         env:
           VERSION: ${{ needs.meta.outputs.version }}
           TAG: ${{ needs.meta.outputs.tag }}
         run: |
           set -euo pipefail
-          major="v${VERSION%%.*}"
+          # A stable major floats as `vN`. A 0.x minor may break, so a 0.x release floats as `v0.M` and `v0` never moves.
+          if [[ "${VERSION%%.*}" == "0" ]]; then
+            floating="v${VERSION%.*}"
+          else
+            floating="v${VERSION%%.*}"
+          fi
           sha="$(git rev-list -n1 "$TAG")"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -f "$major" "$sha"
-          git push -f origin "refs/tags/${major}"
+          git tag -f "$floating" "$sha"
+          git push -f origin "refs/tags/${floating}"
           echo "Moved ${major} to ${TAG} (${sha})"
