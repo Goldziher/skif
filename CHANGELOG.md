@@ -13,6 +13,16 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Added
 
+- **Override sections and custom types in the version policies**: `dependency-types` now also names `local`,
+  `resolutions`, `overrides`, `pnpm-overrides` (`pnpm.overrides` and the `overrides` of `pnpm-workspace.yaml`) and the
+  entries of the new `[[custom-types]]` (`name`, dotted `path`, `strategy` = `version`, `name@version` or
+  `versions-by-name`). Their versions are instances like dependency entries, so version and semver groups pin, ban,
+  align and range them (`engines.node`, `packageManager`, overrides), with fixes in `package.json` or
+  `pnpm-workspace.yaml`. They are opt-in: the default scope is unchanged (ADR 0037).
+- **Ignored semver groups**: `[[semver-groups]]` takes `ignored = true` instead of `range` (syncpack `isIgnored` and
+  `isDisabled`); `SemverGroup::range` is now an `Option` and `SemverGroup::ignored()` builds such a group.
+- **Built-in dependency families from sherif**: `turborepo`, `eslint-stylistic` and `lexical`, the full Storybook list
+  and the Prisma adapters.
 - **Config model constructors**: every `skif-config` model struct is `#[non_exhaustive]` and builds from `Default` or a
   constructor plus `with_*` methods (`SemverGroup::new`, `DependencyFamily::new`, `VersionGroup`, `IgnoreEntry`,
   `Catalog`, `PluginOptions`, `Workspace`, `Lint`, `Policy`, `WorkspaceProtocol`, `Js`), so `ConfigBuilder::semver_group`
