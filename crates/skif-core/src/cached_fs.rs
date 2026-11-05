@@ -340,6 +340,32 @@ mod tests {
         }
     }
 
+    /// Like [`Counting`], but a `kind` is one lookup, as it is on a real file system.
+    struct OneStatKind(Counting);
+
+    impl FileSystem for OneStatKind {
+        fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+            self.0.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+            self.0.read_dir(path)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.0.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.0.is_dir(path)
+        }
+
+        fn kind(&self, path: &Path) -> PathKind {
+            self.0.stats.fetch_add(1, Ordering::SeqCst);
+            self.0.inner.kind(path)
+        }
+    }
+
     fn cached() -> CachedFs<Counting> {
         CachedFs::new(Counting::new(
             MemoryFs::new()
@@ -491,7 +517,27 @@ mod tests {
     }
 
     #[test]
-    fn kind_reports_file_directory_and_nothing_with_one_stat_each() {
+    fn kind_reports_file_directory_and_nothing_with_one_lookup_each() {
+        let fs = CachedFs::new(OneStatKind(Counting::new(
+            MemoryFs::new()
+                .with_file("/ws/package.json", "{}")
+                .with_file("/ws/src/index.ts", "export {}"),
+        )));
+        assert_eq!(fs.kind(Path::new("/ws/package.json")), PathKind::FILE);
+        assert_eq!(count(&fs.inner().0.stats), 1);
+        assert_eq!(fs.kind(Path::new("/ws/src")), PathKind::DIR);
+        assert_eq!(count(&fs.inner().0.stats), 2);
+        assert_eq!(fs.kind(Path::new("/other/x")), PathKind::NONE);
+        assert_eq!(count(&fs.inner().0.stats), 3);
+        // Answered again from memory, whichever way it is asked.
+        assert_eq!(fs.kind(Path::new("/ws/package.json")), PathKind::FILE);
+        assert!(fs.is_file(Path::new("/ws/package.json")) && !fs.is_dir(Path::new("/ws/package.json")));
+        assert!(fs.is_dir(Path::new("/ws/src")) && !fs.is_file(Path::new("/ws/src")));
+        assert_eq!(count(&fs.inner().0.stats), 3);
+    }
+
+    #[test]
+    fn a_file_system_without_a_kind_lookup_costs_a_file_and_a_directory_check() {
         let fs = cached();
         assert_eq!(fs.kind(Path::new("/ws/package.json")), PathKind::FILE);
         assert_eq!(fs.kind(Path::new("/ws/src")), PathKind::DIR);
