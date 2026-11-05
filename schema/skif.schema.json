@@ -61,7 +61,8 @@
       "description": "`[policy]`: defaults for the version policies.",
       "default": {
         "prefer": "highest",
-        "dependency-types": []
+        "dependency-types": [],
+        "override-reading": "skif"
       }
     },
     "version-groups": {
@@ -387,6 +388,11 @@
           },
           "description": "Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`); name `peer` or `optional` to include them.",
           "default": []
+        },
+        "override-reading": {
+          "$ref": "#/$defs/OverrideReading",
+          "description": "How `resolutions`, `overrides` and `pnpm-overrides` entries become dependency instances: `skif` (default) names\nthe package a selector replaces, `syncpack` reads them as syncpack 15 does.",
+          "default": "skif"
         }
       },
       "description": "`[policy]`"
@@ -405,6 +411,21 @@
         }
       ],
       "description": "Which version `preferred-semver` favours."
+    },
+    "OverrideReading": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "skif",
+          "description": "The dependency of an entry is the package its selector replaces (`parent>child` and `child@<2` are `child`),\nnpm's nested objects are read, and `pnpm.overrides` of every `package.json` is read."
+        },
+        {
+          "type": "string",
+          "const": "syncpack",
+          "description": "As syncpack 15 reads them: the key of an entry is the dependency name, so `parent>child` and `child@<2` are\ndependencies of their own; only string values count (nested objects are skipped); and `pnpm-overrides` is the\n`overrides` of `pnpm-workspace.yaml` only."
+        }
+      ],
+      "description": "How the override sections (`resolutions`, `overrides`, `pnpm-overrides`) are read as dependency instances."
     },
     "VersionGroup": {
       "type": "object",
