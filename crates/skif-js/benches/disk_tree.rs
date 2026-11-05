@@ -3,8 +3,10 @@
 //! The tree has 100 packages with 210 directories of one module each (more than 20 000 directories and 21 000
 //! modules), a pnpm-style `node_modules` (a virtual store at the root, symbolic links in every package) and a git
 //! index. It is generated once per run in the system's temporary directory. The groups compare the directory walk with
-//! the git index (`[js] discovery`), and the probing of file names that resolution does. Without `git` on the `PATH`
-//! the index groups are skipped.
+//! the git index (`[js] discovery`: `auto` checks each directory against the index time, `git` trusts the index), the
+//! listing of every directory, and the probing of file names that resolution does through the index overlay. Every
+//! mode must report the same diagnostics as the walk before it is timed. Without `git` on the `PATH` the index groups
+//! are skipped.
 
 #![allow(clippy::expect_used)]
 
@@ -18,7 +20,7 @@ use std::sync::Arc;
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use skif_config::{Config, JsDiscovery};
 use skif_core::{CachedFs, FileSystem, OsFs};
-use skif_js::JsProvider;
+use skif_js::{JsProvider, discovery_file_system};
 use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
 
@@ -96,24 +98,49 @@ fn generate(root: &Path) {
     }
 }
 
+/// Runs git without the user's configuration, so the repository is a plain SHA-1 one whatever the host sets.
 fn git(root: &Path, args: &[&str]) -> bool {
     Command::new("git")
+        .args(["-c", "init.defaultObjectFormat=sha1", "-c", "core.fsmonitor=false"])
         .args(args)
         .current_dir(root)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
 }
 
-fn run(workspace: &Workspace, discovery: JsDiscovery) -> usize {
+/// The diagnostics of one run, one line each, in a stable order.
+fn run(workspace: &Workspace, discovery: JsDiscovery) -> Vec<String> {
     let mut config = Config::default();
     config.js.discovery = discovery;
     let provider = JsProvider::new(Arc::new(CachedFs::new(OsFs)));
     let registry = Registry::new(vec![Box::new(provider)]).expect("the JS provider registers");
-    run_unsorted(&registry, workspace, &config, &RunOptions::default())
+    let mut lines: Vec<String> = run_unsorted(&registry, workspace, &config, &RunOptions::default())
         .expect("the JS run succeeds")
-        .len()
+        .iter()
+        .map(|diagnostic| {
+            format!(
+                "{} {} {}",
+                diagnostic.rule.as_str(),
+                diagnostic.location.path.display(),
+                diagnostic.message
+            )
+        })
+        .collect();
+    lines.sort();
+    lines
+}
+
+/// The file system the analysis of `workspace` lists through under `discovery`, over a fresh cache.
+fn overlay(workspace: &Workspace, discovery: JsDiscovery) -> Arc<dyn FileSystem> {
+    let mut config = Config::default();
+    config.js.discovery = discovery;
+    let fs: Arc<dyn FileSystem> = Arc::new(CachedFs::new(OsFs));
+    discovery_file_system(&fs, workspace, &config)
 }
 
 fn bench_discovery(c: &mut Criterion) {
@@ -124,14 +151,25 @@ fn bench_discovery(c: &mut Criterion) {
     let workspace =
         Workspace::discover_with_fs(root, &Config::default(), &OsFs).expect("the generated workspace discovers");
 
+    let walked = run(&workspace, JsDiscovery::Walk);
+    let mut modes = vec![("walk", JsDiscovery::Walk)];
+    if indexed {
+        modes.push(("auto", JsDiscovery::Auto));
+        modes.push(("git-index", JsDiscovery::Git));
+    }
+    for (name, discovery) in &modes {
+        assert_eq!(
+            &run(&workspace, *discovery),
+            &walked,
+            "the {name} listing must give the diagnostics of the walk"
+        );
+    }
+
     let mut group = c.benchmark_group("js_disk_tree");
     group.sample_size(10);
-    group.bench_function(BenchmarkId::new("analysis", "walk"), |b| {
-        b.iter(|| black_box(run(&workspace, JsDiscovery::Walk)));
-    });
-    if indexed {
-        group.bench_function(BenchmarkId::new("analysis", "git-index"), |b| {
-            b.iter(|| black_box(run(&workspace, JsDiscovery::Git)));
+    for (name, discovery) in &modes {
+        group.bench_function(BenchmarkId::new("analysis", name), |b| {
+            b.iter(|| black_box(run(&workspace, *discovery).len()));
         });
     }
     group.finish();
@@ -140,24 +178,45 @@ fn bench_discovery(c: &mut Criterion) {
         .flat_map(|package| (0..DIRS_PER_PACKAGE).map(move |d| format!("packages/p{package}/src/d{d}")))
         .map(|relative| root.join(relative))
         .collect();
+
+    let mut group = c.benchmark_group("js_listing");
+    group.sample_size(10);
+    for (name, discovery) in &modes {
+        group.bench_function(BenchmarkId::new("every_directory", name), |b| {
+            b.iter_batched(
+                || overlay(&workspace, *discovery),
+                |fs| {
+                    directories
+                        .iter()
+                        .map(|directory| fs.read_dir_shared(directory).map_or(0, |entries| entries.len()))
+                        .sum::<usize>()
+                },
+                BatchSize::PerIteration,
+            );
+        });
+    }
+    group.finish();
+
     let mut group = c.benchmark_group("js_probe");
     group.sample_size(10);
-    group.bench_function("extensions_per_directory", |b| {
-        b.iter_batched(
-            || CachedFs::new(OsFs),
-            |fs| {
-                directories
-                    .iter()
-                    .filter(|directory| {
-                        ["mod.tsx", "mod.d.ts", "mod.js", "mod.mjs", "mod.ts"]
-                            .iter()
-                            .any(|name| fs.is_file(&directory.join(name)))
-                    })
-                    .count()
-            },
-            BatchSize::PerIteration,
-        );
-    });
+    for (name, discovery) in &modes {
+        group.bench_function(BenchmarkId::new("extensions_per_directory", name), |b| {
+            b.iter_batched(
+                || overlay(&workspace, *discovery),
+                |fs| {
+                    directories
+                        .iter()
+                        .filter(|directory| {
+                            ["mod.tsx", "mod.d.ts", "mod.js", "mod.mjs", "mod.ts"]
+                                .iter()
+                                .any(|name| fs.is_file(&directory.join(name)))
+                        })
+                        .count()
+                },
+                BatchSize::PerIteration,
+            );
+        });
+    }
     group.finish();
 }
 
