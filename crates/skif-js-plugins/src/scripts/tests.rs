@@ -721,9 +721,16 @@ fn the_node_test_runner_is_detected_and_custom_reporters_are_packages() {
     assert!(parse("cross-env A=1 node --test --test-reporter=spec test/").node_test);
     assert!(!parse("node app.js").node_test);
     let package_names = |script: &str| -> Vec<String> {
-        parse(script).dependencies.into_iter().map(|dependency| dependency.name).collect()
+        parse(script)
+            .dependencies
+            .into_iter()
+            .map(|dependency| dependency.name)
+            .collect()
     };
-    assert_eq!(package_names("node --test --test-reporter=custom-reporter"), ["custom-reporter"]);
+    assert_eq!(
+        package_names("node --test --test-reporter=custom-reporter"),
+        ["custom-reporter"]
+    );
     assert_eq!(package_names("node --test --test-reporter spec"), Vec::<String>::new());
     assert_eq!(package_names("node --test-reporter=lcov --test"), Vec::<String>::new());
 }

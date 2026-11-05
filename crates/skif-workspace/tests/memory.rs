@@ -232,7 +232,10 @@ fn yarn_catalogs_come_from_yarnrc() {
     assert_eq!(workspace.catalogs.resolve("react", "catalog:"), Some("^18.3.1"));
     assert_eq!(workspace.catalogs.resolve("react", "catalog:legacy"), Some("^17.0.2"));
     assert_eq!(workspace.catalogs.source(), Some(Path::new(".yarnrc.yml")));
-    assert_eq!(workspace.yarnrc.as_ref().map(|yarnrc| yarnrc.path.as_path()), Some(Path::new(".yarnrc.yml")));
+    assert_eq!(
+        workspace.yarnrc.as_ref().map(|yarnrc| yarnrc.path.as_path()),
+        Some(Path::new(".yarnrc.yml"))
+    );
 }
 
 #[test]

@@ -92,7 +92,9 @@ struct ImportBinding {
 fn import_bindings(program: &Program<'_>) -> HashMap<String, ImportBinding> {
     let mut bindings = HashMap::new();
     for stmt in &program.body {
-        let Statement::ImportDeclaration(d) = stmt else { continue };
+        let Statement::ImportDeclaration(d) = stmt else {
+            continue;
+        };
         let type_only = d.import_kind.is_type();
         let Some(specifiers) = &d.specifiers else { continue };
         for s in specifiers {

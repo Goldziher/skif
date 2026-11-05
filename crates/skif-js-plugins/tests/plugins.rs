@@ -997,7 +997,8 @@ fn table_with_enabled_false_disables() {
         }),
     );
     let results = resolve_with(&[], &["tsup"], true, &plugins);
-    assert_eq!(results, [] as [(&str, skif_js_plugins::PluginOutput); 0]);
+    let enabled: Vec<&str> = results.iter().map(|(id, _)| *id).collect();
+    assert_eq!(enabled, ["node"], "only the always-on node plugin runs");
 }
 
 #[test]
@@ -1744,7 +1745,10 @@ fn the_node_plugin_adds_the_test_runner_entries_only_for_a_script_that_runs_it()
     assert_entries(&out.production_entries, &["server.js"]);
     assert_entries(
         &out.entries,
-        &["**/test/**/*.{cjs,mjs,js,cts,mts,ts}", "**/test-*.{cjs,mjs,js,cts,mts,ts}"],
+        &[
+            "**/test/**/*.{cjs,mjs,js,cts,mts,ts}",
+            "**/test-*.{cjs,mjs,js,cts,mts,ts}",
+        ],
     );
     let results = resolve_with_scripts(&[], &[], &[("start", "node app.js")]);
     let out = output(&results, "node");
@@ -1762,13 +1766,20 @@ fn docusaurus_declares_its_virtual_modules_and_reads_the_babel_config() {
     for pattern in ["@generated/*", "@theme/*", "@theme-original/*"] {
         assert!(has_virtual(out, pattern), "{pattern}: {:?}", out.virtual_modules);
     }
-    assert!(out.virtual_modules.iter().any(|pattern| pattern.starts_with("@docusaurus/{BrowserOnly,")));
+    assert!(
+        out.virtual_modules
+            .iter()
+            .any(|pattern| pattern.starts_with("@docusaurus/{BrowserOnly,"))
+    );
     assert!(out.aliases.contains(&alias("@site", Some("."))), "{:?}", out.aliases);
     assert_deps(out, &["babel-preset-custom"]);
     assert!(out.config_files.iter().any(|file| file.ends_with("babel.config.js")));
 
     let results = resolve(&files, &["@docusaurus/core"]);
-    assert!(!has_virtual(output(&results, "docusaurus"), "@theme/*"), "no theme without the classic theme");
+    assert!(
+        !has_virtual(output(&results, "docusaurus"), "@theme/*"),
+        "no theme without the classic theme"
+    );
 }
 
 #[test]
@@ -1779,7 +1790,11 @@ fn nuxt_declares_its_virtual_modules_and_source_aliases() {
         assert!(has_virtual(out, pattern), "{pattern}: {:?}", out.virtual_modules);
     }
     for find in ["~", "@"] {
-        assert!(out.aliases.contains(&alias(find, Some("."))), "{find}: {:?}", out.aliases);
+        assert!(
+            out.aliases.contains(&alias(find, Some("."))),
+            "{find}: {:?}",
+            out.aliases
+        );
     }
     assert!(out.aliases.contains(&alias("~~", Some("."))));
 
@@ -1801,15 +1816,28 @@ fn angular_links_the_typescript_and_karma_configs_of_its_targets() {
     } } } }"#;
     let files = [
         ("angular.json", angular),
-        ("projects/web/tsconfig.app.json", r#"{"compilerOptions":{"types":["node"]}}"#),
-        ("projects/web/tsconfig.spec.json", r#"{"compilerOptions":{"jsxImportSource":"preact"}}"#),
-        ("projects/web/karma.conf.js", "module.exports = { frameworks: ['jasmine'] };"),
+        (
+            "projects/web/tsconfig.app.json",
+            r#"{"compilerOptions":{"types":["node"]}}"#,
+        ),
+        (
+            "projects/web/tsconfig.spec.json",
+            r#"{"compilerOptions":{"jsxImportSource":"preact"}}"#,
+        ),
+        (
+            "projects/web/karma.conf.js",
+            "module.exports = { frameworks: ['jasmine'] };",
+        ),
     ];
     let results = resolve(&files, &["@angular/cli"]);
     let out = output(&results, "angular");
     assert_deps(out, &["@types/node", "preact", "karma-jasmine"]);
     for file in ["tsconfig.app.json", "tsconfig.spec.json", "karma.conf.js"] {
-        assert!(out.config_files.iter().any(|path| path.ends_with(file)), "{file}: {:?}", out.config_files);
+        assert!(
+            out.config_files.iter().any(|path| path.ends_with(file)),
+            "{file}: {:?}",
+            out.config_files
+        );
     }
 }
 

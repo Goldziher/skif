@@ -228,11 +228,13 @@ mod tests {
         const ROOT: &str = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0"}"#;
         const YAML: &str = "packages:\n  - \"packages/*\"\ncatalog:\n  \"react\": \"^18.3.1\"\n";
         let package = |name: &str, react: &str| {
-            format!(
-                r#"{{"name":"{name}","version":"1.0.0","private":true,"dependencies":{{"react":"{react}"}}}}"#
-            )
+            format!(r#"{{"name":"{name}","version":"1.0.0","private":true,"dependencies":{{"react":"{react}"}}}}"#)
         };
-        let (app, lib, web) = (package("app", "catalog:"), package("lib", "^18.2.0"), package("web", "^18.3.1"));
+        let (app, lib, web) = (
+            package("app", "catalog:"),
+            package("lib", "^18.2.0"),
+            package("web", "^18.3.1"),
+        );
         let files = [
             ("package.json", ROOT),
             ("pnpm-workspace.yaml", YAML),
@@ -248,7 +250,9 @@ mod tests {
             fixed
                 .iter()
                 .find(|(candidate, _)| candidate == path)
-                .is_some_and(|(_, text)| text.contains(r#""react":"catalog:""#) || text.contains(r#""react": "catalog:""#))
+                .is_some_and(|(_, text)| {
+                    text.contains(r#""react":"catalog:""#) || text.contains(r#""react": "catalog:""#)
+                })
         };
         assert!(fixed_react("packages/lib/package.json") && fixed_react("packages/web/package.json"));
         let mismatch_off = "[rules]\ncatalog-mismatch = \"off\"\n";

@@ -57,7 +57,11 @@ impl Plugin for Nuxt {
                 target: Some(target.to_owned()),
             })
             .collect();
-        out.extend(VIRTUAL_MODULES.iter().map(|pattern| PluginInput::VirtualModule((*pattern).to_owned())));
+        out.extend(
+            VIRTUAL_MODULES
+                .iter()
+                .map(|pattern| PluginInput::VirtualModule((*pattern).to_owned())),
+        );
         out
     }
 

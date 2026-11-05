@@ -60,12 +60,19 @@ fn a_module_only_read_through_a_namespace_reports_its_unread_exports_under_the_n
     let diagnostics = lint_files(
         &[
             PACKAGE,
-            ("index.ts", "import * as shapes from './shapes';\nexport const area = shapes.circle(1);\n"),
+            (
+                "index.ts",
+                "import * as shapes from './shapes';\nexport const area = shapes.circle(1);\n",
+            ),
             SHAPES,
         ],
         "",
     );
-    assert_eq!(found(&diagnostics, "unused-namespace-exports"), ["shapes.ts: square"], "{diagnostics:#?}");
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-exports"),
+        ["shapes.ts: square"],
+        "{diagnostics:#?}"
+    );
     assert_eq!(
         found(&diagnostics, "unused-namespace-types"),
         ["shapes.ts: Id", "shapes.ts: Shape"],
@@ -88,7 +95,11 @@ fn a_type_read_through_the_namespace_is_used() {
         ],
         "",
     );
-    assert_eq!(found(&diagnostics, "unused-namespace-types"), ["shapes.ts: Id"], "{diagnostics:#?}");
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-types"),
+        ["shapes.ts: Id"],
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]
@@ -96,13 +107,23 @@ fn a_module_that_is_also_imported_by_name_keeps_the_plain_rules() {
     let diagnostics = lint_files(
         &[
             PACKAGE,
-            ("index.ts", "import { circle } from './shapes';\nexport const area = circle(1);\n"),
+            (
+                "index.ts",
+                "import { circle } from './shapes';\nexport const area = circle(1);\n",
+            ),
             SHAPES,
         ],
         "",
     );
-    assert_eq!(found(&diagnostics, "unused-exports"), ["shapes.ts: square"], "{diagnostics:#?}");
-    assert_eq!(found(&diagnostics, "unused-types"), ["shapes.ts: Id", "shapes.ts: Shape"]);
+    assert_eq!(
+        found(&diagnostics, "unused-exports"),
+        ["shapes.ts: square"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-types"),
+        ["shapes.ts: Id", "shapes.ts: Shape"]
+    );
     assert_eq!(found(&diagnostics, "unused-namespace-exports"), none());
     assert_eq!(found(&diagnostics, "unused-namespace-types"), none());
 }
@@ -116,7 +137,11 @@ fn a_namespace_used_as_a_whole_uses_every_export() {
     ] {
         let source = format!("import * as shapes from './shapes';\n{body}");
         let diagnostics = lint_files(&[PACKAGE, ("index.ts", source.as_str()), SHAPES], "");
-        assert_eq!(found(&diagnostics, "unused-namespace-exports"), none(), "{body}: {diagnostics:#?}");
+        assert_eq!(
+            found(&diagnostics, "unused-namespace-exports"),
+            none(),
+            "{body}: {diagnostics:#?}"
+        );
         assert_eq!(found(&diagnostics, "unused-namespace-types"), none(), "{body}");
         assert_eq!(found(&diagnostics, "unused-exports"), none(), "{body}");
     }
@@ -124,11 +149,17 @@ fn a_namespace_used_as_a_whole_uses_every_export() {
 
 #[test]
 fn a_namespace_re_exported_with_export_star_as_forwards_only_the_members_read_through_it() {
-    for barrel in ["export * as shapes from './shapes';\n", "import * as shapes from './shapes';\nexport { shapes };\n"] {
+    for barrel in [
+        "export * as shapes from './shapes';\n",
+        "import * as shapes from './shapes';\nexport { shapes };\n",
+    ] {
         let diagnostics = lint_files(
             &[
                 PACKAGE,
-                ("index.ts", "import { shapes } from './barrel';\nexport const area = shapes.circle(1);\n"),
+                (
+                    "index.ts",
+                    "import { shapes } from './barrel';\nexport const area = shapes.circle(1);\n",
+                ),
                 ("barrel.ts", barrel),
                 SHAPES,
             ],
@@ -139,23 +170,37 @@ fn a_namespace_re_exported_with_export_star_as_forwards_only_the_members_read_th
             ["shapes.ts: square"],
             "{barrel}: {diagnostics:#?}"
         );
-        assert_eq!(found(&diagnostics, "unused-exports"), none(), "{barrel}: {diagnostics:#?}");
+        assert_eq!(
+            found(&diagnostics, "unused-exports"),
+            none(),
+            "{barrel}: {diagnostics:#?}"
+        );
     }
 }
 
 #[test]
 fn a_re_exported_namespace_used_as_a_whole_uses_every_export() {
-    for barrel in ["export * as shapes from './shapes';\n", "import * as shapes from './shapes';\nexport { shapes };\n"] {
+    for barrel in [
+        "export * as shapes from './shapes';\n",
+        "import * as shapes from './shapes';\nexport { shapes };\n",
+    ] {
         let diagnostics = lint_files(
             &[
                 PACKAGE,
-                ("index.ts", "import { shapes } from './barrel';\nexport const all = Object.values(shapes);\n"),
+                (
+                    "index.ts",
+                    "import { shapes } from './barrel';\nexport const all = Object.values(shapes);\n",
+                ),
                 ("barrel.ts", barrel),
                 SHAPES,
             ],
             "",
         );
-        assert_eq!(found(&diagnostics, "unused-namespace-exports"), none(), "{barrel}: {diagnostics:#?}");
+        assert_eq!(
+            found(&diagnostics, "unused-namespace-exports"),
+            none(),
+            "{barrel}: {diagnostics:#?}"
+        );
         assert_eq!(found(&diagnostics, "unused-exports"), none(), "{barrel}");
     }
 }
@@ -165,16 +210,31 @@ fn an_unused_re_exported_binding_is_reported_by_the_barrel() {
     let diagnostics = lint_files(
         &[
             PACKAGE,
-            ("index.ts", "import { other } from './barrel';\nexport const o = other;\n"),
-            ("barrel.ts", "import * as shapes from './shapes';\nexport { shapes };\nexport const other = 1;\n"),
+            (
+                "index.ts",
+                "import { other } from './barrel';\nexport const o = other;\n",
+            ),
+            (
+                "barrel.ts",
+                "import * as shapes from './shapes';\nexport { shapes };\nexport const other = 1;\n",
+            ),
             SHAPES,
         ],
         "",
     );
-    assert_eq!(found(&diagnostics, "unused-exports"), ["barrel.ts: shapes", "shapes.ts: circle", "shapes.ts: square"].map(String::from).to_vec(), "{diagnostics:#?}");
+    assert_eq!(
+        found(&diagnostics, "unused-exports"),
+        ["barrel.ts: shapes", "shapes.ts: circle", "shapes.ts: square"]
+            .map(String::from)
+            .to_vec(),
+        "{diagnostics:#?}"
+    );
 }
 
-const UTIL: (&str, &str) = ("src/util.ts", "export const double = (n: number) => n * 2;\nexport const triple = (n: number) => n * 3;\n");
+const UTIL: (&str, &str) = (
+    "src/util.ts",
+    "export const double = (n: number) => n * 2;\nexport const triple = (n: number) => n * 3;\n",
+);
 
 fn component_run(component: &str, source: &str) -> Vec<Diagnostic> {
     let main = format!("import App from './{component}';\nexport default App;\n");
@@ -213,7 +273,11 @@ fn members_read_in_component_templates_count_as_used() {
             ["src/util.ts: triple"],
             "{component}: {diagnostics:#?}"
         );
-        assert_eq!(found(&diagnostics, "unused-exports"), none(), "{component}: {diagnostics:#?}");
+        assert_eq!(
+            found(&diagnostics, "unused-exports"),
+            none(),
+            "{component}: {diagnostics:#?}"
+        );
         assert_eq!(found(&diagnostics, "unused-files"), none(), "{component}");
     }
 }
@@ -238,7 +302,11 @@ fn a_namespace_used_as_a_whole_in_a_template_uses_every_export() {
         "<script setup lang=\"ts\">\nimport * as util from './util';\n</script>\n<template><Panel :tools=\"util\" /></template>\n",
     );
     assert_eq!(found(&diagnostics, "unused-exports"), none(), "{diagnostics:#?}");
-    assert_eq!(found(&diagnostics, "unused-namespace-exports"), none(), "{diagnostics:#?}");
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-exports"),
+        none(),
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]
@@ -293,7 +361,10 @@ fn diagnostics_in_a_component_point_into_the_original_file() {
         ],
         "",
     );
-    let diagnostic = diagnostics.iter().find(|d| d.rule.as_str() == "unused-exports").unwrap();
+    let diagnostic = diagnostics
+        .iter()
+        .find(|d| d.rule.as_str() == "unused-exports")
+        .unwrap();
     let span = diagnostic.location.span.unwrap();
     assert_eq!(&source[span.start as usize..span.end as usize], "spare");
     assert_eq!((span.start_line, span.start_col), (3, 14));
