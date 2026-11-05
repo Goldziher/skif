@@ -65,8 +65,9 @@ pub(crate) fn has_foreign_scheme(specifier: &str) -> bool {
     scheme.len() > 1 && scheme.bytes().all(|b| b.is_ascii_lowercase())
 }
 
-/// Whether a specifier starts the way a package name does (`lodash`, `@scope/pkg`, `~pkg`), whether or not such a
-/// package exists. `pkg:x` schemes do not.
+/// Whether a specifier starts the way a package name does (`lodash`, `@scope/pkg`), whether or not such a
+/// package exists. `pkg:x` schemes and a leading `~` (`~lodash/x`, which knip does not take for a package either)
+/// do not.
 pub(crate) fn starts_like_package_name(specifier: &str) -> bool {
     let bytes = specifier.as_bytes();
     let name_start = |b: u8| b.is_ascii_alphanumeric();

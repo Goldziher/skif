@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use globset::Glob;
+use globset::{Glob, GlobBuilder, GlobMatcher};
 use indexmap::IndexMap;
 use skif_config::{Config, IgnoreExportsUsedInFile, Js, JsWorkspace, PackageJs};
 use skif_core::FileSystem;
@@ -146,7 +146,14 @@ impl Configured {
 ///
 /// The top-level `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and `ignore-members` apply to every
 /// package through the global lists and are not copied into the root's own.
-fn configured(config: &Config, name: &str, abs_dir: &Path, dir: &str, is_root: bool) -> Configured {
+fn configured(
+    config: &Config,
+    keys: &WorkspaceKeys,
+    name: &str,
+    abs_dir: &Path,
+    dir: &str,
+    is_root: bool,
+) -> Configured {
     let js = &config.js;
     let mut user = if is_root {
         let mut root = Configured {
@@ -155,12 +162,14 @@ fn configured(config: &Config, name: &str, abs_dir: &Path, dir: &str, is_root: b
             ignore: js.ignore.clone(),
             ..Configured::default()
         };
-        if let Some(table) = workspace_override(js, ".") {
+        if let Some(table) = keys.table(&js.workspaces, ".") {
             root.fold_root(Configured::from(table));
         }
         root
     } else {
-        workspace_override(js, dir).map(Configured::from).unwrap_or_default()
+        keys.table(&js.workspaces, dir)
+            .map(Configured::from)
+            .unwrap_or_default()
     };
     for scoped in config
         .overrides
@@ -172,29 +181,72 @@ fn configured(config: &Config, name: &str, abs_dir: &Path, dir: &str, is_root: b
     user
 }
 
-/// The `[js.workspaces]` table for `dir` (`"."` for the root): an exact key wins over a glob key such as `packages/*`.
-pub(crate) fn workspace_override<'a>(js: &'a Js, dir: &str) -> Option<&'a JsWorkspace> {
-    workspace_table(&js.workspaces, dir)
+/// The `[js.workspaces]` keys, each compiled once: an exact key wins over a glob key such as `packages/*`, and among
+/// several glob keys that select a directory the first in file order wins. Like every other glob, `*` stops at `/`.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct WorkspaceKeys {
+    keys: Vec<WorkspaceKey>,
 }
 
-/// The key of `workspaces` that stands for `dir`, if any.
-pub(crate) fn workspace_table<'a>(workspaces: &'a IndexMap<String, JsWorkspace>, dir: &str) -> Option<&'a JsWorkspace> {
-    let dir = if dir.is_empty() { "." } else { dir };
-    workspaces
-        .iter()
-        .find(|(key, _)| normalize_dir(key) == dir)
-        .or_else(|| workspaces.iter().find(|(key, _)| key_selects(key, dir)))
-        .map(|(_, workspace)| workspace)
+#[derive(Debug, Clone)]
+struct WorkspaceKey {
+    /// The key without a leading `./` or a trailing `/`.
+    dir: String,
+    /// The compiled glob, for a key that is one.
+    glob: Option<GlobMatcher>,
 }
 
-/// Whether the `[js.workspaces]` key `key` selects `dir` (`"."` or an empty `dir` is the root).
-fn key_selects(key: &str, dir: &str) -> bool {
-    let key = normalize_dir(key);
-    let dir = if dir.is_empty() { "." } else { dir };
-    key == dir
-        || (dir != "."
-            && key.contains(['*', '?', '[', '{'])
-            && Glob::new(key).is_ok_and(|glob| glob.compile_matcher().is_match(dir)))
+impl WorkspaceKey {
+    fn selects(&self, dir: &str) -> bool {
+        self.dir == dir || (dir != "." && self.glob.as_ref().is_some_and(|glob| glob.is_match(dir)))
+    }
+}
+
+impl WorkspaceKeys {
+    pub(crate) fn new(workspaces: &IndexMap<String, JsWorkspace>) -> Self {
+        let keys = workspaces
+            .keys()
+            .map(|key| {
+                let dir = normalize_dir(key);
+                let glob = dir
+                    .contains(['*', '?', '[', '{'])
+                    .then(|| GlobBuilder::new(dir).literal_separator(true).build().ok())
+                    .flatten()
+                    .map(|glob| glob.compile_matcher());
+                WorkspaceKey {
+                    dir: dir.to_owned(),
+                    glob,
+                }
+            })
+            .collect();
+        Self { keys }
+    }
+
+    /// The table of `workspaces` that stands for `dir` (`"."` or empty for the root). `workspaces` is the map the
+    /// keys were compiled from.
+    pub(crate) fn table<'a>(
+        &self,
+        workspaces: &'a IndexMap<String, JsWorkspace>,
+        dir: &str,
+    ) -> Option<&'a JsWorkspace> {
+        let dir = if dir.is_empty() { "." } else { dir };
+        let position = self
+            .keys
+            .iter()
+            .position(|key| key.dir == dir)
+            .or_else(|| self.keys.iter().position(|key| key.selects(dir)))?;
+        workspaces.get_index(position).map(|(_, workspace)| workspace)
+    }
+
+    /// The keys, as written in `workspaces`, that select none of `dirs`.
+    fn unmatched<'a>(&self, workspaces: &'a IndexMap<String, JsWorkspace>, dirs: &[String]) -> Vec<&'a String> {
+        workspaces
+            .keys()
+            .zip(&self.keys)
+            .filter(|(_, key)| !dirs.iter().any(|dir| key.selects(dir)))
+            .map(|(text, _)| text)
+            .collect()
+    }
 }
 
 /// The `paths` map of a configuration as module aliases: `alias/*` becomes the prefix `alias` pointing at the target
@@ -413,7 +465,8 @@ impl Setup {
             .and_then(|rule| skif_lint::parse_options::<UnusedExportsOptions>(&rule.options).ok())
             .map(|options| options.ignore_tags)
             .unwrap_or_default();
-        let ignore_workspaces = Listed::new(&js.ignore_workspaces, production);
+        let ignore_workspaces = Listed::directories(&js.ignore_workspaces, production);
+        let workspace_keys = WorkspaceKeys::new(&js.workspaces);
         let js_ignored: HashSet<PackageId> = workspace
             .iter()
             .filter(|(_, package)| !package.is_root)
@@ -430,10 +483,9 @@ impl Setup {
                 }
             })
             .collect();
-        let unmatched_workspace_keys: Vec<String> = js
-            .workspaces
-            .keys()
-            .filter(|key| !package_dirs.iter().any(|dir| key_selects(key, dir)))
+        let unmatched_workspace_keys: Vec<String> = workspace_keys
+            .unmatched(&js.workspaces, &package_dirs)
+            .into_iter()
             .cloned()
             .collect();
         let members: Vec<(PackageId, &Package)> = workspace.iter().collect();
@@ -448,7 +500,14 @@ impl Setup {
             } else {
                 abs_dir.as_path()
             };
-            let user = configured(config, package.display_name(), match_dir, &dir_name, package.is_root);
+            let user = configured(
+                config,
+                &workspace_keys,
+                package.display_name(),
+                match_dir,
+                &dir_name,
+                package.is_root,
+            );
             let mut plugin = WorkspaceInputs::default();
             let request = InputRequest {
                 workspace,
@@ -478,14 +537,17 @@ impl Setup {
             entry.extend(plugin.production_entry);
 
             let mut project = listed::user_globs(&user.project, production, &default_project());
-            project.extend(plugin.project);
             if production {
+                project.extend(listed::production_exclusions(&plugin.project));
+                project.extend(listed::non_production_entries(&user.entry));
                 project.extend(
                     test_files()
                         .into_iter()
                         .chain(test_directories())
                         .map(|glob| format!("!{glob}")),
                 );
+            } else {
+                project.extend(plugin.project);
             }
 
             let mut ignore = user.ignore;
