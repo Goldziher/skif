@@ -1250,7 +1250,10 @@ fn a_section_written_twice_keeps_only_the_last_occurrence_like_the_json_value() 
 #[test]
 fn a_later_section_that_is_not_an_object_drops_the_earlier_entries() {
     let workspace = discover(
-        &[("package.json", r#"{"name":"root","dependencies":{"a":"1.0.0"},"dependencies":null}"#)],
+        &[(
+            "package.json",
+            r#"{"name":"root","dependencies":{"a":"1.0.0"},"dependencies":null}"#,
+        )],
         &Config::default(),
     )
     .unwrap();

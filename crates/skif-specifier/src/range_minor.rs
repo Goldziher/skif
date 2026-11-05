@@ -58,6 +58,8 @@ impl RangeMinor {
         reason = "test fixtures are valid by construction"
     )]
     #[must_use]
+    /// Builds the specifier from `raw`, panicking when it is not of this kind; a test helper, not API.
+    #[doc(hidden)]
     pub fn create_test(raw: &str) -> Self {
         Self::try_new(raw).expect("valid test fixture")
     }

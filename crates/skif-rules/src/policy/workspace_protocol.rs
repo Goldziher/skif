@@ -76,7 +76,8 @@ impl Rule for WorkspaceProtocol {
                 else {
                     continue;
                 };
-                if entry.parsed.is_workspace_protocol() || (paths_reported_elsewhere && is_local_path(&entry.specifier)) {
+                if entry.parsed.is_workspace_protocol() || (paths_reported_elsewhere && is_local_path(&entry.specifier))
+                {
                     continue;
                 }
                 let target_dir = target.dir.to_string_lossy().replace('\\', "/");
@@ -138,7 +139,11 @@ mod tests {
     #[test]
     fn a_plain_range_on_a_workspace_package_is_reported_where_the_manager_has_the_protocol() {
         for manager in ["pnpm@9.0.0", "yarn@4.1.0", "bun@1.2.0"] {
-            assert_eq!(reports(Some(manager), "dependencies", "^1.0.0", SETTINGS), 1, "{manager}");
+            assert_eq!(
+                reports(Some(manager), "dependencies", "^1.0.0", SETTINGS),
+                1,
+                "{manager}"
+            );
         }
         assert_eq!(reports(None, "dependencies", "^1.0.0", SETTINGS), 1);
     }
@@ -146,7 +151,11 @@ mod tests {
     #[test]
     fn npm_and_yarn_classic_cannot_install_the_protocol_so_nothing_is_demanded() {
         for manager in ["npm@10.0.0", "yarn@1.22.19"] {
-            assert_eq!(reports(Some(manager), "dependencies", "^1.0.0", SETTINGS), 0, "{manager}");
+            assert_eq!(
+                reports(Some(manager), "dependencies", "^1.0.0", SETTINGS),
+                0,
+                "{manager}"
+            );
         }
     }
 
@@ -154,7 +163,10 @@ mod tests {
     fn yarn_classic_is_recognised_from_the_lockfile_header_too() {
         let a = consumer("dependencies", "^1.0.0");
         let files = [
-            ("package.json", r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#),
+            (
+                "package.json",
+                r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+            ),
             ("yarn.lock", "# yarn lockfile v1\n"),
             ("packages/a/package.json", a.as_str()),
             ("packages/b/package.json", B),
@@ -191,9 +203,6 @@ mod tests {
             ("packages/b/package.json", B),
         ];
         let found = lint(META.id, &files, &config(SETTINGS));
-        assert_eq!(
-            subjects(&found),
-            [("@scope/a".to_owned(), Some("@scope/b".to_owned()))]
-        );
+        assert_eq!(subjects(&found), [("@scope/a".to_owned(), Some("@scope/b".to_owned()))]);
     }
 }

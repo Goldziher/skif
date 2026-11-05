@@ -165,39 +165,39 @@ pub fn strip_semver_range(value: &str) -> &str {
 #[derive(Debug)]
 pub enum Specifier {
     /// An npm alias (`npm:foo@1.2.3`).
-    Alias(alias::Alias),                                      // "npm:foo@1.2.3"
+    Alias(alias::Alias), // "npm:foo@1.2.3"
     /// A catalog reference (`catalog:`, `catalog:react18`).
-    Catalog(catalog::Catalog),                                // "catalog:", "catalog:react18"
+    Catalog(catalog::Catalog), // "catalog:", "catalog:react18"
     /// A compound range (`>=1.2.3 <2.0.0`).
-    ComplexSemver(complex_semver::ComplexSemver),             // ">=1.2.3 <2.0.0"
+    ComplexSemver(complex_semver::ComplexSemver), // ">=1.2.3 <2.0.0"
     /// An exact version (`1.2.3`).
-    Exact(exact::Exact),                                      // "1.2.3"
+    Exact(exact::Exact), // "1.2.3"
     /// A `file:` path.
-    File(file::File),                                         // "file:../path"
+    File(file::File), // "file:../path"
     /// A `link:` path.
-    Link(link::Link),                                         // "link:../path"
+    Link(link::Link), // "link:../path"
     /// A git URL or shorthand (`github:user/repo#v1.2.3`).
-    Git(git::Git),                                            // "github:user/repo#v1.2.3"
+    Git(git::Git), // "github:user/repo#v1.2.3"
     /// Any version (`latest`, `*`).
-    Latest(latest::Latest),                                   // "latest", "*"
+    Latest(latest::Latest), // "latest", "*"
     /// A bare major version (`1`).
-    Major(major::Major),                                      // "1"
+    Major(major::Major), // "1"
     /// A major and minor version (`1.2`).
-    Minor(minor::Minor),                                      // "1.2"
+    Minor(minor::Minor), // "1.2"
     /// No specifier: the `version` property is missing.
-    None,                                                     // Missing .version property
+    None, // Missing .version property
     /// A single-comparator range (`~1.2.3`).
-    Range(range::Range),                                      // "~1.2.3"
+    Range(range::Range), // "~1.2.3"
     /// A range over a major version (`^1`).
-    RangeMajor(range_major::RangeMajor),                      // "^1"
+    RangeMajor(range_major::RangeMajor), // "^1"
     /// A range over a major and minor version (`~1.2`).
-    RangeMinor(range_minor::RangeMinor),                      // "~1.2"
+    RangeMinor(range_minor::RangeMinor), // "~1.2"
     /// A dist-tag (`alpha`, `beta`).
-    Tag(tag::Tag),                                            // "alpha", "beta"
+    Tag(tag::Tag), // "alpha", "beta"
     /// A string that is not a specifier (`}wat{`).
-    Unsupported(String),                                      // "}wat{"
+    Unsupported(String), // "}wat{"
     /// A tarball URL.
-    Url(url::Url),                                            // "https://example.com/package.tgz"
+    Url(url::Url), // "https://example.com/package.tgz"
     /// A `workspace:` specifier (`workspace:^`, `workspace:*`).
     WorkspaceProtocol(workspace_protocol::WorkspaceProtocol), // "workspace:^", "workspace:*", "workspace:~", "workspace:^1.2.3"
 }
