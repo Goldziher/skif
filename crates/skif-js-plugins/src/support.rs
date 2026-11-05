@@ -410,3 +410,49 @@ mod tests {
         assert_eq!(strip_wildcard("*"), "");
     }
 }
+
+/// Every string that `key` holds in any object of the value, however deep: a string, the strings of an array or the
+/// strings of an object's values.
+pub(crate) fn property_values<'a>(value: &'a ConfigValue, key: &str) -> Vec<&'a str> {
+    let mut found = Vec::new();
+    collect_property(value, key, &mut found);
+    found
+}
+
+fn collect_property<'a>(value: &'a ConfigValue, key: &str, found: &mut Vec<&'a str>) {
+    match value {
+        ConfigValue::Object(entries) => {
+            for (name, child) in entries {
+                if name == key {
+                    found.extend(leaf_strings(child));
+                }
+                collect_property(child, key, found);
+            }
+        }
+        ConfigValue::Array(items) => {
+            for item in items {
+                collect_property(item, key, found);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Every string of a value that is a string, an array or an object of them.
+pub(crate) fn leaf_strings(value: &ConfigValue) -> Vec<&str> {
+    match value {
+        ConfigValue::String(s) => vec![s.as_str()],
+        ConfigValue::Array(items) => items.iter().flat_map(leaf_strings).collect(),
+        ConfigValue::Object(entries) => entries.iter().flat_map(|(_, v)| leaf_strings(v)).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Production entries for globs or paths written in a config, relative to the config file.
+pub(crate) fn production_entries<'a>(base: &str, patterns: impl IntoIterator<Item = &'a str>) -> Vec<PluginInput> {
+    patterns
+        .into_iter()
+        .filter_map(|pattern| entry_glob(base, pattern))
+        .map(PluginInput::ProductionEntry)
+        .collect()
+}
