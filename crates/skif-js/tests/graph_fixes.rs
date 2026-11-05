@@ -271,7 +271,7 @@ fn default_severities_follow_the_documented_split() {
 }
 
 #[test]
-fn unresolvable_aliases_are_unresolved_imports_never_unlisted_dependencies() {
+fn unresolvable_aliases_are_unresolved_imports_unless_they_look_like_packages() {
     let diagnostics = lint_files(
         &[
             (
@@ -290,14 +290,13 @@ fn unresolvable_aliases_are_unresolved_imports_never_unlisted_dependencies() {
         ],
         "",
     );
-    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), ["src/index.ts: @gone/b"]);
     assert_eq!(
         found(&diagnostics, "unresolved-imports"),
         [
             "src/index.ts: #internal/f",
             "src/index.ts: $lib/e",
             "src/index.ts: @/c",
-            "src/index.ts: @gone/b",
             "src/index.ts: ~/d"
         ]
     );

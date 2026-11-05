@@ -65,6 +65,36 @@ pub(crate) fn has_foreign_scheme(specifier: &str) -> bool {
     scheme.len() > 1 && scheme.bytes().all(|b| b.is_ascii_lowercase())
 }
 
+/// Whether a specifier starts the way a package name does (`lodash`, `@scope/pkg`, `~pkg`), whether or not such a
+/// package exists. `pkg:x` schemes do not.
+pub(crate) fn starts_like_package_name(specifier: &str) -> bool {
+    let bytes = specifier.as_bytes();
+    let name_start = |b: u8| b.is_ascii_alphanumeric();
+    match (bytes.first().copied(), bytes.get(1).copied()) {
+        (Some(b'@'), Some(second)) => name_start(second) || matches!(second, b'.' | b'_' | b'~'),
+        (Some(first), second) => name_start(first) && second != Some(b':'),
+        _ => false,
+    }
+}
+
+/// The package an unresolvable specifier that starts like a package name is taken to name, query and fragment
+/// dropped. `None` when it does not start like one.
+pub(crate) fn assumed_package(specifier: &str) -> Option<String> {
+    let sanitized = specifier.split(['?', '#']).next()?;
+    if !starts_like_package_name(sanitized) {
+        return None;
+    }
+    package_name(sanitized).or_else(|| {
+        let mut parts = sanitized.split('/');
+        let first = parts.next()?;
+        if first.starts_with('@') {
+            Some(format!("{first}/{}", parts.next()?))
+        } else {
+            Some(first.to_owned())
+        }
+    })
+}
+
 /// The package a bare specifier points into: `lodash/fp` is `lodash`, `@a/b/c` is `@a/b`.
 ///
 /// Returns `None` for relative, absolute and `#` specifiers and for strings that cannot be a package name.
