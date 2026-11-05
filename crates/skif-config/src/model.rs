@@ -954,6 +954,21 @@ const fn default_true() -> bool {
     true
 }
 
+/// `[js] discovery`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum JsDiscovery {
+    /// The git index when the workspace is in a git work tree, the directory walk otherwise.
+    #[default]
+    Auto,
+    /// The git index; the directory walk when there is no readable index.
+    Git,
+    /// Always walk the directories, which also finds untracked files.
+    Walk,
+}
+
 /// `[js]`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -976,6 +991,10 @@ pub struct Js {
     pub production: bool,
     /// Report unused exports of entry files too.
     pub include_entry_exports: bool,
+    /// How source files are found: `auto` lists them from the git index when the workspace is in a git work tree and
+    /// walks the directories otherwise, `git` requires the index (falling back to the walk when there is none), and
+    /// `walk` always walks. The index lists tracked files only; the walk also finds untracked ones.
+    pub discovery: JsDiscovery,
     /// Per-workspace overrides keyed by directory.
     pub workspaces: IndexMap<String, JsWorkspace>,
     /// Plugin switches keyed by plugin name.
@@ -1047,6 +1066,7 @@ impl Default for Js {
             ignore_binaries: Vec::new(),
             production: false,
             include_entry_exports: false,
+            discovery: JsDiscovery::Auto,
             workspaces: IndexMap::new(),
             plugins: IndexMap::new(),
             extend_ignore: Vec::new(),

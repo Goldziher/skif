@@ -235,6 +235,8 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
     };
     let source = match READ_TIME.time(|| inputs.fs.read_to_string(path)) {
         Ok(source) => source,
+        // A file the git index still lists but that was deleted from disk is no module, not a read error.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Parsed::default(),
         Err(error) => return failed(error.to_string()),
     };
     let style = is_stylesheet(path);
