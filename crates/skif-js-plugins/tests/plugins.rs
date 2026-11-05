@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 63] = [
+const ADR_IDS: [&str; 102] = [
     "typescript",
     "eslint",
     "prettier",
@@ -78,6 +78,45 @@ const ADR_IDS: [&str; 63] = [
     "node",
     "expo-router",
     "tanstack-router",
+    "ava",
+    "biome",
+    "c8",
+    "dotenv",
+    "electron-vite",
+    "gatsby",
+    "i18next-parser",
+    "jasmine",
+    "knex",
+    "lingui",
+    "msw",
+    "nest",
+    "netlify",
+    "nitro",
+    "nyc",
+    "oclif",
+    "panda-css",
+    "plop",
+    "preconstruct",
+    "react-router",
+    "remark",
+    "remix",
+    "rolldown",
+    "rsbuild",
+    "rslib",
+    "sanity",
+    "sentry",
+    "size-limit",
+    "stryker",
+    "svgo",
+    "svgr",
+    "swc",
+    "tsd",
+    "typedoc",
+    "unbuild",
+    "unocss",
+    "vercel",
+    "vike",
+    "webdriver-io",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -1918,4 +1957,452 @@ fn a_linked_config_is_read_once_even_when_two_plugins_link_it() {
     assert_eq!(babel_files.len(), 1);
     let expo_files = &output(&results, "expo").config_files;
     assert_eq!(expo_files.len(), 1);
+}
+
+#[test]
+fn declarative_plugins_enable_on_their_package_and_declare_entries() {
+    // (plugin, enabling dependency, pattern in `entries`, pattern in `production_entries`, provided binary)
+    let table = [
+        (
+            "unocss",
+            "unocss",
+            Some("{uno,unocss}.config.{json,ts,mts,cts,js,mjs,cjs}"),
+            None,
+            Some("unocss"),
+        ),
+        (
+            "lingui",
+            "@lingui/cli",
+            Some("lingui.config.{js,cjs,ts,mjs}"),
+            None,
+            Some("lingui"),
+        ),
+        (
+            "remix",
+            "@remix-run/dev",
+            Some("remix.config.js"),
+            Some("app/root.tsx"),
+            None,
+        ),
+        (
+            "svgo",
+            "@svgr/plugin-svgo",
+            Some("svgo.config.{js,cjs,mjs}"),
+            None,
+            Some("svgo"),
+        ),
+        (
+            "sentry",
+            "@sentry/nextjs",
+            None,
+            Some("sentry.{client,server,edge}.config.{js,ts}"),
+            None,
+        ),
+        (
+            "vercel",
+            "@vercel/config",
+            Some("vercel.{js,mjs,cjs,ts,mts}"),
+            None,
+            None,
+        ),
+        ("plop", "plop", Some("plopfile.{cjs,mjs,js,ts}"), None, Some("plop")),
+        ("sanity", "sanity", Some("sanity.cli.{ts,js}"), None, Some("sanity")),
+        (
+            "vike",
+            "vike",
+            None,
+            Some("{pages,renderer}/**/+*.{js,jsx,ts,tsx,vue,react,solid}"),
+            None,
+        ),
+        (
+            "i18next-parser",
+            "i18next-parser",
+            Some("i18next-parser.config.{js,mjs,json,ts,yaml,yml}"),
+            None,
+            Some("i18next"),
+        ),
+        ("c8", "c8", None, None, Some("c8")),
+        ("dotenv", "dotenv-cli", None, None, Some("dotenv")),
+        ("tsd", "tsd", Some("*.test-d.{ts,tsx}"), None, Some("tsd")),
+        ("msw", "msw", Some("mockServiceWorker.js"), None, Some("msw")),
+    ];
+    for (id, dependency, entry, production, binary) in table {
+        let results = resolve(&[], &[dependency]);
+        let out = output(&results, id);
+        if let Some(entry) = entry {
+            assert_entries(&out.entries, &[entry]);
+        }
+        if let Some(production) = production {
+            assert_entries(&out.production_entries, &[production]);
+        }
+        if let Some(binary) = binary {
+            assert!(out.provided_binaries.contains(&binary.to_string()), "{id}: {out:?}");
+        }
+        let enabled: Vec<PluginId> = resolve(&[], &[]).into_iter().map(|(plugin, _)| plugin).collect();
+        assert!(!enabled.contains(&id), "{id} must not be enabled without {dependency}");
+    }
+}
+
+#[test]
+fn rsbuild() {
+    let config = r#"export default defineConfig({
+      source: { entry: { index: './src/index.ts', admin: { import: ['./src/admin.ts'] } }, preEntry: './src/pre.ts' },
+      resolve: { alias: { '@': './src' } },
+      environments: { node: { source: { entry: { server: './src/server.ts' } } } },
+    });"#;
+    let results = resolve(&[("rsbuild.config.ts", config)], &["@rsbuild/core"]);
+    let out = output(&results, "rsbuild");
+    assert_entries(
+        &out.production_entries,
+        &["src/index.ts", "src/admin.ts", "src/pre.ts", "src/server.ts"],
+    );
+    assert!(out.aliases.iter().any(|a| a.find == "@"), "{:?}", out.aliases);
+}
+
+#[test]
+fn rslib() {
+    let config = "export default defineConfig({ lib: [{ source: { entry: { index: './src/index.ts' } } }] });";
+    let results = resolve(&[("rslib.config.ts", config)], &["@rslib/core"]);
+    assert_entries(&output(&results, "rslib").production_entries, &["src/index.ts"]);
+}
+
+#[test]
+fn rolldown() {
+    let config = "export default { input: ['src/main.js', 'src/worker.js'], output: { dir: 'dist' } };";
+    let results = resolve(&[("rolldown.config.js", config)], &["rolldown"]);
+    assert_entries(
+        &output(&results, "rolldown").production_entries,
+        &["src/main.js", "src/worker.js"],
+    );
+}
+
+#[test]
+fn unbuild() {
+    let config = "export default defineBuildConfig({ entries: ['src/index', { input: 'src/cli/', outDir: 'dist' }] });";
+    let results = resolve(&[("build.config.ts", config)], &["unbuild"]);
+    assert_entries(&output(&results, "unbuild").entries, &["src/index", "src/cli"]);
+}
+
+#[test]
+fn stryker() {
+    let config = r#"{
+      "testRunner": "vitest",
+      "checkers": ["typescript"],
+      "plugins": ["@stryker-mutator/vitest-runner", "@stryker-mutator/*"]
+    }"#;
+    let results = resolve(&[("stryker.config.json", config)], &["@stryker-mutator/core"]);
+    let out = output(&results, "stryker");
+    assert_deps(
+        out,
+        &["@stryker-mutator/vitest-runner", "@stryker-mutator/typescript-checker"],
+    );
+    assert_absent(out, &["@stryker-mutator/*"]);
+}
+
+#[test]
+fn typedoc() {
+    let config = r#"{
+      "plugin": ["typedoc-plugin-markdown", "./local-plugin.js"],
+      "theme": "typedoc-theme-x",
+      "customCss": "docs/extra.css"
+    }"#;
+    let results = resolve(&[("typedoc.json", config)], &["typedoc"]);
+    let out = output(&results, "typedoc");
+    assert_deps(out, &["typedoc-plugin-markdown", "typedoc-theme-x"]);
+    assert_entries(&out.entries, &["local-plugin.js", "docs/extra.css"]);
+
+    let tsconfig = r#"{ "compilerOptions": {}, "typedocOptions": { "plugin": "typedoc-plugin-mdn-links" } }"#;
+    let results = resolve(&[("tsconfig.json", tsconfig)], &["typedoc"]);
+    assert_deps(output(&results, "typedoc"), &["typedoc-plugin-mdn-links"]);
+
+    let manifest = r#"{ "name": "app", "typedocOptions": { "theme": "typedoc-theme-y" } }"#;
+    let results = resolve(&[("package.json", manifest)], &["typedoc"]);
+    assert_deps(output(&results, "typedoc"), &["typedoc-theme-y"]);
+}
+
+#[test]
+fn react_router_reads_the_route_modules_of_the_app_directory() {
+    let routes = "import { index, route } from \"@react-router/dev/routes\";\n// route(\"x\", \"routes/commented.tsx\")\n\
+                  export default [index(\"routes/home.tsx\"), route(\"about\", \"./routes/about.tsx\")];";
+    let results = resolve(
+        &[
+            (
+                "react-router.config.ts",
+                "export default { appDirectory: 'src/app' } satisfies Config;",
+            ),
+            ("src/app/routes.ts", routes),
+        ],
+        &["@react-router/dev"],
+    );
+    let out = output(&results, "react-router");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "src/app/root.{jsx,tsx}",
+            "src/app/routes/home.tsx",
+            "src/app/routes/about.tsx",
+        ],
+    );
+    assert!(!out.production_entries.iter().any(|e| e.contains("commented")));
+    assert_entries(&out.entries, &["src/app/routes.{js,ts}"]);
+    assert_deps(out, &["@react-router/node", "isbot"]);
+}
+
+#[test]
+fn react_router_without_a_config_uses_the_app_directory() {
+    let results = resolve(&[("app/entry.server.tsx", "export default 1;")], &["@react-router/dev"]);
+    let out = output(&results, "react-router");
+    assert_entries(&out.production_entries, &["app/entry.{client,server}.{js,jsx,ts,tsx}"]);
+    assert_absent(out, &["@react-router/node", "isbot"]);
+}
+
+#[test]
+fn electron_vite() {
+    let config = "export default defineConfig({ main: { build: { rollupOptions: { input: { index: 'electron/main.ts' } } } }, renderer: {} });";
+    let html = "<html><script type=\"module\" src=\"./renderer.ts\"></script></html>";
+    let results = resolve(
+        &[("electron.vite.config.ts", config), ("src/renderer/index.html", html)],
+        &["electron-vite"],
+    );
+    let out = output(&results, "electron-vite");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "electron/main.ts",
+            "src/preload/index.{js,mjs,cjs,ts,mts,cts}",
+            "src/renderer/index.html",
+            "src/renderer/renderer.ts",
+        ],
+    );
+    assert!(!out.production_entries.iter().any(|e| e.starts_with("src/main/")));
+}
+
+#[test]
+fn gatsby() {
+    let config =
+        "module.exports = { plugins: ['gatsby-plugin-image', { resolve: 'gatsby-source-filesystem', options: {} }] };";
+    let results = resolve(&[("gatsby-config.js", config)], &["gatsby"]);
+    let out = output(&results, "gatsby");
+    assert_deps(out, &["gatsby-plugin-image", "gatsby-source-filesystem"]);
+    assert_entries(&out.production_entries, &["src/pages/**/*.{js,jsx,ts,tsx}"]);
+}
+
+#[test]
+fn netlify() {
+    let config = "[functions]\ndirectory = \"api/fns\"\nincluded_files = [\"data/**\", \"!data/skip\"]\n\
+                  external_node_modules = [\"sharp\"]\n\n[functions.\"resize\"]\nincluded_files = [\"fonts/*\"]\n\n\
+                  [[plugins]]\npackage = \"@netlify/plugin-nextjs\"\n";
+    let results = resolve(&[("netlify.toml", config)], &["netlify-cli"]);
+    let out = output(&results, "netlify");
+    assert_entries(
+        &out.production_entries,
+        &["api/fns/**/*.{js,mjs,cjs,ts,mts,cts}", "data/**", "fonts/*"],
+    );
+    assert!(!out.production_entries.iter().any(|e| e.contains("skip")));
+    assert_deps(out, &["sharp", "@netlify/plugin-nextjs"]);
+}
+
+#[test]
+fn webdriver_io_reads_a_named_config_export() {
+    let config = "import type { Options } from '@wdio/types';\nexport const config: Options.Testrunner = {\n  \
+                  framework: 'mocha', runner: 'local', reporters: ['spec', ['allure', {}]],\n};";
+    let results = resolve(&[("wdio.conf.ts", config)], &["@wdio/cli"]);
+    let out = output(&results, "webdriver-io");
+    assert_deps(
+        out,
+        &["@wdio/mocha-framework", "@wdio/spec-reporter", "@wdio/allure-reporter"],
+    );
+    assert_absent(out, &["@wdio/local-runner"]);
+
+    let results = resolve(
+        &[(
+            "wdio.conf.js",
+            "exports.config = { framework: 'jasmine', runner: 'browser' };",
+        )],
+        &["@wdio/cli"],
+    );
+    assert_deps(
+        output(&results, "webdriver-io"),
+        &["@wdio/jasmine-framework", "@wdio/browser-runner"],
+    );
+}
+
+#[test]
+fn nyc() {
+    let config = r#"{ "extends": "@istanbuljs/nyc-config-typescript", "require": ["ts-node/register", "./setup.js"] }"#;
+    let results = resolve(&[(".nycrc", config)], &["nyc"]);
+    let out = output(&results, "nyc");
+    assert_deps(out, &["@istanbuljs/nyc-config-typescript", "ts-node"]);
+    assert_entries(&out.entries, &["setup.js"]);
+}
+
+#[test]
+fn knex() {
+    let config = "module.exports = { development: { client: 'pg', migrations: { directory: './db/migrations' }, \
+                  seeds: { directory: ['./db/seeds'] } } };";
+    let results = resolve(&[("knexfile.js", config)], &["knex"]);
+    let out = output(&results, "knex");
+    assert_deps(out, &["pg"]);
+    assert_entries(&out.entries, &["db/migrations/*.{js,ts}", "db/seeds/*.{js,ts}"]);
+}
+
+#[test]
+fn nest() {
+    let results = resolve(
+        &[("nest-cli.json", r#"{ "collection": "@nestjs/schematics" }"#)],
+        &["@nestjs/core"],
+    );
+    assert_deps(output(&results, "nest"), &["@nestjs/schematics"]);
+}
+
+#[test]
+fn oclif() {
+    let manifest =
+        r#"{ "name": "app", "oclif": { "plugins": ["@oclif/plugin-help"], "devPlugins": ["@oclif/plugin-plugins"] } }"#;
+    let results = resolve(&[("package.json", manifest)], &["@oclif/core"]);
+    let out = output(&results, "oclif");
+    assert_deps(out, &["@oclif/plugin-help", "@oclif/plugin-plugins"]);
+    assert_entries(
+        &out.production_entries,
+        &["{,src/}commands/**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"],
+    );
+}
+
+#[test]
+fn panda_css() {
+    let config = "export default defineConfig({ presets: ['@pandacss/preset-base', '@acme/preset', somePreset] });";
+    let results = resolve(&[("panda.config.ts", config)], &["@pandacss/dev"]);
+    assert_deps(
+        output(&results, "panda-css"),
+        &["@pandacss/preset-base", "@acme/preset", "postcss"],
+    );
+}
+
+#[test]
+fn preconstruct() {
+    let manifest = r#"{ "name": "app", "preconstruct": { "entrypoints": ["index.{js,ts}", "utils.{js,ts}"] } }"#;
+    let results = resolve(&[("package.json", manifest)], &["@preconstruct/cli"]);
+    assert_entries(
+        &output(&results, "preconstruct").production_entries,
+        &["src/index.{js,ts}", "src/utils.{js,ts}"],
+    );
+}
+
+#[test]
+fn remark_resolves_plugins_by_convention_and_by_full_name() {
+    let manifest = r#"{ "name": "app", "remarkConfig": { "plugins": ["preset-lint-recommended", ["lint-no-dead-urls", {}], "gfm", "lint-foo", "./local.js"] } }"#;
+    let results = resolve(&[("package.json", manifest)], &["remark-cli", "lint-foo"]);
+    let out = output(&results, "remark");
+    assert_deps(
+        out,
+        &[
+            "remark-preset-lint-recommended",
+            "remark-lint-no-dead-urls",
+            "remark-gfm",
+            "lint-foo",
+        ],
+    );
+    assert_absent(out, &["remark-lint-foo"]);
+    assert_entries(&out.entries, &["local.js"]);
+}
+
+#[test]
+fn swc() {
+    let config =
+        r#"{ "jsc": { "externalHelpers": true, "experimental": { "plugins": [["@swc/plugin-emotion", {}]] } } }"#;
+    let results = resolve(&[(".swcrc", config)], &["@swc/core"]);
+    assert_deps(output(&results, "swc"), &["@swc/helpers", "@swc/plugin-emotion"]);
+}
+
+#[test]
+fn svgr() {
+    let results = resolve(
+        &[(".svgrrc", r#"{ "plugins": ["@svgr/plugin-svgo", "@svgr/plugin-jsx"] }"#)],
+        &["@svgr/core"],
+    );
+    assert_deps(output(&results, "svgr"), &["@svgr/plugin-svgo", "@svgr/plugin-jsx"]);
+}
+
+#[test]
+fn biome() {
+    let results = resolve(
+        &[
+            (
+                "biome.json",
+                r#"{ "extends": ["./base.json", "@org/biome-config", "//"] }"#,
+            ),
+            ("base.json", "{}"),
+        ],
+        &["@biomejs/biome"],
+    );
+    let out = output(&results, "biome");
+    assert_deps(out, &["@org/biome-config"]);
+    assert!(out.config_files.iter().any(|f| f.ends_with("base.json")));
+}
+
+#[test]
+fn nitro() {
+    let config = "export default defineNitroConfig({ srcDir: 'server', apiDir: 'endpoints', \
+                  modules: ['nitro-module-x', ['nitro-module-y', {}]] });";
+    let results = resolve(&[("nitro.config.ts", config)], &["nitropack"]);
+    let out = output(&results, "nitro");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "server/endpoints/**/*.ts",
+            "server/server.{js,mjs,ts}",
+            "server/plugins/**/*.ts",
+        ],
+    );
+    assert_deps(out, &["nitro-module-x", "nitro-module-y"]);
+    assert!(has_virtual(out, "#nitro-internal-*"));
+}
+
+#[test]
+fn ava() {
+    let config = "export default { files: ['src/**/*.test.ts'], require: ['./setup.cjs', 'tsx'] };";
+    let results = resolve(&[("ava.config.mjs", config)], &["ava"]);
+    let out = output(&results, "ava");
+    assert_entries(
+        &out.entries,
+        &["src/**/*.test.ts", "setup.cjs", "**/*.spec.{js,cjs,mjs,ts}"],
+    );
+    assert_deps(out, &["tsx"]);
+}
+
+#[test]
+fn jasmine_resolves_paths_against_the_spec_directory() {
+    let config = r#"{
+      "spec_dir": "spec",
+      "spec_files": ["**/*[sS]pec.js", "!**/skip.js"],
+      "helpers": ["helpers/**/*.js"],
+      "requires": ["ts-node/register"]
+    }"#;
+    let results = resolve(&[("spec/support/jasmine.json", config)], &["jasmine"]);
+    let out = output(&results, "jasmine");
+    assert_entries(&out.entries, &["spec/**/*[sS]pec.js", "spec/helpers/**/*.js"]);
+    assert!(!out.entries.iter().any(|e| e.contains("skip")));
+    assert_deps(out, &["ts-node"]);
+}
+
+#[test]
+fn msw_reads_the_worker_directory() {
+    let manifest = r#"{ "name": "app", "msw": { "workerDirectory": ["public"] } }"#;
+    let results = resolve(&[("package.json", manifest)], &["msw"]);
+    assert_entries(&output(&results, "msw").entries, &["public/mockServiceWorker.js"]);
+}
+
+#[test]
+fn tsd_reads_its_directory() {
+    let manifest = r#"{ "name": "app", "tsd": { "directory": "types-test" } }"#;
+    let results = resolve(&[("package.json", manifest)], &["tsd"]);
+    assert_entries(&output(&results, "tsd").entries, &["types-test/**/*.test-d.{ts,tsx}"]);
+}
+
+#[test]
+fn size_limit_uses_its_presets() {
+    let results = resolve(&[], &["size-limit", "@size-limit/preset-small-lib", "@size-limit/file"]);
+    let out = output(&results, "size-limit");
+    assert_deps(out, &["@size-limit/preset-small-lib", "@size-limit/file"]);
+    assert_entries(&out.entries, &["size-limit.{json,js,cjs,mjs,ts,mts,cts}"]);
 }

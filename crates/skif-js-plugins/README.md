@@ -3,19 +3,23 @@
 JavaScript and TypeScript tool knowledge for skif.
 
 - `scripts`: parses `package.json` scripts into the binaries, entry files and dependencies they reference.
-- `plugin`, `plugins`, `registry`: the declarative plugin table of ADR 0011 (extended by ADR 0022, ADR 0025 and ADR 0029). A plugin is a `PluginSpec` row
+- `plugin`, `plugins`, `registry`: the declarative plugin table of ADR 0011 (extended by ADR 0022, ADR 0025, ADR 0029 and ADR 0036). A plugin is a `PluginSpec` row
   (enablers, config, entry, production and project globs, provided binaries) with an optional resolver that reads the
   tool's config statically and reports the dependencies, entries and scripts it references. Configs are never
   executed (ADR 0010).
 - `resolve_plugins`: the entry point the module graph calls, given a `PluginContext` for one workspace.
 
-The table holds 63 plugins: `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`,
-`playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`,
-`commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`,
-`karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`,
-`prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`, `react-native`, `metro`, `release-it`,
+The table holds 102 plugins: `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`,
+`postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`,
+`changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`,
+`esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`,
+`graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`, `react-native`, `metro`, `release-it`,
 `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`, `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`,
-`yarn`, `syncpack`, `node`, `expo-router` and `tanstack-router`.
+`yarn`, `syncpack`, `node`, `expo-router`, `tanstack-router`, `ava`, `biome`, `c8`, `dotenv`, `electron-vite`,
+`gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`,
+`panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`,
+`sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike` and
+`webdriver-io`.
 
 ## Acknowledgements
 
