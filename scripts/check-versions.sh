@@ -51,6 +51,8 @@ fi
 check "poly-hooks.toml pinned skif version" "$(sed -nE 's/.*skif@([0-9][^ "]*).*/\1/p' poly-hooks.toml | sort -u | paste -sd, -)"
 check "scripts/pre-commit/run-skif.sh SKIF_VERSION default" "$(sed -nE 's/^SKIF_VERSION="\$\{SKIF_VERSION:-v?([^}]+)\}"$/\1/p' scripts/pre-commit/run-skif.sh)"
 
+check "action.yml BAKED_VERSION" "$(sed -nE 's/^ *BAKED_VERSION: "([^"]*)".*/\1/p' action.yml)"
+
 for hooks in .pre-commit-hooks.yaml poly-hooks.toml; do
   if [[ "$(grep -c -- '--no-js' "$hooks")" -ne 2 ]]; then
     echo "::error::${hooks}: both hooks must pass --no-js"
