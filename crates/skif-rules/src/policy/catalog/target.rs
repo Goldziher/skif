@@ -95,12 +95,12 @@ pub(crate) fn add_entry(
     match file {
         CatalogFile::Yaml(path) => {
             // A default catalog declared as `catalogs.default` stays there: pnpm rejects it declared both ways.
-            let mut entry_route = if matches!(catalog, CatalogName::Default) && workspace.catalogs.default_declared_as_named()
-            {
-                vec![key("catalogs"), key("default")]
-            } else {
-                route(catalog)
-            };
+            let mut entry_route =
+                if matches!(catalog, CatalogName::Default) && workspace.catalogs.default_declared_as_named() {
+                    vec![key("catalogs"), key("default")]
+                } else {
+                    route(catalog)
+                };
             entry_route.push(key(dependency));
             FixOp::yaml(
                 path.clone(),

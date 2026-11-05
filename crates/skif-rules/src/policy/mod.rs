@@ -476,7 +476,11 @@ mod tests {
             let toml = format!("[[version-groups]]\ndependencies = [\"left-pad\"]\n{types}policy = \"banned\"\n");
             lint("banned-dependency", &files, &config(&toml)).len()
         };
-        assert_eq!(banned(""), 1, "the policy scope is production and development dependencies");
+        assert_eq!(
+            banned(""),
+            1,
+            "the policy scope is production and development dependencies"
+        );
         assert_eq!(banned("dependency-types = [\"prod\", \"peer\"]\n"), 2);
     }
 
@@ -491,7 +495,11 @@ mod tests {
             ("packages/app/package.json", app),
             ("packages/lib/package.json", lib),
         ];
-        let diagnostics = lint("catalog-missing-entry", &files, &config("[catalog]\nmode = \"prefer\"\n"));
+        let diagnostics = lint(
+            "catalog-missing-entry",
+            &files,
+            &config("[catalog]\nmode = \"prefer\"\n"),
+        );
         assert_eq!(diagnostics.len(), 2);
         let fixed = apply_fixes(&files, &diagnostics);
         let (_, text) = fixed.iter().find(|(path, _)| path == "pnpm-workspace.yaml").unwrap();

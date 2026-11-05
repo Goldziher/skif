@@ -103,18 +103,27 @@ pub(crate) fn validate(config: &Config) -> Problem {
     for (index, scoped) in config.overrides.iter().enumerate() {
         let key = format!("overrides[{index}].js");
         let scoped = &scoped.js;
-        globs(&format!("{key}.entry"), &scoped.entry)?;
-        globs(&format!("{key}.project"), &scoped.project)?;
-        globs(&format!("{key}.ignore"), &scoped.ignore)?;
+        globs(&format!("{key}.entry"), scoped.entry.as_deref().unwrap_or_default())?;
+        globs(&format!("{key}.project"), scoped.project.as_deref().unwrap_or_default())?;
+        globs(&format!("{key}.ignore"), scoped.ignore.as_deref().unwrap_or_default())?;
         globs(&format!("{key}.extend-ignore"), &scoped.extend_ignore)?;
-        names(&format!("{key}.ignore-dependencies"), &scoped.ignore_dependencies)?;
+        names(
+            &format!("{key}.ignore-dependencies"),
+            scoped.ignore_dependencies.as_deref().unwrap_or_default(),
+        )?;
         names(
             &format!("{key}.extend-ignore-dependencies"),
             &scoped.extend_ignore_dependencies,
         )?;
-        names(&format!("{key}.ignore-binaries"), &scoped.ignore_binaries)?;
+        names(
+            &format!("{key}.ignore-binaries"),
+            scoped.ignore_binaries.as_deref().unwrap_or_default(),
+        )?;
         names(&format!("{key}.extend-ignore-binaries"), &scoped.extend_ignore_binaries)?;
-        names(&format!("{key}.ignore-unresolved"), &scoped.ignore_unresolved)?;
+        names(
+            &format!("{key}.ignore-unresolved"),
+            scoped.ignore_unresolved.as_deref().unwrap_or_default(),
+        )?;
         names(
             &format!("{key}.extend-ignore-unresolved"),
             &scoped.extend_ignore_unresolved,

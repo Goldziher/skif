@@ -811,3 +811,27 @@ fn semver_groups_take_a_range_or_ignored_but_not_both() {
     }
     assert!(Config::from_toml_str("[[semver-groups]]\nrange = \"^\"\nignored = false\n").is_ok());
 }
+
+#[test]
+fn an_empty_override_replace_key_is_set_and_survives_a_round_trip() {
+    let source = "[[overrides]]\npackages = [\"a\"]\n[overrides.js]\nignore-dependencies = []\n";
+    let config = Config::from_toml_str(source).unwrap();
+    let js = &config.overrides[0].js;
+    assert_eq!(js.ignore_dependencies, Some(Vec::new()));
+    assert_eq!(js.ignore_binaries, None);
+    assert!(!js.is_empty());
+    let again = Config::from_toml_str(&config.to_toml_string().unwrap()).unwrap();
+    assert_eq!(again, config);
+}
+
+#[test]
+fn a_mistyped_export_kind_names_the_key() {
+    let error = Config::from_toml_str("[js]\nignore-exports-used-in-file = { fucntion = true }\n")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("fucntion"), "{error}");
+    assert!(
+        Config::from_toml_str("[js]\nignore-exports-used-in-file = { function = true }\n").is_ok(),
+        "the valid spelling still loads"
+    );
+}

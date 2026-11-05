@@ -51,6 +51,15 @@ mod tests {
     }
 
     #[test]
+    fn wildcard_specifiers_rank_as_syncpack_ranks_them() {
+        // `18.x` is not a specifier of its own (only a part of a complex range), so it has no version to rank by.
+        assert!(floor_version(&Specifier::create("18.x")).is_none());
+        // `*` admits every version and ranks above any concrete one, as in syncpack.
+        let precise = floor_version(&Specifier::create("^18.3.1"));
+        assert!(floor_version(&Specifier::create("*")) > precise);
+    }
+
+    #[test]
     fn an_alias_to_another_package_names_its_target() {
         let target = |raw: &str| alias_target(&Specifier::create(raw), "foo").map(str::to_owned);
         assert_eq!(target("npm:bar@^1.0.0").as_deref(), Some("bar"));

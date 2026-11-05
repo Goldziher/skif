@@ -294,6 +294,31 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Fixed
 
+- **Catalog rules respect version groups** ([ADR 0040](adrs/0040-version-groups-own-their-instances-the-catalog-rules-leave-claimed-instances.md)):
+  an instance a configured `[[version-groups]]` entry matches belongs to that group, whatever its policy
+  (`pinned`, `banned`, `ignored`, `snapped-to`, an aligned policy with a selector), as in syncpack's first-match-wins
+  order. `catalog-not-used`, `catalog-mismatch`, `catalog-missing-entry` and `unresolved-catalog-references` skip it,
+  so no instance gets two reports or two conflicting fixes, and a pinned "baseline" package stays off the catalog
+  while the others use `catalog:`. Claimed instances do not count toward `min-packages` or the version of a created
+  entry. `catalog-mismatch` is a warning by default (it only reports with `mode = "off"`).
+- **Layered custom types**: a `dependency-types` list may name a `[[custom-types]]` entry defined in an inherited
+  layer; references are checked on the merged configuration, and an error found there names the file and line that set
+  the key.
+- **Override selectors**: the dependency of `react@>=18`, `parent@1>child@2`, `**/name`, `a/**/@scope/name@^1` and
+  `foo@npm:@scope/bar@1` is parsed by one function shared with `unused-catalog-entries`, which now sees
+  `**/name` references; `unresolved-catalog-references` also checks override sections. Override values that are
+  references (`$name`, `-`) are not versions, and the `overrides` of `pnpm-workspace.yaml` and its `packages` are read
+  only when pnpm is the package manager.
+- **`pnpm-workspace.yaml` keys** with a `:` inside (`foo@npm:bar`) or whitespace before the colon get a location.
+- **Catalogs**: a whole-number YAML version stays a version, a fractional one (`1.10`, read as `1.1` by YAML) is no
+  longer resolved to the wrong text; new entries go to the file that declares their catalog and to `catalogs.default`
+  when the default catalog is declared there; `catalog: react` (a space) resolves nothing.
+- **`CachedFs`** answers a probe in another letter case like the disk does, whatever the number of probes before it,
+  and `OsFs` keeps a directory entry whose type the record lacks.
+- **`[overrides.js]` replace keys** can clear an inherited list with `= []`; a mistyped export kind in
+  `ignore-exports-used-in-file` is reported by name; an ignore file of comments builds no matcher.
+- A group with no `dependency-types` covers the types `[policy] dependency-types` governs (the docs said every type).
+
 - **Root discovery reads manifests like the loader**: a root `package.json` with a byte order mark, comments or
   trailing commas that declares `workspaces` is a workspace root for `-r`, and `declared_member_dirs` reads it too.
 - **`[workspace] discover-ignore` is validated**: an invalid pattern is a configuration error naming

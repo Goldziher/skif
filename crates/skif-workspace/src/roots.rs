@@ -124,12 +124,17 @@ pub fn repository_root(fs: &dyn FileSystem, start: &Path) -> Option<PathBuf> {
     start.ancestors().find(|dir| has_git(fs, dir)).map(Path::to_path_buf)
 }
 
+/// Whether an ignore-file line holds no pattern: it is empty or a `#` comment.
+fn is_blank_or_comment(line: &str) -> bool {
+    line.trim().is_empty() || line.starts_with('#')
+}
+
 fn matcher_from(fs: &dyn FileSystem, base: &Path, files: impl IntoIterator<Item = PathBuf>) -> Option<Gitignore> {
     let mut builder = GitignoreBuilder::new(base);
     let mut any = false;
     for path in files {
         let Ok(text) = fs.read_to_string(&path) else { continue };
-        for line in text.lines() {
+        for line in text.lines().filter(|line| !is_blank_or_comment(line)) {
             any |= builder.add_line(Some(path.clone()), line).is_ok();
         }
     }
@@ -813,6 +818,17 @@ mod tests {
             declared_member_dirs(&fs, Path::new("/r")),
             BTreeSet::from([PathBuf::from("/r/p/m")])
         );
+    }
+
+    #[test]
+    fn an_ignore_file_of_comments_builds_no_matcher() {
+        let fs = MemoryFs::new()
+            .with_file("/r/.gitignore", "# nothing here\n\n   \n")
+            .with_file("/r/.ignore", "# comment\nbuild/\n");
+        let only_comments = matcher_from(&fs, Path::new("/r"), [PathBuf::from("/r/.gitignore")]);
+        assert!(only_comments.is_none());
+        let with_pattern = matcher_from(&fs, Path::new("/r"), [PathBuf::from("/r/.ignore")]).unwrap();
+        assert!(with_pattern.matched(Path::new("/r/build"), true).is_ignore());
     }
 
     #[test]

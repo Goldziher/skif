@@ -16,7 +16,7 @@ use skif::{Alternatives, FileChange, FixSafety, FixSelection, MemoryFs, Workspac
 use skif_config::Config;
 use skif_lint::{Registry, RunOptions, run};
 
-use common::{CATALOG_GROUPS, POLICY_GROUPS, Planned, rule_ids, run_groups_with};
+use common::{CATALOG_GROUPS, JOINT_GROUPS, POLICY_GROUPS, Planned, rule_ids, run_groups_with};
 
 const ROOT: &str = "/ws";
 
@@ -97,6 +97,13 @@ fn catalog_fixtures_conform_through_the_facade() {
         &rule_ids(&skif_rules::catalog_provider()),
         &through_the_facade,
     );
+}
+
+#[test]
+fn catalog_and_version_group_fixtures_conform_through_the_facade() {
+    let mut rules = rule_ids(&skif_rules::catalog_provider());
+    rules.extend(rule_ids(&skif_rules::policy_provider()));
+    run_groups_with(JOINT_GROUPS, &rules, &through_the_facade);
 }
 
 /// Removes the banned `left-pad` and `lodash` from a package whose dependencies are `dependencies`.

@@ -104,6 +104,25 @@ fn a_plain_override_key_replaces_the_workspace_table() {
     assert_eq!(a.len(), 1, "{found:#?}");
 }
 
+#[test]
+fn an_empty_plain_override_key_clears_what_the_package_inherits() {
+    let files = unused_dependency_files();
+    let inherited = "[js.workspaces.\"packages/*\"]\nignore-dependencies = [\"left\", \"right\"]\n";
+    assert_eq!(
+        paths(&lint(&files, inherited), "unused-dependencies"),
+        [] as [String; 0]
+    );
+    let cleared = lint(
+        &files,
+        &format!("{inherited}[[overrides]]\npackages = [\"@x/a\"]\n[overrides.js]\nignore-dependencies = []\n"),
+    );
+    assert_eq!(
+        paths(&cleared, "unused-dependencies"),
+        ["packages/a/package.json", "packages/a/package.json"],
+        "package a reports again; b keeps the inherited list"
+    );
+}
+
 fn unused_file_files() -> Vec<(&'static str, &'static str)> {
     vec![
         MANIFEST,
