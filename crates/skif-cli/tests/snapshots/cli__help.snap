@@ -67,7 +67,7 @@ Options:
           Turn a rule off. Repeatable
 
       --ignore-package <NAME>
-          Ignore a package by name or glob in every rule. Repeatable
+          Ignore a package by name or glob in every rule; replaces the file's list. Repeatable
 
       --ignore-dependency <NAME>
           Ignore a dependency in every rule. Repeatable

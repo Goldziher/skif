@@ -202,7 +202,7 @@ pub struct LintArgs {
     #[arg(long, value_name = "ID")]
     pub ignore_rule: Vec<String>,
 
-    /// Ignore a package by name or glob in every rule. Repeatable.
+    /// Ignore a package by name or glob in every rule; replaces the file's list. Repeatable.
     #[arg(long, value_name = "NAME")]
     pub ignore_package: Vec<String>,
 

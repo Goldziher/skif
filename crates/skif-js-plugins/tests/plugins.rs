@@ -962,12 +962,12 @@ fn table_overrides_replace_default_globs() {
     let mut plugins = IndexMap::new();
     plugins.insert(
         "playwright".to_string(),
-        PluginConfig::Options(PluginOptions {
-            config: vec!["e2e.config.ts".to_string()],
-            entry: vec!["e2e/**/*.ts".to_string()],
-            project: vec!["e2e/**".to_string()],
-            ..PluginOptions::default()
-        }),
+        PluginConfig::Options(
+            PluginOptions::new()
+                .with_config(["e2e.config.ts"])
+                .with_entry(["e2e/**/*.ts"])
+                .with_project(["e2e/**"]),
+        ),
     );
     let results = resolve_with(
         &[
@@ -993,10 +993,7 @@ fn table_with_enabled_false_disables() {
     let mut plugins = IndexMap::new();
     plugins.insert(
         "tsup".to_string(),
-        PluginConfig::Options(PluginOptions {
-            enabled: Some(false),
-            ..PluginOptions::default()
-        }),
+        PluginConfig::Options(PluginOptions::new().with_enabled(false)),
     );
     let results = resolve_with(&[], &["tsup"], true, &plugins);
     let enabled: Vec<&str> = results.iter().map(|(id, _)| *id).collect();

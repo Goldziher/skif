@@ -265,11 +265,10 @@ fn full_fixture_sections() {
 
     assert_eq!(
         config.ignore,
-        [IgnoreEntry {
-            rules: vec!["unused-dependencies".into()],
-            packages: Selector::new(["@scope/docs"]).unwrap(),
-            dependencies: Selector::new(["typescript"]).unwrap(),
-        }]
+        [IgnoreEntry::default()
+            .with_rules(["unused-dependencies"])
+            .with_packages(Selector::new(["@scope/docs"]).unwrap())
+            .with_dependencies(Selector::new(["typescript"]).unwrap())]
     );
     assert_eq!(config.policy.prefer, Prefer::Lowest);
     assert_eq!(config.policy.dependency_types, ["prod", "dev", "peer"]);
@@ -300,13 +299,11 @@ fn full_fixture_sections() {
 
     assert_eq!(
         config.catalog,
-        Catalog {
-            mode: CatalogMode::Prefer,
-            min_packages: 3,
-            exclude: vec!["react".into()],
-            report_unused_entries: true,
-            ..Catalog::default()
-        }
+        Catalog::default()
+            .with_mode(CatalogMode::Prefer)
+            .with_min_packages(3)
+            .with_exclude(["react"])
+            .with_report_unused_entries(true)
     );
     assert!(config.workspace_protocol.internal && config.workspace_protocol.allow_local_paths);
 
@@ -467,10 +464,7 @@ fn builder_matches_equivalent_toml() {
 
 #[test]
 fn builder_validates() {
-    let group = skif_config::VersionGroup {
-        policy: VersionPolicy::Pinned,
-        ..Default::default()
-    };
+    let group = skif_config::VersionGroup::default().with_policy(VersionPolicy::Pinned);
     assert!(ConfigBuilder::new().version_group(group).build().is_err());
 }
 
@@ -615,4 +609,12 @@ fn error_columns_count_characters_after_multibyte_text() {
         .count()
         + 1;
     assert_eq!(column, Some(expected));
+}
+
+#[test]
+fn an_invalid_discover_ignore_pattern_is_rejected_naming_its_position() {
+    let error = Config::from_toml_str("[workspace]\ndiscover-ignore = [\"fixtures\", \"[bad\"]\n").unwrap_err();
+    assert!(error.to_string().contains("workspace.discover-ignore[1]"), "{error}");
+    assert!(Config::from_toml_str("[workspace]\ndiscover-ignore = [\"fixtures\", \"!keep\", \"a/**\"]\n").is_ok());
+    assert!(Config::from_toml_str("[workspace]\ndiscover-ignore = []\n").is_ok());
 }
