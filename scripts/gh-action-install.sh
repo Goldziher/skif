@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Downloads and verifies the release asset resolved by gh-action-resolve.sh, unless the
-# actions/cache step already restored it. Always exposes the binary on PATH and sets the action's
-# `version` / `path` outputs, cache hit or not.
+# Downloads and verifies the release asset resolved by gh-action-resolve.sh. Always exposes the binary on PATH and
+# sets the action's `version` / `path` outputs.
+#
+# The verified archive is kept in ARCHIVE_DIR next to the binary and both are cached. A cache hit is not trusted: the
+# release's checksums.txt is fetched again, the cached archive is checked against it and the binary is unpacked from
+# that archive again. A fresh download is additionally checked against its build attestation
+# (`gh attestation verify`) unless VERIFY_ATTESTATION is "false"; an installed `gh` without the command only warns.
 set -euo pipefail
 
 sha256() {
@@ -17,44 +21,70 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   bin_name="skif.exe"
 fi
 
-if [ "${CACHE_HIT:-}" != "true" ]; then
-  mkdir -p "$BIN_DIR"
-  work="$(mktemp -d)"
-  trap 'rm -rf "$work"' EXIT
-  (
-    cd "$work"
+archive_dir="${ARCHIVE_DIR:-$(dirname "$BIN_DIR")/archive}"
+mkdir -p "$BIN_DIR" "$archive_dir"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
 
+cached=false
+if [ "${CACHE_HIT:-}" = "true" ] && [ -f "${archive_dir}/${ASSET}" ]; then
+  cached=true
+fi
+
+(
+  cd "$work"
+
+  if [ "$cached" = "true" ]; then
+    echo "skif ${TAG} is cached; re-checking ${ASSET} against ${CHECKSUMS}..."
+    gh release download "$TAG" --repo "$REPO" -p "$CHECKSUMS"
+    cp "${archive_dir}/${ASSET}" "$ASSET"
+  else
     echo "Downloading ${ASSET} (${TAG}) from ${REPO}..."
     gh release download "$TAG" --repo "$REPO" -p "$ASSET" -p "$CHECKSUMS"
+  fi
 
-    expected="$(awk -v f="$ASSET" '$2 == f { print $1 }' "$CHECKSUMS")"
-    if [ -z "$expected" ]; then
-      echo "::error::No checksum entry for ${ASSET} in ${CHECKSUMS}"
-      exit 1
+  expected="$(awk -v f="$ASSET" '$2 == f { print $1 }' "$CHECKSUMS")"
+  if [ -z "$expected" ]; then
+    echo "::error::No checksum entry for ${ASSET} in ${CHECKSUMS}"
+    exit 1
+  fi
+
+  actual="$(sha256 "$ASSET")"
+  if [ "$actual" != "$expected" ]; then
+    echo "::error::Checksum mismatch for ${ASSET}: expected ${expected}, got ${actual}"
+    exit 1
+  fi
+  echo "Checksum OK (sha256): ${actual}"
+
+  # checksums.txt comes from the same release as the archive, so it only detects corruption; the attestation is
+  # signed by the release workflow and ties the archive to it.
+  if [ "$cached" != "true" ]; then
+    if [ "${VERIFY_ATTESTATION:-true}" = "false" ]; then
+      echo "::notice::attestation verification is disabled"
+    elif gh attestation verify --help >/dev/null 2>&1; then
+      gh attestation verify "$ASSET" --repo "$REPO"
+      echo "Attestation OK: ${ASSET} was built by ${REPO}'s release workflow"
+    else
+      echo "::warning::this gh CLI has no 'attestation' command; ${ASSET} is verified by checksum only"
     fi
+    cp -f "$ASSET" "${archive_dir}/${ASSET}"
+  fi
 
-    actual="$(sha256 "$ASSET")"
-    if [ "$actual" != "$expected" ]; then
-      echo "::error::Checksum mismatch for ${ASSET}: expected ${expected}, got ${actual}"
-      exit 1
-    fi
-    echo "Checksum OK (sha256): ${actual}"
+  # Unpack into a private directory and publish only the expected member. Extracting the whole
+  # archive into BIN_DIR would let a malicious or malformed archive drop arbitrary paths into a
+  # directory that is then appended to PATH.
+  extract_dir="$work/extract"
+  mkdir -p "$extract_dir"
 
-    # Unpack into a private directory and publish only the expected member. Extracting the whole
-    # archive into BIN_DIR would let a malicious or malformed archive drop arbitrary paths into a
-    # directory that is then appended to PATH.
-    extract_dir="$work/extract"
-    mkdir -p "$extract_dir"
-
-    case "$EXT" in
-    tar.gz)
-      tar -xzf "$ASSET" -C "$extract_dir" "$bin_name"
-      ;;
-    zip)
-      if command -v unzip >/dev/null 2>&1; then
-        unzip -q -o "$ASSET" "$bin_name" -d "$extract_dir"
-      else
-        python3 - "$ASSET" "$extract_dir" "$bin_name" <<'PY'
+  case "$EXT" in
+  tar.gz)
+    tar -xzf "$ASSET" -C "$extract_dir" "$bin_name"
+    ;;
+  zip)
+    if command -v unzip >/dev/null 2>&1; then
+      unzip -q -o "$ASSET" "$bin_name" -d "$extract_dir"
+    else
+      python3 - "$ASSET" "$extract_dir" "$bin_name" <<'PY'
 import os
 import shutil
 import sys
@@ -71,27 +101,24 @@ with zipfile.ZipFile(archive) as handle:
     else:
         sys.exit(f"{member} not found in {archive}")
 PY
-      fi
-      ;;
-    *)
-      echo "::error::Unknown archive extension: ${EXT}"
-      exit 1
-      ;;
-    esac
-
-    extracted="$(find "$extract_dir" -type f -name "$bin_name" | head -n 1)"
-    if [ -z "$extracted" ]; then
-      echo "::error::${ASSET} does not contain ${bin_name}"
-      exit 1
     fi
-    mv -f "$extracted" "${BIN_DIR}/${bin_name}"
-  )
+    ;;
+  *)
+    echo "::error::Unknown archive extension: ${EXT}"
+    exit 1
+    ;;
+  esac
 
-  if [ "$RUNNER_OS" != "Windows" ]; then
-    chmod +x "${BIN_DIR}/${bin_name}"
+  extracted="$(find "$extract_dir" -type f -name "$bin_name" | head -n 1)"
+  if [ -z "$extracted" ]; then
+    echo "::error::${ASSET} does not contain ${bin_name}"
+    exit 1
   fi
-else
-  echo "skif ${TAG} already cached at ${BIN_DIR}"
+  mv -f "$extracted" "${BIN_DIR}/${bin_name}"
+)
+
+if [ "$RUNNER_OS" != "Windows" ]; then
+  chmod +x "${BIN_DIR}/${bin_name}"
 fi
 
 echo "$BIN_DIR" >>"$GITHUB_PATH"

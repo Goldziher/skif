@@ -180,6 +180,23 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   listings that the roots already running just read, and an idle `Linter` holds nothing.
 - **`skif config -r` walks each tree once** (`unapplied_config_files_all`) instead of once per enclosing root.
 - **Internal errors**: a duplicate rule id is reported with kind `internal`, not `config`.
+- **glibc floor of the Linux archives is real**: the `*-linux-gnu` archives are linked against glibc 2.34
+  (cargo-zigbuild) instead of the runner's glibc 2.39, and the build fails if a binary imports a newer symbol. The
+  GitHub Action, the pre-commit launcher and the Homebrew formula install the musl archive when the glibc is older than
+  2.34 or cannot be identified; `cargo binstall` hosts below 2.34 pass `--targets <arch>-unknown-linux-musl`. The
+  release pipeline runs both flavours in Debian 11, AlmaLinux 8 and 9 and Ubuntu 22.04 containers before a release.
+- **GitHub Action supply chain**: a release of the action installs the skif version it was published with (a SHA or
+  floating-tag pin no longer floats), a cache hit is re-checked against the release's `checksums.txt`, and archives are
+  checked with `gh attestation verify` against the build-provenance attestation the release workflow now creates
+  (`verify-attestation: false` for mirrors; a `gh` without the command only warns). The pre-commit launcher checks the
+  attestation too when an authenticated `gh` exists and says so when it cannot.
+- **Release pipeline order**: the GitHub release is made public only after crates.io is published and the npm package
+  runs; `cargo binstall` is verified after that. The dry run also starts for changes to the release inputs and weekly,
+  and the Windows arm64 archive is unpacked with `Expand-Archive`.
+- **CI covers the supported versions of ADR 0027**: the npm addon and published-package checks run on Node 22, 24 and
+  26 and the latest Bun 1.x; the end-to-end suite runs the latest two majors of npm, pnpm and Yarn 2+ (resolved from
+  the registry) and the latest Bun.
+
 - **Library timings are a hook, not an environment read**: `skif_core::timing` no longer looks at `SKIF_TIMINGS` or
   writes to stderr on its own. A host installs a sink with `timing::enable` (or `enable_stderr`); the `skif` command
   line does so when `SKIF_TIMINGS` is set. The `skif` crate no longer re-exports `timing`.

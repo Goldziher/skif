@@ -1,0 +1,3 @@
+# The scripts source scripts/lib/libc.sh relative to themselves.
+external-sources=true
+source-path=SCRIPTDIR

@@ -34,7 +34,8 @@ expected_files="$(
     for platform in "${platforms[@]}"; do echo "skif-${platform}-${version}.tgz"; done
   } | LC_ALL=C sort
 )"
-actual_files="$(cd "$dir" && find . -maxdepth 1 -type f -name '*.tgz' -printf '%f\n' 2>/dev/null | LC_ALL=C sort || true)"
+# `find -printf` is GNU only; strip the leading "./" instead so the check also runs on macOS.
+actual_files="$(cd "$dir" && find . -maxdepth 1 -type f -name '*.tgz' 2>/dev/null | sed 's|^\./||' | LC_ALL=C sort || true)"
 if [[ "$expected_files" != "$actual_files" ]]; then
   fail "the packed tarballs are not the umbrella plus the six platform packages"
   diff <(echo "$expected_files") <(echo "$actual_files") >&2 || true

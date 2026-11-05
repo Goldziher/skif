@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Fails unless every source file of the vendored skif-specifier crate starts with an attribution header:
-# either `// Vendored from syncpack ...` or `// Added for skif (not in syncpack) ...` (ADR 0015).
+# either `// Vendored from syncpack ...` or `// Added for skif (not in syncpack) ...` (ADR 0015). Code derived from
+# sherif and knip is not vendored file by file and carries no header; ATTRIBUTIONS.md covers it, and its sections,
+# Modifications lists and recorded commits are checked below.
 #
 # Usage: scripts/check-headers.sh
 set -euo pipefail

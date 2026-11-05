@@ -57,11 +57,13 @@ Each release attaches one archive per target, plus `checksums.txt`.
 
 Each archive holds the `skif` binary (`skif.exe` on Windows), the `LICENSE` and the `ATTRIBUTIONS.md` notices of derived code.
 
-The glibc archives are linked on the GitHub-hosted `ubuntu-latest` runner (Ubuntu 24.04, glibc 2.39 at the time
-of writing), so they need that glibc or newer. They do not start on older systems such as RHEL 8, Debian 11, Ubuntu
-20.04 or Amazon Linux 2; use the static musl archives there (they run on any Linux, glibc or musl). The Action,
-the pre-commit launcher, `cargo binstall` and Homebrew all pick the glibc archive on a glibc system, so on an older
-one download the musl archive directly. The npm addon targets glibc 2.17 and is not affected.
+The glibc archives are linked against glibc 2.34 (cargo-zigbuild) and start on any Linux with glibc 2.34 or newer,
+such as Ubuntu 22.04, Debian 12 and RHEL 9. The static musl archives run on any Linux, glibc or musl, and are the
+choice for older systems such as RHEL 8, Debian 11, Ubuntu 20.04 or Amazon Linux 2. The Action, the pre-commit
+launcher and the Homebrew formula pick the musl archive themselves when the glibc is older than 2.34 or cannot be
+identified. `cargo binstall` cannot detect the glibc version: on an older system run
+`cargo binstall --targets x86_64-unknown-linux-musl skif-cli` (or `aarch64-unknown-linux-musl`). The npm addon targets
+glibc 2.17 and is not affected.
 
 Verify a download with:
 
