@@ -62,10 +62,17 @@ for (const rule of rules) {
     description,
     severity: field("Default severity"),
     fixable: field("Fixable"),
+    sherifName: field("sherif name"),
   });
 }
 
 if (parsed.length === 0) throw new Error(`no rules found in ${source}`);
+
+const documentedSherifNames = lines.filter((line) => line.startsWith("- sherif name: ")).length;
+const parsedSherifNames = parsed.filter((rule) => rule.sherifName).length;
+if (parsedSherifNames !== documentedSherifNames) {
+  throw new Error(`docs/rules.md names ${documentedSherifNames} sherif rules, the sync read ${parsedSherifNames}`);
+}
 
 mkdirSync(outDir, { recursive: true });
 
@@ -97,6 +104,7 @@ for (const [category, meta] of Object.entries(categories)) {
       "",
       `- Default severity: ${r.severity}`,
       `- Fixable: ${r.fixable}`,
+      ...(r.sherifName ? [`- sherif name: ${r.sherifName}`] : []),
       "",
       "```toml",
       "[rules]",
@@ -108,4 +116,6 @@ for (const [category, meta] of Object.entries(categories)) {
   writeFileSync(join(outDir, `${category}.mdx`), out.join("\n"));
 }
 
-process.stdout.write(`sync-rules: ${parsed.length} rules into ${Object.keys(categories).length} pages\n`);
+process.stdout.write(
+  `sync-rules: ${parsed.length} rules (${parsedSherifNames} with a sherif name) into ${Object.keys(categories).length} pages\n`,
+);
