@@ -2,7 +2,6 @@
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use clap::ColorChoice;
 use serde_json::{Map, Value};
@@ -304,18 +303,19 @@ fn fix_roots(
 /// A [`CliError`] when `path` cannot be resolved, no workspace is found there, the configuration is invalid or
 /// the lint cannot run.
 pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -> Result<String, CliError> {
-    let fs = Arc::new(CachedFs::new(OsFs));
+    let fs = CachedFs::new(OsFs);
     let start = canonical(path)?;
     let Resolved {
         base,
         targets,
         multi,
         failures,
+        truncated,
         ..
     } = timing::phase("root discovery (roots, configs, workspaces)", || {
-        roots::resolve(&start, recursive, fs.as_ref(), overrides)
+        roots::resolve(&start, recursive, &fs, overrides)
     })?;
-    let linters = Linters::build(&targets, &(Arc::clone(&fs) as Arc<dyn FileSystem>))?;
+    let linters = Linters::build(&targets)?;
     let runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
     let reports: Vec<Cow<'_, Report>> = runs
         .iter()
@@ -331,6 +331,9 @@ pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -
         if !failures.is_empty() {
             extra.insert("errors".to_owned(), errors_json(&failures));
         }
+        if !truncated.is_empty() {
+            extra.insert("truncated".to_owned(), truncated_json(&truncated));
+        }
     }
     let mut buffer = Vec::new();
     render_json_with(&aggregate, &options, extra, &mut buffer)
@@ -340,6 +343,11 @@ pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -
 
 fn errors_json(failures: &[RootError]) -> Value {
     Value::Array(failures.iter().map(RootError::to_json).collect())
+}
+
+/// The directories the search for roots did not enter, as the JSON `truncated` array.
+fn truncated_json(truncated: &[PathBuf]) -> Value {
+    Value::Array(truncated.iter().map(|dir| Value::String(roots::display(dir))).collect())
 }
 
 /// Tells the user that the search for roots was cut short by the depth limit.
@@ -376,7 +384,7 @@ fn roots_json(runs: &[RootRun], reports: &[Cow<'_, Report>]) -> Value {
 }
 
 fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
-    let fs = Arc::new(CachedFs::new(OsFs));
+    let fs = CachedFs::new(OsFs);
     if args.fixing() && env.ci {
         return Err(CliError::ci_refusal());
     }
@@ -388,18 +396,18 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         failures: root_errors,
         truncated,
     } = timing::phase("root discovery (roots, configs, workspaces)", || {
-        roots::resolve(&start, args.recursive, fs.as_ref(), &overrides(args))
+        roots::resolve(&start, args.recursive, &fs, &overrides(args))
     })?;
     note_truncated(&truncated);
     for target in &mut targets {
         adjust(args, &mut target.config)?;
     }
-    let linters = Linters::build(&targets, &(Arc::clone(&fs) as Arc<dyn FileSystem>))?;
+    let linters = Linters::build(&targets)?;
     let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
 
     let mut fixes: Vec<FixRun> = Vec::new();
     if args.fixing() {
-        match fix_roots(args, env, &linters, runs, fs.as_ref())? {
+        match fix_roots(args, env, &linters, runs, &fs)? {
             Fixed::All(fixed_runs, done) => {
                 runs = fixed_runs;
                 fixes = done;
@@ -439,9 +447,10 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         rules: linters.rules(),
         multi,
         errors: root_errors.iter().map(RootError::to_json).collect(),
+        truncated: truncated_json(&truncated),
     };
     let rendered = timing::phase("render", || {
-        output::render(&aggregate, &views, &rendering, fs.as_ref(), &root_fixes)
+        output::render(&aggregate, &views, &rendering, &fs, &root_fixes)
     })?;
     output::emit(&rendered, args.output.as_deref())?;
     if !fixes.is_empty() && matches!(args.format(), Format::Sarif | Format::Github) {

@@ -97,7 +97,8 @@ skif -r --format json    # one document with a "roots" array
   not report for it; the rule still reports for every workspace and for the outermost root.
 - The search skips `node_modules`, hidden directories, symbolic links, anything a `.gitignore` or `.ignore`
   excludes, and the directories named by `[workspace] discover-ignore` (by default `__fixtures__`, `fixtures`,
-  `__mocks__` and `__snapshots__`). It goes at most 32 directories deep.
+  `__mocks__` and `__snapshots__`). It goes at most 32 directories deep; the directories it did not enter below that
+  limit are named on stderr and in the `truncated` array of the JSON document.
 - A root that cannot be loaded does not stop the others: it is listed in the `errors` array of the JSON document and
   the exit code is `2`.
 - Roots are linted in parallel and merged into one report in path order. Paths are relative to the invocation

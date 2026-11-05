@@ -28,7 +28,8 @@ invocation directory, human output is grouped by root, and `--format json` adds 
 hidden directories, directories excluded by a `.gitignore` or `.ignore` and directories matching
 `[workspace] discover-ignore` (by default `__fixtures__`, `fixtures`, `__mocks__` and `__snapshots__`) are not
 searched. A root that cannot be loaded is reported in the `errors` array of the JSON document and does not stop the
-others; the exit code is then `2`. `root-package-manager-field` is not reported for a standalone package below
+others; the exit code is then `2`. A search stopped by the depth limit lists the directories it did not enter in the
+`truncated` array. `root-package-manager-field` is not reported for a standalone package below
 another root. `--fix` plans, writes and installs per root.
 
 ## Subcommands

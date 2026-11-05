@@ -84,6 +84,8 @@ pub struct Rendering<'a> {
     pub multi: bool,
     /// The roots of a multi-root run that could not be loaded, as JSON `errors` entries.
     pub errors: Vec<Value>,
+    /// The directories at the depth limit the walk of a multi-root run did not enter, as a JSON array.
+    pub truncated: Value,
 }
 
 /// One root of a run, with paths already relative to [`Rendering::root`].
@@ -178,6 +180,9 @@ fn write_report(
                 );
                 if !rendering.errors.is_empty() {
                     extra.insert("errors".to_owned(), Value::Array(rendering.errors.clone()));
+                }
+                if rendering.truncated.as_array().is_some_and(|dirs| !dirs.is_empty()) {
+                    extra.insert("truncated".to_owned(), rendering.truncated.clone());
                 }
             }
             render_json_with(report, options, extra, out)
