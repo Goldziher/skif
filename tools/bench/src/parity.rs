@@ -84,6 +84,8 @@ const FIXTURE_DIRECTORIES: [&str; 5] = ["fixtures", "__fixtures__", "fixture", "
 /// Marker written into a checkout once its dependencies are installed, holding the pinned commit.
 const INSTALLED_MARKER: &str = ".skif-bench-installed";
 
+// Independent command-line switches, one per flag.
+#[allow(clippy::struct_excessive_bools)]
 pub struct Options {
     pub skif: PathBuf,
     pub corpus_file: PathBuf,

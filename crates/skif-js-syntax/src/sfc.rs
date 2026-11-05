@@ -234,7 +234,10 @@ mod tests {
     #[test]
     fn detects_typescript() {
         let found = blocks("<script lang='ts'>x</script><script>y</script>", false);
-        assert_eq!(found.scripts.iter().map(|b| b.typescript).collect::<Vec<_>>(), [true, false]);
+        assert_eq!(
+            found.scripts.iter().map(|b| b.typescript).collect::<Vec<_>>(),
+            [true, false]
+        );
     }
 
     #[test]

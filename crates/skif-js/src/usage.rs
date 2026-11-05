@@ -230,12 +230,9 @@ impl ExportUsage {
         }
         for (target, named) in &index.modules[id.index()].all {
             match named {
-                Some((_, source)) => queue.push_back(Task::Name(
-                    *target,
-                    source.clone(),
-                    MemberUse::everything(),
-                    Via::Named,
-                )),
+                Some((_, source)) => {
+                    queue.push_back(Task::Name(*target, source.clone(), MemberUse::everything(), Via::Named));
+                }
                 None => queue.push_back(Task::All(*target)),
             }
         }
@@ -276,9 +273,12 @@ impl ExportUsage {
             if access.all || access.members.is_empty() {
                 queue.push_back(Task::All(*target));
             } else {
-                queue.extend(access.members.iter().map(|member| {
-                    Task::Name(*target, member.clone(), MemberUse::everything(), Via::Namespace)
-                }));
+                queue.extend(
+                    access
+                        .members
+                        .iter()
+                        .map(|member| Task::Name(*target, member.clone(), MemberUse::everything(), Via::Namespace)),
+                );
             }
         }
         if !reexports.defined.contains(name) && name != "default" {

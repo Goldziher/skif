@@ -356,7 +356,12 @@ fn split_last_segment(pattern: &str) -> (Option<&str>, &str) {
 /// Reads every queued config file, which may queue further ones.
 fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut BTreeSet<String>) {
     let ctx = collector.ctx;
-    while let Some(Queued { path: relative, depth, reader }) = collector.queue.pop_front() {
+    while let Some(Queued {
+        path: relative,
+        depth,
+        reader,
+    }) = collector.queue.pop_front()
+    {
         let key = reader.map_or_else(|| relative.clone(), |id| format!("{id}:{relative}"));
         if !visited.insert(key) {
             continue;

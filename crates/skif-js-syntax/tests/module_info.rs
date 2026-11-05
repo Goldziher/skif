@@ -509,7 +509,15 @@ fn an_export_clause_of_an_imported_binding_is_a_re_export_edge() {
     let exports: Vec<_> = info
         .exports
         .iter()
-        .map(|e| (e.name.as_str(), e.kind, e.from.as_deref(), e.imported_name.as_deref(), e.is_type))
+        .map(|e| {
+            (
+                e.name.as_str(),
+                e.kind,
+                e.from.as_deref(),
+                e.imported_name.as_deref(),
+                e.is_type,
+            )
+        })
         .collect();
     assert_eq!(
         exports,
@@ -803,14 +811,20 @@ fn accessed(info: &ModuleInfo, local: &str) -> (Vec<String>, bool) {
 fn component_templates_credit_the_imports_they_use() {
     let vue = "<script setup lang=\"ts\">\nimport * as util from './util';\nimport * as whole from './whole';\nimport MyCard from './MyCard.vue';\nimport * as unused from './unused';\n</script>\n<template><my-card :n=\"util.double(2)\" :all=\"whole\">{{ util.triple }}</my-card></template>\n";
     let info = parse("App.vue", vue);
-    assert_eq!(accessed(&info, "util"), (vec!["double".to_owned(), "triple".to_owned()], false));
+    assert_eq!(
+        accessed(&info, "util"),
+        (vec!["double".to_owned(), "triple".to_owned()], false)
+    );
     assert_eq!(accessed(&info, "whole"), (Vec::<String>::new(), true));
     assert_eq!(accessed(&info, "MyCard"), (Vec::<String>::new(), true));
     assert_eq!(accessed(&info, "unused"), (Vec::<String>::new(), false));
 
     let svelte = "<script>\n  import * as util from './util';\n  import Widget from './Widget.svelte';\n</script>\n{#if util.ready}<Widget on:click={util.go} />{/if}\n";
     let info = parse("A.svelte", svelte);
-    assert_eq!(accessed(&info, "util"), (vec!["go".to_owned(), "ready".to_owned()], false));
+    assert_eq!(
+        accessed(&info, "util"),
+        (vec!["go".to_owned(), "ready".to_owned()], false)
+    );
     assert!(accessed(&info, "Widget").1);
 
     let astro = "---\nimport * as util from './util';\nimport Layout from './Layout.astro';\n---\n<Layout title={util.title}><p>util is not an expression here</p></Layout>\n";
@@ -837,7 +851,12 @@ fn component_style_blocks_and_src_attributes_are_imports_located_in_the_file() {
     let found: Vec<(&str, &str)> = info
         .imports
         .iter()
-        .map(|import| (import.specifier.as_str(), slice(vue, import.span.start, import.span.end)))
+        .map(|import| {
+            (
+                import.specifier.as_str(),
+                slice(vue, import.span.start, import.span.end),
+            )
+        })
         .collect();
     assert_eq!(found[0], ("lib/theme", "@use 'lib/theme'"));
     assert_eq!(found[1], ("./plain.css", "@import './plain.css'"));
@@ -851,7 +870,11 @@ fn component_style_blocks_and_src_attributes_are_imports_located_in_the_file() {
 fn data_script_blocks_are_not_parsed() {
     let astro = "---\nimport a from './a';\n---\n<script type=\"application/ld+json\">{\"@type\": \"Thing\"}</script>\n<script>import './client';</script>\n";
     let info = parse("p.astro", astro);
-    assert!(!info.fatal && info.parse_diagnostics.is_empty(), "{:?}", info.parse_diagnostics);
+    assert!(
+        !info.fatal && info.parse_diagnostics.is_empty(),
+        "{:?}",
+        info.parse_diagnostics
+    );
     let specifiers: Vec<&str> = info.imports.iter().map(|i| i.specifier.as_str()).collect();
     assert_eq!(specifiers, ["./a", "./client"]);
 }

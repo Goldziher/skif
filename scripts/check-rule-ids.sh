@@ -14,8 +14,8 @@ cd "$(dirname "$0")/.."
 documented="$(grep -oE '^\| \[`[a-z0-9-]+`\]' docs/rules.md | sed -E 's/^\| \[`([a-z0-9-]+)`\]$/\1/' | sort)"
 recorded="$(sort rule-ids.txt)"
 # shellcheck disable=SC2016
-registered="$(grep -rhE -A1 '^(pub(\([a-z]+\))? )?(static|const) [A-Z_]+: RuleMeta = RuleMeta \{' crates/*/src |
-  grep -oE 'id: "[a-z0-9-]+"' | sed -E 's/^id: "(.*)"$/\1/' | sort)"
+registered="$({ grep -rhE -A1 '^(pub(\([a-z]+\))? )?(static|const) [A-Z_]+: RuleMeta = RuleMeta::new\(' crates/*/src || true; } |
+  tr '\n' ' ' | grep -oE 'RuleMeta::new\( *"[a-z0-9-]+"' | sed -E 's/^.*"([a-z0-9-]+)"$/\1/' | sort || true)"
 if [[ -z "$registered" ]]; then
   echo "::error::no RuleMeta statics found under crates/*/src; update the pattern in scripts/check-rule-ids.sh"
   exit 1
