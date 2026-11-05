@@ -2206,6 +2206,7 @@ dependencies = [
  "indexmap",
  "insta",
  "oxc_resolver",
+ "regex",
  "serde",
  "serde_json",
  "skif-config",

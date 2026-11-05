@@ -278,6 +278,13 @@ expression: json.stdout
       "default": "warning",
       "fixable": "none",
       "summary": "A file reachable from an entry file has a syntax error the parser could not recover from."
+    },
+    {
+      "id": "stale-js-config",
+      "category": "js",
+      "default": "warning",
+      "fixable": "none",
+      "summary": "A `[js]` ignore entry or workspace key matched nothing in the run."
     }
   ]
 }

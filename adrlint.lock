@@ -165,3 +165,8 @@ blake3 = "478fc16bd0271571487caacee70db5b4a9af4129efcdbb803f648c858e254249"
 number = 33
 status = "accepted"
 blake3 = "42314375b9577f68d804460e4507c2268fd1938c7cbd859c6e419a6a2fd743a9"
+
+[adrs."adrs/0034-js-configuration-parity-with-knip.md"]
+number = 34
+status = "accepted"
+blake3 = "e7ecb4a8c0060b3c886ec0e9a87c64bfd7d872f1e5b6b438a4abbe0606db0897"

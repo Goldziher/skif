@@ -46,7 +46,7 @@ The documentation site is at <https://goldziher.github.io/skif/>; its sources li
 | Embeddable library facade (`skif` crate) | Available |
 | `skif.toml` configuration: rule levels, ignores, workspace settings | Available |
 | Version groups, semver groups, catalog and workspace-protocol policies | Available ([ADR 0009](adrs/0009-version-and-catalog-policies.md)) |
-| Unused / unlisted / unresolved dependency and dead-code analysis, 16 `js` rules and a table of 102 plugins | Available ([ADR 0010](adrs/0010-js-analysis-on-oxc.md), [ADR 0011](adrs/0011-plugin-model.md), [ADR 0025](adrs/0025-plugin-set-extension-thirty-five-more-tools.md), [ADR 0036](adrs/0036-thirty-nine-more-knip-plugins-by-real-world-usage.md)) |
+| Unused / unlisted / unresolved dependency and dead-code analysis, 17 `js` rules and a table of 102 plugins | Available ([ADR 0010](adrs/0010-js-analysis-on-oxc.md), [ADR 0011](adrs/0011-plugin-model.md), [ADR 0025](adrs/0025-plugin-set-extension-thirty-five-more-tools.md), [ADR 0036](adrs/0036-thirty-nine-more-knip-plugins-by-real-world-usage.md)) |
 | Several projects in one run (`-r`), and single packages that declare no workspace | Available ([ADR 0022](adrs/0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md)) |
 | Human, JSON, SARIF and GitHub annotation output | Available ([ADR 0012](adrs/0012-reporting.md)) |
 | npm package as a napi-rs addon | Available ([ADR 0018](adrs/0018-npm-distribution-via-napi-rs.md)) |
@@ -60,10 +60,10 @@ harness reports those differences per issue type and names the intended ones; se
 ## Rules
 
 Run `skif rules` (or `skif rules --format json`) to list the registry; [`docs/rules.md`](docs/rules.md)
-documents all 39 rules with their categories, default severities and fix safety. Every rule has a stable
+documents all 40 rules with their categories, default severities and fix safety. Every rule has a stable
 kebab-case id, a category (`manifest`, `workspace`, `policy`, `catalog`, `js`) and a default level. Fixes are
 `safe` (applied by `--fix`), `unsafe` (applied only by `--fix-unsafe`) or `sometimes` (fixable for some
-findings). The 16 `js` rules need the JS analysis, which `--no-js` or `[js] enabled = false` turns off.
+findings). The 17 `js` rules need the JS analysis, which `--no-js` or `[js] enabled = false` turns off.
 
 ## Quick start
 

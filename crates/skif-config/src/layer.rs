@@ -33,7 +33,15 @@ const ROOT_SCOPED: [&str; 12] = [
 ];
 
 /// `[js]` keys that cannot appear in an override.
-pub(crate) const ROOT_SCOPED_JS: [&str; 4] = ["enabled", "production", "include-entry-exports", "workspaces"];
+pub(crate) const ROOT_SCOPED_JS: [&str; 7] = [
+    "enabled",
+    "production",
+    "include-entry-exports",
+    "workspaces",
+    "ignore-workspaces",
+    "ignore-exports-used-in-file",
+    "ignore-members",
+];
 
 /// A configuration file, parsed and validated on its own.
 pub(crate) struct ParsedFile {

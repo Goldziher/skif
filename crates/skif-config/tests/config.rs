@@ -3,7 +3,8 @@
 use std::path::{Path, PathBuf};
 
 use skif_config::{
-    Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, IgnoreEntry, Level, PackageManager,
+    Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, IgnoreEntry, IgnoreExportsUsedInFile, Level,
+    PackageManager,
     PluginConfig, Prefer, RuleConfig, Selector, SemverRange, VersionPolicy, discover, discover_with_fs,
 };
 use skif_core::{MemoryFs, Severity};
@@ -617,4 +618,87 @@ fn an_invalid_discover_ignore_pattern_is_rejected_naming_its_position() {
     assert!(error.to_string().contains("workspace.discover-ignore[1]"), "{error}");
     assert!(Config::from_toml_str("[workspace]\ndiscover-ignore = [\"fixtures\", \"!keep\", \"a/**\"]\n").is_ok());
     assert!(Config::from_toml_str("[workspace]\ndiscover-ignore = []\n").is_ok());
+}
+
+#[test]
+fn js_keys_of_knip_parity_parse() {
+    let config = Config::from_toml_str(
+        r#"
+[js]
+ignore-unresolved = ["#internal/*"]
+ignore-workspaces = ["tools/*"]
+ignore-members = ["/^_/"]
+ignore-exports-used-in-file = { type = true, enum = true }
+
+[js.workspaces."."]
+include-entry-exports = true
+
+[js.workspaces."packages/web"]
+ignore-unresolved = ["virtual:*"]
+ignore-members = ["Internal*"]
+ignore-exports-used-in-file = true
+paths = { "@/*" = ["./src/*", "./generated/*"] }
+
+[js.workspaces."packages/web".plugins]
+vite = { config = ["vite.web.config.ts"] }
+"#,
+    )
+    .unwrap();
+    let js = &config.js;
+    assert_eq!(js.ignore_unresolved, ["#internal/*"]);
+    assert_eq!(js.ignore_workspaces, ["tools/*"]);
+    assert_eq!(js.ignore_members, ["/^_/"]);
+    let IgnoreExportsUsedInFile::Kinds(kinds) = &js.ignore_exports_used_in_file else {
+        panic!("expected a table of kinds");
+    };
+    assert!(kinds.type_alias && kinds.enumeration && !kinds.function && !kinds.variable);
+    assert_eq!(js.workspaces["."].include_entry_exports, Some(true));
+    let web = &js.workspaces["packages/web"];
+    assert_eq!(web.ignore_unresolved, ["virtual:*"]);
+    assert_eq!(web.ignore_members, ["Internal*"]);
+    assert_eq!(web.ignore_exports_used_in_file, Some(IgnoreExportsUsedInFile::All(true)));
+    assert_eq!(web.paths["@/*"], ["./src/*", "./generated/*"]);
+    assert!(matches!(web.plugins["vite"], PluginConfig::Options(_)));
+    assert_eq!(web.include_entry_exports, None);
+}
+
+#[test]
+fn js_defaults_ignore_nothing_new() {
+    let js = Config::default().js;
+    assert!(js.ignore_unresolved.is_empty() && js.ignore_workspaces.is_empty() && js.ignore_members.is_empty());
+    assert_eq!(js.ignore_exports_used_in_file, IgnoreExportsUsedInFile::All(false));
+}
+
+#[test]
+fn js_round_trips_with_the_new_keys() {
+    let source = "[js]\nignore-unresolved = [\"a\"]\nignore-exports-used-in-file = { function = true }\n\n[js.workspaces.\"p\"]\ninclude-entry-exports = false\n";
+    let config = Config::from_toml_str(source).unwrap();
+    let again = Config::from_toml_str(&config.to_toml_string().unwrap()).unwrap();
+    assert_eq!(config, again);
+}
+
+#[test]
+fn unknown_plugin_ids_are_rejected_with_a_suggestion() {
+    let config = Config::from_toml_str("[js.plugins]\nvitset = true\n").unwrap();
+    let err = config.validate_plugins(&["vitest", "jest"]).unwrap_err().to_string();
+    assert!(err.contains("js.plugins.vitset: unknown plugin `vitset`; did you mean `vitest`?"), "{err}");
+
+    let config = Config::from_toml_str("[js.workspaces.\"a\".plugins]\nnope = true\n").unwrap();
+    let err = config.validate_plugins(&["vitest"]).unwrap_err().to_string();
+    assert!(err.contains("js.workspaces.\"a\".plugins.nope: unknown plugin `nope`"), "{err}");
+    assert!(!err.contains("did you mean"), "{err}");
+
+    let config = Config::from_toml_str("[[overrides]]\npackages = [\"a\"]\n[overrides.js.plugins]\nvitset = false\n").unwrap();
+    let err = config.validate_plugins(&["vitest"]).unwrap_err().to_string();
+    assert!(err.contains("overrides[0].js.plugins.vitset"), "{err}");
+
+    assert!(Config::from_toml_str("[js.plugins]\nvitest = true\n").unwrap().validate_plugins(&["vitest"]).is_ok());
+}
+
+#[test]
+fn root_only_js_keys_are_rejected_in_an_override() {
+    for key in ["ignore-workspaces = [\"a\"]", "ignore-members = [\"a\"]", "ignore-exports-used-in-file = true"] {
+        let source = format!("[[overrides]]\npackages = [\"a\"]\n[overrides.js]\n{key}\n");
+        assert!(Config::from_toml_str(&source).is_err(), "{key}");
+    }
 }

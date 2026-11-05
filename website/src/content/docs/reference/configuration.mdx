@@ -183,16 +183,29 @@ enabled = false              # disable a built-in family of the same name
 ```toml
 [js]
 enabled = true
-entry = ["src/index.ts"]
+entry = ["src/index.ts", "src/server.ts!"]
 project = ["src/**/*.ts"]
 ignore = ["**/*.generated.ts"]
-ignore-dependencies = ["@types/node"]
+ignore-dependencies = ["@types/node", "/^@org\\/.+$/"]
 ignore-binaries = ["docker"]
+ignore-unresolved = ["#internal/*", "/^virtual:/"]
+ignore-workspaces = ["tools/*"]
+ignore-members = ["/^_/"]
+ignore-exports-used-in-file = { type = true, interface = true }
 production = false
 include-entry-exports = false
 
+[js.workspaces."."]
+ignore-dependencies = ["rimraf"]
+
 [js.workspaces."packages/web"]
 entry = ["src/main.tsx"]
+ignore-unresolved = ["virtual:*"]
+include-entry-exports = true
+paths = { "@/*" = ["./src/*"] }
+
+[js.workspaces."packages/web".plugins]
+vite = { config = ["vite.web.config.ts"] }
 
 [js.plugins]
 vitest = true
@@ -200,8 +213,46 @@ jest = { enabled = true, config = ["jest.config.cjs"] }
 ```
 
 `enabled` defaults to `true`, so a plain `skif` run checks everything; the git hooks pass `--no-js`. Per-workspace
-tables take `entry`, `project`, `ignore`, `ignore-dependencies` and `ignore-binaries`. A plugin entry is `true`,
-`false` or a table with `enabled`, `config`, `entry` and `project`.
+tables, keyed by directory (a glob such as `packages/*` works, an exact key wins over a glob, and `"."` is the root
+workspace), take `entry`, `project`, `ignore`, `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved`,
+`ignore-members`, `ignore-exports-used-in-file`, `include-entry-exports`, `paths` and `plugins`. A plugin entry is
+`true`, `false` or a table with `enabled`, `config`, `entry` and `project`; the plugin names are checked, and a
+misspelt one is a configuration error with the closest name suggested. The `"."` table adds to the top-level ignore
+lists and replaces its `entry` and `project`.
+
+**Ignore lists.** `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved`, `ignore-members` and
+`ignore-workspaces` take exact names, globs (`@types/*`) and regular expressions. An entry is a regular expression
+when it is written between slashes with optional flags (`/^@org\/.+$/`, `/^vite/i`), or, as in knip, when it contains
+`+`, `\`, `(`, `)`, `|` or `^`, contains `.*` or `.+`, or ends in `$`. A regular expression is not anchored and matches
+anywhere in the name. This differs from knip, which also treats `*` and `{` as regular expression syntax; skif keeps
+them for globs so that `@types/*` means what it says. A pattern that does not compile is a configuration error. An
+entry ending in `!` applies in production mode only (`"left!"`).
+
+**`ignore-unresolved`** lists import specifiers that are never reported by `unresolved-imports`, at the top level and
+per workspace. `ignore-dependencies` also silences `unresolved-imports` for a matching specifier, because plugins
+declare virtual modules through it; use `ignore-unresolved` for your own.
+
+**`ignore-workspaces`** lists workspace directories (globs) the JavaScript analysis skips. Unlike `[workspace]
+ignore-packages`, the packages stay in the workspace, so manifest and policy rules still check them. The root is never
+skipped.
+
+**`entry` and `project`.** As in knip, a pattern ending in `!` is a normal pattern in a normal run. In a production run
+only the patterns ending in `!` count and the others are excluded; when none ends in `!`, the defaults apply.
+
+**`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
+workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.
+
+**`ignore-exports-used-in-file`** is `true`, or a table of the kinds `variable`, `function`, `class`, `enum`,
+`namespace`, `type` and `interface`: an export that the same file references is then not reported. skif does not tell
+type aliases from interfaces, so `type` and `interface` are the same switch. `member` is accepted; members read in
+their own file always count as used. **`ignore-members`** lists enum and namespace member names never reported by
+`unused-enum-members` and `unused-namespace-members`. **`include-entry-exports`** may be set per workspace.
+
+**`stale-js-config`** (a warning) reports `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
+`ignore-workspaces` entries that matched nothing in the run, and `[js.workspaces]` keys that select no package, like
+knip's configuration hints. `[rules] stale-js-config = "error"` is knip's `--treat-config-hints-as-errors`. An
+`ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off, and the
+dependency lists are not judged when a package has entry files skif cannot determine.
 
 A dependency counts as listed when the package's own `package.json`, the `package.json` of a package that contains
 it, or any `package.json` above the analysed root up to the git repository root lists it; the same manifests enable
@@ -262,7 +313,7 @@ reset = ["version-groups"]
 | Scalars (`fail-on-warnings`, `package-manager`, `mode`, ...) | The later file replaces |
 | Tables (`[workspace]`, `[lint]`, `[policy]`, `[catalog]`, `[js]`, ...) | Merge key by key |
 | Arrays of strings | The later file replaces |
-| `extend-ignore-packages` (`[workspace]`), `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries` (`[js]`), `extend-exclude` (`[catalog]`) | Append to the inherited list, after the plain key of the same file |
+| `extend-ignore-packages` (`[workspace]`), `extend-ignore`, `extend-ignore-dependencies`, `extend-ignore-binaries`, `extend-ignore-unresolved` (`[js]`), `extend-exclude` (`[catalog]`) | Append to the inherited list, after the plain key of the same file |
 | `[rules]` | Per rule: a level keeps the inherited options; a table of options replaces the options and keeps the level |
 | `[js.plugins]` | Per plugin: `true` or `false` keeps the options; a table replaces them |
 | `[[ignore]]`, `[[overrides]]` | Append |

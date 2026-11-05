@@ -30,6 +30,7 @@ pub(super) fn report(
             }
             for member in members_of(export) {
                 if member.tags.iter().any(|tag| tag == "public")
+                    || analysis.ignores_member(module.owner, &member.name)
                     || export.members_read_in_file.contains(&member.name)
                     || analysis.exports.is_member_used(module.id, &export.name, &member.name)
                 {

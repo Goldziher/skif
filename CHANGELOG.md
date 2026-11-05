@@ -13,6 +13,20 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Added
 
+- **`[js]` configuration parity with knip** ([ADR 0034](adrs/0034-js-configuration-parity-with-knip.md)):
+  `ignore-dependencies`, `ignore-binaries`, the new `ignore-unresolved` (top level and per workspace, with
+  `extend-ignore-unresolved`) and `ignore-members` take regular expressions (`/^@org\/.+$/`, or knip's character
+  test) next to globs, and an entry ending in `!` applies in production mode only. `entry` and `project` honour the
+  production marker: `pattern!` is a normal pattern in a normal run, and a production run keeps only those.
+  `[js] ignore-workspaces` skips workspaces in the JavaScript analysis only. `[js.workspaces."<dir>"]` gains `paths`
+  (alias map), `plugins`, `ignore-unresolved`, `ignore-members`, `ignore-exports-used-in-file` and
+  `include-entry-exports`, and `"."` is the root workspace. `ignore-exports-used-in-file` is `true` or a table of
+  export kinds. Invalid globs, invalid regular expressions, empty `paths` entries and unknown plugin ids are
+  configuration errors.
+- **`stale-js-config` rule** (js, warning): reports `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
+  `ignore-workspaces` entries that matched nothing and `[js.workspaces]` keys that select no package, like knip's
+  configuration hints; `[rules] stale-js-config = "error"` is `--treat-config-hints-as-errors`. There are 40 rules, 17
+  of them `js` rules.
 - **Config model constructors**: every `skif-config` model struct is `#[non_exhaustive]` and builds from `Default` or a
   constructor plus `with_*` methods (`SemverGroup::new`, `DependencyFamily::new`, `VersionGroup`, `IgnoreEntry`,
   `Catalog`, `PluginOptions`, `Workspace`, `Lint`, `Policy`, `WorkspaceProtocol`, `Js`), so `ConfigBuilder::semver_group`
