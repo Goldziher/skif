@@ -57,39 +57,66 @@ fn statements(code: &str, prefixes: &[&str]) -> Vec<String> {
     found
 }
 
-/// The headers of the public items of `code`: signatures up to their body, field lines, and the variant lines of
-/// public enums.
+/// The header of the item that starts at `lines[*index]`: the lines joined up to the body or the closing `;`. `index`
+/// is left on the last line of the header.
+fn header_at(lines: &[&str], index: &mut usize) -> String {
+    let mut text = lines[*index].trim().to_owned();
+    while !text.contains(['{', ';']) && *index + 1 < lines.len() {
+        *index += 1;
+        text.push(' ');
+        text.push_str(lines[*index].trim());
+    }
+    text.split(['{', ';']).next().unwrap_or_default().to_owned()
+}
+
+/// The headers of the public items of `code`: signatures up to their body, field lines, the variant lines of public
+/// enums, the methods and associated types of public traits, and `pub use` re-exports.
 fn public_headers(code: &str) -> Vec<String> {
     const ITEMS: [&str; 7] = ["fn", "struct", "enum", "trait", "type", "static", "union"];
+    const MEMBERS: [&str; 3] = ["fn ", "type ", "const "];
     let lines: Vec<&str> = code.lines().collect();
     let mut headers = Vec::new();
     let mut index = 0;
     while index < lines.len() {
         let line = lines[index].trim();
-        let is_public = line.starts_with("pub ") && !line.starts_with("pub use") && !line.starts_with("pub mod");
+        let is_public = line.starts_with("pub ") && !line.starts_with("pub mod");
         if is_public {
             let keyword = line
                 .split_whitespace()
                 .skip(1)
                 .find(|word| !matches!(*word, "const" | "unsafe" | "async" | "extern"))
                 .unwrap_or_default();
-            if ITEMS.contains(&keyword) {
+            if keyword == "use" {
                 let mut text = line.to_owned();
-                while !text.contains(['{', ';']) && index + 1 < lines.len() {
+                while !text.contains(';') && index + 1 < lines.len() {
                     index += 1;
                     text.push(' ');
                     text.push_str(lines[index].trim());
                 }
-                let opens_enum = keyword == "enum" && text.contains('{');
-                headers.push(text.split(['{', ';']).next().unwrap_or_default().to_owned());
-                if opens_enum {
-                    let mut depth = brace_balance(lines[index]);
+                headers.push(text.split(';').next().unwrap_or_default().to_owned());
+            } else if ITEMS.contains(&keyword) {
+                let start = index;
+                let header = header_at(&lines, &mut index);
+                let body_opens = lines[start..=index].iter().any(|line| line.contains('{'));
+                headers.push(header);
+                if body_opens && (keyword == "enum" || keyword == "trait") {
+                    let mut depth: i32 = lines[start..=index].iter().map(|line| brace_balance(line)).sum();
                     while depth > 0 && index + 1 < lines.len() {
                         index += 1;
-                        let variant = lines[index].trim();
-                        depth += brace_balance(variant);
-                        if !variant.is_empty() && !variant.starts_with("#[") {
-                            headers.push(variant.to_owned());
+                        let member = lines[index].trim();
+                        if keyword == "trait" && depth == 1 && MEMBERS.iter().any(|prefix| member.starts_with(prefix)) {
+                            let mut end = index;
+                            let header = header_at(&lines, &mut end);
+                            headers.push(header);
+                            for skipped in &lines[index..=end] {
+                                depth += brace_balance(skipped);
+                            }
+                            index = end;
+                            continue;
+                        }
+                        depth += brace_balance(member);
+                        if keyword == "enum" && !member.is_empty() && !member.starts_with("#[") {
+                            headers.push(member.to_owned());
                         }
                     }
                 }
@@ -125,7 +152,7 @@ fn path_roots(text: &str) -> Vec<&str> {
 /// public headers that start in one.
 fn violations(source: &str, allowed: &BTreeSet<String>) -> Vec<String> {
     let code = code(source);
-    let modules: BTreeSet<String> = statements(&code, &["mod ", "pub mod "])
+    let modules: BTreeSet<String> = statements(&code, &["mod ", "pub mod ", "pub(crate) mod "])
         .iter()
         .filter_map(|body| idents(body).next().map(str::to_owned))
         .collect();
@@ -187,6 +214,9 @@ fn audited_crates() -> BTreeSet<String> {
         .map(|name| format!("skif-{}", name.replace('_', "-")))
         .collect();
     crates.insert("skif".to_owned());
+    // Crates the facade builds on and whose types can reach a host through it, though it never re-exports from them
+    // by name.
+    crates.extend(["skif-edit", "skif-rules", "skif-js-plugins", "skif-specifier"].map(str::to_owned));
     crates
 }
 
@@ -261,6 +291,33 @@ fn the_audit_flags_a_type_from_a_crate_outside_the_allow_list() {
         "{:?}",
         violations(qualified, &allowed)
     );
+}
+
+#[test]
+fn the_audit_flags_a_foreign_type_in_a_trait_method_and_a_re_export() {
+    let allowed = allow_list();
+    let in_trait = "pub trait Provider {\n    fn id(&self) -> &str;\n    fn hit(\n        &self,\n    ) -> regex::Match;\n}\n";
+    assert_eq!(
+        violations(in_trait, &allowed).len(),
+        1,
+        "{:?}",
+        violations(in_trait, &allowed)
+    );
+    let associated = "pub trait Provider {\n    type Found = globset::Glob;\n}\n";
+    assert_eq!(
+        violations(associated, &allowed).len(),
+        1,
+        "{:?}",
+        violations(associated, &allowed)
+    );
+    let re_export = "pub use regex::Regex;\n";
+    assert!(
+        violations(re_export, &allowed).iter().any(|leak| leak.contains("`regex::`")),
+        "{:?}",
+        violations(re_export, &allowed)
+    );
+    let allowed_re_export = "pub use serde_json::Value;\npub use skif_core::Fix;\n";
+    assert_eq!(violations(allowed_re_export, &allowed), Vec::<String>::new());
 }
 
 #[test]

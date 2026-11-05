@@ -3,7 +3,7 @@ name: Publish Packages
 on:
   push:
     tags:
-      - v[0-9]+.*
+      - v[0-9]+.[0-9]+.[0-9]+*
   # Everything the release builds, packs or verifies triggers the dry run, so the first full run of a change is
   # never the real tag.
   pull_request:
@@ -1012,15 +1012,4 @@ jobs:
           TAG: ${{ needs.meta.outputs.tag }}
         run: |
           set -euo pipefail
-          # A stable major floats as `vN`. A 0.x minor may break, so a 0.x release floats as `v0.M` and `v0` never moves.
-          if [[ "${VERSION%%.*}" == "0" ]]; then
-            floating="v${VERSION%.*}"
-          else
-            floating="v${VERSION%%.*}"
-          fi
-          sha="$(git rev-list -n1 "$TAG")"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -f "$floating" "$sha"
-          git push -f origin "refs/tags/${floating}"
-          echo "Moved ${major} to ${TAG} (${sha})"
+          bash scripts/release-floating-tag.sh "$VERSION" "$TAG"

@@ -225,3 +225,8 @@ blake3 = "f52730f7cdab1a8abbab336e27426261fcca2fbaee859044398d50100e746d84"
 number = 45
 status = "accepted"
 blake3 = "f34e9b3cacf63fb0986f5deb0ff33554d72952c98f08ab81d6e61e4b512960af"
+
+[adrs."adrs/0046-corrections-to-adr-0044-config-helpers-not-built-and-the-torn-read-limit-of-zero-trailers.md"]
+number = 46
+status = "accepted"
+blake3 = "63f3c7c4a01b35f1b8fce85bb1f2b4295b56f20e5560255eeb0310de3466fe20"

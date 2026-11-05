@@ -24,6 +24,7 @@ const MAX_LISTED: usize = 12;
 /// Which rule makes a module an entry file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum EntryReason {
     /// An entry glob of its package: defaults, configuration, test conventions or a plugin.
     EntryGlob,
@@ -57,6 +58,7 @@ impl EntryReason {
 /// Why a file is not in the module graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum Absence {
     /// No entry file reaches it; `unused-files` reports it.
     UnusedFile,
@@ -68,6 +70,7 @@ pub enum Absence {
 /// One import of a module.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub struct Importer {
     /// The importing file, relative to the workspace root.
     pub file: String,
@@ -84,6 +87,7 @@ pub struct Importer {
 /// A module that imports an export.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub struct ExportUser {
     /// The importing file, relative to the workspace root.
     pub file: String,
@@ -98,6 +102,7 @@ pub struct ExportUser {
 /// Whether an export counts as used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum Verdict {
     /// The module has no such export.
     NotAnExport,
@@ -112,6 +117,7 @@ pub enum Verdict {
 /// A re-export that forwards an export, with the explanation of the forwarded export.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub struct ReExport {
     /// The re-exporting file.
     pub file: String,
@@ -128,6 +134,7 @@ pub struct ReExport {
     reason = "independent facts of one serialized report"
 )]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub struct ExportReport {
     /// The export name.
     pub name: String,
@@ -155,6 +162,7 @@ pub struct ExportReport {
 /// The explanation [`JsAnalysis::explain_usage`] returns.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub struct UsageReport {
     /// The file, relative to the workspace root.
     pub file: String,
