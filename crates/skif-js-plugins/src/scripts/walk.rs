@@ -190,6 +190,8 @@ pub(super) struct Walker<'c> {
     info: ScriptInfo,
     expanded: HashSet<String>,
     depth: usize,
+    /// The workspaces the command being walked is aimed at (`yarn workspace web`, `pnpm --filter web`, `npm -w web`).
+    workspaces: Vec<String>,
 }
 
 impl<'c> Walker<'c> {
@@ -200,6 +202,7 @@ impl<'c> Walker<'c> {
             info: ScriptInfo::default(),
             expanded,
             depth: 0,
+            workspaces: Vec::new(),
         }
     }
 
@@ -266,6 +269,7 @@ impl<'c> Walker<'c> {
             span,
             via: st.via,
             filtered: st.filtered,
+            workspaces: if st.filtered { self.workspaces.clone() } else { Vec::new() },
         });
     }
 
@@ -454,7 +458,7 @@ impl<'c> Walker<'c> {
                 if args
                     .iter()
                     .any(|a| a.text.starts_with("-v") || a.text.starts_with("-V")) => {}
-            n if tables::PASSTHROUGH.contains(&n) => self.passthrough(args, frame, st),
+            n if tables::passthrough(n).is_some() => self.passthrough(n, args, frame, st),
             n if tables::SHELLS.contains(&n) => self.shell(args, frame, st),
             n if is_ignored_binary(n) => {}
             n => {
@@ -469,17 +473,25 @@ impl<'c> Walker<'c> {
         }
     }
 
-    fn passthrough(&mut self, args: &[Word], frame: &Frame, st: St) {
+    fn passthrough(&mut self, name: &str, args: &[Word], frame: &Frame, st: St) {
+        let (value_flags, mut positionals) = tables::passthrough(name).unwrap_or((&[], 0));
         let mut i = 0;
         while let Some(word) = args.get(i) {
-            if is_assignment_text(&word.text) {
+            let text = word.text.as_str();
+            if is_assignment_text(text) {
                 self.assignment(word, frame);
-            } else if !word.text.starts_with('-') {
+            } else if let Some(flag) = text.strip_prefix('-').filter(|flag| !flag.is_empty()) {
+                if value_flags.contains(&flag.trim_start_matches('-')) {
+                    i += 1;
+                }
+            } else if positionals > 0 {
+                positionals -= 1;
+            } else {
                 break;
             }
             i += 1;
         }
-        self.command_or_string(&args[i..], frame, st);
+        self.command_or_string(args.get(i..).unwrap_or_default(), frame, st);
     }
 
     /// `sh -c "script"` runs the script; `sh file.sh` runs the file.
@@ -614,6 +626,13 @@ impl<'c> Walker<'c> {
         };
         let after = &args[parsed.rest..];
         let filtered = st.filtered || parsed.has(tables::WORKSPACE_FLAGS);
+        let named = args::parse(after, tables::NPM_VALUE_FLAGS, false);
+        let names = parsed
+            .values(&["workspace", "w"])
+            .chain(named.values(&["workspace", "w"]))
+            .map(|value| value.text.clone())
+            .collect();
+        let saved = std::mem::replace(&mut self.workspaces, names);
         match args[ci].text.as_str() {
             "run" | "run-script" | "rum" | "urn" => {
                 let inner = args::parse(after, tables::NPM_VALUE_FLAGS, false);
@@ -624,7 +643,7 @@ impl<'c> Walker<'c> {
             }
             "exec" | "x" => {
                 let st = St {
-                    filtered,
+                    filtered: filtered || named.has(tables::WORKSPACE_FLAGS),
                     via: BinaryVia::NpmExec,
                 };
                 self.exec_like(after, frame, st, true);
@@ -639,15 +658,22 @@ impl<'c> Walker<'c> {
             }
             _ => {}
         }
+        self.workspaces = saved;
     }
 
     fn pnpm(&mut self, args: &[Word], frame: &Frame, st: St) {
         let mut args = args;
         let mut recursive = false;
         let mut filter = false;
+        let mut names: Vec<String> = Vec::new();
         let (ci, parsed) = loop {
             let parsed = args::parse(args, tables::PNPM_VALUE_FLAGS, true);
             filter |= parsed.has(&["filter", "F", "filter-prod"]);
+            names.extend(
+                parsed
+                    .values(&["filter", "F", "filter-prod"])
+                    .map(|value| value.text.clone()),
+            );
             recursive |= parsed.has(&["recursive", "r"]);
             let Some(&ci) = parsed.positionals.first() else {
                 return;
@@ -662,6 +688,14 @@ impl<'c> Walker<'c> {
         let after = &args[parsed.rest..];
         let filtered = st.filtered || filter;
         let cmd = args[ci].text.as_str();
+        let named = args::parse(after, tables::PNPM_VALUE_FLAGS, false);
+        names.extend(
+            named
+                .values(&["filter", "F", "filter-prod"])
+                .map(|value| value.text.clone()),
+        );
+        let targeted = !names.is_empty();
+        let saved = std::mem::replace(&mut self.workspaces, names);
         match cmd {
             "run" | "run-script" => {
                 let inner = args::parse(after, tables::PNPM_VALUE_FLAGS, false);
@@ -699,7 +733,7 @@ impl<'c> Walker<'c> {
                 if self.ctx.scripts.contains_key(name) {
                     let map = Map::Fixed(frame.span(&args[ci].span));
                     self.run_script_name(name, &map, filtered);
-                } else if !filtered
+                } else if (!filtered || targeted)
                     && !recursive
                     && !tables::PNPM_COMMANDS.contains(&cmd)
                     && !tables::LIFECYCLE.contains(&cmd)
@@ -715,6 +749,7 @@ impl<'c> Walker<'c> {
                 }
             }
         }
+        self.workspaces = saved;
     }
 
     fn yarn(&mut self, args: &[Word], frame: &Frame, st: St) {
@@ -723,15 +758,16 @@ impl<'c> Walker<'c> {
             return;
         };
         let filtered = st.filtered || parsed.has(&["cwd"]);
+        let targeted = !self.workspaces.is_empty();
         let after = &args[parsed.rest..];
         let cmd = args[ci].text.as_str();
         match cmd {
             "run" => {
                 let inner = args::parse(after, &[], false);
                 if let Some(&i) = inner.positionals.first()
-                    && !filtered
+                    && (!filtered || (targeted && !tables::LIFECYCLE.contains(&after[i].text.as_str())))
                 {
-                    if self.ctx.scripts.contains_key(&after[i].text) {
+                    if !filtered && self.ctx.scripts.contains_key(&after[i].text) {
                         self.run_script_word(&after[i], frame, filtered);
                     } else {
                         self.command(
@@ -764,8 +800,12 @@ impl<'c> Walker<'c> {
             ),
             "node" => self.node_args(after, frame, St { filtered, ..st }, true),
             "workspace" => {
-                if after.len() > 1 {
+                if let Some(name) = after.first()
+                    && after.len() > 1
+                {
+                    let saved = std::mem::replace(&mut self.workspaces, vec![name.text.clone()]);
                     self.yarn(&after[1..], frame, St { filtered: true, ..st });
+                    self.workspaces = saved;
                 }
             }
             "workspaces" => {
@@ -781,7 +821,10 @@ impl<'c> Walker<'c> {
                 if !filtered && self.ctx.scripts.contains_key(cmd) {
                     let map = Map::Fixed(frame.span(&args[ci].span));
                     self.run_script_name(cmd, &map, filtered);
-                } else if !filtered && !tables::YARN_COMMANDS.contains(&cmd) && !tables::LIFECYCLE.contains(&cmd) {
+                } else if (!filtered || targeted)
+                    && !tables::YARN_COMMANDS.contains(&cmd)
+                    && !tables::LIFECYCLE.contains(&cmd)
+                {
                     self.command(
                         &args[ci..],
                         frame,

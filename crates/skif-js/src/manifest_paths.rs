@@ -32,10 +32,10 @@ const EXTENSION_PAIRS: &[(&str, &[&str])] = &[
     (".d.mts", &[".mts", ".d.mts"]),
     (".d.cts", &[".cts", ".d.cts"]),
     (".d.ts", &[".ts", ".tsx", ".d.ts"]),
-    (".mjs", &[".mts", ".mjs"]),
-    (".cjs", &[".cts", ".cjs"]),
+    (".mjs", &[".mts", ".ts", ".tsx", ".cts", ".mjs", ".js", ".jsx", ".cjs"]),
+    (".cjs", &[".cts", ".ts", ".tsx", ".mts", ".cjs", ".js", ".jsx", ".mjs"]),
     (".jsx", &[".tsx", ".jsx"]),
-    (".js", &[".ts", ".tsx", ".js", ".jsx"]),
+    (".js", &[".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]),
     (".tsx", &[".tsx"]),
     (".mts", &[".mts"]),
     (".cts", &[".cts"]),
@@ -270,28 +270,7 @@ fn resolve_target(value: &Value, matched: Option<&str>, custom: &[String]) -> Op
 /// `source` condition and the `custom` conditions of the project.
 pub(crate) fn resolve_exports(exports: &Value, subpath: &str, custom: &[String]) -> Option<String> {
     match exports {
-        Value::Object(map) if map.keys().any(|key| key.starts_with('.')) => {
-            if let Some(value) = map.get(subpath) {
-                return resolve_target(value, None, custom);
-            }
-            let mut best: Option<(usize, &Value, &str)> = None;
-            for (key, value) in map {
-                let Some((prefix, suffix)) = key.split_once('*') else {
-                    continue;
-                };
-                let fits = subpath.len() >= prefix.len() + suffix.len()
-                    && subpath.starts_with(prefix)
-                    && subpath.ends_with(suffix);
-                if fits && best.is_none_or(|(length, _, _)| prefix.len() > length) {
-                    best = Some((
-                        prefix.len(),
-                        value,
-                        &subpath[prefix.len()..subpath.len() - suffix.len()],
-                    ));
-                }
-            }
-            best.and_then(|(_, value, matched)| resolve_target(value, Some(matched), custom))
-        }
+        Value::Object(map) if map.keys().any(|key| key.starts_with('.')) => match_key(map, subpath, custom),
         Value::String(_) | Value::Array(_) | Value::Object(_) => {
             if subpath == "." {
                 resolve_target(exports, None, custom)
@@ -301,6 +280,33 @@ pub(crate) fn resolve_exports(exports: &Value, subpath: &str, custom: &[String])
         }
         _ => None,
     }
+}
+
+/// Resolves a `#` specifier against a package's `imports` for the conditions of an import.
+pub(crate) fn resolve_imports(imports: &Value, specifier: &str, custom: &[String]) -> Option<String> {
+    match imports {
+        Value::Object(map) => match_key(map, specifier, custom),
+        _ => None,
+    }
+}
+
+/// The target of `key` in an `exports` or `imports` map: an exact entry, else the pattern entry (`./x/*`) with the
+/// longest prefix.
+fn match_key(map: &serde_json::Map<String, Value>, key: &str, custom: &[String]) -> Option<String> {
+    if let Some(value) = map.get(key) {
+        return resolve_target(value, None, custom);
+    }
+    let mut best: Option<(usize, &Value, &str)> = None;
+    for (pattern, value) in map {
+        let Some((prefix, suffix)) = pattern.split_once('*') else {
+            continue;
+        };
+        let fits = key.len() >= prefix.len() + suffix.len() && key.starts_with(prefix) && key.ends_with(suffix);
+        if fits && best.is_none_or(|(length, _, _)| prefix.len() > length) {
+            best = Some((prefix.len(), value, &key[prefix.len()..key.len() - suffix.len()]));
+        }
+    }
+    best.and_then(|(_, value, matched)| resolve_target(value, Some(matched), custom))
 }
 
 #[cfg(test)]
@@ -349,6 +355,22 @@ mod tests {
             bin_stub_sources(&not_node, Path::new("/p"), "bin/tool"),
             [] as [std::path::PathBuf; 0]
         );
+    }
+
+    #[test]
+    fn module_output_extensions_map_to_every_source_extension() {
+        for (output, source) in [
+            ("./dist/index.mjs", "src/index.ts"),
+            ("./dist/index.cjs", "src/index.ts"),
+            ("./dist/index.mjs", "src/index.tsx"),
+            ("./dist/index.js", "src/index.mts"),
+            ("./dist/index.js", "src/index.cts"),
+            ("./dist/index.cjs", "src/index.mts"),
+        ] {
+            assert!(source_candidates(output).contains(&source.to_owned()), "{output} -> {source}");
+        }
+        assert_eq!(source_candidates("./dist/index.mjs")[0], "src/index.mts");
+        assert_eq!(source_candidates("./dist/index.cjs")[0], "src/index.cts");
     }
 
     #[test]

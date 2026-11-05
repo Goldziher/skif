@@ -42,6 +42,7 @@ old one.
 | 0032 | [Third-Party Types in the Facade API](0032-third-party-types-in-the-facade-api.md) | accepted |
 | 0033 | [knip Namespace Findings in the Parity Harness: Where knip Reports What `unused-namespace-exports` and `unused-namespace-types` Find](0033-knip-namespace-findings-in-the-parity-harness.md) | accepted |
 | 0036 | [Thirty-Nine More knip Plugins, Chosen by Real-World Usage](0036-thirty-nine-more-knip-plugins-by-real-world-usage.md) | accepted |
+| 0035 | [JS Evaluation Parity: Unreadable Configs, Unresolved Specifiers and Test Entries Follow knip](0035-js-evaluation-parity-unreadable-configs-unresolved-specifiers-and-test-entries.md) | accepted |
 
 ## Effective statements
 

@@ -23,4 +23,8 @@ impl Plugin for TsNode {
     fn spec(&self) -> &'static PluginSpec {
         &SPEC
     }
+
+    fn reads_config(&self) -> bool {
+        false
+    }
 }

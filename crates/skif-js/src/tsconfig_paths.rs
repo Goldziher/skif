@@ -1,4 +1,4 @@
-//! `baseUrl` and `paths` of the nearest `tsconfig.json` or `jsconfig.json` at or above a file.
+//! `baseUrl`, `paths` and `rootDirs` of the nearest `tsconfig.json` or `jsconfig.json` at or above a file.
 //!
 //! The resolver applies a `tsconfig.json` only to the files it includes, and never reads a `jsconfig.json`. Editors
 //! and bundlers apply the nearest config to everything below it, including directories that are not packages
@@ -30,13 +30,16 @@ struct Options {
     base_url: Option<PathBuf>,
     /// The directory of the config that set `paths`, and the entries.
     paths: Option<(PathBuf, PathEntries)>,
+    /// Directories that are merged into one virtual directory for relative imports.
+    root_dirs: Vec<PathBuf>,
 }
 
-/// The `baseUrl` and `paths` that apply to a directory.
+/// The `baseUrl`, `paths` and `rootDirs` that apply to a directory.
 pub(crate) struct TsPaths {
     base_url: Option<PathBuf>,
     paths_dir: PathBuf,
     paths: PathEntries,
+    root_dirs: Vec<PathBuf>,
 }
 
 fn json_file(path: &str) -> String {
@@ -181,12 +184,22 @@ impl TsConfigs {
                 {
                     options.base_url = inherited.base_url.clone().or(options.base_url);
                     options.paths = inherited.paths.clone().or(options.paths);
+                    if !inherited.root_dirs.is_empty() {
+                        options.root_dirs.clone_from(&inherited.root_dirs);
+                    }
                 }
             }
         }
         if let Some(compiler) = config.get("compilerOptions") {
             if let Some(base_url) = compiler.get("baseUrl").and_then(ConfigValue::as_str) {
                 options.base_url = Some(join_any(dir, &with_config_dir(base_url, config_dir)));
+            }
+            if let Some(root_dirs) = compiler.get("rootDirs").and_then(ConfigValue::as_array) {
+                options.root_dirs = root_dirs
+                    .iter()
+                    .filter_map(ConfigValue::as_str)
+                    .map(|root| join_any(dir, &with_config_dir(root, config_dir)))
+                    .collect();
             }
             if let Some(paths) = compiler.get("paths").and_then(ConfigValue::as_object) {
                 let entries = paths
@@ -221,7 +234,7 @@ impl TsConfigs {
                         return None;
                     }
                     let options = self.load(&file, ancestor, 0)?;
-                    if options.base_url.is_none() && options.paths.is_none() {
+                    if options.base_url.is_none() && options.paths.is_none() && options.root_dirs.is_empty() {
                         return None;
                     }
                     let (paths_dir, paths) = options
@@ -232,6 +245,7 @@ impl TsConfigs {
                         base_url: options.base_url.clone(),
                         paths_dir,
                         paths,
+                        root_dirs: options.root_dirs.clone(),
                     })
                 })
             })
@@ -251,6 +265,27 @@ fn match_pattern<'a>(pattern: &str, specifier: &'a str) -> Option<(usize, &'a st
 }
 
 impl TsPaths {
+    /// The files a relative `specifier` written in `directory` may stand for through `rootDirs`: the same relative
+    /// path below each of the other root directories, in the order of the config.
+    pub(crate) fn root_dir_candidates(&self, directory: &Path, specifier: &str) -> Vec<PathBuf> {
+        let Some(inside) = self
+            .root_dirs
+            .iter()
+            .filter(|root| directory.starts_with(root))
+            .max_by_key(|root| root.components().count())
+        else {
+            return Vec::new();
+        };
+        let Ok(relative) = directory.strip_prefix(inside) else {
+            return Vec::new();
+        };
+        self.root_dirs
+            .iter()
+            .filter(|root| *root != inside)
+            .map(|root| join_normalized(&root.join(relative), specifier))
+            .collect()
+    }
+
     /// The paths `specifier` may stand for, in the order TypeScript tries them: `paths` patterns with the longest
     /// prefix first, then `baseUrl`.
     pub(crate) fn candidates(&self, specifier: &str) -> Vec<PathBuf> {
@@ -290,6 +325,7 @@ mod tests {
         let paths = TsPaths {
             base_url: None,
             paths_dir: PathBuf::from("/ws/packages"),
+            root_dirs: Vec::new(),
             paths: vec![
                 ("@s/*".to_owned(), vec!["./*/src".to_owned()]),
                 ("@s/core".to_owned(), vec!["./core/main.ts".to_owned()]),
@@ -304,6 +340,29 @@ mod tests {
         );
         assert_eq!(paths.candidates("@s/ui"), [PathBuf::from("/ws/packages/ui/src")]);
         assert_eq!(paths.candidates("other"), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn root_dirs_merge_directories_for_relative_imports() {
+        let fs = MemoryFs::new()
+            .with_file(
+                "/ws/app/tsconfig.base.json",
+                r#"{"compilerOptions":{"rootDirs":["src","${configDir}/bazel-out/bin/src"]}}"#,
+            )
+            .with_file("/ws/app/tsconfig.json", r#"{"extends":"./tsconfig.base.json"}"#);
+        let paths = configs(fs, &[]).nearest(Path::new("/ws/app/src/ui")).unwrap();
+        assert_eq!(
+            paths.root_dir_candidates(Path::new("/ws/app/src/ui"), "./gen/x"),
+            [PathBuf::from("/ws/app/bazel-out/bin/src/ui/gen/x")]
+        );
+        assert_eq!(
+            paths.root_dir_candidates(Path::new("/ws/app/bazel-out/bin/src/ui"), "../shared/y"),
+            [PathBuf::from("/ws/app/src/shared/y")]
+        );
+        assert_eq!(
+            paths.root_dir_candidates(Path::new("/ws/app/other"), "./z"),
+            Vec::<PathBuf>::new()
+        );
     }
 
     #[test]

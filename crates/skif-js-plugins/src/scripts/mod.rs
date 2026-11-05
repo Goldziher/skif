@@ -105,6 +105,9 @@ pub struct BinaryUse {
     /// The command targets another workspace (`pnpm --filter web exec vitest`), so the binary
     /// belongs to that workspace's manifest rather than the current one.
     pub filtered: bool,
+    /// The workspaces the command names (`yarn workspace web`, `pnpm --filter web`, `npm -w web`): package names,
+    /// patterns or directories; empty when it targets others without naming them.
+    pub workspaces: Vec<String>,
 }
 
 /// A file the script runs, loads or passes to a runner.

@@ -28,6 +28,10 @@ impl Plugin for Astro {
         &SPEC
     }
 
+    fn reads_config(&self) -> bool {
+        false
+    }
+
     /// `astro check` needs `@astrojs/check`, which is never imported.
     fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let checks = cx.scripts.values().any(|script| {
