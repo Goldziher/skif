@@ -176,12 +176,13 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 ### Fixed
 
 - **Knip parity in the JS analysis** (found by running both tools on the pinned corpus): `unused-enum-members` and
-  `unused-namespace-members` now count a member read in the declaring file and skip only an enum used as a whole there;
+  `unused-namespace-members` now count a member read in the declaring file by name, and no whole-enum use there
+  (`Object.values(E)`, `E[key]`, a spread, a bare reference) credits a member;
   the types in a destructured export (`export const { a, b } = make((p: Props) => p)`) belong to it; a file loaded with
   `new URL("./x", import.meta.url)` is used as a whole; `require("x") as typeof import("x")` no longer uses every export;
   `export const X` with `export type X` is reported once; `*` in a wildcard `exports` target matches across directories;
-  `*_spec.*` files are test entries; directories ending in `-fixtures` or `_fixtures` and `__testfixtures__` count as
-  fixtures; `duplicate-exports` ignores export clauses and follows `export const b = a`.
+  `duplicate-exports` ignores export clauses and follows `export const b = a`; only the `exports` field is widened
+  (`./*` is skipped, `main`, `bin` and `types` keep their single-directory globs).
 - **Catalog ownership with `mode = "off"`**: an instance whose sibling uses `catalog:` was reported by both
   `catalog-mismatch` and `version-mismatch` with conflicting fix targets. `catalog-mismatch` now owns it and the version
   groups leave it alone while that rule is enabled.

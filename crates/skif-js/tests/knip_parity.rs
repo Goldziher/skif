@@ -1,5 +1,5 @@
 //! Cases where the corpus runs showed skif and knip disagreeing and skif was wrong: members read in their own file,
-//! types in destructured exports, `new URL` targets, `require` assertions, fixture directories, `_spec` files,
+//! types in destructured exports, `new URL` targets, `require` assertions, fixture directories,
 //! wildcard `exports`, same-name pairs and duplicate exports.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -68,19 +68,22 @@ fn a_member_read_in_its_own_file_counts_but_the_enum_being_referenced_does_not_u
         PACKAGE,
         (
             "index.ts",
-            "import { Color, Mode, first, describe } from './enums';\nconsole.log(Color.Green, Mode.A, first, describe);\n",
+            "import { Color, Mode, Flag, first, describe, modes, flags, flag, pick } from './enums';\n\
+             console.log(Color.Green, Mode.A, Flag.On, first, describe, modes, flags, flag, pick);\n",
         ),
         (
             "enums.ts",
             "export enum Color { Red, Green, Blue }\nexport const first = Color.Red;\n\
              export function describe(c: Color): string { return String(c); }\n\
-             export enum Mode { A, B }\nexport const modes = Object.values(Mode);\n",
+             export enum Mode { A, B }\nexport const modes = Object.values(Mode);\n\
+             export enum Flag { On, Off }\nexport const flags = { ...Flag };\nexport const flag = Flag;\n\
+             export const pick = (k: string) => Flag[k];\n",
         ),
     ]);
     assert_eq!(
         found(&diagnostics, "unused-enum-members"),
-        ["enums.ts: Color.Blue"],
-        "Red is read in its file, Green by the importer, Blue by nobody; Mode is used as a whole in its file"
+        ["enums.ts: Color.Blue", "enums.ts: Flag.Off", "enums.ts: Mode.B"],
+        "Red is read in its file, Green by the importer; whole-enum uses in the file (`Object.values`, spread, bare, `E[k]`) credit no member"
     );
 }
 
@@ -166,26 +169,31 @@ fn duplicate_exports_follow_initialisers_and_ignore_export_clauses() {
 }
 
 #[test]
-fn directories_named_like_fixtures_hold_test_data() {
+fn only_fixtures_and_dunder_fixtures_directories_hold_test_data() {
     let diagnostics = lint_files(&[
         PACKAGE,
-        ("index.ts", "import './colorize-fixtures/sample';\n"),
-        ("colorize-fixtures/sample.ts", "import './missing';\nimport 'not-installed';\n"),
+        ("index.ts", "import './fixtures/a';\nimport './colorize-fixtures/b';\nimport './__testfixtures__/c';\n"),
+        ("fixtures/a.ts", "import 'not-installed-a';\n"),
+        ("colorize-fixtures/b.ts", "import 'not-installed-b';\n"),
+        ("__testfixtures__/c.ts", "import 'not-installed-c';\n"),
     ]);
-    assert_eq!(found(&diagnostics, "unresolved-imports"), none());
-    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
+    let mut unlisted = found(&diagnostics, "unlisted-dependencies");
+    unlisted.sort();
+    assert_eq!(
+        unlisted,
+        ["__testfixtures__/c.ts: not-installed-c", "colorize-fixtures/b.ts: not-installed-b"]
+    );
 }
 
 #[test]
-fn a_spec_file_with_an_underscore_is_a_test_entry() {
+fn a_spec_file_with_an_underscore_is_not_a_test_entry() {
     let diagnostics = lint_files(&[
         PACKAGE,
         ("index.ts", "export const main = 1;\n"),
         ("foo.ts", "export function helper() {}\n"),
         ("foo_spec.ts", "import { helper } from './foo';\nhelper();\n"),
     ]);
-    assert_eq!(found(&diagnostics, "unused-files"), none());
-    assert_eq!(found(&diagnostics, "unused-exports"), none());
+    assert_eq!(paths(&diagnostics, "unused-files"), ["foo.ts", "foo_spec.ts"]);
 }
 
 #[test]
@@ -198,6 +206,38 @@ fn a_wildcard_in_exports_matches_across_directories() {
     assert_eq!(found(&diagnostics, "unused-types"), none());
     assert_eq!(found(&diagnostics, "unused-exports"), none());
     assert_eq!(found(&diagnostics, "unused-files"), none());
+}
+
+fn paths(diagnostics: &[Diagnostic], rule: &str) -> Vec<String> {
+    diagnostics
+        .iter()
+        .filter(|d| d.rule.as_str() == rule)
+        .map(|d| d.location.path.display().to_string())
+        .collect()
+}
+
+#[test]
+fn the_catch_all_export_does_not_make_every_file_an_entry() {
+    let diagnostics = lint_files(&[
+        ("package.json", r#"{"name":"app","private":true,"exports":{"./*":"./*"}}"#),
+        ("top.ts", "export const top = 1;\n"),
+        ("sub/deep.ts", "export const deep = 1;\n"),
+    ]);
+    assert_eq!(paths(&diagnostics, "unused-files"), ["sub/deep.ts", "top.ts"]);
+}
+
+#[test]
+fn bin_and_main_globs_are_not_widened_across_directories() {
+    let diagnostics = lint_files(&[
+        ("package.json", r#"{"name":"app","private":true,"bin":"bin/*.js","main":"lib/*.js"}"#),
+        ("bin/tool.ts", "export const tool = 1;\n"),
+        ("bin/nested/inner.ts", "export const inner = 1;\n"),
+        ("lib/nested/inner.ts", "export const other = 1;\n"),
+    ]);
+    let unused = paths(&diagnostics, "unused-files");
+    assert!(unused.contains(&"bin/nested/inner.ts".to_owned()), "{unused:?}");
+    assert!(unused.contains(&"lib/nested/inner.ts".to_owned()), "{unused:?}");
+    assert!(!unused.contains(&"bin/tool.ts".to_owned()), "{unused:?}");
 }
 
 const EXPLAIN_FILES: [(&str, &str); 5] = [

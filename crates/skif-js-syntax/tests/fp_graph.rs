@@ -108,7 +108,7 @@ fn every_binding_of_a_destructured_export_contains_the_types_of_its_initialiser(
 }
 
 #[test]
-fn members_read_in_the_declaring_file_are_recorded_and_whole_uses_are_flagged() {
+fn only_members_read_by_name_in_the_declaring_file_are_recorded() {
     let info = parse(
         "a.ts",
         "export enum Color { Red, Green, Blue }\n\
@@ -117,20 +117,24 @@ fn members_read_in_the_declaring_file_are_recorded_and_whole_uses_are_flagged() 
          export function describe(c: Color, k: keyof typeof Color): string { return String(c) + k; }\n\
          export enum Mode { A, B }\n\
          export const modes = Object.values(Mode);\n\
+         export const copy = { ...Mode };\n\
+         export const bare = Mode;\n\
+         export const dynamic = (k: string) => Mode[k];\n\
+         export function each() { for (const k in Mode) { console.log(k); } }\n\
          export enum Hidden { A, B }\n\
          export { Hidden as Renamed };\n\
          export const { A } = Mode;\n",
     );
-    let facts = |name: &str| {
+    let read = |name: &str| {
         info.exports
             .iter()
             .find(|export| export.name == name)
-            .map(|export| (export.members_read_in_file.clone(), export.members_escape_in_file))
+            .map(|export| export.members_read_in_file.clone())
             .unwrap()
     };
-    assert_eq!(facts("Color"), (vec!["Green".to_owned(), "Red".to_owned()], false));
-    assert_eq!(facts("Mode"), (vec!["A".to_owned()], true));
-    assert_eq!(facts("Hidden"), (Vec::<String>::new(), false));
+    assert_eq!(read("Color"), ["Green", "Red"]);
+    assert_eq!(read("Mode"), ["A"]);
+    assert_eq!(read("Hidden"), Vec::<String>::new());
 }
 
 #[test]

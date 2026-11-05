@@ -211,14 +211,14 @@ a use of that member. `<style>` blocks and `src` attributes of `<script>` and `<
 name, so a template variable that shadows an import hides it from the unused check, and nothing in a template is
 type-checked. Imports of one script block count as used when another block reads them.
 
-Test files are entries: `*.test.*`, `*.spec.*`, `*_spec.*`, files under `__tests__`, `__mocks__` and the `test`, `tests`,
-`e2e` and `cypress` directories. Directories named `fixtures`, `__fixtures__`, `__testfixtures__` or ending in
-`-fixtures` or `_fixtures` hold test data: their imports are not checked for unresolved or unlisted packages. Other
-directories of test data go on `ignore`. In a package whose `exports` contain a wildcard (`"./*": "./src/*.ts"`) the
-`*` matches across directories, as in Node.js, so every file it matches is an entry. In an enum or a namespace, a
+Test files are entries: `*.test.*`, `*.spec.*`, files under `__tests__`, `__mocks__` and the `test`, `tests`,
+`e2e` and `cypress` directories. Directories named `fixtures` or `__fixtures__` hold test data: their imports are not checked for unresolved or
+unlisted packages. Other directories of test data (`api-fixtures`, `__testfixtures__`) and other test file names
+(`*_spec.*`) go on `ignore` and `entry`. In a package whose `exports` contain a wildcard (`"./*": "./src/*.ts"`) the
+`*` matches across directories, as in Node.js, so every file it matches is an entry; the catch-all `"./*"` and the `main`, `bin` and `types` fields are not widened. In an enum or a namespace, a
 member read in its own file (`E.A`, `E["A"]`, `const { A } = E`) counts as used; using the whole enum there
-(`Object.values(E)`, `E[key]`, a spread, passing it as a value) counts every member as used, and mentioning its type
-(`x: E`, `typeof E`) counts for nothing. A file that another loads with `new URL("./x", import.meta.url)` is used as a
+(`Object.values(E)`, `E[key]`, a spread, passing it as a value) or mentioning its type (`x: E`, `typeof E`) credits no
+member, as in knip. A file that another loads with `new URL("./x", import.meta.url)` is used as a
 whole.
 
 The table holds 63 built-in plugins:

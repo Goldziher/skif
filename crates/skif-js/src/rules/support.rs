@@ -17,12 +17,9 @@ pub(super) fn module_location(module: &Module, span: Option<Span>) -> Location {
     Location::new(module.path.clone(), span)
 }
 
-/// Whether a directory name marks test data: `fixtures`, `__fixtures__`, `__testfixtures__` or a name ending in
-/// `-fixtures` or `_fixtures`.
+/// Whether a directory name marks test data: `fixtures` or `__fixtures__`.
 fn is_fixture_directory(name: &str) -> bool {
-    matches!(name, "fixtures" | "__fixtures__" | "__testfixtures__")
-        || name.ends_with("-fixtures")
-        || name.ends_with("_fixtures")
+    matches!(name, "fixtures" | "__fixtures__")
 }
 
 /// Whether the module sits in a fixture directory (see [`is_fixture_directory`]). Fixtures are test data (often
