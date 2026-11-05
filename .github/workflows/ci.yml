@@ -217,6 +217,8 @@ jobs:
         run: bash scripts/test-npm-published.sh
       - name: Test the release scripts (Homebrew, Scoop, crates.io, version bump, archive and release gates)
         run: bash scripts/test-release-scripts.sh
+      - name: Test the repository guards (pins, headers, rule ids, plugin lists, layering, package contents, oxc patch, npm smoke)
+        run: bash scripts/test-check-scripts.sh
       - name: Test the install scripts (pre-commit launcher and the Action's resolve, install and run steps)
         run: bash scripts/test-install-scripts.sh
 
@@ -332,11 +334,15 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           tools: node pnpm
-      # The latest Bun 1.x rather than the version pinned in mise.toml.
+      # The newest Bun 1.x (ADR 0027), resolved from the registry so Bun 2 does not silently enter the matrix.
+      - name: Resolve the newest Bun 1.x
+        id: bun
+        if: matrix.runtime == 'bun'
+        run: echo "version=$(scripts/e2e/resolve-pm-version.sh bun newest 1)" >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@v2
         if: matrix.runtime == 'bun'
         with:
-          bun-version: latest
+          bun-version: ${{ steps.bun.outputs.version }}
       # The `node` profile unwinds panics (the release profile aborts); `test-hooks` adds the deliberate panic the
       # smoke test throws to prove it reaches JavaScript as an exception.
       - name: Build the addon for the host
@@ -388,10 +394,14 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           tools: node
+      - name: Resolve the newest Bun 1.x
+        id: bun
+        if: matrix.package-manager == 'bun'
+        run: echo "version=$(scripts/e2e/resolve-pm-version.sh bun newest 1)" >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@v2
         if: matrix.package-manager == 'bun'
         with:
-          bun-version: latest
+          bun-version: ${{ steps.bun.outputs.version }}
       # ~keep Node 25+ no longer bundles corepack, so yarn's corepack shim is installed explicitly.
       - name: Enable corepack
         if: matrix.package-manager == 'yarn'
