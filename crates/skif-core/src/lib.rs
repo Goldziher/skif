@@ -55,7 +55,7 @@ pub use fix::{
     EditError, FileChange, Fix, FixOp, FixPreference, FixSafety, InsertPosition, JsonAction, PathSeg, TextEdit,
     YamlAction, apply_text_edits,
 };
-pub use fs::{DirEntry, FileSystem, MemoryFs, OsFs};
+pub use fs::{DirEntry, FileSystem, MemoryFs, OsFs, PathKind};
 pub use package_id::PackageId;
 pub use report::{Report, Summary};
 pub use rule::{Category, Fixability, InvalidRuleId, RuleId, RuleMeta, Severity};

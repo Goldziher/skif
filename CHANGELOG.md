@@ -37,6 +37,14 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   `isDisabled`); `SemverGroup::range` is now an `Option` and `SemverGroup::ignored()` builds such a group.
 - **Built-in dependency families from sherif**: `turborepo`, `eslint-stylistic` and `lexical`, the full Storybook list
   and the Prisma adapters.
+- **`[js] discovery`** (`auto`, `git`, `walk`): when the analysed root is in a git work tree, source files are listed
+  from `.git/index` (formats 2 to 4, read without running git) instead of walking the directories, and plugin config
+  searches use the same listing. Only tracked files are listed; `walk` finds untracked ones too.
+- **`FileSystem::kind`** and `PathKind` in `skif-core`: file, directory or neither in one lookup. `CachedFs` keeps the
+  answer, so a name probed as a file and as a directory costs one `stat`, and lists a directory once three of its
+  children were probed.
+- **`disk_tree` bench** in `skif-js`: a generated on-disk monorepo (more than 20 000 directories, 21 000 modules, pnpm
+  `node_modules` links, a git index) for the walk, the index and name probing.
 - **Config model constructors**: every `skif-config` model struct is `#[non_exhaustive]` and builds from `Default` or a
   constructor plus `with_*` methods (`SemverGroup::new`, `DependencyFamily::new`, `VersionGroup`, `IgnoreEntry`,
   `Catalog`, `PluginOptions`, `Workspace`, `Lint`, `Policy`, `WorkspaceProtocol`, `Js`), so `ConfigBuilder::semver_group`
@@ -192,6 +200,12 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   files that Git ignores or that are JSON or foreign file types are not reported from scripts.
 - **CommonJS named exports** (`exports.x =`, `module.exports.x =`, `module.exports = { a, b }`) are tracked and reported
   as unused exports.
+- **JS analysis performance**: the resolver finds the scopes of an importer by ancestor lookup and skips the
+  lookup-directory probe when no package has lookup directories; plugin setup and the installed-manifest reads run per
+  package in parallel; entry collection indexes candidates by owner and binary-searches the files below a package;
+  `tsconfig` files are parsed once per run in the dependency pass; plugin config globs are compiled once;
+  `declares_module` is a set lookup. A tracked file the git index lists but that is missing on disk is an empty module
+  instead of an unparseable file.
 - **`workspace-protocol` scope**: the rule is silent for Yarn Classic as it is for npm, skips `peerDependencies`, and
   leaves `file:`/`link:` paths to `local-path-dependency` while that rule is on (so one dependency is reported once).
   `allow-local-paths` decides them only when `local-path-dependency` is off.

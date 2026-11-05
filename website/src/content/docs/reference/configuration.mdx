@@ -244,6 +244,7 @@ ignore-members = ["/^_/"]
 ignore-exports-used-in-file = { type = true, interface = true }
 production = false
 include-entry-exports = false
+discovery = "auto"
 
 [js.workspaces."."]
 ignore-dependencies = ["rimraf"]
@@ -303,6 +304,13 @@ their own file always count as used. **`ignore-members`** lists enum and namespa
 knip's configuration hints. `[rules] stale-js-config = "error"` is knip's `--treat-config-hints-as-errors`. An
 `ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off, and the
 dependency lists are not judged when a package has entry files skif cannot determine.
+
+`discovery` chooses how source files are found. `auto` (the default) and `git` read the git index when the analysed
+root is in a git work tree and list the tracked files without walking the directories, which is several times faster
+on large repositories; `walk` always walks the directories. The index lists tracked files only: a file that was never
+`git add`ed is not an entry, not a project file and not found by plugin config searches (a tracked file that imports it
+still resolves it), and a tracked file deleted from disk but not yet staged is listed as an empty module. Use `walk`
+when untracked files must be analysed. Split and sparse indexes are not read; the walk is used for them.
 
 A dependency counts as listed when the package's own `package.json`, the `package.json` of a package that contains
 it, or any `package.json` above the analysed root up to the git repository root lists it; the same manifests enable

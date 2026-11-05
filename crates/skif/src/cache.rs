@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use skif_core::{CachedFs, DirEntry, FileSystem};
+use skif_core::{CachedFs, DirEntry, FileSystem, PathKind};
 
 /// A file system reached through a pointer (`&dyn FileSystem`, `Arc<dyn FileSystem>`), so a [`CachedFs`] can wrap it.
 pub(crate) struct Through<P>(P);
@@ -34,6 +34,10 @@ where
 
     fn is_dir(&self, path: &Path) -> bool {
         self.0.is_dir(path)
+    }
+
+    fn kind(&self, path: &Path) -> PathKind {
+        self.0.kind(path)
     }
 
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
