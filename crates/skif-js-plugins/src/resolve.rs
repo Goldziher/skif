@@ -2,7 +2,7 @@
 //! collects their output.
 
 use std::collections::{BTreeSet, VecDeque};
-use std::path::Path;
+use std::path::{Component, Path};
 
 use skif_config::{PluginConfig, PluginOptions};
 use skif_js_syntax::ConfigValue;
@@ -94,6 +94,8 @@ struct Collector<'a, 'b> {
     ctx: &'a PluginContext<'b>,
     out: PluginOutput,
     queue: VecDeque<Queued>,
+    /// Whether the module resolution options of a config inside another package stay with that package.
+    confine_to_package: bool,
 }
 
 /// A config file waiting to be read.
@@ -106,8 +108,29 @@ struct Queued {
 }
 
 impl Collector<'_, '_> {
+    /// Whether `from` is a config of another package below the workspace, whose `paths`, `baseUrl` and output
+    /// directories apply to that package's files only (a `tsconfig` `references` entry points into a sub-project).
+    fn belongs_to_other_package(&self, from: &Path) -> bool {
+        self.confine_to_package
+            && from.parent().is_some_and(|dir| {
+                dir != self.ctx.dir && dir.starts_with(self.ctx.dir) && self.ctx.fs.is_file(&dir.join("package.json"))
+            })
+    }
+
     fn absorb(&mut self, inputs: Vec<PluginInput>, from: &Path, depth: u8) {
+        let foreign = self.belongs_to_other_package(from);
         for input in inputs {
+            if foreign
+                && matches!(
+                    input,
+                    PluginInput::Alias { .. }
+                        | PluginInput::ModuleDir(_)
+                        | PluginInput::BuildDir { .. }
+                        | PluginInput::Condition(_)
+                )
+            {
+                continue;
+            }
             match input {
                 PluginInput::Entry(path) => push_unique(&mut self.out.entries, path),
                 PluginInput::ProductionEntry(path) => {
@@ -248,6 +271,7 @@ fn run_plugin(
             ..PluginOutput::default()
         },
         queue: VecDeque::new(),
+        confine_to_package: spec.id == "typescript",
     };
     for production in spec.production {
         push_unique(&mut collector.out.entries, (*production).to_string());
@@ -383,6 +407,14 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
         };
         if reader.reads_config() && is_unreadable(&value) {
             collector.out.entries_incomplete = true;
+            for module in imported_modules(&source) {
+                let module = if module.starts_with('.') {
+                    normalized(&path.parent().unwrap_or(ctx.dir).join(&module))
+                } else {
+                    module
+                };
+                push_unique(&mut collector.out.config_imports, module);
+            }
         }
         let ast = ConfigAst {
             path: &path,
@@ -393,6 +425,58 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
         let inputs = reader.resolve_config(&ast, ctx);
         collector.absorb(inputs, &path, depth);
     }
+}
+
+/// A path with its `.` and `..` segments collapsed lexically, as a string with `/` separators.
+fn normalized(path: &Path) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                parts.pop();
+            }
+            Component::CurDir => {}
+            other => parts.push(other.as_os_str().to_string_lossy().replace('\\', "/")),
+        }
+    }
+    let joined = parts.join("/");
+    joined.replace("//", "/")
+}
+
+/// The specifiers a JavaScript or TypeScript source imports (`from '…'`, `require('…')`, `import('…')`), found by
+/// scanning the text.
+fn imported_modules(source: &str) -> Vec<String> {
+    let bytes = source.as_bytes();
+    let mut found = Vec::new();
+    for (start, keyword) in [("from", false), ("require", true), ("import", true)]
+        .into_iter()
+        .flat_map(|(word, call)| source.match_indices(word).map(move |(at, _)| (at + word.len(), call)))
+    {
+        let mut at = start;
+        if keyword {
+            while bytes.get(at).is_some_and(u8::is_ascii_whitespace) {
+                at += 1;
+            }
+            if bytes.get(at) != Some(&b'(') {
+                continue;
+            }
+            at += 1;
+        }
+        while bytes.get(at).is_some_and(u8::is_ascii_whitespace) {
+            at += 1;
+        }
+        let Some(quote) = bytes.get(at).copied().filter(|byte| matches!(*byte, b'\'' | b'"')) else {
+            continue;
+        };
+        let Some(length) = bytes[at + 1..].iter().position(|byte| *byte == quote) else {
+            continue;
+        };
+        let specifier = &source[at + 1..at + 1 + length];
+        if !specifier.is_empty() && !specifier.contains(['\n', '\\']) {
+            found.push(specifier.to_owned());
+        }
+    }
+    found
 }
 
 /// Whether `path` is a JavaScript, TypeScript, JSON, YAML or TOML file, whose content a plugin is expected to read.
