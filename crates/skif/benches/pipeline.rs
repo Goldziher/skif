@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use skif::{Config, Linter, MemoryFs, Workspace};
+use skif::{Config, ConfigOverrides, Linter, MemoryFs, Workspace, load_config};
 use skif_bench::generate::{self, Options, PackageManager};
 use skif_workspace::Manifest;
 
@@ -174,12 +174,49 @@ fn bench_suppressions(c: &mut Criterion) {
     group.finish();
 }
 
+fn override_entries(count: usize) -> String {
+    let mut toml = String::new();
+    for i in 0..count {
+        let _ = write!(
+            toml,
+            "\n[[overrides]]\npackages = [\"@bench/absent-{i}\"]\n[overrides.rules]\nversion-mismatch = \"warn\"\n"
+        );
+    }
+    toml
+}
+
+/// Cost of package-scoped `[[overrides]]` (what package files become): none of them match, so resolving which
+/// overrides cover a diagnostic must not grow with their number per diagnostic. Loaded through the configuration
+/// loader, because only a resolved configuration carries the scopes the overrides apply by.
+fn bench_overrides(c: &mut Criterion) {
+    let fs = memory_fs(500);
+    let mut group = c.benchmark_group("overrides");
+    group.throughput(Throughput::Elements(500));
+    for entries in [0, 100, 1000] {
+        let with_config = fs
+            .clone()
+            .with_file(format!("{ROOT}/skif.toml"), override_entries(entries));
+        let config = load_config(Path::new(ROOT), &with_config, &ConfigOverrides::default())
+            .expect("benchmark configuration is valid");
+        let workspace = discover(&with_config, &config);
+        let linter = Linter::new(&config).expect("built-in rules register");
+        if entries >= 1000 {
+            group.sample_size(20);
+        }
+        group.bench_function(BenchmarkId::new("package_overrides", entries), |b| {
+            b.iter(|| linter.run(black_box(&workspace)).expect("lint run succeeds"));
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_manifest_parse,
     bench_discover,
     bench_policy,
     bench_target,
-    bench_suppressions
+    bench_suppressions,
+    bench_overrides
 );
 criterion_main!(benches);
