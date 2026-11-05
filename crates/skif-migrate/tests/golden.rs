@@ -36,6 +36,7 @@ fn options(profile: Profile) -> Options {
     Options {
         profile,
         known_rules: known_rules(),
+        strict_hints: false,
     }
 }
 
@@ -197,7 +198,7 @@ fn knip_ts_with_workspaces_plugins_and_a_non_static_value() {
     assert!(migration.needs_human());
     let parsed = table(&migration);
     assert_eq!(parsed["rules"]["unlisted-dependencies"].as_str(), Some("off"));
-    assert_eq!(parsed["rules"]["stale-js-config"].as_str(), Some("error"));
+    assert_eq!(parsed["rules"]["stale-js-config"].as_str(), Some("warn"));
     assert_eq!(
         migration.config.js.entry,
         ["src/index.ts!", "scripts/*.ts", "src/index.ts"]
@@ -222,7 +223,7 @@ fn knip_script_flags_narrow_the_rules() {
     ] {
         assert_eq!(rules[enabled].as_str(), Some("error"), "{enabled}");
     }
-    assert_eq!(rules["stale-js-config"].as_str(), Some("error"));
+    assert_eq!(rules["stale-js-config"].as_str(), Some("warn"));
     assert!(
         !migration.extra_checks.iter().any(|id| id == "stale-js-config"),
         "a rule that is on is not an extra check that was turned off"
@@ -233,10 +234,14 @@ fn knip_script_flags_narrow_the_rules() {
         "excluded with --exclude binaries"
     );
     assert_eq!(rules["unused-files"].as_str(), Some("off"));
-    assert!(!rules.contains_key("unparseable-files"));
+    assert_eq!(
+        rules["unparseable-files"].as_str(),
+        Some("off"),
+        "knip skips a file it cannot parse without reporting it"
+    );
     assert!(parsed["js"].get("production").is_none());
     assert_eq!(parsed["js"]["include-entry-exports"].as_bool(), Some(true));
-    assert_eq!(migration.extra_checks.len(), 29);
+    assert_eq!(migration.extra_checks.len(), 30);
 }
 
 #[test]
@@ -371,7 +376,23 @@ fn a_bare_syncpack_run_writes_the_default_scope_only() {
         ]
     );
     assert_eq!(parsed.len(), 1, "{}", migration.toml);
-    assert_eq!(migration.notes.len(), 1, "{:#?}", migration.notes);
+    assert_eq!(migration.notes.len(), 2, "{:#?}", migration.notes);
+}
+
+#[test]
+fn syncpack_overrides_are_read_the_way_syncpack_reads_them() {
+    let migration = syncpack("{}", Profile::Full);
+    assert_eq!(table(&migration)["policy"]["override-reading"].as_str(), Some("syncpack"));
+    assert_eq!(
+        migration.config.policy.override_reading,
+        skif_config::OverrideReading::Syncpack
+    );
+    assert!(has_note(&migration, NoteClass::Exact, "override-reading"));
+
+    let mut sherif = ToolInput::new(Tool::Sherif);
+    sherif.package_json = Some(text("package.json", &package(&[])));
+    let migration = migrate(&[sherif], &options(Profile::Full)).unwrap();
+    assert!(table(&migration).get("policy").is_none(), "only syncpack reads overrides its own way");
 }
 
 #[test]
@@ -699,11 +720,109 @@ fn knip_workspace_settings_stay_in_their_workspace() {
 #[test]
 fn stale_js_config_is_never_both_on_and_turned_off() {
     let migration = knip(None, &[("k", "knip --treat-config-hints-as-errors")]);
-    assert_eq!(table(&migration)["rules"]["stale-js-config"].as_str(), Some("error"));
+    assert_eq!(table(&migration)["rules"]["stale-js-config"].as_str(), Some("warn"));
     assert!(!migration.extra_checks.iter().any(|id| id == "stale-js-config"));
     let other = knip(None, &[("k", "knip")]);
     assert_eq!(table(&other)["rules"]["stale-js-config"].as_str(), Some("off"));
     assert!(other.extra_checks.iter().any(|id| id == "stale-js-config"));
+}
+
+#[test]
+fn config_hints_as_errors_are_warnings_unless_strict_hints_asks_for_error() {
+    let migration = knip(None, &[("k", "knip --treat-config-hints-as-errors")]);
+    assert!(
+        has_note(&migration, NoteClass::Approximate, "stale-js-config is warn"),
+        "{:#?}",
+        migration.notes
+    );
+
+    let mut input = ToolInput::new(Tool::Knip);
+    input.package_json = Some(text(
+        "package.json",
+        &package(&[("k", "knip --treat-config-hints-as-errors")]),
+    ));
+    let strict = Options {
+        strict_hints: true,
+        ..options(Profile::Exact)
+    };
+    let migration = migrate(&[input], &strict).unwrap();
+    assert_eq!(table(&migration)["rules"]["stale-js-config"].as_str(), Some("error"));
+    assert!(!has_note(&migration, NoteClass::Approximate, "stale-js-config is warn"));
+}
+
+#[test]
+fn no_config_hints_turns_the_rule_off() {
+    let migration = knip(None, &[("k", "knip --no-config-hints")]);
+    assert_eq!(table(&migration)["rules"]["stale-js-config"].as_str(), Some("off"));
+}
+
+fn off_rules(migration: &Migration) -> Vec<String> {
+    table(migration)["rules"]
+        .as_table()
+        .unwrap()
+        .iter()
+        .filter(|(_, level)| level.as_str() == Some("off"))
+        .map(|(id, _)| id.clone())
+        .collect()
+}
+
+#[test]
+fn syncpack_without_a_catalog_policy_does_not_run_the_catalog_rules_that_need_one() {
+    let migration = syncpack("{}", Profile::Exact);
+    let off = off_rules(&migration);
+    for id in ["catalog-not-used", "catalog-missing-entry", "unresolved-catalog-references"] {
+        assert!(off.iter().any(|known| known == id), "{id} is off: {off:?}");
+    }
+    for id in ["catalog-mismatch", "invalid-local-version", "version-mismatch", "policy-conflict"] {
+        assert!(!off.iter().any(|known| known == id), "{id} stays on: {off:?}");
+    }
+}
+
+#[test]
+fn syncpack_catalog_policy_keeps_the_catalog_rules() {
+    let migration = syncpack(r#"{ "versionGroups": [{ "policy": "catalog" }] }"#, Profile::Exact);
+    let off = off_rules(&migration);
+    for id in ["catalog-not-used", "catalog-missing-entry", "unresolved-catalog-references"] {
+        assert!(!off.iter().any(|known| known == id), "{id} stays on: {off:?}");
+    }
+    assert_eq!(table(&migration)["catalog"]["mode"].as_str(), Some("prefer"));
+}
+
+#[test]
+fn a_narrow_catalog_policy_group_does_not_turn_the_catalog_rules_on() {
+    let migration = syncpack(
+        r#"{ "versionGroups": [{ "policy": "catalog", "dependencies": ["react"] }] }"#,
+        Profile::Exact,
+    );
+    assert!(off_rules(&migration).iter().any(|id| id == "catalog-not-used"));
+}
+
+#[test]
+fn every_rule_a_tool_does_not_run_is_off_for_that_tool() {
+    let table_of = |tool: Tool| {
+        let mut input = ToolInput::new(tool);
+        if tool == Tool::Syncpack {
+            input.config = Some(text(".syncpackrc.json", "{}"));
+        }
+        off_rules(&migrate(&[input], &options(Profile::Exact)).unwrap())
+    };
+    let sherif = table_of(Tool::Sherif);
+    for id in [
+        "catalog-mismatch",
+        "catalog-not-used",
+        "invalid-local-version",
+        "unparseable-files",
+        "workspace-protocol",
+    ] {
+        assert!(sherif.iter().any(|known| known == id), "sherif does not run {id}");
+    }
+    for id in ["unmatched-workspace-patterns", "missing-package-manifest", "unsynced-dependency-family"] {
+        assert!(!sherif.iter().any(|known| known == id), "sherif runs {id}");
+    }
+    let syncpack = table_of(Tool::Syncpack);
+    for id in ["unmatched-workspace-patterns", "missing-package-manifest", "unsynced-dependency-family"] {
+        assert!(syncpack.iter().any(|known| known == id), "syncpack does not run {id}");
+    }
 }
 
 fn effective(migration: &Migration) -> (toml::Value, Option<bool>) {

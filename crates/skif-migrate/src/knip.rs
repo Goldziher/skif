@@ -13,9 +13,6 @@ use crate::tables::{self, KnipType};
 use crate::value::{boolean, entries, join, pattern_list, read, string, string_list};
 use crate::{MigrateError, ToolInput};
 
-/// Rules that are not issue types but belong to a knip run: a file that cannot be parsed ends it.
-const ALWAYS: &[&str] = &["unparseable-files"];
-
 /// What `--dependencies` and its siblings include. `--dependencies` also adds `devDependencies` and
 /// `optionalPeerDependencies` outside production mode, which [`Selection::new`] does.
 const SHORTCUTS: &[(&str, &[&str])] = &[
@@ -289,7 +286,6 @@ impl Plan {
 }
 
 pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), MigrateError> {
-    state.keep(Tool::Knip, ALWAYS.iter().copied());
     let package = input
         .package_json
         .as_ref()
@@ -987,6 +983,36 @@ fn apply(state: &mut State<'_>, src: &Src, plan: &Plan) {
     js_settings(state, src, plan);
 }
 
+/// knip's configuration hints are not skif's: `stale-js-config` also flags entries skif itself never needed, so an
+/// `error` could fail a project that knip passed. It is written as `warn` unless `--strict-hints` asks for `error`.
+fn config_hints(state: &mut State<'_>, src: &Src, hints: Level) {
+    let rule = keys::RULE_STALE_JS_CONFIG;
+    if hints == Level::Error && !state.options.strict_hints {
+        state.set_level(rule, Level::Warn);
+        state.note_with(
+            src,
+            NoteClass::Approximate,
+            "configuration hints",
+            format!(
+                "[rules] {rule} is warn: skif's hints differ from knip's (they also flag entries skif never needed), so \
+                 error could fail a project that knip passed"
+            ),
+            "run `skif migrate --strict-hints` to write error",
+        );
+        return;
+    }
+    state.set_level(rule, hints);
+    state.note(
+        src,
+        NoteClass::Exact,
+        "configuration hints",
+        format!(
+            "[rules] {rule} is {}",
+            if hints == Level::Error { "error" } else { "off" }
+        ),
+    );
+}
+
 fn js_settings(state: &mut State<'_>, src: &Src, plan: &Plan) {
     if !plan.tags.is_empty() {
         state.add_ignore_tags("unused-exports", plan.tags.iter().cloned());
@@ -1001,17 +1027,7 @@ fn js_settings(state: &mut State<'_>, src: &Src, plan: &Plan) {
         );
     }
     if let Some(hints) = plan.hints {
-        state.set_level(keys::RULE_STALE_JS_CONFIG, hints);
-        state.note(
-            src,
-            NoteClass::Exact,
-            "configuration hints",
-            format!(
-                "[rules] {} is {}",
-                keys::RULE_STALE_JS_CONFIG,
-                if hints == Level::Error { "error" } else { "off" }
-            ),
-        );
+        config_hints(state, src, hints);
     }
     let js = Target::Root.js();
     production(state, src, plan);

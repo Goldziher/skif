@@ -10,7 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
-use skif_config::{CustomType, DependencyType};
+use skif_config::{CustomType, DependencyType, OverrideReading};
 use skif_core::{DependencyKind, FixOp, JsonAction, Location, PathSeg};
 use skif_specifier::Specifier;
 use skif_workspace::{DependencyEntry, Package, Workspace};
@@ -188,7 +188,12 @@ impl<'w> Instances<'w> {
     /// names are collected too. Dependencies named in `owned` (see
     /// [`catalog::owned_dependencies`]) are flagged [`catalog_owned`](Instance::catalog_owned): the catalog rules
     /// report them.
-    pub(crate) fn collect_with(workspace: &'w Workspace, owned: &BTreeSet<&str>, custom: &[CustomType]) -> Self {
+    pub(crate) fn collect_with(
+        workspace: &'w Workspace,
+        owned: &BTreeSet<&str>,
+        custom: &[CustomType],
+        reading: OverrideReading,
+    ) -> Self {
         let local_names: HashSet<&str> = workspace
             .all_packages()
             .filter_map(|package| package.name.as_deref())
@@ -214,7 +219,7 @@ impl<'w> Instances<'w> {
                     owned.contains(entry.name.as_str()) && owned_by_catalog(entry),
                 ));
             }
-            for found in fields::collect(workspace, package, custom) {
+            for found in fields::collect(workspace, package, custom, reading) {
                 let is_local = local_names.contains(found.name.as_str());
                 items.push(Instance::of_field(package, found, is_local));
             }
@@ -239,7 +244,7 @@ impl<'w> Instances<'w> {
         } else {
             BTreeSet::new()
         };
-        Self::collect_with(workspace, &owned, &config.custom_types)
+        Self::collect_with(workspace, &owned, &config.custom_types, config.policy.override_reading)
     }
 
     /// The workspace the instances were read from.
@@ -437,6 +442,39 @@ mod tests {
             4,
             "two sections of app and two field instances"
         );
+    }
+
+    #[test]
+    fn syncpack_reading_takes_the_key_as_the_name_and_skips_what_syncpack_does_not_read() {
+        let yaml = "packages:\n  - \"packages/*\"\noverrides:\n  \"parent@4>child\": ^6.5.0\n  hono: ^4.13.7\n";
+        let files = [
+            ("package.json", WITH_FIELDS),
+            ("pnpm-workspace.yaml", yaml),
+            ("packages/app/package.json", APP),
+        ];
+        let found = |text: &str| {
+            let config = config(text);
+            let workspace = workspace(&files, &config);
+            let instances = Instances::collect(&workspace, &config, true);
+            field_instances(&instances)
+                .into_iter()
+                .map(|instance| (instance.ty().token().to_owned(), instance.name.clone()))
+                .collect::<Vec<_>>()
+        };
+        let pair = |ty: &str, name: &str| (ty.to_owned(), name.to_owned());
+        assert_eq!(
+            found("[policy]\noverride-reading = \"syncpack\"\n"),
+            [
+                pair("resolutions", "**/lodash"),
+                pair("overrides", "left"),
+                pair("pnpm-overrides", "parent@4>child"),
+                pair("pnpm-overrides", "hono"),
+            ],
+            "nested objects and `pnpm.overrides` of a manifest are not read, and a selector is its own name"
+        );
+        let skif = found("");
+        assert!(skif.contains(&pair("pnpm-overrides", "child")), "{skif:?}");
+        assert!(skif.contains(&pair("pnpm-overrides", "react")), "{skif:?}");
     }
 
     #[test]

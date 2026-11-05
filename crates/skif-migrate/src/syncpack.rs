@@ -10,20 +10,9 @@ use crate::keys;
 use crate::notes::{NoteClass, Tool};
 use crate::scripts::{self, Invocation};
 use crate::state::{Src, State};
+use crate::tables;
 use crate::value::{at, boolean, entries, join, read, string, string_list};
 use crate::{MigrateError, ToolInput};
-
-/// The rules that check what `syncpack lint` checks.
-const RULES: &[&str] = &[
-    "version-mismatch",
-    "semver-range-mismatch",
-    "banned-dependency",
-    "invalid-local-version",
-    "policy-conflict",
-    "catalog-mismatch",
-    "catalog-missing-entry",
-    "catalog-not-used",
-];
 
 /// The dependency types syncpack lints when nothing narrows them. Optional dependencies are not among them.
 const DEFAULT_TYPES: &[&str] = &[
@@ -143,7 +132,7 @@ struct Run {
 }
 
 pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), MigrateError> {
-    state.keep(Tool::Syncpack, RULES.iter().copied());
+    state.keep(Tool::Syncpack, tables::syncpack_rules("always"));
     let package = input
         .package_json
         .as_ref()
@@ -187,7 +176,25 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
         scripts::note_unrecognised(state, &src, package, Tool::Syncpack);
     }
     emit_scope(state, &src, &run);
+    override_reading(state, &src);
     Ok(())
+}
+
+/// syncpack 15 reads the override sections its own way, and skif's reading finds more: an entry `parent@4>child` is
+/// the dependency `child` in skif and a dependency of its own in syncpack, and `pnpm.overrides` of a manifest is not
+/// read at all. Migrating keeps what syncpack checked.
+fn override_reading(state: &mut State<'_>, src: &Src) {
+    state
+        .doc
+        .table(&["policy"])
+        .set(keys::POLICY_OVERRIDE_READING, Val::str("syncpack"));
+    state.note(
+        src,
+        NoteClass::Exact,
+        "pnpmOverrides, overrides, resolutions",
+        "written to [policy] override-reading = \"syncpack\": an override key is its own dependency name, nested \
+         objects and `pnpm.overrides` of a package.json are not read, as in syncpack 15",
+    );
 }
 
 fn read_config(
@@ -260,7 +267,7 @@ fn format_key(state: &mut State<'_>, src: &Src, path: &str, key: &str, item: &Co
     if key == "sortAz" {
         let names = string_list(state, src, path, item);
         if names.iter().any(|name| DEPENDENCY_MAPS.contains(&name.as_str())) {
-            state.keep(Tool::Syncpack, ["unsorted-dependencies"]);
+            state.keep(Tool::Syncpack, tables::syncpack_rules("sort-az"));
             state.note(
                 src,
                 NoteClass::Approximate,
@@ -714,6 +721,7 @@ fn version_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigVal
 fn catalog_policy(state: &mut State<'_>, src: &Src, path: &str, selectors: &Selectors) {
     if selectors.selects_everything() {
         state.doc.table(&["catalog"]).set("mode", Val::str("prefer"));
+        state.keep(Tool::Syncpack, tables::syncpack_rules("catalog-policy"));
         state.note(
             src,
             NoteClass::Exact,
