@@ -4,15 +4,16 @@
 use std::collections::{HashMap, HashSet};
 
 use oxc_ast::ast::{
-    Argument, AssignmentExpression, AssignmentTarget, BindingPattern, CallExpression, ComputedMemberExpression,
+    Argument, AssignmentExpression, AssignmentOperator, AssignmentTarget, BindingPattern, CallExpression, ComputedMemberExpression,
     Expression, FormalParameters, IdentifierReference, ImportExpression, JSXElement, JSXFragment,
-    StaticMemberExpression, TSAsExpression, TSExternalModuleDeclaration, TSImportEqualsDeclaration, TSImportType,
+    ObjectPropertyKind, StaticMemberExpression, TSAsExpression, TSExternalModuleDeclaration, TSImportEqualsDeclaration, TSImportType,
     TSImportTypeQualifier, TSModuleReference, TSType, TSTypeQueryExprName, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
+use oxc_span::GetSpan;
 
 use crate::collect::{Ctx, imported_kind};
-use crate::model::{Import, ImportKind, ImportedKind, ImportedName, ModuleInfo};
+use crate::model::{Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, ModuleInfo};
 
 pub(crate) struct Finder<'c, 's> {
     ctx: &'c Ctx<'s>,
@@ -21,6 +22,40 @@ pub(crate) struct Finder<'c, 's> {
     pending: HashMap<u32, Vec<ImportedName>>,
     /// Start offsets of `typeof import("x")` types that only type the result of the `require("x")` they follow.
     redundant_types: HashSet<u32>,
+}
+
+impl Finder<'_, '_> {
+    /// Records the named exports of `exports.x = …`, `module.exports.x = …` and `module.exports = { a, b }` (all
+    /// properties shorthand; any other object is one anonymous value).
+    fn cjs_exports(&mut self, target: &StaticMemberExpression<'_>, right: &Expression<'_>) {
+        if is_module_exports(target) {
+            let Expression::ObjectExpression(object) = right.get_inner_expression() else {
+                return;
+            };
+            let shorthand: Option<Vec<_>> = object
+                .properties
+                .iter()
+                .map(|property| match property {
+                    ObjectPropertyKind::ObjectProperty(p) if p.shorthand => Some((crate::js_string(p.key.static_name()?.as_js_str()), p.key.span())),
+                    _ => None,
+                })
+                .collect();
+            for (name, span) in shorthand.filter(|names| !names.is_empty()).unwrap_or_default() {
+                self.cjs_export(&name, span);
+            }
+        } else {
+            self.cjs_export(target.property.name.as_str(), target.property.span);
+        }
+    }
+
+    fn cjs_export(&mut self, name: &str, span: oxc_span::Span) {
+        if self.info.exports.iter().any(|export| export.name == name) {
+            return;
+        }
+        let mut export = Export::bare(name.to_owned(), ExportKind::Value, self.ctx.span(span));
+        export.local_name = None;
+        self.info.exports.push(export);
+    }
 }
 
 impl<'c, 's> Finder<'c, 's> {
@@ -242,6 +277,9 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
             && is_cjs_member(m)
         {
             self.info.has_cjs_exports = true;
+            if it.operator == AssignmentOperator::Assign {
+                self.cjs_exports(m, &it.right);
+            }
         }
         walk::walk_assignment_expression(self, it);
     }

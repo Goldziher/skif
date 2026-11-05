@@ -949,3 +949,18 @@ fn script_wrappers_run_the_command_they_wrap() {
     ), ("index.ts", "export {};\n")];
     assert_eq!(found(&lint_files(&files, ""), "unused-dev-dependencies"), none());
 }
+
+#[test]
+fn commonjs_named_exports_that_nothing_requires_are_unused_exports() {
+    let diagnostics = lint_files(
+        &[
+            PACKAGE,
+            ("src/index.js", "const { cjsA } = require('./cjs');\nmodule.exports = cjsA;\n"),
+            ("src/cjs.js", "exports.cjsA = 1;\nexports.cjsB = 2;\n"),
+            ("src/all.js", "module.exports.used = 1;\n"),
+            ("src/main.js", "const all = require('./all');\nconsole.log(all);\nrequire('./index');\n"),
+        ],
+        "[js]\nentry = [\"src/main.js\"]\n",
+    );
+    assert_eq!(found(&diagnostics, "unused-exports"), ["src/cjs.js: cjsB"]);
+}
