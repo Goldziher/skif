@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Golden tests: one realistic synthetic configuration per source tool, translated and compared with a snapshot, and
 //! parsed back as a `skif.toml`.
 
