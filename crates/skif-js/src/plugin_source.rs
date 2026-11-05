@@ -7,7 +7,7 @@ use skif_config::{JsWorkspace, Override, PluginConfig};
 use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins};
 
 use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
-use crate::setup::workspace_table;
+use crate::setup::WorkspaceKeys;
 
 /// Feeds the entries, project files and references of every enabled plugin to the module graph.
 #[derive(Debug, Clone)]
@@ -15,6 +15,7 @@ pub struct PluginSource {
     plugins: IndexMap<String, PluginConfig>,
     /// The `[js.workspaces]` tables that set `plugins`, applied to the packages their keys select.
     workspaces: IndexMap<String, JsWorkspace>,
+    workspace_keys: WorkspaceKeys,
     /// The `[[overrides]]` that set `js.plugins`, applied to the packages they select.
     scoped: Vec<Override>,
 }
@@ -26,6 +27,7 @@ impl PluginSource {
         Self {
             plugins,
             workspaces: IndexMap::new(),
+            workspace_keys: WorkspaceKeys::default(),
             scoped: Vec::new(),
         }
     }
@@ -39,6 +41,7 @@ impl PluginSource {
             .filter(|(_, workspace)| !workspace.plugins.is_empty())
             .map(|(key, workspace)| (key.clone(), workspace.clone()))
             .collect();
+        self.workspace_keys = WorkspaceKeys::new(&self.workspaces);
         self
     }
 
@@ -57,7 +60,7 @@ impl PluginSource {
     /// The plugin table for one package: the global table with the matching overrides folded in.
     fn plugins_for(&self, name: &str, dir: &Path, key: &str) -> IndexMap<String, PluginConfig> {
         let mut plugins = self.plugins.clone();
-        if let Some(workspace) = workspace_table(&self.workspaces, key) {
+        if let Some(workspace) = self.workspace_keys.table(&self.workspaces, key) {
             for (plugin, incoming) in &workspace.plugins {
                 let merged = merge(plugins.get(plugin), incoming);
                 plugins.insert(plugin.clone(), merged);

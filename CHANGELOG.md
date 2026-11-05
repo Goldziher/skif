@@ -49,9 +49,16 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   `isDisabled`); `SemverGroup::range` is now an `Option` and `SemverGroup::ignored()` builds such a group.
 - **Built-in dependency families from sherif**: `turborepo`, `eslint-stylistic` and `lexical`, the full Storybook list
   and the Prisma adapters.
-- **`[js] discovery`** (`auto`, `git`, `walk`): when the analysed root is in a git work tree, source files are listed
-  from `.git/index` (formats 2 to 4, read without running git) instead of walking the directories, and plugin config
-  searches use the same listing. Only tracked files are listed; `walk` finds untracked ones too.
+- **`[js] discovery`** (`auto`, `git`, `walk`, [ADR 0038](adrs/0038-git-index-file-discovery-and-resolver-probe-avoidance.md),
+  corrected by [ADR 0042](adrs/0042-git-index-discovery-corrections-directory-times-lazy-existence-and-checksum.md)):
+  when the analysed root is in a git work tree, source files are listed from `.git/index` (formats 2 to 4, read
+  without running git) instead of walking the directories, and plugin config searches use the same listing. `auto`
+  (the default) `stat`s each tracked directory and lists from disk any directory modified at or after the index time,
+  so untracked and deleted files are found as the walk finds them; `git` trusts the index alone (faster, blind to files
+  created or deleted since the last `git add`); `walk` always walks. The index checksum is verified, SHA-256
+  repositories are refused, a tracked symbolic link is listed as a file or directory by its target, a conflicted file
+  is listed once, and the parsed index is shared by every root of a run. `skif_js::discovery_file_system` returns the
+  file system the analysis lists through.
 - **`FileSystem::kind`** and `PathKind` in `skif-core`: file, directory or neither in one lookup. `CachedFs` keeps the
   answer, so a name probed as a file and as a directory costs one `stat`, and lists a directory once three of its
   children were probed.
@@ -340,6 +347,14 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 - **`[overrides.js]` replace keys** can clear an inherited list with `= []`; a mistyped export kind in
   `ignore-exports-used-in-file` is reported by name; an ignore file of comments builds no matcher.
 - A group with no `dependency-types` covers the types `[policy] dependency-types` governs (the docs said every type).
+- **Production mode keeps unmarked entries out of the project**: with `production = true`, an `entry` pattern that does not
+  end in `!` (and the project files that tools add) is removed from the project, so knip's non-production files are
+  no longer reported by `unused-files`.
+- **`*` stops at `/` in `ignore-workspaces` and in `[js.workspaces]` keys** (`packages/*` no longer selects
+  `packages/a/nested`), as in knip; the keys are compiled once per run.
+- **`stale-js-config` does not judge `ignore-binaries` when `unlisted-binaries` is off.**
+- **Config evaluation**: `merge` and `mergeWith` count as config combinators only when they are not imported from
+  another package (an `RxJS` `merge` is no longer evaluated as an object merge).
 
 - **Root discovery reads manifests like the loader**: a root `package.json` with a byte order mark, comments or
   trailing commas that declares `workspaces` is a workspace root for `-r`, and `declared_member_dirs` reads it too.

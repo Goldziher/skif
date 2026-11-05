@@ -34,6 +34,27 @@ const MAX_CALLS: usize = 256;
 /// Packages whose default export or named exports list files by glob.
 const GLOB_PACKAGES: &[&str] = &["glob", "fast-glob", "globby", "tinyglobby"];
 
+/// Packages whose `merge` and `mergeWith` merge configuration objects. Any other module's `merge` (an `RxJS` stream
+/// combinator) is not a config combinator.
+const MERGE_PACKAGES: &[&str] = &[
+    "lodash",
+    "lodash-es",
+    "lodash/merge",
+    "lodash/mergeWith",
+    "lodash.merge",
+    "lodash.mergewith",
+    "deepmerge",
+    "deepmerge-ts",
+    "ts-deepmerge",
+    "merge",
+    "merge-deep",
+    "webpack-merge",
+    "defu",
+];
+
+/// Names a combinator call may use that other libraries use for unrelated functions.
+const AMBIGUOUS_MERGES: &[&str] = &["merge", "mergeWith"];
+
 /// Members of a glob function that list files too (`fg.sync`, `glob.globSync`).
 const GLOB_MEMBERS: &[&str] = &["sync", "async", "glob", "globSync", "globbySync", "stream"];
 
@@ -278,12 +299,21 @@ struct ModuleBindings {
     file_url_to_path: HashSet<String>,
     /// Local names of glob functions and glob modules.
     glob_names: HashSet<String>,
+    /// Local names bound to a package that merges configuration objects.
+    merge_names: HashSet<String>,
+    /// Local `merge` and `mergeWith` imported from a package that does something else with them.
+    foreign_merges: HashSet<String>,
 }
 
 impl ModuleBindings {
     /// Records `local` as the module itself (`member` is `None`) or as its export `member`.
     fn bind(&mut self, module: &str, member: Option<&str>, local: &str) {
         let local = local.to_owned();
+        if MERGE_PACKAGES.contains(&module) {
+            self.merge_names.insert(local.clone());
+        } else if AMBIGUOUS_MERGES.contains(&local.as_str()) {
+            self.foreign_merges.insert(local.clone());
+        }
         match (module.strip_prefix("node:").unwrap_or(module), member) {
             ("path" | "path/posix", None | Some("default")) => {
                 self.path_modules.insert(local);
@@ -876,7 +906,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// A call of a config combinator (`mergeConfig`, `defu`, `Object.assign`, `deepmerge`, `merge`): the merge of the
     /// object arguments. An argument that cannot be known contributes a `...` entry, so the known part still applies.
     fn merge_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
-        let style = merge_style(&call.callee)?;
+        let style = merge_style(&call.callee, &self.bindings)?;
         let mut merged: Option<Vec<(String, ConfigValue)>> = None;
         let mut values = self.arguments(call, depth);
         if style == MergeStyle::FirstWins {
@@ -1172,19 +1202,27 @@ enum MergeStyle {
     FirstWins,
 }
 
-/// The merge style of a call to a well-known config combinator, by callee.
-fn merge_style(callee: &Expression<'_>) -> Option<MergeStyle> {
+/// The merge style of a call to a well-known config combinator, by callee. `merge` and `mergeWith` count only when
+/// the file does not import them from another package, and as members only of `lodash` or a merge package.
+fn merge_style(callee: &Expression<'_>, bindings: &ModuleBindings) -> Option<MergeStyle> {
     match callee.get_inner_expression() {
         Expression::Identifier(id) => match id.name.as_str() {
+            name if bindings.foreign_merges.contains(name) => None,
             "mergeConfig" | "merge" | "deepmerge" | "deepMerge" | "mergeDeep" | "mergeWith" => Some(MergeStyle::Deep),
             "defu" => Some(MergeStyle::FirstWins),
             _ => None,
         },
         Expression::StaticMemberExpression(member) => {
             let object_is = |name: &str| matches!(member.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == name);
+            let merge_object = matches!(
+                member.object.get_inner_expression(),
+                Expression::Identifier(o)
+                    if matches!(o.name.as_str(), "_" | "lodash") || bindings.merge_names.contains(o.name.as_str())
+            );
             match member.property.name.as_str() {
                 "assign" if object_is("Object") => Some(MergeStyle::Shallow),
-                "mergeConfig" | "merge" | "deepmerge" | "mergeDeep" => Some(MergeStyle::Deep),
+                "merge" | "mergeWith" if merge_object => Some(MergeStyle::Deep),
+                "mergeConfig" | "deepmerge" | "mergeDeep" => Some(MergeStyle::Deep),
                 _ => None,
             }
         }

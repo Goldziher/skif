@@ -1,18 +1,23 @@
 //! The files git tracks, read from `.git/index` without running git, and a file system overlay that serves them.
 //!
 //! Walking a large work tree costs one `opendir`/`getdents` per directory, which dominates the analysis on a slow
-//! file system, while the index already lists every tracked file. [`TrackedTree::load`] reads it (formats 2 to 4);
-//! [`IndexedFs`] answers listings and existence checks of tracked paths from memory and hands everything else to the
-//! file system it wraps.
+//! file system, while the index already lists every tracked file. [`IndexedFs`] answers the listing of a tracked
+//! directory from the index and hands everything else to the file system it wraps.
 //!
-//! Only tracked files are listed. A file that was never `git add`ed is invisible to listings; a path outside the
-//! tracked tree (`node_modules`, build output, untracked and ignored files) is still answered by the real file system.
-//! A tracked file that was deleted from disk but not yet staged is listed until the index is updated.
+//! The index knows tracked files only, so by itself it is blind to a file that was created or deleted since the last
+//! `git add`. Like git's untracked cache, [`Listing::VerifyDirectories`] closes that gap cheaply: a directory is
+//! `stat`ed (no `opendir`) and compared with the modification time of the index file. A directory modified at or
+//! after that time (equal counts as modified, the racy-git rule) is listed for real, which finds untracked files and
+//! directories and drops deleted files; an older one cannot have gained or lost an entry since the index was written
+//! and is served from the index. [`Listing::IndexOnly`] skips the check and is blind to untracked and deleted files.
+//!
+//! Whatever is listed is confirmed when it is used: [`IndexedFs`] answers existence checks from the real file system,
+//! so a tracked file that was deleted is never reported as present.
 
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::SystemTime;
 
 use skif_core::{DirEntry, FileSystem, PathKind};
@@ -22,20 +27,21 @@ const HEADER_LEN: usize = 12;
 const FIXED_LEN: usize = 62;
 const CHECKSUM_LEN: usize = 20;
 const FLAG_EXTENDED: u16 = 0x4000;
-const FLAG_STAGE: u16 = 0x3000;
 const EXTENDED_SKIP_WORKTREE: u16 = 0x4000;
 const MODE_TYPE_SHIFT: u32 = 12;
 const TYPE_REGULAR: u32 = 0o10;
 const TYPE_SYMLINK: u32 = 0o12;
 
-/// A tracked path of the index.
-#[derive(Debug, PartialEq, Eq)]
-struct Tracked {
-    /// Relative to the work tree root, `/`-separated.
-    path: String,
-    symlink: bool,
+/// How much the overlay trusts the index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Listing {
+    /// Every tracked directory is listed from the index, whatever happened on disk since it was written.
+    IndexOnly,
+    /// A directory modified since the index was written is listed from disk, the others from the index.
+    VerifyDirectories,
 }
 
+/// The big-endian `u32` of `bytes` at `at`.
 fn be32(bytes: &[u8], at: usize) -> Option<u32> {
     let end = at.checked_add(4)?;
     Some(u32::from_be_bytes(<[u8; 4]>::try_from(bytes.get(at..end)?).ok()?))
@@ -63,13 +69,144 @@ fn offset_varint(bytes: &[u8], at: usize) -> Option<(usize, usize)> {
     Some((value, used))
 }
 
+/// The SHA-1 compression function over one 64-byte block.
+fn sha1_block(state: &mut [u32; 5], block: &[u8]) {
+    let mut words = [0_u32; 80];
+    for (word, chunk) in words.iter_mut().zip(block.chunks_exact(4)) {
+        *word = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+    }
+    for at in 16..80 {
+        words[at] = (words[at - 3] ^ words[at - 8] ^ words[at - 14] ^ words[at - 16]).rotate_left(1);
+    }
+    let [mut va, mut vb, mut vc, mut vd, mut ve] = *state;
+    for (round, word) in words.iter().enumerate() {
+        let (mix, constant) = match round {
+            0..=19 => ((vb & vc) | (!vb & vd), 0x5A82_7999_u32),
+            20..=39 => (vb ^ vc ^ vd, 0x6ED9_EBA1),
+            40..=59 => ((vb & vc) | (vb & vd) | (vc & vd), 0x8F1B_BCDC),
+            _ => (vb ^ vc ^ vd, 0xCA62_C1D6),
+        };
+        let next = va
+            .rotate_left(5)
+            .wrapping_add(mix)
+            .wrapping_add(ve)
+            .wrapping_add(constant)
+            .wrapping_add(*word);
+        ve = vd;
+        vd = vc;
+        vc = vb.rotate_left(30);
+        vb = va;
+        va = next;
+    }
+    for (slot, value) in state.iter_mut().zip([va, vb, vc, vd, ve]) {
+        *slot = slot.wrapping_add(value);
+    }
+}
+
+/// The SHA-1 digest of `data`, which is what the trailer of an index holds.
+fn sha1(data: &[u8]) -> [u8; CHECKSUM_LEN] {
+    let mut state = [0x6745_2301, 0xEFCD_AB89, 0x98BA_DCFE, 0x1032_5476, 0xC3D2_E1F0];
+    let mut blocks = data.chunks_exact(64);
+    for block in &mut blocks {
+        sha1_block(&mut state, block);
+    }
+    let mut tail = blocks.remainder().to_vec();
+    tail.push(0x80);
+    while tail.len() % 64 != 56 {
+        tail.push(0);
+    }
+    tail.extend((u64::try_from(data.len()).unwrap_or(u64::MAX).wrapping_mul(8)).to_be_bytes());
+    for block in tail.chunks_exact(64) {
+        sha1_block(&mut state, block);
+    }
+    let mut digest = [0; CHECKSUM_LEN];
+    for (out, word) in digest.chunks_exact_mut(4).zip(state) {
+        out.copy_from_slice(&word.to_be_bytes());
+    }
+    digest
+}
+
+/// Whether the trailer of `bytes` is the SHA-1 of what precedes it. An all-zero trailer is accepted: git writes one
+/// when `index.skipHash` is on (`feature.manyFiles`), so it says nothing either way. An index of a SHA-256 repository
+/// ends in a 32-byte digest and never passes.
+fn checksum_matches(bytes: &[u8]) -> bool {
+    let Some(split) = bytes.len().checked_sub(CHECKSUM_LEN) else {
+        return false;
+    };
+    let (body, trailer) = bytes.split_at(split);
+    trailer.iter().all(|byte| *byte == 0) || sha1(body) == trailer
+}
+
+/// Whether the `[extensions]` section of a git configuration selects `objectformat = sha256`.
+fn selects_sha256(config: &str) -> bool {
+    let mut in_extensions = false;
+    for line in config.lines().map(str::trim) {
+        if let Some(section) = line.strip_prefix('[') {
+            let name = section.split([']', ' ', '"']).next().unwrap_or_default();
+            in_extensions = name.eq_ignore_ascii_case("extensions");
+        } else if in_extensions && let Some((key, value)) = line.split_once('=') {
+            let value = value
+                .split(['#', ';'])
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .trim_matches('"');
+            if key.trim().eq_ignore_ascii_case("objectformat") && value.eq_ignore_ascii_case("sha256") {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// The paths of the tracked files and symbolic links of an index, in index order, in one buffer.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct TrackedPaths {
+    names: String,
+    /// Where each path ends in `names`; it starts where the previous one ends.
+    ends: Vec<PathEnd>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PathEnd {
+    end: usize,
+    symlink: bool,
+}
+
+impl TrackedPaths {
+    /// Appends `path` unless it repeats the previous one (the stages of a conflicted file).
+    fn push(&mut self, path: &str, symlink: bool) {
+        if self.iter().next_back().is_some_and(|(last, _)| last == path) {
+            return;
+        }
+        self.names.push_str(path);
+        self.ends.push(PathEnd {
+            end: self.names.len(),
+            symlink,
+        });
+    }
+
+    fn start_of(&self, position: usize) -> usize {
+        position.checked_sub(1).map_or(0, |before| self.ends[before].end)
+    }
+
+    /// The paths with whether each is a symbolic link.
+    fn iter(&self) -> impl DoubleEndedIterator<Item = (&str, bool)> {
+        self.ends
+            .iter()
+            .enumerate()
+            .map(|(position, path)| (&self.names[self.start_of(position)..path.end], path.symlink))
+    }
+}
+
 /// The tracked files and symbolic links of an index, in index order. `None` when the index cannot be used: another
-/// format, a truncated file, or a split or sparse index that does not list every file itself.
+/// format, a truncated file or one whose checksum does not match, or a split or sparse index that does not list every
+/// file itself.
 ///
-/// Submodules (`gitlink` entries), conflicted duplicates and files outside a sparse checkout (`skip-worktree`) are
-/// left out; entries whose path is not UTF-8 are skipped.
-fn parse(bytes: &[u8]) -> Option<Vec<Tracked>> {
-    if bytes.get(..4)? != b"DIRC" {
+/// Submodules (`gitlink` entries) and files outside a sparse checkout (`skip-worktree`) are left out, a conflicted
+/// file is listed once, and entries whose path is not UTF-8 are skipped.
+fn parse(bytes: &[u8]) -> Option<TrackedPaths> {
+    if bytes.get(..4)? != b"DIRC" || !checksum_matches(bytes) {
         return None;
     }
     let version = be32(bytes, 4)?;
@@ -78,7 +215,11 @@ fn parse(bytes: &[u8]) -> Option<Vec<Tracked>> {
     }
     let count = usize::try_from(be32(bytes, 8)?).ok()?;
     let end = bytes.len().checked_sub(CHECKSUM_LEN)?;
-    let mut tracked = Vec::with_capacity(count.min(1 << 21));
+    let capacity = count.min(1 << 21);
+    let mut tracked = TrackedPaths {
+        names: String::with_capacity(capacity.saturating_mul(48)),
+        ends: Vec::with_capacity(capacity),
+    };
     let mut previous: Vec<u8> = Vec::new();
     let mut pos = HEADER_LEN;
     for _ in 0..count {
@@ -112,14 +253,9 @@ fn parse(bytes: &[u8]) -> Option<Vec<Tracked>> {
             return None;
         }
         let kind = mode >> MODE_TYPE_SHIFT;
-        let wanted = (kind == TYPE_REGULAR || kind == TYPE_SYMLINK)
-            && extended & EXTENDED_SKIP_WORKTREE == 0
-            && flags & FLAG_STAGE == 0;
+        let wanted = (kind == TYPE_REGULAR || kind == TYPE_SYMLINK) && extended & EXTENDED_SKIP_WORKTREE == 0;
         if wanted && let Ok(path) = std::str::from_utf8(name) {
-            tracked.push(Tracked {
-                path: path.to_owned(),
-                symlink: kind == TYPE_SYMLINK,
-            });
+            tracked.push(path, kind == TYPE_SYMLINK);
         }
     }
     // Extensions follow the entries; a lowercase signature marks one the reader must understand (`link` for a split
@@ -132,6 +268,43 @@ fn parse(bytes: &[u8]) -> Option<Vec<Tracked>> {
         pos = pos.checked_add(8)?.checked_add(size)?;
     }
     Some(tracked)
+}
+
+/// The parsed indexes of a run, so that analysing several roots of one repository reads and parses its index once.
+///
+/// An entry is reused while the index file keeps its modification time; a file system that does not report one is
+/// never cached.
+#[derive(Default)]
+pub(crate) struct IndexCache {
+    entries: Mutex<HashMap<PathBuf, CachedIndex>>,
+}
+
+struct CachedIndex {
+    modified: SystemTime,
+    /// `None` for an index that cannot be used, so it is not read again either.
+    paths: Option<Arc<TrackedPaths>>,
+}
+
+impl IndexCache {
+    fn get(&self, fs: &dyn FileSystem, index: &Path, modified: Option<SystemTime>) -> Option<Arc<TrackedPaths>> {
+        let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(modified) = modified
+            && let Some(cached) = entries.get(index).filter(|cached| cached.modified == modified)
+        {
+            return cached.paths.clone();
+        }
+        let paths = fs.read_bytes(index).ok().and_then(|bytes| parse(&bytes)).map(Arc::new);
+        if let Some(modified) = modified {
+            entries.insert(
+                index.to_path_buf(),
+                CachedIndex {
+                    modified,
+                    paths: paths.clone(),
+                },
+            );
+        }
+        paths
+    }
 }
 
 /// The directories of the tracked tree under a root, with the entries of each.
@@ -148,48 +321,83 @@ fn join(root: &Path, relative: &str) -> PathBuf {
     }
 }
 
-impl TrackedTree {
-    /// The tracked tree below `root`, or `None` when `root` is not in a git work tree, its index cannot be read, or
-    /// nothing below `root` is tracked.
-    pub(crate) fn load(fs: &dyn FileSystem, root: &Path) -> Option<Self> {
-        let (work_tree, git_dir) = locate(fs, root)?;
-        let bytes = fs.read_bytes(&git_dir.join("index")).ok()?;
-        let tracked = parse(&bytes)?;
-        let tree = Self::build(root, root.strip_prefix(&work_tree).ok()?, &tracked);
-        tree.dirs.contains_key(root).then_some(tree)
-    }
+/// The directories being collected: an id per directory path, so that adding a file to the current directory costs
+/// no hash lookup.
+struct Collector<'a> {
+    root: &'a Path,
+    ids: HashMap<PathBuf, usize>,
+    lists: Vec<Vec<DirEntry>>,
+}
 
+impl Collector<'_> {
+    /// The id of `dir` (relative to the root), making it and its ancestors known, each listed in its parent.
+    fn directory(&mut self, dir: &str) -> usize {
+        let mut missing = Vec::new();
+        let mut current = dir;
+        let known = loop {
+            if let Some(id) = self.ids.get(&join(self.root, current)) {
+                break Some(*id);
+            }
+            missing.push(current);
+            if current.is_empty() {
+                break None;
+            }
+            current = current.rsplit_once('/').map_or("", |(parent, _)| parent);
+        };
+        let mut parent = known;
+        for added in missing.into_iter().rev() {
+            let path = join(self.root, added);
+            let id = self.lists.len();
+            self.lists.push(Vec::new());
+            self.ids.insert(path.clone(), id);
+            if let Some(parent) = parent {
+                self.lists[parent].push(DirEntry::new(path, true, false));
+            }
+            parent = Some(id);
+        }
+        parent.unwrap_or_default()
+    }
+}
+
+impl TrackedTree {
     /// The entries below `base`, the root's path from the work tree root.
-    fn build(root: &Path, base: &Path, tracked: &[Tracked]) -> Self {
+    fn build(root: &Path, base: &Path, tracked: &TrackedPaths) -> Self {
         let prefix = base.to_string_lossy().replace('\\', "/");
         let prefix = prefix.trim_matches('/');
-        let mut dirs: HashMap<PathBuf, Vec<DirEntry>> = HashMap::new();
-        let mut last_dir = String::new();
-        let mut have_last = false;
-        for entry in tracked {
+        let mut collector = Collector {
+            root,
+            ids: HashMap::new(),
+            lists: Vec::new(),
+        };
+        let mut last_dir = "";
+        let mut current: Option<usize> = None;
+        for (path, symlink) in tracked.iter() {
             let relative = if prefix.is_empty() {
-                entry.path.as_str()
+                path
             } else {
-                let Some(rest) = entry.path.strip_prefix(prefix).and_then(|rest| rest.strip_prefix('/')) else {
+                let Some(rest) = path.strip_prefix(prefix).and_then(|rest| rest.strip_prefix('/')) else {
                     continue;
                 };
                 rest
             };
             let dir = relative.rsplit_once('/').map_or("", |(dir, _)| dir);
-            if !(have_last && last_dir == dir) {
-                register(&mut dirs, root, dir);
-                dir.clone_into(&mut last_dir);
-                have_last = true;
-            }
-            let file = DirEntry::new(join(root, relative), false, !entry.symlink);
-            let file = if entry.symlink { file.symlink() } else { file };
-            if let Some(list) = dirs.get_mut(&join(root, dir)) {
-                list.push(file);
-            }
+            let id = match current {
+                Some(id) if last_dir == dir => id,
+                _ => {
+                    let id = collector.directory(dir);
+                    last_dir = dir;
+                    current = Some(id);
+                    id
+                }
+            };
+            let file = DirEntry::new(join(root, relative), false, !symlink);
+            collector.lists[id].push(if symlink { file.symlink() } else { file });
         }
-        let dirs: HashMap<PathBuf, Arc<[DirEntry]>> = dirs
+        let Collector { ids, mut lists, .. } = collector;
+        let dirs = ids
             .into_iter()
-            .map(|(dir, mut entries)| {
+            .map(|(dir, id)| {
+                let mut entries = std::mem::take(&mut lists[id]);
                 // Entries share one parent, so raw path order is the component order the listings promise.
                 entries.sort_unstable_by(|a, b| a.path.as_os_str().cmp(b.path.as_os_str()));
                 entries.dedup_by(|a, b| a.path == b.path);
@@ -202,46 +410,6 @@ impl TrackedTree {
     /// The tracked entries of `dir`, if it is a tracked directory.
     fn listing(&self, dir: &Path) -> Option<&Arc<[DirEntry]>> {
         self.dirs.get(dir)
-    }
-
-    /// What `path` is according to the index; `None` for a path the index does not list and for symbolic links, whose
-    /// target the index does not know.
-    fn kind(&self, path: &Path) -> Option<PathKind> {
-        if self.dirs.contains_key(path) {
-            return Some(PathKind::DIR);
-        }
-        let entries = self.dirs.get(path.parent()?)?;
-        let found = entries
-            .binary_search_by(|entry| entry.path.as_path().cmp(path))
-            .ok()
-            .map(|index| &entries[index])?;
-        (!found.is_symlink).then_some(PathKind {
-            is_file: found.is_file,
-            is_dir: found.is_dir,
-        })
-    }
-}
-
-/// Makes `dir` (relative to `root`) and its ancestors known, each listed in its parent.
-fn register(dirs: &mut HashMap<PathBuf, Vec<DirEntry>>, root: &Path, dir: &str) {
-    let mut missing = Vec::new();
-    let mut current = dir;
-    while !dirs.contains_key(&join(root, current)) {
-        missing.push(current);
-        if current.is_empty() {
-            break;
-        }
-        current = current.rsplit_once('/').map_or("", |(parent, _)| parent);
-    }
-    for added in missing.into_iter().rev() {
-        let path = join(root, added);
-        dirs.insert(path.clone(), Vec::new());
-        if !added.is_empty() {
-            let parent = added.rsplit_once('/').map_or("", |(parent, _)| parent);
-            if let Some(list) = dirs.get_mut(&join(root, parent)) {
-                list.push(DirEntry::new(path, true, false));
-            }
-        }
     }
 }
 
@@ -263,18 +431,102 @@ fn locate(fs: &dyn FileSystem, root: &Path) -> Option<(PathBuf, PathBuf)> {
     None
 }
 
-/// A file system that lists and checks tracked paths from a [`TrackedTree`] and defers everything else to `inner`.
+/// The configuration file of the repository `git_dir` belongs to; a linked work tree keeps it in the common directory.
+fn config_path(fs: &dyn FileSystem, git_dir: &Path) -> PathBuf {
+    let common = fs
+        .read_to_string(&git_dir.join("commondir"))
+        .ok()
+        .map(|text| git_dir.join(text.trim()));
+    common.as_deref().unwrap_or(git_dir).join("config")
+}
+
+/// `fs` with the files tracked below `root` served from the git index, or `None` when `root` is not in a git work
+/// tree, the index cannot be read, verified or understood (another format or hash width, a split or sparse index) or
+/// nothing below `root` is tracked. With [`Listing::VerifyDirectories`] a file system that cannot report modification
+/// times is not overlaid either, because nothing could tell a changed directory from an unchanged one.
+pub(crate) fn indexed_fs(
+    fs: &Arc<dyn FileSystem>,
+    root: &Path,
+    cache: &IndexCache,
+    listing: Listing,
+) -> Option<Arc<dyn FileSystem>> {
+    let (work_tree, git_dir) = locate(fs.as_ref(), root)?;
+    if fs
+        .read_to_string(&config_path(fs.as_ref(), &git_dir))
+        .is_ok_and(|config| selects_sha256(&config))
+    {
+        return None;
+    }
+    let index = git_dir.join("index");
+    let modified = fs.modified(&index);
+    if listing == Listing::VerifyDirectories && modified.is_none() {
+        return None;
+    }
+    let tracked = cache.get(fs.as_ref(), &index, modified)?;
+    let tree = TrackedTree::build(root, root.strip_prefix(&work_tree).ok()?, &tracked);
+    tree.dirs.contains_key(root).then_some(())?;
+    let trust = match (listing, modified) {
+        (Listing::VerifyDirectories, Some(index_modified)) => Trust::ChangedSince(index_modified),
+        _ => Trust::Always,
+    };
+    Some(Arc::new(IndexedFs::new(Arc::clone(fs), tree, trust)))
+}
+
+/// When the index listing of a directory may be used.
+#[derive(Debug, Clone, Copy)]
+enum Trust {
+    Always,
+    /// Unless the directory was modified at or after this time.
+    ChangedSince(SystemTime),
+}
+
+/// A file system that lists tracked directories from a [`TrackedTree`] and defers everything else to `inner`.
 ///
-/// A listing of a tracked directory holds its tracked entries only. A path the index does not list is asked of
-/// `inner`, so untracked and ignored files stay reachable by path (`node_modules`, generated sources).
+/// A path the index does not list, a directory that changed since the index was written and every existence check is
+/// asked of `inner`, so untracked and ignored files stay reachable by path (`node_modules`, generated sources) and a
+/// file deleted from disk is never reported as present. A tracked symbolic link is listed the way a directory listing
+/// of `inner` reports it, as a file or a directory according to its target.
 pub(crate) struct IndexedFs {
     inner: Arc<dyn FileSystem>,
     tree: TrackedTree,
+    trust: Trust,
+    /// The listing served for each tracked directory, decided once.
+    served: Mutex<HashMap<PathBuf, Arc<[DirEntry]>>>,
 }
 
 impl IndexedFs {
-    pub(crate) fn new(inner: Arc<dyn FileSystem>, tree: TrackedTree) -> Self {
-        Self { inner, tree }
+    fn new(inner: Arc<dyn FileSystem>, tree: TrackedTree, trust: Trust) -> Self {
+        Self {
+            inner,
+            tree,
+            trust,
+            served: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// The entries of the tracked directory `dir`, whose index listing is `indexed`.
+    fn serve(&self, dir: &Path, indexed: &Arc<[DirEntry]>) -> io::Result<Arc<[DirEntry]>> {
+        if let Trust::ChangedSince(index_modified) = self.trust
+            && self
+                .inner
+                .modified(dir)
+                .is_none_or(|modified| modified >= index_modified)
+        {
+            return self.inner.read_dir_shared(dir);
+        }
+        if !indexed.iter().any(|entry| entry.is_symlink) {
+            return Ok(Arc::clone(indexed));
+        }
+        Ok(indexed
+            .iter()
+            .map(|entry| {
+                if !entry.is_symlink {
+                    return entry.clone();
+                }
+                let kind = self.inner.kind(&entry.path);
+                DirEntry::new(entry.path.clone(), kind.is_dir, kind.is_file).symlink()
+            })
+            .collect())
     }
 }
 
@@ -288,21 +540,27 @@ impl FileSystem for IndexedFs {
     }
 
     fn read_dir_shared(&self, path: &Path) -> io::Result<Arc<[DirEntry]>> {
-        self.tree
-            .listing(path)
-            .map_or_else(|| self.inner.read_dir_shared(path), |entries| Ok(Arc::clone(entries)))
+        let Some(indexed) = self.tree.listing(path) else {
+            return self.inner.read_dir_shared(path);
+        };
+        if let Some(served) = self.served.lock().unwrap_or_else(PoisonError::into_inner).get(path) {
+            return Ok(Arc::clone(served));
+        }
+        let listing = self.serve(path, indexed)?;
+        let mut served = self.served.lock().unwrap_or_else(PoisonError::into_inner);
+        Ok(Arc::clone(served.entry(path.to_path_buf()).or_insert(listing)))
     }
 
     fn is_file(&self, path: &Path) -> bool {
-        self.kind(path).is_file
+        self.inner.is_file(path)
     }
 
     fn is_dir(&self, path: &Path) -> bool {
-        self.kind(path).is_dir
+        self.inner.is_dir(path)
     }
 
     fn kind(&self, path: &Path) -> PathKind {
-        self.tree.kind(path).unwrap_or_else(|| self.inner.kind(path))
+        self.inner.kind(path)
     }
 
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
@@ -321,6 +579,9 @@ impl FileSystem for IndexedFs {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, UNIX_EPOCH};
+
     use skif_core::MemoryFs;
 
     use super::*;
@@ -364,7 +625,7 @@ mod tests {
         out
     }
 
-    /// An index of `version` holding `items`, followed by `extensions` and a dummy checksum.
+    /// An index of `version` holding `items`, followed by `extensions` and the SHA-1 of everything before.
     fn index(version: u32, items: &[Item], extensions: &[u8]) -> Vec<u8> {
         let mut out = b"DIRC".to_vec();
         out.extend(version.to_be_bytes());
@@ -393,12 +654,45 @@ mod tests {
             }
         }
         out.extend(extensions);
-        out.extend([7; CHECKSUM_LEN]);
+        let checksum = sha1(&out);
+        out.extend(checksum);
         out
     }
 
-    fn paths(tracked: &[Tracked]) -> Vec<&str> {
-        tracked.iter().map(|entry| entry.path.as_str()).collect()
+    fn with_trailer(mut bytes: Vec<u8>, trailer: &[u8]) -> Vec<u8> {
+        bytes.truncate(bytes.len() - CHECKSUM_LEN);
+        bytes.extend(trailer);
+        bytes
+    }
+
+    fn hex(digest: &[u8]) -> String {
+        digest.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    fn paths(tracked: &TrackedPaths) -> Vec<&str> {
+        tracked.iter().map(|(path, _)| path).collect()
+    }
+
+    fn tracked(paths: &[&str]) -> TrackedPaths {
+        let mut out = TrackedPaths::default();
+        for path in paths {
+            out.push(path, false);
+        }
+        out
+    }
+
+    #[test]
+    fn sha1_matches_the_published_vectors() {
+        assert_eq!(hex(&sha1(b"")), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+        assert_eq!(hex(&sha1(b"abc")), "a9993e364706816aba3e25717850c26c9cd0d89d");
+        assert_eq!(
+            hex(&sha1(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")),
+            "84983e441c3bd26ebaae4aa1f95129e5e54670f1"
+        );
+        assert_eq!(
+            hex(&sha1("a".repeat(1_000_000).as_bytes())),
+            "34aa973cd4c4daa4f61eeb2bdbad27316534016f"
+        );
     }
 
     #[test]
@@ -416,7 +710,8 @@ mod tests {
         );
         let tracked = parse(&bytes).unwrap();
         assert_eq!(paths(&tracked), ["a.ts", "src/index.ts", "src/link.ts", "z"]);
-        assert!(tracked[2].symlink && !tracked[1].symlink);
+        let symlinks: Vec<bool> = tracked.iter().map(|(_, symlink)| symlink).collect();
+        assert_eq!(symlinks, [false, false, true, false]);
     }
 
     #[test]
@@ -432,13 +727,19 @@ mod tests {
     }
 
     #[test]
-    fn conflicted_and_sparse_entries_are_left_out() {
-        let mut conflicted = item("merge.ts", REGULAR);
-        conflicted.stage = 2;
+    fn a_conflicted_file_is_listed_once_and_sparse_entries_are_left_out() {
+        let staged = |stage| Item {
+            stage,
+            ..item("merge.ts", REGULAR)
+        };
         let mut sparse = item("outside.ts", REGULAR);
         sparse.skip_worktree = true;
-        let bytes = index(3, &[conflicted, item("ok.ts", REGULAR), sparse], b"");
-        assert_eq!(paths(&parse(&bytes).unwrap()), ["ok.ts"]);
+        let bytes = index(
+            3,
+            &[staged(1), staged(2), staged(3), item("ok.ts", REGULAR), sparse],
+            b"",
+        );
+        assert_eq!(paths(&parse(&bytes).unwrap()), ["merge.ts", "ok.ts"]);
     }
 
     #[test]
@@ -471,14 +772,36 @@ mod tests {
         assert!(parse(&wrong_version).is_none());
     }
 
-    fn tracked(paths: &[&str]) -> Vec<Tracked> {
-        paths
-            .iter()
-            .map(|path| Tracked {
-                path: (*path).to_owned(),
-                symlink: false,
-            })
-            .collect()
+    #[test]
+    fn the_checksum_must_match_unless_the_hash_was_skipped() {
+        let good = index(2, &[item("a.ts", REGULAR), item("b.ts", REGULAR)], b"");
+        let mut torn = good.clone();
+        torn[HEADER_LEN + 3] ^= 1;
+        assert!(parse(&torn).is_none());
+        assert!(parse(&with_trailer(good.clone(), &[9; CHECKSUM_LEN])).is_none());
+        assert_eq!(
+            paths(&parse(&with_trailer(good.clone(), &[0; CHECKSUM_LEN])).unwrap()),
+            ["a.ts", "b.ts"]
+        );
+        // A SHA-256 repository ends its index in a 32-byte digest.
+        let sha256 = {
+            let mut bytes = good[..good.len() - CHECKSUM_LEN].to_vec();
+            bytes.extend([0xab; 32]);
+            bytes
+        };
+        assert!(parse(&sha256).is_none());
+    }
+
+    #[test]
+    fn the_object_format_is_read_from_the_extensions_section() {
+        assert!(selects_sha256(
+            "[core]\n\tbare = false\n[extensions]\n\tobjectformat = sha256\n"
+        ));
+        assert!(selects_sha256("[extensions]\nObjectFormat=\"SHA256\" # new\n"));
+        assert!(!selects_sha256("[extensions]\n\tobjectformat = sha1\n"));
+        assert!(!selects_sha256("[core]\n\tobjectformat = sha256\n"));
+        assert!(!selects_sha256("[extensions]\n[core]\n\tobjectformat = sha256\n"));
+        assert!(!selects_sha256(""));
     }
 
     fn names(entries: &[DirEntry]) -> Vec<(String, bool)> {
@@ -533,15 +856,19 @@ mod tests {
     }
 
     #[test]
-    fn the_overlay_answers_tracked_paths_and_defers_the_rest() {
+    fn the_overlay_answers_listings_from_the_index_and_everything_else_from_disk() {
         let disk = MemoryFs::new()
             .with_file("/ws/src/a.ts", "")
             .with_file("/ws/src/untracked.ts", "")
             .with_file("/ws/node_modules/x/index.js", "");
         let tree = TrackedTree::build(Path::new("/ws"), Path::new(""), &tracked(&["src/a.ts", "gone.ts"]));
-        let fs = IndexedFs::new(Arc::new(disk), tree);
+        let fs = IndexedFs::new(Arc::new(disk), tree, Trust::Always);
         assert!(fs.is_file(Path::new("/ws/src/a.ts")));
-        assert!(fs.is_file(Path::new("/ws/gone.ts")));
+        assert!(
+            !fs.is_file(Path::new("/ws/gone.ts")),
+            "a tracked file missing on disk is absent"
+        );
+        assert_eq!(fs.kind(Path::new("/ws/gone.ts")), PathKind::NONE);
         assert!(fs.is_dir(Path::new("/ws/src")) && !fs.is_file(Path::new("/ws/src")));
         assert!(fs.is_file(Path::new("/ws/src/untracked.ts")));
         assert!(fs.is_dir(Path::new("/ws/node_modules/x")));
@@ -555,26 +882,19 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn symbolic_links_are_left_to_the_real_file_system() {
-        let files = vec![Tracked {
-            path: "link.ts".to_owned(),
-            symlink: true,
-        }];
-        let tree = TrackedTree::build(Path::new("/ws"), Path::new(""), &files);
-        let listing = tree.listing(Path::new("/ws")).unwrap();
-        assert!(listing[0].is_symlink && !listing[0].is_file && !listing[0].is_dir);
-        let fs = IndexedFs::new(Arc::new(MemoryFs::new().with_file("/ws/link.ts", "")), tree);
-        assert!(fs.is_file(Path::new("/ws/link.ts")));
-    }
-
-    /// A tree whose `.git/index` holds raw bytes.
-    struct WithIndex {
+    /// A work tree on an in-memory disk with a given `.git/index` and modification times.
+    struct Disk {
         files: MemoryFs,
         index: Vec<u8>,
+        times: HashMap<PathBuf, SystemTime>,
+        index_reads: AtomicUsize,
     }
 
-    impl FileSystem for WithIndex {
+    fn at(seconds: u64) -> SystemTime {
+        UNIX_EPOCH + Duration::from_secs(seconds)
+    }
+
+    impl FileSystem for Disk {
         fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
             self.files.read_to_string(path)
         }
@@ -593,45 +913,283 @@ mod tests {
 
         fn read_bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
             if path.ends_with("index") {
+                self.index_reads.fetch_add(1, Ordering::SeqCst);
                 Ok(self.index.clone())
             } else {
                 self.files.read_bytes(path)
             }
         }
-    }
 
-    fn repository(items: &[Item]) -> WithIndex {
-        WithIndex {
-            files: MemoryFs::new()
-                .with_file("/repo/.git/HEAD", "ref: refs/heads/main")
-                .with_file("/repo/app/package.json", "{}"),
-            index: index(2, items, b""),
+        fn modified(&self, path: &Path) -> Option<SystemTime> {
+            self.times.get(path).copied()
         }
     }
 
-    #[test]
-    fn load_finds_the_git_directory_above_the_root() {
-        let fs = repository(&[item("app/package.json", REGULAR), item("app/src/a.ts", REGULAR)]);
-        let tree = TrackedTree::load(&fs, Path::new("/repo/app")).unwrap();
-        assert_eq!(
-            names(tree.listing(Path::new("/repo/app")).unwrap()),
-            [("package.json".into(), false), ("src".into(), true)]
+    const INDEX_TIME: u64 = 100;
+
+    /// `/ws` with `.git`, the files in `on_disk`, an index listing `in_index` written at [`INDEX_TIME`] and the
+    /// modification times in `times`, keyed by path below `/ws`.
+    fn work_tree(on_disk: &[&str], in_index: &[&'static str], times: &[(&str, u64)]) -> Arc<Disk> {
+        let files = on_disk.iter().fold(
+            MemoryFs::new().with_file("/ws/.git/HEAD", "ref: refs/heads/main"),
+            |files, path| files.with_file(Path::new("/ws").join(path), ""),
         );
+        let items: Vec<Item> = in_index.iter().map(|path| item(*path, REGULAR)).collect();
+        let mut times: HashMap<PathBuf, SystemTime> = times
+            .iter()
+            .map(|(path, seconds)| (Path::new("/ws").join(path), at(*seconds)))
+            .collect();
+        times.insert(PathBuf::from("/ws/.git/index"), at(INDEX_TIME));
+        Arc::new(Disk {
+            files,
+            index: index(2, &items, b""),
+            times,
+            index_reads: AtomicUsize::new(0),
+        })
+    }
+
+    fn overlay(disk: &Arc<Disk>, listing: Listing) -> Option<Arc<dyn FileSystem>> {
+        let fs: Arc<dyn FileSystem> = Arc::clone(disk);
+        indexed_fs(&fs, Path::new("/ws"), &IndexCache::default(), listing)
+    }
+
+    fn listed(fs: &dyn FileSystem, dir: &str) -> Vec<String> {
+        fs.read_dir(Path::new(dir))
+            .unwrap()
+            .iter()
+            .map(|entry| entry.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect()
     }
 
     #[test]
-    fn load_refuses_a_root_without_tracked_files_or_a_repository() {
-        let fs = repository(&[item("other/a.ts", REGULAR)]);
-        assert!(TrackedTree::load(&fs, Path::new("/repo/app")).is_none());
-        assert!(TrackedTree::load(&MemoryFs::new().with_file("/ws/a.ts", ""), Path::new("/ws")).is_none());
+    fn a_file_deleted_but_not_staged_is_not_listed() {
+        let disk = work_tree(&["src/a.ts"], &["src/a.ts", "src/gone.ts"], &[("src", 200)]);
+        let fs = overlay(&disk, Listing::VerifyDirectories).unwrap();
+        assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts"]);
+        assert!(!fs.is_file(Path::new("/ws/src/gone.ts")));
+        assert_eq!(fs.kind(Path::new("/ws/src/gone.ts")), PathKind::NONE);
+    }
+
+    #[test]
+    fn a_deleted_file_in_an_unchanged_directory_is_still_absent_when_looked_up() {
+        // The directory is older than the index (the index was refreshed after the deletion), so the listing is the
+        // index's; the existence check still sees the file is gone.
+        let disk = work_tree(&["src/a.ts"], &["src/a.ts", "src/gone.ts"], &[("src", 50)]);
+        let fs = overlay(&disk, Listing::VerifyDirectories).unwrap();
+        assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "gone.ts"]);
+        assert_eq!(fs.kind(Path::new("/ws/src/gone.ts")), PathKind::NONE);
+        assert_eq!(fs.kind(Path::new("/ws/src/a.ts")), PathKind::FILE);
+    }
+
+    #[test]
+    fn a_new_untracked_file_is_listed_when_its_directory_changed() {
+        let disk = work_tree(&["src/a.ts", "src/new.ts"], &["src/a.ts"], &[("src", 200)]);
+        let fs = overlay(&disk, Listing::VerifyDirectories).unwrap();
+        assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "new.ts"]);
+    }
+
+    #[test]
+    fn a_new_untracked_directory_is_listed_and_walked() {
+        let disk = work_tree(
+            &["src/a.ts", "fresh/deep/x.ts"],
+            &["src/a.ts"],
+            &[("", 200), ("src", 50)],
+        );
+        let fs = overlay(&disk, Listing::VerifyDirectories).unwrap();
+        assert_eq!(listed(fs.as_ref(), "/ws"), [".git", "fresh", "src"]);
+        assert_eq!(listed(fs.as_ref(), "/ws/fresh"), ["deep"]);
+        assert_eq!(listed(fs.as_ref(), "/ws/fresh/deep"), ["x.ts"]);
+        assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts"]);
+    }
+
+    #[test]
+    fn a_directory_modified_at_the_index_time_counts_as_changed() {
+        let equal = work_tree(&["src/a.ts", "src/new.ts"], &["src/a.ts"], &[("src", INDEX_TIME)]);
+        let fs = overlay(&equal, Listing::VerifyDirectories).unwrap();
+        assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "new.ts"]);
+        let older = work_tree(&["src/a.ts", "src/new.ts"], &["src/a.ts"], &[("src", INDEX_TIME - 1)]);
+        let fs = overlay(&older, Listing::VerifyDirectories).unwrap();
+        assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts"]);
+    }
+
+    #[test]
+    fn a_directory_without_a_modification_time_is_listed_from_disk() {
+        let disk = work_tree(&["src/a.ts", "src/new.ts"], &["src/a.ts"], &[]);
+        let fs = overlay(&disk, Listing::VerifyDirectories).unwrap();
+        assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "new.ts"]);
+    }
+
+    #[test]
+    fn index_only_listings_ignore_the_directory_times() {
+        let disk = work_tree(
+            &["src/a.ts", "src/new.ts"],
+            &["src/a.ts", "src/gone.ts"],
+            &[("src", 200)],
+        );
+        let fs = overlay(&disk, Listing::IndexOnly).unwrap();
+        assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "gone.ts"]);
+        assert_eq!(fs.kind(Path::new("/ws/src/gone.ts")), PathKind::NONE);
+    }
+
+    #[test]
+    fn verifying_directories_needs_modification_times() {
+        let disk = work_tree(&["src/a.ts"], &["src/a.ts"], &[]);
+        let bare = Arc::new(Disk {
+            times: HashMap::new(),
+            files: disk.files.clone(),
+            index: disk.index.clone(),
+            index_reads: AtomicUsize::new(0),
+        });
+        assert!(overlay(&bare, Listing::VerifyDirectories).is_none());
+        assert!(overlay(&bare, Listing::IndexOnly).is_some());
+    }
+
+    #[test]
+    fn a_later_pass_sees_the_files_the_fix_deleted() {
+        let cache = IndexCache::default();
+        let before = work_tree(
+            &["src/a.ts", "src/dead.ts"],
+            &["src/a.ts", "src/dead.ts"],
+            &[("src", 50)],
+        );
+        let first: Arc<dyn FileSystem> = Arc::clone(&before);
+        let fs = indexed_fs(&first, Path::new("/ws"), &cache, Listing::VerifyDirectories).unwrap();
+        assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "dead.ts"]);
+
+        let after = work_tree(&["src/a.ts"], &["src/a.ts", "src/dead.ts"], &[("src", 300)]);
+        let second: Arc<dyn FileSystem> = Arc::clone(&after);
+        let fs = indexed_fs(&second, Path::new("/ws"), &cache, Listing::VerifyDirectories).unwrap();
+        assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts"]);
+    }
+
+    #[test]
+    fn the_index_is_read_and_parsed_once_per_cache() {
+        let disk = work_tree(&["src/a.ts"], &["src/a.ts"], &[("src", 50)]);
+        let fs: Arc<dyn FileSystem> = Arc::clone(&disk);
+        let cache = IndexCache::default();
+        for _ in 0..3 {
+            assert!(indexed_fs(&fs, Path::new("/ws"), &cache, Listing::VerifyDirectories).is_some());
+        }
+        assert_eq!(disk.index_reads.load(Ordering::SeqCst), 1);
+        assert!(indexed_fs(&fs, Path::new("/ws"), &IndexCache::default(), Listing::IndexOnly).is_some());
+        assert_eq!(disk.index_reads.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_rewritten_index_is_read_again() {
+        let cache = IndexCache::default();
+        let old = work_tree(&["a.ts"], &["a.ts"], &[]);
+        let fs: Arc<dyn FileSystem> = Arc::clone(&old);
+        assert!(indexed_fs(&fs, Path::new("/ws"), &cache, Listing::IndexOnly).is_some());
+        let mut newer = work_tree(&["a.ts"], &["a.ts"], &[]);
+        Arc::get_mut(&mut newer)
+            .unwrap()
+            .times
+            .insert(PathBuf::from("/ws/.git/index"), at(INDEX_TIME + 5));
+        let fs: Arc<dyn FileSystem> = Arc::clone(&newer);
+        assert!(indexed_fs(&fs, Path::new("/ws"), &cache, Listing::IndexOnly).is_some());
+        assert_eq!(newer.index_reads.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_sha256_repository_is_refused() {
+        let mut disk = work_tree(&["a.ts"], &["a.ts"], &[]);
+        {
+            let disk = Arc::get_mut(&mut disk).unwrap();
+            disk.files = disk.files.clone().with_file(
+                "/ws/.git/config",
+                "[core]\n\tbare = false\n[extensions]\n\tobjectformat = sha256\n",
+            );
+        }
+        assert!(overlay(&disk, Listing::IndexOnly).is_none());
+        let mut sha1_repository = work_tree(&["a.ts"], &["a.ts"], &[]);
+        {
+            let disk = Arc::get_mut(&mut sha1_repository).unwrap();
+            disk.files = disk
+                .files
+                .clone()
+                .with_file("/ws/.git/config", "[core]\n\tbare = false\n");
+        }
+        assert!(overlay(&sha1_repository, Listing::IndexOnly).is_some());
+    }
+
+    #[test]
+    fn a_linked_work_tree_reads_the_configuration_of_the_common_directory() {
+        let files = MemoryFs::new()
+            .with_file("/ws/.git", "gitdir: /main/.git/worktrees/w\n")
+            .with_file("/main/.git/worktrees/w/commondir", "/main/.git\n")
+            .with_file("/main/.git/config", "[extensions]\n\tobjectformat = sha256\n")
+            .with_file("/ws/a.ts", "");
+        let disk = Arc::new(Disk {
+            files,
+            index: index(2, &[item("a.ts", REGULAR)], b""),
+            times: HashMap::from([(PathBuf::from("/main/.git/worktrees/w/index"), at(INDEX_TIME))]),
+            index_reads: AtomicUsize::new(0),
+        });
+        assert!(overlay(&disk, Listing::IndexOnly).is_none());
+    }
+
+    #[test]
+    fn a_root_without_tracked_files_or_a_repository_is_not_overlaid() {
+        let disk = work_tree(&["a.ts"], &["other/a.ts"], &[]);
+        let fs: Arc<dyn FileSystem> = Arc::clone(&disk);
+        let cache = IndexCache::default();
+        assert!(indexed_fs(&fs, Path::new("/ws/app"), &cache, Listing::IndexOnly).is_none());
+        let plain: Arc<dyn FileSystem> = Arc::new(MemoryFs::new().with_file("/ws/a.ts", ""));
+        assert!(indexed_fs(&plain, Path::new("/ws"), &cache, Listing::IndexOnly).is_none());
     }
 
     #[test]
     fn a_git_file_points_at_the_git_directory() {
-        let mut fs = repository(&[item("app/a.ts", REGULAR)]);
-        fs.files = MemoryFs::new()
+        let files = MemoryFs::new()
             .with_file("/repo/.git", "gitdir: /elsewhere/worktrees/w\n")
             .with_file("/repo/app/package.json", "{}");
-        assert!(TrackedTree::load(&fs, Path::new("/repo/app")).is_some());
+        let disk = Arc::new(Disk {
+            files,
+            index: index(2, &[item("app/a.ts", REGULAR)], b""),
+            times: HashMap::new(),
+            index_reads: AtomicUsize::new(0),
+        });
+        let fs: Arc<dyn FileSystem> = disk;
+        assert!(indexed_fs(&fs, Path::new("/repo/app"), &IndexCache::default(), Listing::IndexOnly).is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tracked_symbolic_links_are_listed_like_the_disk_lists_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("shared")).unwrap();
+        std::fs::write(root.join("src/real.ts"), "").unwrap();
+        std::fs::write(root.join("shared/x.ts"), "").unwrap();
+        std::os::unix::fs::symlink("real.ts", root.join("src/link.ts")).unwrap();
+        std::os::unix::fs::symlink("../shared", root.join("src/dirlink")).unwrap();
+        std::os::unix::fs::symlink("missing.ts", root.join("src/dangling.ts")).unwrap();
+        let items = [
+            item("shared/x.ts", REGULAR),
+            item("src/dangling.ts", SYMLINK),
+            item("src/dirlink", SYMLINK),
+            item("src/link.ts", SYMLINK),
+            item("src/real.ts", REGULAR),
+        ];
+        std::fs::write(root.join(".git/index"), index(2, &items, b"")).unwrap();
+        let fs: Arc<dyn FileSystem> = Arc::new(skif_core::OsFs);
+        let overlay = indexed_fs(&fs, &root, &IndexCache::default(), Listing::IndexOnly).unwrap();
+        for sub in ["src", "shared"] {
+            assert_eq!(
+                overlay.read_dir(&root.join(sub)).unwrap(),
+                fs.read_dir(&root.join(sub)).unwrap(),
+                "{sub}"
+            );
+        }
+        let link = overlay
+            .read_dir(&root.join("src"))
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.path.ends_with("link.ts"))
+            .unwrap();
+        assert!(link.is_file && link.is_symlink);
     }
 }
