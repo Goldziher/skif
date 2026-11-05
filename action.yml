@@ -25,8 +25,9 @@ inputs:
     default: "true"
   args:
     description: >-
-      Arguments to pass to skif, as a single space-separated string (e.g. "--format sarif --output
-      skif.sarif"). Ignored when install-only is true.
+      Arguments to pass to skif. A single line is split on spaces (e.g. "--format sarif --output
+      skif.sarif"); several lines are one argument per line, so an argument may contain spaces. Ignored
+      when install-only is true.
     required: false
     default: ""
   working-directory:

@@ -46,7 +46,8 @@ verify_attestation() {
     echo "skif: build attestation not verified (needs an authenticated gh with 'attestation'); checksum verified" >&2
     return 0
   fi
-  if ! gh attestation verify "$archive" --repo "${SKIF_REPOSITORY:-Goldziher/skif}" >&2; then
+  local repo="${SKIF_REPOSITORY:-Goldziher/skif}"
+  if ! gh attestation verify "$archive" --repo "$repo" --signer-workflow "${repo}/.github/workflows/publish.yaml" >&2; then
     echo "skif: attestation verification failed for $(basename "$archive"), refusing to install it" >&2
     return 1
   fi
