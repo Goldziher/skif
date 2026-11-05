@@ -51,6 +51,12 @@ The documentation site is at <https://goldziher.github.io/skif/>; its sources li
 | Human, JSON, SARIF and GitHub annotation output | Available ([ADR 0012](adrs/0012-reporting.md)) |
 | npm package as a napi-rs addon | Available ([ADR 0018](adrs/0018-npm-distribution-via-napi-rs.md)) |
 
+The JS analysis follows knip's issue types and its knowledge of tools, but it is not a drop-in replacement: a weekly
+job compares its findings with a pinned knip on a corpus of public repositories, and the two differ where they model
+things differently (unused-file classification, test and fixture directories, how a namespace import is read). The
+harness reports those differences per issue type and names the intended ones; see
+[`tools/bench`](tools/bench/README.md) and [ADR 0030](adrs/0030-harness-known-deviations-and-comparison-scope.md).
+
 ## Rules
 
 Run `skif rules` (or `skif rules --format json`) to list the registry; [`docs/rules.md`](docs/rules.md)

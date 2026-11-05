@@ -14,6 +14,15 @@ skif builds on three projects and does not claim to replace them yet. This compa
 
 skif offers all three kinds of checks in one tool with one configuration file and one report format.
 
+## Parity with knip
+
+The JS analysis follows knip's issue types and its knowledge of tools. It is not a drop-in replacement: a weekly job
+runs both tools on a pinned corpus of public repositories and compares the findings per issue type. They differ
+where they model things differently, for example in which files count as unused (skif treats test files and fixture
+directories as outside the project), and in how a namespace import is read. The harness names the intended
+differences and counts them apart; see the
+[benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md).
+
 ## Configuration
 
 skif reads `skif.toml` or `.skif.toml` only. It has no reader for `sherif`, `.syncpackrc` or `knip.json`
