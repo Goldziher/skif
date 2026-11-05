@@ -180,22 +180,45 @@ fn ambient_declaration_files_are_entries() {
 }
 
 #[test]
-fn conventional_test_directories_are_entries() {
-    let diagnostics = lint_files(
-        &[
-            PACKAGE,
-            ("src/index.ts", "export {};\n"),
-            ("test/a.ts", "export const a = 1;\n"),
-            ("tests/b.ts", "export const b = 1;\n"),
-            ("e2e/c.ts", "export const c = 1;\n"),
-            ("cypress/d.ts", "export const d = 1;\n"),
-            ("scripts/orphan.ts", "export const orphan = 1;\n"),
-        ],
-        "",
-    );
+fn test_files_and_directories_are_entries_only_through_a_test_runner() {
+    let files = [
+        ("src/index.ts", "export {};\n"),
+        ("src/legacy.spec.ts", "export const legacy = 1;\n"),
+        ("test/a.ts", "export const a = 1;\n"),
+        ("tests/b.ts", "export const b = 1;\n"),
+        ("e2e/c.ts", "export const c = 1;\n"),
+        ("scripts/orphan.ts", "export const orphan = 1;\n"),
+    ];
+    let mut without: Vec<(&str, &str)> = vec![PACKAGE];
+    without.extend(files);
+    let mut unused = found(&lint_files(&without, ""), "unused-files");
+    unused.sort();
     assert_eq!(
-        found(&diagnostics, "unused-files"),
-        ["scripts/orphan.ts: scripts/orphan.ts"]
+        unused,
+        [
+            "e2e/c.ts: e2e/c.ts",
+            "scripts/orphan.ts: scripts/orphan.ts",
+            "src/legacy.spec.ts: src/legacy.spec.ts",
+            "test/a.ts: test/a.ts",
+            "tests/b.ts: tests/b.ts"
+        ]
+    );
+
+    let mut with: Vec<(&str, &str)> = vec![(
+        "package.json",
+        r#"{"name":"app","private":true,"devDependencies":{"vitest":"3"}}"#,
+    )];
+    with.extend(files);
+    let mut unused = found(&lint_files(&with, ""), "unused-files");
+    unused.sort();
+    assert_eq!(
+        unused,
+        [
+            "e2e/c.ts: e2e/c.ts",
+            "scripts/orphan.ts: scripts/orphan.ts",
+            "test/a.ts: test/a.ts",
+            "tests/b.ts: tests/b.ts"
+        ]
     );
 }
 
@@ -492,7 +515,10 @@ fn bindings_used_only_in_component_templates_keep_their_members() {
 fn url_and_mock_specifiers_keep_modules_reachable() {
     let diagnostics = lint_files(
         &[
-            PACKAGE,
+            (
+                "package.json",
+                r#"{"name":"app","private":true,"devDependencies":{"vitest":"3"}}"#,
+            ),
             (
                 "src/index.ts",
                 "export const worker = new URL('./worker.ts', import.meta.url);\n",

@@ -30,7 +30,8 @@ fn ambient_declarations() -> Vec<String> {
     vec!["**/*.d.{ts,mts,cts}".to_owned()]
 }
 
-/// Directories that hold tests and end-to-end suites, which tools run without any file importing them.
+/// Directories that hold tests and end-to-end suites, which tools run without any file importing them. They are
+/// entries only through a test-runner plugin; here they are excluded from the project in production mode.
 fn test_directories() -> Vec<String> {
     vec![
         format!("{{test,tests,e2e,cypress}}/**/*.{EXTENSIONS}"),
@@ -43,6 +44,7 @@ fn default_project() -> Vec<String> {
     vec![format!("**/*.{PROJECT_EXTENSIONS}")]
 }
 
+/// Test file names, excluded from the project in production mode.
 fn test_files() -> Vec<String> {
     vec![
         format!("**/*.{{test,spec}}.{EXTENSIONS}"),
@@ -275,8 +277,6 @@ impl Setup {
                     .cloned()
                     .collect();
                 if !production {
-                    entry.extend(test_files());
-                    entry.extend(test_directories());
                     entry.extend(plugin.entry);
                 }
                 entry.extend(plugin.production_entry);

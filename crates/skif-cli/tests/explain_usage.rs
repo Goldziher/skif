@@ -22,7 +22,7 @@ fn project() -> TempDir {
     put(
         dir.path(),
         "package.json",
-        r#"{"name":"app","version":"1.0.0","private":true,"main":"index.ts"}"#,
+        r#"{"name":"app","version":"1.0.0","private":true,"main":"index.ts","devDependencies":{"vitest":"3.0.0"}}"#,
     );
     put(
         dir.path(),
