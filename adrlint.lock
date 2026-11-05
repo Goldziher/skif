@@ -195,3 +195,8 @@ blake3 = "002f1db1ac01bf7c636b0aa33bfd4e65543564ae520e6664e97f9ebf91065b19"
 number = 39
 status = "accepted"
 blake3 = "fd132199e75f583701e8a349ea6e58531ecb31ac06ae9f3313f6e9b2ef69fb0f"
+
+[adrs."adrs/0040-floating-tags-for-0x-releases-and-musl-binstall.md"]
+number = 40
+status = "accepted"
+blake3 = "e796ad22b1d65f0848b646cf7bc37173d328a7e7d81e4a5ccfdd863fb11439bd"

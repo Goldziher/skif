@@ -29,7 +29,7 @@ then, build from source with `cargo build --release` in a checkout; the install 
     ```
 
     The npm package is a napi-rs addon for non-EoL Node.js (22, 24, 26) and Bun 1.x on macOS and Linux. There are no Windows npm
-    packages. See [npm and Bun](../../guides/integrations/#npm-and-bun).
+    packages by decision (ADR 0018); `npx skif` fails on Windows, so use the release archive, Scoop, Cargo or `cargo binstall` there. See [npm and Bun](../../guides/integrations/#npm-and-bun).
   </TabItem>
   <TabItem label="Homebrew">
     ```bash
@@ -61,8 +61,9 @@ The glibc archives are linked against glibc 2.34 (cargo-zigbuild) and start on a
 such as Ubuntu 22.04, Debian 12 and RHEL 9. The static musl archives run on any Linux, glibc or musl, and are the
 choice for older systems such as RHEL 8, Debian 11, Ubuntu 20.04 or Amazon Linux 2. The Action, the pre-commit
 launcher and the Homebrew formula pick the musl archive themselves when the glibc is older than 2.34 or cannot be
-identified. `cargo binstall` cannot detect the glibc version: on an older system run
-`cargo binstall --targets x86_64-unknown-linux-musl skif-cli` (or `aarch64-unknown-linux-musl`). The npm addon targets
+identified. `cargo binstall` cannot see the glibc version, so on Linux it always installs the static musl archive of the
+matching architecture (the crate's binstall metadata redirects the `-gnu` targets to it); it runs on any glibc, including
+older than 2.34. For the glibc archive, download it from the release page. The npm addon targets
 glibc 2.17 and is not affected.
 
 Verify a download with:
@@ -75,7 +76,7 @@ sha256sum --check --ignore-missing checksums.txt
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: Goldziher/skif@v0
+- uses: Goldziher/skif@v0.1
   with:
     fail-on-warnings: true
 ```
