@@ -1,4 +1,7 @@
 //! size-limit: the config files are entry files and every `@size-limit/*` preset the workspace depends on is used.
+//!
+//! A preset of any dependency kind counts; knip reads `dependencies` and `devDependencies` only. The entry patterns
+//! are a superset of knip's (`size-limit.{json,…}` next to `size-limit.config.*`).
 
 use crate::plugin::{Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 
@@ -10,6 +13,7 @@ static SPEC: PluginSpec = PluginSpec {
     enablers: &[Enabler::Dependency("size-limit")],
     entry: &[
         "size-limit.{json,js,cjs,mjs,ts,mts,cts}",
+        "size-limit.config.{js,cjs,mjs,ts,mts,cts}",
         ".size-limit.{json,js,cjs,mjs,ts,mts,cts}",
         ".size-limit",
     ],

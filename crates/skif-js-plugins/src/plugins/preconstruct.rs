@@ -1,4 +1,7 @@
 //! Preconstruct: every entrypoint of the package is a production entry below `src`.
+//!
+//! knip also marks the exports of these entries as used (`allowIncludeExports`); skif has no per-entry switch for
+//! that, so they follow `include-entry-exports`.
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::support::{join_rel, production_entries, strings};

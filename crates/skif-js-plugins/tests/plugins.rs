@@ -2174,7 +2174,10 @@ fn electron_vite() {
             "src/renderer/renderer.ts",
         ],
     );
-    assert!(!out.production_entries.iter().any(|e| e.starts_with("src/main/")));
+    assert_entries(
+        &out.production_entries,
+        &["src/main/index.{js,mjs,cjs,ts,mts,cts}", "src/renderer/index.html"],
+    );
 }
 
 #[test]
@@ -2360,14 +2363,27 @@ fn nitro() {
 
 #[test]
 fn ava() {
-    let config = "export default { files: ['src/**/*.test.ts'], require: ['./setup.cjs', 'tsx'] };";
+    let config =
+        "export default { files: ['src/**/*.test.ts', '!src/skip.test.ts'], require: ['./setup.cjs', 'tsx'] };";
     let results = resolve(&[("ava.config.mjs", config)], &["ava"]);
     let out = output(&results, "ava");
     assert_entries(
         &out.entries,
-        &["src/**/*.test.ts", "setup.cjs", "**/*.spec.{js,cjs,mjs,ts}"],
+        &[
+            "src/**/*.test.ts",
+            "!src/skip.test.ts",
+            "setup.cjs",
+            "**/*.spec.{js,cjs,mjs,ts}",
+        ],
     );
     assert_deps(out, &["tsx"]);
+}
+
+#[test]
+fn ava_reads_node_arguments_like_a_node_command() {
+    let config = "export default { nodeArguments: ['--import=tsx', '--loader=ts-node/esm'] };";
+    let results = resolve(&[("ava.config.mjs", config)], &["ava"]);
+    assert_deps(output(&results, "ava"), &["tsx", "ts-node"]);
 }
 
 #[test]
@@ -2380,8 +2396,27 @@ fn jasmine_resolves_paths_against_the_spec_directory() {
     }"#;
     let results = resolve(&[("spec/support/jasmine.json", config)], &["jasmine"]);
     let out = output(&results, "jasmine");
-    assert_entries(&out.entries, &["spec/**/*[sS]pec.js", "spec/helpers/**/*.js"]);
-    assert!(!out.entries.iter().any(|e| e.contains("skip")));
+    assert_entries(
+        &out.entries,
+        &["spec/**/*[sS]pec.js", "spec/helpers/**/*.js", "!spec/**/skip.js"],
+    );
+    assert_deps(out, &["ts-node"]);
+}
+
+#[test]
+fn jasmine_reads_its_command_line() {
+    let scripts = [(
+        "test",
+        "jasmine --fail-fast --config spec/support/ci.json spec/unit/a.spec.js init NODE_ENV=test --require ts-node/register",
+    )];
+    let results = resolve_with_scripts(&[], &["jasmine"], &scripts);
+    let out = output(&results, "jasmine");
+    assert_entries(&out.entries, &["spec/unit/a.spec.js"]);
+    assert!(
+        !out.entries.iter().any(|e| e == "init" || e.contains("NODE_ENV")),
+        "{:?}",
+        out.entries
+    );
     assert_deps(out, &["ts-node"]);
 }
 
@@ -2405,4 +2440,194 @@ fn size_limit_uses_its_presets() {
     let out = output(&results, "size-limit");
     assert_deps(out, &["@size-limit/preset-small-lib", "@size-limit/file"]);
     assert_entries(&out.entries, &["size-limit.{json,js,cjs,mjs,ts,mts,cts}"]);
+}
+
+#[test]
+fn knex_reads_the_client_of_calls_in_source_files() {
+    let files = [
+        (
+            "src/db.ts",
+            "import knex from 'knex';\nexport const db = knex({ client: 'mysql2', connection: { client: 'x' } });",
+        ),
+        (
+            "src/named.ts",
+            "import { knex as connect } from \"knex\";\nconnect({ connection: {}, client: \"sqlite3\" });",
+        ),
+        (
+            "src/cjs.js",
+            "const k = require('knex');\nconst { knex: build } = require('knex');\nk({ client: 'pg' });\nbuild({ client: 'oracledb' });",
+        ),
+        (
+            "src/other.ts",
+            "import knex from 'knex';\nknex({ client: dialect });\nunrelated({ client: 'mssql' });",
+        ),
+    ];
+    let results = resolve(&files, &["knex"]);
+    let out = output(&results, "knex");
+    assert_deps(out, &["mysql2", "sqlite3", "pg", "oracledb"]);
+    assert_absent(out, &["tedious", "x"]);
+    assert!(
+        out.referenced_dependencies.iter().all(|d| !d.optional),
+        "a driver imported by a call is a dependency: {:?}",
+        out.referenced_dependencies
+    );
+}
+
+#[test]
+fn react_router_reads_flat_routes_and_literal_file_names() {
+    let routes = "import { flatRoutes } from \"@react-router/fs-routes\";\nexport default flatRoutes({ rootDirectory: \"pages\" });\n\
+                  // route(\"x\", \"routes/$id.tsx\");\nconst more = [route(\"p\", \"routes/$id.[lang].tsx\")];";
+    let results = resolve(&[("app/routes.ts", routes)], &["@react-router/dev"]);
+    let out = output(&results, "react-router");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "app/pages/*.{js,jsx,ts,tsx,md,mdx}",
+            "app/pages/*/{route,index}.{js,jsx,ts,tsx,md,mdx}",
+            "app/routes/$id.[[]lang[]].tsx",
+        ],
+    );
+
+    let default_directory = "export default flatRoutes();";
+    let results = resolve(&[("app/routes.ts", default_directory)], &["@react-router/dev"]);
+    assert_entries(
+        &output(&results, "react-router").production_entries,
+        &["app/routes/*.{js,jsx,ts,tsx,md,mdx}"],
+    );
+}
+
+#[test]
+fn rsbuild_reads_swc_plugins_and_config_functions() {
+    let config = "export default defineConfig(({ env }) => ({\n  source: { entry: { index: './src/index.ts' } },\n  \
+                  tools: { swc: { jsc: { experimental: { plugins: [['@swc/plugin-emotion', {}], '@swc/plugin-styled-jsx'] } } } },\n  \
+                  environments: { node: { tools: { swc: { jsc: { experimental: { plugins: ['@swc/plugin-relay'] } } } } } },\n}));";
+    let results = resolve(&[("rsbuild.config.ts", config)], &["@rsbuild/core"]);
+    let out = output(&results, "rsbuild");
+    assert_entries(&out.production_entries, &["src/index.ts"]);
+    assert_deps(
+        out,
+        &["@swc/plugin-emotion", "@swc/plugin-styled-jsx", "@swc/plugin-relay"],
+    );
+    assert!(out.referenced_dependencies.iter().all(|d| d.optional));
+}
+
+#[test]
+fn webpack_reads_the_swc_plugins_of_an_swc_loader() {
+    let config = "module.exports = { module: { rules: [{ test: /\\.ts$/, use: { loader: 'swc-loader', \
+                  options: { jsc: { experimental: { plugins: [['@swc/plugin-emotion', {}]] } } } } }] } };";
+    let results = resolve(&[("webpack.config.js", config)], &["webpack"]);
+    assert_deps(output(&results, "webpack"), &["swc-loader", "@swc/plugin-emotion"]);
+}
+
+#[test]
+fn stryker_reads_the_config_file_of_its_run_command() {
+    let scripts = [
+        ("mutate", "stryker run --incremental stryker.ci.conf.json"),
+        ("other", "stryker init"),
+    ];
+    let files = [("stryker.ci.conf.json", r#"{ "testRunner": "jest" }"#)];
+    let results = resolve_with_scripts(&files, &["@stryker-mutator/core"], &scripts);
+    let out = output(&results, "stryker");
+    assert_deps(out, &["@stryker-mutator/jest-runner"]);
+    assert!(out.config_files.iter().any(|f| f.ends_with("stryker.ci.conf.json")));
+}
+
+#[test]
+fn tsd_reads_files_and_the_directory_of_its_command() {
+    let scripts = [
+        ("types", "tsd --files 'check/**/*.test-d.ts' -f other.test-d.ts"),
+        ("types:dir", "tsd typings-tests"),
+    ];
+    let results = resolve_with_scripts(&[], &["tsd"], &scripts);
+    assert_entries(
+        &output(&results, "tsd").entries,
+        &[
+            "check/**/*.test-d.ts",
+            "other.test-d.ts",
+            "typings-tests/**/*.test-d.{ts,tsx}",
+        ],
+    );
+}
+
+#[test]
+fn typedoc_reads_plugins_and_themes_of_its_command() {
+    let scripts = [(
+        "docs",
+        "typedoc --plugin typedoc-plugin-markdown --plugin ./local.js --theme typedoc-theme-x src/index.ts",
+    )];
+    let results = resolve_with_scripts(&[], &["typedoc"], &scripts);
+    let out = output(&results, "typedoc");
+    assert_deps(out, &["typedoc-plugin-markdown", "typedoc-theme-x"]);
+    assert_entries(&out.entries, &["local.js"]);
+    assert!(out.referenced_dependencies.iter().all(|d| d.optional));
+}
+
+#[test]
+fn gatsby_node_names_babel_plugins() {
+    let node = "exports.onCreateBabelConfig = ({ actions }) => {\n  actions.setBabelPlugin({ name: \"babel-plugin-styled-components\", options: { name: 'no' } });\n  \
+                actions.setBabelPlugin({ name: require.resolve('x') });\n};";
+    let results = resolve(&[("gatsby-node.js", node)], &["gatsby"]);
+    let out = output(&results, "gatsby");
+    assert_deps(out, &["babel-plugin-styled-components"]);
+    assert_absent(out, &["no", "x"]);
+}
+
+#[test]
+fn size_limit_reads_the_config_suffix_file() {
+    let results = resolve(&[], &["size-limit"]);
+    assert_entries(
+        &output(&results, "size-limit").entries,
+        &["size-limit.config.{js,cjs,mjs,ts,mts,cts}"],
+    );
+}
+
+#[test]
+fn remark_picks_the_candidate_like_load_plugin() {
+    let manifest = r#"{ "name": "app", "remarkConfig": { "plugins": ["@acme/lint", "@acme/gfm", "@acme", "remark-toc", "pkg/sub", "@acme/remark-x/sub"] } }"#;
+    let results = resolve(&[("package.json", manifest)], &["remark-cli", "@acme/gfm"]);
+    let out = output(&results, "remark");
+    assert_deps(
+        out,
+        &[
+            "@acme/remark-lint",
+            "@acme/gfm",
+            "@acme/remark",
+            "remark-toc",
+            "pkg",
+            "@acme/remark-x",
+        ],
+    );
+    assert_absent(out, &["remark-pkg", "@acme/remark-gfm", "@acme/lint"]);
+}
+
+#[test]
+fn biome_root_reference_is_the_config_of_the_farthest_ancestor() {
+    let repo = std::env::temp_dir().join(format!("skif-biome-root-{}", std::process::id()));
+    let app = repo.join("packages/app");
+    std::fs::create_dir_all(&app).unwrap();
+    std::fs::write(repo.join("biome.json"), r#"{ "extends": ["@org/biome-base"] }"#).unwrap();
+    std::fs::write(repo.join("packages/biome.json"), "{}").unwrap();
+    std::fs::write(app.join("package.json"), r#"{"name":"app"}"#).unwrap();
+    std::fs::write(app.join("biome.json"), r#"{ "extends": ["//"] }"#).unwrap();
+    let dependencies = vec!["@biomejs/biome".to_owned()];
+    let scripts = IndexMap::new();
+    let plugins = IndexMap::new();
+    let fs = skif_core::OsFs;
+    let ctx = PluginContext {
+        dir: &app,
+        is_root: false,
+        package_name: Some("app"),
+        dependencies: &dependencies,
+        inherited_dependencies: &[],
+        scripts: &scripts,
+        fs: &fs,
+        plugins: &plugins,
+    };
+    let results = resolve_plugins(&ctx);
+    let out = output(&results, "biome");
+    let root_config_read = out.config_files.iter().any(|f| f == &app.join("../../biome.json"));
+    let dependencies_found = deps(out).contains("@org/biome-base");
+    std::fs::remove_dir_all(&repo).unwrap();
+    assert!(root_config_read, "{:?}", out.config_files);
+    assert!(dependencies_found, "{:?}", deps(out));
 }

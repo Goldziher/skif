@@ -1,10 +1,22 @@
-//! Stryker: the test runner, checkers and plugins the config names are packages.
+//! Stryker: the test runner, checkers and plugins the config names are packages, and `stryker run <file>` names a
+//! config file.
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
+use crate::script_config::{positionals, workspace_path};
 use crate::support::strings;
 
 /// The `stryker` plugin.
 pub struct Stryker;
+
+const BOOLEAN_FLAGS: &[&str] = &[
+    "allowEmpty",
+    "disableBail",
+    "dryRunOnly",
+    "force",
+    "ignoreStatic",
+    "incremental",
+    "inPlace",
+];
 
 static SPEC: PluginSpec = PluginSpec {
     id: "stryker",
@@ -44,5 +56,15 @@ impl Plugin for Stryker {
             );
         }
         names.into_iter().map(PluginInput::OptionalDependency).collect()
+    }
+
+    fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        cx.scripts
+            .values()
+            .flat_map(|script| positionals(script, SPEC.binaries, BOOLEAN_FLAGS))
+            .filter(|words| words.first().is_some_and(|word| word == "run"))
+            .filter_map(|words| words.get(1).and_then(|file| workspace_path(file)))
+            .map(PluginInput::ConfigFile)
+            .collect()
     }
 }

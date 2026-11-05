@@ -1,9 +1,14 @@
-//! rsbuild: the source entries of the config and its environments are production entries; aliases and the
-//! `rspack` section follow the bundler.
+//! rsbuild: the source entries of the config and its environments are production entries; aliases, the `swc` plugins
+//! and the `rspack` section follow the bundler.
+//!
+//! A config function (`defineConfig(({ env }) => …)`) is evaluated once without parameters, where knip calls it for
+//! development and for production; a branch on `env` or `command` is not known. A function in `tools.rspack` is not
+//! called, and an object it would return is not read.
 
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
+use crate::plugins::swc::plugin_packages;
 use crate::plugins::webpack::bundler_inputs;
 use crate::support::{alias_inputs, get_in, leaf_strings, objects, production_entries, strings, values_of};
 
@@ -33,6 +38,14 @@ impl Plugin for Rsbuild {
             out.extend(production_entries(config.base, source_entries(section)));
             if let Some(alias) = get_in(section, &["resolve", "alias"]) {
                 out.extend(alias_inputs(alias, config));
+            }
+            if let Some(swc) = get_in(section, &["tools", "swc"]) {
+                out.extend(
+                    objects(swc)
+                        .into_iter()
+                        .flat_map(plugin_packages)
+                        .map(PluginInput::OptionalDependency),
+                );
             }
             if let Some(rspack) = get_in(section, &["tools", "rspack"]) {
                 out.extend(
