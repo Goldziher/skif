@@ -1,0 +1,178 @@
+//! `skif migrate`: discovery, output handling and the exit codes.
+
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+mod support;
+
+use std::fs;
+use std::path::Path;
+
+use support::{run, skif};
+
+const SHERIF_PACKAGE: &str = r#"{
+  "name": "demo",
+  "private": true,
+  "scripts": { "check": "sherif --fail-on-warnings" },
+  "sherif": { "ignoreRule": ["unordered-dependencies"], "select": "lowest" }
+}"#;
+
+fn project(package_json: &str) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("package.json"), package_json).unwrap();
+    dir
+}
+
+fn migrate(dir: &Path) -> assert_cmd::Command {
+    let mut command = skif();
+    command.arg("migrate").arg(dir);
+    command
+}
+
+#[test]
+fn dry_run_prints_the_configuration_and_writes_nothing() {
+    let dir = project(SHERIF_PACKAGE);
+    let result = run(migrate(dir.path()).args(["--dry-run", "--profile", "full"]));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    assert!(result.stdout.starts_with("#:schema "), "{}", result.stdout);
+    assert!(
+        result.stdout.contains("[lint]\nfail-on-warnings = true"),
+        "{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("unsorted-dependencies = \"off\""),
+        "{}",
+        result.stdout
+    );
+    assert!(result.stderr.contains("Translated"), "{}", result.stderr);
+    assert!(!dir.path().join("skif.toml").exists());
+}
+
+#[test]
+fn the_written_file_is_valid_and_is_not_overwritten_without_a_flag() {
+    let dir = project(SHERIF_PACKAGE);
+    let written = run(migrate(dir.path()));
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    assert!(written.stdout.contains("Wrote "), "{}", written.stdout);
+    let target = dir.path().join("skif.toml");
+    let first = fs::read_to_string(&target).unwrap();
+    assert!(
+        first.contains("# Migrated from sherif by `skif migrate` (profile: exact)."),
+        "{first}"
+    );
+
+    let refused = run(migrate(dir.path()));
+    assert_eq!(refused.code, 2, "{}{}", refused.stdout, refused.stderr);
+    assert!(refused.stderr.contains("already exists"), "{}", refused.stderr);
+    assert_eq!(fs::read_to_string(&target).unwrap(), first);
+
+    let merged = run(migrate(dir.path()).arg("--merge"));
+    assert_eq!(merged.code, 0, "{}{}", merged.stdout, merged.stderr);
+    assert_eq!(
+        fs::read_to_string(&target).unwrap(),
+        first,
+        "merging the same migration changes nothing"
+    );
+
+    let linted = run(skif().arg("--no-js").arg(dir.path()));
+    assert!(
+        linted.code <= 1,
+        "the migrated config must load: {}{}",
+        linted.stdout,
+        linted.stderr
+    );
+    assert!(!linted.stderr.contains("error:"), "{}", linted.stderr);
+}
+
+#[test]
+fn merge_keeps_the_comments_of_the_existing_file() {
+    let dir = project(SHERIF_PACKAGE);
+    fs::write(
+        dir.path().join("skif.toml"),
+        "# mine\n[workspace]\nignore-packages = [\"legacy\"]\n",
+    )
+    .unwrap();
+    let merged = run(migrate(dir.path()).args(["--merge", "--profile", "full"]));
+    assert_eq!(merged.code, 0, "{}{}", merged.stdout, merged.stderr);
+    let text = fs::read_to_string(dir.path().join("skif.toml")).unwrap();
+    assert!(
+        text.starts_with("# mine\n[workspace]\nignore-packages = [\"legacy\"]\n"),
+        "{text}"
+    );
+    assert!(text.contains("[policy]\nprefer = \"lowest\""), "{text}");
+}
+
+#[test]
+fn force_replaces_the_existing_file() {
+    let dir = project(SHERIF_PACKAGE);
+    fs::write(dir.path().join("skif.toml"), "[lint]\nfail-on-warnings = false\n").unwrap();
+    let forced = run(migrate(dir.path()).arg("--force"));
+    assert_eq!(forced.code, 0, "{}{}", forced.stdout, forced.stderr);
+    let text = fs::read_to_string(dir.path().join("skif.toml")).unwrap();
+    assert!(text.contains("fail-on-warnings = true"), "{text}");
+}
+
+#[test]
+fn json_output_is_one_document() {
+    let dir = project(SHERIF_PACKAGE);
+    let result = run(migrate(dir.path()).args(["--dry-run", "--format", "json", "--profile", "full"]));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let document = result.json();
+    assert_eq!(document["version"], 1);
+    assert_eq!(document["profile"], "full");
+    assert_eq!(document["written"], serde_json::Value::Null);
+    assert!(document["toml"].as_str().unwrap().contains("[lint]"));
+    assert!(document["translated"].as_array().unwrap().len() >= 3);
+    assert_eq!(document["tools"], serde_json::json!(["sherif"]));
+}
+
+#[test]
+fn a_project_without_any_tool_is_a_usage_error() {
+    let dir = project(r#"{ "name": "demo" }"#);
+    let result = run(migrate(dir.path()));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert!(result.stderr.contains("nothing to migrate"), "{}", result.stderr);
+    let named = run(migrate(dir.path()).args(["--from", "knip", "--dry-run", "--profile", "full"]));
+    assert_eq!(
+        named.code, 0,
+        "naming the tool migrates its defaults: {}{}",
+        named.stdout, named.stderr
+    );
+}
+
+#[test]
+fn knip_files_are_discovered_and_strict_fails_on_what_needs_a_human() {
+    let dir = project(r#"{ "name": "demo" }"#);
+    fs::write(
+        dir.path().join("knip.json"),
+        r#"{ "entry": ["src/index.ts!"], "ignoreDependencies": ["left-pad"], "madeUp": true }"#,
+    )
+    .unwrap();
+    let lenient = run(migrate(dir.path()).args(["--dry-run", "--profile", "full"]));
+    assert_eq!(lenient.code, 0, "{}{}", lenient.stdout, lenient.stderr);
+    assert!(
+        lenient.stdout.contains("entry = [\"src/index.ts!\"]"),
+        "{}",
+        lenient.stdout
+    );
+    assert!(lenient.stderr.contains("madeUp"), "{}", lenient.stderr);
+    let strict = run(migrate(dir.path()).args(["--dry-run", "--strict"]));
+    assert_eq!(strict.code, 1, "{}{}", strict.stdout, strict.stderr);
+}
+
+#[test]
+fn source_needs_exactly_one_tool() {
+    let dir = project(SHERIF_PACKAGE);
+    let result = run(migrate(dir.path()).args(["--source", "knip.json", "--from", "sherif,knip"]));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert!(result.stderr.contains("--source"), "{}", result.stderr);
+}
+
+#[test]
+fn an_unreadable_configuration_names_the_file() {
+    let dir = project(r#"{ "name": "demo" }"#);
+    fs::write(dir.path().join(".syncpackrc.yaml"), "versionGroups: [unclosed\n  - a\n").unwrap();
+    let result = run(migrate(dir.path()).args(["--from", "syncpack", "--dry-run"]));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert!(result.stderr.contains(".syncpackrc.yaml"), "{}", result.stderr);
+}
