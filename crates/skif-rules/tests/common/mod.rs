@@ -240,6 +240,14 @@ pub fn line_column(text: &str, offset: usize) -> (u32, u32) {
 /// Checks what the fixtures cannot pin: the span of each diagnostic starts where it says it does, and, when
 /// `entry_spans` (the rules locate the whole dependency entry), covers the dependency it names; a diagnostic about a
 /// package carries the package id suppression needs.
+const CATALOG_RULES: [&str; 5] = [
+    "catalog-mismatch",
+    "catalog-not-used",
+    "catalog-missing-entry",
+    "unused-catalog-entries",
+    "unresolved-catalog-references",
+];
+
 pub fn check_diagnostics(
     files: &BTreeMap<String, String>,
     diagnostics: &[Diagnostic],
@@ -277,7 +285,9 @@ pub fn check_diagnostics(
             ));
         }
         // A package's own version is located at its `version` member, which does not name the package.
-        if let Some(dependency) = diagnostic.dependency.as_ref().filter(|_| entry_spans)
+        // Catalog rules locate the specifier, not the entry, also when they run together with the policy rules.
+        let locates_entry = entry_spans && !CATALOG_RULES.contains(&diagnostic.rule.as_str());
+        if let Some(dependency) = diagnostic.dependency.as_ref().filter(|_| locates_entry)
             && !covered.starts_with("\"version\"")
             && !covered.contains(dependency.as_str())
         {
