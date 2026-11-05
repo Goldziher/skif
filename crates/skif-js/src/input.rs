@@ -69,9 +69,6 @@ pub struct WorkspaceInputs {
     /// Whether a tool's entries could only be partly read (a computed `entry`), so unused files and dependencies of
     /// the package cannot be told apart from ones reached through the unknown entries.
     pub entries_incomplete: bool,
-    /// Modules imported by a tool configuration that could not be evaluated: absolute paths of relative imports and
-    /// bare specifiers. The workspace packages that define them are judged conservatively.
-    pub config_imports: Vec<String>,
 }
 
 impl WorkspaceInputs {
@@ -93,7 +90,6 @@ impl WorkspaceInputs {
         self.module_dirs.extend(other.module_dirs);
         self.extensions.extend(other.extensions);
         self.entries_incomplete |= other.entries_incomplete;
-        self.config_imports.extend(other.config_imports);
     }
 }
 
