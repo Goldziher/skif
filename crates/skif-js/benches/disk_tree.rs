@@ -4,8 +4,9 @@
 //! modules), a pnpm-style `node_modules` (a virtual store at the root, symbolic links in every package) and a git
 //! index. It is generated once per run in the system's temporary directory. The groups compare the directory walk with
 //! the git index (`[js] discovery`: `auto` checks each directory against the index time, `git` trusts the index), the
-//! listing of every directory, and the probing of file names that resolution does through the index overlay. Every
-//! mode must report the same diagnostics as the walk before it is timed. Without `git` on the `PATH` the index groups
+//! listing of every directory, the lookup of a module's extensions in those listings, and the listing of the same
+//! directories after one in a hundred changed. Every mode must report the same diagnostics as the walk before it is
+//! timed. Without `git` on the `PATH` the index groups
 //! are skipped.
 
 #![allow(clippy::expect_used)]
@@ -13,7 +14,7 @@
 use std::fmt::Write as _;
 use std::fs;
 use std::hint::black_box;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
@@ -197,27 +198,74 @@ fn bench_discovery(c: &mut Criterion) {
     }
     group.finish();
 
+    // What the index overlay changes for resolution is where a directory is listed from, so the probe workload lists
+    // each directory and looks the extensions of a module up in the listing, as discovery does. The probes themselves
+    // are `stat`s answered by the disk in every mode and would measure the same work whatever the mode.
     let mut group = c.benchmark_group("js_probe");
     group.sample_size(10);
     for (name, discovery) in &modes {
         group.bench_function(BenchmarkId::new("extensions_per_directory", name), |b| {
             b.iter_batched(
                 || overlay(&workspace, *discovery),
-                |fs| {
-                    directories
-                        .iter()
-                        .filter(|directory| {
-                            ["mod.tsx", "mod.d.ts", "mod.js", "mod.mjs", "mod.ts"]
-                                .iter()
-                                .any(|name| fs.is_file(&directory.join(name)))
-                        })
-                        .count()
-                },
+                |fs| count_modules(fs.as_ref(), &directories),
                 BatchSize::PerIteration,
             );
         });
     }
     group.finish();
+
+    // One directory in a hundred changes after the index was written: `auto` lists those from disk, `git` does not
+    // see the new files, and the walk lists everything from disk.
+    for directory in directories.iter().step_by(100) {
+        write(&directory.join("fresh.ts"), "export const fresh = 1;\n");
+    }
+    let touched = modes
+        .iter()
+        .map(|(name, discovery)| (*name, listed_entries(overlay(&workspace, *discovery).as_ref(), &directories)))
+        .collect::<Vec<_>>();
+    let walked_entries = touched[0].1;
+    for (name, entries) in &touched {
+        if *name != "git-index" {
+            assert_eq!(
+                *entries, walked_entries,
+                "the {name} listing must see the files added after the index"
+            );
+        }
+    }
+    let mut group = c.benchmark_group("js_listing_touched");
+    group.sample_size(10);
+    for (name, discovery) in &modes {
+        group.bench_function(BenchmarkId::new("one_percent_changed", name), |b| {
+            b.iter_batched(
+                || overlay(&workspace, *discovery),
+                |fs| listed_entries(fs.as_ref(), &directories),
+                BatchSize::PerIteration,
+            );
+        });
+    }
+    group.finish();
+}
+
+/// The number of directories with a module among `directories`, found through their listings.
+fn count_modules(fs: &dyn FileSystem, directories: &[PathBuf]) -> usize {
+    directories
+        .iter()
+        .filter(|directory| {
+            fs.read_dir_shared(directory).is_ok_and(|entries| {
+                ["mod.tsx", "mod.d.ts", "mod.js", "mod.mjs", "mod.ts"]
+                    .iter()
+                    .any(|name| entries.iter().any(|entry| entry.path.ends_with(name)))
+            })
+        })
+        .count()
+}
+
+/// The number of entries in the listings of `directories`.
+fn listed_entries(fs: &dyn FileSystem, directories: &[PathBuf]) -> usize {
+    directories
+        .iter()
+        .map(|directory| fs.read_dir_shared(directory).map_or(0, |entries| entries.len()))
+        .sum()
 }
 
 criterion_group!(benches, bench_discovery);
