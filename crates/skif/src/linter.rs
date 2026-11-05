@@ -3,8 +3,8 @@
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use skif_config::{Config, Level};
 use skif_core::{FileSystem, OsFs, Report, RuleMeta};
@@ -40,19 +40,19 @@ pub fn builtin_providers(config: &Config, fs: Arc<dyn FileSystem>) -> Vec<Box<dy
 #[non_exhaustive]
 pub struct RunOptions<'a> {
     /// Set to stop the run before the next rule or provider starts; the run then fails with a cancellation error.
-    pub cancel: Option<&'a AtomicBool>,
+    cancel: Option<&'a AtomicBool>,
     /// Run discovery, graph building and rules on a dedicated pool of this many threads; `None` uses the global
     /// pool. `1` runs everything on the calling thread and spawns no threads.
-    pub threads: Option<NonZeroUsize>,
+    threads: Option<NonZeroUsize>,
     /// Run rules on this reusable pool instead of building one per run; a host that lints often (an editor) creates
     /// one [`Executor`] and passes it to every run. Takes precedence over `threads`, except `threads = 1`, which
     /// stays on the calling thread.
-    pub executor: Option<&'a Executor>,
+    executor: Option<&'a Executor>,
     /// Run only these rules (a subset of the otherwise enabled ones); `None` runs every enabled rule.
-    pub rules: Option<&'a [String]>,
+    rules: Option<&'a [String]>,
     /// The configuration file the configuration was loaded from, relative to the workspace root (see
     /// [`config_file`](crate::config_file)); diagnostics about the configuration itself point at it.
-    pub config_path: Option<&'a Path>,
+    config_path: Option<&'a Path>,
 }
 
 impl<'a> RunOptions<'a> {
@@ -97,6 +97,12 @@ impl<'a> RunOptions<'a> {
 /// A `Linter` owns its [`Registry`] and a copy of the configuration it was validated against, so one value can lint
 /// many workspaces from many threads. It never prints, prompts, reads the environment or writes files.
 ///
+/// The file system queries of the built-in JS analysis are memoised while runs are in flight: the cache is emptied
+/// when the first of a group of overlapping runs starts and again when the last one ends, so concurrent runs share
+/// what each has read (a run never empties the cache under another) and an idle linter holds nothing. Files that
+/// change while runs overlap are therefore seen as they were when the group started; edit between runs, not during
+/// them, or give each concurrent run of an editing host its own `Linter`.
+///
 /// # Examples
 /// ```
 /// use std::path::Path;
@@ -116,12 +122,46 @@ impl<'a> RunOptions<'a> {
 pub struct Linter {
     registry: Registry,
     config: Config,
-    /// The memoising layer between the built-in JS analysis and the host's file system, emptied at the start of every
-    /// run; `None` when the providers were supplied by the host.
+    /// The memoising layer between the built-in JS analysis and the host's file system, emptied when no run is in
+    /// flight; `None` when the providers were supplied by the host.
     cache: Option<Arc<SharedCache>>,
+    /// How many runs are in flight, guarding the moments the cache is emptied.
+    in_flight: Mutex<usize>,
 }
 
 type SharedCache = skif_core::CachedFs<cache::Through<Arc<dyn FileSystem>>>;
+
+/// Holds the cache of a [`Linter`] for the duration of one run: the first overlapping run empties it on entry, the
+/// last one on exit.
+struct RunGuard<'a> {
+    cache: Option<&'a SharedCache>,
+    in_flight: &'a Mutex<usize>,
+}
+
+impl<'a> RunGuard<'a> {
+    fn enter(cache: Option<&'a SharedCache>, in_flight: &'a Mutex<usize>) -> Self {
+        let mut running = in_flight.lock().unwrap_or_else(PoisonError::into_inner);
+        if *running == 0
+            && let Some(cache) = cache
+        {
+            cache.clear();
+        }
+        *running += 1;
+        Self { cache, in_flight }
+    }
+}
+
+impl Drop for RunGuard<'_> {
+    fn drop(&mut self) {
+        let mut running = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
+        *running = running.saturating_sub(1);
+        if *running == 0
+            && let Some(cache) = self.cache
+        {
+            cache.clear();
+        }
+    }
+}
 
 impl Linter {
     /// Builds a linter over the built-in rules; the JS analysis (feature `js-analysis`) reads the real file system.
@@ -136,8 +176,9 @@ impl Linter {
     /// Builds a linter over the built-in rules whose JS analysis reads source files through `fs`.
     ///
     /// Directory listings, existence checks and small configuration files read through `fs` are remembered for the
-    /// duration of one run: every [`run_with`](Self::run_with) starts from an empty cache, so a host that edits files
-    /// between runs sees them.
+    /// duration of the runs in flight: a [`run_with`](Self::run_with) that starts while none is running begins with an
+    /// empty cache, and the cache is emptied again when the last one ends, so a host that edits files between runs
+    /// sees them. Overlapping runs share the cache (see [`Linter`]).
     ///
     /// # Errors
     /// As [`Linter::new`].
@@ -160,6 +201,7 @@ impl Linter {
             registry,
             config: config.clone(),
             cache: None,
+            in_flight: Mutex::new(0),
         })
     }
 
@@ -209,9 +251,7 @@ impl Linter {
     /// pool cannot be built, and [`Error::Lint`] when a provider fails or the run is cancelled.
     pub fn run_with(&self, workspace: &Workspace, options: &RunOptions<'_>) -> Result<Report, Error> {
         let config = self.restricted(options.rules)?;
-        if let Some(cache) = &self.cache {
-            cache.clear();
-        }
+        let _guard = RunGuard::enter(self.cache.as_deref(), &self.in_flight);
         let sequential = options.threads.is_some_and(|threads| threads.get() == 1);
         let built = match (options.executor, options.threads) {
             (None, Some(threads)) if !sequential => {
@@ -219,7 +259,7 @@ impl Linter {
             }
             _ => None,
         };
-        let mut run_options = skif_lint::RunOptions::default().sequential(sequential);
+        let mut run_options = skif_lint::RunOptions::default().with_sequential(sequential);
         if let Some(executor) = options.executor.or(built.as_ref()) {
             run_options = run_options.with_executor(executor);
         }
@@ -248,5 +288,89 @@ impl Linter {
             }
         }
         Ok(Cow::Owned(config))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use skif_core::{DirEntry, MemoryFs};
+
+    use super::*;
+
+    /// A file system that counts the reads that reach it.
+    struct Counting {
+        inner: MemoryFs,
+        reads: Arc<AtomicUsize>,
+    }
+
+    impl FileSystem for Counting {
+        fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            self.inner.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+            self.inner.read_dir(path)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.inner.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.inner.is_dir(path)
+        }
+    }
+
+    fn counting_cache() -> (Arc<SharedCache>, Arc<AtomicUsize>) {
+        let reads = Arc::new(AtomicUsize::new(0));
+        let fs = Counting {
+            inner: MemoryFs::new().with_file("/r/package.json", "{}"),
+            reads: Arc::clone(&reads),
+        };
+        (cache::shared(Arc::new(fs)), reads)
+    }
+
+    fn read(cache: &SharedCache) {
+        cache.read_to_string(Path::new("/r/package.json")).unwrap();
+    }
+
+    #[test]
+    fn overlapping_runs_share_the_cache_and_the_last_one_empties_it() {
+        let (cache, reads) = counting_cache();
+        let in_flight = Mutex::new(0);
+
+        let first = RunGuard::enter(Some(&cache), &in_flight);
+        read(&cache);
+        let second = RunGuard::enter(Some(&cache), &in_flight);
+        read(&cache);
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            1,
+            "the second run must not empty the cache"
+        );
+        drop(first);
+        read(&cache);
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            1,
+            "a run ending while another runs keeps the cache"
+        );
+        drop(second);
+        read(&cache);
+        assert_eq!(reads.load(Ordering::SeqCst), 2, "the last run ending empties the cache");
+    }
+
+    #[test]
+    fn a_run_that_starts_on_an_idle_linter_begins_with_an_empty_cache() {
+        let (cache, reads) = counting_cache();
+        let in_flight = Mutex::new(0);
+        read(&cache);
+        let _run = RunGuard::enter(Some(&cache), &in_flight);
+        read(&cache);
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
     }
 }
