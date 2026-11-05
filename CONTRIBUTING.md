@@ -24,8 +24,10 @@ mise run check
 ```
 
 It runs the format check, the lint (clippy with warnings denied, then poly), the tests, `schema:check`,
-`consistency`, the rustdoc build with warnings denied and the facade feature matrix: what CI enforces, except
-`mise run deny` and the MSRV build. Hooks run
+`consistency`, the rustdoc build with warnings denied and the facade feature matrix: the Rust part of what CI
+enforces. CI also runs `mise run deny`, the MSRV build, `cargo-semver-checks`, shellcheck and the script test suites,
+the pre-commit hook, npm addon, end-to-end (`mise run e2e <package-manager>`), Action and toolchain jobs, the ADR
+lint (`mise run adr:lint`) and the documentation site build (`mise run docs:build`); run those you touch. Hooks run
 the same checks on commit; do not commit with `--no-verify`. Commits are conventional (`feat:`, `fix:`,
 `perf:`, `docs:`, `refactor:`, `test:`, `build:`, `ci:`, `chore:`).
 
