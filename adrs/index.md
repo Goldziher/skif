@@ -38,6 +38,7 @@ old one.
 | 0028 | [CLI Flag Contract Completion and Withdrawn Confirmations](0028-cli-flag-contract-completion-and-withdrawn-confirmations.md) | accepted |
 | 0029 | [Namespace Export Rules, Virtual Modules, Linked Configs and the node Plugin](0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md) | accepted |
 | 0030 | [Harness Known Deviations and Comparison Scope: Where skif Differs From syncpack and knip by Design](0030-harness-known-deviations-and-comparison-scope.md) | accepted |
+| 0031 | [Third-Party Types in the Facade API](0031-third-party-types-in-the-facade-api.md) | accepted |
 
 ## Effective statements
 
@@ -95,3 +96,4 @@ the lines below stay as written; this table says which record governs.
 | [0029](0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md), plugin count | the table holds 61 plugins | The table holds 63 plugins: `expo-router` and `tanstack-router` follow the plugins of the same names in knip, and `ADR_IDS` lists 63 ids; the source of truth is `crates/skif-js-plugins/src/plugins`, checked by `scripts/check-plugin-list.sh` |
 | [0009](0009-version-and-catalog-policies.md), policy scope and differences from syncpack | the default dependency scope and the differences from syncpack are not listed | [0030](0030-harness-known-deviations-and-comparison-scope.md): version, range and catalog policies cover `dependencies` and `devDependencies` by default, and six differences from syncpack are known deviations |
 | [0026](0026-parity-and-diff-tasks-on-a-pinned-corpus.md), parity and diff counts | one-sided counts per target; knip and syncpack run in their own default scope | [0030](0030-harness-known-deviations-and-comparison-scope.md): both run in skif's scope with empty configurations, and intended differences are reported apart as known deviations and ignored by `--check` |
+| [0003](0003-library-first-embedding.md), lines 74-76 and 128 | no `serde_json::Value`, `toml::Value`, `nodejs_semver` or `rayon` type appears in the facade's public signatures, asserted by a rustdoc-JSON test | [0031](0031-third-party-types-in-the-facade-api.md): `serde`, `serde_json`, `toml`, `indexmap` and `nodejs_semver` are the allow-list, stated in the `skif` crate documentation and checked by `crates/skif/tests/public_api.rs`; `rayon` and `oxc_*` stay out |

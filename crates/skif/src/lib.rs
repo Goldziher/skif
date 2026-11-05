@@ -76,14 +76,31 @@
 //! | `report` | no | the human, JSON, SARIF and GitHub renderers, as `skif::render` |
 //! | `schema` | no | `config_schema` |
 //!
-//! No `oxc` or `rayon` type appears in a public signature; reusable thread pools are an [`Executor`]. The data
-//! model is the contract for four libraries: `serde_json` ([`JsonAction`], the manifest values of a [`Package`]),
-//! `toml` (rule options), `indexmap` (the ordered maps of [`Config`]) and `nodejs_semver` (the parsed ranges of a
-//! dependency specifier). A major release of any of them is a breaking release of skif. Two data-model types remain
-//! public on purpose (ADR 0003, ADR 0008): [`JsonAction`] and [`YamlAction`] carry a `serde_json::Value`, because a fix is
-//! data a host may serialize, and [`RuleProvider::validate_options`] receives the `toml::Table` of a rule's options,
-//! because a rule's options are TOML in `skif.toml`. The renderers that take `serde_json` members
-//! (`render_json_with`) are not part of the facade; only the fixed renderers are re-exported as [`render`].
+//! # Third-party types in the API
+//!
+//! No `oxc` or `rayon` type appears in a public signature; reusable thread pools are an [`Executor`]. The data model
+//! is the contract for the libraries below, and nothing else from outside skif and the standard library may appear in
+//! a public item (`tests/public_api.rs` fails when it does). A major release of a listed library is a breaking
+//! release of skif.
+//!
+//! | Library | Where it shows |
+//! | --- | --- |
+//! | `serde` | the `Serialize` and `Deserialize` impls of the data model |
+//! | `serde_json` | [`JsonAction`] and [`YamlAction`] (a fix is data a host may serialize) and the manifest values of a [`Package`] |
+//! | `toml` | a rule's options ([`RuleProvider::validate_options`] receives the `toml::Table`) |
+//! | `indexmap` | the ordered maps of [`Config`] |
+//! | `nodejs_semver` | the parsed ranges of a dependency specifier |
+//!
+//! <!-- allow-list: serde, serde_json, toml, indexmap, nodejs_semver -->
+//!
+//! The renderers that take `serde_json` members (`render_json_with`) are not part of the facade; only the fixed
+//! renderers are re-exported as [`render`].
+//!
+//! # The configuration model
+//!
+//! [`Config`] and every type it holds are re-exported and readable. A host builds one in code with [`ConfigBuilder`]
+//! or loads it with [`load_config`] and [`resolve_config`]. The `[workspace]` table is [`WorkspaceConfig`], to tell
+//! it from the discovered [`Workspace`].
 
 #![warn(missing_docs)]
 
@@ -111,18 +128,22 @@ pub use root::{config_file, find_workspace_root, load_config, resolve_config};
 pub use skif_js::UsageReport;
 pub use targets::{
     Discovery, RootFailure, Target, UnappliedConfig, UnappliedReason, discover_all, discover_targets, find_target,
-    load_target, unapplied_config_files,
+    load_target, unapplied_config_files, unapplied_config_files_all,
 };
 
+/// The `[workspace]` table of the configuration (the discovered [`Workspace`] is a different type).
+pub use skif_config::Workspace as WorkspaceConfig;
 pub use skif_config::{
-    Assignment, CONFIG_FILE_NAMES, Ceiling, Config, ConfigCache, ConfigError, ConfigLoader, ConfigOverrides,
-    ConfigSource, IgnoreEntry, Level, Op, Origins, Override, OverrideScope, PackageJs, PackageManager, Prefer,
-    ResetKey, ResolvedConfig, RuleConfig, Selector, SourceKind, join_key,
+    Assignment, CONFIG_FILE_NAMES, Catalog, CatalogMode, Ceiling, Config, ConfigBuilder, ConfigCache, ConfigError,
+    ConfigLoader, ConfigOverrides, ConfigSource, DependencyFamily, DependencyTypes, IgnoreEntry, Js, JsWorkspace,
+    Level, Lint, Op, Origins, Override, OverrideScope, PackageJs, PackageManager, PluginConfig, PluginOptions, Policy,
+    Prefer, ResetKey, ResolvedConfig, RuleConfig, RuleOptions, Selector, SemverGroup, SemverRange, SourceKind,
+    VersionGroup, VersionPolicy, WorkspaceProtocol, join_key,
 };
 pub use skif_core::{
-    CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixSafety,
-    Fixability, InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathSeg, Related, Report, RuleId, RuleMeta,
-    Severity, Span, Summary, TextEdit, YamlAction, diagnostic, slash,
+    CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixPreference,
+    FixSafety, Fixability, InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathSeg, Related, Report, RuleId,
+    RuleMeta, Severity, Span, Summary, TextEdit, YamlAction, diagnostic, slash,
 };
 pub use skif_lint::{
     Emitter, EnabledRules, Executor, ExecutorError, LintContext, LintError, ProviderError, RegistryError, Rule,
@@ -143,9 +164,8 @@ pub mod render {
 #[cfg(feature = "schema")]
 #[must_use]
 pub fn config_schema() -> String {
-    let mut text = serde_json::to_string_pretty(&skif_config::json_schema()).unwrap_or_default();
-    text.push('\n');
-    text
+    // `Value`'s alternate `Display` is its pretty print, which cannot fail where `to_string_pretty` returns a `Result`.
+    format!("{:#}\n", skif_config::json_schema())
 }
 
 const _: () = {
@@ -161,6 +181,18 @@ const _: () = {
     let _ = assert_send_sync::<Target>;
     let _ = assert_send_sync::<Discovery>;
     let _ = assert_send_sync::<Workspace>;
+    let _ = assert_send_sync::<Package>;
+    let _ = assert_send_sync::<Diagnostic>;
+    let _ = assert_send_sync::<RuleId>;
+    let _ = assert_send_sync::<Selector>;
+    let _ = assert_send_sync::<Fix>;
+    let _ = assert_send_sync::<FixOp>;
+    let _ = assert_send_sync::<CachedFs<OsFs>>;
+    let _ = assert_send_sync::<Emitter<'static>>;
+    let _ = assert_send_sync::<LintContext<'static>>;
+    let _ = assert_send_sync::<DiscoverOptions>;
+    let _ = assert_send_sync::<Box<dyn Rule>>;
+    let _ = assert_send_sync::<Box<dyn RuleProvider>>;
     #[cfg(feature = "fix")]
     {
         let _ = assert_send_sync::<FixPlan>;
