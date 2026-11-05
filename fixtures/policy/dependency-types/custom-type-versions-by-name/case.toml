@@ -1,0 +1,3 @@
+description = "A custom type with the versions-by-name strategy reads an object of name: version; each entry is an instance of the dependency it names."
+source = "syncpack:src/rcfile.rs::compute_all_dependency_types"
+tags = ["dependency-types", "custom-types", "fix"]

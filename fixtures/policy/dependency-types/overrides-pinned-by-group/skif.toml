@@ -1,0 +1,5 @@
+[[version-groups]]
+dependencies = ["minimist"]
+dependency-types = ["overrides"]
+policy = "pinned"
+pin = "1.2.8"

@@ -1,0 +1,9 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "@stylistic/eslint-plugin": "^2.8.0",
+    "@stylistic/eslint-plugin-js": "^2.1.0"
+  }
+}

@@ -1,0 +1,4 @@
+[[version-groups]]
+dependencies = ["lib"]
+dependency-types = ["local"]
+policy = "ignored"

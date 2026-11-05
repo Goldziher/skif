@@ -97,7 +97,7 @@ fn builds_every_section_from_outside_the_crate() {
     assert_eq!(config.version_groups[0].specifier_types, ["exact"]);
     assert_eq!(config.version_groups[1].snap_to, ["@scope/core"]);
     assert_eq!(config.version_groups[2].prefer, Some(Prefer::Lowest));
-    assert_eq!(config.semver_groups[0].range, SemverRange::Caret);
+    assert_eq!(config.semver_groups[0].range, Some(SemverRange::Caret));
     assert_eq!(config.semver_groups[0].label.as_deref(), Some("carets"));
     assert_eq!(config.semver_groups[0].specifier_types, ["range"]);
     assert_eq!(config.catalog.mode, CatalogMode::Prefer);

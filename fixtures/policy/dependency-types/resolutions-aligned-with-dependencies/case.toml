@@ -1,0 +1,3 @@
+description = "An entry of resolutions is an instance of its dependency and is aligned with the dependency sections when the policy scope names resolutions."
+source = "syncpack:src/rcfile.rs::compute_all_dependency_types"
+tags = ["dependency-types", "resolutions", "fix"]

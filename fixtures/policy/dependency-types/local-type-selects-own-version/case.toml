@@ -1,0 +1,4 @@
+description = "The local type selects a package's own version: ignoring it leaves nothing for dependents to align with."
+source = "syncpack:src/rcfile.rs::compute_all_dependency_types (local)"
+tags = ["dependency-types", "local"]
+valid-states = ["IsIgnored"]

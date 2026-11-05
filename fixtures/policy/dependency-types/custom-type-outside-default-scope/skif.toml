@@ -1,0 +1,4 @@
+[[custom-types]]
+name = "node"
+path = "engines.node"
+strategy = "version"

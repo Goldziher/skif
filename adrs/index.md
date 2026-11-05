@@ -44,6 +44,7 @@ old one.
 | 0036 | [Thirty-Nine More knip Plugins, Chosen by Real-World Usage](0036-thirty-nine-more-knip-plugins-by-real-world-usage.md) | accepted |
 | 0035 | [JS Evaluation Parity: Unreadable Configs, Unresolved Specifiers and Test Entries Follow knip](0035-js-evaluation-parity-unreadable-configs-unresolved-specifiers-and-test-entries.md) | accepted |
 | 0034 | [`[js]` Configuration Parity with knip: Regular Expression Entries, `ignore-unresolved`, Per-Workspace Keys, the Production Marker and `stale-js-config`](0034-js-configuration-parity-with-knip.md) | accepted |
+| 0037 | [Override Sections, Custom Types, the Local Type and Ignored Semver Groups: Completing the syncpack Dependency Types](0037-override-sections-custom-types-and-ignored-semver-groups.md) | accepted |
 
 ## Effective statements
 

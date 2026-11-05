@@ -23,6 +23,65 @@ pub struct YamlSource {
     pub overrides: Vec<(String, String)>,
 }
 
+impl YamlSource {
+    /// The span of the `selector: replacement` entry of the top-level `overrides:` mapping, from the key through the
+    /// value. Block mappings are understood, with plain or quoted keys and values, comments and a byte order mark; a
+    /// flow mapping (`overrides: {a: 1}`) is not, and gives `None`.
+    #[must_use]
+    pub fn override_span(&self, selector: &str) -> Option<Span> {
+        let bom = if self.source.starts_with('\u{feff}') {
+            '\u{feff}'.len_utf8()
+        } else {
+            0
+        };
+        let mut in_overrides = false;
+        let mut offset = bom;
+        for line in self.source[bom..].split_inclusive('\n') {
+            let content = line.trim_end_matches(['\r', '\n']);
+            let trimmed = content.trim_start();
+            let indent = content.len() - trimmed.len();
+            if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                let entry = mapping_entry(trimmed);
+                if indent == 0 {
+                    in_overrides = entry.is_some_and(|(key, ..)| key == "overrides");
+                } else if in_overrides
+                    && let Some((key, value_at, value_len)) = entry
+                    && key == selector
+                {
+                    let start = offset + indent;
+                    let end = offset + indent + value_at + value_len;
+                    return Some(self.line_index.span(to_u32(start), to_u32(end)));
+                }
+            }
+            offset += line.len();
+        }
+        None
+    }
+}
+
+/// The key of a `key: value` line (without indentation) and the offset and length of the value's token in it; the
+/// length is 0 when the value is on the following lines.
+fn mapping_entry(line: &str) -> Option<(&str, usize, usize)> {
+    let (key, after_key) = match line.chars().next().filter(|c| matches!(c, '\'' | '"')) {
+        Some(quote) => {
+            let close = line[1..].find(quote)? + 1;
+            (&line[1..close], close + 1)
+        }
+        None => {
+            let colon = line.find(':')?;
+            (line[..colon].trim_end(), colon)
+        }
+    };
+    let rest = line[after_key..].strip_prefix(':')?;
+    let value = rest.trim_start();
+    let value_at = line.len() - value.len();
+    if value.is_empty() || value.starts_with('#') {
+        return Some((key, after_key, 0));
+    }
+    let (_, length) = scalar(value, false);
+    Some((key, value_at, length))
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct PnpmWorkspace {
     pub packages: Option<Vec<String>>,
@@ -159,4 +218,46 @@ fn flow_items(text: &str, base: usize, line_index: &LineIndex, found: &mut Vec<(
         at += length;
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn yaml(text: &str) -> YamlSource {
+        YamlSource {
+            path: PathBuf::from("pnpm-workspace.yaml"),
+            source: Arc::from(text),
+            line_index: Arc::new(LineIndex::new(text)),
+            overrides: Vec::new(),
+        }
+    }
+
+    fn slice<'a>(text: &'a str, span: Option<Span>) -> Option<&'a str> {
+        let span = span?;
+        text.get(span.start as usize..span.end as usize)
+    }
+
+    #[test]
+    fn override_entries_are_located_from_key_through_value() {
+        let text = "packages:\n  - \"packages/*\"\noverrides:\n  lodash: 4.17.20 # pinned\n  \"@scope/pkg@<2\": '^2.1.0'\n  parent>child: ^1.0.0\ncatalog:\n  lodash: 4.17.21\n";
+        let source = yaml(text);
+        for (selector, expected) in [
+            ("lodash", "lodash: 4.17.20"),
+            ("@scope/pkg@<2", "\"@scope/pkg@<2\": '^2.1.0'"),
+            ("parent>child", "parent>child: ^1.0.0"),
+        ] {
+            assert_eq!(slice(text, source.override_span(selector)), Some(expected), "{selector}");
+        }
+        assert_eq!(source.override_span("missing"), None);
+    }
+
+    #[test]
+    fn only_the_top_level_overrides_mapping_is_read() {
+        let text = "\u{feff}catalog:\r\n  lodash: 4.17.21\r\noverrides:\r\n  lodash: 4.17.20\r\n";
+        let source = yaml(text);
+        assert_eq!(slice(text, source.override_span("lodash")), Some("lodash: 4.17.20"));
+        let catalog_only = yaml("catalog:\n  lodash: 4.17.21\n");
+        assert_eq!(catalog_only.override_span("lodash"), None);
+    }
 }

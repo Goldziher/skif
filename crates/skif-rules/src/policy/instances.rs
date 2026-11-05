@@ -10,11 +10,13 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
+use skif_config::{CustomType, DependencyType};
 use skif_core::{DependencyKind, FixOp, JsonAction, Location, PathSeg};
 use skif_specifier::Specifier;
 use skif_workspace::{DependencyEntry, Package, Workspace};
 
 use super::catalog;
+use super::fields::{self, Field};
 use super::specifiers::alias_target;
 use crate::manifest::support;
 
@@ -37,12 +39,14 @@ impl InstanceId {
 }
 
 /// Where an instance was read from.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) enum Origin<'w> {
     /// An entry of a dependency section of `package.json`.
     Dependency(&'w DependencyEntry),
     /// The `version` field of a workspace package.
     OwnVersion,
+    /// A version in an override section or a custom type, in `package.json` or `pnpm-workspace.yaml`.
+    Field(Field),
 }
 
 /// One declared version of a dependency.
@@ -50,6 +54,9 @@ pub(crate) enum Origin<'w> {
 pub(crate) struct Instance<'w> {
     pub(crate) package: &'w Package,
     pub(crate) origin: Origin<'w>,
+    /// Where the version is declared: a dependency section, the package's own version, an override section or a
+    /// custom type.
+    pub(crate) ty: DependencyType,
     /// The dependency name; for an own version, the package name.
     pub(crate) name: String,
     pub(crate) specifier: Arc<Specifier>,
@@ -61,12 +68,17 @@ pub(crate) struct Instance<'w> {
 }
 
 impl Instance<'_> {
-    /// The dependency section, or `None` for the package's own version.
+    /// The dependency section, or `None` for the package's own version and for the versions of override sections and
+    /// custom types.
     pub(crate) fn kind(&self) -> Option<DependencyKind> {
-        match self.origin {
+        match &self.origin {
             Origin::Dependency(entry) => Some(entry.kind),
-            Origin::OwnVersion => None,
+            Origin::OwnVersion | Origin::Field(_) => None,
         }
+    }
+
+    pub(crate) const fn ty(&self) -> &DependencyType {
+        &self.ty
     }
 
     pub(crate) fn is_own_version(&self) -> bool {
@@ -83,24 +95,29 @@ impl Instance<'_> {
         alias_target(&self.specifier, &self.name)
     }
 
-    /// The whole entry for a dependency, the `version` member for an own version.
+    /// The whole entry for a dependency or a field, the `version` member for an own version.
     pub(crate) fn location(&self) -> Location {
-        match self.origin {
+        match &self.origin {
             Origin::Dependency(entry) => support::entry_location(self.package, entry),
             Origin::OwnVersion => support::field_location(self.package, &[support::key("version")]),
+            Origin::Field(field) => field.location(),
         }
     }
 
-    /// The JSON pointer of the entry in the manifest; `None` for an own version.
+    /// The JSON pointer of the entry in the manifest; `None` for an own version and for a version in a YAML file.
     pub(crate) fn pointer(&self) -> Option<Vec<PathSeg>> {
-        match self.origin {
+        match &self.origin {
             Origin::Dependency(entry) => Some(vec![support::key(entry.kind.field()), support::key(&entry.name)]),
             Origin::OwnVersion => None,
+            Origin::Field(field) => field.json_pointer(),
         }
     }
 
     /// The operation writing `specifier` over this entry; `None` for an own version, which is never rewritten.
     pub(crate) fn set_specifier(&self, specifier: &str) -> Option<FixOp> {
+        if let Origin::Field(field) = &self.origin {
+            return Some(field.set(self.package, specifier));
+        }
         let pointer = self.pointer()?;
         Some(support::json_op(
             self.package,
@@ -111,6 +128,9 @@ impl Instance<'_> {
 
     /// The operation removing this entry; `None` for an own version.
     pub(crate) fn remove(&self) -> Option<FixOp> {
+        if let Origin::Field(field) = &self.origin {
+            return Some(field.remove(self.package));
+        }
         let pointer = self.pointer()?;
         Some(support::json_op(self.package, pointer, JsonAction::Remove))
     }
@@ -129,10 +149,11 @@ impl<'w> Instances<'w> {
     /// section, and each package's own version, which dependents are aligned with whatever section they use.
     ///
     /// Which of them a version group governs is decided when they are assigned to groups (see
-    /// [`Groups::assign`](super::groups::Groups::assign)). Dependencies named in `owned` (see
+    /// [`Groups::assign`](super::groups::Groups::assign)). Versions in the override sections and in the fields `custom`
+    /// names are collected too. Dependencies named in `owned` (see
     /// [`catalog::owned_dependencies`]) are flagged [`catalog_owned`](Instance::catalog_owned): the catalog rules
     /// report them.
-    pub(crate) fn collect_with(workspace: &'w Workspace, owned: &BTreeSet<&str>) -> Self {
+    pub(crate) fn collect_with(workspace: &'w Workspace, owned: &BTreeSet<&str>, custom: &[CustomType]) -> Self {
         let local_names: HashSet<&str> = workspace
             .all_packages()
             .filter_map(|package| package.name.as_deref())
@@ -143,6 +164,7 @@ impl<'w> Instances<'w> {
                 items.push(Instance {
                     package,
                     origin: Origin::OwnVersion,
+                    ty: DependencyType::Local,
                     name: name.clone(),
                     specifier: Specifier::new(version),
                     is_local: true,
@@ -153,10 +175,22 @@ impl<'w> Instances<'w> {
                 items.push(Instance {
                     package,
                     origin: Origin::Dependency(entry),
+                    ty: DependencyType::Section(entry.kind),
                     name: entry.name.clone(),
                     specifier: Arc::clone(&entry.parsed),
                     is_local: local_names.contains(entry.name.as_str()),
                     catalog_owned: owned.contains(entry.name.as_str()) && owned_by_catalog(entry),
+                });
+            }
+            for found in fields::collect(workspace, package, custom) {
+                items.push(Instance {
+                    package,
+                    origin: Origin::Field(found.field),
+                    ty: found.ty,
+                    is_local: local_names.contains(found.name.as_str()),
+                    specifier: Specifier::new(&found.version),
+                    name: found.name,
+                    catalog_owned: false,
                 });
             }
         }
@@ -180,7 +214,7 @@ impl<'w> Instances<'w> {
         } else {
             BTreeSet::new()
         };
-        Self::collect_with(workspace, &owned)
+        Self::collect_with(workspace, &owned, &config.custom_types)
     }
 
     /// The workspace the instances were read from.
@@ -222,6 +256,8 @@ impl<'w> Instances<'w> {
 
 #[cfg(test)]
 mod tests {
+    use skif_core::YamlAction;
+
     use super::*;
     use crate::testing::{config, workspace};
 
@@ -329,5 +365,109 @@ mod tests {
         assert_eq!(slice(&dependency.location()), r#""react":"^18.0.0""#);
         let own = instances.get(instances.named("app")[0]);
         assert_eq!(slice(&own.location()), r#""version":"1.0.0""#);
+    }
+
+    const WITH_FIELDS: &str = r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"],"resolutions":{"**/lodash":"4.17.20"},"overrides":{"react":{".":"18.0.0","react-dom":"18.2.0"},"left":"1.0.0","nested":{"a":1}},"pnpm":{"overrides":{"react@<18":"18.0.0"}}}"#;
+    const MANAGER: &str = "[[custom-types]]\nname = \"manager\"\npath = \"packageManager\"\nstrategy = \"name@version\"\n";
+
+    fn field_instances<'a, 'w>(instances: &'a Instances<'w>) -> Vec<&'a Instance<'w>> {
+        instances
+            .iter()
+            .map(|(_, instance)| instance)
+            .filter(|instance| !instance.is_own_version() && instance.kind().is_none())
+            .collect()
+    }
+
+    #[test]
+    fn override_sections_and_custom_types_become_instances() {
+        let config = config(MANAGER);
+        let files = [("package.json", WITH_FIELDS), ("packages/app/package.json", APP)];
+        let workspace = workspace(&files, &config);
+        let instances = Instances::collect(&workspace, &config, true);
+        let found: Vec<(String, String, String)> = field_instances(&instances)
+            .into_iter()
+            .map(|instance| (instance.ty().token().to_owned(), instance.name.clone(), instance.raw().to_owned()))
+            .collect();
+        let expected = [
+            ("resolutions", "lodash", "4.17.20"),
+            ("overrides", "react", "18.0.0"),
+            ("overrides", "react-dom", "18.2.0"),
+            ("overrides", "left", "1.0.0"),
+            ("pnpm-overrides", "react", "18.0.0"),
+            ("manager", "pnpm", "9.0.0"),
+        ];
+        assert_eq!(
+            found,
+            expected.map(|(ty, name, raw)| (ty.to_owned(), name.to_owned(), raw.to_owned()))
+        );
+        assert_eq!(instances.named("react").len(), 4, "two sections of app and two field instances");
+    }
+
+    #[test]
+    fn field_edits_address_the_value_and_keep_the_name_prefix() {
+        let config = config(MANAGER);
+        let files = [("package.json", WITH_FIELDS), ("packages/app/package.json", APP)];
+        let workspace = workspace(&files, &config);
+        let instances = Instances::collect(&workspace, &config, true);
+        let field = |token: &str, name: &str| {
+            *field_instances(&instances)
+                .iter()
+                .find(|instance| instance.ty().token() == token && instance.name == name)
+                .unwrap()
+        };
+        let set = |instance: &Instance<'_>, pointer: Vec<&str>, value: &str| {
+            Some(support::json_op(
+                instance.package,
+                pointer.into_iter().map(support::key).collect(),
+                JsonAction::Set(serde_json::Value::String(value.to_owned())),
+            ))
+        };
+        let nested = field("overrides", "react");
+        assert_eq!(nested.set_specifier("^18.3.1"), set(nested, vec!["overrides", "react", "."], "^18.3.1"));
+        let pnpm = field("pnpm-overrides", "react");
+        assert_eq!(pnpm.set_specifier("^18.3.1"), set(pnpm, vec!["pnpm", "overrides", "react@<18"], "^18.3.1"));
+        let manager = field("manager", "pnpm");
+        assert_eq!(manager.set_specifier("9.1.0"), set(manager, vec!["packageManager"], "pnpm@9.1.0"));
+        assert_eq!(
+            manager.remove(),
+            Some(support::json_op(manager.package, vec![support::key("packageManager")], JsonAction::Remove))
+        );
+        let slice = |instance: &Instance<'_>| {
+            let span = instance.location().span.unwrap();
+            WITH_FIELDS[span.start as usize..span.end as usize].to_owned()
+        };
+        assert_eq!(slice(pnpm), r#""react@<18":"18.0.0""#);
+        assert_eq!(slice(field("resolutions", "lodash")), r#""**/lodash":"4.17.20""#);
+        assert!(slice(nested).starts_with(r#""react":{"#), "a `.` entry is located at its parent");
+    }
+
+    #[test]
+    fn overrides_of_pnpm_workspace_are_edited_in_the_yaml_file() {
+        let config = config("");
+        let yaml = "packages:\n  - \"packages/*\"\noverrides:\n  lodash: 4.17.20\n";
+        let files = [
+            ("package.json", ROOT),
+            ("pnpm-workspace.yaml", yaml),
+            ("packages/app/package.json", APP),
+        ];
+        let workspace = workspace(&files, &config);
+        let instances = Instances::collect(&workspace, &config, true);
+        let lodash = field_instances(&instances)
+            .into_iter()
+            .find(|instance| instance.name == "lodash")
+            .unwrap();
+        assert_eq!(lodash.ty(), &DependencyType::PnpmOverrides);
+        assert_eq!(lodash.pointer(), None);
+        assert_eq!(
+            lodash.set_specifier("^4.17.21"),
+            Some(FixOp::yaml(
+                "pnpm-workspace.yaml",
+                vec![support::key("overrides"), support::key("lodash")],
+                YamlAction::Set(serde_json::Value::String("^4.17.21".to_owned()))
+            ))
+        );
+        let location = lodash.location();
+        let span = location.span.unwrap();
+        assert_eq!(&yaml[span.start as usize..span.end as usize], "lodash: 4.17.20");
     }
 }

@@ -45,14 +45,15 @@ fn instance_diagnostic(
 ) -> Diagnostic {
     let state = verdict.state;
     let package = instance.package.display_name();
-    let subject = match instance.kind() {
-        Some(kind) => format!(
+    let subject = if instance.is_own_version() {
+        format!("the version `{}` of {package}", instance.raw())
+    } else {
+        format!(
             "`{}@{}` in `{}` of {package}",
             instance.name,
             instance.raw(),
-            kind.field()
-        ),
-        None => format!("the version `{}` of {package}", instance.raw()),
+            instance.ty().label()
+        )
     };
     let mut builder = diagnostic(
         state.rule(),

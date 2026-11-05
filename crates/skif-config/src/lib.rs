@@ -23,11 +23,11 @@ mod schema;
 mod selector;
 
 pub use builder::ConfigBuilder;
-pub use dependency_types::DependencyTypes;
+pub use dependency_types::{DependencyType, DependencyTypes};
 pub use discover::{CONFIG_FILE_NAMES, Ceiling, ConfigCache, ConfigLoader, discover, discover_with_fs};
 pub use error::ConfigError;
 pub use model::{
-    Catalog, CatalogMode, Config, DEFAULT_DISCOVER_IGNORE, DependencyFamily, ExportKinds, IgnoreEntry,
+    Catalog, CatalogMode, Config, CustomStrategy, CustomType, DEFAULT_DISCOVER_IGNORE, DependencyFamily, ExportKinds, IgnoreEntry,
     IgnoreExportsUsedInFile, Js, JsWorkspace, Lint,
     Override, OverrideScope, PackageJs, PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey,
     SemverGroup, SemverRange, VersionGroup, VersionPolicy, Workspace, WorkspaceProtocol,

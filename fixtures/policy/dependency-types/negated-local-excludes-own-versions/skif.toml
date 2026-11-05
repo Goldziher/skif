@@ -1,0 +1,5 @@
+[[version-groups]]
+dependencies = ["lib"]
+dependency-types = ["!local"]
+policy = "pinned"
+pin = "3.0.0"
