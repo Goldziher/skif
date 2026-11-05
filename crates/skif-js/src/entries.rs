@@ -52,13 +52,20 @@ pub(crate) fn entry_files(
         );
         let mut published_without_source = false;
         let mut mapped_any = false;
-        for target in manifest_targets(package.manifest.value()) {
+        for manifest_target in manifest_targets(package.manifest.value()) {
+            let target = manifest_target.path;
             if target.contains('*') {
                 mapped_any = true;
                 let patterns = source_patterns(&target)
                     .into_iter()
                     .chain(std::iter::once(target.trim_start_matches("./").to_owned()))
-                    .map(|pattern| crossing_stars(&pattern));
+                    .map(|pattern| {
+                        if manifest_target.from_exports {
+                            crossing_stars(&pattern)
+                        } else {
+                            pattern
+                        }
+                    });
                 let globs = Globs::new(patterns);
                 entries.extend(
                     owned()

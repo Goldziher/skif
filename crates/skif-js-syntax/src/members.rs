@@ -5,8 +5,8 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use oxc_ast::ast::{
-    BindingPattern, ComputedMemberExpression, ExportNamedDeclaration, Expression, IdentifierReference,
-    StaticMemberExpression, TSQualifiedName, TSTypeName, TSTypeQuery, VariableDeclarator,
+    BindingPattern, ComputedMemberExpression, Expression, IdentifierReference, StaticMemberExpression, TSQualifiedName,
+    TSTypeName, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 
@@ -180,11 +180,10 @@ pub(crate) fn credit(info: &mut ModuleInfo, uses: &Uses) {
     }
 }
 
-/// How the enums and namespaces declared in a program are used by the program itself.
+/// The members of the enums and namespaces declared in a program that the program itself reads by name.
 struct LocalReads<'w> {
     wanted: &'w HashSet<String>,
     reads: HashMap<String, BTreeSet<String>>,
-    escaped: HashSet<String>,
 }
 
 impl LocalReads<'_> {
@@ -199,18 +198,6 @@ impl LocalReads<'_> {
 }
 
 impl<'a> Visit<'a> for LocalReads<'_> {
-    fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
-        if self.wanted.contains(it.name.as_str()) {
-            self.escaped.insert(it.name.as_str().to_owned());
-        }
-    }
-
-    // `export { E }` publishes the declaration; it does not read it.
-    fn visit_export_named_declaration(&mut self, _: &ExportNamedDeclaration<'a>) {}
-
-    // `typeof E` and `keyof typeof E` name the declaration at type level only.
-    fn visit_ts_type_query(&mut self, _: &TSTypeQuery<'a>) {}
-
     fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
         if let Expression::Identifier(id) = &it.object
             && self.read(id.name.as_str(), it.property.name.as_str())
@@ -267,8 +254,7 @@ impl<'a> Visit<'a> for LocalReads<'_> {
     }
 }
 
-/// Fills [`crate::model::Export::members_read_in_file`] and [`crate::model::Export::members_escape_in_file`] of every
-/// enum and namespace export from the uses in `program`.
+/// Fills [`crate::model::Export::members_read_in_file`] of every enum and namespace export from the uses in `program`.
 pub(crate) fn mark_local_reads(program: &oxc_ast::ast::Program<'_>, info: &mut ModuleInfo) {
     let wanted: HashSet<String> = info
         .exports
@@ -282,7 +268,6 @@ pub(crate) fn mark_local_reads(program: &oxc_ast::ast::Program<'_>, info: &mut M
     let mut tracker = LocalReads {
         wanted: &wanted,
         reads: HashMap::new(),
-        escaped: HashSet::new(),
     };
     tracker.visit_program(program);
     for export in &mut info.exports {
@@ -294,8 +279,6 @@ pub(crate) fn mark_local_reads(program: &oxc_ast::ast::Program<'_>, info: &mut M
             .get(local)
             .map(|members| members.iter().cloned().collect())
             .unwrap_or_default();
-        let escapes = tracker.escaped.contains(local);
         export.members_read_in_file = reads;
-        export.members_escape_in_file = escapes;
     }
 }

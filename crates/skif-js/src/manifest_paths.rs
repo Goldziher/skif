@@ -107,22 +107,20 @@ pub(crate) fn source_patterns(target: &str) -> Vec<String> {
     patterns
 }
 
-/// Rewrites a published path with `*` into a glob with the semantics of the `exports` field, where `*` also matches
-/// `/`: `src/*.ts` becomes `src/**/*.ts` and `dist/*/index.js` becomes `dist/**/index.js`.
+/// Widens the `*` of an `exports` leaf the way the `exports` field matches it, where `*` also matches `/`: a trailing
+/// `/*` becomes `/**`, the first `/*.` becomes `/**/*.` and the first `/*/` becomes `/**/`. Other patterns are kept.
 pub(crate) fn crossing_stars(pattern: &str) -> String {
-    let components: Vec<&str> = pattern.split('/').collect();
-    let last = components.len().saturating_sub(1);
-    let mut rewritten: Vec<&str> = Vec::with_capacity(components.len() + 1);
-    for (index, component) in components.into_iter().enumerate() {
-        if component == "*" && index != last {
-            rewritten.push("**");
-        } else if component.starts_with('*') && !component.starts_with("**") && index == last {
-            rewritten.extend(["**", component]);
-        } else {
-            rewritten.push(component);
-        }
-    }
-    rewritten.join("/")
+    let padded = format!("/{pattern}");
+    let widened = if let Some(head) = padded.strip_suffix("/*") {
+        format!("{head}/**")
+    } else if let Some(at) = padded.find("/*.") {
+        format!("{}/**/*.{}", &padded[..at], &padded[at + 3..])
+    } else if let Some(at) = padded.find("/*/") {
+        format!("{}/**/{}", &padded[..at], &padded[at + 3..])
+    } else {
+        padded
+    };
+    widened.strip_prefix('/').unwrap_or(&widened).to_owned()
 }
 
 /// The files a bin stub loads. A published `bin` file without a script extension (`bin/tool`, a `#!/usr/bin/env node`
@@ -205,26 +203,49 @@ fn collect_strings(value: &Value, out: &mut Vec<String>) {
     }
 }
 
-/// Every file path a manifest publishes: `main`, `module`, `types`, `bin` and the leaves of `exports`.
-pub(crate) fn manifest_targets(manifest: &Value) -> Vec<String> {
-    let mut targets = Vec::new();
+/// A file path a manifest publishes and whether it is a leaf of the `exports` field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ManifestTarget {
+    pub(crate) path: String,
+    pub(crate) from_exports: bool,
+}
+
+/// Every file path a manifest publishes: `main`, `module`, `types`, `bin` and the leaves of `exports`. The catch-all
+/// `./*` export is not a target.
+pub(crate) fn manifest_targets(manifest: &Value) -> Vec<ManifestTarget> {
+    let mut paths = Vec::new();
     for field in ENTRY_FIELDS {
         if let Some(Value::String(text)) = manifest.get(*field) {
-            targets.push(text.clone());
+            paths.push(text.clone());
         }
     }
     if let Some(Value::String(text)) = manifest.get("browser") {
-        targets.push(text.clone());
+        paths.push(text.clone());
     }
     if let Some(bin) = manifest.get("bin") {
-        collect_strings(bin, &mut targets);
+        collect_strings(bin, &mut paths);
     }
+    let mut targets: Vec<ManifestTarget> = paths
+        .into_iter()
+        .map(|path| ManifestTarget {
+            path,
+            from_exports: false,
+        })
+        .collect();
     if let Some(exports) = manifest.get("exports") {
         let mut leaves = Vec::new();
         collect_strings(exports, &mut leaves);
-        targets.extend(leaves.into_iter().filter(|leaf| leaf.starts_with("./")));
+        targets.extend(
+            leaves
+                .into_iter()
+                .filter(|leaf| leaf.starts_with("./") && leaf != "./*")
+                .map(|path| ManifestTarget {
+                    path,
+                    from_exports: true,
+                }),
+        );
     }
-    targets.retain(|target| !target.is_empty());
+    targets.retain(|target| !target.path.is_empty());
     targets
 }
 
@@ -390,8 +411,21 @@ mod tests {
         });
         let targets = manifest_targets(&manifest);
         for expected in ["dist/index.js", "bin/tool.js", "./dist/index.js", "./dist/a.js"] {
-            assert!(targets.iter().any(|t| t == expected), "{expected}");
+            assert!(targets.iter().any(|t| t.path == expected), "{expected}");
         }
+        let from_exports: Vec<&str> = targets
+            .iter()
+            .filter(|t| t.from_exports)
+            .map(|t| t.path.as_str())
+            .collect();
+        assert_eq!(from_exports, vec!["./dist/index.js", "./dist/a.js"]);
+    }
+
+    #[test]
+    fn catch_all_export_is_not_a_target() {
+        let manifest = json!({ "exports": { "./*": "./*", "./a/*": "./a/*.js" } });
+        let paths: Vec<String> = manifest_targets(&manifest).into_iter().map(|t| t.path).collect();
+        assert_eq!(paths, vec!["./a/*.js".to_owned()]);
     }
 
     #[test]
@@ -405,7 +439,9 @@ mod tests {
         assert_eq!(crossing_stars("src/*.ts"), "src/**/*.ts");
         assert_eq!(crossing_stars("*.ts"), "**/*.ts");
         assert_eq!(crossing_stars("dist/*/index.js"), "dist/**/index.js");
+        assert_eq!(crossing_stars("dist/*"), "dist/**");
         assert_eq!(crossing_stars("src/index.ts"), "src/index.ts");
         assert_eq!(crossing_stars("src/foo-*.ts"), "src/foo-*.ts");
+        assert_eq!(crossing_stars("a/*/b/*/c.js"), "a/**/b/*/c.js");
     }
 }
