@@ -150,3 +150,8 @@ blake3 = "520e8f50a723b54e7bc7165322f521ace94899bdc527da6e3ed937f1f7f63ebb"
 number = 30
 status = "accepted"
 blake3 = "4c0aca44a3801b20996ec7cd22e72bb0010d5c2411e4462f161ff2bbaa4181e8"
+
+[adrs."adrs/0031-core-rule-scoping-peer-overlap-catalog-sources-and-root-discovery-entry-point.md"]
+number = 31
+status = "accepted"
+blake3 = "7a805fd5276aacd4a09dd1b1c7d292720fb09ba0bdd8081cb6efb170eb3cf17c"

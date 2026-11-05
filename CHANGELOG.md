@@ -13,6 +13,14 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Added
 
+- **Config model constructors**: every `skif-config` model struct is `#[non_exhaustive]` and builds from `Default` or a
+  constructor plus `with_*` methods (`SemverGroup::new`, `DependencyFamily::new`, `VersionGroup`, `IgnoreEntry`,
+  `Catalog`, `PluginOptions`, `Workspace`, `Lint`, `Policy`, `WorkspaceProtocol`, `Js`), so `ConfigBuilder::semver_group`
+  and `dependency_family` are usable from other crates. `PluginConfig` is `#[non_exhaustive]` too.
+- **`Workspace::claimed_dirs`, `Workspace::supports_workspace_protocol` and `Candidates::unreadable`** in
+  `skif-workspace`; `WorkspaceError::InvalidYarnrc` for a `.yarnrc.yml` that is not valid YAML.
+- **Yarn Berry detection**: a `.yarnrc.yml` or `.yarn/releases` identifies Yarn when nothing stronger does, so a
+  checkout without a committed `yarn.lock` is recognised.
 - **Why is this used**: `skif explain-usage <FILE[#EXPORT]> [PATH]` prints the entry rule of a file, every import of it
   with file and line, the shortest chain of imports from an entry file, and for an export the modules that use it,
   following re-exports. `FILE` is relative to the current directory; `--format json` prints a stable document;
@@ -141,6 +149,19 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Changed
 
+- **`workspace-protocol` scope**: the rule is silent for Yarn Classic as it is for npm, skips `peerDependencies`, and
+  leaves `file:`/`link:` paths to `local-path-dependency` while that rule is on (so one dependency is reported once).
+  `allow-local-paths` decides them only when `local-path-dependency` is off.
+- **`incompatible-peer-dependencies` judges by overlap**: a dev range is reported only when no version it allows can
+  satisfy the peer range (`^18.0.0` against a peer of `^18.2.0` is fine; `~18.1.0` is not).
+- **Catalogs are read for the active package manager**: `pnpm-workspace.yaml` for pnpm (or an unknown manager),
+  `.yarnrc.yml` for Yarn, `package.json` always. An invalid `.yarnrc.yml` is reported in `Workspace::manifest_errors`.
+- **`skif_workspace::discover_roots` is gone** from the public API (and from `skif`): `discover_targets` is the one
+  config-aware pipeline, built on `scan_candidates` and `claim_roots`. A workspace claims a member whose manifest does
+  not parse, so that member is no longer linted a second time as a root.
+- **`--ignore-package` help** says that the flag replaces `[workspace] ignore-packages` (ADR 0024).
+- **`missing_docs`** is a warning in `skif-core`, `skif-specifier` and `skif-workspace` and the whole config model is
+  documented (so the JSON Schema gains the descriptions); `skif-specifier` asserts `Send + Sync` for its public types.
 - **Library timings are a hook, not an environment read**: `skif_core::timing` no longer looks at `SKIF_TIMINGS` or
   writes to stderr on its own. A host installs a sink with `timing::enable` (or `enable_stderr`); the `skif` command
   line does so when `SKIF_TIMINGS` is set. The `skif` crate no longer re-exports `timing`.
@@ -177,6 +198,15 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Fixed
 
+- **Root discovery reads manifests like the loader**: a root `package.json` with a byte order mark, comments or
+  trailing commas that declares `workspaces` is a workspace root for `-r`, and `declared_member_dirs` reads it too.
+- **`[workspace] discover-ignore` is validated**: an invalid pattern is a configuration error naming
+  `workspace.discover-ignore[i]` instead of being skipped.
+- **One unreadable directory entry no longer hides its siblings** in a listing; a directory that cannot be listed is
+  reported in `Candidates::unreadable`.
+- **A `package.json` section written twice** keeps the entries of its last occurrence only, as the JSON value does.
+- **`same-range` on a dependency shared by many packages** judges each distinct specifier once, and the `*`/`latest`/
+  `workspace:*` range is parsed once.
 - **Knip parity in the JS analysis** (found by running both tools on the pinned corpus): `unused-enum-members` and
   `unused-namespace-members` now count a member read in the declaring file by name, and no whole-enum use there
   (`Object.values(E)`, `E[key]`, a spread, a bare reference) credits a member;
