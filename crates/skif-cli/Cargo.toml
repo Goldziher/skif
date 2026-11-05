@@ -12,7 +12,7 @@ documentation = "https://docs.rs/skif-cli"
 keywords = ["linter", "monorepo", "package-json", "pnpm", "cli"]
 categories = ["development-tools", "command-line-utilities"]
 readme = "README.md"
-include = ["src/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
+include = ["/src/**", "/tests/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md", "/README.md"]
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/skif-{ target }{ archive-suffix }"

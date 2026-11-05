@@ -221,7 +221,12 @@ fn bench_discovery(c: &mut Criterion) {
     }
     let touched = modes
         .iter()
-        .map(|(name, discovery)| (*name, listed_entries(overlay(&workspace, *discovery).as_ref(), &directories)))
+        .map(|(name, discovery)| {
+            (
+                *name,
+                listed_entries(overlay(&workspace, *discovery).as_ref(), &directories),
+            )
+        })
         .collect::<Vec<_>>();
     let walked_entries = touched[0].1;
     for (name, entries) in &touched {

@@ -311,7 +311,9 @@ fn execute(args: &MigrateArgs, report_format: RulesFormat) -> Result<u8, CliErro
     let package_path = root.join("package.json");
     let package_text = read_optional(&package_path)?;
     let tools = selected_tools(args, &root, package_text.as_deref())?;
-    let package_input = package_text.as_ref().map(|text| Input::new("package.json", text.clone()));
+    let package_input = package_text
+        .as_ref()
+        .map(|text| Input::new("package.json", text.clone()));
     let patterns = workspace_patterns(&root, package_text.as_deref());
     let inputs = tools
         .iter()

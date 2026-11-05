@@ -209,19 +209,25 @@ impl TrackedPaths {
             let at = |position: usize| &self.names[self.start_of(position)..self.ends[position].end];
             let start = format!("{prefix}/");
             let first = partition(self.ends.len(), |position| at(position) < start.as_str());
-            let last = first + partition(self.ends.len() - first, |position| at(first + position).starts_with(&start));
+            let last = first
+                + partition(self.ends.len() - first, |position| {
+                    at(first + position).starts_with(&start)
+                });
             (first, last)
         };
-        self.ends[first..last].iter().enumerate().filter_map(move |(offset, path)| {
-            let position = first + offset;
-            let full = &self.names[self.start_of(position)..path.end];
-            let relative = if prefix.is_empty() {
-                full
-            } else {
-                full.strip_prefix(prefix)?.strip_prefix('/')?
-            };
-            Some((relative, path.symlink))
-        })
+        self.ends[first..last]
+            .iter()
+            .enumerate()
+            .filter_map(move |(offset, path)| {
+                let position = first + offset;
+                let full = &self.names[self.start_of(position)..path.end];
+                let relative = if prefix.is_empty() {
+                    full
+                } else {
+                    full.strip_prefix(prefix)?.strip_prefix('/')?
+                };
+                Some((relative, path.symlink))
+            })
     }
 
     /// The paths with whether each is a symbolic link.
