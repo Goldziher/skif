@@ -150,9 +150,10 @@ pub(crate) fn collect(
         (DependencyType::Overrides, &["overrides"][..]),
         (DependencyType::PnpmOverrides, &["pnpm", "overrides"][..]),
     ];
-    let section_count = match reading {
-        OverrideReading::Skif => sections.len(),
-        OverrideReading::Syncpack => sections.len() - 1,
+    let section_count = if matches!(reading, OverrideReading::Syncpack) {
+        sections.len() - 1
+    } else {
+        sections.len()
     };
     for (ty, path) in sections.into_iter().take(section_count) {
         let Some(entries) = path
@@ -193,9 +194,10 @@ pub(crate) fn collect(
 
 /// The dependency of an override entry: the package its selector replaces, or the selector itself as syncpack reads it.
 fn entry_name(selector: &str, reading: OverrideReading) -> &str {
-    match reading {
-        OverrideReading::Skif => override_name(selector),
-        OverrideReading::Syncpack => selector,
+    if matches!(reading, OverrideReading::Syncpack) {
+        selector
+    } else {
+        override_name(selector)
     }
 }
 

@@ -280,5 +280,9 @@ fn config_hints_as_errors_are_written_as_warn_unless_strict_hints_is_given() {
     assert!(plain.stdout.contains("stale-js-config = \"warn\""), "{}", plain.stdout);
     let strict = run(migrate(dir.path()).args(["--from", "knip", "--dry-run", "--strict-hints"]));
     assert_eq!(strict.code, 0, "{}{}", strict.stdout, strict.stderr);
-    assert!(strict.stdout.contains("stale-js-config = \"error\""), "{}", strict.stdout);
+    assert!(
+        strict.stdout.contains("stale-js-config = \"error\""),
+        "{}",
+        strict.stdout
+    );
 }
