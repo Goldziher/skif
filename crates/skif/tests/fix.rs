@@ -5,9 +5,9 @@ use std::sync::atomic::AtomicBool;
 
 use serde_json::json;
 use skif::{
-    Alternatives, Category, ConfigOverrides, Diagnostic, Emitter, FileChange, FileSystem, Fix, FixOp, FixSafety,
-    FixSelection, Fixability, InsertPosition, JsonAction, LintContext, Linter, Location, MemoryFs, PathSeg, Prefer,
-    Report, Rule, RuleMeta, RulesProvider, RunOptions, Severity, SkipReason, TextEdit, Workspace, apply_fixes,
+    Alternatives, Category, ConfigOverrides, Diagnostic, Emitter, FileChange, FileSystem, Fix, FixOp, FixPreference,
+    FixSafety, FixSelection, Fixability, InsertPosition, JsonAction, LintContext, Linter, Location, MemoryFs, PathSeg,
+    Prefer, Report, Rule, RuleMeta, RulesProvider, RunOptions, Severity, SkipReason, TextEdit, Workspace, apply_fixes,
     content_hash, diagnostic, load_config, preferred_alternative,
 };
 
@@ -63,12 +63,14 @@ fn member_fixes() -> Vec<Fix> {
             "highest",
             FixSafety::Unsafe,
             vec![set_version("packages/a/package.json", "2.0.0")],
-        ),
+        )
+        .with_preference(FixPreference::Highest),
         fix(
             "lowest",
             FixSafety::Unsafe,
             vec![set_version("packages/a/package.json", "0.1.0")],
-        ),
+        )
+        .with_preference(FixPreference::Lowest),
     ]
 }
 
@@ -263,6 +265,17 @@ fn configuration_picks_the_alternative_that_names_the_preferred_version() {
 }
 
 #[test]
+fn the_preference_tag_decides_not_the_wording_of_the_title() {
+    let alternatives = vec![
+        fix("Use the lowest version", FixSafety::Unsafe, Vec::new()).with_preference(FixPreference::Highest),
+        fix("Pick 0.1.0", FixSafety::Unsafe, Vec::new()).with_preference(FixPreference::Lowest),
+        fix("Use the highest version", FixSafety::Unsafe, Vec::new()),
+    ];
+    assert_eq!(preferred_alternative(&alternatives, Prefer::Highest), Some(0));
+    assert_eq!(preferred_alternative(&alternatives, Prefer::Lowest), Some(1));
+}
+
+#[test]
 fn alternatives_that_do_not_name_the_preferred_version_still_need_a_choice() {
     let fs = fs();
     let workspace = workspace(&fs);
@@ -385,6 +398,11 @@ fn create_and_delete_become_changes() {
             },
         ]
     );
+    assert_eq!(
+        plan.base_hash(Path::new("packages/a/package.json")),
+        Some(content_hash(MEMBER_MANIFEST.as_bytes()))
+    );
+    assert_eq!(plan.base_hash(Path::new("new/skif.txt")), None);
 }
 
 #[test]

@@ -33,10 +33,6 @@ impl fmt::Display for Choice {
     }
 }
 
-const fn allows(ceiling: FixSafety, safety: FixSafety) -> bool {
-    matches!(ceiling, FixSafety::Unsafe) || matches!(safety, FixSafety::Safe)
-}
-
 /// Builds the selection for this run. Alternatives are put to the user only when both stdin and stdout are terminals,
 /// the format is `human`, neither `--no-prompt` nor `--select` was given, and configuration does not already
 /// determine the answer. With `--select` the first alternative (which the rules order by the selected version) is
@@ -67,7 +63,7 @@ pub fn selection(args: &LintArgs, env: Env, report: &Report, prefer: Prefer) -> 
             .fixes
             .iter()
             .enumerate()
-            .filter(|(_, fix)| allows(safety, fix.safety))
+            .filter(|(_, fix)| selection.allows(fix.safety))
             .map(|(index, fix)| Choice {
                 index,
                 title: fix.title.clone(),
