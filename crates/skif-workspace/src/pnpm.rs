@@ -62,15 +62,12 @@ impl YamlSource {
 /// The key of a `key: value` line (without indentation) and the offset and length of the value's token in it; the
 /// length is 0 when the value is on the following lines.
 fn mapping_entry(line: &str) -> Option<(&str, usize, usize)> {
-    let (key, after_key) = match line.chars().next().filter(|c| matches!(c, '\'' | '"')) {
-        Some(quote) => {
-            let close = line[1..].find(quote)? + 1;
-            (&line[1..close], close + 1)
-        }
-        None => {
-            let colon = line.find(':')?;
-            (line[..colon].trim_end(), colon)
-        }
+    let (key, after_key) = if let Some(quote) = line.chars().next().filter(|c| matches!(c, '\'' | '"')) {
+        let close = line[1..].find(quote)? + 1;
+        (&line[1..close], close + 1)
+    } else {
+        let colon = line.find(':')?;
+        (line[..colon].trim_end(), colon)
     };
     let rest = line[after_key..].strip_prefix(':')?;
     let value = rest.trim_start();
@@ -233,7 +230,7 @@ mod tests {
         }
     }
 
-    fn slice<'a>(text: &'a str, span: Option<Span>) -> Option<&'a str> {
+    fn slice(text: &str, span: Option<Span>) -> Option<&str> {
         let span = span?;
         text.get(span.start as usize..span.end as usize)
     }
@@ -247,7 +244,11 @@ mod tests {
             ("@scope/pkg@<2", "\"@scope/pkg@<2\": '^2.1.0'"),
             ("parent>child", "parent>child: ^1.0.0"),
         ] {
-            assert_eq!(slice(text, source.override_span(selector)), Some(expected), "{selector}");
+            assert_eq!(
+                slice(text, source.override_span(selector)),
+                Some(expected),
+                "{selector}"
+            );
         }
         assert_eq!(source.override_span("missing"), None);
     }

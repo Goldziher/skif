@@ -293,20 +293,9 @@ mod tests {
     const SHERIF: &[(&str, &[&str])] = &[
         (
             "trpc",
-            &[
-                "@trpc/client",
-                "@trpc/server",
-                "@trpc/next",
-                "@trpc/react-query",
-            ],
+            &["@trpc/client", "@trpc/server", "@trpc/next", "@trpc/react-query"],
         ),
-        (
-            "react",
-            &[
-                "react",
-                "react-dom",
-            ],
-        ),
+        ("react", &["react", "react-dom"]),
         (
             "next",
             &[
@@ -456,13 +445,7 @@ mod tests {
                 "@stylistic/eslint-plugin-plus",
             ],
         ),
-        (
-            "playwright",
-            &[
-                "playwright",
-                "@playwright/test",
-            ],
-        ),
+        ("playwright", &["playwright", "@playwright/test"]),
         (
             "lexical",
             &[
@@ -505,7 +488,10 @@ mod tests {
                 .find(|family| family.name == *name)
                 .unwrap_or_else(|| panic!("missing family {name}"));
             for member in *members {
-                assert!(family.members.matches(member, false), "{member} is not in family {name}");
+                assert!(
+                    family.members.matches(member, false),
+                    "{member} is not in family {name}"
+                );
             }
         }
     }
@@ -514,7 +500,8 @@ mod tests {
     fn new_builtin_families_report_mismatches() {
         let turbo = r#""devDependencies":{"turbo":"^2.1.0","eslint-config-turbo":"^2.0.0"}"#;
         assert_eq!(flagged("", turbo), ["eslint-config-turbo"]);
-        let stylistic = r#""devDependencies":{"@stylistic/eslint-plugin":"^2.8.0","@stylistic/eslint-plugin-js":"^2.1.0"}"#;
+        let stylistic =
+            r#""devDependencies":{"@stylistic/eslint-plugin":"^2.8.0","@stylistic/eslint-plugin-js":"^2.1.0"}"#;
         assert_eq!(flagged("", stylistic), ["@stylistic/eslint-plugin-js"]);
         let lexical = r#""dependencies":{"lexical":"^0.20.0","@lexical/react":"^0.19.0"}"#;
         assert_eq!(flagged("", lexical), ["@lexical/react"]);

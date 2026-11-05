@@ -80,6 +80,13 @@
       "description": "`[[semver-groups]]`: the range type dependencies must use, first match wins.",
       "default": []
     },
+    "custom-types": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CustomType"
+      },
+      "description": "`[[custom-types]]`: manifest fields that hold versions and take part in the version policies."
+    },
     "catalog": {
       "$ref": "#/$defs/Catalog",
       "description": "`[catalog]`: when catalog entries are suggested and reported.",
@@ -116,6 +123,10 @@
         "ignore": [],
         "ignore-dependencies": [],
         "ignore-binaries": [],
+        "ignore-unresolved": [],
+        "ignore-workspaces": [],
+        "ignore-exports-used-in-file": false,
+        "ignore-members": [],
         "production": false,
         "include-entry-exports": false,
         "workspaces": {},
@@ -155,6 +166,11 @@
           "type": "string",
           "const": "dependency-families",
           "description": "Discard the inherited `dependency-families`."
+        },
+        {
+          "type": "string",
+          "const": "custom-types",
+          "description": "Discard the inherited `custom-types`."
         },
         {
           "type": "string",
@@ -550,14 +566,22 @@
           "default": []
         },
         "range": {
-          "$ref": "#/$defs/SemverRange",
-          "description": "The range type the matched dependencies must use."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemverRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The range type the matched dependencies must use. Required unless `ignored` is set."
+        },
+        "ignored": {
+          "type": "boolean",
+          "description": "The matched dependencies have no range requirement and no later semver group applies to them. Exclusive with\n`range`."
         }
       },
-      "required": [
-        "range"
-      ],
-      "description": "One `[[semver-groups]]` entry; first match wins."
+      "description": "One `[[semver-groups]]` entry; first match wins. Set `range`, or `ignored = true` to leave the matched dependencies\nwithout a range requirement (syncpack's `isIgnored` and `isDisabled`)."
     },
     "SemverRange": {
       "oneOf": [
@@ -603,6 +627,50 @@
         }
       ],
       "description": "The range type a semver group enforces."
+    },
+    "CustomType": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The token that selects this type in `dependency-types`. It must not be the name of a built-in type\n(`prod`, `dev`, `peer`, `optional`, `local`, `resolutions`, `overrides`, `pnpm-overrides`). With the `version`\nstrategy it is also the dependency name."
+        },
+        "path": {
+          "type": "string",
+          "description": "Dotted path of the field in `package.json`, e.g. `engines.node` or `packageManager`."
+        },
+        "strategy": {
+          "$ref": "#/$defs/CustomStrategy",
+          "description": "How the value at `path` holds versions."
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "strategy"
+      ],
+      "description": "One `[[custom-types]]` entry: a field of `package.json` that holds versions. Name it in a `dependency-types` list to\nselect its instances, like a dependency section (syncpack's `customTypes`)."
+    },
+    "CustomStrategy": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "name@version",
+          "description": "The value is a string `name@version` (`\"packageManager\": \"pnpm@9.0.0\"`): the dependency is the name."
+        },
+        {
+          "type": "string",
+          "const": "version",
+          "description": "The value is a version string (`engines.node`): the dependency is named after the custom type."
+        },
+        {
+          "type": "string",
+          "const": "versions-by-name",
+          "description": "The value is an object of `name: version` (`pnpm.peerDependencyRules.allowedVersions`)."
+        }
+      ],
+      "description": "How a [`CustomType`] reads versions from its `path`."
     },
     "Catalog": {
       "type": "object",
@@ -756,6 +824,35 @@
           "description": "Binaries never reported as unlisted.",
           "default": []
         },
+        "ignore-unresolved": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Import specifiers never reported as unresolved. Entries are exact specifiers, globs or regular expressions\n(`/^@org\\/.+$/`), see the `[js]` documentation.",
+          "default": []
+        },
+        "ignore-workspaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Workspace directories (globs) the JavaScript analysis skips. Manifest and policy rules still check them.",
+          "default": []
+        },
+        "ignore-exports-used-in-file": {
+          "$ref": "#/$defs/IgnoreExportsUsedInFile",
+          "description": "Exports that other code in the same file uses are not reported: `true` for every kind, or a table of kinds.",
+          "default": false
+        },
+        "ignore-members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Enum and namespace member names (globs or regular expressions) never reported as unused.",
+          "default": []
+        },
         "production": {
           "type": "boolean",
           "description": "Analyse production code only.",
@@ -771,7 +868,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/JsWorkspace"
           },
-          "description": "Per-workspace overrides keyed by directory.",
+          "description": "Per-workspace overrides keyed by directory. The key `\".\"` is the root workspace.",
           "default": {}
         },
         "plugins": {
@@ -802,9 +899,76 @@
             "type": "string"
           },
           "description": "Appended to `ignore-binaries` instead of replacing it. Folded away when the configuration is resolved."
+        },
+        "extend-ignore-unresolved": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Appended to `ignore-unresolved` instead of replacing it. Folded away when the configuration is resolved."
         }
       },
       "description": "`[js]`"
+    },
+    "IgnoreExportsUsedInFile": {
+      "anyOf": [
+        {
+          "type": "boolean",
+          "description": "`true` ignores every kind of export, `false` none."
+        },
+        {
+          "$ref": "#/$defs/ExportKinds",
+          "description": "Ignores the kinds set to `true`."
+        }
+      ],
+      "description": "`ignore-exports-used-in-file`: `true`, or a table naming the kinds of export it applies to."
+    },
+    "ExportKinds": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "variable": {
+          "type": "boolean",
+          "description": "`const`, `let` and `var` exports.",
+          "default": false
+        },
+        "function": {
+          "type": "boolean",
+          "description": "`function` exports.",
+          "default": false
+        },
+        "class": {
+          "type": "boolean",
+          "description": "`class` exports.",
+          "default": false
+        },
+        "enum": {
+          "type": "boolean",
+          "description": "`enum` exports.",
+          "default": false
+        },
+        "namespace": {
+          "type": "boolean",
+          "description": "TypeScript `namespace` exports.",
+          "default": false
+        },
+        "type": {
+          "type": "boolean",
+          "description": "Type alias exports. skif does not tell type aliases from interfaces, so this and `interface` are the same.",
+          "default": false
+        },
+        "interface": {
+          "type": "boolean",
+          "description": "Interface exports, see `type`.",
+          "default": false
+        },
+        "member": {
+          "type": "boolean",
+          "description": "Enum and namespace members. skif always counts a member read in its own file as used, so this key is\naccepted for compatibility and has no further effect.",
+          "default": false
+        }
+      },
+      "description": "The kinds of export `ignore-exports-used-in-file` can name, as in knip."
     },
     "JsWorkspace": {
       "type": "object",
@@ -849,6 +1013,59 @@
           },
           "description": "Binaries never reported as unlisted.",
           "default": []
+        },
+        "ignore-unresolved": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Import specifiers never reported as unresolved in this workspace.",
+          "default": []
+        },
+        "include-entry-exports": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Report unused exports of entry files of this workspace; unset inherits `[js] include-entry-exports`."
+        },
+        "ignore-exports-used-in-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IgnoreExportsUsedInFile"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Exports used in their own file that are not reported in this workspace; unset inherits `[js]`."
+        },
+        "ignore-members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Enum and namespace member names never reported as unused in this workspace.",
+          "default": []
+        },
+        "paths": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "Module aliases as in a `tsconfig` `paths` map: `{ \"alias/*\" = [\"./target/*\"] }`, targets relative to the workspace.",
+          "default": {}
+        },
+        "plugins": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/PluginConfig"
+          },
+          "description": "Plugin switches and options for this workspace, applied over `[js.plugins]`.",
+          "default": {}
         }
       },
       "description": "`[js.workspaces.\"<dir>\"]`"
@@ -1013,6 +1230,20 @@
             "type": "string"
           },
           "description": "Appended to the ignored binaries."
+        },
+        "ignore-unresolved": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Replaces the ignored unresolved specifiers."
+        },
+        "extend-ignore-unresolved": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Appended to the ignored unresolved specifiers."
         },
         "plugins": {
           "type": "object",

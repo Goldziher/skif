@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use skif_config::{Config, ConfigError};
 use skif_core::{FileSystem, OsFs, RuleMeta};
-use skif_js_plugins::Plugin as _;
 use skif_lint::{
     Emitter, EnabledRules, LintContext, OptionsError, ProviderError, RuleProvider, parse_options, reject_options,
 };
@@ -12,9 +11,9 @@ use skif_workspace::map_ordered;
 
 use crate::analysis::JsAnalysis;
 use crate::config_check;
-use crate::setup::UnusedExportsOptions;
 use crate::input::InputSource;
 use crate::rules::{JsRule, rules};
+use crate::setup::UnusedExportsOptions;
 
 /// Identifies the JS provider in errors.
 pub const PROVIDER_ID: &str = "js";
@@ -80,7 +79,10 @@ impl RuleProvider for JsProvider {
     }
 
     fn validate_config(&self, config: &Config) -> Result<(), ConfigError> {
-        let plugin_ids: Vec<&str> = skif_js_plugins::plugins().iter().map(|plugin| plugin.spec().id).collect();
+        let plugin_ids: Vec<&str> = skif_js_plugins::registry::plugins()
+            .iter()
+            .map(|plugin| plugin.spec().id)
+            .collect();
         config.validate_plugins(&plugin_ids)?;
         config_check::validate(config)
     }
@@ -101,7 +103,8 @@ impl RuleProvider for JsProvider {
         let mut analysis = JsAnalysis::build(cx.workspace, cx.config, &self.fs, &self.sources, cx.sequential);
         analysis.enabled_rules = Some(active.iter().map(|rule| rule.meta().id.to_owned()).collect());
         analysis.config_path = cx.config_path.map(std::path::Path::to_path_buf);
-        let (last, concurrent): (Vec<&dyn JsRule>, Vec<&dyn JsRule>) = active.iter().copied().partition(|rule| rule.runs_last());
+        let (last, concurrent): (Vec<&dyn JsRule>, Vec<&dyn JsRule>) =
+            active.iter().copied().partition(|rule| rule.runs_last());
         let base = &*out;
         let parts: Vec<Emitter<'_>> = map_ordered(&concurrent, cx.sequential, |rule| {
             let mut part = base.fork();

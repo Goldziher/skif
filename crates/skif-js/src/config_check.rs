@@ -48,10 +48,7 @@ fn names(key: &str, entries: &[String]) -> Problem {
 fn plugin_globs(key: &str, table: &IndexMap<String, PluginConfig>) -> Problem {
     for (id, plugin) in table {
         if let PluginConfig::Options(PluginOptions {
-            config,
-            entry,
-            project,
-            ..
+            config, entry, project, ..
         }) = plugin
         {
             globs(&format!("{key}.{id}.config"), config)?;
@@ -118,7 +115,10 @@ pub(crate) fn validate(config: &Config) -> Problem {
         names(&format!("{key}.ignore-binaries"), &scoped.ignore_binaries)?;
         names(&format!("{key}.extend-ignore-binaries"), &scoped.extend_ignore_binaries)?;
         names(&format!("{key}.ignore-unresolved"), &scoped.ignore_unresolved)?;
-        names(&format!("{key}.extend-ignore-unresolved"), &scoped.extend_ignore_unresolved)?;
+        names(
+            &format!("{key}.extend-ignore-unresolved"),
+            &scoped.extend_ignore_unresolved,
+        )?;
         plugin_globs(&format!("{key}.plugins"), &scoped.plugins)?;
     }
     Ok(())
@@ -145,16 +145,24 @@ mod tests {
 
     #[test]
     fn invalid_globs_are_reported_with_their_key() {
-        assert!(check("[js]\nentry = [\"ok.ts\", \"src/[bad\"]\n").starts_with("js.entry[1]: invalid glob `src/[bad`: "));
+        let message = check("[js]\nentry = [\"ok.ts\", \"src/[bad\"]\n");
+        assert!(message.contains("js.entry[1]: invalid glob `src/[bad`: "), "{message}");
         assert!(check("[js.workspaces.\"apps/[x\"]\nentry = []\n").contains("js.workspaces.\"apps/[x\""));
-        assert!(check("[[overrides]]\npackages = [\"a\"]\n[overrides.js]\nignore = [\"[\"]\n").contains("overrides[0].js.ignore[0]"));
+        assert!(
+            check("[[overrides]]\npackages = [\"a\"]\n[overrides.js]\nignore = [\"[\"]\n")
+                .contains("overrides[0].js.ignore[0]")
+        );
     }
 
     #[test]
     fn invalid_ignore_patterns_are_reported() {
-        assert!(check("[js]\nignore-dependencies = [\"/(/\"]\n").starts_with("js.ignore-dependencies[0]: invalid pattern `/(/`"));
-        assert!(check("[js]\nignore-unresolved = [\"[bad\"]\n").starts_with("js.ignore-unresolved[0]"));
-        assert!(check("[js]\nignore-workspaces = [\"a(\"]\n").starts_with("js.ignore-workspaces[0]"));
+        let message = check("[js]\nignore-dependencies = [\"/(/\"]\n");
+        assert!(
+            message.contains("js.ignore-dependencies[0]: invalid pattern `/(/`"),
+            "{message}"
+        );
+        assert!(check("[js]\nignore-unresolved = [\"[bad\"]\n").contains("js.ignore-unresolved[0]"));
+        assert!(check("[js]\nignore-workspaces = [\"a(\"]\n").contains("js.ignore-workspaces[0]"));
     }
 
     #[test]

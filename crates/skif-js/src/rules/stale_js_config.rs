@@ -82,11 +82,20 @@ impl JsRule for StaleJsConfig {
 
         let mut keyed: Vec<(String, Vec<&str>)> = Vec::new();
         if dependencies_ran {
-            keyed.push(("js.ignore-dependencies".to_owned(), setup.global_ignore_dependencies.unmatched()));
+            keyed.push((
+                "js.ignore-dependencies".to_owned(),
+                setup.global_ignore_dependencies.unmatched(),
+            ));
         }
-        keyed.push(("js.ignore-binaries".to_owned(), setup.global_ignore_binaries.unmatched()));
+        keyed.push((
+            "js.ignore-binaries".to_owned(),
+            setup.global_ignore_binaries.unmatched(),
+        ));
         if unresolved_ran {
-            keyed.push(("js.ignore-unresolved".to_owned(), setup.global_ignore_unresolved.unmatched()));
+            keyed.push((
+                "js.ignore-unresolved".to_owned(),
+                setup.global_ignore_unresolved.unmatched(),
+            ));
         }
         keyed.push(("js.ignore-workspaces".to_owned(), setup.ignore_workspaces.unmatched()));
         for (id, package) in analysis.workspace.iter() {
@@ -100,7 +109,10 @@ impl JsRule for StaleJsConfig {
             };
             let key = |name: &str| format!("js.workspaces.\"{dir}\".{name}");
             if dependencies_ran && judged(id) {
-                keyed.push((key("ignore-dependencies"), package_setup.user_ignore_dependencies.unmatched()));
+                keyed.push((
+                    key("ignore-dependencies"),
+                    package_setup.user_ignore_dependencies.unmatched(),
+                ));
             }
             keyed.push((key("ignore-binaries"), package_setup.user_ignore_binaries.unmatched()));
             if unresolved_ran {

@@ -3,9 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use skif_config::{
-    Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, CustomStrategy, IgnoreEntry, IgnoreExportsUsedInFile, Level,
-    PackageManager,
-    PluginConfig, Prefer, RuleConfig, Selector, SemverRange, VersionPolicy, discover, discover_with_fs,
+    Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, CustomStrategy, IgnoreEntry,
+    IgnoreExportsUsedInFile, Level, PackageManager, PluginConfig, Prefer, RuleConfig, Selector, SemverRange,
+    VersionPolicy, discover, discover_with_fs,
 };
 use skif_core::{MemoryFs, Severity};
 
@@ -80,12 +80,12 @@ fn selectors_in_the_config_are_compiled() {
     assert!(
         group
             .dependency_types
-            .matches(skif_config::DependencyKind::Dependencies)
+            .matches_kind(skif_config::DependencyKind::Dependencies)
     );
     assert!(
         !group
             .dependency_types
-            .matches(skif_config::DependencyKind::PeerDependencies)
+            .matches_kind(skif_config::DependencyKind::PeerDependencies)
     );
 }
 
@@ -623,7 +623,7 @@ fn an_invalid_discover_ignore_pattern_is_rejected_naming_its_position() {
 #[test]
 fn js_keys_of_knip_parity_parse() {
     let config = Config::from_toml_str(
-        r#"
+        r##"
 [js]
 ignore-unresolved = ["#internal/*"]
 ignore-workspaces = ["tools/*"]
@@ -641,7 +641,7 @@ paths = { "@/*" = ["./src/*", "./generated/*"] }
 
 [js.workspaces."packages/web".plugins]
 vite = { config = ["vite.web.config.ts"] }
-"#,
+"##,
     )
     .unwrap();
     let js = &config.js;
@@ -656,7 +656,10 @@ vite = { config = ["vite.web.config.ts"] }
     let web = &js.workspaces["packages/web"];
     assert_eq!(web.ignore_unresolved, ["virtual:*"]);
     assert_eq!(web.ignore_members, ["Internal*"]);
-    assert_eq!(web.ignore_exports_used_in_file, Some(IgnoreExportsUsedInFile::All(true)));
+    assert_eq!(
+        web.ignore_exports_used_in_file,
+        Some(IgnoreExportsUsedInFile::All(true))
+    );
     assert_eq!(web.paths["@/*"], ["./src/*", "./generated/*"]);
     assert!(matches!(web.plugins["vite"], PluginConfig::Options(_)));
     assert_eq!(web.include_entry_exports, None);
@@ -681,26 +684,45 @@ fn js_round_trips_with_the_new_keys() {
 fn unknown_plugin_ids_are_rejected_with_a_suggestion() {
     let config = Config::from_toml_str("[js.plugins]\nvitset = true\n").unwrap();
     let err = config.validate_plugins(&["vitest", "jest"]).unwrap_err().to_string();
-    assert!(err.contains("js.plugins.vitset: unknown plugin `vitset`; did you mean `vitest`?"), "{err}");
+    assert!(
+        err.contains("js.plugins.vitset: unknown plugin `vitset`; did you mean `vitest`?"),
+        "{err}"
+    );
 
     let config = Config::from_toml_str("[js.workspaces.\"a\".plugins]\nnope = true\n").unwrap();
     let err = config.validate_plugins(&["vitest"]).unwrap_err().to_string();
-    assert!(err.contains("js.workspaces.\"a\".plugins.nope: unknown plugin `nope`"), "{err}");
+    assert!(
+        err.contains("js.workspaces.\"a\".plugins.nope: unknown plugin `nope`"),
+        "{err}"
+    );
     assert!(!err.contains("did you mean"), "{err}");
 
-    let config = Config::from_toml_str("[[overrides]]\npackages = [\"a\"]\n[overrides.js.plugins]\nvitset = false\n").unwrap();
+    let config =
+        Config::from_toml_str("[[overrides]]\npackages = [\"a\"]\n[overrides.js.plugins]\nvitset = false\n").unwrap();
     let err = config.validate_plugins(&["vitest"]).unwrap_err().to_string();
     assert!(err.contains("overrides[0].js.plugins.vitset"), "{err}");
 
-    assert!(Config::from_toml_str("[js.plugins]\nvitest = true\n").unwrap().validate_plugins(&["vitest"]).is_ok());
+    assert!(
+        Config::from_toml_str("[js.plugins]\nvitest = true\n")
+            .unwrap()
+            .validate_plugins(&["vitest"])
+            .is_ok()
+    );
 }
 
 #[test]
 fn root_only_js_keys_are_rejected_in_an_override() {
-    for key in ["ignore-workspaces = [\"a\"]", "ignore-members = [\"a\"]", "ignore-exports-used-in-file = true"] {
+    for key in [
+        "ignore-workspaces = [\"a\"]",
+        "ignore-members = [\"a\"]",
+        "ignore-exports-used-in-file = true",
+    ] {
         let source = format!("[[overrides]]\npackages = [\"a\"]\n[overrides.js]\n{key}\n");
         assert!(Config::from_toml_str(&source).is_err(), "{key}");
     }
+}
+
+#[test]
 fn custom_types_are_parsed_and_selectable_in_dependency_types() {
     let config = Config::from_toml_str(
         "[[custom-types]]\nname = \"node\"\npath = \"engines.node\"\nstrategy = \"version\"\n\n\
@@ -719,7 +741,10 @@ fn custom_types_are_parsed_and_selectable_in_dependency_types() {
             CustomStrategy::VersionsByName
         ]
     );
-    assert_eq!(config.custom_types[2].segments().collect::<Vec<_>>(), ["pnpm", "peerDependencyRules", "allowedVersions"]);
+    assert_eq!(
+        config.custom_types[2].segments().collect::<Vec<_>>(),
+        ["pnpm", "peerDependencyRules", "allowedVersions"]
+    );
     assert_eq!(config.policy.dependency_types, ["prod", "node", "local", "resolutions"]);
     let round_trip = Config::from_toml_str(&config.to_toml_string().unwrap()).unwrap();
     assert_eq!(round_trip, config);
@@ -729,9 +754,18 @@ fn custom_types_are_parsed_and_selectable_in_dependency_types() {
 fn invalid_custom_types_are_rejected() {
     let custom = |body: &str| format!("[[custom-types]]\n{body}\n");
     let cases = [
-        (custom("name = \"dev\"\npath = \"a\"\nstrategy = \"version\""), "built-in dependency type"),
-        (custom("name = \"\"\npath = \"a\"\nstrategy = \"version\""), "must not be empty"),
-        (custom("name = \"x\"\npath = \"a..b\"\nstrategy = \"version\""), "non-empty keys"),
+        (
+            custom("name = \"dev\"\npath = \"a\"\nstrategy = \"version\""),
+            "built-in dependency type",
+        ),
+        (
+            custom("name = \"\"\npath = \"a\"\nstrategy = \"version\""),
+            "must not be empty",
+        ),
+        (
+            custom("name = \"x\"\npath = \"a..b\"\nstrategy = \"version\""),
+            "non-empty keys",
+        ),
         (
             format!(
                 "{}{}",
@@ -740,7 +774,10 @@ fn invalid_custom_types_are_rejected() {
             ),
             "defined twice",
         ),
-        ("[policy]\ndependency-types = [\"nodes\"]\n".to_owned(), "unknown dependency type \"nodes\""),
+        (
+            "[policy]\ndependency-types = [\"nodes\"]\n".to_owned(),
+            "unknown dependency type \"nodes\"",
+        ),
         (
             "[[semver-groups]]\ndependency-types = [\"!engines\"]\nrange = \"^\"\n".to_owned(),
             "semver-groups[0].dependency-types",
@@ -756,11 +793,18 @@ fn invalid_custom_types_are_rejected() {
 
 #[test]
 fn semver_groups_take_a_range_or_ignored_but_not_both() {
-    let config = Config::from_toml_str("[[semver-groups]]\ndependencies = [\"@types/node\"]\nignored = true\n").unwrap();
-    assert_eq!((config.semver_groups[0].range, config.semver_groups[0].ignored), (None, true));
+    let config =
+        Config::from_toml_str("[[semver-groups]]\ndependencies = [\"@types/node\"]\nignored = true\n").unwrap();
+    assert_eq!(
+        (config.semver_groups[0].range, config.semver_groups[0].ignored),
+        (None, true)
+    );
     for (toml, expected) in [
         ("[[semver-groups]]\n", "set `range`"),
-        ("[[semver-groups]]\nrange = \"^\"\nignored = true\n", "mutually exclusive"),
+        (
+            "[[semver-groups]]\nrange = \"^\"\nignored = true\n",
+            "mutually exclusive",
+        ),
     ] {
         let error = Config::from_toml_str(toml).unwrap_err();
         assert!(error.to_string().contains(expected), "{toml}: {error}");
