@@ -26,6 +26,10 @@ impl Plugin for Node {
         &SPEC
     }
 
+    fn reads_config(&self) -> bool {
+        false
+    }
+
     fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut script_context = ScriptContext::new();
         script_context.scripts.clone_from(cx.scripts);

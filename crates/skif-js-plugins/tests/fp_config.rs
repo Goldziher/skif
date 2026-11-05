@@ -466,3 +466,83 @@ fn jsx_react_jsx_in_a_base_tsconfig_is_not_a_react_dependency() {
     assert!(!deps(out).contains("react"), "{:?}", deps(out));
     assert!(out.config_files.iter().any(|f| f.ends_with("tsconfig.base.json")));
 }
+
+#[test]
+fn an_unreadable_config_marks_the_entries_of_any_plugin_incomplete() {
+    let cases = [
+        ("vitest", "vitest.config.ts", "export default makeConfig();"),
+        ("vitest", "vitest.config.ts", "export default { ...shared, test: { include: ['a'] } };"),
+        ("jest", "jest.config.js", "module.exports = loadConfig();"),
+        ("playwright", "playwright.config.ts", "export default { ...base, testDir: './e2e' };"),
+        ("eslint", "eslint.config.js", "export default makeConfig();"),
+        ("prettier", ".prettierrc.json", "{ not json at all"),
+    ];
+    for (plugin, file, source) in cases {
+        let results = run(&[(file, source)], &[plugin], &[]);
+        assert!(output(&results, plugin).entries_incomplete, "{plugin}: {source}");
+    }
+}
+
+#[test]
+fn a_readable_config_leaves_the_entries_complete() {
+    let cases = [
+        ("vitest", "vitest.config.ts", "export default { test: { include: ['a'] } };"),
+        ("jest", "jest.config.js", "module.exports = { testMatch: ['**/*.t.js'] };"),
+        ("playwright", "playwright.config.ts", "export default { testDir: './e2e' };"),
+    ];
+    for (plugin, file, source) in cases {
+        let results = run(&[(file, source)], &[plugin], &[]);
+        assert!(!output(&results, plugin).entries_incomplete, "{plugin}: {source}");
+    }
+}
+
+#[test]
+fn merge_config_keeps_the_known_part_and_is_incomplete_for_the_imported_one() {
+    let source = "import viteConfig from './vite.config';\n\
+                  export default mergeConfig(viteConfig, defineConfig({ test: { setupFiles: ['./config/setup.ts'] } }));";
+    let results = run(&[("vitest.config.ts", source)], &["vitest"], &[]);
+    let out = output(&results, "vitest");
+    assert_entries(&out.entries, &["config/setup.ts"]);
+    assert!(out.entries_incomplete);
+}
+
+#[test]
+fn regex_alias_finds_become_prefix_aliases_or_computed_ones() {
+    let config = r"
+export default {
+  resolve: {
+    alias: [
+      { find: /^@\/(.*)$/, replacement: '/src/$1' },
+      { find: /^~lib\/(.+)$/, replacement: './lib/$1' },
+      { find: /^@gen\/(a|b)$/, replacement: './gen/$1' },
+      { find: /(.*)\.js$/, replacement: '$1' },
+    ],
+  },
+};";
+    let results = run(&[("vite.config.ts", config)], &["vite"], &[]);
+    let aliases: Vec<(String, Option<String>)> = output(&results, "vite")
+        .aliases
+        .iter()
+        .map(|alias| (alias.find.clone(), alias.target.clone()))
+        .collect();
+    assert_eq!(
+        aliases,
+        [
+            ("@".to_owned(), Some("src".to_owned())),
+            ("~lib".to_owned(), Some("lib".to_owned())),
+            ("@gen".to_owned(), None),
+        ]
+    );
+}
+
+#[test]
+fn jest_module_name_mapper_prefixes_are_aliases() {
+    let config = "module.exports = { moduleNameMapper: { '^@core/(.*)$': '<rootDir>/src/$1', '\\\\.css$': 'identity-obj-proxy' } };";
+    let results = run(&[("jest.config.js", config)], &["jest"], &[]);
+    let aliases: Vec<(String, Option<String>)> = output(&results, "jest")
+        .aliases
+        .iter()
+        .map(|alias| (alias.find.clone(), alias.target.clone()))
+        .collect();
+    assert_eq!(aliases, [("@core".to_owned(), Some("src".to_owned()))]);
+}

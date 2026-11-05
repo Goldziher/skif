@@ -407,7 +407,7 @@ fn export_from_declared(ctx: &Ctx<'_>, d: Declared, tags: Vec<String>, removal: 
 }
 
 impl Export {
-    fn bare(name: String, kind: ExportKind, span: Span) -> Self {
+    pub(crate) fn bare(name: String, kind: ExportKind, span: Span) -> Self {
         Self {
             name,
             kind,

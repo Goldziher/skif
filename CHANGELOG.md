@@ -156,6 +156,18 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Changed
 
+- **JS analysis follows knip more closely**: `mergeConfig`, `defu`, `deepmerge`, `merge` and `Object.assign` in tool
+  configs are evaluated as merges (an unknown operand leaves an unknown spread); a config no plugin could read sets
+  `entries_incomplete` for every plugin that reads configs, not only five; package `imports` that point at build output
+  map back to sources; `.mjs`/`.cjs`/`.js` output maps to every source extension; tsconfig `rootDirs` are followed for
+  relative imports; regular-expression `find` entries of bundler aliases and Jest `moduleNameMapper` prefixes become
+  aliases; `xargs`, `nice`, `sudo`, `timeout`, `watch` and `unbuffer` are unwrapped in scripts, and a binary run with
+  `yarn workspace <name>`, `pnpm --filter <name>` or `npm -w <name>` is credited to that workspace.
+- **Test files are entries only through a test-runner plugin** or `[js] entry`, no longer in every project.
+- **Unresolvable specifiers that start like a package name are dependencies**, not unresolved imports; missing relative
+  files that Git ignores or that are JSON or foreign file types are not reported from scripts.
+- **CommonJS named exports** (`exports.x =`, `module.exports.x =`, `module.exports = { a, b }`) are tracked and reported
+  as unused exports.
 - **`workspace-protocol` scope**: the rule is silent for Yarn Classic as it is for npm, skips `peerDependencies`, and
   leaves `file:`/`link:` paths to `local-path-dependency` while that rule is on (so one dependency is reported once).
   `allow-local-paths` decides them only when `local-path-dependency` is off.

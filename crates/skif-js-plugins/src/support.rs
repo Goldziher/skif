@@ -347,22 +347,32 @@ fn attribute(tag: &str, lower_tag: &str, name: &str) -> Option<String> {
 /// The module aliases of a bundler's `resolve.alias`: an object of `find: target` or an array of
 /// `{ find, replacement }`. Targets that are not paths (a package standing in for another) are not aliases.
 pub(crate) fn alias_inputs(alias: &ConfigValue, config: &ConfigAst<'_>) -> Vec<PluginInput> {
-    let pairs: Vec<(&str, &ConfigValue)> = match alias {
+    let pairs: Vec<(AliasFind<'_>, &ConfigValue)> = match alias {
         ConfigValue::Object(entries) => entries
             .iter()
             .filter(|(key, _)| key != "...")
-            .map(|(key, value)| (key.as_str(), value))
+            .map(|(key, value)| (AliasFind::Text(key.as_str()), value))
             .collect(),
         ConfigValue::Array(items) => items
             .iter()
-            .filter_map(|item| Some((item.get("find")?.as_str()?, item.get("replacement")?)))
+            .filter_map(|item| {
+                let find = match item.get("find")? {
+                    ConfigValue::String(text) => AliasFind::Text(text),
+                    ConfigValue::Regex(pattern) => AliasFind::Pattern(pattern),
+                    _ => return None,
+                };
+                Some((find, item.get("replacement")?))
+            })
             .collect(),
         _ => Vec::new(),
     };
     pairs
         .into_iter()
         .filter_map(|(find, replacement)| {
-            let find = find.trim_end_matches('$').trim_end_matches('/');
+            let (find, replacement) = match find {
+                AliasFind::Text(text) => (text.trim_end_matches('$').trim_end_matches('/').to_owned(), replacement),
+                AliasFind::Pattern(pattern) => return pattern_alias(pattern, replacement, config),
+            };
             if find.is_empty() {
                 return None;
             }
@@ -370,12 +380,61 @@ pub(crate) fn alias_inputs(alias: &ConfigValue, config: &ConfigAst<'_>) -> Vec<P
                 ConfigValue::String(path) => Some(alias_target(path, config)?),
                 _ => None,
             };
-            Some(PluginInput::Alias {
-                find: find.to_owned(),
-                target,
-            })
+            Some(PluginInput::Alias { find, target })
         })
         .collect()
+}
+
+/// The `find` of an alias entry.
+enum AliasFind<'a> {
+    /// A prefix or exact name.
+    Text(&'a str),
+    /// A regular expression, without the slashes and flags.
+    Pattern(&'a str),
+}
+
+/// An alias from a regular expression `find`. `^@/(.*)$` with the replacement `/src/$1` is the prefix alias `@` to
+/// `src`; any other pattern with a literal prefix is an alias whose target is computed, so the imports it matches are
+/// not reported. A pattern without a literal prefix cannot be named and yields nothing.
+pub(crate) fn pattern_alias(pattern: &str, replacement: &ConfigValue, config: &ConfigAst<'_>) -> Option<PluginInput> {
+    let (prefix, rest) = regex_literal_prefix(pattern.strip_prefix('^')?);
+    let find = prefix.trim_end_matches('/');
+    if find.is_empty() {
+        return None;
+    }
+    let forwards_rest = matches!(rest, "(.*)$" | "(.+)$" | "(.*)" | "(.+)");
+    let target = match replacement {
+        ConfigValue::String(path) if forwards_rest => {
+            let path = path.strip_suffix("$1")?;
+            alias_target(path.trim_end_matches('/'), config)
+        }
+        ConfigValue::String(path) if rest == "$" => alias_target(path, config),
+        _ => None,
+    };
+    Some(PluginInput::Alias {
+        find: find.to_owned(),
+        target,
+    })
+}
+
+/// The literal text a regular expression starts with, with escaped punctuation unescaped, and what follows it.
+fn regex_literal_prefix(pattern: &str) -> (String, &str) {
+    let mut literal = String::new();
+    let mut chars = pattern.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        match c {
+            '\\' => match chars.peek().copied() {
+                Some((_, escaped)) if escaped.is_ascii_punctuation() => {
+                    literal.push(escaped);
+                    chars.next();
+                }
+                _ => return (literal, &pattern[at..]),
+            },
+            c if c.is_ascii_alphanumeric() || matches!(c, '@' | '_' | '-' | '/' | '~' | '#') => literal.push(c),
+            _ => return (literal, &pattern[at..]),
+        }
+    }
+    (literal, "")
 }
 
 /// A path written as an alias target, relative to the workspace. `/src` is relative to the project root.
@@ -447,6 +506,14 @@ pub(crate) fn production_entries<'a>(base: &str, patterns: impl IntoIterator<Ite
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn regex_prefixes_are_literal_text_up_to_the_first_metacharacter() {
+        assert_eq!(regex_literal_prefix("@\\/(.*)$"), ("@/".to_owned(), "(.*)$"));
+        assert_eq!(regex_literal_prefix("~/lib/(.+)"), ("~/lib/".to_owned(), "(.+)"));
+        assert_eq!(regex_literal_prefix("(a|b)"), (String::new(), "(a|b)"));
+        assert_eq!(regex_literal_prefix("plain"), ("plain".to_owned(), ""));
+    }
 
     #[test]
     fn wildcards_are_stripped() {

@@ -6,7 +6,8 @@ use crate::config_load::from_json;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::babel;
 use crate::support::{
-    conventional, entry_glob, is_relative, module_input, name_of, objects, package_name, project_files, strings,
+    conventional, entry_glob, is_relative, module_input, name_of, objects, package_name, pattern_alias, project_files,
+    strings,
 };
 
 /// The `jest` plugin.
@@ -163,7 +164,11 @@ fn collect_object(object: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Pl
         }
     }
     if let Some(ConfigValue::Object(mappers)) = object.get("moduleNameMapper") {
-        for (_, mapper) in mappers {
+        for (key, mapper) in mappers {
+            if let ConfigValue::String(replacement) = mapper {
+                let replacement = ConfigValue::String(replacement.replace("<rootDir>", "."));
+                out.extend(pattern_alias(key, &replacement, config));
+            }
             for target in strings(mapper) {
                 if !target.contains('$') {
                     out.extend(module_input(base, target, false));

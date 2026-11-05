@@ -13,10 +13,11 @@ use skif_core::{FileSystem, OsFs};
 use skif_js_syntax::is_stylesheet;
 use skif_workspace::Workspace;
 
-use crate::manifest_paths::{ENTRY_FIELDS, map_to_source, resolve_exports};
+use crate::manifest_paths::{ENTRY_FIELDS, map_to_source, resolve_exports, resolve_imports};
 use crate::setup::Setup;
 use crate::specifier::{
-    has_foreign_scheme, is_builtin, node_modules_package, node_modules_specifier_package, package_name, subpath,
+    assumed_package, has_foreign_scheme, is_builtin, node_modules_package, node_modules_specifier_package, package_name,
+    subpath,
 };
 use crate::tsconfig_paths::{TsConfigs, TsPaths};
 
@@ -157,6 +158,20 @@ struct AliasScope {
     /// Absolute directories bare specifiers are looked up in, in lookup order.
     module_dirs: Vec<PathBuf>,
 }
+
+/// Extensions of files that are not modules; an import of a missing one is not reported.
+const FOREIGN_FILE_EXTENSIONS: &[&str] = &[
+    ".avif", ".css", ".eot", ".gif", ".html", ".ico", ".jpeg", ".jpg", ".less", ".mp3", ".otf", ".png", ".sass", ".scss",
+    ".sh", ".styl", ".stylus", ".svg", ".ttf", ".webp", ".woff", ".woff2", ".yaml", ".yml",
+];
+
+/// The source extensions an import extension stands for.
+const EXTENSION_ALIASES: &[(&str, &[&str])] = &[
+    (".js", &[".ts", ".tsx", ".d.ts"]),
+    (".jsx", &[".tsx"]),
+    (".mjs", &[".mts", ".d.mts"]),
+    (".cjs", &[".cts", ".d.cts"]),
+];
 
 /// Roots of `SvelteKit`'s virtual modules, which no file backs.
 const VIRTUAL_ROOTS: &[&str] = &["$app", "$env", "$service-worker"];
@@ -481,13 +496,33 @@ impl ModuleResolver {
             .any(|(dir, ignore)| path.starts_with(dir) && ignore.matched_path_or_any_parents(path, false).is_ignore())
     }
 
-    /// What a relative specifier that names nothing is: unresolved, or unknown when it points at an ignored path.
-    fn missing(&self, importer: &Path, specifier: &str) -> Resolved {
-        let generated = specifier.starts_with('.')
-            && importer
-                .parent()
-                .is_some_and(|dir| self.is_generated(&join_normalized(dir, specifier)));
-        if generated {
+    /// What a relative specifier that names nothing is: unknown when it points at an ignored path (also through the
+    /// source extensions its extension stands for) or, in a script, at a JSON or foreign file, unresolved otherwise.
+    fn missing(&self, kind: Kind, importer: &Path, specifier: &str) -> Resolved {
+        if !specifier.starts_with('.') {
+            return Resolved::Unresolved;
+        }
+        let extension = Path::new(specifier)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(|extension| format!(".{}", extension.to_ascii_lowercase()));
+        if kind == Kind::Script
+            && extension
+                .as_deref()
+                .is_some_and(|extension| extension == ".json" || FOREIGN_FILE_EXTENSIONS.contains(&extension))
+        {
+            return Resolved::Ignored;
+        }
+        let Some(dir) = importer.parent() else {
+            return Resolved::Unresolved;
+        };
+        let candidate = join_normalized(dir, specifier);
+        let aliased = extension.as_deref().and_then(|extension| {
+            let (_, aliases) = EXTENSION_ALIASES.iter().find(|(from, _)| *from == extension)?;
+            let stem = specifier.get(..specifier.len() - extension.len())?;
+            Some(aliases.iter().map(|alias| join_normalized(dir, &format!("{stem}{alias}"))))
+        });
+        if self.is_generated(&candidate) || aliased.is_some_and(|mut paths| paths.any(|path| self.is_generated(&path))) {
             Resolved::Ignored
         } else {
             Resolved::Unresolved
@@ -546,6 +581,16 @@ impl ModuleResolver {
             }
             return outcome(self.classify(path), member_name);
         }
+        if specifier.starts_with('.')
+            && let Some(found) = self.through_root_dirs(importer, specifier)
+        {
+            return outcome(found, None);
+        }
+        if specifier.starts_with('#')
+            && let Some(found) = self.through_imports(importer, specifier)
+        {
+            return outcome(found, None);
+        }
         let aliased = self.through_alias(importer, specifier);
         if aliased
             .as_ref()
@@ -567,12 +612,14 @@ impl ModuleResolver {
         {
             return outcome(found, None);
         }
-        if let Some(aliased) = aliased {
-            return outcome(aliased, None);
-        }
-        match name {
-            Some(name) => self.package_target(&name, specifier),
-            None => outcome(self.missing(importer, specifier), None),
+        // A specifier that starts like a package name and resolves to nothing is taken for a dependency, which the
+        // dependency rules then judge, as an alias that points nowhere is.
+        let assumed = || assumed_package(specifier).map(|package| self.package_target(&package, specifier));
+        match (aliased, name) {
+            (Some(Resolved::Unresolved), _) => assumed().unwrap_or_else(|| outcome(Resolved::Unresolved, None)),
+            (Some(aliased), _) => outcome(aliased, None),
+            (None, Some(name)) => self.package_target(&name, specifier),
+            (None, None) => assumed().unwrap_or_else(|| outcome(self.missing(kind, importer, specifier), None)),
         }
     }
 
@@ -648,7 +695,7 @@ impl ModuleResolver {
                 return outcome(self.classify(path), None);
             }
             if relative {
-                return outcome(self.missing(importer, specifier), None);
+                return outcome(self.missing(Kind::Style, importer, specifier), None);
             }
         }
         self.resolve_module(Kind::Style, importer, specifier)
@@ -708,6 +755,38 @@ impl ModuleResolver {
                 .ok()
                 .map(|resolution| self.classify(resolution.path().to_path_buf()))
         })
+    }
+
+    /// A relative specifier through the `rootDirs` of the nearest `tsconfig.json`: the same path below another root
+    /// directory, as for generated code that lives beside the sources in a virtual directory.
+    fn through_root_dirs(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
+        let directory = importer.parent()?;
+        let config = self.nearest_paths.get_or_compute(directory.to_path_buf(), || {
+            self.tsconfigs.nearest(directory).map(Arc::new)
+        })?;
+        config
+            .root_dir_candidates(directory, specifier)
+            .into_iter()
+            .find_map(|path| {
+                self.script
+                    .plain
+                    .resolve(directory, &specifier_of(&path))
+                    .ok()
+                    .map(|resolution| self.classify(resolution.path().to_path_buf()))
+            })
+    }
+
+    /// A `#` specifier through the `imports` of the package that holds the importer, for targets that point at build
+    /// output: the source file behind it, found through the package's `outDir` and `rootDir` like `exports` targets.
+    fn through_imports(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
+        let member = self
+            .members
+            .values()
+            .filter(|member| importer.starts_with(&member.dir))
+            .max_by_key(|member| member.dir.components().count())?;
+        let imports = member.manifest.get("imports")?;
+        let target = resolve_imports(imports, specifier, &self.conditions).filter(|target| target.starts_with("./"))?;
+        self.map_member_target(member, &target).map(|path| self.classify(path))
     }
 
     /// Follows the aliases declared for the importer's package (and the packages above it).
@@ -1050,8 +1129,8 @@ mod tests {
         assert_eq!(r.resolve(importer, "$app/stores").target, Resolved::Ignored);
         assert_eq!(r.resolve(importer, "computed/x").target, Resolved::Ignored);
         let gone = r.resolve(importer, "@gone/x");
-        assert_eq!(gone.target, Resolved::Unresolved);
-        assert_eq!(gone.package, None);
+        assert_eq!(gone.target, Resolved::External("@gone/x".to_owned()));
+        assert_eq!(gone.package, Some("@gone/x".to_owned()));
         let unknown = r.resolve(importer, "@/missing");
         assert_eq!(unknown.target, Resolved::Unresolved);
         assert_eq!(unknown.package, None);
@@ -1059,6 +1138,54 @@ mod tests {
             r.resolve(importer, "@scope/real").target,
             Resolved::External("@scope/real".to_owned())
         );
+    }
+
+    #[test]
+    fn unresolvable_specifiers_that_start_like_packages_are_dependencies() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            ("packages/a/package.json", r#"{"name":"@x/a"}"#),
+            (
+                "packages/ui/package.json",
+                r#"{"name":"@x/ui","main":"./dist/index.js","exports":{".":"./dist/index.js"}}"#,
+            ),
+            ("packages/a/src/a.ts", ""),
+            ("packages/a/src/style.scss", ""),
+        ]);
+        let importer = Path::new("/ws/packages/a/src/a.ts");
+        for specifier in ["@x/ui", "@x/ui/dist/missing", "left-pad/lib/x", "pkg/css/index?inline"] {
+            let outcome = r.resolve(importer, specifier);
+            assert!(matches!(outcome.target, Resolved::External(_)), "{specifier}: {outcome:?}");
+        }
+        let style = r.resolve_style(Path::new("/ws/packages/a/src/style.scss"), "pkg/css/index");
+        assert_eq!(style.target, Resolved::External("pkg".to_owned()));
+        assert_eq!(r.resolve(importer, "https://example.com/x.js").target, Resolved::Ignored);
+        assert_eq!(r.resolve(importer, "@/lib/x").target, Resolved::Unresolved);
+        assert_eq!(r.resolve(importer, "./missing").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn missing_relative_files_of_foreign_types_and_json_are_not_unresolved() {
+        let r = resolver(&[("package.json", ROOT), ("src/a.ts", "")]);
+        let importer = Path::new("/ws/src/a.ts");
+        for specifier in ["./data.json", "./theme.css", "../img/logo.svg", "./fonts/x.woff2", "./a.scss"] {
+            assert_eq!(r.resolve(importer, specifier).target, Resolved::Ignored, "{specifier}");
+        }
+        assert_eq!(r.resolve(importer, "./missing.ts").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn missing_relative_files_ignored_by_git_are_not_unresolved_through_extension_aliases() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            (".gitignore", "generated/\n*.gen.ts\n"),
+            ("src/a.ts", ""),
+        ]);
+        let importer = Path::new("/ws/src/a.ts");
+        assert_eq!(r.resolve(importer, "../generated/x").target, Resolved::Ignored);
+        assert_eq!(r.resolve(importer, "./schema.gen.js").target, Resolved::Ignored);
+        assert_eq!(r.resolve(importer, "./schema.gen.ts").target, Resolved::Ignored);
+        assert_eq!(r.resolve(importer, "./schema.js").target, Resolved::Unresolved);
     }
 
     #[test]
@@ -1099,6 +1226,69 @@ mod tests {
             r.resolve(importer, "@x/b/util").target,
             Resolved::File(PathBuf::from("/ws/packages/b/lib/util.ts"))
         );
+    }
+
+    #[test]
+    fn relative_imports_cross_root_dirs() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            (
+                "packages/a/tsconfig.json",
+                r#"{"compilerOptions":{"rootDirs":["src","bazel-out/bin/src"]}}"#,
+            ),
+            ("packages/a/src/ui/view.ts", ""),
+            ("packages/a/bazel-out/bin/src/ui/generated.ts", ""),
+        ]);
+        let importer = Path::new("/ws/packages/a/src/ui/view.ts");
+        assert_eq!(
+            r.resolve(importer, "./generated").target,
+            Resolved::File(PathBuf::from("/ws/packages/a/bazel-out/bin/src/ui/generated.ts"))
+        );
+        assert_eq!(r.resolve(importer, "./absent").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn imports_pointing_at_build_output_map_back_to_sources() {
+        let inputs = WorkspaceInputs {
+            build_dirs: vec![BuildDir {
+                out_dir: "packages/b/build".to_owned(),
+                root_dir: "packages/b/lib".to_owned(),
+            }],
+            ..WorkspaceInputs::default()
+        };
+        let r = resolver_with(
+            &[
+                ("package.json", ROOT),
+                (
+                    "packages/a/package.json",
+                    r##"{"name":"@x/a","imports":{"#x":"./dist/x.js","#y/*":"./dist/y/*.js","#z":{"node":"./dist/z.js","default":"./dist/z.alt.js"}}}"##,
+                ),
+                ("packages/a/src/x.ts", ""),
+                ("packages/a/src/y/deep.ts", ""),
+                ("packages/a/src/z.ts", ""),
+                ("packages/a/src/a.ts", ""),
+                (
+                    "packages/b/package.json",
+                    r##"{"name":"@x/b","imports":{"#util":"./build/util.mjs"}}"##,
+                ),
+                ("packages/b/lib/util.ts", ""),
+                ("packages/b/lib/b.ts", ""),
+            ],
+            inputs,
+        );
+        let a = Path::new("/ws/packages/a/src/a.ts");
+        for (specifier, source) in [("#x", "x.ts"), ("#y/deep", "y/deep.ts"), ("#z", "z.ts")] {
+            assert_eq!(
+                r.resolve(a, specifier).target,
+                Resolved::File(PathBuf::from(format!("/ws/packages/a/src/{source}"))),
+                "{specifier}"
+            );
+        }
+        assert_eq!(
+            r.resolve(Path::new("/ws/packages/b/lib/b.ts"), "#util").target,
+            Resolved::File(PathBuf::from("/ws/packages/b/lib/util.ts"))
+        );
+        assert_eq!(r.resolve(a, "#missing").target, Resolved::Unresolved);
     }
 
     #[test]

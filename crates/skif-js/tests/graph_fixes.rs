@@ -180,22 +180,45 @@ fn ambient_declaration_files_are_entries() {
 }
 
 #[test]
-fn conventional_test_directories_are_entries() {
-    let diagnostics = lint_files(
-        &[
-            PACKAGE,
-            ("src/index.ts", "export {};\n"),
-            ("test/a.ts", "export const a = 1;\n"),
-            ("tests/b.ts", "export const b = 1;\n"),
-            ("e2e/c.ts", "export const c = 1;\n"),
-            ("cypress/d.ts", "export const d = 1;\n"),
-            ("scripts/orphan.ts", "export const orphan = 1;\n"),
-        ],
-        "",
-    );
+fn test_files_and_directories_are_entries_only_through_a_test_runner() {
+    let files = [
+        ("src/index.ts", "export {};\n"),
+        ("src/legacy.spec.ts", "export const legacy = 1;\n"),
+        ("test/a.ts", "export const a = 1;\n"),
+        ("tests/b.ts", "export const b = 1;\n"),
+        ("e2e/c.ts", "export const c = 1;\n"),
+        ("scripts/orphan.ts", "export const orphan = 1;\n"),
+    ];
+    let mut without: Vec<(&str, &str)> = vec![PACKAGE];
+    without.extend(files);
+    let mut unused = found(&lint_files(&without, ""), "unused-files");
+    unused.sort();
     assert_eq!(
-        found(&diagnostics, "unused-files"),
-        ["scripts/orphan.ts: scripts/orphan.ts"]
+        unused,
+        [
+            "e2e/c.ts: e2e/c.ts",
+            "scripts/orphan.ts: scripts/orphan.ts",
+            "src/legacy.spec.ts: src/legacy.spec.ts",
+            "test/a.ts: test/a.ts",
+            "tests/b.ts: tests/b.ts"
+        ]
+    );
+
+    let mut with: Vec<(&str, &str)> = vec![(
+        "package.json",
+        r#"{"name":"app","private":true,"devDependencies":{"vitest":"3"}}"#,
+    )];
+    with.extend(files);
+    let mut unused = found(&lint_files(&with, ""), "unused-files");
+    unused.sort();
+    assert_eq!(
+        unused,
+        [
+            "e2e/c.ts: e2e/c.ts",
+            "scripts/orphan.ts: scripts/orphan.ts",
+            "test/a.ts: test/a.ts",
+            "tests/b.ts: tests/b.ts"
+        ]
     );
 }
 
@@ -271,7 +294,7 @@ fn default_severities_follow_the_documented_split() {
 }
 
 #[test]
-fn unresolvable_aliases_are_unresolved_imports_never_unlisted_dependencies() {
+fn unresolvable_aliases_are_unresolved_imports_unless_they_look_like_packages() {
     let diagnostics = lint_files(
         &[
             (
@@ -290,14 +313,13 @@ fn unresolvable_aliases_are_unresolved_imports_never_unlisted_dependencies() {
         ],
         "",
     );
-    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), ["src/index.ts: @gone/b"]);
     assert_eq!(
         found(&diagnostics, "unresolved-imports"),
         [
             "src/index.ts: #internal/f",
             "src/index.ts: $lib/e",
             "src/index.ts: @/c",
-            "src/index.ts: @gone/b",
             "src/index.ts: ~/d"
         ]
     );
@@ -493,7 +515,10 @@ fn bindings_used_only_in_component_templates_keep_their_members() {
 fn url_and_mock_specifiers_keep_modules_reachable() {
     let diagnostics = lint_files(
         &[
-            PACKAGE,
+            (
+                "package.json",
+                r#"{"name":"app","private":true,"devDependencies":{"vitest":"3"}}"#,
+            ),
             (
                 "src/index.ts",
                 "export const worker = new URL('./worker.ts', import.meta.url);\n",
@@ -892,4 +917,50 @@ fn jsx_files_do_not_use_react_when_the_tsconfig_selects_another_runtime() {
         "",
     );
     assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: react"]);
+}
+
+#[test]
+fn binaries_run_in_a_named_workspace_use_the_provider_listed_above_it() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["sub"],"devDependencies":{"rimraf":"5.0.0"},"scripts":{"clean":"pnpm --filter sub exec rimraf dist"}}"#,
+        ),
+        ("sub/package.json", r#"{"name":"sub","private":true,"main":"index.ts"}"#),
+        ("sub/index.ts", "export {};\n"),
+    ];
+    assert_eq!(found(&lint_files(&files, ""), "unused-dev-dependencies"), none());
+    let other = [
+        files[0],
+        ("sub/package.json", r#"{"name":"other","private":true,"main":"index.ts"}"#),
+        files[2],
+    ];
+    assert_eq!(
+        found(&lint_files(&other, ""), "unused-dev-dependencies"),
+        ["package.json: rimraf"]
+    );
+}
+
+#[test]
+fn script_wrappers_run_the_command_they_wrap() {
+    let files = [(
+        "package.json",
+        r#"{"name":"app","private":true,"main":"index.ts","devDependencies":{"prettier":"3.0.0","stylelint":"16.0.0"},"scripts":{"fmt":"git ls-files | xargs prettier --write","css":"timeout 30 watch -n1 stylelint src"}}"#,
+    ), ("index.ts", "export {};\n")];
+    assert_eq!(found(&lint_files(&files, ""), "unused-dev-dependencies"), none());
+}
+
+#[test]
+fn commonjs_named_exports_that_nothing_requires_are_unused_exports() {
+    let diagnostics = lint_files(
+        &[
+            PACKAGE,
+            ("src/index.js", "const { cjsA } = require('./cjs');\nmodule.exports = cjsA;\n"),
+            ("src/cjs.js", "exports.cjsA = 1;\nexports.cjsB = 2;\n"),
+            ("src/all.js", "module.exports.used = 1;\n"),
+            ("src/main.js", "const all = require('./all');\nconsole.log(all);\nrequire('./index');\n"),
+        ],
+        "[js]\nentry = [\"src/main.js\"]\n",
+    );
+    assert_eq!(found(&diagnostics, "unused-exports"), ["src/cjs.js: cjsB"]);
 }
