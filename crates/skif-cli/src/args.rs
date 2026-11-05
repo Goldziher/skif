@@ -165,6 +165,11 @@ pub struct MigrateArgs {
     /// Exit 1 when any construct needs a human.
     #[arg(long)]
     pub strict: bool,
+
+    /// Write `stale-js-config = "error"` for knip's `treatConfigHintsAsErrors`; by default it is written as `warn`,
+    /// because skif's configuration hints differ from knip's.
+    #[arg(long)]
+    pub strict_hints: bool,
 }
 
 #[derive(Debug, clap::Args)]

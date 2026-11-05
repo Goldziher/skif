@@ -63,6 +63,9 @@ pub struct Options {
     /// Every rule of the build the output is for. The `exact` profile turns off the ones the old tools did not run,
     /// and the report lists them. Empty means no rule is added or listed.
     pub known_rules: Vec<RuleInfo>,
+    /// Write `[rules] stale-js-config = "error"` for knip's `treatConfigHintsAsErrors`. Without it the rule is
+    /// written as `warn`, because skif's hints differ from knip's and `error` could fail a project knip passed.
+    pub strict_hints: bool,
 }
 
 /// A file the caller has read.

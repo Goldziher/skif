@@ -321,6 +321,7 @@ fn execute(args: &MigrateArgs, report_format: RulesFormat) -> Result<u8, CliErro
             MigrateProfile::Full => Profile::Full,
         },
         known_rules: known_rules()?,
+        strict_hints: args.strict_hints,
     };
     let migration = migrate(&inputs, &options).map_err(migrate_error)?;
     let plan = plan_output(args, &root, &migration)?;

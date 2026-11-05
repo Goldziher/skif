@@ -51,6 +51,28 @@ The report lists the checks skif runs that the old tools did not, so you can rea
 knip reports everything as an error, where skif's defaults are mostly warnings: the migration writes every rule it
 enables at knip's own severity (`error` unless the `rules` key says otherwise) in both profiles.
 
+### Which tool runs which rule
+
+The `exact` profile keeps a rule when a migrated tool runs it and turns off every other rule that is on by default. The
+mapping is read from the sources of the tools (sherif 1.13, syncpack 15.3, knip 6) and is kept as data in
+`crates/skif-migrate/src`; a test requires every rule to be in the table of one tool or among the rules no tool runs.
+
+| skif rules | Run by |
+| --- | --- |
+| `empty-dependencies`, `version-mismatch`, `root-package-dependencies`, `root-package-manager-field`, `root-package-private-field`, `types-in-dependencies`, `unsorted-dependencies` | sherif (`empty-dependencies`, `multiple-dependency-versions`, `root-package-dependencies`, `root-package-manager-field`, `root-package-private-field`, `types-in-dependencies`, `unordered-dependencies`) |
+| `unmatched-workspace-patterns`, `missing-package-manifest`, `unsynced-dependency-family` | sherif only (`non-existant-packages`, `packages-without-package-json`, `unsync-similar-dependencies`) |
+| `version-mismatch`, `semver-range-mismatch`, `banned-dependency`, `invalid-local-version`, `policy-conflict` | syncpack `lint`: the version and semver group states, `IsBanned`, `InvalidLocalVersion` and the conflict states |
+| `catalog-mismatch` | syncpack: `DiffersToCatalog`, in every highest or lowest version group (skif keeps it on in every group) |
+| `catalog-not-used`, `catalog-missing-entry`, `unresolved-catalog-references` | syncpack only with a `policy: catalog` version group (`NotUsingCatalog`, `MissingFromCatalog`, `DependsOnMissingCatalogDefinition`); knip covers `unresolved-catalog-references` through `catalogReferences` |
+| `unsorted-dependencies` | syncpack only when `sortAz` names a dependency map |
+| the rules of the knip issue types that stay enabled | knip (`unused-files`, `unused-dependencies`, `unused-dev-dependencies`, `unused-optional-peer-dependencies`, `unlisted-dependencies`, `unlisted-binaries`, `unresolved-imports`, `unused-exports`, `unused-types`, `unused-namespace-exports`, `unused-namespace-types`, `duplicate-exports`, `unused-enum-members`, `unused-namespace-members`, `unused-catalog-entries`, `unresolved-catalog-references`, `circular-imports`) |
+| `workspace-protocol`, `local-path-dependency`, `incompatible-peer-dependencies`, `member-toolchain-fields` | none of the three |
+| `unparseable-files` | none: knip skips a file it cannot parse without reporting it |
+| `stale-js-config` | none unless `treatConfigHintsAsErrors` is set: skif's configuration hints differ from knip's |
+
+Migrated tools are combined: a rule is kept when any of them runs it. Without sherif, for example,
+`unmatched-workspace-patterns` is turned off.
+
 ## The report
 
 Every construct that was not copied one to one has a note with the file, the key path in that file
@@ -63,7 +85,7 @@ Every construct that was not copied one to one has a note with the file, the key
 | Needs a human | H, X | `H`: not translated because the value is not static or its meaning is unclear. `X`: skif has no equivalent. |
 | Extra checks | | Rules skif runs by default that the old tools did not. |
 
-`--format json` prints the same report as one document. `--strict` exits `1` when any note needs a human.
+`--format json` prints the same report as one document. `--strict` exits `1` when any note needs a human. `--strict-hints` writes knip's `treatConfigHintsAsErrors` as `error` instead of `warn`.
 
 ## sherif
 
@@ -99,6 +121,7 @@ Every construct that was not copied one to one has a note with the file, the key
 | `source` | dropped when it lists the workspace patterns (D); otherwise H |
 | `sortAz` with dependency maps | `unsorted-dependencies` stays on; `sortFirst`, `sortExports`, `sortPackages`, `indent`, `formatBugs` and `formatRepository` only matter to `syncpack format` and are dropped |
 | `updateGroups`, `minimumReleaseAge`, `maxConcurrentRequests` | dropped: skif never queries a registry |
+| the override sections (`pnpmOverrides`, `overrides`, `resolutions`) | `[policy] override-reading = "syncpack"`: an override key is its own dependency, so `parent@4>child` is not compared with `child`; nested objects and `pnpm.overrides` of a `package.json` are not read, as in syncpack 15 (`pnpmOverrides` is the `overrides` of `pnpm-workspace.yaml`). Without it skif would compare them with the dependency they replace |
 | `--dependency-types` | `[policy] dependency-types` |
 
 Without `--dependency-types`, `[policy] dependency-types` is set to the scope syncpack lints by default (`prod`, `dev`,
@@ -125,7 +148,8 @@ of it), because skif's own default is narrower. `--dependencies` and
 | plugin keys (`vitest: true`, `"config.ts"`, `["a", "b"]`, `{ config, entry, project }`) | `[js.plugins]`, or `[js.workspaces."<dir>".plugins]` inside a workspace |
 | `rules`, `include`, `exclude`, and `--include`, `--exclude`, `--dependencies`, `--exports`, `--files`, `--cycles` | a level for each rule of the issue types that stay enabled, worked out as knip 6 does (the flags override the configuration; `--dependencies` also covers the catalog types and the dev dependencies; an include of only `nsExports` or `nsTypes` adds the defaults); the `exact` profile turns the others off |
 | `tags` with `-tag` | `unused-exports` option `ignore-tags` |
-| `treatConfigHintsAsErrors`, `--treat-config-hints-as-errors` | `[rules] stale-js-config = "error"`; the rule is then on and is not listed among the checks the profile turned off |
+| `treatConfigHintsAsErrors`, `--treat-config-hints-as-errors` | `[rules] stale-js-config = "warn"` (A), or `"error"` with `skif migrate --strict-hints`; the rule is then on and is not listed among the checks the profile turned off. skif's hints differ from knip's (they also flag entries skif never needed, such as a regular expression in `ignoreUnresolved` for an import skif does not report), so `error` could fail a project that knip passed |
+| `--no-config-hints` | `[rules] stale-js-config = "off"` |
 | `--production`, `--strict` | `[js] production = true` when every script runs knip in production mode (otherwise H), and the issue types production leaves out (`devDependencies`, `catalog`, `catalogReferences`) are turned off; knip's strict mode has no further equivalent (X) |
 | `compilers`, `asyncCompilers`, `preprocessor`, `ignoreGlobalBinaries`, `cycles` options, `+tag` | none (X): functions are never run |
 | `ignoreIssues` with a name that is not a knip issue type (`classMembers`) | none (X): knip 6 has no such issue type |
