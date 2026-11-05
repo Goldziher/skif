@@ -50,10 +50,7 @@ fn known_rules() -> Result<Vec<RuleInfo>, CliError> {
     let linter = Linter::new(&Config::default())?;
     Ok(linter
         .rules()
-        .map(|meta| RuleInfo {
-            id: meta.id.to_owned(),
-            default_on: meta.default.is_some(),
-        })
+        .map(|meta| RuleInfo::new(meta.id.to_owned(), meta.default.is_some()))
         .collect())
 }
 
@@ -226,10 +223,7 @@ fn tool_input(
         } else {
             root.join(&path)
         };
-        input.config = Some(Input {
-            path: slash(&path),
-            text: read_text(&absolute)?,
-        });
+        input.config = Some(Input::new(slash(&path), read_text(&absolute)?));
     }
     Ok(input)
 }
@@ -306,23 +300,19 @@ fn execute(args: &MigrateArgs, report_format: RulesFormat) -> Result<u8, CliErro
     let package_path = root.join("package.json");
     let package_text = read_optional(&package_path)?;
     let tools = selected_tools(args, &root, package_text.as_deref())?;
-    let package_input = package_text.as_ref().map(|text| Input {
-        path: "package.json".to_owned(),
-        text: text.clone(),
-    });
+    let package_input = package_text.as_ref().map(|text| Input::new("package.json", text.clone()));
     let patterns = workspace_patterns(&root, package_text.as_deref());
     let inputs = tools
         .iter()
         .map(|tool| tool_input(args, &root, *tool, package_input.as_ref(), &patterns))
         .collect::<Result<Vec<ToolInput>, CliError>>()?;
-    let options = Options {
-        profile: match args.profile {
-            MigrateProfile::Exact => Profile::Exact,
-            MigrateProfile::Full => Profile::Full,
-        },
-        known_rules: known_rules()?,
-        strict_hints: args.strict_hints,
+    let profile = match args.profile {
+        MigrateProfile::Exact => Profile::Exact,
+        MigrateProfile::Full => Profile::Full,
     };
+    let options = Options::new(profile)
+        .with_known_rules(known_rules()?)
+        .with_strict_hints(args.strict_hints);
     let migration = migrate(&inputs, &options).map_err(migrate_error)?;
     let plan = plan_output(args, &root, &migration)?;
     if let Some(target) = &plan.target {

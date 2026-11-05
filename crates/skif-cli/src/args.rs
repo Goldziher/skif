@@ -411,12 +411,17 @@ mod tests {
     #[test]
     fn every_long_flag_is_in_the_cli_reference() {
         use clap::CommandFactory;
-        let reference = include_str!("../../../website/src/content/docs/reference/cli.mdx");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        // A source tarball of this crate holds neither the website nor the other crates.
+        if !root.join("crates/skif-core/src").is_dir() {
+            return;
+        }
+        let reference = std::fs::read_to_string(root.join("website/src/content/docs/reference/cli.mdx")).unwrap();
         let mut flags = std::collections::BTreeSet::new();
         long_flags(&Cli::command(), &mut flags);
         flags.remove("help");
         flags.remove("version");
-        let missing: Vec<&String> = flags.iter().filter(|flag| !mentions(reference, flag)).collect();
+        let missing: Vec<&String> = flags.iter().filter(|flag| !mentions(&reference, flag)).collect();
         assert_eq!(missing, Vec::<&String>::new(), "flags missing from reference/cli.mdx");
     }
 }

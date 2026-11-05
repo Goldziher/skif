@@ -12,10 +12,7 @@ fn read(dir: &str, name: &str) -> Input {
         .join("tests/fixtures")
         .join(dir)
         .join(name);
-    Input {
-        path: name.to_owned(),
-        text: fs::read_to_string(path).unwrap(),
-    }
+    Input::new(name, fs::read_to_string(path).unwrap())
 }
 
 fn known_rules() -> Vec<RuleInfo> {
@@ -25,19 +22,12 @@ fn known_rules() -> Vec<RuleInfo> {
         .lines()
         .map(str::trim)
         .filter(|id| !id.is_empty())
-        .map(|id| RuleInfo {
-            id: id.to_owned(),
-            default_on: id != "circular-imports",
-        })
+        .map(|id| RuleInfo::new(id, id != "circular-imports"))
         .collect()
 }
 
 fn options(profile: Profile) -> Options {
-    Options {
-        profile,
-        known_rules: known_rules(),
-        strict_hints: false,
-    }
+    Options::new(profile).with_known_rules(known_rules())
 }
 
 fn note<'m>(migration: &'m Migration, path: &str) -> &'m Note {
@@ -286,10 +276,7 @@ fn merging_keeps_the_comments_of_an_existing_file() {
 #[test]
 fn an_unreadable_configuration_is_an_error_naming_the_file() {
     let mut input = ToolInput::new(Tool::Knip);
-    input.config = Some(Input {
-        path: "knip.ts".to_owned(),
-        text: "export default await loadConfigFromNetwork();".to_owned(),
-    });
+    input.config = Some(Input::new("knip.ts", "export default await loadConfigFromNetwork();"));
     let migration = migrate(&[input], &options(Profile::Full));
     match migration {
         Ok(migration) => assert!(migration.needs_human(), "{:#?}", migration.notes),
@@ -298,10 +285,7 @@ fn an_unreadable_configuration_is_an_error_naming_the_file() {
 }
 
 fn text(path: &str, text: &str) -> Input {
-    Input {
-        path: path.to_owned(),
-        text: text.to_owned(),
-    }
+    Input::new(path, text)
 }
 
 fn package(scripts: &[(&str, &str)]) -> String {
@@ -747,10 +731,7 @@ fn config_hints_as_errors_are_warnings_unless_strict_hints_asks_for_error() {
         "package.json",
         &package(&[("k", "knip --treat-config-hints-as-errors")]),
     ));
-    let strict = Options {
-        strict_hints: true,
-        ..options(Profile::Exact)
-    };
+    let strict = options(Profile::Exact).with_strict_hints(true);
     let migration = migrate(&[input], &strict).unwrap();
     assert_eq!(table(&migration)["rules"]["stale-js-config"].as_str(), Some("error"));
     assert!(!has_note(&migration, NoteClass::Approximate, "stale-js-config is warn"));
