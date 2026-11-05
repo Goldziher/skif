@@ -918,3 +918,34 @@ fn jsx_files_do_not_use_react_when_the_tsconfig_selects_another_runtime() {
     );
     assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: react"]);
 }
+
+#[test]
+fn binaries_run_in_a_named_workspace_use_the_provider_listed_above_it() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["sub"],"devDependencies":{"rimraf":"5.0.0"},"scripts":{"clean":"pnpm --filter sub exec rimraf dist"}}"#,
+        ),
+        ("sub/package.json", r#"{"name":"sub","private":true,"main":"index.ts"}"#),
+        ("sub/index.ts", "export {};\n"),
+    ];
+    assert_eq!(found(&lint_files(&files, ""), "unused-dev-dependencies"), none());
+    let other = [
+        files[0],
+        ("sub/package.json", r#"{"name":"other","private":true,"main":"index.ts"}"#),
+        files[2],
+    ];
+    assert_eq!(
+        found(&lint_files(&other, ""), "unused-dev-dependencies"),
+        ["package.json: rimraf"]
+    );
+}
+
+#[test]
+fn script_wrappers_run_the_command_they_wrap() {
+    let files = [(
+        "package.json",
+        r#"{"name":"app","private":true,"main":"index.ts","devDependencies":{"prettier":"3.0.0","stylelint":"16.0.0"},"scripts":{"fmt":"git ls-files | xargs prettier --write","css":"timeout 30 watch -n1 stylelint src"}}"#,
+    ), ("index.ts", "export {};\n")];
+    assert_eq!(found(&lint_files(&files, ""), "unused-dev-dependencies"), none());
+}
