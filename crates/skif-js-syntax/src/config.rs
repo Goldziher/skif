@@ -906,7 +906,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// A call of a config combinator (`mergeConfig`, `defu`, `Object.assign`, `deepmerge`, `merge`): the merge of the
     /// object arguments. An argument that cannot be known contributes a `...` entry, so the known part still applies.
     fn merge_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
-        let style = merge_style(&call.callee, &self.bindings)?;
+        let style = merge_style(&call.callee, self.bindings)?;
         let mut merged: Option<Vec<(String, ConfigValue)>> = None;
         let mut values = self.arguments(call, depth);
         if style == MergeStyle::FirstWins {

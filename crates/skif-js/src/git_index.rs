@@ -70,10 +70,10 @@ fn offset_varint(bytes: &[u8], at: usize) -> Option<(usize, usize)> {
 }
 
 /// The SHA-1 compression function over one 64-byte block.
-fn sha1_block(state: &mut [u32; 5], block: &[u8]) {
+fn sha1_block(state: &mut [u32; 5], block: &[u8; 64]) {
     let mut words = [0_u32; 80];
-    for (word, chunk) in words.iter_mut().zip(block.chunks_exact(4)) {
-        *word = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+    for (word, chunk) in words.iter_mut().zip(block.as_chunks::<4>().0) {
+        *word = u32::from_be_bytes(*chunk);
     }
     for at in 16..80 {
         words[at] = (words[at - 3] ^ words[at - 8] ^ words[at - 14] ^ words[at - 16]).rotate_left(1);
@@ -106,21 +106,21 @@ fn sha1_block(state: &mut [u32; 5], block: &[u8]) {
 /// The SHA-1 digest of `data`, which is what the trailer of an index holds.
 fn sha1(data: &[u8]) -> [u8; CHECKSUM_LEN] {
     let mut state = [0x6745_2301, 0xEFCD_AB89, 0x98BA_DCFE, 0x1032_5476, 0xC3D2_E1F0];
-    let mut blocks = data.chunks_exact(64);
-    for block in &mut blocks {
+    let (blocks, remainder) = data.as_chunks::<64>();
+    for block in blocks {
         sha1_block(&mut state, block);
     }
-    let mut tail = blocks.remainder().to_vec();
+    let mut tail = remainder.to_vec();
     tail.push(0x80);
     while tail.len() % 64 != 56 {
         tail.push(0);
     }
     tail.extend((u64::try_from(data.len()).unwrap_or(u64::MAX).wrapping_mul(8)).to_be_bytes());
-    for block in tail.chunks_exact(64) {
+    for block in tail.as_chunks::<64>().0 {
         sha1_block(&mut state, block);
     }
     let mut digest = [0; CHECKSUM_LEN];
-    for (out, word) in digest.chunks_exact_mut(4).zip(state) {
+    for (out, word) in digest.as_chunks_mut::<4>().0.iter_mut().zip(state) {
         out.copy_from_slice(&word.to_be_bytes());
     }
     digest
@@ -666,7 +666,11 @@ mod tests {
     }
 
     fn hex(digest: &[u8]) -> String {
-        digest.iter().map(|byte| format!("{byte:02x}")).collect()
+        use std::fmt::Write as _;
+        digest.iter().fold(String::new(), |mut out, byte| {
+            let _ = write!(out, "{byte:02x}");
+            out
+        })
     }
 
     fn paths(tracked: &TrackedPaths) -> Vec<&str> {
@@ -934,7 +938,7 @@ mod tests {
             MemoryFs::new().with_file("/ws/.git/HEAD", "ref: refs/heads/main"),
             |files, path| files.with_file(Path::new("/ws").join(path), ""),
         );
-        let items: Vec<Item> = in_index.iter().map(|path| item(*path, REGULAR)).collect();
+        let items: Vec<Item> = in_index.iter().map(|path| item(path, REGULAR)).collect();
         let mut times: HashMap<PathBuf, SystemTime> = times
             .iter()
             .map(|(path, seconds)| (Path::new("/ws").join(path), at(*seconds)))
@@ -949,7 +953,7 @@ mod tests {
     }
 
     fn overlay(disk: &Arc<Disk>, listing: Listing) -> Option<Arc<dyn FileSystem>> {
-        let fs: Arc<dyn FileSystem> = Arc::clone(disk);
+        let fs: Arc<dyn FileSystem> = disk.clone();
         indexed_fs(&fs, Path::new("/ws"), &IndexCache::default(), listing)
     }
 
@@ -1052,12 +1056,12 @@ mod tests {
             &["src/a.ts", "src/dead.ts"],
             &[("src", 50)],
         );
-        let first: Arc<dyn FileSystem> = Arc::clone(&before);
+        let first: Arc<dyn FileSystem> = before.clone();
         let fs = indexed_fs(&first, Path::new("/ws"), &cache, Listing::VerifyDirectories).unwrap();
         assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts", "dead.ts"]);
 
         let after = work_tree(&["src/a.ts"], &["src/a.ts", "src/dead.ts"], &[("src", 300)]);
-        let second: Arc<dyn FileSystem> = Arc::clone(&after);
+        let second: Arc<dyn FileSystem> = after.clone();
         let fs = indexed_fs(&second, Path::new("/ws"), &cache, Listing::VerifyDirectories).unwrap();
         assert_eq!(listed(fs.as_ref(), "/ws/src"), ["a.ts"]);
     }
@@ -1065,7 +1069,7 @@ mod tests {
     #[test]
     fn the_index_is_read_and_parsed_once_per_cache() {
         let disk = work_tree(&["src/a.ts"], &["src/a.ts"], &[("src", 50)]);
-        let fs: Arc<dyn FileSystem> = Arc::clone(&disk);
+        let fs: Arc<dyn FileSystem> = disk.clone();
         let cache = IndexCache::default();
         for _ in 0..3 {
             assert!(indexed_fs(&fs, Path::new("/ws"), &cache, Listing::VerifyDirectories).is_some());
@@ -1079,14 +1083,14 @@ mod tests {
     fn a_rewritten_index_is_read_again() {
         let cache = IndexCache::default();
         let old = work_tree(&["a.ts"], &["a.ts"], &[]);
-        let fs: Arc<dyn FileSystem> = Arc::clone(&old);
+        let fs: Arc<dyn FileSystem> = old.clone();
         assert!(indexed_fs(&fs, Path::new("/ws"), &cache, Listing::IndexOnly).is_some());
         let mut newer = work_tree(&["a.ts"], &["a.ts"], &[]);
         Arc::get_mut(&mut newer)
             .unwrap()
             .times
             .insert(PathBuf::from("/ws/.git/index"), at(INDEX_TIME + 5));
-        let fs: Arc<dyn FileSystem> = Arc::clone(&newer);
+        let fs: Arc<dyn FileSystem> = newer.clone();
         assert!(indexed_fs(&fs, Path::new("/ws"), &cache, Listing::IndexOnly).is_some());
         assert_eq!(newer.index_reads.load(Ordering::SeqCst), 1);
     }
@@ -1132,7 +1136,7 @@ mod tests {
     #[test]
     fn a_root_without_tracked_files_or_a_repository_is_not_overlaid() {
         let disk = work_tree(&["a.ts"], &["other/a.ts"], &[]);
-        let fs: Arc<dyn FileSystem> = Arc::clone(&disk);
+        let fs: Arc<dyn FileSystem> = disk.clone();
         let cache = IndexCache::default();
         assert!(indexed_fs(&fs, Path::new("/ws/app"), &cache, Listing::IndexOnly).is_none());
         let plain: Arc<dyn FileSystem> = Arc::new(MemoryFs::new().with_file("/ws/a.ts", ""));

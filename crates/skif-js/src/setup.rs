@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use globset::{Glob, GlobBuilder, GlobMatcher};
 use indexmap::IndexMap;
-use skif_config::{Config, IgnoreExportsUsedInFile, Js, JsWorkspace, PackageJs};
+use skif_config::{Config, IgnoreExportsUsedInFile, JsWorkspace, PackageJs};
 use skif_core::FileSystem;
 use skif_js_syntax::{Export, ExportKind};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
