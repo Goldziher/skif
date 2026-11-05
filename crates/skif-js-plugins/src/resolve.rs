@@ -376,8 +376,14 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
         };
         collector.out.config_files.push(path.clone());
         let Some(value) = load_config(&path, &source) else {
+            if reader.reads_config() && is_structured(&path) && !source.trim().is_empty() {
+                collector.out.entries_incomplete = true;
+            }
             continue;
         };
+        if reader.reads_config() && is_unreadable(&value) {
+            collector.out.entries_incomplete = true;
+        }
         let ast = ConfigAst {
             path: &path,
             base: parent_of(&relative),
@@ -386,5 +392,37 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
         };
         let inputs = reader.resolve_config(&ast, ctx);
         collector.absorb(inputs, &path, depth);
+    }
+}
+
+/// Whether `path` is a JavaScript, TypeScript, JSON, YAML or TOML file, whose content a plugin is expected to read.
+fn is_structured(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|extension| {
+        matches!(
+            extension.to_ascii_lowercase().as_str(),
+            "js" | "cjs"
+                | "mjs"
+                | "ts"
+                | "cts"
+                | "mts"
+                | "jsx"
+                | "tsx"
+                | "json"
+                | "jsonc"
+                | "json5"
+                | "yml"
+                | "yaml"
+                | "toml"
+        )
+    })
+}
+
+/// Whether a config evaluated to something unknown, or to an object with an unknown spread at the top level: what the
+/// plugin would have read from the unknown part is missing.
+fn is_unreadable(value: &ConfigValue) -> bool {
+    match value {
+        ConfigValue::Unknown => true,
+        ConfigValue::Object(entries) => entries.iter().any(|(key, _)| key == "..."),
+        _ => false,
     }
 }

@@ -24,6 +24,10 @@ impl Plugin for Tsx {
         &SPEC
     }
 
+    fn reads_config(&self) -> bool {
+        false
+    }
+
     fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let tests = cx.scripts.values().any(|script| {
             let words: Vec<&str> = script.split_whitespace().collect();

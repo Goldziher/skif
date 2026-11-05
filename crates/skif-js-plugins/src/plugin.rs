@@ -245,6 +245,13 @@ pub trait Plugin: Send + Sync {
     /// The declarative row: enablers, config, entry, production and project patterns.
     fn spec(&self) -> &'static PluginSpec;
 
+    /// Whether the plugin reads anything from its config files. A plugin that does cannot judge a package whose config
+    /// is not statically readable, so such a config sets [`PluginOutput::entries_incomplete`] for it. The default is
+    /// `true`; a purely declarative plugin returns `false`.
+    fn reads_config(&self) -> bool {
+        true
+    }
+
     /// Reads the plugin's parsed config file and returns what it references. The default returns
     /// nothing, which is all a purely declarative plugin needs.
     fn resolve_config(&self, _config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {

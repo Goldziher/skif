@@ -13,7 +13,7 @@ use skif_core::{FileSystem, OsFs};
 use skif_js_syntax::is_stylesheet;
 use skif_workspace::Workspace;
 
-use crate::manifest_paths::{ENTRY_FIELDS, map_to_source, resolve_exports};
+use crate::manifest_paths::{ENTRY_FIELDS, map_to_source, resolve_exports, resolve_imports};
 use crate::setup::Setup;
 use crate::specifier::{
     has_foreign_scheme, is_builtin, node_modules_package, node_modules_specifier_package, package_name, subpath,
@@ -546,6 +546,11 @@ impl ModuleResolver {
             }
             return outcome(self.classify(path), member_name);
         }
+        if specifier.starts_with('#')
+            && let Some(found) = self.through_imports(importer, specifier)
+        {
+            return outcome(found, None);
+        }
         let aliased = self.through_alias(importer, specifier);
         if aliased
             .as_ref()
@@ -708,6 +713,19 @@ impl ModuleResolver {
                 .ok()
                 .map(|resolution| self.classify(resolution.path().to_path_buf()))
         })
+    }
+
+    /// A `#` specifier through the `imports` of the package that holds the importer, for targets that point at build
+    /// output: the source file behind it, found through the package's `outDir` and `rootDir` like `exports` targets.
+    fn through_imports(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
+        let member = self
+            .members
+            .values()
+            .filter(|member| importer.starts_with(&member.dir))
+            .max_by_key(|member| member.dir.components().count())?;
+        let imports = member.manifest.get("imports")?;
+        let target = resolve_imports(imports, specifier, &self.conditions).filter(|target| target.starts_with("./"))?;
+        self.map_member_target(member, &target).map(|path| self.classify(path))
     }
 
     /// Follows the aliases declared for the importer's package (and the packages above it).
@@ -1099,6 +1117,50 @@ mod tests {
             r.resolve(importer, "@x/b/util").target,
             Resolved::File(PathBuf::from("/ws/packages/b/lib/util.ts"))
         );
+    }
+
+    #[test]
+    fn imports_pointing_at_build_output_map_back_to_sources() {
+        let inputs = WorkspaceInputs {
+            build_dirs: vec![BuildDir {
+                out_dir: "packages/b/build".to_owned(),
+                root_dir: "packages/b/lib".to_owned(),
+            }],
+            ..WorkspaceInputs::default()
+        };
+        let r = resolver_with(
+            &[
+                ("package.json", ROOT),
+                (
+                    "packages/a/package.json",
+                    r##"{"name":"@x/a","imports":{"#x":"./dist/x.js","#y/*":"./dist/y/*.js","#z":{"node":"./dist/z.js","default":"./dist/z.alt.js"}}}"##,
+                ),
+                ("packages/a/src/x.ts", ""),
+                ("packages/a/src/y/deep.ts", ""),
+                ("packages/a/src/z.ts", ""),
+                ("packages/a/src/a.ts", ""),
+                (
+                    "packages/b/package.json",
+                    r##"{"name":"@x/b","imports":{"#util":"./build/util.mjs"}}"##,
+                ),
+                ("packages/b/lib/util.ts", ""),
+                ("packages/b/lib/b.ts", ""),
+            ],
+            inputs,
+        );
+        let a = Path::new("/ws/packages/a/src/a.ts");
+        for (specifier, source) in [("#x", "x.ts"), ("#y/deep", "y/deep.ts"), ("#z", "z.ts")] {
+            assert_eq!(
+                r.resolve(a, specifier).target,
+                Resolved::File(PathBuf::from(format!("/ws/packages/a/src/{source}"))),
+                "{specifier}"
+            );
+        }
+        assert_eq!(
+            r.resolve(Path::new("/ws/packages/b/lib/b.ts"), "#util").target,
+            Resolved::File(PathBuf::from("/ws/packages/b/lib/util.ts"))
+        );
+        assert_eq!(r.resolve(a, "#missing").target, Resolved::Unresolved);
     }
 
     #[test]

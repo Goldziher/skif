@@ -236,3 +236,51 @@ fn karma_default_export_function_with_a_set_call() {
     );
     assert_eq!(get(&value, &["basePath"]), &s(".."));
 }
+
+#[test]
+fn merge_config_merges_the_known_objects_and_marks_the_imported_one() {
+    let value = extract(
+        "vitest.config.ts",
+        "import { mergeConfig, defineConfig } from 'vitest/config';\n\
+         import viteConfig from './vite.config';\n\
+         export default mergeConfig(viteConfig, defineConfig({ test: { setupFiles: ['./config/setup.ts'], \
+         include: ['checks/**/*.ts'] } }));",
+    );
+    assert_eq!(get(&value, &["test", "setupFiles"]), &strings(&["./config/setup.ts"]));
+    assert_eq!(get(&value, &["test", "include"]), &strings(&["checks/**/*.ts"]));
+    assert_eq!(value.get("..."), Some(&ConfigValue::Unknown));
+}
+
+#[test]
+fn merge_config_concatenates_arrays_and_merges_nested_objects() {
+    let value = extract(
+        "vite.config.ts",
+        "const base = { test: { include: ['a/**'], poolOptions: { threads: 1 } } };\n\
+         export default mergeConfig(base, { test: { include: ['b/**'], poolOptions: { forks: 2 } } }, true);",
+    );
+    assert_eq!(get(&value, &["test", "include"]), &strings(&["a/**", "b/**"]));
+    assert_eq!(get(&value, &["test", "poolOptions", "threads"]), &ConfigValue::Number(1.0));
+    assert_eq!(get(&value, &["test", "poolOptions", "forks"]), &ConfigValue::Number(2.0));
+    assert_eq!(value.get("..."), None);
+}
+
+#[test]
+fn object_assign_is_shallow_and_defu_prefers_the_first_argument() {
+    let assign = extract(
+        "a.config.js",
+        "module.exports = Object.assign({}, { files: ['a'] }, { files: ['b'] });",
+    );
+    assert_eq!(get(&assign, &["files"]), &strings(&["b"]));
+    let defu = extract(
+        "b.config.js",
+        "import { defu } from 'defu';\nexport default defu({ mode: 'x' }, { mode: 'y', extra: 1 });",
+    );
+    assert_eq!(get(&defu, &["mode"]), &s("x"));
+    assert_eq!(get(&defu, &["extra"]), &ConfigValue::Number(1.0));
+}
+
+#[test]
+fn a_merge_of_unknown_operands_leaves_only_the_marker() {
+    let value = extract("c.config.js", "export default { a: merge(x, y) };");
+    assert_eq!(get(&value, &["a"]), &ConfigValue::Object(vec![("...".to_owned(), ConfigValue::Unknown)]));
+}

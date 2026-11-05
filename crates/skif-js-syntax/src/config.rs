@@ -873,6 +873,32 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         Some(self.invoke(callable, &self.arguments(call, depth), isolate, depth))
     }
 
+    /// A call of a config combinator (`mergeConfig`, `defu`, `Object.assign`, `deepmerge`, `merge`): the merge of the
+    /// object arguments. An argument that cannot be known contributes a `...` entry, so the known part still applies.
+    fn merge_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+        let style = merge_style(&call.callee)?;
+        let mut merged: Option<Vec<(String, ConfigValue)>> = None;
+        let mut values = self.arguments(call, depth);
+        if style == MergeStyle::FirstWins {
+            values.reverse();
+        }
+        for value in values {
+            match value {
+                ConfigValue::Null | ConfigValue::Bool(_) => {}
+                ConfigValue::Object(entries) => {
+                    let base = merged.get_or_insert_with(Vec::new);
+                    merge_objects(base, entries, style != MergeStyle::Shallow);
+                }
+                _ => merge_objects(
+                    merged.get_or_insert_with(Vec::new),
+                    vec![("...".to_owned(), ConfigValue::Unknown)],
+                    false,
+                ),
+            }
+        }
+        Some(merged.map_or(ConfigValue::Unknown, ConfigValue::Object))
+    }
+
     /// Records the argument of `<config_setter>.set(…)` as the config; returns whether `call` is such a call.
     fn capture_set(&self, call: &'p CallExpression<'a>, depth: u32) -> bool {
         let Some(setter) = self.config_setter.borrow().clone() else {
@@ -901,7 +927,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             .or_else(|| self.path_call(call, depth))
             .or_else(|| self.resolve_call(call, depth))
             .or_else(|| self.glob_call(call, depth))
-            .or_else(|| self.local_call(call, depth));
+            .or_else(|| self.local_call(call, depth))
+            .or_else(|| self.merge_call(call, depth));
         if let Some(value) = special {
             return value;
         }
@@ -1131,6 +1158,70 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             }
         }
         ConfigValue::Object(out)
+    }
+}
+
+/// How a config combinator merges its arguments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MergeStyle {
+    /// Nested objects merge and arrays concatenate; later arguments win (`mergeConfig`, `deepmerge`, `merge`).
+    Deep,
+    /// Top-level keys of later arguments replace earlier ones (`Object.assign`).
+    Shallow,
+    /// Like [`MergeStyle::Deep`], but earlier arguments win (`defu`).
+    FirstWins,
+}
+
+/// The merge style of a call to a well-known config combinator, by callee.
+fn merge_style(callee: &Expression<'_>) -> Option<MergeStyle> {
+    match callee.get_inner_expression() {
+        Expression::Identifier(id) => match id.name.as_str() {
+            "mergeConfig" | "merge" | "deepmerge" | "deepMerge" | "mergeDeep" | "mergeWith" => Some(MergeStyle::Deep),
+            "defu" => Some(MergeStyle::FirstWins),
+            _ => None,
+        },
+        Expression::StaticMemberExpression(member) => {
+            let object_is = |name: &str| {
+                matches!(member.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == name)
+            };
+            match member.property.name.as_str() {
+                "assign" if object_is("Object") => Some(MergeStyle::Shallow),
+                "mergeConfig" | "merge" | "deepmerge" | "mergeDeep" => Some(MergeStyle::Deep),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Merges `incoming` into `base`; with `deep`, an object meeting an object merges and an array meeting an array
+/// concatenates, otherwise the incoming value replaces the earlier one in place.
+fn merge_objects(base: &mut Vec<(String, ConfigValue)>, incoming: Vec<(String, ConfigValue)>, deep: bool) {
+    for (key, value) in incoming {
+        let existing = if key == "..." {
+            base.iter().position(|(k, _)| k == "...")
+        } else {
+            base.iter().position(|(k, _)| *k == key)
+        };
+        let Some(index) = existing else {
+            base.push((key, value));
+            continue;
+        };
+        if key == "..." {
+            continue;
+        }
+        let slot = &mut base[index].1;
+        match (deep, std::mem::replace(slot, ConfigValue::Unknown), value) {
+            (true, ConfigValue::Object(mut left), ConfigValue::Object(right)) => {
+                merge_objects(&mut left, right, true);
+                *slot = ConfigValue::Object(left);
+            }
+            (true, ConfigValue::Array(mut left), ConfigValue::Array(right)) => {
+                left.extend(right);
+                *slot = ConfigValue::Array(left);
+            }
+            (_, _, value) => *slot = value,
+        }
     }
 }
 
