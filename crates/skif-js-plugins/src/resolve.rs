@@ -48,7 +48,7 @@ fn is_enabled(spec: &PluginSpec, setting: Option<&PluginConfig>, ctx: &PluginCon
     let forced = match setting {
         Some(PluginConfig::Enabled(enabled)) => Some(*enabled),
         Some(PluginConfig::Options(options)) => options.enabled,
-        None => None,
+        _ => None,
     };
     forced.unwrap_or_else(|| detected(spec, ctx))
 }

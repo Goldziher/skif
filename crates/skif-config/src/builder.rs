@@ -6,6 +6,21 @@ use crate::model::{
 use crate::rules::{Level, RuleConfig};
 
 /// Builds a [`Config`] programmatically, starting from [`Config::default`].
+///
+/// Every model struct is `#[non_exhaustive]`: build one from [`Default`], its constructor and its `with_*` methods.
+///
+/// ```
+/// use skif_config::{ConfigBuilder, DependencyFamily, Selector, SemverGroup, SemverRange};
+///
+/// # fn main() -> Result<(), skif_config::ConfigError> {
+/// let config = ConfigBuilder::new()
+///     .semver_group(SemverGroup::new(SemverRange::Caret).with_dependencies(Selector::new(["lodash"])?))
+///     .dependency_family(DependencyFamily::new("react", ["react", "react-dom"]))
+///     .build()?;
+/// assert_eq!(config.semver_groups.len(), 1);
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct ConfigBuilder {
     config: Config,

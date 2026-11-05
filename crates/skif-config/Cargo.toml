@@ -24,6 +24,7 @@ schema = ["dep:schemars", "dep:serde_json", "skif-core/schema"]
 
 [dependencies]
 globset.workspace = true
+ignore.workspace = true
 indexmap.workspace = true
 schemars = { workspace = true, optional = true }
 serde.workspace = true

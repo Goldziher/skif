@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use indexmap::IndexMap;
-use skif_config::{Override, PluginConfig, PluginOptions};
+use skif_config::{Override, PluginConfig};
 use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins};
 
 use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
@@ -61,19 +61,17 @@ fn merge(inherited: Option<&PluginConfig>, incoming: &PluginConfig) -> PluginCon
     let inherited_enabled = match inherited {
         Some(PluginConfig::Enabled(enabled)) => Some(*enabled),
         Some(PluginConfig::Options(options)) => options.enabled,
-        None => None,
+        _ => None,
     };
     match (incoming, inherited) {
         (PluginConfig::Enabled(enabled), Some(PluginConfig::Options(options))) => {
-            PluginConfig::Options(PluginOptions {
-                enabled: Some(*enabled),
-                ..options.clone()
-            })
+            PluginConfig::Options(options.clone().with_enabled(*enabled))
         }
-        (PluginConfig::Options(options), _) if options.enabled.is_none() => PluginConfig::Options(PluginOptions {
-            enabled: inherited_enabled,
-            ..options.clone()
-        }),
+        (PluginConfig::Options(options), _) if options.enabled.is_none() => {
+            let mut merged = options.clone();
+            merged.enabled = inherited_enabled;
+            PluginConfig::Options(merged)
+        }
         _ => incoming.clone(),
     }
 }

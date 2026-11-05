@@ -97,11 +97,11 @@ fn overrides(args: &LintArgs) -> ConfigOverrides {
 /// The flags that are not plain configuration overrides, applied over a loaded configuration.
 fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
     for (rule, package) in &args.ignore_rule_for_package {
-        config.ignore.push(IgnoreEntry {
-            rules: vec![rule.clone()],
-            packages: Selector::new([package.clone()])?,
-            ..IgnoreEntry::default()
-        });
+        config.ignore.push(
+            IgnoreEntry::default()
+                .with_rules([rule.clone()])
+                .with_packages(Selector::new([package.clone()])?),
+        );
     }
     if let Some(select) = args.select {
         config.policy.prefer = match select {

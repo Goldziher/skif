@@ -30,18 +30,29 @@ pub struct Config {
     /// Inherited lists to discard before this file applies.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub reset: Vec<ResetKey>,
+    /// `[workspace]`: package-manager detection and which packages are skipped.
     pub workspace: Workspace,
+    /// `[lint]`: how diagnostics are reported.
     pub lint: Lint,
+    /// `[rules]`: the level and options of every configured rule, in file order.
     #[serde(with = "rules_map")]
     #[cfg_attr(feature = "schema", schemars(with = "IndexMap<String, RuleConfigSchema>"))]
     pub rules: IndexMap<String, RuleConfig>,
+    /// `[[ignore]]`: suppressions for diagnostics.
     pub ignore: Vec<IgnoreEntry>,
+    /// `[policy]`: defaults for the version policies.
     pub policy: Policy,
+    /// `[[version-groups]]`: how dependency versions must relate, first match wins.
     pub version_groups: Vec<VersionGroup>,
+    /// `[[semver-groups]]`: the range type dependencies must use, first match wins.
     pub semver_groups: Vec<SemverGroup>,
+    /// `[catalog]`: when catalog entries are suggested and reported.
     pub catalog: Catalog,
+    /// `[workspace-protocol]`: how dependencies on workspace packages are written.
     pub workspace_protocol: WorkspaceProtocol,
+    /// `[[dependency-families]]`: packages that must share a version.
     pub dependency_families: Vec<DependencyFamily>,
+    /// `[js]`: the JavaScript and TypeScript analysis.
     pub js: Js,
     /// Scoped rules for packages and files; only package-scoped keys are allowed in them.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -64,10 +75,15 @@ const fn is_false(value: &bool) -> bool {
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum ResetKey {
+    /// Discard the inherited `version-groups`.
     VersionGroups,
+    /// Discard the inherited `semver-groups`.
     SemverGroups,
+    /// Discard the inherited `ignore` entries.
     Ignore,
+    /// Discard the inherited `dependency-families`.
     DependencyFamilies,
+    /// Discard the inherited `overrides`.
     Overrides,
 }
 
@@ -210,6 +226,12 @@ impl Config {
         if let Some(message) = selector_problem(&self.catalog.exclude) {
             return invalid(format!("catalog.exclude: {message}"));
         }
+        let mut discover_ignore = ignore::gitignore::GitignoreBuilder::new("");
+        for (index, pattern) in self.workspace.discover_ignore.iter().enumerate() {
+            if let Err(err) = discover_ignore.add_line(None, pattern) {
+                return invalid(format!("workspace.discover-ignore[{index}]: {err}"));
+            }
+        }
         for (index, family) in self.dependency_families.iter().enumerate() {
             if family.name.is_empty() {
                 return invalid(format!("dependency-families[{index}]: `name` must not be empty"));
@@ -323,9 +345,13 @@ fn closest(id: &str, known: &[&str]) -> Option<String> {
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum PackageManager {
+    /// npm.
     Npm,
+    /// pnpm.
     Pnpm,
+    /// Yarn.
     Yarn,
+    /// Bun.
     Bun,
 }
 
@@ -371,6 +397,29 @@ impl Default for Workspace {
     }
 }
 
+impl Workspace {
+    /// Sets `ignore-packages`.
+    #[must_use]
+    pub fn with_ignore_packages(mut self, ignore_packages: Selector) -> Self {
+        self.ignore_packages = ignore_packages;
+        self
+    }
+
+    /// Forces the package manager instead of detecting it.
+    #[must_use]
+    pub const fn with_package_manager(mut self, package_manager: PackageManager) -> Self {
+        self.package_manager = Some(package_manager);
+        self
+    }
+
+    /// Sets `discover-ignore`, replacing the default list.
+    #[must_use]
+    pub fn with_discover_ignore(mut self, discover_ignore: Vec<String>) -> Self {
+        self.discover_ignore = discover_ignore;
+        self
+    }
+}
+
 /// `[lint]`
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -384,12 +433,30 @@ pub struct Lint {
     pub max_level: Option<Level>,
 }
 
+impl Lint {
+    /// Sets `fail-on-warnings`.
+    #[must_use]
+    pub const fn with_fail_on_warnings(mut self, fail_on_warnings: bool) -> Self {
+        self.fail_on_warnings = fail_on_warnings;
+        self
+    }
+
+    /// Caps the severity of every diagnostic at `max_level`.
+    #[must_use]
+    pub const fn with_max_level(mut self, max_level: Level) -> Self {
+        self.max_level = Some(max_level);
+        self
+    }
+}
+
 /// One `[[ignore]]` suppression. An empty list does not narrow that dimension, but at least one list must be set:
 /// an entry without any filter is rejected as it would suppress everything.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct IgnoreEntry {
+    /// Rule IDs to suppress; an empty list does not narrow the entry by rule.
     pub rules: Vec<String>,
     /// Package names or directories; an empty selector matches every package.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
@@ -399,14 +466,43 @@ pub struct IgnoreEntry {
     pub dependencies: Selector,
 }
 
+impl IgnoreEntry {
+    /// Limits the entry to the rule IDs `rules`.
+    #[must_use]
+    pub fn with_rules<I, S>(mut self, rules: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.rules = rules.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Limits the entry to the packages `packages` selects.
+    #[must_use]
+    pub fn with_packages(mut self, packages: Selector) -> Self {
+        self.packages = packages;
+        self
+    }
+
+    /// Limits the entry to the dependencies `dependencies` selects.
+    #[must_use]
+    pub fn with_dependencies(mut self, dependencies: Selector) -> Self {
+        self.dependencies = dependencies;
+        self
+    }
+}
+
 /// Which version `preferred-semver` favours.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum Prefer {
+    /// Prefer the highest version in use.
     #[default]
     Highest,
+    /// Prefer the lowest version in use.
     Lowest,
 }
 
@@ -416,10 +512,27 @@ pub enum Prefer {
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 #[non_exhaustive]
 pub struct Policy {
+    /// Which version `preferred-semver` favours.
     pub prefer: Prefer,
     /// Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`); name `peer` or `optional` to include them.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependency_types: DependencyTypes,
+}
+
+impl Policy {
+    /// Sets which version `preferred-semver` favours.
+    #[must_use]
+    pub const fn with_prefer(mut self, prefer: Prefer) -> Self {
+        self.prefer = prefer;
+        self
+    }
+
+    /// Sets the dependency types the policy rules apply to.
+    #[must_use]
+    pub fn with_dependency_types(mut self, dependency_types: DependencyTypes) -> Self {
+        self.dependency_types = dependency_types;
+        self
+    }
 }
 
 /// The policy of a version group.
@@ -428,12 +541,19 @@ pub struct Policy {
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum VersionPolicy {
+    /// Every matched dependency must use the `pin` version.
     Pinned,
+    /// The matched dependencies must not be used.
     Banned,
+    /// The matched dependencies are not checked.
     Ignored,
+    /// Every range must overlap every other range.
     SameRange,
+    /// Every matched dependency must share a major and minor version.
     SameMinor,
+    /// Versions must match those declared by the `snap-to` packages.
     SnappedTo,
+    /// Versions must match the highest or lowest one in use.
     #[default]
     PreferredSemver,
 }
@@ -442,16 +562,23 @@ pub enum VersionPolicy {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct VersionGroup {
+    /// A name shown in diagnostics.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// Dependency names the group covers; empty covers every dependency.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependencies: Selector,
+    /// Package names the group covers; empty covers every package.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub packages: Selector,
+    /// Dependency types the group covers; empty covers every type.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependency_types: DependencyTypes,
+    /// Specifier types the group covers (`exact`, `range`, `tag`, ...), optionally negated with `!`; empty covers every type.
     pub specifier_types: Vec<String>,
+    /// The policy the group enforces.
     pub policy: VersionPolicy,
     /// Required by `pinned`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -464,6 +591,77 @@ pub struct VersionGroup {
 }
 
 impl VersionGroup {
+    /// Sets the label shown in diagnostics.
+    #[must_use]
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Selects the dependencies the group covers.
+    #[must_use]
+    pub fn with_dependencies(mut self, dependencies: Selector) -> Self {
+        self.dependencies = dependencies;
+        self
+    }
+
+    /// Selects the packages the group covers.
+    #[must_use]
+    pub fn with_packages(mut self, packages: Selector) -> Self {
+        self.packages = packages;
+        self
+    }
+
+    /// Selects the dependency types the group covers.
+    #[must_use]
+    pub fn with_dependency_types(mut self, dependency_types: DependencyTypes) -> Self {
+        self.dependency_types = dependency_types;
+        self
+    }
+
+    /// Selects the specifier types the group covers.
+    #[must_use]
+    pub fn with_specifier_types<I, S>(mut self, specifier_types: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.specifier_types = specifier_types.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Sets the policy.
+    #[must_use]
+    pub const fn with_policy(mut self, policy: VersionPolicy) -> Self {
+        self.policy = policy;
+        self
+    }
+
+    /// Sets the version `pinned` requires.
+    #[must_use]
+    pub fn with_pin(mut self, pin: impl Into<String>) -> Self {
+        self.pin = Some(pin.into());
+        self
+    }
+
+    /// Sets the packages `snapped-to` follows.
+    #[must_use]
+    pub fn with_snap_to<I, S>(mut self, snap_to: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.snap_to = snap_to.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Overrides `[policy] prefer` for this group.
+    #[must_use]
+    pub const fn with_prefer(mut self, prefer: Prefer) -> Self {
+        self.prefer = Some(prefer);
+        self
+    }
+
     fn inconsistency(&self) -> Option<&'static str> {
         match self.policy {
             VersionPolicy::Pinned if self.pin.is_none() => return Some("policy `pinned` requires `pin`"),
@@ -493,18 +691,25 @@ pub enum SemverRange {
     /// No range operator: an exact version.
     #[serde(rename = "")]
     Exact,
+    /// Any version (`*`).
     #[serde(rename = "*")]
     Any,
+    /// Compatible versions (`^`).
     #[serde(rename = "^")]
     Caret,
+    /// Patch-level changes (`~`).
     #[serde(rename = "~")]
     Tilde,
+    /// Greater than (`>`).
     #[serde(rename = ">")]
     Gt,
+    /// Greater than or equal (`>=`).
     #[serde(rename = ">=")]
     Gte,
+    /// Less than (`<`).
     #[serde(rename = "<")]
     Lt,
+    /// Less than or equal (`<=`).
     #[serde(rename = "<=")]
     Lte,
 }
@@ -515,20 +720,80 @@ pub enum SemverRange {
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 #[non_exhaustive]
 pub struct SemverGroup {
+    /// A name shown in diagnostics.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// Dependency names the group covers; empty covers every dependency.
     #[serde(default)]
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependencies: Selector,
+    /// Package names the group covers; empty covers every package.
     #[serde(default)]
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub packages: Selector,
+    /// Dependency types the group covers; empty covers every type.
     #[serde(default)]
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependency_types: DependencyTypes,
+    /// Specifier types the group covers, optionally negated with `!`; empty covers every type.
     #[serde(default)]
     pub specifier_types: Vec<String>,
+    /// The range type the matched dependencies must use.
     pub range: SemverRange,
+}
+
+impl SemverGroup {
+    /// A group enforcing `range` on every dependency.
+    #[must_use]
+    pub fn new(range: SemverRange) -> Self {
+        Self {
+            label: None,
+            dependencies: Selector::default(),
+            packages: Selector::default(),
+            dependency_types: DependencyTypes::default(),
+            specifier_types: Vec::new(),
+            range,
+        }
+    }
+
+    /// Sets the label shown in diagnostics.
+    #[must_use]
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Selects the dependencies the group covers.
+    #[must_use]
+    pub fn with_dependencies(mut self, dependencies: Selector) -> Self {
+        self.dependencies = dependencies;
+        self
+    }
+
+    /// Selects the packages the group covers.
+    #[must_use]
+    pub fn with_packages(mut self, packages: Selector) -> Self {
+        self.packages = packages;
+        self
+    }
+
+    /// Selects the dependency types the group covers.
+    #[must_use]
+    pub fn with_dependency_types(mut self, dependency_types: DependencyTypes) -> Self {
+        self.dependency_types = dependency_types;
+        self
+    }
+
+    /// Selects the specifier types the group covers.
+    #[must_use]
+    pub fn with_specifier_types<I, S>(mut self, specifier_types: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.specifier_types = specifier_types.into_iter().map(Into::into).collect();
+        self
+    }
 }
 
 /// `[catalog] mode`
@@ -537,9 +802,12 @@ pub struct SemverGroup {
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum CatalogMode {
+    /// Catalog rules suggest nothing.
     #[default]
     Off,
+    /// Suggest moving shared dependencies into a catalog.
     Prefer,
+    /// Require shared dependencies to come from a catalog.
     Enforce,
 }
 
@@ -547,11 +815,15 @@ pub enum CatalogMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct Catalog {
+    /// How strongly catalogs are preferred.
     pub mode: CatalogMode,
     /// Minimum number of packages using a dependency before a catalog entry is suggested.
     pub min_packages: usize,
+    /// Dependencies never suggested for a catalog.
     pub exclude: Vec<String>,
+    /// Report catalog entries no package references.
     pub report_unused_entries: bool,
     /// Appended to `exclude` instead of replacing it. Folded away when the configuration is resolved.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -570,6 +842,40 @@ impl Default for Catalog {
     }
 }
 
+impl Catalog {
+    /// Sets the catalog mode.
+    #[must_use]
+    pub const fn with_mode(mut self, mode: CatalogMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// Sets the minimum number of packages using a dependency before an entry is suggested.
+    #[must_use]
+    pub const fn with_min_packages(mut self, min_packages: usize) -> Self {
+        self.min_packages = min_packages;
+        self
+    }
+
+    /// Sets the dependencies excluded from catalog suggestions.
+    #[must_use]
+    pub fn with_exclude<I, S>(mut self, exclude: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.exclude = exclude.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Sets whether unused catalog entries are reported.
+    #[must_use]
+    pub const fn with_report_unused_entries(mut self, report_unused_entries: bool) -> Self {
+        self.report_unused_entries = report_unused_entries;
+        self
+    }
+}
+
 /// `[workspace-protocol]`
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -582,18 +888,59 @@ pub struct WorkspaceProtocol {
     pub allow_local_paths: bool,
 }
 
+impl WorkspaceProtocol {
+    /// Sets whether `workspace:` is required for internal dependencies.
+    #[must_use]
+    pub const fn with_internal(mut self, internal: bool) -> Self {
+        self.internal = internal;
+        self
+    }
+
+    /// Sets whether `file:` / `link:` paths are accepted for internal dependencies.
+    #[must_use]
+    pub const fn with_allow_local_paths(mut self, allow_local_paths: bool) -> Self {
+        self.allow_local_paths = allow_local_paths;
+        self
+    }
+}
+
 /// One `[[dependency-families]]` entry: packages that must share a version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 #[non_exhaustive]
 pub struct DependencyFamily {
+    /// The family name; a built-in family of the same name is replaced.
     pub name: String,
+    /// Package names or globs that must share a version.
     #[serde(default)]
     pub packages: Vec<String>,
     /// `false` disables a built-in family of the same name.
     #[serde(default = "default_true")]
     pub enabled: bool,
+}
+
+impl DependencyFamily {
+    /// An enabled family called `name` whose members are `packages`.
+    #[must_use]
+    pub fn new<I, S>(name: impl Into<String>, packages: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            name: name.into(),
+            packages: packages.into_iter().map(Into::into).collect(),
+            enabled: true,
+        }
+    }
+
+    /// Enables or disables the family; `false` disables a built-in family of the same name.
+    #[must_use]
+    pub const fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
 }
 
 const fn default_true() -> bool {
@@ -606,13 +953,21 @@ const fn default_true() -> bool {
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 #[non_exhaustive]
 pub struct Js {
+    /// Run the JavaScript analysis.
     pub enabled: bool,
+    /// Entry-point globs, added to the ones plugins and `package.json` provide.
     pub entry: Vec<String>,
+    /// Globs of the files that belong to the project.
     pub project: Vec<String>,
+    /// Globs of files that are not analysed.
     pub ignore: Vec<String>,
+    /// Dependencies never reported as unused or unlisted.
     pub ignore_dependencies: Vec<String>,
+    /// Binaries never reported as unlisted.
     pub ignore_binaries: Vec<String>,
+    /// Analyse production code only.
     pub production: bool,
+    /// Report unused exports of entry files too.
     pub include_entry_exports: bool,
     /// Per-workspace overrides keyed by directory.
     pub workspaces: IndexMap<String, JsWorkspace>,
@@ -627,6 +982,51 @@ pub struct Js {
     /// Appended to `ignore-binaries` instead of replacing it. Folded away when the configuration is resolved.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extend_ignore_binaries: Vec<String>,
+}
+
+impl Js {
+    /// Sets the entry globs.
+    #[must_use]
+    pub fn with_entry<I, S>(mut self, entry: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.entry = entry.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Sets the project globs.
+    #[must_use]
+    pub fn with_project<I, S>(mut self, project: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.project = project.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Enables or disables the JavaScript analysis.
+    #[must_use]
+    pub const fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Restricts the analysis to production code.
+    #[must_use]
+    pub const fn with_production(mut self, production: bool) -> Self {
+        self.production = production;
+        self
+    }
+
+    /// Switches a plugin on or off, or configures it.
+    #[must_use]
+    pub fn with_plugin(mut self, name: impl Into<String>, plugin: PluginConfig) -> Self {
+        self.plugins.insert(name.into(), plugin);
+        self
+    }
 }
 
 impl Default for Js {
@@ -655,10 +1055,15 @@ impl Default for Js {
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 #[non_exhaustive]
 pub struct JsWorkspace {
+    /// Entry-point globs relative to the workspace directory.
     pub entry: Vec<String>,
+    /// Project file globs relative to the workspace directory.
     pub project: Vec<String>,
+    /// Globs of files that are not analysed.
     pub ignore: Vec<String>,
+    /// Dependencies never reported as unused or unlisted.
     pub ignore_dependencies: Vec<String>,
+    /// Binaries never reported as unlisted.
     pub ignore_binaries: Vec<String>,
 }
 
@@ -666,8 +1071,11 @@ pub struct JsWorkspace {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum PluginConfig {
+    /// A bare switch: `true` forces the plugin on, `false` off.
     Enabled(bool),
+    /// The table form with options.
     Options(PluginOptions),
 }
 
@@ -675,12 +1083,65 @@ pub enum PluginConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
 pub struct PluginOptions {
+    /// Forces the plugin on or off; unset keeps its detection.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// Config-file globs the plugin reads.
     pub config: Vec<String>,
+    /// Entry-point globs the plugin contributes.
     pub entry: Vec<String>,
+    /// Project file globs the plugin contributes.
     pub project: Vec<String>,
+}
+
+impl PluginOptions {
+    /// Options with nothing set.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Switches the plugin on or off explicitly.
+    #[must_use]
+    pub const fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = Some(enabled);
+        self
+    }
+
+    /// Sets the config-file globs.
+    #[must_use]
+    pub fn with_config<I, S>(mut self, config: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.config = config.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Sets the entry globs.
+    #[must_use]
+    pub fn with_entry<I, S>(mut self, entry: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.entry = entry.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Sets the project globs.
+    #[must_use]
+    pub fn with_project<I, S>(mut self, project: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.project = project.into_iter().map(Into::into).collect();
+        self
+    }
 }
 
 /// `[js]` keys an override can set for the packages it selects.
@@ -692,20 +1153,28 @@ pub struct PluginOptions {
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 #[non_exhaustive]
 pub struct PackageJs {
+    /// Replaces the entry globs.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub entry: Vec<String>,
+    /// Replaces the project globs.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub project: Vec<String>,
+    /// Replaces the ignore globs.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ignore: Vec<String>,
+    /// Replaces the ignored dependencies.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ignore_dependencies: Vec<String>,
+    /// Replaces the ignored binaries.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ignore_binaries: Vec<String>,
+    /// Appended to the ignore globs.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extend_ignore: Vec<String>,
+    /// Appended to the ignored dependencies.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extend_ignore_dependencies: Vec<String>,
+    /// Appended to the ignored binaries.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extend_ignore_binaries: Vec<String>,
     /// Plugin switches and options for the selected packages.
@@ -787,6 +1256,15 @@ impl Override {
     pub fn applies_to(&self, package: Option<(&str, &Path)>, file: Option<&Path>) -> bool {
         self.scope.as_ref().is_some_and(|scope| scope.applies_to(package, file))
     }
+
+    /// As [`applies_to`](Self::applies_to) for directories and files already written with `/` separators (see
+    /// `skif_core::slash`), which a caller checking many overrides converts once instead of once per override.
+    #[must_use]
+    pub fn applies_to_slashed(&self, package: Option<(&str, &str)>, file: Option<&str>) -> bool {
+        self.scope
+            .as_ref()
+            .is_some_and(|scope| scope.applies_to_slashed(package, file))
+    }
 }
 
 /// Where an [`Override`] was declared, with its patterns resolved to absolute ones.
@@ -820,10 +1298,18 @@ impl OverrideScope {
     }
 
     fn applies_to(&self, package: Option<(&str, &Path)>, file: Option<&Path>) -> bool {
+        let package = package.map(|(name, dir)| (name, skif_core::slash(dir)));
+        let file = file.map(skif_core::slash);
+        self.applies_to_slashed(
+            package.as_ref().map(|(name, dir)| (*name, dir.as_str())),
+            file.as_deref(),
+        )
+    }
+
+    fn applies_to_slashed(&self, package: Option<(&str, &str)>, file: Option<&str>) -> bool {
         let package_ok = !self.has_packages
-            || package
-                .is_some_and(|(name, dir)| self.packages.matches_any([name, skif_core::slash(dir).as_str()], true));
-        let file_ok = !self.has_files || file.is_some_and(|file| self.files.matches(&skif_core::slash(file), false));
+            || package.is_some_and(|(name, dir)| self.packages.matches_any([name, dir], true));
+        let file_ok = !self.has_files || file.is_some_and(|file| self.files.matches(file, false));
         package_ok && file_ok
     }
 }

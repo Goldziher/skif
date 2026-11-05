@@ -13,17 +13,12 @@ mod discover;
 mod error;
 mod layer;
 mod merge;
-// The documentation of the model types is the description in the generated JSON Schema (`skif schema`), so they are
-// documented where the schema is meant to say something and left alone elsewhere.
-#[allow(missing_docs)]
 mod model;
 mod overrides;
 mod package_file;
 mod provenance;
-#[allow(missing_docs)]
 mod rules;
 #[cfg(feature = "schema")]
-#[allow(missing_docs)]
 mod schema;
 mod selector;
 

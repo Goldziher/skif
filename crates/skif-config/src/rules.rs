@@ -9,9 +9,13 @@ use skif_core::Severity;
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum Level {
+    /// The rule does not run.
     Off,
+    /// Diagnostics are informational.
     Info,
+    /// Diagnostics are warnings.
     Warn,
+    /// Diagnostics are errors.
     Error,
 }
 
@@ -56,6 +60,7 @@ pub struct RuleConfig {
 }
 
 impl RuleConfig {
+    /// A rule configuration that sets only the level.
     #[must_use]
     pub fn level(level: Level) -> Self {
         Self {

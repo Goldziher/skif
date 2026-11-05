@@ -2153,6 +2153,7 @@ name = "skif-config"
 version = "0.0.0"
 dependencies = [
  "globset",
+ "ignore",
  "indexmap",
  "schemars",
  "serde",
