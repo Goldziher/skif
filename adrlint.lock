@@ -195,3 +195,8 @@ blake3 = "002f1db1ac01bf7c636b0aa33bfd4e65543564ae520e6664e97f9ebf91065b19"
 number = 39
 status = "accepted"
 blake3 = "fd132199e75f583701e8a349ea6e58531ecb31ac06ae9f3313f6e9b2ef69fb0f"
+
+[adrs."adrs/0042-git-index-discovery-corrections-directory-times-lazy-existence-and-checksum.md"]
+number = 42
+status = "accepted"
+blake3 = "017c3c47ac37cbeb70e5a79ee9cd297eccaf5fcd73d250866ab7a5c29f1de1b3"
