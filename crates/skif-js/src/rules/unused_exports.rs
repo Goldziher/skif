@@ -97,6 +97,9 @@ pub(super) fn report(
             continue;
         }
         let unused = analysis.unused_exports(module);
+        if unused.iter().all(|export| export.is_type != want_type) {
+            continue;
+        }
         let fixes = fixes(module, &unused);
         let package = analysis.workspace.package(module.owner);
         for export in unused.iter().copied().filter(|export| export.is_type == want_type) {

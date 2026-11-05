@@ -32,23 +32,32 @@ pub(crate) fn entry_files(
 ) -> EntryFiles {
     let mut entries = BTreeSet::new();
     let mut unmapped = Vec::new();
+    let mut by_owner: Vec<Vec<&Candidate>> = vec![Vec::new(); workspace.iter().count()];
+    for candidate in candidates {
+        if let Some(owned) = by_owner.get_mut(candidate.owner.index()) {
+            owned.push(candidate);
+        }
+    }
     for (id, package) in workspace.iter() {
         let Some(package_setup) = setup.package(id) else {
             continue;
         };
-        let owned = || owned_by(candidates, id, &package_setup.dir);
+        let mine: &[&Candidate] = by_owner.get(id.index()).map_or(&[], Vec::as_slice);
+        let owned = || owned_by(mine, &package_setup.dir);
         for (candidate, rel) in owned() {
             if package_setup.entry.is_match(&rel) {
                 entries.insert(candidate.abs.clone());
             }
         }
-        entries.extend(nested_entries(setup, candidates, id, package_setup));
-        entries.extend(
-            candidates
-                .iter()
-                .filter(|candidate| candidate.owner != id && package_setup.external_entry.is_match(&candidate.rel))
-                .map(|candidate| candidate.abs.clone()),
-        );
+        entries.extend(nested_entries(workspace, setup, candidates, id, package_setup));
+        if !package_setup.external_entry.is_empty() {
+            entries.extend(
+                candidates
+                    .iter()
+                    .filter(|candidate| candidate.owner != id && package_setup.external_entry.is_match(&candidate.rel))
+                    .map(|candidate| candidate.abs.clone()),
+            );
+        }
         let mut published_without_source = false;
         let mut mapped_any = false;
         for manifest_target in manifest_targets(package.manifest.value()) {
@@ -108,15 +117,19 @@ pub(crate) fn entry_files(
 /// Files of workspace packages nested below `package_setup` that its plugin and configuration entry globs match.
 /// Packages excluded with `ignore-packages` own no files that count.
 fn nested_entries<'a>(
+    workspace: &'a Workspace,
     setup: &'a Setup,
     candidates: &'a [Candidate],
     id: PackageId,
     package_setup: &'a PackageSetup,
 ) -> impl Iterator<Item = PathBuf> + 'a {
-    let enabled = !package_setup.shared_entry.is_empty();
-    candidates
+    let nested: &[Candidate] = if package_setup.shared_entry.is_empty() {
+        &[]
+    } else {
+        below(candidates, &workspace.root, &package_setup.dir)
+    };
+    nested
         .iter()
-        .filter(move |_| enabled)
         .filter(move |candidate| candidate.owner != id && setup.package(candidate.owner).is_some())
         .filter(move |candidate| {
             relative(&candidate.abs, &package_setup.dir).is_some_and(|rel| package_setup.shared_entry.is_match(&rel))
@@ -124,15 +137,32 @@ fn nested_entries<'a>(
         .map(|candidate| candidate.abs.clone())
 }
 
-/// The candidates owned by package `id`, with their path relative to the package directory.
+/// The candidates below `dir`. They are one run of `candidates`, which are sorted by their path relative to `root`,
+/// so the run is found by binary search instead of testing every candidate.
+fn below<'a>(candidates: &'a [Candidate], root: &Path, dir: &Path) -> &'a [Candidate] {
+    let Some(relative_dir) = relative(dir, root) else {
+        return &[];
+    };
+    if relative_dir.is_empty() {
+        return candidates;
+    }
+    let prefix = format!("{relative_dir}/");
+    let start = candidates.partition_point(|candidate| candidate.rel.as_str() < prefix.as_str());
+    let run = candidates[start..]
+        .iter()
+        .take_while(|candidate| candidate.rel.starts_with(&prefix))
+        .count();
+    &candidates[start..start + run]
+}
+
+/// The candidates of one package, with their path relative to the package directory `dir`.
 fn owned_by<'a>(
-    candidates: &'a [Candidate],
-    id: PackageId,
+    owned: &'a [&'a Candidate],
     dir: &'a Path,
 ) -> impl Iterator<Item = (&'a Candidate, String)> + 'a {
-    candidates
+    owned
         .iter()
-        .filter(move |candidate| candidate.owner == id)
+        .copied()
         .filter_map(move |candidate| Some((candidate, relative(&candidate.abs, dir)?)))
 }
 
@@ -144,4 +174,37 @@ fn script_files(fs: &dyn FileSystem, package_setup: &PackageSetup) -> Vec<PathBu
         .map(|file| package_setup.dir.join(file.trim_start_matches("./")))
         .filter(|path| is_code_file(path) && fs.is_file(path))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn candidate(rel: &str) -> Candidate {
+        Candidate {
+            abs: Path::new("/ws").join(rel),
+            rel: rel.to_owned(),
+            owner: PackageId::ROOT,
+        }
+    }
+
+    fn rels(candidates: &[Candidate]) -> Vec<&str> {
+        candidates.iter().map(|candidate| candidate.rel.as_str()).collect()
+    }
+
+    #[test]
+    fn the_candidates_below_a_directory_are_one_sorted_run() {
+        let all = vec![
+            candidate("a-b/x.ts"),
+            candidate("a/b.ts"),
+            candidate("a/c/d.ts"),
+            candidate("ab.ts"),
+            candidate("z/y.ts"),
+        ];
+        assert_eq!(rels(below(&all, Path::new("/ws"), Path::new("/ws/a"))), ["a/b.ts", "a/c/d.ts"]);
+        assert_eq!(rels(below(&all, Path::new("/ws"), Path::new("/ws/a/c"))), ["a/c/d.ts"]);
+        assert_eq!(below(&all, Path::new("/ws"), Path::new("/ws")).len(), 5);
+        assert_eq!(rels(below(&all, Path::new("/ws"), Path::new("/ws/none"))), Vec::<&str>::new());
+        assert_eq!(rels(below(&all, Path::new("/ws"), Path::new("/other"))), Vec::<&str>::new());
+    }
 }
