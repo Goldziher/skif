@@ -59,7 +59,7 @@ another root. `--fix` plans, writes and installs per root.
 | `--ignore-rule <ID>` | Turn a rule off. Repeatable. |
 | `--ignore-package <NAME>` | Ignore a package by name or glob in every rule. Repeatable. The flags replace `[workspace] ignore-packages` from the configuration files instead of adding to it. |
 | `--ignore-dependency <NAME>` | Ignore a dependency in every rule. Repeatable. Adds to the `[[ignore]]` entries of the configuration files. |
-| `--ignore-rule-for-package <RULE:PACKAGE>` | Ignore one rule for one package. Repeatable. |
+| `--ignore-rule-for-package <RULE:PACKAGE>` | Ignore one rule for one package. Repeatable. Adds to the `[[ignore]]` entries of the configuration files. |
 | `--config <FILE>` | Use this configuration file (and the files it extends) for every root instead of discovering `skif.toml` files. Conflicts with `--no-config`. |
 | `--no-config` | Read no configuration file: the defaults plus the other flags. |
 | `--no-js` | Skip JavaScript analysis. Overrides `[js] enabled`. |
@@ -67,7 +67,9 @@ another root. `--fix` plans, writes and installs per root.
 | `--color <auto\|always\|never>` | When to colour human output. |
 
 Flags are the top layer of the [configuration precedence](../configuration/#precedence): defaults, then the file,
-then the command line. Array flags replace the file's arrays rather than append.
+then the command line. `--ignore-package` replaces the file's `[workspace] ignore-packages`; `--ignore-dependency` and
+`--ignore-rule-for-package` add `[[ignore]]` entries to those of the files; `--rule` and `--ignore-rule` set the level of
+each rule they name.
 
 ## Inspecting the configuration
 
