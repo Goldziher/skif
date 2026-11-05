@@ -74,8 +74,7 @@ expect "homebrew usage" 1 bash scripts/homebrew-update.sh
 if command -v jq >/dev/null 2>&1; then
   manifest="$(bash scripts/scoop-update.sh 1.2.3 "$sums" Acme/skif)"
   [[ "$(jq -r '.version' <<<"$manifest")" == 1.2.3 ]] || fail "scoop manifest version"
-  [[ "$(jq -r '.architecture."64bit".url' <<<"$manifest")" == \
-    https://github.com/Acme/skif/releases/download/v1.2.3/skif-x86_64-pc-windows-msvc.zip ]] || fail "scoop x64 url"
+  [[ "$(jq -r '.architecture."64bit".url' <<<"$manifest")" == https://github.com/Acme/skif/releases/download/v1.2.3/skif-x86_64-pc-windows-msvc.zip ]] || fail "scoop x64 url"
   [[ "$(jq -r '.architecture."64bit".hash' <<<"$manifest")" == "$(hex 7)" ]] || fail "scoop x64 hash"
   [[ "$(jq -r '.architecture.arm64.hash' <<<"$manifest")" == "$(hex 8)" ]] || fail "scoop arm64 hash"
   [[ "$(jq -r '.autoupdate.hash.url' <<<"$manifest")" == *'/v$version/checksums.txt' ]] || fail "scoop autoupdate hash url"
