@@ -633,7 +633,7 @@ fn inconsistent_overrides_are_rejected() {
     let scoped = &fine.config.overrides[0];
     assert_eq!(scoped.max_level, Some(Level::Warn));
     assert_eq!(scoped.rules["x"].severity, Some(Level::Off));
-    assert_eq!(scoped.js.entry, ["a"]);
+    assert_eq!(scoped.js.entry.as_deref(), Some(&["a".to_owned()][..]));
     assert_eq!(scoped.js.extend_ignore, ["b"]);
     assert_eq!(scoped.ignore[0].rules, ["y"]);
 }
