@@ -93,8 +93,17 @@ or is replaced, write a new ADR that supersedes or amends it, add it to `adrs/in
 5. The release must be tagged on a commit that is on `main` and has a green `ci.yml` run; the workflow stops
    otherwise (`scripts/check-release-gate.sh`).
 6. Rehearse with the workflow's `dry-run` input: it builds every target and verifies the assets and the crate
+   packages without publishing. The same dry run starts on every pull request that touches the release inputs
+   (`Cargo.toml`, `Cargo.lock`, `crates/skif-node`, `crates/skif-cli`, `npm-package`, `action.yml` or a release
+   script) and every Monday; do not tag while the last one is red.
+7. The GitHub release stays a draft until crates.io is published and the npm package has run under Node 22, 24 and
+   26 and Bun; only then is it made public, and `cargo binstall` is verified against the public release. A failed
+   run therefore never leaves a public release without its registry packages; re-run it to finish.
+8. `scripts/release-bump.sh` also writes the version into `action.yml` (`BAKED_VERSION`), which is what makes a
+   SHA-pinned `Goldziher/skif@<sha>` install that release instead of the latest one. The release archives carry a
+   build-provenance attestation (`gh attestation verify skif-<target>.tar.gz --repo Goldziher/skif`).
    packages without publishing.
-7. In the release change, remove the pre-release notices: the "Pre-release" callout at the top of `README.md`, the
+9. In the release change, remove the pre-release notices: the "Pre-release" callout at the top of `README.md`, the
    "has not been released yet" wording in its Installation section, and the `Aside` marked `pre-release-notice` in
    `website/src/content/docs/start/introduction.mdx` and `installation.mdx`
    (`grep -rn "pre-release-notice" website/src` lists them).

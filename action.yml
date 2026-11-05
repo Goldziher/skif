@@ -10,11 +10,19 @@ branding:
 inputs:
   version:
     description: >-
-      skif version to install, with or without a leading `v` (e.g. "0.1.0"). Defaults to the tag this
-      action is pinned to (`github.action_ref`) - a full release or a floating tag such as `v0`,
-      which resolves to the newest 0.x release - otherwise the latest GitHub release.
+      skif version to install, with or without a leading `v` (e.g. "0.1.0"). Defaults to the version
+      this release of the action was published with, whatever ref (tag, floating tag or commit SHA) it is
+      used by. A development checkout of the action, which carries no version, falls back to the tag it
+      is pinned to (a full release or a floating tag such as `v0`) and then to the latest GitHub release.
     required: false
     default: ""
+  verify-attestation:
+    description: >-
+      Verify the release archive's build provenance with `gh attestation verify` after the checksum
+      check. Skipped with a warning when the installed `gh` has no `attestation` command. Set to
+      "false" for a mirror whose archives carry no attestation.
+    required: false
+    default: "true"
   args:
     description: >-
       Arguments to pass to skif, as a single space-separated string (e.g. "--format sarif --output
@@ -64,14 +72,18 @@ runs:
         REPOSITORY: ${{ inputs.repository }}
         GH_TOKEN: ${{ inputs.token }}
         ACTION_PATH: ${{ github.action_path }}
+        # Written by scripts/release-bump.sh; 0.0.0 in a development checkout.
+        BAKED_VERSION: "0.0.0"
       run: bash "$ACTION_PATH/scripts/gh-action-resolve.sh"
 
+    # The cache holds the verified archive next to the binary, so a cache hit can be checked against the release's
+    # checksums again instead of being trusted.
     - name: Cache skif binary
       id: cache
       uses: actions/cache@v6
       with:
-        path: ${{ steps.resolve.outputs.bin-dir }}
-        key: skif-${{ steps.resolve.outputs.tag }}-${{ steps.resolve.outputs.asset }}
+        path: ${{ steps.resolve.outputs.cache-dir }}
+        key: skif-v2-${{ steps.resolve.outputs.tag }}-${{ steps.resolve.outputs.asset }}
 
     - name: Install skif
       id: install
@@ -85,6 +97,8 @@ runs:
         EXT: ${{ steps.resolve.outputs.ext }}
         CHECKSUMS: ${{ steps.resolve.outputs.checksums }}
         BIN_DIR: ${{ steps.resolve.outputs.bin-dir }}
+        ARCHIVE_DIR: ${{ steps.resolve.outputs.archive-dir }}
+        VERIFY_ATTESTATION: ${{ inputs.verify-attestation }}
         GH_TOKEN: ${{ inputs.token }}
       run: bash "$ACTION_PATH/scripts/gh-action-install.sh"
 

@@ -14,16 +14,19 @@ description: Run skif from GitHub Actions, pre-commit, prek, Poly, Lefthook, npm
 
 | Input | Meaning |
 | --- | --- |
-| `version` | skif version to install. Defaults to the tag the action is pinned to, otherwise the latest release. |
+| `version` | skif version to install. Defaults to the version this release of the action was published with, whatever ref (tag, `v0` or commit SHA) uses it. |
 | `args` | Extra skif arguments, as one space-separated string. |
 | `working-directory` | Directory to run skif in. |
 | `fail-on-warnings` | Exit non-zero on any warning. |
 | `install-only` | Put `skif` on `PATH` without running it. |
 | `token` | Token for the GitHub API and the release download. Defaults to the workflow's `GITHUB_TOKEN`. |
 | `repository` | Advanced: the `owner/repo` the release assets come from. Defaults to `Goldziher/skif`. |
+| `verify-attestation` | Verify the archive's build provenance with `gh attestation verify` (default `true`). |
 
-`@v0` is a floating tag that follows the newest 0.x release. Pin a full tag such as `@v0.1.0` for a fixed version.
-The action downloads the release archive for the runner and verifies it against the release's `checksums.txt`.
+`@v0` is a floating tag that moves to each 0.x release; every release of the action installs the skif version it was
+published with, so a full tag such as `@v0.1.0` or a commit SHA never changes the installed version. The action
+downloads the release archive for the runner and verifies it against the release's `checksums.txt` (again on every
+cache hit) and, where the `gh` CLI has the `attestation` command, against its build-provenance attestation.
 Outputs are `version` and `path`.
 
 Code scanning with SARIF:
@@ -32,7 +35,7 @@ Code scanning with SARIF:
 - uses: Goldziher/skif@v0
   with:
     args: --format sarif --output skif.sarif
-- uses: github/codeql-action/upload-sarif@v3
+- uses: github/codeql-action/upload-sarif@v4
   if: always()
   with:
     sarif_file: skif.sarif
@@ -60,7 +63,7 @@ repos:
 
 Both hooks run `scripts/pre-commit/run-skif.sh`, which needs neither Rust nor Node. It uses, in order,
 `SKIF_BINARY` (an error if it is not executable), `skif` on `PATH`, then the release pinned by the hook revision,
-downloaded once into `~/.cache/skif/pre-commit` and verified against `checksums.txt`.
+downloaded once into `~/.cache/skif/pre-commit` and verified against `checksums.txt` (and its build attestation when an authenticated `gh` is available).
 
 The hooks run when `package.json`, `pnpm-workspace.yaml`, `skif.toml` or `.skif.toml` change. A configuration file
 that is only reached through `extends` can have any name and does not trigger them; add its path to the hook's

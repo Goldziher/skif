@@ -9,7 +9,13 @@
 # SKIF_VERSION overrides the pinned release; SKIF_CACHE_DIR overrides the cache location;
 # SKIF_RELEASE_URL overrides the download base (a mirror or a test server).
 # SKIF_RESOLVE_ONLY=1 prints the resolved binary path instead of running it.
+#
+# On Linux the glibc archive is used only on glibc 2.34 or newer; older glibc, musl and an unidentifiable libc get the
+# musl archive. SKIF_VERIFY_ATTESTATION=0 skips the build-attestation check, which also needs an authenticated gh.
 set -euo pipefail
+
+# shellcheck source=../lib/libc.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/libc.sh"
 
 SKIF_VERSION="${SKIF_VERSION:-v0.0.0}"
 SKIF_BINARY="${SKIF_BINARY:-}"
@@ -29,16 +35,25 @@ sha256() {
   fi
 }
 
-# musl detection must not be a pipeline: musl's `ldd --version` exits non-zero, which `pipefail` would turn into
-# "not musl" whatever grep says.
-is_musl() {
-  local banner
-  banner="$(ldd --version 2>&1 || true)"
-  [[ "$banner" == *musl* ]] || compgen -G '/lib/ld-musl-*' >/dev/null
+# The build attestation ties the archive to the release workflow; checksums.txt only detects corruption. It needs
+# an authenticated `gh`; without one the checksum is all there is, and the launcher says so. Never silent.
+verify_attestation() {
+  local archive="$1"
+  if [[ "${SKIF_VERIFY_ATTESTATION:-1}" == "0" ]]; then
+    return 0
+  fi
+  if ! command -v gh >/dev/null 2>&1 || ! gh attestation verify --help >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+    echo "skif: build attestation not verified (needs an authenticated gh with 'attestation'); checksum verified" >&2
+    return 0
+  fi
+  if ! gh attestation verify "$archive" --repo "${SKIF_REPOSITORY:-Goldziher/skif}" >&2; then
+    echo "skif: attestation verification failed for $(basename "$archive"), refusing to install it" >&2
+    return 1
+  fi
 }
 
 detect_target() {
-  local os arch libc=gnu
+  local os arch libc
   case "$(uname -s)" in
   Linux*) os="unknown-linux" ;;
   Darwin*) os="apple-darwin" ;;
@@ -58,9 +73,7 @@ detect_target() {
   esac
   case "$os" in
   unknown-linux)
-    if is_musl; then
-      libc=musl
-    fi
+    libc="$(skif_libc)"
     echo "${arch}-unknown-linux-${libc}"
     ;;
   *) echo "${arch}-${os}" ;;
@@ -133,6 +146,7 @@ download() {
     echo "skif: checksum verification failed for ${archive}" >&2
     return 1
   fi
+  verify_attestation "${tmp}/${archive}" || return 1
 
   mkdir -p "${tmp}/extract"
   if [[ "$ext" == "zip" ]]; then

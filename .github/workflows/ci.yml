@@ -296,7 +296,7 @@ jobs:
         run: scripts/check-versions.sh
       - name: Check that oxc is pinned exactly and dependencies are inherited from the workspace
         run: scripts/check-pins.sh
-      - name: Check that vendored files carry their attribution headers
+      - name: Check the syncpack-vendored files' attribution headers and ATTRIBUTIONS.md
         run: scripts/check-headers.sh
       - name: Check that rule ids are never dropped
         run: scripts/check-rule-ids.sh
@@ -317,8 +317,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # node-22 is the engines floor; node and bun are the versions pinned in mise.toml.
-        runtime: [node-22, node, bun]
+        # ADR 0027: every non-end-of-life Node line (22, 24, 26) and the latest Bun 1.x.
+        runtime: [node-22, node-24, node-26, bun]
     steps:
       - uses: actions/checkout@v7
       # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
@@ -328,7 +328,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: xberg-io/actions/setup-mise@v1
         with:
-          tools: node pnpm bun
+          tools: node pnpm
+      # The latest Bun 1.x rather than the version pinned in mise.toml.
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.runtime == 'bun'
+        with:
+          bun-version: latest
       # The `node` profile unwinds panics (the release profile aborts); `test-hooks` adds the deliberate panic the
       # smoke test throws to prove it reaches JavaScript as an exception.
       - name: Build the addon for the host
@@ -339,25 +344,36 @@ jobs:
       - name: Smoke-test import, lint(), lintAsync(), a panic and the skif bin
         env:
           SKIF_EXPECT_PANIC_HOOK: "1"
+          RUNTIME: ${{ matrix.runtime }}
         run: |
           set -euo pipefail
-          case "${{ matrix.runtime }}" in
-            # Node 22 is the engines floor, not a pinned tool, so it bypasses the locked lockfile.
-            node-22) MISE_LOCKED=0 mise exec node@22 -- bash scripts/npm-smoke.sh node ;;
-            *) bash scripts/npm-smoke.sh "${{ matrix.runtime }}" ;;
+          case "$RUNTIME" in
+            # Each Node line is selected by major so it tracks the newest release of that line; the lock covers only
+            # the pinned 26.
+            node-*) MISE_LOCKED=0 mise exec "node@${RUNTIME#node-}" -- bash scripts/npm-smoke.sh node ;;
+            *) bash scripts/npm-smoke.sh "$RUNTIME" ;;
           esac
 
   # Runs the built binary against real workspaces installed by each package manager, so the
   # fixtures prove skif's view of a monorepo matches what npm, pnpm, yarn and bun actually accept.
   e2e:
-    name: E2E (${{ matrix.package-manager }})
+    name: E2E (${{ matrix.package-manager }} ${{ matrix.slot }})
     timeout-minutes: 30
     runs-on: ubuntu-latest
     strategy:
       # fail-fast stays off so one package manager's failure does not hide the others.
       fail-fast: false
       matrix:
-        package-manager: [npm, pnpm, yarn, bun]
+        # ADR 0027: the latest two majors of npm, pnpm and Yarn 2+ (`slot` picks the newest or the previous major from
+        # the registry) and the latest Bun 1.x.
+        include:
+          - { package-manager: npm, slot: newest }
+          - { package-manager: npm, slot: previous }
+          - { package-manager: pnpm, slot: newest }
+          - { package-manager: pnpm, slot: previous }
+          - { package-manager: yarn, slot: newest }
+          - { package-manager: yarn, slot: previous }
+          - { package-manager: bun, slot: latest }
     steps:
       - uses: actions/checkout@v7
       # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
@@ -365,18 +381,34 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
-      # node serves npm, yarn (through corepack) and pnpm's own runtime; pnpm is pinned in mise.toml.
+      # node serves npm, yarn (through corepack) and pnpm; the package manager under test is installed below.
       - uses: xberg-io/actions/setup-mise@v1
         with:
-          tools: node pnpm
+          tools: node
       - uses: oven-sh/setup-bun@v2
         if: matrix.package-manager == 'bun'
+        with:
+          bun-version: latest
       # ~keep Node 25+ no longer bundles corepack, so yarn's corepack shim is installed explicitly.
       - name: Enable corepack
         if: matrix.package-manager == 'yarn'
         run: |
           npm install --global corepack@latest
           corepack enable
+      - name: Install the package manager version under test
+        if: matrix.package-manager != 'bun'
+        env:
+          PM: ${{ matrix.package-manager }}
+          SLOT: ${{ matrix.slot }}
+        run: |
+          set -euo pipefail
+          version="$(scripts/e2e/resolve-pm-version.sh "$PM" "$SLOT")"
+          echo "Testing $PM $version (the $SLOT major)"
+          case "$PM" in
+            npm | pnpm) npm install --global "${PM}@${version}" ;;
+            yarn) corepack prepare "yarn@${version}" --activate ;;
+          esac
+          "$PM" --version
       - name: Build skif
         run: cargo build --locked
       - name: Run end-to-end tests
