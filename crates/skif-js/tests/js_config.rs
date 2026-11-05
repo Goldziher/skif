@@ -144,10 +144,25 @@ fn the_production_marker_selects_entries_in_a_production_run() {
         &files,
         &format!("[js]\nproduction = true\n[js.workspaces.\"packages/a\"]\n{entry}"),
     );
-    assert_eq!(
-        paths(&production, "unused-files"),
-        ["packages/a/src/extra.ts", "packages/a/src/index.ts"]
+    // Entries without the marker run in development only: they are no project files in a production run.
+    assert_eq!(paths(&production, "unused-files"), none());
+}
+
+#[test]
+fn a_production_run_keeps_unmarked_entries_out_of_the_project() {
+    let files = vec![
+        MANIFEST,
+        ("packages/a/package.json", r#"{"name":"@x/a"}"#),
+        ("packages/a/src/index.ts", "export {};\n"),
+        ("packages/a/scripts/build.ts", "export {};\n"),
+        ("packages/a/src/orphan.ts", "export {};\n"),
+    ];
+    let entry = "entry = [\"src/index.ts!\", \"scripts/*.ts\"]\n";
+    let production = lint(
+        &files,
+        &format!("[js]\nproduction = true\n[js.workspaces.\"packages/a\"]\n{entry}"),
     );
+    assert_eq!(paths(&production, "unused-files"), ["packages/a/src/orphan.ts"]);
 }
 
 #[test]
@@ -156,6 +171,38 @@ fn ignore_workspaces_skips_the_analysis_of_matching_packages() {
     assert_eq!(found(&lint(&files, ""), "unused-dependencies").len(), 2);
     let ignored = lint(&files, "[js]\nignore-workspaces = [\"packages/b\"]\n");
     assert_eq!(paths(&ignored, "unused-dependencies"), ["packages/a/package.json"]);
+}
+
+fn nested_packages() -> Vec<(&'static str, &'static str)> {
+    vec![
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/**"]}"#,
+        ),
+        ("packages/a/package.json", r#"{"name":"@x/a"}"#),
+        ("packages/a/src/index.ts", "export {};\n"),
+        ("packages/a/nested/package.json", r#"{"name":"@x/nested"}"#),
+        ("packages/a/nested/src/index.ts", "export {};\n"),
+        ("packages/a/nested/src/use.ts", "export {};\n"),
+    ]
+}
+
+#[test]
+fn a_star_in_ignore_workspaces_does_not_cross_a_slash() {
+    let files = nested_packages();
+    let ignored = lint(&files, "[js]\nignore-workspaces = [\"packages/*\"]\n");
+    assert_eq!(paths(&ignored, "unused-files"), ["packages/a/nested/src/use.ts"]);
+    let all = lint(&files, "[js]\nignore-workspaces = [\"packages/**\"]\n");
+    assert_eq!(paths(&all, "unused-files"), none());
+}
+
+#[test]
+fn a_star_in_a_workspace_key_does_not_select_nested_packages() {
+    let files = nested_packages();
+    let single = lint(&files, "[js.workspaces.\"packages/*\"]\nentry = [\"src/*.ts\"]\n");
+    assert_eq!(paths(&single, "unused-files"), ["packages/a/nested/src/use.ts"]);
+    let deep = lint(&files, "[js.workspaces.\"packages/**\"]\nentry = [\"src/*.ts\"]\n");
+    assert_eq!(paths(&deep, "unused-files"), none());
 }
 
 #[test]
@@ -331,6 +378,22 @@ fn stale_js_config_does_not_judge_a_list_whose_rules_are_off() {
         "[rules]\nunused-dev-dependencies = \"off\"\n[js]\nignore-dependencies = [\"nothing-here\"]\n",
     );
     assert_eq!(messages(&diagnostics), none());
+}
+
+#[test]
+fn stale_js_config_does_not_judge_ignore_binaries_when_unlisted_binaries_is_off() {
+    let files = two_packages("export {};\n");
+    let toml = "[js]\nignore-binaries = [\"ghost\"]\n[js.workspaces.\"packages/a\"]\nignore-binaries = [\"phantom\"]\n";
+    let on = lint(&files, toml);
+    assert_eq!(
+        messages(&on),
+        [
+            "`ghost` in `js.ignore-binaries` matched nothing",
+            "`phantom` in `js.workspaces.\"packages/a\".ignore-binaries` matched nothing"
+        ]
+    );
+    let off = lint(&files, &format!("[rules]\nunlisted-binaries = \"off\"\n{toml}"));
+    assert_eq!(messages(&off), none());
 }
 
 fn validate(toml: &str) -> Result<(), skif_config::ConfigError> {

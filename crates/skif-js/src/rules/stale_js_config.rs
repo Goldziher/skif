@@ -79,6 +79,7 @@ impl JsRule for StaleJsConfig {
                 .iter()
                 .all(|(id, _)| analysis.is_skipped(id) || !analysis.entries_incomplete(id));
         let unresolved_ran = ran(&["unresolved-imports"]);
+        let binaries_ran = ran(&["unlisted-binaries"]);
 
         let mut keyed: Vec<(String, Vec<&str>)> = Vec::new();
         if dependencies_ran {
@@ -87,10 +88,12 @@ impl JsRule for StaleJsConfig {
                 setup.global_ignore_dependencies.unmatched(),
             ));
         }
-        keyed.push((
-            "js.ignore-binaries".to_owned(),
-            setup.global_ignore_binaries.unmatched(),
-        ));
+        if binaries_ran {
+            keyed.push((
+                "js.ignore-binaries".to_owned(),
+                setup.global_ignore_binaries.unmatched(),
+            ));
+        }
         if unresolved_ran {
             keyed.push((
                 "js.ignore-unresolved".to_owned(),
@@ -114,7 +117,9 @@ impl JsRule for StaleJsConfig {
                     package_setup.user_ignore_dependencies.unmatched(),
                 ));
             }
-            keyed.push((key("ignore-binaries"), package_setup.user_ignore_binaries.unmatched()));
+            if binaries_ran {
+                keyed.push((key("ignore-binaries"), package_setup.user_ignore_binaries.unmatched()));
+            }
             if unresolved_ran {
                 keyed.push((key("ignore-unresolved"), package_setup.ignore_unresolved.unmatched()));
             }

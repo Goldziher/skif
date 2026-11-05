@@ -286,6 +286,25 @@ fn object_assign_is_shallow_and_defu_prefers_the_first_argument() {
 }
 
 #[test]
+fn merge_is_a_combinator_only_when_it_is_not_another_librarys_merge() {
+    let rxjs = extract(
+        "d.config.js",
+        "import { merge } from 'rxjs';\nexport default { a: merge({ x: 1 }, { y: 2 }) };",
+    );
+    assert_eq!(get(&rxjs, &["a"]), &UNKNOWN);
+    let webpack = extract(
+        "e.config.js",
+        "import { merge } from 'webpack-merge';\nexport default merge({ x: 1 }, { y: 2 });",
+    );
+    assert_eq!(get(&webpack, &["x"]), &ConfigValue::Number(1.0));
+    assert_eq!(get(&webpack, &["y"]), &ConfigValue::Number(2.0));
+    let member = extract("f.config.js", "export default _.merge({ x: 1 }, { y: 2 });");
+    assert_eq!(get(&member, &["y"]), &ConfigValue::Number(2.0));
+    let stream = extract("g.config.js", "export default { a: stream.merge({ x: 1 }) };");
+    assert_eq!(get(&stream, &["a"]), &UNKNOWN);
+}
+
+#[test]
 fn a_merge_of_unknown_operands_leaves_only_the_marker() {
     let value = extract("c.config.js", "export default { a: merge(x, y) };");
     assert_eq!(
