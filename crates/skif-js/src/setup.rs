@@ -1,16 +1,20 @@
 //! Per-package analysis settings: configured, default and plugin-provided globs merged once.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use globset::Glob;
-use skif_config::{Config, Js, JsWorkspace, PackageJs};
+use indexmap::IndexMap;
+use skif_config::{Config, IgnoreExportsUsedInFile, Js, JsWorkspace, PackageJs};
 use skif_core::FileSystem;
+use skif_js_syntax::{Export, ExportKind};
 use skif_workspace::{PackageId, Workspace};
 
 use crate::ancestors;
 use crate::globs::{Globs, Names};
 use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
+use crate::listed::{self, Listed};
 use crate::scripts::{self, ScriptBinary, ScriptFacts};
 
 const EXTENSIONS: &str = "{js,mjs,cjs,jsx,ts,tsx,mts,cts}";
@@ -60,10 +64,16 @@ struct Configured {
     ignore: Vec<String>,
     ignore_dependencies: Vec<String>,
     ignore_binaries: Vec<String>,
+    ignore_unresolved: Vec<String>,
+    ignore_members: Vec<String>,
+    include_entry_exports: Option<bool>,
+    ignore_exports_used_in_file: Option<IgnoreExportsUsedInFile>,
+    paths: IndexMap<String, Vec<String>>,
 }
 
 fn normalize_dir(dir: &str) -> &str {
-    dir.trim_start_matches("./").trim_end_matches('/')
+    let dir = dir.trim_start_matches("./").trim_end_matches('/');
+    if dir.is_empty() { "." } else { dir }
 }
 
 impl Configured {
@@ -79,6 +89,9 @@ impl Configured {
         replace(&mut self.ignore, &js.ignore);
         replace(&mut self.ignore_dependencies, &js.ignore_dependencies);
         replace(&mut self.ignore_binaries, &js.ignore_binaries);
+        replace(&mut self.ignore_unresolved, &js.ignore_unresolved);
+        self.ignore_unresolved
+            .extend(js.extend_ignore_unresolved.iter().cloned());
         self.ignore.extend(js.extend_ignore.iter().cloned());
         self.ignore_dependencies
             .extend(js.extend_ignore_dependencies.iter().cloned());
@@ -86,29 +99,66 @@ impl Configured {
     }
 }
 
-/// What the configuration sets for the package `name` in `abs_dir`: the root package takes the top-level `[js]`, any
-/// other the matching `[js.workspaces]` table (an exact key wins over a glob key), then the `js` of each
-/// `[[overrides]]` block that selects the package, in configuration order.
+impl From<&JsWorkspace> for Configured {
+    fn from(workspace: &JsWorkspace) -> Self {
+        Self {
+            entry: workspace.entry.clone(),
+            project: workspace.project.clone(),
+            ignore: workspace.ignore.clone(),
+            ignore_dependencies: workspace.ignore_dependencies.clone(),
+            ignore_binaries: workspace.ignore_binaries.clone(),
+            ignore_unresolved: workspace.ignore_unresolved.clone(),
+            ignore_members: workspace.ignore_members.clone(),
+            include_entry_exports: workspace.include_entry_exports,
+            ignore_exports_used_in_file: workspace.ignore_exports_used_in_file.clone(),
+            paths: workspace.paths.clone(),
+        }
+    }
+}
+
+impl Configured {
+    /// Applies the `"."` table of the root workspace on top of the top-level `[js]` keys: a list it sets replaces the
+    /// top-level one, the ignore lists add to the top-level ones (those apply to every workspace anyway).
+    fn fold_root(&mut self, root: Configured) {
+        let replace = |target: &mut Vec<String>, value: Vec<String>| {
+            if !value.is_empty() {
+                *target = value;
+            }
+        };
+        replace(&mut self.entry, root.entry);
+        replace(&mut self.project, root.project);
+        self.ignore.extend(root.ignore);
+        self.ignore_dependencies.extend(root.ignore_dependencies);
+        self.ignore_binaries.extend(root.ignore_binaries);
+        self.ignore_unresolved.extend(root.ignore_unresolved);
+        self.ignore_members.extend(root.ignore_members);
+        self.include_entry_exports = root.include_entry_exports.or(self.include_entry_exports);
+        self.ignore_exports_used_in_file = root.ignore_exports_used_in_file.or(self.ignore_exports_used_in_file.take());
+        self.paths.extend(root.paths);
+    }
+}
+
+/// What the configuration sets for the package `name` in `abs_dir`: the root package takes the top-level `[js]` and the
+/// `"."` table of `[js.workspaces]`, any other the matching `[js.workspaces]` table (an exact key wins over a glob
+/// key), then the `js` of each `[[overrides]]` block that selects the package, in configuration order.
+///
+/// The top-level `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and `ignore-members` apply to every
+/// package through the global lists and are not copied into the root's own.
 fn configured(config: &Config, name: &str, abs_dir: &Path, dir: &str, is_root: bool) -> Configured {
     let js = &config.js;
     let mut user = if is_root {
-        Configured {
+        let mut root = Configured {
             entry: js.entry.clone(),
             project: js.project.clone(),
             ignore: js.ignore.clone(),
-            ignore_dependencies: js.ignore_dependencies.clone(),
-            ignore_binaries: js.ignore_binaries.clone(),
+            ..Configured::default()
+        };
+        if let Some(table) = workspace_override(js, ".") {
+            root.fold_root(Configured::from(table));
         }
+        root
     } else {
-        workspace_override(js, dir)
-            .map(|workspace| Configured {
-                entry: workspace.entry.clone(),
-                project: workspace.project.clone(),
-                ignore: workspace.ignore.clone(),
-                ignore_dependencies: workspace.ignore_dependencies.clone(),
-                ignore_binaries: workspace.ignore_binaries.clone(),
-            })
-            .unwrap_or_default()
+        workspace_override(js, dir).map(Configured::from).unwrap_or_default()
     };
     for scoped in config
         .overrides
@@ -120,19 +170,68 @@ fn configured(config: &Config, name: &str, abs_dir: &Path, dir: &str, is_root: b
     user
 }
 
-/// The `[js.workspaces]` table for `dir`: an exact key wins over a glob key such as `packages/*`.
-fn workspace_override<'a>(js: &'a Js, dir: &str) -> Option<&'a JsWorkspace> {
-    js.workspaces
+/// The `[js.workspaces]` table for `dir` (`"."` for the root): an exact key wins over a glob key such as `packages/*`.
+pub(crate) fn workspace_override<'a>(js: &'a Js, dir: &str) -> Option<&'a JsWorkspace> {
+    workspace_table(&js.workspaces, dir)
+}
+
+/// The key of `workspaces` that stands for `dir`, if any.
+pub(crate) fn workspace_table<'a>(workspaces: &'a IndexMap<String, JsWorkspace>, dir: &str) -> Option<&'a JsWorkspace> {
+    let dir = if dir.is_empty() { "." } else { dir };
+    workspaces
         .iter()
         .find(|(key, _)| normalize_dir(key) == dir)
-        .or_else(|| {
-            js.workspaces.iter().find(|(key, _)| {
-                let key = normalize_dir(key);
-                key.contains(['*', '?', '[', '{'])
-                    && Glob::new(key).is_ok_and(|glob| glob.compile_matcher().is_match(dir))
+        .or_else(|| workspaces.iter().find(|(key, _)| key_selects(key, dir)))
+        .map(|(_, workspace)| workspace)
+}
+
+/// Whether the `[js.workspaces]` key `key` selects `dir` (`"."` or an empty `dir` is the root).
+fn key_selects(key: &str, dir: &str) -> bool {
+    let key = normalize_dir(key);
+    let dir = if dir.is_empty() { "." } else { dir };
+    key == dir
+        || (dir != "."
+            && key.contains(['*', '?', '[', '{'])
+            && Glob::new(key).is_ok_and(|glob| glob.compile_matcher().is_match(dir)))
+}
+
+/// The `paths` map of a configuration as module aliases: `alias/*` becomes the prefix `alias` pointing at the target
+/// directory, one alias per target.
+fn path_aliases(paths: &IndexMap<String, Vec<String>>) -> Vec<PathAlias> {
+    let trim = |pattern: &str| {
+        let pattern = pattern.strip_suffix("/*").or_else(|| pattern.strip_suffix('*')).unwrap_or(pattern);
+        pattern.trim_start_matches("./").to_owned()
+    };
+    paths
+        .iter()
+        .flat_map(|(alias, targets)| {
+            let find = trim(alias);
+            targets.iter().map(move |target| {
+                let target = trim(target);
+                PathAlias {
+                    find: find.clone(),
+                    target: Some(if target.is_empty() { ".".to_owned() } else { target }),
+                }
             })
         })
-        .map(|(_, workspace)| workspace)
+        .collect()
+}
+
+/// Whether `setting` covers the kind of `export`.
+pub(crate) fn ignores_in_file_use(setting: &IgnoreExportsUsedInFile, export: &Export) -> bool {
+    match setting {
+        IgnoreExportsUsedInFile::All(all) => *all,
+        IgnoreExportsUsedInFile::Kinds(kinds) => match export.kind {
+            ExportKind::Value => kinds.variable,
+            ExportKind::Function => kinds.function,
+            ExportKind::Class => kinds.class,
+            ExportKind::Enum => kinds.enumeration,
+            ExportKind::Namespace => kinds.namespace,
+            ExportKind::Type => kinds.type_alias || kinds.interface,
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// The settings of one workspace package.
@@ -152,8 +251,18 @@ pub(crate) struct PackageSetup {
     pub project: Globs,
     /// Files whose issues are not reported, relative to the package directory.
     pub ignore: Globs,
+    /// Dependencies and binaries plugins say are never reported.
     pub ignore_dependencies: Names,
     pub ignore_binaries: Names,
+    /// The `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and `ignore-members` of this workspace.
+    pub user_ignore_dependencies: Listed,
+    pub user_ignore_binaries: Listed,
+    pub ignore_unresolved: Listed,
+    pub ignore_members: Listed,
+    /// Whether unused exports of entry files are reported (`include-entry-exports`, workspace over top level).
+    pub include_entry_exports: bool,
+    /// Which exports used in their own file are not reported.
+    pub used_in_file: IgnoreExportsUsedInFile,
     /// Packages referenced by plugins and by scripts.
     pub referenced_dependencies: Vec<String>,
     /// Binaries run by plugins.
@@ -178,11 +287,22 @@ pub(crate) struct Setup {
     pub packages: Vec<Option<PackageSetup>>,
     /// `[js] ignore`, relative to the workspace root.
     pub global_ignore: Globs,
-    /// Root-level `ignore-dependencies` and `ignore-binaries` apply to every package.
-    pub global_ignore_dependencies: Names,
-    pub global_ignore_binaries: Names,
+    /// Root-level `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and `ignore-members` apply to every
+    /// package.
+    pub global_ignore_dependencies: Listed,
+    pub global_ignore_binaries: Listed,
+    pub global_ignore_unresolved: Listed,
+    pub global_ignore_members: Listed,
+    /// `[js] ignore-workspaces`, matched against package directories.
+    pub ignore_workspaces: Listed,
+    /// Packages the JavaScript analysis skips because `ignore-workspaces` names them.
+    pub js_ignored: HashSet<PackageId>,
+    /// `[js.workspaces]` keys that select no package.
+    pub unmatched_workspace_keys: Vec<String>,
     pub production: bool,
     pub include_entry_exports: bool,
+    /// `[js] ignore-exports-used-in-file`.
+    pub used_in_file: IgnoreExportsUsedInFile,
     /// `JSDoc` tags that exempt an export from `unused-exports` and `unused-types`.
     pub ignore_tags: Vec<String>,
 }
@@ -287,10 +407,33 @@ impl Setup {
             .and_then(|rule| skif_lint::parse_options::<UnusedExportsOptions>(&rule.options).ok())
             .map(|options| options.ignore_tags)
             .unwrap_or_default();
+        let ignore_workspaces = Listed::new(&js.ignore_workspaces, production);
+        let js_ignored: HashSet<PackageId> = workspace
+            .iter()
+            .filter(|(_, package)| !package.is_root)
+            .filter(|(_, package)| ignore_workspaces.is_match(&package.dir.to_string_lossy().replace('\\', "/")))
+            .map(|(id, _)| id)
+            .collect();
+        let package_dirs: Vec<String> = workspace
+            .iter()
+            .map(|(_, package)| {
+                if package.is_root {
+                    ".".to_owned()
+                } else {
+                    package.dir.to_string_lossy().replace('\\', "/")
+                }
+            })
+            .collect();
+        let unmatched_workspace_keys: Vec<String> = js
+            .workspaces
+            .keys()
+            .filter(|key| !package_dirs.iter().any(|dir| key_selects(key, dir)))
+            .cloned()
+            .collect();
         let mut packages: Vec<Option<PackageSetup>> = workspace
             .iter()
             .map(|(id, package)| {
-                if workspace.is_ignored(id) {
+                if workspace.is_ignored(id) || js_ignored.contains(&id) {
                     return None;
                 }
                 let dir_name = package.dir.to_string_lossy().replace('\\', "/");
@@ -313,11 +456,7 @@ impl Setup {
                 }
                 let scripts = scripts::analyze(package);
 
-                let mut entry = if user.entry.is_empty() {
-                    default_entry()
-                } else {
-                    user.entry
-                };
+                let mut entry = listed::user_globs(user.entry, production, &default_entry());
                 entry.extend(ambient_declarations());
                 let mut shared_sources: Vec<&String> = plugin.production_entry.iter().collect();
                 if !production {
@@ -333,11 +472,7 @@ impl Setup {
                 }
                 entry.extend(plugin.production_entry);
 
-                let mut project = if user.project.is_empty() {
-                    default_project()
-                } else {
-                    user.project
-                };
+                let mut project = listed::user_globs(user.project, production, &default_project());
                 project.extend(plugin.project);
                 if production {
                     project.extend(
@@ -350,11 +485,11 @@ impl Setup {
 
                 let mut ignore = user.ignore;
                 ignore.extend(plugin.ignore);
-                let mut ignore_dependencies = user.ignore_dependencies;
-                ignore_dependencies.extend(plugin.ignore_dependencies);
+                let mut ignore_dependencies = plugin.ignore_dependencies;
                 ignore_dependencies.extend(plugin.virtual_modules);
-                let mut ignore_binaries = user.ignore_binaries;
-                ignore_binaries.extend(plugin.ignore_binaries);
+                let ignore_binaries = plugin.ignore_binaries;
+                let mut aliases = path_aliases(&user.paths);
+                aliases.extend(plugin.aliases);
 
                 let mut referenced_dependencies = plugin.dependencies;
                 referenced_dependencies.extend(scripts.dependencies.iter().cloned());
@@ -377,11 +512,19 @@ impl Setup {
                     ignore: Globs::new(ignore),
                     ignore_dependencies: Names::new(ignore_dependencies),
                     ignore_binaries: Names::new(ignore_binaries),
+                    user_ignore_dependencies: Listed::new(&user.ignore_dependencies, production),
+                    user_ignore_binaries: Listed::new(&user.ignore_binaries, production),
+                    ignore_unresolved: Listed::new(&user.ignore_unresolved, production),
+                    ignore_members: Listed::new(&user.ignore_members, production),
+                    include_entry_exports: user.include_entry_exports.unwrap_or(js.include_entry_exports),
+                    used_in_file: user
+                        .ignore_exports_used_in_file
+                        .unwrap_or_else(|| js.ignore_exports_used_in_file.clone()),
                     referenced_dependencies,
                     referenced_binaries: plugin.binaries,
                     scripts,
                     config_files: plugin.config_files,
-                    aliases: plugin.aliases,
+                    aliases,
                     build_dirs: plugin.build_dirs,
                     conditions: plugin.conditions,
                     module_dirs: plugin.module_dirs,
@@ -393,10 +536,16 @@ impl Setup {
         Self {
             packages,
             global_ignore: Globs::new(&js.ignore),
-            global_ignore_dependencies: Names::new(&js.ignore_dependencies),
-            global_ignore_binaries: Names::new(&js.ignore_binaries),
+            global_ignore_dependencies: Listed::new(&js.ignore_dependencies, production),
+            global_ignore_binaries: Listed::new(&js.ignore_binaries, production),
+            global_ignore_unresolved: Listed::new(&js.ignore_unresolved, production),
+            global_ignore_members: Listed::new(&js.ignore_members, production),
+            ignore_workspaces,
+            js_ignored,
+            unmatched_workspace_keys,
             production,
             include_entry_exports: js.include_entry_exports,
+            used_in_file: js.ignore_exports_used_in_file.clone(),
             ignore_tags,
         }
     }
@@ -414,20 +563,54 @@ impl Setup {
         }
     }
 
-    /// Whether the dependency `name` of package `id` is on an ignore list.
+    /// Whether the dependency `name` of package `id` is on an ignore list. Every list is consulted, so each entry that
+    /// matches is recorded.
     pub(crate) fn ignores_dependency(&self, id: PackageId, name: &str) -> bool {
-        self.global_ignore_dependencies.is_match(name)
-            || self
-                .package(id)
-                .is_some_and(|setup| setup.ignore_dependencies.is_match(name))
+        let global = self.global_ignore_dependencies.is_match(name);
+        let package = self.package(id).is_some_and(|setup| {
+            let user = setup.user_ignore_dependencies.is_match(name);
+            setup.ignore_dependencies.is_match(name) || user
+        });
+        global || package
     }
 
     /// Whether the binary `name` of package `id` is on an ignore list.
     pub(crate) fn ignores_binary(&self, id: PackageId, name: &str) -> bool {
-        self.global_ignore_binaries.is_match(name)
+        let global = self.global_ignore_binaries.is_match(name);
+        let package = self.package(id).is_some_and(|setup| {
+            let user = setup.user_ignore_binaries.is_match(name);
+            setup.ignore_binaries.is_match(name) || user
+        });
+        global || package
+    }
+
+    /// Whether the import specifier `specifier` in package `id` is on an `ignore-unresolved` list.
+    pub(crate) fn ignores_unresolved(&self, id: PackageId, specifier: &str) -> bool {
+        let global = self.global_ignore_unresolved.is_match(specifier);
+        let package = self
+            .package(id)
+            .is_some_and(|setup| setup.ignore_unresolved.is_match(specifier));
+        global || package
+    }
+
+    /// Whether the enum or namespace member `name` in package `id` is on an `ignore-members` list.
+    pub(crate) fn ignores_member(&self, id: PackageId, name: &str) -> bool {
+        self.global_ignore_members.is_match(name)
             || self
                 .package(id)
-                .is_some_and(|setup| setup.ignore_binaries.is_match(name))
+                .is_some_and(|setup| setup.ignore_members.is_match(name))
+    }
+
+    /// Whether unused exports of entry files owned by package `id` are reported.
+    pub(crate) fn includes_entry_exports(&self, id: PackageId) -> bool {
+        self.package(id)
+            .map_or(self.include_entry_exports, |setup| setup.include_entry_exports)
+    }
+
+    /// Whether an export of package `id` that is used in its own file is left unreported.
+    pub(crate) fn ignores_in_file_use(&self, id: PackageId, export: &Export) -> bool {
+        let setting = self.package(id).map_or(&self.used_in_file, |setup| &setup.used_in_file);
+        ignores_in_file_use(setting, export)
     }
 }
 

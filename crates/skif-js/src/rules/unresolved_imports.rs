@@ -37,7 +37,7 @@ impl JsRule for UnresolvedImports {
                 let Some(import) = module.info.imports.get(resolved.import) else {
                     continue;
                 };
-                if analysis.ignores_dependency(module.owner, &import.specifier) {
+                if analysis.ignores_unresolved(module.owner, &import.specifier) {
                     continue;
                 }
                 let mut builder = diagnostic(

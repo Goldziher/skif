@@ -1,3 +1,4 @@
+use skif_config::{Config, ConfigError};
 use skif_core::RuleMeta;
 use skif_workspace::map_ordered;
 
@@ -132,6 +133,16 @@ pub trait RuleProvider: Send + Sync {
     /// [`OptionsError`] when the options are invalid.
     fn validate_options(&self, rule_id: &str, options: &toml::Table) -> Result<(), OptionsError> {
         let _ = (rule_id, options);
+        Ok(())
+    }
+
+    /// Validates the parts of the configuration this provider reads outside `[rules]`, such as the `[js]` table.
+    /// Accepts anything by default.
+    ///
+    /// # Errors
+    /// [`ConfigError::Invalid`] naming the offending key.
+    fn validate_config(&self, config: &Config) -> Result<(), ConfigError> {
+        let _ = config;
         Ok(())
     }
 

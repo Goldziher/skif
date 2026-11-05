@@ -15,6 +15,7 @@ root-package-dependencies
 root-package-manager-field
 root-package-private-field
 semver-range-mismatch
+stale-js-config
 types-in-dependencies
 unlisted-binaries
 unlisted-dependencies

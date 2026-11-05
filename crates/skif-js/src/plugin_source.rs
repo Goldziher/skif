@@ -3,15 +3,18 @@
 use std::path::Path;
 
 use indexmap::IndexMap;
-use skif_config::{Override, PluginConfig};
+use skif_config::{JsWorkspace, Override, PluginConfig};
 use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins};
 
 use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
+use crate::setup::workspace_table;
 
 /// Feeds the entries, project files and references of every enabled plugin to the module graph.
 #[derive(Debug, Clone)]
 pub struct PluginSource {
     plugins: IndexMap<String, PluginConfig>,
+    /// The `[js.workspaces]` tables that set `plugins`, applied to the packages their keys select.
+    workspaces: IndexMap<String, JsWorkspace>,
     /// The `[[overrides]]` that set `js.plugins`, applied to the packages they select.
     scoped: Vec<Override>,
 }
@@ -22,8 +25,21 @@ impl PluginSource {
     pub fn new(plugins: IndexMap<String, PluginConfig>) -> Self {
         Self {
             plugins,
+            workspaces: IndexMap::new(),
             scoped: Vec::new(),
         }
+    }
+
+    /// Also applies the `plugins` of the `[js.workspaces]` tables in `workspaces` to the packages their keys select
+    /// (`"."` is the root), after the table given to [`new`](Self::new) and before the overrides.
+    #[must_use]
+    pub fn with_workspaces(mut self, workspaces: &IndexMap<String, JsWorkspace>) -> Self {
+        self.workspaces = workspaces
+            .iter()
+            .filter(|(_, workspace)| !workspace.plugins.is_empty())
+            .map(|(key, workspace)| (key.clone(), workspace.clone()))
+            .collect();
+        self
     }
 
     /// Also applies the `js.plugins` of the `[[overrides]]` blocks in `overrides` to the packages they select, in
@@ -39,8 +55,14 @@ impl PluginSource {
     }
 
     /// The plugin table for one package: the global table with the matching overrides folded in.
-    fn plugins_for(&self, name: &str, dir: &Path) -> IndexMap<String, PluginConfig> {
+    fn plugins_for(&self, name: &str, dir: &Path, key: &str) -> IndexMap<String, PluginConfig> {
         let mut plugins = self.plugins.clone();
+        if let Some(workspace) = workspace_table(&self.workspaces, key) {
+            for (plugin, incoming) in &workspace.plugins {
+                let merged = merge(plugins.get(plugin), incoming);
+                plugins.insert(plugin.clone(), merged);
+            }
+        }
         for scoped in self
             .scoped
             .iter()
@@ -166,9 +188,15 @@ impl InputSource for PluginSource {
         let inherited = inherited_dependencies(request);
         let scripts = scripts(request);
         let dir = request.workspace.root.join(Path::new(&package.dir));
+        let key = if package.is_root {
+            ".".to_owned()
+        } else {
+            package.dir.to_string_lossy().replace('\\', "/")
+        };
         let plugins = self.plugins_for(
             package.display_name(),
             if package.is_root { &request.workspace.root } else { &dir },
+            &key,
         );
         let context = PluginContext {
             dir: &dir,

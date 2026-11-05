@@ -560,7 +560,7 @@ impl JsAnalysis<'_> {
             report.verdict = Verdict::Unused;
             return report;
         }
-        report.entry_public = module.is_entry && !self.setup.include_entry_exports;
+        report.entry_public = module.is_entry && !self.setup.includes_entry_exports(module.owner);
         report.tagged_public = self.is_tagged_public(export);
         report.is_re_export = matches!(export.kind, ExportKind::ReExport | ExportKind::StarReExport);
         for importer_id in self.graph.imported_by(module.id) {

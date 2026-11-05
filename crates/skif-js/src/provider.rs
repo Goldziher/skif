@@ -2,15 +2,17 @@
 
 use std::sync::Arc;
 
+use skif_config::{Config, ConfigError};
 use skif_core::{FileSystem, OsFs, RuleMeta};
+use skif_js_plugins::Plugin as _;
 use skif_lint::{
     Emitter, EnabledRules, LintContext, OptionsError, ProviderError, RuleProvider, parse_options, reject_options,
 };
 use skif_workspace::map_ordered;
 
-use crate::setup::UnusedExportsOptions;
-
 use crate::analysis::JsAnalysis;
+use crate::config_check;
+use crate::setup::UnusedExportsOptions;
 use crate::input::InputSource;
 use crate::rules::{JsRule, rules};
 
@@ -77,6 +79,12 @@ impl RuleProvider for JsProvider {
         }
     }
 
+    fn validate_config(&self, config: &Config) -> Result<(), ConfigError> {
+        let plugin_ids: Vec<&str> = skif_js_plugins::plugins().iter().map(|plugin| plugin.spec().id).collect();
+        config.validate_plugins(&plugin_ids)?;
+        config_check::validate(config)
+    }
+
     fn run(&self, cx: &LintContext<'_>, enabled: &EnabledRules, out: &mut Emitter<'_>) -> Result<(), ProviderError> {
         if !cx.config.js.enabled {
             return Ok(());
@@ -90,16 +98,30 @@ impl RuleProvider for JsProvider {
         if active.is_empty() || out.is_cancelled() {
             return Ok(());
         }
-        let analysis = JsAnalysis::build(cx.workspace, cx.config, &self.fs, &self.sources, cx.sequential);
+        let mut analysis = JsAnalysis::build(cx.workspace, cx.config, &self.fs, &self.sources, cx.sequential);
+        analysis.enabled_rules = Some(active.iter().map(|rule| rule.meta().id.to_owned()).collect());
+        analysis.config_path = cx.config_path.map(std::path::Path::to_path_buf);
+        let (last, concurrent): (Vec<&dyn JsRule>, Vec<&dyn JsRule>) = active.iter().copied().partition(|rule| rule.runs_last());
         let base = &*out;
-        let parts: Vec<Emitter<'_>> = map_ordered(&active, cx.sequential, |rule| {
+        let parts: Vec<Emitter<'_>> = map_ordered(&concurrent, cx.sequential, |rule| {
             let mut part = base.fork();
             if !part.is_cancelled() {
                 rule.check(&analysis, &mut part);
             }
             part
         });
-        for part in parts {
+        // Rules that read what the others recorded run once those have finished.
+        let after: Vec<Emitter<'_>> = last
+            .iter()
+            .map(|rule| {
+                let mut part = base.fork();
+                if !part.is_cancelled() {
+                    rule.check(&analysis, &mut part);
+                }
+                part
+            })
+            .collect();
+        for part in parts.into_iter().chain(after) {
             out.merge(part);
         }
         Ok(())

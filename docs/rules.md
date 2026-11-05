@@ -11,6 +11,7 @@
 | [`unused-catalog-entries`](#unused-catalog-entries) | catalog | warning | none |
 | [`circular-imports`](#circular-imports) | js | off | none |
 | [`duplicate-exports`](#duplicate-exports) | js | warning | none |
+| [`stale-js-config`](#stale-js-config) | js | warning | none |
 | [`unlisted-binaries`](#unlisted-binaries) | js | warning | none |
 | [`unlisted-dependencies`](#unlisted-dependencies) | js | error | none |
 | [`unparseable-files`](#unparseable-files) | js | warning | none |
@@ -95,6 +96,14 @@ Modules import each other in a cycle.
 ## duplicate-exports
 
 One binding is exported under several names.
+
+- Category: js
+- Default severity: warning
+- Fixable: none
+
+## stale-js-config
+
+A `[js]` ignore entry or workspace key matched nothing in the run.
 
 - Category: js
 - Default severity: warning
