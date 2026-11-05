@@ -73,15 +73,19 @@ impl Registry {
         self.owner(id)?.options_schema(id)
     }
 
-    /// Checks that every rule ID in `[rules]` and `[[ignore]]` is registered and that the options of each configured
-    /// rule are valid according to the rule that owns them.
+    /// Checks that every rule ID in `[rules]` and `[[ignore]]` is registered, that each provider accepts the part of the
+    /// configuration it reads, and that the options of each configured rule are valid according to the rule that owns
+    /// them.
     ///
     /// # Errors
-    /// [`ConfigError::UnknownRule`] for the first unknown ID, [`ConfigError::InvalidRuleOptions`] for the first rule
-    /// whose options are rejected.
+    /// [`ConfigError::UnknownRule`] for the first unknown ID, [`ConfigError::Invalid`] for the first setting a provider
+    /// rejects, [`ConfigError::InvalidRuleOptions`] for the first rule whose options are rejected.
     pub fn validate_config(&self, config: &Config) -> Result<(), ConfigError> {
         let ids: Vec<&str> = self.rules().map(|meta| meta.id).collect();
         config.validate_rules(&ids)?;
+        for provider in &self.providers {
+            provider.validate_config(config)?;
+        }
         for (id, rule) in &config.rules {
             let Some(owner) = self.owner(id) else { continue };
             owner
