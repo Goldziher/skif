@@ -243,6 +243,8 @@ impl ModuleDirProbes {
 /// Resolves specifiers for the whole workspace. Cheap to share between threads.
 pub(crate) struct ModuleResolver {
     script: Resolvers,
+    /// Script resolvers for the packages whose bundler config declares `resolve.extensions`, by package directory.
+    script_with_extensions: HashMap<PathBuf, Resolvers>,
     style: Resolvers,
     fs: Arc<dyn FileSystem>,
     root: PathBuf,
@@ -262,6 +264,8 @@ pub(crate) struct ModuleResolver {
     directory_packages: Memo<PathBuf, Option<Arc<Member>>>,
     /// Outcomes of the lookup-directory probe by the innermost scope of the importer and specifier.
     module_dir_probes: ModuleDirProbes,
+    /// The same for specifiers written in stylesheets.
+    style_module_dir_probes: ModuleDirProbes,
     /// The nearest `baseUrl` and `paths` by directory, `None` when no config at or above it sets them.
     nearest_paths: Memo<PathBuf, Option<Arc<TsPaths>>>,
     /// The `tsconfig.json` and `jsconfig.json` files read so far.
@@ -349,6 +353,25 @@ fn read_gitignore(fs: &dyn FileSystem, dir: &Path) -> Option<(PathBuf, Gitignore
     Some((dir.to_path_buf(), builder.build().ok()?))
 }
 
+/// The forms a stylesheet specifier can name a file by: itself, its Sass partial (`_name`) and the index partial of a
+/// directory.
+fn style_forms(specifier: &str) -> [String; 3] {
+    let (dir, name) = specifier
+        .rsplit_once('/')
+        .map_or(("", specifier), |(dir, name)| (dir, name));
+    let prefix = if dir.is_empty() {
+        String::new()
+    } else {
+        format!("{dir}/")
+    };
+    let name = name.trim_end_matches('/');
+    [
+        specifier.to_owned(),
+        format!("{prefix}_{name}"),
+        format!("{prefix}{name}/_index"),
+    ]
+}
+
 /// Options for specifiers written in stylesheets: stylesheet extensions and the `style` export condition.
 fn style_options(tsconfig: bool) -> ResolveOptions {
     let owned = |items: &[&str]| items.iter().map(|item| (*item).to_owned()).collect::<Vec<_>>();
@@ -401,15 +424,17 @@ impl ModuleResolver {
             .collect();
         conditions.sort();
         conditions.dedup();
-        let mut extensions: Vec<String> = setup
+        let script = Resolvers::new(&fs, |tsconfig| options(tsconfig, &conditions, &[]));
+        let script_with_extensions = setup
             .packages
             .iter()
             .flatten()
-            .flat_map(|package| package.extensions.iter().cloned())
+            .filter(|package| !package.extensions.is_empty())
+            .map(|package| {
+                let resolvers = Resolvers::new(&fs, |tsconfig| options(tsconfig, &conditions, &package.extensions));
+                (package.dir.clone(), resolvers)
+            })
             .collect();
-        extensions.sort();
-        extensions.dedup();
-        let script = Resolvers::new(&fs, |tsconfig| options(tsconfig, &conditions, &extensions));
         let style = Resolvers::new(&fs, style_options);
         let members: BTreeMap<String, Member> = workspace
             .all_packages()
@@ -503,6 +528,7 @@ impl ModuleResolver {
         );
         Self {
             script,
+            script_with_extensions,
             style,
             workspace_name: bazel_workspace_name(fs.as_ref(), &workspace.root),
             ignores,
@@ -515,6 +541,7 @@ impl ModuleResolver {
             conditions,
             directory_packages: Memo::new(),
             module_dir_probes: ModuleDirProbes::new(),
+            style_module_dir_probes: ModuleDirProbes::new(),
             nearest_paths: Memo::new(),
             tsconfigs,
         }
@@ -528,9 +555,21 @@ impl ModuleResolver {
         }
     }
 
-    const fn resolvers(&self, kind: Kind) -> &Resolvers {
+    /// The script resolvers for files below `within`: those with the `resolve.extensions` of the innermost package
+    /// that holds it, when that package declares any.
+    fn script_resolvers(&self, within: &Path) -> &Resolvers {
+        if self.script_with_extensions.is_empty() {
+            return &self.script;
+        }
+        self.scopes_of(within)
+            .next()
+            .and_then(|(_, scope)| self.script_with_extensions.get(&scope.dir))
+            .unwrap_or(&self.script)
+    }
+
+    fn resolvers(&self, kind: Kind, within: &Path) -> &Resolvers {
         match kind {
-            Kind::Script => &self.script,
+            Kind::Script => self.script_resolvers(within),
             Kind::Style => &self.style,
         }
     }
@@ -609,7 +648,7 @@ impl ModuleResolver {
         let outcome = |target, package| Outcome { target, package };
         if let Some(name) = node_modules_specifier_package(specifier) {
             // A `node_modules` directory that is part of the sources is followed like any other path.
-            if let Ok(path) = self.resolvers(kind).attempt(importer, specifier)
+            if let Ok(path) = self.resolvers(kind, importer).attempt(importer, specifier)
                 && node_modules_package(&path).is_none()
             {
                 return outcome(self.classify(path), None);
@@ -620,7 +659,7 @@ impl ModuleResolver {
         if name.is_some()
             && let Some(found) = self
                 .through_workspace_name(specifier)
-                .or_else(|| self.through_module_dirs(importer, specifier))
+                .or_else(|| self.through_module_dirs(kind, importer, specifier))
         {
             return outcome(found, None);
         }
@@ -628,7 +667,7 @@ impl ModuleResolver {
             .as_ref()
             .filter(|name| self.members.contains_key(name.as_str()))
             .cloned();
-        if let Ok(path) = self.resolvers(kind).attempt(importer, specifier) {
+        if let Ok(path) = self.resolvers(kind, importer).attempt(importer, specifier) {
             if let Some(installed) = node_modules_package(&path) {
                 let package = name.unwrap_or(installed);
                 return self.package_target(&package, specifier);
@@ -645,11 +684,11 @@ impl ModuleResolver {
         {
             return outcome(found, None);
         }
-        let aliased = self.through_alias(importer, specifier);
+        let aliased = self.through_alias(kind, importer, specifier);
         if aliased
             .as_ref()
             .is_none_or(|resolved| matches!(resolved, Resolved::Unresolved))
-            && let Some(found) = self.through_nearest_tsconfig(importer, specifier)
+            && let Some(found) = self.through_nearest_tsconfig(kind, importer, specifier)
         {
             return Self::aliased(found);
         }
@@ -662,7 +701,7 @@ impl ModuleResolver {
         }
         if aliased.is_some()
             && name.is_none()
-            && let Some(found) = self.through_module_dirs(importer, specifier)
+            && let Some(found) = self.through_module_dirs(kind, importer, specifier)
         {
             return outcome(found, None);
         }
@@ -680,22 +719,25 @@ impl ModuleResolver {
     /// A stylesheet next to `importer`: `specifier` itself, its Sass partial (`_name`) or the index partial of a
     /// directory.
     fn local_style(&self, importer: &Path, specifier: &str) -> Option<PathBuf> {
-        let (dir, name) = specifier
-            .rsplit_once('/')
-            .map_or(("", specifier), |(dir, name)| (dir, name));
-        let prefix = if dir.is_empty() {
-            String::new()
-        } else {
-            format!("{dir}/")
-        };
-        let name = name.trim_end_matches('/');
-        [
-            specifier.to_owned(),
-            format!("{prefix}_{name}"),
-            format!("{prefix}{name}/_index"),
-        ]
-        .iter()
-        .find_map(|candidate| self.style.attempt(importer, candidate).ok())
+        style_forms(specifier)
+            .iter()
+            .find_map(|candidate| self.style.attempt(importer, candidate).ok())
+    }
+
+    /// The file `path` names for a language, looked up from `directory`: a script as the resolver finds it, a
+    /// stylesheet also as a Sass partial (`_name`) or the index partial of a directory.
+    fn resolve_path(&self, kind: Kind, directory: &Path, path: &Path) -> Option<PathBuf> {
+        let plain = &self.resolvers(kind, directory).plain;
+        match kind {
+            Kind::Script => plain
+                .resolve(directory, &specifier_of(path))
+                .ok()
+                .map(|resolution| resolution.path().to_path_buf()),
+            Kind::Style => style_forms(&specifier_of(path))
+                .iter()
+                .find_map(|candidate| plain.resolve(directory, candidate).ok())
+                .map(|resolution| resolution.path().to_path_buf()),
+        }
     }
 
     /// A root-relative stylesheet (`@import "/src/x.css"`): a file system path, else relative to the package that
@@ -781,31 +823,32 @@ impl ModuleResolver {
 
     /// Looks a bare specifier up in the lookup directories of the importer's package (`baseUrl`, `paths` wildcards,
     /// `resolve.modules`), in order. A specifier that names a file there is a file import, never a package.
-    fn through_module_dirs(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
+    fn through_module_dirs(&self, kind: Kind, importer: &Path, specifier: &str) -> Option<Resolved> {
         if !self.has_module_dirs {
             return None;
         }
         // The packages whose directories hold the importer form a chain, so the innermost one identifies them all.
         let (position, innermost) = self.scopes_of(importer).next()?;
-        self.module_dir_probes.get_or_compute(position, specifier, || {
+        let probes = match kind {
+            Kind::Script => &self.module_dir_probes,
+            Kind::Style => &self.style_module_dir_probes,
+        };
+        probes.get_or_compute(position, specifier, || {
             self.scopes
                 .iter()
                 .filter(|scope| innermost.dir.starts_with(&scope.dir))
                 .flat_map(|scope| &scope.module_dirs)
                 .find_map(|dir| {
                     let path = join_normalized(dir, specifier);
-                    self.script
-                        .plain
-                        .resolve(&innermost.dir, &specifier_of(&path))
-                        .ok()
-                        .map(|resolution| self.classify(resolution.path().to_path_buf()))
+                    self.resolve_path(kind, &innermost.dir, &path)
+                        .map(|found| self.classify(found))
                 })
         })
     }
 
     /// Follows `paths` and `baseUrl` of the nearest `tsconfig.json` or `jsconfig.json` at or above the importer, also
     /// when it is in a directory that is not a package or does not include the importer.
-    fn through_nearest_tsconfig(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
+    fn through_nearest_tsconfig(&self, kind: Kind, importer: &Path, specifier: &str) -> Option<Resolved> {
         let directory = importer.parent()?;
         let config = self.nearest_paths.get_or_compute(directory.to_path_buf(), || {
             self.tsconfigs.nearest(directory).map(Arc::new)
@@ -814,11 +857,8 @@ impl ModuleResolver {
             if let Some(package) = node_modules_package(&path) {
                 return Some(Resolved::External(package));
             }
-            self.script
-                .plain
-                .resolve(directory, &specifier_of(&path))
-                .ok()
-                .map(|resolution| self.classify(resolution.path().to_path_buf()))
+            self.resolve_path(kind, directory, &path)
+                .map(|found| self.classify(found))
         })
     }
 
@@ -833,11 +873,8 @@ impl ModuleResolver {
             .root_dir_candidates(directory, specifier)
             .into_iter()
             .find_map(|path| {
-                self.script
-                    .plain
-                    .resolve(directory, &specifier_of(&path))
-                    .ok()
-                    .map(|resolution| self.classify(resolution.path().to_path_buf()))
+                self.resolve_path(Kind::Script, directory, &path)
+                    .map(|found| self.classify(found))
             })
     }
 
@@ -858,7 +895,7 @@ impl ModuleResolver {
     ///
     /// `None` when no alias applies. An alias whose target the configuration computes is not followed but is known not
     /// to be a package; one whose static target does not exist is unresolved.
-    fn through_alias(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
+    fn through_alias(&self, kind: Kind, importer: &Path, specifier: &str) -> Option<Resolved> {
         let root = specifier.split('/').next().unwrap_or(specifier);
         if VIRTUAL_ROOTS.contains(&root) {
             return Some(Resolved::Ignored);
@@ -881,8 +918,8 @@ impl ModuleResolver {
                 if let Some(package) = node_modules_package(&path) {
                     return Some(Resolved::External(package));
                 }
-                if let Ok(resolution) = self.script.plain.resolve(directory, &specifier_of(&path)) {
-                    return Some(self.classify(resolution.path().to_path_buf()));
+                if let Some(found) = self.resolve_path(kind, directory, &path) {
+                    return Some(self.classify(found));
                 }
                 if let Some(found) = self.through_package_directory(target, rest) {
                     return Some(found);

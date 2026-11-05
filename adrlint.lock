@@ -215,3 +215,8 @@ blake3 = "017c3c47ac37cbeb70e5a79ee9cd297eccaf5fcd73d250866ab7a5c29f1de1b3"
 number = 43
 status = "accepted"
 blake3 = "e796ad22b1d65f0848b646cf7bc37173d328a7e7d81e4a5ccfdd863fb11439bd"
+
+[adrs."adrs/0044-monorepo-js-corrections-builtins-html-entries-referenced-paths-extglob-helpers-and-stylesheets.md"]
+number = 44
+status = "accepted"
+blake3 = "f52730f7cdab1a8abbab336e27426261fcca2fbaee859044398d50100e746d84"

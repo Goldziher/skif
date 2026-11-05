@@ -49,6 +49,13 @@ pub(crate) fn entry_files(
                 entries.insert(candidate.abs.clone());
             }
         }
+        if package_setup.credit_all_files {
+            entries.extend(
+                owned()
+                    .filter(|(_, rel)| package_setup.project.is_match(rel) && !package_setup.ignore.matches_any(rel))
+                    .map(|(candidate, _)| candidate.abs.clone()),
+            );
+        }
         entries.extend(nested_entries(workspace, setup, candidates, id, package_setup));
         if !package_setup.external_entry.is_empty() {
             entries.extend(

@@ -3,6 +3,7 @@
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
+use crate::plugins::vite;
 use crate::support::{
     alias_inputs, entry_glob, get_in, module_input, name_of, objects, package_name, project_files, strings,
 };
@@ -47,7 +48,7 @@ impl Plugin for Vitest {
     }
 
     fn resolve_config(&self, config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
-        let mut out = Vec::new();
+        let mut out = vite::html_and_build_inputs(config, cx);
         collect(config.value, config, cx, &mut out, 0);
         out
     }
