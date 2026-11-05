@@ -4,9 +4,33 @@ on:
   push:
     tags:
       - v[0-9]+.*
+  # Everything the release builds, packs or verifies triggers the dry run, so the first full run of a change is
+  # never the real tag.
   pull_request:
     paths:
       - .github/workflows/publish.yaml
+      - Cargo.toml
+      - Cargo.lock
+      - crates/*/Cargo.toml
+      - crates/skif-node/**
+      - crates/skif-cli/**
+      - npm-package/**
+      - action.yml
+      - scripts/lib/**
+      - scripts/check-archive.sh
+      - scripts/check-glibc-floor.sh
+      - scripts/check-libc-selection.sh
+      - scripts/check-npm-tarballs.sh
+      - scripts/check-release-gate.sh
+      - scripts/check-versions.sh
+      - scripts/load-addon.mjs
+      - scripts/npm-published.sh
+      - scripts/publish-crates.sh
+      - scripts/release-assets.sh
+      - scripts/release-bump.sh
+  # A weekly dry run catches toolchain, runner-image and dependency drift between releases.
+  schedule:
+    - cron: "17 4 * * 1"
   workflow_dispatch:
     inputs:
       tag:
@@ -63,7 +87,7 @@ jobs:
           dry_run=false
           case "$EVENT_NAME" in
           push) tag="${GITHUB_REF#refs/tags/}" ;;
-          pull_request)
+          pull_request | schedule)
             dry_run=true
             tag="v${workspace_version}"
             ;;
@@ -169,10 +193,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The glibc archives are linked against a glibc 2.34 sysroot (cargo-zigbuild), whatever the runner has, so
+          # they start on every glibc 2.34+ host. Older glibc hosts use the musl archives; the installers pick them.
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+            glibc: "2.34"
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-24.04-arm
+            glibc: "2.34"
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             alpine: true
@@ -206,8 +234,35 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      - name: Setup zig
+        if: ${{ matrix.glibc }}
+        uses: mlugg/setup-zig@v2
+
+      - name: Install cargo-zigbuild
+        if: ${{ matrix.glibc }}
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+
+      - name: Build binary (glibc floor)
+        if: ${{ matrix.glibc }}
+        env:
+          TARGET: ${{ matrix.target }}
+          GLIBC: ${{ matrix.glibc }}
+        # `<target>.<glibc>` links against that glibc; the output stays under target/<target>/.
+        run: cargo zigbuild --release --locked -p skif-cli --target "${TARGET}.${GLIBC}"
+        shell: bash
+
+      - name: Verify the glibc floor
+        if: ${{ matrix.glibc }}
+        env:
+          TARGET: ${{ matrix.target }}
+          GLIBC: ${{ matrix.glibc }}
+        run: bash scripts/check-glibc-floor.sh "target/$TARGET/release/skif" "$GLIBC"
+        shell: bash
+
       - name: Build binary
-        if: ${{ !matrix.alpine }}
+        if: ${{ !matrix.alpine && !matrix.glibc }}
         env:
           TARGET: ${{ matrix.target }}
           # The MSVC runtime is linked statically so skif.exe starts without the VC++ redistributable.
@@ -302,20 +357,74 @@ jobs:
           name: archive-aarch64-pc-windows-msvc
           path: archive
 
+      # Git for Windows' GNU tar cannot read zip archives, so the archive is unpacked the way a Windows user does.
       - name: Unpack and run
-        shell: bash
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Expand-Archive -Path archive/skif-aarch64-pc-windows-msvc.zip -DestinationPath unpacked
+          foreach ($member in 'skif.exe', 'LICENSE', 'ATTRIBUTIONS.md') {
+            if (-not (Test-Path "unpacked/$member")) { throw "the archive does not contain $member" }
+          }
+          ./unpacked/skif.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "skif.exe --version exited with $LASTEXITCODE" }
+
+  # The glibc archives promise glibc 2.34. Run the installers' libc rule and the binary it picks on distributions on
+  # both sides of that floor: older glibc must get musl, 2.34 itself and newer must get glibc.
+  smoke_linux_libc:
+    name: Smoke test libc selection (${{ matrix.case.image }}, ${{ matrix.runner }})
+    needs: [meta, build]
+    if: needs.build.result == 'success'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        case:
+          - { image: "debian:11", libc: musl } # glibc 2.31
+          - { image: "almalinux:8", libc: musl } # glibc 2.28
+          - { image: "almalinux:9", libc: gnu } # glibc 2.34, the floor itself
+          - { image: "ubuntu:22.04", libc: gnu } # glibc 2.35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Download the Linux archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: archive-*-unknown-linux-*
+          merge-multiple: true
+          path: archives
+
+      - name: Unpack this architecture's binaries
         run: |
           set -euo pipefail
-          mkdir unpacked
-          tar -xf archive/skif-aarch64-pc-windows-msvc.zip -C unpacked
-          ./unpacked/skif.exe --version
+          arch="$(uname -m)"
+          for libc in gnu musl; do
+            mkdir -p "bins/${libc}"
+            tar -xzf "archives/skif-${arch}-unknown-linux-${libc}.tar.gz" -C "bins/${libc}" skif
+          done
+
+      - name: Select and run the binary in the container
+        env:
+          IMAGE: ${{ matrix.case.image }}
+          EXPECTED: ${{ matrix.case.libc }}
+        run: >-
+          docker run --rm
+          -v "$PWD/scripts":/scripts:ro -v "$PWD/bins":/bins:ro
+          "$IMAGE" bash /scripts/check-libc-selection.sh /bins "$EXPECTED"
 
   checksums:
     name: Generate checksums
-    needs: [meta, build, smoke_windows_arm64]
+    needs: [meta, build, smoke_windows_arm64, smoke_linux_libc]
     if: needs.meta.outputs.release_complete != 'true'
     permissions:
       contents: write
+      # Build provenance: the attestation is signed with the workflow's OIDC identity and stored with the repository.
+      id-token: write
+      attestations: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -345,6 +454,14 @@ jobs:
       - name: Verify every archive ships the binary, LICENSE and ATTRIBUTIONS.md
         run: bash scripts/check-archive.sh artifacts/skif-*
 
+      # The Action and the launcher check the downloaded archive with `gh attestation verify`; checksums.txt alone
+      # ships from the same place as the archive and only detects corruption.
+      - name: Attest the archives' build provenance
+        if: needs.meta.outputs.dry_run != 'true'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: artifacts/skif-*
+
       - name: Generate checksums
         run: |
           set -euo pipefail
@@ -366,42 +483,13 @@ jobs:
           TAG: ${{ needs.meta.outputs.tag }}
         run: gh release upload "$TAG" checksums.txt --clobber
 
-  finalize_release:
-    name: Publish GitHub release
-    needs: [meta, checksums]
-    if: needs.meta.outputs.dry_run != 'true' && needs.checksums.result == 'success'
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
-
-      - name: Promote the draft once the asset set is exact
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.meta.outputs.tag }}
-        run: |
-          set -euo pipefail
-          expected="$(scripts/release-assets.sh | sort)"
-          actual="$(gh release view "$TAG" --json assets -q '.assets[].name' | sort)"
-          if [ "$expected" != "$actual" ]; then
-            echo "::error::release $TAG asset list differs from the expected eight archives plus checksums.txt; leaving it as a draft"
-            diff <(echo "$expected") <(echo "$actual") || true
-            exit 1
-          fi
-          gh release edit "$TAG" --draft=false
-          echo "Published $TAG"
-
   publish_crates:
     name: Publish crates.io
-    needs: [meta, finalize_release]
+    needs: [meta, checksums]
     if: >-
       always() && needs.meta.result == 'success'
       && (needs.meta.outputs.dry_run == 'true'
-          || needs.finalize_release.result == 'success'
+          || needs.checksums.result == 'success'
           || needs.meta.outputs.release_complete == 'true')
     runs-on: ubuntu-latest
     permissions:
@@ -430,10 +518,48 @@ jobs:
           DRY_RUN: ${{ needs.meta.outputs.dry_run }}
         run: scripts/publish-crates.sh
 
+  # The release stays a draft until the registries have the version and the npm package runs: a failed crates.io or npm
+  # publish must not leave a public release (which the Action's `latest` and the Homebrew and Scoop updates serve at
+  # once) that `cargo install` and `npx` cannot match. Only cargo binstall needs the public release, so it is verified
+  # after this job.
+  finalize_release:
+    name: Publish GitHub release
+    needs: [meta, checksums, publish_crates, verify_npm]
+    if: >-
+      always() && needs.meta.result == 'success' && needs.meta.outputs.dry_run != 'true'
+      && needs.meta.outputs.release_complete != 'true' && needs.checksums.result == 'success'
+      && needs.publish_crates.result == 'success' && needs.verify_npm.result == 'success'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Promote the draft once the asset set is exact
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          expected="$(scripts/release-assets.sh | sort)"
+          actual="$(gh release view "$TAG" --json assets -q '.assets[].name' | sort)"
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::release $TAG asset list differs from the expected eight archives plus checksums.txt; leaving it as a draft"
+            diff <(echo "$expected") <(echo "$actual") || true
+            exit 1
+          fi
+          gh release edit "$TAG" --draft=false
+          echo "Published $TAG"
+
   verify_binstall:
     name: Verify cargo binstall
-    needs: [meta, publish_crates]
-    if: needs.meta.outputs.dry_run != 'true' && needs.publish_crates.result == 'success'
+    needs: [meta, publish_crates, finalize_release]
+    if: >-
+      always() && needs.meta.outputs.dry_run != 'true' && needs.publish_crates.result == 'success'
+      && (needs.finalize_release.result == 'success' || needs.meta.outputs.release_complete == 'true')
     permissions:
       contents: read
     uses: xberg-io/actions/.github/workflows/reusable-binstall-verify.yml@v1
@@ -462,9 +588,9 @@ jobs:
         include:
           # glibc targets cross-build with napi-rs's bundled sysroot (--use-napi-cross) so the addon loads on old
           # distributions; musl targets cross-build with zig (-x). Darwin builds natively.
-          # glibc floor: the addons target napi-rs's sysroot (glibc 2.17), while the binary archives of the `build`
-          # job are linked on the runner (ubuntu-latest), so `skif-*-linux-gnu.tar.gz` needs the runner's glibc (2.39 on Ubuntu 24.04) or newer,
-          # more than the npm addon does. Older distributions use the musl archives; the docs state the floor.
+          # glibc floor: the addons target napi-rs's sysroot (glibc 2.17). The binary archives of the `build` job are
+          # linked against glibc 2.34, so `skif-*-linux-gnu.tar.gz` needs that or newer; older distributions use the
+          # musl archives, which the installers select.
           # The generated loader (index.js, index.d.ts) lists every platform and is the same in each build; the
           # x86_64 glibc build uploads it for the umbrella package, which is gitignored and exists nowhere else.
           - target: x86_64-unknown-linux-gnu
@@ -616,12 +742,12 @@ jobs:
 
   publish_npm:
     name: Publish npm (skif)
-    needs: [meta, build_npm, load_addon, checksums, finalize_release]
+    needs: [meta, build_npm, load_addon, checksums]
     if: >-
       always() && needs.meta.result == 'success' && needs.build_npm.result == 'success'
       && needs.load_addon.result == 'success'
       && (needs.meta.outputs.dry_run == 'true'
-          || needs.finalize_release.result == 'success'
+          || needs.checksums.result == 'success'
           || needs.meta.outputs.release_complete == 'true')
     runs-on: ubuntu-latest
     permissions:
@@ -734,14 +860,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # node-22 is the engines floor; node and bun are the versions pinned in mise.toml.
-        runtime: [node-22, node, bun]
+        # ADR 0027: every non-end-of-life Node line (22, 24 and 26) and the latest Bun 1.x.
+        runtime: [node-22, node-24, node-26, bun]
     steps:
-      - name: Setup Node.js and Bun
+      - name: Setup Node.js
+        if: ${{ matrix.runtime != 'bun' }}
         uses: xberg-io/actions/setup-mise@v1
         with:
           config-ref: ${{ github.sha }}
-          tools: node bun
+          tools: node
+
+      - name: Setup Bun
+        if: ${{ matrix.runtime == 'bun' }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
 
       - name: Run the published package
         env:
@@ -751,9 +884,9 @@ jobs:
           set -euo pipefail
           run_published() {
             case "$RUNTIME" in
-            # Node 22 is the engines floor, not a pinned tool, so it bypasses the locked mise configuration.
-            node-22) MISE_LOCKED=0 mise exec node@22 -- npm exec --yes "skif@${VERSION}" -- --version ;;
-            node) npm exec --yes "skif@${VERSION}" -- --version ;;
+            # Each Node line is selected by major so it tracks the newest release of that line; only 26 is the pinned
+            # tool, and the lock does not cover the others.
+            node-*) MISE_LOCKED=0 mise exec "node@${RUNTIME#node-}" -- npm exec --yes "skif@${VERSION}" -- --version ;;
             bun) bunx --bun "skif@${VERSION}" --version ;;
             esac
           }

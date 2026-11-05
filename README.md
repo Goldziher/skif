@@ -128,9 +128,12 @@ Channels follow [ADR 0013](adrs/0013-distribution-and-naming.md). The npm packag
 ```
 
 Inputs: `version` (defaults to the action's own tag), `args` (extra skif arguments), `working-directory`,
-`fail-on-warnings`, and `install-only` to put `skif` on `PATH` without running it. `@v0` is a floating tag
-that follows the newest 0.x release; pin a full tag such as `@v0.1.0` for a fixed version. The action downloads
-the release archive for the runner and verifies it against the release's `checksums.txt`.
+`fail-on-warnings`, and `install-only` to put `skif` on `PATH` without running it. Every release of the
+action installs the skif version it was published with, whatever ref uses it: `@v0` is a floating tag that moves
+to each 0.x release, and a full tag such as `@v0.1.0` or a commit SHA never changes the installed version; set
+`version` to override it. The action downloads the release archive for the runner, verifies it against the
+release's `checksums.txt` (again on every cache hit) and, where the `gh` CLI has the `attestation` command, against
+its build-provenance attestation (`gh attestation verify`; `verify-attestation: false` switches it off for a mirror).
 
 ### Prebuilt binaries
 
@@ -155,11 +158,13 @@ Older versions may work, but there is no guarantee: they are not tested, not blo
 them are not fixed. A version is dropped in the first release after it reaches end-of-life
 ([ADR 0027](adrs/0027-supported-versions-follow-upstream-end-of-life-policies.md)).
 
-The glibc archives are linked on the GitHub-hosted `ubuntu-latest` runner (Ubuntu 24.04, glibc 2.39 at the time
-of writing), so they need that glibc or newer. They do not start on older systems such as RHEL 8, Debian 11, Ubuntu
-20.04 or Amazon Linux 2; use the static musl archives there (they run on any Linux, glibc or musl). The Action,
-the pre-commit launcher, `cargo binstall` and Homebrew all pick the glibc archive on a glibc system, so on an older
-one download the musl archive directly. The npm addon targets glibc 2.17 and is not affected.
+The glibc archives are linked against glibc 2.34 (cargo-zigbuild) and start on any Linux with glibc 2.34 or newer,
+such as Ubuntu 22.04, Debian 12 and RHEL 9. The static musl archives run on any Linux, glibc or musl, and are the
+choice for older systems such as RHEL 8, Debian 11, Ubuntu 20.04 or Amazon Linux 2. The Action, the pre-commit
+launcher and the Homebrew formula pick the musl archive themselves when the glibc is older than 2.34 or cannot be
+identified. `cargo binstall` cannot detect the glibc version: on an older system run
+`cargo binstall --targets x86_64-unknown-linux-musl skif-cli` (or `aarch64-unknown-linux-musl`). The npm addon targets
+glibc 2.17 and is not affected.
 
 ## Git hooks
 
