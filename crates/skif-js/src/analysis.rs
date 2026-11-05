@@ -94,7 +94,7 @@ fn overlay(
     let listing = match config.js.discovery {
         JsDiscovery::Walk => return None,
         JsDiscovery::Git => Listing::IndexOnly,
-        JsDiscovery::Auto => Listing::VerifyDirectories,
+        _ => Listing::VerifyDirectories,
     };
     indexed_fs(fs, &workspace.root, cache, listing)
 }
