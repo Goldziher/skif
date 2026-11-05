@@ -1,0 +1,2 @@
+[policy]
+dependency-types = ["prod", "dev", "pnpm-overrides"]

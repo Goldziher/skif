@@ -1,0 +1,3 @@
+description = "Storybook packages that only the sherif list names (@storybook/cli) belong to the built-in Storybook family."
+source = "skif (sherif unsync-similar-dependencies parity)"
+tags = ["families", "builtin"]

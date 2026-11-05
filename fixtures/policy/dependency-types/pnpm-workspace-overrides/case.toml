@@ -1,0 +1,3 @@
+description = "The overrides of pnpm-workspace.yaml are instances like pnpm.overrides; the fix edits the YAML file."
+source = "syncpack:src/rcfile.rs::compute_all_dependency_types (pnpmOverrides)"
+tags = ["dependency-types", "pnpm-overrides", "yaml", "fix"]

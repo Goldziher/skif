@@ -1,0 +1,7 @@
+[[custom-types]]
+name = "package-manager"
+path = "packageManager"
+strategy = "name@version"
+
+[policy]
+dependency-types = ["prod", "dev", "package-manager"]
