@@ -19,6 +19,8 @@ description: Run skif from GitHub Actions, pre-commit, prek, Poly, Lefthook, npm
 | `working-directory` | Directory to run skif in. |
 | `fail-on-warnings` | Exit non-zero on any warning. |
 | `install-only` | Put `skif` on `PATH` without running it. |
+| `token` | Token for the GitHub API and the release download. Defaults to the workflow's `GITHUB_TOKEN`. |
+| `repository` | Advanced: the `owner/repo` the release assets come from. Defaults to `Goldziher/skif`. |
 
 `@v0` is a floating tag that follows the newest 0.x release. Pin a full tag such as `@v0.1.0` for a fixed version.
 The action downloads the release archive for the runner and verifies it against the release's `checksums.txt`.
@@ -121,6 +123,9 @@ const exitCode = run(["--format", "json", "./my-monorepo"]);
   `{ recursive: true }` it lints every workspace and standalone package at or below `path`, like `skif -r`, and
   the report gains a `roots` array. It prints
   nothing and writes no files. It blocks the event loop, so use `lintAsync` in a server.
+  The options mirror the flags of the same name: `noJs`, `production`, `failOnWarnings`, `ignoreRules`,
+  `ignorePackages`, `ignoreDependencies`, `recursive`, `config` (use that file and the files it extends instead of
+  discovering `skif.toml` files) and `noConfig` (read no file).
 - `lintAsync(path, options?)` does the same on a worker thread and resolves with `{ report }` or, when the lint
   cannot run, `{ error: { kind, message, path? } }`. `kind` is `config`, `workspace`, `io` or `internal`.
 - `run(argv)` runs the full command line (`argv` excludes the program name) and returns its exit code. Output

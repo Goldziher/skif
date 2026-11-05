@@ -9,6 +9,7 @@ buffers and tests), and fixes come back as a `FixPlan` for the caller to show, m
 
 ```rust
 use std::path::Path;
+use std::sync::Arc;
 use skif::{ConfigOverrides, Linter, MemoryFs, Workspace, find_workspace_root, load_config};
 
 let fs = MemoryFs::new()
@@ -18,7 +19,9 @@ let fs = MemoryFs::new()
 let root = find_workspace_root(Path::new("/repo/packages/a"), &fs)?;
 let config = load_config(&root, &fs, &ConfigOverrides::default())?;
 let workspace = Workspace::discover_with_fs(&root, &config, &fs)?;
-let report = Linter::new(&config)?.run(&workspace)?;
+// The linter reads source files (with `js-analysis`) through the same file system as discovery.
+let report = Linter::with_fs(&config, Arc::new(fs.clone()))?.run(&workspace)?;
+assert_eq!(report.summary.packages, 2);
 # Ok::<(), skif::Error>(())
 ```
 
@@ -26,12 +29,12 @@ let report = Linter::new(&config)?.run(&workspace)?;
 
 | Feature | Enables |
 | --- | --- |
-| `manifest`, `policy` (default) | The built-in manifest, workspace, policy and catalog rules. |
+| `manifest` (default) | The built-in manifest, workspace, version and semver group policy and catalog rules. |
 | `fix` | `apply_fixes` and `FixPlan` (format-preserving JSON edits). |
-| `yaml-fix` | YAML edits for `pnpm-workspace.yaml`. |
+| `yaml-fix` | YAML edits for `pnpm-workspace.yaml` (implies `fix`). |
 | `report` | Human, JSON, SARIF and GitHub renderers, re-exported as `skif::render`. |
 | `schema` | The JSON Schema of `skif.toml`, as `skif::config_schema`. |
-| `js-analysis` | JavaScript and TypeScript analysis and the plugin table; `Linter` adds it to the built-in rules. |
+| `js-analysis` | JavaScript and TypeScript analysis and the plugin table; `Linter` adds it to the built-in rules. Off by default. |
 
 The command-line tool is the [`skif-cli`](https://crates.io/crates/skif-cli) crate. See the
 [repository](https://github.com/Goldziher/skif) for the rule reference and the architecture decisions.

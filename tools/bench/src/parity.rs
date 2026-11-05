@@ -19,7 +19,7 @@ use crate::diff::{self, BASELINE_SCHEMA, Baseline, COMPARED, Counts, Deviation, 
 use crate::proc::{capture, find_on_path};
 
 /// skif rule to knip issue type.
-const RULE_CATEGORIES: [(&str, &str); 12] = [
+const RULE_CATEGORIES: [(&str, &str); 14] = [
     ("unused-dependencies", "dependencies"),
     ("unused-dev-dependencies", "devDependencies"),
     ("unused-optional-peer-dependencies", "optionalPeerDependencies"),
@@ -29,13 +29,18 @@ const RULE_CATEGORIES: [(&str, &str); 12] = [
     ("unused-files", "files"),
     ("unused-exports", "exports"),
     ("unused-types", "types"),
+    ("unused-namespace-exports", "nsExports"),
+    ("unused-namespace-types", "nsTypes"),
     ("unused-enum-members", "enumMembers"),
     ("unused-namespace-members", "namespaceMembers"),
     ("duplicate-exports", "duplicates"),
 ];
 
-/// knip issue type (as named in its JSON) to the common category. `nsExports` and `nsTypes` are the older names of
-/// `namespaceMembers`; `classMembers` has no skif rule and is left out of the comparison.
+/// knip issue type (as named in its JSON) to the common category. `nsExports` and `nsTypes` are their own categories
+/// (the counterparts of `unused-namespace-exports` and `unused-namespace-types`, ADR 0029), not names of
+/// `namespaceMembers`; knip's default run reports a namespace-only module's unused exports and types under `exports`
+/// and `types` with a `namespace` field, which [`knip_keys`] moves into them. `classMembers` has no skif rule and is
+/// left out of the comparison.
 const KNIP_CATEGORIES: [(&str, &str); 14] = [
     ("dependencies", "dependencies"),
     ("devDependencies", "devDependencies"),
@@ -48,8 +53,8 @@ const KNIP_CATEGORIES: [(&str, &str); 14] = [
     ("types", "types"),
     ("enumMembers", "enumMembers"),
     ("namespaceMembers", "namespaceMembers"),
-    ("nsExports", "namespaceMembers"),
-    ("nsTypes", "namespaceMembers"),
+    ("nsExports", "nsExports"),
+    ("nsTypes", "nsTypes"),
     ("duplicates", "duplicates"),
 ];
 
@@ -181,18 +186,31 @@ fn name_of(value: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// The names of one item of a knip issue type: a group of items (duplicates) is one joined name.
+fn item_names(item: &Value) -> Vec<String> {
+    match item {
+        Value::Array(group) => vec![joined_sorted(group.iter().filter_map(name_of).collect())],
+        other => name_of(other).into_iter().collect(),
+    }
+}
+
 /// The names under one knip issue type: a list of items, a list of lists (duplicates) or a map of lists (enums).
 fn knip_names(value: &Value) -> Vec<String> {
     match value {
-        Value::Array(items) => items
-            .iter()
-            .flat_map(|item| match item {
-                Value::Array(group) => vec![joined_sorted(group.iter().filter_map(name_of).collect())],
-                other => name_of(other).into_iter().collect(),
-            })
-            .collect(),
+        Value::Array(items) => items.iter().flat_map(item_names).collect(),
         Value::Object(map) => map.values().flat_map(knip_names).collect(),
         _ => Vec::new(),
+    }
+}
+
+/// The category a knip item of `exports` or `types` that carries a `namespace` belongs to: knip names the namespace
+/// import that reads the module (`parentSymbol`) on the findings of a module that is only read through one.
+fn namespaced_category(type_name: &str, item: &Value) -> Option<&'static str> {
+    let namespaced = item.get("namespace").is_some_and(Value::is_string);
+    match type_name {
+        "exports" if namespaced => Some("nsExports"),
+        "types" if namespaced => Some("nsTypes"),
+        _ => None,
     }
 }
 
@@ -213,19 +231,23 @@ pub fn knip_keys(document: &Value, root: &Path) -> Keys {
             let Some(value) = issue.get(type_name) else {
                 continue;
             };
-            let names = knip_names(value);
-            if names.is_empty() {
-                continue;
-            }
-            let set = keys.entry(category.to_owned()).or_default();
-            if category == "files" {
-                set.insert(file.clone());
-            } else {
-                set.extend(
-                    names
-                        .into_iter()
-                        .map(|name| format!("{file}|{}", member_name(category, &name))),
-                );
+            let routed: Vec<(&str, String)> = match value {
+                Value::Array(items) => items
+                    .iter()
+                    .flat_map(|item| {
+                        let target = namespaced_category(type_name, item).unwrap_or(category);
+                        item_names(item).into_iter().map(move |name| (target, name))
+                    })
+                    .collect(),
+                other => knip_names(other).into_iter().map(|name| (category, name)).collect(),
+            };
+            for (target, name) in routed {
+                let set = keys.entry(target.to_owned()).or_default();
+                if target == "files" {
+                    set.insert(file.clone());
+                } else {
+                    set.insert(format!("{file}|{}", member_name(target, &name)));
+                }
             }
         }
     }
@@ -613,7 +635,8 @@ mod tests {
         assert_eq!(set(&keys, "enumMembers"), ["src/e.ts|Red"]);
         assert_eq!(set(&keys, "exports"), ["src/e.ts|x"]);
         assert_eq!(set(&keys, "duplicates"), ["src/e.ts|a|b"]);
-        assert_eq!(set(&keys, "namespaceMembers"), ["src/e.ts|T"]);
+        assert_eq!(set(&keys, "nsTypes"), ["src/e.ts|T"]);
+        assert!(!keys.contains_key("namespaceMembers"));
         assert!(!keys.contains_key("devDependencies"));
         assert!(!keys.contains_key("classMembers"));
     }
@@ -684,6 +707,55 @@ mod tests {
         assert_eq!(counts["enumMembers"].both, 1);
         assert_eq!(counts["namespaceMembers"].both, 1);
         assert_eq!(counts["enumMembers"].skif_only + counts["enumMembers"].tool_only, 0);
+    }
+
+    /// The JSON that `knip --reporter json` prints: every reported issue type is present on every row, empty or not,
+    /// members are a flat list of `{ namespace, name }` (the parent first, the bare member name second), and a module
+    /// that is only read through a namespace import lists its unused exports and types with that namespace.
+    fn knip_report() -> Value {
+        json!({ "issues": [
+            { "file": "src/e.ts", "binaries": [], "dependencies": [], "duplicates": [],
+              "enumMembers": [{ "namespace": "Color", "name": "Green", "line": 1, "col": 26, "pos": 25 }],
+              "exports": [], "files": [], "namespaceMembers": [],
+              "types": [{ "name": "Unused", "line": 2, "col": 13, "pos": 45 }], "unlisted": [], "unresolved": [] },
+            { "file": "src/n.ts", "enumMembers": [],
+              "exports": [{ "namespace": "ns", "name": "other", "line": 2, "col": 14, "pos": 36 }],
+              "namespaceMembers": [{ "namespace": "Helpers", "name": "run", "line": 4, "col": 3, "pos": 80 }],
+              "types": [{ "namespace": "ns", "name": "B", "line": 3, "col": 13, "pos": 60 }] },
+        ]})
+    }
+
+    #[test]
+    fn maps_the_json_knip_prints() {
+        let keys = knip_keys(&knip_report(), Path::new("/r"));
+        assert_eq!(set(&keys, "enumMembers"), ["src/e.ts|Green"]);
+        assert_eq!(set(&keys, "types"), ["src/e.ts|Unused"]);
+        assert_eq!(set(&keys, "nsExports"), ["src/n.ts|other"]);
+        assert_eq!(set(&keys, "nsTypes"), ["src/n.ts|B"]);
+        assert_eq!(set(&keys, "namespaceMembers"), ["src/n.ts|run"]);
+        assert!(!keys.contains_key("exports"));
+        assert!(!keys.contains_key("duplicates"));
+    }
+
+    #[test]
+    fn every_member_and_namespace_finding_agrees_with_the_json_knip_prints() {
+        let skif = json!({ "diagnostics": [
+            { "rule": "unused-enum-members", "message": "enum member `Color.Green` is never used", "location": { "path": "src/e.ts" } },
+            { "rule": "unused-types", "message": "type `Unused` is never imported by another module", "location": { "path": "src/e.ts" } },
+            { "rule": "unused-namespace-exports", "message": "export `other` is never read through a namespace import", "location": { "path": "src/n.ts" } },
+            { "rule": "unused-namespace-types", "message": "type `B` is never read through a namespace import", "location": { "path": "src/n.ts" } },
+            { "rule": "unused-namespace-members", "message": "namespace member `Helpers.run` is never used", "location": { "path": "src/n.ts" } },
+        ]});
+        let root = Path::new("/r");
+        let (counts, _) = diff::compare(&skif_keys(&skif, root), &knip_keys(&knip_report(), root));
+        let both = Counts {
+            skif_only: 0,
+            tool_only: 0,
+            both: 1,
+        };
+        for category in ["enumMembers", "types", "nsExports", "nsTypes", "namespaceMembers"] {
+            assert_eq!(counts[category], both, "{category}");
+        }
     }
 
     #[test]

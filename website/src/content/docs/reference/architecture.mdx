@@ -17,7 +17,7 @@ direction.
 | `skif-core` | Diagnostic, fix, report and filesystem types shared by the other crates. |
 | `skif-workspace` | Workspace discovery for npm, pnpm, yarn and bun: packages, manifests and catalogs. |
 | `skif-lint` | Rule engine: rule registry, diagnostic emitter and parallel runner. |
-| `skif-rules` | Built-in manifest and workspace rules. |
+| `skif-rules` | Built-in manifest, workspace, policy and catalog rules. |
 | `skif-specifier` | npm dependency specifier parsing and comparison, vendored from syncpack. |
 | `skif-edit` | Format-preserving JSON and YAML edits used by autofixes. |
 | `skif-report` | Human, JSON, SARIF and GitHub renderers. |
@@ -36,14 +36,23 @@ direction.
 - [Version and catalog policies](https://github.com/Goldziher/skif/blob/main/adrs/0009-version-and-catalog-policies.md)
 - [JS analysis on oxc](https://github.com/Goldziher/skif/blob/main/adrs/0010-js-analysis-on-oxc.md)
 - [CLI contract](https://github.com/Goldziher/skif/blob/main/adrs/0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md)
+- [Several roots in one run](https://github.com/Goldziher/skif/blob/main/adrs/0022-multi-root-analysis-single-package-mode-and-the-plugin-set.md) and
+  [root discovery](https://github.com/Goldziher/skif/blob/main/adrs/0023-root-discovery-semantics-nested-roots-rush-and-fixture-directories.md)
+- [Layered configuration](https://github.com/Goldziher/skif/blob/main/adrs/0024-layered-configuration-cascading-files-extends-overrides-and-package-files.md)
+- [Supported versions](https://github.com/Goldziher/skif/blob/main/adrs/0027-supported-versions-follow-upstream-end-of-life-policies.md)
+- [Namespace export rules, virtual modules and linked configs](https://github.com/Goldziher/skif/blob/main/adrs/0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md)
 
 The full list is the [ADR index](https://github.com/Goldziher/skif/blob/main/adrs/index.md).
 
 ## Pipeline
 
-1. `skif-config` resolves defaults, then the file, then CLI overrides.
-2. `skif-workspace` discovers packages and reports facts; it never decides that a fact is a problem.
-3. `skif-lint` builds a registry from the rule providers, validates every rule's options, and runs the rules in
-   parallel. Rules emit diagnostics, optionally with fixes.
-4. `skif-edit` turns fixes into a `FixPlan` of format-preserving edits; the CLI writes the plan.
-5. `skif-report` renders the report as human, JSON, SARIF or GitHub output.
+1. `skif-config` resolves defaults, then the `skif.toml` files from the root up to the ceiling (merged farthest
+   first), then CLI overrides.
+2. `skif-workspace` discovers packages and reports facts; it never decides that a fact is a problem. A run over
+   several roots discovers each root and gives it its own configuration.
+3. `skif-lint` builds a registry from the rule providers, validates every rule's options, and runs the providers
+   concurrently. Rules emit diagnostics, optionally with fixes.
+4. The JS analysis (`skif-js`, with `skif-js-syntax` and `skif-js-plugins`) is one of those providers. It parses the
+   sources, builds the module graph, applies the plugin table and emits the `js` rules.
+5. `skif-edit` turns fixes into a `FixPlan` of format-preserving edits; the CLI writes the plan.
+6. `skif-report` renders the report as human, JSON, SARIF or GitHub output.

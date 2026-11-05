@@ -104,6 +104,11 @@
 
 #![warn(missing_docs)]
 
+// Compiles the examples of the README, which crates.io and GitHub show, so they cannot drift from the API.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+mod readme_examples {}
+
 mod cache;
 mod error;
 #[cfg(feature = "fix")]

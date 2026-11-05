@@ -87,7 +87,9 @@ Profile with `cargo build --profile profiling` (release plus debug symbols, no s
 | `exports` | `unused-exports` |
 | `types` | `unused-types` |
 | `enumMembers` | `unused-enum-members` |
-| `namespaceMembers` (older knip: `nsExports`, `nsTypes`) | `unused-namespace-members` |
+| `namespaceMembers` | `unused-namespace-members` |
+| `nsExports`, and `exports` items that carry a `namespace` | `unused-namespace-exports` |
+| `nsTypes`, and `types` items that carry a `namespace` | `unused-namespace-types` |
 | `duplicates` | `duplicate-exports` |
 | `classMembers`, `catalog`, `catalogReferences` | not compared (no skif rule) |
 
