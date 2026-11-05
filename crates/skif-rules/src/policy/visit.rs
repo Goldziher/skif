@@ -17,6 +17,7 @@
 //! * specifiers that are byte-identical count as having the same version number, which keeps `latest` valid next to
 //!   `latest`.
 
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -209,9 +210,22 @@ impl<'a, 'w> Visitor<'a, 'w> {
                 self.mark(id, State::SameRangeMismatch, None);
             }
         }
-        let specifiers: Vec<Arc<Specifier>> = ranged.iter().map(|&id| Arc::clone(self.spec(id))).collect();
+        // Equal specifiers agree on every comparison, so each distinct one is judged once against the distinct set:
+        // a dependency shared by thousands of packages costs a handful of range comparisons, not millions.
+        let mut distinct: Vec<Arc<Specifier>> = Vec::new();
+        for &id in &ranged {
+            let specifier = self.spec(id);
+            if !distinct.iter().any(|seen| seen.get_raw() == specifier.get_raw()) {
+                distinct.push(Arc::clone(specifier));
+            }
+        }
+        let mut verdicts: HashMap<String, bool> = HashMap::new();
         for id in ranged {
-            if !self.spec(id).satisfies_all(&specifiers) {
+            let specifier = self.spec(id);
+            let satisfies = *verdicts
+                .entry(specifier.get_raw().to_owned())
+                .or_insert_with(|| specifier.satisfies_all(&distinct));
+            if !satisfies {
                 self.mark(id, State::SameRangeMismatch, None);
             } else if self.preferred(id).is_some() && !self.matches_preferred(id) {
                 let target = self.with_preferred(id);
