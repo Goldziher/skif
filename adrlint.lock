@@ -140,3 +140,13 @@ blake3 = "51df22d9d0237a861ce146129356c03546c36153e1d1b6ebc0b88d2f15d7f579"
 number = 28
 status = "accepted"
 blake3 = "9f5af6c20448742c6516412e920ceaffa49b456383d4b8dd286313078963e1a7"
+
+[adrs."adrs/0029-namespace-export-rules-virtual-modules-linked-configs-and-the-node-plugin.md"]
+number = 29
+status = "accepted"
+blake3 = "520e8f50a723b54e7bc7165322f521ace94899bdc527da6e3ed937f1f7f63ebb"
+
+[adrs."adrs/0030-harness-known-deviations-and-comparison-scope.md"]
+number = 30
+status = "accepted"
+blake3 = "4c0aca44a3801b20996ec7cd22e72bb0010d5c2411e4462f161ff2bbaa4181e8"

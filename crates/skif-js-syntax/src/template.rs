@@ -243,14 +243,18 @@ impl Scanner<'_, '_> {
     fn attribute_name(&mut self, name: &str, has_value: bool) {
         match self.flavor {
             Flavor::Vue => {
-                let Some(directive) = name.strip_prefix("v-") else { return };
+                let Some(directive) = name.strip_prefix("v-") else {
+                    return;
+                };
                 let directive = directive.split([':', '.']).next().unwrap_or(directive);
                 if !directive.is_empty() && !VUE_BUILTIN_DIRECTIVES.contains(&directive) {
                     self.bare(&format!("v{}", pascal_case(directive)));
                 }
             }
             Flavor::Svelte => {
-                let Some((prefix, rest)) = name.split_once(':') else { return };
+                let Some((prefix, rest)) = name.split_once(':') else {
+                    return;
+                };
                 let target = rest.split('|').next().unwrap_or(rest);
                 if SVELTE_REFERENCING_DIRECTIVES.contains(&prefix)
                     || (!has_value && SVELTE_SHORTHAND_DIRECTIVES.contains(&prefix))
@@ -388,7 +392,10 @@ mod tests {
         }
         assert_eq!(members(&uses, "form"), ["name"]);
         assert_eq!(members(&uses, "ns"), ["max"]);
-        assert!(!uses.contains_key("plain"), "static attribute values are not expressions");
+        assert!(
+            !uses.contains_key("plain"),
+            "static attribute values are not expressions"
+        );
         assert!(!uses.contains_key("id"));
         assert!(!bare(&uses, "model"), "a property is not a use of an import");
     }
@@ -399,7 +406,9 @@ mod tests {
             "{#if ready}<Widget on:click={handle} use:tooltip bind:value class:active {...rest} />{:else if other}{/if}{@html raw}{#each list as item}<p>{item}</p>{/each}",
             Flavor::Svelte,
         );
-        for name in ["ready", "Widget", "handle", "tooltip", "value", "active", "rest", "other", "raw", "list"] {
+        for name in [
+            "ready", "Widget", "handle", "tooltip", "value", "active", "rest", "other", "raw", "list",
+        ] {
             assert!(bare(&uses, name), "{name}");
         }
     }

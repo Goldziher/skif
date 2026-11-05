@@ -129,6 +129,8 @@ impl GateArgs {
     }
 }
 
+// Independent command-line switches, one per flag.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Args)]
 struct ParityArgs {
     /// The skif binary under test.
