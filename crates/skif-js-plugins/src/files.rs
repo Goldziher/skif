@@ -1,7 +1,9 @@
 //! Finds files matching config globs without walking the whole workspace: only directories that can
 //! still lead to a match are listed.
 
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{Arc, LazyLock, PoisonError, RwLock};
 
 use globset::{Glob, GlobMatcher};
 use skif_core::FileSystem;
@@ -51,6 +53,21 @@ fn compile(pattern: &str) -> Option<Pattern> {
     (!segments.is_empty()).then_some(Pattern { segments })
 }
 
+/// Compiled patterns by their text: the same config globs are looked for in every package, and compiling a glob costs
+/// more than matching a few hundred names with it.
+fn compiled(pattern: &str) -> Option<Arc<Pattern>> {
+    static CACHE: LazyLock<RwLock<HashMap<String, Option<Arc<Pattern>>>>> = LazyLock::new(Default::default);
+    if let Some(hit) = CACHE.read().unwrap_or_else(PoisonError::into_inner).get(pattern) {
+        return hit.clone();
+    }
+    let built = compile(pattern).map(Arc::new);
+    CACHE
+        .write()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(pattern.to_owned(), built.clone());
+    built
+}
+
 fn matches_all(segments: &[Segment], parts: &[String]) -> bool {
     match (segments.first(), parts.first()) {
         (None, None) => true,
@@ -77,7 +94,7 @@ fn could_contain(pattern: &Pattern, parts: &[String]) -> bool {
     parts.len() < pattern.segments.len()
 }
 
-fn walk(fs: &dyn FileSystem, dir: &Path, parts: &mut Vec<String>, patterns: &[Pattern], out: &mut Vec<String>) {
+fn walk(fs: &dyn FileSystem, dir: &Path, parts: &mut Vec<String>, patterns: &[Arc<Pattern>], out: &mut Vec<String>) {
     let Ok(entries) = fs.read_dir_shared(dir) else { return };
     for entry in &*entries {
         let Some(name) = entry.path.file_name().and_then(|n| n.to_str()) else {
@@ -101,10 +118,10 @@ fn walk(fs: &dyn FileSystem, dir: &Path, parts: &mut Vec<String>, patterns: &[Pa
 
 /// Files below `dir` matching any of `globs`, as sorted forward-slash paths relative to `dir`.
 pub(crate) fn find_files(fs: &dyn FileSystem, dir: &Path, globs: &[String]) -> Vec<String> {
-    let patterns: Vec<Pattern> = globs
+    let patterns: Vec<Arc<Pattern>> = globs
         .iter()
         .flat_map(|g| crate::glob::expand_path_alternatives(g))
-        .filter_map(|g| compile(&g))
+        .filter_map(|g| compiled(&g))
         .collect();
     let mut out = Vec::new();
     if !patterns.is_empty() {

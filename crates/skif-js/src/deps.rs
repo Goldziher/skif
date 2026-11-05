@@ -2,12 +2,12 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use serde_json::Value;
 use skif_core::{FileSystem, Span};
 use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object};
-use skif_workspace::{PackageId, Workspace};
+use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::ancestors::{external_manifests, listed_names};
 use crate::graph::{ModuleGraph, ModuleId};
@@ -255,11 +255,38 @@ pub(crate) fn parse_tsconfig(fs: &dyn FileSystem, path: &Path) -> Option<ConfigV
     extract_config_object(&format!("module.exports = {text}"), Path::new("tsconfig.js"))
 }
 
+/// The `tsconfig` files parsed so far in a run: a base config that every package extends is parsed once.
+struct TsconfigMemo<'a> {
+    fs: &'a dyn FileSystem,
+    parsed: Mutex<HashMap<PathBuf, Option<Arc<ConfigValue>>>>,
+}
+
+impl<'a> TsconfigMemo<'a> {
+    fn new(fs: &'a dyn FileSystem) -> Self {
+        Self {
+            fs,
+            parsed: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn get(&self, path: &Path) -> Option<Arc<ConfigValue>> {
+        if let Some(known) = self.parsed.lock().unwrap_or_else(PoisonError::into_inner).get(path) {
+            return known.clone();
+        }
+        let config = parse_tsconfig(self.fs, path).map(Arc::new);
+        self.parsed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(path.to_path_buf(), config.clone());
+        config
+    }
+}
+
 /// Whether the `tsconfig.json` at `path` makes TypeScript include every installed `@types/*` package: it exists, no
 /// `compilerOptions.types` is set along its `extends` chain, and `typeRoots`, when set, keeps `node_modules/@types`.
-fn includes_all_types(fs: &dyn FileSystem, members: &[(String, PathBuf)], path: &Path, depth: usize) -> bool {
+fn includes_all_types(memo: &TsconfigMemo<'_>, members: &[(String, PathBuf)], path: &Path, depth: usize) -> bool {
     const MAX_DEPTH: usize = 8;
-    let Some(config) = parse_tsconfig(fs, path) else {
+    let Some(config) = memo.get(path) else {
         return false;
     };
     if let Some(options) = config.get("compilerOptions") {
@@ -279,8 +306,8 @@ fn includes_all_types(fs: &dyn FileSystem, members: &[(String, PathBuf)], path: 
     let dir = path.parent().unwrap_or(path);
     extends_of(&config)
         .iter()
-        .filter_map(|parent| resolve_extends(fs, members, dir, parent))
-        .all(|target| depth >= MAX_DEPTH || includes_all_types(fs, members, &target, depth + 1))
+        .filter_map(|parent| resolve_extends(memo.fs, members, dir, parent))
+        .all(|target| depth >= MAX_DEPTH || includes_all_types(memo, members, &target, depth + 1))
 }
 
 /// The `extends` entries of a parsed `tsconfig.json`, in order.
@@ -294,9 +321,14 @@ fn extends_of(config: &ConfigValue) -> Vec<&str> {
 
 /// The `compilerOptions.jsxImportSource` the `tsconfig.json` at `path` sets itself or inherits; a later `extends`
 /// entry overrides an earlier one.
-fn jsx_import_source(fs: &dyn FileSystem, members: &[(String, PathBuf)], path: &Path, depth: usize) -> Option<String> {
+fn jsx_import_source(
+    memo: &TsconfigMemo<'_>,
+    members: &[(String, PathBuf)],
+    path: &Path,
+    depth: usize,
+) -> Option<String> {
     const MAX_DEPTH: usize = 8;
-    let config = parse_tsconfig(fs, path)?;
+    let config = memo.get(path)?;
     if let Some(source) = config
         .get("compilerOptions")
         .and_then(|options| options.get("jsxImportSource"))
@@ -311,8 +343,8 @@ fn jsx_import_source(fs: &dyn FileSystem, members: &[(String, PathBuf)], path: &
     extends_of(&config)
         .iter()
         .rev()
-        .filter_map(|parent| resolve_extends(fs, members, dir, parent))
-        .find_map(|target| jsx_import_source(fs, members, &target, depth + 1))
+        .filter_map(|parent| resolve_extends(memo.fs, members, dir, parent))
+        .find_map(|target| jsx_import_source(memo, members, &target, depth + 1))
 }
 
 /// The workspace members that have a name, with their absolute directory.
@@ -372,7 +404,13 @@ pub struct DependencyUsage {
 }
 
 impl DependencyUsage {
-    pub(crate) fn compute(workspace: &Workspace, setup: &Setup, graph: &ModuleGraph, fs: &dyn FileSystem) -> Self {
+    pub(crate) fn compute(
+        workspace: &Workspace,
+        setup: &Setup,
+        graph: &ModuleGraph,
+        fs: &dyn FileSystem,
+        sequential: bool,
+    ) -> Self {
         let count = workspace.package_ids().count();
         let mut usage = Self {
             referenced: vec![HashSet::new(); count],
@@ -385,9 +423,10 @@ impl DependencyUsage {
             members: workspace.all_packages().filter_map(|p| p.name.clone()).collect(),
             ..Self::default()
         };
-        usage.read_manifests(workspace, fs);
-        usage.collect_ambient_types(workspace, fs);
-        usage.collect_jsx_runtimes(workspace, fs);
+        usage.read_manifests(workspace, fs, sequential);
+        let tsconfigs = TsconfigMemo::new(fs);
+        usage.collect_ambient_types(workspace, &tsconfigs);
+        usage.collect_jsx_runtimes(workspace, &tsconfigs);
         usage.collect_ancestor_bins(workspace, fs);
         usage.collect_member_bins(workspace);
         usage.collect_imports(workspace, setup, graph);
@@ -395,21 +434,31 @@ impl DependencyUsage {
         usage
     }
 
-    fn read_manifests(&mut self, workspace: &Workspace, fs: &dyn FileSystem) {
-        let mut cache = HashMap::new();
+    fn read_manifests(&mut self, workspace: &Workspace, fs: &dyn FileSystem, sequential: bool) {
         let locked = lockfile::read(fs, &workspace.root);
-        for (id, package) in workspace.iter() {
-            let dir = workspace.root.join(&package.dir);
+        let members: Vec<(PackageId, &Package)> = workspace.iter().collect();
+        for &(id, package) in &members {
             for entry in &package.dependencies {
                 self.listed[id.index()].insert(entry.name.clone());
             }
-            let names: Vec<String> = self.listed[id.index()].iter().cloned().collect();
-            for name in names {
-                let Some(installed) =
-                    read_installed(fs, &dir, &workspace.root, &name, &mut cache).or_else(|| locked.get(&name).cloned())
-                else {
-                    continue;
-                };
+        }
+        // The installed manifests are looked up for every package on its own thread: each lookup walks up the
+        // `node_modules` directories and is bound by file system latency.
+        let listed = &self.listed;
+        let installed: Vec<Vec<(String, Arc<Installed>)>> = map_ordered(&members, sequential, |&(id, package)| {
+            let dir = workspace.root.join(&package.dir);
+            let mut cache = HashMap::new();
+            listed[id.index()]
+                .iter()
+                .filter_map(|name| {
+                    let found = read_installed(fs, &dir, &workspace.root, name, &mut cache)
+                        .or_else(|| locked.get(name).cloned())?;
+                    Some((name.clone(), found))
+                })
+                .collect()
+        });
+        for (&(id, _), found) in members.iter().zip(installed) {
+            for (name, installed) in found {
                 self.known_bins[id.index()].insert(name.clone());
                 for bin in &installed.bins {
                     self.bins[id.index()].entry(bin.clone()).or_default().push(name.clone());
@@ -427,11 +476,11 @@ impl DependencyUsage {
     /// TypeScript includes every visible `@types/*` package unless `compilerOptions.types` narrows them, so the
     /// globals-only ones a package (and the root, which hoists them) lists are used when the package has a
     /// `tsconfig.json` that does not narrow them.
-    fn collect_ambient_types(&mut self, workspace: &Workspace, fs: &dyn FileSystem) {
+    fn collect_ambient_types(&mut self, workspace: &Workspace, tsconfigs: &TsconfigMemo<'_>) {
         let members = member_dirs(workspace);
         for (id, package) in workspace.iter() {
             if !includes_all_types(
-                fs,
+                tsconfigs,
                 &members,
                 &workspace.root.join(&package.dir).join("tsconfig.json"),
                 0,
@@ -451,11 +500,11 @@ impl DependencyUsage {
         }
     }
 
-    fn collect_jsx_runtimes(&mut self, workspace: &Workspace, fs: &dyn FileSystem) {
+    fn collect_jsx_runtimes(&mut self, workspace: &Workspace, tsconfigs: &TsconfigMemo<'_>) {
         let members = member_dirs(workspace);
         for (id, package) in workspace.iter() {
             let config = workspace.root.join(&package.dir).join("tsconfig.json");
-            self.other_jsx_runtime[id.index()] = jsx_import_source(fs, &members, &config, 0)
+            self.other_jsx_runtime[id.index()] = jsx_import_source(tsconfigs, &members, &config, 0)
                 .is_some_and(|source| package_name(&source).is_some_and(|name| name != "react"));
         }
     }
