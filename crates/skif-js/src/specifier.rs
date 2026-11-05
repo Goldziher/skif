@@ -45,6 +45,22 @@ const BUILTINS: &[&str] = &[
     "zlib",
 ];
 
+/// Builtins that live under a subpath (`fs/promises`); every other `name/...` is an npm package.
+const BUILTIN_SUBPATHS: &[&str] = &[
+    "assert/strict",
+    "dns/promises",
+    "fs/promises",
+    "inspector/promises",
+    "path/posix",
+    "path/win32",
+    "readline/promises",
+    "stream/consumers",
+    "stream/promises",
+    "stream/web",
+    "timers/promises",
+    "util/types",
+];
+
 /// Runtimes that are provided by the environment and never listed as dependencies.
 pub(crate) const RUNTIME_PACKAGES: &[&str] = &["node", "bun", "deno"];
 
@@ -53,8 +69,7 @@ pub(crate) fn is_builtin(specifier: &str) -> bool {
     if specifier.starts_with("node:") {
         return true;
     }
-    let root = specifier.split('/').next().unwrap_or(specifier);
-    BUILTINS.contains(&root)
+    BUILTINS.contains(&specifier) || BUILTIN_SUBPATHS.contains(&specifier)
 }
 
 /// Whether the specifier carries a URL-like scheme that is not a module on disk (`data:`, `https:`, `virtual:`).
@@ -235,6 +250,10 @@ mod tests {
         assert!(is_builtin("fs"));
         assert!(is_builtin("fs/promises"));
         assert!(!is_builtin("fs-extra"));
+        assert!(!is_builtin("buffer/"));
+        assert!(!is_builtin("events/"));
+        assert!(!is_builtin("fs/extra"));
+        assert!(is_builtin("stream/web"));
         assert!(has_foreign_scheme("https://x.dev/a.js"));
         assert!(has_foreign_scheme("virtual:pwa"));
         assert!(!has_foreign_scheme("lodash"));
