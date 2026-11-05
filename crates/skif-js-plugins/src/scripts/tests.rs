@@ -271,6 +271,7 @@ fn table() {
         files("dotenvx run -- node a.js", &["dotenvx"], &["a.js"]),
         bins("env-cmd -f .env.test jest", &["env-cmd", "jest"]),
         files("c8 node dist/x.js", &["c8"], &["dist/x.js"]),
+        bins("c8 check-coverage --lines 90", &["c8"]),
         bins("nyc --reporter=lcov mocha", &["nyc", "mocha"]),
         // npx, dlx, bunx.
         bins("npx tsc --noEmit", &["tsc:npx"]),

@@ -372,6 +372,27 @@ The table holds 102 built-in plugins:
 
 `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`, `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`, `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack`, `node`, `expo-router`, `tanstack-router`, `ava`, `biome`, `c8`, `dotenv`, `electron-vite`, `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`, `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`, `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike` and `webdriver-io`.
 
+Plugins read configs and sources statically and never run a tool, so some of knip's plugin behaviour has no
+counterpart. These differences are deliberate:
+
+- `react-router` reads `routes.ts` as text: the string literals that name a source file are route modules, and a
+  `flatRoutes()` call makes the files of its routes directory (`rootDirectory`, `routes` by default) route modules.
+  `ignoredRouteFiles` is not applied and routes a program computes are not known. `@react-router/node` and `isbot`
+  count as used but not as production dependencies.
+- `knex` finds `knex({ client: "pg" })` calls by scanning source text, so only a string literal `client` in an object
+  literal argument counts.
+- `gatsby` reads `setBabelPlugin({ name })` calls of `gatsby-node` files as text, whatever hook they sit in.
+- `rsbuild` evaluates a config function once without parameters and does not call functions in `tools.rspack`.
+- `rslib` and `preconstruct` entries are production entries; knip also marks their exports as used, skif follows `include-entry-exports`.
+- `size-limit` credits every `@size-limit/*` package of the workspace, of any dependency kind; knip counts only
+  `dependencies` and `devDependencies`. `size-limit.{json,js,...}` files are entries next to knip's
+  `size-limit.config.*` and `.size-limit*`.
+- `biome` resolves the `"//"` root reference to the `biome.json` of the farthest ancestor directory that has one.
+- For `tsd`, `jasmine`, `ava`, `msw` and `oclif` the default entry patterns apply also when the config names others.
+- Command lines are read from `package.json` scripts: `jasmine` and `tsd` positional arguments, `stryker run <file>`,
+  `typedoc --plugin` and `--theme`. A flag that skif does not know takes the next word as its value, as `minimist`
+  does, and `c8` and `dotenv` follow the command they wrap.
+
 ## Layered configuration
 
 A root takes every configuration file from its own directory up to the root of the git repository (the nearest

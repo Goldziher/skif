@@ -886,7 +886,7 @@ pub(super) static WRAPPERS: &[Wrapper] = &[
     },
     Wrapper {
         names: &["c8"],
-        subcommand: None,
+        subcommand: Some("check-coverage"),
         value_flags: &[
             "reporter",
             "r",

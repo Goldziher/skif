@@ -1,9 +1,11 @@
-//! `TypeDoc`: plugins and themes are packages or local modules, custom CSS and JavaScript files are entries.
+//! `TypeDoc`: plugins and themes are packages or local modules, custom CSS and JavaScript files are entries. The
+//! values of `--plugin` and `--theme` on the command line are plugins and themes too.
 
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{is_relative, package_name, strings};
+use crate::script_config::flag_values;
+use crate::support::{is_relative, join_rel, package_name, strings};
 
 /// The `typedoc` plugin.
 pub struct Typedoc;
@@ -40,11 +42,7 @@ impl Plugin for Typedoc {
         let mut out = Vec::new();
         for key in ["plugin", "theme"] {
             for name in options.get(key).map(strings).unwrap_or_default() {
-                if is_relative(name) {
-                    out.push(PluginInput::Entry(config.join(name)));
-                } else {
-                    out.extend(package_name(name).map(PluginInput::OptionalDependency));
-                }
+                out.extend(module_ref(&config.join(name), name));
             }
         }
         for key in ["customCss", "customJs"] {
@@ -53,5 +51,22 @@ impl Plugin for Typedoc {
             }
         }
         out
+    }
+
+    fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        cx.scripts
+            .values()
+            .flat_map(|script| flag_values(script, SPEC.binaries, &["--plugin", "--theme"]))
+            .filter_map(|name| module_ref(&join_rel("", &name), &name))
+            .collect()
+    }
+}
+
+/// A plugin or theme: a local module is an entry (`path` is where it sits), anything else a package that may be absent.
+fn module_ref(path: &str, name: &str) -> Option<PluginInput> {
+    if is_relative(name) {
+        Some(PluginInput::Entry(path.to_owned()))
+    } else {
+        package_name(name).map(PluginInput::OptionalDependency)
     }
 }

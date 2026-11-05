@@ -135,6 +135,15 @@ pub(crate) fn entry_glob(base: &str, pattern: &str) -> Option<String> {
     Some(join_rel(base, &extglob_to_braces(pattern)))
 }
 
+/// Like [`entry_glob`], but a negated pattern stays negated: `!x` becomes `!<base>/x`, which removes files from the
+/// entries as knip's `!` entries do.
+pub(crate) fn entry_pattern(base: &str, pattern: &str) -> Option<String> {
+    match pattern.trim().strip_prefix('!') {
+        Some(rest) => entry_glob(base, rest).map(|glob| format!("!{glob}")),
+        None => entry_glob(base, pattern),
+    }
+}
+
 /// Rewrites the extglob forms `@(a|b)` and `?(a|b)` to the brace syntax `{a,b}` and `{a,b,}`.
 pub(crate) fn extglob_to_braces(pattern: &str) -> String {
     #[derive(Clone, Copy, PartialEq)]
@@ -501,6 +510,69 @@ pub(crate) fn production_entries<'a>(base: &str, patterns: impl IntoIterator<Ite
         .filter_map(|pattern| entry_glob(base, pattern))
         .map(PluginInput::ProductionEntry)
         .collect()
+}
+
+/// The end of the string literal that starts at `start` (the index of its closing quote).
+fn string_end(bytes: &[u8], start: usize) -> usize {
+    let quote = bytes[start];
+    let mut i = start + 1;
+    while i < bytes.len() && bytes[i] != quote {
+        i += if bytes[i] == b'\\' { 2 } else { 1 };
+    }
+    i.min(bytes.len().saturating_sub(1))
+}
+
+/// The string literal value of the property `key` of the object literal that `object` starts with, when it is written
+/// as a literal. Only the properties of the object itself count, not those of objects nested in it; the text is
+/// scanned, not parsed.
+pub(crate) fn literal_property<'t>(object: &'t str, key: &str) -> Option<&'t str> {
+    let bytes = object.as_bytes();
+    let mut depth = 0_i32;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' | b'[' | b'(' => depth += 1,
+            b'}' | b']' | b')' => {
+                depth -= 1;
+                if depth <= 0 {
+                    return None;
+                }
+            }
+            b'\'' | b'"' | b'`' => {
+                let end = string_end(bytes, i);
+                if depth == 1
+                    && object.get(i + 1..end) == Some(key)
+                    && let Some(value) = literal_after(object, end + 1)
+                {
+                    return Some(value);
+                }
+                i = end;
+            }
+            c if c.is_ascii_alphabetic() || c == b'_' || c == b'$' => {
+                let end = (i..bytes.len())
+                    .find(|&j| !(bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_' || bytes[j] == b'$'))
+                    .unwrap_or(bytes.len());
+                if depth == 1
+                    && object[i..end] == *key
+                    && let Some(value) = literal_after(object, end)
+                {
+                    return Some(value);
+                }
+                i = end - 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// The string literal that follows `:` at `from`.
+fn literal_after(text: &str, from: usize) -> Option<&str> {
+    let rest = text.get(from..)?.trim_start().strip_prefix(':')?.trim_start();
+    let quote = rest.chars().next().filter(|c| matches!(*c, '\'' | '"' | '`'))?;
+    let body = &rest[1..];
+    Some(&body[..body.find(quote)?])
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
-//! electron-vite: the main, preload and renderer builds each have production entries, by default
-//! `src/<name>/index`.
+//! electron-vite: the main, preload and renderer builds each have production entries; the config adds its own, and
+//! `src/<name>/index` stays one, as in knip.
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::support::{get_in, html_entries, leaf_strings, production_entries};
@@ -11,6 +11,11 @@ static SPEC: PluginSpec = PluginSpec {
     id: "electron-vite",
     enablers: &[Enabler::Dependency("electron-vite")],
     config: &["electron.vite.config.{js,mjs,cjs,ts,mts,cts}"],
+    production: &[
+        "src/main/index.{js,mjs,cjs,ts,mts,cts}",
+        "src/preload/index.{js,mjs,cjs,ts,mts,cts}",
+        "src/renderer/index.html",
+    ],
     binaries: &["electron-vite"],
     ..PluginSpec::DEFAULT
 };
