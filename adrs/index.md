@@ -51,6 +51,7 @@ old one.
 | 0041 | [`skif migrate`: Composable Migration Steps, Full Validation and an In-Place Merge](0041-skif-migrate-composable-steps-full-validation-and-in-place-merge.md) | accepted |
 | 0043 | [Floating Tags for 0.x Releases, musl for cargo binstall and No Windows npm Addon](0043-floating-tags-for-0x-releases-and-musl-binstall.md) | accepted |
 | 0042 | [Git Index Discovery Corrections: Directory Times, Lazy Existence Checks and a Verified SHA-1 Index](0042-git-index-discovery-corrections-directory-times-lazy-existence-and-checksum.md) | accepted |
+| 0044 | [Monorepo JS Corrections: Builtins, HTML Entries, Referenced Paths, Extglob, Config Helpers, Stylesheet Lookups and Per-Package Extensions](0044-monorepo-js-corrections-builtins-html-entries-referenced-paths-extglob-helpers-and-stylesheets.md) | accepted |
 
 ## Effective statements
 
