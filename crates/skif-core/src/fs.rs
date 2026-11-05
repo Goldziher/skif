@@ -193,13 +193,19 @@ impl FileSystem for OsFs {
             // hide its siblings.
             let Ok(entry) = entry else { continue };
             let path = entry.path();
-            // `file_type` comes from the directory record; only a symlink needs a `stat` to learn its target.
-            let Ok(file_type) = entry.file_type() else { continue };
-            let is_symlink = file_type.is_symlink();
-            let (is_dir, is_file) = if is_symlink {
-                std::fs::metadata(&path).map_or((false, false), |metadata| (metadata.is_dir(), metadata.is_file()))
-            } else {
-                (file_type.is_dir(), file_type.is_file())
+            // `file_type` comes from the directory record; only a symlink needs a `stat` to learn its target. When the
+            // record has no type, a `stat` answers as it would for a probe of the path, so the entry is not lost.
+            let (is_dir, is_file, is_symlink) = match entry.file_type() {
+                Ok(file_type) if file_type.is_symlink() => {
+                    let (is_dir, is_file) = std::fs::metadata(&path)
+                        .map_or((false, false), |metadata| (metadata.is_dir(), metadata.is_file()));
+                    (is_dir, is_file, true)
+                }
+                Ok(file_type) => (file_type.is_dir(), file_type.is_file(), false),
+                Err(_) => match std::fs::metadata(&path) {
+                    Ok(metadata) => (metadata.is_dir(), metadata.is_file(), false),
+                    Err(_) => continue,
+                },
             };
             let entry = DirEntry::new(path, is_dir, is_file);
             entries.push(if is_symlink { entry.symlink() } else { entry });

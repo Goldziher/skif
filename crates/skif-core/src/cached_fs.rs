@@ -85,6 +85,15 @@ fn sorted(entries: Arc<[DirEntry]>) -> Arc<[DirEntry]> {
     Arc::from(owned)
 }
 
+/// Whether a sibling in `entries` is named like `path` but for the case of ASCII letters.
+fn differs_by_case_only(entries: &[DirEntry], path: &Path) -> bool {
+    path.file_name().is_some_and(|name| {
+        entries
+            .iter()
+            .any(|entry| entry.path.file_name().is_some_and(|other| other.eq_ignore_ascii_case(name)))
+    })
+}
+
 fn not_found(path: &Path) -> io::Error {
     io::Error::new(io::ErrorKind::NotFound, format!("{} not found", path.display()))
 }
@@ -101,8 +110,10 @@ fn not_found(path: &Path) -> io::Error {
 /// - Small configuration files (manifests, `tsconfig`, ignore files, tool configuration) are kept after the first
 ///   read, a missing one included. Other files are read through every time.
 ///
-/// The cache never expires: use one instance for one run, and [`CachedFs::clear`] it after writing files. Names are
-/// matched exactly as the listing spells them, so on a case-insensitive disk a probe in a different case misses.
+/// The cache never expires: use one instance for one run, and [`CachedFs::clear`] it after writing files. A name the
+/// listing lacks but a sibling spells in another case is asked of the inner file system, so the answer is the one
+/// the disk gives (found on a case-insensitive disk, absent on a case-sensitive one) whatever the number of probes
+/// before it.
 pub struct CachedFs<F> {
     inner: F,
     listings: Sharded<Listing>,
@@ -144,14 +155,15 @@ impl<F: FileSystem> CachedFs<F> {
         let Ok(entries) = listing else {
             return Some(PathKind::NONE);
         };
-        Some(
-            entries
-                .binary_search_by(|entry| entry.path.as_path().cmp(path))
-                .map_or(PathKind::NONE, |index| PathKind {
-                    is_file: entries[index].is_file,
-                    is_dir: entries[index].is_dir,
-                }),
-        )
+        match entries.binary_search_by(|entry| entry.path.as_path().cmp(path)) {
+            Ok(index) => Some(PathKind {
+                is_file: entries[index].is_file,
+                is_dir: entries[index].is_dir,
+            }),
+            // A case-insensitive disk finds `Package.json` for `package.json`, which the listing does not spell.
+            Err(_) if differs_by_case_only(&entries, path) => None,
+            Err(_) => Some(PathKind::NONE),
+        }
     }
 
     /// Counts a probe of a child of `path`'s parent and lists the parent once it was probed often enough. Whether the
@@ -354,6 +366,62 @@ mod tests {
             );
         }
         assert_eq!(count(&fs.inner().listings), 1);
+    }
+
+    /// A file system whose lookups ignore the case of names, as macOS and Windows volumes do; listings spell names as
+    /// stored.
+    struct CaseInsensitive(MemoryFs);
+
+    impl CaseInsensitive {
+        fn find(&self, path: &Path) -> Option<DirEntry> {
+            let name = path.file_name()?;
+            self.0
+                .read_dir(path.parent()?)
+                .ok()?
+                .into_iter()
+                .find(|entry| entry.path.file_name().is_some_and(|other| other.eq_ignore_ascii_case(name)))
+        }
+    }
+
+    impl FileSystem for CaseInsensitive {
+        fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+            self.0.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+            self.0.read_dir(path)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.find(path).is_some_and(|entry| entry.is_file)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.find(path).is_some_and(|entry| entry.is_dir)
+        }
+    }
+
+    #[test]
+    fn a_probe_in_another_case_gets_the_answer_of_the_disk_whatever_was_probed_before() {
+        let files = || {
+            CaseInsensitive(
+                MemoryFs::new()
+                    .with_file("/ws/package.json", "{}")
+                    .with_file("/ws/a.ts", "")
+                    .with_file("/ws/b.ts", "")
+                    .with_file("/ws/c.ts", ""),
+            )
+        };
+        let probe = Path::new("/ws/Package.json");
+        let cold = CachedFs::new(files());
+        assert!(cold.is_file(probe));
+        let warm = CachedFs::new(files());
+        for sibling in ["/ws/a.ts", "/ws/b.ts", "/ws/c.ts", "/ws/d.ts"] {
+            let _ = warm.is_file(Path::new(sibling));
+        }
+        assert!(warm.read_dir_shared(Path::new("/ws")).is_ok());
+        assert!(warm.is_file(probe), "answered from the listing, which spells the name differently");
+        assert!(!warm.is_file(Path::new("/ws/other.json")));
     }
 
     #[test]
