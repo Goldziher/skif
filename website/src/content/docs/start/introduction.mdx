@@ -34,8 +34,8 @@ Every check is a rule with a stable kebab-case id, a category (`manifest`, `work
 - **Static only.** skif never executes project code. Analysis reads files; configuration is TOML.
 - **Format-preserving fixes.** `--fix` edits `package.json` and `pnpm-workspace.yaml` while keeping key order,
   indentation and comments.
-- **One configuration file.** `skif.toml` or `.skif.toml` at the workspace root. There is no `package.json` key
-  and no compatibility reader for sherif, syncpack or knip configuration.
+- **One configuration file.** `skif.toml` or `.skif.toml` at the workspace root. There is no `package.json` key,
+  and sherif, syncpack and knip configuration is not read while linting: `skif migrate` translates it once.
 - **Library first.** The CLI is a thin layer over the `skif` crate, which never prints, prompts, exits or writes
   files. See [library usage](../../guides/library/).
 

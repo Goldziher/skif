@@ -1,0 +1,143 @@
+---
+title: Migrating from sherif, syncpack and knip
+description: Translate the configuration of sherif, syncpack and knip into a skif.toml with skif migrate, and read the report of what it could not translate.
+---
+
+`skif migrate` reads the configuration of sherif, syncpack and knip and writes a `skif.toml`. It is a one-shot
+translator, not a compatibility reader: skif keeps reading `skif.toml` only, and the old files stay where they are.
+`skif migrate` never deletes a file.
+
+```sh
+skif migrate --dry-run          # print the skif.toml and the report, write nothing
+skif migrate                    # write ./skif.toml for every tool found
+skif migrate --from knip        # one tool only
+skif migrate --merge            # add the translation to an existing skif.toml
+```
+
+JavaScript and TypeScript configuration files are read statically, as skif reads every tool configuration: nothing is
+executed. A value that is only known at run time (a function call, `process.env`, an import) is not guessed. Its key
+is left out and the report names it, with the rest of the file translated.
+
+## What is read
+
+| Tool | Files | Also read |
+| --- | --- | --- |
+| sherif | the `sherif` key of `package.json` | the flags of the scripts that run `sherif` |
+| syncpack | `.syncpackrc`, `.syncpackrc.{json,yaml,yml,js,cjs,mjs,ts}`, `syncpack.config.{js,cjs,mjs,ts}`, the `syncpack` key (or `config.syncpack`) of `package.json` | the flags of the scripts that run `syncpack`, and a `--config` file they name |
+| knip | `knip.{json,jsonc}`, `.knip.{json,jsonc}`, `knip.{js,ts,mjs,cjs,mts,cts}`, `knip.config.*`, the `knip` key of `package.json` | the flags of the scripts that run `knip`, and a `--config` file they name |
+
+The flags matter because they change what the old tool checked: `knip --dependencies --production`,
+`syncpack lint --dependency-types prod,dev` and `sherif --fail-on-warnings -i react` are translated like configuration.
+`--from auto` (the default) migrates every tool that has a file, a `package.json` key or a script in the project.
+
+## Profiles
+
+sherif checks ten things and nothing else; skif has more rules, and it enables many of them by default. The profile
+decides what the migration does about the checks the old tools did not run.
+
+| Profile | Result |
+| --- | --- |
+| `exact` (default) | Only the checks the old tools ran. Every other rule that skif enables by default is set to `off` in `[rules]`, and `[js] enabled = false` when knip is not among the tools. |
+| `full` | The checks of the old tools plus skif's defaults for everything else. |
+
+The report lists the checks skif runs that the old tools did not, so you can read the list and decide which to turn on.
+knip reports everything as an error, where skif's defaults are mostly warnings: the migration writes every rule it
+enables at knip's own severity (`error` unless the `rules` key says otherwise) in both profiles.
+
+## The report
+
+Every construct that was not copied one to one has a note with the file, the key path in that file
+(`versionGroups[2].pinVersion`, `scripts.knip: --strict`) and what was done. The notes fall into four groups.
+
+| Group | Letter | Meaning |
+| --- | --- | --- |
+| Translated | M, A | `M`: translated one to one. `A`: translated, but skif behaves differently in a way the note explains. |
+| Covered by default | D | Nothing to translate; skif does it already or does it with a flag. |
+| Needs a human | H, X | `H`: not translated because the value is not static or its meaning is unclear. `X`: skif has no equivalent. |
+| Extra checks | | Rules skif runs by default that the old tools did not. |
+
+`--format json` prints the same report as one document. `--strict` exits `1` when any note needs a human.
+
+## sherif
+
+| sherif | skif |
+| --- | --- |
+| `ignoreRule`, `-r` | `[rules] <id> = "off"`, with the rule ids renamed (`multiple-dependency-versions` is `version-mismatch`, `unordered-dependencies` is `unsorted-dependencies`, ...) |
+| `ignorePackage`, `-p` | `[workspace] ignore-packages` |
+| `ignoreDependency`, `-i` | `[[ignore]]` with `rules = ["version-mismatch"]`, the only rule sherif applied it to |
+| `ignoreDependency` as `name@version` | the same entry, noted as approximate: skif ignores the instance it reports, sherif ignored that version everywhere |
+| `failOnWarnings`, `--fail-on-warnings` | `[lint] fail-on-warnings` |
+| `select`, `-s` | `[policy] prefer` |
+| `fix`, `noInstall` | none; `skif --fix` and `--no-install` do the same |
+
+## syncpack
+
+| syncpack | skif |
+| --- | --- |
+| `versionGroups[]` with `label`, `dependencies`, `packages`, `dependencyTypes`, `specifierTypes` | `[[version-groups]]` with the same keys |
+| `isBanned`, `isIgnored`, `pinVersion`, `snapTo`, `preferVersion`, `policy: sameRange`, `policy: sameMinor` | `policy = "banned"`, `"ignored"`, `"pinned"` with `pin`, `"snapped-to"` with `snap-to`, `prefer`, `"same-range"`, `"same-minor"` |
+| `policy: catalog` | `[catalog] mode = "prefer"`; the group itself is not written because the catalog setting is global |
+| `policy: semverRangeOnly` | written as `policy = "ignored"` (X): skif cannot check ranges while letting versions differ |
+| `severity` | none (H): levels are set per rule |
+| `semverGroups[]` with `range` | `[[semver-groups]]` |
+| `semverGroups[]` with `isIgnored` or `isDisabled` | `[[semver-groups]]` with `ignored = true` |
+| `dependencyTypes` with `prod`, `dev`, `peer`, `local` and `!` negation | the same tokens |
+| `customTypes` with `strategy` `name@version`, `version` or `versionsByName` | `[[custom-types]]` with `name`, `path` and `strategy` (`"name@version"`, `"version"`, `"versions-by-name"`) |
+| a custom type for `optionalDependencies` | the native `optional` dependency type |
+| `dependencyTypes` of `resolutions`, `overrides` or `pnpmOverrides`, and `name~version` custom types | none (X). A group that only covers these is not written, because without the selector it would match everything |
+| `dependencyGroups`, `strict`, `sourceMode` | none (X or H) |
+| `source` | dropped when it lists the workspace patterns (D); otherwise H |
+| `sortAz` with dependency maps | `unsorted-dependencies` stays on; `sortFirst`, `sortExports`, `sortPackages`, `indent`, `formatBugs` and `formatRepository` only matter to `syncpack format` and are dropped |
+| `updateGroups`, `minimumReleaseAge`, `maxConcurrentRequests` | dropped: skif never queries a registry |
+| `--dependency-types` | `[policy] dependency-types` |
+
+Without `--dependency-types`, `[policy] dependency-types` is set to the scope syncpack lints by default (`prod`, `dev`,
+`peer`, `local` and your custom types), because skif's own default covers only `prod` and `dev`. `--dependencies` and
+`--specifier-types` narrowed the old run; skif checks every dependency, so they are reported. `syncpack format` and
+`syncpack update` have no equivalent.
+
+## knip
+
+| knip | skif |
+| --- | --- |
+| `entry`, `project`, `ignore` | `[js] entry`, `project`, `ignore`; a `!` production suffix is kept on the pattern |
+| `ignoreFiles` | appended to `[js] ignore` (A): it then hides the files from every rule, where knip hid them from the unused files report only |
+| `ignoreDependencies`, `ignoreBinaries` | `[js] ignore-dependencies`, `ignore-binaries` |
+| `ignoreUnresolved` | `[js] ignore-unresolved` (and per workspace) |
+| `ignoreMembers` | `[js] ignore-members` |
+| `ignoreExportsUsedInFile` | `[js] ignore-exports-used-in-file` |
+| `ignoreWorkspaces` | `[js] ignore-workspaces` |
+| `ignoreIssues` | `[[overrides]]` with `files` and the matching rules set to `off` |
+| `includeEntryExports` | `[js] include-entry-exports`, or per workspace |
+| `paths` | `[js.workspaces."<dir>"] paths`, with `"."` for the root |
+| `workspaces["<dir>"]` | `[js.workspaces."<dir>"]`; `workspaces["."]` is merged into `[js]` |
+| plugin keys (`vitest: true`, `"config.ts"`, `["a", "b"]`, `{ config, entry, project }`) | `[js.plugins]`, or `[js.workspaces."<dir>".plugins]` inside a workspace |
+| `rules`, `include`, `exclude`, and `--include`, `--exclude`, `--dependencies`, `--exports`, `--files`, `--cycles` | a level for each rule of the issue types that stay enabled; the `exact` profile turns the others off |
+| `tags` with `-tag` | `unused-exports` option `ignore-tags` |
+| `treatConfigHintsAsErrors`, `--treat-config-hints-as-errors` | `[rules] stale-js-config = "error"` |
+| `--production`, `--strict` | `[js] production = true`; knip's strict mode has no further equivalent (X) |
+| `compilers`, `asyncCompilers`, `preprocessor`, `ignoreGlobalBinaries`, `cycles` options, `+tag` | none (X): functions are never run |
+| a plugin key skif has no plugin for | none (X), named in the report |
+
+A string in an ignore list that knip would compile as a regular expression (it contains one of `* + \ ( | { ^ $`), and a
+regular expression literal in a JavaScript or TypeScript config, are written as a slash-delimited string:
+`"/^@org\\/.+$/"`. The two forms with an exact glob equivalent, `^literal` and `^literal$`, become the glob
+`literal*` and `literal`. A pattern that only ends in `*` (`@org/*`) stays a glob; knip would have compiled it as a
+regular expression matching a superset of that.
+
+Some settings that knip scopes to one workspace, such as `ignoreMembers`, are global in skif; the note says so.
+`--workspace` narrowed the old run to some workspaces and has no equivalent.
+
+## Merging into an existing file
+
+`--merge` appends the sections the existing `skif.toml` lacks after its text, so its comments stay. When both files
+define the same table, the two are merged as values instead: the existing value wins over a different one, lists are
+united, and the comments of the existing file are not kept (the command says so). Running the same migration again with
+`--merge` changes nothing. Use `--merge` to combine tools: run `skif migrate --from sherif`, then `--from knip --merge`.
+
+## What stays by hand
+
+- Values that are only known at run time, and everything the report marks `H` or `X`.
+- Severities: syncpack's `severity` and knip's configuration hints are not carried over one to one.
+- The scripts and CI jobs that still run the old tools: replace them with `skif` once the report is clean. The command
+  does not edit them.

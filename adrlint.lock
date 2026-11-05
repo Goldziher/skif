@@ -170,3 +170,28 @@ blake3 = "42314375b9577f68d804460e4507c2268fd1938c7cbd859c6e419a6a2fd743a9"
 number = 34
 status = "accepted"
 blake3 = "e7ecb4a8c0060b3c886ec0e9a87c64bfd7d872f1e5b6b438a4abbe0606db0897"
+
+[adrs."adrs/0035-js-evaluation-parity-unreadable-configs-unresolved-specifiers-and-test-entries.md"]
+number = 35
+status = "accepted"
+blake3 = "be773eadd14d7de394e58123f0fe9921b91710a22da486cfc66b71246a48ed3f"
+
+[adrs."adrs/0036-thirty-nine-more-knip-plugins-by-real-world-usage.md"]
+number = 36
+status = "accepted"
+blake3 = "cc78a459bc9008a6918e9babe3c9cb65bd4107f7b58f97f6ccc69f85485edba3"
+
+[adrs."adrs/0037-override-sections-custom-types-and-ignored-semver-groups.md"]
+number = 37
+status = "accepted"
+blake3 = "03e8d1732b781dc993244bb2ce14101b5bb5565fea861985434d7aff9d8753d0"
+
+[adrs."adrs/0038-git-index-file-discovery-and-resolver-probe-avoidance.md"]
+number = 38
+status = "accepted"
+blake3 = "002f1db1ac01bf7c636b0aa33bfd4e65543564ae520e6664e97f9ebf91065b19"
+
+[adrs."adrs/0039-skif-migrate-a-one-shot-translator-from-sherif-syncpack-and-knip.md"]
+number = 39
+status = "accepted"
+blake3 = "fd132199e75f583701e8a349ea6e58531ecb31ac06ae9f3313f6e9b2ef69fb0f"

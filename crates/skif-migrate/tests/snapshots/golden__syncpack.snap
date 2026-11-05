@@ -1,0 +1,80 @@
+---
+source: crates/skif-migrate/tests/golden.rs
+expression: migration.toml
+---
+#:schema https://raw.githubusercontent.com/Goldziher/skif/main/schema/skif.schema.json
+
+# Migrated from syncpack by `skif migrate` (profile: full).
+# Review the report the command printed: notes marked H or X were not translated.
+
+[policy]
+dependency-types = ["prod", "dev"]
+
+# syncpack versionGroups[0]: Pin react
+[[version-groups]]
+label = "Pin react"
+dependencies = ["react", "react-dom"]
+policy = "pinned"
+pin = "18.3.1"
+
+# syncpack versionGroups[1]: Dev tools may differ
+[[version-groups]]
+label = "Dev tools may differ"
+packages = ["@demo/tools"]
+dependency-types = ["dev"]
+policy = "ignored"
+
+# syncpack versionGroups[2]: No moment
+[[version-groups]]
+label = "No moment"
+dependencies = ["moment"]
+policy = "banned"
+
+# syncpack versionGroups[3]: Same range for types
+[[version-groups]]
+label = "Same range for types"
+dependencies = ["@types/**"]
+policy = "same-range"
+
+# syncpack versionGroups[4]: Follow core
+[[version-groups]]
+label = "Follow core"
+dependencies = ["@demo/*"]
+dependency-types = ["!local"]
+policy = "snapped-to"
+snap-to = ["@demo/core"]
+
+# syncpack versionGroups[6]: Engines in sync
+[[version-groups]]
+label = "Engines in sync"
+dependency-types = ["engines"]
+prefer = "lowest"
+
+# syncpack semverGroups[0]: Exact in prod
+[[semver-groups]]
+label = "Exact in prod"
+dependency-types = ["prod"]
+range = ""
+
+# syncpack semverGroups[1]: Leave peers alone
+[[semver-groups]]
+label = "Leave peers alone"
+dependency-types = ["peer"]
+ignored = true
+
+# syncpack semverGroups[2]
+[[semver-groups]]
+dependency-types = ["!dev", "!optional"]
+range = "^"
+
+# syncpack customTypes.engines
+[[custom-types]]
+name = "engines"
+path = "engines.node"
+strategy = "version"
+
+# syncpack customTypes.toolchain
+[[custom-types]]
+name = "toolchain"
+path = "packageManager"
+strategy = "name@version"

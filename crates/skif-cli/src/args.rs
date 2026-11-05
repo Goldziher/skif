@@ -33,6 +33,8 @@ pub enum Command {
     Config(ConfigArgs),
     /// Explain why the JavaScript analysis counts a file, or one export of it, as used.
     ExplainUsage(ExplainUsageArgs),
+    /// Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file.
+    Migrate(MigrateArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -92,6 +94,77 @@ pub struct ExplainUsageArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = RulesFormat::Human)]
     pub format: RulesFormat,
+}
+
+/// The tools `skif migrate --from` accepts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum MigrateFrom {
+    /// The `sherif` key of `package.json` and the flags of the scripts that run sherif.
+    Sherif,
+    /// `.syncpackrc*`, `syncpack.config.*`, the `syncpack` key of `package.json` and the scripts that run syncpack.
+    Syncpack,
+    /// `knip.json(c)`, `knip.{js,ts,...}`, the `knip` key of `package.json` and the scripts that run knip.
+    Knip,
+    /// Every tool that has a configuration file, a `package.json` key or a script in the project.
+    Auto,
+}
+
+/// Which checks the migrated configuration keeps.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum MigrateProfile {
+    /// Only the checks the old tools ran: the rules skif enables by default beyond them are turned off.
+    #[default]
+    Exact,
+    /// The checks of the old tools plus skif's defaults for everything else.
+    Full,
+}
+
+#[derive(Debug, clap::Args)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent command-line switch"
+)]
+pub struct MigrateArgs {
+    /// The project to migrate: the directory with the root `package.json`.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+
+    /// The tools to migrate, comma separated.
+    #[arg(long, value_enum, value_delimiter = ',', default_value = "auto")]
+    pub from: Vec<MigrateFrom>,
+
+    /// Read this configuration file instead of looking for one; needs exactly one tool in `--from`.
+    #[arg(long, value_name = "FILE")]
+    pub source: Option<PathBuf>,
+
+    /// Which checks to keep.
+    #[arg(long, value_enum, default_value_t = MigrateProfile::Exact)]
+    pub profile: MigrateProfile,
+
+    /// Write the configuration here instead of `PATH/skif.toml`; `-` prints it to stdout.
+    #[arg(long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+
+    /// Combine with the existing `skif.toml` instead of refusing to overwrite it.
+    #[arg(long, conflicts_with = "force")]
+    pub merge: bool,
+
+    /// Replace an existing `skif.toml`.
+    #[arg(long)]
+    pub force: bool,
+
+    /// Print the configuration to stdout and the report to stderr; write nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Output format of the report. With `json`, stdout holds exactly one document (and the configuration when
+    /// nothing is written).
+    #[arg(long, value_enum, default_value_t = RulesFormat::Human)]
+    pub format: RulesFormat,
+
+    /// Exit 1 when any construct needs a human.
+    #[arg(long)]
+    pub strict: bool,
 }
 
 #[derive(Debug, clap::Args)]

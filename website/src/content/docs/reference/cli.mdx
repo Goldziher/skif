@@ -10,6 +10,7 @@ skif schema
 skif init [PATH]
 skif config [PATH] [-r] (--show | --explain <KEY> [--package <NAME>]) [--format human|json]
 skif explain-usage <FILE[#EXPORT]> [PATH]
+skif migrate [PATH] [--from sherif|syncpack|knip|auto,...] [--profile exact|full] [--merge | --force] [--dry-run]
 ```
 
 `skif [PATH]` lints the project containing `PATH` (default `.`). The root is resolved in this order:
@@ -41,6 +42,7 @@ another root. `--fix` plans, writes and installs per root.
 | `skif init [PATH]` | Write a starter `skif.toml` into `PATH` (default `.`). Refuses to overwrite an existing configuration. When configuration files above `PATH` already apply, prints a note naming the files the new one inherits from. |
 | `skif config [PATH]` | Show how the configuration of the root at `PATH` was built (see below). |
 | `skif explain-usage <FILE[#EXPORT]> [PATH]` | Explain why the JavaScript analysis counts a file, or one export of it, as used (see below). |
+| `skif migrate [PATH]` | Translate the configuration of sherif, syncpack and knip into a `skif.toml` (see below). |
 
 ## Flags
 
@@ -105,6 +107,27 @@ JavaScript part of a lint run.
 A file that is not part of the module graph (an unused file, an ignored file, or a file outside the project globs)
 exits `2` with the reason; in JSON mode the `error` document carries the same `report`. It also exits `2` when the root
 cannot be loaded or the file lies outside the workspace.
+
+## Migrating
+
+`skif migrate [PATH]` reads the sherif, syncpack and knip configuration of the project at `PATH` (default `.`) and
+writes a `skif.toml`. It is a one-shot translator: nothing is executed, no file is deleted, and the configuration of
+the old tools stays where it is. The [migration guide](../../guides/migrating/) lists what is translated and how.
+
+| Flag | Meaning |
+| --- | --- |
+| `--from <TOOL>[,<TOOL>...]` | `sherif`, `syncpack`, `knip` or `auto` (default): every tool that has a configuration file, a `package.json` key or a script in the project. |
+| `--source <FILE>` | Read this configuration file instead of looking for one. Needs exactly one tool in `--from`. |
+| `--profile <exact\|full>` | `exact` (default) keeps only the checks the old tools ran and turns off, in `[rules]`, the other rules skif enables by default. `full` leaves skif's defaults for them. |
+| `--output <FILE>` | Write here instead of `PATH/skif.toml`. `-` prints the configuration to stdout. |
+| `--merge` | Combine with the existing `skif.toml`. Sections it lacks are appended after its text, comments untouched; a table both files define is merged as values (the existing value wins, lists are united) and the existing comments are then not kept. |
+| `--force` | Replace an existing `skif.toml`. Without `--merge` or `--force` the command refuses to overwrite one. |
+| `--dry-run` | Print the configuration to stdout and the report to stderr; write nothing. |
+| `--format <human\|json>` | `json` prints one document on stdout with `version`, `skif`, `profile`, `tools`, `translated`, `default`, `needs-human`, `extra-checks`, `notes`, `written`, `kept-existing` and, when nothing is written, `toml`. |
+| `--strict` | Exit `1` when any construct needs a human. |
+
+Exit `0` when the file was produced (also when notes need a human, unless `--strict`), `1` with `--strict` and such notes,
+`2` when a configuration cannot be read or the output cannot be written.
 
 ## Exit codes
 

@@ -144,6 +144,19 @@ pub struct ScriptInfo {
     pub node_test: bool,
 }
 
+/// Splits `script` into its simple commands, each as its words with quotes and escapes resolved. Separators
+/// (`&&`, `||`, `;`, `|`, `&`) end a command; leading `NAME=value` assignments and redirections are dropped.
+/// Nothing is executed and no wrapper is interpreted, so a caller looks for the program word itself.
+#[must_use]
+pub fn split_commands(script: &str) -> Vec<Vec<String>> {
+    tokenize::tokenize(script)
+        .segments
+        .into_iter()
+        .map(|segment| segment.words.into_iter().map(|word| word.text).collect())
+        .filter(|words: &Vec<String>| !words.is_empty())
+        .collect()
+}
+
 /// Parses `script` and follows references to other scripts of the same package.
 #[must_use]
 pub fn parse_script(script: &str, ctx: &ScriptContext) -> ScriptInfo {

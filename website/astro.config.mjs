@@ -75,6 +75,7 @@ export default defineConfig({
             { label: "Sharing configuration", slug: "guides/sharing-configuration" },
             { label: "Integrations", slug: "guides/integrations" },
             { label: "Library usage", slug: "guides/library" },
+            { label: "Migrating", slug: "guides/migrating" },
             { label: "Comparison", slug: "guides/comparison" },
           ],
         },

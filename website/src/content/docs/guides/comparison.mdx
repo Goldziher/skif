@@ -25,9 +25,10 @@ differences and counts them apart; see the
 
 ## Configuration
 
-skif reads `skif.toml` or `.skif.toml` only. It has no reader for `sherif`, `.syncpackrc` or `knip.json`
-configuration, so migrating means rewriting configuration by hand. Rule ids are stable kebab-case names; rules
-ported from sherif list their sherif name on the [rules pages](../../rules/).
+skif reads `skif.toml` or `.skif.toml` only. It does not read `sherif`, `.syncpackrc` or `knip.json`
+configuration at lint time; `skif migrate` translates it once into a `skif.toml` (see the
+[migration guide](../migrating/)). Rule ids are stable kebab-case names; rules ported from sherif list their sherif
+name on the [rules pages](../../rules/).
 
 ## Performance
 

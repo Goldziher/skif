@@ -1,0 +1,26 @@
+---
+source: crates/skif-migrate/tests/golden.rs
+expression: migration.toml
+---
+#:schema https://raw.githubusercontent.com/Goldziher/skif/main/schema/skif.schema.json
+
+# Migrated from sherif by `skif migrate` (profile: full).
+# Review the report the command printed: notes marked H or X were not translated.
+
+[workspace]
+ignore-packages = ["@demo/legacy", "./apps/legacy"]
+
+[lint]
+fail-on-warnings = true
+
+[policy]
+prefer = "lowest"
+
+[rules]
+unsorted-dependencies = "off"
+unmatched-workspace-patterns = "off"
+
+# migrated from sherif ignoreDependency, which only silenced its version check
+[[ignore]]
+rules = ["version-mismatch"]
+dependencies = ["react@17.0.2", "@types/*", "react"]
