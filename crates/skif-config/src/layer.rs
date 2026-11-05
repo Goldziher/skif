@@ -69,7 +69,7 @@ impl ParsedFile {
         let mut spans = Spans::new();
         collect_table("", document.get_ref(), &LineIndex::new(source), &mut spans);
         check_overrides(document.get_ref(), &spans, path)?;
-        Config::from_document(document.clone(), source, Some(path))?;
+        Config::from_document(document.clone(), source, Some(path), false)?;
         let table = Table::deserialize(Deserializer::from(document)).map_err(|error| from_toml(&error))?;
         let root = table.get("root").and_then(Value::as_bool).unwrap_or(false);
         let extends: Vec<String> = table
