@@ -1,0 +1,11 @@
+[
+  {
+    "rule": "catalog-mismatch",
+    "severity": "warning",
+    "package": "lib",
+    "dependency": "react",
+    "detail": "DiffersToCatalog",
+    "path": "packages/lib/package.json",
+    "fixable": true
+  }
+]

@@ -7,11 +7,20 @@
 
 mod common;
 
-use common::{CATALOG_GROUPS, discover_cases, rule_ids, run_groups};
+use common::{CATALOG_GROUPS, JOINT_GROUPS, discover_cases, rule_ids, run_groups};
 
 #[test]
 fn catalog_workspace_protocol_and_family_fixtures_conform() {
     run_groups(CATALOG_GROUPS, &rule_ids(&skif_rules::catalog_provider()));
+}
+
+/// The catalog rules and the version groups run together: a configured group owns the instances it matches, so no
+/// instance is reported, or fixed, by both families.
+#[test]
+fn catalog_rules_leave_the_instances_of_version_groups_to_their_group() {
+    let mut rules = rule_ids(&skif_rules::catalog_provider());
+    rules.extend(rule_ids(&skif_rules::policy_provider()));
+    run_groups(JOINT_GROUPS, &rules);
 }
 
 #[test]

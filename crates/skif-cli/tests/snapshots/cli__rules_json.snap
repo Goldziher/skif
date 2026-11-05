@@ -128,7 +128,7 @@ expression: json.stdout
     {
       "id": "catalog-mismatch",
       "category": "catalog",
-      "default": "error",
+      "default": "warning",
       "fixable": "sometimes",
       "summary": "A dependency is declared with a version while other packages take it from a catalog."
     },

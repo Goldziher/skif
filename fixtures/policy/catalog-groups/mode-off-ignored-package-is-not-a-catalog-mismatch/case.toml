@@ -1,0 +1,3 @@
+description = "With mode off, catalog-mismatch reports the plain react of a package no group claims and leaves the ignored package alone."
+source = "skif"
+tags = ["catalog", "mode-off", "ignored", "precedence", "fix"]

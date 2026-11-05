@@ -13,8 +13,8 @@ use skif_config::Config;
 use skif_lint::Registry;
 
 use common::{
-    CATALOG_GROUPS, PARTIAL, PENDING, POLICY_GROUPS, TOTAL_CASES, diff_rows, discover_cases, fixtures_root, rule_ids,
-    run_groups,
+    CATALOG_GROUPS, JOINT_GROUPS, PARTIAL, PENDING, POLICY_GROUPS, TOTAL_CASES, diff_rows, discover_cases,
+    fixtures_root, rule_ids, run_groups,
 };
 
 #[test]
@@ -30,12 +30,14 @@ fn every_case_is_accounted_for() {
     assert_eq!(cases.len(), TOTAL_CASES, "the README counts {TOTAL_CASES} cases");
     for case in &cases {
         assert!(
-            POLICY_GROUPS.contains(&case.group.as_str()) || CATALOG_GROUPS.contains(&case.group.as_str()),
+            [POLICY_GROUPS, CATALOG_GROUPS, JOINT_GROUPS]
+                .iter()
+                .any(|groups| groups.contains(&case.group.as_str())),
             "{} belongs to a group no harness runs",
             case.id()
         );
     }
-    for group in POLICY_GROUPS.iter().chain(CATALOG_GROUPS) {
+    for group in POLICY_GROUPS.iter().chain(CATALOG_GROUPS).chain(JOINT_GROUPS) {
         assert!(
             cases.iter().any(|case| case.group == *group),
             "no fixtures for group {group}"

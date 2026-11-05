@@ -67,6 +67,26 @@ pub(crate) struct Instance<'w> {
     pub(crate) catalog_owned: bool,
 }
 
+impl<'w> Instance<'w> {
+    /// The instance of a dependency section entry.
+    pub(crate) fn of_entry(
+        package: &'w Package,
+        entry: &'w DependencyEntry,
+        is_local: bool,
+        catalog_owned: bool,
+    ) -> Self {
+        Self {
+            package,
+            origin: Origin::Dependency(entry),
+            ty: DependencyType::Section(entry.kind),
+            name: entry.name.clone(),
+            specifier: Arc::clone(&entry.parsed),
+            is_local,
+            catalog_owned,
+        }
+    }
+}
+
 impl Instance<'_> {
     /// The dependency section, or `None` for the package's own version and for the versions of override sections and
     /// custom types.
@@ -172,15 +192,12 @@ impl<'w> Instances<'w> {
                 });
             }
             for entry in &package.dependencies {
-                items.push(Instance {
+                items.push(Instance::of_entry(
                     package,
-                    origin: Origin::Dependency(entry),
-                    ty: DependencyType::Section(entry.kind),
-                    name: entry.name.clone(),
-                    specifier: Arc::clone(&entry.parsed),
-                    is_local: local_names.contains(entry.name.as_str()),
-                    catalog_owned: owned.contains(entry.name.as_str()) && owned_by_catalog(entry),
-                });
+                    entry,
+                    local_names.contains(entry.name.as_str()),
+                    owned.contains(entry.name.as_str()) && owned_by_catalog(entry),
+                ));
             }
             for found in fields::collect(workspace, package, custom) {
                 items.push(Instance {
@@ -208,7 +225,7 @@ impl<'w> Instances<'w> {
     /// [`collect_with`](Self::collect_with) for the dependencies the catalog rules own under `config`, or none.
     #[cfg(test)]
     pub(crate) fn collect(workspace: &'w Workspace, config: &skif_config::Config, catalog_owns: bool) -> Self {
-        let usages = catalog::UsageIndex::build(workspace, &config.catalog);
+        let usages = catalog::UsageIndex::build(workspace, config);
         let owned = if catalog_owns {
             catalog::owned_dependencies(&usages, workspace, &config.catalog)
         } else {

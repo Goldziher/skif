@@ -1,6 +1,7 @@
 use skif_core::{Category, Fixability, RuleMeta, Severity, diagnostic};
 use skif_lint::{Emitter, LintContext, Rule};
 
+use super::analysis::Claims;
 use super::support::{active_packages, value_location};
 
 /// Metadata of `unresolved-catalog-references`.
@@ -26,12 +27,14 @@ impl Rule for UnresolvedCatalogReferences {
             return;
         }
         let catalogs = &cx.workspace.catalogs;
+        let claims = Claims::new(cx.workspace, cx.config);
         for package in active_packages(cx.workspace) {
             for entry in package
                 .dependencies
                 .iter()
                 .filter(|entry| entry.parsed.is_catalog())
                 .filter(|entry| catalogs.resolve(&entry.name, &entry.specifier).is_none())
+                .filter(|entry| !claims.claims(package, entry))
             {
                 out.emit(
                     diagnostic(

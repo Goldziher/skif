@@ -1,0 +1,9 @@
+[catalog]
+mode = "enforce"
+
+[[version-groups]]
+label = "legacy baseline"
+packages = ["legacy"]
+dependencies = ["react"]
+policy = "pinned"
+pin = "17.0.2"

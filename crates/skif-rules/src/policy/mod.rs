@@ -98,6 +98,7 @@ pub fn catalog_provider() -> RulesProvider {
 #[cfg(test)]
 mod tests {
     use skif_core::{Diagnostic, Severity};
+    use skif_lint::Rule;
 
     use super::*;
     use crate::testing::{apply_fixes, borrowed, config, lint, located, root};
@@ -265,17 +266,8 @@ mod tests {
     }
 
     #[test]
-    fn the_catalog_owns_a_dependency_only_while_its_rule_is_on_and_no_group_names_it() {
-        const ROOT: &str = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0"}"#;
-        const APP: &str = r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"react":"^18.2.0"}}"#;
-        const LIB: &str = r#"{"name":"lib","version":"1.0.0","private":true,"dependencies":{"react":"^18.3.1"}}"#;
-        const YAML: &str = "packages:\n  - \"packages/*\"\ncatalog:\n  \"react\": \"^18.3.1\"\n";
-        let files = [
-            ("package.json", ROOT),
-            ("pnpm-workspace.yaml", YAML),
-            ("packages/app/package.json", APP),
-            ("packages/lib/package.json", LIB),
-        ];
+    fn the_catalog_owns_a_dependency_only_while_its_rule_is_on() {
+        let files = react_files();
         let reported = |toml: &str| lint("version-mismatch", &files, &config(toml)).len();
         let enforce = "[catalog]\nmode = \"enforce\"\n";
         assert_eq!(reported(enforce), 0, "the catalog rules report it");
@@ -284,14 +276,155 @@ mod tests {
             1,
             "with the rule that reports it off, the version groups keep the dependency"
         );
-        let pinned = format!(
-            "{enforce}\n[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"18.3.1\"\n"
+    }
+
+    const REACT_ROOT: &str = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0"}"#;
+    const REACT_APP: &str = r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"react":"^18.2.0"}}"#;
+    const REACT_LIB: &str = r#"{"name":"lib","version":"1.0.0","private":true,"dependencies":{"react":"^18.3.1"}}"#;
+    const REACT_YAML: &str = "packages:\n  - \"packages/*\"\ncatalog:\n  \"react\": \"^18.3.1\"\n";
+
+    fn react_files() -> [(&'static str, &'static str); 4] {
+        [
+            ("package.json", REACT_ROOT),
+            ("pnpm-workspace.yaml", REACT_YAML),
+            ("packages/app/package.json", REACT_APP),
+            ("packages/lib/package.json", REACT_LIB),
+        ]
+    }
+
+    /// `(rule, package)` of everything the policy and catalog rules report, so a test sees every report on an
+    /// instance at once.
+    fn reports(files: &[(&str, &str)], toml: &str) -> Vec<(String, String)> {
+        let config = config(toml);
+        let mut found: Vec<(String, String)> = [
+            "version-mismatch",
+            "banned-dependency",
+            "semver-range-mismatch",
+            "catalog-not-used",
+            "catalog-mismatch",
+            "catalog-missing-entry",
+            "unresolved-catalog-references",
+        ]
+        .into_iter()
+        .flat_map(|rule| lint(rule, files, &config))
+        .map(|d| (d.rule.as_str().to_owned(), d.package.unwrap_or_default()))
+        .collect();
+        found.sort();
+        found
+    }
+
+    fn report(rule: &str, package: &str) -> (String, String) {
+        (rule.to_owned(), package.to_owned())
+    }
+
+    #[test]
+    fn a_version_group_that_claims_an_instance_owns_it_not_the_catalog_rules() {
+        let files = react_files();
+        let group = |policy: &str| {
+            format!("[catalog]\nmode = \"enforce\"\n\n[[version-groups]]\ndependencies = [\"react\"]\n{policy}\n")
+        };
+        assert_eq!(
+            reports(&files, &group("policy = \"pinned\"\npin = \"18.3.1\"")),
+            [report("version-mismatch", "app"), report("version-mismatch", "lib")],
+            "a pinned group governs; catalog-not-used does not also propose catalog:"
         );
         assert_eq!(
-            reported(&pinned),
-            2,
-            "a group that names the dependency wins over the catalog"
+            reports(&files, &group("policy = \"ignored\"")),
+            [] as [(String, String); 0],
+            "an ignored group exempts the instances from the catalog rules"
         );
+        assert_eq!(
+            reports(&files, &group("policy = \"banned\"")),
+            [report("banned-dependency", "app"), report("banned-dependency", "lib")]
+        );
+        assert_eq!(
+            reports(&files, &group("prefer = \"lowest\"")),
+            [report("version-mismatch", "lib")],
+            "an aligned policy with an explicit selector governs the instances too"
+        );
+    }
+
+    #[test]
+    fn a_group_for_one_package_leaves_the_rest_to_the_catalog() {
+        let [root, yaml, app, lib] = react_files();
+        let web = r#"{"name":"web","version":"1.0.0","private":true,"dependencies":{"react":"^18.3.1"}}"#;
+        let files = [root, yaml, app, lib, ("packages/web/package.json", web)];
+        let toml = "[catalog]\nmode = \"enforce\"\n\n[[version-groups]]\npackages = [\"app\"]\npolicy = \"pinned\"\npin = \"18.2.0\"\n";
+        assert_eq!(
+            reports(&files, toml),
+            [
+                report("catalog-not-used", "lib"),
+                report("catalog-not-used", "web"),
+                report("version-mismatch", "app")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_group_naming_another_dependency_does_not_claim_the_instance() {
+        let files = react_files();
+        let toml = "[catalog]\nmode = \"enforce\"\n\n[[version-groups]]\ndependencies = [\"left-pad\"]\npolicy = \"ignored\"\n";
+        assert_eq!(
+            reports(&files, toml),
+            [report("catalog-not-used", "app"), report("catalog-not-used", "lib")]
+        );
+    }
+
+    #[test]
+    fn a_claimed_instance_does_not_count_toward_the_catalog_thresholds() {
+        let files = react_files();
+        let toml = "[catalog]\nmode = \"enforce\"\n\n[[version-groups]]\npackages = [\"app\"]\npolicy = \"ignored\"\n";
+        assert_eq!(
+            reports(&files, toml),
+            [] as [(String, String); 0],
+            "one package left of the two min-packages asks for"
+        );
+    }
+
+    #[test]
+    fn with_the_catalog_off_an_ignored_package_is_not_a_mismatch() {
+        let files = [
+            ("package.json", REACT_ROOT),
+            ("pnpm-workspace.yaml", REACT_YAML),
+            (
+                "packages/app/package.json",
+                r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"react":"catalog:"}}"#,
+            ),
+            ("packages/lib/package.json", REACT_LIB),
+        ];
+        assert_eq!(reports(&files, ""), [report("catalog-mismatch", "lib")]);
+        assert_eq!(
+            reports(
+                &files,
+                "[[version-groups]]\npackages = [\"lib\"]\npolicy = \"ignored\"\n"
+            ),
+            [] as [(String, String); 0]
+        );
+    }
+
+    #[test]
+    fn an_ignored_instance_is_not_an_unresolved_reference() {
+        let files = [
+            ("package.json", REACT_ROOT),
+            ("pnpm-workspace.yaml", REACT_YAML),
+            (
+                "packages/app/package.json",
+                r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"react":"catalog:legacy"}}"#,
+            ),
+        ];
+        assert_eq!(reports(&files, ""), [report("unresolved-catalog-references", "app")]);
+        assert_eq!(
+            reports(
+                &files,
+                "[[version-groups]]\npackages = [\"app\"]\npolicy = \"ignored\"\n"
+            ),
+            [] as [(String, String); 0]
+        );
+    }
+
+    #[test]
+    fn catalog_mismatch_defaults_to_a_warning() {
+        assert_eq!(catalog::CatalogMismatch.meta().default, Some(Severity::Warning));
     }
 
     #[test]

@@ -1,0 +1,3 @@
+description = "An ignored group exempts the package it matches from the catalog rules: catalog-not-used leaves its plain react alone."
+source = "skif"
+tags = ["catalog", "enforce", "ignored", "precedence", "fix"]

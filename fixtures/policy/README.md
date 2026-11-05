@@ -6,7 +6,7 @@ workspace protocol, dependency families and the policy conflicts between them
 tests in `crates/skif-rules/tests` (`policy_conformance.rs` and `policy_catalog_conformance.rs`) walk them, run the
 policy rules and compare the result with `expected.json`.
 
-There are 178 cases in 15 groups. Each case is a minimal monorepo plus the `skif.toml` under
+There are 184 cases in 16 groups. Each case is a minimal monorepo plus the `skif.toml` under
 test and the diagnostics skif must report for it, so a failing case points at one behaviour.
 
 ## Attribution
@@ -34,12 +34,13 @@ fixtures/policy/
 
 Groups: `version-mismatch`, `pinned`, `banned`, `ignored`, `same-range`, `same-minor`, `snapped-to`,
 `semver-groups`, `catalog`, `workspace-protocol`, `dependency-families`, `policy-conflict`,
-`selectors`, `invalid-local-version`, `dependency-types`.
+`selectors`, `invalid-local-version`, `dependency-types`, `catalog-groups`.
 
 | Group | Cases |
 | --- | --- |
 | `banned` | 4 |
 | `catalog` | 28 |
+| `catalog-groups` | 6 |
 | `dependency-families` | 11 |
 | `dependency-types` | 12 |
 | `ignored` | 6 |
@@ -137,8 +138,8 @@ Tags with meaning: `assumption` and `ambiguous`
 
 * **Default severities.** The ADRs fix no defaults; the fixtures assume `error` for
   `version-mismatch`, `banned-dependency`, `semver-range-mismatch`, `workspace-protocol`,
-  `catalog-mismatch`, `unresolved-catalog-references`, `invalid-local-version` and
-  `unsynced-dependency-family`; `warning` for `catalog-not-used`, `catalog-missing-entry` (both
+  `unresolved-catalog-references`, `invalid-local-version` and
+  `unsynced-dependency-family`; `warning` for `catalog-mismatch` (it only reports under `mode = "off"`), `catalog-not-used`, `catalog-missing-entry` (both
   `error` when `[catalog] mode = "enforce"`), `unused-catalog-entries` and `policy-conflict`.
   Severity is per rule, never per state (the emitter overwrites it, ADR 0007).
 * **`fixable`** is true for syncpack's Fixable class and false for Unfixable, Conflict and Suspect
@@ -153,7 +154,9 @@ Tags with meaning: `assumption` and `ambiguous`
 * **Catalog scope.** With `mode` other than `off`, a dependency that has a catalog entry (or none,
   but is used in at least `min-packages` packages) is owned by the catalog policy and is not also
   reported as a version mismatch. `prefer` and `enforce` report the same instances and differ in
-  severity.
+  severity. A configured version group that matches an instance claims it, whatever its policy
+  (syncpack's first-match-wins order): the catalog rules skip it, so a `pinned` or `ignored` group can
+  keep a package off the catalog (group `catalog-groups`, which runs both families of rules together).
 * **Dependency families** are compared within one package: members declared in the same
   `package.json` (any section) must share a version number, ranges ignored; each member below the
   highest is reported.

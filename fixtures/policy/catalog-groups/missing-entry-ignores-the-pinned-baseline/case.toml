@@ -1,0 +1,3 @@
+description = "The entry created for a missing catalog dependency takes its version from the packages the catalog covers, not from the pinned baseline package."
+source = "skif"
+tags = ["catalog", "prefer", "pinned", "precedence", "creates-entry", "fix"]

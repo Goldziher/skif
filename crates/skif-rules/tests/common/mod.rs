@@ -20,7 +20,7 @@ use skif_lint::{Registry, RuleProvider, RunOptions, run};
 use skif_workspace::Workspace;
 
 /// The number of fixture cases below `fixtures/policy`.
-pub const TOTAL_CASES: usize = 178;
+pub const TOTAL_CASES: usize = 184;
 
 /// The groups whose rules are `policy_provider()`'s.
 pub const POLICY_GROUPS: &[&str] = &[
@@ -40,6 +40,10 @@ pub const POLICY_GROUPS: &[&str] = &[
 
 /// The groups whose rules are `catalog_provider()`'s.
 pub const CATALOG_GROUPS: &[&str] = &["catalog", "workspace-protocol", "dependency-families"];
+
+/// The groups that run the rules of both providers together: the catalog rules and the version groups must leave
+/// each instance to exactly one of them.
+pub const JOINT_GROUPS: &[&str] = &["catalog-groups"];
 
 /// Cases the rules cannot pass yet and that are therefore not run, with the reason.
 pub const PENDING: &[(&str, &str)] = &[];

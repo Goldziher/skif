@@ -1,4 +1,3 @@
-use skif_config::CatalogMode;
 use skif_core::{Category, Fixability, RuleMeta, Severity};
 use skif_lint::{Emitter, LintContext, Rule};
 
@@ -8,13 +7,14 @@ use super::analysis::{FindingKind, emit, findings, use_catalog_fix};
 pub static META: RuleMeta = RuleMeta::new(
     "catalog-mismatch",
     Category::Catalog,
-    Some(Severity::Error),
+    Some(Severity::Warning),
     Fixability::Sometimes,
     "A dependency is declared with a version while other packages take it from a catalog.",
 );
 
-/// Reports instances that differ from the catalog entry their siblings use. An error under a catalog policy
-/// (`[catalog] mode` other than `off`), a warning without one; a level set for the rule always wins.
+/// Reports instances that differ from the catalog entry their siblings use. It reports only with `[catalog] mode = "off"`,
+/// where the mismatch is a hint about a catalog some packages happen to use, so it is a warning; a level set for the
+/// rule always wins. Under any other mode `catalog-not-used` reports the instance.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CatalogMismatch;
 
@@ -27,8 +27,6 @@ impl Rule for CatalogMismatch {
         if !cx.enabled.contains(META.id) {
             return;
         }
-        // With no catalog policy (`mode = "off"`) the mismatch is a hint about a catalog some packages happen to use.
-        let severity = (cx.config.catalog.mode == CatalogMode::Off).then_some(Severity::Warning);
         for finding in findings(cx).iter(cx.workspace) {
             let FindingKind::DiffersToCatalog { catalog } = &finding.kind else {
                 continue;
@@ -38,7 +36,7 @@ impl Rule for CatalogMismatch {
             emit(
                 out,
                 &META,
-                severity,
+                None,
                 &finding,
                 format!("`{name}` is declared as `{specifier}` while other packages use the catalog"),
                 Some(match catalog {
