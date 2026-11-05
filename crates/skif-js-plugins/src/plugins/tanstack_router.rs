@@ -1,4 +1,4 @@
-//! TanStack Router and Start: the generated route tree, the router and start modules, and the routes directory.
+//! TanStack Router and Start: the generated route tree and the router and start modules.
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use skif_js_syntax::ConfigValue;
@@ -22,7 +22,6 @@ static SPEC: PluginSpec = PluginSpec {
     production: &[
         "src/routeTree.gen.{ts,js}",
         "src/{router,start,client,server}.{js,jsx,ts,tsx}",
-        "src/routes/**/*.{js,jsx,ts,tsx}",
     ],
     ..PluginSpec::DEFAULT
 };
@@ -32,15 +31,11 @@ impl Plugin for TanstackRouter {
         &SPEC
     }
 
-    /// `generatedRouteTree` and `routesDirectory` of `tsr.config.json` move the route tree and the routes.
+    /// `generatedRouteTree` of `tsr.config.json` moves the route tree.
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
         if let Some(tree) = config.value.get("generatedRouteTree").and_then(ConfigValue::as_str) {
             out.push(PluginInput::ProductionEntry(config.join(tree)));
-        }
-        if let Some(routes) = config.value.get("routesDirectory").and_then(ConfigValue::as_str) {
-            let glob = format!("{}/**/*.{{js,jsx,ts,tsx}}", routes.trim_end_matches('/'));
-            out.push(PluginInput::ProductionEntry(config.join(&glob)));
         }
         out
     }

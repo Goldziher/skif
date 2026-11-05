@@ -1558,6 +1558,17 @@ fn expo_router_makes_the_app_directory_the_routes() {
         &output(&results, "expo-router").production_entries,
         &["screens/**/*.{js,jsx,ts,tsx}"],
     );
+    assert_eq!(
+        output(&results, "expo-router").production_entries.len(),
+        1,
+        "a `root` replaces the default routes directories"
+    );
+    let plain = r#"{ "expo": { "plugins": ["expo-router"] } }"#;
+    let results = resolve(&[("app.json", plain)], &["expo-router"]);
+    assert_entries(
+        &output(&results, "expo-router").production_entries,
+        &["app/**/*.{js,jsx,ts,tsx}", "src/app/**/*.{js,jsx,ts,tsx}"],
+    );
     let results = resolve(&[], &["expo"]);
     assert!(results.iter().all(|(id, _)| *id != "expo-router"));
 }
@@ -1570,15 +1581,13 @@ fn tanstack_router_keeps_the_route_tree_the_router_and_the_routes() {
         &[
             "src/routeTree.gen.{ts,js}",
             "src/{router,start,client,server}.{js,jsx,ts,tsx}",
-            "src/routes/**/*.{js,jsx,ts,tsx}",
         ],
     );
     let config = r#"{ "generatedRouteTree": "./app/tree.gen.ts", "routesDirectory": "./app/pages" }"#;
     let results = resolve(&[("tsr.config.json", config)], &["@tanstack/react-router"]);
-    assert_entries(
-        &output(&results, "tanstack-router").production_entries,
-        &["app/tree.gen.ts", "app/pages/**/*.{js,jsx,ts,tsx}"],
-    );
+    let entries = &output(&results, "tanstack-router").production_entries;
+    assert_entries(entries, &["app/tree.gen.ts"]);
+    assert!(entries.iter().all(|entry| !entry.contains("routes") && !entry.contains("pages")), "{entries:?}");
 }
 
 #[test]

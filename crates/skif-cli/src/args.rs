@@ -70,12 +70,28 @@ pub struct InitArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct ExplainUsageArgs {
-    /// A file, or `FILE#EXPORT` for one of its exports, relative to the workspace root (or absolute).
+    /// A file, or `FILE#EXPORT` for one of its exports, relative to the current directory (or absolute).
     pub target: String,
 
     /// A path inside a project, resolved to its workspace root as for linting.
     #[arg(default_value = ".")]
     pub path: PathBuf,
+
+    /// Explain the production-only analysis, as `--production` does for a lint run.
+    #[arg(long)]
+    pub production: bool,
+
+    /// Use this configuration file (and the files it extends) instead of discovering `skif.toml` files.
+    #[arg(long, value_name = "FILE", conflicts_with = "no_config")]
+    pub config: Option<PathBuf>,
+
+    /// Read no configuration file: the defaults plus the flags.
+    #[arg(long)]
+    pub no_config: bool,
+
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = RulesFormat::Human)]
+    pub format: RulesFormat,
 }
 
 #[derive(Debug, clap::Args)]

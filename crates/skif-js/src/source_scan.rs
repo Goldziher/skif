@@ -102,7 +102,11 @@ pub(crate) fn add_textual_imports(info: &mut ModuleInfo, source: &str) {
         return;
     }
     for (specifier, kind, start, end) in extra_specifiers(source) {
-        if info.imports.iter().any(|import| import.specifier == specifier) {
+        if info
+            .imports
+            .iter()
+            .any(|import| import.specifier == specifier && import.kind == kind)
+        {
             continue;
         }
         info.imports.push(Import {
@@ -130,6 +134,21 @@ mod tests {
         let source = "new URL('./a.ts', import.meta.url);\nvi.mock('./b');";
         let kinds: Vec<ImportKind> = extra_specifiers(source).into_iter().map(|(_, kind, _, _)| kind).collect();
         assert_eq!(kinds, [ImportKind::Require, ImportKind::SideEffect]);
+    }
+
+    #[test]
+    fn a_url_target_is_added_next_to_a_named_import_of_the_same_file() {
+        let source = "import { a } from './a.ts';\nnew URL('./a.ts', import.meta.url);\nnew URL('./a.ts', import.meta.url);";
+        let mut info = ModuleInfo::default();
+        info.imports.push(Import {
+            specifier: "./a.ts".to_owned(),
+            kind: ImportKind::Static,
+            names: Vec::new(),
+            span: span(source, 0, 26),
+        });
+        add_textual_imports(&mut info, source);
+        let kinds: Vec<ImportKind> = info.imports.iter().map(|import| import.kind).collect();
+        assert_eq!(kinds, [ImportKind::Static, ImportKind::Require]);
     }
 
     #[test]

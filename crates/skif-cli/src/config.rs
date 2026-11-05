@@ -237,7 +237,7 @@ fn show_human(views: &[RootView<'_>], base: &Path) -> Result<String, CliError> {
     Ok(out)
 }
 
-fn document(mut members: Map<String, Value>) -> Result<String, CliError> {
+pub(crate) fn document(mut members: Map<String, Value>) -> Result<String, CliError> {
     let mut document = Map::new();
     document.insert("version".to_owned(), json!(1));
     document.insert("skif".to_owned(), json!(env!("CARGO_PKG_VERSION")));
