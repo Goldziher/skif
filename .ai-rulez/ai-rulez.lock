@@ -4,7 +4,7 @@
 version = 1
 ai_rulez_version = '5.10.0'
 scope = 'all'
-tree = 'sha256:f2adf6f1d51f299de0133bdc4391d140c294e8e9da30f78449dd991819849019'
+tree = 'sha256:e562753ee86c20f9eafa47dfdbf1be5371203c1220190f45876fce40047fa2f4'
 
 [[served]]
 name = 'adr-workflow'
@@ -82,7 +82,7 @@ digest = 'sha256:c57056e3a74a261b3a9d47638726c7d1f64c76b255838b6aaa3e635f3ffa861
 kind = 'context'
 id = 'architecture'
 path = 'context/architecture.md'
-digest = 'sha256:87154b8e446f15c0bcbc1a1db985a62e786122eaf9ca67d2742ee0a0a7f5f0d7'
+digest = 'sha256:145785cf851e10231c0cd74a550dcd3692d126b8f16e004e4946303eb3e58ee2'
 
 [[item]]
 kind = 'context'
