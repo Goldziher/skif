@@ -13,6 +13,15 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Changed
 
+- **Public API hardening** ([ADR 0046](adrs/0046-corrections-to-adr-0044-config-helpers-not-built-and-the-torn-read-limit-of-zero-trailers.md)):
+  the `explain` result types, `PathKind` and the `skif-migrate` types are `#[non_exhaustive]` (`skif-migrate` gains
+  `Input::new`, `RuleInfo::new` and `Options::new` with builders); the facade re-exports `PathKind` and the types of
+  `UsageReport`; `skif-js`, `skif-js-plugins`, `skif-js-syntax` and `skif-edit` warn on missing documentation; the
+  third-party type audit reads trait members and re-exports. The tests of `skif-migrate` and `skif-rules`, which read
+  files of the repository, are not part of their published packages.
+- **Faster resolution**: every resolver set of a run (scripts, per-package bundler extensions, styles) shares one
+  `oxc_resolver` cache, so a path is looked up on disk once; a root's tracked paths are found in the git index by
+  bisection instead of testing every tracked path.
 - **`skif migrate` rule coverage and overrides**: which rules a tool runs comes from data tables checked against the
   rule list (`tool-rules.txt` beside the sherif and knip tables). The `exact` profile also turns off
   `catalog-not-used`, `catalog-missing-entry` and `unresolved-catalog-references` unless syncpack has a
@@ -332,6 +341,10 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Fixed
 
+- **Release workflow**: moving the floating tag no longer fails on an unset variable after the tag was pushed; the
+  logic is `scripts/release-floating-tag.sh`, tested in `scripts/test-release-scripts.sh`, and the tag trigger only
+  matches full `vX.Y.Z` versions.
+- **`skif migrate`**: a trailing `# comment` after a `pnpm-workspace.yaml` package pattern is not part of the pattern.
 - **Monorepo JS corrections** ([ADR 0044](adrs/0044-monorepo-js-corrections-builtins-html-entries-referenced-paths-extglob-helpers-and-stylesheets.md)):
   `buffer/` and `events/` name npm packages, not builtins; the vitest plugin adds `index.html` scripts without the vite
   plugin; the `paths` of a `tsconfig` referenced in another package stay with that package when the referencing package lists it as a

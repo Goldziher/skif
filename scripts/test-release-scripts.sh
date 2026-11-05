@@ -146,6 +146,19 @@ skif-core,skif-specifier,*,skif,skif-cli) ;;
 esac
 [[ "$(published_crates | wc -l | tr -d ' ')" -eq 14 ]] || fail "publish-crates: expected 14 crates, got ${order}"
 
+# A crate is published after every skif crate it depends on (cargo publish resolves them on the registry).
+position=0
+published_before=" "
+while read -r crate; do
+  position=$((position + 1))
+  runtime_deps="$(awk '/^\[/ { in_deps = ($0 == "[dependencies]" || $0 == "[build-dependencies]") } in_deps && /^skif[a-z-]*[ .=]/ { sub(/[ .=].*/, ""); print }' "crates/${crate}/Cargo.toml")"
+  for dependency in $runtime_deps; do
+    [[ "$published_before" == *" ${dependency} "* ]] || fail "publish-crates: ${crate} is published before its dependency ${dependency}"
+  done
+  published_before="${published_before}${crate} "
+done < <(published_crates)
+[[ "$position" -eq 14 ]] || fail "publish-crates: checked ${position} crates for dependency order, want 14"
+
 crates_case "versions already on crates.io are skipped" 0 200 ok
 [[ ! -s "${work}/cargo.log" ]] || fail "publish-crates: cargo ran although every version is published"
 
