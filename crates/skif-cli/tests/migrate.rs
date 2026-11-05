@@ -4,6 +4,7 @@
 
 mod support;
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
@@ -175,4 +176,98 @@ fn an_unreadable_configuration_names_the_file() {
     let result = run(migrate(dir.path()).args(["--from", "syncpack", "--dry-run"]));
     assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
     assert!(result.stderr.contains(".syncpackrc.yaml"), "{}", result.stderr);
+}
+
+#[test]
+fn force_replaces_the_dot_file_that_exists_instead_of_adding_a_second_one() {
+    let dir = project(SHERIF_PACKAGE);
+    fs::write(dir.path().join(".skif.toml"), "[lint]\nfail-on-warnings = false\n").unwrap();
+    let forced = run(migrate(dir.path()).arg("--force"));
+    assert_eq!(forced.code, 0, "{}{}", forced.stdout, forced.stderr);
+    assert!(
+        !dir.path().join("skif.toml").exists(),
+        "a second configuration file would be ambiguous"
+    );
+    let text = fs::read_to_string(dir.path().join(".skif.toml")).unwrap();
+    assert!(text.contains("fail-on-warnings = true"), "{text}");
+}
+
+fn migrated(dir: &tempfile::TempDir) -> toml::Table {
+    fs::read_to_string(dir.path().join("skif.toml"))
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
+fn with_knip(dir: &tempfile::TempDir) {
+    fs::write(dir.path().join("knip.json"), r#"{ "entry": ["src/index.ts"] }"#).unwrap();
+}
+
+#[test]
+fn migrating_one_tool_after_the_other_checks_what_one_command_checks() {
+    let one_shot = project(SHERIF_PACKAGE);
+    with_knip(&one_shot);
+    let result = run(migrate(one_shot.path()).args(["--from", "sherif,knip"]));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let expected = migrated(&one_shot);
+
+    for steps in [["sherif", "knip"], ["knip", "sherif"]] {
+        let stepwise = project(SHERIF_PACKAGE);
+        with_knip(&stepwise);
+        let first = run(migrate(stepwise.path()).args(["--from", steps[0]]));
+        assert_eq!(first.code, 0, "{}{}", first.stdout, first.stderr);
+        let second = run(migrate(stepwise.path()).args(["--from", steps[1], "--merge"]));
+        assert_eq!(second.code, 0, "{}{}", second.stdout, second.stderr);
+        let actual = migrated(&stepwise);
+        assert_eq!(actual["rules"], expected["rules"], "{steps:?}");
+        assert_eq!(
+            actual["js"].get("enabled"),
+            expected["js"].get("enabled"),
+            "{steps:?}: the JavaScript analysis stays on"
+        );
+        assert_ne!(actual["rules"]["unused-files"].as_str(), Some("off"), "{steps:?}");
+        assert_ne!(
+            actual["rules"].get("version-mismatch").and_then(toml::Value::as_str),
+            Some("off")
+        );
+    }
+}
+
+#[test]
+fn the_exact_profile_turns_off_every_default_rule_the_tool_did_not_run() {
+    let rules = run(skif().args(["rules", "--format", "json"])).json();
+    let default_on: BTreeSet<String> = rules["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|rule| !rule["default"].is_null())
+        .map(|rule| rule["id"].as_str().unwrap().to_owned())
+        .collect();
+    let dir = project(SHERIF_PACKAGE);
+    let result = run(migrate(dir.path()).args(["--dry-run", "--format", "json"]));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let extra: BTreeSet<String> = result.json()["extra-checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_str().unwrap().to_owned())
+        .collect();
+    let sherif: BTreeSet<String> = [
+        "empty-dependencies",
+        "version-mismatch",
+        "unmatched-workspace-patterns",
+        "missing-package-manifest",
+        "root-package-dependencies",
+        "root-package-manager-field",
+        "root-package-private-field",
+        "types-in-dependencies",
+        "unsorted-dependencies",
+        "unsynced-dependency-family",
+    ]
+    .map(str::to_owned)
+    .into();
+    assert!(extra.is_subset(&default_on), "{extra:?}");
+    let left: BTreeSet<String> = default_on.difference(&extra).cloned().collect();
+    assert!(left.is_subset(&sherif), "{left:?}");
+    assert!(extra.contains("unused-files"));
 }

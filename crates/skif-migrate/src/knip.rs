@@ -16,34 +16,33 @@ use crate::{MigrateError, ToolInput};
 /// Rules that are not issue types but belong to a knip run: a file that cannot be parsed ends it.
 const ALWAYS: &[&str] = &["unparseable-files"];
 
-/// What `--dependencies` and its siblings include.
+/// What `--dependencies` and its siblings include. `--dependencies` also adds `devDependencies` and
+/// `optionalPeerDependencies` outside production mode, which [`Selection::new`] does.
 const SHORTCUTS: &[(&str, &[&str])] = &[
     (
         "dependencies",
         &[
             "dependencies",
-            "devDependencies",
-            "optionalPeerDependencies",
             "unlisted",
             "binaries",
             "unresolved",
+            "catalog",
+            "catalogReferences",
         ],
     ),
     (
         "exports",
-        &[
-            "exports",
-            "nsExports",
-            "types",
-            "nsTypes",
-            "enumMembers",
-            "namespaceMembers",
-            "duplicates",
-        ],
+        &["exports", "types", "enumMembers", "namespaceMembers", "duplicates"],
     ),
     ("files", &["files"]),
     ("cycles", &["cycles"]),
 ];
+
+/// Issue types that only add to the defaults when they are the only ones included.
+const ADD_ON: &[&str] = &["nsExports", "nsTypes"];
+
+/// Issue types production mode leaves out.
+const PRODUCTION_EXCLUDED: &[&str] = &["devDependencies", "catalog", "catalogReferences"];
 
 /// Flags that change nothing about what is reported.
 const INERT_FLAGS: &[&str] = &[
@@ -189,18 +188,96 @@ fn table<'d>(doc: &'d mut Doc, path: &[String]) -> &'d mut Section {
     doc.table(&parts)
 }
 
+/// One run of knip: the flags of one command of one script.
+#[derive(Default)]
+struct Run {
+    /// `scripts.<name>`.
+    script: String,
+    /// `--include` and the shortcut flags, which override the configuration.
+    include: Vec<String>,
+    /// `--exclude`, which overrides the configuration.
+    exclude: Vec<String>,
+    /// `--production`, or `--strict`, which implies it.
+    production: bool,
+    /// The run passed `--production` itself.
+    explicit_production: bool,
+}
+
 /// What the configuration and the flags say about the issue types.
 #[derive(Default)]
 struct Plan {
+    /// `include` of the configuration.
     include: Vec<String>,
+    /// `exclude` of the configuration.
     exclude: Vec<String>,
     rules: Vec<(String, Level)>,
     tags: Vec<String>,
     hints: Option<Level>,
-    production: bool,
     include_entry_exports: bool,
+    runs: Vec<Run>,
     /// Where the issue type settings came from, for the note.
     origins: Vec<String>,
+}
+
+/// The issue types one run reports, worked out as knip does.
+struct Selection {
+    included: Vec<String>,
+    excluded: Vec<String>,
+}
+
+fn extend_names(list: &mut Vec<String>, names: &[&str]) {
+    list.extend(names.iter().map(|name| (*name).to_owned()));
+}
+
+impl Selection {
+    fn same_types(&self, other: &Self) -> bool {
+        let sorted = |names: &[String]| {
+            let mut names = names.to_vec();
+            names.sort();
+            names
+        };
+        sorted(&self.included) == sorted(&other.included)
+    }
+
+    /// knip's `getIncludedIssueTypes`: the flags override the configuration, production mode drops the types that
+    /// need dev dependencies, and `--dependencies` brings in the dev dependencies outside production mode.
+    fn new(plan: &Plan, run: &Run, defaults: &[&str]) -> Self {
+        let mut config_exclude: Vec<String> = plan
+            .rules
+            .iter()
+            .map(|(name, _)| name)
+            .filter(|name| knip_level(plan, name) == Level::Off)
+            .cloned()
+            .collect();
+        config_exclude.extend(plan.exclude.iter().cloned());
+        let mut inc: Vec<String> = run.include.clone();
+        inc.extend(plan.include.iter().filter(|name| !run.exclude.contains(name)).cloned());
+        let mut exc: Vec<String> = run.exclude.clone();
+        exc.extend(config_exclude.into_iter().filter(|name| !run.include.contains(name)));
+        if run.production {
+            extend_names(&mut exc, PRODUCTION_EXCLUDED);
+        } else {
+            if inc.iter().any(|name| name == "dependencies") {
+                extend_names(&mut inc, &["devDependencies", "optionalPeerDependencies"]);
+            }
+            if exc.iter().any(|name| name == "dependencies") {
+                extend_names(&mut exc, &["devDependencies", "optionalPeerDependencies"]);
+            }
+        }
+        let mut reported: Vec<String> = if inc.is_empty() {
+            defaults.iter().map(|name| (*name).to_owned()).collect()
+        } else if inc.iter().any(|name| !ADD_ON.contains(&name.as_str())) {
+            inc
+        } else {
+            extend_names(&mut inc, defaults);
+            inc
+        };
+        reported.retain(|name| !exc.contains(name));
+        Self {
+            included: reported,
+            excluded: exc,
+        }
+    }
 }
 
 impl Plan {
@@ -212,7 +289,7 @@ impl Plan {
 }
 
 pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), MigrateError> {
-    state.keep(ALWAYS.iter().copied());
+    state.keep(Tool::Knip, ALWAYS.iter().copied());
     let package = input
         .package_json
         .as_ref()
@@ -236,9 +313,12 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
         read_root(state, config_src, root, config, &mut plan);
     }
     if let Some(package) = &package {
-        for invocation in scripts::invocations(package, Tool::Knip) {
-            read_flags(state, &src, &invocation, &mut plan);
+        let invocations = scripts::invocations(package, Tool::Knip);
+        for invocation in &invocations {
+            read_flags(state, &src, invocation, &mut plan);
         }
+        scripts::note_unrecognised(state, &src, package, Tool::Knip);
+        note_differing_flags(state, &src, &invocations);
     }
     apply(state, &src, &plan);
     Ok(())
@@ -498,9 +578,7 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
         "paths" => paths(state, src, target, path, item),
         "ignoreMembers" => {
             let list = pattern_list(state, src, path, item, false);
-            let global = Target::Root.js();
-            write_list(state, src, &global, keys::JS_IGNORE_MEMBERS, path, list, "");
-            widened(state, src, target, path);
+            write_list(state, src, &js, keys::JS_IGNORE_MEMBERS, path, list, "");
         }
         "ignoreExportsUsedInFile" => ignore_exports_used_in_file(state, src, target, path, item),
         "ignoreIssues" => ignore_issues(state, src, target, path, item),
@@ -537,18 +615,6 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
     }
 }
 
-/// A setting that knip scopes to a workspace but that skif applies to the whole project.
-fn widened(state: &mut State<'_>, src: &Src, target: &Target, path: &str) {
-    if let Target::Dir(dir) = target {
-        state.note(
-            src,
-            NoteClass::Approximate,
-            path,
-            format!("set for the workspace `{dir}`; skif applies it to every workspace"),
-        );
-    }
-}
-
 fn paths(state: &mut State<'_>, src: &Src, target: &Target, path: &str, value: &ConfigValue) {
     let mut section = target.workspace();
     section.push(keys::WS_PATHS.to_owned());
@@ -571,7 +637,7 @@ fn paths(state: &mut State<'_>, src: &Src, target: &Target, path: &str, value: &
 }
 
 fn ignore_exports_used_in_file(state: &mut State<'_>, src: &Src, target: &Target, path: &str, value: &ConfigValue) {
-    let js = Target::Root.js();
+    let js = target.js();
     let written = match value {
         ConfigValue::Bool(enabled) => Some((Val::Bool(*enabled), NoteClass::Exact)),
         ConfigValue::Object(_) => {
@@ -599,9 +665,12 @@ fn ignore_exports_used_in_file(state: &mut State<'_>, src: &Src, target: &Target
             src,
             class,
             path,
-            format!("written to [js] {}", keys::JS_IGNORE_EXPORTS_USED_IN_FILE),
+            format!(
+                "written to {} {}",
+                Target::describe(&js),
+                keys::JS_IGNORE_EXPORTS_USED_IN_FILE
+            ),
         );
-        widened(state, src, target, path);
     }
 }
 
@@ -619,11 +688,17 @@ fn ignore_issues(state: &mut State<'_>, src: &Src, target: &Target, path: &str, 
                         }
                     }
                 }
-                _ => state.note(
+                Some(_) => state.note(
                     src,
                     NoteClass::Unsupported,
                     item_path.clone(),
-                    format!("`{name}` is not an issue type skif has a rule for"),
+                    format!("skif has no rule for the `{name}` issue type"),
+                ),
+                None => state.note(
+                    src,
+                    NoteClass::Unsupported,
+                    item_path.clone(),
+                    format!("`{name}` is not a knip issue type"),
                 ),
             }
         }
@@ -650,27 +725,29 @@ fn ignore_issues(state: &mut State<'_>, src: &Src, target: &Target, path: &str, 
 fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, plan: &mut Plan) {
     let path = invocation.path();
     let flag_path = |flag: &str| format!("{path}: {flag}");
+    let mut run = Run {
+        script: path.clone(),
+        ..Run::default()
+    };
     for (flag, types) in SHORTCUTS {
         if invocation.has(flag, None) {
-            plan.include.extend(types.iter().map(|name| (*name).to_owned()));
+            run.include.extend(types.iter().map(|name| (*name).to_owned()));
             plan.origin(flag_path(&format!("--{flag}")));
         }
     }
     let include = invocation.values("include", None);
     if !include.is_empty() {
-        plan.include.extend(include);
+        run.include.extend(include);
         plan.origin(flag_path("--include"));
     }
     let exclude = invocation.values("exclude", None);
     if !exclude.is_empty() {
-        plan.exclude.extend(exclude);
+        run.exclude.extend(exclude);
         plan.origin(flag_path("--exclude"));
     }
-    let production = invocation.has("production", Some("p"));
+    run.explicit_production = invocation.has("production", Some("p"));
     let strict = invocation.has("strict", Some("s"));
-    if production || strict {
-        plan.production = true;
-    }
+    run.production = run.explicit_production || strict;
     if strict {
         state.note_with(
             src,
@@ -678,13 +755,6 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, plan: &
             flag_path("--strict"),
             "knip's strict mode also reports only direct dependencies and checks no other workspace",
             "skif only has the production half of it, which is written to [js] production",
-        );
-    } else if production {
-        state.note(
-            src,
-            NoteClass::Exact,
-            flag_path("--production"),
-            "written to [js] production",
         );
     }
     if invocation.has("include-entry-exports", None) {
@@ -708,7 +778,27 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, plan: &
     if !tag_flags.is_empty() {
         tags(state, src, &flag_path("--tags"), &tag_flags, plan);
     }
+    plan.runs.push(run);
     other_flags(state, src, invocation);
+}
+
+/// Flags that change what skif reports for the whole project but that only some scripts passed.
+fn note_differing_flags(state: &mut State<'_>, src: &Src, invocations: &[Invocation]) {
+    for flag in [
+        "include-entry-exports",
+        "treat-config-hints-as-errors",
+        "no-config-hints",
+    ] {
+        if let Some(scripts) = scripts::differing_switch(invocations, flag, None) {
+            state.note_with(
+                src,
+                NoteClass::Approximate,
+                format!("{scripts}: --{flag}"),
+                format!("only some of these scripts pass --{flag}; skif has one setting for the project, so it applies to all"),
+                "check that every check should use it",
+            );
+        }
+    }
 }
 
 /// The flags that need a note and nothing else.
@@ -790,19 +880,28 @@ fn knip_level(plan: &Plan, name: &str) -> Level {
         .map_or(Level::Error, |(_, level)| *level)
 }
 
+/// The names of `names` once each, in order.
+fn unique(names: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for name in names {
+        if !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    out
+}
+
 /// Turns the issue types into rule levels and `[js]` settings.
 fn apply(state: &mut State<'_>, src: &Src, plan: &Plan) {
     let types = tables::knip_types();
     let find = |name: &str| types.iter().find(|known| known.name == name);
-    let mut mentioned = plan
-        .include
-        .iter()
-        .chain(&plan.exclude)
-        .cloned()
-        .collect::<Vec<String>>();
+    let mut mentioned: Vec<String> = plan.include.iter().chain(&plan.exclude).cloned().collect();
+    for run in &plan.runs {
+        mentioned.extend(run.include.iter().chain(&run.exclude).cloned());
+    }
     mentioned.extend(plan.rules.iter().map(|(name, _)| name.clone()));
-    for name in &mentioned {
-        match find(name) {
+    for name in unique(mentioned) {
+        match find(&name) {
             None => state.note(
                 src,
                 NoteClass::Unsupported,
@@ -818,30 +917,52 @@ fn apply(state: &mut State<'_>, src: &Src, plan: &Plan) {
             Some(_) => {}
         }
     }
-    let base: Vec<&KnipType> = if plan.include.is_empty() {
-        types.iter().filter(|known| known.default).collect()
+    let defaults: Vec<&str> = types
+        .iter()
+        .filter(|known| known.default)
+        .map(|known| known.name)
+        .collect();
+    let silent = Run::default();
+    let runs: Vec<&Run> = if plan.runs.is_empty() {
+        vec![&silent]
     } else {
-        plan.include.iter().filter_map(|name| find(name)).collect()
+        plan.runs.iter().collect()
     };
-    let mut enabled: Vec<&KnipType> = Vec::new();
-    for known in base {
-        let removed = plan.exclude.iter().any(|name| name == known.name) || knip_level(plan, known.name) == Level::Off;
-        if !removed && !enabled.contains(&known) {
-            enabled.push(known);
-        }
+    let selections: Vec<Selection> = runs.iter().map(|run| Selection::new(plan, run, &defaults)).collect();
+    if selections.windows(2).any(|pair| !pair[0].same_types(&pair[1])) {
+        let scripts: Vec<&str> = runs.iter().map(|run| run.script.as_str()).collect();
+        state.note_with(
+            src,
+            NoteClass::Approximate,
+            format!("{}: issue types", scripts.join(", ")),
+            "these scripts report different issue types; skif has one rule set, so the rules of every type any of them \
+             reports are enabled",
+            "narrow single rules with [[overrides]] if a check should not run everywhere",
+        );
     }
+    let removed = |known: &KnipType| {
+        knip_level(plan, known.name) == Level::Off
+            || selections
+                .iter()
+                .all(|selection| selection.excluded.iter().any(|name| name == known.name))
+    };
     for known in &types {
-        let removed = plan.exclude.iter().any(|name| name == known.name) || knip_level(plan, known.name) == Level::Off;
-        if removed {
+        if removed(known) {
             for rule in &known.rules {
                 state.set_level(rule, Level::Off);
             }
         }
     }
     let mut written = Vec::new();
-    for known in &enabled {
+    for known in &types {
+        let reported = selections
+            .iter()
+            .any(|selection| selection.included.iter().any(|name| name == known.name));
+        if removed(known) || !reported {
+            continue;
+        }
         for rule in &known.rules {
-            state.keep([*rule]);
+            state.keep(Tool::Knip, [*rule]);
             state.set_level(rule, knip_level(plan, known.name));
             if !written.contains(rule) {
                 written.push(*rule);
@@ -893,10 +1014,47 @@ fn js_settings(state: &mut State<'_>, src: &Src, plan: &Plan) {
         );
     }
     let js = Target::Root.js();
-    if plan.production {
-        table(&mut state.doc, &js).set(keys::JS_PRODUCTION, Val::Bool(true));
-    }
+    production(state, src, plan);
     if plan.include_entry_exports {
         table(&mut state.doc, &js).set(keys::JS_INCLUDE_ENTRY_EXPORTS, Val::Bool(true));
+    }
+}
+
+/// `[js] production` is one setting for the project: it is written when every run of knip used production mode, and
+/// left to a human when only some did.
+fn production(state: &mut State<'_>, src: &Src, plan: &Plan) {
+    let production: Vec<&Run> = plan.runs.iter().filter(|run| run.production).collect();
+    if production.is_empty() {
+        return;
+    }
+    if production.len() == plan.runs.len() {
+        table(&mut state.doc, &Target::Root.js()).set(keys::JS_PRODUCTION, Val::Bool(true));
+        let explicit: Vec<String> = production
+            .iter()
+            .filter(|run| run.explicit_production)
+            .map(|run| format!("{}: --production", run.script))
+            .collect();
+        if !explicit.is_empty() {
+            state.note(src, NoteClass::Exact, explicit.join(", "), "written to [js] production");
+        }
+    } else {
+        let with: Vec<&str> = production.iter().map(|run| run.script.as_str()).collect();
+        let without: Vec<&str> = plan
+            .runs
+            .iter()
+            .filter(|run| !run.production)
+            .map(|run| run.script.as_str())
+            .collect();
+        state.note_with(
+            src,
+            NoteClass::Human,
+            format!("{}: --production", with.join(", ")),
+            format!(
+                "{} ran knip in production mode and {} did not; skif has one [js] production setting, so it was not written",
+                with.join(", "),
+                without.join(", ")
+            ),
+            "set [js] production = true if every check should skip dev dependencies and test files",
+        );
     }
 }

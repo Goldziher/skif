@@ -6,6 +6,7 @@ expression: migration.toml
 
 # Migrated from sherif by `skif migrate` (profile: full).
 # Review the report the command printed: notes marked H or X were not translated.
+# skif migrate: sources = ["sherif"]
 
 [workspace]
 ignore-packages = ["@demo/legacy", "./apps/legacy"]

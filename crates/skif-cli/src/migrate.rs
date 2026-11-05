@@ -102,7 +102,14 @@ fn pnpm_packages(text: &str) -> Vec<String> {
             continue;
         }
         if !line.starts_with([' ', '\t', '-']) {
-            inside = trimmed.trim_end() == "packages:";
+            if let Some(flow) = trimmed.strip_prefix("packages:").map(str::trim)
+                && flow.starts_with('[')
+            {
+                patterns.extend(flow_sequence(flow));
+                inside = false;
+            } else {
+                inside = trimmed.trim_end() == "packages:";
+            }
             continue;
         }
         if inside && let Some(entry) = trimmed.strip_prefix('-') {
@@ -113,6 +120,18 @@ fn pnpm_packages(text: &str) -> Vec<String> {
         }
     }
     patterns
+}
+
+/// The entries of a one-line YAML flow sequence such as `["apps/*", 'packages/*']`.
+fn flow_sequence(text: &str) -> Vec<String> {
+    let inner = text.trim().trim_start_matches('[');
+    let inner = inner.split(']').next().unwrap_or(inner);
+    inner
+        .split(',')
+        .map(|entry| entry.trim().trim_matches(['\'', '"']))
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 fn tool_of(from: MigrateFrom) -> Option<Tool> {
@@ -230,7 +249,6 @@ struct Plan {
     /// Where the configuration goes, or `None` for stdout.
     target: Option<PathBuf>,
     toml: String,
-    merge_note: Option<String>,
     kept_existing: Vec<String>,
 }
 
@@ -245,7 +263,6 @@ fn plan_output(args: &MigrateArgs, root: &Path, migration: &Migration) -> Result
     };
     let existing = existing_config(root, &target, default_target);
     let mut toml = migration.toml.clone();
-    let mut merge_note = None;
     let mut kept_existing = Vec::new();
     let mut destination = target;
     if let Some(existing) = &existing
@@ -253,34 +270,27 @@ fn plan_output(args: &MigrateArgs, root: &Path, migration: &Migration) -> Result
     {
         let text = read_text(existing)?;
         let merged = migration.merge_into(&text).map_err(migrate_error)?;
-        if !merged.comments_preserved {
-            merge_note = Some(format!(
-                "both files define the same tables, so they were merged as values and the comments of {} are not kept",
-                slash(existing)
-            ));
-        }
         kept_existing = merged.kept_existing;
         toml = merged.toml;
         destination.clone_from(existing);
-    } else if let Some(existing) = &existing
-        && !args.force
-        && !to_stdout
-    {
-        return Err(CliError {
-            path: Some(slash(existing)),
-            ..CliError::new(
-                Kind::Config,
-                format!(
-                    "{} already exists; pass --merge to combine the migration with it, --force to replace it, or --output to write elsewhere",
-                    existing.display()
-                ),
-            )
-        });
+    } else if let Some(existing) = &existing {
+        if !args.force && !to_stdout {
+            return Err(CliError {
+                path: Some(slash(existing)),
+                ..CliError::new(
+                    Kind::Config,
+                    format!(
+                        "{} already exists; pass --merge to combine the migration with it, --force to replace it, or --output to write elsewhere",
+                        existing.display()
+                    ),
+                )
+            });
+        }
+        destination.clone_from(existing);
     }
     Ok(Plan {
         target: (!to_stdout).then_some(destination),
         toml,
-        merge_note,
         kept_existing,
     })
 }
@@ -355,9 +365,6 @@ fn report(args: &MigrateArgs, format: RulesFormat, migration: &Migration, plan: 
                 let _ = writeln!(summary, "Wrote {}\n", slash(target));
             }
             summary.push_str(&migration.summary());
-            if let Some(note) = &plan.merge_note {
-                let _ = writeln!(summary, "\nNote: {note}");
-            }
             if !plan.kept_existing.is_empty() {
                 let _ = writeln!(summary, "Kept the existing value of: {}", plan.kept_existing.join(", "));
             }
@@ -381,6 +388,12 @@ mod tests {
         let text =
             "# comment\npackages:\n  - 'apps/*'\n  - \"packages/*\"\n  - '!**/test/**'\ncatalog:\n  react: ^18\n";
         assert_eq!(pnpm_packages(text), ["apps/*", "packages/*", "!**/test/**"]);
+    }
+
+    #[test]
+    fn a_flow_style_packages_list_is_read() {
+        let text = "packages: [\"apps/*\", 'packages/*', tools/cli]\ncatalog:\n  react: ^18\n";
+        assert_eq!(pnpm_packages(text), ["apps/*", "packages/*", "tools/cli"]);
     }
 
     #[test]

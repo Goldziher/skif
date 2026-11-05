@@ -2278,6 +2278,7 @@ dependencies = [
  "skif-config",
  "skif-js-plugins",
  "skif-js-syntax",
+ "skif-specifier",
  "thiserror",
  "toml",
  "toml_edit",

@@ -20,12 +20,13 @@ serde_json.workspace = true
 skif-config.workspace = true
 skif-js-plugins.workspace = true
 skif-js-syntax.workspace = true
+skif-specifier.workspace = true
 thiserror.workspace = true
-toml.workspace = true
 toml_edit.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+toml.workspace = true
 
 [lints]
 workspace = true

@@ -1,7 +1,9 @@
 //! syncpack: `.syncpackrc*`, `syncpack.config.*`, the `syncpack` key of `package.json`, and the flags of the scripts
 //! that run it.
 
+use skif_config::DependencyType;
 use skif_js_syntax::ConfigValue;
+use skif_specifier::CONFIG_IDENTIFIERS;
 
 use crate::doc::Val;
 use crate::keys;
@@ -23,11 +25,19 @@ const RULES: &[&str] = &[
     "catalog-not-used",
 ];
 
-/// The dependency types syncpack lints when nothing narrows them and that skif can read.
-const DEFAULT_TYPES: &[&str] = &["prod", "dev", "peer", keys::TYPE_LOCAL];
+/// The dependency types syncpack lints when nothing narrows them. Optional dependencies are not among them.
+const DEFAULT_TYPES: &[&str] = &[
+    "prod",
+    "dev",
+    "peer",
+    keys::TYPE_LOCAL,
+    "resolutions",
+    "overrides",
+    "pnpm-overrides",
+];
 
-/// Dependency types syncpack reads from places skif does not look at.
-const UNSUPPORTED_TYPES: &[&str] = &["overrides", "resolutions", "pnpmOverrides"];
+/// The specifier type syncpack documents as `hosted-git`, which skif calls `git`.
+const HOSTED_GIT: &str = "hosted-git";
 
 /// `semverGroups[].range` values.
 const RANGES: &[&str] = &["", "*", "^", "~", ">", ">=", "<", "<="];
@@ -82,8 +92,8 @@ const INERT_FLAGS: &[&str] = &[
 enum CustomKind {
     /// `optionalDependencies`: skif has the `optional` token.
     Optional,
-    /// Written to `[[custom-types]]` under its own name.
-    Custom,
+    /// Written to `[[custom-types]]` under this name, which is the syncpack name unless that is a built-in token.
+    Custom(String),
     /// skif cannot read it.
     Unsupported,
 }
@@ -103,10 +113,10 @@ impl Types {
 
     fn default_scope(&self) -> Vec<String> {
         let mut scope: Vec<String> = DEFAULT_TYPES.iter().map(|token| (*token).to_owned()).collect();
-        for (name, kind) in &self.custom {
+        for (_, kind) in &self.custom {
             let token = match kind {
                 CustomKind::Optional => "optional",
-                CustomKind::Custom => name.as_str(),
+                CustomKind::Custom(written) => written.as_str(),
                 CustomKind::Unsupported => continue,
             };
             if !scope.iter().any(|known| known == token) {
@@ -127,12 +137,13 @@ struct MappedTypes {
 #[derive(Default)]
 struct Run {
     types: Types,
-    /// The scope given by `--dependency-types`, which replaces the default one.
-    flag_types: Option<Vec<String>>,
+    /// One entry per run of `syncpack lint` (or similar) in a script: the scope its `--dependency-types` gave, which
+    /// replaces the default one, or `None` when it gave none.
+    scopes: Vec<(String, Option<Vec<String>>)>,
 }
 
 pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), MigrateError> {
-    state.keep(RULES.iter().copied());
+    state.keep(Tool::Syncpack, RULES.iter().copied());
     let package = input
         .package_json
         .as_ref()
@@ -173,6 +184,7 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
         for invocation in scripts::invocations(package, Tool::Syncpack) {
             read_flags(state, &src, &invocation, &input.workspace_patterns, &mut run);
         }
+        scripts::note_unrecognised(state, &src, package, Tool::Syncpack);
     }
     emit_scope(state, &src, &run);
     Ok(())
@@ -248,7 +260,7 @@ fn format_key(state: &mut State<'_>, src: &Src, path: &str, key: &str, item: &Co
     if key == "sortAz" {
         let names = string_list(state, src, path, item);
         if names.iter().any(|name| DEPENDENCY_MAPS.contains(&name.as_str())) {
-            state.keep(["unsorted-dependencies"]);
+            state.keep(Tool::Syncpack, ["unsorted-dependencies"]);
             state.note(
                 src,
                 NoteClass::Approximate,
@@ -340,14 +352,27 @@ fn custom_type(
         );
         return CustomKind::Unsupported;
     };
+    let written = if DependencyType::is_builtin_token(name) {
+        let renamed = format!("{name}-custom");
+        state.note_with(
+            src,
+            NoteClass::Approximate,
+            path,
+            format!("`{name}` is the name of a built-in dependency type in skif, so the custom type was renamed to `{renamed}`"),
+            format!("groups that name `{name}` select the built-in type; use `{renamed}` for the custom one"),
+        );
+        renamed
+    } else {
+        name.to_owned()
+    };
     let element = state
         .doc
         .element(&[keys::CUSTOM_TYPES], vec![format!("syncpack customTypes.{name}")]);
-    element.set(keys::CUSTOM_TYPE_NAME, Val::str(name));
+    element.set(keys::CUSTOM_TYPE_NAME, Val::str(written.clone()));
     element.set(keys::CUSTOM_TYPE_PATH, Val::str(location));
     element.set(keys::CUSTOM_TYPE_STRATEGY, Val::str(target));
     state.note(src, NoteClass::Exact, path, "written to [[custom-types]]");
-    CustomKind::Custom
+    CustomKind::Custom(written)
 }
 
 fn map_types(state: &mut State<'_>, src: &Src, path: &str, tokens: &[String], types: &Types) -> MappedTypes {
@@ -359,13 +384,16 @@ fn map_types(state: &mut State<'_>, src: &Src, path: &str, tokens: &[String], ty
         let (negated, name) = token
             .strip_prefix('!')
             .map_or((false, token.as_str()), |name| (true, name));
+        if name == "**" {
+            continue;
+        }
         positive |= !negated;
         let mapped = match name {
-            "prod" | "dev" | "peer" | "local" | "optional" => Some(name),
-            _ if UNSUPPORTED_TYPES.contains(&name) => None,
+            "prod" | "dev" | "peer" | "local" | "optional" | "resolutions" | "overrides" => Some(name),
+            "pnpmOverrides" | "pnpm_overrides" | "pnpm-overrides" => Some("pnpm-overrides"),
             other => match types.kind(other) {
                 Some(CustomKind::Optional) => Some("optional"),
-                Some(CustomKind::Custom) => Some(other),
+                Some(CustomKind::Custom(written)) => Some(written.as_str()),
                 _ => None,
             },
         };
@@ -432,7 +460,34 @@ impl Selectors {
         ]
     }
 
-    fn write(&self, section: &mut crate::doc::Section, types: &[String]) {
+    /// Whether the group selects every dependency of every package, so its policy is not narrowed to anything.
+    fn selects_everything(&self) -> bool {
+        let filters = |tokens: &[String]| tokens.iter().any(|token| token != "**");
+        self.dependencies.is_empty()
+            && self.packages.is_empty()
+            && !self.dependency_types.as_deref().is_some_and(filters)
+            && !filters(&self.specifier_types)
+    }
+
+    /// What the group selects, for a note.
+    fn describe(&self) -> String {
+        let mut parts = Vec::new();
+        if !self.dependencies.is_empty() {
+            parts.push(format!("dependencies {}", self.dependencies.join(", ")));
+        }
+        if !self.packages.is_empty() {
+            parts.push(format!("packages {}", self.packages.join(", ")));
+        }
+        if let Some(types) = &self.dependency_types {
+            parts.push(format!("dependency types {}", types.join(", ")));
+        }
+        if !self.specifier_types.is_empty() {
+            parts.push(format!("specifier types {}", self.specifier_types.join(", ")));
+        }
+        parts.join("; ")
+    }
+
+    fn write(&self, section: &mut crate::doc::Section, types: &[String], specifiers: &[String]) {
         if let Some(label) = &self.label {
             section.set("label", Val::str(label.clone()));
         }
@@ -445,8 +500,8 @@ impl Selectors {
         if !types.is_empty() {
             section.set("dependency-types", Val::strs(types.iter().cloned()));
         }
-        if !self.specifier_types.is_empty() {
-            section.set("specifier-types", Val::strs(self.specifier_types.iter().cloned()));
+        if !specifiers.is_empty() {
+            section.set("specifier-types", Val::strs(specifiers.iter().cloned()));
         }
     }
 
@@ -464,11 +519,77 @@ impl Selectors {
                     "the group only covers {}, which skif does not read; the group was not written",
                     tokens.join(", ")
                 ),
-                "skif checks dependencies, devDependencies, peerDependencies and optionalDependencies",
+                "skif reads dependencies, devDependencies, peerDependencies, optionalDependencies, the package version, \
+                 resolutions, overrides, pnpm overrides and the custom types it was given",
             );
             return None;
         }
         Some(mapped.tokens)
+    }
+
+    /// The specifier types in skif's spelling, or `None` when the group selects only types skif does not know and so
+    /// would match nothing. `**` is no filter, and `hosted-git` is `git`.
+    fn specifiers(&self, state: &mut State<'_>, src: &Src, path: &str) -> Option<Vec<String>> {
+        let path = join(path, "specifierTypes");
+        let mut kept: Vec<String> = Vec::new();
+        let mut unknown: Vec<&str> = Vec::new();
+        let mut positive = false;
+        let mut kept_positive = false;
+        for token in &self.specifier_types {
+            let (negated, name) = token
+                .strip_prefix('!')
+                .map_or((false, token.as_str()), |name| (true, name));
+            if name == "**" {
+                continue;
+            }
+            positive |= !negated;
+            let mapped = if name == HOSTED_GIT {
+                state.note(
+                    src,
+                    NoteClass::Approximate,
+                    path.clone(),
+                    "`hosted-git` is the specifier type `git` in skif, which also covers other git URLs",
+                );
+                Some("git")
+            } else {
+                CONFIG_IDENTIFIERS.contains(&name).then_some(name)
+            };
+            match mapped {
+                Some(mapped) => {
+                    kept_positive |= !negated;
+                    let entry = format!("{}{mapped}", if negated { "!" } else { "" });
+                    if !kept.contains(&entry) {
+                        kept.push(entry);
+                    }
+                }
+                None => unknown.push(name),
+            }
+        }
+        if positive && !kept_positive {
+            state.note_with(
+                src,
+                NoteClass::Unsupported,
+                path,
+                format!(
+                    "the group only selects the specifier types {}, which skif does not know; the group was not written",
+                    unknown.join(", ")
+                ),
+                format!("skif knows: {}", CONFIG_IDENTIFIERS.join(", ")),
+            );
+            return None;
+        }
+        if !unknown.is_empty() {
+            state.note(
+                src,
+                NoteClass::Approximate,
+                path,
+                format!(
+                    "the specifier types {} are not known to skif and were dropped",
+                    unknown.join(", ")
+                ),
+            );
+        }
+        Some(kept)
     }
 }
 
@@ -536,6 +657,9 @@ fn version_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigVal
     let Some(types) = selectors.types(state, src, path, &run.types) else {
         return;
     };
+    let Some(specifiers) = selectors.specifiers(state, src, path) else {
+        return;
+    };
     let Some(policy) = group_policy(state, src, path, options.policy.as_deref(), &options) else {
         return;
     };
@@ -556,19 +680,12 @@ fn version_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigVal
         });
     }
     if matches!(policy, Policy::Catalog) {
-        state.doc.table(&["catalog"]).set("mode", Val::str("prefer"));
-        state.note_with(
-            src,
-            NoteClass::Approximate,
-            join(path, "policy"),
-            "`catalog` is a global setting in skif: [catalog] mode = \"prefer\" was written and the group was not",
-            "list dependencies to exclude in [catalog] exclude",
-        );
+        catalog_policy(state, src, path, &selectors);
         return;
     }
     let comments = selectors.comment(path);
     let element = state.doc.element(&["version-groups"], comments);
-    selectors.write(element, &types);
+    selectors.write(element, &types, &specifiers);
     match policy {
         Policy::Preferred => {
             if let Some(prefer) = prefer {
@@ -590,6 +707,31 @@ fn version_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigVal
         Policy::Catalog => {}
     }
     state.note(src, NoteClass::Exact, path, "written to [[version-groups]]");
+}
+
+/// `policy: catalog` is the global `[catalog] mode = "prefer"` in skif. A group that selects something narrower must
+/// not widen to every dependency, so it is left to a human.
+fn catalog_policy(state: &mut State<'_>, src: &Src, path: &str, selectors: &Selectors) {
+    if selectors.selects_everything() {
+        state.doc.table(&["catalog"]).set("mode", Val::str("prefer"));
+        state.note(
+            src,
+            NoteClass::Exact,
+            join(path, "policy"),
+            "written to [catalog] mode = \"prefer\"; the group selected every dependency",
+        );
+    } else {
+        state.note_with(
+            src,
+            NoteClass::Human,
+            join(path, "policy"),
+            format!(
+                "`catalog` is a global setting in skif, so the group ({}) was not written",
+                selectors.describe()
+            ),
+            "set [catalog] mode = \"prefer\" for every dependency, and list those that should keep a version in [catalog] exclude",
+        );
+    }
 }
 
 #[allow(
@@ -678,6 +820,9 @@ fn semver_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigValu
     let Some(dependency_types) = selectors.types(state, src, path, types) else {
         return;
     };
+    let Some(specifiers) = selectors.specifiers(state, src, path) else {
+        return;
+    };
     if !ignored {
         match range.as_deref() {
             Some(range) if RANGES.contains(&range) => {}
@@ -703,7 +848,7 @@ fn semver_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigValu
     }
     let comments = selectors.comment(path);
     let element = state.doc.element(&["semver-groups"], comments);
-    selectors.write(element, &dependency_types);
+    selectors.write(element, &dependency_types, &specifiers);
     if ignored {
         element.set(keys::SEMVER_IGNORED, Val::Bool(true));
     } else if let Some(range) = range {
@@ -770,6 +915,7 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, workspa
         return;
     }
     let types = invocation.values("dependency-types", None);
+    let mut scope = None;
     if !types.is_empty() {
         let flag_path = format!("{path}: --dependency-types");
         let mapped = map_types(state, src, &flag_path, &types, &run.types);
@@ -782,9 +928,10 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, workspa
             );
         } else {
             state.note(src, NoteClass::Exact, flag_path, "written to [policy] dependency-types");
-            run.flag_types = Some(mapped.tokens);
+            scope = Some(mapped.tokens);
         }
     }
+    run.scopes.push((path.clone(), scope));
     let sources = invocation.values("source", None);
     if !sources.is_empty() {
         compare_source(state, src, &format!("{path}: --source"), &sources, workspace_patterns);
@@ -816,18 +963,65 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, workspa
     }
 }
 
+/// The tokens of every scope in `scopes`, united in order; a run without `--dependency-types` counts as `default`.
+fn union_scope(scopes: &[(String, Option<Vec<String>>)], default: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for (_, scope) in scopes {
+        for token in scope.as_deref().unwrap_or(default) {
+            if !out.contains(token) {
+                out.push(token.clone());
+            }
+        }
+    }
+    out
+}
+
 fn emit_scope(state: &mut State<'_>, src: &Src, run: &Run) {
-    let (tokens, class, message) = match &run.flag_types {
-        Some(tokens) => (tokens.clone(), None, ""),
-        None => (
-            run.types.default_scope(),
-            Some(NoteClass::Approximate),
-            "[policy] dependency-types was widened to the scope syncpack lints by default; resolutions, overrides and \
-             pnpm overrides are not covered",
-        ),
+    let default = run.types.default_scope();
+    let differ = run.scopes.windows(2).any(|pair| pair[0].1 != pair[1].1);
+    let names = run
+        .scopes
+        .iter()
+        .map(|(script, _)| script.as_str())
+        .collect::<Vec<&str>>()
+        .join(", ");
+    let narrowed = run.scopes.iter().any(|(_, scope)| scope.is_some());
+    let tokens = if !narrowed {
+        default
+    } else if !differ {
+        run.scopes[0].1.clone().unwrap_or(default)
+    } else {
+        let united = union_scope(&run.scopes, &default);
+        if united.iter().any(|token| token.starts_with('!')) {
+            state.note_with(
+                src,
+                NoteClass::Human,
+                format!("{names}: --dependency-types"),
+                "these scripts lint different dependency types and some of them exclude types with `!`; the default \
+                 scope was written",
+                "set [policy] dependency-types by hand, or list the types per [[version-groups]] entry",
+            );
+            default
+        } else {
+            state.note_with(
+                src,
+                NoteClass::Approximate,
+                format!("{names}: --dependency-types"),
+                "these scripts lint different dependency types; skif has one scope, so [policy] dependency-types is \
+                 their union",
+                "narrow single checks with `dependency-types` on a [[version-groups]] or [[semver-groups]] entry",
+            );
+            united
+        }
     };
     state.doc.table(&["policy"]).set("dependency-types", Val::strs(tokens));
-    if let Some(class) = class {
-        state.note(src, class, "dependencyTypes", message);
+    if !narrowed {
+        state.note(
+            src,
+            NoteClass::Exact,
+            "dependencyTypes",
+            "[policy] dependency-types is the scope syncpack lints by default: prod, dev, peer, local, resolutions, \
+             overrides, pnpm overrides and your custom types; optional dependencies are not part of it",
+        );
     }
 }
