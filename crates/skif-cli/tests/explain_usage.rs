@@ -30,7 +30,11 @@ fn project() -> TempDir {
         "import { go } from './barrel';\nimport './nested/leaf';\nexport const main = go();\n",
     );
     put(dir.path(), "barrel.ts", "export { run as go } from './lib';\n");
-    put(dir.path(), "lib.ts", "export function run() {}\nexport function idle() {}\n");
+    put(
+        dir.path(),
+        "lib.ts",
+        "export function run() {}\nexport function idle() {}\n",
+    );
     put(dir.path(), "nested/leaf.ts", "export const leaf = 1;\n");
     put(dir.path(), "orphan.ts", "export const lonely = 1;\n");
     put(dir.path(), "a.test.ts", "import './lib';\n");

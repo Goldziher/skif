@@ -1587,7 +1587,12 @@ fn tanstack_router_keeps_the_route_tree_the_router_and_the_routes() {
     let results = resolve(&[("tsr.config.json", config)], &["@tanstack/react-router"]);
     let entries = &output(&results, "tanstack-router").production_entries;
     assert_entries(entries, &["app/tree.gen.ts"]);
-    assert!(entries.iter().all(|entry| !entry.contains("routes") && !entry.contains("pages")), "{entries:?}");
+    assert!(
+        entries
+            .iter()
+            .all(|entry| !entry.contains("routes") && !entry.contains("pages")),
+        "{entries:?}"
+    );
 }
 
 #[test]

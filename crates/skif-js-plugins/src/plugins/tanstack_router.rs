@@ -1,4 +1,4 @@
-//! TanStack Router and Start: the generated route tree and the router and start modules.
+//! `TanStack` Router and Start: the generated route tree and the router and start modules.
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use skif_js_syntax::ConfigValue;

@@ -1,0 +1,47 @@
+---
+source: crates/skif-cli/tests/explain_usage.rs
+expression: "redact(&result.stdout, dir.path())"
+---
+{
+  "version": 1,
+  "skif": "0.0.0",
+  "report": {
+    "file": "lib.ts",
+    "in-graph": true,
+    "absence": null,
+    "entry": null,
+    "imported-by": [
+      {
+        "file": "a.test.ts",
+        "line": 1,
+        "kind": "side-effect",
+        "names": [],
+        "reachable": true
+      },
+      {
+        "file": "barrel.ts",
+        "line": 1,
+        "kind": "export-from",
+        "names": [
+          "run"
+        ],
+        "reachable": true
+      }
+    ],
+    "chain-from-entry": [
+      "a.test.ts",
+      "lib.ts"
+    ],
+    "export": {
+      "name": "idle",
+      "file": "lib.ts",
+      "verdict": "unused",
+      "entry-public": false,
+      "tagged-public": false,
+      "users": [],
+      "re-exports": [],
+      "in-used-signature": false,
+      "is-re-export": false
+    }
+  }
+}

@@ -20,17 +20,18 @@ pub fn run(args: &ExplainUsageArgs) -> u8 {
     let format = Format::from(args.format);
     match execute(args, format) {
         Ok(()) => CLEAN,
-        Err((error, extra)) => {
+        Err(failure) => {
+            let (error, extra) = *failure;
             emit_error_with(&error, format, extra);
             COULD_NOT_RUN
         }
     }
 }
 
-type Failure = (CliError, Map<String, Value>);
+type Failure = Box<(CliError, Map<String, Value>)>;
 
 fn fail(kind: Kind, message: impl Into<String>) -> Failure {
-    (CliError::new(kind, message), Map::new())
+    Box::new((CliError::new(kind, message), Map::new()))
 }
 
 /// Splits `FILE#EXPORT` into the file and the export name.
@@ -45,7 +46,11 @@ fn split_target(target: &str) -> (&str, Option<&str>) {
 /// The canonical absolute path of `file`, which is relative to the current directory when it is not absolute.
 fn resolve_file(cwd: &Path, file: &str) -> Result<PathBuf, CliError> {
     let path = Path::new(file);
-    let absolute = if path.is_absolute() { path.to_path_buf() } else { cwd.join(path) };
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    };
     canonical(&absolute)
 }
 
@@ -72,14 +77,18 @@ fn execute(args: &ExplainUsageArgs, format: Format) -> Result<(), Failure> {
     let cwd = std::env::current_dir()
         .map_err(|error| fail(Kind::Io, format!("cannot read the current directory: {error}")))?;
     let (file, export) = split_target(&args.target);
-    let file = resolve_file(&cwd, file).map_err(|error| (error, Map::new()))?;
-    let start = canonical(&args.path).map_err(|error| (error, Map::new()))?;
+    let file = resolve_file(&cwd, file).map_err(|error| Box::new((error, Map::new())))?;
+    let start = canonical(&args.path).map_err(|error| Box::new((error, Map::new())))?;
     let Resolved { targets, .. } = roots::resolve(&start, false, &CachedFs::new(OsFs), &overrides(args))
-        .map_err(|error| (error, Map::new()))?;
+        .map_err(|error| Box::new((error, Map::new())))?;
     let target = owning_target(&targets, &file).ok_or_else(|| {
         fail(
             Kind::Usage,
-            format!("{} is not inside a workspace or package found at {}", file.display(), start.display()),
+            format!(
+                "{} is not inside a workspace or package found at {}",
+                file.display(),
+                start.display()
+            ),
         )
     })?;
     let relative = file.strip_prefix(&target.root).unwrap_or(&file);
@@ -89,16 +98,19 @@ fn execute(args: &ExplainUsageArgs, format: Format) -> Result<(), Failure> {
     if !report.in_graph {
         let mut extra = Map::new();
         extra.insert("report".to_owned(), value);
-        return Err((CliError::new(Kind::Usage, report.render().trim_end()), extra));
+        return Err(Box::new((
+            CliError::new(Kind::Usage, report.render().trim_end()),
+            extra,
+        )));
     }
     match format {
         Format::Json => {
             let mut members = Map::new();
             members.insert("report".to_owned(), value);
-            let text = document(members).map_err(|error| (error, Map::new()))?;
-            write_stdout(text.as_bytes()).map_err(|error| (error, Map::new()))
+            let text = document(members).map_err(|error| Box::new((error, Map::new())))?;
+            write_stdout(text.as_bytes()).map_err(|error| Box::new((error, Map::new())))
         }
-        _ => write_stdout(report.render().as_bytes()).map_err(|error| (error, Map::new())),
+        _ => write_stdout(report.render().as_bytes()).map_err(|error| Box::new((error, Map::new()))),
     }
 }
 

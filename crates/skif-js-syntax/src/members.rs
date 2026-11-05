@@ -192,7 +192,10 @@ impl LocalReads<'_> {
         if !self.wanted.contains(local) {
             return false;
         }
-        self.reads.entry(local.to_owned()).or_default().insert(member.to_owned());
+        self.reads
+            .entry(local.to_owned())
+            .or_default()
+            .insert(member.to_owned());
         true
     }
 }

@@ -9,8 +9,7 @@ use skif_workspace::{PackageId, Workspace};
 use crate::discover::{Candidate, relative};
 use crate::globs::Globs;
 use crate::manifest_paths::{
-    bin_stub_sources, bin_targets, crossing_stars, manifest_targets, map_to_source, should_have_source,
-    source_patterns,
+    bin_stub_sources, bin_targets, crossing_stars, manifest_targets, map_to_source, should_have_source, source_patterns,
 };
 use crate::resolve::is_code_file;
 use crate::setup::{PackageSetup, Setup};

@@ -42,7 +42,9 @@ pub enum EntryReason {
 impl EntryReason {
     const fn describe(self) -> &'static str {
         match self {
-            Self::EntryGlob => "matches an entry glob of its package (defaults, configuration, test conventions or a plugin)",
+            Self::EntryGlob => {
+                "matches an entry glob of its package (defaults, configuration, test conventions or a plugin)"
+            }
             Self::ConfigFile => "a configuration file of a tool",
             Self::Script => "run by a script of package.json",
             Self::Published => "published by package.json (main, module, types, bin, exports)",
@@ -65,6 +67,7 @@ pub enum Absence {
 
 /// One import of a module.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct Importer {
     /// The importing file, relative to the workspace root.
     pub file: String,
@@ -80,6 +83,7 @@ pub struct Importer {
 
 /// A module that imports an export.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct ExportUser {
     /// The importing file, relative to the workspace root.
     pub file: String,
@@ -107,6 +111,7 @@ pub enum Verdict {
 
 /// A re-export that forwards an export, with the explanation of the forwarded export.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct ReExport {
     /// The re-exporting file.
     pub file: String,
@@ -118,6 +123,11 @@ pub struct ReExport {
 
 /// Why one export of a module counts as used or not.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent facts of one serialized report"
+)]
+#[serde(rename_all = "kebab-case")]
 pub struct ExportReport {
     /// The export name.
     pub name: String,
@@ -144,6 +154,7 @@ pub struct ExportReport {
 
 /// The explanation [`JsAnalysis::explain_usage`] returns.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct UsageReport {
     /// The file, relative to the workspace root.
     pub file: String,
@@ -247,7 +258,11 @@ fn render_export(export: &ExportReport, depth: usize, out: &mut String) {
         return;
     }
     if export.already_explained {
-        let _ = writeln!(out, "{pad}`{}` of {} is already explained above", export.name, export.file);
+        let _ = writeln!(
+            out,
+            "{pad}`{}` of {} is already explained above",
+            export.name, export.file
+        );
         return;
     }
     let _ = writeln!(out, "{pad}export `{}` of {}:", export.name, export.file);
@@ -258,8 +273,16 @@ fn render_export(export: &ExportReport, depth: usize, out: &mut String) {
         let _ = writeln!(out, "{pad}  tagged `@public` (or another ignored tag)");
     }
     for user in &export.users {
-        let unreached = if user.reachable { "" } else { "; no entry file reaches the importer" };
-        let _ = writeln!(out, "{pad}  imported by {}:{} ({}{unreached})", user.file, user.line, user.how);
+        let unreached = if user.reachable {
+            ""
+        } else {
+            "; no entry file reaches the importer"
+        };
+        let _ = writeln!(
+            out,
+            "{pad}  imported by {}:{} ({}{unreached})",
+            user.file, user.line, user.how
+        );
     }
     for re_export in &export.re_exports {
         let _ = writeln!(out, "{pad}  re-exported by {} as `{}`:", re_export.file, re_export.name);
@@ -269,10 +292,13 @@ fn render_export(export: &ExportReport, depth: usize, out: &mut String) {
         let _ = writeln!(out, "{pad}  no module imports it by name or as a whole");
     }
     if export.in_used_signature {
-        let _ = writeln!(out, "{pad}  mentioned in the signature of a used export of the same file");
+        let _ = writeln!(
+            out,
+            "{pad}  mentioned in the signature of a used export of the same file"
+        );
     }
     if export.is_re_export {
-        let _ = writeln!(out, "{pad}  a re-export; the lines above and below follow where it leads");
+        let _ = writeln!(out, "{pad}  itself a re-export of another module");
     }
     let verdict = match export.verdict {
         Verdict::Public => "public",
@@ -348,7 +374,11 @@ impl JsAnalysis<'_> {
             return UsageReport {
                 file: slashed(file),
                 in_graph: false,
-                absence: Some(if unused { Absence::UnusedFile } else { Absence::NotAnalysed }),
+                absence: Some(if unused {
+                    Absence::UnusedFile
+                } else {
+                    Absence::NotAnalysed
+                }),
                 entry: None,
                 imported_by: Vec::new(),
                 chain_from_entry: None,
@@ -359,12 +389,9 @@ impl JsAnalysis<'_> {
             reachable: self.reachable_from_entries(),
             seen: HashSet::new(),
         };
-        let chain = self.chain_to_entry(module.id).map(|chain| {
-            chain
-                .iter()
-                .map(|id| slashed(&self.graph.module(*id).path))
-                .collect()
-        });
+        let chain = self
+            .chain_to_entry(module.id)
+            .map(|chain| chain.iter().map(|id| slashed(&self.graph.module(*id).path)).collect());
         UsageReport {
             file: slashed(&module.path),
             in_graph: true,
@@ -416,7 +443,11 @@ impl JsAnalysis<'_> {
         }
         let path = slashed(&module.path);
         let external = self.workspace.iter().any(|(id, _)| {
-            id != module.owner && self.setup.package(id).is_some_and(|other| other.external_entry.is_match(&path))
+            id != module.owner
+                && self
+                    .setup
+                    .package(id)
+                    .is_some_and(|other| other.external_entry.is_match(&path))
         });
         if external {
             EntryReason::ExternalEntryGlob
@@ -436,7 +467,13 @@ impl JsAnalysis<'_> {
                     source_patterns(&target.path)
                         .into_iter()
                         .chain(std::iter::once(target.path.trim_start_matches("./").to_owned()))
-                        .map(|pattern| if target.from_exports { crossing_stars(&pattern) } else { pattern }),
+                        .map(|pattern| {
+                            if target.from_exports {
+                                crossing_stars(&pattern)
+                            } else {
+                                pattern
+                            }
+                        }),
                 );
                 globs.is_match(rel)
             } else {
@@ -580,7 +617,12 @@ impl JsAnalysis<'_> {
             let forwarded = match export.kind {
                 ExportKind::ReExport => export.imported_name.as_deref().unwrap_or(&export.name) == name,
                 ExportKind::StarReExport if export.name == "*" => {
-                    name != "default" && !importer.info.exports.iter().any(|own| own.name == name && own.from.is_none())
+                    name != "default"
+                        && !importer
+                            .info
+                            .exports
+                            .iter()
+                            .any(|own| own.name == name && own.from.is_none())
                 }
                 ExportKind::StarReExport => true,
                 _ => false,

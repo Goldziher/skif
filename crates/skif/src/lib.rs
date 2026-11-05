@@ -98,17 +98,17 @@ mod root;
 mod targets;
 
 pub use error::Error;
-#[cfg(feature = "js-analysis")]
-pub use js::explain_usage;
-#[cfg(feature = "js-analysis")]
-pub use skif_js::UsageReport;
 #[cfg(feature = "fix")]
 pub use fix::{
     Alternatives, AppliedFix, FixError, FixPlan, FixSelection, SkipReason, SkippedFix, apply_fixes, content_hash,
     preferred_alternative,
 };
+#[cfg(feature = "js-analysis")]
+pub use js::explain_usage;
 pub use linter::{Linter, RunOptions, builtin_providers};
 pub use root::{config_file, find_workspace_root, load_config, resolve_config};
+#[cfg(feature = "js-analysis")]
+pub use skif_js::UsageReport;
 pub use targets::{
     Discovery, RootFailure, Target, UnappliedConfig, UnappliedReason, discover_all, discover_targets, find_target,
     load_target, unapplied_config_files,

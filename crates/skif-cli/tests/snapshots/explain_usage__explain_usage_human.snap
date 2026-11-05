@@ -1,0 +1,16 @@
+---
+source: crates/skif-cli/tests/explain_usage.rs
+expression: "redact(&result.stdout, dir.path())"
+---
+lib.ts
+  imported by 2 place(s):
+    a.test.ts:1 (side-effect: the whole module)
+    barrel.ts:1 (export-from: run)
+  reached from an entry through: a.test.ts -> lib.ts
+  export `run` of lib.ts:
+    re-exported by barrel.ts as `go`:
+    export `go` of barrel.ts:
+      imported by index.ts:1 (go)
+      itself a re-export of another module
+    => used by another module
+  => used by another module
