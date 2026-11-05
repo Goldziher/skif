@@ -9,6 +9,8 @@
 //! component tags and the expressions of the template count as uses of the imports they name. Stylesheets go
 //! through [`parse_stylesheet`]. Other extensions, including `.mdx`, yield [`SyntaxError::Unsupported`].
 
+#![warn(missing_docs)]
+
 mod collect;
 mod comments;
 mod config;
