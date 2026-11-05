@@ -396,7 +396,7 @@ enum AliasFind<'a> {
 /// An alias from a regular expression `find`. `^@/(.*)$` with the replacement `/src/$1` is the prefix alias `@` to
 /// `src`; any other pattern with a literal prefix is an alias whose target is computed, so the imports it matches are
 /// not reported. A pattern without a literal prefix cannot be named and yields nothing.
-fn pattern_alias(pattern: &str, replacement: &ConfigValue, config: &ConfigAst<'_>) -> Option<PluginInput> {
+pub(crate) fn pattern_alias(pattern: &str, replacement: &ConfigValue, config: &ConfigAst<'_>) -> Option<PluginInput> {
     let (prefix, rest) = regex_literal_prefix(pattern.strip_prefix('^')?);
     let find = prefix.trim_end_matches('/');
     if find.is_empty() {

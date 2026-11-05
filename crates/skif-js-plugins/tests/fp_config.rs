@@ -534,3 +534,15 @@ export default {
         ]
     );
 }
+
+#[test]
+fn jest_module_name_mapper_prefixes_are_aliases() {
+    let config = "module.exports = { moduleNameMapper: { '^@core/(.*)$': '<rootDir>/src/$1', '\\\\.css$': 'identity-obj-proxy' } };";
+    let results = run(&[("jest.config.js", config)], &["jest"], &[]);
+    let aliases: Vec<(String, Option<String>)> = output(&results, "jest")
+        .aliases
+        .iter()
+        .map(|alias| (alias.find.clone(), alias.target.clone()))
+        .collect();
+    assert_eq!(aliases, [("@core".to_owned(), Some("src".to_owned()))]);
+}
