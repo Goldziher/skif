@@ -866,7 +866,7 @@
         },
         "discovery": {
           "$ref": "#/$defs/JsDiscovery",
-          "description": "How source files are found: `auto` lists them from the git index when the workspace is in a git work tree and\nwalks the directories otherwise, `git` requires the index (falling back to the walk when there is none), and\n`walk` always walks. The index lists tracked files only; the walk also finds untracked ones.",
+          "description": "How source files are found: `auto` lists them from the git index and re-lists from disk every directory\nmodified since the index was written, which gives the walk's result without walking every directory; `git`\ntrusts the index alone (faster, blind to untracked and deleted files); `walk` always walks. Both index modes\nfall back to the walk when the workspace is not in a git work tree with a usable SHA-1 index.",
           "default": "auto"
         },
         "workspaces": {
@@ -927,7 +927,7 @@
           "description": "Ignores the kinds set to `true`."
         }
       ],
-      "description": "`ignore-exports-used-in-file`: `true`, or a table naming the kinds of export it applies to."
+      "description": "`ignore-exports-used-in-file`: `true`, or a table naming the kinds of export it applies to.\n\nIt is read by hand rather than as an untagged enum, so that a mistyped kind is reported by name (`unknown field\n\"fucntion\"`) instead of serde's \"data did not match any variant\"."
     },
     "ExportKinds": {
       "type": "object",
@@ -981,17 +981,17 @@
         {
           "type": "string",
           "const": "auto",
-          "description": "The git index when the workspace is in a git work tree, the directory walk otherwise."
+          "description": "The git index, checked against the file system: a directory modified since the index was written is listed\nfrom disk, so untracked and deleted files are found as the walk finds them. The directory walk when the\nworkspace is not in a git work tree with a usable index."
         },
         {
           "type": "string",
           "const": "git",
-          "description": "The git index; the directory walk when there is no readable index."
+          "description": "The git index alone, without checking the file system: faster, but blind to files created or deleted since the\nlast `git add`. The directory walk when there is no usable index."
         },
         {
           "type": "string",
           "const": "walk",
-          "description": "Always walk the directories, which also finds untracked files."
+          "description": "Always walk the directories."
         }
       ],
       "description": "`[js] discovery`"
@@ -1202,39 +1202,54 @@
       "additionalProperties": false,
       "properties": {
         "entry": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           },
-          "description": "Replaces the entry globs."
+          "description": "Replaces the entry globs; an empty list clears what the package inherits."
         },
         "project": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           },
-          "description": "Replaces the project globs."
+          "description": "Replaces the project globs; an empty list clears what the package inherits."
         },
         "ignore": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           },
-          "description": "Replaces the ignore globs."
+          "description": "Replaces the ignore globs; an empty list clears what the package inherits."
         },
         "ignore-dependencies": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           },
-          "description": "Replaces the ignored dependencies."
+          "description": "Replaces the ignored dependencies; an empty list clears what the package inherits."
         },
         "ignore-binaries": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           },
-          "description": "Replaces the ignored binaries."
+          "description": "Replaces the ignored binaries; an empty list clears what the package inherits."
         },
         "extend-ignore": {
           "type": "array",
@@ -1258,11 +1273,14 @@
           "description": "Appended to the ignored binaries."
         },
         "ignore-unresolved": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           },
-          "description": "Replaces the ignored unresolved specifiers."
+          "description": "Replaces the ignored unresolved specifiers; an empty list clears what the package inherits."
         },
         "extend-ignore-unresolved": {
           "type": "array",
@@ -1279,7 +1297,7 @@
           "description": "Plugin switches and options for the selected packages."
         }
       },
-      "description": "`[js]` keys an override can set for the packages it selects.\n\nGlobs are relative to each selected package. The `extend-*` keys append to what the package inherits; the others\nreplace it."
+      "description": "`[js]` keys an override can set for the packages it selects.\n\nGlobs are relative to each selected package. The `extend-*` keys append to what the package inherits; the others\nreplace it, and set to an empty list they clear it."
     }
   }
 }
