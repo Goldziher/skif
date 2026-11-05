@@ -123,6 +123,9 @@ const exitCode = run(["--format", "json", "./my-monorepo"]);
   `{ recursive: true }` it lints every workspace and standalone package at or below `path`, like `skif -r`, and
   the report gains a `roots` array. It prints
   nothing and writes no files. It blocks the event loop, so use `lintAsync` in a server.
+  The options mirror the flags of the same name: `noJs`, `production`, `failOnWarnings`, `ignoreRules`,
+  `ignorePackages`, `ignoreDependencies`, `recursive`, `config` (use that file and the files it extends instead of
+  discovering `skif.toml` files) and `noConfig` (read no file).
 - `lintAsync(path, options?)` does the same on a worker thread and resolves with `{ report }` or, when the lint
   cannot run, `{ error: { kind, message, path? } }`. `kind` is `config`, `workspace`, `io` or `internal`.
 - `run(argv)` runs the full command line (`argv` excludes the program name) and returns its exit code. Output
