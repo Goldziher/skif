@@ -78,6 +78,7 @@ fn range_prefix_len(bytes: &[u8]) -> Option<usize> {
     }
 }
 
+/// Whether `str` is any of the plain forms: exact, `latest`, major, minor, or a range over one of them.
 #[must_use]
 pub fn is_simple_semver(str: &str) -> bool {
     is_exact(str)
@@ -97,6 +98,7 @@ pub fn is_exact(s: &str) -> bool {
     is_semver_triple(bytes, start)
 }
 
+/// `*`, `latest` or `x`.
 #[must_use]
 pub fn is_latest(str: &str) -> bool {
     str == "*" || str == "latest" || str == "x"

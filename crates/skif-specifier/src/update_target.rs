@@ -3,6 +3,7 @@
 #[path = "update_target_test.rs"]
 mod update_target_test;
 
+/// How far an update may move a version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateTarget {
     /// "*.*.*"

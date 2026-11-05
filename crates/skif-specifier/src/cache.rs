@@ -21,6 +21,7 @@ pub struct SpecifierCache {
 }
 
 impl SpecifierCache {
+    /// An empty cache.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -48,6 +49,7 @@ impl SpecifierCache {
         Arc::clone(entries.entry(raw.into()).or_insert(parsed))
     }
 
+    /// The number of distinct specifiers held.
     #[must_use]
     pub fn len(&self) -> usize {
         self.shards
@@ -56,6 +58,7 @@ impl SpecifierCache {
             .sum()
     }
 
+    /// Whether the cache holds nothing yet.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0

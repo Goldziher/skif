@@ -1,6 +1,7 @@
 // Vendored from syncpack crates/syncpack-specifier/src/catalog.rs @958d306 (MIT, Copyright (c) 2017-2023 Jamie Mason). Modified for skif; see ATTRIBUTIONS.md.
 use crate::Specifier;
 
+/// A `catalog:` reference to an entry of a workspace catalog.
 #[derive(Debug, PartialEq)]
 pub struct Catalog {
     /// The complete raw string
@@ -34,6 +35,7 @@ impl Catalog {
     }
 
     /// Create a Catalog as Specifier variant (for compatibility)
+    /// Parses `raw` into a [`Specifier`].
     #[must_use]
     pub fn create(raw: &str) -> Specifier {
         match Self::new(raw.to_string()) {

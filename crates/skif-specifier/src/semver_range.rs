@@ -8,6 +8,7 @@ use std::{
     hash::{Hash, Hasher},
 };
 
+/// The range operator in front of a version.
 #[derive(Clone, Debug)]
 pub enum SemverRange {
     /// *

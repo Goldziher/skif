@@ -1,6 +1,7 @@
 // Vendored from syncpack crates/syncpack-specifier/src/url.rs @958d306 (MIT, Copyright (c) 2017-2023 Jamie Mason). Modified for skif; see ATTRIBUTIONS.md.
 use crate::Specifier;
 
+/// A tarball URL.
 #[derive(Debug, PartialEq)]
 pub struct Url {
     /// - "<http://insecure.com/foo.tgz>"
@@ -10,6 +11,7 @@ pub struct Url {
 }
 
 impl Url {
+    /// Parses `raw` into a [`Specifier`].
     #[must_use]
     pub fn create(raw: &str) -> Specifier {
         Specifier::Url(Self { raw: raw.to_string() })

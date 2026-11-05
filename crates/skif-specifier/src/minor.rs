@@ -4,6 +4,7 @@ use {
     std::sync::Arc,
 };
 
+/// A bare major and minor version such as `1.2`.
 #[derive(Debug)]
 pub struct Minor {
     /// "1.2"
@@ -21,6 +22,7 @@ impl PartialEq for Minor {
 impl Minor {
     /// Returns `Specifier::Unsupported` when a number is out of range for a
     /// semver component.
+    /// Parses `raw` into a [`Specifier`].
     #[must_use]
     pub fn create(raw: &str) -> Specifier {
         match Self::try_new(raw) {
@@ -48,6 +50,7 @@ impl Minor {
         Self::try_new(raw).expect("valid test fixture")
     }
 
+    /// The padded version the specifier orders by.
     #[must_use]
     pub fn get_node_version(&self) -> Arc<nodejs_semver::Version> {
         self.node_version.clone()

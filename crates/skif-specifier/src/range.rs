@@ -4,6 +4,7 @@ use {
     std::sync::Arc,
 };
 
+/// A single-comparator range such as `^1.2.3` or `>=1.2.3`.
 #[derive(Debug, PartialEq)]
 pub struct Range {
     /// ">=1.2.3"
@@ -28,6 +29,7 @@ pub struct Range {
 }
 
 impl Range {
+    /// Parses `raw` into a [`Specifier`].
     #[must_use]
     pub fn create(raw: &str) -> Specifier {
         let semver_range = SemverRange::parse(raw);

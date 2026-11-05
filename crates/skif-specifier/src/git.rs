@@ -4,6 +4,7 @@ use {
     std::sync::Arc,
 };
 
+/// A git URL or hosting shorthand, optionally pinned to a semver tag.
 #[derive(Debug, PartialEq)]
 pub struct Git {
     /// The exact version specifier as it was provided.
@@ -71,6 +72,7 @@ pub struct Git {
 }
 
 impl Git {
+    /// Parses `raw` into a [`Specifier`].
     #[must_use]
     pub fn create(raw: &str) -> Specifier {
         raw.find('#')
