@@ -61,7 +61,7 @@ pub struct RunOptions<'a> {
 }
 
 impl<'a> RunOptions<'a> {
-    /// Runs rules on `executor` instead of the current (global) pool. Ignored when [`sequential`](Self::sequential)
+    /// Runs rules on `executor` instead of the current (global) pool. Ignored when [`with_sequential`](Self::with_sequential)
     /// is set.
     #[must_use]
     pub const fn with_executor(mut self, executor: &'a Executor) -> Self {
@@ -86,7 +86,7 @@ impl<'a> RunOptions<'a> {
 
     /// Runs everything on the calling thread: no rayon pool is used or created and the executor is ignored.
     #[must_use]
-    pub const fn sequential(mut self, sequential: bool) -> Self {
+    pub const fn with_sequential(mut self, sequential: bool) -> Self {
         self.sequential = sequential;
         self
     }

@@ -8,18 +8,18 @@ use skif_core::RuleMeta;
 use crate::path::{collapse_dots, is_absolute_text, relativize};
 use crate::text::{Source, utf16_column};
 
-/// Configuration for every renderer; the caller decides colour, root and sources.
+/// Configuration for every renderer; the caller decides colour, root and sources. Built with the `with_*` methods.
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct RenderOptions {
     /// Emit ANSI colour codes (human format only).
-    pub color: bool,
+    color: bool,
     /// Root stripped from absolute paths so that output is relative.
-    pub root: Option<PathBuf>,
+    root: Option<PathBuf>,
     /// Version of the tool, reported as `skif` in JSON output; the version of this crate when unset.
-    pub tool_version: Option<String>,
+    tool_version: Option<String>,
     /// The repository top-level, when the workspace root is below it; GitHub annotations are relative to it.
-    pub repo_root: Option<PathBuf>,
+    repo_root: Option<PathBuf>,
     rules: Vec<&'static RuleMeta>,
     sources: BTreeMap<String, Source>,
 }

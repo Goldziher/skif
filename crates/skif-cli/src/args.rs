@@ -308,6 +308,27 @@ mod tests {
         }
     }
 
+    /// Whether `text` names `--flag` as a whole word, not as the beginning of a longer flag.
+    fn mentions(text: &str, flag: &str) -> bool {
+        let needle = format!("--{flag}");
+        text.match_indices(&needle).any(|(start, _)| {
+            !text[start + needle.len()..]
+                .chars()
+                .next()
+                .is_some_and(|next| next.is_ascii_alphanumeric() || next == '-' || next == '_')
+        })
+    }
+
+    #[test]
+    fn a_flag_is_not_mentioned_by_a_longer_flag() {
+        assert!(mentions("use `--fix` here", "fix"));
+        assert!(mentions("--fix", "fix"));
+        assert!(mentions("--fix-unsafe and --fix.", "fix"));
+        assert!(!mentions("only --fix-unsafe", "fix"));
+        assert!(!mentions("--ignore-rule-for-package", "ignore-rule"));
+        assert!(!mentions("--fixture", "fix"));
+    }
+
     /// The CLI reference is written by hand; this fails when a flag is added to the command line and not to it.
     #[test]
     fn every_long_flag_is_in_the_cli_reference() {
@@ -317,10 +338,7 @@ mod tests {
         long_flags(&Cli::command(), &mut flags);
         flags.remove("help");
         flags.remove("version");
-        let missing: Vec<&String> = flags
-            .iter()
-            .filter(|flag| !reference.contains(&format!("--{flag}")))
-            .collect();
-        assert!(missing.is_empty(), "flags missing from reference/cli.mdx: {missing:?}");
+        let missing: Vec<&String> = flags.iter().filter(|flag| !mentions(reference, flag)).collect();
+        assert_eq!(missing, Vec::<&String>::new(), "flags missing from reference/cli.mdx");
     }
 }

@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::{Map, Value, json};
 use skif::{
     Assignment, CachedFs, Config, ConfigOverrides, ConfigSource, Op, OsFs, SourceKind, Target, slash,
-    unapplied_config_files,
+    unapplied_config_files_all,
 };
 
 use crate::args::{ConfigArgs, Format, RulesFormat};
@@ -72,23 +72,25 @@ fn execute(args: &ConfigArgs) -> Result<u8, CliError> {
         failures,
         ..
     } = roots::resolve(&start, args.recursive, &fs, &ConfigOverrides::default())?;
-    let roots: Vec<&Path> = targets.iter().map(|target| target.root.as_path()).collect();
+    let mut unapplied = if args.explain.is_none() {
+        unapplied_config_files_all(&targets, &fs)
+    } else {
+        Vec::new()
+    };
+    unapplied.resize_with(targets.len(), Vec::new);
     let views: Vec<RootView<'_>> = targets
         .iter()
-        .map(|target| RootView {
+        .zip(unapplied)
+        .map(|(target, files)| RootView {
             target,
             path: relative(&base, &target.root),
-            unapplied: if args.explain.is_none() {
-                unapplied_config_files(target, &roots, &fs)
-                    .into_iter()
-                    .map(|file| Unapplied {
-                        path: relative(&base, &file.path),
-                        reason: file.reason.describe(),
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            },
+            unapplied: files
+                .into_iter()
+                .map(|file| Unapplied {
+                    path: relative(&base, &file.path),
+                    reason: file.reason.describe(),
+                })
+                .collect(),
         })
         .collect();
     let text = match (&args.explain, args.format) {

@@ -155,3 +155,8 @@ blake3 = "4c0aca44a3801b20996ec7cd22e72bb0010d5c2411e4462f161ff2bbaa4181e8"
 number = 31
 status = "accepted"
 blake3 = "7a805fd5276aacd4a09dd1b1c7d292720fb09ba0bdd8081cb6efb170eb3cf17c"
+
+[adrs."adrs/0032-third-party-types-in-the-facade-api.md"]
+number = 32
+status = "accepted"
+blake3 = "478fc16bd0271571487caacee70db5b4a9af4129efcdbb803f648c858e254249"

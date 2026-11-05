@@ -1,7 +1,7 @@
 //! Multi-root discovery: every workspace and standalone package below a directory, each with its own configuration.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use rayon::prelude::*;
 use skif_config::{Ceiling, Config, ConfigCache, ConfigLoader, ConfigOverrides, ConfigSource, Origins};
@@ -36,14 +36,23 @@ pub struct Target {
 impl Target {
     /// The configuration file relative to [`root`](Self::root), for
     /// [`RunOptions::with_config_path`](crate::RunOptions::with_config_path): `skif.toml` when it sits in the root,
-    /// `../skif.toml` when it was inherited from a parent directory.
+    /// `../skif.toml` when it was inherited from a parent directory, `../../etc/skif.toml` when an explicit
+    /// configuration lives elsewhere; the absolute path when the two share no directory.
     #[must_use]
     pub fn config_path(&self) -> Option<PathBuf> {
         let file = self.config_file.as_ref()?;
-        let dir = file.parent()?;
-        let up = self.root.strip_prefix(dir).ok()?.components().count();
-        let mut path: PathBuf = std::iter::repeat_n("..", up).collect();
-        path.push(file.file_name()?);
+        let base: Vec<Component<'_>> = self.root.components().collect();
+        let target: Vec<Component<'_>> = file.components().collect();
+        let common = base
+            .iter()
+            .zip(&target)
+            .take_while(|(left, right)| left == right)
+            .count();
+        if common == 0 {
+            return Some(file.clone());
+        }
+        let mut path: PathBuf = std::iter::repeat_n("..", base.len() - common).collect();
+        path.extend(&target[common..]);
         Some(path)
     }
 }
@@ -277,10 +286,50 @@ pub struct UnappliedConfig {
 /// (`other_roots`) belongs to that root and is not reported.
 #[must_use]
 pub fn unapplied_config_files(target: &Target, other_roots: &[&Path], fs: &dyn FileSystem) -> Vec<UnappliedConfig> {
-    let candidates = scan_candidates(&target.root, fs, &DiscoverOptions::default().with_ignore(Vec::new()));
+    let candidates = scan_candidates(&target.root, fs, &unapplied_scan_options());
+    unapplied_among(target, other_roots, candidates.config_files)
+}
+
+/// [`unapplied_config_files`] for every target of a run at once: entry `i` is the answer for `targets[i]`, with the
+/// other targets as the deeper roots.
+///
+/// The tree below each outermost root is walked once and its files are shared out among the roots inside it, where
+/// calling [`unapplied_config_files`] per target walks an inner tree once for every root around it.
+#[must_use]
+pub fn unapplied_config_files_all(targets: &[Target], fs: &dyn FileSystem) -> Vec<Vec<UnappliedConfig>> {
+    let roots: Vec<&Path> = targets.iter().map(|target| target.root.as_path()).collect();
+    let mut scans: BTreeMap<&Path, BTreeSet<PathBuf>> = BTreeMap::new();
+    targets
+        .iter()
+        .map(|target| {
+            let outermost = roots
+                .iter()
+                .copied()
+                .filter(|root| target.root.starts_with(root))
+                .min_by_key(|root| root.components().count())
+                .unwrap_or(target.root.as_path());
+            let files = scans
+                .entry(outermost)
+                .or_insert_with(|| scan_candidates(outermost, fs, &unapplied_scan_options()).config_files);
+            let below = files.iter().filter(|file| file.starts_with(&target.root)).cloned();
+            unapplied_among(target, &roots, below)
+        })
+        .collect()
+}
+
+/// The walk that looks for configuration files: nothing is skipped by `workspace.discover-ignore`.
+fn unapplied_scan_options() -> DiscoverOptions {
+    DiscoverOptions::default().with_ignore(Vec::new())
+}
+
+/// The files of `config_files` below `target.root` that its configuration was not built from.
+fn unapplied_among(
+    target: &Target,
+    other_roots: &[&Path],
+    config_files: impl IntoIterator<Item = PathBuf>,
+) -> Vec<UnappliedConfig> {
     let members = target.workspace.member_dirs();
-    candidates
-        .config_files
+    config_files
         .into_iter()
         .filter_map(|path| {
             let dir = path.parent()?;
@@ -379,6 +428,17 @@ mod tests {
         assert_eq!(targets.len(), 1);
         assert!(!targets[0].config.lint.fail_on_warnings);
         assert_eq!(targets[0].config_path(), None);
+    }
+
+    #[test]
+    fn an_explicit_configuration_outside_the_root_is_named_relative_to_it() {
+        let fs = MemoryFs::new()
+            .with_file("/r/a/package.json", r#"{"name": "a", "version": "1.0.0"}"#)
+            .with_file("/etc/org/skif.toml", "[lint]\nfail-on-warnings = true\n");
+        let overrides = ConfigOverrides::default().with_config_file(Some(PathBuf::from("/etc/org/skif.toml")));
+        let target = load_target(Path::new("/r/a"), &Ceiling::Vcs, &fs, &overrides, &ConfigCache::new()).unwrap();
+        assert_eq!(target.config_file, Some(PathBuf::from("/etc/org/skif.toml")));
+        assert_eq!(target.config_path(), Some(PathBuf::from("../../etc/org/skif.toml")));
     }
 
     #[test]
@@ -523,6 +583,43 @@ mod tests {
             .with_file("/r/p/m/package.json", r#"{"name": "m"}"#);
         let error = find_target(Path::new("/r/p/m"), &fs, &ConfigOverrides::default()).unwrap_err();
         assert!(matches!(error, Error::Workspace(_)), "{error}");
+    }
+
+    #[test]
+    fn both_ancestor_searches_name_an_ancestor_whose_configuration_is_broken() {
+        let fs = MemoryFs::new()
+            .with_file("/r/package.json", r#"{"workspaces": ["p/*"]}"#)
+            .with_file("/r/skif.toml", "[lint\n")
+            .with_file("/r/p/m/package.json", r#"{"name": "m"}"#);
+        let start = Path::new("/r/p/m");
+        assert_eq!(crate::find_workspace_root(start, &fs).unwrap(), Path::new("/r"));
+        let error = find_target(start, &fs, &ConfigOverrides::default()).unwrap_err();
+        assert!(matches!(error, Error::Config(_)), "{error}");
+    }
+
+    #[test]
+    fn unapplied_files_of_all_targets_match_the_per_target_answers() {
+        let fs = MemoryFs::new()
+            .with_file("/r/package.json", r#"{"name": "root", "workspaces": ["packages/*"]}"#)
+            .with_file("/r/packages/a/package.json", r#"{"name": "a"}"#)
+            .with_file("/r/packages/a/skif.toml", "")
+            .with_file("/r/stray/skif.toml", "")
+            .with_file("/r/inner/pnpm-workspace.yaml", "packages:\n  - 'q/*'\n")
+            .with_file("/r/inner/q/n/package.json", r#"{"name": "n"}"#)
+            .with_file("/r/inner/q/n/skif.toml", "")
+            .with_file("/r/inner/loose/skif.toml", "");
+        let targets = discover(&fs, "/r").targets;
+        assert_eq!(names(&discover(&fs, "/r")), ["/r", "/r/inner"]);
+        let roots: Vec<&Path> = targets.iter().map(|target| target.root.as_path()).collect();
+        let expected: Vec<Vec<UnappliedConfig>> = targets
+            .iter()
+            .map(|target| unapplied_config_files(target, &roots, &fs))
+            .collect();
+        assert_eq!(unapplied_config_files_all(&targets, &fs), expected);
+        let paths =
+            |files: &[UnappliedConfig]| -> Vec<PathBuf> { files.iter().map(|file| file.path.clone()).collect() };
+        assert_eq!(paths(&expected[0]), [PathBuf::from("/r/stray/skif.toml")]);
+        assert_eq!(paths(&expected[1]), [PathBuf::from("/r/inner/loose/skif.toml")]);
     }
 
     #[test]
