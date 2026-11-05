@@ -12,12 +12,13 @@
 //! The rules are `unused-dependencies`, `unused-dev-dependencies`, `unlisted-dependencies`, `unresolved-imports`,
 //! `unlisted-binaries`, `unused-optional-peer-dependencies`, `unused-files`, `unused-exports`, `unused-types`,
 //! `unused-namespace-exports`, `unused-namespace-types`, `unused-enum-members`, `unused-namespace-members`,
-//! `duplicate-exports`, `unparseable-files` and `circular-imports` (off by default).
+//! `duplicate-exports`, `unparseable-files`, `stale-js-config` and `circular-imports` (off by default).
 //!
 //! No oxc type appears in the public API.
 
 mod analysis;
 mod ancestors;
+mod config_check;
 mod deps;
 mod discover;
 mod entries;
@@ -25,6 +26,7 @@ mod explain;
 mod globs;
 mod graph;
 mod input;
+mod listed;
 mod lockfile;
 mod manifest_paths;
 mod plugin_source;
@@ -46,7 +48,7 @@ pub use input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs}
 pub use plugin_source::PluginSource;
 pub use provider::{JsProvider, PROVIDER_ID};
 pub use rules::{
-    CircularImports, DuplicateExports, JsRule, UnlistedBinaries, UnlistedDependencies, UnparseableFiles,
+    CircularImports, DuplicateExports, JsRule, StaleJsConfig, UnlistedBinaries, UnlistedDependencies, UnparseableFiles,
     UnresolvedImports, UnusedDependencies, UnusedDevDependencies, UnusedEnumMembers, UnusedExports, UnusedFiles,
     UnusedNamespaceExports, UnusedNamespaceMembers, UnusedNamespaceTypes, UnusedOptionalPeerDependencies, UnusedTypes,
     rules,
