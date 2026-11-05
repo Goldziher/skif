@@ -581,6 +581,11 @@ impl ModuleResolver {
             }
             return outcome(self.classify(path), member_name);
         }
+        if specifier.starts_with('.')
+            && let Some(found) = self.through_root_dirs(importer, specifier)
+        {
+            return outcome(found, None);
+        }
         if specifier.starts_with('#')
             && let Some(found) = self.through_imports(importer, specifier)
         {
@@ -750,6 +755,25 @@ impl ModuleResolver {
                 .ok()
                 .map(|resolution| self.classify(resolution.path().to_path_buf()))
         })
+    }
+
+    /// A relative specifier through the `rootDirs` of the nearest `tsconfig.json`: the same path below another root
+    /// directory, as for generated code that lives beside the sources in a virtual directory.
+    fn through_root_dirs(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
+        let directory = importer.parent()?;
+        let config = self.nearest_paths.get_or_compute(directory.to_path_buf(), || {
+            self.tsconfigs.nearest(directory).map(Arc::new)
+        })?;
+        config
+            .root_dir_candidates(directory, specifier)
+            .into_iter()
+            .find_map(|path| {
+                self.script
+                    .plain
+                    .resolve(directory, &specifier_of(&path))
+                    .ok()
+                    .map(|resolution| self.classify(resolution.path().to_path_buf()))
+            })
     }
 
     /// A `#` specifier through the `imports` of the package that holds the importer, for targets that point at build
@@ -1202,6 +1226,25 @@ mod tests {
             r.resolve(importer, "@x/b/util").target,
             Resolved::File(PathBuf::from("/ws/packages/b/lib/util.ts"))
         );
+    }
+
+    #[test]
+    fn relative_imports_cross_root_dirs() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            (
+                "packages/a/tsconfig.json",
+                r#"{"compilerOptions":{"rootDirs":["src","bazel-out/bin/src"]}}"#,
+            ),
+            ("packages/a/src/ui/view.ts", ""),
+            ("packages/a/bazel-out/bin/src/ui/generated.ts", ""),
+        ]);
+        let importer = Path::new("/ws/packages/a/src/ui/view.ts");
+        assert_eq!(
+            r.resolve(importer, "./generated").target,
+            Resolved::File(PathBuf::from("/ws/packages/a/bazel-out/bin/src/ui/generated.ts"))
+        );
+        assert_eq!(r.resolve(importer, "./absent").target, Resolved::Unresolved);
     }
 
     #[test]
