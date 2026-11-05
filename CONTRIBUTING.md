@@ -92,6 +92,10 @@ or is replaced, write a new ADR that supersedes or amends it, add it to `adrs/in
    otherwise (`scripts/check-release-gate.sh`).
 6. Rehearse with the workflow's `dry-run` input: it builds every target and verifies the assets and the crate
    packages without publishing.
+7. In the release change, remove the pre-release notices: the "Pre-release" callout at the top of `README.md`, the
+   "has not been released yet" wording in its Installation section, and the `Aside` marked `pre-release-notice` in
+   `website/src/content/docs/start/introduction.mdx` and `installation.mdx`
+   (`grep -rn "pre-release-notice" website/src` lists them).
 
 ## AI governance
 
