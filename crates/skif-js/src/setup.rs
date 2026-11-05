@@ -11,7 +11,7 @@ use skif_workspace::{PackageId, Workspace};
 use crate::ancestors;
 use crate::globs::{Globs, Names};
 use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
-use crate::scripts::{self, ScriptFacts};
+use crate::scripts::{self, ScriptBinary, ScriptFacts};
 
 const EXTENSIONS: &str = "{js,mjs,cjs,jsx,ts,tsx,mts,cts}";
 
@@ -204,6 +204,57 @@ fn workspace_relative(dir: &str, pattern: &str) -> Option<String> {
     Some(format!("{negation}{}", parts.join("/")))
 }
 
+/// Whether a workspace named by a script (`yarn workspace web`, `pnpm --filter "@scope/*"`, `npm -w packages/web`)
+/// is `package`: by name, by name pattern or by directory. Exclusions (`!web`) select nothing.
+fn names_package(target: &str, package: &skif_workspace::Package) -> bool {
+    let target = target.trim_start_matches("...").trim_end_matches("...");
+    if target.starts_with('!') {
+        return false;
+    }
+    if package.name.as_deref() == Some(target) {
+        return true;
+    }
+    if target.starts_with('.') || (target.contains('/') && !target.starts_with('@')) {
+        let dir = package.dir.to_string_lossy().replace('\\', "/");
+        if normalize_dir(target) == dir {
+            return true;
+        }
+    }
+    package.name.as_deref().is_some_and(|name| {
+        target.contains(['*', '?', '[', '{']) && Glob::new(target).is_ok_and(|glob| glob.compile_matcher().is_match(name))
+    })
+}
+
+/// Credits the binaries a package's scripts run in other, named workspaces to those workspaces, as binaries a listed
+/// provider is used for and that are never unlisted: whether the name is a binary or a script of the target is
+/// not known from the caller.
+fn forward_workspace_binaries(packages: &mut [Option<PackageSetup>], workspace: &Workspace) {
+    let mut credits: Vec<(PackageId, ScriptBinary)> = Vec::new();
+    for setup in packages.iter().flatten() {
+        for forwarded in &setup.scripts.forwarded {
+            for (id, target) in workspace.iter() {
+                let runs_script = target
+                    .manifest
+                    .value()
+                    .get("scripts")
+                    .and_then(|scripts| scripts.get(&forwarded.binary.name))
+                    .is_some();
+                if !runs_script && forwarded.targets.iter().any(|name| names_package(name, target)) {
+                    credits.push((id, forwarded.binary.clone()));
+                }
+            }
+        }
+    }
+    for (id, binary) in credits {
+        if let Some(Some(setup)) = packages.get_mut(id.index())
+            && !setup.scripts.binaries.contains(&binary)
+            && !setup.scripts.ephemeral_binaries.contains(&binary)
+        {
+            setup.scripts.ephemeral_binaries.push(binary);
+        }
+    }
+}
+
 /// Whether an entry glob from a plugin may match files of nested workspace packages. A glob that starts with `**/`
 /// is a per-package default (every package has its own test files) and one that leaves the package is handled as
 /// an external entry.
@@ -235,7 +286,7 @@ impl Setup {
             .and_then(|rule| skif_lint::parse_options::<UnusedExportsOptions>(&rule.options).ok())
             .map(|options| options.ignore_tags)
             .unwrap_or_default();
-        let packages = workspace
+        let mut packages: Vec<Option<PackageSetup>> = workspace
             .iter()
             .map(|(id, package)| {
                 if workspace.is_ignored(id) {
@@ -337,6 +388,7 @@ impl Setup {
                 })
             })
             .collect();
+        forward_workspace_binaries(&mut packages, workspace);
         Self {
             packages,
             global_ignore: Globs::new(&js.ignore),

@@ -13,12 +13,22 @@ pub(crate) struct ScriptBinary {
     pub script: String,
 }
 
+/// A binary a script runs in other workspaces (`pnpm --filter web exec vitest`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ForwardedBinary {
+    /// The workspaces it names: package names, patterns or directories.
+    pub targets: Vec<String>,
+    pub binary: ScriptBinary,
+}
+
 /// Binaries, files and packages referenced by a package's scripts.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ScriptFacts {
     pub binaries: Vec<ScriptBinary>,
     /// Binaries fetched on demand (`npx x`, `pnpm dlx x`): a listed provider is used, nothing is ever unlisted.
     pub ephemeral_binaries: Vec<ScriptBinary>,
+    /// Binaries run in named workspaces; the package they belong to is only known with the whole workspace.
+    pub forwarded: Vec<ForwardedBinary>,
     /// Package managers the scripts invoke, which a manifest may list as a dependency.
     pub package_managers: Vec<String>,
     /// Files the scripts run, relative to the package directory.
@@ -46,13 +56,26 @@ pub(crate) fn analyze(package: &Package) -> ScriptFacts {
     });
     let mut binaries = IndexSet::new();
     let mut ephemeral_binaries = IndexSet::new();
+    let mut forwarded = IndexSet::new();
     let mut package_managers = IndexSet::new();
     let mut files = IndexSet::new();
     let mut dependencies = IndexSet::new();
     for (name, body) in commands {
         let info = parse_script(body, &context.clone().with_current_script(name));
         for binary in info.binaries {
-            if binary.filtered || is_ignored_binary(&binary.name) {
+            if is_ignored_binary(&binary.name) {
+                continue;
+            }
+            if binary.filtered {
+                if !binary.workspaces.is_empty() {
+                    forwarded.insert(ForwardedBinary {
+                        targets: binary.workspaces,
+                        binary: ScriptBinary {
+                            name: binary.name,
+                            script: name.clone(),
+                        },
+                    });
+                }
                 continue;
             }
             let target = if binary.via.is_ephemeral() {
@@ -77,6 +100,7 @@ pub(crate) fn analyze(package: &Package) -> ScriptFacts {
     ScriptFacts {
         binaries: binaries.into_iter().collect(),
         ephemeral_binaries: ephemeral_binaries.into_iter().collect(),
+        forwarded: forwarded.into_iter().collect(),
         package_managers: package_managers.into_iter().collect(),
         files: files.into_iter().collect(),
         dependencies: dependencies.into_iter().collect(),
@@ -108,6 +132,23 @@ mod tests {
             facts.files.iter().any(|f| f.ends_with("scripts/build.js")),
             "{:?}",
             facts.files
+        );
+    }
+
+    #[test]
+    fn binaries_run_in_named_workspaces_are_forwarded() {
+        let facts = analyze(&package(
+            r#"{"name":"p","scripts":{"a":"pnpm --filter web exec vitest","b":"yarn workspace sub run biome check","c":"pnpm -r exec tsc"}}"#,
+        ));
+        assert!(facts.binaries.is_empty(), "{:?}", facts.binaries);
+        let forwarded: Vec<(&str, &[String])> = facts
+            .forwarded
+            .iter()
+            .map(|f| (f.binary.name.as_str(), f.targets.as_slice()))
+            .collect();
+        assert_eq!(
+            forwarded,
+            [("vitest", &["web".to_owned()][..]), ("biome", &["sub".to_owned()][..])]
         );
     }
 
