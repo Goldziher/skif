@@ -1,0 +1,6 @@
+[catalog]
+mode = "enforce"
+
+[[version-groups]]
+packages = ["legacy"]
+policy = "ignored"

@@ -4,7 +4,7 @@
 
 | Rule | Category | Default severity | Fixable |
 | --- | --- | --- | --- |
-| [`catalog-mismatch`](#catalog-mismatch) | catalog | error | sometimes |
+| [`catalog-mismatch`](#catalog-mismatch) | catalog | warning | sometimes |
 | [`catalog-missing-entry`](#catalog-missing-entry) | catalog | warning | sometimes |
 | [`catalog-not-used`](#catalog-not-used) | catalog | warning | sometimes |
 | [`unresolved-catalog-references`](#unresolved-catalog-references) | catalog | error | none |
@@ -50,7 +50,7 @@
 A dependency is declared with a version while other packages take it from a catalog.
 
 - Category: catalog
-- Default severity: error
+- Default severity: warning
 - Fixable: sometimes
 
 ## catalog-missing-entry

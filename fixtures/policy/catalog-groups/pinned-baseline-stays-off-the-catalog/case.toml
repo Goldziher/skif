@@ -1,0 +1,3 @@
+description = "A pinned baseline group keeps one package off the catalog: its instance is the pin's, only the packages outside the group are reported as not using the catalog, and nothing is reported twice."
+source = "skif"
+tags = ["catalog", "enforce", "pinned", "precedence", "fix"]

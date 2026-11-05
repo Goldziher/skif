@@ -1,0 +1,3 @@
+description = "An ignored group also exempts its instances from unresolved-catalog-references."
+source = "skif"
+tags = ["catalog", "ignored", "precedence"]

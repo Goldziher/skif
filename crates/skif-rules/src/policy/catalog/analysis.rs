@@ -7,12 +7,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
-use skif_config::{Catalog, CatalogMode, Selector};
+use skif_config::{Catalog, CatalogMode, Config, Selector};
 use skif_core::{DependencyKind, Fix, FixOp, FixSafety, RuleMeta, Severity, diagnostic};
 use skif_lint::{Emitter, LintContext};
 use skif_specifier::Specifier;
 use skif_workspace::{DependencyEntry, Package, PackageId, Workspace};
 
+use super::super::groups::Groups;
+use super::super::instances::Instance as PolicyInstance;
 use super::super::specifiers::floor_version;
 use super::names::{CatalogName, defined_catalogs, defining, referenced};
 use super::support::{active_packages, set_specifier, value_location};
@@ -91,6 +93,34 @@ pub(crate) fn is_catalogable(specifier: &Specifier) -> bool {
     )
 }
 
+/// The dependency entries a configured version group claims.
+///
+/// A configured group governs every instance its selectors match, whatever its policy (`ignored`, `pinned`, `banned`,
+/// `snapped-to`, an aligned policy...). The catalog is the catch-all behind the configured groups, as in syncpack's
+/// first-match-wins order, so the catalog rules leave claimed entries to their group: no instance is reported, or
+/// fixed, by both.
+pub(crate) struct Claims<'c> {
+    workspace: &'c Workspace,
+    groups: Groups<'c>,
+}
+
+impl<'c> Claims<'c> {
+    pub(crate) fn new(workspace: &'c Workspace, config: &'c Config) -> Self {
+        Self {
+            workspace,
+            groups: Groups::compile(workspace, config),
+        }
+    }
+
+    /// Whether a configured version group claims `entry` of `package`.
+    pub(crate) fn claims(&self, package: &Package, entry: &DependencyEntry) -> bool {
+        let is_local = self.workspace.package_by_name(&entry.name).is_some();
+        self.groups
+            .claim(&PolicyInstance::of_entry(package, entry, is_local, false))
+            .is_some()
+    }
+}
+
 /// Instances of every external dependency, grouped by name. Peer dependencies state a compatibility range, not a
 /// version to install, so they are neither candidates nor counted.
 ///
@@ -102,10 +132,11 @@ pub(crate) struct UsageIndex {
 }
 
 impl UsageIndex {
-    /// Walks every active package once, skipping dependencies `settings.exclude` names and those that are
-    /// workspace packages.
-    pub(crate) fn build(workspace: &Workspace, settings: &Catalog) -> Self {
-        let exclude = Selector::new(settings.exclude.iter().cloned()).unwrap_or_default();
+    /// Walks every active package once, skipping dependencies `[catalog] exclude` names, those that are workspace
+    /// packages and the entries a configured version group claims (see [`Claims`]).
+    pub(crate) fn build(workspace: &Workspace, config: &Config) -> Self {
+        let exclude = Selector::new(config.catalog.exclude.iter().cloned()).unwrap_or_default();
+        let claims = Claims::new(workspace, config);
         let mut by_name: BTreeMap<String, Usage> = BTreeMap::new();
         for package in active_packages(workspace) {
             for (position, entry) in package
@@ -115,6 +146,7 @@ impl UsageIndex {
                 .filter(|(_, entry)| entry.kind != DependencyKind::PeerDependencies)
                 .filter(|(_, entry)| !exclude.matches(&entry.name, false))
                 .filter(|(_, entry)| workspace.package_by_name(&entry.name).is_none())
+                .filter(|(_, entry)| !claims.claims(package, entry))
             {
                 if !by_name.contains_key(entry.name.as_str()) {
                     by_name.insert(entry.name.clone(), Usage::default());
@@ -365,7 +397,7 @@ impl FindingSet {
 
 /// The usages of external dependencies in the workspace, computed once per run.
 pub(crate) fn usages(cx: &LintContext<'_>) -> Arc<UsageIndex> {
-    cx.shared(|| UsageIndex::build(cx.workspace, &cx.config.catalog))
+    cx.shared(|| UsageIndex::build(cx.workspace, cx.config))
 }
 
 /// Every instance the catalog rules report, grouped by dependency name, computed once per run however many rules

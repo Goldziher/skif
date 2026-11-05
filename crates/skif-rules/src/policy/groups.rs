@@ -189,19 +189,24 @@ impl<'c> Groups<'c> {
         &self.groups
     }
 
+    /// The configured version group that claims `instance`: the first one whose selectors match it, whatever its
+    /// policy. The catalog rules leave a claimed instance to that group, as syncpack's first-match-wins order does.
+    pub(crate) fn claim(&self, instance: &Instance<'_>) -> Option<usize> {
+        self.groups.iter().position(|group| {
+            group
+                .selectors
+                .as_ref()
+                .is_some_and(|selectors| selectors.matches(instance))
+        })
+    }
+
     /// Assigns every instance to its owning version group and its preferred semver range.
     pub(crate) fn assign<'i>(&self, instances: &'i Instances<'_>) -> Assignment<'i> {
         let mut preferred = Vec::with_capacity(instances.len());
         let mut dependencies: Vec<BTreeMap<Dependency<'i>, Vec<InstanceId>>> =
             self.groups.iter().map(|_| BTreeMap::new()).collect();
         for (id, instance) in instances.iter() {
-            let explicit = self.groups.iter().position(|group| {
-                group
-                    .selectors
-                    .as_ref()
-                    .is_some_and(|selectors| selectors.matches(instance))
-            });
-            let owner = match explicit {
+            let owner = match self.claim(instance) {
                 Some(owner) => owner,
                 None if self.governs_by_default(instance) => self.groups.len() - 1,
                 None => {

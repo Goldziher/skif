@@ -1,0 +1,6 @@
+[catalog]
+mode = "enforce"
+
+[[version-groups]]
+dependencies = ["left-pad"]
+policy = "banned"

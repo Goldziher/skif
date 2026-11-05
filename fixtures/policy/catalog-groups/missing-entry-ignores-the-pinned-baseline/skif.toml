@@ -1,0 +1,8 @@
+[catalog]
+mode = "prefer"
+
+[[version-groups]]
+packages = ["legacy"]
+dependencies = ["react"]
+policy = "pinned"
+pin = "17.0.2"

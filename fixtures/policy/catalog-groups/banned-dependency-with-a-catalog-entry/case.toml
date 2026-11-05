@@ -1,0 +1,3 @@
+description = "A banned dependency that also has a catalog entry is reported as banned only; catalog-not-used does not propose catalog: for it."
+source = "skif"
+tags = ["catalog", "enforce", "banned", "precedence", "fix"]
