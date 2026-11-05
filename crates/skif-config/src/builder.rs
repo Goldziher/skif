@@ -1,6 +1,6 @@
 use crate::error::ConfigError;
 use crate::model::{
-    Catalog, Config, DependencyFamily, IgnoreEntry, Js, Lint, Policy, SemverGroup, VersionGroup, Workspace,
+    Catalog, Config, CustomType, DependencyFamily, IgnoreEntry, Js, Lint, Policy, SemverGroup, VersionGroup, Workspace,
     WorkspaceProtocol,
 };
 use crate::rules::{Level, RuleConfig};
@@ -106,6 +106,13 @@ impl ConfigBuilder {
     #[must_use]
     pub const fn workspace_protocol(mut self, protocol: WorkspaceProtocol) -> Self {
         self.config.workspace_protocol = protocol;
+        self
+    }
+
+    /// Appends a `[[custom-types]]` entry.
+    #[must_use]
+    pub fn custom_type(mut self, custom: CustomType) -> Self {
+        self.config.custom_types.push(custom);
         self
     }
 

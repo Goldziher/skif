@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use skif_core::{FileSystem, OsFs};
 use skif_specifier::CONFIG_IDENTIFIERS;
 
-use crate::dependency_types::DependencyTypes;
+use crate::dependency_types::{DependencyType, DependencyTypes};
 use crate::error::ConfigError;
 use crate::overrides::ConfigOverrides;
 use crate::rules::{Level, RuleConfig, rules_map};
@@ -46,6 +46,9 @@ pub struct Config {
     pub version_groups: Vec<VersionGroup>,
     /// `[[semver-groups]]`: the range type dependencies must use, first match wins.
     pub semver_groups: Vec<SemverGroup>,
+    /// `[[custom-types]]`: manifest fields that hold versions and take part in the version policies.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub custom_types: Vec<CustomType>,
     /// `[catalog]`: when catalog entries are suggested and reported.
     pub catalog: Catalog,
     /// `[workspace-protocol]`: how dependencies on workspace packages are written.
@@ -83,6 +86,8 @@ pub enum ResetKey {
     Ignore,
     /// Discard the inherited `dependency-families`.
     DependencyFamilies,
+    /// Discard the inherited `custom-types`.
+    CustomTypes,
     /// Discard the inherited `overrides`.
     Overrides,
 }
@@ -96,6 +101,7 @@ impl ResetKey {
             Self::SemverGroups => "semver-groups",
             Self::Ignore => "ignore",
             Self::DependencyFamilies => "dependency-families",
+            Self::CustomTypes => "custom-types",
             Self::Overrides => "overrides",
         }
     }
@@ -204,9 +210,15 @@ impl Config {
             }
         }
         for (index, group) in self.semver_groups.iter().enumerate() {
+            if let Some(message) = group.inconsistency() {
+                return invalid(format!("semver-groups[{index}]: {message}"));
+            }
             if let Some(message) = unknown_specifier_type(&group.specifier_types) {
                 return invalid(format!("semver-groups[{index}]: {message}"));
             }
+        }
+        if let Some(message) = self.custom_type_problem() {
+            return invalid(message);
         }
         for (index, entry) in self.ignore.iter().enumerate() {
             if entry.rules.is_empty() && entry.packages.is_empty() && entry.dependencies.is_empty() {
@@ -251,6 +263,53 @@ impl Config {
             }
         }
         Ok(())
+    }
+
+    /// The first problem of `[[custom-types]]`, or of a `dependency-types` list naming a custom type that is not defined.
+    fn custom_type_problem(&self) -> Option<String> {
+        for (index, custom) in self.custom_types.iter().enumerate() {
+            if let Some(message) = custom.inconsistency() {
+                return Some(format!("custom-types[{index}]: {message}"));
+            }
+            if self.custom_types[..index].iter().any(|earlier| earlier.name == custom.name) {
+                return Some(format!("custom-types[{index}]: the name \"{}\" is defined twice", custom.name));
+            }
+        }
+        let lists = std::iter::once(("policy.dependency-types".to_owned(), &self.policy.dependency_types))
+            .chain(
+                self.version_groups
+                    .iter()
+                    .enumerate()
+                    .map(|(index, group)| (format!("version-groups[{index}].dependency-types"), &group.dependency_types)),
+            )
+            .chain(
+                self.semver_groups
+                    .iter()
+                    .enumerate()
+                    .map(|(index, group)| (format!("semver-groups[{index}].dependency-types"), &group.dependency_types)),
+            );
+        for (place, types) in lists {
+            if let Some(name) = types
+                .custom_names()
+                .find(|name| self.custom_types.iter().all(|custom| custom.name != *name))
+            {
+                let hint = closest(
+                    name,
+                    &self
+                        .custom_types
+                        .iter()
+                        .map(|custom| custom.name.as_str())
+                        .chain(BUILTIN_TYPE_TOKENS)
+                        .collect::<Vec<_>>(),
+                )
+                .map_or_else(String::new, |s| format!("; did you mean \"{s}\"?"));
+                return Some(format!(
+                    "{place}: unknown dependency type \"{name}\"{hint} (expected {}, or the name of a `[[custom-types]]` entry)",
+                    BUILTIN_TYPE_TOKENS.join(", ")
+                ));
+            }
+        }
+        None
     }
 
     /// Fails on the first rule ID (in `[rules]`, `[[ignore]]` or an override) that is not in `known`, suggesting the closest ID.
@@ -320,6 +379,18 @@ impl Config {
         Ok(())
     }
 }
+
+/// The built-in dependency types, as `dependency-types` names them.
+const BUILTIN_TYPE_TOKENS: [&str; 8] = [
+    "prod",
+    "dev",
+    "peer",
+    "optional",
+    "local",
+    "resolutions",
+    "overrides",
+    "pnpm-overrides",
+];
 
 /// Describes the first entry of `specifier_types` (optionally negated with `!`) that is not a specifier type.
 fn unknown_specifier_type(specifier_types: &[String]) -> Option<String> {
@@ -721,7 +792,8 @@ pub enum SemverRange {
     Lte,
 }
 
-/// One `[[semver-groups]]` entry; first match wins.
+/// One `[[semver-groups]]` entry; first match wins. Set `range`, or `ignored = true` to leave the matched dependencies
+/// without a range requirement (syncpack's `isIgnored` and `isDisabled`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
@@ -745,8 +817,13 @@ pub struct SemverGroup {
     /// Specifier types the group covers, optionally negated with `!`; empty covers every type.
     #[serde(default)]
     pub specifier_types: Vec<String>,
-    /// The range type the matched dependencies must use.
-    pub range: SemverRange,
+    /// The range type the matched dependencies must use. Required unless `ignored` is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<SemverRange>,
+    /// The matched dependencies have no range requirement and no later semver group applies to them. Exclusive with
+    /// `range`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub ignored: bool,
 }
 
 impl SemverGroup {
@@ -759,7 +836,26 @@ impl SemverGroup {
             packages: Selector::default(),
             dependency_types: DependencyTypes::default(),
             specifier_types: Vec::new(),
-            range,
+            range: Some(range),
+            ignored: false,
+        }
+    }
+
+    /// A group that exempts the dependencies it covers from range enforcement.
+    #[must_use]
+    pub fn ignored() -> Self {
+        Self {
+            range: None,
+            ignored: true,
+            ..Self::new(SemverRange::Exact)
+        }
+    }
+
+    fn inconsistency(&self) -> Option<&'static str> {
+        match (self.range, self.ignored) {
+            (None, false) => Some("set `range`, or `ignored = true` to exempt the dependencies from a range"),
+            (Some(_), true) => Some("`range` and `ignored = true` are mutually exclusive"),
+            _ => None,
         }
     }
 
@@ -800,6 +896,69 @@ impl SemverGroup {
     {
         self.specifier_types = specifier_types.into_iter().map(Into::into).collect();
         self
+    }
+}
+
+/// How a [`CustomType`] reads versions from its `path`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum CustomStrategy {
+    /// The value is a string `name@version` (`"packageManager": "pnpm@9.0.0"`): the dependency is the name.
+    #[serde(rename = "name@version")]
+    NameAtVersion,
+    /// The value is a version string (`engines.node`): the dependency is named after the custom type.
+    #[serde(rename = "version")]
+    Version,
+    /// The value is an object of `name: version` (`pnpm.peerDependencyRules.allowedVersions`).
+    #[serde(rename = "versions-by-name", alias = "versionsByName")]
+    VersionsByName,
+}
+
+/// One `[[custom-types]]` entry: a field of `package.json` that holds versions. Name it in a `dependency-types` list to
+/// select its instances, like a dependency section (syncpack's `customTypes`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[non_exhaustive]
+pub struct CustomType {
+    /// The token that selects this type in `dependency-types`. It must not be the name of a built-in type
+    /// (`prod`, `dev`, `peer`, `optional`, `local`, `resolutions`, `overrides`, `pnpm-overrides`). With the `version`
+    /// strategy it is also the dependency name.
+    pub name: String,
+    /// Dotted path of the field in `package.json`, e.g. `engines.node` or `packageManager`.
+    pub path: String,
+    /// How the value at `path` holds versions.
+    pub strategy: CustomStrategy,
+}
+
+impl CustomType {
+    /// A custom type reading `strategy` from `path`.
+    #[must_use]
+    pub fn new(name: impl Into<String>, path: impl Into<String>, strategy: CustomStrategy) -> Self {
+        Self {
+            name: name.into(),
+            path: path.into(),
+            strategy,
+        }
+    }
+
+    /// The `path` split into its keys.
+    pub fn segments(&self) -> impl Iterator<Item = &str> {
+        self.path.split('.')
+    }
+
+    fn inconsistency(&self) -> Option<String> {
+        if self.name.is_empty() || self.name.starts_with('!') {
+            return Some("`name` must not be empty or start with `!`".to_owned());
+        }
+        if DependencyType::is_builtin_token(&self.name) {
+            return Some(format!("`name` \"{}\" is the name of a built-in dependency type", self.name));
+        }
+        if self.segments().any(str::is_empty) {
+            return Some(format!("`path` \"{}\" must be a dotted path of non-empty keys", self.path));
+        }
+        None
     }
 }
 
