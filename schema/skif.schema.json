@@ -129,6 +129,7 @@
         "ignore-members": [],
         "production": false,
         "include-entry-exports": false,
+        "discovery": "auto",
         "workspaces": {},
         "plugins": {}
       }
@@ -863,6 +864,11 @@
           "description": "Report unused exports of entry files too.",
           "default": false
         },
+        "discovery": {
+          "$ref": "#/$defs/JsDiscovery",
+          "description": "How source files are found: `auto` lists them from the git index when the workspace is in a git work tree and\nwalks the directories otherwise, `git` requires the index (falling back to the walk when there is none), and\n`walk` always walks. The index lists tracked files only; the walk also finds untracked ones.",
+          "default": "auto"
+        },
         "workspaces": {
           "type": "object",
           "additionalProperties": {
@@ -969,6 +975,26 @@
         }
       },
       "description": "The kinds of export `ignore-exports-used-in-file` can name, as in knip."
+    },
+    "JsDiscovery": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "auto",
+          "description": "The git index when the workspace is in a git work tree, the directory walk otherwise."
+        },
+        {
+          "type": "string",
+          "const": "git",
+          "description": "The git index; the directory walk when there is no readable index."
+        },
+        {
+          "type": "string",
+          "const": "walk",
+          "description": "Always walk the directories, which also finds untracked files."
+        }
+      ],
+      "description": "`[js] discovery`"
     },
     "JsWorkspace": {
       "type": "object",
