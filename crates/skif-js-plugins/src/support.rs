@@ -398,19 +398,6 @@ pub(crate) fn strip_wildcard(pattern: &str) -> &str {
         .trim_end_matches('/')
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn wildcards_are_stripped() {
-        assert_eq!(strip_wildcard("@app/*"), "@app");
-        assert_eq!(strip_wildcard("src/lib/*"), "src/lib");
-        assert_eq!(strip_wildcard("exact"), "exact");
-        assert_eq!(strip_wildcard("*"), "");
-    }
-}
-
 /// Every string that `key` holds in any object of the value, however deep: a string, the strings of an array or the
 /// strings of an object's values.
 pub(crate) fn property_values<'a>(value: &'a ConfigValue, key: &str) -> Vec<&'a str> {
@@ -455,4 +442,17 @@ pub(crate) fn production_entries<'a>(base: &str, patterns: impl IntoIterator<Ite
         .filter_map(|pattern| entry_glob(base, pattern))
         .map(PluginInput::ProductionEntry)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wildcards_are_stripped() {
+        assert_eq!(strip_wildcard("@app/*"), "@app");
+        assert_eq!(strip_wildcard("src/lib/*"), "src/lib");
+        assert_eq!(strip_wildcard("exact"), "exact");
+        assert_eq!(strip_wildcard("*"), "");
+    }
 }
