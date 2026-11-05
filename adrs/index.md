@@ -41,6 +41,7 @@ old one.
 | 0031 | [Core Rule Scoping: Workspace Protocol Scope, Peer Overlap, Catalog Sources and One Root Discovery Entry Point](0031-core-rule-scoping-peer-overlap-catalog-sources-and-root-discovery-entry-point.md) | accepted |
 | 0032 | [Third-Party Types in the Facade API](0032-third-party-types-in-the-facade-api.md) | accepted |
 | 0033 | [knip Namespace Findings in the Parity Harness: Where knip Reports What `unused-namespace-exports` and `unused-namespace-types` Find](0033-knip-namespace-findings-in-the-parity-harness.md) | accepted |
+| 0035 | [JS Evaluation Parity: Unreadable Configs, Unresolved Specifiers and Test Entries Follow knip](0035-js-evaluation-parity-unreadable-configs-unresolved-specifiers-and-test-entries.md) | accepted |
 
 ## Effective statements
 
