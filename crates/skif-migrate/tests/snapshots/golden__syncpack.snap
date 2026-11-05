@@ -6,6 +6,7 @@ expression: migration.toml
 
 # Migrated from syncpack by `skif migrate` (profile: full).
 # Review the report the command printed: notes marked H or X were not translated.
+# skif migrate: sources = ["syncpack"]
 
 [policy]
 dependency-types = ["prod", "dev"]
@@ -43,6 +44,11 @@ dependencies = ["@demo/*"]
 dependency-types = ["!local"]
 policy = "snapped-to"
 snap-to = ["@demo/core"]
+
+# syncpack versionGroups[5]: Overrides only
+[[version-groups]]
+label = "Overrides only"
+dependency-types = ["overrides"]
 
 # syncpack versionGroups[6]: Engines in sync
 [[version-groups]]

@@ -1,9 +1,6 @@
 //! What the translators share: the document being built, the notes, and the rules the old tools ran.
 
-use std::collections::BTreeSet;
-
 use skif_config::Config;
-use toml::Table;
 
 use crate::doc::{Doc, Val};
 use crate::keys;
@@ -48,6 +45,15 @@ impl Level {
 struct RuleSetting {
     level: Option<Level>,
     ignore_tags: Vec<String>,
+    /// The `off` was added by the `exact` profile, not taken from a tool's configuration.
+    profile: bool,
+}
+
+/// Rules one tool's configuration turns off, decided at the end because another tool may still check them.
+struct DeferredOff {
+    src: Src,
+    origin: String,
+    ids: Vec<String>,
 }
 
 pub(crate) struct State<'a> {
@@ -55,7 +61,8 @@ pub(crate) struct State<'a> {
     pub doc: Doc,
     pub notes: Vec<Note>,
     pub tools: Vec<Tool>,
-    kept: BTreeSet<String>,
+    kept: Vec<(String, Tool)>,
+    deferred: Vec<DeferredOff>,
     settings: Vec<(String, RuleSetting)>,
 }
 
@@ -66,7 +73,8 @@ impl<'a> State<'a> {
             doc: Doc::default(),
             notes: Vec::new(),
             tools: Vec::new(),
-            kept: BTreeSet::new(),
+            kept: Vec::new(),
+            deferred: Vec::new(),
             settings: Vec::new(),
         }
     }
@@ -97,9 +105,34 @@ impl<'a> State<'a> {
         });
     }
 
-    /// Records that the old tool ran these rules, so the `exact` profile leaves them as they are.
-    pub(crate) fn keep<'r>(&mut self, ids: impl IntoIterator<Item = &'r str>) {
-        self.kept.extend(ids.into_iter().map(str::to_owned));
+    /// Records that `tool` ran these rules, so the `exact` profile leaves them as they are.
+    pub(crate) fn keep<'r>(&mut self, tool: Tool, ids: impl IntoIterator<Item = &'r str>) {
+        for id in ids {
+            if !self.kept.iter().any(|(known, by)| known == id && *by == tool) {
+                self.kept.push((id.to_owned(), tool));
+            }
+        }
+    }
+
+    /// The tools other than `tool` that ran the rule `id`.
+    fn kept_by_others(&self, id: &str, tool: Tool) -> Vec<Tool> {
+        let mut others: Vec<Tool> = Vec::new();
+        for (known, by) in &self.kept {
+            if known == id && *by != tool && !others.contains(by) {
+                others.push(*by);
+            }
+        }
+        others
+    }
+
+    /// Turns `ids` off for a tool whose configuration ignores them, unless another migrated tool still runs them; that
+    /// is decided in [`State::finish`], when every tool has been read.
+    pub(crate) fn ignore_rules(&mut self, src: &Src, origin: String, ids: Vec<String>) {
+        self.deferred.push(DeferredOff {
+            src: src.clone(),
+            origin,
+            ids,
+        });
     }
 
     fn setting(&mut self, id: &str) -> &mut RuleSetting {
@@ -132,15 +165,48 @@ impl<'a> State<'a> {
         }
     }
 
-    fn is_off(&self, id: &str) -> bool {
-        self.settings
-            .iter()
-            .any(|(known, setting)| known == id && setting.level == Some(Level::Off))
+    fn resolve_ignored_rules(&mut self) {
+        for DeferredOff { src, origin, ids } in std::mem::take(&mut self.deferred) {
+            let mut turned_off = Vec::new();
+            for id in ids {
+                let others = self.kept_by_others(&id, src.tool);
+                if others.is_empty() {
+                    self.set_level(&id, Level::Off);
+                    turned_off.push(id);
+                } else {
+                    let names: Vec<&str> = others.iter().map(|tool| tool.name()).collect();
+                    self.note_with(
+                        &src,
+                        NoteClass::Human,
+                        origin.clone(),
+                        format!(
+                            "{} ignored `{id}`, but {} still checks it, so the rule stays on",
+                            src.tool,
+                            names.join(" and ")
+                        ),
+                        format!("set `{id}` to \"off\" in [rules] if it should not run at all"),
+                    );
+                }
+            }
+            if !turned_off.is_empty() {
+                self.note(
+                    &src,
+                    NoteClass::Exact,
+                    origin,
+                    format!("turned off in [rules]: {}", turned_off.join(", ")),
+                );
+            }
+        }
     }
 
     fn write_rules(&mut self) {
+        let marker = profile_marker(&self.tools);
         let rules = self.doc.table(&["rules"]);
         for (id, setting) in &self.settings {
+            if setting.profile {
+                rules.set_commented(id, Val::str("off"), marker.clone());
+                continue;
+            }
             let value = if setting.ignore_tags.is_empty() {
                 Val::str(setting.level.map_or("error", Level::text))
             } else {
@@ -156,28 +222,32 @@ impl<'a> State<'a> {
     }
 
     pub(crate) fn finish(mut self) -> Result<Migration, MigrateError> {
+        self.resolve_ignored_rules();
         let exact = self.options.profile == Profile::Exact;
         let mut extra_checks = Vec::new();
-        let mut turned_off = Vec::new();
         for rule in &self.options.known_rules {
             let configured = self.settings.iter().any(|(known, _)| *known == rule.id);
-            if !rule.default_on || self.kept.contains(&rule.id) || self.is_off(&rule.id) {
+            if !rule.default_on || configured || self.kept.iter().any(|(known, _)| *known == rule.id) {
                 continue;
             }
             extra_checks.push(rule.id.clone());
-            if exact && !configured {
-                turned_off.push(rule.id.clone());
+        }
+        if exact {
+            for id in &extra_checks {
+                let setting = self.setting(id);
+                setting.level = Some(Level::Off);
+                setting.profile = true;
+            }
+            if !self.tools.contains(&Tool::Knip) {
+                let marker = profile_marker(&self.tools);
+                self.doc
+                    .table(&["js"])
+                    .set_commented("enabled", Val::Bool(false), marker);
             }
         }
-        for id in turned_off {
-            self.set_level(&id, Level::Off);
-        }
-        if exact && !self.tools.contains(&Tool::Knip) {
-            self.doc.table(&["js"]).set("enabled", Val::Bool(false));
-        }
         self.write_rules();
-        let banner = banner(&self.tools, self.options.profile);
-        let toml = self.doc.render(&banner);
+        let body = self.doc.render(&[]);
+        let toml = format!("{}{body}", banner(&self.tools, self.options.profile));
         let config = validate(&toml)?;
         Ok(Migration {
             toml,
@@ -186,39 +256,36 @@ impl<'a> State<'a> {
             extra_checks,
             profile: self.options.profile,
             tools: self.tools,
-            doc: self.doc,
+            body,
         })
     }
 }
 
-fn banner(tools: &[Tool], profile: Profile) -> Vec<String> {
+/// The comment after a rule the `exact` profile turned off: a later `--merge` replaces such a value when the
+/// tool it migrates does check the rule.
+fn profile_marker(tools: &[Tool]) -> String {
+    let names: Vec<&str> = tools.iter().map(|tool| tool.name()).collect();
+    format!("{}{}", keys::PROFILE_MARKER, names.join(", "))
+}
+
+/// The banner lines of a new `skif.toml`, each ending in a newline.
+fn banner(tools: &[Tool], profile: Profile) -> String {
     let names: Vec<&str> = tools.iter().map(|tool| tool.name()).collect();
     let profile = match profile {
         Profile::Exact => "exact",
         Profile::Full => "full",
     };
-    vec![
-        "#:schema https://raw.githubusercontent.com/Goldziher/skif/main/schema/skif.schema.json".to_owned(),
-        String::new(),
-        format!(
-            "# Migrated from {} by `skif migrate` (profile: {profile}).",
-            names.join(", ")
-        ),
-        "# Review the report the command printed: notes marked H or X were not translated.".to_owned(),
-    ]
+    format!(
+        "#:schema https://raw.githubusercontent.com/Goldziher/skif/main/schema/skif.schema.json\n\n\
+         # Migrated from {} by `skif migrate` (profile: {profile}).\n\
+         # Review the report the command printed: notes marked H or X were not translated.\n\
+         {}\n",
+        names.join(", "),
+        crate::merge::sources_line(tools),
+    )
 }
 
-/// Parses `text` as a `skif.toml`. Keys the configuration model does not have yet are removed first when the full
-/// text is rejected, so the rest is still checked.
+/// Parses `text` as a `skif.toml`.
 pub(crate) fn validate(text: &str) -> Result<Config, MigrateError> {
-    let table: Table = text
-        .parse()
-        .map_err(|error: toml::de::Error| MigrateError::Invalid(error.to_string()))?;
-    if let Ok(config) = Config::from_toml_str(text) {
-        Ok(config)
-    } else {
-        let view = keys::validation_view(&table);
-        let stripped = toml::to_string(&view).map_err(|error| MigrateError::Invalid(error.to_string()))?;
-        Config::from_toml_str(&stripped).map_err(|error| MigrateError::Invalid(error.to_string()))
-    }
+    Config::from_toml_str(text).map_err(|error| MigrateError::Invalid(error.to_string()))
 }

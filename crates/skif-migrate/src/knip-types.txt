@@ -13,7 +13,6 @@ types unused-types,unused-namespace-types yes
 nsTypes unused-namespace-types no
 duplicates duplicate-exports yes
 enumMembers unused-enum-members yes
-classMembers - yes
 namespaceMembers unused-namespace-members yes
 catalog unused-catalog-entries yes
 catalogReferences unresolved-catalog-references yes

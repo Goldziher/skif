@@ -1,11 +1,6 @@
 //! The target keys of the translation, in one place.
 //!
-//! Every `skif.toml` key the translators write is named here, and so is every upstream file name they look for. The
-//! keys in [`PENDING`] are added to the configuration model by other changes; until a key exists there, the generated
-//! text is validated with it removed ([`validation_view`]), and the day the model knows the key the full text is
-//! parsed instead and the entry in [`PENDING`] can be deleted.
-
-use toml::{Table, Value};
+//! Every `skif.toml` key the translators write is named here, and so is every upstream file name they look for.
 
 /// `.syncpackrc` and its relatives, in the order syncpack looks for them.
 pub(crate) const SYNCPACK_FILES: &[&str] = &[
@@ -85,152 +80,15 @@ pub(crate) const SEMVER_IGNORED: &str = "ignored";
 /// A dependency type token for the package's own version.
 pub(crate) const TYPE_LOCAL: &str = "local";
 
-/// The dependency types that exist in the configuration model today.
-const MODEL_TYPES: &[&str] = &["prod", "dev", "peer", "optional"];
+/// The comment after a value that the `exact` profile added, followed by the tools that did not check the rule.
+pub(crate) const PROFILE_MARKER: &str = "skif migrate: not checked by ";
 
-/// Keys of the translation that the configuration model does not have yet.
-struct Pending {
-    /// The table path; `*` stands for any key (a workspace directory).
-    table: &'static [&'static str],
-    keys: &'static [&'static str],
-}
-
-const PENDING: &[Pending] = &[
-    Pending {
-        table: &["js"],
-        keys: &[
-            JS_IGNORE_WORKSPACES,
-            JS_IGNORE_UNRESOLVED,
-            JS_IGNORE_EXPORTS_USED_IN_FILE,
-            JS_IGNORE_MEMBERS,
-        ],
-    },
-    Pending {
-        table: &["js", "workspaces", "*"],
-        keys: &[WS_PATHS, WS_IGNORE_UNRESOLVED, WS_INCLUDE_ENTRY_EXPORTS, WS_PLUGINS],
-    },
-    Pending {
-        table: &["rules"],
-        keys: &[RULE_STALE_JS_CONFIG],
-    },
-];
-
-/// `table` as the current configuration model reads it: the pending keys, the custom types, the `local` and custom
-/// dependency type tokens and the `ignored` semver groups are replaced by what the model accepts today.
-pub(crate) fn validation_view(table: &Table) -> Table {
-    let mut view = table.clone();
-    for pending in PENDING {
-        strip(&mut view, pending.table, pending.keys);
-    }
-    view.remove(CUSTOM_TYPES);
-    if let Some(Value::Table(policy)) = view.get_mut("policy") {
-        known_types(policy);
-    }
-    for group in ["version-groups", "semver-groups"] {
-        if let Some(Value::Array(groups)) = view.get_mut(group) {
-            for entry in groups.iter_mut().filter_map(Value::as_table_mut) {
-                known_types(entry);
-            }
-        }
-    }
-    if let Some(Value::Array(groups)) = view.get_mut("semver-groups") {
-        for entry in groups.iter_mut().filter_map(Value::as_table_mut) {
-            if entry.remove(SEMVER_IGNORED).is_some() && !entry.contains_key("range") {
-                entry.insert("range".to_owned(), Value::String(String::new()));
-            }
-        }
-    }
-    view
-}
-
-fn strip(table: &mut Table, path: &[&str], keys: &[&str]) {
-    match path.split_first() {
-        None => {
-            for key in keys {
-                table.remove(*key);
-            }
-        }
-        Some((&"*", rest)) => {
-            for (_, value) in table.iter_mut() {
-                if let Value::Table(inner) = value {
-                    strip(inner, rest, keys);
-                }
-            }
-        }
-        Some((head, rest)) => {
-            if let Some(Value::Table(inner)) = table.get_mut(*head) {
-                strip(inner, rest, keys);
-            }
-        }
-    }
-}
-
-/// Removes the dependency type tokens the model does not know from `dependency-types`.
-fn known_types(table: &mut Table) {
-    if let Some(Value::Array(tokens)) = table.get_mut("dependency-types") {
-        tokens.retain(|token| {
-            token
-                .as_str()
-                .is_some_and(|token| MODEL_TYPES.contains(&token.trim_start_matches('!')))
-        });
-    }
-}
+/// The comment line that records which tools a file was migrated from.
+pub(crate) const SOURCES_PREFIX: &str = "# skif migrate: sources = ";
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn table(text: &str) -> Table {
-        text.parse().unwrap()
-    }
-
-    #[test]
-    fn pending_keys_and_tokens_are_removed() {
-        let source = r#"
-[js]
-entry = ["a"]
-ignore-members = ["x"]
-
-[js.workspaces."apps/web"]
-entry = ["b"]
-paths = { "@/*" = ["./src/*"] }
-
-[rules]
-stale-js-config = "error"
-unused-files = "error"
-
-[[custom-types]]
-name = "engines"
-
-[[version-groups]]
-dependency-types = ["prod", "local", "!engines"]
-
-[[semver-groups]]
-ignored = true
-dependency-types = ["dev"]
-"#;
-        let view = validation_view(&table(source));
-        let expected = table(
-            r#"
-[js]
-entry = ["a"]
-
-[js.workspaces."apps/web"]
-entry = ["b"]
-
-[rules]
-unused-files = "error"
-
-[[version-groups]]
-dependency-types = ["prod"]
-
-[[semver-groups]]
-range = ""
-dependency-types = ["dev"]
-"#,
-        );
-        assert_eq!(view, expected);
-    }
 
     #[test]
     fn strategies_use_the_skif_spelling() {
