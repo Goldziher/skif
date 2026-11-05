@@ -45,6 +45,17 @@ check() {
   done < <(comm -23 <(printf '%s\n' "$defined") <(printf '%s\n' "$list"))
 }
 
+# The stated plugin count must equal the number of defined plugins.
+defined_count="$(printf '%s\n' "$defined" | grep -c .)"
+# shellcheck disable=SC2016
+while IFS=: read -r file line claim; do
+  number="$(grep -oE '[0-9]+' <<<"$claim" | head -n1)"
+  if [[ "$number" != "$defined_count" ]]; then
+    echo "::error file=${file},line=${line}::states ${number} plugins (\"${claim}\") but ${defined_count} are defined"
+    failures=$((failures + 1))
+  fi
+done < <(grep -nEo '[0-9]+ (built-in )?plugins' README.md CHANGELOG.md crates/skif-js-plugins/README.md website/src/content/docs/reference/configuration.mdx || true)
+
 check crates/skif-js-plugins/README.md '^The table holds [0-9]+ plugins'
 check website/src/content/docs/reference/configuration.mdx '^The table holds [0-9]+ built-in plugins'
 
