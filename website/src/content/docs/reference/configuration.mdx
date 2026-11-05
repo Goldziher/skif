@@ -266,8 +266,9 @@ jest = { enabled = true, config = ["jest.config.cjs"] }
 
 `enabled` defaults to `true`, so a plain `skif` run checks everything; the git hooks pass `--no-js`. Per-workspace
 tables, keyed by directory (a glob such as `packages/*` works, an exact key wins over a glob, and `"."` is the root
-workspace), take `entry`, `project`, `ignore`, `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved`,
-`ignore-members`, `ignore-exports-used-in-file`, `include-entry-exports`, `paths` and `plugins`. A plugin entry is
+workspace; `*` stops at `/`, so `packages/*` does not select `packages/a/nested`, and when several glob keys select a
+directory the first in file order wins), take `entry`, `project`, `ignore`, `ignore-dependencies`, `ignore-binaries`,
+`ignore-unresolved`, `ignore-members`, `ignore-exports-used-in-file`, `include-entry-exports`, `paths` and `plugins`. A plugin entry is
 `true`, `false` or a table with `enabled`, `config`, `entry` and `project`; the plugin names are checked, and a
 misspelt one is a configuration error with the closest name suggested. The `"."` table adds to the top-level ignore
 lists and replaces its `entry` and `project`.
@@ -277,19 +278,29 @@ lists and replaces its `entry` and `project`.
 when it is written between slashes with optional flags (`/^@org\/.+$/`, `/^vite/i`), or, as in knip, when it contains
 `+`, `\`, `(`, `)`, `|` or `^`, contains `.*` or `.+`, or ends in `$`. A regular expression is not anchored and matches
 anywhere in the name. This differs from knip, which also treats `*` and `{` as regular expression syntax; skif keeps
-them for globs so that `@types/*` means what it says. A pattern that does not compile is a configuration error. An
-entry ending in `!` applies in production mode only (`"left!"`).
+them for globs so that `@types/*` means what it says, and an entry such as `eslint-*` is a prefix glob here but a
+regular expression in knip (where it also matches `my-eslint-x`). Regular expressions are compiled by the Rust `regex`
+engine, not by JavaScript: look-ahead, look-behind and back-references (`/^(?!@types)/`) are configuration errors,
+`\d` and `\w` are Unicode aware, and the flags `i`, `m` and `s` apply while `g`, `u`, `y` and `d` are accepted and
+ignored. `skif migrate` copies a knip pattern as written, so run `skif` once afterwards: an unsupported pattern is
+reported with the compiler's message. A pattern that does not compile is a configuration error. An entry ending in
+`!` applies in production mode only (`"left!"`).
 
 **`ignore-unresolved`** lists import specifiers that are never reported by `unresolved-imports`, at the top level and
 per workspace. `ignore-dependencies` also silences `unresolved-imports` for a matching specifier, because plugins
-declare virtual modules through it; use `ignore-unresolved` for your own.
+declare virtual modules through it; use `ignore-unresolved` for your own. Two small differences from knip remain:
+an unresolved import is located at the start of its statement, not at the specifier, and `import "./dir"` of a
+directory with neither an index file nor a `package.json` is reported where knip is silent.
 
 **`ignore-workspaces`** lists workspace directories (globs) the JavaScript analysis skips. Unlike `[workspace]
 ignore-packages`, the packages stay in the workspace, so manifest and policy rules still check them. The root is never
-skipped.
+skipped. Entries match directories, so `*` stops at `/`: `packages/*` skips `packages/a` but not `packages/a/nested`
+(use `packages/**` for both), as in knip.
 
 **`entry` and `project`.** As in knip, a pattern ending in `!` is a normal pattern in a normal run. In a production run
-only the patterns ending in `!` count and the others are excluded; when none ends in `!`, the defaults apply.
+only the patterns ending in `!` count and the others are excluded; when none ends in `!`, the defaults apply. The
+entries that do not end in `!` are also removed from the project, so a file only they reach (`scripts/*.ts` next to
+`src/index.ts!`) is not reported as unused, and the files that tools add to the project are removed as well.
 
 **`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
 workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.
@@ -306,12 +317,19 @@ knip's configuration hints. `[rules] stale-js-config = "error"` is knip's `--tre
 `ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off, and the
 dependency lists are not judged when a package has entry files skif cannot determine.
 
-`discovery` chooses how source files are found. `auto` (the default) and `git` read the git index when the analysed
-root is in a git work tree and list the tracked files without walking the directories, which is several times faster
-on large repositories; `walk` always walks the directories. The index lists tracked files only: a file that was never
-`git add`ed is not an entry, not a project file and not found by plugin config searches (a tracked file that imports it
-still resolves it), and a tracked file deleted from disk but not yet staged is listed as an empty module. Use `walk`
-when untracked files must be analysed. Split and sparse indexes are not read; the walk is used for them.
+`discovery` chooses how source files are found. `auto` (the default) lists the files from the git index when the
+analysed root is in a git work tree and checks each directory with one `stat` instead of walking it: a directory
+modified at or after the time the index was written (equal counts as modified) is listed from disk, so new untracked
+files and directories, plugin config files that were never `git add`ed and deleted files are found and dropped as the
+walk finds and drops them, and an untouched directory is listed from the index without an `opendir`. This is several
+times faster on large repositories. One case is invisible to `auto`: an untracked file created before the last rewrite
+of the index (a `git add` of another file, or a `git status` that refreshes it) in a directory nothing has touched
+since; use `walk` when the result must be exact. `git` trusts the index alone, without any check: faster still, but blind
+to files created or deleted since the last `git add`. `walk` always walks the directories. Both index modes fall back to
+the walk when there is no usable index: a repository outside git, a split or sparse index, a SHA-256 repository
+(`extensions.objectformat`), or an index whose SHA-1 checksum does not match (an index written with `index.skipHash`,
+which `feature.manyFiles` sets, is read without the check). A file the index lists but that is missing on disk is never
+reported. The `.gitignore` rules, hidden directories and `[js] ignore` apply to the listing as they apply to the walk.
 
 A dependency counts as listed when the package's own `package.json`, the `package.json` of a package that contains
 it, or any `package.json` above the analysed root up to the git repository root lists it; the same manifests enable
