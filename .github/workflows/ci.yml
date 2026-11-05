@@ -163,7 +163,10 @@ jobs:
       - name: Test the facade (unit tests and doctests) with only this feature
         env:
           FEATURES: ${{ matrix.features }}
-        run: cargo test -p skif --locked --no-default-features --features "$FEATURES" --lib --doc
+        # `--lib` and `--doc` cannot be combined in one invocation, so each runs on its own.
+        run: |
+          cargo test -p skif --locked --no-default-features --features "$FEATURES" --lib
+          cargo test -p skif --locked --no-default-features --features "$FEATURES" --doc
 
   # Public API compatibility of the facade against the latest crates.io release. Advisory: it has nothing to compare
   # with until 0.1.0 is published, and the step is skipped until then.
