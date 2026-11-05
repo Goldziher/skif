@@ -214,12 +214,11 @@ pub(crate) fn validate(text: &str) -> Result<Config, MigrateError> {
     let table: Table = text
         .parse()
         .map_err(|error: toml::de::Error| MigrateError::Invalid(error.to_string()))?;
-    match Config::from_toml_str(text) {
-        Ok(config) => Ok(config),
-        Err(_) => {
-            let view = keys::validation_view(&table);
-            let stripped = toml::to_string(&view).map_err(|error| MigrateError::Invalid(error.to_string()))?;
-            Config::from_toml_str(&stripped).map_err(|error| MigrateError::Invalid(error.to_string()))
-        }
+    if let Ok(config) = Config::from_toml_str(text) {
+        Ok(config)
+    } else {
+        let view = keys::validation_view(&table);
+        let stripped = toml::to_string(&view).map_err(|error| MigrateError::Invalid(error.to_string()))?;
+        Config::from_toml_str(&stripped).map_err(|error| MigrateError::Invalid(error.to_string()))
     }
 }

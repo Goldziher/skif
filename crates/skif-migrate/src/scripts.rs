@@ -113,7 +113,7 @@ pub(crate) fn invocations(package_json: &ConfigValue, tool: Tool) -> Vec<Invocat
 }
 
 /// The `package.json` key that configures `tool`.
-pub(crate) fn config_key<'v>(tool: Tool, package_json: &'v ConfigValue) -> Option<&'v ConfigValue> {
+pub(crate) fn config_key(tool: Tool, package_json: &ConfigValue) -> Option<&ConfigValue> {
     match tool {
         Tool::Sherif | Tool::Knip => package_json.get(tool.name()),
         Tool::Syncpack => package_json

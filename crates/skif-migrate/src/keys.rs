@@ -151,7 +151,7 @@ fn strip(table: &mut Table, path: &[&str], keys: &[&str]) {
             }
         }
         Some((&"*", rest)) => {
-            for value in table.values_mut() {
+            for (_, value) in table.iter_mut() {
                 if let Value::Table(inner) = value {
                     strip(inner, rest, keys);
                 }

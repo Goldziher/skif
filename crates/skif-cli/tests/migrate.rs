@@ -51,7 +51,7 @@ fn dry_run_prints_the_configuration_and_writes_nothing() {
 #[test]
 fn the_written_file_is_valid_and_is_not_overwritten_without_a_flag() {
     let dir = project(SHERIF_PACKAGE);
-    let written = run(migrate(dir.path()));
+    let written = run(&mut migrate(dir.path()));
     assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
     assert!(written.stdout.contains("Wrote "), "{}", written.stdout);
     let target = dir.path().join("skif.toml");
@@ -61,7 +61,7 @@ fn the_written_file_is_valid_and_is_not_overwritten_without_a_flag() {
         "{first}"
     );
 
-    let refused = run(migrate(dir.path()));
+    let refused = run(&mut migrate(dir.path()));
     assert_eq!(refused.code, 2, "{}{}", refused.stdout, refused.stderr);
     assert!(refused.stderr.contains("already exists"), "{}", refused.stderr);
     assert_eq!(fs::read_to_string(&target).unwrap(), first);
@@ -129,7 +129,7 @@ fn json_output_is_one_document() {
 #[test]
 fn a_project_without_any_tool_is_a_usage_error() {
     let dir = project(r#"{ "name": "demo" }"#);
-    let result = run(migrate(dir.path()));
+    let result = run(&mut migrate(dir.path()));
     assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
     assert!(result.stderr.contains("nothing to migrate"), "{}", result.stderr);
     let named = run(migrate(dir.path()).args(["--from", "knip", "--dry-run", "--profile", "full"]));

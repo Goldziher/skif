@@ -100,14 +100,14 @@ fn sherif_exact_profile_turns_off_everything_sherif_did_not_check() {
     let rules = parsed["rules"].as_table().unwrap();
     assert_eq!(
         rules.len(),
-        30,
-        "the two ignored sherif rules and the 28 other default rules"
+        31,
+        "the two ignored sherif rules and the 29 other default rules"
     );
     assert!(!rules.contains_key("version-mismatch"), "the check sherif ran stays on");
     assert_eq!(rules["unused-files"].as_str(), Some("off"));
     assert_eq!(rules["unsorted-dependencies"].as_str(), Some("off"));
     assert_eq!(parsed["js"]["enabled"].as_bool(), Some(false));
-    assert_eq!(migration.extra_checks.len(), 28);
+    assert_eq!(migration.extra_checks.len(), 29);
     assert!(migration.extra_checks.iter().any(|id| id == "unused-files"));
 }
 
@@ -233,7 +233,7 @@ fn knip_script_flags_narrow_the_rules() {
         NoteClass::Unsupported
     );
     assert_eq!(class(&migration, "scripts.knip:strict: --workspace"), NoteClass::Human);
-    assert_eq!(migration.extra_checks.len(), 31);
+    assert_eq!(migration.extra_checks.len(), 32);
 }
 
 #[test]
@@ -261,7 +261,7 @@ fn merging_the_output_into_itself_changes_nothing() {
     let migration = migrate(&[input], &options(Profile::Full)).unwrap();
     let merged = migration.merge_into(&migration.toml).unwrap();
     assert_eq!(merged.toml, migration.toml);
-    assert!(merged.kept_existing.is_empty());
+    assert_eq!(merged.kept_existing, [] as [std::string::String; 0]);
 }
 
 #[test]
