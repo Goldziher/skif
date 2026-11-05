@@ -141,6 +141,21 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Changed
 
+- **Alternative fixes carry a typed preference**: `Fix::with_preference(FixPreference::Highest | Lowest)` marks the
+  alternative that `[policy] prefer` selects, and `preferred_alternative` and `Alternatives::Preferred` read the tag
+  instead of looking for "highest" or "lowest" in the fix title. A fix without a tag is never picked by preference.
+- **`RunOptions` and `RenderOptions` are built with `with_*` methods only**: their fields are private, and
+  `skif_lint::RunOptions::sequential` is now `with_sequential`.
+- **The facade re-exports the configuration model**: `ConfigBuilder`, `Catalog`, `CatalogMode`, `DependencyFamily`,
+  `DependencyTypes`, `Js`, `JsWorkspace`, `Lint`, `PluginConfig`, `PluginOptions`, `Policy`, `RuleOptions`,
+  `SemverGroup`, `SemverRange`, `VersionGroup`, `VersionPolicy`, `WorkspaceProtocol` and, as `WorkspaceConfig`, the
+  `[workspace]` table. The third-party crates that may appear in the API are listed once in the `skif` crate
+  documentation and checked by a test ([ADR 0031](adrs/0031-third-party-types-in-the-facade-api.md)).
+- **A `Linter` shared by concurrent runs keeps one cache for them**: the cache of the built-in JS analysis is emptied
+  when the first of a group of overlapping runs starts and when the last one ends, so `skif -r` no longer wipes the
+  listings that the roots already running just read, and an idle `Linter` holds nothing.
+- **`skif config -r` walks each tree once** (`unapplied_config_files_all`) instead of once per enclosing root.
+- **Internal errors**: a duplicate rule id is reported with kind `internal`, not `config`.
 - **Library timings are a hook, not an environment read**: `skif_core::timing` no longer looks at `SKIF_TIMINGS` or
   writes to stderr on its own. A host installs a sink with `timing::enable` (or `enable_stderr`); the `skif` command
   line does so when `SKIF_TIMINGS` is set. The `skif` crate no longer re-exports `timing`.
@@ -177,6 +192,15 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Fixed
 
+- **Facade, CLI and addon** (audit findings): `Target::config_path` names a configuration file outside the root's
+  ancestors (`--config /elsewhere/skif.toml`) with `..` segments instead of returning nothing; the stale-file guard
+  also covers deleted files and the CLI refuses to write a file that changed after planning (tested);
+  `find_workspace_root` and `find_target` share one ancestor search; the sync `lint` of the npm addon throws an
+  `Error` with `kind` and `path`; the JSON document of a recursive run lists `truncated` directories; the CLI
+  reference test matches whole flags; SARIF writes a Windows drive as `file:///C:/...`; the GitHub format says when
+  more annotations are emitted than GitHub shows; a temporary file next to a target no longer repeats the target's
+  name, so a name at the length limit can be fixed; package-scoped `[[overrides]]` are resolved per package once
+  instead of against every diagnostic; `Through` forwards `read_bytes` and `modified`.
 - **Knip parity in the JS analysis** (found by running both tools on the pinned corpus): `unused-enum-members` and
   `unused-namespace-members` now count a member read in the declaring file by name, and no whole-enum use there
   (`Object.values(E)`, `E[key]`, a spread, a bare reference) credits a member;
