@@ -102,6 +102,8 @@ pub struct Workspace {
     /// Whether the root directory holds a `package.json`. A workspace declared by `pnpm-workspace.yaml` or
     /// `rush.json` alone has none: its root package is then an empty stand-in that is excluded from analysis.
     has_root_manifest: bool,
+    /// Member directories (relative to the root) whose `package.json` could not be read or parsed.
+    failed_dirs: Vec<PathBuf>,
     /// Package name to id, the root first: with a name declared twice the first package wins.
     by_name: FxHashMap<Box<str>, PackageId>,
     /// Indexed by [`PackageId`]: whether `[workspace] ignore-packages` excludes the package.
@@ -146,7 +148,7 @@ enum Member {
     NoManifest(PathBuf),
     /// A directory without real content; those linger after switching git branches and are not worth reporting.
     Empty,
-    Failed(WorkspaceError),
+    Failed(PathBuf, WorkspaceError),
 }
 
 /// Names that say nothing about a directory being in use: hidden entries, installed dependencies and build output.
@@ -175,9 +177,9 @@ fn load_member(fs: &dyn FileSystem, root: &Path, dir: &str, cache: &SpecifierCac
     match fs.read_to_string(&manifest) {
         Ok(text) => match Package::parse_with(PathBuf::from(dir), text, false, cache) {
             Ok(package) => Member::Loaded(Box::new(package)),
-            Err(error) => Member::Failed(error),
+            Err(error) => Member::Failed(PathBuf::from(dir), error),
         },
-        Err(error) => Member::Failed(io_error(&manifest, error)),
+        Err(error) => Member::Failed(PathBuf::from(dir), io_error(&manifest, error)),
     }
 }
 
@@ -389,11 +391,22 @@ impl Workspace {
         });
 
         let yarnrc_path = root.join(YARNRC);
-        let (yarnrc, yarn_catalogs) = if fs.is_file(&yarnrc_path) {
+        let mut manifest_errors = Vec::new();
+        // Only the manager that is in use reads its own catalog file: a stale `pnpm-workspace.yaml` in a Yarn
+        // repository (or a `.yarnrc.yml` in a pnpm one) declares nothing.
+        let reads_pnpm_catalogs = matches!(package_manager, None | Some(PackageManager::Pnpm));
+        let reads_yarn_catalogs = matches!(package_manager, None | Some(PackageManager::Yarn));
+        let (yarnrc, yarn_catalogs) = if reads_yarn_catalogs && fs.is_file(&yarnrc_path) {
             let text = fs
                 .read_to_string(&yarnrc_path)
                 .map_err(|error| io_error(&yarnrc_path, error))?;
-            let catalogs = catalogs::from_yarnrc(&text, Path::new(YARNRC));
+            let catalogs = catalogs::from_yarnrc(&text, Path::new(YARNRC)).unwrap_or_else(|message| {
+                manifest_errors.push(WorkspaceError::InvalidYarnrc {
+                    path: PathBuf::from(YARNRC),
+                    message,
+                });
+                Catalogs::default()
+            });
             let source = (!catalogs.is_empty()).then(|| YamlSource {
                 path: PathBuf::from(YARNRC),
                 line_index: Arc::new(LineIndex::new(&text)),
@@ -404,7 +417,10 @@ impl Workspace {
         } else {
             (None, Catalogs::default())
         };
-        let mut catalogs = pnpm_config.map(|parsed| parsed.catalogs).unwrap_or_default();
+        let mut catalogs = pnpm_config
+            .filter(|_| reads_pnpm_catalogs)
+            .map(|parsed| parsed.catalogs)
+            .unwrap_or_default();
         catalogs.merge(catalogs::from_package_json(
             &root_package.manifest.value,
             &root_package.manifest.path,
@@ -415,7 +431,6 @@ impl Workspace {
         let mut facts = Vec::new();
         let mut candidates = BTreeSet::new();
         let mut negations = Vec::new();
-        let mut manifest_errors = Vec::new();
         for (index, raw, span) in &declared.patterns {
             let negated = raw.trim_start().starts_with('!');
             let mut invalid = |message: String| {
@@ -468,6 +483,7 @@ impl Workspace {
         let members: Vec<Member> = map_ordered(&dirs, sequential, |dir| load_member(fs, &root, dir, &specifiers));
         let mut packages = Vec::new();
         let mut dirs_without_manifest = Vec::new();
+        let mut failed_dirs = Vec::new();
         for member in members {
             match member {
                 Member::Loaded(package) => {
@@ -476,7 +492,10 @@ impl Workspace {
                 }
                 Member::NoManifest(dir) => dirs_without_manifest.push(dir),
                 Member::Empty => {}
-                Member::Failed(error) => manifest_errors.push(error),
+                Member::Failed(dir, error) => {
+                    failed_dirs.push(dir);
+                    manifest_errors.push(error);
+                }
             }
         }
         let ignore = &config.workspace.ignore_packages;
@@ -520,6 +539,7 @@ impl Workspace {
             yarnrc,
             manifest_errors,
             has_root_manifest,
+            failed_dirs,
             by_name,
             ignored,
             nested: false,
@@ -589,6 +609,28 @@ impl Workspace {
             .iter()
             .map(|package| self.root.join(&package.dir))
             .collect()
+    }
+
+    /// Whether the package manager of this workspace can install a `workspace:` specifier: false for npm, which has
+    /// no such protocol, and for Yarn Classic. True for the managers that implement it and, since nothing says
+    /// otherwise, when the manager is unknown.
+    #[must_use]
+    pub fn supports_workspace_protocol(&self) -> bool {
+        match self.package_manager {
+            Some(PackageManager::Npm) => false,
+            Some(PackageManager::Yarn) => !self.facts.yarn_classic,
+            _ => true,
+        }
+    }
+
+    /// The absolute directories the workspace patterns selected that hold a `package.json`: the members, plus those
+    /// whose manifest could not be loaded (see [`manifest_errors`](Self::manifest_errors)). A recursive run claims
+    /// these for this workspace, so a broken member is not linted again as a root of its own.
+    #[must_use]
+    pub fn claimed_dirs(&self) -> BTreeSet<PathBuf> {
+        let mut dirs = self.member_dirs();
+        dirs.extend(self.failed_dirs.iter().map(|dir| self.root.join(dir)));
+        dirs
     }
 
     /// Whether this is a standalone package found below another root of a recursive run (see

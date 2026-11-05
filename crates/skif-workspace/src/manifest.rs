@@ -107,6 +107,13 @@ fn parse_ast(source: &str) -> Result<(ast::Value<'_>, usize), (usize, String)> {
         .ok_or_else(|| (bom, "the file is empty".to_owned()))
 }
 
+/// The JSON value of a manifest read the way [`Manifest::parse`] reads it: a BOM, comments and trailing commas are
+/// tolerated. `None` when the text is not a JSON object.
+pub(crate) fn parse_value(source: &str) -> Option<Value> {
+    let (root, _) = parse_ast(source).ok()?;
+    matches!(root, ast::Value::Object(_)).then(|| to_json(&root))
+}
+
 fn invalid(path: &Path, line_index: &LineIndex, offset: usize, message: String) -> WorkspaceError {
     let (line, column) = line_index.line_col(to_u32(offset));
     WorkspaceError::InvalidManifest {
@@ -241,10 +248,17 @@ impl Manifest {
         };
 
         let mut entries = Vec::new();
+        let mut seen = Vec::new();
         for section in &object.properties {
             let Some(kind) = DependencyKind::from_field(prop_name(&section.name)) else {
                 continue;
             };
+            // A section written twice: the last occurrence replaces the first as a whole, as it does in the value.
+            if seen.contains(&kind) {
+                entries.retain(|entry: &DependencyEntry| entry.kind != kind);
+            } else {
+                seen.push(kind);
+            }
             let ast::Value::Object(dependencies) = &section.value else {
                 continue;
             };

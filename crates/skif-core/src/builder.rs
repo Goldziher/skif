@@ -1,3 +1,5 @@
+//! Building a [`Diagnostic`] for a rule.
+
 use crate::diagnostic::Diagnostic;
 use crate::fix::Fix;
 use crate::package_id::PackageId;

@@ -36,6 +36,14 @@ pub enum WorkspaceError {
         /// What is wrong.
         message: String,
     },
+    /// `.yarnrc.yml` could not be parsed; the workspace is discovered without its catalogs.
+    #[error("invalid {path:?}: {message}")]
+    InvalidYarnrc {
+        /// Workspace-relative path of the file.
+        path: PathBuf,
+        /// What is wrong.
+        message: String,
+    },
     /// A workspace pattern cannot be used, for example because it climbs out of the root with `..`.
     #[error("invalid workspace pattern {pattern:?}: {message}")]
     InvalidPattern {

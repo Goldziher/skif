@@ -146,10 +146,12 @@ impl FileSystem for OsFs {
     fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
         let mut entries = Vec::new();
         for entry in std::fs::read_dir(path)? {
-            let entry = entry?;
+            // An entry that vanished between the listing and the lookup, or cannot be read, is skipped; it must not
+            // hide its siblings.
+            let Ok(entry) = entry else { continue };
             let path = entry.path();
             // `file_type` comes from the directory record; only a symlink needs a `stat` to learn its target.
-            let file_type = entry.file_type()?;
+            let Ok(file_type) = entry.file_type() else { continue };
             let is_symlink = file_type.is_symlink();
             let (is_dir, is_file) = if is_symlink {
                 std::fs::metadata(&path).map_or((false, false), |metadata| (metadata.is_dir(), metadata.is_file()))

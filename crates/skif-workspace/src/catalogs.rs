@@ -140,16 +140,17 @@ pub(crate) fn from_package_json(manifest: &Value, source: &Path) -> Catalogs {
 }
 
 /// Catalogs declared in `.yarnrc.yml` (Yarn 4.10+): `catalog` is the default catalog, `catalogs` holds the named
-/// ones. A file that is not valid YAML declares none: Yarn itself reports that, and the file is not skif's to lint.
-pub(crate) fn from_yarnrc(text: &str, source: &Path) -> Catalogs {
+/// ones.
+///
+/// # Errors
+/// The parser's message when the text is not valid YAML; the file then declares no catalogs.
+pub(crate) fn from_yarnrc(text: &str, source: &Path) -> Result<Catalogs, String> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let Ok(document) = serde_saphyr::from_str::<Value>(text) else {
-        return Catalogs::default();
-    };
+    let document = serde_saphyr::from_str::<Value>(text).map_err(|error| error.to_string())?;
     let catalogs = from_json(document.get("catalog"), document.get("catalogs"));
-    if catalogs.is_empty() {
+    Ok(if catalogs.is_empty() {
         Catalogs::default()
     } else {
         catalogs.with_source(source)
-    }
+    })
 }

@@ -73,7 +73,7 @@ fn workspace_members(root: &Path, fs: &dyn FileSystem, cache: &ConfigCache) -> B
         .map(|resolved| resolved.config)
         .unwrap_or_default();
     Workspace::discover_with_fs(root, &config, fs)
-        .map_or_else(|_| declared_member_dirs(fs, root), |workspace| workspace.member_dirs())
+        .map_or_else(|_| declared_member_dirs(fs, root), |workspace| workspace.claimed_dirs())
 }
 
 /// Finds the workspace that `start` belongs to.

@@ -128,7 +128,7 @@ pub use skif_lint::{
     Emitter, EnabledRules, Executor, ExecutorError, LintContext, LintError, ProviderError, RegistryError, Rule,
     RuleProvider, RulesProvider,
 };
-pub use skif_workspace::{DiscoverOptions, Package, PackageId, RootKind, Workspace, WorkspaceError, discover_roots};
+pub use skif_workspace::{DiscoverOptions, Package, PackageId, RootKind, Workspace, WorkspaceError};
 
 /// The renderers of [`Report`]s: human, JSON, SARIF and GitHub annotations.
 #[cfg(feature = "report")]

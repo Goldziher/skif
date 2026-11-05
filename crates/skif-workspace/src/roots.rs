@@ -8,19 +8,23 @@ use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use rayon::prelude::*;
 use serde_json::Value;
-use skif_config::{CONFIG_FILE_NAMES, Config, DEFAULT_DISCOVER_IGNORE};
+use skif_config::{CONFIG_FILE_NAMES, DEFAULT_DISCOVER_IGNORE};
+#[cfg(test)]
+use skif_config::Config;
 use skif_core::{DirEntry, FileSystem};
 
+use crate::manifest::parse_value;
 use crate::pattern::{self, Expander, Pattern};
 use crate::pnpm;
 use crate::rush;
+#[cfg(test)]
 use crate::workspace::Workspace;
 
 const MANIFEST: &str = "package.json";
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
 const IGNORE_FILES: [&str; 2] = [".gitignore", ".ignore"];
 
-/// A project root found by [`discover_roots`].
+/// A project root decided by [`claim_roots`].
 ///
 /// Only a workspace declaration makes a directory a root of its own: a directory that declares a workspace is a
 /// [`Workspace`](Self::Workspace) wherever it lies, also when an outer workspace lists it as a member or when it lies
@@ -45,7 +49,7 @@ impl RootKind {
     }
 }
 
-/// Bounds for [`discover_roots`].
+/// Bounds for [`scan_candidates`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct DiscoverOptions {
@@ -85,7 +89,7 @@ impl DiscoverOptions {
 fn manifest_declares_workspace(fs: &dyn FileSystem, dir: &Path) -> bool {
     fs.read_to_string(&dir.join(MANIFEST))
         .ok()
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|text| parse_value(&text))
         .is_some_and(|manifest| declares_patterns(manifest.get("workspaces")))
 }
 
@@ -216,6 +220,9 @@ pub struct Candidates {
     pub config_files: BTreeSet<PathBuf>,
     /// Directories at the depth limit that have subdirectories the walk did not enter, sorted.
     pub truncated: Vec<PathBuf>,
+    /// Directories whose listing failed (permissions, a directory removed during the walk), sorted. Nothing below
+    /// them was searched.
+    pub unreadable: Vec<PathBuf>,
 }
 
 /// Walks `start` and lists the workspace declarations and `package.json` files below it.
@@ -238,6 +245,7 @@ pub fn scan_candidates(start: &Path, fs: &dyn FileSystem, options: &DiscoverOpti
         inherited_ignores(fs, start),
     );
     found.truncated.sort();
+    found.unreadable.sort();
     found
 }
 
@@ -252,6 +260,7 @@ struct Walk<'a> {
 fn visit(fs: &dyn FileSystem, walk: &Walk<'_>, dir: PathBuf, depth: usize, ignores: Ignores) -> Candidates {
     let mut found = Candidates::default();
     let Ok(entries) = fs.read_dir_shared(&dir) else {
+        found.unreadable.push(dir);
         return found;
     };
     let names: Vec<&str> = entries
@@ -300,6 +309,7 @@ fn visit(fs: &dyn FileSystem, walk: &Walk<'_>, dir: PathBuf, depth: usize, ignor
         found.config_files.extend(child.config_files);
         found.workspaces.extend(child.workspaces);
         found.truncated.extend(child.truncated);
+        found.unreadable.extend(child.unreadable);
     }
     found
 }
@@ -316,7 +326,7 @@ fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
     let manifest = fs
         .read_to_string(&root.join(MANIFEST))
         .ok()
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+        .and_then(|text| parse_value(&text));
     let items = match manifest.as_ref().and_then(|manifest| manifest.get("workspaces")) {
         Some(Value::Array(items)) => Some(items),
         Some(Value::Object(object)) => object.get("packages").and_then(Value::as_array),
@@ -426,37 +436,17 @@ pub fn claim_roots(
     roots
 }
 
-/// Finds every workspace root and standalone package at or below `start`, sorted by path, discovering each
-/// workspace with the default configuration (see [`scan_candidates`] for what the walk skips and [`claim_roots`]
-/// for what counts as a root).
-///
-/// `start` must be a directory path usable through `fs` (absolute for a real file system). A workspace whose
-/// manifest cannot be discovered is still a root and claims the directories its patterns select.
-///
-/// # Examples
-/// ```
-/// use std::path::Path;
-/// use skif_workspace::{DiscoverOptions, MemoryFs, RootKind, discover_roots};
-///
-/// let fs = MemoryFs::new()
-///     .with_file("/r/a/package.json", r#"{"workspaces": ["p/*"]}"#)
-///     .with_file("/r/a/p/x/package.json", r#"{"name": "x"}"#)
-///     .with_file("/r/b/package.json", r#"{"name": "b"}"#);
-/// let roots = discover_roots(Path::new("/r"), &fs, &DiscoverOptions::default());
-/// assert_eq!(
-///     roots,
-///     vec![RootKind::Workspace("/r/a".into()), RootKind::Package("/r/b".into())]
-/// );
-/// ```
-#[must_use]
-pub fn discover_roots(start: &Path, fs: &dyn FileSystem, options: &DiscoverOptions) -> Vec<RootKind> {
+/// Finds every root below `start` with the default configuration, as the tests of this module need it. The
+/// configuration-aware pipeline lives in the `skif` facade (`discover_targets`), which is the one entry point.
+#[cfg(test)]
+fn discover_roots(start: &Path, fs: &dyn FileSystem, options: &DiscoverOptions) -> Vec<RootKind> {
     let candidates = scan_candidates(start, fs, options);
     let members = candidates
         .workspaces
         .iter()
         .map(|root| {
             let dirs = Workspace::discover_with_fs(root, &Config::default(), fs)
-                .map_or_else(|_| declared_member_dirs(fs, root), |workspace| workspace.member_dirs());
+                .map_or_else(|_| declared_member_dirs(fs, root), |workspace| workspace.claimed_dirs());
             (root.clone(), dirs)
         })
         .collect();
@@ -904,5 +894,89 @@ mod tests {
         );
         assert_eq!(found(&options(&["fixtures"])).len(), 6);
         assert!(found(&options(&["fixtures", "!real/fixtures"])).contains(&"pkg:/r/real/fixtures/x".to_owned()));
+    }
+
+    #[test]
+    fn a_root_manifest_with_a_bom_comments_or_trailing_commas_still_declares_its_workspace() {
+        let manifests = [
+            "\u{feff}{\"workspaces\": [\"p/*\"]}",
+            "{\n  // the members\n  \"workspaces\": [\"p/*\",],\n}",
+            "/* header */ {\"workspaces\": {\"packages\": [\"p/*\"]}}",
+        ];
+        for manifest in manifests {
+            let fs = MemoryFs::new()
+                .with_file("/r/package.json", manifest)
+                .with_file("/r/p/a/package.json", r#"{"name": "a"}"#);
+            assert!(declares_workspace(&fs, Path::new("/r")), "{manifest}");
+            assert_eq!(discover(&fs), ["ws:/r"], "{manifest}");
+        }
+    }
+
+    #[test]
+    fn declared_member_dirs_reads_a_manifest_with_comments() {
+        let fs = MemoryFs::new()
+            .with_file("/r/package.json", "\u{feff}{\n // c\n \"workspaces\": [\"p/*\"]}")
+            .with_file("/r/p/m/package.json", r#"{"name": "m"}"#);
+        assert_eq!(
+            declared_member_dirs(&fs, Path::new("/r")),
+            BTreeSet::from([PathBuf::from("/r/p/m")])
+        );
+    }
+
+    #[test]
+    fn a_member_whose_manifest_cannot_be_parsed_is_claimed_not_a_second_root() {
+        let fs = MemoryFs::new()
+            .with_file("/r/package.json", r#"{"workspaces": ["p/*"]}"#)
+            .with_file("/r/p/good/package.json", r#"{"name": "good"}"#)
+            .with_file("/r/p/bad/package.json", "{ not json");
+        assert_eq!(discover(&fs), ["ws:/r"]);
+        let workspace = Workspace::discover_with_fs(Path::new("/r"), &Config::default(), &fs).unwrap();
+        assert_eq!(workspace.manifest_errors.len(), 1);
+        assert_eq!(
+            workspace.claimed_dirs(),
+            BTreeSet::from([PathBuf::from("/r/p/bad"), PathBuf::from("/r/p/good")])
+        );
+        assert_eq!(workspace.member_dirs(), BTreeSet::from([PathBuf::from("/r/p/good")]));
+    }
+
+    /// A tree in which listing one directory fails.
+    struct Unreadable {
+        inner: MemoryFs,
+        broken: PathBuf,
+    }
+
+    impl FileSystem for Unreadable {
+        fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+            self.inner.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+            if path == self.broken {
+                Err(io::Error::from(io::ErrorKind::PermissionDenied))
+            } else {
+                self.inner.read_dir(path)
+            }
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.inner.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.inner.is_dir(path)
+        }
+    }
+
+    #[test]
+    fn a_directory_that_cannot_be_listed_is_reported_and_its_siblings_are_still_found() {
+        let fs = Unreadable {
+            inner: MemoryFs::new()
+                .with_file("/r/ok/package.json", r#"{"name": "ok"}"#)
+                .with_file("/r/locked/package.json", r#"{"name": "locked"}"#),
+            broken: PathBuf::from("/r/locked"),
+        };
+        let found = scan_candidates(Path::new("/r"), &fs, &DiscoverOptions::default());
+        assert_eq!(found.packages, BTreeSet::from([PathBuf::from("/r/ok")]));
+        assert_eq!(found.unreadable, [PathBuf::from("/r/locked")]);
     }
 }

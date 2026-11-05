@@ -12,6 +12,8 @@
 //! `['.', '**']`); [`DiscoveryFacts::implicit_patterns`] says so. A pattern that cannot be used is listed in
 //! [`Workspace::manifest_errors`] and does not stop discovery.
 
+#![warn(missing_docs)]
+
 mod catalogs;
 mod detect;
 mod error;
@@ -32,8 +34,8 @@ pub use package::{Package, PackageId};
 pub use parallel::map_ordered;
 pub use pnpm::YamlSource;
 pub use roots::{
-    Candidates, DiscoverOptions, RootKind, claim_roots, declared_member_dirs, declares_workspace, discover_roots,
-    repository_root, scan_candidates,
+    Candidates, DiscoverOptions, RootKind, claim_roots, declared_member_dirs, declares_workspace, repository_root,
+    scan_candidates,
 };
 pub use skif_config::PackageManager;
 pub use skif_core::{DependencyKind, DirEntry, FileSystem, MemoryFs, OsFs};
@@ -53,4 +55,7 @@ const _: () = {
     let _ = assert_send_sync::<DiscoveryFacts>;
     let _ = assert_send_sync::<PatternFact>;
     let _ = assert_send_sync::<WorkspaceSource>;
+    let _ = assert_send_sync::<Candidates>;
+    let _ = assert_send_sync::<DiscoverOptions>;
+    let _ = assert_send_sync::<RootKind>;
 };

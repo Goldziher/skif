@@ -129,7 +129,8 @@ enum Segment {
     Literal(String),
     /// A bare `*`.
     Star,
-    /// A segment with glob characters, e.g. `foo-*` or `@(a|b)`.
+    /// A segment with glob characters (`*`, `?`, `[` or `{`), e.g. `foo-*`. Extglobs such as `@(a|b)` are
+    /// not supported: those characters are literal.
     Glob(GlobMatcher),
     /// `**`
     DoubleStar,

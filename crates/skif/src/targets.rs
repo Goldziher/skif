@@ -115,7 +115,7 @@ pub fn find_target(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOverride
     }
     for ancestor in ancestors {
         match load_in_repository(&ancestor, fs, overrides, &cache) {
-            Ok(target) if target.workspace.member_dirs().contains(&project) => return Ok(target),
+            Ok(target) if target.workspace.claimed_dirs().contains(&project) => return Ok(target),
             Err(error) if declared_member_dirs(fs, &ancestor).contains(&project) => return Err(error),
             _ => {}
         }
@@ -152,7 +152,7 @@ pub struct Discovery {
 }
 
 /// Finds every workspace root and standalone package at or below `start` and loads each as a [`Target`], sorted by
-/// path (see [`skif_workspace::discover_roots`] for what counts as a root).
+/// path (see [`skif_workspace::claim_roots`] for what counts as a root).
 ///
 /// Each workspace is discovered once, with the configuration that governs it, and the directories it lists decide
 /// which packages are claimed. A root's configuration is every config file at or above it, up to the root of the git
@@ -196,7 +196,7 @@ pub fn discover_targets(start: &Path, fs: &dyn FileSystem, overrides: &ConfigOve
         .iter()
         .map(|(root, loaded)| {
             let dirs = match loaded {
-                Ok(target) => target.workspace.member_dirs(),
+                Ok(target) => target.workspace.claimed_dirs(),
                 Err(_) => declared_member_dirs(fs, root),
             };
             (root.clone(), dirs)

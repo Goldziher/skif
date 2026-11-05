@@ -253,7 +253,46 @@ fn a_yarnrc_without_catalogs_or_with_invalid_yaml_declares_none() {
         .unwrap();
         assert!(workspace.catalogs.is_empty(), "{yarnrc}");
         assert!(workspace.yarnrc.is_none(), "{yarnrc}");
+        let invalid = yarnrc.starts_with("catalog: [");
+        assert_eq!(
+            workspace
+                .manifest_errors
+                .iter()
+                .filter(|error| matches!(error, WorkspaceError::InvalidYarnrc { .. }))
+                .count(),
+            usize::from(invalid),
+            "{yarnrc}"
+        );
     }
+}
+
+#[test]
+fn catalogs_come_only_from_the_files_of_the_active_package_manager() {
+    let yaml = "packages:\n  - a\ncatalog:\n  react: ^18.0.0\n";
+    let yarnrc = "catalog:\n  vue: ^3.0.0\n";
+    let files = |manager: &'static str| {
+        [
+            ("package.json", manager),
+            ("pnpm-workspace.yaml", yaml),
+            (".yarnrc.yml", yarnrc),
+            ("a/package.json", "{}"),
+        ]
+    };
+    let yarn = discover(
+        &files(r#"{"name":"r","packageManager":"yarn@4.10.0","workspaces":["a"]}"#),
+        &Config::default(),
+    )
+    .unwrap();
+    assert_eq!(yarn.catalogs.resolve("vue", "catalog:"), Some("^3.0.0"));
+    assert_eq!(yarn.catalogs.resolve("react", "catalog:"), None);
+    let pnpm = discover(
+        &files(r#"{"name":"r","packageManager":"pnpm@9.0.0"}"#),
+        &Config::default(),
+    )
+    .unwrap();
+    assert_eq!(pnpm.catalogs.resolve("react", "catalog:"), Some("^18.0.0"));
+    assert_eq!(pnpm.catalogs.resolve("vue", "catalog:"), None);
+    assert!(pnpm.yarnrc.is_none());
 }
 
 #[test]
@@ -1180,4 +1219,66 @@ fn equal_specifiers_are_parsed_once_per_workspace() {
             "{spec}"
         );
     }
+}
+
+#[test]
+fn a_section_written_twice_keeps_only_the_last_occurrence_like_the_json_value() {
+    let workspace = discover(
+        &[(
+            "package.json",
+            r#"{"name":"root","dependencies":{"a":"1.0.0","b":"1.0.0"},"devDependencies":{"d":"1.0.0"},"dependencies":{"c":"2.0.0"}}"#,
+        )],
+        &Config::default(),
+    )
+    .unwrap();
+    let root = workspace.root_package();
+    let production: Vec<&str> = root
+        .dependencies
+        .iter()
+        .filter(|entry| entry.kind == DependencyKind::Dependencies)
+        .map(|entry| entry.name.as_str())
+        .collect();
+    assert_eq!(production, ["c"]);
+    assert_eq!(
+        root.dependency_map(DependencyKind::Dependencies)
+            .map(|map| map.keys().cloned().collect::<Vec<_>>()),
+        Some(vec!["c".to_owned()])
+    );
+    assert_eq!(root.dependencies.len(), 2);
+}
+
+#[test]
+fn a_later_section_that_is_not_an_object_drops_the_earlier_entries() {
+    let workspace = discover(
+        &[("package.json", r#"{"name":"root","dependencies":{"a":"1.0.0"},"dependencies":null}"#)],
+        &Config::default(),
+    )
+    .unwrap();
+    assert_eq!(workspace.root_package().dependencies.len(), 0);
+}
+
+#[test]
+fn yarn_berry_files_identify_yarn_when_nothing_stronger_does() {
+    let root = r#"{"name":"root","workspaces":["pkgs/*"]}"#;
+    let with_yarnrc = discover(
+        &[("package.json", root), (".yarnrc.yml", "nodeLinker: node-modules\n")],
+        &Config::default(),
+    )
+    .unwrap();
+    assert_eq!(with_yarnrc.package_manager, Some(PackageManager::Yarn));
+    assert!(!with_yarnrc.facts.yarn_classic);
+    let with_releases = discover(
+        &[("package.json", root), (".yarn/releases/yarn-4.1.0.cjs", "//")],
+        &Config::default(),
+    )
+    .unwrap();
+    assert_eq!(with_releases.package_manager, Some(PackageManager::Yarn));
+    let bare = discover(&[("package.json", root)], &Config::default()).unwrap();
+    assert_eq!(bare.package_manager, None);
+    let lockfile = discover(
+        &[("package.json", root), (".yarnrc.yml", ""), ("package-lock.json", "{}")],
+        &Config::default(),
+    )
+    .unwrap();
+    assert_eq!(lockfile.package_manager, Some(PackageManager::Npm));
 }

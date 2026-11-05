@@ -52,9 +52,15 @@ fn from_lockfile(fs: &dyn FileSystem, root: &Path) -> Option<PackageManager> {
     }
 }
 
+/// Yarn Berry leaves `.yarnrc.yml` and `.yarn/releases` in a checkout whether or not `yarn.lock` is committed.
+fn from_yarn_berry_files(fs: &dyn FileSystem, root: &Path) -> Option<PackageManager> {
+    (fs.is_file(&root.join(".yarnrc.yml")) || fs.is_dir(&root.join(".yarn").join("releases")))
+        .then_some(PackageManager::Yarn)
+}
+
 /// Detects the package manager, first match wins: `[workspace] package-manager` in the config, the manifest
 /// declaration, the one `rush.json` names, a lockfile (`pnpm-lock.yaml`, `bun.lock`/`bun.lockb`, `yarn.lock`, `package-lock.json`), then the
-/// presence of `pnpm-workspace.yaml`. `None` when nothing indicates a manager.
+/// presence of `pnpm-workspace.yaml`, then the files Yarn Berry leaves (`.yarnrc.yml`, `.yarn/releases`). `None` when nothing indicates a manager.
 pub(crate) fn detect(
     fs: &dyn FileSystem,
     root: &Path,
@@ -70,6 +76,7 @@ pub(crate) fn detect(
         .or(from_rush)
         .or_else(|| from_lockfile(fs, root))
         .or_else(|| has_pnpm_workspace.then_some(PackageManager::Pnpm))
+        .or_else(|| from_yarn_berry_files(fs, root))
 }
 
 /// Whether the workspace uses Yarn Classic (1.x), which has no `workspace:` protocol.

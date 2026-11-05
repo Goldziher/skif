@@ -31,6 +31,8 @@
 //! assert_eq!(report.summary.warnings, 1);
 //! ```
 
+#![warn(missing_docs)]
+
 pub mod builder;
 pub mod cached_fs;
 pub mod dependency;
@@ -82,4 +84,8 @@ const _: () = {
     let _ = assert_send_sync::<DirEntry>;
     let _ = assert_send_sync::<Summary>;
     let _ = assert_send_sync::<RuleId>;
+    let _ = assert_send_sync::<DependencyKind>;
+    let _ = assert_send_sync::<Severity>;
+    let _ = assert_send_sync::<Category>;
+    let _ = assert_send_sync::<Fixability>;
 };
