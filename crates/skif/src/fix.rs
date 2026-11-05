@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use skif_config::Prefer;
 use skif_core::{
-    Diagnostic, FileChange, FileSystem, Fix, FixOp, FixSafety, Report, RuleId, TextEdit, apply_text_edits, slash,
+    Diagnostic, FileChange, FileSystem, Fix, FixOp, FixPreference, FixSafety, Report, RuleId, TextEdit,
+    apply_text_edits, slash,
 };
 use skif_edit::{EditPlanError, FileKind, plan_edits};
 use skif_workspace::Workspace;
@@ -20,37 +21,37 @@ pub enum Alternatives {
     Ask,
     /// Take the first alternative, which a rule orders by configuration (`[policy] prefer`).
     First,
-    /// Take the alternative that names the preferred version (see [`preferred_alternative`]), as `[policy] prefer`
+    /// Take the alternative tagged with the preferred version (see [`preferred_alternative`]), as `[policy] prefer`
     /// determines it; leave the diagnostic unfixed ([`SkipReason::NeedsChoice`]) when no alternative names it.
     Preferred(Prefer),
 }
 
-/// Whether a fix titled `title` aligns on the version `prefer` names ("highest" or "lowest").
-fn names(title: &str, prefer: Prefer) -> bool {
-    let word = match prefer {
-        Prefer::Lowest => "lowest",
-        _ => "highest",
-    };
-    title.to_ascii_lowercase().contains(word)
+/// The version `prefer` selects, as a fix carries it.
+const fn preference_of(prefer: Prefer) -> FixPreference {
+    match prefer {
+        Prefer::Lowest => FixPreference::Lowest,
+        _ => FixPreference::Highest,
+    }
 }
 
-/// The index of the alternative in `fixes` whose title names the version `prefer` selects, when there is one.
+/// The index of the alternative in `fixes` that carries the [`FixPreference`] `prefer` selects, when there is one.
 ///
-/// A rule labels alternatives by what they do ("highest", "lowest", ...); configuration determines the answer
-/// when `[policy] prefer` selects one of those labels.
+/// A rule tags the alternatives that align on a version ([`Fix::with_preference`]); configuration determines the
+/// answer when `[policy] prefer` selects one of those tags. The title is only text for the user.
 ///
 /// # Examples
 /// ```
-/// use skif::{Fix, FixSafety, Prefer, preferred_alternative};
+/// use skif::{Fix, FixPreference, FixSafety, Prefer, preferred_alternative};
 ///
-/// let fix = |title: &str| Fix::new(title.to_owned(), FixSafety::Unsafe, Vec::new());
-/// let fixes = [fix("Use the highest version"), fix("Use the lowest version")];
+/// let fix = |title: &str, preference| Fix::new(title.to_owned(), FixSafety::Unsafe, Vec::new()).with_preference(preference);
+/// let fixes = [fix("Use 2.0.0", FixPreference::Highest), fix("Use 0.1.0", FixPreference::Lowest)];
 /// assert_eq!(preferred_alternative(&fixes, Prefer::Lowest), Some(1));
 /// assert_eq!(preferred_alternative(&fixes[..1], Prefer::Lowest), None);
 /// ```
 #[must_use]
 pub fn preferred_alternative(fixes: &[Fix], prefer: Prefer) -> Option<usize> {
-    fixes.iter().position(|fix| names(&fix.title, prefer))
+    let wanted = Some(preference_of(prefer));
+    fixes.iter().position(|fix| fix.preference == wanted)
 }
 
 /// Which fixes go into a [`FixPlan`].
@@ -110,7 +111,9 @@ impl FixSelection {
         self
     }
 
-    fn allows(&self, safety: FixSafety) -> bool {
+    /// Whether a fix of `safety` is within the selection's safety ceiling.
+    #[must_use]
+    pub fn allows(&self, safety: FixSafety) -> bool {
         self.safety == FixSafety::Unsafe || safety == FixSafety::Safe
     }
 
@@ -180,7 +183,7 @@ pub struct FixPlan {
     pub applied: Vec<AppliedFix>,
     /// Fixes left out, in diagnostic order.
     pub skipped: Vec<SkippedFix>,
-    /// [`content_hash`] of the contents each modified file had when it was planned.
+    /// [`content_hash`] of the contents each modified or deleted file had when it was planned.
     bases: BTreeMap<PathBuf, u64>,
 }
 
@@ -194,12 +197,20 @@ pub fn content_hash(bytes: &[u8]) -> u64 {
 }
 
 impl FixPlan {
-    /// The [`content_hash`] of the file at `path` as the plan read it, for a file the plan modifies. A host that
+    /// The [`content_hash`] of the file at `path` as the plan read it, for a file the plan modifies or deletes. A host that
     /// writes the plan later compares it with the hash of the file as it is then and refuses to write over a file
     /// that changed in between.
     #[must_use]
     pub fn base_hash(&self, path: &Path) -> Option<u64> {
         self.bases.get(path).copied()
+    }
+
+    /// Records `hash` as the [`content_hash`] the file at `path` had when the plan was made, for a host that assembles
+    /// or merges plans itself.
+    #[must_use]
+    pub fn with_base_hash(mut self, path: impl Into<PathBuf>, hash: u64) -> Self {
+        self.bases.insert(path.into(), hash);
+        self
     }
 
     /// Whether the plan changes no file.
@@ -484,7 +495,12 @@ impl<'a> Planner<'a> {
                     path: path.clone(),
                     contents: contents.to_owned(),
                 },
-                Entry::Delete => FileChange::Delete { path: path.clone() },
+                Entry::Delete => {
+                    if let Ok(bytes) = self.fs.read_bytes(&self.root.join(&path)) {
+                        bases.insert(path.clone(), content_hash(&bytes));
+                    }
+                    FileChange::Delete { path: path.clone() }
+                }
                 Entry::Edit { ops, edits } => {
                     let source = self.source(&path).map_err(invalid)?;
                     // Per-fix plans decide which fixes are accepted; the file is written from one joint plan of
@@ -554,7 +570,10 @@ fn pick<'a>(selection: &FixSelection, index: usize, diagnostic: &'a Diagnostic) 
         (alternatives, _) => {
             let chosen = match selection.alternatives {
                 Alternatives::First => alternatives.first().copied(),
-                Alternatives::Preferred(prefer) => alternatives.iter().copied().find(|fix| names(&fix.title, prefer)),
+                Alternatives::Preferred(prefer) => alternatives
+                    .iter()
+                    .copied()
+                    .find(|fix| fix.preference == Some(preference_of(prefer))),
                 Alternatives::Ask => None,
             };
             chosen.map_or_else(

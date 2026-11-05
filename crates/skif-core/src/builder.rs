@@ -159,6 +159,7 @@ mod tests {
             title: "drop".into(),
             safety: FixSafety::Safe,
             ops: vec![FixOp::DeleteFile { path: "x".into() }],
+            preference: None,
         };
         let built = diagnostic(&META, "m", location())
             .package("pkg")
