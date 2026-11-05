@@ -186,7 +186,11 @@ pub(crate) fn extglob_to_braces(pattern: &str) -> String {
             _ => None,
         };
         if let Some(kind) = operator {
-            stack.push(Frame { kind, body: String::new(), alternatives: false });
+            stack.push(Frame {
+                kind,
+                body: String::new(),
+                alternatives: false,
+            });
             i += 2;
             continue;
         }
@@ -205,7 +209,11 @@ pub(crate) fn extglob_to_braces(pattern: &str) -> String {
                 }
                 push(&mut stack, &mut out, "[");
             }
-            '(' => stack.push(Frame { kind: Kind::Plain, body: String::new(), alternatives: false }),
+            '(' => stack.push(Frame {
+                kind: Kind::Plain,
+                body: String::new(),
+                alternatives: false,
+            }),
             ')' => match stack.pop() {
                 Some(frame) => {
                     let text = match frame.kind {
