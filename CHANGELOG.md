@@ -323,6 +323,13 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 ### Fixed
 
+- **Monorepo JS corrections** ([ADR 0044](adrs/0044-monorepo-js-corrections-builtins-html-entries-referenced-paths-extglob-helpers-and-stylesheets.md)):
+  `buffer/` and `events/` name npm packages, not builtins; the vitest plugin adds `index.html` scripts without the vite
+  plugin; the `paths` of a `tsconfig` referenced in another package stay with that package; extglob groups
+  (`*.(ts|tsx)`, `@(a|b)`, `+(…)`) work in plugin globs; a config helper imported from a sibling package credits that
+  package instead of reporting its files; stylesheet imports through `baseUrl`, `paths` and `resolve.modules` use the
+  stylesheet resolver, partials included; bundler `resolve.extensions` apply per package.
+
 - **Catalog rules respect version groups** ([ADR 0040](adrs/0040-version-groups-own-their-instances-the-catalog-rules-leave-claimed-instances.md)):
   an instance a configured `[[version-groups]]` entry matches belongs to that group, whatever its policy
   (`pinned`, `banned`, `ignored`, `snapped-to`, an aligned policy with a selector), as in syncpack's first-match-wins
