@@ -132,13 +132,17 @@ mod tests {
     #[test]
     fn url_targets_are_whole_module_imports_and_mocks_only_load() {
         let source = "new URL('./a.ts', import.meta.url);\nvi.mock('./b');";
-        let kinds: Vec<ImportKind> = extra_specifiers(source).into_iter().map(|(_, kind, _, _)| kind).collect();
+        let kinds: Vec<ImportKind> = extra_specifiers(source)
+            .into_iter()
+            .map(|(_, kind, _, _)| kind)
+            .collect();
         assert_eq!(kinds, [ImportKind::Require, ImportKind::SideEffect]);
     }
 
     #[test]
     fn a_url_target_is_added_next_to_a_named_import_of_the_same_file() {
-        let source = "import { a } from './a.ts';\nnew URL('./a.ts', import.meta.url);\nnew URL('./a.ts', import.meta.url);";
+        let source =
+            "import { a } from './a.ts';\nnew URL('./a.ts', import.meta.url);\nnew URL('./a.ts', import.meta.url);";
         let mut info = ModuleInfo::default();
         info.imports.push(Import {
             specifier: "./a.ts".to_owned(),

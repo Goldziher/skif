@@ -93,10 +93,7 @@ fn a_member_read_in_its_own_file_counts_but_the_enum_being_referenced_does_not_u
 fn the_types_in_a_destructured_export_belong_to_it() {
     let diagnostics = lint_files(&[
         PACKAGE,
-        (
-            "index.ts",
-            "import { useCtx } from './ctx';\nconsole.log(useCtx);\n",
-        ),
+        ("index.ts", "import { useCtx } from './ctx';\nconsole.log(useCtx);\n"),
         (
             "ctx.ts",
             "export type Props = { value: string };\n\
@@ -133,10 +130,7 @@ fn a_require_asserted_with_typeof_import_uses_only_what_it_destructures() {
             "index.ts",
             "const { used } = require('./lazy') as typeof import('./lazy');\nused();\n",
         ),
-        (
-            "lazy.ts",
-            "export function used() {}\nexport function unusedOne() {}\n",
-        ),
+        ("lazy.ts", "export function used() {}\nexport function unusedOne() {}\n"),
     ]);
     assert_eq!(found(&diagnostics, "unused-exports"), ["lazy.ts: unusedOne"]);
 }
@@ -174,7 +168,10 @@ fn duplicate_exports_follow_initialisers_and_ignore_export_clauses() {
 fn only_fixtures_and_dunder_fixtures_directories_hold_test_data() {
     let diagnostics = lint_files(&[
         PACKAGE,
-        ("index.ts", "import './fixtures/a';\nimport './colorize-fixtures/b';\nimport './__testfixtures__/c';\n"),
+        (
+            "index.ts",
+            "import './fixtures/a';\nimport './colorize-fixtures/b';\nimport './__testfixtures__/c';\n",
+        ),
         ("fixtures/a.ts", "import 'not-installed-a';\n"),
         ("colorize-fixtures/b.ts", "import 'not-installed-b';\n"),
         ("__testfixtures__/c.ts", "import 'not-installed-c';\n"),
@@ -183,7 +180,10 @@ fn only_fixtures_and_dunder_fixtures_directories_hold_test_data() {
     unlisted.sort();
     assert_eq!(
         unlisted,
-        ["__testfixtures__/c.ts: not-installed-c", "colorize-fixtures/b.ts: not-installed-b"]
+        [
+            "__testfixtures__/c.ts: not-installed-c",
+            "colorize-fixtures/b.ts: not-installed-b"
+        ]
     );
 }
 
@@ -201,7 +201,10 @@ fn a_spec_file_with_an_underscore_is_not_a_test_entry() {
 #[test]
 fn a_wildcard_in_exports_matches_across_directories() {
     let diagnostics = lint_files(&[
-        ("package.json", r#"{"name":"app","private":true,"exports":{"./*":"./src/*.ts"}}"#),
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"exports":{"./*":"./src/*.ts"}}"#,
+        ),
         ("src/promise/agent.ts", "export interface AgentEditor { id: string }\n"),
         ("src/top.ts", "export const top = 1;\n"),
     ]);
@@ -221,7 +224,10 @@ fn paths(diagnostics: &[Diagnostic], rule: &str) -> Vec<String> {
 #[test]
 fn the_catch_all_export_does_not_make_every_file_an_entry() {
     let diagnostics = lint_files(&[
-        ("package.json", r#"{"name":"app","private":true,"exports":{"./*":"./*"}}"#),
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"exports":{"./*":"./*"}}"#,
+        ),
         ("top.ts", "export const top = 1;\n"),
         ("sub/deep.ts", "export const deep = 1;\n"),
     ]);
@@ -231,7 +237,10 @@ fn the_catch_all_export_does_not_make_every_file_an_entry() {
 #[test]
 fn bin_and_main_globs_are_not_widened_across_directories() {
     let diagnostics = lint_files(&[
-        ("package.json", r#"{"name":"app","private":true,"bin":"bin/*.js","main":"lib/*.js"}"#),
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"bin":"bin/*.js","main":"lib/*.js"}"#,
+        ),
         ("bin/tool.ts", "export const tool = 1;\n"),
         ("bin/nested/inner.ts", "export const inner = 1;\n"),
         ("lib/nested/inner.ts", "export const other = 1;\n"),
@@ -256,7 +265,10 @@ fn the_explanation_of_a_file_names_its_importers_and_the_chain_from_an_entry() {
     assert!(text.contains("entry file: "), "{text}");
     let text = analysis_text(&EXPLAIN_FILES, "lib.ts", None);
     assert!(text.contains("barrel.ts:1"), "{text}");
-    assert!(text.contains("reached from an entry through: index.ts -> barrel.ts -> lib.ts"), "{text}");
+    assert!(
+        text.contains("reached from an entry through: index.ts -> barrel.ts -> lib.ts"),
+        "{text}"
+    );
 }
 
 #[test]

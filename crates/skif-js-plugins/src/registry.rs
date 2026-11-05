@@ -4,10 +4,10 @@ use crate::plugin::Plugin;
 use crate::plugins::{
     angular, astro, aws_cdk, babel, browser_extension, changesets, commitlint, cspell, cypress, docusaurus, drizzle,
     esbuild, eslint, expo, expo_router, github_actions, graphql_codegen, husky, jest, karma, lefthook, lint_staged,
-    markdownlint, mastra, metro, mocha, next, node, nodemon, nuxt, nx, oxlint, playwright, pm2, pnpm, postcss, prettier,
-    prisma, react_native, release_it, rollup, rspack, semantic_release, simple_git_hooks, storybook, stylelint, svelte,
-    sveltekit, syncpack, tailwind, tanstack_router, ts_node, tsdown, tsup, tsx, turbo, typescript, vite, vitepress,
-    vitest, webpack, wrangler, yarn,
+    markdownlint, mastra, metro, mocha, next, node, nodemon, nuxt, nx, oxlint, playwright, pm2, pnpm, postcss,
+    prettier, prisma, react_native, release_it, rollup, rspack, semantic_release, simple_git_hooks, storybook,
+    stylelint, svelte, sveltekit, syncpack, tailwind, tanstack_router, ts_node, tsdown, tsup, tsx, turbo, typescript,
+    vite, vitepress, vitest, webpack, wrangler, yarn,
 };
 
 static PLUGINS: [&dyn Plugin; 63] = [

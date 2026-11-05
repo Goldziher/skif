@@ -110,16 +110,19 @@ mod tests {
 
     #[test]
     fn fixture_directories_are_recognised_by_name() {
+        for name in ["fixtures", "__fixtures__"] {
+            assert!(is_fixture_directory(name), "{name}");
+        }
         for name in [
-            "fixtures",
-            "__fixtures__",
+            "fixture",
+            "src",
+            "fixtures-api",
+            "test_root",
+            "my-fixtures-lib",
             "__testfixtures__",
             "colorize-fixtures",
             "e2e_fixtures",
         ] {
-            assert!(is_fixture_directory(name), "{name}");
-        }
-        for name in ["fixture", "src", "fixtures-api", "test_root", "my-fixtures-lib"] {
             assert!(!is_fixture_directory(name), "{name}");
         }
     }

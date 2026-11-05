@@ -423,7 +423,7 @@ impl Export {
             referenced_in_file: false,
             referenced_in: Vec::new(),
             members_read_in_file: Vec::new(),
-                alias_of: None,
+            alias_of: None,
         }
     }
 }
