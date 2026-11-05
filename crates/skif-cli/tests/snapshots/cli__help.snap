@@ -13,6 +13,7 @@ Commands:
   init           Write a starter `skif.toml`; refuses to overwrite an existing configuration
   config         Show the configuration files a root is built from, the merged result, and where each key was set
   explain-usage  Explain why the JavaScript analysis counts a file, or one export of it, as used
+  migrate        Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file
   help           Print this message or the help of the given subcommand(s)
 
 Arguments:
