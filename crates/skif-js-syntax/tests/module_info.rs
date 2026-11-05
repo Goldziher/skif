@@ -878,3 +878,21 @@ fn data_script_blocks_are_not_parsed() {
     let specifiers: Vec<&str> = info.imports.iter().map(|i| i.specifier.as_str()).collect();
     assert_eq!(specifiers, ["./a", "./client"]);
 }
+
+#[test]
+fn commonjs_named_exports_are_exports() {
+    let names = |source: &str| -> Vec<String> {
+        parse("a.js", source)
+            .exports
+            .iter()
+            .map(|export| export.name.clone())
+            .collect()
+    };
+    assert_eq!(names("exports.a = 1;\nexports.b = 2;\nexports.a = 3;"), ["a", "b"]);
+    assert_eq!(names("module.exports.c = function () {};"), ["c"]);
+    assert_eq!(names("function d() {}\nfunction e() {}\nmodule.exports = { d, e };"), ["d", "e"]);
+    assert_eq!(names("module.exports = { d: 1, e };"), Vec::<String>::new());
+    assert_eq!(names("module.exports = function () {};"), Vec::<String>::new());
+    assert_eq!(names("const exports2 = {}; exports2.a = 1;"), Vec::<String>::new());
+    assert_eq!(names("exports.x += 1;"), Vec::<String>::new());
+}
