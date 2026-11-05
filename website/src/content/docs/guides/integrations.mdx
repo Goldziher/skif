@@ -19,6 +19,8 @@ description: Run skif from GitHub Actions, pre-commit, prek, Poly, Lefthook, npm
 | `working-directory` | Directory to run skif in. |
 | `fail-on-warnings` | Exit non-zero on any warning. |
 | `install-only` | Put `skif` on `PATH` without running it. |
+| `token` | Token for the GitHub API and the release download. Defaults to the workflow's `GITHUB_TOKEN`. |
+| `repository` | Advanced: the `owner/repo` the release assets come from. Defaults to `Goldziher/skif`. |
 
 `@v0` is a floating tag that follows the newest 0.x release. Pin a full tag such as `@v0.1.0` for a fixed version.
 The action downloads the release archive for the runner and verifies it against the release's `checksums.txt`.

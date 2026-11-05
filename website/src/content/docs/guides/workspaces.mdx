@@ -31,8 +31,9 @@ First match wins:
 
 1. `[workspace] package-manager` in `skif.toml`.
 2. The root `package.json` `packageManager` field, then `devEngines.packageManager`.
-3. Lockfile presence: `pnpm-lock.yaml`, `bun.lock` / `bun.lockb`, `yarn.lock`, `package-lock.json`.
-4. A `pnpm-workspace.yaml` implies pnpm.
+3. The package manager that `rush.json` names (`pnpmVersion`, `npmVersion` or `yarnVersion`).
+4. Lockfile presence: `pnpm-lock.yaml`, `bun.lock` / `bun.lockb`, `yarn.lock`, `package-lock.json`.
+5. A `pnpm-workspace.yaml` implies pnpm.
 
 If nothing indicates a manager, skif does not guess npm. Rules and fixes that depend on the manager skip what
 would be wrong for some manager; an npm workspace never receives a `workspace:*` specifier.

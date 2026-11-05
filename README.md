@@ -134,7 +134,8 @@ Channels follow [ADR 0013](adrs/0013-distribution-and-naming.md). The npm packag
 ```
 
 Inputs: `version` (defaults to the action's own tag), `args` (extra skif arguments), `working-directory`,
-`fail-on-warnings`, and `install-only` to put `skif` on `PATH` without running it. `@v0` is a floating tag
+`fail-on-warnings`, `install-only` to put `skif` on `PATH` without running it, and the advanced `token` and
+`repository` (see [`action.yml`](action.yml)). `@v0` is a floating tag
 that follows the newest 0.x release; pin a full tag such as `@v0.1.0` for a fixed version. The action downloads
 the release archive for the runner and verifies it against the release's `checksums.txt`.
 
