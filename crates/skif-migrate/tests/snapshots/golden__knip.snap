@@ -1,0 +1,73 @@
+---
+source: crates/skif-migrate/tests/golden.rs
+expression: migration.toml
+---
+#:schema https://raw.githubusercontent.com/Goldziher/skif/main/schema/skif.schema.json
+
+# Migrated from knip by `skif migrate` (profile: full).
+# Review the report the command printed: notes marked H or X were not translated.
+
+[js]
+entry = ["src/index.ts!", "scripts/*.ts", "src/index.ts"]
+project = ["src/**/*.ts!", "scripts/**/*.ts"]
+ignore = ["src/generated/**", "src/legacy/**"]
+ignore-dependencies = ["left-pad", "/^@demo\\/.+$/", "eslint-*", "/tsx|ts-node/"]
+ignore-binaries = ["docker", "lefthook"]
+ignore-unresolved = ["/#internal/(.*)/", "/\\.svg$/"]
+ignore-members = ["render", "/^handle/"]
+ignore-exports-used-in-file = true
+ignore-workspaces = ["examples/**"]
+include-entry-exports = true
+
+[js.plugins]
+vitest = { config = ["vitest.config.ts", "vitest.workspace.ts"], entry = ["**/*.test.ts"] }
+storybook = false
+
+[js.workspaces.".".paths]
+"@/*" = ["./src/*"]
+
+[js.workspaces."apps/web"]
+entry = ["src/main.tsx", "src/routes/**/*.tsx!"]
+project = ["src/**/*.{ts,tsx}!"]
+ignore-dependencies = ["@demo/*", "/^virtual:/"]
+ignore-unresolved = ["virtual:routes"]
+include-entry-exports = true
+
+[js.workspaces."apps/web".paths]
+"~/*" = ["./src/*"]
+
+[js.workspaces."apps/web".plugins]
+vitest = { config = ["vitest.web.config.ts"] }
+playwright = { config = ["e2e/playwright.config.ts"], entry = ["e2e/**/*.spec.ts"] }
+
+[js.workspaces."packages/*"]
+entry = ["src/index.ts"]
+
+[rules]
+unlisted-dependencies = "off"
+unused-files = "warn"
+unused-dependencies = "error"
+unused-dev-dependencies = "error"
+unused-optional-peer-dependencies = "error"
+unlisted-binaries = "error"
+unresolved-imports = "error"
+unused-exports = { level = "error", ignore-tags = ["lintignore"] }
+unused-namespace-exports = "error"
+unused-types = "error"
+unused-namespace-types = "error"
+duplicate-exports = "error"
+unused-enum-members = "error"
+unused-namespace-members = "error"
+unused-catalog-entries = "error"
+unresolved-catalog-references = "error"
+stale-js-config = "error"
+
+# knip ignoreIssues for src/api/**
+[[overrides]]
+files = ["src/api/**"]
+rules = { unused-exports = "off", unused-namespace-exports = "off", unused-types = "off", unused-namespace-types = "off" }
+
+# knip ignoreIssues for src/legacy/**
+[[overrides]]
+files = ["apps/web/src/legacy/**"]
+rules = { unused-files = "off" }

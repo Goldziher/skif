@@ -145,7 +145,7 @@ case "$order" in
 skif-core,skif-specifier,*,skif,skif-cli) ;;
 *) fail "publish-crates: unexpected publish order: ${order}" ;;
 esac
-[[ "$(published_crates | wc -l | tr -d ' ')" -eq 13 ]] || fail "publish-crates: expected 13 crates, got ${order}"
+[[ "$(published_crates | wc -l | tr -d ' ')" -eq 14 ]] || fail "publish-crates: expected 14 crates, got ${order}"
 
 crates_case "versions already on crates.io are skipped" 0 200 ok
 [[ ! -s "${work}/cargo.log" ]] || fail "publish-crates: cargo ran although every version is published"

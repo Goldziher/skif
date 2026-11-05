@@ -83,9 +83,9 @@ or is replaced, write a new ADR that supersedes or amends it, add it to `adrs/in
    `skif-darwin-x64`, `skif-linux-arm64-gnu`, `skif-linux-arm64-musl`, `skif-linux-x64-gnu`,
    `skif-linux-x64-musl`) once by hand, then add the trusted publisher (this repository, `publish.yaml`) to each.
 4. Before the first release, create the one-time registry state the workflow cannot create itself:
-   - crates.io trusted publishing needs the crate to exist: reserve each of the 13 crates (`skif-core`,
+   - crates.io trusted publishing needs the crate to exist: reserve each of the 14 crates (`skif-core`,
      `skif-specifier`, `skif-config`, `skif-edit`, `skif-workspace`, `skif-lint`, `skif-report`, `skif-js-syntax`,
-     `skif-js-plugins`, `skif-rules`, `skif-js`, `skif`, `skif-cli`) with a placeholder publish
+     `skif-js-plugins`, `skif-migrate`, `skif-rules`, `skif-js`, `skif`, `skif-cli`) with a placeholder publish
      ([ADR 0017](adrs/0017-release-policy-a-single-complete-0-1-0.md) allows it), then add the trusted publisher
      (this repository, `publish.yaml`) to each.
    - `Goldziher/homebrew-tap` needs a `Formula/` directory and `Goldziher/scoop-bucket` a `bucket/` directory.
