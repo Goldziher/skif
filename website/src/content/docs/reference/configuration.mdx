@@ -190,6 +190,7 @@ ignore-dependencies = ["@types/node"]
 ignore-binaries = ["docker"]
 production = false
 include-entry-exports = false
+discovery = "auto"
 
 [js.workspaces."packages/web"]
 entry = ["src/main.tsx"]
@@ -202,6 +203,13 @@ jest = { enabled = true, config = ["jest.config.cjs"] }
 `enabled` defaults to `true`, so a plain `skif` run checks everything; the git hooks pass `--no-js`. Per-workspace
 tables take `entry`, `project`, `ignore`, `ignore-dependencies` and `ignore-binaries`. A plugin entry is `true`,
 `false` or a table with `enabled`, `config`, `entry` and `project`.
+
+`discovery` chooses how source files are found. `auto` (the default) and `git` read the git index when the analysed
+root is in a git work tree and list the tracked files without walking the directories, which is several times faster
+on large repositories; `walk` always walks the directories. The index lists tracked files only: a file that was never
+`git add`ed is not an entry, not a project file and not found by plugin config searches (a tracked file that imports it
+still resolves it), and a tracked file deleted from disk but not yet staged is listed as an empty module. Use `walk`
+when untracked files must be analysed. Split and sparse indexes are not read; the walk is used for them.
 
 A dependency counts as listed when the package's own `package.json`, the `package.json` of a package that contains
 it, or any `package.json` above the analysed root up to the git repository root lists it; the same manifests enable

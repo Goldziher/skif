@@ -32,9 +32,14 @@ skif-workspace.workspace = true
 [dev-dependencies]
 criterion.workspace = true
 insta = { workspace = true, features = ["json"] }
+tempfile.workspace = true
 
 [[bench]]
 name = "analysis"
+harness = false
+
+[[bench]]
+name = "disk_tree"
 harness = false
 
 [lints]

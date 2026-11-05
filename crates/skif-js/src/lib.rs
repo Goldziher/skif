@@ -22,6 +22,7 @@ mod deps;
 mod discover;
 mod entries;
 mod explain;
+mod git_index;
 mod globs;
 mod graph;
 mod input;
