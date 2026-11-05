@@ -355,6 +355,14 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 - **`stale-js-config` does not judge `ignore-binaries` when `unlisted-binaries` is off.**
 - **Config evaluation**: `merge` and `mergeWith` count as config combinators only when they are not imported from
   another package (an `RxJS` `merge` is no longer evaluated as an object merge).
+- **Plugins follow knip more closely**: `jasmine` and `ava` keep negated patterns (`!spec/skip.js`) as negated entries,
+  and `jasmine <dir>`, `stryker run <config>`, `tsd --files <glob>` and `tsd <dir>` and `typedoc --plugin/--theme` are
+  read from the scripts; `ava` reads `nodeArguments` like a `node` command; `knex` credits the driver of
+  `knex({ client })` calls in source files; `react-router` reads `flatRoutes()` and route file names with `$`, `[` and
+  `+`; `rsbuild` (and `swc-loader` rules of `webpack` and `rspack`) credit `swc` plugins; `gatsby-node` babel plugins,
+  `size-limit.config.*`, the electron-vite default entries next to configured ones, `load-plugin` naming in `remark`,
+  Biome's `"//"` root config, and `c8 check-coverage` are handled. The remaining differences are listed in the plugin
+  reference.
 
 - **Root discovery reads manifests like the loader**: a root `package.json` with a byte order mark, comments or
   trailing commas that declares `workspaces` is a workspace root for `-r`, and `declared_member_dirs` reads it too.

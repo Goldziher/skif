@@ -1,7 +1,8 @@
-//! `AVA`: the `files` of the config and the modules it requires.
+//! `AVA`: the `files` of the config (negated patterns stay negated), the modules it requires, and its
+//! `nodeArguments`, which are read like the arguments of a `node` command (`--import=tsx`, `--loader=ts-node/esm`).
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{entry_glob, module_input, strings};
+use crate::support::{entry_pattern, module_input, strings};
 
 /// The `ava` plugin.
 pub struct Ava;
@@ -39,7 +40,7 @@ impl Plugin for Ava {
             .map(strings)
             .unwrap_or_default()
             .into_iter()
-            .filter_map(|pattern| entry_glob(config.base, pattern))
+            .filter_map(|pattern| entry_pattern(config.base, pattern))
             .map(PluginInput::Entry)
             .collect();
         out.extend(
@@ -51,6 +52,10 @@ impl Plugin for Ava {
                 .into_iter()
                 .filter_map(|module| module_input(config.base, module, true)),
         );
+        let node_arguments = config.value.get("nodeArguments").map(strings).unwrap_or_default();
+        if !node_arguments.is_empty() {
+            out.push(PluginInput::Script(format!("node {}", node_arguments.join(" "))));
+        }
         out
     }
 }

@@ -87,9 +87,42 @@ pub(crate) fn flag_values(script: &str, binaries: &[&str], flags: &[&str]) -> Ve
     out
 }
 
+/// The positional words of every command of `script` that runs one of `binaries`, one list per command, in order.
+///
+/// Flags are skipped as `minimist` reads them: a flag takes the next word as its value unless it has an inline `=value`,
+/// is listed in `boolean_flags` or the next word is a flag itself. Parsing a command ends at `--`.
+pub(crate) fn positionals(script: &str, binaries: &[&str], boolean_flags: &[&str]) -> Vec<Vec<String>> {
+    let mut found = Vec::new();
+    for command in commands(script) {
+        let Some(position) = command.iter().position(|word| binaries.contains(&binary_name(word))) else {
+            continue;
+        };
+        let mut words = command[position + 1..].iter();
+        let mut positional = Vec::new();
+        while let Some(word) = words.next() {
+            if word == "--" {
+                break;
+            }
+            if let Some(flag) = word.strip_prefix('-').filter(|flag| !flag.is_empty()) {
+                let name = flag.trim_start_matches('-');
+                if !flag.contains('=') && !boolean_flags.contains(&name) {
+                    let takes_value = words.clone().next().is_some_and(|next| !next.starts_with('-'));
+                    if takes_value {
+                        words.next();
+                    }
+                }
+            } else {
+                positional.push(word.clone());
+            }
+        }
+        found.push(positional);
+    }
+    found
+}
+
 /// A config path or directory from a script, relative to the workspace; `None` when it is computed, absolute or
 /// outside the workspace.
-fn workspace_path(value: &str) -> Option<String> {
+pub(crate) fn workspace_path(value: &str) -> Option<String> {
     if value.is_empty() || value.starts_with('/') || value.contains(['$', '`', '(', '*']) {
         return None;
     }
@@ -143,6 +176,21 @@ mod tests {
         assert_eq!(
             flag_values("rollup -c -w", &["rollup"], &["-c"]),
             [] as [std::string::String; 0]
+        );
+    }
+
+    #[test]
+    fn positionals_skip_flags_and_their_values() {
+        let script =
+            "build && jasmine --fail-fast --reporter=x --config cfg.json spec/a.js spec/b.js -- extra; other y";
+        assert_eq!(
+            positionals(script, &["jasmine"], &["fail-fast"]),
+            [vec!["spec/a.js".to_owned(), "spec/b.js".to_owned()]]
+        );
+        assert_eq!(
+            positionals("jasmine --fail-fast spec/a.js", &["jasmine"], &[]),
+            [Vec::<String>::new()],
+            "an unlisted flag takes the next word"
         );
     }
 

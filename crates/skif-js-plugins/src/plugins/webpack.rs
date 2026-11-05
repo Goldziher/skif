@@ -5,6 +5,7 @@ use skif_js_syntax::ConfigValue;
 use crate::files::find_files;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::babel;
+use crate::plugins::swc::plugin_packages;
 use crate::support::{
     alias_inputs, config_unknown, extension_inputs, get_in, html_script_sources, key_unknown, local_script_path,
     looks_like_file, module_input, objects, strings,
@@ -128,11 +129,25 @@ fn loader(item: &ConfigValue, rule_options: Option<&ConfigValue>, config: &Confi
         _ => return,
     };
     out.extend(loader_input(config, name));
+    if is_swc_loader(name)
+        && matches!(item, ConfigValue::Object(_))
+        && let Some(options) = item.get("options")
+    {
+        out.extend(
+            plugin_packages(options)
+                .into_iter()
+                .map(PluginInput::OptionalDependency),
+        );
+    }
     if name.split('?').next() == Some("babel-loader")
         && let Some(options) = options
     {
         out.extend(babel::dependencies(options, config.base, 0));
     }
+}
+
+fn is_swc_loader(name: &str) -> bool {
+    name == "builtin:swc-loader" || name == "swc-loader" || name.ends_with("/swc-loader")
 }
 
 fn loader_input(config: &ConfigAst<'_>, name: &str) -> Option<PluginInput> {
