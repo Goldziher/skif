@@ -323,9 +323,4 @@ pub struct PluginOutput {
     /// computed pattern, a call of an unknown function): `entries` may be missing files. Rules that report files as
     /// unreachable from entries should be conservative for this workspace.
     pub entries_incomplete: bool,
-    /// The modules imported by a config the plugin could not evaluate (it calls a helper, spreads an import): the
-    /// absolute path, without extension resolution, of each relative import and the specifier of each other one.
-    /// Such a helper may name files and packages that only it knows, so whoever defines it has to be judged
-    /// conservatively.
-    pub config_imports: Vec<String>,
 }

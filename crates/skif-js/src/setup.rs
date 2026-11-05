@@ -16,7 +16,6 @@ use crate::globs::{Globs, Names};
 use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
 use crate::listed::{self, Listed};
 use crate::scripts::{self, ScriptBinary, ScriptFacts};
-use crate::specifier::package_name;
 
 const EXTENSIONS: &str = "{js,mjs,cjs,jsx,ts,tsx,mts,cts}";
 
@@ -306,11 +305,6 @@ pub(crate) struct PackageSetup {
     /// The tool configuration of the package could not be fully read, so its entry files are not all known.
     /// Files and dependencies cannot be judged unused then.
     pub entries_incomplete: bool,
-    /// A tool configuration elsewhere that could not be evaluated imports from this package, so any of its files may
-    /// be named by it: every project file counts as an entry.
-    pub credit_all_files: bool,
-    /// Modules imported by the package's unreadable tool configuration; see `WorkspaceInputs::config_imports`.
-    pub config_imports: Vec<String>,
     pub project: Globs,
     /// Files whose issues are not reported, relative to the package directory.
     pub ignore: Globs,
@@ -437,45 +431,6 @@ fn forward_workspace_binaries(packages: &mut [Option<PackageSetup>], workspace: 
             setup.scripts.ephemeral_binaries.push(binary);
         }
     }
-}
-
-/// The packages an unreadable tool configuration imports from: a shared config helper may name files and packages
-/// that only it knows, so the package that defines it is incomplete and all its files count as entries.
-fn credit_config_helpers(packages: &mut [Option<PackageSetup>], workspace: &Workspace) {
-    let mut credited: Vec<PackageId> = Vec::new();
-    for setup in packages.iter().flatten() {
-        for module in &setup.config_imports {
-            let target = if Path::new(module).is_absolute() {
-                workspace
-                    .iter()
-                    .filter(|(_, package)| module_inside(module, &workspace.root.join(&package.dir)))
-                    .max_by_key(|(_, package)| package.dir.components().count())
-                    .map(|(id, _)| id)
-            } else {
-                let name = package_name(module);
-                workspace
-                    .iter()
-                    .find(|(_, package)| name.is_some() && package.name == name)
-                    .map(|(id, _)| id)
-            };
-            if let Some(id) = target
-                && id != setup.id
-            {
-                credited.push(id);
-            }
-        }
-    }
-    for id in credited {
-        if let Some(Some(setup)) = packages.get_mut(id.index()) {
-            setup.entries_incomplete = true;
-            setup.credit_all_files = true;
-        }
-    }
-}
-
-/// Whether the path `module` lies below `dir`.
-fn module_inside(module: &str, dir: &Path) -> bool {
-    Path::new(module).starts_with(dir)
 }
 
 /// Whether an entry glob from a plugin may match files of nested workspace packages. A glob that starts with `**/`
@@ -620,8 +575,6 @@ impl Setup {
                 external_entry,
                 shared_entry: Globs::new(shared_entry),
                 entries_incomplete: plugin.entries_incomplete,
-                credit_all_files: false,
-                config_imports: plugin.config_imports,
                 project: Globs::new(project),
                 ignore: Globs::new(ignore),
                 ignore_dependencies: Names::new(ignore_dependencies),
@@ -646,7 +599,6 @@ impl Setup {
             })
         });
         forward_workspace_binaries(&mut packages, workspace);
-        credit_config_helpers(&mut packages, workspace);
         Self {
             packages,
             global_ignore: Globs::new(&js.ignore),
