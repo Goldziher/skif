@@ -341,14 +341,14 @@ dependency lists are not judged when a package has entry files skif cannot deter
 analysed root is in a git work tree and checks each directory with one `stat` instead of walking it: a directory
 modified at or after the time the index was written (equal counts as modified) is listed from disk, so new untracked
 files and directories, plugin config files that were never `git add`ed and deleted files are found and dropped as the
-walk finds and drops them, and an untouched directory is listed from the index without an `opendir`. This is several
-times faster on large repositories. One case is invisible to `auto`: an untracked file created before the last rewrite
+walk finds and drops them, and an untouched directory is listed from the index without an `opendir`. One case is invisible to `auto`: an untracked file created before the last rewrite
 of the index (a `git add` of another file, or a `git status` that refreshes it) in a directory nothing has touched
-since; use `walk` when the result must be exact. `git` trusts the index alone, without any check: faster still, but blind
+since; use `walk` when the result must be exact. `git` trusts the index alone, without any per-directory check, so it is blind
 to files created or deleted since the last `git add`. `walk` always walks the directories. Both index modes fall back to
 the walk when there is no usable index: a repository outside git, a split or sparse index, a SHA-256 repository
 (`extensions.objectformat`), or an index whose SHA-1 checksum does not match (an index written with `index.skipHash`,
-which `feature.manyFiles` sets, is read without the check). A file the index lists but that is missing on disk is never
+which `feature.manyFiles` sets, is read without the check, so a torn read of an index that is being rewritten is then only
+caught by the reader's bounds checks). A file the index lists but that is missing on disk is never
 reported. The `.gitignore` rules, hidden directories and `[js] ignore` apply to the listing as they apply to the walk.
 
 A dependency counts as listed when the package's own `package.json`, the `package.json` of a package that contains
