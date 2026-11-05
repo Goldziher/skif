@@ -2045,11 +2045,11 @@ fn declarative_plugins_enable_on_their_package_and_declare_entries() {
 
 #[test]
 fn rsbuild() {
-    let config = r#"export default defineConfig({
+    let config = r"export default defineConfig({
       source: { entry: { index: './src/index.ts', admin: { import: ['./src/admin.ts'] } }, preEntry: './src/pre.ts' },
       resolve: { alias: { '@': './src' } },
       environments: { node: { source: { entry: { server: './src/server.ts' } } } },
-    });"#;
+    });";
     let results = resolve(&[("rsbuild.config.ts", config)], &["@rsbuild/core"]);
     let out = output(&results, "rsbuild");
     assert_entries(

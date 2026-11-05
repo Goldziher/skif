@@ -36,7 +36,7 @@ impl Plugin for ElectronVite {
                 }
             }
             let patterns = if declared.is_empty() { vec![default] } else { declared };
-            out.extend(section_entries(cx, config.base, name, patterns));
+            out.extend(section_entries(cx, config.base, name, &patterns));
         }
         out
     }
@@ -44,15 +44,19 @@ impl Plugin for ElectronVite {
     fn resolve_without_config(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         SECTIONS
             .into_iter()
-            .flat_map(|(name, default)| section_entries(cx, "", name, vec![default]))
+            .flat_map(|(name, default)| section_entries(cx, "", name, &[default]))
             .collect()
     }
 }
 
-fn section_entries(cx: &PluginContext<'_>, base: &str, name: &str, patterns: Vec<&str>) -> Vec<PluginInput> {
+fn section_entries(cx: &PluginContext<'_>, base: &str, name: &str, patterns: &[&str]) -> Vec<PluginInput> {
     let mut out = production_entries(base, patterns.iter().copied());
     if name == "renderer" {
-        for pattern in patterns.iter().filter(|p| p.ends_with(".html")) {
+        for pattern in patterns.iter().filter(|p| {
+            std::path::Path::new(p)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("html"))
+        }) {
             out.extend(html_entries(cx, base, pattern));
         }
     }
