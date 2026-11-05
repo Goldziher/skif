@@ -505,3 +505,32 @@ fn merge_config_keeps_the_known_part_and_is_incomplete_for_the_imported_one() {
     assert_entries(&out.entries, &["config/setup.ts"]);
     assert!(out.entries_incomplete);
 }
+
+#[test]
+fn regex_alias_finds_become_prefix_aliases_or_computed_ones() {
+    let config = r"
+export default {
+  resolve: {
+    alias: [
+      { find: /^@\/(.*)$/, replacement: '/src/$1' },
+      { find: /^~lib\/(.+)$/, replacement: './lib/$1' },
+      { find: /^@gen\/(a|b)$/, replacement: './gen/$1' },
+      { find: /(.*)\.js$/, replacement: '$1' },
+    ],
+  },
+};";
+    let results = run(&[("vite.config.ts", config)], &["vite"], &[]);
+    let aliases: Vec<(String, Option<String>)> = output(&results, "vite")
+        .aliases
+        .iter()
+        .map(|alias| (alias.find.clone(), alias.target.clone()))
+        .collect();
+    assert_eq!(
+        aliases,
+        [
+            ("@".to_owned(), Some("src".to_owned())),
+            ("~lib".to_owned(), Some("lib".to_owned())),
+            ("@gen".to_owned(), None),
+        ]
+    );
+}
