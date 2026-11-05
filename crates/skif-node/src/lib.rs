@@ -16,7 +16,8 @@ use skif_cli::CliError;
 
 /// Runs the skif command line with `argv` (the arguments after the program name) and returns its exit code.
 ///
-/// Output streams to the process's stdout and stderr exactly as the native binary does.
+/// Output streams to the process's stdout and stderr exactly as the native binary does. It is written by Rust, not
+/// through `process.stdout`, so on a pipe it is not ordered with what Node writes in the same tick.
 #[napi(catch_unwind)]
 pub fn run(argv: Vec<String>) -> u32 {
     let command_line = std::iter::once(OsString::from("skif")).chain(argv.into_iter().map(OsString::from));
