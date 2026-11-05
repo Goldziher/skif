@@ -4,12 +4,21 @@
 # registered.
 set -euo pipefail
 
-# ARGS is a space-separated argument string. Splitting it on whitespace is the point; globbing is
-# disabled around the split so a pattern skif understands is not pre-expanded by the shell.
-set -f
-# shellcheck disable=SC2206
-parsed_args=(${ARGS:-})
-set +f
+# ARGS is either a single line split on whitespace or, when it spans several lines, one argument per line (so an
+# argument may contain spaces). Globbing is disabled around the split so a pattern skif understands is not
+# pre-expanded by the shell.
+parsed_args=()
+if [[ "${ARGS:-}" == *$'\n'* ]]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    [ -n "$line" ] && parsed_args+=("$line")
+  done <<<"$ARGS"
+else
+  set -f
+  # shellcheck disable=SC2206
+  parsed_args=(${ARGS:-})
+  set +f
+fi
 
 if [ "${FAIL_ON_WARNINGS:-false}" = "true" ]; then
   parsed_args+=("--fail-on-warnings")

@@ -11,6 +11,18 @@ All notable changes to this project are documented here. The format follows
 
 skif has not been released. 0.1.0 will be the first release and will contain everything listed here.
 
+### Changed
+
+- **Distribution hardening**: `scripts/check-versions.sh` also compares the workspace packages of `Cargo.lock`, and
+  `scripts/release-bump.sh` fails when `cargo update --workspace` fails. The glibc floor lives in
+  `scripts/lib/libc.sh` (the Homebrew formula takes it from there) and `check-versions.sh` checks the build matrix
+  against it. The Action and the pre-commit launcher pin `gh attestation verify` to the `publish.yaml` workflow
+  (`--signer-workflow`). The Action `args` input accepts one argument per line. A 0.x release moves the floating tag
+  `v0.M` instead of `v0` (`@v0.1` in the examples); `@v0.M` and `@vN` resolve to the newest matching release.
+  `cargo binstall` installs the static musl archive on Linux, so it also works below glibc 2.34. Bun is tested on the
+  newest 1.x, resolved from the registry. The repository guards and `npm-smoke.sh` have tests, and CI runs the facade
+  unit tests and doctests as two invocations ([ADR 0043](adrs/0043-floating-tags-for-0x-releases-and-musl-binstall.md)).
+
 ### Added
 
 - **`[js]` configuration parity with knip** ([ADR 0034](adrs/0034-js-configuration-parity-with-knip.md)):

@@ -7,15 +7,15 @@ description: Run skif from GitHub Actions, pre-commit, prek, Poly, Lefthook, npm
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: Goldziher/skif@v0
+- uses: Goldziher/skif@v0.1
   with:
     fail-on-warnings: true
 ```
 
 | Input | Meaning |
 | --- | --- |
-| `version` | skif version to install. Defaults to the version this release of the action was published with, whatever ref (tag, `v0` or commit SHA) uses it. |
-| `args` | Extra skif arguments, as one space-separated string. |
+| `version` | skif version to install. Defaults to the version this release of the action was published with, whatever ref (tag, floating tag or commit SHA) uses it. |
+| `args` | Extra skif arguments: one line is split on spaces; several lines are one argument per line, so an argument may contain spaces. |
 | `working-directory` | Directory to run skif in. |
 | `fail-on-warnings` | Exit non-zero on any warning. |
 | `install-only` | Put `skif` on `PATH` without running it. |
@@ -23,16 +23,18 @@ description: Run skif from GitHub Actions, pre-commit, prek, Poly, Lefthook, npm
 | `repository` | Advanced: the `owner/repo` the release assets come from. Defaults to `Goldziher/skif`. |
 | `verify-attestation` | Verify the archive's build provenance with `gh attestation verify` (default `true`). |
 
-`@v0` is a floating tag that moves to each 0.x release; every release of the action installs the skif version it was
+A release moves a floating tag: `@vN` for a stable major N from 1 on, and `@v0.M` for a 0.x line. `@v0` itself never
+moves, because a 0.x minor release may break; pin `@v0.1` to take every 0.1.x patch and nothing else. Every release of the action installs the skif version it was
 published with, so a full tag such as `@v0.1.0` or a commit SHA never changes the installed version. The action
 downloads the release archive for the runner and verifies it against the release's `checksums.txt` (again on every
 cache hit) and, where the `gh` CLI has the `attestation` command, against its build-provenance attestation.
-Outputs are `version` and `path`.
+The attestation must come from the repository's `publish.yaml` workflow (`gh attestation verify --signer-workflow`), so an
+attestation made by any other workflow does not pass. Outputs are `version` and `path`.
 
 Code scanning with SARIF:
 
 ```yaml
-- uses: Goldziher/skif@v0
+- uses: Goldziher/skif@v0.1
   with:
     args: --format sarif --output skif.sarif
 - uses: github/codeql-action/upload-sarif@v4

@@ -9,6 +9,7 @@
 #   poly-hooks.toml                         pinned npm channel version
 #   scripts/pre-commit/run-skif.sh          SKIF_VERSION default
 #   action.yml                              BAKED_VERSION, the version the Action installs by default
+#   Cargo.lock                              refreshed with `cargo update --workspace`; a failure fails the bump
 #
 # Set SKIP_CARGO_UPDATE=1 to leave Cargo.lock alone (offline bumps).
 set -euo pipefail
@@ -60,7 +61,14 @@ echo "action.yml -> ${version}"
 rewrite action.yml "s/^( *BAKED_VERSION: \")[^\"]*(\")/\1${version}\2/"
 
 if [[ "${SKIP_CARGO_UPDATE:-0}" != "1" ]]; then
-  cargo update --workspace >/dev/null 2>&1 || echo "warn: cargo update --workspace failed; refresh Cargo.lock before committing" >&2
+  update_log="$(mktemp)"
+  if ! cargo update --workspace >/dev/null 2>"$update_log"; then
+    cat "$update_log" >&2
+    rm -f "$update_log"
+    echo "error: cargo update --workspace failed, so Cargo.lock still names the old version (SKIP_CARGO_UPDATE=1 skips it)" >&2
+    exit 1
+  fi
+  rm -f "$update_log"
 fi
 
 bash scripts/check-versions.sh "$version"
