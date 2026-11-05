@@ -191,10 +191,10 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 - **Version, semver-range and catalog policies**: version groups, semver groups, banned dependencies,
   dependency families, workspace-protocol and catalog rules, with catalog resolution for pnpm, package.json
   and bun catalogs and recursive workspace globs (`**`) with pnpm semantics.
-- **JS analysis on oxc** with 16 rules: `unused-files`, `unused-dependencies`, `unused-dev-dependencies`,
+- **JS analysis on oxc** with 17 rules: `unused-files`, `unused-dependencies`, `unused-dev-dependencies`,
   `unused-optional-peer-dependencies`, `unlisted-dependencies`, `unlisted-binaries`, `unresolved-imports`,
   `unused-exports`, `unused-types`, `unused-namespace-exports`, `unused-namespace-types`, `unused-enum-members`,
-  `unused-namespace-members`, `duplicate-exports`, `circular-imports` and `unparseable-files`. Unused files, exports, types and dev dependencies default to warnings. Production mode,
+  `unused-namespace-members`, `duplicate-exports`, `circular-imports`, `unparseable-files` and `stale-js-config`. Unused files, exports, types and dev dependencies default to warnings. Production mode,
   `--no-js` and `[js]` settings per workspace are supported.
 - **A plugin table of 102 plugins** that reads the static configuration of common tools to find entry files and the
   dependencies they use, without running any tool: `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`,
@@ -218,7 +218,7 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 - **npm package as a napi-rs addon** for non-EoL Node.js (22, 24, 26) and Bun 1.x on macOS and
   Linux (glibc and musl), plus release
   archives for Windows, `cargo binstall`, Homebrew and Scoop.
-- **Git hooks** for pre-commit, Poly and Lefthook, and a GitHub Action (`Goldziher/skif@v0`).
+- **Git hooks** for pre-commit, Poly and Lefthook, and a GitHub Action (`Goldziher/skif@v0.1`).
 - **Licence notices in every artefact**: release archives, the npm package and each npm platform package carry
   `LICENSE` and `ATTRIBUTIONS.md`; the release workflow and `scripts/check-npm-tarballs.sh` fail without them.
 - **Embedding API**: `Executor` is a reusable thread pool a host passes in `RunOptions::with_executor`, so a run
@@ -334,7 +334,8 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 - **Monorepo JS corrections** ([ADR 0044](adrs/0044-monorepo-js-corrections-builtins-html-entries-referenced-paths-extglob-helpers-and-stylesheets.md)):
   `buffer/` and `events/` name npm packages, not builtins; the vitest plugin adds `index.html` scripts without the vite
-  plugin; the `paths` of a `tsconfig` referenced in another package stay with that package; extglob groups
+  plugin; the `paths` of a `tsconfig` referenced in another package stay with that package when the referencing package lists it as a
+  dependency (an unlisted one still resolves through the referenced paths); extglob groups
   (`*.(ts|tsx)`, `@(a|b)`, `+(…)`) work in plugin globs; stylesheet imports through `baseUrl`, `paths` and `resolve.modules` use the
   stylesheet resolver, partials included; bundler `resolve.extensions` apply per package.
 - **Catalog rules respect version groups** ([ADR 0040](adrs/0040-version-groups-own-their-instances-the-catalog-rules-leave-claimed-instances.md)):

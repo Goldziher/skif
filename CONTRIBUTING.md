@@ -77,7 +77,7 @@ or is replaced, write a new ADR that supersedes or amends it, add it to `adrs/in
 2. Move the `[Unreleased]` entries of `CHANGELOG.md` under the new version.
 3. Tag the commit `v<version>` and push the tag. The `Publish Packages` workflow builds the release
    archives, publishes the crates, the npm packages, the Homebrew formula and the Scoop manifest, and moves
-   the floating `v0` tag (the major version's tag, used as `Goldziher/skif@v0`) to the release.
+   the floating tag (`v0.M` for a 0.x release, `vN` from 1.0.0; used as `Goldziher/skif@v0.1`) to the release.
    npm trusted publishing can only be configured for a package that already exists, so before the first release
    publish a placeholder of `skif` and of each of the six platform packages (`skif-darwin-arm64`,
    `skif-darwin-x64`, `skif-linux-arm64-gnu`, `skif-linux-arm64-musl`, `skif-linux-x64-gnu`,

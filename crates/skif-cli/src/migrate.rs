@@ -110,13 +110,24 @@ fn pnpm_packages(text: &str) -> Vec<String> {
             continue;
         }
         if inside && let Some(entry) = trimmed.strip_prefix('-') {
-            let entry = entry.trim().trim_matches(['\'', '"']);
+            let entry = scalar(entry);
             if !entry.is_empty() {
                 patterns.push(entry.to_owned());
             }
         }
     }
     patterns
+}
+
+/// A YAML scalar of a sequence entry: the text inside its quotes, or the plain text up to a trailing `#` comment.
+fn scalar(entry: &str) -> &str {
+    let entry = entry.trim();
+    for quote in ['\'', '"'] {
+        if let Some(rest) = entry.strip_prefix(quote) {
+            return rest.split(quote).next().unwrap_or(rest);
+        }
+    }
+    entry.split(" #").next().unwrap_or(entry).trim()
 }
 
 /// The entries of a one-line YAML flow sequence such as `["apps/*", 'packages/*']`.
@@ -379,6 +390,12 @@ mod tests {
         let text =
             "# comment\npackages:\n  - 'apps/*'\n  - \"packages/*\"\n  - '!**/test/**'\ncatalog:\n  react: ^18\n";
         assert_eq!(pnpm_packages(text), ["apps/*", "packages/*", "!**/test/**"]);
+    }
+
+    #[test]
+    fn a_trailing_comment_is_not_part_of_the_pattern() {
+        let text = "packages:\n  - 'apps/*' # the apps\n  - \"packages/*\"  # libraries\n  - tools/cli # plain\n";
+        assert_eq!(pnpm_packages(text), ["apps/*", "packages/*", "tools/cli"]);
     }
 
     #[test]
