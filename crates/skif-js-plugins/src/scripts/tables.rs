@@ -224,9 +224,19 @@ pub(super) const PASSTHROUGH: &[(&str, &[&str], usize)] = &[
     ("exec", &[], 0),
     ("nohup", &[], 0),
     ("time", &[], 0),
-    ("xargs", &["I", "n", "P", "L", "s", "d", "E", "a", "J", "R", "S", "replace"], 0),
+    (
+        "xargs",
+        &["I", "n", "P", "L", "s", "d", "E", "a", "J", "R", "S", "replace"],
+        0,
+    ),
     ("nice", &["n", "adjustment"], 0),
-    ("sudo", &["u", "g", "h", "p", "C", "D", "R", "T", "U", "user", "group", "host", "prompt", "chdir"], 0),
+    (
+        "sudo",
+        &[
+            "u", "g", "h", "p", "C", "D", "R", "T", "U", "user", "group", "host", "prompt", "chdir",
+        ],
+        0,
+    ),
     ("timeout", &["s", "k", "signal", "kill-after"], 1),
     ("watch", &["n", "interval"], 0),
     ("unbuffer", &[], 0),

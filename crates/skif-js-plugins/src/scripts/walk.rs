@@ -269,7 +269,11 @@ impl<'c> Walker<'c> {
             span,
             via: st.via,
             filtered: st.filtered,
-            workspaces: if st.filtered { self.workspaces.clone() } else { Vec::new() },
+            workspaces: if st.filtered {
+                self.workspaces.clone()
+            } else {
+                Vec::new()
+            },
         });
     }
 
@@ -626,10 +630,10 @@ impl<'c> Walker<'c> {
         };
         let after = &args[parsed.rest..];
         let filtered = st.filtered || parsed.has(tables::WORKSPACE_FLAGS);
-        let named = args::parse(after, tables::NPM_VALUE_FLAGS, false);
+        let trailing = args::parse(after, tables::NPM_VALUE_FLAGS, false);
         let names = parsed
             .values(&["workspace", "w"])
-            .chain(named.values(&["workspace", "w"]))
+            .chain(trailing.values(&["workspace", "w"]))
             .map(|value| value.text.clone())
             .collect();
         let saved = std::mem::replace(&mut self.workspaces, names);
@@ -643,7 +647,7 @@ impl<'c> Walker<'c> {
             }
             "exec" | "x" => {
                 let st = St {
-                    filtered: filtered || named.has(tables::WORKSPACE_FLAGS),
+                    filtered: filtered || trailing.has(tables::WORKSPACE_FLAGS),
                     via: BinaryVia::NpmExec,
                 };
                 self.exec_like(after, frame, st, true);
@@ -688,9 +692,9 @@ impl<'c> Walker<'c> {
         let after = &args[parsed.rest..];
         let filtered = st.filtered || filter;
         let cmd = args[ci].text.as_str();
-        let named = args::parse(after, tables::PNPM_VALUE_FLAGS, false);
+        let trailing = args::parse(after, tables::PNPM_VALUE_FLAGS, false);
         names.extend(
-            named
+            trailing
                 .values(&["filter", "F", "filter-prod"])
                 .map(|value| value.text.clone()),
         );
