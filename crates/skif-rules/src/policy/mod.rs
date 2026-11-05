@@ -375,7 +375,7 @@ mod tests {
         let files = react_files();
         for mode in ["off", "enforce"] {
             let toml = format!(
-                "[catalog]\nmode = \"{mode}\"\n\n[[version-groups]]\npackages = [\"app\"]\ndependency-types = [\"!node\"]\npolicy = \"ignored\"\n"
+                "[[custom-types]]\nname = \"node\"\npath = \"engines.node\"\nstrategy = \"version\"\n\n[catalog]\nmode = \"{mode}\"\n\n[[version-groups]]\npackages = [\"app\"]\ndependency-types = [\"!node\"]\npolicy = \"ignored\"\n"
             );
             assert_eq!(reports(&files, &toml), [] as [(String, String); 0], "mode {mode}");
         }
