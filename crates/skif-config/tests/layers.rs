@@ -126,7 +126,7 @@ fn extend_ignore_unresolved_appends_to_the_inherited_list() {
     )
     .config;
     assert_eq!(config.js.ignore_unresolved, ["a", "b"]);
-    assert!(config.js.extend_ignore_unresolved.is_empty());
+    assert_eq!(config.js.extend_ignore_unresolved, [] as [std::string::String; 0]);
 }
 
 #[test]

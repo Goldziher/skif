@@ -40,7 +40,10 @@ fn regex_source(entry: &str) -> Option<String> {
     {
         let (body, flags) = (&rest[..close], &rest[close + 1..]);
         if !body.is_empty() && flags.chars().all(|flag| "gimsuyd".contains(flag)) {
-            let inline: String = ['i', 'm', 's'].into_iter().filter(|flag| flags.contains(*flag)).collect();
+            let inline: String = ['i', 'm', 's']
+                .into_iter()
+                .filter(|flag| flags.contains(*flag))
+                .collect();
             return Some(if inline.is_empty() {
                 body.to_owned()
             } else {
@@ -108,14 +111,14 @@ pub(crate) fn plain_view(patterns: &[String]) -> Vec<String> {
 
 /// The globs to use for a user-configured `entry` or `project` list: `default` when nothing is configured; in a
 /// production run the entries ending in `!` (with the others excluded), falling back to `default` when none ends in `!`.
-pub(crate) fn user_globs(patterns: Vec<String>, production: bool, default: &[String]) -> Vec<String> {
+pub(crate) fn user_globs(patterns: &[String], production: bool, default: &[String]) -> Vec<String> {
     if patterns.is_empty() {
         return default.to_vec();
     }
     if !production {
-        return plain_view(&patterns);
+        return plain_view(patterns);
     }
-    let view = production_view(&patterns);
+    let view = production_view(patterns);
     if view.iter().any(|pattern| !pattern.starts_with('!')) {
         view
     } else {
@@ -265,18 +268,22 @@ mod tests {
 
     #[test]
     fn entry_and_project_lists_follow_the_mode() {
-        let patterns = vec!["src/index.ts!".to_owned(), "src/cli.ts".to_owned(), "!skip/**".to_owned()];
+        let patterns = vec![
+            "src/index.ts!".to_owned(),
+            "src/cli.ts".to_owned(),
+            "!skip/**".to_owned(),
+        ];
         let default = vec!["index.ts".to_owned()];
         assert_eq!(
-            user_globs(patterns.clone(), false, &default),
+            user_globs(&patterns, false, &default),
             ["src/index.ts", "src/cli.ts", "!skip/**"]
         );
         assert_eq!(
-            user_globs(patterns, true, &default),
+            user_globs(&patterns, true, &default),
             ["src/index.ts", "!src/cli.ts", "!skip/**"]
         );
         let unmarked = vec!["src/cli.ts".to_owned()];
-        assert_eq!(user_globs(unmarked, true, &default), ["index.ts", "!src/cli.ts"]);
-        assert_eq!(user_globs(Vec::new(), true, &default), ["index.ts"]);
+        assert_eq!(user_globs(&unmarked, true, &default), ["index.ts", "!src/cli.ts"]);
+        assert_eq!(user_globs(&[], true, &default), ["index.ts"]);
     }
 }

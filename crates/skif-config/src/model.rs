@@ -272,23 +272,29 @@ impl Config {
             if let Some(message) = custom.inconsistency() {
                 return Some(format!("custom-types[{index}]: {message}"));
             }
-            if self.custom_types[..index].iter().any(|earlier| earlier.name == custom.name) {
-                return Some(format!("custom-types[{index}]: the name \"{}\" is defined twice", custom.name));
+            if self.custom_types[..index]
+                .iter()
+                .any(|earlier| earlier.name == custom.name)
+            {
+                return Some(format!(
+                    "custom-types[{index}]: the name \"{}\" is defined twice",
+                    custom.name
+                ));
             }
         }
         let lists = std::iter::once(("policy.dependency-types".to_owned(), &self.policy.dependency_types))
-            .chain(
-                self.version_groups
-                    .iter()
-                    .enumerate()
-                    .map(|(index, group)| (format!("version-groups[{index}].dependency-types"), &group.dependency_types)),
-            )
-            .chain(
-                self.semver_groups
-                    .iter()
-                    .enumerate()
-                    .map(|(index, group)| (format!("semver-groups[{index}].dependency-types"), &group.dependency_types)),
-            );
+            .chain(self.version_groups.iter().enumerate().map(|(index, group)| {
+                (
+                    format!("version-groups[{index}].dependency-types"),
+                    &group.dependency_types,
+                )
+            }))
+            .chain(self.semver_groups.iter().enumerate().map(|(index, group)| {
+                (
+                    format!("semver-groups[{index}].dependency-types"),
+                    &group.dependency_types,
+                )
+            }));
         for (place, types) in lists {
             if let Some(name) = types
                 .custom_names()
@@ -359,7 +365,10 @@ impl Config {
         for (key, table) in tables {
             if let Some(id) = table.keys().find(|id| !known.contains(&id.as_str())) {
                 let hint = closest(id, known).map_or_else(String::new, |close| format!("; did you mean `{close}`?"));
-                return Err(ConfigError::invalid(None, format!("{key}.{id}: unknown plugin `{id}`{hint}")));
+                return Err(ConfigError::invalid(
+                    None,
+                    format!("{key}.{id}: unknown plugin `{id}`{hint}"),
+                ));
             }
         }
         Ok(())
@@ -982,10 +991,16 @@ impl CustomType {
             return Some("`name` must not be empty or start with `!`".to_owned());
         }
         if DependencyType::is_builtin_token(&self.name) {
-            return Some(format!("`name` \"{}\" is the name of a built-in dependency type", self.name));
+            return Some(format!(
+                "`name` \"{}\" is the name of a built-in dependency type",
+                self.name
+            ));
         }
         if self.segments().any(str::is_empty) {
-            return Some(format!("`path` \"{}\" must be a dotted path of non-empty keys", self.path));
+            return Some(format!(
+                "`path` \"{}\" must be a dotted path of non-empty keys",
+                self.path
+            ));
         }
         None
     }

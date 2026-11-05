@@ -133,7 +133,9 @@ impl Configured {
         self.ignore_unresolved.extend(root.ignore_unresolved);
         self.ignore_members.extend(root.ignore_members);
         self.include_entry_exports = root.include_entry_exports.or(self.include_entry_exports);
-        self.ignore_exports_used_in_file = root.ignore_exports_used_in_file.or(self.ignore_exports_used_in_file.take());
+        self.ignore_exports_used_in_file = root
+            .ignore_exports_used_in_file
+            .or(self.ignore_exports_used_in_file.take());
         self.paths.extend(root.paths);
     }
 }
@@ -199,7 +201,10 @@ fn key_selects(key: &str, dir: &str) -> bool {
 /// directory, one alias per target.
 fn path_aliases(paths: &IndexMap<String, Vec<String>>) -> Vec<PathAlias> {
     let trim = |pattern: &str| {
-        let pattern = pattern.strip_suffix("/*").or_else(|| pattern.strip_suffix('*')).unwrap_or(pattern);
+        let pattern = pattern
+            .strip_suffix("/*")
+            .or_else(|| pattern.strip_suffix('*'))
+            .unwrap_or(pattern);
         pattern.trim_start_matches("./").to_owned()
     };
     paths
@@ -456,7 +461,7 @@ impl Setup {
                 }
                 let scripts = scripts::analyze(package);
 
-                let mut entry = listed::user_globs(user.entry, production, &default_entry());
+                let mut entry = listed::user_globs(&user.entry, production, &default_entry());
                 entry.extend(ambient_declarations());
                 let mut shared_sources: Vec<&String> = plugin.production_entry.iter().collect();
                 if !production {
@@ -472,7 +477,7 @@ impl Setup {
                 }
                 entry.extend(plugin.production_entry);
 
-                let mut project = listed::user_globs(user.project, production, &default_project());
+                let mut project = listed::user_globs(&user.project, production, &default_project());
                 project.extend(plugin.project);
                 if production {
                     project.extend(

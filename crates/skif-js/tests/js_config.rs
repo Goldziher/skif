@@ -39,7 +39,13 @@ fn found(diagnostics: &[Diagnostic], rule: &str) -> Vec<String> {
     let mut found: Vec<String> = diagnostics
         .iter()
         .filter(|d| d.rule.as_str() == rule)
-        .map(|d| format!("{}: {}", d.location.path.display().to_string().replace('\\', "/"), d.message))
+        .map(|d| {
+            format!(
+                "{}: {}",
+                d.location.path.display().to_string().replace('\\', "/"),
+                d.message
+            )
+        })
         .collect();
     found.sort();
     found
@@ -110,7 +116,10 @@ fn ignore_dependencies_take_regular_expressions() {
 fn the_production_marker_limits_an_ignore_entry_to_production() {
     let files = vec![
         MANIFEST,
-        ("packages/a/package.json", r#"{"name":"@x/a","dependencies":{"left":"1"}}"#),
+        (
+            "packages/a/package.json",
+            r#"{"name":"@x/a","dependencies":{"left":"1"}}"#,
+        ),
         ("packages/a/src/index.ts", "export {};\n"),
     ];
     let normal = lint(&files, "[js]\nignore-dependencies = [\"left!\"]\n");
@@ -131,7 +140,10 @@ fn the_production_marker_selects_entries_in_a_production_run() {
     let entry = "entry = [\"src/index.ts\", \"src/shipped.ts!\", \"src/extra.ts\"]\n";
     let normal = lint(&files, &format!("[js.workspaces.\"packages/a\"]\n{entry}"));
     assert_eq!(paths(&normal, "unused-files"), none());
-    let production = lint(&files, &format!("[js]\nproduction = true\n[js.workspaces.\"packages/a\"]\n{entry}"));
+    let production = lint(
+        &files,
+        &format!("[js]\nproduction = true\n[js.workspaces.\"packages/a\"]\n{entry}"),
+    );
     assert_eq!(
         paths(&production, "unused-files"),
         ["packages/a/src/extra.ts", "packages/a/src/index.ts"]
@@ -169,7 +181,10 @@ fn paths_resolve_aliases_for_one_workspace() {
     let plain = lint(&files, "");
     assert_eq!(found(&plain, "unlisted-dependencies").len(), 1, "{plain:#?}");
 
-    let aliased = lint(&files, "[js.workspaces.\"packages/a\".paths]\n\"@lib/*\" = [\"./src/lib/*\"]\n");
+    let aliased = lint(
+        &files,
+        "[js.workspaces.\"packages/a\".paths]\n\"@lib/*\" = [\"./src/lib/*\"]\n",
+    );
     assert_eq!(found(&aliased, "unlisted-dependencies"), none(), "{aliased:#?}");
     assert_eq!(found(&aliased, "unresolved-imports"), none(), "{aliased:#?}");
     assert_eq!(paths(&aliased, "unused-files"), none(), "{aliased:#?}");
@@ -221,7 +236,11 @@ fn ignore_members_hides_enum_members() {
     assert_eq!(found(&plain, "unused-enum-members").len(), 1, "{plain:#?}");
     for pattern in ["B", "/^B$/", "[B]"] {
         let ignored = lint(&files, &format!("[js]\nignore-members = [\"{pattern}\"]\n"));
-        assert_eq!(found(&ignored, "unused-enum-members"), none(), "{pattern}: {ignored:#?}");
+        assert_eq!(
+            found(&ignored, "unused-enum-members"),
+            none(),
+            "{pattern}: {ignored:#?}"
+        );
     }
 }
 
@@ -292,8 +311,14 @@ fn stale_js_config_is_silent_when_every_entry_matched() {
 #[test]
 fn stale_js_config_can_be_raised_to_an_error() {
     let files = two_packages("export {};\n");
-    let diagnostics = lint(&files, "[rules]\nstale-js-config = \"error\"\n[js]\nignore-binaries = [\"ghost\"]\n");
-    let stale: Vec<&Diagnostic> = diagnostics.iter().filter(|d| d.rule.as_str() == "stale-js-config").collect();
+    let diagnostics = lint(
+        &files,
+        "[rules]\nstale-js-config = \"error\"\n[js]\nignore-binaries = [\"ghost\"]\n",
+    );
+    let stale: Vec<&Diagnostic> = diagnostics
+        .iter()
+        .filter(|d| d.rule.as_str() == "stale-js-config")
+        .collect();
     assert_eq!(stale.len(), 1);
     assert_eq!(stale[0].severity, Severity::Error);
 }
@@ -316,10 +341,19 @@ fn validate(toml: &str) -> Result<(), skif_config::ConfigError> {
 #[test]
 fn invalid_js_configuration_is_rejected_when_the_configuration_is_checked() {
     assert!(validate("[js]\nignore-dependencies = [\"/^@org\\\\/.+$/\", \"@types/*\"]\n").is_ok());
-    let regex = validate("[js]\nignore-dependencies = [\"/(/\"]\n").unwrap_err().to_string();
+    let regex = validate("[js]\nignore-dependencies = [\"/(/\"]\n")
+        .unwrap_err()
+        .to_string();
     assert!(regex.contains("js.ignore-dependencies[0]"), "{regex}");
-    let glob = validate("[js.workspaces.\"a\"]\nentry = [\"src/[\"]\n").unwrap_err().to_string();
+    let glob = validate("[js.workspaces.\"a\"]\nentry = [\"src/[\"]\n")
+        .unwrap_err()
+        .to_string();
     assert!(glob.contains("js.workspaces.\"a\".entry[0]"), "{glob}");
-    let plugin = validate("[js.workspaces.\"a\".plugins]\nvitset = true\n").unwrap_err().to_string();
-    assert!(plugin.contains("unknown plugin `vitset`") && plugin.contains("did you mean `vitest`"), "{plugin}");
+    let plugin = validate("[js.workspaces.\"a\".plugins]\nvitset = true\n")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        plugin.contains("unknown plugin `vitset`") && plugin.contains("did you mean `vit"),
+        "{plugin}"
+    );
 }

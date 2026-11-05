@@ -138,15 +138,15 @@ pub use targets::{
 
 /// The `[workspace]` table of the configuration (the discovered [`Workspace`] is a different type).
 pub use skif_config::Workspace as WorkspaceConfig;
-/// `[[custom-types]]` and the places a version can be declared.
-pub use skif_config::{CustomStrategy, CustomType, DependencyType};
 pub use skif_config::{
     Assignment, CONFIG_FILE_NAMES, Catalog, CatalogMode, Ceiling, Config, ConfigBuilder, ConfigCache, ConfigError,
     ConfigLoader, ConfigOverrides, ConfigSource, DependencyFamily, DependencyTypes, ExportKinds, IgnoreEntry,
-    IgnoreExportsUsedInFile, Js, JsWorkspace, Level, Lint, Op, Origins, Override, OverrideScope, PackageJs, PackageManager, PluginConfig, PluginOptions, Policy,
-    Prefer, ResetKey, ResolvedConfig, RuleConfig, RuleOptions, Selector, SemverGroup, SemverRange, SourceKind,
-    VersionGroup, VersionPolicy, WorkspaceProtocol, join_key,
+    IgnoreExportsUsedInFile, Js, JsWorkspace, Level, Lint, Op, Origins, Override, OverrideScope, PackageJs,
+    PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey, ResolvedConfig, RuleConfig, RuleOptions,
+    Selector, SemverGroup, SemverRange, SourceKind, VersionGroup, VersionPolicy, WorkspaceProtocol, join_key,
 };
+/// `[[custom-types]]` and the places a version can be declared.
+pub use skif_config::{CustomStrategy, CustomType, DependencyType};
 pub use skif_core::{
     CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixPreference,
     FixSafety, Fixability, InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathSeg, Related, Report, RuleId,

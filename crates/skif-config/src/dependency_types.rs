@@ -233,7 +233,10 @@ mod tests {
     fn tokens_name_builtin_and_custom_types() {
         let cases = [
             ("prod", DependencyType::Section(DependencyKind::Dependencies)),
-            ("devDependencies", DependencyType::Section(DependencyKind::DevDependencies)),
+            (
+                "devDependencies",
+                DependencyType::Section(DependencyKind::DevDependencies),
+            ),
             ("local", DependencyType::Local),
             ("resolutions", DependencyType::Resolutions),
             ("overrides", DependencyType::Overrides),
@@ -252,9 +255,8 @@ mod tests {
     fn local_and_custom_types_follow_the_same_selection_rules() {
         let local = DependencyType::Local;
         let custom = DependencyType::Custom("node".to_owned());
-        let select = |tokens: &[&str], ty: &DependencyType| {
-            DependencyTypes::new(tokens.iter().copied()).unwrap().matches(ty)
-        };
+        let select =
+            |tokens: &[&str], ty: &DependencyType| DependencyTypes::new(tokens.iter().copied()).unwrap().matches(ty);
         assert!(select(&[], &local) && select(&["!dev"], &local) && select(&["local"], &local));
         assert!(!select(&["!local"], &local) && !select(&["prod"], &local));
         assert!(select(&["node"], &custom) && !select(&["prod"], &custom) && !select(&["!node"], &custom));
@@ -265,7 +267,8 @@ mod tests {
 
     #[test]
     fn serde_writes_canonical_tokens() {
-        let parsed: DependencyTypes = serde_json::from_str(r#"["devDependencies","!peer","pnpmOverrides","node"]"#).unwrap();
+        let parsed: DependencyTypes =
+            serde_json::from_str(r#"["devDependencies","!peer","pnpmOverrides","node"]"#).unwrap();
         assert_eq!(
             serde_json::to_string(&parsed).unwrap(),
             r#"["dev","!peer","pnpm-overrides","node"]"#
@@ -276,7 +279,10 @@ mod tests {
 
     #[test]
     fn labels_name_the_place() {
-        assert_eq!(DependencyType::Section(DependencyKind::DevDependencies).label(), "devDependencies");
+        assert_eq!(
+            DependencyType::Section(DependencyKind::DevDependencies).label(),
+            "devDependencies"
+        );
         assert_eq!(DependencyType::Local.label(), "version");
         assert_eq!(DependencyType::Resolutions.label(), "resolutions");
         assert_eq!(DependencyType::Custom("node".to_owned()).label(), "node");

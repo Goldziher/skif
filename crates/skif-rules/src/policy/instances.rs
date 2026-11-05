@@ -368,7 +368,8 @@ mod tests {
     }
 
     const WITH_FIELDS: &str = r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"],"resolutions":{"**/lodash":"4.17.20"},"overrides":{"react":{".":"18.0.0","react-dom":"18.2.0"},"left":"1.0.0","nested":{"a":1}},"pnpm":{"overrides":{"react@<18":"18.0.0"}}}"#;
-    const MANAGER: &str = "[[custom-types]]\nname = \"manager\"\npath = \"packageManager\"\nstrategy = \"name@version\"\n";
+    const MANAGER: &str =
+        "[[custom-types]]\nname = \"manager\"\npath = \"packageManager\"\nstrategy = \"name@version\"\n";
 
     fn field_instances<'a, 'w>(instances: &'a Instances<'w>) -> Vec<&'a Instance<'w>> {
         instances
@@ -386,7 +387,13 @@ mod tests {
         let instances = Instances::collect(&workspace, &config, true);
         let found: Vec<(String, String, String)> = field_instances(&instances)
             .into_iter()
-            .map(|instance| (instance.ty().token().to_owned(), instance.name.clone(), instance.raw().to_owned()))
+            .map(|instance| {
+                (
+                    instance.ty().token().to_owned(),
+                    instance.name.clone(),
+                    instance.raw().to_owned(),
+                )
+            })
             .collect();
         let expected = [
             ("resolutions", "lodash", "4.17.20"),
@@ -400,7 +407,11 @@ mod tests {
             found,
             expected.map(|(ty, name, raw)| (ty.to_owned(), name.to_owned(), raw.to_owned()))
         );
-        assert_eq!(instances.named("react").len(), 4, "two sections of app and two field instances");
+        assert_eq!(
+            instances.named("react").len(),
+            4,
+            "two sections of app and two field instances"
+        );
     }
 
     #[test]
@@ -423,14 +434,27 @@ mod tests {
             ))
         };
         let nested = field("overrides", "react");
-        assert_eq!(nested.set_specifier("^18.3.1"), set(nested, vec!["overrides", "react", "."], "^18.3.1"));
+        assert_eq!(
+            nested.set_specifier("^18.3.1"),
+            set(nested, vec!["overrides", "react", "."], "^18.3.1")
+        );
         let pnpm = field("pnpm-overrides", "react");
-        assert_eq!(pnpm.set_specifier("^18.3.1"), set(pnpm, vec!["pnpm", "overrides", "react@<18"], "^18.3.1"));
+        assert_eq!(
+            pnpm.set_specifier("^18.3.1"),
+            set(pnpm, vec!["pnpm", "overrides", "react@<18"], "^18.3.1")
+        );
         let manager = field("manager", "pnpm");
-        assert_eq!(manager.set_specifier("9.1.0"), set(manager, vec!["packageManager"], "pnpm@9.1.0"));
+        assert_eq!(
+            manager.set_specifier("9.1.0"),
+            set(manager, vec!["packageManager"], "pnpm@9.1.0")
+        );
         assert_eq!(
             manager.remove(),
-            Some(support::json_op(manager.package, vec![support::key("packageManager")], JsonAction::Remove))
+            Some(support::json_op(
+                manager.package,
+                vec![support::key("packageManager")],
+                JsonAction::Remove
+            ))
         );
         let slice = |instance: &Instance<'_>| {
             let span = instance.location().span.unwrap();
@@ -438,7 +462,10 @@ mod tests {
         };
         assert_eq!(slice(pnpm), r#""react@<18":"18.0.0""#);
         assert_eq!(slice(field("resolutions", "lodash")), r#""**/lodash":"4.17.20""#);
-        assert!(slice(nested).starts_with(r#""react":{"#), "a `.` entry is located at its parent");
+        assert!(
+            slice(nested).starts_with(r#""react":{"#),
+            "a `.` entry is located at its parent"
+        );
     }
 
     #[test]

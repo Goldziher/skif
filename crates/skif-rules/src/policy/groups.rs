@@ -571,7 +571,8 @@ mod tests {
     }
 
     const OVERRIDES_ROOT: &str = r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"],"resolutions":{"lodash":"4.17.20"},"engines":{"node":">=20.0.0"}}"#;
-    const OVERRIDES_APP: &str = r#"{"name":"app","version":"1.0.0","dependencies":{"lodash":"^4.17.21"},"engines":{"node":">=18.0.0"}}"#;
+    const OVERRIDES_APP: &str =
+        r#"{"name":"app","version":"1.0.0","dependencies":{"lodash":"^4.17.21"},"engines":{"node":">=18.0.0"}}"#;
     const CUSTOM_NODE: &str = "[[custom-types]]\nname = \"node\"\npath = \"engines.node\"\nstrategy = \"version\"\n\n";
 
     /// `(place:dependency, owning group)` of every instance in the root and app packages that is not an own version.

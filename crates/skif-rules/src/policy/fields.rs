@@ -239,7 +239,10 @@ mod tests {
     #[test]
     fn name_at_version_splits_at_the_last_at() {
         assert_eq!(split_name_version("pnpm@9.0.0"), Some(("pnpm", "9.0.0")));
-        assert_eq!(split_name_version("pnpm@9.0.0+sha512.abc"), Some(("pnpm", "9.0.0+sha512.abc")));
+        assert_eq!(
+            split_name_version("pnpm@9.0.0+sha512.abc"),
+            Some(("pnpm", "9.0.0+sha512.abc"))
+        );
         assert_eq!(split_name_version("@scope/tool@1.0.0"), Some(("@scope/tool", "1.0.0")));
         for text in ["pnpm", "@scope/tool", "@1.0.0", "pnpm@", ""] {
             assert_eq!(split_name_version(text), None, "{text}");
