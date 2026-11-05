@@ -630,6 +630,22 @@ pub enum Prefer {
     Lowest,
 }
 
+/// How the override sections (`resolutions`, `overrides`, `pnpm-overrides`) are read as dependency instances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum OverrideReading {
+    /// The dependency of an entry is the package its selector replaces (`parent>child` and `child@<2` are `child`),
+    /// npm's nested objects are read, and `pnpm.overrides` of every `package.json` is read.
+    #[default]
+    Skif,
+    /// As syncpack 15 reads them: the key of an entry is the dependency name, so `parent>child` and `child@<2` are
+    /// dependencies of their own; only string values count (nested objects are skipped); and `pnpm-overrides` is the
+    /// `overrides` of `pnpm-workspace.yaml` only.
+    Syncpack,
+}
+
 /// `[policy]`
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -641,6 +657,9 @@ pub struct Policy {
     /// Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`); name `peer` or `optional` to include them.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependency_types: DependencyTypes,
+    /// How `resolutions`, `overrides` and `pnpm-overrides` entries become dependency instances: `skif` (default) names
+    /// the package a selector replaces, `syncpack` reads them as syncpack 15 does.
+    pub override_reading: OverrideReading,
 }
 
 impl Policy {
@@ -655,6 +674,13 @@ impl Policy {
     #[must_use]
     pub fn with_dependency_types(mut self, dependency_types: DependencyTypes) -> Self {
         self.dependency_types = dependency_types;
+        self
+    }
+
+    /// Sets how the override sections are read.
+    #[must_use]
+    pub const fn with_override_reading(mut self, override_reading: OverrideReading) -> Self {
+        self.override_reading = override_reading;
         self
     }
 }

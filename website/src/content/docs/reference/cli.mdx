@@ -125,6 +125,7 @@ the old tools stays where it is. The [migration guide](../../guides/migrating/) 
 | `--dry-run` | Print the configuration to stdout and the report to stderr; write nothing. |
 | `--format <human\|json>` | `json` prints one document on stdout with `version`, `skif`, `profile`, `tools`, `translated`, `default`, `needs-human`, `extra-checks`, `notes`, `written`, `kept-existing` and, when nothing is written, `toml`. |
 | `--strict` | Exit `1` when any construct needs a human. |
+| `--strict-hints` | Write knip's `treatConfigHintsAsErrors` as `stale-js-config = "error"`; by default it is written as `warn`. |
 
 Exit `0` when the file was produced (also when notes need a human, unless `--strict`), `1` with `--strict` and such notes,
 `2` when a configuration cannot be read or the output cannot be written.

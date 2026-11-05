@@ -10,6 +10,7 @@ expression: migration.toml
 
 [policy]
 dependency-types = ["prod", "dev"]
+override-reading = "syncpack"
 
 # syncpack versionGroups[0]: Pin react
 [[version-groups]]

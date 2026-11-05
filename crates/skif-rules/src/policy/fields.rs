@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 
 use serde_json::{Map, Value};
-use skif_config::{CustomStrategy, CustomType, DependencyType, PackageManager};
+use skif_config::{CustomStrategy, CustomType, DependencyType, OverrideReading, PackageManager};
 use skif_core::{FixOp, JsonAction, Location, PathSeg, YamlAction};
 use skif_workspace::{Package, Workspace};
 
@@ -135,8 +135,14 @@ fn location_of(package: &Package, pointer: &[PathSeg]) -> Location {
 }
 
 /// Every version `package` declares in an override section or a custom type, and, for the root package, in the
-/// `overrides` of `pnpm-workspace.yaml`.
-pub(crate) fn collect(workspace: &Workspace, package: &Package, custom: &[CustomType]) -> Vec<Found> {
+/// `overrides` of `pnpm-workspace.yaml`. With [`OverrideReading::Syncpack`] the entries are read as syncpack 15 reads
+/// them: the key is the name, nested objects are skipped, and `pnpm.overrides` of a manifest is not a section.
+pub(crate) fn collect(
+    workspace: &Workspace,
+    package: &Package,
+    custom: &[CustomType],
+    reading: OverrideReading,
+) -> Vec<Found> {
     let root = package.manifest.value();
     let mut found = Vec::new();
     let sections: [(DependencyType, &[&str]); 3] = [
@@ -144,7 +150,11 @@ pub(crate) fn collect(workspace: &Workspace, package: &Package, custom: &[Custom
         (DependencyType::Overrides, &["overrides"][..]),
         (DependencyType::PnpmOverrides, &["pnpm", "overrides"][..]),
     ];
-    for (ty, path) in sections {
+    let section_count = match reading {
+        OverrideReading::Skif => sections.len(),
+        OverrideReading::Syncpack => sections.len() - 1,
+    };
+    for (ty, path) in sections.into_iter().take(section_count) {
         let Some(entries) = path
             .iter()
             .try_fold(root, |value, segment| value.get(*segment))
@@ -153,7 +163,7 @@ pub(crate) fn collect(workspace: &Workspace, package: &Package, custom: &[Custom
             continue;
         };
         let mut pointer: Vec<PathSeg> = path.iter().map(|segment| key(segment)).collect();
-        walk_overrides(package, &ty, entries, &mut pointer, None, &mut found);
+        walk_overrides(package, &ty, entries, &mut pointer, None, reading, &mut found);
     }
     // Only pnpm reads the `overrides` of `pnpm-workspace.yaml`: a stale file in a Yarn or npm repository declares none.
     let reads_pnpm_workspace = matches!(workspace.package_manager, None | Some(PackageManager::Pnpm));
@@ -164,7 +174,7 @@ pub(crate) fn collect(workspace: &Workspace, package: &Package, custom: &[Custom
         for (selector, version) in &yaml.overrides {
             found.push(Found {
                 ty: DependencyType::PnpmOverrides,
-                name: override_name(selector).to_owned(),
+                name: entry_name(selector, reading).to_owned(),
                 version: version.clone(),
                 field: Field {
                     yaml: Some(yaml.path.clone()),
@@ -181,6 +191,14 @@ pub(crate) fn collect(workspace: &Workspace, package: &Package, custom: &[Custom
     found
 }
 
+/// The dependency of an override entry: the package its selector replaces, or the selector itself as syncpack reads it.
+fn entry_name(selector: &str, reading: OverrideReading) -> &str {
+    match reading {
+        OverrideReading::Skif => override_name(selector),
+        OverrideReading::Syncpack => selector,
+    }
+}
+
 /// Adds the string entries of `entries`, descending into the nested objects npm uses to scope an override to a
 /// parent. The `.` entry of a nested object overrides the parent itself.
 fn walk_overrides(
@@ -189,6 +207,7 @@ fn walk_overrides(
     entries: &Map<String, Value>,
     pointer: &mut Vec<PathSeg>,
     parent: Option<&str>,
+    reading: OverrideReading,
     found: &mut Vec<Found>,
 ) {
     for (selector, value) in entries {
@@ -196,7 +215,7 @@ fn walk_overrides(
         let name = if selector == "." {
             parent
         } else {
-            Some(override_name(selector))
+            Some(entry_name(selector, reading))
         };
         match (value, name) {
             (Value::String(version), Some(name)) if !is_reference(version) => found.push(Found {
@@ -211,7 +230,9 @@ fn walk_overrides(
                     location: location_of(package, &pointer[..pointer.len() - usize::from(selector == ".")]),
                 },
             }),
-            (Value::Object(nested), _) => walk_overrides(package, ty, nested, pointer, name, found),
+            (Value::Object(nested), _) if reading == OverrideReading::Skif => {
+                walk_overrides(package, ty, nested, pointer, name, reading, found);
+            }
             _ => {}
         }
         pointer.pop();

@@ -55,6 +55,9 @@ pub(crate) const WS_PLUGINS: &str = "plugins";
 /// The root workspace key.
 pub(crate) const ROOT_WORKSPACE: &str = ".";
 
+/// `[policy]` key choosing how the override sections are read.
+pub(crate) const POLICY_OVERRIDE_READING: &str = "override-reading";
+
 /// The rule that reports configuration that no longer matches anything (knip's configuration hints).
 pub(crate) const RULE_STALE_JS_CONFIG: &str = "stale-js-config";
 

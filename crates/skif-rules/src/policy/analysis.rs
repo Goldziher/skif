@@ -44,7 +44,7 @@ impl<'w> Analysis<'w> {
         Self::from_instances(
             workspace,
             config,
-            Instances::collect_with(workspace, owned, &config.custom_types),
+            Instances::collect_with(workspace, owned, &config.custom_types, config.policy.override_reading),
         )
     }
 

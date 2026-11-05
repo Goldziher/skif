@@ -1,0 +1,20 @@
+# Which skif rules the migrated tools run, beyond the rules sherif (rule-renames.txt) and knip (knip-types.txt) map.
+# Columns: skif rule id, `syncpack` or `none`, then the condition (syncpack) or the reason (none).
+# syncpack conditions: `always`; `catalog-policy` (a version group with `policy: catalog`);
+# `sort-az` (`sortAz` names a dependency map). A rule that no table covers must have a `none` row.
+version-mismatch syncpack always
+semver-range-mismatch syncpack always
+banned-dependency syncpack always
+invalid-local-version syncpack always
+policy-conflict syncpack always
+catalog-mismatch syncpack always
+catalog-not-used syncpack catalog-policy
+catalog-missing-entry syncpack catalog-policy
+unresolved-catalog-references syncpack catalog-policy
+unsorted-dependencies syncpack sort-az
+workspace-protocol none no tool requires the workspace protocol
+local-path-dependency none no tool flags file and link dependencies
+incompatible-peer-dependencies none no tool compares peer ranges
+member-toolchain-fields none no tool checks engines or packageManager in members
+unparseable-files none knip skips a file it cannot parse without reporting it
+stale-js-config none knip hints differ from skif's; written only by --treat-config-hints-as-errors
