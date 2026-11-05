@@ -3,6 +3,7 @@
 mod circular_imports;
 mod duplicate_exports;
 mod members;
+mod stale_js_config;
 mod support;
 mod unlisted_binaries;
 mod unlisted_dependencies;
@@ -24,6 +25,7 @@ use skif_lint::Emitter;
 
 pub use circular_imports::CircularImports;
 pub use duplicate_exports::DuplicateExports;
+pub use stale_js_config::StaleJsConfig;
 pub use unlisted_binaries::UnlistedBinaries;
 pub use unlisted_dependencies::UnlistedDependencies;
 pub use unparseable_files::UnparseableFiles;
@@ -48,6 +50,12 @@ pub trait JsRule: Send + Sync {
 
     /// Reports every finding to `out`.
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>);
+
+    /// Whether the rule reads what the other rules recorded and so runs after them. The default runs in parallel with
+    /// the rest.
+    fn runs_last(&self) -> bool {
+        false
+    }
 }
 
 /// Every JS rule, in the order their diagnostics are merged.
@@ -70,5 +78,6 @@ pub fn rules() -> Vec<Box<dyn JsRule>> {
         Box::new(DuplicateExports),
         Box::new(CircularImports),
         Box::new(UnparseableFiles),
+        Box::new(StaleJsConfig),
     ]
 }

@@ -42,6 +42,10 @@ pub struct JsAnalysis<'a> {
     pub unused_files: Vec<UnusedFile>,
     ambient_modules: HashSet<String>,
     pub(crate) setup: Setup,
+    /// The ids of the rules that run in this pass; `None` when every rule is assumed to run.
+    pub(crate) enabled_rules: Option<HashSet<String>>,
+    /// The configuration file, relative to the workspace root, that configuration findings point at.
+    pub(crate) config_path: Option<PathBuf>,
 }
 
 /// Names declared with `declare module 'name'` by graph modules and by declaration files nothing imports.
@@ -94,7 +98,10 @@ impl<'a> JsAnalysis<'a> {
         let mut setup = timing::phase(phase("setup (plugins, configs)"), || {
             Setup::new(workspace, config, fs, sources)
         });
-        let candidates = timing::phase(phase("discover"), || discover(fs.as_ref(), workspace, sequential));
+        let mut candidates = timing::phase(phase("discover"), || discover(fs.as_ref(), workspace, sequential));
+        if !setup.js_ignored.is_empty() {
+            candidates.retain(|candidate| !setup.js_ignored.contains(&candidate.owner));
+        }
         let found = timing::phase(phase("entries"), || {
             entry_files(fs.as_ref(), workspace, &setup, &candidates)
         });
@@ -116,7 +123,7 @@ impl<'a> JsAnalysis<'a> {
         });
         graph::report_timings(&workspace.root);
         let exports = timing::phase(phase("exports"), || {
-            ExportUsage::compute(&graph, setup.include_entry_exports)
+            ExportUsage::compute_by(&graph, |owner| setup.includes_entry_exports(owner))
         });
         let dependencies = timing::phase(phase("dependencies"), || {
             DependencyUsage::compute(workspace, &setup, &graph, fs.as_ref())
@@ -154,6 +161,8 @@ impl<'a> JsAnalysis<'a> {
             unused_files,
             ambient_modules,
             setup,
+            enabled_rules: None,
+            config_path: None,
         }
     }
 
@@ -178,6 +187,20 @@ impl<'a> JsAnalysis<'a> {
         self.setup.ignores_dependency(id, name)
     }
 
+    /// Whether the import specifier `specifier` of package `id` is on an `ignore-unresolved` list, or on an
+    /// `ignore-dependencies` list (kept so specifiers a plugin declares virtual stay silent).
+    #[must_use]
+    pub fn ignores_unresolved(&self, id: PackageId, specifier: &str) -> bool {
+        let listed = self.setup.ignores_unresolved(id, specifier);
+        self.setup.ignores_dependency(id, specifier) || listed
+    }
+
+    /// Whether the enum or namespace member `name` of package `id` is on an `ignore-members` list.
+    #[must_use]
+    pub fn ignores_member(&self, id: PackageId, name: &str) -> bool {
+        self.setup.ignores_member(id, name)
+    }
+
     /// Whether the entry files of package `id` are not fully known, so nothing can be reported unused in it.
     #[must_use]
     pub fn entries_incomplete(&self, id: PackageId) -> bool {
@@ -193,7 +216,7 @@ impl<'a> JsAnalysis<'a> {
     /// Whether a module's own issues are reported: it is a project file, not ignored, and not a public entry.
     #[must_use]
     pub fn reports_exports_of(&self, module: &Module) -> bool {
-        module.in_project && !module.ignored && (!module.is_entry || self.setup.include_entry_exports)
+        module.in_project && !module.ignored && (!module.is_entry || self.setup.includes_entry_exports(module.owner))
     }
 
     /// Exports of `module` that no other module uses, values and types alike, in source order.
@@ -211,6 +234,7 @@ impl<'a> JsAnalysis<'a> {
             .filter(|export| !(export.kind == ExportKind::StarReExport && export.name == "*"))
             .filter(|export| export.name != "export=")
             .filter(|export| !self.is_tagged_public(export))
+            .filter(|export| !(export.referenced_in_file && self.setup.ignores_in_file_use(module.owner, export)))
             .filter(|export| !self.exports.is_used(module.id, &export.name))
             .filter(|export| !self.in_used_signature(module, export, &mut HashSet::new()))
             .collect()

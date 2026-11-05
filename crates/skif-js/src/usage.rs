@@ -3,6 +3,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 use skif_js_syntax::{ExportKind, ImportKind, ImportedKind};
+use skif_workspace::PackageId;
 
 use crate::graph::{ModuleGraph, ModuleId, Target};
 
@@ -164,11 +165,18 @@ impl ExportUsage {
     /// Exports of entry files count as used unless `include_entry_exports` is set.
     #[must_use]
     pub fn compute(graph: &ModuleGraph, include_entry_exports: bool) -> Self {
+        Self::compute_by(graph, |_| include_entry_exports)
+    }
+
+    /// Like [`compute`](Self::compute), with `include_entry_exports` decided per module: it is called with the owner of
+    /// each entry module.
+    #[must_use]
+    pub fn compute_by(graph: &ModuleGraph, include_entry_exports: impl Fn(PackageId) -> bool) -> Self {
         let mut usage = Self::default();
         let index = ReexportIndex::build(graph);
         let mut queue = VecDeque::new();
         for module in graph.modules() {
-            if module.is_entry && !include_entry_exports {
+            if module.is_entry && !include_entry_exports(module.owner) {
                 queue.push_back(Task::All(module.id));
             }
             for resolved in &module.imports {
