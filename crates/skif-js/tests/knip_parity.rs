@@ -59,7 +59,9 @@ fn analysis_text(files: &[(&str, &str)], file: &str, export: Option<&str>) -> St
     let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let sources: Vec<Arc<dyn InputSource>> = Vec::new();
-    JsAnalysis::build(&workspace, &config, &fs, &sources, true).explain_usage(Path::new(file), export)
+    JsAnalysis::build(&workspace, &config, &fs, &sources, true)
+        .explain_usage(Path::new(file), export)
+        .render()
 }
 
 #[test]
@@ -261,7 +263,7 @@ fn the_explanation_of_a_file_names_its_importers_and_the_chain_from_an_entry() {
 fn the_explanation_of_an_export_follows_re_exports_to_the_user() {
     let used = analysis_text(&EXPLAIN_FILES, "lib.ts", Some("run"));
     assert!(used.contains("re-exported by barrel.ts as `go`"), "{used}");
-    assert!(used.contains("used by index.ts:1"), "{used}");
+    assert!(used.contains("imported by index.ts:1"), "{used}");
     assert!(used.contains("=> used by another module"), "{used}");
     let idle = analysis_text(&EXPLAIN_FILES, "lib.ts", Some("idle"));
     assert!(idle.contains("no module imports it by name or as a whole"), "{idle}");

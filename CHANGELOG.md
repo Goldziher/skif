@@ -15,10 +15,12 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
 
 - **Why is this used**: `skif explain-usage <FILE[#EXPORT]> [PATH]` prints the entry rule of a file, every import of it
   with file and line, the shortest chain of imports from an entry file, and for an export the modules that use it,
-  following re-exports.
-- **`expo-router` and `tanstack-router` plugins**: `app/**` and `src/app/**` (or the `root` option of the `expo-router`
-  config plugin) are routes of an Expo Router app; the generated route tree, `src/{router,start,client,server}.*` and
-  the routes directory of TanStack Router and Start (`tsr.config.json` moves them) are entries.
+  following re-exports. `FILE` is relative to the current directory; `--format json` prints a stable document;
+  `--production`, `--config` and `--no-config` apply as for a lint run; a file outside the module graph exits `2`.
+- **`expo-router` and `tanstack-router` plugins**: `app/**` and `src/app/**` are routes of an Expo Router app, unless
+  the `root` option of the `expo-router` config plugin names the routes directory, which then replaces them; the
+  generated route tree (`tsr.config.json` moves it) and `src/{router,start,client,server}.*` are entries of TanStack
+  Router and Start.
 - **Yarn catalogs**: `catalog` and `catalogs` in `.yarnrc.yml` (Yarn 4.10+) are read with the other catalog sources, so
   their `catalog:` references resolve instead of being reported by `unresolved-catalog-references`; entries added by
   a fix and `unused-catalog-entries` locate in that file.
@@ -179,9 +181,9 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   `unused-namespace-members` now count a member read in the declaring file by name, and no whole-enum use there
   (`Object.values(E)`, `E[key]`, a spread, a bare reference) credits a member;
   the types in a destructured export (`export const { a, b } = make((p: Props) => p)`) belong to it; a file loaded with
-  `new URL("./x", import.meta.url)` is used as a whole; `require("x") as typeof import("x")` no longer uses every export;
+  `new URL("./x", import.meta.url)` is used as a whole even when the file also imports names from it; `require("x") as typeof import("x")` no longer uses every export;
   `export const X` with `export type X` is reported once; `*` in a wildcard `exports` target matches across directories;
-  `duplicate-exports` ignores export clauses and follows `export const b = a`; only the `exports` field is widened
+  `duplicate-exports` ignores export clauses and follows `export const b = a` (not `a as T` or `a!`); only the `exports` field is widened
   (`./*` is skipped, `main`, `bin` and `types` keep their single-directory globs).
 - **Catalog ownership with `mode = "off"`**: an instance whose sibling uses `catalog:` was reported by both
   `catalog-mismatch` and `version-mismatch` with conflicting fix targets. `catalog-mismatch` now owns it and the version

@@ -192,7 +192,7 @@ fn declared(ctx: &Ctx<'_>, decl: &Declaration<'_>) -> Vec<Declared> {
             for d in &v.declarations {
                 let mut ids = Vec::new();
                 binding_ids(&d.id, &mut ids);
-                let alias_of = match (&d.id, d.init.as_ref().map(oxc_ast::ast::Expression::get_inner_expression)) {
+                let alias_of = match (&d.id, d.init.as_ref()) {
                     (BindingPattern::BindingIdentifier(_), Some(oxc_ast::ast::Expression::Identifier(id))) => {
                         Some(id.name.as_str().to_string())
                     }

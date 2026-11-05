@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use skif_config::Config;
 use skif_core::FileSystem;
-use skif_js::{InputSource, JsAnalysis, JsProvider, PluginSource};
+use skif_js::{InputSource, JsAnalysis, JsProvider, PluginSource, UsageReport};
 use skif_workspace::Workspace;
 
 /// Builds the JS provider that reads through `fs` and takes its tool knowledge from the plugin table.
@@ -28,7 +28,7 @@ pub fn explain_usage(
     workspace: &Workspace,
     file: &Path,
     export: Option<&str>,
-) -> String {
+) -> UsageReport {
     let source: Arc<dyn InputSource> =
         Arc::new(PluginSource::new(config.js.plugins.clone()).with_overrides(&config.overrides));
     JsAnalysis::build(workspace, config, fs, &[source], false).explain_usage(file, export)

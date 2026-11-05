@@ -139,7 +139,10 @@ fn only_members_read_by_name_in_the_declaring_file_are_recorded() {
 
 #[test]
 fn a_constant_records_the_identifier_it_is_initialised_with() {
-    let info = parse("a.ts", "export function f() {}\nexport const g = f;\nexport const h = f();\n");
+    let info = parse(
+        "a.ts",
+        "export function f() {}\nexport const g = f;\nexport const h = f();\nexport const cast = f as any;\nexport const bang = f!;\n",
+    );
     let alias = |name: &str| {
         info.exports
             .iter()
@@ -148,6 +151,8 @@ fn a_constant_records_the_identifier_it_is_initialised_with() {
     };
     assert_eq!(alias("g"), Some("f".to_owned()));
     assert_eq!(alias("h"), None);
+    assert_eq!(alias("cast"), None);
+    assert_eq!(alias("bang"), None);
     assert_eq!(alias("f"), None);
 }
 
