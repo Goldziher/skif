@@ -20,6 +20,7 @@ use crate::{MigrateError, Migration, Profile, keys};
 
 /// The result of merging into an existing file.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Merged {
     /// The merged `skif.toml`.
     pub toml: String,

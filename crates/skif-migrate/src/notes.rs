@@ -9,6 +9,7 @@ use crate::Migration;
 /// A tool whose configuration can be migrated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum Tool {
     /// sherif, configured by the `sherif` key of `package.json`.
     Sherif,
@@ -48,6 +49,7 @@ impl fmt::Display for Tool {
 /// How faithfully a construct was translated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum NoteClass {
     /// Translated one to one.
     Exact,
@@ -83,6 +85,7 @@ impl NoteClass {
 
 /// One finding of the migration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
 pub struct Note {
     /// How the construct was handled.
     pub class: NoteClass,

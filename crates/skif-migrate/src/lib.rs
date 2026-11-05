@@ -38,6 +38,7 @@ use state::State;
 /// Which checks the generated configuration keeps.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum Profile {
     /// Only the checks the old tools ran: every other rule that skif enables by default is turned off in `[rules]`.
     #[default]
@@ -48,6 +49,7 @@ pub enum Profile {
 
 /// A rule skif knows, as the caller lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RuleInfo {
     /// The rule id, for example `version-mismatch`.
     pub id: String,
@@ -55,8 +57,20 @@ pub struct RuleInfo {
     pub default_on: bool,
 }
 
+impl RuleInfo {
+    /// A rule with the given id, running by default or not.
+    #[must_use]
+    pub fn new(id: impl Into<String>, default_on: bool) -> Self {
+        Self {
+            id: id.into(),
+            default_on,
+        }
+    }
+}
+
 /// What [`migrate`] needs besides the files.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct Options {
     /// Which checks to keep.
     pub profile: Profile,
@@ -68,8 +82,34 @@ pub struct Options {
     pub strict_hints: bool,
 }
 
+impl Options {
+    /// Options for `profile`, with no known rules and the default handling of configuration hints.
+    #[must_use]
+    pub fn new(profile: Profile) -> Self {
+        Self {
+            profile,
+            ..Self::default()
+        }
+    }
+
+    /// Sets the rules of the build the output is for.
+    #[must_use]
+    pub fn with_known_rules(mut self, known_rules: Vec<RuleInfo>) -> Self {
+        self.known_rules = known_rules;
+        self
+    }
+
+    /// Writes `stale-js-config` as `error` for knip's `treatConfigHintsAsErrors`.
+    #[must_use]
+    pub const fn with_strict_hints(mut self, strict_hints: bool) -> Self {
+        self.strict_hints = strict_hints;
+        self
+    }
+}
+
 /// A file the caller has read.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Input {
     /// The path as the caller wants it shown and as the format is chosen from: `knip.ts`, `.syncpackrc`.
     pub path: String,
@@ -77,8 +117,20 @@ pub struct Input {
     pub text: String,
 }
 
+impl Input {
+    /// A file shown as `path` with the given content.
+    #[must_use]
+    pub fn new(path: impl Into<String>, text: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            text: text.into(),
+        }
+    }
+}
+
 /// The files of one tool.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ToolInput {
     /// The tool the files configure.
     pub tool: Tool,
@@ -129,6 +181,7 @@ pub enum MigrateError {
 
 /// The result of a migration.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Migration {
     /// The generated `skif.toml`.
     pub toml: String,

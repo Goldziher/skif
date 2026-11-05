@@ -12,7 +12,7 @@ documentation = "https://docs.rs/skif-migrate"
 keywords = ["migration", "sherif", "syncpack", "knip", "skif"]
 categories = ["development-tools", "config"]
 readme = "README.md"
-include = ["src/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
+include = ["src/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
 
 [dependencies]
 serde.workspace = true
