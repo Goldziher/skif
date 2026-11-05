@@ -150,3 +150,8 @@ blake3 = "520e8f50a723b54e7bc7165322f521ace94899bdc527da6e3ed937f1f7f63ebb"
 number = 30
 status = "accepted"
 blake3 = "4c0aca44a3801b20996ec7cd22e72bb0010d5c2411e4462f161ff2bbaa4181e8"
+
+[adrs."adrs/0031-knip-namespace-findings-in-the-parity-harness.md"]
+number = 31
+status = "accepted"
+blake3 = "42314375b9577f68d804460e4507c2268fd1938c7cbd859c6e419a6a2fd743a9"
