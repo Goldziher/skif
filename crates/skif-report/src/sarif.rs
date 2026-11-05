@@ -254,6 +254,14 @@ fn region(span: &Span, path: &str, options: &RenderOptions, utf16: bool) -> Regi
     }
 }
 
+/// Splits a Windows drive (`/C:`) off the front of a rooted path, so the colon stays literal as RFC 8089 writes it.
+fn split_drive(rooted: &str) -> (&str, &str) {
+    match rooted.as_bytes() {
+        [b'/', letter, b':', ..] if letter.is_ascii_alphabetic() => rooted.split_at(3),
+        _ => ("", rooted),
+    }
+}
+
 /// The artifact of a location: repository-relative under `%SRCROOT%`, or a `file:` URI when the path lies outside
 /// the workspace and so has no relative form.
 fn artifact(options: &RenderOptions, path: &Path) -> ArtifactLocation {
@@ -264,8 +272,9 @@ fn artifact(options: &RenderOptions, path: &Path) -> ArtifactLocation {
         } else {
             format!("/{shown}")
         };
+        let (drive, rest) = split_drive(&rooted);
         ArtifactLocation {
-            uri: format!("file://{}", encode_uri(&rooted)),
+            uri: format!("file://{drive}{}", encode_uri(rest)),
             uri_base_id: None,
         }
     } else {
@@ -433,7 +442,9 @@ mod tests {
             ("file:///elsewhere/x.json", None)
         );
         let drive = artifact(&options, Path::new("C:/x/y.json"));
-        assert_eq!(drive.uri, "file:///C%3A/x/y.json");
+        assert_eq!(drive.uri, "file:///C:/x/y.json");
+        let spaced = artifact(&options, Path::new("d:/my dir/y.json"));
+        assert_eq!(spaced.uri, "file:///d:/my%20dir/y.json");
     }
 
     #[test]

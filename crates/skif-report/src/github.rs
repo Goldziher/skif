@@ -51,7 +51,11 @@ fn count(n: usize, noun: &str) -> String {
     format!("{n} {noun}{}", if n == 1 { "" } else { "s" })
 }
 
-/// Renders one workflow command per diagnostic, followed by a plain summary line.
+/// How many annotations of one level GitHub shows for a step; it drops the rest without saying so.
+const SHOWN_PER_LEVEL: usize = 10;
+
+/// Renders one workflow command per diagnostic, followed by a plain summary line, and a note when GitHub will not
+/// show every annotation.
 ///
 /// Errors map to `::error`, warnings to `::warning` and infos to `::notice`.
 ///
@@ -70,10 +74,21 @@ pub fn render_github(report: &Report, options: &RenderOptions, out: &mut dyn Wri
         count(summary.warnings, "warning"),
         count(summary.infos, "info"),
         count(summary.packages, "package"),
-    )
+    )?;
+    if [summary.errors, summary.warnings, summary.infos]
+        .iter()
+        .any(|&level| level > SHOWN_PER_LEVEL)
+    {
+        writeln!(
+            out,
+            "skif: GitHub shows at most {SHOWN_PER_LEVEL} annotations of each level per step; the others appear only in this log"
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -81,5 +96,30 @@ mod tests {
     fn escaping_table() {
         assert_eq!(escape_data("a%b\r\nc:d,e"), "a%25b%0D%0Ac:d,e");
         assert_eq!(escape_property("a%b\r\nc:d,e"), "a%25b%0D%0Ac%3Ad%2Ce");
+    }
+
+    fn rendered(errors: usize) -> String {
+        use skif_core::{Location, RuleId};
+
+        let diagnostics = (0..errors)
+            .map(|index| {
+                Diagnostic::new(
+                    RuleId::from_static("demo"),
+                    Severity::Error,
+                    "m",
+                    Location::new(format!("p{index}/package.json"), None),
+                )
+            })
+            .collect();
+        let mut out = Vec::new();
+        render_github(&Report::new(diagnostics, 1), &RenderOptions::default(), &mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn annotations_beyond_the_github_cap_are_announced() {
+        assert!(!rendered(10).contains("GitHub shows at most"));
+        let capped = rendered(11);
+        assert!(capped.ends_with("the others appear only in this log\n"), "{capped}");
     }
 }
