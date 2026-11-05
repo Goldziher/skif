@@ -144,47 +144,111 @@ pub(crate) fn entry_pattern(base: &str, pattern: &str) -> Option<String> {
     }
 }
 
-/// Rewrites the extglob forms `@(a|b)` and `?(a|b)` to the brace syntax `{a,b}` and `{a,b,}`.
+/// Rewrites the extglob groups of picomatch, the dialect knip's globs use, to the brace syntax `globset` knows.
+///
+/// `@(a|b)` and a bare `(a|b)` become `{a,b}`, `?(a|b)` and `*(a|b)` become `{a,b,}`, `+(a|b)` becomes `{a,b}`
+/// (matching the repetitions is not possible; one occurrence is) and `!(a|b)` becomes `*` (a superset: negation
+/// cannot be expressed). A bare group without `|` stays literal, so `app/(group)/page.tsx` still names a directory
+/// called `(group)`. Escaped characters and character classes are copied as they are. A pattern with an unclosed
+/// group is returned unchanged.
 pub(crate) fn extglob_to_braces(pattern: &str) -> String {
     #[derive(Clone, Copy, PartialEq)]
-    enum Group {
+    enum Kind {
         One,
         Optional,
+        Plus,
+        Not,
         Plain,
+    }
+    struct Frame {
+        kind: Kind,
+        body: String,
+        alternatives: bool,
+    }
+    fn push(stack: &mut [Frame], out: &mut String, text: &str) {
+        match stack.last_mut() {
+            Some(frame) => frame.body.push_str(text),
+            None => out.push_str(text),
+        }
     }
     let chars: Vec<char> = pattern.chars().collect();
     let mut out = String::with_capacity(pattern.len());
-    let mut stack: Vec<Group> = Vec::new();
+    let mut stack: Vec<Frame> = Vec::new();
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
         let next = chars.get(i + 1).copied();
+        let operator = match (c, next) {
+            ('@', Some('(')) => Some(Kind::One),
+            ('?' | '*', Some('(')) => Some(Kind::Optional),
+            ('+', Some('(')) => Some(Kind::Plus),
+            ('!', Some('(')) => Some(Kind::Not),
+            _ => None,
+        };
+        if let Some(kind) = operator {
+            stack.push(Frame { kind, body: String::new(), alternatives: false });
+            i += 2;
+            continue;
+        }
         match c {
-            '@' if next == Some('(') => {
-                stack.push(Group::One);
-                out.push('{');
-                i += 1;
+            '\\' => {
+                let end = (i + 2).min(chars.len());
+                push(&mut stack, &mut out, &chars[i..end].iter().collect::<String>());
+                i = end;
+                continue;
             }
-            '?' if next == Some('(') => {
-                stack.push(Group::Optional);
-                out.push('{');
-                i += 1;
+            '[' => {
+                if let Some(close) = class_close(&chars, i) {
+                    push(&mut stack, &mut out, &chars[i..=close].iter().collect::<String>());
+                    i = close + 1;
+                    continue;
+                }
+                push(&mut stack, &mut out, "[");
             }
-            '(' => {
-                stack.push(Group::Plain);
-                out.push('(');
-            }
+            '(' => stack.push(Frame { kind: Kind::Plain, body: String::new(), alternatives: false }),
             ')' => match stack.pop() {
-                Some(Group::One) => out.push('}'),
-                Some(Group::Optional) => out.push_str(",}"),
-                Some(Group::Plain) | None => out.push(')'),
+                Some(frame) => {
+                    let text = match frame.kind {
+                        Kind::One | Kind::Plus => format!("{{{}}}", frame.body),
+                        Kind::Optional => format!("{{{},}}", frame.body),
+                        Kind::Not => "*".to_owned(),
+                        Kind::Plain if frame.alternatives => format!("{{{}}}", frame.body),
+                        Kind::Plain => format!("({})", frame.body),
+                    };
+                    push(&mut stack, &mut out, &text);
+                }
+                None => out.push(')'),
             },
-            '|' if matches!(stack.last(), Some(Group::One | Group::Optional)) => out.push(','),
-            other => out.push(other),
+            '|' if !stack.is_empty() => {
+                if let Some(frame) = stack.last_mut() {
+                    frame.alternatives = true;
+                    frame.body.push(',');
+                }
+            }
+            other => push(&mut stack, &mut out, other.encode_utf8(&mut [0; 4])),
         }
         i += 1;
     }
-    out
+    if stack.is_empty() { out } else { pattern.to_owned() }
+}
+
+/// The index of the `]` closing the character class opened at `open`.
+fn class_close(chars: &[char], open: usize) -> Option<usize> {
+    let mut index = open + 1;
+    if matches!(chars.get(index), Some('!' | '^')) {
+        index += 1;
+    }
+    if chars.get(index) == Some(&']') {
+        index += 1;
+    }
+    while index < chars.len() {
+        match chars[index] {
+            ']' => return Some(index),
+            '\\' => index += 2,
+            _ => index += 1,
+        }
+    }
+    None
 }
 
 /// The package a tool names by convention: `foo` becomes `<ns>-foo`, `@scope` becomes `@scope/<ns>`,
@@ -578,6 +642,27 @@ fn literal_after(text: &str, from: usize) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extglob_groups_become_brace_alternations() {
+        let cases = [
+            ("src/**/*.(ts|tsx)", "src/**/*.{ts,tsx}"),
+            ("src/**/*.@(ts|tsx)", "src/**/*.{ts,tsx}"),
+            ("src/*.?(m)js", "src/*.{m,}js"),
+            ("src/*.?(a|b)", "src/*.{a,b,}"),
+            ("src/*.*(a|b)", "src/*.{a,b,}"),
+            ("src/*.+(a|b)", "src/*.{a,b}"),
+            ("src/!(gen|tmp)/*.ts", "src/*/*.ts"),
+            ("src/@(a|(b|c))/x", "src/{a,{b,c}}/x"),
+            ("app/(group)/page.tsx", "app/(group)/page.tsx"),
+            ("app/[(]g[)]/x", "app/[(]g[)]/x"),
+            (r"app/\(a|b\)", r"app/\(a|b\)"),
+            ("src/(a|b", "src/(a|b"),
+        ];
+        for (pattern, expected) in cases {
+            assert_eq!(extglob_to_braces(pattern), expected, "{pattern}");
+        }
+    }
 
     #[test]
     fn regex_prefixes_are_literal_text_up_to_the_first_metacharacter() {
