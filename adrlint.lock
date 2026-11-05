@@ -165,3 +165,8 @@ blake3 = "478fc16bd0271571487caacee70db5b4a9af4129efcdbb803f648c858e254249"
 number = 33
 status = "accepted"
 blake3 = "42314375b9577f68d804460e4507c2268fd1938c7cbd859c6e419a6a2fd743a9"
+
+[adrs."adrs/0039-skif-migrate-a-one-shot-translator-from-sherif-syncpack-and-knip.md"]
+number = 39
+status = "accepted"
+blake3 = "fd132199e75f583701e8a349ea6e58531ecb31ac06ae9f3313f6e9b2ef69fb0f"
