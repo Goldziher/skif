@@ -146,6 +146,19 @@ skif-core,skif-specifier,*,skif,skif-cli) ;;
 esac
 [[ "$(published_crates | wc -l | tr -d ' ')" -eq 14 ]] || fail "publish-crates: expected 14 crates, got ${order}"
 
+# A crate is published after every skif crate it depends on (cargo publish resolves them on the registry).
+position=0
+published_before=" "
+while read -r crate; do
+  position=$((position + 1))
+  runtime_deps="$(awk '/^\[/ { in_deps = ($0 == "[dependencies]" || $0 == "[build-dependencies]") } in_deps && /^skif[a-z-]*[ .=]/ { sub(/[ .=].*/, ""); print }' "crates/${crate}/Cargo.toml")"
+  for dependency in $runtime_deps; do
+    [[ "$published_before" == *" ${dependency} "* ]] || fail "publish-crates: ${crate} is published before its dependency ${dependency}"
+  done
+  published_before="${published_before}${crate} "
+done < <(published_crates)
+[[ "$position" -eq 14 ]] || fail "publish-crates: checked ${position} crates for dependency order, want 14"
+
 crates_case "versions already on crates.io are skipped" 0 200 ok
 [[ ! -s "${work}/cargo.log" ]] || fail "publish-crates: cargo ran although every version is published"
 
@@ -372,6 +385,43 @@ gate_case "a tag without a green CI run is refused" 1 v1.0.0 0
 expect_in_out "release gate: no green run" "no successful ci.yml run"
 gate_case "a tag that is not on main is refused" 1 v1.1.0 1
 expect_in_out "release gate: not on main" "not an ancestor"
+
+# ---------------------------------------------------------------- floating tag
+float_remote="${work}/float-remote.git"
+float_repo="${work}/float-repo"
+git init -q --bare "$float_remote"
+git init -q -b main "$float_repo"
+git -C "$float_repo" remote add origin "$float_remote"
+fgit() { git -C "$float_repo" -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false -c tag.gpgsign=false "$@"; }
+fgit commit -q --allow-empty -m "release"
+for t in v0.1.0 v0.10.3 v1.2.3; do fgit tag "$t"; done
+
+float_run() {
+  expect "$1" "$2" env DRY_RUN="$5" bash -c 'cd "$1" && bash "$2/scripts/release-floating-tag.sh" "$3" "$4"' _ "$float_repo" "$repo" "$3" "$4"
+}
+float_case() {
+  local label="$1" version="$2" tag="$3" floating="$4"
+  float_run "floating tag: ${label}" 0 "$version" "$tag" false
+  expect_in_out "floating tag: ${label}" "Moved ${floating} to ${tag}"
+  [[ "$(git -C "$float_remote" rev-parse "refs/tags/${floating}")" == "$(git -C "$float_repo" rev-parse "${tag}^{commit}")" ]] ||
+    fail "floating tag: ${label}: ${floating} is not on ${tag} in the remote"
+}
+float_case "a 0.x release floats as v0.M" 0.1.0 v0.1.0 v0.1
+float_case "the minor keeps two digits" 0.10.3 v0.10.3 v0.10
+float_case "a stable release floats as vN" 1.2.3 v1.2.3 v1
+if git -C "$float_remote" rev-parse -q --verify refs/tags/v0 >/dev/null; then
+  fail "floating tag: v0 must never move"
+fi
+float_run "floating tag: a pre-release has no floating tag" 2 1.0.0-rc.1 v1.2.3 false
+expect_in_out "floating tag: pre-release" "pre-release"
+float_run "floating tag: a malformed version is refused" 2 latest v1.2.3 false
+fgit commit -q --allow-empty -m "next"
+fgit tag v0.1.1
+float_run "floating tag: a dry run succeeds" 0 0.1.1 v0.1.1 true
+expect_in_out "floating tag: dry run" "Would move v0.1 to v0.1.1"
+[[ "$(git -C "$float_remote" rev-parse refs/tags/v0.1)" == "$(git -C "$float_repo" rev-parse 'v0.1.0^{commit}')" ]] ||
+  fail "floating tag: a dry run moved the remote tag"
+float_case "a later patch moves the floating tag" 0.1.1 v0.1.1 v0.1
 
 if [[ "$failures" -ne 0 ]]; then
   echo "${failures} case(s) failed" >&2

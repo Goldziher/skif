@@ -12,7 +12,7 @@ documentation = "https://docs.rs/skif-rules"
 keywords = ["linter", "monorepo", "package-json", "rules", "skif"]
 categories = ["development-tools"]
 readme = "README.md"
-include = ["src/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
+include = ["src/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
 
 [dependencies]
 serde.workspace = true

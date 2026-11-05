@@ -165,6 +165,9 @@ struct TrackedPaths {
     names: String,
     /// Where each path ends in `names`; it starts where the previous one ends.
     ends: Vec<PathEnd>,
+    /// Whether a path sorts before the one preceding it. Git writes its index in byte order, which a lookup by
+    /// directory relies on; an index that is not, is scanned in full.
+    unsorted: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,8 +179,12 @@ struct PathEnd {
 impl TrackedPaths {
     /// Appends `path` unless it repeats the previous one (the stages of a conflicted file).
     fn push(&mut self, path: &str, symlink: bool) {
-        if self.iter().next_back().is_some_and(|(last, _)| last == path) {
+        let last = self.iter().next_back().map(|(last, _)| last);
+        if last == Some(path) {
             return;
+        }
+        if last.is_some_and(|last| last > path) {
+            self.unsorted = true;
         }
         self.names.push_str(path);
         self.ends.push(PathEnd {
@@ -190,6 +197,33 @@ impl TrackedPaths {
         position.checked_sub(1).map_or(0, |before| self.ends[before].end)
     }
 
+    /// The paths below the directory `prefix` (without a trailing separator; empty for all), relative to it, with
+    /// whether each is a symbolic link.
+    ///
+    /// The paths of one directory are adjacent in a sorted index, so the range is found by bisection, not by testing
+    /// every path.
+    fn below<'a>(&'a self, prefix: &'a str) -> impl Iterator<Item = (&'a str, bool)> {
+        let (first, last) = if prefix.is_empty() || self.unsorted {
+            (0, self.ends.len())
+        } else {
+            let at = |position: usize| &self.names[self.start_of(position)..self.ends[position].end];
+            let start = format!("{prefix}/");
+            let first = partition(self.ends.len(), |position| at(position) < start.as_str());
+            let last = first + partition(self.ends.len() - first, |position| at(first + position).starts_with(&start));
+            (first, last)
+        };
+        self.ends[first..last].iter().enumerate().filter_map(move |(offset, path)| {
+            let position = first + offset;
+            let full = &self.names[self.start_of(position)..path.end];
+            let relative = if prefix.is_empty() {
+                full
+            } else {
+                full.strip_prefix(prefix)?.strip_prefix('/')?
+            };
+            Some((relative, path.symlink))
+        })
+    }
+
     /// The paths with whether each is a symbolic link.
     fn iter(&self) -> impl DoubleEndedIterator<Item = (&str, bool)> {
         self.ends
@@ -197,6 +231,20 @@ impl TrackedPaths {
             .enumerate()
             .map(|(position, path)| (&self.names[self.start_of(position)..path.end], path.symlink))
     }
+}
+
+/// The number of leading positions of `0..len` for which `predicate` holds, which must hold for a prefix only.
+fn partition(len: usize, predicate: impl Fn(usize) -> bool) -> usize {
+    let (mut low, mut high) = (0, len);
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if predicate(middle) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    low
 }
 
 /// The tracked files and symbolic links of an index, in index order. `None` when the index cannot be used: another
@@ -219,6 +267,7 @@ fn parse(bytes: &[u8]) -> Option<TrackedPaths> {
     let mut tracked = TrackedPaths {
         names: String::with_capacity(capacity.saturating_mul(48)),
         ends: Vec::with_capacity(capacity),
+        unsorted: false,
     };
     let mut previous: Vec<u8> = Vec::new();
     let mut pos = HEADER_LEN;
@@ -371,15 +420,7 @@ impl TrackedTree {
         };
         let mut last_dir = "";
         let mut current: Option<usize> = None;
-        for (path, symlink) in tracked.iter() {
-            let relative = if prefix.is_empty() {
-                path
-            } else {
-                let Some(rest) = path.strip_prefix(prefix).and_then(|rest| rest.strip_prefix('/')) else {
-                    continue;
-                };
-                rest
-            };
+        for (relative, symlink) in tracked.below(prefix) {
             let dir = relative.rsplit_once('/').map_or("", |(dir, _)| dir);
             let id = match current {
                 Some(id) if last_dir == dir => id,
@@ -683,6 +724,29 @@ mod tests {
             out.push(path, false);
         }
         out
+    }
+
+    fn below<'a>(tracked: &'a TrackedPaths, prefix: &'a str) -> Vec<&'a str> {
+        tracked.below(prefix).map(|(path, _)| path).collect()
+    }
+
+    #[test]
+    fn the_paths_of_one_directory_are_found_by_bisection() {
+        let files = tracked(&["a.ts", "app-2/q.ts", "app.ts", "app/x.ts", "app/y/z.ts", "b/c.ts"]);
+        assert!(!files.unsorted);
+        assert_eq!(below(&files, "app"), ["x.ts", "y/z.ts"]);
+        assert_eq!(below(&files, "app/y"), ["z.ts"]);
+        assert_eq!(below(&files, "b"), ["c.ts"]);
+        assert_eq!(below(&files, "missing"), Vec::<&str>::new());
+        assert_eq!(below(&files, "ap"), Vec::<&str>::new());
+        assert_eq!(below(&files, "").len(), 6);
+    }
+
+    #[test]
+    fn an_index_that_is_not_in_byte_order_is_scanned_in_full() {
+        let files = tracked(&["b/x.ts", "a/y.ts", "b/z.ts"]);
+        assert!(files.unsorted);
+        assert_eq!(below(&files, "b"), ["x.ts", "z.ts"]);
     }
 
     #[test]

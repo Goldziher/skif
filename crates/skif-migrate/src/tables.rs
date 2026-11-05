@@ -57,8 +57,17 @@ pub(crate) fn knip_types() -> Vec<KnipType> {
 mod tests {
     use super::*;
 
+    /// A file of the repository, or `None` in a source tarball of this crate, which holds neither the registry's
+    /// list of rule ids nor the retired ids.
+    fn repository_file(relative: &str) -> Option<std::path::PathBuf> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        root.join("crates/skif-core/src").is_dir().then(|| root.join(relative))
+    }
+
     fn rule_ids() -> Vec<String> {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rule-ids.txt");
+        let Some(path) = repository_file("rule-ids.txt") else {
+            return Vec::new();
+        };
         std::fs::read_to_string(path)
             .unwrap()
             .lines()
@@ -81,7 +90,9 @@ mod tests {
 
     #[test]
     fn renames_agree_with_the_retired_ids() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../skif-rules/tests/retired-rule-ids.txt");
+        let Some(path) = repository_file("crates/skif-rules/tests/retired-rule-ids.txt") else {
+            return;
+        };
         let text = std::fs::read_to_string(path).unwrap();
         let retired: Vec<(&str, &str)> = text
             .lines()

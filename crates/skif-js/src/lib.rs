@@ -16,6 +16,8 @@
 //!
 //! No oxc type appears in the public API.
 
+#![warn(missing_docs)]
+
 mod analysis;
 mod ancestors;
 mod config_check;

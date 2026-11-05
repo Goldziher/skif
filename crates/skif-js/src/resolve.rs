@@ -286,12 +286,19 @@ struct Resolvers {
 }
 
 impl Resolvers {
+    /// The first set of resolvers, which owns the path, `package.json` and `tsconfig` cache every other set shares.
     fn new(fs: &Arc<dyn FileSystem>, options: impl Fn(bool) -> ResolveOptions) -> Self {
-        let make =
-            |tsconfig| ResolverGeneric::new_with_file_system(ResolverFs { fs: Arc::clone(fs) }, options(tsconfig));
+        let with_tsconfig = ResolverGeneric::new_with_file_system(ResolverFs { fs: Arc::clone(fs) }, options(true));
+        let plain = with_tsconfig.clone_with_options(options(false));
+        Self { with_tsconfig, plain }
+    }
+
+    /// Another set with other options over the same cache, so a path is looked up on disk once however many sets
+    /// (one per package with bundler extensions, one for styles) ask for it.
+    fn sharing_cache(&self, options: impl Fn(bool) -> ResolveOptions) -> Self {
         Self {
-            with_tsconfig: make(true),
-            plain: make(false),
+            with_tsconfig: self.with_tsconfig.clone_with_options(options(true)),
+            plain: self.with_tsconfig.clone_with_options(options(false)),
         }
     }
 
@@ -356,15 +363,13 @@ fn read_gitignore(fs: &dyn FileSystem, dir: &Path) -> Option<(PathBuf, Gitignore
 /// The forms a stylesheet specifier can name a file by: itself, its Sass partial (`_name`) and the index partial of a
 /// directory.
 fn style_forms(specifier: &str) -> [String; 3] {
-    let (dir, name) = specifier
-        .rsplit_once('/')
-        .map_or(("", specifier), |(dir, name)| (dir, name));
+    let trimmed = specifier.trim_end_matches('/');
+    let (dir, name) = trimmed.rsplit_once('/').map_or(("", trimmed), |(dir, name)| (dir, name));
     let prefix = if dir.is_empty() {
         String::new()
     } else {
         format!("{dir}/")
     };
-    let name = name.trim_end_matches('/');
     [
         specifier.to_owned(),
         format!("{prefix}_{name}"),
@@ -431,11 +436,11 @@ impl ModuleResolver {
             .flatten()
             .filter(|package| !package.extensions.is_empty())
             .map(|package| {
-                let resolvers = Resolvers::new(&fs, |tsconfig| options(tsconfig, &conditions, &package.extensions));
+                let resolvers = script.sharing_cache(|tsconfig| options(tsconfig, &conditions, &package.extensions));
                 (package.dir.clone(), resolvers)
             })
             .collect();
-        let style = Resolvers::new(&fs, style_options);
+        let style = script.sharing_cache(style_options);
         let members: BTreeMap<String, Member> = workspace
             .all_packages()
             .filter_map(|package| {
@@ -1551,6 +1556,84 @@ mod tests {
         assert_eq!(local.target, file("/ws/src/utils/index.ts"));
         assert_eq!(local.package, None);
         assert_eq!(r.resolve(importer, "react").package.as_deref(), Some("react"));
+    }
+
+    /// A [`MemoryFs`] that counts how often each path is asked for its kind.
+    struct KindCounts {
+        inner: MemoryFs,
+        kinds: std::sync::Mutex<HashMap<PathBuf, usize>>,
+    }
+
+    impl FileSystem for KindCounts {
+        fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+            self.inner.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> io::Result<Vec<skif_core::DirEntry>> {
+            self.inner.read_dir(path)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.kind(path).is_file
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.kind(path).is_dir
+        }
+
+        fn kind(&self, path: &Path) -> skif_core::PathKind {
+            *self.kinds.lock().unwrap().entry(path.to_path_buf()).or_default() += 1;
+            self.inner.kind(path)
+        }
+    }
+
+    #[test]
+    fn stylesheet_forms_of_a_directory_specifier_have_no_double_slash() {
+        assert_eq!(
+            style_forms("bootstrap/scss/"),
+            ["bootstrap/scss/", "bootstrap/_scss", "bootstrap/scss/_index"]
+        );
+        assert_eq!(style_forms("theme"), ["theme", "_theme", "theme/_index"]);
+    }
+
+    #[test]
+    fn every_set_of_resolvers_shares_one_lookup_of_a_path() {
+        let root = Path::new("/ws");
+        let files = [
+            ("package.json", ROOT),
+            ("src/main.js", ""),
+            ("src/main.scss", ""),
+            ("src/widget.page", ""),
+        ];
+        let memory = files
+            .iter()
+            .fold(MemoryFs::new(), |fs, (path, text)| fs.with_file(root.join(path), text));
+        let config = Config::from_toml_str("").unwrap();
+        let workspace = Workspace::discover_with_fs(root, &config, &memory).unwrap();
+        let counting = Arc::new(KindCounts {
+            inner: memory,
+            kinds: std::sync::Mutex::default(),
+        });
+        let fs: Arc<dyn FileSystem> = Arc::clone(&counting) as Arc<dyn FileSystem>;
+        let inputs = WorkspaceInputs {
+            extensions: vec![".page".to_owned()],
+            ..WorkspaceInputs::default()
+        };
+        let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(RootInputs(inputs))];
+        let setup = Setup::new(&workspace, &config, &fs, &sources, true);
+        let r = ModuleResolver::new(fs, &workspace, &setup);
+        assert_eq!(r.script_with_extensions.len(), 1);
+        let with_extensions = r.script_with_extensions.values().next().unwrap();
+
+        let importer = Path::new("/ws/src/main.js");
+        for resolvers in [&r.script, with_extensions, &r.style] {
+            let _ = resolvers.attempt(importer, "./widget");
+        }
+
+        let kinds = counting.kinds.lock().unwrap();
+        assert!(kinds.len() > 3, "the resolvers looked at {kinds:?}");
+        let repeated: Vec<_> = kinds.iter().filter(|(_, count)| **count > 1).collect();
+        assert_eq!(repeated, Vec::<(&PathBuf, &usize)>::new());
     }
 
     #[test]

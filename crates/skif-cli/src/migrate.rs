@@ -50,10 +50,7 @@ fn known_rules() -> Result<Vec<RuleInfo>, CliError> {
     let linter = Linter::new(&Config::default())?;
     Ok(linter
         .rules()
-        .map(|meta| RuleInfo {
-            id: meta.id.to_owned(),
-            default_on: meta.default.is_some(),
-        })
+        .map(|meta| RuleInfo::new(meta.id.to_owned(), meta.default.is_some()))
         .collect())
 }
 
@@ -113,13 +110,24 @@ fn pnpm_packages(text: &str) -> Vec<String> {
             continue;
         }
         if inside && let Some(entry) = trimmed.strip_prefix('-') {
-            let entry = entry.trim().trim_matches(['\'', '"']);
+            let entry = scalar(entry);
             if !entry.is_empty() {
                 patterns.push(entry.to_owned());
             }
         }
     }
     patterns
+}
+
+/// A YAML scalar of a sequence entry: the text inside its quotes, or the plain text up to a trailing `#` comment.
+fn scalar(entry: &str) -> &str {
+    let entry = entry.trim();
+    for quote in ['\'', '"'] {
+        if let Some(rest) = entry.strip_prefix(quote) {
+            return rest.split(quote).next().unwrap_or(rest);
+        }
+    }
+    entry.split(" #").next().unwrap_or(entry).trim()
 }
 
 /// The entries of a one-line YAML flow sequence such as `["apps/*", 'packages/*']`.
@@ -226,10 +234,7 @@ fn tool_input(
         } else {
             root.join(&path)
         };
-        input.config = Some(Input {
-            path: slash(&path),
-            text: read_text(&absolute)?,
-        });
+        input.config = Some(Input::new(slash(&path), read_text(&absolute)?));
     }
     Ok(input)
 }
@@ -306,23 +311,19 @@ fn execute(args: &MigrateArgs, report_format: RulesFormat) -> Result<u8, CliErro
     let package_path = root.join("package.json");
     let package_text = read_optional(&package_path)?;
     let tools = selected_tools(args, &root, package_text.as_deref())?;
-    let package_input = package_text.as_ref().map(|text| Input {
-        path: "package.json".to_owned(),
-        text: text.clone(),
-    });
+    let package_input = package_text.as_ref().map(|text| Input::new("package.json", text.clone()));
     let patterns = workspace_patterns(&root, package_text.as_deref());
     let inputs = tools
         .iter()
         .map(|tool| tool_input(args, &root, *tool, package_input.as_ref(), &patterns))
         .collect::<Result<Vec<ToolInput>, CliError>>()?;
-    let options = Options {
-        profile: match args.profile {
-            MigrateProfile::Exact => Profile::Exact,
-            MigrateProfile::Full => Profile::Full,
-        },
-        known_rules: known_rules()?,
-        strict_hints: args.strict_hints,
+    let profile = match args.profile {
+        MigrateProfile::Exact => Profile::Exact,
+        MigrateProfile::Full => Profile::Full,
     };
+    let options = Options::new(profile)
+        .with_known_rules(known_rules()?)
+        .with_strict_hints(args.strict_hints);
     let migration = migrate(&inputs, &options).map_err(migrate_error)?;
     let plan = plan_output(args, &root, &migration)?;
     if let Some(target) = &plan.target {
@@ -389,6 +390,12 @@ mod tests {
         let text =
             "# comment\npackages:\n  - 'apps/*'\n  - \"packages/*\"\n  - '!**/test/**'\ncatalog:\n  react: ^18\n";
         assert_eq!(pnpm_packages(text), ["apps/*", "packages/*", "!**/test/**"]);
+    }
+
+    #[test]
+    fn a_trailing_comment_is_not_part_of_the_pattern() {
+        let text = "packages:\n  - 'apps/*' # the apps\n  - \"packages/*\"  # libraries\n  - tools/cli # plain\n";
+        assert_eq!(pnpm_packages(text), ["apps/*", "packages/*", "tools/cli"]);
     }
 
     #[test]

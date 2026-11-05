@@ -22,6 +22,15 @@ for manifest in crates/*/Cargo.toml; do
     fi
   done
   listing="$(cargo package -p "$crate" --list --locked --allow-dirty)"
+  # The tests of these crates read files of the repository (rule ids, fixtures, ADRs) that a source tarball lacks.
+  case "$crate" in
+    skif-migrate | skif-rules)
+      if grep -q '^tests/' <<<"$listing"; then
+        echo "::error file=${manifest}::the ${crate} package ships tests that read files outside it"
+        failures=$((failures + 1))
+      fi
+      ;;
+  esac
   for notice in LICENSE ATTRIBUTIONS.md; do
     if ! grep -qx "$notice" <<<"$listing"; then
       echo "::error file=${manifest}::the ${crate} package does not contain ${notice}"

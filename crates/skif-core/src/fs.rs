@@ -43,6 +43,7 @@ impl DirEntry {
 
 /// What a path is, with symbolic links followed. A path that does not exist is neither.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct PathKind {
     /// The path is a regular file.
     pub is_file: bool,

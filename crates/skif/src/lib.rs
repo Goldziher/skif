@@ -130,7 +130,7 @@ pub use js::explain_usage;
 pub use linter::{Linter, RunOptions, builtin_providers};
 pub use root::{config_file, find_workspace_root, load_config, resolve_config};
 #[cfg(feature = "js-analysis")]
-pub use skif_js::UsageReport;
+pub use skif_js::{Absence, EntryReason, ExportReport, ExportUser, Importer, ReExport, UsageReport, Verdict};
 pub use targets::{
     Discovery, RootFailure, Target, UnappliedConfig, UnappliedReason, discover_all, discover_targets, find_target,
     load_target, unapplied_config_files, unapplied_config_files_all,
@@ -149,8 +149,8 @@ pub use skif_config::{
 pub use skif_config::{CustomStrategy, CustomType, DependencyType};
 pub use skif_core::{
     CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixPreference,
-    FixSafety, Fixability, InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathSeg, Related, Report, RuleId,
-    RuleMeta, Severity, Span, Summary, TextEdit, YamlAction, diagnostic, slash,
+    FixSafety, Fixability, InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathKind, PathSeg, Related, Report,
+    RuleId, RuleMeta, Severity, Span, Summary, TextEdit, YamlAction, diagnostic, slash,
 };
 pub use skif_lint::{
     Emitter, EnabledRules, Executor, ExecutorError, LintContext, LintError, ProviderError, RegistryError, Rule,
@@ -195,11 +195,20 @@ const _: () = {
     let _ = assert_send_sync::<Fix>;
     let _ = assert_send_sync::<FixOp>;
     let _ = assert_send_sync::<CachedFs<OsFs>>;
+    let _ = assert_send_sync::<OsFs>;
+    let _ = assert_send_sync::<MemoryFs>;
+    let _ = assert_send_sync::<ConfigLoader>;
+    let _ = assert_send_sync::<PathKind>;
     let _ = assert_send_sync::<Emitter<'static>>;
     let _ = assert_send_sync::<LintContext<'static>>;
     let _ = assert_send_sync::<DiscoverOptions>;
     let _ = assert_send_sync::<Box<dyn Rule>>;
     let _ = assert_send_sync::<Box<dyn RuleProvider>>;
+    #[cfg(feature = "js-analysis")]
+    {
+        let _ = assert_send_sync::<UsageReport>;
+        let _ = assert_send_sync::<skif_js::JsProvider>;
+    }
     #[cfg(feature = "fix")]
     {
         let _ = assert_send_sync::<FixPlan>;
