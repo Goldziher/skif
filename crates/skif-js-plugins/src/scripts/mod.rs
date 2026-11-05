@@ -38,23 +38,27 @@ pub struct ScriptContext {
 }
 
 impl ScriptContext {
+    /// A context with no scripts.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Adds the script `name` with the command line `body`.
     #[must_use]
     pub fn with_script(mut self, name: impl Into<String>, body: impl Into<String>) -> Self {
         self.scripts.insert(name.into(), body.into());
         self
     }
 
+    /// Sets the package manager the package declares.
     #[must_use]
     pub fn with_package_manager(mut self, package_manager: PackageManager) -> Self {
         self.package_manager = Some(package_manager);
         self
     }
 
+    /// Sets the script being parsed, which is not expanded again.
     #[must_use]
     pub fn with_current_script(mut self, name: impl Into<String>) -> Self {
         self.current_script = Some(name.into());
@@ -97,10 +101,12 @@ impl BinaryVia {
 /// A binary the script runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BinaryUse {
+    /// The binary's name as the script spells it.
     pub name: String,
     /// Byte range in the parsed script. For binaries reached through another script (`npm run x`)
     /// or a string that could not be located exactly, the range of the referencing word.
     pub span: Range<usize>,
+    /// How the binary was reached.
     pub via: BinaryVia,
     /// The command targets another workspace (`pnpm --filter web exec vitest`), so the binary
     /// belongs to that workspace's manifest rather than the current one.
@@ -113,7 +119,9 @@ pub struct BinaryUse {
 /// A file the script runs, loads or passes to a runner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileRef {
+    /// The file path as the script spells it.
     pub path: String,
+    /// Byte range of the path in the parsed script.
     pub span: Range<usize>,
 }
 
@@ -122,6 +130,7 @@ pub struct FileRef {
 pub struct DepRef {
     /// The package name, without version or subpath.
     pub name: String,
+    /// Byte range of the package in the parsed script.
     pub span: Range<usize>,
     /// Fetched on demand (`npx -p pkg`, `pnpm dlx pkg`).
     pub ephemeral: bool,
@@ -130,8 +139,11 @@ pub struct DepRef {
 /// Everything a script references.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ScriptInfo {
+    /// The binaries the script runs.
     pub binaries: Vec<BinaryUse>,
+    /// The files the script runs, loads or passes to a runner.
     pub files: Vec<FileRef>,
+    /// The packages the script needs that are not binary names.
     pub dependencies: Vec<DepRef>,
     /// Names of the package's scripts this script runs, in order of first reference. Names that
     /// are not in [`ScriptContext::scripts`] are included so callers can report them.

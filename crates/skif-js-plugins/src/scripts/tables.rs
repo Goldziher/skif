@@ -211,6 +211,7 @@ pub const IGNORED_BINARIES: &[&str] = &[
     "yum",
 ];
 
+/// Whether `name` is a system or shell command that is not a dependency.
 #[must_use]
 pub fn is_ignored_binary(name: &str) -> bool {
     IGNORED_BINARIES.contains(&name)

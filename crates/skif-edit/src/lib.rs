@@ -6,6 +6,8 @@
 //! JSON (including JSONC comments) is located with `jsonc-parser` byte ranges. YAML needs the `yaml` feature and is
 //! edited with `yamlpatch`; see [`FileKind::Yaml`].
 
+#![warn(missing_docs)]
+
 mod describe;
 mod error;
 mod json;
