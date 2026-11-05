@@ -146,14 +146,18 @@ impl Config {
     }
 
     /// Parses and validates the typed form of an already parsed document, leaving `extend-*` keys as written.
+    ///
+    /// `resolve_references` is whether a `dependency-types` list may only name the custom types this document
+    /// defines. A layer of a chain leaves that to the merged configuration, where the types of every layer are known.
     pub(crate) fn from_document(
         document: toml::Spanned<toml::de::DeTable<'_>>,
         source: &str,
         path: Option<&Path>,
+        resolve_references: bool,
     ) -> Result<Self, ConfigError> {
         let config = Self::deserialize(toml::de::Deserializer::from(document))
             .map_err(|err| ConfigError::from_toml(&err, source, path))?;
-        config.validate_at(path)?;
+        config.validate_with(path, resolve_references)?;
         Ok(config)
     }
 
@@ -162,7 +166,7 @@ impl Config {
     fn parse(source: &str, path: Option<&Path>) -> Result<Self, ConfigError> {
         let from_toml = |err: &toml::de::Error| ConfigError::from_toml(err, source, path);
         let document = toml::de::DeTable::parse(source).map_err(|err| from_toml(&err))?;
-        let config = Self::from_document(document.clone(), source, path)?;
+        let config = Self::from_document(document.clone(), source, path, true)?;
         if !config.has_extend_keys() {
             return Ok(config);
         }
@@ -197,10 +201,10 @@ impl Config {
     /// # Errors
     /// [`ConfigError::Invalid`] naming the offending entry.
     pub fn validate(&self) -> Result<(), ConfigError> {
-        self.validate_at(None)
+        self.validate_with(None, true)
     }
 
-    pub(crate) fn validate_at(&self, path: Option<&Path>) -> Result<(), ConfigError> {
+    fn validate_with(&self, path: Option<&Path>, resolve_references: bool) -> Result<(), ConfigError> {
         let invalid = |message: String| Err(ConfigError::invalid(path, message));
         for (index, group) in self.version_groups.iter().enumerate() {
             if let Some(message) = group.inconsistency() {
@@ -218,7 +222,7 @@ impl Config {
                 return invalid(format!("semver-groups[{index}]: {message}"));
             }
         }
-        if let Some(message) = self.custom_type_problem() {
+        if let Some(message) = self.custom_type_problem(resolve_references) {
             return invalid(message);
         }
         for (index, entry) in self.ignore.iter().enumerate() {
@@ -266,8 +270,9 @@ impl Config {
         Ok(())
     }
 
-    /// The first problem of `[[custom-types]]`, or of a `dependency-types` list naming a custom type that is not defined.
-    fn custom_type_problem(&self) -> Option<String> {
+    /// The first problem of `[[custom-types]]`, or, with `resolve_references`, of a `dependency-types` list naming a
+    /// custom type that is not defined.
+    fn custom_type_problem(&self, resolve_references: bool) -> Option<String> {
         for (index, custom) in self.custom_types.iter().enumerate() {
             if let Some(message) = custom.inconsistency() {
                 return Some(format!("custom-types[{index}]: {message}"));
@@ -281,6 +286,9 @@ impl Config {
                     custom.name
                 ));
             }
+        }
+        if !resolve_references {
+            return None;
         }
         let lists = std::iter::once(("policy.dependency-types".to_owned(), &self.policy.dependency_types))
             .chain(self.version_groups.iter().enumerate().map(|(index, group)| {

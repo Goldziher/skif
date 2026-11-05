@@ -890,3 +890,71 @@ fn every_file_is_read_once_however_many_roots_and_extends_reach_it() {
     assert_eq!(reads.len(), 4);
     assert!(reads.values().all(|&count| count == 1), "{reads:?}");
 }
+
+const NODE_TYPE: &str = "[[custom-types]]\nname = \"node\"\npath = \"engines.node\"\nstrategy = \"version\"\n";
+
+#[test]
+fn a_layer_may_select_a_custom_type_an_inherited_layer_defines() {
+    let config = two(
+        NODE_TYPE,
+        "[[version-groups]]\ndependency-types = [\"node\"]\npolicy = \"ignored\"\n\n[policy]\ndependency-types = [\"prod\", \"node\"]\n",
+    )
+    .config;
+    assert_eq!(config.custom_types.len(), 1);
+    assert_eq!(
+        config.version_groups[0]
+            .dependency_types
+            .custom_names()
+            .collect::<Vec<_>>(),
+        ["node"]
+    );
+    assert_eq!(config.policy.dependency_types, ["prod", "node"]);
+}
+
+#[test]
+fn a_custom_type_nobody_defines_is_still_rejected_after_the_merge() {
+    let error = try_resolve(
+        &fs(&[
+            ("/r/.git/HEAD", ""),
+            ("/r/skif.toml", NODE_TYPE),
+            (
+                "/r/p/skif.toml",
+                "[[version-groups]]\ndependency-types = [\"nodes\"]\npolicy = \"ignored\"\n",
+            ),
+        ]),
+        "/r/p",
+        &Ceiling::Vcs,
+    )
+    .unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("unknown dependency type \"nodes\""), "{message}");
+    assert!(message.contains("did you mean \"node\""), "{message}");
+}
+
+#[test]
+fn a_single_file_still_needs_its_own_custom_types() {
+    let error = try_resolve(
+        &fs(&[
+            ("/r/.git/HEAD", ""),
+            ("/r/skif.toml", "[policy]\ndependency-types = [\"node\"]\n"),
+        ]),
+        "/r",
+        &Ceiling::Vcs,
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("unknown dependency type \"node\""),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_layer_replaces_an_inherited_custom_type_of_the_same_name() {
+    let config = two(
+        NODE_TYPE,
+        "[[custom-types]]\nname = \"node\"\npath = \"volta.node\"\nstrategy = \"version\"\n",
+    )
+    .config;
+    assert_eq!(config.custom_types.len(), 1);
+    assert_eq!(config.custom_types[0].path, "volta.node");
+}
