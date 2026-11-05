@@ -12,7 +12,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use skif_config::{Config, DependencyTypes, Prefer, Selector, SemverGroup, VersionGroup, VersionPolicy};
+use skif_config::{
+    Config, DependencyType, DependencyTypes, Prefer, Selector, SemverGroup, VersionGroup, VersionPolicy,
+};
 use skif_core::DependencyKind;
 use skif_specifier::Specifier;
 use skif_specifier::semver_range::SemverRange;
@@ -28,8 +30,6 @@ use super::instances::{Instance, InstanceId, Instances};
 pub(crate) struct Selectors<'c> {
     dependencies: &'c Selector,
     dependency_types: &'c DependencyTypes,
-    /// Whether `dependency-types` admits a package's own version, which belongs to no dependency section.
-    admits_own_version: bool,
     /// The sections a group that names none governs.
     scope: &'c DependencyTypes,
     specifier_types: &'c [String],
@@ -49,7 +49,6 @@ impl<'c> Selectors<'c> {
         Self {
             dependencies,
             dependency_types,
-            admits_own_version: dependency_types.tokens().iter().all(|token| token.starts_with('!')),
             scope,
             specifier_types,
             packages: workspace
@@ -62,25 +61,27 @@ impl<'c> Selectors<'c> {
     pub(crate) fn matches(&self, instance: &Instance<'_>) -> bool {
         self.packages.get(instance.package.id.index()).copied().unwrap_or(false)
             && (self.dependencies.is_empty() || self.dependencies.matches(&instance.name, instance.is_local))
-            && instance.kind().map_or(self.admits_own_version, |kind: DependencyKind| {
-                if self.dependency_types.is_empty() {
-                    in_default_scope(self.scope, kind)
-                } else {
-                    self.dependency_types.matches(kind)
-                }
+            && (if self.dependency_types.is_empty() {
+                in_default_scope(self.scope, instance.ty())
+            } else {
+                self.dependency_types.matches(instance.ty())
             })
             && identifier_matches(self.specifier_types, instance.specifier.get_config_identifier())
     }
 }
 
-/// Whether `[policy] dependency-types` (`scope`) puts the `kind` section under the policies by default: production and
-/// development dependencies unless it says otherwise. Peer and optional ranges state a compatibility window rather
-/// than a version to install, so aligning them is opt-in.
-fn in_default_scope(scope: &DependencyTypes, kind: DependencyKind) -> bool {
-    if scope.is_empty() {
-        matches!(kind, DependencyKind::Dependencies | DependencyKind::DevDependencies)
-    } else {
-        scope.matches(kind)
+/// Whether `[policy] dependency-types` (`scope`) puts the `ty` place under the policies by default: production and
+/// development dependencies unless it says otherwise, and always a package's own version. Peer and optional ranges
+/// state a compatibility window rather than a version to install, so aligning them is opt-in. So are the override
+/// sections and the custom types: the scope has to name them.
+fn in_default_scope(scope: &DependencyTypes, ty: &DependencyType) -> bool {
+    match ty {
+        DependencyType::Local => true,
+        DependencyType::Section(kind) if scope.is_empty() => {
+            matches!(kind, DependencyKind::Dependencies | DependencyKind::DevDependencies)
+        }
+        DependencyType::Section(_) => scope.matches(ty),
+        _ => scope.names(ty),
     }
 }
 
@@ -124,7 +125,8 @@ pub(crate) struct Group<'c> {
 
 struct Ranged<'c> {
     selectors: Selectors<'c>,
-    range: SemverRange,
+    /// `None` for a group that exempts what it matches from a range.
+    range: Option<SemverRange>,
 }
 
 /// All version groups (the catch-all last) and semver groups of a configuration.
@@ -177,7 +179,7 @@ impl<'c> Groups<'c> {
                     scope,
                     &group.specifier_types,
                 ),
-                range: convert(group.range),
+                range: group.range.map(convert),
             })
             .collect();
         Self { groups, semver, scope }
@@ -222,7 +224,7 @@ impl<'c> Groups<'c> {
     /// Whether the catch-all group takes an instance no configured group claims: it is in a section the policy covers
     /// by default and the catalog rules do not report it.
     fn governs_by_default(&self, instance: &Instance<'_>) -> bool {
-        !instance.catalog_owned && instance.kind().is_none_or(|kind| in_default_scope(self.scope, kind))
+        !instance.catalog_owned && in_default_scope(self.scope, instance.ty())
     }
 
     /// The range of the first matching semver group, if the specifier can carry one.
@@ -235,7 +237,7 @@ impl<'c> Groups<'c> {
             .iter()
             .find(|group| group.selectors.matches(instance))?
             .range
-            .clone();
+            .clone()?;
         instance.specifier.with_range(&range).map(|_| range)
     }
 }
@@ -566,5 +568,97 @@ mod tests {
             })
             .collect();
         assert_eq!(ranged, [("prod", true), ("peer", false), ("optional", false)]);
+    }
+
+    const OVERRIDES_ROOT: &str = r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"pnpm@9.0.0","workspaces":["packages/*"],"resolutions":{"lodash":"4.17.20"},"engines":{"node":">=20.0.0"}}"#;
+    const OVERRIDES_APP: &str = r#"{"name":"app","version":"1.0.0","dependencies":{"lodash":"^4.17.21"},"engines":{"node":">=18.0.0"}}"#;
+    const CUSTOM_NODE: &str = "[[custom-types]]\nname = \"node\"\npath = \"engines.node\"\nstrategy = \"version\"\n\n";
+
+    /// `(place:dependency, owning group)` of every instance in the root and app packages that is not an own version.
+    fn placed(toml: &str) -> Vec<(String, usize)> {
+        let config = config(toml);
+        let files = [
+            ("package.json", OVERRIDES_ROOT),
+            ("packages/app/package.json", OVERRIDES_APP),
+        ];
+        let workspace = workspace(&files, &config);
+        let instances = Instances::collect(&workspace, &config, true);
+        let groups = Groups::compile(&workspace, &config);
+        let assignment = groups.assign(&instances);
+        instances
+            .iter()
+            .filter(|(_, instance)| !instance.is_own_version())
+            .filter_map(|(id, instance)| {
+                let owner = (0..groups.groups().len())
+                    .find(|&group| assignment.dependencies(group).any(|(_, ids)| ids.contains(&id)))?;
+                Some((format!("{}:{}", instance.ty().token(), instance.name), owner))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn override_sections_and_custom_types_are_governed_only_when_named() {
+        assert_eq!(placed(""), [("prod:lodash".to_owned(), 0)]);
+        assert_eq!(placed(CUSTOM_NODE), [("prod:lodash".to_owned(), 0)]);
+        let scoped = format!("{CUSTOM_NODE}[policy]\ndependency-types = [\"prod\", \"resolutions\", \"node\"]\n");
+        assert_eq!(
+            placed(&scoped),
+            [
+                ("resolutions:lodash".to_owned(), 0),
+                ("node:node".to_owned(), 0),
+                ("prod:lodash".to_owned(), 0),
+                ("node:node".to_owned(), 0),
+            ]
+        );
+        assert_eq!(
+            placed("[policy]\ndependency-types = [\"!peer\"]\n"),
+            [("prod:lodash".to_owned(), 0)],
+            "a negation-only scope does not pull in the override sections"
+        );
+    }
+
+    #[test]
+    fn a_group_naming_an_override_section_or_custom_type_governs_it() {
+        let toml = format!(
+            "{CUSTOM_NODE}[[version-groups]]\ndependency-types = [\"resolutions\"]\npolicy = \"ignored\"\n\n\
+             [[version-groups]]\ndependency-types = [\"node\"]\npolicy = \"banned\"\n"
+        );
+        assert_eq!(
+            placed(&toml),
+            [
+                ("resolutions:lodash".to_owned(), 0),
+                ("node:node".to_owned(), 1),
+                ("prod:lodash".to_owned(), 2),
+                ("node:node".to_owned(), 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn local_is_a_type_of_its_own() {
+        let owners = ownership("[[version-groups]]\ndependency-types = [\"local\"]\npolicy = \"ignored\"\n");
+        assert_eq!(owner_of(&owners, "lib:version", "lib"), 0);
+        assert_eq!(owner_of(&owners, "app:prod", "react"), 1);
+        let owners = ownership("[[version-groups]]\ndependency-types = [\"!local\"]\npolicy = \"ignored\"\n");
+        assert_eq!(owner_of(&owners, "lib:version", "lib"), 1);
+        assert_eq!(owner_of(&owners, "app:prod", "react"), 0);
+    }
+
+    #[test]
+    fn an_ignored_semver_group_stops_the_search_without_a_range() {
+        let config = config(
+            "[[semver-groups]]\ndependencies = [\"react\"]\nignored = true\n\n[[semver-groups]]\nrange = \"^\"\n",
+        );
+        let workspace = workspace(&files(), &config);
+        let instances = Instances::collect(&workspace, &config, true);
+        let assignment = Groups::compile(&workspace, &config).assign(&instances);
+        let range_of = |name: &str| {
+            instances
+                .iter()
+                .find(|(_, instance)| instance.name == name && !instance.is_own_version())
+                .and_then(|(id, _)| assignment.preferred(id).map(SemverRange::unwrap))
+        };
+        assert_eq!(range_of("react"), None);
+        assert_eq!(range_of("typescript").as_deref(), Some("^"));
     }
 }
