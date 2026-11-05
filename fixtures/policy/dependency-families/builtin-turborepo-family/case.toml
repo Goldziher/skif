@@ -1,0 +1,3 @@
+description = "The built-in Turborepo family reports eslint-plugin-turbo on an older version than turbo in the same package."
+source = "skif (sherif unsync-similar-dependencies parity)"
+tags = ["families", "builtin"]

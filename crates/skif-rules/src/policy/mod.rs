@@ -10,6 +10,7 @@
 mod analysis;
 mod catalog;
 mod families;
+mod fields;
 mod groups;
 pub(crate) mod instances;
 mod report;

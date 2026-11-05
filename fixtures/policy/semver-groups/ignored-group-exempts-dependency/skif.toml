@@ -1,0 +1,6 @@
+[[semver-groups]]
+dependencies = ["@types/node"]
+ignored = true
+
+[[semver-groups]]
+range = "^"

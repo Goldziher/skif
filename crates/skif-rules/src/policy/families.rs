@@ -23,7 +23,6 @@ pub static META: RuleMeta = RuleMeta::new(
 /// The Storybook packages released in lockstep with `storybook`. `@storybook/*` also holds packages on their own
 /// version line (`@storybook/csf`, `@storybook/test-runner`, `@storybook/addon-styling`), so the family is a list.
 const STORYBOOK: &[&str] = &[
-    "storybook",
     "@storybook/addon-a11y",
     "@storybook/addon-actions",
     "@storybook/addon-backgrounds",
@@ -32,35 +31,77 @@ const STORYBOOK: &[&str] = &[
     "@storybook/addon-essentials",
     "@storybook/addon-highlight",
     "@storybook/addon-interactions",
+    "@storybook/addon-jest",
     "@storybook/addon-links",
+    "@storybook/addon-mdx-gfm",
     "@storybook/addon-measure",
     "@storybook/addon-onboarding",
+    "@storybook/addon-ondevice-actions",
+    "@storybook/addon-ondevice-backgrounds",
+    "@storybook/addon-ondevice-controls",
+    "@storybook/addon-ondevice-notes",
     "@storybook/addon-outline",
+    "@storybook/addon-storysource",
+    "@storybook/addon-themes",
     "@storybook/addon-toolbars",
     "@storybook/addon-viewport",
     "@storybook/angular",
     "@storybook/blocks",
+    "@storybook/builder-manager",
     "@storybook/builder-vite",
     "@storybook/builder-webpack5",
     "@storybook/channels",
+    "@storybook/cli",
+    "@storybook/client-logger",
+    "@storybook/codemod",
     "@storybook/components",
+    "@storybook/core",
+    "@storybook/core-common",
     "@storybook/core-events",
+    "@storybook/core-server",
+    "@storybook/core-webpack",
     "@storybook/csf-plugin",
+    "@storybook/csf-tools",
+    "@storybook/docs-tools",
+    "@storybook/ember",
+    "@storybook/experimental-addon-test",
+    "@storybook/experimental-nextjs-vite",
     "@storybook/html",
     "@storybook/html-vite",
+    "@storybook/html-webpack5",
     "@storybook/instrumenter",
+    "@storybook/manager",
     "@storybook/manager-api",
     "@storybook/nextjs",
+    "@storybook/node-logger",
     "@storybook/preact",
     "@storybook/preact-vite",
+    "@storybook/preact-webpack5",
+    "@storybook/preset-create-react-app",
+    "@storybook/preset-html-webpack",
+    "@storybook/preset-preact-webpack",
+    "@storybook/preset-react-webpack",
+    "@storybook/preset-server-webpack",
+    "@storybook/preset-svelte-webpack",
+    "@storybook/preview",
     "@storybook/preview-api",
     "@storybook/react",
     "@storybook/react-dom-shim",
+    "@storybook/react-native",
+    "@storybook/react-native-theming",
+    "@storybook/react-native-ui",
+    "@storybook/react-native-web-vite",
     "@storybook/react-vite",
     "@storybook/react-webpack5",
+    "@storybook/router",
+    "@storybook/server",
+    "@storybook/server-webpack5",
+    "@storybook/source-loader",
     "@storybook/svelte",
     "@storybook/svelte-vite",
+    "@storybook/svelte-webpack5",
     "@storybook/sveltekit",
+    "@storybook/telemetry",
     "@storybook/test",
     "@storybook/theming",
     "@storybook/types",
@@ -68,6 +109,10 @@ const STORYBOOK: &[&str] = &[
     "@storybook/vue3-vite",
     "@storybook/web-components",
     "@storybook/web-components-vite",
+    "@storybook/web-components-webpack5",
+    "create-storybook",
+    "sb",
+    "storybook",
 ];
 
 /// The families that ship with skif: packages whose releases are versioned in lockstep. Configuration can disable
@@ -77,9 +122,30 @@ const BUILTIN: &[(&str, &[&str])] = &[
     ("trpc", &["@trpc/*"]),
     ("next", &["next", "@next/*", "eslint-config-next"]),
     ("storybook", STORYBOOK),
-    ("prisma", &["prisma", "@prisma/client"]),
+    (
+        "prisma",
+        &[
+            "prisma",
+            "@prisma/client",
+            "@prisma/instrumentation",
+            "@prisma/adapter-*",
+            "@prisma/pg-worker",
+        ],
+    ),
     ("typescript-eslint", &["typescript-eslint", "@typescript-eslint/*"]),
     ("playwright", &["playwright", "playwright-core", "@playwright/test"]),
+    (
+        "turborepo",
+        &[
+            "turbo",
+            "turbo-ignore",
+            "@turbo/gen",
+            "eslint-config-turbo",
+            "eslint-plugin-turbo",
+        ],
+    ),
+    ("eslint-stylistic", &["@stylistic/eslint-plugin*"]),
+    ("lexical", &["lexical", "@lexical/*"]),
 ];
 
 #[derive(Debug)]
@@ -221,6 +287,237 @@ mod tests {
             .into_iter()
             .map(|family| family.name)
             .collect()
+    }
+
+    /// Every package of the family lists of sherif 1.13 (`unsync_similar_dependencies.rs`), by family.
+    const SHERIF: &[(&str, &[&str])] = &[
+        (
+            "trpc",
+            &[
+                "@trpc/client",
+                "@trpc/server",
+                "@trpc/next",
+                "@trpc/react-query",
+            ],
+        ),
+        (
+            "react",
+            &[
+                "react",
+                "react-dom",
+            ],
+        ),
+        (
+            "next",
+            &[
+                "eslint-config-next",
+                "@next/eslint-plugin-next",
+                "@next/font",
+                "@next/bundle-analyzer",
+                "@next/mdx",
+                "next",
+                "@next/third-parties",
+            ],
+        ),
+        (
+            "turborepo",
+            &[
+                "eslint-config-turbo",
+                "eslint-plugin-turbo",
+                "@turbo/gen",
+                "turbo-ignore",
+                "turbo",
+            ],
+        ),
+        (
+            "storybook",
+            &[
+                "sb",
+                "storybook",
+                "@storybook/codemod",
+                "@storybook/cli",
+                "@storybook/channels",
+                "@storybook/addon-actions",
+                "@storybook/addon-links",
+                "@storybook/react",
+                "@storybook/react-native",
+                "@storybook/components",
+                "@storybook/addon-backgrounds",
+                "@storybook/addon-viewport",
+                "@storybook/angular",
+                "@storybook/addon-a11y",
+                "@storybook/addon-jest",
+                "@storybook/client-logger",
+                "@storybook/node-logger",
+                "@storybook/core",
+                "@storybook/addon-storysource",
+                "@storybook/html",
+                "@storybook/core-events",
+                "@storybook/svelte",
+                "@storybook/ember",
+                "@storybook/addon-ondevice-backgrounds",
+                "@storybook/addon-ondevice-notes",
+                "@storybook/preact",
+                "@storybook/theming",
+                "@storybook/router",
+                "@storybook/addon-docs",
+                "@storybook/addon-ondevice-actions",
+                "@storybook/source-loader",
+                "@storybook/preset-create-react-app",
+                "@storybook/web-components",
+                "@storybook/addon-essentials",
+                "@storybook/server",
+                "@storybook/addon-toolbars",
+                "@storybook/addon-controls",
+                "@storybook/core-common",
+                "@storybook/builder-webpack5",
+                "@storybook/core-server",
+                "@storybook/csf-tools",
+                "@storybook/addon-measure",
+                "@storybook/addon-outline",
+                "@storybook/addon-ondevice-controls",
+                "@storybook/instrumenter",
+                "@storybook/addon-interactions",
+                "@storybook/docs-tools",
+                "@storybook/builder-vite",
+                "@storybook/telemetry",
+                "@storybook/core-webpack",
+                "@storybook/preset-html-webpack",
+                "@storybook/preset-preact-webpack",
+                "@storybook/preset-svelte-webpack",
+                "@storybook/preset-react-webpack",
+                "@storybook/html-webpack5",
+                "@storybook/preact-webpack5",
+                "@storybook/svelte-webpack5",
+                "@storybook/web-components-webpack5",
+                "@storybook/preset-server-webpack",
+                "@storybook/react-webpack5",
+                "@storybook/server-webpack5",
+                "@storybook/addon-highlight",
+                "@storybook/blocks",
+                "@storybook/builder-manager",
+                "@storybook/react-vite",
+                "@storybook/svelte-vite",
+                "@storybook/web-components-vite",
+                "@storybook/nextjs",
+                "@storybook/types",
+                "@storybook/manager",
+                "@storybook/csf-plugin",
+                "@storybook/preview",
+                "@storybook/manager-api",
+                "@storybook/preview-api",
+                "@storybook/html-vite",
+                "@storybook/sveltekit",
+                "@storybook/preact-vite",
+                "@storybook/addon-mdx-gfm",
+                "@storybook/react-dom-shim",
+                "create-storybook",
+                "@storybook/addon-onboarding",
+                "@storybook/react-native-theming",
+                "@storybook/addon-themes",
+                "@storybook/test",
+                "@storybook/react-native-ui",
+                "@storybook/experimental-nextjs-vite",
+                "@storybook/experimental-addon-test",
+                "@storybook/react-native-web-vite",
+            ],
+        ),
+        (
+            "prisma",
+            &[
+                "prisma",
+                "@prisma/client",
+                "@prisma/instrumentation",
+                "@prisma/adapter-pg",
+                "@prisma/adapter-neon",
+                "@prisma/adapter-planetscale",
+                "@prisma/adapter-d1",
+                "@prisma/adapter-libsql",
+                "@prisma/adapter-pg-worker",
+                "@prisma/pg-worker",
+            ],
+        ),
+        (
+            "typescript-eslint",
+            &[
+                "typescript-eslint",
+                "@typescript-eslint/eslint-plugin",
+                "@typescript-eslint/parser",
+            ],
+        ),
+        (
+            "eslint-stylistic",
+            &[
+                "@stylistic/eslint-plugin-js",
+                "@stylistic/eslint-plugin-ts",
+                "@stylistic/eslint-plugin-migrate",
+                "@stylistic/eslint-plugin",
+                "@stylistic/eslint-plugin-jsx",
+                "@stylistic/eslint-plugin-plus",
+            ],
+        ),
+        (
+            "playwright",
+            &[
+                "playwright",
+                "@playwright/test",
+            ],
+        ),
+        (
+            "lexical",
+            &[
+                "lexical",
+                "@lexical/clipboard",
+                "@lexical/code",
+                "@lexical/devtools-core",
+                "@lexical/dragon",
+                "@lexical/eslint-plugin",
+                "@lexical/file",
+                "@lexical/hashtag",
+                "@lexical/headless",
+                "@lexical/history",
+                "@lexical/html",
+                "@lexical/link",
+                "@lexical/list",
+                "@lexical/mark",
+                "@lexical/markdown",
+                "@lexical/offset",
+                "@lexical/overflow",
+                "@lexical/plain-text",
+                "@lexical/react",
+                "@lexical/rich-text",
+                "@lexical/selection",
+                "@lexical/table",
+                "@lexical/text",
+                "@lexical/utils",
+                "@lexical/yjs",
+            ],
+        ),
+    ];
+
+    #[test]
+    fn every_family_of_sherif_is_covered_member_for_member() {
+        let config = Config::from_toml_str("").unwrap();
+        let families = effective_families(&config);
+        for (name, members) in SHERIF {
+            let family = families
+                .iter()
+                .find(|family| family.name == *name)
+                .unwrap_or_else(|| panic!("missing family {name}"));
+            for member in *members {
+                assert!(family.members.matches(member, false), "{member} is not in family {name}");
+            }
+        }
+    }
+
+    #[test]
+    fn new_builtin_families_report_mismatches() {
+        let turbo = r#""devDependencies":{"turbo":"^2.1.0","eslint-config-turbo":"^2.0.0"}"#;
+        assert_eq!(flagged("", turbo), ["eslint-config-turbo"]);
+        let stylistic = r#""devDependencies":{"@stylistic/eslint-plugin":"^2.8.0","@stylistic/eslint-plugin-js":"^2.1.0"}"#;
+        assert_eq!(flagged("", stylistic), ["@stylistic/eslint-plugin-js"]);
+        let lexical = r#""dependencies":{"lexical":"^0.20.0","@lexical/react":"^0.19.0"}"#;
+        assert_eq!(flagged("", lexical), ["@lexical/react"]);
     }
 
     #[test]

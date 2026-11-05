@@ -1,0 +1,11 @@
+[
+  {
+    "rule": "version-mismatch",
+    "severity": "error",
+    "package": "monorepo",
+    "dependency": "lodash",
+    "detail": "DiffersToHighestOrLowestSemver",
+    "path": "pnpm-workspace.yaml",
+    "fixable": true
+  }
+]

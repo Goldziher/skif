@@ -21,13 +21,13 @@ use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
-use skif_config::Prefer;
+use skif_config::{DependencyType, Prefer};
 use skif_core::DependencyKind;
 use skif_specifier::Specifier;
 use skif_specifier::semver_range::SemverRange;
 
 use super::groups::{Assignment, Policy};
-use super::instances::{InstanceId, Instances};
+use super::instances::{Instance, InstanceId, Instances};
 use super::specifiers::floor_version;
 use super::state::{State, Verdict};
 
@@ -318,7 +318,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
                             && instance.package.name.as_deref() == Some(package.as_str())
                             && !self.is_peer_window(id)
                     })
-                    .min_by_key(|&id| self.instances.get(id).kind().map_or(0, section_rank))
+                    .min_by_key(|&id| rank(self.instances.get(id)))
             })
             .map(|id| Arc::clone(self.spec(id)));
         let Some(target) = target else {
@@ -534,6 +534,15 @@ impl<'a, 'w> Visitor<'a, 'w> {
         for &id in ids {
             self.mark(id, state, None);
         }
+    }
+}
+
+/// How early the place of an instance is preferred as the source of a snap target.
+fn rank(instance: &Instance<'_>) -> u8 {
+    match instance.ty() {
+        DependencyType::Local => 0,
+        DependencyType::Section(kind) => section_rank(*kind),
+        _ => 2,
     }
 }
 

@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use skif_config::{
-    Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, IgnoreEntry, IgnoreExportsUsedInFile, Level,
+    Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, CustomStrategy, IgnoreEntry, IgnoreExportsUsedInFile, Level,
     PackageManager,
     PluginConfig, Prefer, RuleConfig, Selector, SemverRange, VersionPolicy, discover, discover_with_fs,
 };
@@ -50,7 +50,7 @@ fn invalid_selectors_and_dependency_types_are_parse_errors_naming_the_value() {
         ("[[ignore]]\npackages = [\"{x\"]\n", "\"{x\""),
         ("[[version-groups]]\ndependencies = [\"b[\"]\n", "\"b[\""),
         ("[[semver-groups]]\npackages = [\"c[\"]\nrange = \"^\"\n", "\"c[\""),
-        ("[policy]\ndependency-types = [\"bundled\"]\n", "\"bundled\""),
+        ("[policy]\ndependency-types = [\"\"]\n", "\"\""),
     ];
     for (toml, needle) in cases {
         let error = Config::from_toml_str(toml).unwrap_err();
@@ -295,8 +295,8 @@ fn full_fixture_sections() {
     );
 
     assert_eq!(config.semver_groups.len(), 2);
-    assert_eq!(config.semver_groups[0].range, SemverRange::Caret);
-    assert_eq!(config.semver_groups[1].range, SemverRange::Exact);
+    assert_eq!(config.semver_groups[0].range, Some(SemverRange::Caret));
+    assert_eq!(config.semver_groups[1].range, Some(SemverRange::Exact));
 
     assert_eq!(
         config.catalog,
@@ -701,4 +701,69 @@ fn root_only_js_keys_are_rejected_in_an_override() {
         let source = format!("[[overrides]]\npackages = [\"a\"]\n[overrides.js]\n{key}\n");
         assert!(Config::from_toml_str(&source).is_err(), "{key}");
     }
+fn custom_types_are_parsed_and_selectable_in_dependency_types() {
+    let config = Config::from_toml_str(
+        "[[custom-types]]\nname = \"node\"\npath = \"engines.node\"\nstrategy = \"version\"\n\n\
+         [[custom-types]]\nname = \"manager\"\npath = \"packageManager\"\nstrategy = \"name@version\"\n\n\
+         [[custom-types]]\nname = \"allowed\"\npath = \"pnpm.peerDependencyRules.allowedVersions\"\nstrategy = \"versions-by-name\"\n\n\
+         [policy]\ndependency-types = [\"prod\", \"node\", \"local\", \"resolutions\"]\n\n\
+         [[version-groups]]\ndependency-types = [\"manager\", \"!allowed\"]\npolicy = \"ignored\"\n",
+    )
+    .unwrap();
+    let strategies: Vec<_> = config.custom_types.iter().map(|custom| custom.strategy).collect();
+    assert_eq!(
+        strategies,
+        [
+            CustomStrategy::Version,
+            CustomStrategy::NameAtVersion,
+            CustomStrategy::VersionsByName
+        ]
+    );
+    assert_eq!(config.custom_types[2].segments().collect::<Vec<_>>(), ["pnpm", "peerDependencyRules", "allowedVersions"]);
+    assert_eq!(config.policy.dependency_types, ["prod", "node", "local", "resolutions"]);
+    let round_trip = Config::from_toml_str(&config.to_toml_string().unwrap()).unwrap();
+    assert_eq!(round_trip, config);
+}
+
+#[test]
+fn invalid_custom_types_are_rejected() {
+    let custom = |body: &str| format!("[[custom-types]]\n{body}\n");
+    let cases = [
+        (custom("name = \"dev\"\npath = \"a\"\nstrategy = \"version\""), "built-in dependency type"),
+        (custom("name = \"\"\npath = \"a\"\nstrategy = \"version\""), "must not be empty"),
+        (custom("name = \"x\"\npath = \"a..b\"\nstrategy = \"version\""), "non-empty keys"),
+        (
+            format!(
+                "{}{}",
+                custom("name = \"x\"\npath = \"a\"\nstrategy = \"version\""),
+                custom("name = \"x\"\npath = \"b\"\nstrategy = \"version\"")
+            ),
+            "defined twice",
+        ),
+        ("[policy]\ndependency-types = [\"nodes\"]\n".to_owned(), "unknown dependency type \"nodes\""),
+        (
+            "[[semver-groups]]\ndependency-types = [\"!engines\"]\nrange = \"^\"\n".to_owned(),
+            "semver-groups[0].dependency-types",
+        ),
+    ];
+    for (toml, expected) in cases {
+        let error = Config::from_toml_str(&toml).unwrap_err();
+        assert!(matches!(error, ConfigError::Invalid { .. }), "{toml}: {error:?}");
+        assert!(error.to_string().contains(expected), "{toml}: {error}");
+    }
+    assert!(Config::from_toml_str(&custom("name = \"x\"\npath = \"a\"\nstrategy = \"lines\"")).is_err());
+}
+
+#[test]
+fn semver_groups_take_a_range_or_ignored_but_not_both() {
+    let config = Config::from_toml_str("[[semver-groups]]\ndependencies = [\"@types/node\"]\nignored = true\n").unwrap();
+    assert_eq!((config.semver_groups[0].range, config.semver_groups[0].ignored), (None, true));
+    for (toml, expected) in [
+        ("[[semver-groups]]\n", "set `range`"),
+        ("[[semver-groups]]\nrange = \"^\"\nignored = true\n", "mutually exclusive"),
+    ] {
+        let error = Config::from_toml_str(toml).unwrap_err();
+        assert!(error.to_string().contains(expected), "{toml}: {error}");
+    }
+    assert!(Config::from_toml_str("[[semver-groups]]\nrange = \"^\"\nignored = false\n").is_ok());
 }

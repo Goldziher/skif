@@ -1,0 +1,3 @@
+description = "A semver group with ignored = true needs no range: it exempts the dependencies it matches, and later groups do not apply to them."
+source = "syncpack:src/rcfile/semver_group.rs::SemverGroup::from_config"
+tags = ["semver-groups", "ignored", "fix"]

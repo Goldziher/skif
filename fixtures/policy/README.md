@@ -6,7 +6,7 @@ workspace protocol, dependency families and the policy conflicts between them
 tests in `crates/skif-rules/tests` (`policy_conformance.rs` and `policy_catalog_conformance.rs`) walk them, run the
 policy rules and compare the result with `expected.json`.
 
-There are 161 cases in 14 groups. Each case is a minimal monorepo plus the `skif.toml` under
+There are 178 cases in 15 groups. Each case is a minimal monorepo plus the `skif.toml` under
 test and the diagnostics skif must report for it, so a failing case points at one behaviour.
 
 ## Attribution
@@ -34,13 +34,14 @@ fixtures/policy/
 
 Groups: `version-mismatch`, `pinned`, `banned`, `ignored`, `same-range`, `same-minor`, `snapped-to`,
 `semver-groups`, `catalog`, `workspace-protocol`, `dependency-families`, `policy-conflict`,
-`selectors`, `invalid-local-version`.
+`selectors`, `invalid-local-version`, `dependency-types`.
 
 | Group | Cases |
 | --- | --- |
 | `banned` | 4 |
 | `catalog` | 28 |
-| `dependency-families` | 7 |
+| `dependency-families` | 11 |
+| `dependency-types` | 12 |
 | `ignored` | 6 |
 | `invalid-local-version` | 8 |
 | `pinned` | 6 |
@@ -48,7 +49,7 @@ Groups: `version-mismatch`, `pinned`, `banned`, `ignored`, `same-range`, `same-m
 | `same-minor` | 5 |
 | `same-range` | 8 |
 | `selectors` | 14 |
-| `semver-groups` | 13 |
+| `semver-groups` | 14 |
 | `snapped-to` | 6 |
 | `version-mismatch` | 27 |
 | `workspace-protocol` | 8 |
@@ -146,8 +147,9 @@ Tags with meaning: `assumption` and `ambiguous`
 * **Built-in implicit semver group.** As in syncpack, the first semver group is a built-in one for
   the workspace packages' own versions (dependency type `local`): they carry no range preference, so
   a catch-all or `$LOCAL` semver group never rewrites a package's own `version`.
-* **Dependency types** use syncpack's names `prod`, `dev` and `peer` (the ADRs leave the
-  `DependencyKind` spelling open).
+* **Dependency types** use syncpack's names `prod`, `dev`, `peer`, `local` and `resolutions`, plus `overrides` and
+  `pnpm-overrides` (syncpack: `pnpmOverrides`) and the names of `[[custom-types]]` entries
+  ([ADR 0037](../../adrs/0037-override-sections-custom-types-and-ignored-semver-groups.md)).
 * **Catalog scope.** With `mode` other than `off`, a dependency that has a catalog entry (or none,
   but is used in at least `min-packages` packages) is owned by the catalog policy and is not also
   reported as a version mismatch. `prefer` and `enforce` report the same instances and differ in
@@ -175,7 +177,8 @@ syncpack.
   (`catalog/off-catalog-mismatch`); with a mode set, plain instances are `NotUsingCatalog`.
 * `DiffersToHighestOrLowestSemverMinor` is not covered: skif's `prefer` is valid only on
   `preferred-semver` groups, so a same-minor group cannot name a direction.
-* `semverRangeOnly` version groups and ignored/disabled semver groups do not exist in skif.
+* `semverRangeOnly` version groups do not exist in skif. A semver group with `ignored = true` covers syncpack's `isIgnored`
+  and `isDisabled` (`semver-groups/ignored-group-exempts-dependency`).
 * `DiffersToNpmRegistry` is out of scope (ADR 0001); no case.
 * Severity is per rule: syncpack's Conflict class (error) and Suspect class (warning) share
   `policy-conflict` and therefore one severity (see "ADR gaps").
@@ -198,6 +201,12 @@ syncpack.
 * One rule owns each instance: while a sibling uses `catalog:`, `catalog-mismatch` reports the plain instances even
   with `mode = "off"` and the version groups leave them alone
   (`version-mismatch/catalog-sibling-owns-instances-mode-off`).
+* The override sections (`resolutions`, `overrides`, `pnpm-overrides`) and custom types are governed only when a
+  `dependency-types` list names them; syncpack governs every type by default
+  (`dependency-types/resolutions-outside-default-scope`, `dependency-types/custom-type-outside-default-scope`).
+* `pnpm-overrides` also covers `pnpm.overrides` of `package.json`, which syncpack reads only through a custom type, and
+  the dependency of an override entry is the package its selector names (`react@<18`, `parent>react`, `**/react`);
+  syncpack takes the key as written (`dependency-types/pnpm-overrides-selector-names`).
 
 ## ADR gaps and contradictions found while writing the fixtures
 

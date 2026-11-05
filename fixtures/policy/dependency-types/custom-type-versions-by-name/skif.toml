@@ -1,0 +1,7 @@
+[[custom-types]]
+name = "allowed-versions"
+path = "pnpm.peerDependencyRules.allowedVersions"
+strategy = "versions-by-name"
+
+[policy]
+dependency-types = ["prod", "allowed-versions"]

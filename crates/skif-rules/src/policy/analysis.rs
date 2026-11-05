@@ -41,7 +41,7 @@ impl<'w> Analysis<'w> {
     /// Runs the version groups; the dependencies in `owned` are left to the catalog rules (see
     /// [`Instances::collect_with`]).
     pub(crate) fn run_with(workspace: &'w Workspace, config: &Config, owned: &BTreeSet<&str>) -> Self {
-        Self::from_instances(workspace, config, Instances::collect_with(workspace, owned))
+        Self::from_instances(workspace, config, Instances::collect_with(workspace, owned, &config.custom_types))
     }
 
     fn from_instances(workspace: &'w Workspace, config: &Config, instances: Instances<'w>) -> Self {

@@ -33,6 +33,7 @@ file. Print the schema with `skif schema`.
 | `[policy]` | `prefer`, `dependency-types` |
 | `[[version-groups]]` | Version policies per dependency group |
 | `[[semver-groups]]` | Range policies per dependency group |
+| `[[custom-types]]` | Manifest fields that hold versions and take part in the version policies |
 | `[catalog]` | Catalog enforcement |
 | `[workspace-protocol]` | `workspace:` protocol policy |
 | `[[dependency-families]]` | Packages that must share a version |
@@ -107,6 +108,25 @@ prefer = "highest"                   # highest | lowest
 dependency-types = ["peer"]          # empty means dependencies and devDependencies; name peer or optional to include them
 ```
 
+`dependency-types` (here and in version and semver groups) names where a version is declared. Each entry may be
+negated with `!`:
+
+| Type | Selects |
+| --- | --- |
+| `prod`, `dev`, `peer`, `optional` | The four dependency sections |
+| `local` | A package's own `version` (syncpack's `local`) |
+| `resolutions` | `resolutions` of `package.json` (yarn) |
+| `overrides` | `overrides` of `package.json` (npm, including nested objects) |
+| `pnpm-overrides` | `pnpm.overrides` of `package.json` and `overrides` of `pnpm-workspace.yaml` (syncpack: `pnpmOverrides`) |
+| any `[[custom-types]]` name | The versions that custom type reads |
+
+A group that names a type governs it. The catch-all group, and a group that names no type, cover `prod`, `dev` and the
+own versions; a type outside those is covered only when `[policy] dependency-types` names it. syncpack covers every
+type by default, so a syncpack configuration that relies on that needs `dependency-types = ["prod", "dev",
+"resolutions", "overrides", "pnpm-overrides"]` here. The dependency of an override entry is the package its selector
+names (`react@<18`, `parent>react`, `**/react` are `react`); a nested npm object's `.` entry belongs to its parent.
+Only string values are instances, and a fix edits the entry in place, in `pnpm-workspace.yaml` for its overrides.
+
 ### `[[version-groups]]`
 
 The first matching group wins. Selectors accept `!` negation, and `$LOCAL` selects dependencies that are
@@ -141,7 +161,37 @@ policy = "banned"
 label = "Libraries use caret ranges"
 packages = ["packages/*"]
 range = "^"      # one of * ^ ~ > >= < <=
+
+[[semver-groups]]
+label = "No range for type packages"
+dependencies = ["@types/*"]
+ignored = true   # no range requirement; later groups do not apply (syncpack isIgnored / isDisabled)
 ```
+
+A group sets exactly one of `range` and `ignored = true`.
+
+### `[[custom-types]]`
+
+A field of `package.json` that holds versions. Name it in a `dependency-types` list to select its instances; they
+are aligned, pinned, banned and ranged like dependencies, and fixed in place (syncpack's `customTypes`).
+
+```toml
+[[custom-types]]
+name = "node"                # the token for dependency-types; the dependency name with strategy "version"
+path = "engines.node"        # dotted path of keys in package.json
+strategy = "version"         # version | name@version | versions-by-name
+
+[[custom-types]]
+name = "package-manager"
+path = "packageManager"      # "pnpm@9.15.0": the dependency is pnpm
+strategy = "name@version"
+
+[policy]
+dependency-types = ["prod", "dev", "node", "package-manager"]
+```
+
+`versions-by-name` reads an object of `name: version`. A name must not be one of the built-in types. The `name~version`
+strategy and `source` of syncpack are not supported.
 
 ### `[catalog]`
 
@@ -304,7 +354,7 @@ reset = ["version-groups"]
   order. A file reached twice applies once. A cycle, a missing file or more than 16 nested files is an error naming
   the file.
 - `reset` discards what was inherited for the listed keys before this file applies. Allowed values:
-  `version-groups`, `semver-groups`, `ignore`, `dependency-families`, `overrides`.
+  `version-groups`, `semver-groups`, `custom-types`, `ignore`, `dependency-families`, `overrides`.
 
 ### Merge rules
 
@@ -318,7 +368,7 @@ reset = ["version-groups"]
 | `[js.plugins]` | Per plugin: `true` or `false` keeps the options; a table replaces them |
 | `[[ignore]]`, `[[overrides]]` | Append |
 | `[[version-groups]]`, `[[semver-groups]]` | The nearer file's entries come first, so with first match wins the project beats the org |
-| `[[dependency-families]]` | Replace the family of the same `name`, append the others |
+| `[[dependency-families]]`, `[[custom-types]]` | Replace the entry of the same `name`, append the others |
 
 ### `[[overrides]]`
 

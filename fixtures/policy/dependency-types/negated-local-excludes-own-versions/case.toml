@@ -1,0 +1,3 @@
+description = "!local keeps a group off the own versions: the pin applies to the dependents of lib only, and lib is not asked to pin itself."
+source = "syncpack:src/group_selector/group_selector_test.rs::dependency_types_negation"
+tags = ["dependency-types", "local", "negation", "fix"]

@@ -80,8 +80,8 @@ impl Merger {
     /// - `[js.plugins]` merges per plugin: `true` / `false` sets `enabled` and keeps the options; a table replaces the
     ///   options and sets `enabled` only when it gives it.
     /// - `[[ignore]]` and `[[overrides]]` append; `[[version-groups]]` and `[[semver-groups]]` are put before the
-    ///   inherited ones, so the nearer file wins the first-match; `[[dependency-families]]` replace the family of the
-    ///   same name and append the others.
+    ///   inherited ones, so the nearer file wins the first-match; `[[dependency-families]]` and `[[custom-types]]` replace the
+    ///   entry of the same name and append the others.
     /// - Every other table merges key by key, and every other value replaces.
     /// - An `extend-*` key appends to the list it extends, after that list was replaced when the same layer sets it.
     pub(crate) fn apply(&mut self, source: usize, layer: &Table, spans: &Spans) {
@@ -104,7 +104,9 @@ impl Merger {
                 ("ignore" | "overrides", Value::Array(items)) => {
                     merge_list(table, lists, key, items, Placement::Append, &mut cx);
                 }
-                ("dependency-families", Value::Array(items)) => merge_families(table, lists, items, &mut cx),
+                ("dependency-families" | "custom-types", Value::Array(items)) => {
+                    merge_named(table, lists, key, items, &mut cx);
+                }
                 (_, Value::Table(incoming)) => merge_table(section(table, key), incoming, key, &mut cx),
                 _ => {
                     table.insert(key.clone(), value.clone());
@@ -303,8 +305,15 @@ fn merge_list(
     }
 }
 
-fn merge_families(table: &mut Table, lists: &mut BTreeMap<String, Vec<Assignment>>, items: &[Value], cx: &mut Cx<'_>) {
-    let key = "dependency-families";
+/// Merges the entries of the list `key` by their `name`: an entry replaces the inherited one of the same name, the
+/// others append.
+fn merge_named(
+    table: &mut Table,
+    lists: &mut BTreeMap<String, Vec<Assignment>>,
+    key: &str,
+    items: &[Value],
+    cx: &mut Cx<'_>,
+) {
     let existing = list(table, key);
     let tracked = lists.entry(key.to_owned()).or_default();
     for (index, item) in items.iter().enumerate() {
