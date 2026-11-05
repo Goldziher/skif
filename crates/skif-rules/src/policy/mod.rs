@@ -423,6 +423,26 @@ mod tests {
     }
 
     #[test]
+    fn override_references_to_a_missing_catalog_entry_are_unresolved() {
+        let root = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0","overrides":{"react@>=18":"catalog:legacy","left-pad":"catalog:"}}"#;
+        let files = [("package.json", root), ("pnpm-workspace.yaml", REACT_YAML)];
+        let found = lint("unresolved-catalog-references", &files, &config(""));
+        let mut names: Vec<_> = found.iter().filter_map(|d| d.dependency.as_deref()).collect();
+        names.sort_unstable();
+        assert_eq!(
+            names,
+            ["left-pad", "react"],
+            "the range operator in `react@>=18` is not a separator"
+        );
+        let react = found.iter().find(|d| d.dependency.as_deref() == Some("react")).unwrap();
+        assert!(
+            located(&files, react).contains("catalog:legacy"),
+            "{}",
+            located(&files, react)
+        );
+    }
+
+    #[test]
     fn catalog_mismatch_defaults_to_a_warning() {
         assert_eq!(catalog::CatalogMismatch.meta().default, Some(Severity::Warning));
     }

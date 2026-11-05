@@ -9,6 +9,7 @@ mod mismatch;
 mod missing_entry;
 mod names;
 mod not_used;
+mod references;
 pub(crate) mod support;
 mod target;
 mod unresolved_references;

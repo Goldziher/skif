@@ -1,12 +1,12 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use serde_json::Value;
 use skif_core::{Category, Fixability, LineIndex, Location, PathSeg, RuleMeta, Severity, Span, diagnostic};
 use skif_lint::{Emitter, LintContext, Rule};
 use skif_workspace::Workspace;
 
 use super::names::{CatalogName, referenced};
+use super::references::override_references;
 use super::support::key;
 
 /// Metadata of `unused-catalog-entries`.
@@ -36,23 +36,17 @@ impl Rule for UnusedCatalogEntries {
         let Some(source) = catalogs.source() else {
             return;
         };
-        let mut used: BTreeSet<(CatalogName, &str)> = workspace
+        let overrides = override_references(workspace);
+        let used: BTreeSet<(CatalogName, &str)> = workspace
             .all_packages()
             .flat_map(|package| &package.dependencies)
             .filter_map(|entry| Some((referenced(&entry.specifier)?, entry.name.as_str())))
+            .chain(
+                overrides
+                    .iter()
+                    .filter_map(|instance| Some((referenced(instance.raw())?, instance.name.as_str()))),
+            )
             .collect();
-        let root = workspace.root_package().manifest.value();
-        let sections: [&[&str]; 3] = [&["pnpm", "overrides"], &["overrides"], &["resolutions"]];
-        for section in sections {
-            if let Some(overrides) = section.iter().try_fold(root, |value, key| value.get(key)) {
-                collect_override_references(overrides, &mut used);
-            }
-        }
-        if let Some(yaml) = &workspace.pnpm_workspace {
-            for (selector, replacement) in &yaml.overrides {
-                used.extend(referenced(replacement).map(|catalog| (catalog, override_target(selector))));
-            }
-        }
         let default = std::iter::once((CatalogName::Default, catalogs.default_catalog()));
         let named = catalogs
             .named()
@@ -76,30 +70,6 @@ impl Rule for UnusedCatalogEntries {
                 }
                 out.emit(builder.build());
             }
-        }
-    }
-}
-
-/// The dependency an override selector replaces: `foo`, `foo@^1`, `parent>foo` and `@scope/foo@1` all name one.
-fn override_target(selector: &str) -> &str {
-    let last = selector.rsplit('>').next().unwrap_or(selector);
-    match last.get(1..).and_then(|rest| rest.find('@')) {
-        Some(at) => &last[..=at],
-        None => last,
-    }
-}
-
-/// Adds the `catalog:` references among the override `entries` (npm nests overrides by parent) to `used`.
-fn collect_override_references<'v>(entries: &'v Value, used: &mut BTreeSet<(CatalogName, &'v str)>) {
-    let Some(entries) = entries.as_object() else {
-        return;
-    };
-    for (selector, replacement) in entries {
-        match replacement {
-            Value::String(replacement) => {
-                used.extend(referenced(replacement).map(|catalog| (catalog, override_target(selector))));
-            }
-            nested => collect_override_references(nested, used),
         }
     }
 }
@@ -206,20 +176,11 @@ mod tests {
     }
 
     #[test]
-    fn override_selectors_name_the_dependency_they_replace() {
-        assert_eq!(override_target("foo"), "foo");
-        assert_eq!(override_target("foo@^1.0.0"), "foo");
-        assert_eq!(override_target("parent>foo"), "foo");
-        assert_eq!(override_target("parent@1>@scope/foo@<2"), "@scope/foo");
-        assert_eq!(override_target("@scope/foo"), "@scope/foo");
-    }
-
-    #[test]
     fn overrides_reference_catalog_entries() {
         use crate::testing::{config, lint};
 
-        let root = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0","pnpm":{"overrides":{"lodash@<4.17.21":"catalog:legacy","@scope/pkg":"catalog:"}},"resolutions":{"a>glob":"catalog:"}}"#;
-        let yaml = "packages:\n  - \"packages/*\"\ncatalog:\n  \"@scope/pkg\": ^1.0.0\n  react: ^18.0.0\n  glob: ^10.0.0\n  zod: ^3.0.0\ncatalogs:\n  legacy:\n    lodash: ^4.17.21\noverrides:\n  zod: \"catalog:\"\n";
+        let root = r#"{"name":"root","private":true,"packageManager":"pnpm@9.0.0","pnpm":{"overrides":{"lodash@<4.17.21":"catalog:legacy","@scope/pkg":"catalog:"}},"resolutions":{"a>glob":"catalog:","**/lodash-es":"catalog:","parent/**/semver@>=7":"catalog:"}}"#;
+        let yaml = "packages:\n  - \"packages/*\"\ncatalog:\n  \"@scope/pkg\": ^1.0.0\n  react: ^18.0.0\n  glob: ^10.0.0\n  zod: ^3.0.0\n  lodash-es: ^4.0.0\n  semver: ^7.0.0\ncatalogs:\n  legacy:\n    lodash: ^4.17.21\noverrides:\n  zod: \"catalog:\"\n";
         let files = [
             ("package.json", root),
             ("pnpm-workspace.yaml", yaml),

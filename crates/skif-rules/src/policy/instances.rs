@@ -87,6 +87,21 @@ impl<'w> Instance<'w> {
     }
 }
 
+impl<'w> Instance<'w> {
+    /// The instance of a version in an override section or a custom type.
+    pub(crate) fn of_field(package: &'w Package, found: fields::Found, is_local: bool) -> Self {
+        Self {
+            package,
+            origin: Origin::Field(found.field),
+            ty: found.ty,
+            is_local,
+            specifier: Specifier::new(&found.version),
+            name: found.name,
+            catalog_owned: false,
+        }
+    }
+}
+
 impl Instance<'_> {
     /// The dependency section, or `None` for the package's own version and for the versions of override sections and
     /// custom types.
@@ -200,15 +215,8 @@ impl<'w> Instances<'w> {
                 ));
             }
             for found in fields::collect(workspace, package, custom) {
-                items.push(Instance {
-                    package,
-                    origin: Origin::Field(found.field),
-                    ty: found.ty,
-                    is_local: local_names.contains(found.name.as_str()),
-                    specifier: Specifier::new(&found.version),
-                    name: found.name,
-                    catalog_owned: false,
-                });
+                let is_local = local_names.contains(found.name.as_str());
+                items.push(Instance::of_field(package, found, is_local));
             }
         }
         let mut by_name: BTreeMap<String, Vec<InstanceId>> = BTreeMap::new();
