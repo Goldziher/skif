@@ -697,7 +697,7 @@ pub struct VersionGroup {
     /// Package names the group covers; empty covers every package.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub packages: Selector,
-    /// Dependency types the group covers; empty covers every type.
+    /// Dependency types the group covers; empty covers the types `[policy] dependency-types` governs (production and development dependencies and a package's own version by default). Peer and optional dependencies, the override sections and custom types are covered only when named.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependency_types: DependencyTypes,
     /// Specifier types the group covers (`exact`, `range`, `tag`, ...), optionally negated with `!`; empty covers every type.
@@ -856,7 +856,7 @@ pub struct SemverGroup {
     #[serde(default)]
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub packages: Selector,
-    /// Dependency types the group covers; empty covers every type.
+    /// Dependency types the group covers; empty covers the types `[policy] dependency-types` governs (production and development dependencies and a package's own version by default). Peer and optional dependencies, the override sections and custom types are covered only when named.
     #[serde(default)]
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependency_types: DependencyTypes,

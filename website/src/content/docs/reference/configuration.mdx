@@ -127,6 +127,10 @@ type by default, so a syncpack configuration that relies on that needs `dependen
 "resolutions", "overrides", "pnpm-overrides"]` here. The dependency of an override entry is the package its selector
 names (`react@<18`, `parent>react`, `**/react` are `react`); a nested npm object's `.` entry belongs to its parent.
 Only string values are instances, and a fix edits the entry in place, in `pnpm-workspace.yaml` for its overrides.
+Values that are references rather than versions (npm's `$name`, pnpm's `-`) are skipped, and the `overrides` of
+`pnpm-workspace.yaml` are read only when pnpm is the package manager. A group that names no type covers the types
+`[policy] dependency-types` governs, so `policy = "banned"` for a dependency does not reach its `peerDependencies`
+unless the group names `peer`.
 
 ### `[[version-groups]]`
 
@@ -203,6 +207,15 @@ min-packages = 2             # packages using a dependency before an entry is su
 exclude = ["typescript"]
 report-unused-entries = true  # default false: `unused-catalog-entries` reports nothing unless this is set
 ```
+
+A `[[version-groups]]` entry whose selectors match a dependency claims it, whatever its policy: the catalog rules
+(`catalog-not-used`, `catalog-mismatch`, `catalog-missing-entry`, `unresolved-catalog-references`) leave it to the
+group, as syncpack's first-match-wins order does. A `pinned` group for one package (a "baseline") keeps that package
+off the catalog while the rest use `catalog:`, an `ignored` group exempts what it matches from the catalog rules, and a
+`banned` dependency is reported only as banned. Instances a group claims do not count toward `min-packages`, and the
+entry created for a missing dependency takes its version from the instances no group claims. A `catalog:` reference
+a group claims still counts as a use for `unused-catalog-entries`. `catalog-mismatch` reports only with `mode = "off"`
+and is a warning by default. Semver groups only choose a range and do not claim an instance.
 
 ### `[workspace-protocol]`
 
