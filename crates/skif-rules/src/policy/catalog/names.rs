@@ -59,7 +59,7 @@ pub(crate) fn defining(catalogs: &Catalogs, dependency: &str) -> Vec<CatalogName
 
 /// The catalog a `catalog:` specifier selects.
 pub(crate) fn referenced(specifier: &str) -> Option<CatalogName> {
-    let name = specifier.strip_prefix("catalog:")?.trim();
+    let name = specifier.strip_prefix("catalog:")?;
     Some(if name.is_empty() || name == "default" {
         CatalogName::Default
     } else {

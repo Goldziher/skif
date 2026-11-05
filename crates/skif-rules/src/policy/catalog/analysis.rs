@@ -275,7 +275,7 @@ fn decide_missing(workspace: &Workspace, plain: &[Instance<'_>]) -> Decision {
             version,
             placement: Placement::Create(file),
         }),
-        [only] => existing_file(workspace).map_or(Decision::CannotInfer, |file| Decision::Missing {
+        [only] => existing_file(workspace, only).map_or(Decision::CannotInfer, |file| Decision::Missing {
             catalog: only.clone(),
             version,
             placement: Placement::Add(file),

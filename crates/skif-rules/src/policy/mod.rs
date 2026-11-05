@@ -481,6 +481,26 @@ mod tests {
     }
 
     #[test]
+    fn a_missing_entry_joins_the_default_catalog_where_it_is_declared() {
+        let yaml = "packages:\n  - \"packages/*\"\ncatalogs:\n  default:\n    react: ^18.3.1\n";
+        let app = r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"zod":"^3.23.8"}}"#;
+        let lib = r#"{"name":"lib","version":"1.0.0","private":true,"dependencies":{"zod":"^3.23.8"}}"#;
+        let files = [
+            ("package.json", REACT_ROOT),
+            ("pnpm-workspace.yaml", yaml),
+            ("packages/app/package.json", app),
+            ("packages/lib/package.json", lib),
+        ];
+        let diagnostics = lint("catalog-missing-entry", &files, &config("[catalog]\nmode = \"prefer\"\n"));
+        assert_eq!(diagnostics.len(), 2);
+        let fixed = apply_fixes(&files, &diagnostics);
+        let (_, text) = fixed.iter().find(|(path, _)| path == "pnpm-workspace.yaml").unwrap();
+        let document: serde_json::Value = serde_saphyr::from_str(text).unwrap();
+        assert_eq!(document.get("catalog"), None, "{text}");
+        assert_eq!(document["catalogs"]["default"]["zod"], "^3.23.8", "{text}");
+    }
+
+    #[test]
     fn catalog_mismatch_defaults_to_a_warning() {
         assert_eq!(catalog::CatalogMismatch.meta().default, Some(Severity::Warning));
     }

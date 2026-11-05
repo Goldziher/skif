@@ -31,9 +31,13 @@ impl CatalogFile {
     }
 }
 
-/// The file the workspace's catalogs were read from.
-pub(crate) fn existing_file(workspace: &Workspace) -> Option<CatalogFile> {
-    CatalogFile::from_source(workspace, workspace.catalogs.source()?)
+/// The file that declares `catalog`, where its new entries belong.
+pub(crate) fn existing_file(workspace: &Workspace, catalog: &CatalogName) -> Option<CatalogFile> {
+    let name = match catalog {
+        CatalogName::Default => None,
+        CatalogName::Named(name) => Some(name.as_str()),
+    };
+    CatalogFile::from_source(workspace, workspace.catalogs.source_of(name)?)
 }
 
 /// The file a first catalog would be created in: `pnpm-workspace.yaml` for pnpm, the root `package.json` for bun.
@@ -90,7 +94,13 @@ pub(crate) fn add_entry(
 ) -> FixOp {
     match file {
         CatalogFile::Yaml(path) => {
-            let mut entry_route = route(catalog);
+            // A default catalog declared as `catalogs.default` stays there: pnpm rejects it declared both ways.
+            let mut entry_route = if matches!(catalog, CatalogName::Default) && workspace.catalogs.default_declared_as_named()
+            {
+                vec![key("catalogs"), key("default")]
+            } else {
+                route(catalog)
+            };
             entry_route.push(key(dependency));
             FixOp::yaml(
                 path.clone(),
