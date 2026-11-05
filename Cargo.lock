@@ -2142,6 +2142,7 @@ dependencies = [
  "serde_json",
  "skif",
  "skif-core",
+ "skif-migrate",
  "skif-report",
  "tempfile",
  "toml",
@@ -2261,6 +2262,20 @@ dependencies = [
  "skif-config",
  "skif-core",
  "skif-workspace",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
+name = "skif-migrate"
+version = "0.0.0"
+dependencies = [
+ "insta",
+ "serde",
+ "serde_json",
+ "skif-config",
+ "skif-js-plugins",
+ "skif-js-syntax",
  "thiserror",
  "toml",
 ]

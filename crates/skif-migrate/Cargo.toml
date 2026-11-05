@@ -1,0 +1,30 @@
+[package]
+name = "skif-migrate"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "One-shot translator from sherif, syncpack and knip configuration to skif.toml; reads configs statically and never executes code."
+documentation = "https://docs.rs/skif-migrate"
+keywords = ["migration", "sherif", "syncpack", "knip", "skif"]
+categories = ["development-tools", "config"]
+readme = "README.md"
+include = ["src/**", "tests/**", "Cargo.toml", "LICENSE", "ATTRIBUTIONS.md", "README.md"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+skif-config.workspace = true
+skif-js-plugins.workspace = true
+skif-js-syntax.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+
+[lints]
+workspace = true

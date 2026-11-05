@@ -1,0 +1,11 @@
+# sherif rule name, then the skif rule id that replaces it.
+empty-dependencies empty-dependencies
+multiple-dependency-versions version-mismatch
+non-existant-packages unmatched-workspace-patterns
+packages-without-package-json missing-package-manifest
+root-package-dependencies root-package-dependencies
+root-package-manager-field root-package-manager-field
+root-package-private-field root-package-private-field
+types-in-dependencies types-in-dependencies
+unordered-dependencies unsorted-dependencies
+unsync-similar-dependencies unsynced-dependency-family

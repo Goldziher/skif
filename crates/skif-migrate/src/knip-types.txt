@@ -1,0 +1,20 @@
+# knip issue type, then the skif rule ids that report the same findings (comma separated), or `-` when skif has none.
+# The `default` column says whether knip reports the type when no `include`, `exclude` or shortcut flag narrows it.
+files unused-files yes
+dependencies unused-dependencies yes
+devDependencies unused-dev-dependencies yes
+optionalPeerDependencies unused-optional-peer-dependencies yes
+unlisted unlisted-dependencies yes
+binaries unlisted-binaries yes
+unresolved unresolved-imports yes
+exports unused-exports,unused-namespace-exports yes
+nsExports unused-namespace-exports no
+types unused-types,unused-namespace-types yes
+nsTypes unused-namespace-types no
+duplicates duplicate-exports yes
+enumMembers unused-enum-members yes
+classMembers - yes
+namespaceMembers unused-namespace-members yes
+catalog unused-catalog-entries yes
+catalogReferences unresolved-catalog-references yes
+cycles circular-imports no
