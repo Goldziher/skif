@@ -382,7 +382,10 @@ fn a_bare_syncpack_run_writes_the_default_scope_only() {
 #[test]
 fn syncpack_overrides_are_read_the_way_syncpack_reads_them() {
     let migration = syncpack("{}", Profile::Full);
-    assert_eq!(table(&migration)["policy"]["override-reading"].as_str(), Some("syncpack"));
+    assert_eq!(
+        table(&migration)["policy"]["override-reading"].as_str(),
+        Some("syncpack")
+    );
     assert_eq!(
         migration.config.policy.override_reading,
         skif_config::OverrideReading::Syncpack
@@ -392,7 +395,10 @@ fn syncpack_overrides_are_read_the_way_syncpack_reads_them() {
     let mut sherif = ToolInput::new(Tool::Sherif);
     sherif.package_json = Some(text("package.json", &package(&[])));
     let migration = migrate(&[sherif], &options(Profile::Full)).unwrap();
-    assert!(table(&migration).get("policy").is_none(), "only syncpack reads overrides its own way");
+    assert!(
+        table(&migration).get("policy").is_none(),
+        "only syncpack reads overrides its own way"
+    );
 }
 
 #[test]
@@ -770,10 +776,19 @@ fn off_rules(migration: &Migration) -> Vec<String> {
 fn syncpack_without_a_catalog_policy_does_not_run_the_catalog_rules_that_need_one() {
     let migration = syncpack("{}", Profile::Exact);
     let off = off_rules(&migration);
-    for id in ["catalog-not-used", "catalog-missing-entry", "unresolved-catalog-references"] {
+    for id in [
+        "catalog-not-used",
+        "catalog-missing-entry",
+        "unresolved-catalog-references",
+    ] {
         assert!(off.iter().any(|known| known == id), "{id} is off: {off:?}");
     }
-    for id in ["catalog-mismatch", "invalid-local-version", "version-mismatch", "policy-conflict"] {
+    for id in [
+        "catalog-mismatch",
+        "invalid-local-version",
+        "version-mismatch",
+        "policy-conflict",
+    ] {
         assert!(!off.iter().any(|known| known == id), "{id} stays on: {off:?}");
     }
 }
@@ -782,7 +797,11 @@ fn syncpack_without_a_catalog_policy_does_not_run_the_catalog_rules_that_need_on
 fn syncpack_catalog_policy_keeps_the_catalog_rules() {
     let migration = syncpack(r#"{ "versionGroups": [{ "policy": "catalog" }] }"#, Profile::Exact);
     let off = off_rules(&migration);
-    for id in ["catalog-not-used", "catalog-missing-entry", "unresolved-catalog-references"] {
+    for id in [
+        "catalog-not-used",
+        "catalog-missing-entry",
+        "unresolved-catalog-references",
+    ] {
         assert!(!off.iter().any(|known| known == id), "{id} stays on: {off:?}");
     }
     assert_eq!(table(&migration)["catalog"]["mode"].as_str(), Some("prefer"));
@@ -816,11 +835,19 @@ fn every_rule_a_tool_does_not_run_is_off_for_that_tool() {
     ] {
         assert!(sherif.iter().any(|known| known == id), "sherif does not run {id}");
     }
-    for id in ["unmatched-workspace-patterns", "missing-package-manifest", "unsynced-dependency-family"] {
+    for id in [
+        "unmatched-workspace-patterns",
+        "missing-package-manifest",
+        "unsynced-dependency-family",
+    ] {
         assert!(!sherif.iter().any(|known| known == id), "sherif runs {id}");
     }
     let syncpack = table_of(Tool::Syncpack);
-    for id in ["unmatched-workspace-patterns", "missing-package-manifest", "unsynced-dependency-family"] {
+    for id in [
+        "unmatched-workspace-patterns",
+        "missing-package-manifest",
+        "unsynced-dependency-family",
+    ] {
         assert!(syncpack.iter().any(|known| known == id), "syncpack does not run {id}");
     }
 }

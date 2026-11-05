@@ -108,7 +108,10 @@ mod tests {
     #[test]
     fn every_rule_is_covered_by_a_tool_or_declared_uncovered() {
         let covered = covered_rules();
-        let uncovered: Vec<&str> = rows(TOOL_RULES).filter(|row| row[1] == "none").map(|row| row[0]).collect();
+        let uncovered: Vec<&str> = rows(TOOL_RULES)
+            .filter(|row| row[1] == "none")
+            .map(|row| row[0])
+            .collect();
         for id in rule_ids() {
             assert!(
                 covered.contains(&id.as_str()) != uncovered.contains(&id.as_str()),
@@ -116,7 +119,10 @@ mod tests {
             );
         }
         for id in &uncovered {
-            assert!(rows(TOOL_RULES).any(|row| row[0] == *id && row.len() > 3), "{id} has no reason");
+            assert!(
+                rows(TOOL_RULES).any(|row| row[0] == *id && row.len() > 3),
+                "{id} has no reason"
+            );
         }
     }
 

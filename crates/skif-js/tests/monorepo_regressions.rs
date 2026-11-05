@@ -59,7 +59,7 @@ fn none() -> Vec<String> {
 const PNPM: &str = r#""packageManager":"pnpm@9.0.0""#;
 
 fn manifest(body: &str) -> String {
-    format!(r#"{{{body}}}"#)
+    format!(r"{{{body}}}")
 }
 
 #[test]

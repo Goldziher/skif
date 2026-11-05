@@ -12,10 +12,12 @@ use super::support::active_packages;
 pub(super) fn override_references(workspace: &Workspace) -> Vec<Instance<'_>> {
     active_packages(workspace)
         .flat_map(|package| {
-            fields::collect(workspace, package, &[], OverrideReading::Skif).into_iter().map(move |found| {
-                let is_local = workspace.package_by_name(&found.name).is_some();
-                Instance::of_field(package, found, is_local)
-            })
+            fields::collect(workspace, package, &[], OverrideReading::Skif)
+                .into_iter()
+                .map(move |found| {
+                    let is_local = workspace.package_by_name(&found.name).is_some();
+                    Instance::of_field(package, found, is_local)
+                })
         })
         .filter(|instance| instance.specifier.is_catalog())
         .collect()
