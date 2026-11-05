@@ -468,6 +468,19 @@ mod tests {
     }
 
     #[test]
+    fn a_group_that_names_no_type_does_not_reach_peer_dependencies() {
+        let app = r#"{"name":"app","version":"1.0.0","private":true,"dependencies":{"left-pad":"^1.3.0"},"peerDependencies":{"left-pad":"^1.3.0"}}"#;
+        let root_json = root("");
+        let files = [("package.json", root_json.as_str()), ("packages/app/package.json", app)];
+        let banned = |types: &str| {
+            let toml = format!("[[version-groups]]\ndependencies = [\"left-pad\"]\n{types}policy = \"banned\"\n");
+            lint("banned-dependency", &files, &config(&toml)).len()
+        };
+        assert_eq!(banned(""), 1, "the policy scope is production and development dependencies");
+        assert_eq!(banned("dependency-types = [\"prod\", \"peer\"]\n"), 2);
+    }
+
+    #[test]
     fn catalog_mismatch_defaults_to_a_warning() {
         assert_eq!(catalog::CatalogMismatch.meta().default, Some(Severity::Warning));
     }

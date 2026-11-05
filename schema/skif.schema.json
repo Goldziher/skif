@@ -438,7 +438,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Dependency types the group covers; empty covers every type.",
+          "description": "Dependency types the group covers; empty covers the types `[policy] dependency-types` governs (production and development dependencies and a package's own version by default). Peer and optional dependencies, the override sections and custom types are covered only when named.",
           "default": []
         },
         "specifier-types": {
@@ -555,7 +555,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Dependency types the group covers; empty covers every type.",
+          "description": "Dependency types the group covers; empty covers the types `[policy] dependency-types` governs (production and development dependencies and a package's own version by default). Peer and optional dependencies, the override sections and custom types are covered only when named.",
           "default": []
         },
         "specifier-types": {
