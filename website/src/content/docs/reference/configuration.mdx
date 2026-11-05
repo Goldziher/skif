@@ -216,8 +216,9 @@ a use of that member. `<style>` blocks and `src` attributes of `<script>` and `<
 name, so a template variable that shadows an import hides it from the unused check, and nothing in a template is
 type-checked. Imports of one script block count as used when another block reads them.
 
-Test files are entries: `*.test.*`, `*.spec.*`, files under `__tests__`, `__mocks__` and the `test`, `tests`,
-`e2e` and `cypress` directories. Directories named `fixtures` or `__fixtures__` hold test data: their imports are not checked for unresolved or
+Test files are entries when a test-runner plugin is enabled (Jest, Vitest, Mocha, Playwright, Cypress and the like),
+with the patterns of that plugin; a project without a runner reports unused test files like any other, as knip does.
+Add other test files to `entry`. Directories named `fixtures` or `__fixtures__` hold test data: their imports are not checked for unresolved or
 unlisted packages. Other directories of test data (`api-fixtures`, `__testfixtures__`) and other test file names
 (`*_spec.*`) go on `ignore` and `entry`. In a package whose `exports` contain a wildcard (`"./*": "./src/*.ts"`) the
 `*` matches across directories, as in Node.js, so every file it matches is an entry; the catch-all `"./*"` and the `main`, `bin` and `types` fields are not widened. In an enum or a namespace, a
