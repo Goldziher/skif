@@ -23,6 +23,10 @@ impl Plugin for Metro {
         &SPEC
     }
 
+    fn reads_config(&self) -> bool {
+        false
+    }
+
     /// Metro transforms sources with the project's Babel config.
     fn resolve_workspace(&self, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         vec![PluginInput::LinkedConfig {
