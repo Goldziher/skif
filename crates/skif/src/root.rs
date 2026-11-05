@@ -66,14 +66,17 @@ pub(crate) fn locate(start: &Path, fs: &dyn FileSystem) -> Result<Located, Error
     })
 }
 
-/// The member directories of the workspace at `root`, discovered with its own configuration; the declared
-/// patterns when it cannot be discovered.
-fn workspace_members(root: &Path, fs: &dyn FileSystem, cache: &ConfigCache) -> BTreeSet<PathBuf> {
-    let config = resolve_config(root, &Ceiling::Vcs, fs, &ConfigOverrides::default(), cache)
-        .map(|resolved| resolved.config)
-        .unwrap_or_default();
-    Workspace::discover_with_fs(root, &config, fs)
-        .map_or_else(|_| declared_member_dirs(fs, root), |workspace| workspace.member_dirs())
+/// The member directories of the workspace at `root`, discovered with its own configuration.
+///
+/// The caller picks the policy for a root that cannot be configured or discovered: [`find_workspace_root`] falls back
+/// to the declared patterns, [`find_target`](crate::find_target) reports the error when the root lists the project.
+pub(crate) fn workspace_members(
+    root: &Path,
+    fs: &dyn FileSystem,
+    cache: &ConfigCache,
+) -> Result<BTreeSet<PathBuf>, Error> {
+    let config = resolve_config(root, &Ceiling::Vcs, fs, &ConfigOverrides::default(), cache)?.config;
+    Ok(Workspace::discover_with_fs(root, &config, fs)?.member_dirs())
 }
 
 /// Finds the workspace that `start` belongs to.
@@ -120,7 +123,11 @@ pub fn find_workspace_root(start: &Path, fs: &dyn FileSystem) -> Result<PathBuf,
     let cache = ConfigCache::new();
     Ok(ancestors
         .into_iter()
-        .find(|dir| workspace_members(dir, fs, &cache).contains(&project))
+        .find(|dir| {
+            workspace_members(dir, fs, &cache)
+                .unwrap_or_else(|_| declared_member_dirs(fs, dir))
+                .contains(&project)
+        })
         .unwrap_or(project))
 }
 
