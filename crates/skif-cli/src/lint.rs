@@ -93,8 +93,23 @@ fn overrides(args: &LintArgs) -> ConfigOverrides {
         .with_no_config(args.no_config)
 }
 
+/// Fails on the first `[[ignore]]` entry without a `reason`.
+fn require_reasons(config: &Config) -> Result<(), CliError> {
+    match config.ignore.iter().position(|entry| entry.reason.is_none()) {
+        Some(index) => Err(CliError::new(
+            Kind::Config,
+            format!("ignore[{index}]: no `reason`, which --require-ignore-reasons requires"),
+        )),
+        None => Ok(()),
+    }
+}
+
 /// The flags that are not plain configuration overrides, applied over a loaded configuration.
 fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
+    // Before the flags add entries of their own, which have nowhere to carry a reason.
+    if args.require_ignore_reasons {
+        require_reasons(config)?;
+    }
     for (rule, package) in &args.ignore_rule_for_package {
         config.ignore.push(
             IgnoreEntry::default()

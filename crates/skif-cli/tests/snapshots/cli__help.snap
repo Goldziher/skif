@@ -76,6 +76,9 @@ Options:
       --ignore-rule-for-package <RULE:PACKAGE>
           Ignore one rule for one package, as RULE:PACKAGE. Repeatable
 
+      --require-ignore-reasons
+          Fail when an `[[ignore]]` entry of a configuration file has no `reason`
+
       --no-js
           Skip JavaScript analysis
 

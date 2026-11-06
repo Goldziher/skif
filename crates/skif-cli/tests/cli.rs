@@ -197,6 +197,43 @@ fn max_warnings_decides_between_zero_and_one() {
 }
 
 #[test]
+fn require_ignore_reasons_fails_only_on_entries_of_a_file_without_one() {
+    let dir = fixture("dirty");
+    let toml = dir.path().join("skif.toml");
+    let require = |extra: &[&str]| {
+        run(skif()
+            .args(["--require-ignore-reasons", "--format", "json"])
+            .args(extra)
+            .arg(dir.path()))
+    };
+
+    std::fs::write(&toml, "[[ignore]]\nrules = [\"empty-dependencies\"]\n").unwrap();
+    let missing = require(&[]);
+    assert_eq!(missing.code, 2, "{}{}", missing.stdout, missing.stderr);
+    assert!(
+        format!("{}{}", missing.stdout, missing.stderr).contains("ignore[0]: no `reason`"),
+        "{}{}",
+        missing.stdout,
+        missing.stderr
+    );
+    let without_flag = run(skif().arg(dir.path()));
+    assert_ne!(without_flag.code, 2, "{}{}", without_flag.stdout, without_flag.stderr);
+
+    std::fs::write(
+        &toml,
+        "[[ignore]]\nrules = [\"empty-dependencies\"]\nreason = \"kept while the package migrates\"\n",
+    )
+    .unwrap();
+    let reasoned = require(&[
+        "--ignore-dependency",
+        "left-pad",
+        "--ignore-rule-for-package",
+        "empty-dependencies:@cli/a",
+    ]);
+    assert_ne!(reasoned.code, 2, "{}{}", reasoned.stdout, reasoned.stderr);
+}
+
+#[test]
 fn rule_levels_and_ignores_change_the_outcome() {
     let dir = fixture("dirty");
     let ignored = run(skif()

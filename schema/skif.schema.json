@@ -368,6 +368,13 @@
           },
           "description": "Dependency names; an empty selector matches every dependency.",
           "default": []
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Why the suppression exists. `--require-ignore-reasons` fails a run on an entry without one."
         }
       },
       "description": "One `[[ignore]]` suppression. An empty list does not narrow that dimension, but at least one list must be set:\nan entry without any filter is rejected as it would suppress everything."

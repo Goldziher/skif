@@ -99,7 +99,11 @@ packages = ["legacy-app"]
 
 [[ignore]]
 dependencies = ["left-pad"]
+reason = "pinned until the legacy importer is gone"
 ```
+
+`reason` is optional and records why the entry exists. `--require-ignore-reasons` fails a run on an entry without one,
+so a baseline of suppressions can be reviewed and ratcheted down.
 
 ### `[policy]`
 
