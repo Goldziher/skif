@@ -1,0 +1,64 @@
+name: Bug Report
+description: Report a bug in skif
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill out the information below.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal manifest and config to reproduce the issue
+      value: |
+        **Command and output:**
+        ```text
+        paste the skif command and its output
+        ```
+
+        **package.json:**
+        ```json
+        {}
+        ```
+
+        **skif.toml:**
+        ```toml
+        # paste config, if any
+        ```
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: skif version
+      description: Output of `skif --version`
+    validations:
+      required: true
+  - type: dropdown
+    id: package-manager
+    attributes:
+      label: Package manager
+      options:
+        - npm
+        - pnpm
+        - yarn
+        - bun
+        - N/A
+    validations:
+      required: true
+  - type: input
+    id: package-manager-version
+    attributes:
+      label: Package manager version
+      description: Output of `<package manager> --version`
+    validations:
+      required: true
