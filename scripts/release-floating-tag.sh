@@ -15,15 +15,15 @@ dry_run="${DRY_RUN:-false}"
 remote="${REMOTE:-origin}"
 
 case "$version" in
-  *-*)
-    echo "release-floating-tag: '${version}' is a pre-release and has no floating tag" >&2
-    exit 2
-    ;;
-  [0-9]*.[0-9]*.[0-9]*) ;;
-  *)
-    echo "release-floating-tag: '${version}' is not a MAJOR.MINOR.PATCH version" >&2
-    exit 2
-    ;;
+*-*)
+  echo "release-floating-tag: '${version}' is a pre-release and has no floating tag" >&2
+  exit 2
+  ;;
+[0-9]*.[0-9]*.[0-9]*) ;;
+*)
+  echo "release-floating-tag: '${version}' is not a MAJOR.MINOR.PATCH version" >&2
+  exit 2
+  ;;
 esac
 
 if [[ "${version%%.*}" == "0" ]]; then

@@ -31,7 +31,6 @@ skif has not been released. 0.1.0 will be the first release and will contain eve
   as syncpack 15 does (the key is the dependency name; nested objects and `pnpm.overrides` of a manifest are not
   read), and migrating syncpack writes it
   ([ADR 0045](adrs/0045-migrate-tool-rule-tables-warn-for-config-hints-and-syncpack-override-reading.md)).
-
 - **Distribution hardening**: `scripts/check-versions.sh` also compares the workspace packages of `Cargo.lock`, and
   `scripts/release-bump.sh` fails when `cargo update --workspace` fails. The glibc floor lives in
   `scripts/lib/libc.sh` (the Homebrew formula takes it from there) and `check-versions.sh` checks the build matrix
