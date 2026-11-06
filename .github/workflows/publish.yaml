@@ -869,19 +869,18 @@ jobs:
         # ADR 0027: every non-end-of-life Node line (22, 24 and 26) and the newest Bun 1.x.
         runtime: [node-22, node-24, node-26, bun]
     steps:
+      # setup-mise reads mise.toml and the Bun resolver is a script: both need the repository.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+
       - name: Setup Node.js
         if: ${{ matrix.runtime != 'bun' }}
         uses: xberg-io/actions/setup-mise@v1
         with:
           config-ref: ${{ github.sha }}
           tools: node
-
-      - name: Checkout (for the Bun version resolver)
-        if: ${{ matrix.runtime == 'bun' }}
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.meta.outputs.tag }}
-          sparse-checkout: scripts/e2e
 
       - name: Resolve the newest Bun 1.x
         id: bun
@@ -908,7 +907,8 @@ jobs:
             bun) bunx --bun -p "skif-cli@${VERSION}" skif --version ;;
             esac
           }
-          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+          # npm processes a publish before serving it, which has taken over two minutes.
+          for attempt in {1..28}; do
             if out="$(run_published 2>&1)" && grep -qF "$VERSION" <<<"$out"; then
               echo "$out"
               exit 0
