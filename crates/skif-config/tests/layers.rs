@@ -508,7 +508,8 @@ fn a_missing_target_names_the_declaring_file_and_line() {
     };
     assert_eq!(path, Path::new("/r/nope.toml"));
     assert_eq!(source.kind(), io::ErrorKind::NotFound);
-    assert!(error.to_string().contains("/r/skif.toml:2:"), "{error}");
+    let message = error.to_string().replace('\\', "/");
+    assert!(message.contains("/r/skif.toml:2:"), "{message}");
 }
 
 #[test]
@@ -926,7 +927,7 @@ fn a_custom_type_nobody_defines_is_still_rejected_after_the_merge() {
         &Ceiling::Vcs,
     )
     .unwrap_err();
-    let message = error.to_string();
+    let message = error.to_string().replace('\\', "/");
     assert!(message.contains("unknown dependency type \"nodes\""), "{message}");
     assert!(message.contains("did you mean \"node\""), "{message}");
     assert!(

@@ -346,21 +346,26 @@ mod tests {
     fn root_dirs_merge_directories_for_relative_imports() {
         let fs = MemoryFs::new()
             .with_file(
-                "/ws/app/tsconfig.base.json",
+                absolute("/ws/app/tsconfig.base.json"),
                 r#"{"compilerOptions":{"rootDirs":["src","${configDir}/bazel-out/bin/src"]}}"#,
             )
-            .with_file("/ws/app/tsconfig.json", r#"{"extends":"./tsconfig.base.json"}"#);
-        let paths = configs(fs, &[]).nearest(Path::new("/ws/app/src/ui")).unwrap();
+            .with_file(
+                absolute("/ws/app/tsconfig.json"),
+                r#"{"extends":"./tsconfig.base.json"}"#,
+            );
+        let root = absolute("/ws");
+        let src = absolute("/ws/app/src/ui");
+        let paths = configs_at(fs, &root, &[]).nearest(Path::new(&src)).unwrap();
         assert_eq!(
-            paths.root_dir_candidates(Path::new("/ws/app/src/ui"), "./gen/x"),
-            [PathBuf::from("/ws/app/bazel-out/bin/src/ui/gen/x")]
+            paths.root_dir_candidates(Path::new(&src), "./gen/x"),
+            [PathBuf::from(absolute("/ws/app/bazel-out/bin/src/ui/gen/x"))]
         );
         assert_eq!(
-            paths.root_dir_candidates(Path::new("/ws/app/bazel-out/bin/src/ui"), "../shared/y"),
-            [PathBuf::from("/ws/app/src/shared/y")]
+            paths.root_dir_candidates(Path::new(&absolute("/ws/app/bazel-out/bin/src/ui")), "../shared/y"),
+            [PathBuf::from(absolute("/ws/app/src/shared/y"))]
         );
         assert_eq!(
-            paths.root_dir_candidates(Path::new("/ws/app/other"), "./z"),
+            paths.root_dir_candidates(Path::new(&absolute("/ws/app/other")), "./z"),
             Vec::<PathBuf>::new()
         );
     }
@@ -380,12 +385,26 @@ mod tests {
         assert_eq!(paths.candidates("@b/x"), [PathBuf::from("/ws/base/lib/x")]);
     }
 
+    /// `/ws` has no drive on Windows, so it is not absolute there and a `${configDir}` target built from it would
+    /// not take the path a real directory takes.
+    fn absolute(path: &str) -> String {
+        if cfg!(windows) {
+            format!("C:{path}")
+        } else {
+            path.to_owned()
+        }
+    }
+
     fn configs(fs: MemoryFs, members: &[(&str, &str)]) -> TsConfigs {
+        configs_at(fs, "/ws", members)
+    }
+
+    fn configs_at(fs: MemoryFs, root: &str, members: &[(&str, &str)]) -> TsConfigs {
         let members = members
             .iter()
             .map(|(name, dir)| ((*name).to_owned(), PathBuf::from(dir)))
             .collect();
-        TsConfigs::new(Arc::new(fs), PathBuf::from("/ws"), members)
+        TsConfigs::new(Arc::new(fs), PathBuf::from(root), members)
     }
 
     #[test]
@@ -415,11 +434,20 @@ mod tests {
     fn config_dir_placeholder_is_the_directory_of_the_resolved_config() {
         let fs = MemoryFs::new()
             .with_file(
-                "/ws/base/tsconfig.json",
+                absolute("/ws/base/tsconfig.json"),
                 r#"{"compilerOptions":{"paths":{"@/*":["${configDir}/src/*"]}}}"#,
             )
-            .with_file("/ws/app/tsconfig.json", r#"{"extends":"../base/tsconfig.json"}"#);
-        let paths = configs(fs, &[]).nearest(Path::new("/ws/app/src")).unwrap();
-        assert_eq!(paths.candidates("@/util"), [PathBuf::from("/ws/app/src/util")]);
+            .with_file(
+                absolute("/ws/app/tsconfig.json"),
+                r#"{"extends":"../base/tsconfig.json"}"#,
+            );
+        let root = absolute("/ws");
+        let paths = configs_at(fs, &root, &[])
+            .nearest(Path::new(&absolute("/ws/app/src")))
+            .unwrap();
+        assert_eq!(
+            paths.candidates("@/util"),
+            [PathBuf::from(absolute("/ws/app/src/util"))]
+        );
     }
 }
