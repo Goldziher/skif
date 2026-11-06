@@ -12,7 +12,16 @@ documentation = "https://docs.rs/skif-workspace"
 keywords = ["monorepo", "workspace", "pnpm", "package-json", "skif"]
 categories = ["development-tools"]
 readme = "README.md"
-include = ["/src/**", "/benches/**", "/tests/**", "/fixtures/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md", "/README.md"]
+include = [
+  "/src/**",
+  "/benches/**",
+  "/tests/**",
+  "/fixtures/**",
+  "/Cargo.toml",
+  "/LICENSE",
+  "/ATTRIBUTIONS.md",
+  "/README.md",
+]
 
 [dependencies]
 globset.workspace = true
