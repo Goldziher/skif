@@ -13,15 +13,15 @@ publish = false
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+# Exports `panicForTest`, which the npm smoke test uses to prove a panic becomes a JavaScript exception.
+test-hooks = []
+
 [dependencies]
 napi.workspace = true
 napi-derive.workspace = true
 skif = { workspace = true, features = ["manifest", "js-analysis", "report"] }
 skif-cli.workspace = true
-
-[features]
-# Exports `panicForTest`, which the npm smoke test uses to prove a panic becomes a JavaScript exception.
-test-hooks = []
 
 [build-dependencies]
 napi-build.workspace = true

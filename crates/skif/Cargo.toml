@@ -24,7 +24,7 @@ default = ["manifest"]
 manifest = ["dep:skif-rules"]
 # JavaScript and TypeScript analysis on oxc (`skif-js` and the plugin table). Off by default so a host that pins its
 # own oxc is never forced onto skif's.
-js-analysis = ["dep:skif-js", "dep:skif-js-plugins"]
+js-analysis = ["dep:skif-js"]
 # `apply_fixes` and `FixPlan` (format-preserving JSON edits).
 fix = ["dep:skif-edit"]
 # YAML edits for `pnpm-workspace.yaml`.
@@ -40,7 +40,6 @@ skif-config.workspace = true
 skif-core.workspace = true
 skif-edit = { workspace = true, optional = true }
 skif-js = { workspace = true, optional = true }
-skif-js-plugins = { workspace = true, optional = true }
 skif-lint.workspace = true
 skif-report = { workspace = true, optional = true }
 skif-rules = { workspace = true, optional = true }
@@ -52,26 +51,12 @@ criterion.workspace = true
 serde-saphyr.workspace = true
 serde_json.workspace = true
 skif-bench.workspace = true
-tempfile.workspace = true
 skif-rules.workspace = true
+tempfile.workspace = true
 toml.workspace = true
 
 [[test]]
 name = "fix"
-required-features = ["fix"]
-
-[[bench]]
-name = "pipeline"
-harness = false
-
-[[bench]]
-name = "ondisk"
-harness = false
-required-features = ["js-analysis"]
-
-[[bench]]
-name = "fix"
-harness = false
 required-features = ["fix"]
 
 [[test]]
@@ -90,6 +75,20 @@ required-features = ["js-analysis"]
 [[test]]
 name = "policy_conformance"
 required-features = ["yaml-fix"]
+
+[[bench]]
+name = "pipeline"
+harness = false
+
+[[bench]]
+name = "ondisk"
+harness = false
+required-features = ["js-analysis"]
+
+[[bench]]
+name = "fix"
+harness = false
+required-features = ["fix"]
 
 [lints]
 workspace = true

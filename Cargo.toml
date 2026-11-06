@@ -12,15 +12,6 @@ homepage = "https://github.com/Goldziher/skif"
 repository = "https://github.com/Goldziher/skif"
 
 [workspace.dependencies]
-# oxc releases break weekly; every oxc crate is pinned exactly and moves in lockstep (ADR 0010).
-oxc_allocator = "=0.156.0"
-oxc_ast = "=0.156.0"
-oxc_ast_visit = "=0.156.0"
-oxc_parser = "=0.156.0"
-oxc_resolver = "=11.24.3"
-oxc_semantic = "=0.156.0"
-oxc_span = "=0.156.0"
-oxc_str = "=0.156.0"
 anyhow = "1.0.104"
 assert_cmd = "2.2.2"
 clap = { version = "4.6.7", features = ["derive"] }
@@ -31,11 +22,20 @@ indexmap = { version = "2.14.2", features = ["serde"] }
 inquire = "0.9.4"
 insta = "1.49.0"
 jsonc-parser = "0.34.0"
+memchr = "2.8.3"
 napi = { version = "3", default-features = false, features = ["napi4"] }
 napi-build = "2"
 napi-derive = "3"
 nodejs-semver = "7.0.0"
-memchr = "2.8.3"
+# oxc releases break weekly; every oxc crate is pinned exactly and moves in lockstep (ADR 0010).
+oxc_allocator = "=0.156.0"
+oxc_ast = "=0.156.0"
+oxc_ast_visit = "=0.156.0"
+oxc_parser = "=0.156.0"
+oxc_resolver = "=11.24.3"
+oxc_semantic = "=0.156.0"
+oxc_span = "=0.156.0"
+oxc_str = "=0.156.0"
 proptest = "1.12.0"
 rayon = "1.12.0"
 regex = "1.13.1"
@@ -44,16 +44,6 @@ schemars = { version = "1.2.3", features = ["indexmap2"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = "2.1.1"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
-strsim = "0.11.1"
-tempfile = "3.27.0"
-thiserror = "2.0.21"
-toml = { version = "1.2.0", features = ["preserve_order"] }
-toml_edit = "0.25.18"
-unicode-width = "0.2.3"
-which = "8.0.6"
-yaml_serde = "0.10"
-yamlpatch = "1.32"
-yamlpath = "1.32"
 
 skif = { path = "crates/skif", version = "=0.0.0" }
 skif-bench = { path = "tools/bench" }
@@ -70,6 +60,16 @@ skif-report = { path = "crates/skif-report", version = "=0.0.0" }
 skif-rules = { path = "crates/skif-rules", version = "=0.0.0" }
 skif-specifier = { path = "crates/skif-specifier", version = "=0.0.0" }
 skif-workspace = { path = "crates/skif-workspace", version = "=0.0.0" }
+strsim = "0.11.1"
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+toml = { version = "1.2.0", features = ["preserve_order"] }
+toml_edit = "0.25.18"
+unicode-width = "0.2.3"
+which = "8.0.6"
+yaml_serde = "0.10"
+yamlpatch = "1.32"
+yamlpath = "1.32"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -30,7 +30,6 @@ indexmap.workspace = true
 jsonc-parser.workspace = true
 rayon.workspace = true
 rustc-hash.workspace = true
-serde.workspace = true
 serde-saphyr.workspace = true
 serde_json.workspace = true
 skif-config.workspace = true
