@@ -84,7 +84,7 @@ hooks = ["skif"]
 ```
 
 `poly-hooks.toml` also provides `skif-fix`. Each hook has a `system` channel (`skif` on `PATH`) and an `npm`
-channel pinned to the release version (`pnpm dlx skif@<version>`). Then:
+channel pinned to the release version (`pnpm dlx skif-cli@<version>`). Then:
 
 ```bash
 poly hooks update
@@ -112,7 +112,7 @@ manager installs only the one that matches the machine. Windows is not supported
 release archive, Scoop or Cargo there.
 
 ```js
-import { lint, lintAsync, run } from "skif";
+import { lint, lintAsync, run } from "skif-cli";
 
 const report = JSON.parse(lint("./my-monorepo", { production: true }));
 console.log(report.summary);

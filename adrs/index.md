@@ -54,6 +54,7 @@ old one.
 | 0044 | [Monorepo JS Corrections: Builtins, HTML Entries, Referenced Paths, Extglob, Config Helpers, Stylesheet Lookups and Per-Package Extensions](0044-monorepo-js-corrections-builtins-html-entries-referenced-paths-extglob-helpers-and-stylesheets.md) | accepted |
 | 0045 | [`skif migrate`: Rule Coverage Tables, `warn` for Configuration Hints and Syncpack's Reading of Overrides](0045-migrate-tool-rule-tables-warn-for-config-hints-and-syncpack-override-reading.md) | accepted |
 | 0046 | [Corrections to ADR 0044 and ADR 0042: Config Helpers Are Not Built, Referenced Paths Are Scoped to Listed Packages, a Zero Trailer Does Not Detect a Torn Read](0046-corrections-to-adr-0044-config-helpers-not-built-and-the-torn-read-limit-of-zero-trailers.md) | accepted |
+| 0047 | [npm Package Name skif-cli](0047-npm-package-name-skif-cli.md) | accepted |
 
 ## Effective statements
 
@@ -136,3 +137,5 @@ the lines below stay as written; this table says which record governs.
 | [0017](0017-release-policy-a-single-complete-0-1-0.md), floating tag | documentation, `action.yml` and the README name the Action `Goldziher/skif@v0` | [0043](0043-floating-tags-for-0x-releases-and-musl-binstall.md) and [0046](0046-corrections-to-adr-0044-config-helpers-not-built-and-the-torn-read-limit-of-zero-trailers.md): the Action is named `Goldziher/skif@v0.1`; `v0` never moves |
 | [0042](0042-git-index-discovery-corrections-directory-times-lazy-existence-and-checksum.md), checksum | the reader never trusts a torn or concurrently rewritten index | [0046](0046-corrections-to-adr-0044-config-helpers-not-built-and-the-torn-read-limit-of-zero-trailers.md): only when git wrote a SHA-1 trailer; an all-zero one (`index.skipHash`, set by `feature.manyFiles`) leaves the reader's bounds checks as the only defence |
 | [0002](0002-crate-layout-and-publishing.md), title and crate list | fourteen crates | [0046](0046-corrections-to-adr-0044-config-helpers-not-built-and-the-torn-read-limit-of-zero-trailers.md): fourteen published crates plus the unpublished `skif-node`; `skif-migrate` ([0039](0039-skif-migrate-a-one-shot-translator-from-sherif-syncpack-and-knip.md)) is among the fourteen |
+| [0013](0013-distribution-and-naming.md), npm row | the npm umbrella package is `skif` | [0047](0047-npm-package-name-skif-cli.md): it is `skif-cli` |
+| [0018](0018-npm-distribution-via-napi-rs.md), package name | the npm package is `skif` and the hooks run `pnpm dlx skif@<version>` | [0047](0047-npm-package-name-skif-cli.md): `skif-cli`, with `napi.packageName` keeping the platform packages |

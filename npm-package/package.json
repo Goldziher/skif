@@ -1,5 +1,5 @@
 {
-  "name": "skif",
+  "name": "skif-cli",
   "version": "0.0.0",
   "description": "A dependency and package-manager linter, auditor and enforcer for JavaScript and TypeScript, with first-class monorepo support.",
   "keywords": [
@@ -48,6 +48,7 @@
   ],
   "napi": {
     "binaryName": "skif",
+    "packageName": "skif",
     "targets": [
       "aarch64-apple-darwin",
       "x86_64-apple-darwin",

@@ -4,5 +4,5 @@ JavaScript and TypeScript analysis on oxc: the module graph, entry and project f
 and TypeScript with first-class monorepo support.
 
 It follows knip's issue types and its knowledge of tools, without claiming the same findings: a weekly harness compares both on a pinned corpus and publishes where they differ. Sources are analysed statically and never executed. oxc is pinned exactly.
-Most users want the `skif` command (`cargo install skif-cli`, `npm install -D skif`) or the `skif` facade crate;
+Most users want the `skif` command (`cargo install skif-cli`, `npm install -D skif-cli`) or the `skif` facade crate;
 this crate is an implementation detail of them and follows their version.

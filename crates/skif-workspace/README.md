@@ -4,5 +4,5 @@ Workspace discovery for npm, pnpm, yarn and bun: package manager detection, work
 and TypeScript with first-class monorepo support.
 
 Facts are gathered here; decisions belong to the rules.
-Most users want the `skif` command (`cargo install skif-cli`, `npm install -D skif`) or the `skif` facade crate;
+Most users want the `skif` command (`cargo install skif-cli`, `npm install -D skif-cli`) or the `skif` facade crate;
 this crate is an implementation detail of them and follows their version.

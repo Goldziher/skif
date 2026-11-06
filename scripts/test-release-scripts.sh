@@ -260,7 +260,7 @@ npm_fixture() {
   local out="$1" version="$2" optional platform
   mkdir -p "$out"
   optional="$(for platform in "${platforms[@]}"; do printf '"skif-%s": "%s",' "$platform" "$version"; done)"
-  pack_tarball "$out" "skif-${version}.tgz" "{\"optionalDependencies\": {${optional%,}}}" \
+  pack_tarball "$out" "skif-cli-${version}.tgz" "{\"optionalDependencies\": {${optional%,}}}" \
     index.js index.d.ts bin/skif.js LICENSE ATTRIBUTIONS.md README.md
   for platform in "${platforms[@]}"; do
     pack_tarball "$out" "skif-${platform}-${version}.tgz" '{}' "skif.${platform}.node" LICENSE ATTRIBUTIONS.md
@@ -276,15 +276,15 @@ expect "check-npm-tarballs rejects a missing platform package" 1 bash scripts/ch
 expect_in_out "check-npm-tarballs missing platform" "not the umbrella plus the six platform packages"
 
 npm_fixture "${work}/npm-extra" 1.2.3
-cp "${work}/npm-extra/skif-1.2.3.tgz" "${work}/npm-extra/skif-other-1.2.3.tgz"
+cp "${work}/npm-extra/skif-cli-1.2.3.tgz" "${work}/npm-extra/skif-other-1.2.3.tgz"
 expect "check-npm-tarballs rejects an extra tarball" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-extra" 1.2.3
 
 npm_fixture "${work}/npm-version" 1.2.3
 expect "check-npm-tarballs rejects a different version" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-version" 1.2.4
 
 npm_fixture "${work}/npm-no-loader" 1.2.3
-pack_tarball "${work}/npm-no-loader" skif-1.2.3.tgz \
-  "$(tar -xzOf "${work}/npm-ok/skif-1.2.3.tgz" package/package.json)" bin/skif.js LICENSE ATTRIBUTIONS.md README.md
+pack_tarball "${work}/npm-no-loader" skif-cli-1.2.3.tgz \
+  "$(tar -xzOf "${work}/npm-ok/skif-cli-1.2.3.tgz" package/package.json)" bin/skif.js LICENSE ATTRIBUTIONS.md README.md
 expect "check-npm-tarballs rejects an umbrella without the generated loader" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-loader" 1.2.3
 expect_in_out "check-npm-tarballs missing loader" "does not contain index.js"
 
@@ -294,7 +294,7 @@ expect "check-npm-tarballs rejects a platform package without its addon" 1 bash 
 expect_in_out "check-npm-tarballs missing addon" "skif.linux-x64-gnu.node"
 
 npm_fixture "${work}/npm-bad-optional" 1.2.3
-pack_tarball "${work}/npm-bad-optional" skif-1.2.3.tgz '{"optionalDependencies": {"skif-darwin-arm64": "1.2.3"}}' \
+pack_tarball "${work}/npm-bad-optional" skif-cli-1.2.3.tgz '{"optionalDependencies": {"skif-darwin-arm64": "1.2.3"}}' \
   index.js index.d.ts bin/skif.js LICENSE ATTRIBUTIONS.md README.md
 expect "check-npm-tarballs rejects incomplete optionalDependencies" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-bad-optional" 1.2.3
 expect_in_out "check-npm-tarballs optionalDependencies" "optionalDependencies"

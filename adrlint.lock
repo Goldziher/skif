@@ -230,3 +230,8 @@ blake3 = "f34e9b3cacf63fb0986f5deb0ff33554d72952c98f08ab81d6e61e4b512960af"
 number = 46
 status = "accepted"
 blake3 = "63f3c7c4a01b35f1b8fce85bb1f2b4295b56f20e5560255eeb0310de3466fe20"
+
+[adrs."adrs/0047-npm-package-name-skif-cli.md"]
+number = 47
+status = "accepted"
+blake3 = "e8ca15819a03d8daef2bb35736a318e540af6d2818511410a5203705066e19d1"

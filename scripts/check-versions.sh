@@ -64,7 +64,7 @@ if [[ -d npm-package/platforms ]]; then
   failures=$((failures + 1))
 fi
 
-check "poly-hooks.toml pinned skif version" "$(sed -nE 's/.*skif@([0-9][^ "]*).*/\1/p' poly-hooks.toml | sort -u | paste -sd, -)"
+check "poly-hooks.toml pinned skif version" "$(sed -nE 's/.*skif-cli@([0-9][^ "]*).*/\1/p' poly-hooks.toml | sort -u | paste -sd, -)"
 check "scripts/pre-commit/run-skif.sh SKIF_VERSION default" "$(sed -nE 's/^SKIF_VERSION="\$\{SKIF_VERSION:-v?([^}]+)\}"$/\1/p' scripts/pre-commit/run-skif.sh)"
 
 # The glibc floor is defined once in scripts/lib/libc.sh; the build matrix cannot source it, so it is cross-checked.
