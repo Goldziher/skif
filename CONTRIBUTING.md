@@ -73,7 +73,7 @@ or is replaced, write a new ADR that supersedes or amends it, add it to `adrs/in
 0.1.0 is the first release and contains the whole tool ([ADR 0017](adrs/0017-release-policy-a-single-complete-0-1-0.md)).
 
 1. Bump every version surface at once with `scripts/release-bump.sh <version>`, then check them with
-   `scripts/check-versions.sh`.
+   `scripts/check-versions.sh`. The JSON snapshots embed the version: run the tests and `cargo insta accept`.
 2. Move the `[Unreleased]` entries of `CHANGELOG.md` under the new version.
 3. Tag the commit `v<version>` and push the tag. The `Publish Packages` workflow builds the release
    archives, publishes the crates, the npm packages, the Homebrew formula and the Scoop manifest, and moves

@@ -4,7 +4,7 @@ expression: "redact(&json.stdout, dir.path())"
 ---
 {
   "version": 1,
-  "skif": "0.0.0",
+  "skif": "0.1.0",
   "error": {
     "kind": "config",
     "message": "[ROOT]/skif.toml:2:1: unknown field `bogus`, expected `fail-on-warnings` or `max-level`",
