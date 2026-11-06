@@ -15,6 +15,7 @@
   --sk-amber: #ffb347;
   --sk-orange: #f07a1a;
   --sk-rust: #c2410c;
+  --sk-ink: #1f160e;
 }
 
 :root[data-theme="light"] {
@@ -35,35 +36,29 @@
 
 [data-has-hero] .page {
   background:
-    radial-gradient(60ch 40ch at 15% -10%, color-mix(in oklch, var(--sk-rust) 16%, transparent), transparent 70%),
-    radial-gradient(50ch 32ch at 88% -6%, color-mix(in oklch, var(--sk-orange) 14%, transparent), transparent 70%);
+    radial-gradient(60ch 40ch at 15% 0, color-mix(in oklch, var(--sk-rust) 16%, transparent), transparent 70%),
+    radial-gradient(50ch 32ch at 88% 0, color-mix(in oklch, var(--sk-orange) 14%, transparent), transparent 70%);
 }
 
-.hero h1,
-.hero .tagline {
-  font-feature-settings: "ss01";
+:where(a, button, summary, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--sl-color-accent);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
 }
 
-.hero .stack a[data-variant="primary"] {
-  background: linear-gradient(120deg, var(--sk-amber), var(--sk-rust) 55%, var(--sk-orange));
+.hero h1 {
+  letter-spacing: -0.02em;
+}
+
+.hero .sl-link-button.primary {
+  background: linear-gradient(120deg, var(--sk-amber), var(--sk-orange));
   border: none;
-  color: #fff;
+  color: var(--sk-ink);
   box-shadow: 0 8px 30px -12px color-mix(in oklch, var(--sk-rust) 80%, transparent);
 }
 
-.hero .stack a[data-variant="primary"]:hover {
+.hero .sl-link-button.primary:hover {
   filter: brightness(1.08);
-}
-
-.sk-wordmark {
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-.sk-wordmark .s {
-  color: var(--sk-amber);
-}
-.sk-wordmark .k {
-  color: var(--sk-orange);
 }
 
 .card {
@@ -82,6 +77,15 @@
   background: color-mix(in oklch, var(--sk-rust) 12%, transparent);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    transition: none;
+  }
+  .card:hover {
+    transform: none;
+  }
+}
+
 .site-title img {
   height: 1.75rem;
   width: auto;
@@ -91,6 +95,20 @@
 .hero .hero-html {
   max-width: 200px;
   margin-inline: auto;
+}
+
+.hero > img {
+  border-radius: 24%;
+  box-shadow: 0 24px 60px -24px color-mix(in oklch, var(--sk-rust) 70%, transparent);
+}
+
+.expressive-code {
+  --ec-brdRad: 0.5rem;
+}
+
+.sl-markdown-content :not(pre) > code {
+  border-radius: 0.25rem;
+  background: color-mix(in oklch, var(--sk-orange) 12%, transparent);
 }
 
 .sl-markdown-content table {

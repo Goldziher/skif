@@ -1,7 +1,7 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <div align="center">
 
-# skif
+<h1 align="center"><img src="docs/media/skif-banner.svg" alt="skif: dependency linter for JavaScript and TypeScript monorepos" width="820"></h1>
 
 **A dependency and package-manager linter, auditor and enforcer for JavaScript and TypeScript, with first-class monorepo support.**
 
@@ -12,6 +12,8 @@ Written in Rust. A single-binary CLI that is also an embeddable library, for npm
 [![CI](https://img.shields.io/github/actions/workflow/status/Goldziher/skif/ci.yml?style=flat-square)](https://github.com/Goldziher/skif/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-goldziher.github.io%2Fskif-f07a1a?style=flat-square)](https://goldziher.github.io/skif/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+
+[Docs](https://goldziher.github.io/skif/) · [Install](#installation) · [Rules](#rules) · [Migrate](https://goldziher.github.io/skif/guides/migrating/) · [Action](#github-action)
 
 </div>
 
@@ -57,7 +59,7 @@ harness reports those differences per issue type and names the intended ones; se
 ## Rules
 
 Run `skif rules` (or `skif rules --format json`) to list the registry; [`docs/rules.md`](docs/rules.md)
-documents all 40 rules with their categories, default severities and fix safety. Every rule has a stable
+documents all 41 rules with their categories, default severities and fix safety. Every rule has a stable
 kebab-case id, a category (`manifest`, `workspace`, `policy`, `catalog`, `js`) and a default level. Fixes are
 `safe` (applied by `--fix`), `unsafe` (applied only by `--fix-unsafe`) or `sometimes` (fixable for some
 findings). The 17 `js` rules need the JS analysis, which `--no-js` or `[js] enabled = false` turns off.
@@ -81,7 +83,7 @@ Exit codes: `0` clean (warnings within `--max-warnings`), `1` problems remain, `
 (bad configuration, bad flags, refused `--fix`, failed install). `--fix` is refused when `CI` is
 truthy. `--format` is `human`, `json`, `sarif` or `github`; in `--format json` mode failures are also JSON. Other flags: `--output FILE`, `--select
 highest|lowest`, `--no-install`, `--max-warnings N`, `--ignore-rule`, `--ignore-package`,
-`--ignore-dependency`, `--ignore-rule-for-package RULE:PACKAGE`, `--no-js`, `--production`, `--no-prompt` (never ask which
+`--ignore-dependency`, `--ignore-rule-for-package RULE:PACKAGE`, `--require-ignore-reasons`, `--no-js`, `--production`, `--no-prompt` (never ask which
 alternative fix to apply), `--color auto|always|never`, `--config FILE` and `--no-config` (use one configuration file, or none, instead of
 discovery), `-r`/`--recursive`.
 

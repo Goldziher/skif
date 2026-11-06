@@ -15,7 +15,8 @@ export default defineConfig({
         "with first-class monorepo support. Manifest, workspace, version, catalog and unused-dependency " +
         "rules in one Rust binary and one skif.toml.",
       logo: {
-        src: "./src/assets/logo.svg",
+        dark: "./src/assets/logo.svg",
+        light: "./src/assets/logo-light.svg",
         alt: "skif",
         replacesTitle: true,
       },
