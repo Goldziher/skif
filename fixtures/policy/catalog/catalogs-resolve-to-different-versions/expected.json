@@ -1,0 +1,29 @@
+[
+  {
+    "rule": "catalog-version-divergence",
+    "severity": "warning",
+    "package": "a",
+    "dependency": "typescript",
+    "detail": "DiffersToOtherCatalog",
+    "path": "packages/a/package.json",
+    "fixable": false
+  },
+  {
+    "rule": "catalog-version-divergence",
+    "severity": "warning",
+    "package": "b",
+    "dependency": "typescript",
+    "detail": "DiffersToOtherCatalog",
+    "path": "packages/b/package.json",
+    "fixable": false
+  },
+  {
+    "rule": "catalog-mismatch",
+    "severity": "warning",
+    "package": "c",
+    "dependency": "typescript",
+    "detail": "DiffersToCatalog",
+    "path": "packages/c/package.json",
+    "fixable": false
+  }
+]

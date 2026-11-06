@@ -50,10 +50,15 @@ fn every_case_is_accounted_for() {
 }
 
 /// README step 6: every configuration loads and validates, every rule is registered and every `detail` is a state
-/// of the ADR 0009 table.
+/// of the ADR 0009 table or of ADR 0048.
 #[test]
 fn every_fixture_is_well_formed() {
-    let adr = std::fs::read_to_string(fixtures_root().join("../../adrs/0009-version-and-catalog-policies.md")).unwrap();
+    let adr = [
+        "0009-version-and-catalog-policies.md",
+        "0048-catalog-version-divergence-and-reasons-on-ignores.md",
+    ]
+    .map(|file| std::fs::read_to_string(fixtures_root().join("../../adrs").join(file)).unwrap())
+    .concat();
     let registry = Registry::new(skif_rules::providers()).unwrap();
     let mut problems = Vec::new();
     for case in discover_cases() {

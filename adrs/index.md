@@ -55,6 +55,7 @@ old one.
 | 0045 | [`skif migrate`: Rule Coverage Tables, `warn` for Configuration Hints and Syncpack's Reading of Overrides](0045-migrate-tool-rule-tables-warn-for-config-hints-and-syncpack-override-reading.md) | accepted |
 | 0046 | [Corrections to ADR 0044 and ADR 0042: Config Helpers Are Not Built, Referenced Paths Are Scoped to Listed Packages, a Zero Trailer Does Not Detect a Torn Read](0046-corrections-to-adr-0044-config-helpers-not-built-and-the-torn-read-limit-of-zero-trailers.md) | accepted |
 | 0047 | [npm Package Name skif-cli](0047-npm-package-name-skif-cli.md) | accepted |
+| 0048 | [Catalog Version Divergence and Reasons on Ignores](0048-catalog-version-divergence-and-reasons-on-ignores.md) | accepted |
 
 ## Effective statements
 

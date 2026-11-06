@@ -140,6 +140,13 @@ expression: json.stdout
       "summary": "A dependency that should come from a catalog has no catalog entry."
     },
     {
+      "id": "catalog-version-divergence",
+      "category": "catalog",
+      "default": "warning",
+      "fixable": "none",
+      "summary": "Packages take one dependency from catalogs that resolve to different versions."
+    },
+    {
       "id": "unresolved-catalog-references",
       "category": "catalog",
       "default": "error",

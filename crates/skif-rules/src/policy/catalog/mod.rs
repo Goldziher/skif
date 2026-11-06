@@ -1,5 +1,5 @@
-//! Catalog rules: `catalog-not-used`, `catalog-mismatch`, `catalog-missing-entry`, `unresolved-catalog-references`
-//! and `unused-catalog-entries` (ADR 0009).
+//! Catalog rules: `catalog-not-used`, `catalog-mismatch`, `catalog-missing-entry`, `catalog-version-divergence`,
+//! `unresolved-catalog-references` and `unused-catalog-entries` (ADR 0009, ADR 0048).
 //!
 //! Catalogs come from `pnpm-workspace.yaml`, the root `package.json`, bun's `workspaces` object and Yarn's
 //! `.yarnrc.yml` ([`skif_workspace::Catalogs`]), each read only for the package manager that uses it. Fixes are unsafe: they change which version is installed.
@@ -14,6 +14,7 @@ pub(crate) mod support;
 mod target;
 mod unresolved_references;
 mod unused_entries;
+mod version_divergence;
 
 #[cfg(test)]
 pub(crate) use analysis::UsageIndex;
@@ -25,6 +26,7 @@ use skif_config::CatalogMode;
 use skif_lint::Rule;
 pub use unresolved_references::UnresolvedCatalogReferences;
 pub use unused_entries::UnusedCatalogEntries;
+pub use version_divergence::CatalogVersionDivergence;
 
 /// The rule that reports the plain instances of the dependencies a catalog owns (see [`owned_dependencies`]):
 /// `catalog-mismatch` while `[catalog] mode` is `off`, `catalog-not-used` otherwise.
@@ -41,6 +43,7 @@ pub(crate) fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(CatalogNotUsed),
         Box::new(CatalogMismatch),
         Box::new(CatalogMissingEntry),
+        Box::new(CatalogVersionDivergence),
         Box::new(UnresolvedCatalogReferences),
         Box::new(UnusedCatalogEntries),
     ]

@@ -7,6 +7,7 @@
 | [`catalog-mismatch`](#catalog-mismatch) | catalog | warning | sometimes |
 | [`catalog-missing-entry`](#catalog-missing-entry) | catalog | warning | sometimes |
 | [`catalog-not-used`](#catalog-not-used) | catalog | warning | sometimes |
+| [`catalog-version-divergence`](#catalog-version-divergence) | catalog | warning | none |
 | [`unresolved-catalog-references`](#unresolved-catalog-references) | catalog | error | none |
 | [`unused-catalog-entries`](#unused-catalog-entries) | catalog | warning | none |
 | [`circular-imports`](#circular-imports) | js | off | none |
@@ -68,6 +69,14 @@ A dependency that has a catalog entry is declared with a version instead of `cat
 - Category: catalog
 - Default severity: warning
 - Fixable: sometimes
+
+## catalog-version-divergence
+
+Packages take one dependency from catalogs that resolve to different versions.
+
+- Category: catalog
+- Default severity: warning
+- Fixable: none
 
 ## unresolved-catalog-references
 
