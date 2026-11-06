@@ -6,7 +6,7 @@ workspace protocol, dependency families and the policy conflicts between them
 tests in `crates/skif-rules/tests` (`policy_conformance.rs` and `policy_catalog_conformance.rs`) walk them, run the
 policy rules and compare the result with `expected.json`.
 
-There are 184 cases in 16 groups. Each case is a minimal monorepo plus the `skif.toml` under
+There are 185 cases in 16 groups. Each case is a minimal monorepo plus the `skif.toml` under
 test and the diagnostics skif must report for it, so a failing case points at one behaviour.
 
 ## Attribution
@@ -256,7 +256,8 @@ syncpack.
 | `banned-dependency` | 14 | `banned/banned-across-sections`, `banned/banned-glob-scope`, `banned/banned-scoped-to-package`, `banned/removes-banned-dependency` (+10 more) |
 | `semver-range-mismatch` | 15 | `catalog/catalog-definition-semver-group`, `same-range/overlap-but-semver-group-mismatch`, `semver-groups/caret-for-all-dependencies`, `semver-groups/dependency-type-selector` (+11 more) |
 | `workspace-protocol` | 4 | `workspace-protocol/dev-dependency-checked`, `workspace-protocol/internal-dependency-without-protocol`, `workspace-protocol/link-path-rejected-by-default`, `workspace-protocol/version-mismatch-and-protocol-both-reported` |
-| `catalog-mismatch` | 1 | `catalog/off-catalog-mismatch` |
+| `catalog-mismatch` | 2 | `catalog/catalogs-resolve-to-different-versions`, `catalog/off-catalog-mismatch` |
+| `catalog-version-divergence` | 1 | `catalog/catalogs-resolve-to-different-versions` |
 | `catalog-not-used` | 9 | `catalog/ambiguous-dependency-in-no-catalog`, `catalog/ambiguous-dependency-in-two-catalogs`, `catalog/bun-top-level-catalog`, `catalog/bun-workspaces-catalog` (+5 more) |
 | `catalog-missing-entry` | 6 | `catalog/bun-missing-entry-creates-catalog`, `catalog/missing-entry-identical-non-semver`, `catalog/missing-entry-mixed-specifiers-unfixable`, `catalog/missing-entry-no-catalog-pnpm` (+2 more) |
 | `unused-catalog-entries` | 1 | `catalog/unused-entries-reported` |
@@ -318,6 +319,7 @@ States in the ADR 0009 table. Valid states produce no diagnostic and are listed 
 | Conflict | `MismatchConflictsWithLocal` | `policy-conflict` | `policy-conflict/mismatch-conflicts-with-local` |
 | Suspect | `InvalidLocalVersion` | `invalid-local-version` | `invalid-local-version/invalid-local-does-not-block-other-dependencies`, `invalid-local-version/non-semver-package-version`, `invalid-local-version/range-as-package-version`, `invalid-local-version/root-package-invalid-version` (+1 more) |
 | Suspect | `DependsOnMissingCatalogDefinition` | `unresolved-catalog-references` | `catalog/unresolved-catalog-name`, `catalog/unresolved-dependency-in-other-catalog`, `catalog/unresolved-dependency-not-in-catalog`, `catalog/unresolved-reported-with-mode-off` |
+| Suspect | `DiffersToOtherCatalog` | `catalog-version-divergence` | `catalog/catalogs-resolve-to-different-versions` |
 | Suspect | `RefuseToBanLocal` | `policy-conflict` | `policy-conflict/refuse-to-ban-local` |
 | Suspect | `RefuseToPinLocal` | `policy-conflict` | `policy-conflict/refuse-to-pin-local` |
 | Suspect | `RefuseToSnapLocal` | `policy-conflict` | `policy-conflict/refuse-to-snap-local` |

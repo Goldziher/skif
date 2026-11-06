@@ -14,6 +14,7 @@ unresolved-catalog-references syncpack catalog-policy
 unsorted-dependencies syncpack sort-az
 workspace-protocol none no tool requires the workspace protocol
 local-path-dependency none no tool flags file and link dependencies
+catalog-version-divergence none no tool compares catalogs with each other
 incompatible-peer-dependencies none no tool compares peer ranges
 member-toolchain-fields none no tool checks engines or packageManager in members
 unparseable-files none knip skips a file it cannot parse without reporting it

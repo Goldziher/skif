@@ -235,3 +235,8 @@ blake3 = "63f3c7c4a01b35f1b8fce85bb1f2b4295b56f20e5560255eeb0310de3466fe20"
 number = 47
 status = "accepted"
 blake3 = "e8ca15819a03d8daef2bb35736a318e540af6d2818511410a5203705066e19d1"
+
+[adrs."adrs/0048-catalog-version-divergence-and-reasons-on-ignores.md"]
+number = 48
+status = "accepted"
+blake3 = "7137af869a1a8ec1124a68a0e29841801ffa77964cbb1a8485a5ab3a38818378"

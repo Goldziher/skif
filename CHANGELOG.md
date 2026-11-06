@@ -43,6 +43,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **`catalog-version-divergence`** ([ADR 0048](adrs/0048-catalog-version-divergence-and-reasons-on-ignores.md)): a warning
+  on `catalog:` references to one dependency that resolve to different versions, which `version-mismatch` cannot see.
+  `catalog-mismatch` names the catalog's version in its message.
+- **Reasons on ignores** ([ADR 0048](adrs/0048-catalog-version-divergence-and-reasons-on-ignores.md)): `[[ignore]]` takes
+  an optional `reason`, and `--require-ignore-reasons` fails a run on an entry of a file without one.
 - **`[js]` configuration parity with knip** ([ADR 0034](adrs/0034-js-configuration-parity-with-knip.md)):
   `ignore-dependencies`, `ignore-binaries`, the new `ignore-unresolved` (top level and per workspace, with
   `extend-ignore-unresolved`) and `ignore-members` take regular expressions (`/^@org\/.+$/`, or knip's character

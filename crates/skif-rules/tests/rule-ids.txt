@@ -16,6 +16,7 @@ semver-range-mismatch
 policy-conflict
 invalid-local-version
 catalog-not-used
+catalog-version-divergence
 catalog-mismatch
 catalog-missing-entry
 unresolved-catalog-references

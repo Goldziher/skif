@@ -2,6 +2,7 @@ banned-dependency
 catalog-mismatch
 catalog-missing-entry
 catalog-not-used
+catalog-version-divergence
 circular-imports
 duplicate-exports
 empty-dependencies

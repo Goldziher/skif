@@ -33,12 +33,16 @@ impl Rule for CatalogMismatch {
             };
             let name = &finding.instance.entry.name;
             let specifier = &finding.instance.entry.specifier;
+            let version = catalog
+                .as_ref()
+                .and_then(|catalog| cx.workspace.catalogs.resolve(name, &catalog.reference()))
+                .map_or_else(String::new, |version| format!(" (`{version}`)"));
             emit(
                 out,
                 &META,
                 None,
                 &finding,
-                format!("`{name}` is declared as `{specifier}` while other packages use the catalog"),
+                format!("`{name}` is declared as `{specifier}` while other packages use the catalog{version}"),
                 Some(match catalog {
                     Some(catalog) => format!("use `{}`", catalog.reference()),
                     None => "other packages use different catalogs; pick one".to_owned(),
