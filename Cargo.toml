@@ -63,8 +63,8 @@ skif-workspace = { path = "crates/skif-workspace", version = "=0.1.0" }
 strsim = "0.11.1"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
-toml = { version = "1.2.0", features = ["preserve_order"] }
-toml_edit = "0.25.18"
+toml = { version = "1.2.1", features = ["preserve_order"] }
+toml_edit = "0.25.19"
 unicode-width = "0.2.3"
 which = "8.0.6"
 yaml_serde = "0.10"
