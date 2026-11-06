@@ -46,7 +46,7 @@ expression: json.stdout
       "category": "manifest",
       "default": "warning",
       "fixable": "unsafe",
-      "summary": "Member packages should not declare `packageManager` or `engines`; the root package owns the toolchain."
+      "summary": "Private member packages should not declare `packageManager` or `engines`; the root package owns the toolchain."
     },
     {
       "id": "incompatible-peer-dependencies",

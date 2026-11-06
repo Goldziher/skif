@@ -102,11 +102,10 @@ or is replaced, write a new ADR that supersedes or amends it, add it to `adrs/in
 8. `scripts/release-bump.sh` also writes the version into `action.yml` (`BAKED_VERSION`), which is what makes a
    SHA-pinned `Goldziher/skif@<sha>` install that release instead of the latest one. The release archives carry a
    build-provenance attestation (`gh attestation verify skif-<target>.tar.gz --repo Goldziher/skif`).
-   packages without publishing.
 9. In the release change, remove the pre-release notices: the "Pre-release" callout at the top of `README.md`, the
-   "has not been released yet" wording in its Installation section, and the `Aside` marked `pre-release-notice` in
-   `website/src/content/docs/start/introduction.mdx` and `installation.mdx`
-   (`grep -rn "pre-release-notice" website/src` lists them).
+   "has not been released yet" wording in its Installation section, the "has not been released" sentence in
+   `CHANGELOG.md`, and the `Aside` marked `pre-release-notice` in `website/src/content/docs/start/introduction.mdx`
+   and `installation.mdx` (`grep -rn "pre-release-notice" website/src` lists them).
 
 ## AI governance
 

@@ -80,7 +80,7 @@ Rules with options:
 
 | Rule | Option | Values |
 | --- | --- | --- |
-| `member-toolchain-fields` | `mode` | `forbid` (default) reports every `packageManager` or `engines` field a member declares; `match-root` allows a field equal to the root's. |
+| `member-toolchain-fields` | `mode` | `forbid` (default) reports every `packageManager` or `engines` field a private member declares; `match-root` allows a field equal to the root's. |
 | `unused-exports`, `unused-types` | `ignore-tags` | JSDoc tag names, without the `@` (a list of strings), that exempt an export. It is read from `unused-exports` and applies to `unused-types` as well. `public`, `beta` and `alpha` always exempt. |
 
 An unknown option is an error that names the rule.

@@ -248,7 +248,7 @@ A dependency points at a path on disk (`link:`, `file:`, `portal:` or a relative
 
 ## member-toolchain-fields
 
-Member packages should not declare `packageManager` or `engines`; the root package owns the toolchain.
+Private member packages should not declare `packageManager` or `engines`; the root package owns the toolchain.
 
 - Category: manifest
 - Default severity: warning
