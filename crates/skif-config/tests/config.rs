@@ -537,6 +537,36 @@ fn every_specifier_identifier_is_accepted_with_and_without_negation() {
 }
 
 #[test]
+fn an_ignore_entry_carries_its_reason() {
+    let config = Config::from_toml_str(
+        r#"
+        [[ignore]]
+        rules = ["version-mismatch"]
+        dependencies = ["wrangler"]
+        reason = "workers still on the v2 runtime"
+        "#,
+    )
+    .unwrap();
+    assert_eq!(
+        config.ignore[0].reason.as_deref(),
+        Some("workers still on the v2 runtime")
+    );
+}
+
+#[test]
+fn a_blank_ignore_reason_is_rejected_naming_its_position() {
+    let error = Config::from_toml_str(
+        r#"
+        [[ignore]]
+        rules = ["version-mismatch"]
+        reason = "  "
+        "#,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("ignore[0]: `reason` is empty"), "{error}");
+}
+
+#[test]
 fn ignore_entries_need_a_filter() {
     let err = Config::from_toml_str("[[ignore]]\n").unwrap_err();
     assert!(matches!(err, ConfigError::Invalid { .. }), "{err}");

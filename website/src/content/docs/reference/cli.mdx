@@ -63,6 +63,7 @@ another root. `--fix` plans, writes and installs per root.
 | `--ignore-package <NAME>` | Ignore a package by name or glob in every rule. Repeatable. The flags replace `[workspace] ignore-packages` from the configuration files instead of adding to it. |
 | `--ignore-dependency <NAME>` | Ignore a dependency in every rule. Repeatable. Adds to the `[[ignore]]` entries of the configuration files. |
 | `--ignore-rule-for-package <RULE:PACKAGE>` | Ignore one rule for one package. Repeatable. Adds to the `[[ignore]]` entries of the configuration files. |
+| `--require-ignore-reasons` | Fail with exit code 2 when an `[[ignore]]` entry of a configuration file has no `reason`. Entries from flags are exempt. |
 | `--config <FILE>` | Use this configuration file (and the files it extends) for every root instead of discovering `skif.toml` files. Conflicts with `--no-config`. |
 | `--no-config` | Read no configuration file: the defaults plus the other flags. |
 | `--no-js` | Skip JavaScript analysis. Overrides `[js] enabled`. |

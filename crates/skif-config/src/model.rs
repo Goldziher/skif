@@ -231,6 +231,9 @@ impl Config {
                     "ignore[{index}]: set at least one of `rules`, `packages` or `dependencies`; an entry without filters would suppress every diagnostic"
                 ));
             }
+            if entry.reason.as_deref().is_some_and(|reason| reason.trim().is_empty()) {
+                return invalid(format!("ignore[{index}]: `reason` is empty; say why or remove it"));
+            }
         }
         for (index, scoped) in self.overrides.iter().enumerate() {
             if let Some(message) = scoped.inconsistency() {
@@ -410,6 +413,7 @@ impl Config {
         if !ignore_dependencies.is_empty() {
             self.ignore.push(IgnoreEntry {
                 dependencies: ignore_dependencies,
+                reason: Some("--ignore-dependency".to_owned()),
                 ..IgnoreEntry::default()
             });
         }
@@ -588,6 +592,9 @@ pub struct IgnoreEntry {
     /// Dependency names; an empty selector matches every dependency.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub dependencies: Selector,
+    /// Why the suppression exists. `--require-ignore-reasons` fails a run on an entry without one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 impl IgnoreEntry {
@@ -613,6 +620,13 @@ impl IgnoreEntry {
     #[must_use]
     pub fn with_dependencies(mut self, dependencies: Selector) -> Self {
         self.dependencies = dependencies;
+        self
+    }
+
+    /// Records why the suppression exists.
+    #[must_use]
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
         self
     }
 }
