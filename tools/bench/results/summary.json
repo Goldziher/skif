@@ -1,0 +1,435 @@
+{
+  "schema": 1,
+  "skif": "skif 0.1.0",
+  "host": "macos aarch64",
+  "hyperfine": "hyperfine 1.20.0",
+  "warmup": 3,
+  "runs": 10,
+  "skipped_tools": [],
+  "targets": [
+    {
+      "target": "generated: 50 packages (pnpm)",
+      "kind": "generated",
+      "packages": 50,
+      "files": null,
+      "results": [
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 129.10939160000004,
+          "stddev_ms": 32.473875575076725,
+          "median_ms": 126.066438,
+          "min_ms": 93.859834,
+          "max_ms": 191.24516599999998,
+          "relative_to_skif": 1.0
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 346.87415010000007,
+          "stddev_ms": 132.15165047178468,
+          "median_ms": 346.50202100000007,
+          "min_ms": 202.971083,
+          "max_ms": 578.003584,
+          "relative_to_skif": 2.686668613346637
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 564.2995082,
+          "stddev_ms": 191.56243303977942,
+          "median_ms": 584.6788955,
+          "min_ms": 293.757833,
+          "max_ms": 831.696375,
+          "relative_to_skif": 4.370708445039251
+        }
+      ]
+    },
+    {
+      "target": "generated: 500 packages (pnpm)",
+      "kind": "generated",
+      "packages": 500,
+      "files": null,
+      "results": [
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 224.04974560000005,
+          "stddev_ms": 51.30417303911485,
+          "median_ms": 242.00193700000003,
+          "min_ms": 126.48933300000002,
+          "max_ms": 288.192375,
+          "relative_to_skif": 1.0
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 439.00674600000013,
+          "stddev_ms": 130.21093452297066,
+          "median_ms": 369.858542,
+          "min_ms": 302.22729200000003,
+          "max_ms": 699.047625,
+          "relative_to_skif": 1.9594164002478565
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 861.4209415999999,
+          "stddev_ms": 402.26401500626713,
+          "median_ms": 863.2490205,
+          "min_ms": 405.51966699999997,
+          "max_ms": 1756.656875,
+          "relative_to_skif": 3.8447753613517146
+        }
+      ]
+    },
+    {
+      "target": "generated: 2000 packages (pnpm)",
+      "kind": "generated",
+      "packages": 2000,
+      "files": null,
+      "results": [
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 416.932075,
+          "stddev_ms": 65.53967578292766,
+          "median_ms": 404.1561460000001,
+          "min_ms": 345.01004100000006,
+          "max_ms": 527.898875,
+          "relative_to_skif": 1.0
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 740.7984875,
+          "stddev_ms": 419.4791332382593,
+          "median_ms": 558.4722915,
+          "min_ms": 346.81687500000004,
+          "max_ms": 1578.559042,
+          "relative_to_skif": 1.7767845937494733
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 1318.5788831999998,
+          "stddev_ms": 470.07649948347506,
+          "median_ms": 1153.563833,
+          "min_ms": 1031.33225,
+          "max_ms": 2590.103333,
+          "relative_to_skif": 3.162574822769392
+        }
+      ]
+    },
+    {
+      "target": "graph: 10000 files in 100 packages",
+      "kind": "graph",
+      "packages": 100,
+      "files": 10000,
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 2619.7127290999997,
+          "stddev_ms": 949.9775579215408,
+          "median_ms": 2360.1181665,
+          "min_ms": 1678.019833,
+          "max_ms": 4438.728542,
+          "relative_to_skif": 1.0
+        }
+      ]
+    },
+    {
+      "target": "corpus: create-t3-turbo (pnpm)",
+      "kind": "corpus",
+      "packages": null,
+      "files": null,
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 91.80337080000001,
+          "stddev_ms": 20.814424401523606,
+          "median_ms": 91.50333300000001,
+          "min_ms": 63.821957999999995,
+          "max_ms": 127.665792,
+          "relative_to_skif": 1.0
+        },
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 19.9449083,
+          "stddev_ms": 10.698854845589036,
+          "median_ms": 17.862541500000003,
+          "min_ms": 7.9360420000000005,
+          "max_ms": 39.460167,
+          "relative_to_skif": 0.2172568188531047
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 214.53377930000002,
+          "stddev_ms": 53.67437750550348,
+          "median_ms": 201.5149795,
+          "min_ms": 150.44833400000002,
+          "max_ms": 302.38662500000004,
+          "relative_to_skif": 10.756318157652297
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 241.3713085,
+          "stddev_ms": 72.50261758736288,
+          "median_ms": 211.435354,
+          "min_ms": 165.395334,
+          "max_ms": 357.926583,
+          "relative_to_skif": 12.101901140352698
+        },
+        {
+          "tool": "knip --reporter json",
+          "mean_ms": 2891.4020833,
+          "stddev_ms": 803.6079580866892,
+          "median_ms": 2634.0576045,
+          "min_ms": 2106.158041,
+          "max_ms": 4377.789457999999,
+          "relative_to_skif": 31.49559823461297
+        }
+      ]
+    },
+    {
+      "target": "corpus: vue-core (pnpm)",
+      "kind": "corpus",
+      "packages": null,
+      "files": null,
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 185.3866084,
+          "stddev_ms": 41.44559449818778,
+          "median_ms": 176.084562,
+          "min_ms": 127.82587500000001,
+          "max_ms": 258.508792,
+          "relative_to_skif": 1.0
+        },
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 40.4458293,
+          "stddev_ms": 12.030731946207172,
+          "median_ms": 43.5379795,
+          "min_ms": 23.029291999999998,
+          "max_ms": 55.21812500000001,
+          "relative_to_skif": 0.21817017771171435
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 177.14418339999997,
+          "stddev_ms": 32.22831665175882,
+          "median_ms": 190.7840415,
+          "min_ms": 107.30687499999999,
+          "max_ms": 209.978292,
+          "relative_to_skif": 4.3797886324956625
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 174.8746499,
+          "stddev_ms": 20.360694647187405,
+          "median_ms": 172.7590625,
+          "min_ms": 152.346166,
+          "max_ms": 220.485667,
+          "relative_to_skif": 4.3236757145686715
+        },
+        {
+          "tool": "knip --reporter json",
+          "mean_ms": 3081.1166541999996,
+          "stddev_ms": 1667.7083451139804,
+          "median_ms": 2860.606229,
+          "min_ms": 1694.653041,
+          "max_ms": 7523.290958,
+          "relative_to_skif": 16.6199526534949
+        }
+      ]
+    },
+    {
+      "target": "corpus: tanstack-query (pnpm)",
+      "kind": "corpus",
+      "packages": null,
+      "files": null,
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 752.5265957999999,
+          "stddev_ms": 136.61569844057837,
+          "median_ms": 818.359646,
+          "min_ms": 572.218625,
+          "max_ms": 890.433417,
+          "relative_to_skif": 1.0
+        },
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 58.98582910000001,
+          "stddev_ms": 19.361491709838432,
+          "median_ms": 62.731167000000006,
+          "min_ms": 25.459166,
+          "max_ms": 94.179833,
+          "relative_to_skif": 0.0783837135181821
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 195.5459457,
+          "stddev_ms": 38.39245913235385,
+          "median_ms": 188.0862495,
+          "min_ms": 139.862792,
+          "max_ms": 267.958208,
+          "relative_to_skif": 3.3151343074026567
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 371.3722544,
+          "stddev_ms": 64.5514557127013,
+          "median_ms": 366.314813,
+          "min_ms": 290.37829200000004,
+          "max_ms": 473.642833,
+          "relative_to_skif": 6.295957182705768
+        },
+        {
+          "tool": "knip --reporter json",
+          "mean_ms": 6016.216329100001,
+          "stddev_ms": 1478.394863476128,
+          "median_ms": 5713.820333000001,
+          "min_ms": 4442.681542,
+          "max_ms": 8274.867208,
+          "relative_to_skif": 7.994689307564273
+        }
+      ]
+    },
+    {
+      "target": "corpus: babel (yarn)",
+      "kind": "corpus",
+      "packages": null,
+      "files": null,
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 1123.6958083,
+          "stddev_ms": 65.56795614567869,
+          "median_ms": 1115.4265,
+          "min_ms": 1041.2277080000001,
+          "max_ms": 1222.940958,
+          "relative_to_skif": 1.0
+        },
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 115.44924580000001,
+          "stddev_ms": 18.443101916012406,
+          "median_ms": 118.577271,
+          "min_ms": 90.99095799999999,
+          "max_ms": 143.60025000000002,
+          "relative_to_skif": 0.10274065716651479
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 403.66172499999993,
+          "stddev_ms": 152.14382152038948,
+          "median_ms": 358.192646,
+          "min_ms": 203.60325,
+          "max_ms": 668.0705829999999,
+          "relative_to_skif": 3.4964431530309734
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 1506.6986958999994,
+          "stddev_ms": 126.43704506629264,
+          "median_ms": 1473.0773964999998,
+          "min_ms": 1321.747625,
+          "max_ms": 1714.3248330000001,
+          "relative_to_skif": 13.05074524705123
+        },
+        {
+          "tool": "knip --reporter json",
+          "mean_ms": 21278.506724900002,
+          "stddev_ms": 13175.64298676642,
+          "median_ms": 16256.778687500002,
+          "min_ms": 13062.840916000001,
+          "max_ms": 55372.427166,
+          "relative_to_skif": 18.936180563929938
+        }
+      ]
+    },
+    {
+      "target": "corpus: npm-cli (npm)",
+      "kind": "corpus",
+      "packages": null,
+      "files": null,
+      "results": [
+        {
+          "tool": "skif",
+          "mean_ms": 250.95808749999998,
+          "stddev_ms": 63.13254641607653,
+          "median_ms": 241.0891455,
+          "min_ms": 182.99295800000002,
+          "max_ms": 407.50208399999997,
+          "relative_to_skif": 1.0
+        },
+        {
+          "tool": "skif --no-js",
+          "mean_ms": 37.75007510000001,
+          "stddev_ms": 14.789575531876155,
+          "median_ms": 35.057375,
+          "min_ms": 21.321375,
+          "max_ms": 62.921667,
+          "relative_to_skif": 0.15042382365939894
+        },
+        {
+          "tool": "sherif",
+          "mean_ms": 339.8696793000001,
+          "stddev_ms": 54.42209966812026,
+          "median_ms": 334.09652050000005,
+          "min_ms": 266.66062500000004,
+          "max_ms": 428.98908400000005,
+          "relative_to_skif": 9.003152401675619
+        },
+        {
+          "tool": "syncpack lint",
+          "mean_ms": 467.31567520000004,
+          "stddev_ms": 75.00912718459442,
+          "median_ms": 464.143667,
+          "min_ms": 360.914167,
+          "max_ms": 556.9501250000001,
+          "relative_to_skif": 12.37919855687916
+        },
+        {
+          "tool": "knip --reporter json",
+          "mean_ms": 2494.4718667,
+          "stddev_ms": 537.1976607837877,
+          "median_ms": 2654.804521,
+          "min_ms": 1629.705375,
+          "max_ms": 3404.418583,
+          "relative_to_skif": 9.939794694602142
+        }
+      ]
+    }
+  ],
+  "adr_0001_checks": [
+    {
+      "target": "generated: 500 packages (pnpm)",
+      "description": "manifest and policy rules < 50 ms (measured 224.0 ms)",
+      "passed": false
+    },
+    {
+      "target": "graph: 10000 files in 100 packages",
+      "description": "parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 2619.7 ms)",
+      "passed": false
+    },
+    {
+      "target": "corpus: create-t3-turbo (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (measured 31.5x)",
+      "passed": true
+    },
+    {
+      "target": "corpus: vue-core (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (measured 16.6x)",
+      "passed": true
+    },
+    {
+      "target": "corpus: tanstack-query (pnpm)",
+      "description": "JS analysis >= 5x faster than knip (measured 8.0x)",
+      "passed": true
+    },
+    {
+      "target": "corpus: babel (yarn)",
+      "description": "JS analysis >= 5x faster than knip (measured 18.9x)",
+      "passed": true
+    },
+    {
+      "target": "corpus: npm-cli (npm)",
+      "description": "JS analysis >= 5x faster than knip (measured 9.9x)",
+      "passed": true
+    }
+  ]
+}

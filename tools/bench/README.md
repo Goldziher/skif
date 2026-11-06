@@ -167,11 +167,120 @@ The decision is [ADR 0026](../../adrs/0026-parity-and-diff-tasks-on-a-pinned-cor
 ## Measured numbers
 
 `mise run bench:publish` writes `tools/bench/results/summary.{json,md}` and rewrites this section with
-`refresh-numbers.mjs`. Until it has been run on a reference machine the section holds placeholders.
+`refresh-numbers.mjs`. These numbers come from one Apple M4 Pro (14 cores) under heavy unrelated load (load average
+around 200), so the ratios mean more than the absolute times, and the two ADR 0001 time budgets that show as failed
+have not been judged on a quiet machine. sherif 1.13.0, syncpack 15.3.3 and knip 6.44.1, run through their npm launchers.
 
 <!-- bench:numbers:start -->
-Not measured yet: run `mise run bench:publish`.
+Measured with hyperfine 1.20.0, 3 warmup and 10 measured runs on macos aarch64; skif 0.1.0.
+
+**generated: 50 packages (pnpm)**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif --no-js | 129 | 126 | 1.0x |
+| sherif | 347 | 347 | 2.7x |
+| syncpack lint | 564 | 585 | 4.4x |
+
+**generated: 500 packages (pnpm)**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif --no-js | 224 | 242 | 1.0x |
+| sherif | 439 | 370 | 2.0x |
+| syncpack lint | 861 | 863 | 3.8x |
+
+**generated: 2000 packages (pnpm)**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif --no-js | 417 | 404 | 1.0x |
+| sherif | 741 | 558 | 1.8x |
+| syncpack lint | 1319 | 1154 | 3.2x |
+
+**graph: 10000 files in 100 packages**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 2620 | 2360 | 1.0x |
+
+**corpus: create-t3-turbo (pnpm)**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 91.8 | 91.5 | 1.0x |
+| skif --no-js | 19.9 | 17.9 | 0.2x |
+| sherif | 215 | 202 | 10.8x |
+| syncpack lint | 241 | 211 | 12.1x |
+| knip --reporter json | 2891 | 2634 | 31.5x |
+
+**corpus: vue-core (pnpm)**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 185 | 176 | 1.0x |
+| skif --no-js | 40.4 | 43.5 | 0.2x |
+| sherif | 177 | 191 | 4.4x |
+| syncpack lint | 175 | 173 | 4.3x |
+| knip --reporter json | 3081 | 2861 | 16.6x |
+
+**corpus: tanstack-query (pnpm)**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 753 | 818 | 1.0x |
+| skif --no-js | 59.0 | 62.7 | 0.1x |
+| sherif | 196 | 188 | 3.3x |
+| syncpack lint | 371 | 366 | 6.3x |
+| knip --reporter json | 6016 | 5714 | 8.0x |
+
+**corpus: babel (yarn)**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 1124 | 1115 | 1.0x |
+| skif --no-js | 115 | 119 | 0.1x |
+| sherif | 404 | 358 | 3.5x |
+| syncpack lint | 1507 | 1473 | 13.1x |
+| knip --reporter json | 21279 | 16257 | 18.9x |
+
+**corpus: npm-cli (npm)**
+
+| Tool | Mean (ms) | Median (ms) | vs skif |
+| --- | ---: | ---: | ---: |
+| skif | 251 | 241 | 1.0x |
+| skif --no-js | 37.8 | 35.1 | 0.2x |
+| sherif | 340 | 334 | 9.0x |
+| syncpack lint | 467 | 464 | 12.4x |
+| knip --reporter json | 2494 | 2655 | 9.9x |
+
+| ADR 0001 target | Check | Result |
+| --- | --- | --- |
+| generated: 500 packages (pnpm) | manifest and policy rules < 50 ms (measured 224.0 ms) | FAIL |
+| graph: 10000 files in 100 packages | parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 2619.7 ms) | FAIL |
+| corpus: create-t3-turbo (pnpm) | JS analysis >= 5x faster than knip (measured 31.5x) | pass |
+| corpus: vue-core (pnpm) | JS analysis >= 5x faster than knip (measured 16.6x) | pass |
+| corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 8.0x) | pass |
+| corpus: babel (yarn) | JS analysis >= 5x faster than knip (measured 18.9x) | pass |
+| corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 9.9x) | pass |
+
 <!-- bench:numbers:end -->
+
+## Seeded defects
+
+`skif-bench generate --packages 500 --seed 1` injects known defects, so unlike the corpus this has a right answer.
+Run `skif --no-js`, `sherif` and `syncpack lint` on the output and compare with the files:
+
+| Defect | Actual (from the files) | skif | sherif | syncpack |
+| --- | ---: | ---: | ---: | ---: |
+| Dependencies with mismatched versions | 200 | 200 | 200 | 200 |
+| Unsorted dependency maps | 25 | 25 | 25 | not checked |
+| Type packages in `dependencies` | 24 | 24 | 24 | not checked |
+| Empty dependency objects | 31 | 31 | 31 | not checked |
+
+The generator reports 347 mismatched entries; the tools count every instance off the aligned version, which is 4,568
+for both skif and syncpack, as the same set. It reports 30 empty objects because it counts `optionalDependencies`; the
+root also has an empty `devDependencies`. This covers only the defect classes the generator injects.
 
 ## In-process benchmarks
 
