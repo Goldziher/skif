@@ -67,6 +67,7 @@ fn provider_ids_and_rule_set_are_stable() {
             "catalog-not-used",
             "catalog-mismatch",
             "catalog-missing-entry",
+            "catalog-version-divergence",
             "unresolved-catalog-references",
             "unused-catalog-entries",
             "workspace-protocol",
