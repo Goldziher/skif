@@ -54,7 +54,7 @@ cat "$tmp" >npm-package/package.json
 rm -f "$tmp"
 
 echo "poly-hooks.toml, scripts/pre-commit/run-skif.sh -> ${version}"
-rewrite poly-hooks.toml "s/(skif@)[0-9][^ \"]*/\1${version}/g"
+rewrite poly-hooks.toml "s/(skif-cli@)[0-9][^ \"]*/\1${version}/g"
 rewrite scripts/pre-commit/run-skif.sh "s/^(SKIF_VERSION=\"\\$\\{SKIF_VERSION:-)v?[^}]+(\\}\")$/\1v${version}\2/"
 
 echo "action.yml -> ${version}"

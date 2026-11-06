@@ -4,5 +4,5 @@ The rule engine: the `Rule` and `RuleProvider` traits, the `Registry`, `LintCont
 and TypeScript with first-class monorepo support.
 
 Rules report through one emitter, so configured levels and `[[ignore]]` entries apply the same way to every rule.
-Most users want the `skif` command (`cargo install skif-cli`, `npm install -D skif`) or the `skif` facade crate;
+Most users want the `skif` command (`cargo install skif-cli`, `npm install -D skif-cli`) or the `skif` facade crate;
 this crate is an implementation detail of them and follows their version.

@@ -79,7 +79,7 @@ or is replaced, write a new ADR that supersedes or amends it, add it to `adrs/in
    archives, publishes the crates, the npm packages, the Homebrew formula and the Scoop manifest, and moves
    the floating tag (`v0.M` for a 0.x release, `vN` from 1.0.0; used as `Goldziher/skif@v0.1`) to the release.
    npm trusted publishing can only be configured for a package that already exists, so before the first release
-   publish a placeholder of `skif` and of each of the six platform packages (`skif-darwin-arm64`,
+   publish a placeholder of `skif-cli` and of each of the six platform packages (`skif-darwin-arm64`,
    `skif-darwin-x64`, `skif-linux-arm64-gnu`, `skif-linux-arm64-musl`, `skif-linux-x64-gnu`,
    `skif-linux-x64-musl`) once by hand, then add the trusted publisher (this repository, `publish.yaml`) to each.
 4. Before the first release, create the one-time registry state the workflow cannot create itself:

@@ -8,7 +8,7 @@
 Written in Rust. A single-binary CLI that is also an embeddable library, for npm, pnpm, yarn and bun workspaces.
 
 [![crates.io](https://img.shields.io/crates/v/skif?style=flat-square)](https://crates.io/crates/skif)
-[![npm](https://img.shields.io/npm/v/skif?style=flat-square)](https://www.npmjs.com/package/skif)
+[![npm](https://img.shields.io/npm/v/skif-cli?style=flat-square)](https://www.npmjs.com/package/skif-cli)
 [![CI](https://img.shields.io/github/actions/workflow/status/Goldziher/skif/ci.yml?style=flat-square)](https://github.com/Goldziher/skif/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-goldziher.github.io%2Fskif-f07a1a?style=flat-square)](https://goldziher.github.io/skif/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
@@ -103,8 +103,8 @@ cargo install skif-cli
 cargo binstall skif-cli
 
 # npm (non-EoL Node.js (22, 24, 26) and Bun 1.x; macOS and Linux only, no Windows npm packages); the package is `skif`
-pnpm add -D skif        # or: npm install -D skif / yarn add -D skif / bun add -D skif
-pnpm dlx skif           # run without installing; also: npx skif / yarn dlx skif / bunx skif
+pnpm add -D skif-cli        # or: npm install -D skif-cli / yarn add -D skif-cli / bun add -D skif-cli
+pnpm dlx skif-cli           # run without installing; also: npx skif-cli / yarn dlx skif-cli / bunx -p skif-cli skif
 
 # Homebrew (macOS and Linux)
 brew install goldziher/tap/skif
@@ -116,7 +116,7 @@ scoop install skif
 
 `cargo install skif` installs the library crate, not the binary; the command-line tool is `skif-cli`.
 
-Channels follow [ADR 0013](adrs/0013-distribution-and-naming.md). The npm package is a napi-rs addon for non-EoL Node.js (22, 24, 26) and Bun 1.x, with no Windows npm packages by decision (ADR 0018; `npx skif` fails on Windows); Windows users get the GitHub release archive, `cargo binstall`, Scoop or cargo.
+Channels follow [ADR 0013](adrs/0013-distribution-and-naming.md). The npm package is a napi-rs addon for non-EoL Node.js (22, 24, 26) and Bun 1.x, with no Windows npm packages by decision (ADR 0018; `npx skif-cli` fails on Windows); Windows users get the GitHub release archive, `cargo binstall`, Scoop or cargo.
 
 ### GitHub Action
 
@@ -210,7 +210,7 @@ hooks = ["skif"]
 ```
 
 `poly-hooks.toml` also provides `skif-fix`. Each hook has a `system` channel (`skif` on `PATH`) and an
-`npm` channel pinned to the release version (`pnpm dlx skif@<version>`). Then:
+`npm` channel pinned to the release version (`pnpm dlx skif-cli@<version>`). Then:
 
 ```bash
 poly hooks update

@@ -15,22 +15,22 @@ Node.js 22.12 or newer.
 ## Install
 
 ```sh
-pnpm add --save-dev skif
-# or: npm install --save-dev skif / yarn add --dev skif / bun add --dev skif
+pnpm add --save-dev skif-cli
+# or: npm install --save-dev skif-cli / yarn add --dev skif-cli / bun add --dev skif-cli
 ```
 
 Run it without installing:
 
 ```sh
-pnpm dlx skif
-npx skif
-bunx skif
+pnpm dlx skif-cli
+npx skif-cli
+bunx -p skif-cli skif
 ```
 
 ## Use from code
 
 ```js
-import { lint, lintAsync, run } from "skif";
+import { lint, lintAsync, run } from "skif-cli";
 
 const report = JSON.parse(lint("./my-monorepo", { production: true }));
 console.log(report.summary);

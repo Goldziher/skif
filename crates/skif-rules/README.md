@@ -4,5 +4,5 @@ The built-in manifest, workspace, policy and catalog rules: sherif-derived manif
 and TypeScript with first-class monorepo support.
 
 `skif_rules::providers()` returns the rule providers; rule ids are a stable public contract.
-Most users want the `skif` command (`cargo install skif-cli`, `npm install -D skif`) or the `skif` facade crate;
+Most users want the `skif` command (`cargo install skif-cli`, `npm install -D skif-cli`) or the `skif` facade crate;
 this crate is an implementation detail of them and follows their version.

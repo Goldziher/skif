@@ -81,8 +81,8 @@ echo "== ${runtime}: import, run(), lint(), lintAsync() and a panic"
 "$runtime" "${project}/addon.mjs" "$fixture" "${project}/does-not-exist"
 
 mkdir -p "${project}/node_modules/.bin"
-ln -s "${root}/npm-package" "${project}/node_modules/skif"
-ln -s ../skif/bin/skif.js "${project}/node_modules/.bin/skif"
+ln -s "${root}/npm-package" "${project}/node_modules/skif-cli"
+ln -s ../skif-cli/bin/skif.js "${project}/node_modules/.bin/skif"
 echo '{"name":"smoke","private":true}' >"${project}/package.json"
 
 echo "== ${runtime}: bin --version"

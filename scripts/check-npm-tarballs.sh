@@ -3,7 +3,7 @@
 #
 # Usage: scripts/check-npm-tarballs.sh <directory-of-tarballs> <version>
 #
-# The directory must hold exactly the umbrella `skif` and the six platform packages, no more and no fewer. The
+# The directory must hold exactly the umbrella `skif-cli` and the six platform packages, no more and no fewer. The
 # umbrella must ship the generated loader (index.js, index.d.ts) and the bin, and list the six platform packages
 # as optional dependencies; each platform package must ship its .node addon. This is what turns a missing
 # artifact (the loader is generated, not committed) into a failed job instead of a broken release. Every package
@@ -30,7 +30,7 @@ fail() {
 
 expected_files="$(
   {
-    echo "skif-${version}.tgz"
+    echo "skif-cli-${version}.tgz"
     for platform in "${platforms[@]}"; do echo "skif-${platform}-${version}.tgz"; done
   } | LC_ALL=C sort
 )"
@@ -52,11 +52,11 @@ require() {
   fi
 }
 
-if [[ -f "${dir}/skif-${version}.tgz" ]]; then
+if [[ -f "${dir}/skif-cli-${version}.tgz" ]]; then
   for member in index.js index.d.ts bin/skif.js package.json LICENSE ATTRIBUTIONS.md README.md; do
-    require "skif-${version}.tgz" "$member"
+    require "skif-cli-${version}.tgz" "$member"
   done
-  declared="$(tar -xzOf "${dir}/skif-${version}.tgz" package/package.json |
+  declared="$(tar -xzOf "${dir}/skif-cli-${version}.tgz" package/package.json |
     jq -r '(.optionalDependencies // {}) | to_entries[] | "\(.key)@\(.value)"' | LC_ALL=C sort)"
   wanted="$(for platform in "${platforms[@]}"; do echo "skif-${platform}@${version}"; done | LC_ALL=C sort)"
   if [[ "$declared" != "$wanted" ]]; then

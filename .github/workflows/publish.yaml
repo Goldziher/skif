@@ -742,7 +742,7 @@ jobs:
           node:22-alpine node /check/load-addon.mjs /addon
 
   publish_npm:
-    name: Publish npm (skif)
+    name: Publish npm (skif-cli)
     needs: [meta, build_npm, load_addon, checksums]
     if: >-
       always() && needs.meta.result == 'success' && needs.build_npm.result == 'success'
@@ -852,7 +852,7 @@ jobs:
           publish_one .
 
   verify_npm:
-    name: Verify npx skif (${{ matrix.runtime }})
+    name: Verify npx skif-cli (${{ matrix.runtime }})
     needs: [meta, publish_npm]
     if: needs.meta.outputs.dry_run != 'true' && needs.publish_npm.result == 'success'
     runs-on: ubuntu-latest
@@ -899,8 +899,8 @@ jobs:
             case "$RUNTIME" in
             # Each Node line is selected by major so it tracks the newest release of that line; only 26 is the pinned
             # tool, and the lock does not cover the others.
-            node-*) MISE_LOCKED=0 mise exec "node@${RUNTIME#node-}" -- npm exec --yes "skif@${VERSION}" -- --version ;;
-            bun) bunx --bun "skif@${VERSION}" --version ;;
+            node-*) MISE_LOCKED=0 mise exec "node@${RUNTIME#node-}" -- npm exec --yes "skif-cli@${VERSION}" -- --version ;;
+            bun) bunx --bun -p "skif-cli@${VERSION}" skif --version ;;
             esac
           }
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
@@ -911,7 +911,7 @@ jobs:
             echo "attempt ${attempt}: ${out}"
             sleep 15
           done
-          echo "::error::skif@${VERSION} did not print the released version under ${RUNTIME}"
+          echo "::error::skif-cli@${VERSION} did not print the released version under ${RUNTIME}"
           exit 1
 
   publish_homebrew:
