@@ -47,7 +47,8 @@ listing() {
 
 require() {
   local tarball="$1" member="$2"
-  if ! listing "$tarball" | grep -qxF "package/${member}"; then
+  # Not `grep -q`: it stops at the first match, and tar fails on the closed pipe, which pipefail reports as a miss.
+  if ! listing "$tarball" | grep -xF "package/${member}" >/dev/null; then
     fail "${tarball} does not contain ${member}"
   fi
 }

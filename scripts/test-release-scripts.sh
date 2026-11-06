@@ -275,6 +275,20 @@ rm "${work}/npm-missing/skif-linux-x64-musl-1.2.3.tgz"
 expect "check-npm-tarballs rejects a missing platform package" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-missing" 1.2.3
 expect_in_out "check-npm-tarballs missing platform" "not the umbrella plus the six platform packages"
 
+# GNU tar fails on a closed pipe (bsdtar exits 0), so a reader that stops at its first match reports a present member as
+# missing under pipefail. The stub keeps listing past the pipe buffer and dies the same way on every platform.
+npm_fixture "${work}/npm-long-listing" 1.2.3
+mkdir -p "${work}/tar-stub"
+cat >"${work}/tar-stub/tar" <<STUB
+#!/usr/bin/env bash
+"$(command -v tar)" "\$@"
+[[ "\$1" == -tzf ]] || exit 0
+for index in {1..20000}; do echo "package/padding-\${index}"; done
+STUB
+chmod +x "${work}/tar-stub/tar"
+expect "check-npm-tarballs reads a long listing to its end" 0 env PATH="${work}/tar-stub:${PATH}" \
+  bash scripts/check-npm-tarballs.sh "${work}/npm-long-listing" 1.2.3
+
 npm_fixture "${work}/npm-extra" 1.2.3
 cp "${work}/npm-extra/skif-cli-1.2.3.tgz" "${work}/npm-extra/skif-other-1.2.3.tgz"
 expect "check-npm-tarballs rejects an extra tarball" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-extra" 1.2.3

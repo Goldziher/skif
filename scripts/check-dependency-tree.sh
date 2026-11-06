@@ -13,7 +13,7 @@ failures=0
 errors="$(mktemp)"
 trap 'rm -f "$errors"' EXIT
 
-if cargo tree -p skif --no-default-features -e normal --prefix none --locked | grep -q '^oxc_'; then
+if cargo tree -p skif --no-default-features -e normal --prefix none --locked | grep '^oxc_' >/dev/null; then
   echo "::error::skif without default features depends on an oxc crate"
   failures=$((failures + 1))
 fi
