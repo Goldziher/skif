@@ -101,6 +101,10 @@ description = "Build the documentation site into website/dist"
 dir = "website"
 run = ["pnpm install --frozen-lockfile", "pnpm run build"]
 
+[tasks."assets:render"]
+description = "Render the PNG brand assets from their SVG sources (needs rsvg-convert)"
+run = "scripts/render-assets.sh"
+
 [tasks.test]
 description = "Run all tests"
 run = "cargo test --workspace --locked --no-fail-fast"
