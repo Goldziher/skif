@@ -89,7 +89,8 @@ or is replaced, write a new ADR that supersedes or amends it, add it to `adrs/in
      ([ADR 0017](adrs/0017-release-policy-a-single-complete-0-1-0.md) allows it), then add the trusted publisher
      (this repository, `publish.yaml`) to each.
    - `Goldziher/homebrew-tap` needs a `Formula/` directory and `Goldziher/scoop-bucket` a `bucket/` directory.
-   - The `HOMEBREW_TOKEN` secret must be able to push to both repositories.
+   - The `HOMEBREW_TOKEN` secret must be able to push to both repositories, and needs the `workflows` permission on
+     this one to move the floating tag.
 5. The release must be tagged on a commit that is on `main` and has a green `ci.yml` run; the workflow stops
    otherwise (`scripts/check-release-gate.sh`).
 6. Rehearse with the workflow's `dry-run` input: it builds every target and verifies the assets and the crate

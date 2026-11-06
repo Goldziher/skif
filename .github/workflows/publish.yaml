@@ -1010,6 +1010,8 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ needs.meta.outputs.tag }}
+          # GITHUB_TOKEN cannot create or move a tag onto a commit that changes a workflow; the push needs `workflows`.
+          token: ${{ secrets.HOMEBREW_TOKEN }}
 
       - name: Move the floating tag to this release
         env:
