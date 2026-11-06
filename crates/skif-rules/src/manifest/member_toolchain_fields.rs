@@ -10,7 +10,7 @@ pub static META: RuleMeta = RuleMeta::new(
     Category::Manifest,
     Some(Severity::Warning),
     Fixability::Unsafe,
-    "Member packages should not declare `packageManager` or `engines`; the root package owns the toolchain.",
+    "Private member packages should not declare `packageManager` or `engines`; the root package owns the toolchain.",
 );
 
 /// The toolchain fields only the root should declare.

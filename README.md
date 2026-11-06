@@ -17,9 +17,6 @@ Written in Rust. A single-binary CLI that is also an embeddable library, for npm
 
 ---
 
-> **Pre-release.** skif has not been published yet. 0.1.0 will be the first release and it will contain
-> everything described here. Until then, build from source.
-
 skif combines three kinds of checks that are usually spread over separate tools:
 
 - **Monorepo and manifest hygiene**: root and member `package.json` rules, workspace pattern checks,
@@ -99,9 +96,6 @@ the JSON report and does not stop the others ([ADR 0023](adrs/0023-root-discover
 The full contract is [ADR 0016](adrs/0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md).
 
 ## Installation
-
-skif has not been released yet. Every channel below opens with the first release; until then, build
-from source with `cargo build --release`.
 
 ```bash
 # Rust toolchain

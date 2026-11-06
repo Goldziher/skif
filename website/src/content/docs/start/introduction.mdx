@@ -3,15 +3,6 @@ title: Introduction
 description: What skif is, what it checks and how it is built.
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-
-{/* pre-release-notice: remove in the release change (CONTRIBUTING.md, "Releasing") */}
-<Aside type="caution" title="Pre-release">
-skif has not been published yet. 0.1.0 will be the first release and will contain everything described here. Until
-then, build from source with `cargo build --release` in a checkout; the install channels, the GitHub Action and
-`npx skif` do not work yet.
-</Aside>
-
 skif is a dependency and package-manager linter, auditor and enforcer for JavaScript and TypeScript, with
 first-class monorepo support. It is written in Rust, ships as a single-binary CLI, and is also an embeddable
 library.
