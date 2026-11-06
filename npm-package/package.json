@@ -1,6 +1,6 @@
 {
   "name": "skif-cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A dependency and package-manager linter, auditor and enforcer for JavaScript and TypeScript, with first-class monorepo support.",
   "keywords": [
     "dependencies",

@@ -9,7 +9,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-skif has not been released. 0.1.0 will be the first release and will contain everything listed here.
+## [0.1.0] - 2026-11-06
 
 ### Changed
 
