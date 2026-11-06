@@ -1,9 +1,9 @@
 ---
 title: Comparison
-description: How skif relates to sherif, syncpack, knip and manypkg. Scope only.
+description: How skif relates to sherif, syncpack, knip and manypkg, with measured speed and accuracy.
 ---
 
-skif builds on three projects and does not claim to replace them yet. This comparison is about scope.
+skif builds on three projects and covers their three jobs in one tool. They remain excellent, focused tools.
 
 | Tool | Scope | Relation to skif |
 | --- | --- | --- |
@@ -32,7 +32,23 @@ name on the [rules pages](../../rules/).
 
 ## Performance
 
-A benchmark harness lives in
-[`tools/bench`](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md) and measures full CLI
-invocations with hyperfine against generated workspaces and a pinned corpus. Run `mise run bench` to reproduce
-it on your machine; this site makes no performance claims beyond what that harness measures.
+Medians of 10 runs on an Apple M4 Pro, on pinned public repositories with dependencies installed. The machine was under
+heavy unrelated load, so treat the ratios as the result. `skif` is a full run; `skif --no-js` skips the JS analysis.
+
+| Repository | skif | knip | skif --no-js | sherif | syncpack |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| create-t3-turbo | 92 ms | 2.6 s | 18 ms | 202 ms | 211 ms |
+| vue-core | 176 ms | 2.9 s | 44 ms | 191 ms | 173 ms |
+| tanstack-query | 818 ms | 5.7 s | 63 ms | 188 ms | 366 ms |
+| babel | 1.1 s | 16.3 s | 119 ms | 358 ms | 1.5 s |
+| npm-cli | 241 ms | 2.7 s | 35 ms | 334 ms | 464 ms |
+
+## Accuracy
+
+On a generated workspace with injected defects, where the answer is known, skif, sherif and syncpack found every
+defect they check for. Dead code has no answer key, so against knip the measure is agreement: on those five repositories
+the tools share 98% of skif's unused files and 95% of its unused dependencies, but only 32% of its unused exports, and
+skif finds 49% of what knip reports as unused dependencies. The full tables are in the
+[README](https://github.com/Goldziher/skif#benchmarks) and the
+[benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md), which reproduces them with
+`mise run bench:publish`.
