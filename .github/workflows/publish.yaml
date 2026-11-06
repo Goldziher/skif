@@ -344,12 +344,14 @@ jobs:
         run: gh release upload "$TAG" skif-"$TARGET".* --clobber
         shell: bash
 
+  # A dry run skips create_release, which would skip everything below `build` through the implicit success(): each
+  # job names the results it needs under always(), so the rehearsal runs the smoke tests and checksums too.
   # The aarch64 Windows binary is cross-built on an x64 runner, which cannot run it. Execute the packaged archive
   # on a real ARM64 Windows runner before it can be released.
   smoke_windows_arm64:
     name: Smoke test aarch64-pc-windows-msvc
     needs: [meta, build]
-    if: needs.build.result == 'success'
+    if: always() && needs.build.result == 'success'
     runs-on: windows-11-arm
     steps:
       - name: Download the archive
@@ -375,7 +377,7 @@ jobs:
   smoke_linux_libc:
     name: Smoke test libc selection (${{ matrix.case.image }}, ${{ matrix.runner }})
     needs: [meta, build]
-    if: needs.build.result == 'success'
+    if: always() && needs.build.result == 'success'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -420,7 +422,10 @@ jobs:
   checksums:
     name: Generate checksums
     needs: [meta, build, smoke_windows_arm64, smoke_linux_libc]
-    if: needs.meta.outputs.release_complete != 'true'
+    if: >-
+      always() && needs.meta.result == 'success' && needs.meta.outputs.release_complete != 'true'
+      && needs.build.result == 'success' && needs.smoke_windows_arm64.result == 'success'
+      && needs.smoke_linux_libc.result == 'success'
     permissions:
       contents: write
       # Build provenance: the attestation is signed with the workflow's OIDC identity and stored with the repository.
