@@ -16,6 +16,7 @@ use skif_report::{escape_controls, render_json_with};
 use crate::args::{Format, LintArgs, Select};
 use crate::env::{Env, github_workspace};
 use crate::error::{CliError, Kind};
+use crate::filter::Filter;
 use crate::fix::{self, FixRun, RootFix};
 use crate::install::{self, InstallStatus};
 use crate::output::{self, Rendering, RootView, emit_error, emit_error_with, stderr_line};
@@ -132,9 +133,11 @@ fn lint_once(
     config: &Config,
     config_path: Option<&Path>,
     fs: &dyn FileSystem,
+    filter: &Filter,
 ) -> Result<(Workspace, Report), CliError> {
     let workspace = Workspace::discover_with_fs(root, config, fs)?;
     let report = roots::lint_loaded(linter, &workspace, config_path)?;
+    let report = filter.apply(&workspace, report);
     Ok((workspace, report))
 }
 
@@ -199,7 +202,7 @@ fn run_exit_code(args: &LintArgs, runs: &[RootRun], aggregate: &Report) -> u8 {
 type Relint = Result<(Workspace, Report), CliError>;
 
 fn write_and_relint(
-    args: &LintArgs,
+    (args, filter): (&LintArgs, &Filter),
     linter: &Linter,
     (config, config_path): (&Config, Option<&Path>),
     state: (Workspace, Report),
@@ -215,7 +218,7 @@ fn write_and_relint(
     // The written files are stale in the cache; the re-lint must read them from disk.
     fs.clear();
     let root = workspace.root.clone();
-    Ok(match lint_once(linter, &root, config, config_path, fs) {
+    Ok(match lint_once(linter, &root, config, config_path, fs, filter) {
         Ok((workspace, report)) => {
             let changed: Vec<&Path> = plan.paths().collect();
             let install = install_step(args, &changed, &workspace);
@@ -236,7 +239,7 @@ enum Fixed {
 /// conflicting edit) leaves every file alone. Writing and re-linting then go root by root; a failure there reports
 /// what was already written.
 fn fix_roots(
-    args: &LintArgs,
+    (args, filter): (&LintArgs, &Filter),
     env: Env,
     linters: &Linters,
     runs: Vec<RootRun>,
@@ -260,7 +263,7 @@ fn fix_roots(
             report,
         } = run;
         let written = write_and_relint(
-            args,
+            (args, filter),
             linters.get(linter),
             (&config, config_path.as_deref()),
             (workspace, report),
@@ -417,12 +420,14 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     for target in &mut targets {
         adjust(args, &mut target.config)?;
     }
+    let filter = Filter::new(args)?;
     let linters = Linters::build(&targets)?;
     let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
+    filter.apply_runs(&mut runs)?;
 
     let mut fixes: Vec<FixRun> = Vec::new();
     if args.fixing() {
-        match fix_roots(args, env, &linters, runs, &fs)? {
+        match fix_roots((args, &filter), env, &linters, runs, &fs)? {
             Fixed::All(fixed_runs, done) => {
                 runs = fixed_runs;
                 fixes = done;
