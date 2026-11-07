@@ -327,8 +327,11 @@ fn markdown(summary: &Summary) -> String {
                 if check.passed { "pass" } else { "FAIL" }
             );
         }
-        out.push('\n');
     }
+    // Every section above ends in a blank line; the file ends in exactly one newline, as `poly fmt` writes it.
+    let end = out.trim_end().len();
+    out.truncate(end);
+    out.push('\n');
     out
 }
 
@@ -513,6 +516,52 @@ mod tests {
             median: mean,
             min: mean,
             max: mean,
+        }
+    }
+
+    /// `poly fmt --check` (rumdl) accepts the published `summary.md` as written: one blank line between blocks, no
+    /// trailing whitespace, exactly one final newline.
+    #[test]
+    fn summary_markdown_is_formatted() {
+        let row = |tool: &str| ToolResult {
+            tool: tool.into(),
+            mean_ms: 12.34,
+            stddev_ms: None,
+            median_ms: 150.0,
+            min_ms: 1.0,
+            max_ms: 2.0,
+            relative_to_skif: Some(1.0),
+        };
+        let summary = |checks: Vec<TargetCheck>, skipped: Vec<String>| Summary {
+            schema: SUMMARY_SCHEMA,
+            skif: "skif 0.0.0".into(),
+            host: "linux x86_64".into(),
+            hyperfine: "hyperfine 1.20.0".into(),
+            warmup: 1,
+            runs: 2,
+            skipped_tools: skipped,
+            targets: vec![TargetResult {
+                target: "t".into(),
+                kind: "generated",
+                packages: Some(1),
+                files: None,
+                results: vec![row("skif --no-js"), row("sherif")],
+            }],
+            adr_0001_checks: checks,
+        };
+        let check = TargetCheck {
+            target: "t".into(),
+            description: "d".into(),
+            passed: true,
+        };
+        for text in [
+            markdown(&summary(vec![check], Vec::new())),
+            markdown(&summary(Vec::new(), vec!["knip".into()])),
+        ] {
+            assert!(text.ends_with(" |\n"), "{text:?}");
+            assert!(!text.ends_with("\n\n"));
+            assert!(!text.contains("\n\n\n"));
+            assert!(text.lines().all(|line| line == line.trim_end()));
         }
     }
 
