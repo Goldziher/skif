@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use rayon::prelude::*;
 use skif_core::{Diagnostic, Fix, FixSafety, Location, Related, diagnostic};
 use skif_lint::Emitter;
 
@@ -11,11 +12,22 @@ use super::state::{State, Verdict};
 
 /// Emits one diagnostic per non-valid instance, then one per unused group and one per unusable pin; the latter two
 /// point at `config_file`.
+///
+/// Building the instance diagnostics (messages, locations, the counterpart, the fix) is most of the provider's time on
+/// a large workspace with many findings, so they are built in parallel and then emitted in instance order.
 pub(super) fn emit(analysis: &Analysis<'_>, config_file: &Path, out: &mut Emitter<'_>) {
-    for (id, instance) in analysis.instances.iter() {
-        if let Some(verdict) = &analysis.verdicts[id.index()] {
-            out.emit(instance_diagnostic(analysis, id, instance, verdict));
-        }
+    let findings: Vec<(InstanceId, &Instance<'_>, &Verdict)> = analysis
+        .instances
+        .iter()
+        .filter_map(|(id, instance)| Some((id, instance, analysis.verdicts[id.index()].as_ref()?)))
+        .collect();
+    let diagnostics: Vec<Diagnostic> = findings
+        .par_iter()
+        .with_min_len(64)
+        .map(|&(id, instance, verdict)| instance_diagnostic(analysis, id, instance, verdict))
+        .collect();
+    for diagnostic in diagnostics {
+        out.emit(diagnostic);
     }
     for unused in &analysis.unused_groups {
         out.emit(group_diagnostic(
