@@ -3,6 +3,7 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
+use rayon::prelude::*;
 use skif_core::{FileSystem, OsFs};
 use toml::Value;
 
@@ -69,29 +70,36 @@ pub enum Ceiling {
     RootOnly,
 }
 
-#[derive(Clone)]
+/// What a run learns about one directory. Each fact is probed the first time it is asked for: the member directories
+/// of a large workspace are only asked for their configuration files, never for a `.git`.
+#[derive(Default)]
 struct DirInfo {
     /// The configuration files in the directory, in lookup order.
-    configs: Vec<PathBuf>,
-    has_git: bool,
+    configs: OnceLock<Arc<[PathBuf]>>,
+    has_git: OnceLock<bool>,
 }
 
 impl DirInfo {
-    fn probe(dir: &Path, fs: &dyn FileSystem) -> Self {
-        let git = dir.join(".git");
-        Self {
-            configs: CONFIG_FILE_NAMES
+    fn configs(&self, dir: &Path, fs: &dyn FileSystem) -> Arc<[PathBuf]> {
+        Arc::clone(self.configs.get_or_init(|| {
+            CONFIG_FILE_NAMES
                 .iter()
                 .map(|name| dir.join(name))
                 .filter(|path| fs.is_file(path))
-                .collect(),
-            has_git: fs.is_dir(&git) || fs.is_file(&git),
-        }
+                .collect()
+        }))
+    }
+
+    fn has_git(&self, dir: &Path, fs: &dyn FileSystem) -> bool {
+        *self.has_git.get_or_init(|| {
+            let git = dir.join(".git");
+            fs.is_dir(&git) || fs.is_file(&git)
+        })
     }
 }
 
 type FileCell = Arc<OnceLock<Result<Arc<ParsedFile>, ConfigError>>>;
-type DirCell = Arc<OnceLock<DirInfo>>;
+type DirCell = Arc<DirInfo>;
 
 /// What a run learns about configuration files, shared by every root it loads: which directories hold a file or a
 /// `.git`, and each file read and parsed once, whichever roots and `extends` reach it.
@@ -123,13 +131,26 @@ impl ConfigCache {
             .map_err(ConfigError::duplicate)
     }
 
-    fn dir(&self, dir: &Path, fs: &dyn FileSystem) -> DirInfo {
+    /// The normalised `dir` and what is known about it.
+    fn dir(&self, dir: &Path) -> (PathBuf, DirCell) {
         let dir = normalize(dir);
         let cell = {
             let mut dirs = self.dirs.lock().unwrap_or_else(PoisonError::into_inner);
             Arc::clone(dirs.entry(dir.clone()).or_default())
         };
-        cell.get_or_init(|| DirInfo::probe(&dir, fs)).clone()
+        (dir, cell)
+    }
+
+    /// The configuration files in `dir`, in lookup order.
+    fn configs(&self, dir: &Path, fs: &dyn FileSystem) -> Arc<[PathBuf]> {
+        let (dir, info) = self.dir(dir);
+        info.configs(&dir, fs)
+    }
+
+    /// Whether `dir` holds a `.git` entry, a directory or a file.
+    fn has_git(&self, dir: &Path, fs: &dyn FileSystem) -> bool {
+        let (dir, info) = self.dir(dir);
+        info.has_git(&dir, fs)
     }
 }
 
@@ -213,8 +234,11 @@ impl<'a> ConfigLoader<'a> {
         let root = &checked_root(root)?;
         let mut members: Vec<&PathBuf> = members.iter().collect();
         members.sort_by_key(|dir| (dir.components().count(), (*dir).clone()));
-        for dir in members {
-            let path = match self.cache.dir(dir, self.fs).configs.as_slice() {
+        // A workspace has a member directory per package and few of them hold a file, so the probing (two lookups
+        // per directory) runs in parallel and only the files found are read and applied, in order.
+        let found: Vec<Arc<[PathBuf]>> = members.par_iter().map(|dir| self.cache.configs(dir, self.fs)).collect();
+        for (dir, configs) in members.into_iter().zip(found) {
+            let path = match &*configs {
                 [] => continue,
                 [path] => path.clone(),
                 [first, second, ..] => {
@@ -250,7 +274,7 @@ impl<'a> ConfigLoader<'a> {
     fn repository_root(&self, start: &Path) -> Option<PathBuf> {
         start
             .ancestors()
-            .find(|dir| self.cache.dir(dir, self.fs).has_git)
+            .find(|dir| self.cache.has_git(dir, self.fs))
             .map(Path::to_path_buf)
     }
 
@@ -274,7 +298,7 @@ impl<'a> ConfigLoader<'a> {
         }
         let mut chain = Vec::new();
         for dir in root.ancestors().take_while(|dir| dir.starts_with(&limit)) {
-            match self.cache.dir(dir, self.fs).configs.as_slice() {
+            match &*self.cache.configs(dir, self.fs) {
                 [] => {}
                 [path] => {
                     let kind = if dir == root {
