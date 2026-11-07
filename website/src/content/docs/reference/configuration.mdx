@@ -314,7 +314,10 @@ reported with the compiler's message. A pattern that does not compile is a confi
 per workspace. `ignore-dependencies` also silences `unresolved-imports` for a matching specifier, because plugins
 declare virtual modules through it; use `ignore-unresolved` for your own. Two small differences from knip remain:
 an unresolved import is located at the start of its statement, not at the specifier, and `import "./dir"` of a
-directory with neither an index file nor a `package.json` is reported where knip is silent.
+directory with neither an index file nor a `package.json` is reported where knip is silent. A relative import of a
+missing file that a `.gitignore` of the root or of a package lists (also as `./dir` for an ignored `dir/index.ts`, or
+without its extension) is taken for generated and not reported, and a `#` specifier is reported only when the nearest
+`package.json` declares `imports`.
 
 **`ignore-workspaces`** lists workspace directories (globs) the JavaScript analysis skips. Unlike `[workspace]
 ignore-packages`, the packages stay in the workspace, so manifest and policy rules still check them. The root is never

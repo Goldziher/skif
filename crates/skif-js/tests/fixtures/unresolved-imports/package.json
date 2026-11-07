@@ -1,0 +1,5 @@
+{
+  "name": "unresolved-imports",
+  "private": true,
+  "workspaces": ["packages/*"]
+}
