@@ -305,6 +305,11 @@ pub struct LintArgs {
     #[arg(long)]
     pub fix_unsafe: bool,
 
+    /// With --fix or --fix-unsafe: print the planned changes as a unified diff (JSON: the `fix` object with
+    /// `changes`) and write nothing; no install runs.
+    #[arg(long)]
+    pub dry_run: bool,
+
     /// Which version a version alignment fix targets, overriding `[policy] prefer` for this run.
     #[arg(long, value_enum)]
     pub select: Option<Select>,
@@ -374,6 +379,11 @@ impl LintArgs {
     /// Whether any fixing flag was given.
     pub const fn fixing(&self) -> bool {
         self.fix || self.fix_unsafe
+    }
+
+    /// Whether fixes are planned and shown but not written.
+    pub const fn dry_run(&self) -> bool {
+        self.dry_run && self.fixing()
     }
 
     pub fn format(&self) -> Format {
