@@ -242,6 +242,10 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
         Err(error) => return failed(error.to_string()),
     };
     let style = is_stylesheet(path);
+    let component = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| matches!(extension, "vue" | "svelte" | "astro"));
     let parsed = PARSE_TIME.time(|| {
         if style {
             Ok(parse_stylesheet(path, &source))
@@ -281,7 +285,16 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
                 if style {
                     inputs.resolver.resolve_style(path, &import.specifier)
                 } else {
-                    inputs.resolver.resolve(path, &import.specifier)
+                    let found = inputs.resolver.resolve(path, &import.specifier);
+                    // A component's style blocks import from the same list as its script, and Sass partials are
+                    // not files the script resolver can name.
+                    if component && matches!(found.target, Resolved::Unresolved) {
+                        let styled = inputs.resolver.resolve_style(path, &import.specifier);
+                        if matches!(styled.target, Resolved::File(_)) {
+                            return styled;
+                        }
+                    }
+                    found
                 }
             });
             let target = match outcome.target {

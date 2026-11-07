@@ -368,3 +368,20 @@ fn a_computed_relative_specifier_reaches_the_files_it_can_name() {
     );
     assert_eq!(found(&diagnostics, "unused-exports"), ["lib/utils.js: dead"]);
 }
+
+#[test]
+fn a_style_block_of_a_component_resolves_sass_partials() {
+    let diagnostics = lint(&[
+        ("package.json", r#"{"name":"app","private":true,"main":"src/App.vue"}"#),
+        (
+            "src/App.vue",
+            "<template><div /></template>\n<style lang=\"scss\">\n@use '../css/mixins/focus';\n@use '../css/mixins/missing';\n</style>\n",
+        ),
+        ("css/mixins/_focus.scss", "@mixin ring {}\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unresolved-imports"),
+        ["src/App.vue: ../css/mixins/missing"]
+    );
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+}
