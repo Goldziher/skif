@@ -89,3 +89,33 @@ fn mdx_imports_keep_components_and_dependencies_used() {
     // Code samples, inline code and frontmatter are not imports.
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), Vec::<String>::new());
 }
+
+#[test]
+fn angular_resources_snapshot() {
+    insta::assert_json_snapshot!("angular-resources", lint_fixture("angular-resources"));
+}
+
+#[test]
+fn angular_component_stylesheets_are_followed() {
+    let diagnostics = lint_fixture("angular-resources");
+    // `bootstrap` is used by the component's `styleUrls` stylesheet.
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        ["package.json: unused-dependency"]
+    );
+    assert_eq!(found(&diagnostics, "unresolved-imports"), Vec::<String>::new());
+}
+
+#[test]
+fn vue_auto_imports_snapshot() {
+    insta::assert_json_snapshot!("vue-auto-imports", lint_fixture("vue-auto-imports"));
+}
+
+#[test]
+fn vue_auto_import_declarations_keep_components_and_composables_used() {
+    // The generated `components.d.ts` and `auto-imports.d.ts` are ambient entries whose `typeof import()` types
+    // reach every registered component and composable.
+    let diagnostics = lint_fixture("vue-auto-imports");
+    assert_eq!(found(&diagnostics, "unused-files"), Vec::<String>::new());
+    assert_eq!(found(&diagnostics, "unused-exports"), Vec::<String>::new());
+}

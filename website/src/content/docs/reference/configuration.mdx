@@ -375,6 +375,14 @@ inline code and frontmatter are not imports. A reached `.mdx` file uses the `@md
 package lists. `.mdx` files are not in the default `project` globs: they are followed when an entry glob (Docusaurus
 docs, Astro pages, Storybook stories) or an import reaches them, and reported as unused only when `project` names them.
 
+The `templateUrl`, `styleUrl` and `styleUrls` of an Angular or Stencil `@Component({ … })` (the decorator imported
+from `@angular/core` or `@stencil/core`) are imports of the component file, relative to it with or without `./`, so
+the stylesheets are followed and the packages they import count as used. Vue auto-imports are followed through the
+declaration files `unplugin-vue-components` and `unplugin-auto-import` generate (`components.d.ts`,
+`auto-imports.d.ts`): they are entries like every `.d.ts` file, so each registered component and composable counts as
+used, whether or not a template names it. A generated file that `.gitignore` excludes is not read, and the
+components it registers then look unused.
+
 Test files are entries when a test-runner plugin is enabled (Jest, Vitest, Mocha, Playwright, Cypress and the like),
 with the patterns of that plugin; a project without a runner reports unused test files like any other, as knip does.
 Add other test files to `entry`. Directories named `fixtures` or `__fixtures__` hold test data: their imports are not checked for unresolved or

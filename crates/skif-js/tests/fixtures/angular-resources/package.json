@@ -1,0 +1,9 @@
+{
+  "name": "angular-resources",
+  "private": true,
+  "dependencies": {
+    "@angular/core": "19.0.0",
+    "bootstrap": "5.3.0",
+    "unused-dependency": "1.0.0"
+  }
+}
