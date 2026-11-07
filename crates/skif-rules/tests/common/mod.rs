@@ -177,7 +177,7 @@ pub fn lint(
 
 /// The comparable projection of a diagnostic: everything `expected.json` pins.
 pub fn project(diagnostic: &Diagnostic) -> Value {
-    json!({
+    let mut row = json!({
         "rule": diagnostic.rule.as_str(),
         "severity": serde_json::to_value(diagnostic.severity).unwrap(),
         "package": diagnostic.package,
@@ -185,7 +185,16 @@ pub fn project(diagnostic: &Diagnostic) -> Value {
         "detail": diagnostic.detail,
         "path": diagnostic.location.path.to_string_lossy().replace('\\', "/"),
         "fixable": diagnostic.is_fixable(),
-    })
+    });
+    // ADR 0051: a fix `--fix` applies is marked; the key is absent for an unsafe fix and for no fix.
+    if diagnostic
+        .fixes
+        .first()
+        .is_some_and(|fix| fix.safety == FixSafety::Safe)
+    {
+        row["safe"] = json!(true);
+    }
+    row
 }
 
 /// The order the fixtures are written in: path, rule, dependency, detail (byte order, `null` first).
@@ -205,10 +214,10 @@ pub fn describe(row: &Value) -> String {
         field("dependency"),
         field("detail"),
         field("path"),
-        if row["fixable"] == json!(true) {
-            " (fixable)"
-        } else {
-            ""
+        match (row["fixable"] == json!(true), row["safe"] == json!(true)) {
+            (true, true) => " (fixable, safe)",
+            (true, false) => " (fixable)",
+            _ => "",
         },
     )
 }
@@ -352,8 +361,8 @@ fn edit_file(source: &str, path: &str, ops: &[FixOp]) -> Result<String, Failure>
     apply_text_edits(source, &edits).map_err(|error| Failure::Other(format!("{path}: {error}")))
 }
 
-/// Plans the first fix of every diagnostic, in order, at the `Unsafe` ceiling (ADR 0009: these fixes change what is
-/// installed). Identical operations of different fixes count once, as several fixes may share the catalog entry
+/// Plans the first fix of every diagnostic, in order, at the `Unsafe` ceiling; which of them are safe is compared
+/// through the `safe` key of `expected.json` (ADR 0051). Identical operations of different fixes count once, as several fixes may share the catalog entry
 /// they add.
 pub fn plan_fixes(files: &BTreeMap<String, String>, diagnostics: &[Diagnostic]) -> Result<Planned, String> {
     let mut edits: BTreeMap<String, Vec<FixOp>> = BTreeMap::new();
@@ -364,13 +373,6 @@ pub fn plan_fixes(files: &BTreeMap<String, String>, diagnostics: &[Diagnostic]) 
         let Some(fix) = diagnostic.fixes.first() else {
             continue;
         };
-        if fix.safety != FixSafety::Unsafe {
-            return Err(format!(
-                "{} has a {:?} fix; ADR 0009 makes these fixes unsafe",
-                describe(&project(diagnostic)),
-                fix.safety
-            ));
-        }
         let mut next = edits.clone();
         let (mut next_created, mut next_deleted) = (created.clone(), deleted.clone());
         let mut touched = BTreeSet::new();
