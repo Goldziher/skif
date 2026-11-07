@@ -1,0 +1,7 @@
+{
+  "name": "build",
+  "private": true,
+  "devDependencies": {
+    "vinyl": "3.0.0"
+  }
+}

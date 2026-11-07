@@ -1,0 +1,42 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: nested_roots()
+---
+[
+  [
+    "",
+    []
+  ],
+  [
+    "build",
+    [
+      {
+        "rule": "unused-files",
+        "severity": "warning",
+        "message": "`lib/orphan.ts` is not reachable from any entry file",
+        "help": "delete it, or add it to `entry` when a tool loads it",
+        "location": {
+          "path": "lib/orphan.ts"
+        },
+        "package": "build",
+        "fixes": [
+          {
+            "title": "Delete `lib/orphan.ts`",
+            "safety": "unsafe",
+            "ops": [
+              {
+                "delete-file": {
+                  "path": "lib/orphan.ts"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ],
+  [
+    "remote",
+    []
+  ]
+]

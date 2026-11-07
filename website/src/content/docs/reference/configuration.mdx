@@ -359,6 +359,18 @@ A dependency counts as listed when the package's own `package.json`, the `packag
 it, or any `package.json` above the analysed root up to the git repository root lists it; the same manifests enable
 plugins.
 
+A directory below a package with a `package.json` of its own that is not a workspace member is a separate project,
+often a root of its own in a recursive run (a `build` or `scripts` folder with its own lockfile). Its files are not
+the analysed root's: when a script or an import of the root reaches one, the imports of that file are judged by the
+project's own manifest, so they are never reported as unlisted in the root. In the other direction, a file of the
+analysed root that a script of a `package.json` above it runs (up to the git repository root) is an entry, so
+`node build/npm/postinstall.ts` in the outer project keeps `build/npm/postinstall.ts` used in the nested root at
+`build` (except in production mode, where scripts give no entries).
+
+A package with no source file at or below its directory, no entry and no script, such as a `remote/package.json` that
+only lists what code elsewhere in the repository installs it for, has no code skif could check its dependencies
+against, so they are not judged, as for a package whose entry files skif cannot determine.
+
 The default `project` globs include `.vue`, `.svelte` and `.astro` files. Their `<script>` blocks (`<script setup>`,
 `<script context="module">`, any `lang="ts"` or `lang="tsx"`) and the Astro frontmatter are analysed as modules, with
 diagnostics located in the original file. The markup is scanned for identifiers, not compiled: component tags

@@ -43,7 +43,12 @@ fn is_comment_key(name: &str) -> bool {
 }
 
 pub(crate) fn analyze(package: &Package) -> ScriptFacts {
-    let Some(scripts) = package.manifest.value().get("scripts").and_then(Value::as_object) else {
+    analyze_manifest(package.manifest.value())
+}
+
+/// What the `scripts` of the parsed `package.json` `manifest` run.
+pub(crate) fn analyze_manifest(manifest: &Value) -> ScriptFacts {
+    let Some(scripts) = manifest.get("scripts").and_then(Value::as_object) else {
         return ScriptFacts::default();
     };
     let commands: Vec<(&String, &str)> = scripts

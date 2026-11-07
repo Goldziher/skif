@@ -45,13 +45,18 @@ struct Run {
 
 impl Run {
     fn new(case: &str, extra_toml: &str) -> Self {
+        Self::at(case, "", extra_toml)
+    }
+
+    /// The fixture with the root at `root`, a directory of the fixture (`""` for the fixture itself).
+    fn at(case: &str, root: &str, extra_toml: &str) -> Self {
         let base = fixture_dir(case);
         let mut memory = MemoryFs::new();
         let mut file_config = None;
         load(&base, &base, &mut memory, &mut file_config);
         let toml = format!("{}\n{extra_toml}", file_config.unwrap_or_default());
         let config = Config::from_toml_str(&toml).unwrap();
-        let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+        let workspace = Workspace::discover_with_fs(&Path::new(ROOT).join(root), &config, &memory).unwrap();
         Self {
             fs: Arc::new(memory),
             workspace,
@@ -102,6 +107,10 @@ fn found(diagnostics: &[Diagnostic], rule: &str) -> Vec<String> {
         .collect()
 }
 
+fn none() -> Vec<String> {
+    Vec::new()
+}
+
 fn only<'a>(diagnostics: &'a [Diagnostic], rule: &str, name: &str) -> &'a Diagnostic {
     let mut matching = diagnostics
         .iter()
@@ -133,6 +142,46 @@ fn reexports_snapshot() {
 fn cycles_snapshot() {
     let diagnostics = Run::new("cycles", "").lint();
     insta::assert_json_snapshot!("cycles", diagnostics);
+}
+
+/// A repository whose `build` and `remote` directories hold projects of their own, linted as roots of their own
+/// (vscode's layout): the outer scripts run files of `build`, and `remote` only lists what it installs.
+fn nested_roots() -> Vec<(&'static str, Vec<Diagnostic>)> {
+    ["", "build", "remote"]
+        .into_iter()
+        .map(|root| (root, Run::at("nested-roots", root, "").lint()))
+        .collect()
+}
+
+#[test]
+fn nested_roots_snapshot() {
+    insta::assert_json_snapshot!("nested_roots", nested_roots());
+}
+
+fn nested_root_findings(root: &str, rule: &str) -> Vec<String> {
+    found(&Run::at("nested-roots", root, "").lint(), rule)
+}
+
+#[test]
+fn a_file_of_a_nested_root_is_judged_by_its_own_manifest() {
+    // The outer root runs `build/hygiene.ts`, whose `vinyl` the manifest of `build` lists.
+    assert_eq!(nested_root_findings("", "unlisted-dependencies"), none());
+}
+
+#[test]
+fn files_a_script_above_a_nested_root_runs_are_its_entries() {
+    // `node build/npm/postinstall.ts` and `node build/hygiene.ts` in the outer manifest; nothing runs the orphan.
+    assert_eq!(
+        nested_root_findings("build", "unused-files"),
+        ["lib/orphan.ts: lib/orphan.ts"]
+    );
+    assert_eq!(nested_root_findings("build", "unused-dev-dependencies"), none());
+}
+
+#[test]
+fn a_root_without_source_files_does_not_judge_its_dependencies() {
+    // `remote` only lists what the code of the outer project installs it for.
+    assert_eq!(nested_root_findings("remote", "unused-dependencies"), none());
 }
 
 #[test]
