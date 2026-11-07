@@ -58,6 +58,12 @@ fn span(source: &str, start: usize, end: usize) -> Span {
     )
 }
 
+/// Whether a relative path reaches into a `node_modules` directory (`../node_modules/.bin/tsx`). Such a `new URL`
+/// names an installed file or a directory the code creates, not a module it loads, so it is no import.
+fn in_node_modules(path: &str) -> bool {
+    path.split('/').any(|segment| segment == "node_modules")
+}
+
 /// `(specifier, kind, start, end)` of the specifiers written in `new URL("./x", import.meta.url)` and in mock calls.
 fn extra_specifiers(source: &str) -> Vec<(String, ImportKind, usize, usize)> {
     let mut found = Vec::new();
@@ -79,7 +85,10 @@ fn extra_specifiers(source: &str) -> Vec<(String, ImportKind, usize, usize)> {
             continue;
         }
         let base = skip_whitespace(source, comma + 1);
-        if source[base..].starts_with("import.meta.url") && (literal.starts_with("./") || literal.starts_with("../")) {
+        if source[base..].starts_with("import.meta.url")
+            && (literal.starts_with("./") || literal.starts_with("../"))
+            && !in_node_modules(literal)
+        {
             found.push((
                 literal.to_owned(),
                 ImportKind::Require,
@@ -127,6 +136,14 @@ mod tests {
         let source = "const w = new URL('./worker.ts', import.meta.url);\nvi.mock(\"./dep\", () => ({}));\njest.mock('axios');\nnew URL('https://x.dev', import.meta.url);\nnew URL(`./${name}.ts`, import.meta.url);";
         let found: Vec<String> = extra_specifiers(source).into_iter().map(|(s, _, _, _)| s).collect();
         assert_eq!(found, ["./worker.ts", "./dep", "axios"]);
+    }
+
+    #[test]
+    fn urls_into_node_modules_are_not_imports() {
+        let source = "new URL('../../node_modules/.bin/tsx', import.meta.url);\n\
+                      new URL('./node_modules/later', import.meta.url);\nnew URL('./modules/a.ts', import.meta.url);";
+        let found: Vec<String> = extra_specifiers(source).into_iter().map(|(s, _, _, _)| s).collect();
+        assert_eq!(found, ["./modules/a.ts"]);
     }
 
     #[test]
