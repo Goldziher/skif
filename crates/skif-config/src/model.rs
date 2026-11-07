@@ -1268,6 +1268,14 @@ pub struct Js {
     pub no_gitignore: bool,
     /// Report unused exports of entry files too.
     pub include_entry_exports: bool,
+    /// The TypeScript configuration of the root package, relative to the workspace root, used instead of
+    /// `tsconfig.json` for its path aliases and compiler options (knip's `--tsConfig`). Other packages keep their own
+    /// `tsconfig.json`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tsconfig: Option<String>,
+    /// The project files of a package with a TypeScript configuration are the files its `files` and `include` select
+    /// minus its `exclude`, instead of the `project` globs (knip's `--use-tsconfig-files`).
+    pub use_tsconfig_files: bool,
     /// How source files are found: `auto` lists them from the git index and re-lists from disk every directory
     /// modified since the index was written, which gives the walk's result without walking every directory; `git`
     /// trusts the index alone (faster, blind to untracked and deleted files); `walk` always walks. Both index modes
@@ -1335,6 +1343,21 @@ impl Js {
         self
     }
 
+    /// Uses `path`, relative to the workspace root, as the TypeScript configuration of the root package.
+    #[must_use]
+    pub fn with_tsconfig(mut self, path: impl Into<String>) -> Self {
+        self.tsconfig = Some(path.into());
+        self
+    }
+
+    /// Takes the project files of each package with a TypeScript configuration from its `files`, `include` and
+    /// `exclude`.
+    #[must_use]
+    pub const fn with_use_tsconfig_files(mut self, enabled: bool) -> Self {
+        self.use_tsconfig_files = enabled;
+        self
+    }
+
     /// Switches a plugin on or off, or configures it.
     #[must_use]
     pub fn with_plugin(mut self, name: impl Into<String>, plugin: PluginConfig) -> Self {
@@ -1360,6 +1383,8 @@ impl Default for Js {
             isolate_workspaces: false,
             no_gitignore: false,
             include_entry_exports: false,
+            tsconfig: None,
+            use_tsconfig_files: false,
             discovery: JsDiscovery::Auto,
             workspaces: IndexMap::new(),
             plugins: IndexMap::new(),
