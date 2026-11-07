@@ -152,8 +152,8 @@ source file is copied, apart from the data noted below.
   their entries.
 - The list of binaries that are never reported as unlisted is adapted from knip's `constants.ts`.
 - The plugin table is declarative data with optional resolvers, keyed by knip's plugin names. `aws-cdk`,
-  `browser-extension`, `azure-pipelines` and `sapper` are skif's own: knip has no plugin of these names at the pinned
-  commit.
+  `browser-extension`, `azure-pipelines`, `sapper` and `taskr` are skif's own: knip has no plugin of these names at
+  the pinned commit.
 - Rule ids, severities and configuration (`skif.toml`) are skif's own.
 
 ### License Compatibility

@@ -38,6 +38,15 @@ All notable changes to this project are documented here. The format follows
   servers in `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json` and `.codex/config.toml`, and `varlock` the
   `@plugin` and `@import` decorators of `.env` files.
 - A plugin can be enabled by a key of the workspace's `package.json` (`Enabler::ManifestKey`).
+- An exported class registered as a custom element is no unused export: `customElements.define("x-y", Class)`
+  always counts, and the registering decorator or base class of an enabled plugin's library counts too
+  ([ADR 0053](adrs/0053-custom-element-registrations-and-the-taskr-plugin.md),
+  [#38](https://github.com/Goldziher/skif/issues/38)). `stencil` now marks `@Component` classes.
+- `lit`, `catalyst` and `fast` plugins, which mark the classes their decorators (`@customElement`, `@controller`) or
+  `FASTElement.define()` register ([#39](https://github.com/Goldziher/skif/issues/39),
+  [#41](https://github.com/Goldziher/skif/issues/41)), and a `taskr` plugin: `taskfile.js` and the local plugins of
+  `package.json#taskr.requires` are entries, and `@taskr/*` and `taskr-*` dependencies are used
+  ([#20](https://github.com/Goldziher/skif/issues/20)). The table holds 204 plugins.
 
 ## [0.1.1] - 2026-11-07
 
