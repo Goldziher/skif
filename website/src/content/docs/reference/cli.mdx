@@ -78,6 +78,10 @@ another root. `--fix` plans, writes and installs per root.
 | `--dependencies`, `--exports`, `--files`, `--cycles` | knip's shortcuts for `--include`: `--dependencies` is `dependencies`, `unlisted`, `binaries`, `unresolved`, `catalog`, `catalogReferences` and, without `--production`, `devDependencies` and `optionalPeerDependencies`; `--exports` is `exports`, `types`, `enumMembers`, `namespaceMembers` and `duplicates`. |
 | `--tags <-TAG>` | Do not report exports tagged `@TAG`; adds to the `ignore-tags` option of `unused-exports`. Comma separated, repeatable. knip's `+TAG` (only tagged exports) has no counterpart and exits `2`. |
 | `--color <auto\|always\|never>` | When to colour human output. |
+| `--debug` | Print to stderr what the run loaded: each root with its configuration files, package manager and packages, and the phase timings. |
+| `--performance` | Print the time each phase took to stderr, as `SKIF_TIMINGS=1` does. Work that runs on several threads is summed over them. |
+| `--duration` | Print the wall time of the run to stderr. |
+| `--memory` | Print the peak resident set size of the run to stderr. Linux only; elsewhere a line says it is not measured. |
 | `-W`, `--workspace <NAME\|DIR>` | Report only the findings of these workspace packages, by package name or directory relative to the root (`.` is the root). Globs and `!` exclusions work as in `[workspace] ignore-packages`. Repeatable. The analysis still covers every package, so the findings are those of a full run; `--fix` fixes only what is reported. No matching package exits `2`. |
 
 Flags are the top layer of the [configuration precedence](../configuration/#precedence): defaults, then the file,

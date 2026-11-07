@@ -17,6 +17,8 @@ All notable changes to this project are documented here. The format follows
   - `--include` and `--exclude` take knip issue types or skif rule ids, with the shortcuts `--dependencies`,
     `--exports`, `--files` and `--cycles`; `--tags -TAG` leaves out tagged exports.
   - `--max-issues <N>`, `--max-show-issues <N>`, `--no-exit-code` and `--include-entry-exports`.
+  - `--debug`, `--performance`, `--duration` and `--memory` print what was loaded, phase timings, wall time and peak
+    memory to stderr.
 
 ## [0.1.1] - 2026-11-07
 

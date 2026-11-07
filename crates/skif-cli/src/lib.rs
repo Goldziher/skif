@@ -22,6 +22,7 @@ mod lint;
 mod migrate;
 mod output;
 mod roots;
+mod trace;
 mod write;
 
 use args::{Cli, Command, Format};
