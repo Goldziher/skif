@@ -24,6 +24,9 @@ pub enum ImportKind {
     ImportMetaGlob,
     /// `export … from "x"`; the matching [`Export`] is recorded too.
     ExportFrom,
+    /// `vi.mock("x")`, `jest.mock("x")` and the other test-runner calls that name a module: the test loads or
+    /// replaces the module, which keeps a local file reachable but is not an import of a dependency.
+    Mock,
 }
 
 /// Which export of the target module a binding refers to.

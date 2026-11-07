@@ -576,6 +576,14 @@ impl DependencyUsage {
             for resolved in &module.imports {
                 if let Some(name) = &resolved.package {
                     let kind = module.info.imports.get(resolved.import).map(|import| import.kind);
+                    if kind == Some(ImportKind::Mock) {
+                        // A test that mocks a package does not need it installed: a listed package is used, an
+                        // unlisted one is not an unlisted import.
+                        if let Some(found) = self.find_listed(module.owner, name) {
+                            self.reference(found, name);
+                        }
+                        continue;
+                    }
                     let type_only = resolved.type_only && kind != Some(ImportKind::ExportFrom);
                     let span = module.info.imports.get(resolved.import).map(|import| import.span);
                     self.handle_import(workspace, module.owner, name, type_only, module.id, span);
