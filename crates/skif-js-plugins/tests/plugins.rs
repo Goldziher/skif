@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 141] = [
+const ADR_IDS: [&str; 154] = [
     "typescript",
     "eslint",
     "prettier",
@@ -156,6 +156,19 @@ const ADR_IDS: [&str; 141] = [
     "fumadocs",
     "nuxtjs-i18n",
     "playwright-ct",
+    "sst",
+    "qwik",
+    "quasar",
+    "stencil",
+    "eleventy",
+    "cucumber",
+    "relay",
+    "orval",
+    "vite-plugin-pwa",
+    "xo",
+    "textlint",
+    "rstest",
+    "sveltejs-package",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -3229,4 +3242,341 @@ fn playwright_ct_reads_its_config_like_playwright() {
         ],
     );
     assert_deps(out, &["playwright-ctrf-json-reporter"]);
+}
+
+#[test]
+fn sst_handlers_in_the_config_and_the_modules_it_imports() {
+    let results = resolve(
+        &[
+            (
+                "sst.config.ts",
+                r#"/// <reference path="./.sst/platform/config.d.ts" />
+                export default $config({
+                  app() { return { name: "app", home: "aws" }; },
+                  async run() {
+                    new sst.aws.Function("Cron", { handler: "packages/functions/src/cron.handler" });
+                    const infra = await import("./infra/api");
+                    await import("./infra");
+                    return { api: infra.api.url };
+                  },
+                });"#,
+            ),
+            (
+                "infra/api.ts",
+                r#"import { bucket } from "./storage";
+                export const api = new sst.aws.ApiGatewayV2("Api");
+                api.route("GET /", "packages/functions/src/api.handler");
+                api.route("POST /", { handler: "packages/functions/src/post.main" });"#,
+            ),
+            (
+                "infra/storage.ts",
+                r#"export const bucket = new sst.aws.Bucket("B", { notifications: [{ name: "n", function: { handler: "packages/functions/src/notify.handler" } }] });"#,
+            ),
+            (
+                "infra/index.ts",
+                r#"new sst.aws.Function("Edge", { handler: "edge/index.ts.handler" });"#,
+            ),
+        ],
+        &["sst"],
+    );
+    let out = output(&results, "sst");
+    let any = "{ts,tsx,mts,cts,js,jsx,mjs,cjs}";
+    assert_entries(
+        &out.production_entries,
+        &[
+            &format!("packages/functions/src/cron.{any}"),
+            &format!("packages/functions/src/api.{any}"),
+            &format!("packages/functions/src/post.{any}"),
+            &format!("packages/functions/src/notify.{any}"),
+            "edge/index.ts",
+        ],
+    );
+    assert!(!out.entries_incomplete);
+}
+
+#[test]
+fn qwik_entries_follow_src_dir_and_routes_dir() {
+    let results = resolve(
+        &[(
+            "vite.config.ts",
+            r#"import { qwikVite } from "@builder.io/qwik/optimizer";
+            import { qwikCity } from "@builder.io/qwik-city/vite";
+            export default defineConfig(() => ({ plugins: [qwikCity({ routesDir: "app/pages" }), qwikVite({ srcDir: "app" })] }));"#,
+        )],
+        &["@builder.io/qwik", "vite"],
+    );
+    let out = output(&results, "qwik");
+    assert_entries(&out.entries, &["app/entry.dev.tsx"]);
+    assert_entries(
+        &out.production_entries,
+        &["app/root.tsx", "app/entry.*.tsx", "app/pages/**/*.{tsx,ts,md,mdx}"],
+    );
+    assert!(out.virtual_modules.contains(&"@qwik-city-plan".to_owned()));
+}
+
+#[test]
+fn quasar_source_files_boot_and_css() {
+    let results = resolve(
+        &[(
+            "quasar.config.js",
+            r#"const { configure } = require("quasar/wrappers");
+            module.exports = configure(function (ctx) {
+              return {
+                boot: ["i18n", { path: "axios.ts", server: false }],
+                css: ["app.scss", "~animate.css/animate.min.css"],
+                sourceFiles: { router: "src/routing/main" },
+                build: { vitePlugins: [] },
+              };
+            });"#,
+        )],
+        &["@quasar/app-vite"],
+    );
+    let out = output(&results, "quasar");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "src/boot/i18n.{js,ts}",
+            "src/boot/axios.ts",
+            "src/css/app.scss",
+            "src/routing/main.{js,ts}",
+            "src/App.vue",
+            "src-ssr/server.{js,ts}",
+        ],
+    );
+    assert_deps(out, &["animate.css"]);
+}
+
+#[test]
+fn stencil_global_files_tsconfig_and_setup() {
+    let results = resolve(
+        &[
+            (
+                "stencil.config.ts",
+                r#"import { Config } from "@stencil/core";
+                export const config: Config = {
+                  srcDir: "lib",
+                  globalScript: "lib/global/app.ts",
+                  globalStyle: "lib/global/app.css",
+                  tsconfig: "tsconfig.lib.json",
+                  outputTargets: [{ type: "www" }, { type: "global-style", input: "lib/theme.css" }],
+                  testing: { setupFilesAfterEnv: ["./jest.setup.ts"] },
+                };"#,
+            ),
+            ("tsconfig.lib.json", r#"{"compilerOptions":{"types":["jest"]}}"#),
+        ],
+        &["@stencil/core", "typescript"],
+    );
+    let out = output(&results, "stencil");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "lib/**/*.tsx",
+            "lib/global/app.ts",
+            "lib/global/app.css",
+            "lib/theme.css",
+        ],
+    );
+    assert_entries(&out.entries, &["jest.setup.ts", "**/*.spec.{ts,tsx}"]);
+    assert!(out.config_files.iter().any(|f| f.ends_with("tsconfig.lib.json")));
+}
+
+#[test]
+fn eleventy_input_and_data_directories() {
+    let results = resolve(
+        &[(
+            "eleventy.config.js",
+            r#"module.exports = function (eleventyConfig) {
+              eleventyConfig.addPassthroughCopy("img");
+              return { dir: { input: "site", data: "data" }, templateFormats: ["md", "11ty.js"] };
+            };"#,
+        )],
+        &["@11ty/eleventy"],
+    );
+    let out = output(&results, "eleventy");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "site/data/**/*.{js,cjs,mjs}",
+            "site/**/*.{md,11ty.js}",
+            "site/**/*.11tydata.{js,cjs,mjs}",
+        ],
+    );
+}
+
+#[test]
+fn cucumber_profiles_imports_and_formatters() {
+    let results = resolve(
+        &[(
+            "cucumber.yml",
+            "default:\n  import: [steps/**/*.ts]\n  format: [progress, '@cucumber/pretty-formatter', 'html:out.html']\nci:\n  require: [support/env.js]\n  format: [['./reporters/custom.js', 'out.txt']]\n",
+        )],
+        &["@cucumber/cucumber"],
+    );
+    let out = output(&results, "cucumber");
+    assert_entries(
+        &out.entries,
+        &[
+            "steps/**/*.ts",
+            "support/env.js",
+            "features/**/*.{js,cjs,mjs}",
+            "reporters/custom.js",
+        ],
+    );
+    assert_deps(out, &["@cucumber/pretty-formatter"]);
+    assert_absent(out, &["html", "progress"]);
+}
+
+#[test]
+fn relay_artifact_directories() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","relay":{"src":"./src","artifactDirectory":"./src/__gen__"}}"#,
+    );
+    let results = resolve(&[manifest], &["babel-plugin-relay"]);
+    assert_entries(&output(&results, "relay").production_entries, &["src/__gen__/**"]);
+    let results = resolve(
+        &[("relay.config.json", r#"{"projects":{"web":{"language":"typescript"}}}"#)],
+        &["vite-plugin-relay"],
+    );
+    assert_entries(&output(&results, "relay").production_entries, &["**/__generated__/*"]);
+}
+
+#[test]
+fn orval_mutators_and_transformers() {
+    let results = resolve(
+        &[(
+            "orval.config.ts",
+            r#"import { defineConfig } from "orval";
+            export default defineConfig({ api: { input: { target: "./spec.yaml", override: { transformer: "./transform.js" } }, output: { override: { mutator: { path: "./src/http.ts", name: "http" } } } } });"#,
+        )],
+        &["orval"],
+    );
+    assert_entries(&output(&results, "orval").entries, &["transform.js", "src/http.ts"]);
+}
+
+#[test]
+fn vite_plugin_pwa_inject_manifest_worker() {
+    let results = resolve(
+        &[(
+            "vite.config.ts",
+            r#"import { VitePWA } from "vite-plugin-pwa";
+            export default { plugins: [VitePWA({ strategies: "injectManifest", srcDir: "src", filename: "sw.ts" })] };"#,
+        )],
+        &["vite-plugin-pwa"],
+    );
+    assert_entries(&output(&results, "vite-plugin-pwa").production_entries, &["src/sw.ts"]);
+    let results = resolve(
+        &[(
+            "nuxt.config.ts",
+            r#"export default defineNuxtConfig({ modules: ["@vite-pwa/nuxt"], pwa: { strategies: "injectManifest" } });"#,
+        )],
+        &["@vite-pwa/nuxt"],
+    );
+    assert_entries(
+        &output(&results, "vite-plugin-pwa").production_entries,
+        &["public/sw.js"],
+    );
+}
+
+#[test]
+fn xo_legacy_config_names_eslint_packages() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","xo":{"extends":"xo-react","plugins":["unicorn"],"parser":"@babel/eslint-parser"}}"#,
+    );
+    let results = resolve(&[manifest], &["xo"]);
+    let out = output(&results, "xo");
+    assert_deps(
+        out,
+        &[
+            "eslint-config-xo-react",
+            "eslint-plugin-unicorn",
+            "@babel/eslint-parser",
+        ],
+    );
+    assert_entries(&out.entries, &["xo.config.{js,cjs,mjs,ts,cts,mts}"]);
+}
+
+#[test]
+fn textlint_rules_presets_filters_and_plugins() {
+    let results = resolve_with_scripts(
+        &[(
+            ".textlintrc.json",
+            r#"{"rules":{"no-todo":true,"off-rule":false,"preset-ja-technical-writing":true,"@textlint-rule/preset-google":{},"./rules/local.js":true},"filters":{"comments":true},"plugins":["@textlint/markdown"]}"#,
+        )],
+        &["textlint", "textlint-rule-preset-ja-technical-writing"],
+        &[("lint", "textlint --rule terminology --preset jtf-style docs")],
+    );
+    let out = output(&results, "textlint");
+    assert_deps(
+        out,
+        &[
+            "textlint-rule-no-todo",
+            "textlint-rule-preset-ja-technical-writing",
+            "@textlint-rule/textlint-rule-preset-google",
+            "textlint-filter-rule-comments",
+            "@textlint/textlint-plugin-markdown",
+            "textlint-rule-terminology",
+            "textlint-rule-preset-jtf-style",
+        ],
+    );
+    assert_absent(out, &["textlint-rule-off-rule"]);
+    assert_entries(&out.entries, &["rules/local.js"]);
+}
+
+#[test]
+fn rstest_include_environment_setup_and_projects() {
+    let results = resolve(
+        &[
+            (
+                "rstest.config.ts",
+                r#"import { defineConfig } from "@rstest/core";
+                export default defineConfig({ projects: ["packages/*", { root: "web", include: ["tests/**/*.test.tsx"], testEnvironment: "happy-dom", setupFiles: ["./setup.ts"], browser: { enabled: true } }], coverage: { provider: "v8" } });"#,
+            ),
+            (
+                "packages/a/rstest.config.ts",
+                r#"export default { testEnvironment: "jsdom" };"#,
+            ),
+        ],
+        &["@rstest/core"],
+    );
+    let out = output(&results, "rstest");
+    assert_entries(&out.entries, &["web/tests/**/*.test.tsx", "web/setup.ts"]);
+    assert_deps(
+        out,
+        &[
+            "happy-dom",
+            "@rstest/browser",
+            "playwright",
+            "jsdom",
+            "@rstest/coverage-v8",
+        ],
+    );
+    assert!(
+        out.config_files
+            .iter()
+            .any(|f| f.ends_with("packages/a/rstest.config.ts"))
+    );
+}
+
+#[test]
+fn sveltejs_package_maps_output_to_library_sources() {
+    let results = resolve_with_scripts(
+        &[],
+        &["@sveltejs/package"],
+        &[(
+            "package",
+            "svelte-kit sync && svelte-package -i src/components -o package",
+        )],
+    );
+    let out = output(&results, "sveltejs-package");
+    assert_eq!(
+        out.build_dirs,
+        [skif_js_plugins::BuildDir {
+            out_dir: "package".to_owned(),
+            root_dir: "src/components".to_owned()
+        }]
+    );
+    let results = resolve(&[], &["@sveltejs/package"]);
+    assert_eq!(output(&results, "sveltejs-package").build_dirs[0].out_dir, "dist");
 }

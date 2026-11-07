@@ -400,11 +400,17 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             continue;
         };
         collector.out.config_files.push(path.clone());
-        let Some(value) = load_config(&path, &source) else {
-            if reader.reads_config() && is_structured(&path) && !source.trim().is_empty() {
-                collector.out.entries_incomplete = true;
+        // A plugin that reads the source rather than the exported value (`export const config` of Stencil) still
+        // sees a file whose export is not understood.
+        let value = match load_config(&path, &source) {
+            Some(value) => value,
+            None if !reader.reads_config() => ConfigValue::Null,
+            None => {
+                if is_structured(&path) && !source.trim().is_empty() {
+                    collector.out.entries_incomplete = true;
+                }
+                continue;
             }
-            continue;
         };
         if reader.reads_config() && is_unreadable(&value) {
             collector.out.entries_incomplete = true;
