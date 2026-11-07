@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 126] = [
+const ADR_IDS: [&str; 161] = [
     "typescript",
     "eslint",
     "prettier",
@@ -141,6 +141,41 @@ const ADR_IDS: [&str; 126] = [
     "nano-spawn",
     "azure-pipelines",
     "sapper",
+    "tauri",
+    "capacitor",
+    "convex",
+    "payload",
+    "wxt",
+    "hardhat",
+    "temporal",
+    "react-email",
+    "openapi-ts",
+    "danger",
+    "changelogen",
+    "purgecss",
+    "fumadocs",
+    "nuxtjs-i18n",
+    "playwright-ct",
+    "sst",
+    "qwik",
+    "quasar",
+    "stencil",
+    "eleventy",
+    "cucumber",
+    "relay",
+    "orval",
+    "vite-plugin-pwa",
+    "xo",
+    "textlint",
+    "rstest",
+    "sveltejs-package",
+    "taskfile",
+    "mise",
+    "moonrepo",
+    "wireit",
+    "travis",
+    "buf",
+    "nano-staged",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -3056,4 +3091,628 @@ fn sapper_declares_its_fixed_layout() {
             "src/routes/**/*.{svelte,html,js,ts}",
         ],
     );
+}
+
+#[test]
+fn tauri_runs_its_before_commands_where_they_say() {
+    let results = resolve(
+        &[(
+            "src-tauri/tauri.conf.json",
+            r#"{"build":{"beforeDevCommand":"vite dev","beforeBuildCommand":{"script":"node scripts/build.js","cwd":"ui"}}}"#,
+        )],
+        &["@tauri-apps/cli"],
+    );
+    let out = output(&results, "tauri");
+    assert!(
+        out.referenced_binaries.contains(&"vite".to_owned()),
+        "{:?}",
+        out.referenced_binaries
+    );
+    assert_entries(&out.entries, &["ui/scripts/build.js"]);
+    let results = resolve(
+        &[(
+            "src-tauri/Tauri.toml",
+            "[build]\nbefore-bundle-command = \"node bundle.js\"\n",
+        )],
+        &["@tauri-apps/cli"],
+    );
+    assert_entries(&output(&results, "tauri").entries, &["bundle.js"]);
+}
+
+#[test]
+fn capacitor_credits_plugins_and_native_platforms() {
+    let results = resolve(
+        &[
+            (
+                "capacitor.config.json",
+                r#"{"appId":"x","includePlugins":["@capacitor/camera"]}"#,
+            ),
+            ("android/capacitor.settings.gradle", "include ':capacitor-android'"),
+            ("ios/App/Podfile", "platform :ios"),
+        ],
+        &["@capacitor/core"],
+    );
+    let out = output(&results, "capacitor");
+    assert_deps(out, &["@capacitor/camera", "@capacitor/android", "@capacitor/ios"]);
+}
+
+#[test]
+fn convex_functions_directory_from_convex_json() {
+    let results = resolve(&[], &["convex"]);
+    assert_entries(&output(&results, "convex").production_entries, &["convex/**/*.{js,ts}"]);
+    let results = resolve(&[("convex.json", r#"{"functions":"src/convex/"}"#)], &["convex"]);
+    assert_entries(
+        &output(&results, "convex").production_entries,
+        &["src/convex/**/*.{js,ts}"],
+    );
+}
+
+#[test]
+fn payload_import_map_follows_the_admin_route() {
+    let config = r#"import { buildConfig } from "payload";
+        export default buildConfig({ routes: { admin: "/cms" }, collections: [] });"#;
+    let results = resolve(&[("src/payload.config.ts", config)], &["payload"]);
+    let out = output(&results, "payload");
+    assert_entries(
+        &out.entries,
+        &["app/(payload)/cms/importMap.js", "src/app/(payload)/cms/importMap.js"],
+    );
+    assert!(out.ignore.contains(&"src/payload-types.ts".to_owned()));
+    assert!(!out.entries_incomplete);
+    let config = r#"import { buildConfig } from "payload";
+        export default buildConfig({ admin: { importMap: { importMapFile: "./app/admin/importMap.js" } } });"#;
+    let results = resolve(&[("payload.config.ts", config)], &["payload"]);
+    assert_entries(&output(&results, "payload").entries, &["app/admin/importMap.js"]);
+}
+
+#[test]
+fn wxt_entrypoints_and_modules() {
+    let results = resolve(
+        &[(
+            "wxt.config.ts",
+            r#"import { defineConfig } from "wxt"; export default defineConfig({ modules: ["@wxt-dev/module-react"] });"#,
+        )],
+        &["wxt"],
+    );
+    let out = output(&results, "wxt");
+    assert_entries(&out.production_entries, &["entrypoints/**/*"]);
+    assert_deps(out, &["@wxt-dev/module-react"]);
+}
+
+#[test]
+fn declarative_rows_of_issue_40() {
+    let results = resolve(
+        &[],
+        &[
+            "hardhat",
+            "@temporalio/worker",
+            "@hey-api/openapi-ts",
+            "danger",
+            "changelogen",
+            "@fullhuman/postcss-purgecss",
+            "fumadocs-mdx",
+            "@nuxtjs/i18n",
+        ],
+    );
+    let hardhat = output(&results, "hardhat");
+    assert_entries(&hardhat.entries, &["hardhat.config.{js,cjs,mjs,ts,cts,mts}"]);
+    assert_deps(hardhat, &["hardhat"]);
+    assert_entries(
+        &output(&results, "temporal").production_entries,
+        &["src/workflows{,/index}.{js,cjs,mjs,ts,cts,mts}"],
+    );
+    assert_entries(
+        &output(&results, "openapi-ts").entries,
+        &["openapi-ts.config.{js,ts,mjs,cjs,mts,cts}"],
+    );
+    assert_entries(&output(&results, "danger").entries, &["dangerfile.{js,cjs,mjs,ts}"]);
+    assert_entries(
+        &output(&results, "changelogen").entries,
+        &["changelog.config.{js,ts,mjs,cjs,mts,cts}"],
+    );
+    assert_entries(&output(&results, "purgecss").entries, &["purgecss.config.js"]);
+    assert_entries(&output(&results, "fumadocs").entries, &["content/**/*.mdx"]);
+    assert_entries(
+        &output(&results, "nuxtjs-i18n").entries,
+        &["i18n/i18n.config.{js,mjs,ts}"],
+    );
+    let nested = resolve_with(&[], &["changelogen"], false, &IndexMap::new());
+    assert!(!nested.iter().any(|(id, _)| *id == "changelogen"), "root only");
+}
+
+#[test]
+fn react_email_preview_commands_and_dir() {
+    let results = resolve_with_scripts(&[], &["react-email"], &[("dev", "email dev --dir src/mail")]);
+    let out = output(&results, "react-email");
+    assert_deps(out, &["@react-email/ui", "@react-email/preview-server"]);
+    assert!(out.referenced_dependencies.iter().all(|d| d.optional));
+    assert_entries(&out.entries, &["emails/**/*.tsx", "src/mail/**/*.tsx"]);
+    let results = resolve_with_scripts(&[], &["react-email"], &[("export", "email export")]);
+    assert_absent(output(&results, "react-email"), &["@react-email/ui"]);
+}
+
+#[test]
+fn playwright_ct_reads_its_config_like_playwright() {
+    let results = resolve(
+        &[(
+            "playwright-ct.config.ts",
+            r#"export default { testDir: "./tests/ct", reporter: [["playwright-ctrf-json-reporter"]] };"#,
+        )],
+        &["@playwright/experimental-ct-react"],
+    );
+    let out = output(&results, "playwright-ct");
+    assert_entries(
+        &out.entries,
+        &[
+            "tests/ct/**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "playwright/index.{js,ts,jsx,tsx}",
+        ],
+    );
+    assert_deps(out, &["playwright-ctrf-json-reporter"]);
+}
+
+#[test]
+fn sst_handlers_in_the_config_and_the_modules_it_imports() {
+    let results = resolve(
+        &[
+            (
+                "sst.config.ts",
+                r#"/// <reference path="./.sst/platform/config.d.ts" />
+                export default $config({
+                  app() { return { name: "app", home: "aws" }; },
+                  async run() {
+                    new sst.aws.Function("Cron", { handler: "packages/functions/src/cron.handler" });
+                    const infra = await import("./infra/api");
+                    await import("./infra");
+                    return { api: infra.api.url };
+                  },
+                });"#,
+            ),
+            (
+                "infra/api.ts",
+                r#"import { bucket } from "./storage";
+                export const api = new sst.aws.ApiGatewayV2("Api");
+                api.route("GET /", "packages/functions/src/api.handler");
+                api.route("POST /", { handler: "packages/functions/src/post.main" });"#,
+            ),
+            (
+                "infra/storage.ts",
+                r#"export const bucket = new sst.aws.Bucket("B", { notifications: [{ name: "n", function: { handler: "packages/functions/src/notify.handler" } }] });"#,
+            ),
+            (
+                "infra/index.ts",
+                r#"new sst.aws.Function("Edge", { handler: "edge/index.ts.handler" });"#,
+            ),
+        ],
+        &["sst"],
+    );
+    let out = output(&results, "sst");
+    let any = "{ts,tsx,mts,cts,js,jsx,mjs,cjs}";
+    assert_entries(
+        &out.production_entries,
+        &[
+            &format!("packages/functions/src/cron.{any}"),
+            &format!("packages/functions/src/api.{any}"),
+            &format!("packages/functions/src/post.{any}"),
+            &format!("packages/functions/src/notify.{any}"),
+            "edge/index.ts",
+        ],
+    );
+    assert!(!out.entries_incomplete);
+}
+
+#[test]
+fn qwik_entries_follow_src_dir_and_routes_dir() {
+    let results = resolve(
+        &[(
+            "vite.config.ts",
+            r#"import { qwikVite } from "@builder.io/qwik/optimizer";
+            import { qwikCity } from "@builder.io/qwik-city/vite";
+            export default defineConfig(() => ({ plugins: [qwikCity({ routesDir: "app/pages" }), qwikVite({ srcDir: "app" })] }));"#,
+        )],
+        &["@builder.io/qwik", "vite"],
+    );
+    let out = output(&results, "qwik");
+    assert_entries(&out.entries, &["app/entry.dev.tsx"]);
+    assert_entries(
+        &out.production_entries,
+        &["app/root.tsx", "app/entry.*.tsx", "app/pages/**/*.{tsx,ts,md,mdx}"],
+    );
+    assert!(out.virtual_modules.contains(&"@qwik-city-plan".to_owned()));
+}
+
+#[test]
+fn quasar_source_files_boot_and_css() {
+    let results = resolve(
+        &[(
+            "quasar.config.js",
+            r#"const { configure } = require("quasar/wrappers");
+            module.exports = configure(function (ctx) {
+              return {
+                boot: ["i18n", { path: "axios.ts", server: false }],
+                css: ["app.scss", "~animate.css/animate.min.css"],
+                sourceFiles: { router: "src/routing/main" },
+                build: { vitePlugins: [] },
+              };
+            });"#,
+        )],
+        &["@quasar/app-vite"],
+    );
+    let out = output(&results, "quasar");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "src/boot/i18n.{js,ts}",
+            "src/boot/axios.ts",
+            "src/css/app.scss",
+            "src/routing/main.{js,ts}",
+            "src/App.vue",
+            "src-ssr/server.{js,ts}",
+        ],
+    );
+    assert_deps(out, &["animate.css"]);
+}
+
+#[test]
+fn stencil_global_files_tsconfig_and_setup() {
+    let results = resolve(
+        &[
+            (
+                "stencil.config.ts",
+                r#"import { Config } from "@stencil/core";
+                export const config: Config = {
+                  srcDir: "lib",
+                  globalScript: "lib/global/app.ts",
+                  globalStyle: "lib/global/app.css",
+                  tsconfig: "tsconfig.lib.json",
+                  outputTargets: [{ type: "www" }, { type: "global-style", input: "lib/theme.css" }],
+                  testing: { setupFilesAfterEnv: ["./jest.setup.ts"] },
+                };"#,
+            ),
+            ("tsconfig.lib.json", r#"{"compilerOptions":{"types":["jest"]}}"#),
+        ],
+        &["@stencil/core", "typescript"],
+    );
+    let out = output(&results, "stencil");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "lib/**/*.tsx",
+            "lib/global/app.ts",
+            "lib/global/app.css",
+            "lib/theme.css",
+        ],
+    );
+    assert_entries(&out.entries, &["jest.setup.ts", "**/*.spec.{ts,tsx}"]);
+    assert!(out.config_files.iter().any(|f| f.ends_with("tsconfig.lib.json")));
+}
+
+#[test]
+fn eleventy_input_and_data_directories() {
+    let results = resolve(
+        &[(
+            "eleventy.config.js",
+            r#"module.exports = function (eleventyConfig) {
+              eleventyConfig.addPassthroughCopy("img");
+              return { dir: { input: "site", data: "data" }, templateFormats: ["md", "11ty.js"] };
+            };"#,
+        )],
+        &["@11ty/eleventy"],
+    );
+    let out = output(&results, "eleventy");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "site/data/**/*.{js,cjs,mjs}",
+            "site/**/*.{md,11ty.js}",
+            "site/**/*.11tydata.{js,cjs,mjs}",
+        ],
+    );
+}
+
+#[test]
+fn cucumber_profiles_imports_and_formatters() {
+    let results = resolve(
+        &[(
+            "cucumber.yml",
+            "default:\n  import: [steps/**/*.ts]\n  format: [progress, '@cucumber/pretty-formatter', 'html:out.html']\nci:\n  require: [support/env.js]\n  format: [['./reporters/custom.js', 'out.txt']]\n",
+        )],
+        &["@cucumber/cucumber"],
+    );
+    let out = output(&results, "cucumber");
+    assert_entries(
+        &out.entries,
+        &[
+            "steps/**/*.ts",
+            "support/env.js",
+            "features/**/*.{js,cjs,mjs}",
+            "reporters/custom.js",
+        ],
+    );
+    assert_deps(out, &["@cucumber/pretty-formatter"]);
+    assert_absent(out, &["html", "progress"]);
+}
+
+#[test]
+fn relay_artifact_directories() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","relay":{"src":"./src","artifactDirectory":"./src/__gen__"}}"#,
+    );
+    let results = resolve(&[manifest], &["babel-plugin-relay"]);
+    assert_entries(&output(&results, "relay").production_entries, &["src/__gen__/**"]);
+    let results = resolve(
+        &[("relay.config.json", r#"{"projects":{"web":{"language":"typescript"}}}"#)],
+        &["vite-plugin-relay"],
+    );
+    assert_entries(&output(&results, "relay").production_entries, &["**/__generated__/*"]);
+}
+
+#[test]
+fn orval_mutators_and_transformers() {
+    let results = resolve(
+        &[(
+            "orval.config.ts",
+            r#"import { defineConfig } from "orval";
+            export default defineConfig({ api: { input: { target: "./spec.yaml", override: { transformer: "./transform.js" } }, output: { override: { mutator: { path: "./src/http.ts", name: "http" } } } } });"#,
+        )],
+        &["orval"],
+    );
+    assert_entries(&output(&results, "orval").entries, &["transform.js", "src/http.ts"]);
+}
+
+#[test]
+fn vite_plugin_pwa_inject_manifest_worker() {
+    let results = resolve(
+        &[(
+            "vite.config.ts",
+            r#"import { VitePWA } from "vite-plugin-pwa";
+            export default { plugins: [VitePWA({ strategies: "injectManifest", srcDir: "src", filename: "sw.ts" })] };"#,
+        )],
+        &["vite-plugin-pwa"],
+    );
+    assert_entries(&output(&results, "vite-plugin-pwa").production_entries, &["src/sw.ts"]);
+    let results = resolve(
+        &[(
+            "nuxt.config.ts",
+            r#"export default defineNuxtConfig({ modules: ["@vite-pwa/nuxt"], pwa: { strategies: "injectManifest" } });"#,
+        )],
+        &["@vite-pwa/nuxt"],
+    );
+    assert_entries(
+        &output(&results, "vite-plugin-pwa").production_entries,
+        &["public/sw.js"],
+    );
+}
+
+#[test]
+fn xo_legacy_config_names_eslint_packages() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","xo":{"extends":"xo-react","plugins":["unicorn"],"parser":"@babel/eslint-parser"}}"#,
+    );
+    let results = resolve(&[manifest], &["xo"]);
+    let out = output(&results, "xo");
+    assert_deps(
+        out,
+        &[
+            "eslint-config-xo-react",
+            "eslint-plugin-unicorn",
+            "@babel/eslint-parser",
+        ],
+    );
+    assert_entries(&out.entries, &["xo.config.{js,cjs,mjs,ts,cts,mts}"]);
+}
+
+#[test]
+fn textlint_rules_presets_filters_and_plugins() {
+    let results = resolve_with_scripts(
+        &[(
+            ".textlintrc.json",
+            r#"{"rules":{"no-todo":true,"off-rule":false,"preset-ja-technical-writing":true,"@textlint-rule/preset-google":{},"./rules/local.js":true},"filters":{"comments":true},"plugins":["@textlint/markdown"]}"#,
+        )],
+        &["textlint", "textlint-rule-preset-ja-technical-writing"],
+        &[("lint", "textlint --rule terminology --preset jtf-style docs")],
+    );
+    let out = output(&results, "textlint");
+    assert_deps(
+        out,
+        &[
+            "textlint-rule-no-todo",
+            "textlint-rule-preset-ja-technical-writing",
+            "@textlint-rule/textlint-rule-preset-google",
+            "textlint-filter-rule-comments",
+            "@textlint/textlint-plugin-markdown",
+            "textlint-rule-terminology",
+            "textlint-rule-preset-jtf-style",
+        ],
+    );
+    assert_absent(out, &["textlint-rule-off-rule"]);
+    assert_entries(&out.entries, &["rules/local.js"]);
+}
+
+#[test]
+fn rstest_include_environment_setup_and_projects() {
+    let results = resolve(
+        &[
+            (
+                "rstest.config.ts",
+                r#"import { defineConfig } from "@rstest/core";
+                export default defineConfig({ projects: ["packages/*", { root: "web", include: ["tests/**/*.test.tsx"], testEnvironment: "happy-dom", setupFiles: ["./setup.ts"], browser: { enabled: true } }], coverage: { provider: "v8" } });"#,
+            ),
+            (
+                "packages/a/rstest.config.ts",
+                r#"export default { testEnvironment: "jsdom" };"#,
+            ),
+        ],
+        &["@rstest/core"],
+    );
+    let out = output(&results, "rstest");
+    assert_entries(&out.entries, &["web/tests/**/*.test.tsx", "web/setup.ts"]);
+    assert_deps(
+        out,
+        &[
+            "happy-dom",
+            "@rstest/browser",
+            "playwright",
+            "jsdom",
+            "@rstest/coverage-v8",
+        ],
+    );
+    assert!(
+        out.config_files
+            .iter()
+            .any(|f| f.ends_with("packages/a/rstest.config.ts"))
+    );
+}
+
+#[test]
+fn sveltejs_package_maps_output_to_library_sources() {
+    let results = resolve_with_scripts(
+        &[],
+        &["@sveltejs/package"],
+        &[(
+            "package",
+            "svelte-kit sync && svelte-package -i src/components -o package",
+        )],
+    );
+    let out = output(&results, "sveltejs-package");
+    assert_eq!(
+        out.build_dirs,
+        [skif_js_plugins::BuildDir {
+            out_dir: "package".to_owned(),
+            root_dir: "src/components".to_owned()
+        }]
+    );
+    let results = resolve(&[], &["@sveltejs/package"]);
+    assert_eq!(output(&results, "sveltejs-package").build_dirs[0].out_dir, "dist");
+}
+
+#[test]
+fn taskfile_tasks_and_includes() {
+    let results = resolve(
+        &[
+            (
+                "Taskfile.yml",
+                "version: '3'\nincludes:\n  docs: ./docs/Taskfile.yml\n  other:\n    taskfile: ./other.yml\ntasks:\n  build: tsc -b\n  lint:\n    cmds:\n      - eslint .\n      - cmd: node scripts/check.js\n        defer: { cmd: node scripts/cleanup.js }\n",
+            ),
+            ("docs/Taskfile.yml", "version: '3'\ntasks:\n  docs:\n    cmd: typedoc\n"),
+        ],
+        &[],
+    );
+    let out = output(&results, "taskfile");
+    for binary in ["tsc", "eslint", "typedoc"] {
+        assert!(
+            out.referenced_binaries.contains(&binary.to_owned()),
+            "{binary}: {:?}",
+            out.referenced_binaries
+        );
+    }
+    assert_entries(&out.entries, &["scripts/check.js", "scripts/cleanup.js"]);
+    let results = resolve(&[("taskfile.dist.yaml", "version: '3'\n")], &[]);
+    output(&results, "taskfile");
+    let nested = resolve_with(&[("Taskfile.yml", "version: '3'\n")], &[], false, &IndexMap::new());
+    assert!(!nested.iter().any(|(id, _)| *id == "taskfile"), "root only");
+}
+
+#[test]
+fn mise_tasks_run_in_their_directory() {
+    let results = resolve(
+        &[
+            (
+                "mise.toml",
+                "[tasks.build]\nrun = \"node scripts/build.js\"\n[tasks.web]\nrun = [\"vite build\", \"node tools/post.js\"]\ndir = \"{{config_root}}/web\"\n[tasks.tpl]\nrun = \"node {{arg(name='x')}}.js\"\n",
+            ),
+            (
+                ".config/mise/conf.d/extra.toml",
+                "[tasks.extra]\nrun = \"node extra.js\"\n",
+            ),
+        ],
+        &[],
+    );
+    let out = output(&results, "mise");
+    assert_entries(&out.entries, &["scripts/build.js", "web/tools/post.js", "extra.js"]);
+    assert!(
+        !out.referenced_binaries.contains(&"vite".to_owned()),
+        "a command in another directory"
+    );
+}
+
+#[test]
+fn moonrepo_task_commands() {
+    let results = resolve(
+        &[(
+            ".moon/tasks.yml",
+            "tasks:\n  lint:\n    command: eslint .\n  gen:\n    command: [node, $workspaceRoot/scripts/gen.js]\n",
+        )],
+        &["@moonrepo/cli"],
+    );
+    let out = output(&results, "moonrepo");
+    assert!(out.referenced_binaries.contains(&"eslint".to_owned()));
+    assert_entries(&out.entries, &["scripts/gen.js"]);
+}
+
+#[test]
+fn wireit_commands_from_package_json() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","scripts":{"build":"wireit"},"wireit":{"build":{"command":"tsc && node scripts/copy.js","dependencies":["gen"]},"gen":{"dependencies":["build"]}}}"#,
+    );
+    let results = resolve(&[manifest], &["wireit"]);
+    let out = output(&results, "wireit");
+    assert!(out.referenced_binaries.contains(&"tsc".to_owned()));
+    assert_entries(&out.entries, &["scripts/copy.js"]);
+}
+
+#[test]
+fn travis_before_commands() {
+    let results = resolve(
+        &[(
+            ".travis.yml",
+            "language: node_js\nbefore_install: npm i -g codecov\nbefore_script:\n  - node scripts/prepare.js\nscript: npm test\n",
+        )],
+        &[],
+    );
+    assert_entries(&output(&results, "travis").entries, &["scripts/prepare.js"]);
+}
+
+#[test]
+fn buf_local_plugins_are_commands() {
+    let results = resolve_with_scripts(
+        &[(
+            "proto/buf.gen.yaml",
+            "version: v2\nplugins:\n  - local: protoc-gen-es\n    out: src/gen\n  - local: [node, tools/protoc-gen-custom.js]\n    out: x\n  - remote: buf.build/bufbuild/es\n    out: y\n",
+        )],
+        &["@bufbuild/buf", "@bufbuild/protoc-gen-es"],
+        &[("gen", "buf generate --template proto/buf.gen.yaml")],
+    );
+    let out = output(&results, "buf");
+    assert!(
+        out.referenced_binaries.contains(&"protoc-gen-es".to_owned()),
+        "{:?}",
+        out.referenced_binaries
+    );
+    assert_entries(&out.entries, &["tools/protoc-gen-custom.js"]);
+    let results = resolve(
+        &[("buf.gen.yaml", "version: v1\nplugins:\n  - plugin: es\n    out: gen\n")],
+        &["@bufbuild/buf"],
+    );
+    assert!(
+        output(&results, "buf")
+            .referenced_binaries
+            .contains(&"protoc-gen-es".to_owned())
+    );
+}
+
+#[test]
+fn nano_staged_commands() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","nano-staged":{"*.{js,ts}":["prettier --write","eslint --fix"],"*.md":"markdownlint"}}"#,
+    );
+    let results = resolve(&[manifest], &["nano-staged"]);
+    let out = output(&results, "nano-staged");
+    for binary in ["prettier", "eslint", "markdownlint"] {
+        assert!(out.referenced_binaries.contains(&binary.to_owned()), "{binary}");
+    }
 }
