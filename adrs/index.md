@@ -57,6 +57,7 @@ old one.
 | 0047 | [npm Package Name skif-cli](0047-npm-package-name-skif-cli.md) | accepted |
 | 0048 | [Catalog Version Divergence and Reasons on Ignores](0048-catalog-version-divergence-and-reasons-on-ignores.md) | accepted |
 | 0049 | [JS Corrections from Adjudicating knip Disagreements: Linked Files, Subpath Imports, Aliased Packages, Computed Specifiers, Component Styles and Three Plugins](0049-js-corrections-from-adjudicating-knip-disagreements.md) | accepted |
+| 0050 | [`package.json` Formatting: The `package-json-format` Rule and `skif format`](0050-package-json-formatting-the-package-json-format-rule-and-skif-format.md) | accepted |
 
 ## Effective statements
 
@@ -142,3 +143,4 @@ the lines below stay as written; this table says which record governs.
 | [0013](0013-distribution-and-naming.md), npm row | the npm umbrella package is `skif` | [0047](0047-npm-package-name-skif-cli.md): it is `skif-cli` |
 | [0018](0018-npm-distribution-via-napi-rs.md), package name | the npm package is `skif` and the hooks run `pnpm dlx skif@<version>` | [0047](0047-npm-package-name-skif-cli.md): `skif-cli`, with `napi.packageName` keeping the platform packages |
 | [0036](0036-thirty-nine-more-knip-plugins-by-real-world-usage.md), `tap` and plugin count | no `tap` plugin is added because knip has none; the table holds 102 plugins | [0049](0049-js-corrections-from-adjudicating-knip-disagreements.md): `tap`, `oxfmt` and `bun` are added; the table holds 105 plugins |
+| [0001](0001-mission-and-scope.md), out of scope, "Formatting `package.json`" | key order outside dependency maps, indentation and whitespace belong to a formatter | [0050](0050-package-json-formatting-the-package-json-format-rule-and-skif-format.md): the opt-in rule `package-json-format` and `skif format [--check]` order, sort and collapse `package.json` fields as syncpack's `format` does, and check the layout when `[format] indent` is set; other files are still not formatted |
