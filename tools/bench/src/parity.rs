@@ -381,7 +381,10 @@ fn install_command(repo: &Repo, dir: &Path) -> Result<(String, Vec<String>), Str
 }
 
 /// Installs the dependencies of a checkout without running lifecycle scripts; `Some(reason)` when that fails.
-fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duration) -> Result<Option<String>> {
+///
+/// # Errors
+/// Fails when the install cannot be started or the marker cannot be written.
+pub fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duration) -> Result<Option<String>> {
     let timeout = repo.install_timeout_secs.map_or(default_timeout, Duration::from_secs);
     let marker = dir.join(INSTALLED_MARKER);
     if fs::read_to_string(&marker).is_ok_and(|rev| rev.trim() == repo.rev) {
