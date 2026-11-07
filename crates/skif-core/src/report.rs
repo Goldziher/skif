@@ -58,10 +58,13 @@ fn start(diagnostic: &Diagnostic) -> u32 {
 }
 
 fn compare(a: &Diagnostic, b: &Diagnostic) -> Ordering {
-    a.location
-        .path
-        .cmp(&b.location.path)
-        .then_with(|| start(a).cmp(&start(b)))
+    // Most neighbours share a file; equal bytes are equal paths, without comparing them component by component.
+    let path = if a.location.path.as_os_str() == b.location.path.as_os_str() {
+        Ordering::Equal
+    } else {
+        a.location.path.cmp(&b.location.path)
+    };
+    path.then_with(|| start(a).cmp(&start(b)))
         .then_with(|| a.rule.cmp(&b.rule))
         .then_with(|| a.message.cmp(&b.message))
 }
