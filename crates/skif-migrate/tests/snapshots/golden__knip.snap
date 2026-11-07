@@ -20,6 +20,10 @@ ignore-exports-used-in-file = true
 ignore-workspaces = ["examples/**"]
 include-entry-exports = true
 
+[js.cycles]
+allow = [["src/a.ts", "src/b.ts"]]
+dynamic-imports = true
+
 [js.plugins]
 vitest = { config = ["vitest.config.ts", "vitest.workspace.ts"], entry = ["**/*.test.ts"] }
 storybook = false

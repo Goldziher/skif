@@ -1223,6 +1223,20 @@ pub enum JsDiscovery {
     Walk,
 }
 
+/// `[js.cycles]`: knip's `cycles` options of the `circular-imports` rule.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct JsCycles {
+    /// Cycles that are not reported, each the list of its files relative to the workspace root. A cycle is allowed
+    /// when its files are exactly the files of one entry, in any order.
+    pub allow: Vec<Vec<String>>,
+    /// Count dynamic `import()` as an edge of a cycle. Off by default: a dynamic import runs after the module graph
+    /// is loaded, so it cannot cause an initialisation-order problem.
+    pub dynamic_imports: bool,
+}
+
 /// `[js]`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -1259,6 +1273,8 @@ pub struct Js {
     /// trusts the index alone (faster, blind to untracked and deleted files); `walk` always walks. Both index modes
     /// fall back to the walk when the workspace is not in a git work tree with a usable SHA-1 index.
     pub discovery: JsDiscovery,
+    /// What `circular-imports` reports.
+    pub cycles: JsCycles,
     /// Per-workspace overrides keyed by directory. The key `"."` is the root workspace.
     pub workspaces: IndexMap<String, JsWorkspace>,
     /// Plugin switches keyed by plugin name.
@@ -1338,6 +1354,7 @@ impl Default for Js {
             production: false,
             include_entry_exports: false,
             discovery: JsDiscovery::Auto,
+            cycles: JsCycles::default(),
             workspaces: IndexMap::new(),
             plugins: IndexMap::new(),
             extend_ignore: Vec::new(),

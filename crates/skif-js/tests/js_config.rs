@@ -434,3 +434,35 @@ fn stale_js_config_reports_entry_project_and_ignore_patterns_that_match_no_file(
     );
     insta::assert_snapshot!(messages(&diagnostics).join("\n"));
 }
+
+fn cycle_files() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("package.json", r#"{"name":"app","private":true,"main":"src/index.ts"}"#),
+        (
+            "src/index.ts",
+            "import { a } from \"./a\";\nimport { c } from \"./c\";\nconsole.log(a, c);\n",
+        ),
+        ("src/a.ts", "import { b } from \"./b\";\nexport const a = () => b;\n"),
+        ("src/b.ts", "import { a } from \"./a\";\nexport const b = () => a;\n"),
+        ("src/c.ts", "export const c = () => import(\"./d\");\n"),
+        ("src/d.ts", "import { c } from \"./c\";\nexport const d = c;\n"),
+    ]
+}
+
+#[test]
+fn cycles_allow_and_dynamic_imports() {
+    let on = "[rules]\ncircular-imports = \"warn\"\n";
+    let cycles = |toml: &str| found(&lint(&cycle_files(), &format!("{on}{toml}")), "circular-imports");
+    assert_eq!(cycles(""), ["src/a.ts: 2 modules import each other in a cycle"]);
+    assert_eq!(
+        cycles("[js.cycles]\ndynamic-imports = true\n"),
+        [
+            "src/a.ts: 2 modules import each other in a cycle",
+            "src/c.ts: 2 modules import each other in a cycle",
+        ]
+    );
+    assert_eq!(
+        cycles("[js.cycles]\ndynamic-imports = true\nallow = [[\"./src/b.ts\", \"src/a.ts\"], [\"src/c.ts\"]]\n"),
+        ["src/c.ts: 2 modules import each other in a cycle"]
+    );
+}

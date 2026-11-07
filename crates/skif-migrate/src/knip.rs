@@ -381,14 +381,58 @@ fn read_root(state: &mut State<'_>, src: &Src, root: &str, config: &ConfigValue,
                     );
                 }
             }
-            "cycles" => state.note(
-                src,
-                NoteClass::Unsupported,
-                path,
-                "`circular-imports` has no `allow` or `dynamicImports` options; it is written at the level of the \
-                 `cycles` issue type",
-            ),
+            "cycles" => cycles(state, src, &path, item),
             _ => workspace_key(state, src, &target, key, &path, item),
+        }
+    }
+}
+
+/// `cycles`: `allow` and `dynamicImports` go to `[js.cycles]`.
+fn cycles(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue) {
+    let section = ["js".to_owned(), "cycles".to_owned()];
+    for (key, item) in entries(state, src, path, value) {
+        let key_path = join(path, key);
+        match key {
+            "dynamicImports" => {
+                if let Some(enabled) = boolean(state, src, &key_path, item) {
+                    table(&mut state.doc, &section).set("dynamic-imports", Val::Bool(enabled));
+                    state.note(
+                        src,
+                        NoteClass::Exact,
+                        key_path,
+                        "written to [js.cycles] dynamic-imports",
+                    );
+                }
+            }
+            "allow" => {
+                let ConfigValue::Array(items) = item else {
+                    state.note(src, NoteClass::Human, key_path, "expected an array of file lists");
+                    continue;
+                };
+                let mut allowed = Vec::new();
+                for (index, files) in items.iter().enumerate() {
+                    let files = string_list(state, src, &format!("{key_path}[{index}]"), files);
+                    if !files.is_empty() {
+                        allowed.push(Val::strs(files));
+                    }
+                }
+                if !allowed.is_empty() {
+                    table(&mut state.doc, &section).set("allow", Val::List(allowed));
+                    state.note(
+                        src,
+                        NoteClass::Approximate,
+                        key_path,
+                        "written to [js.cycles] allow; skif reports a cycle as the set of its files, so an entry \
+                         allows the cycle with exactly those files in any order",
+                    );
+                }
+            }
+            _ => state.note(
+                src,
+                NoteClass::Human,
+                key_path,
+                "not a knip `cycles` option (`allow`, `dynamicImports`)",
+            ),
         }
     }
 }

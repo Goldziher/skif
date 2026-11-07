@@ -272,6 +272,10 @@ production = false
 include-entry-exports = false
 discovery = "auto"
 
+[js.cycles]
+allow = [["src/a.ts", "src/b.ts"]]
+dynamic-imports = false
+
 [js.workspaces."."]
 ignore-dependencies = ["rimraf"]
 
@@ -337,6 +341,12 @@ their own file always count as used. **`ignore-members`** lists enum and namespa
 `unused-enum-members` and `unused-namespace-members`. A member is also exempt when its own JSDoc carries a tag that
 exempts an export (`@public`, `@beta`, `@alpha`, `@alias`, `@internal` with `production`, or an `ignore-tags` name).
 **`include-entry-exports`** may be set per workspace.
+
+**`[js.cycles]`** configures `circular-imports` (off by default), like knip's `cycles`. `allow` lists cycles that are
+not reported, each as the list of its files relative to the workspace root (`./` is optional): skif reports a cycle as
+the set of modules that import each other, so an entry allows the cycle whose files are exactly its files, in any
+order. `dynamic-imports = true` counts `import()` as an edge; by default only static value imports do, and type-only
+imports never do.
 
 **`stale-js-config`** (a warning) reports `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
 `ignore-workspaces` entries that matched nothing in the run, `[js.workspaces]` keys that select no package, and
