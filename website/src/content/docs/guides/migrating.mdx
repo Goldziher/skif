@@ -120,15 +120,17 @@ Every construct that was not copied one to one has a note with the file, the key
 | `dependencyGroups`, `strict`, `sourceMode` | none (X or H) |
 | `source` | dropped when it lists the workspace patterns (D); otherwise H |
 | `sortAz` with dependency maps | `unsorted-dependencies` stays on; `sortFirst`, `sortExports`, `sortPackages`, `indent`, `formatBugs` and `formatRepository` only matter to `syncpack format` and are dropped |
-| `updateGroups`, `minimumReleaseAge`, `maxConcurrentRequests` | dropped: skif never queries a registry |
+| `updateGroups[]` with `target` or `isIgnored` | `[[update-groups]]` with `target` or `ignored = true`, and the same selectors; a group with both, neither, or another target is not written (H) |
+| `minimumReleaseAge`, `maxConcurrentRequests` | `[update] minimum-release-age`, `max-concurrent-requests` |
 | the override sections (`pnpmOverrides`, `overrides`, `resolutions`) | `[policy] override-reading = "syncpack"`: an override key is its own dependency, so `parent@4>child` is not compared with `child`; nested objects and `pnpm.overrides` of a `package.json` are not read, as in syncpack 15 (`pnpmOverrides` is the `overrides` of `pnpm-workspace.yaml`). Without it skif would compare them with the dependency they replace |
 | `--dependency-types` | `[policy] dependency-types` |
 
 Without `--dependency-types`, `[policy] dependency-types` is set to the scope syncpack lints by default (`prod`, `dev`,
 `peer`, `local`, `resolutions`, `overrides`, `pnpm-overrides` and your custom types; optional dependencies are not part
 of it), because skif's own default is narrower. `--dependencies` and
-`--specifier-types` narrowed the old run; skif checks every dependency, so they are reported. `syncpack format` and
-`syncpack update` have no equivalent.
+`--specifier-types` narrowed the old run; skif checks every dependency, so they are reported. `syncpack update` is
+`skif update` with the same `--check`, `--target` and `--dependencies` (A: `--interactive` has no equivalent);
+`syncpack format` has none.
 
 ## knip
 

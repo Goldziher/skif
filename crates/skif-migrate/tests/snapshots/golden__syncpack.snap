@@ -12,6 +12,10 @@ expression: migration.toml
 dependency-types = ["prod", "dev"]
 override-reading = "syncpack"
 
+[update]
+minimum-release-age = 2880
+max-concurrent-requests = 4
+
 # syncpack versionGroups[0]: Pin react
 [[version-groups]]
 label = "Pin react"
@@ -73,6 +77,17 @@ ignored = true
 [[semver-groups]]
 dependency-types = ["!dev", "!optional"]
 range = "^"
+
+# syncpack updateGroups[0]
+[[update-groups]]
+dependencies = ["@types/**"]
+ignored = true
+
+# syncpack updateGroups[1]: Hold React to minors
+[[update-groups]]
+label = "Hold React to minors"
+dependencies = ["react", "react-dom"]
+target = "minor"
 
 # syncpack customTypes.engines
 [[custom-types]]
