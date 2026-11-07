@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 102] = [
+const ADR_IDS: [&str; 104] = [
     "typescript",
     "eslint",
     "prettier",
@@ -42,6 +42,7 @@ const ADR_IDS: [&str; 102] = [
     "browser-extension",
     "tsdown",
     "oxlint",
+    "oxfmt",
     "angular",
     "karma",
     "esbuild",
@@ -79,6 +80,7 @@ const ADR_IDS: [&str; 102] = [
     "expo-router",
     "tanstack-router",
     "ava",
+    "tap",
     "biome",
     "c8",
     "dotenv",
@@ -2359,6 +2361,33 @@ fn nitro() {
     );
     assert_deps(out, &["nitro-module-x", "nitro-module-y"]);
     assert!(has_virtual(out, "#nitro-internal-*"));
+}
+
+#[test]
+fn tap() {
+    let manifest = (
+        "package.json",
+        r#"{"tap":{"before":"test/setup.js","after":"test/fixtures/cleanup.js"}}"#,
+    );
+    let results = resolve(&[manifest], &["tap"]);
+    let out = output(&results, "tap");
+    assert_entries(
+        &out.entries,
+        &[
+            "{test,tests,__tests__}/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+            "**/*.{test,spec}.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+            "**/test.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+            "test/setup.js",
+            "test/fixtures/cleanup.js",
+        ],
+    );
+}
+
+#[test]
+fn oxfmt() {
+    let results = resolve(&[("oxfmt.config.ts", "export default {};")], &["oxfmt"]);
+    let out = output(&results, "oxfmt");
+    assert!(out.config_files.iter().any(|path| path.ends_with("oxfmt.config.ts")));
 }
 
 #[test]
