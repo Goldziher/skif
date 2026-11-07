@@ -245,3 +245,8 @@ blake3 = "7137af869a1a8ec1124a68a0e29841801ffa77964cbb1a8485a5ab3a38818378"
 number = 49
 status = "accepted"
 blake3 = "57ee9ff85eda7dc829451d63690e462fb1d7e1dbf3a9c19ce039ae63c232cd0e"
+
+[adrs."adrs/0050-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md"]
+number = 50
+status = "accepted"
+blake3 = "1cc213a82b74ed90c668aef7b64ebb931dccb2c95c77a8d4f03968f87d863a5b"

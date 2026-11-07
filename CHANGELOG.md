@@ -9,6 +9,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `skif mcp`, a Model Context Protocol server on stdio for AI agents, with the tools `lint`, `explain_usage` and
+  `list_rules`, which return the documents of `--format json`
+  ([ADR 0050](adrs/0050-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
+- `--watch` lints again whenever a file below the root changes, after 100 milliseconds of quiet; it polls, so it
+  needs no native file events
+  ([ADR 0050](adrs/0050-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
+- `skif lsp`, a minimal language server on stdio that publishes skif's diagnostics when a file is opened or saved
+  ([ADR 0050](adrs/0050-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed

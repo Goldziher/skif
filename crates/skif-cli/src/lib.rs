@@ -18,9 +18,12 @@ mod explain;
 mod fix;
 mod install;
 mod lint;
+mod lsp;
+mod mcp;
 mod migrate;
 mod output;
 mod roots;
+mod watch;
 mod write;
 
 use args::{Cli, Command, Format};
@@ -39,6 +42,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         Err(error) => return usage(&raw, &error),
     };
     match cli.command {
+        None if cli.lint.watch => watch::run(&cli.lint, Env::detect()),
         None => lint::run(&cli.lint, Env::detect()),
         Some(Command::Rules(args)) => commands::rules(&args),
         Some(Command::Schema) => commands::schema(),
@@ -46,6 +50,8 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         Some(Command::Config(args)) => config::run(&args),
         Some(Command::ExplainUsage(args)) => explain::run(&args),
         Some(Command::Migrate(args)) => migrate::run(&args),
+        Some(Command::Mcp) => mcp::run(),
+        Some(Command::Lsp) => lsp::run(),
     }
 }
 

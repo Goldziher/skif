@@ -1,0 +1,89 @@
+---
+title: Editors and agents
+description: Use skif from AI agents through its MCP server, in editors through its language server, and re-lint on every change with watch mode.
+---
+
+skif runs as a server for the tools you write code with. Everything here is part of the `skif` binary; nothing
+else to install. The design is recorded in
+[ADR 0050](https://github.com/Goldziher/skif/blob/main/adrs/0050-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md).
+
+## MCP server for agents
+
+`skif mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on stdio. An agent calls its tools
+and gets skif's findings as data: each tool returns the same JSON document the matching command prints with
+`--format json`, as structured content and as text.
+
+| Tool | Arguments | Returns |
+| --- | --- | --- |
+| `lint` | `path` (default `.`), `recursive`, `rules` (run only these rule IDs), `production`, `no_js` | the [JSON report](../../reference/cli/#output-formats) |
+| `explain_usage` | `file` (relative to `path`), `export`, `path` (default `.`), `production` | the `report` of [`skif explain-usage`](../../reference/cli/#explaining-usage) |
+| `list_rules` | none | the document of `skif rules --format json` |
+
+A relative `path` is relative to the directory the server was started in, so start it in the repository. Problems
+in the project are the report, not an error. When a tool cannot run (no workspace, an invalid `skif.toml`, an
+unknown rule ID, a file outside the module graph) the result is flagged `isError` and holds the JSON `error`
+document with its `kind` and message. The server never writes a file: to apply fixes, run `skif --fix`.
+
+Claude Code:
+
+```sh
+claude mcp add skif -- skif mcp
+```
+
+Clients configured with an `mcpServers` object, such as Cursor's `.cursor/mcp.json` and Claude Desktop (VS Code's
+`.vscode/mcp.json` names the object `servers`):
+
+```json
+{
+  "mcpServers": {
+    "skif": { "command": "skif", "args": ["mcp"] }
+  }
+}
+```
+
+With the npm package and no global install, use `"command": "npx", "args": ["-y", "skif-cli", "mcp"]`. The server
+speaks the protocol revisions `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05`.
+
+## Watch mode
+
+`skif --watch [PATH]` lints, then lints again whenever a file below the root changes, until you press Ctrl-C. Every
+other lint flag applies to each run. With human output on a terminal the screen is cleared before each run; with
+`--format json` stdout holds one JSON document per run.
+
+The watcher checks the files below the root every 200 milliseconds (longer in a repository whose scan takes
+longer), skips `node_modules`, `.git` and `target`, and honours `.gitignore`, so build output does not trigger a
+run. A run starts once the tree has been quiet for 100 milliseconds, so a branch switch or a formatter that touches
+many files causes one run. When the configuration cannot be read, the error is printed and the watcher keeps going,
+so the next save of `skif.toml` runs again. `--watch` cannot be combined with `--fix` or `--fix-unsafe`.
+
+## Language server
+
+`skif lsp` is a minimal [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) server on
+stdio. When the editor opens or saves a file, skif lints the project that contains it and publishes the diagnostics
+of every file of that project, with the rule ID as the code and `skif` as the source; a file whose findings are gone
+gets an empty list. It lints the files as saved on disk, so findings update on save, not while typing. It offers no
+code actions yet: apply fixes with `skif --fix`.
+
+There is no skif editor extension. Any editor that can start a language server for JSON files can run it, for
+example Neovim:
+
+```lua
+vim.lsp.config("skif", {
+  cmd = { "skif", "lsp" },
+  filetypes = { "json", "javascript", "typescript" },
+  root_markers = { "package.json" },
+})
+vim.lsp.enable("skif")
+```
+
+or Helix, in `languages.toml`:
+
+```toml
+[language-server.skif]
+command = "skif"
+args = ["lsp"]
+
+[[language]]
+name = "json"
+language-servers = ["vscode-json-language-server", "skif"]
+```
