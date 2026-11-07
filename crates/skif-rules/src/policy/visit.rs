@@ -37,21 +37,22 @@ type Outcome = Option<(State, Option<Arc<Specifier>>)>;
 pub(super) struct Visitor<'a, 'w> {
     instances: &'a Instances<'w>,
     assignment: &'a Assignment<'a>,
-    verdicts: Vec<Option<Verdict>>,
+    /// The verdicts given so far, in the order they were given; a later one for the same instance replaces it.
+    marks: Vec<(InstanceId, Verdict)>,
 }
 
 impl<'a, 'w> Visitor<'a, 'w> {
-    pub(super) fn new(instances: &'a Instances<'w>, assignment: &'a Assignment<'a>) -> Self {
+    pub(super) const fn new(instances: &'a Instances<'w>, assignment: &'a Assignment<'a>) -> Self {
         Self {
             instances,
             assignment,
-            verdicts: (0..instances.len()).map(|_| None).collect(),
+            marks: Vec::new(),
         }
     }
 
-    /// The verdict of every instance, `None` where the instance is valid.
-    pub(super) fn into_verdicts(self) -> Vec<Option<Verdict>> {
-        self.verdicts
+    /// The verdicts given, in order; apply them in order, a later one for an instance replacing an earlier one.
+    pub(super) fn into_marks(self) -> Vec<(InstanceId, Verdict)> {
+        self.marks
     }
 
     /// Applies `policy` to the instances `ids` of one dependency.
@@ -76,7 +77,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
     }
 
     fn mark(&mut self, id: InstanceId, state: State, target: Option<Arc<Specifier>>) {
-        self.verdicts[id.index()] = Some(Verdict { state, target });
+        self.marks.push((id, Verdict { state, target }));
     }
 
     fn mark_outcome(&mut self, id: InstanceId, outcome: Outcome) {

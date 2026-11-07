@@ -10,6 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
+use rayon::prelude::*;
 use skif_config::{CustomType, DependencyType, OverrideReading};
 use skif_core::{DependencyKind, FixOp, JsonAction, Location, PathSeg};
 use skif_specifier::Specifier;
@@ -45,8 +46,9 @@ pub(crate) enum Origin<'w> {
     Dependency(&'w DependencyEntry),
     /// The `version` field of a workspace package.
     OwnVersion,
-    /// A version in an override section or a custom type, in `package.json` or `pnpm-workspace.yaml`.
-    Field(Field),
+    /// A version in an override section or a custom type, in `package.json` or `pnpm-workspace.yaml`. Boxed: such
+    /// versions are few, and every instance of a large workspace would otherwise carry room for one.
+    Field(Box<Field>),
 }
 
 /// One declared version of a dependency.
@@ -92,7 +94,7 @@ impl<'w> Instance<'w> {
     pub(crate) fn of_field(package: &'w Package, found: fields::Found, is_local: bool) -> Self {
         Self {
             package,
-            origin: Origin::Field(found.field),
+            origin: Origin::Field(Box::new(found.field)),
             ty: found.ty,
             is_local,
             specifier: Specifier::new(&found.version),
@@ -198,8 +200,8 @@ impl<'w> Instances<'w> {
             .all_packages()
             .filter_map(|package| package.name.as_deref())
             .collect();
-        let mut items = Vec::new();
-        for package in support::active_packages(workspace) {
+        let of_package = |package: &'w Package| {
+            let mut items = Vec::with_capacity(package.dependencies.len() + 1);
             if let (Some(name), Some(version)) = (&package.name, &package.version) {
                 items.push(Instance {
                     package,
@@ -223,6 +225,14 @@ impl<'w> Instances<'w> {
                 let is_local = local_names.contains(found.name.as_str());
                 items.push(Instance::of_field(package, found, is_local));
             }
+            items
+        };
+        // Packages are read in parallel, and their instances kept in package order.
+        let packages: Vec<&'w Package> = support::active_packages(workspace).collect();
+        let per_package: Vec<Vec<Instance<'w>>> = packages.into_par_iter().map(of_package).collect();
+        let mut items = Vec::with_capacity(per_package.iter().map(Vec::len).sum());
+        for instances in per_package {
+            items.extend(instances);
         }
         let mut by_name: BTreeMap<String, Vec<InstanceId>> = BTreeMap::new();
         for (index, item) in items.iter().enumerate() {

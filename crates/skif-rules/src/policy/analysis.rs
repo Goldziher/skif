@@ -2,11 +2,12 @@
 
 use std::collections::BTreeSet;
 
+use rayon::prelude::*;
 use skif_config::Config;
 use skif_workspace::Workspace;
 
 use super::groups::{Group, Groups, Policy};
-use super::instances::Instances;
+use super::instances::{InstanceId, Instances};
 use super::state::Verdict;
 use super::visit::Visitor;
 
@@ -52,11 +53,25 @@ impl<'w> Analysis<'w> {
         let (verdicts, unused_groups, invalid_pins) = {
             let groups = Groups::compile(workspace, config);
             let assignment = groups.assign(&instances);
-            let mut visitor = Visitor::new(&instances, &assignment);
-            for (index, group) in groups.groups().iter().enumerate() {
-                for (_, ids) in assignment.dependencies(index) {
-                    visitor.visit(&group.policy, ids);
-                }
+            // Each dependency of each group is visited on its own, in parallel; the verdicts are applied in the order
+            // a single pass would give them.
+            let visits: Vec<(&Policy, &[InstanceId])> = groups
+                .groups()
+                .iter()
+                .enumerate()
+                .flat_map(|(index, group)| assignment.dependencies(index).map(move |(_, ids)| (&group.policy, ids)))
+                .collect();
+            let marks: Vec<Vec<(InstanceId, Verdict)>> = visits
+                .par_iter()
+                .map(|&(policy, ids)| {
+                    let mut visitor = Visitor::new(&instances, &assignment);
+                    visitor.visit(policy, ids);
+                    visitor.into_marks()
+                })
+                .collect();
+            let mut verdicts: Vec<Option<Verdict>> = (0..instances.len()).map(|_| None).collect();
+            for (id, verdict) in marks.into_iter().flatten() {
+                verdicts[id.index()] = Some(verdict);
             }
             let configured = |group: &Group<'_>| {
                 Some(ConfiguredGroup {
@@ -80,7 +95,7 @@ impl<'w> Analysis<'w> {
                 .filter(|group| is_invalid(group))
                 .filter_map(configured)
                 .collect();
-            (visitor.into_verdicts(), unused, invalid)
+            (verdicts, unused, invalid)
         };
         Self {
             instances,
