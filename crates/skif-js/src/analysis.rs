@@ -272,7 +272,8 @@ impl<'a> JsAnalysis<'a> {
 
     /// Exports of `module` that no other module uses, values and types alike, in source order.
     ///
-    /// Exports tagged `@public`, `@beta` or `@alpha` (and `@internal` in production mode, and the `ignore-tags` of `unused-exports`) are not listed.
+    /// Exports tagged `@public`, `@beta`, `@alpha` or `@alias` (and `@internal` in production mode, and the
+    /// `ignore-tags` of `unused-exports`) are not listed.
     #[must_use]
     pub fn unused_exports<'m>(&self, module: &'m Module) -> Vec<&'m Export> {
         if !self.reports_exports_of(module) {
@@ -309,7 +310,7 @@ impl<'a> JsAnalysis<'a> {
 
     pub(crate) fn is_tagged_public(&self, export: &Export) -> bool {
         export.tags.iter().any(|tag| match tag.as_str() {
-            "public" | "beta" | "alpha" => true,
+            "public" | "beta" | "alpha" | "alias" => true,
             "internal" => self.setup.production,
             other => self.setup.ignore_tags.iter().any(|ignored| ignored == other),
         })
