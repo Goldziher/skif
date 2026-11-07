@@ -65,6 +65,7 @@ mapping is read from the sources of the tools (sherif 1.13, syncpack 15.3, knip 
 | `catalog-mismatch` | syncpack: `DiffersToCatalog`, in every highest or lowest version group (skif keeps it on in every group) |
 | `catalog-not-used`, `catalog-missing-entry`, `unresolved-catalog-references` | syncpack only with a `policy: catalog` version group (`NotUsingCatalog`, `MissingFromCatalog`, `DependsOnMissingCatalogDefinition`); knip covers `unresolved-catalog-references` through `catalogReferences` |
 | `unsorted-dependencies` | syncpack only when `sortAz` names a dependency map |
+| `package-json-format` | syncpack `format`: when a format key is set or a script runs `syncpack format` (the rule is off by default) |
 | the rules of the knip issue types that stay enabled | knip (`unused-files`, `unused-dependencies`, `unused-dev-dependencies`, `unused-optional-peer-dependencies`, `unlisted-dependencies`, `unlisted-binaries`, `unresolved-imports`, `unused-exports`, `unused-types`, `unused-namespace-exports`, `unused-namespace-types`, `duplicate-exports`, `unused-enum-members`, `unused-namespace-members`, `unused-catalog-entries`, `unresolved-catalog-references`, `circular-imports`) |
 | `workspace-protocol`, `local-path-dependency`, `incompatible-peer-dependencies`, `member-toolchain-fields` | none of the three |
 | `unparseable-files` | none: knip skips a file it cannot parse without reporting it |
@@ -119,7 +120,8 @@ Every construct that was not copied one to one has a note with the file, the key
 | `name~version` custom types | none (X). A group that only covers them is not written, because without the selector it would match everything |
 | `dependencyGroups`, `strict`, `sourceMode` | none (X or H) |
 | `source` | dropped when it lists the workspace patterns (D); otherwise H |
-| `sortAz` with dependency maps | `unsorted-dependencies` stays on; `sortFirst`, `sortExports`, `sortPackages`, `indent`, `formatBugs` and `formatRepository` only matter to `syncpack format` and are dropped |
+| `sortFirst`, `sortAz`, `sortExports`, `sortPackages`, `formatBugs`, `formatRepository`, `indent` | `[format]` `sort-first`, `sort-az`, `sort-exports`, `sort-packages`, `format-bugs`, `format-repository`, `indent`, and `package-json-format = "error"`. skif sorts in byte order where syncpack uses a collator (A), collapses `bugs` and `repository` only when nothing is lost (A), and with `indent` also checks the layout (A). `unsorted-dependencies` stays on when `sortAz` names a dependency map |
+| a script running `syncpack format` | `package-json-format = "error"`; run `skif format` or `skif format --check` in its place |
 | `updateGroups`, `minimumReleaseAge`, `maxConcurrentRequests` | dropped: skif never queries a registry |
 | the override sections (`pnpmOverrides`, `overrides`, `resolutions`) | `[policy] override-reading = "syncpack"`: an override key is its own dependency, so `parent@4>child` is not compared with `child`; nested objects and `pnpm.overrides` of a `package.json` are not read, as in syncpack 15 (`pnpmOverrides` is the `overrides` of `pnpm-workspace.yaml`). Without it skif would compare them with the dependency they replace |
 | `--dependency-types` | `[policy] dependency-types` |
@@ -127,8 +129,8 @@ Every construct that was not copied one to one has a note with the file, the key
 Without `--dependency-types`, `[policy] dependency-types` is set to the scope syncpack lints by default (`prod`, `dev`,
 `peer`, `local`, `resolutions`, `overrides`, `pnpm-overrides` and your custom types; optional dependencies are not part
 of it), because skif's own default is narrower. `--dependencies` and
-`--specifier-types` narrowed the old run; skif checks every dependency, so they are reported. `syncpack format` and
-`syncpack update` have no equivalent.
+`--specifier-types` narrowed the old run; skif checks every dependency, so they are reported. `syncpack update` has no
+equivalent.
 
 ## knip
 
