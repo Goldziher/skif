@@ -27,6 +27,9 @@ All notable changes to this project are documented here. The format follows
   `skif migrate` translates syncpack's `name~version` custom types ([#35](https://github.com/Goldziher/skif/issues/35)).
 - The `packages` of `lerna.json` declare the workspace members when nothing else does, and its `npmClient` names the
   package manager, as syncpack reads them ([#35](https://github.com/Goldziher/skif/issues/35)).
+- [ADR 0050](adrs/0050-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md) records these
+  additions and what of syncpack stays out: per-group and per-state severity, `dependencyGroups`, a scoped `catalog`
+  policy, custom type `source`, catalog entries as instances, `.x` ranges and `--log-levels`.
 
 ## [0.1.1] - 2026-11-07
 
