@@ -41,10 +41,14 @@ impl Plugin for Jest {
     }
 }
 
-/// Dependency by convention (`runner: "eslint"` is `jest-runner-eslint`), or the path when relative.
+/// Dependency by convention (`runner: "eslint"` is `jest-runner-eslint`), the path when relative, and the name itself
+/// when it is already a jest package (`runner: "jest-light-runner"`): jest falls back to the bare name.
 fn prefixed(config: &ConfigAst<'_>, name: &str, namespace: &str) -> Option<PluginInput> {
     if is_relative(name) || name.starts_with("<rootDir>") {
         return module_input(config.base, name, false);
+    }
+    if name.starts_with("jest-") {
+        return package_name(name).map(PluginInput::Dependency);
     }
     Some(PluginInput::Dependency(conventional(name, namespace)))
 }

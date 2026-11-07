@@ -2391,6 +2391,13 @@ fn oxfmt() {
 }
 
 #[test]
+fn jest_runner_named_in_full_is_not_prefixed() {
+    let config = "export default { runner: 'jest-light-runner' };";
+    let results = resolve(&[("jest.config.ts", config)], &["jest"]);
+    assert_deps(output(&results, "jest"), &["jest-light-runner"]);
+}
+
+#[test]
 fn ava() {
     let config =
         "export default { files: ['src/**/*.test.ts', '!src/skip.test.ts'], require: ['./setup.cjs', 'tsx'] };";
