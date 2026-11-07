@@ -834,19 +834,19 @@ fn other_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation) {
             "--workspace",
             NoteClass::Human,
             "knip ran for some workspaces only; skif analyses every workspace of the root",
-            "run skif in the workspace directory to narrow it",
+            "pass the same `--workspace` to skif",
         ),
         (
             "--max-issues",
             NoteClass::Approximate,
             "knip tolerated this many issues",
-            "use `skif --max-warnings N` with the rules at `warn`",
+            "pass the same `--max-issues` to skif",
         ),
         (
             "--no-exit-code",
             NoteClass::Human,
             "knip always exited 0",
-            "skif exits 1 when it reports an error; lower the levels in [rules] or [lint] max-level",
+            "pass `--no-exit-code` to skif, or lower the levels in [rules]",
         ),
         (
             "--fix",
@@ -858,7 +858,7 @@ fn other_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation) {
             "--no-gitignore",
             NoteClass::Human,
             "knip read files that .gitignore hides",
-            "skif always honours .gitignore",
+            "pass `--no-gitignore` to skif",
         ),
         (
             "--preprocessor",
