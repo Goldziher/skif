@@ -41,6 +41,7 @@ mod setup;
 mod source_scan;
 mod specifier;
 mod trace;
+mod tsconfig_files;
 mod tsconfig_paths;
 mod usage;
 

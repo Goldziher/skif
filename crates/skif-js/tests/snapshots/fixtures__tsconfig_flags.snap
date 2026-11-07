@@ -1,0 +1,52 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`packages/a/lib/unused.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "packages/a/lib/unused.ts"
+    },
+    "package": "@x/a",
+    "fixes": [
+      {
+        "title": "Delete `packages/a/lib/unused.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "packages/a/lib/unused.ts"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`src/orphan.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "src/orphan.ts"
+    },
+    "package": "root",
+    "fixes": [
+      {
+        "title": "Delete `src/orphan.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "src/orphan.ts"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

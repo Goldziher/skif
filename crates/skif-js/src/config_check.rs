@@ -79,6 +79,9 @@ pub(crate) fn validate(config: &Config) -> Problem {
     names("js.ignore-members", &js.ignore_members)?;
     names("js.ignore-workspaces", &js.ignore_workspaces)?;
     plugin_globs("js.plugins", &js.plugins)?;
+    if js.tsconfig.as_deref().is_some_and(|path| path.trim().is_empty()) {
+        return invalid("js.tsconfig: the path of the root package's TypeScript configuration is empty".to_owned());
+    }
     for (dir, workspace) in &js.workspaces {
         let key = format!("js.workspaces.\"{dir}\"");
         if let Some(message) = glob_problem(dir) {
