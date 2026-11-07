@@ -313,6 +313,7 @@ pub(super) const PNPM_VALUE_FLAGS: &[&str] = &[
     "filter-prod",
     "dir",
     "C",
+    "prefix",
     "reporter",
     "loglevel",
     "test-pattern",
