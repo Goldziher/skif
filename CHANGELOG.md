@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/19)):
+
+- A file of a nested project (a directory with its own `package.json`, such as a nested root) that the outer root
+  reaches is judged by that project's manifest: its imports are no longer reported as unlisted in the outer root.
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed
