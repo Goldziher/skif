@@ -268,6 +268,18 @@ pub struct LintArgs {
     #[arg(long, conflicts_with = "max_warnings")]
     pub fail_on_warnings: bool,
 
+    /// Exit 1 only when there are more than N errors (counted over all roots); warnings still follow --max-warnings.
+    #[arg(long, value_name = "N")]
+    pub max_issues: Option<usize>,
+
+    /// Show at most N findings of each rule; the summary still counts all of them, and the exit code is unchanged.
+    #[arg(long, value_name = "N")]
+    pub max_show_issues: Option<usize>,
+
+    /// Exit 0 when the run finds problems; exit 2 when skif could not run is kept.
+    #[arg(long)]
+    pub no_exit_code: bool,
+
     /// Never ask which alternative fix to apply; the diagnostic stays unfixed unless --select decides.
     #[arg(long)]
     pub no_prompt: bool,
@@ -311,6 +323,10 @@ pub struct LintArgs {
     /// Only analyse production code in JavaScript analysis.
     #[arg(long)]
     pub production: bool,
+
+    /// Report unused exports of entry files too, overriding `[js] include-entry-exports`.
+    #[arg(long)]
+    pub include_entry_exports: bool,
 
     /// knip's strict mode: --production, and each workspace package uses only the dependencies its own manifest
     /// lists, not those of a containing package or the root.

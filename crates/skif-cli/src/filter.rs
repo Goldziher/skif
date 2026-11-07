@@ -5,6 +5,7 @@
 //! others (an export only another package imports) is the same as in a full run; only the report is narrowed. The
 //! filter is applied before fixing, so `--fix` only fixes what is reported.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -247,6 +248,38 @@ impl Filter {
         }
         Ok(())
     }
+}
+
+/// `--max-show-issues`: at most `max` findings of each rule, counted over the roots in order. Each report keeps the
+/// summary of all its findings. Returns the reports and how many findings were left out.
+pub fn truncate_shown(reports: Vec<Cow<'_, Report>>, max: usize) -> (Vec<Cow<'_, Report>>, usize) {
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    let mut hidden = 0;
+    let shown = reports
+        .into_iter()
+        .map(|report| {
+            let summary = report.summary;
+            let diagnostics: Vec<Diagnostic> = report
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    let count = seen.entry(diagnostic.rule.as_str().to_owned()).or_default();
+                    *count += 1;
+                    let keep = *count <= max;
+                    hidden += usize::from(!keep);
+                    keep
+                })
+                .cloned()
+                .collect();
+            if diagnostics.len() == report.diagnostics.len() {
+                return report;
+            }
+            let mut truncated = Report::new(diagnostics, summary.packages);
+            truncated.summary = summary;
+            Cow::Owned(truncated)
+        })
+        .collect();
+    (shown, hidden)
 }
 
 #[cfg(test)]

@@ -16,7 +16,7 @@ use skif_report::{escape_controls, render_json_with};
 use crate::args::{Format, LintArgs, Select};
 use crate::env::{Env, github_workspace};
 use crate::error::{CliError, Kind};
-use crate::filter::Filter;
+use crate::filter::{self, Filter};
 use crate::fix::{self, FixRun, RootFix};
 use crate::install::{self, InstallStatus};
 use crate::output::{self, Rendering, RootView, emit_error, emit_error_with, stderr_line};
@@ -121,6 +121,14 @@ fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
     if args.strict {
         config.js.isolate_workspaces = true;
     }
+    if args.include_entry_exports {
+        config.js.include_entry_exports = true;
+        for workspace in config.js.workspaces.values_mut() {
+            if workspace.include_entry_exports.is_some() {
+                workspace.include_entry_exports = Some(true);
+            }
+        }
+    }
     if let Some(select) = args.select {
         config.policy.prefer = match select {
             Select::Highest => Prefer::Highest,
@@ -179,25 +187,23 @@ fn color_enabled(args: &LintArgs, env: Env) -> bool {
         }
 }
 
-fn exit_code(report: &Report, max_warnings: Option<usize>) -> u8 {
-    if report.summary.errors > 0 || max_warnings.is_some_and(|max| report.summary.warnings > max) {
-        PROBLEMS
-    } else {
-        CLEAN
-    }
-}
-
-/// The worst exit code over the roots. `--max-warnings` bounds the warnings of the whole run; without it each root
-/// applies its own `fail-on-warnings`.
+/// The exit code of a run that found `report`. Errors beyond `--max-issues` (default 0) are problems;
+/// `--max-warnings` bounds the warnings of the whole run, and without it each root applies its own
+/// `fail-on-warnings`. `--no-exit-code` makes every outcome clean.
 fn run_exit_code(args: &LintArgs, runs: &[RootRun], aggregate: &Report) -> u8 {
-    match args.max_warnings {
-        Some(max) => exit_code(aggregate, Some(max)),
+    if args.no_exit_code {
+        return CLEAN;
+    }
+    if aggregate.summary.errors > args.max_issues.unwrap_or(0) {
+        return PROBLEMS;
+    }
+    let too_many_warnings = match args.max_warnings {
+        Some(max) => aggregate.summary.warnings > max,
         None => runs
             .iter()
-            .map(|run| exit_code(&run.report, run.config.lint.fail_on_warnings.then_some(0)))
-            .max()
-            .unwrap_or(CLEAN),
-    }
+            .any(|run| run.config.lint.fail_on_warnings && run.report.summary.warnings > 0),
+    };
+    if too_many_warnings { PROBLEMS } else { CLEAN }
 }
 
 /// Plans, writes and describes the fixes of one root; the second value is the lint of the tree after fixing, or the
@@ -447,6 +453,21 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     let aggregate = roots::aggregate(&reports);
     let prefixes: Vec<&Path> = runs.iter().map(|run| run.prefix.as_path()).collect();
     let root_fixes = roots_fix(&prefixes, &fixes);
+    let (reports, shown) = match args.max_show_issues {
+        Some(max) => {
+            let (reports, hidden) = filter::truncate_shown(reports, max);
+            if hidden > 0 && args.format() == Format::Human {
+                stderr_line(&format!(
+                    "note: --max-show-issues {max} left {hidden} finding{} out of the list",
+                    if hidden == 1 { "" } else { "s" }
+                ));
+            }
+            let mut shown = roots::aggregate(&reports);
+            shown.summary = aggregate.summary;
+            (reports, Some(shown))
+        }
+        None => (reports, None),
+    };
 
     let views: Vec<RootView<'_>> = runs
         .iter()
@@ -474,7 +495,13 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         truncated: truncated_json(&truncated),
     };
     let rendered = timing::phase("render", || {
-        output::render(&aggregate, &views, &rendering, &fs, &root_fixes)
+        output::render(
+            shown.as_ref().unwrap_or(&aggregate),
+            &views,
+            &rendering,
+            &fs,
+            &root_fixes,
+        )
     })?;
     output::emit(&rendered, args.output.as_deref())?;
     if !fixes.is_empty() && matches!(args.format(), Format::Sarif | Format::Github) {
