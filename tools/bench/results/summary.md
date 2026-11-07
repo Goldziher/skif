@@ -93,4 +93,3 @@ hyperfine `hyperfine 1.20.0`, 3 warmup runs, 10 measured runs. Times are wall cl
 | corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 10.0x) | pass |
 | corpus: babel (yarn) | JS analysis >= 5x faster than knip (measured 9.9x) | pass |
 | corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 3.8x) | FAIL |
-
