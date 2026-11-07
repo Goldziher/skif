@@ -169,6 +169,16 @@ fn a_file_of_a_nested_root_is_judged_by_its_own_manifest() {
 }
 
 #[test]
+fn files_a_script_above_a_nested_root_runs_are_its_entries() {
+    // `node build/npm/postinstall.ts` and `node build/hygiene.ts` in the outer manifest; nothing runs the orphan.
+    assert_eq!(
+        nested_root_findings("build", "unused-files"),
+        ["lib/orphan.ts: lib/orphan.ts"]
+    );
+    assert_eq!(nested_root_findings("build", "unused-dev-dependencies"), none());
+}
+
+#[test]
 fn monorepo_dependencies() {
     let diagnostics = Run::new("monorepo", "").lint();
     assert_eq!(

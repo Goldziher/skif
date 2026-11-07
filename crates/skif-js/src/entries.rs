@@ -6,12 +6,14 @@ use std::path::{Path, PathBuf};
 use skif_core::FileSystem;
 use skif_workspace::{PackageId, Workspace};
 
+use crate::ancestors::external_manifests;
 use crate::discover::{Candidate, relative};
 use crate::globs::Globs;
 use crate::manifest_paths::{
     bin_stub_sources, bin_targets, crossing_stars, manifest_targets, map_to_source, should_have_source, source_patterns,
 };
-use crate::resolve::is_code_file;
+use crate::resolve::{is_code_file, join_normalized};
+use crate::scripts;
 use crate::setup::{PackageSetup, Setup};
 
 /// The entry files of the workspace.
@@ -108,6 +110,9 @@ pub(crate) fn entry_files(
             entries.extend(script_files(fs, package_setup));
         }
     }
+    if !setup.production {
+        entries.extend(ancestor_script_files(fs, workspace, candidates));
+    }
     EntryFiles {
         files: entries.into_iter().collect(),
         unmapped,
@@ -161,6 +166,28 @@ fn owned_by<'a>(owned: &'a [&'a Candidate], dir: &'a Path) -> impl Iterator<Item
         .iter()
         .copied()
         .filter_map(move |candidate| Some((candidate, relative(&candidate.abs, dir)?)))
+}
+
+/// The files of this workspace that the scripts of a `package.json` above its root run, up to the repository root:
+/// `node build/npm/postinstall.ts` in the outer project makes that file an entry of the nested root at `build`. Only
+/// files the analysis owns count, so a file of an ignored package or of another project stays out.
+fn ancestor_script_files(fs: &dyn FileSystem, workspace: &Workspace, candidates: &[Candidate]) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for (dir, manifest) in external_manifests(fs, &workspace.root) {
+        for file in scripts::analyze_manifest(&manifest).files {
+            let path = join_normalized(&dir, &file);
+            let Some(rel) = relative(&path, &workspace.root) else {
+                continue;
+            };
+            if candidates
+                .binary_search_by(|candidate| candidate.rel.as_str().cmp(rel.as_str()))
+                .is_ok()
+            {
+                files.push(path);
+            }
+        }
+    }
+    files
 }
 
 fn script_files(fs: &dyn FileSystem, package_setup: &PackageSetup) -> Vec<PathBuf> {
