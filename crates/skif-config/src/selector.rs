@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use globset::{Glob, GlobSet, GlobSetBuilder};
+use globset::{Candidate, Glob, GlobSet, GlobSetBuilder};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -132,10 +132,12 @@ impl Selector {
         }
         let mut included = self.include_local && is_local;
         for name in names {
-            if self.exclude.is_match(name) {
+            // One candidate for both sets: preparing it is most of the cost of a match against a few globs.
+            let candidate = Candidate::new(name);
+            if !self.exclude.is_empty() && self.exclude.is_match_candidate(&candidate) {
                 return false;
             }
-            included = included || self.include.is_match(name);
+            included = included || (!self.include.is_empty() && self.include.is_match_candidate(&candidate));
         }
         included || !self.has_include
     }
