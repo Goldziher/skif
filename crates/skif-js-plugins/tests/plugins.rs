@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 154] = [
+const ADR_IDS: [&str; 161] = [
     "typescript",
     "eslint",
     "prettier",
@@ -169,6 +169,13 @@ const ADR_IDS: [&str; 154] = [
     "textlint",
     "rstest",
     "sveltejs-package",
+    "taskfile",
+    "mise",
+    "moonrepo",
+    "wireit",
+    "travis",
+    "buf",
+    "nano-staged",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -3579,4 +3586,133 @@ fn sveltejs_package_maps_output_to_library_sources() {
     );
     let results = resolve(&[], &["@sveltejs/package"]);
     assert_eq!(output(&results, "sveltejs-package").build_dirs[0].out_dir, "dist");
+}
+
+#[test]
+fn taskfile_tasks_and_includes() {
+    let results = resolve(
+        &[
+            (
+                "Taskfile.yml",
+                "version: '3'\nincludes:\n  docs: ./docs/Taskfile.yml\n  other:\n    taskfile: ./other.yml\ntasks:\n  build: tsc -b\n  lint:\n    cmds:\n      - eslint .\n      - cmd: node scripts/check.js\n        defer: { cmd: node scripts/cleanup.js }\n",
+            ),
+            ("docs/Taskfile.yml", "version: '3'\ntasks:\n  docs:\n    cmd: typedoc\n"),
+        ],
+        &[],
+    );
+    let out = output(&results, "taskfile");
+    for binary in ["tsc", "eslint", "typedoc"] {
+        assert!(
+            out.referenced_binaries.contains(&binary.to_owned()),
+            "{binary}: {:?}",
+            out.referenced_binaries
+        );
+    }
+    assert_entries(&out.entries, &["scripts/check.js", "scripts/cleanup.js"]);
+    let results = resolve(&[("taskfile.dist.yaml", "version: '3'\n")], &[]);
+    output(&results, "taskfile");
+    let nested = resolve_with(&[("Taskfile.yml", "version: '3'\n")], &[], false, &IndexMap::new());
+    assert!(!nested.iter().any(|(id, _)| *id == "taskfile"), "root only");
+}
+
+#[test]
+fn mise_tasks_run_in_their_directory() {
+    let results = resolve(
+        &[
+            (
+                "mise.toml",
+                "[tasks.build]\nrun = \"node scripts/build.js\"\n[tasks.web]\nrun = [\"vite build\", \"node tools/post.js\"]\ndir = \"{{config_root}}/web\"\n[tasks.tpl]\nrun = \"node {{arg(name='x')}}.js\"\n",
+            ),
+            (
+                ".config/mise/conf.d/extra.toml",
+                "[tasks.extra]\nrun = \"node extra.js\"\n",
+            ),
+        ],
+        &[],
+    );
+    let out = output(&results, "mise");
+    assert_entries(&out.entries, &["scripts/build.js", "web/tools/post.js", "extra.js"]);
+    assert!(
+        !out.referenced_binaries.contains(&"vite".to_owned()),
+        "a command in another directory"
+    );
+}
+
+#[test]
+fn moonrepo_task_commands() {
+    let results = resolve(
+        &[(
+            ".moon/tasks.yml",
+            "tasks:\n  lint:\n    command: eslint .\n  gen:\n    command: [node, $workspaceRoot/scripts/gen.js]\n",
+        )],
+        &["@moonrepo/cli"],
+    );
+    let out = output(&results, "moonrepo");
+    assert!(out.referenced_binaries.contains(&"eslint".to_owned()));
+    assert_entries(&out.entries, &["scripts/gen.js"]);
+}
+
+#[test]
+fn wireit_commands_from_package_json() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","scripts":{"build":"wireit"},"wireit":{"build":{"command":"tsc && node scripts/copy.js","dependencies":["gen"]},"gen":{"dependencies":["build"]}}}"#,
+    );
+    let results = resolve(&[manifest], &["wireit"]);
+    let out = output(&results, "wireit");
+    assert!(out.referenced_binaries.contains(&"tsc".to_owned()));
+    assert_entries(&out.entries, &["scripts/copy.js"]);
+}
+
+#[test]
+fn travis_before_commands() {
+    let results = resolve(
+        &[(
+            ".travis.yml",
+            "language: node_js\nbefore_install: npm i -g codecov\nbefore_script:\n  - node scripts/prepare.js\nscript: npm test\n",
+        )],
+        &[],
+    );
+    assert_entries(&output(&results, "travis").entries, &["scripts/prepare.js"]);
+}
+
+#[test]
+fn buf_local_plugins_are_commands() {
+    let results = resolve_with_scripts(
+        &[(
+            "proto/buf.gen.yaml",
+            "version: v2\nplugins:\n  - local: protoc-gen-es\n    out: src/gen\n  - local: [node, tools/protoc-gen-custom.js]\n    out: x\n  - remote: buf.build/bufbuild/es\n    out: y\n",
+        )],
+        &["@bufbuild/buf", "@bufbuild/protoc-gen-es"],
+        &[("gen", "buf generate --template proto/buf.gen.yaml")],
+    );
+    let out = output(&results, "buf");
+    assert!(
+        out.referenced_binaries.contains(&"protoc-gen-es".to_owned()),
+        "{:?}",
+        out.referenced_binaries
+    );
+    assert_entries(&out.entries, &["tools/protoc-gen-custom.js"]);
+    let results = resolve(
+        &[("buf.gen.yaml", "version: v1\nplugins:\n  - plugin: es\n    out: gen\n")],
+        &["@bufbuild/buf"],
+    );
+    assert!(
+        output(&results, "buf")
+            .referenced_binaries
+            .contains(&"protoc-gen-es".to_owned())
+    );
+}
+
+#[test]
+fn nano_staged_commands() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","nano-staged":{"*.{js,ts}":["prettier --write","eslint --fix"],"*.md":"markdownlint"}}"#,
+    );
+    let results = resolve(&[manifest], &["nano-staged"]);
+    let out = output(&results, "nano-staged");
+    for binary in ["prettier", "eslint", "markdownlint"] {
+        assert!(out.referenced_binaries.contains(&binary.to_owned()), "{binary}");
+    }
 }

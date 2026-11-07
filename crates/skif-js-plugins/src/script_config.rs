@@ -17,6 +17,10 @@ pub(crate) fn config_flags(id: &str) -> Vec<&'static str> {
     if id == "typescript" {
         flags.extend(PROJECT_FLAGS);
     }
+    // `buf generate --template buf.gen.yaml`.
+    if id == "buf" {
+        flags.push("--template");
+    }
     flags
 }
 
