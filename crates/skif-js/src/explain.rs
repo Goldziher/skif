@@ -411,7 +411,7 @@ impl JsAnalysis<'_> {
         }
     }
 
-    fn reachable_from_entries(&self) -> HashSet<ModuleId> {
+    pub(crate) fn reachable_from_entries(&self) -> HashSet<ModuleId> {
         let modules = self.graph.modules();
         let mut queue: VecDeque<ModuleId> = modules
             .iter()

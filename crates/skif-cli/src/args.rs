@@ -337,6 +337,11 @@ pub struct LintArgs {
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     pub color: ColorChoice,
 
+    /// Instead of linting, print where this dependency is listed, every import of it and the packages that count it
+    /// as used.
+    #[arg(long, value_name = "NAME", conflicts_with_all = ["fix", "fix_unsafe"])]
+    pub trace_dependency: Option<String>,
+
     /// Print what the run loaded (roots, configuration files, packages) and the phase timings to stderr.
     #[arg(long)]
     pub debug: bool,

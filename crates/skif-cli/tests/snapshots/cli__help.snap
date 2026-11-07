@@ -112,6 +112,21 @@ Options:
           [default: auto]
           [possible values: auto, always, never]
 
+      --trace-dependency <NAME>
+          Instead of linting, print where this dependency is listed, every import of it and the packages that count it as used
+
+      --debug
+          Print what the run loaded (roots, configuration files, packages) and the phase timings to stderr
+
+      --performance
+          Print the time each phase of the run took to stderr, as `SKIF_TIMINGS=1` does
+
+      --duration
+          Print the wall time of the run to stderr
+
+      --memory
+          Print the peak memory (resident set size) of the run to stderr; Linux only
+
   -W, --workspace <NAME|DIR>
           Report only the findings of these workspace packages, by name or directory relative to the root (globs, `!` to exclude). The analysis still covers every package. Repeatable
 

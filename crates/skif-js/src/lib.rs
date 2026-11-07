@@ -40,6 +40,7 @@ mod scripts;
 mod setup;
 mod source_scan;
 mod specifier;
+mod trace;
 mod tsconfig_paths;
 mod usage;
 
@@ -56,6 +57,7 @@ pub use rules::{
     UnusedNamespaceExports, UnusedNamespaceMembers, UnusedNamespaceTypes, UnusedOptionalPeerDependencies, UnusedTypes,
     rules,
 };
+pub use trace::{DependencyImport, DependencyListing, DependencyTrace};
 pub use usage::{ExportUsage, MemberUse};
 
 const _: () = {
