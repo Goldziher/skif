@@ -264,3 +264,35 @@ fn a_symbolic_link_to_a_source_file_is_that_file() {
     assert_eq!(found(&diagnostics, "unused-files"), none());
     assert_eq!(found(&diagnostics, "unused-exports"), ["shared.ts: dead"]);
 }
+
+#[test]
+fn every_condition_of_a_subpath_import_is_reachable() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r##"{"name":"app","private":true,"main":"src/index.ts",
+                "imports":{"#id":{"src":{"browser":"./src/id-browser.ts","default":"./src/id.ts"},"default":"./lib/id.js"}}}"##,
+        ),
+        ("src/index.ts", "import { id } from '#id';\nid();\n"),
+        ("src/id.ts", "export const id = () => 1;\n"),
+        ("src/id-browser.ts", "export const id = () => 2;\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+}
+
+#[test]
+fn a_subpath_import_pattern_is_not_an_entry() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r##"{"name":"app","private":true,"main":"src/index.ts","imports":{"#lib/*":"./src/lib/*.ts"}}"##,
+        ),
+        ("src/index.ts", "import { a } from '#lib/a';\na();\n"),
+        ("src/lib/a.ts", "export const a = () => 1;\n"),
+        ("src/lib/dead.ts", "export const dead = () => 2;\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["src/lib/dead.ts: src/lib/dead.ts"]
+    );
+}

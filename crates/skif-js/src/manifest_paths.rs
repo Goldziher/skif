@@ -210,8 +210,9 @@ pub(crate) struct ManifestTarget {
     pub(crate) from_exports: bool,
 }
 
-/// Every file path a manifest publishes: `main`, `module`, `types`, `bin` and the leaves of `exports`. The catch-all
-/// `./*` export is not a target.
+/// Every file path a manifest publishes: `main`, `module`, `types`, `bin`, the leaves of `exports` and the leaves of
+/// `imports`, whose conditions select between files only one environment loads. The catch-all `./*` export is not a
+/// target, and neither is an `imports` pattern: its files are reached by the specifiers that use it.
 pub(crate) fn manifest_targets(manifest: &Value) -> Vec<ManifestTarget> {
     let mut paths = Vec::new();
     for field in ENTRY_FIELDS {
@@ -242,6 +243,19 @@ pub(crate) fn manifest_targets(manifest: &Value) -> Vec<ManifestTarget> {
                 .map(|path| ManifestTarget {
                     path,
                     from_exports: true,
+                }),
+        );
+    }
+    if let Some(imports) = manifest.get("imports") {
+        let mut leaves = Vec::new();
+        collect_strings(imports, &mut leaves);
+        targets.extend(
+            leaves
+                .into_iter()
+                .filter(|leaf| leaf.starts_with("./") && !leaf.contains('*'))
+                .map(|path| ManifestTarget {
+                    path,
+                    from_exports: false,
                 }),
         );
     }
