@@ -296,3 +296,47 @@ fn a_subpath_import_pattern_is_not_an_entry() {
         ["src/lib/dead.ts: src/lib/dead.ts"]
     );
 }
+
+#[test]
+fn a_listed_package_reached_through_a_path_alias_is_used() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.ts","dependencies":{"@scope/dep":"1.0.0","other":"1.0.0"}}"#,
+        ),
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"baseUrl":".","paths":{"@scope/*":["vendor/*/src"]}}}"#,
+        ),
+        ("src/index.ts", "import { a } from '@scope/dep';\na();\n"),
+        ("vendor/dep/src/index.ts", "export const a = () => 1;\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: other"]);
+}
+
+#[test]
+fn augmenting_a_listed_package_uses_it() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.ts","dependencies":{"dep":"1.0.0","other":"1.0.0"}}"#,
+        ),
+        (
+            "src/index.ts",
+            "declare module 'dep' { interface Options { a: string } }\nexport {};\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: other"]);
+}
+
+#[test]
+fn augmenting_an_unlisted_package_is_not_an_unlisted_import() {
+    let diagnostics = lint(&[
+        ("package.json", r#"{"name":"app","private":true,"main":"src/index.ts"}"#),
+        (
+            "src/index.ts",
+            "declare module 'dep' { interface Options { a: string } }\nexport {};\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
+}

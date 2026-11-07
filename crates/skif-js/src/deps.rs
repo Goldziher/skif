@@ -555,6 +555,15 @@ impl DependencyUsage {
         }
     }
 
+    /// Counts `specifier` as a use of the package it names, when `id` or a package above it lists one.
+    fn reference_listed(&mut self, id: PackageId, specifier: &str) {
+        if let Some(name) = package_name(specifier)
+            && let Some(found) = self.find_listed(id, &name)
+        {
+            self.reference(found, &name);
+        }
+    }
+
     fn reference_in(&mut self, id: PackageId, name: &str) {
         self.referenced[id.index()].insert(name.to_owned());
     }
@@ -570,7 +579,16 @@ impl DependencyUsage {
                     let type_only = resolved.type_only && kind != Some(ImportKind::ExportFrom);
                     let span = module.info.imports.get(resolved.import).map(|import| import.span);
                     self.handle_import(workspace, module.owner, name, type_only, module.id, span);
+                } else if let Some(import) = module.info.imports.get(resolved.import) {
+                    // A path alias can stand in for a package the manifest lists: the alias serves development,
+                    // the listed dependency is what consumers install.
+                    self.reference_listed(module.owner, &import.specifier);
                 }
+            }
+            // `declare module 'pkg'` augments the package, which has to be installed for that to compile. It stays
+            // out of `imports`: declaring a module the project does not list is not an unlisted import.
+            for name in &module.info.ambient_modules {
+                self.reference_listed(module.owner, name);
             }
             if let Some(source) = module.info.jsx_import_source.as_deref().and_then(package_name) {
                 let span = module.info.jsx_import_source_span;
