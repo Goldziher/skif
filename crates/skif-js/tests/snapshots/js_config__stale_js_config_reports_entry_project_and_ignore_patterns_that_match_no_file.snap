@@ -1,0 +1,12 @@
+---
+source: crates/skif-js/tests/js_config.rs
+expression: "messages(&diagnostics).join(\"\\n\")"
+---
+`generated/**` in `js.ignore` matched nothing
+`lib/**` in `js.project` matched nothing
+`main.ts` in `js.entry` matched nothing
+`src/cli.ts!` in `js.workspaces."packages/a".entry` matched nothing
+`src/cli.ts!` in `js.workspaces."packages/b".entry` matched nothing
+`src/extra.ts` in `js.workspaces."packages/b".ignore` matched nothing
+`src/gone/**` in `js.workspaces."packages/a".ignore` matched nothing
+`src/gone/**` in `js.workspaces."packages/b".ignore` matched nothing

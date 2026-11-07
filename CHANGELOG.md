@@ -15,6 +15,8 @@ All notable changes to this project are documented here. The format follows
   `--tags +name`; `skif migrate` translates `+tag` to it. `stale-js-config` reports knip's tag hints: an
   `ignore-tags` tag, or `@internal` in production mode, on an export or member that is used anyway
   ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `stale-js-config` reports `entry`, `project` and `ignore` patterns that match no source file, like knip's
+  `entry-empty`, `project-empty` and `ignore` configuration hints ([#43](https://github.com/Goldziher/skif/issues/43)).
 
 ### Fixed
 

@@ -316,6 +316,9 @@ pub(crate) struct PackageSetup {
     pub user_ignore_binaries: Listed,
     pub ignore_unresolved: Listed,
     pub ignore_members: Listed,
+    /// The `entry`, `project` and `ignore` patterns the configuration gives this package (no plugin or default
+    /// ones), for the configuration hints of `stale-js-config`.
+    pub user_patterns: UserPatterns,
     /// Whether unused exports of entry files are reported (`include-entry-exports`, workspace over top level).
     pub include_entry_exports: bool,
     /// Which exports used in their own file are not reported.
@@ -336,6 +339,14 @@ pub(crate) struct PackageSetup {
     pub module_dirs: Vec<String>,
     /// File extensions (with the leading dot) imports may omit, from bundler `resolve.extensions`.
     pub extensions: Vec<String>,
+}
+
+/// The `entry`, `project` and `ignore` patterns a package is configured with, as written.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct UserPatterns {
+    pub entry: Vec<String>,
+    pub project: Vec<String>,
+    pub ignore: Vec<String>,
 }
 
 /// Settings for the whole workspace.
@@ -556,6 +567,11 @@ impl Setup {
                 project.extend(plugin.project);
             }
 
+            let user_patterns = UserPatterns {
+                entry: user.entry.clone(),
+                project: user.project.clone(),
+                ignore: user.ignore.clone(),
+            };
             let mut ignore = user.ignore;
             ignore.extend(plugin.ignore);
             let mut ignore_dependencies = plugin.ignore_dependencies;
@@ -589,6 +605,7 @@ impl Setup {
                 user_ignore_binaries: Listed::new(&user.ignore_binaries, production),
                 ignore_unresolved: Listed::new(&user.ignore_unresolved, production),
                 ignore_members: Listed::new(&user.ignore_members, production),
+                user_patterns,
                 include_entry_exports: user.include_entry_exports.unwrap_or(js.include_entry_exports),
                 used_in_file: user
                     .ignore_exports_used_in_file
