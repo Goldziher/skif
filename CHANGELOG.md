@@ -9,6 +9,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- An export tagged `@alias` is no longer reported by `unused-exports`, `unused-types` or `duplicate-exports`, as in
+  knip ([#43](https://github.com/Goldziher/skif/issues/43)).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed
