@@ -26,7 +26,15 @@ pub(crate) fn is_absolute_text(path: &str) -> bool {
 /// Every renderer calls this once per location, so it borrows from `path` whenever it can.
 pub(crate) fn relativize<'a>(path: &'a Path, root: Option<&Path>) -> Cow<'a, str> {
     let full = normalize(path);
-    let root = root.map(normalize);
+    // A root can only be a prefix when the first characters agree; most paths in a report are relative and the root
+    // is not, and normalising the root for each of them was a visible part of rendering a large report.
+    let first = |text: &[u8]| match text.first() {
+        Some(b'\\') if cfg!(windows) => Some(b'/'),
+        other => other.copied(),
+    };
+    let root = root
+        .filter(|root| first(root.as_os_str().as_encoded_bytes()) == first(full.as_bytes()))
+        .map(normalize);
     let root = root.as_deref().map(|root| root.trim_end_matches('/'));
     let stripped = root
         .filter(|root| !root.is_empty())
