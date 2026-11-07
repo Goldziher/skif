@@ -16,6 +16,9 @@ All notable changes to this project are documented here. The format follows
   imports; `{ virtual: true }` mocks are ignored ([#16](https://github.com/Goldziher/skif/issues/16)).
 - Imports inside `declare module "x" { ... }` bodies now count as uses of the packages they name, so those
   packages are no longer reported as unused ([#20](https://github.com/Goldziher/skif/issues/20)).
+- `declare module "x"` in a file with top-level `import` or `export` augments `x` instead of declaring it, so it no
+  longer hides unlisted imports of `x` across the workspace; only declarations in script files do
+  ([#24](https://github.com/Goldziher/skif/issues/24)).
 
 ## [0.1.1] - 2026-11-07
 

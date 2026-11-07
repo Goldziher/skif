@@ -219,9 +219,14 @@ pub struct ModuleInfo {
     pub directives: Vec<String>,
     /// `import()`, `require()` and `import.meta.glob()` calls whose argument is not static.
     pub unresolved_dynamic: Vec<Span>,
-    /// Names declared or augmented with `declare module 'name' { … }`.
+    /// Names declared with `declare module 'name' { … }` in a script (a file without top-level `import` or
+    /// `export`): the declaration is the module, for every file of the program.
     #[serde(default)]
     pub ambient_modules: Vec<String>,
+    /// Names augmented with `declare module 'name' { … }` in a module file: the block adds to a module that has to
+    /// exist already and declares nothing on its own.
+    #[serde(default)]
+    pub augmented_modules: Vec<String>,
     /// Syntax errors the parser recovered from; the other fields describe the recovered program. For component
     /// files, the issues of every script block.
     pub parse_diagnostics: Vec<ParseIssue>,
@@ -319,6 +324,7 @@ impl ModuleInfo {
         self.directives.extend(other.directives);
         self.unresolved_dynamic.extend(other.unresolved_dynamic);
         self.ambient_modules.extend(other.ambient_modules);
+        self.augmented_modules.extend(other.augmented_modules);
         self.parse_diagnostics.extend(other.parse_diagnostics);
         self.fatal |= other.fatal;
     }
