@@ -1,5 +1,6 @@
 //! Turns the verdicts of an [`Analysis`] into diagnostics.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use rayon::prelude::*;
@@ -21,10 +22,11 @@ pub(super) fn emit(analysis: &Analysis<'_>, config_file: &Path, out: &mut Emitte
         .iter()
         .filter_map(|(id, instance)| Some((id, instance, analysis.verdicts[id.index()].as_ref()?)))
         .collect();
+    let holders = Holders::index(analysis);
     let diagnostics: Vec<Diagnostic> = findings
         .par_iter()
         .with_min_len(64)
-        .map(|&(id, instance, verdict)| instance_diagnostic(analysis, id, instance, verdict))
+        .map(|&(id, instance, verdict)| instance_diagnostic(analysis, &holders, id, instance, verdict))
         .collect();
     for diagnostic in diagnostics {
         out.emit(diagnostic);
@@ -49,8 +51,44 @@ pub(super) fn emit(analysis: &Analysis<'_>, config_file: &Path, out: &mut Emitte
     }
 }
 
+/// The instances of each dependency (and alias target) that hold each specifier: the first two in collection order,
+/// so the one an aligned finding points at is found without scanning every instance of the dependency.
+struct Holders<'a> {
+    first: HashMap<HolderKey<'a>, [Option<InstanceId>; 2]>,
+}
+
+/// A dependency name, the package its alias installs (if another one) and a specifier.
+type HolderKey<'a> = (&'a str, Option<&'a str>, &'a str);
+
+impl<'a> Holders<'a> {
+    fn index(analysis: &'a Analysis<'_>) -> Self {
+        let mut first: HashMap<_, [Option<InstanceId>; 2]> = HashMap::new();
+        for (id, instance) in analysis.instances.iter() {
+            let slots = first
+                .entry((instance.name.as_str(), instance.alias_target(), instance.raw()))
+                .or_default();
+            if let Some(slot) = slots.iter_mut().find(|slot| slot.is_none()) {
+                *slot = Some(id);
+            }
+        }
+        Self { first }
+    }
+
+    /// The first instance other than `id` of the dependency of `instance` that holds `raw`, as
+    /// `counterparts(analysis, id).find(|other| other.raw() == raw)` finds it.
+    fn other(&self, id: InstanceId, instance: &Instance<'_>, raw: &str) -> Option<InstanceId> {
+        self.first
+            .get(&(instance.name.as_str(), instance.alias_target(), raw))?
+            .iter()
+            .flatten()
+            .copied()
+            .find(|&other| other != id)
+    }
+}
+
 fn instance_diagnostic(
     analysis: &Analysis<'_>,
+    holders: &Holders<'_>,
     id: InstanceId,
     instance: &Instance<'_>,
     verdict: &Verdict,
@@ -85,7 +123,7 @@ fn instance_diagnostic(
     if let Some(help) = help {
         builder = builder.help(help);
     }
-    if let Some(related) = related_of(analysis, id, verdict) {
+    if let Some(related) = related_of(analysis, holders, id, verdict) {
         builder = builder.related(related);
     }
     if let Some(fix) = fix_of(instance, verdict) {
@@ -109,11 +147,11 @@ fn counterparts<'a, 'w>(analysis: &'a Analysis<'w>, id: InstanceId) -> impl Iter
 
 /// The instance the finding is about: the one that holds the version `id` should take, or, when the instances
 /// cannot be ranked, the first one that differs from it.
-fn related_of(analysis: &Analysis<'_>, id: InstanceId, verdict: &Verdict) -> Option<Related> {
+fn related_of(analysis: &Analysis<'_>, holders: &Holders<'_>, id: InstanceId, verdict: &Verdict) -> Option<Related> {
     let instance = analysis.instances.get(id);
     let (counterpart, why) = match (&verdict.target, verdict.state) {
         (Some(target), state) if state.is_fixable() && state != State::IsBanned => (
-            counterparts(analysis, id).find(|other| other.raw() == target.get_raw())?,
+            analysis.instances.get(holders.other(id, instance, target.get_raw())?),
             "holds the version this should align with",
         ),
         (
