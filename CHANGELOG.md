@@ -25,6 +25,8 @@ All notable changes to this project are documented here. The format follows
   dropping the range check ([#35](https://github.com/Goldziher/skif/issues/35)).
 - The `name~version` custom type strategy reads the dependency name from `name-path` and the version from `path`;
   `skif migrate` translates syncpack's `name~version` custom types ([#35](https://github.com/Goldziher/skif/issues/35)).
+- The `packages` of `lerna.json` declare the workspace members when nothing else does, and its `npmClient` names the
+  package manager, as syncpack reads them ([#35](https://github.com/Goldziher/skif/issues/35)).
 
 ## [0.1.1] - 2026-11-07
 
