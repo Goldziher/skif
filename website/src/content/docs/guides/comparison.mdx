@@ -48,7 +48,9 @@ hides every workspace of npm-cli from it.
 ## Accuracy
 
 On a generated workspace with injected defects, where the answer is known, skif, sherif and syncpack found every
-defect they check for. Dead code has no answer key, so against knip the measure is agreement: on 14 pinned repositories
+defect they check for. A generated workspace with seeded dead code and live code behind known traps has an answer key
+too: skif and knip both find every seeded finding, with a precision of 87% for skif (it reports fixture files) and 77%
+for knip. Real repositories have no answer key, so against knip the measure is agreement: on 14 pinned repositories
 the tools share 96% of skif's unused exports, 92% of its unused files and 84% of its unused dependencies, while skif
 finds 86% of knip's unused exports and 66% of its unused dependencies. Unresolved imports agree least, at 34% of skif's
 findings. The full tables are in the
