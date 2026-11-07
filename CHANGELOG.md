@@ -27,6 +27,9 @@ All notable changes to this project are documented here. The format follows
 
 - An export tagged `@alias` is no longer reported by `unused-exports`, `unused-types` or `duplicate-exports`, as in
   knip ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `skif migrate` no longer says skif has no tag hints or global binaries list: `treatTagHintsAsErrors` points at
+  `stale-js-config`, and `ignoreGlobalBinaries: true` is noted as what skif always does
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
 - An enum or namespace member tagged `@internal` (with `production`), `@beta`, `@alpha`, `@alias` or an `ignore-tags`
   name is no longer reported by `unused-enum-members` or `unused-namespace-members`; only `@public` was honoured
   ([#43](https://github.com/Goldziher/skif/issues/43)).

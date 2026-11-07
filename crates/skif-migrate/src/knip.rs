@@ -373,11 +373,12 @@ fn read_root(state: &mut State<'_>, src: &Src, root: &str, config: &ConfigValue,
             }
             "treatTagHintsAsErrors" => {
                 if boolean(state, src, &path, item) == Some(true) {
-                    state.note(
+                    state.note_with(
                         src,
-                        NoteClass::Unsupported,
+                        NoteClass::Approximate,
                         path,
-                        "skif has no tag hints to turn into errors",
+                        "skif reports tag hints through `stale-js-config`, together with the configuration hints",
+                        "run `skif migrate --strict-hints` to make `stale-js-config` an error",
                     );
                 }
             }
@@ -620,12 +621,21 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
         }
         "ignoreExportsUsedInFile" => ignore_exports_used_in_file(state, src, target, path, item),
         "ignoreIssues" => ignore_issues(state, src, target, path, item),
-        "ignoreGlobalBinaries" => state.note(
-            src,
-            NoteClass::Unsupported,
-            path,
-            "skif has no list of binaries that are assumed to be installed globally",
-        ),
+        "ignoreGlobalBinaries" => match boolean(state, src, path, item) {
+            Some(true) => state.note(
+                src,
+                NoteClass::Exact,
+                path,
+                "skif always ignores the binaries that are assumed to be installed globally, as knip does by default",
+            ),
+            Some(false) => state.note(
+                src,
+                NoteClass::Unsupported,
+                path,
+                "skif always ignores the binaries that are assumed to be installed globally; it cannot report them",
+            ),
+            None => {}
+        },
         "compilers" | "asyncCompilers" | "preprocessor" | "preprocessorOptions" => state.note_with(
             src,
             NoteClass::Unsupported,
