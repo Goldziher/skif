@@ -17,8 +17,9 @@ All notable changes to this project are documented here. The format follows
 - `--dry-run` with `--fix` or `--fix-unsafe` prints the planned changes as a unified diff and writes nothing; with
   `--format json` the `fix` object carries the plan's `changes` and their diffs
   ([#35](https://github.com/Goldziher/skif/issues/35)).
-- `--dependencies`, `--dependency-types`, `--specifier-types` and `--source` narrow the version-group policies of a
-  lint run, `skif list` and `skif json` to the instances they select, as syncpack's filters do
+- `--dependency`, `--dependency-types`, `--specifier-types` and `--source` narrow the version-group policies of a
+  lint run, `skif list` and `skif json` to the instances they select, as syncpack's filters do; `--dependency` is
+  syncpack's `--dependencies`, renamed because knip's `--dependencies` shortcut belongs to the same command
   ([#35](https://github.com/Goldziher/skif/issues/35)).
 - The `semver-range-only` version-group policy: versions may differ and only the range the semver groups require is
   checked and fixed. `skif migrate` writes it for syncpack's `semverRangeOnly`, which it used to turn into `ignored`,

@@ -126,8 +126,9 @@ Every construct that was not copied one to one has a note with the file, the key
 Without `--dependency-types`, `[policy] dependency-types` is set to the scope syncpack lints by default (`prod`, `dev`,
 `peer`, `local`, `resolutions`, `overrides`, `pnpm-overrides` and your custom types; optional dependencies are not part
 of it), because skif's own default is narrower. `--dependencies` and
-`--specifier-types` narrowed the old run; skif checks every dependency, so they are reported. `syncpack format` and
-`syncpack update` have no equivalent.
+`--specifier-types` narrowed the old run; a `skif.toml` cannot, so they are reported. To narrow a skif run the same
+way, pass `--dependency` (syncpack's `--dependencies`; skif's `--dependencies` is knip's issue-type shortcut) and
+`--specifier-types` on the command line. `syncpack format` and `syncpack update` have no equivalent.
 
 ## knip
 

@@ -65,7 +65,7 @@ pub struct Config {
     #[serde(skip)]
     #[cfg_attr(feature = "schema", schemars(skip))]
     pub cli_levels: IndexMap<String, Level>,
-    /// The instances the version-group policies see, narrowed on the command line (`--dependencies`,
+    /// The instances the version-group policies see, narrowed on the command line (`--dependency`,
     /// `--dependency-types`, `--specifier-types`, `--source`). Never read from a file.
     #[serde(skip)]
     #[cfg_attr(feature = "schema", schemars(skip))]
