@@ -2,18 +2,20 @@
 
 use crate::plugin::Plugin;
 use crate::plugins::{
-    angular, astro, ava, aws_cdk, babel, biome, browser_extension, bun, c8, changesets, commitlint, cspell, cypress,
-    docusaurus, dotenv, drizzle, electron_vite, esbuild, eslint, expo, expo_router, gatsby, github_actions,
-    graphql_codegen, husky, i18next_parser, jasmine, jest, karma, knex, lefthook, lingui, lint_staged, markdownlint,
-    mastra, metro, mocha, msw, nest, netlify, next, nitro, node, nodemon, nuxt, nx, nyc, oclif, oxfmt, oxlint,
-    panda_css, playwright, plop, pm2, pnpm, postcss, preconstruct, prettier, prisma, react_native, react_router,
-    release_it, remark, remix, rolldown, rollup, rsbuild, rslib, rspack, sanity, semantic_release, sentry,
-    simple_git_hooks, size_limit, storybook, stryker, stylelint, svelte, sveltekit, svgo, svgr, swc, syncpack,
-    tailwind, tanstack_router, tap, ts_node, tsd, tsdown, tsup, tsx, turbo, typedoc, typescript, unbuild, unocss,
-    vercel, vike, vite, vitepress, vitest, webdriver_io, webpack, wrangler, yarn,
+    angular, astro, ava, aws_cdk, azure_pipelines, babel, biome, browser_extension, bun, c8, changesets, commitizen,
+    commitlint, cspell, cypress, dependency_cruiser, docusaurus, dotenv, drizzle, electron_forge, electron_vite,
+    esbuild, eslint, execa, expo, expo_router, gatsby, github_action, github_actions, graphql_codegen, husky,
+    i18next_parser, jasmine, jest, karma, knex, lefthook, lingui, lint_staged, markdownlint, mastra, mdx, metro, mocha,
+    msw, nano_spawn, nest, netlify, next, next_intl, next_mdx, nitro, node, nodemon, nuxt, nx, nyc, oclif, oxfmt,
+    oxlint, panda_css, parcel, pino, playwright, plop, pm2, pnpm, postcss, pre_commit, preconstruct, prettier, prisma,
+    react_native, react_router, release_it, remark, remix, rolldown, rollup, rsbuild, rslib, rspack, sanity, sapper,
+    semantic_release, sentry, serverless_framework, simple_git_hooks, size_limit, starlight, storybook, stryker,
+    stylelint, svelte, sveltekit, svgo, svgr, swc, syncpack, tailwind, tanstack_router, tap, ts_node, tsd, tsdown,
+    tsup, tsx, turbo, typedoc, typescript, unbuild, unocss, unplugin_auto_import, unplugin_vue_components,
+    unplugin_vue_router, vercel, vike, vite, vitepress, vitest, vue, webdriver_io, webpack, wrangler, yarn, zx,
 };
 
-static PLUGINS: [&dyn Plugin; 105] = [
+static PLUGINS: [&dyn Plugin; 126] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -119,6 +121,27 @@ static PLUGINS: [&dyn Plugin; 105] = [
     &vercel::Vercel,
     &vike::Vike,
     &webdriver_io::WebdriverIo,
+    &pre_commit::PreCommit,
+    &parcel::Parcel,
+    &next_intl::NextIntl,
+    &dependency_cruiser::DependencyCruiser,
+    &commitizen::Commitizen,
+    &electron_forge::ElectronForge,
+    &serverless_framework::ServerlessFramework,
+    &github_action::GithubAction,
+    &vue::Vue,
+    &unplugin_auto_import::UnpluginAutoImport,
+    &unplugin_vue_components::UnpluginVueComponents,
+    &unplugin_vue_router::UnpluginVueRouter,
+    &mdx::Mdx,
+    &next_mdx::NextMdx,
+    &starlight::Starlight,
+    &pino::Pino,
+    &execa::Execa,
+    &zx::Zx,
+    &nano_spawn::NanoSpawn,
+    &azure_pipelines::AzurePipelines,
+    &sapper::Sapper,
 ];
 
 /// Every plugin, in the order of the table (ADR 0011, ADR 0022, ADR 0025, ADR 0029).

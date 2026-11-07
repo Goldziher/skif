@@ -379,9 +379,9 @@ member read in its own file (`E.A`, `E["A"]`, `const { A } = E`) counts as used;
 member, as in knip. A file that another loads with `new URL("./x", import.meta.url)` is used as a
 whole.
 
-The table holds 105 built-in plugins:
+The table holds 126 built-in plugins:
 
-`typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`, `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`, `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack`, `node`, `expo-router`, `tanstack-router`, `ava`, `biome`, `c8`, `dotenv`, `electron-vite`, `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`, `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`, `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun` and `webdriver-io`.
+`typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`, `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`, `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack`, `node`, `expo-router`, `tanstack-router`, `ava`, `biome`, `c8`, `dotenv`, `electron-vite`, `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`, `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`, `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun`, `webdriver-io`, `pre-commit`, `parcel`, `next-intl`, `dependency-cruiser`, `commitizen`, `electron-forge`, `serverless-framework`, `github-action`, `vue`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `mdx`, `next-mdx`, `starlight`, `pino`, `execa`, `zx`, `nano-spawn`, `azure-pipelines` and `sapper`.
 
 Plugins read configs and sources statically and never run a tool, so some of knip's plugin behaviour has no
 counterpart. These differences are deliberate:
@@ -403,6 +403,22 @@ counterpart. These differences are deliberate:
 - Command lines are read from `package.json` scripts: `jasmine` and `tsd` positional arguments, `stryker run <file>`,
   `typedoc --plugin` and `--theme`. A flag that skif does not know takes the next word as its value, as `minimist`
   does, and `c8` and `dotenv` follow the command they wrap.
+- `execa`, `zx`, `nano-spawn` and `pino` read the source files of the package as text before parsing those that
+  mention the library. A command counts when it is literal: `execa("tsx", ["build.ts"])`, `` $`vite build` `` (the
+  substitutions of a template are placeholders) or `spawn("eslint", ["."])`; a computed argument is left out. `zx`
+  reads `$` in files that start with `#!/usr/bin/env zx` and, unlike knip, also where `$` is imported from `zx`.
+- `next-mdx` and `starlight` read the options of the `@next/mdx` and `@astrojs/starlight` calls in the config source;
+  a plugin or component passed as an imported binding is not a string and is already an import.
+- `unplugin-auto-import` and `unplugin-vue-components` make the declaration files they generate (`auto-imports.d.ts`,
+  `components.d.ts`) entries, so the components and composables these import are used; knip compiles every `.vue`
+  file against them instead, which also tells which of them a template uses.
+- `vue` reads an object `configureWebpack` as a webpack config and does not call a function one.
+- `serverless-framework` reads `${file(./x.yml)}` and `${file(./x.yml):a.b}` variables, but no other variable kind.
+- `github-action` leaves out the `dist/` and `build/` files an `action.yml` runs, as build output; knip also removes
+  them from the project files.
+- `azure-pipelines` (the `script` and `bash` steps of `azure-pipelines.yml`, `.azure-pipelines/**` and the templates
+  they include) and `sapper` (its fixed client, server, service worker and routes) have no knip counterpart. `glob`
+  is no plugin: the command of `glob -c "<command>" <patterns>` is read where the script parser meets it.
 
 ## Layered configuration
 

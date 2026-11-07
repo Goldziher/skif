@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 105] = [
+const ADR_IDS: [&str; 126] = [
     "typescript",
     "eslint",
     "prettier",
@@ -120,6 +120,27 @@ const ADR_IDS: [&str; 105] = [
     "vercel",
     "vike",
     "webdriver-io",
+    "pre-commit",
+    "parcel",
+    "next-intl",
+    "dependency-cruiser",
+    "commitizen",
+    "electron-forge",
+    "serverless-framework",
+    "github-action",
+    "vue",
+    "unplugin-auto-import",
+    "unplugin-vue-components",
+    "unplugin-vue-router",
+    "mdx",
+    "next-mdx",
+    "starlight",
+    "pino",
+    "execa",
+    "zx",
+    "nano-spawn",
+    "azure-pipelines",
+    "sapper",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -2692,4 +2713,347 @@ fn biome_root_reference_is_the_config_of_the_farthest_ancestor() {
     std::fs::remove_dir_all(&repo).unwrap();
     assert!(root_config_read, "{:?}", out.config_files);
     assert!(dependencies_found, "{:?}", deps(out));
+}
+
+#[test]
+fn pre_commit_counts_its_own_package_as_used() {
+    let results = resolve(&[], &["@fastify/pre-commit"]);
+    let out = output(&results, "pre-commit");
+    assert_deps(out, &["@fastify/pre-commit"]);
+    assert_absent(out, &["pre-commit"]);
+    let nested = resolve_with(&[], &["pre-commit"], false, &IndexMap::new());
+    assert!(!nested.iter().any(|(id, _)| *id == "pre-commit"), "root only");
+}
+
+#[test]
+fn parcel_reads_plugins_of_parcelrc() {
+    let results = resolve(
+        &[(
+            ".parcelrc",
+            r#"{
+              "extends": ["@parcel/config-default", "./base.parcelrc"],
+              "transformers": { "*.svg": ["...", "@parcel/transformer-svg-react"], "*.local": "./plugins/local.js" },
+              "reporters": ["...", "parcel-reporter-static-files-copy"],
+              "bundler": "@parcel/bundler-experimental"
+            }"#,
+        )],
+        &["parcel"],
+    );
+    let out = output(&results, "parcel");
+    assert_deps(
+        out,
+        &[
+            "@parcel/config-default",
+            "@parcel/transformer-svg-react",
+            "parcel-reporter-static-files-copy",
+            "@parcel/bundler-experimental",
+        ],
+    );
+    assert_entries(&out.entries, &["plugins/local.js"]);
+    assert!(!deps(out).contains("..."));
+}
+
+#[test]
+fn next_intl_and_dependency_cruiser_rows() {
+    let results = resolve(&[], &["next-intl", "dependency-cruiser"]);
+    assert_entries(
+        &output(&results, "next-intl").production_entries,
+        &["{,src/}i18n/request.{js,jsx,ts,tsx}"],
+    );
+    let cruiser = output(&results, "dependency-cruiser");
+    assert_entries(&cruiser.entries, &[".dependency-cruiser.{js,cjs,mjs,json}"]);
+    assert!(cruiser.provided_binaries.contains(&"depcruise".to_owned()));
+}
+
+#[test]
+fn dependency_cruiser_config_flag_names_a_config_file() {
+    let results = resolve_with_scripts(
+        &[("tools/cruiser.cjs", "module.exports = {};")],
+        &["dependency-cruiser"],
+        &[("deps", "depcruise src --config tools/cruiser.cjs")],
+    );
+    let out = output(&results, "dependency-cruiser");
+    assert!(out.config_files.iter().any(|f| f.ends_with("tools/cruiser.cjs")));
+}
+
+#[test]
+fn commitizen_adapter_from_package_json_and_czrc() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","config":{"commitizen":{"path":"./node_modules/cz-conventional-changelog"}}}"#,
+    );
+    let results = resolve(&[manifest], &["commitizen"]);
+    assert_deps(output(&results, "commitizen"), &["cz-conventional-changelog"]);
+    let results = resolve(&[(".czrc", r#"{"path":"@commitlint/cz-commitlint"}"#)], &["commitizen"]);
+    assert_deps(output(&results, "commitizen"), &["@commitlint/cz-commitlint"]);
+}
+
+#[test]
+fn electron_forge_reads_plugins_from_package_json_and_constructors() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","config":{"forge":{"makers":[{"name":"@electron-forge/maker-zip"}],"plugins":[{"name":"@electron-forge/plugin-webpack","config":{"mainConfig":"./webpack.main.config.js","renderer":{"config":"./webpack.renderer.config.js","entryPoints":[{"js":"./src/renderer.ts","preload":{"js":"./src/preload.ts"}}]}}}]}}}"#,
+    );
+    let main_config = ("webpack.main.config.js", "module.exports = { entry: './src/main.ts' };");
+    let results = resolve(&[manifest, main_config], &["@electron-forge/cli"]);
+    let out = output(&results, "electron-forge");
+    assert_deps(out, &["@electron-forge/maker-zip", "@electron-forge/plugin-webpack"]);
+    assert_entries(&out.production_entries, &["src/renderer.ts", "src/preload.ts"]);
+    assert_entries(&out.entries, &["src/main.ts"]);
+
+    let results = resolve(
+        &[
+            (
+                "forge.config.ts",
+                r#"import { VitePlugin } from "@electron-forge/plugin-vite";
+                export default { plugins: [new VitePlugin({ build: [{ entry: "src/main.ts", config: "vite.main.config.ts" }], renderer: [{ name: "main_window", config: "vite.renderer.config.ts" }] })] };"#,
+            ),
+            ("vite.main.config.ts", "export default {};"),
+        ],
+        &["@electron-forge/cli", "vite"],
+    );
+    let out = output(&results, "electron-forge");
+    assert_entries(&out.production_entries, &["src/main.ts"]);
+    assert!(
+        out.config_files.iter().any(|f| f.ends_with("vite.main.config.ts")),
+        "{:?}",
+        out.config_files
+    );
+}
+
+#[test]
+fn serverless_framework_handlers_plugins_and_file_variables() {
+    let results = resolve(
+        &[
+            (
+                "serverless.yml",
+                "service: api\nplugins:\n  - serverless-offline\n  - ./plugins/local.js\ncustom:\n  esbuild:\n    inject: [./shims.js]\nfunctions:\n  hello:\n    handler: src/hello.main\n  typed:\n    handler: src/typed.ts.handler\n  more: ${file(./functions.yml):extra}\n",
+            ),
+            ("functions.yml", "extra:\n  handler: src/extra.run\n"),
+        ],
+        &["serverless"],
+    );
+    let out = output(&results, "serverless-framework");
+    assert_deps(out, &["serverless-offline", "esbuild"]);
+    assert_entries(
+        &out.production_entries,
+        &[
+            "src/hello.{js,ts}",
+            "src/typed.ts",
+            "plugins/local.js",
+            "shims.js",
+            "src/extra.{js,ts}",
+        ],
+    );
+}
+
+#[test]
+fn github_action_runs_its_sources_but_not_its_build_output() {
+    let results = resolve(
+        &[(
+            "action.yml",
+            "name: x\nruns:\n  using: node20\n  pre: src/setup.js\n  main: dist/index.js\n  post: src/cleanup.js\n",
+        )],
+        &["@actions/core"],
+    );
+    let out = output(&results, "github-action");
+    assert_entries(&out.entries, &["src/setup.js", "src/cleanup.js"]);
+    assert!(!out.entries.iter().any(|e| e.starts_with("dist/")), "{:?}", out.entries);
+}
+
+#[test]
+fn vue_reads_configure_webpack_and_the_lint_script() {
+    let config = (
+        "vue.config.js",
+        r#"module.exports = { configureWebpack: { entry: { admin: "./src/admin.ts" }, module: { rules: [{ test: /\.md$/, loader: "markdown-loader" }] } } };"#,
+    );
+    let results = resolve_with_scripts(&[config], &["vue"], &[("lint", "vue-cli-service lint --fix")]);
+    let out = output(&results, "vue");
+    assert_entries(&out.entries, &["src/admin.ts"]);
+    assert_deps(out, &["markdown-loader", "@vue/cli-plugin-eslint"]);
+    let results = resolve_with_scripts(&[], &["vue"], &[("build", "vue-cli-service build && eslint lint")]);
+    assert_absent(output(&results, "vue"), &["@vue/cli-plugin-eslint"]);
+}
+
+#[test]
+fn unplugin_generated_declarations_are_entries() {
+    let files = [
+        (
+            "components.d.ts",
+            "/* eslint-disable */\n// Generated by unplugin-vue-components\nexport {}\ndeclare module 'vue' { export interface GlobalComponents { Card: typeof import('./src/components/Card.vue')['default'] } }",
+        ),
+        (
+            "src/auto-imports.d.ts",
+            "// Generated by unplugin-auto-import\nexport {}\ndeclare global { const ref: typeof import('vue')['ref'] }",
+        ),
+        ("src/env.d.ts", "/// <reference types=\"vite/client\" />"),
+    ];
+    let results = resolve(&files, &["unplugin-vue-components", "unplugin-auto-import"]);
+    assert_eq!(output(&results, "unplugin-vue-components").entries, ["components.d.ts"]);
+    assert_eq!(
+        output(&results, "unplugin-auto-import").entries,
+        ["src/auto-imports.d.ts"]
+    );
+}
+
+#[test]
+fn unplugin_vue_router_routes_need_the_plugin_or_its_generated_types() {
+    let results = resolve(&[], &["unplugin-vue-router"]);
+    assert_entries(
+        &output(&results, "unplugin-vue-router").production_entries,
+        &["src/pages/**/*.{vue,md}"],
+    );
+    let results = resolve(&[], &["vue-router"]);
+    assert_eq!(
+        output(&results, "unplugin-vue-router").production_entries,
+        Vec::<String>::new()
+    );
+    let generated = (
+        "typed-router.d.ts",
+        "/* eslint-disable */\n// Generated by vue-router. !! DO NOT MODIFY !!\nexport {}",
+    );
+    let results = resolve(&[generated], &["vue-router"]);
+    assert_entries(
+        &output(&results, "unplugin-vue-router").production_entries,
+        &["src/pages/**/*.{vue,md}"],
+    );
+}
+
+#[test]
+fn mdx_reads_the_language_server_plugins_of_tsconfig() {
+    let results = resolve(
+        &[(
+            "tsconfig.json",
+            r#"{"compilerOptions":{},"mdx":{"plugins":["remark-frontmatter",["remark-gfm",{}]]}}"#,
+        )],
+        &["astro"],
+    );
+    assert_deps(output(&results, "mdx"), &["remark-frontmatter", "remark-gfm"]);
+    assert!(!resolve(&[], &["react"]).iter().any(|(id, _)| *id == "mdx"));
+}
+
+#[test]
+fn next_mdx_reads_plugins_from_the_create_mdx_call() {
+    let results = resolve(
+        &[(
+            "next.config.mjs",
+            r#"import createMDX from "@next/mdx";
+            import remarkMath from "remark-math";
+            const withMDX = createMDX({ options: { remarkPlugins: ["remark-gfm", remarkMath], rehypePlugins: [["rehype-katex", { strict: true }]] } });
+            export default withMDX({ pageExtensions: ["mdx", "tsx"] });"#,
+        )],
+        &["@next/mdx", "next"],
+    );
+    let out = output(&results, "next-mdx");
+    assert_deps(out, &["remark-gfm", "rehype-katex"]);
+    assert_entries(&out.production_entries, &["{,src/}mdx-components.{js,jsx,ts,tsx}"]);
+    assert!(!out.entries_incomplete);
+}
+
+#[test]
+fn starlight_component_overrides_and_custom_css_are_entries() {
+    let results = resolve(
+        &[(
+            "astro.config.mjs",
+            r#"import { defineConfig } from "astro/config";
+            import starlight from "@astrojs/starlight";
+            export default defineConfig({ integrations: [starlight({ title: "Docs", components: { Head: "./src/components/Head.astro" }, customCss: ["./src/styles/custom.css", "@fontsource/inter"] })] });"#,
+        )],
+        &["astro", "@astrojs/starlight"],
+    );
+    let out = output(&results, "starlight");
+    assert_entries(
+        &out.production_entries,
+        &["src/components/Head.astro", "src/styles/custom.css"],
+    );
+    assert_deps(out, &["@fontsource/inter"]);
+}
+
+#[test]
+fn pino_transport_targets_are_dependencies_or_entries() {
+    let results = resolve(
+        &[(
+            "src/log.ts",
+            r#"import pino, { transport as makeTransport } from "pino";
+            export const logger = pino({ transport: { target: "pino-pretty" } });
+            export const multi = makeTransport({ targets: [{ target: "./transports/file.mjs" }, { target: "@axiomhq/pino" }] });
+            export const piped = pino.transport({ pipeline: [{ target: "pino-syslog" }] });"#,
+        )],
+        &["pino"],
+    );
+    let out = output(&results, "pino");
+    assert_deps(out, &["pino-pretty", "@axiomhq/pino", "pino-syslog"]);
+    assert_entries(&out.entries, &["src/transports/file.mjs"]);
+}
+
+#[test]
+fn execa_zx_and_nano_spawn_commands_are_scripts() {
+    let files = [
+        (
+            "scripts/release.ts",
+            r#"import { execa, $ } from "execa";
+            await execa("changeset", ["publish", someFlag]);
+            await $`tsx scripts/notes.ts ${version}`;"#,
+        ),
+        ("scripts/deploy.mjs", "#!/usr/bin/env zx\nawait $`wrangler deploy`;\n"),
+        (
+            "scripts/check.js",
+            r#"import spawn from "nano-spawn"; await spawn("eslint", ["."]);"#,
+        ),
+    ];
+    let results = resolve(&files, &["execa", "zx", "nano-spawn"]);
+    let binaries = |id: &str| output(&results, id).referenced_binaries.clone();
+    assert!(
+        binaries("execa").contains(&"changeset".to_owned()),
+        "{:?}",
+        binaries("execa")
+    );
+    assert!(binaries("execa").contains(&"tsx".to_owned()));
+    assert_entries(&output(&results, "execa").entries, &["scripts/notes.ts"]);
+    assert!(binaries("zx").contains(&"wrangler".to_owned()), "{:?}", binaries("zx"));
+    assert!(
+        binaries("nano-spawn").contains(&"eslint".to_owned()),
+        "{:?}",
+        binaries("nano-spawn")
+    );
+}
+
+#[test]
+fn azure_pipelines_script_steps_and_templates() {
+    let results = resolve(
+        &[
+            (
+                "azure-pipelines.yml",
+                "stages:\n- stage: build\n  jobs:\n  - job: web\n    steps:\n    - script: pnpm exec vitest run\n    - bash: node scripts/check.mjs\n      workingDirectory: packages/web\n    - script: echo $(Build.SourcesDirectory)\n      workingDirectory: $(Build.SourcesDirectory)/x\n    - template: templates/lint.yml\n",
+            ),
+            ("templates/lint.yml", "steps:\n- script: eslint .\n"),
+        ],
+        &[],
+    );
+    let out = output(&results, "azure-pipelines");
+    assert!(
+        out.referenced_binaries.contains(&"vitest".to_owned()),
+        "{:?}",
+        out.referenced_binaries
+    );
+    assert!(
+        out.referenced_binaries.contains(&"eslint".to_owned()),
+        "{:?}",
+        out.referenced_binaries
+    );
+    assert_entries(&out.entries, &["packages/web/scripts/check.mjs"]);
+    let nested = resolve_with(&[("azure-pipelines.yml", "steps: []")], &[], false, &IndexMap::new());
+    assert!(!nested.iter().any(|(id, _)| *id == "azure-pipelines"), "root only");
+}
+
+#[test]
+fn sapper_declares_its_fixed_layout() {
+    let results = resolve(&[], &["sapper"]);
+    assert_entries(
+        &output(&results, "sapper").production_entries,
+        &[
+            "src/{client,server,service-worker}.{js,ts}",
+            "src/routes/**/*.{svelte,html,js,ts}",
+        ],
+    );
 }

@@ -31,21 +31,29 @@ impl Plugin for GithubActions {
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
         steps(config.value, None, &mut out, 0);
-        // A JavaScript action runs files that live next to its manifest.
-        if let Some(runs) = config.value.get("runs")
-            && runs
-                .get("using")
-                .and_then(ConfigValue::as_str)
-                .is_some_and(|u| u.starts_with("node"))
-        {
-            for key in ["pre", "main", "post"] {
-                if let Some(file) = runs.get(key).and_then(ConfigValue::as_str) {
-                    out.push(PluginInput::Entry(config.join(file)));
-                }
-            }
-        }
+        out.extend(
+            node_action_files(config.value)
+                .into_iter()
+                .map(|file| PluginInput::Entry(config.join(file))),
+        );
         out
     }
+}
+
+/// The files a JavaScript action runs (`runs.pre`, `runs.main` and `runs.post` of an `action.yml` whose `runs.using`
+/// is a Node.js version), relative to the manifest.
+pub(crate) fn node_action_files(manifest: &ConfigValue) -> Vec<&str> {
+    let Some(runs) = manifest.get("runs").filter(|runs| {
+        runs.get("using")
+            .and_then(ConfigValue::as_str)
+            .is_some_and(|using| using.starts_with("node"))
+    }) else {
+        return Vec::new();
+    };
+    ["pre", "main", "post"]
+        .into_iter()
+        .filter_map(|key| runs.get(key).and_then(ConfigValue::as_str))
+        .collect()
 }
 
 /// Collects the `run` scripts of every `steps` list, wherever it is nested (`jobs.<id>.steps`, `runs.steps`).
