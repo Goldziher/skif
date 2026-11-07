@@ -9,7 +9,7 @@ JavaScript and TypeScript tool knowledge for skif.
   executed (ADR 0010).
 - `resolve_plugins`: the entry point the module graph calls, given a `PluginContext` for one workspace.
 
-The table holds 161 plugins: `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`,
+The table holds 174 plugins: `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`,
 `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`,
 `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`,
 `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`,
@@ -19,7 +19,7 @@ The table holds 161 plugins: `typescript`, `eslint`, `prettier`, `vite`, `vitest
 `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`,
 `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`,
 `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun`, `webdriver-io`,
-`pre-commit`, `parcel`, `next-intl`, `dependency-cruiser`, `commitizen`, `electron-forge`, `serverless-framework`, `github-action`, `vue`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `mdx`, `next-mdx`, `starlight`, `pino`, `execa`, `zx`, `nano-spawn`, `azure-pipelines`, `sapper`, `tauri`, `capacitor`, `convex`, `payload`, `wxt`, `hardhat`, `temporal`, `react-email`, `openapi-ts`, `danger`, `changelogen`, `purgecss`, `fumadocs`, `nuxtjs-i18n`, `playwright-ct`, `sst`, `qwik`, `quasar`, `stencil`, `eleventy`, `cucumber`, `relay`, `orval`, `vite-plugin-pwa`, `xo`, `textlint`, `rstest`, `sveltejs-package`, `taskfile`, `mise`, `moonrepo`, `wireit`, `travis`, `buf` and `nano-staged`.
+`pre-commit`, `parcel`, `next-intl`, `dependency-cruiser`, `commitizen`, `electron-forge`, `serverless-framework`, `github-action`, `vue`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `mdx`, `next-mdx`, `starlight`, `pino`, `execa`, `zx`, `nano-spawn`, `azure-pipelines`, `sapper`, `tauri`, `capacitor`, `convex`, `payload`, `wxt`, `hardhat`, `temporal`, `react-email`, `openapi-ts`, `danger`, `changelogen`, `purgecss`, `fumadocs`, `nuxtjs-i18n`, `playwright-ct`, `sst`, `qwik`, `quasar`, `stencil`, `eleventy`, `cucumber`, `relay`, `orval`, `vite-plugin-pwa`, `xo`, `textlint`, `rstest`, `sveltejs-package`, `taskfile`, `mise`, `moonrepo`, `wireit`, `travis`, `buf`, `nano-staged`, `astro-db`, `astro-og-canvas`, `bumpp`, `changelogithub`, `create-typescript-app`, `eve`, `expressive-code`, `kysely-codegen`, `lockfile-lint`, `lost-pixel`, `node-modules-inspector`, `vercel-og` and `vite-pwa-assets-generator`.
 
 ## Acknowledgements
 
