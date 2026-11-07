@@ -16,14 +16,14 @@ use crate::plugins::{
     react_cosmos, react_email, react_native, react_router, relay, release_it, remark, remix, rolldown, rollup, rsbuild,
     rslib, rspack, rstest, sanity, sapper, semantic_release, sentry, serverless_framework, simple_git_hooks,
     size_limit, solidjs_vite_plugin, sst, starlight, stencil, storybook, stryker, stylelint, svelte, sveltejs_package,
-    sveltekit, svgo, svgr, swc, syncpack, tailwind, tanstack_router, tap, taskfile, tauri, temporal, textlint, travis,
-    ts_node, tsd, tsdown, tsrs, tsup, tsx, turbo, typedoc, typescript, typescript_content_mapper, unbuild, unocss,
-    unplugin_auto_import, unplugin_vue_components, unplugin_vue_router, varlock, vercel, vercel_og, vike, vite,
+    sveltekit, svgo, svgr, swc, syncpack, tailwind, tanstack_router, tap, taskfile, taskr, tauri, temporal, textlint,
+    travis, ts_node, tsd, tsdown, tsrs, tsup, tsx, turbo, typedoc, typescript, typescript_content_mapper, unbuild,
+    unocss, unplugin_auto_import, unplugin_vue_components, unplugin_vue_router, varlock, vercel, vercel_og, vike, vite,
     vite_plugin_pages, vite_plugin_pwa, vite_plugin_vue_layouts_next, vite_plus, vite_pwa_assets_generator, vitepress,
     vitest, vue, webdriver_io, webpack, wireit, wrangler, wxt, xo, yarn, yorkie, zx,
 };
 
-static PLUGINS: [&dyn Plugin; 203] = [
+static PLUGINS: [&dyn Plugin; 204] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -227,6 +227,7 @@ static PLUGINS: [&dyn Plugin; 203] = [
     &lit::Lit,
     &catalyst::Catalyst,
     &fast::Fast,
+    &taskr::Taskr,
 ];
 
 /// Every plugin, in the order of the table (ADR 0011, ADR 0022, ADR 0025, ADR 0029).
