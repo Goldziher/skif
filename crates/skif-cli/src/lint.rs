@@ -117,6 +117,7 @@ fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
                 .with_packages(Selector::new([package.clone()])?),
         );
     }
+    crate::instances::apply_filter(&args.filter, config)?;
     if let Some(select) = args.select {
         config.policy.prefer = match select {
             Select::Highest => Prefer::Highest,

@@ -17,6 +17,9 @@ All notable changes to this project are documented here. The format follows
 - `--dry-run` with `--fix` or `--fix-unsafe` prints the planned changes as a unified diff and writes nothing; with
   `--format json` the `fix` object carries the plan's `changes` and their diffs
   ([#35](https://github.com/Goldziher/skif/issues/35)).
+- `--dependencies`, `--dependency-types`, `--specifier-types` and `--source` narrow the version-group policies of a
+  lint run, `skif list` and `skif json` to the instances they select, as syncpack's filters do
+  ([#35](https://github.com/Goldziher/skif/issues/35)).
 
 ## [0.1.1] - 2026-11-07
 

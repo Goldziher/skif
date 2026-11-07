@@ -86,7 +86,7 @@ fn in_default_scope(scope: &DependencyTypes, ty: &DependencyType) -> bool {
 }
 
 /// `value` against identifiers where a leading `!` excludes; no plain identifier admits everything not excluded.
-fn identifier_matches(patterns: &[String], value: &str) -> bool {
+pub(crate) fn identifier_matches(patterns: &[String], value: &str) -> bool {
     let named = |negated: bool| {
         patterns
             .iter()
@@ -142,7 +142,12 @@ pub(crate) struct Groups<'c> {
 
 impl<'c> Groups<'c> {
     pub(crate) fn compile(workspace: &Workspace, config: &'c Config) -> Self {
-        let scope = &config.policy.dependency_types;
+        // A command-line `--dependency-types` names what the run is about, so it is also the default scope.
+        let scope = if config.filter.dependency_types.is_empty() {
+            &config.policy.dependency_types
+        } else {
+            &config.filter.dependency_types
+        };
         let mut groups: Vec<Group<'c>> = config
             .version_groups
             .iter()

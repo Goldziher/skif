@@ -65,6 +65,69 @@ pub struct Config {
     #[serde(skip)]
     #[cfg_attr(feature = "schema", schemars(skip))]
     pub cli_levels: IndexMap<String, Level>,
+    /// The instances the version-group policies see, narrowed on the command line (`--dependencies`,
+    /// `--dependency-types`, `--specifier-types`, `--source`). Never read from a file.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub filter: InstanceFilter,
+}
+
+/// Narrows the dependency instances the version-group policies see, as syncpack's command-line filters do: an
+/// instance that does not pass is left out before it is assigned to a group, so it is neither reported nor aligned
+/// with. Empty selects everything.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct InstanceFilter {
+    /// Dependency names or globs.
+    pub dependencies: Selector,
+    /// Dependency types; a non-empty list also replaces `[policy] dependency-types` as the scope of the default
+    /// group, so `["peer"]` governs peer dependencies.
+    pub dependency_types: DependencyTypes,
+    /// Specifier types (`exact`, `range`, ...), optionally negated with `!`.
+    pub specifier_types: Vec<String>,
+    /// Globs of the files the instances are declared in, relative to the workspace root (`packages/*/package.json`).
+    pub sources: Selector,
+}
+
+impl InstanceFilter {
+    /// Builds a filter from command-line values.
+    ///
+    /// # Errors
+    /// [`ConfigError::Invalid`] for a glob that does not compile, an empty dependency type or an unknown specifier
+    /// type.
+    pub fn new(
+        dependencies: &[String],
+        dependency_types: &[String],
+        specifier_types: &[String],
+        sources: &[String],
+    ) -> Result<Self, ConfigError> {
+        if let Some(message) = unknown_specifier_type(specifier_types) {
+            return Err(ConfigError::invalid(None, format!("--specifier-types: {message}")));
+        }
+        Ok(Self {
+            dependencies: Selector::new(dependencies.iter().cloned())?,
+            dependency_types: DependencyTypes::new(dependency_types)?,
+            specifier_types: specifier_types.to_vec(),
+            sources: Selector::new(sources.iter().cloned())?,
+        })
+    }
+
+    /// Whether the filter selects everything.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.dependencies.is_empty()
+            && self.dependency_types.is_empty()
+            && self.specifier_types.is_empty()
+            && self.sources.is_empty()
+    }
+
+    /// The first custom type the filter names that `config` does not define.
+    #[must_use]
+    pub fn unknown_custom_type<'a>(&'a self, config: &Config) -> Option<&'a str> {
+        self.dependency_types
+            .custom_names()
+            .find(|name| config.custom_types.iter().all(|custom| custom.name != *name))
+    }
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]

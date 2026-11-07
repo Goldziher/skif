@@ -102,6 +102,18 @@ Options:
           [default: auto]
           [possible values: auto, always, never]
 
+      --dependencies <NAME>
+          Only the dependencies whose name matches this name or glob (`react`, `@types/**`, `!eslint`), in the version-group policies. Repeatable
+
+      --dependency-types <TYPES>
+          Only these dependency types (`prod,dev`, `peer`, `!local`, a custom type), in the version-group policies; also their default scope for this run. Comma separated
+
+      --specifier-types <TYPES>
+          Only instances with these specifier types (`exact,range`, `!workspace-protocol`), in the version-group policies. Comma separated
+
+      --source <GLOB>
+          Only instances declared in files matching this glob, relative to the root (`packages/app/package.json`), in the version-group policies. Repeatable
+
   -h, --help
           Print help (see a summary with '-h')
 

@@ -362,6 +362,8 @@ fn has_version(specifier: &Arc<Specifier>) -> bool {
 mod tests {
     use skif_lint::{Registry, RunOptions, run_unsorted};
 
+    use skif_config::InstanceFilter;
+
     use super::*;
     use crate::testing::{config, workspace};
 
@@ -369,12 +371,18 @@ mod tests {
 
     /// `(group variant, dependency, package, status code, severity)` of every listed instance.
     fn listed(toml: &str, files: &[(&str, &str)]) -> Vec<(&'static str, String, String, String, Option<Severity>)> {
-        let config = config(toml);
-        let workspace = workspace(files, &config);
+        listed_with(&config(toml), files)
+    }
+
+    fn listed_with(
+        config: &Config,
+        files: &[(&str, &str)],
+    ) -> Vec<(&'static str, String, String, String, Option<Severity>)> {
+        let workspace = workspace(files, config);
         let registry = Registry::new(crate::providers()).unwrap();
-        let diagnostics = run_unsorted(&registry, &workspace, &config, &RunOptions::default()).unwrap();
-        let enabled = registry.enabled(&config);
-        inspect(&workspace, &config, &|id| enabled.contains(id), &diagnostics)
+        let diagnostics = run_unsorted(&registry, &workspace, config, &RunOptions::default()).unwrap();
+        let enabled = registry.enabled(config);
+        inspect(&workspace, config, &|id| enabled.contains(id), &diagnostics)
             .into_iter()
             .map(|status| {
                 (
@@ -497,6 +505,48 @@ mod tests {
                 None
             )),
             "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn a_command_line_filter_drops_instances_before_alignment_and_names_the_scope() {
+        let files = [
+            ("package.json", ROOT),
+            ("pnpm-workspace.yaml", "packages: [packages/*]\n"),
+            (
+                "packages/a/package.json",
+                r#"{"name":"a","version":"1.0.0","dependencies":{"react":"18.3.1"},"peerDependencies":{"react":"^18.0.0"}}"#,
+            ),
+            (
+                "packages/b/package.json",
+                r#"{"name":"b","version":"1.0.0","dependencies":{"react":"18.2.0"},"peerDependencies":{"react":"^17.0.0"}}"#,
+            ),
+        ];
+        let toml = "[[version-groups]]\ndependencies = [\"nothing-uses-this\"]\npolicy = \"pinned\"\npin = \"1.0.0\"\n";
+        let filtered = |dependencies: &[&str], types: &[&str], sources: &[&str]| {
+            let mut config = config(toml);
+            let owned = |values: &[&str]| values.iter().map(|&value| value.to_owned()).collect::<Vec<_>>();
+            config.filter = InstanceFilter::new(&owned(dependencies), &owned(types), &[], &owned(sources)).unwrap();
+            listed_with(&config, &files)
+        };
+        assert_eq!(
+            filtered(&["react"], &["peer"], &[]),
+            [
+                row("HighestSemver", "react", "a", "IsHighestOrLowestSemver", None),
+                row(
+                    "HighestSemver",
+                    "react",
+                    "b",
+                    "DiffersToHighestOrLowestSemver",
+                    Some(Severity::Error)
+                ),
+            ],
+            "peer ranges are governed when the filter names them"
+        );
+        assert_eq!(
+            filtered(&["react"], &[], &["packages/b/**"]),
+            [row("HighestSemver", "react", "b", "IsHighestOrLowestSemver", None)],
+            "the instance of `a` is left out, so `b` has nothing to align with"
         );
     }
 

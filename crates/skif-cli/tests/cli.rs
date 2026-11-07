@@ -927,3 +927,53 @@ fn dry_run_shows_the_fix_plan_and_writes_nothing() {
     assert_eq!(alone.code, 2);
     assert_eq!(alone.json()["error"]["kind"], "usage");
 }
+
+#[test]
+fn instance_filters_narrow_the_version_group_policies() {
+    let dir = fixture("mismatch");
+    fs::write(
+        dir.path().join("skif.toml"),
+        "[js]\nenabled = false\n\n[[version-groups]]\ndependencies = [\"left-pad\"]\npolicy = \"pinned\"\npin = \"1.3.0\"\n",
+    )
+    .unwrap();
+    let all = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert_eq!(
+        rule_ids(&all.json()),
+        BTreeSet::from(["policy-conflict".to_owned(), "version-mismatch".to_owned()])
+    );
+
+    let named = run(skif()
+        .args(["--format", "json", "--dependencies", "is-*"])
+        .arg(dir.path()));
+    assert_eq!(
+        rule_ids(&named.json()),
+        BTreeSet::from(["version-mismatch".to_owned()]),
+        "a group the filter empties is not reported as unused"
+    );
+
+    let one_file = run(skif()
+        .args(["--format", "json", "--source", "packages/b/package.json"])
+        .arg(dir.path()));
+    assert_eq!(one_file.code, 0, "nothing is left to align with: {}", one_file.stdout);
+
+    let listed = run(skif()
+        .args(["json", "--specifier-types", "exact", "--dependency-types", "prod"])
+        .arg(dir.path()));
+    let dependencies: BTreeSet<String> = listed
+        .stdout
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<Value>(line).unwrap()["dependency"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(dependencies, BTreeSet::from(["is-number".to_owned()]));
+
+    let unknown = run(skif()
+        .args(["--format", "json", "--dependency-types", "engines"])
+        .arg(dir.path()));
+    assert_eq!(unknown.code, 2);
+    assert_eq!(unknown.json()["error"]["kind"], "usage");
+}

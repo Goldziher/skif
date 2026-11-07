@@ -59,6 +59,33 @@ pub struct InstancesArgs {
     /// Read no configuration file: the defaults plus the flags.
     #[arg(long)]
     pub no_config: bool,
+
+    #[command(flatten)]
+    pub filter: FilterArgs,
+}
+
+/// syncpack's instance filters: what the version-group policies see in this run.
+#[derive(Debug, Default, clap::Args)]
+pub struct FilterArgs {
+    /// Only the dependencies whose name matches this name or glob (`react`, `@types/**`, `!eslint`), in the
+    /// version-group policies. Repeatable.
+    #[arg(long, value_name = "NAME")]
+    pub dependencies: Vec<String>,
+
+    /// Only these dependency types (`prod,dev`, `peer`, `!local`, a custom type), in the version-group policies; also
+    /// their default scope for this run. Comma separated.
+    #[arg(long, value_name = "TYPES", value_delimiter = ',')]
+    pub dependency_types: Vec<String>,
+
+    /// Only instances with these specifier types (`exact,range`, `!workspace-protocol`), in the version-group
+    /// policies. Comma separated.
+    #[arg(long, value_name = "TYPES", value_delimiter = ',')]
+    pub specifier_types: Vec<String>,
+
+    /// Only instances declared in files matching this glob, relative to the root (`packages/app/package.json`), in
+    /// the version-group policies. Repeatable.
+    #[arg(long, value_name = "GLOB")]
+    pub source: Vec<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -373,6 +400,9 @@ pub struct LintArgs {
     /// When to colour human output.
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     pub color: ColorChoice,
+
+    #[command(flatten)]
+    pub filter: FilterArgs,
 }
 
 impl LintArgs {

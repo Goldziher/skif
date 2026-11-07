@@ -60,7 +60,13 @@ impl<'w> Analysis<'w> {
         Self::from_instances(
             workspace,
             config,
-            Instances::collect_with(workspace, owned, &config.custom_types, config.policy.override_reading),
+            Instances::collect_with(
+                workspace,
+                owned,
+                &config.custom_types,
+                config.policy.override_reading,
+                &config.filter,
+            ),
         )
     }
 
@@ -95,8 +101,11 @@ impl<'w> Analysis<'w> {
                 })
             };
             let is_invalid = |group: &Group<'_>| matches!(group.policy, Policy::InvalidPin);
-            // A banned group that matches nothing is the state it asks for, not a misconfiguration.
-            let reportable = |group: &Group<'_>| !is_invalid(group) && !matches!(group.policy, Policy::Banned);
+            // A banned group that matches nothing is the state it asks for, not a misconfiguration; and with a
+            // command-line filter, a group may own nothing only because the filter left its instances out.
+            let reportable = |group: &Group<'_>| {
+                !is_invalid(group) && !matches!(group.policy, Policy::Banned) && config.filter.is_empty()
+            };
             let unused = groups
                 .groups()
                 .iter()

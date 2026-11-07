@@ -10,13 +10,14 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
-use skif_config::{CustomType, DependencyType, OverrideReading};
-use skif_core::{DependencyKind, FixOp, JsonAction, Location, PathSeg};
+use skif_config::{CustomType, DependencyType, InstanceFilter, OverrideReading};
+use skif_core::{DependencyKind, FixOp, JsonAction, Location, PathSeg, slash};
 use skif_specifier::Specifier;
 use skif_workspace::{DependencyEntry, Package, Workspace};
 
 use super::catalog;
 use super::fields::{self, Field};
+use super::groups::identifier_matches;
 use super::specifiers::alias_target;
 use crate::manifest::support;
 
@@ -24,6 +25,15 @@ use crate::manifest::support;
 /// version in a section that can hold a catalog reference.
 fn owned_by_catalog(entry: &DependencyEntry) -> bool {
     entry.kind != DependencyKind::PeerDependencies && catalog::is_catalogable(&entry.parsed)
+}
+
+/// Whether `instance` passes the command-line filter (syncpack's `--dependencies`, `--dependency-types`,
+/// `--specifier-types` and `--source`).
+fn passes(filter: &InstanceFilter, instance: &Instance<'_>) -> bool {
+    (filter.dependencies.is_empty() || filter.dependencies.matches(&instance.name, instance.is_local))
+        && (filter.dependency_types.is_empty() || filter.dependency_types.matches(instance.ty()))
+        && identifier_matches(&filter.specifier_types, instance.specifier.get_config_identifier())
+        && (filter.sources.is_empty() || filter.sources.matches(&slash(&instance.location().path), false))
 }
 
 /// Index of an [`Instance`] in its [`Instances`].
@@ -193,6 +203,7 @@ impl<'w> Instances<'w> {
         owned: &BTreeSet<&str>,
         custom: &[CustomType],
         reading: OverrideReading,
+        filter: &InstanceFilter,
     ) -> Self {
         let local_names: HashSet<&str> = workspace
             .all_packages()
@@ -224,6 +235,9 @@ impl<'w> Instances<'w> {
                 items.push(Instance::of_field(package, found, is_local));
             }
         }
+        if !filter.is_empty() {
+            items.retain(|item| passes(filter, item));
+        }
         let mut by_name: BTreeMap<String, Vec<InstanceId>> = BTreeMap::new();
         for (index, item) in items.iter().enumerate() {
             by_name.entry(item.name.clone()).or_default().push(InstanceId(index));
@@ -244,7 +258,13 @@ impl<'w> Instances<'w> {
         } else {
             BTreeSet::new()
         };
-        Self::collect_with(workspace, &owned, &config.custom_types, config.policy.override_reading)
+        Self::collect_with(
+            workspace,
+            &owned,
+            &config.custom_types,
+            config.policy.override_reading,
+            &config.filter,
+        )
     }
 
     /// The workspace the instances were read from.

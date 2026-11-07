@@ -3,11 +3,11 @@
 use std::fmt::Write as _;
 
 use serde_json::{Value, json};
-use skif::{CachedFs, ConfigOverrides, InstanceStatus, OsFs, Severity, StatusType, slash};
+use skif::{CachedFs, Config, ConfigOverrides, InstanceFilter, InstanceStatus, OsFs, Severity, StatusType, slash};
 use skif_report::escape_controls;
 
-use crate::args::{Format, InstancesArgs, ListArgs, Show};
-use crate::error::CliError;
+use crate::args::{FilterArgs, Format, InstancesArgs, ListArgs, Show};
+use crate::error::{CliError, Kind};
 use crate::lint::canonical;
 use crate::output::{emit_error, stderr_line, write_stdout};
 use crate::roots::{self, Linters, Resolved};
@@ -34,15 +34,38 @@ fn overrides(args: &InstancesArgs) -> ConfigOverrides {
         .with_no_config(args.no_config)
 }
 
+/// Narrows what the version-group policies of `config` see to the instances `args` select.
+pub fn apply_filter(args: &FilterArgs, config: &mut Config) -> Result<(), CliError> {
+    let filter = InstanceFilter::new(
+        &args.dependencies,
+        &args.dependency_types,
+        &args.specifier_types,
+        &args.source,
+    )?;
+    if let Some(name) = filter.unknown_custom_type(config) {
+        return Err(CliError::new(
+            Kind::Usage,
+            format!(
+                "--dependency-types: unknown dependency type \"{name}\" (expected prod, dev, peer, optional, local, resolutions, overrides, pnpm-overrides, or the name of a `[[custom-types]]` entry)"
+            ),
+        ));
+    }
+    config.filter = filter;
+    Ok(())
+}
+
 fn collect(args: &InstancesArgs) -> Result<Listing, CliError> {
     let fs = CachedFs::new(OsFs);
     let start = canonical(&args.path)?;
     let Resolved {
         base,
-        targets,
+        mut targets,
         failures,
         ..
     } = roots::resolve(&start, args.recursive, &fs, &overrides(args))?;
+    for target in &mut targets {
+        apply_filter(&args.filter, &mut target.config)?;
+    }
     let linters = Linters::build(&targets)?;
     let runs = roots::lint_targets(&base, targets, &linters)?;
     let mut statuses = Vec::new();
