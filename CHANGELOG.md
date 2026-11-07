@@ -9,6 +9,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Module resolution takes about half the thread time it did on large monorepos (n8n, cal-com), and a full run
+  15 to 20% less wall time, with identical output. The file system cache hashes the bytes of a path instead of its
+  components and finds a name in a cached listing by its name; the resolver looks up the scopes of an importer once,
+  keeps the source file of a workspace package per specifier, and no longer reads and parses a `tsconfig.json` that
+  cannot be loaded (its `extends` names a package that is not installed) again for every importer below it
+  ([#30](https://github.com/Goldziher/skif/issues/30)).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed
