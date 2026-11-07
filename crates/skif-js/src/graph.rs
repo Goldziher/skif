@@ -263,7 +263,11 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
             .map_or_else(|| "syntax error".to_owned(), |issue| issue.message.clone())
     });
     let parsed_imports = info.imports.len();
-    if !style {
+    // The prose and code samples of a document are not code: only its ESM, which the parser already read, counts.
+    let document = path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("mdx"));
+    if !style && !document {
         add_textual_imports(&mut info, &source);
     }
     let imports = info

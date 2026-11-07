@@ -26,11 +26,18 @@ pub(crate) const CODE_EXTENSIONS: &[&str] = &[
     "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "vue", "svelte", "astro",
 ];
 
+/// Documents whose top-level ESM is extracted and followed. They are never the source of a published file, so the
+/// manifest mapping does not probe for them.
+const DOCUMENT_EXTENSIONS: &[&str] = &["mdx"];
+
 /// Whether a path has an extension that is parsed and followed.
 pub(crate) fn is_code_file(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| CODE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()))
+        .is_some_and(|extension| {
+            let extension = extension.to_ascii_lowercase();
+            CODE_EXTENSIONS.contains(&extension.as_str()) || DOCUMENT_EXTENSIONS.contains(&extension.as_str())
+        })
 }
 
 /// Adapts the host's file system to the resolver's, so resolution works on in-memory trees.

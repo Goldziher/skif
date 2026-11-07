@@ -6,8 +6,9 @@
 //!
 //! Supported inputs are `.js .mjs .cjs .jsx .ts .mts .cts .tsx` and `.d.ts` files, plus the `<script>` blocks (and
 //! Astro frontmatter), the `<style>` imports and the markup identifiers of `.vue`, `.svelte` and `.astro` files:
-//! component tags and the expressions of the template count as uses of the imports they name. Stylesheets go
-//! through [`parse_stylesheet`]. Other extensions, including `.mdx`, yield [`SyntaxError::Unsupported`].
+//! component tags and the expressions of the template count as uses of the imports they name. `.mdx` files yield the
+//! facts of their top-level `import` and `export` statements, and the components their markup names count as uses.
+//! Stylesheets go through [`parse_stylesheet`]. Other extensions yield [`SyntaxError::Unsupported`].
 
 #![warn(missing_docs)]
 
@@ -17,6 +18,7 @@ mod config;
 mod error;
 mod finder;
 mod jsdoc;
+mod mdx;
 mod members;
 mod model;
 mod semantic;
@@ -60,7 +62,7 @@ pub fn parse_module(path: &Path, source: &str, options: &ParseOptions) -> Result
         .to_ascii_lowercase();
     match extension.as_str() {
         "vue" | "svelte" | "astro" => parse_component(&extension, source, &lines, *options),
-        "mdx" => Err(unsupported(&extension)),
+        "mdx" => Ok(parse_mdx(source, &lines, *options)),
         _ => {
             let source_type = source_type_for(path).ok_or_else(|| unsupported(&extension))?;
             Ok(parse_block(source, 0, source_type, &lines, *options, None))
@@ -222,6 +224,21 @@ fn parse_component(
         members::credit(&mut info, &uses);
     }
     Ok(info)
+}
+
+/// Parses a `.mdx` file: its top-level ESM as JavaScript with JSX, and the identifiers its markup uses.
+fn parse_mdx(source: &str, lines: &LineIndex, options: ParseOptions) -> ModuleInfo {
+    let extracted = mdx::extract(source);
+    let source_type = SourceType::jsx();
+    let mut info = parse_block(&extracted.esm, 0, source_type, lines, options, None);
+    if options.member_accesses {
+        let mut markup = members::Uses::new();
+        for (start, end) in extracted.markup {
+            template::scan(&source[start..end], template::Flavor::Astro, &mut markup);
+        }
+        members::credit(&mut info, &markup);
+    }
+    info
 }
 
 /// Adds the imports of `<style>` blocks and of `src="…"` attributes of `<script>` and `<style>` tags.
