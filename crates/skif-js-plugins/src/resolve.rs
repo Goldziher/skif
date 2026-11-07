@@ -10,8 +10,8 @@ use skif_js_syntax::ConfigValue;
 use crate::config_load::{from_json, load_config};
 use crate::files::find_files;
 use crate::plugin::{
-    BuildDir, ConfigAst, DepRef, Enabler, PathAlias, Plugin, PluginContext, PluginId, PluginInput, PluginOutput,
-    PluginSpec,
+    BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, PathAlias, Plugin, PluginContext,
+    PluginId, PluginInput, PluginOutput, PluginSpec,
 };
 use crate::registry;
 use crate::script_config::{config_flags, config_paths, flag_values};
@@ -93,6 +93,8 @@ fn parent_of(relative: &str) -> &str {
 
 struct Collector<'a, 'b> {
     ctx: &'a PluginContext<'b>,
+    /// The plugin being run.
+    plugin: PluginId,
     out: PluginOutput,
     queue: VecDeque<Queued>,
     /// Whether the module resolution options of a config inside another package stay with that package.
@@ -170,8 +172,23 @@ impl Collector<'_, '_> {
                 PluginInput::Condition(name) => push_unique(&mut self.out.conditions, name),
                 PluginInput::ModuleDir(dir) => push_unique(&mut self.out.module_dirs, dir),
                 PluginInput::Extension(extension) => push_unique(&mut self.out.extensions, extension),
-                PluginInput::EntriesIncomplete => self.out.entries_incomplete = true,
+                PluginInput::EntriesIncomplete => {
+                    self.mark_incomplete(self.plugin, from, IncompleteCause::ComputedEntries);
+                }
             }
+        }
+    }
+
+    /// Marks the entries incomplete because `plugin` could not fully read the config `file`.
+    fn mark_incomplete(&mut self, plugin: PluginId, file: &Path, cause: IncompleteCause) {
+        self.out.entries_incomplete = true;
+        let reason = IncompleteEntries {
+            plugin,
+            file: file.to_path_buf(),
+            cause,
+        };
+        if !self.out.incomplete_reasons.contains(&reason) {
+            self.out.incomplete_reasons.push(reason);
         }
     }
 
@@ -263,6 +280,7 @@ fn run_plugin(
     };
     let mut collector = Collector {
         ctx,
+        plugin: spec.id,
         out: PluginOutput {
             entries: globs(&options.entry, spec.entry),
             project: globs(&options.project, spec.project),
@@ -402,12 +420,14 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
         collector.out.config_files.push(path.clone());
         let Some(value) = load_config(&path, &source) else {
             if reader.reads_config() && is_structured(&path) && !source.trim().is_empty() {
-                collector.out.entries_incomplete = true;
+                collector.mark_incomplete(reader.spec().id, &path, IncompleteCause::Unparsable);
             }
             continue;
         };
-        if reader.reads_config() && is_unreadable(&value) {
-            collector.out.entries_incomplete = true;
+        if reader.reads_config()
+            && let Some(cause) = unreadable(&value)
+        {
+            collector.mark_incomplete(reader.spec().id, &path, cause);
         }
         let ast = ConfigAst {
             path: &path,
@@ -444,10 +464,12 @@ fn is_structured(path: &Path) -> bool {
 
 /// Whether a config evaluated to something unknown, or to an object with an unknown spread at the top level: what the
 /// plugin would have read from the unknown part is missing.
-fn is_unreadable(value: &ConfigValue) -> bool {
+fn unreadable(value: &ConfigValue) -> Option<IncompleteCause> {
     match value {
-        ConfigValue::Unknown => true,
-        ConfigValue::Object(entries) => entries.iter().any(|(key, _)| key == "..."),
-        _ => false,
+        ConfigValue::Unknown => Some(IncompleteCause::UnknownValue),
+        ConfigValue::Object(entries) if entries.iter().any(|(key, _)| key == "...") => {
+            Some(IncompleteCause::UnknownSpread)
+        }
+        _ => None,
     }
 }

@@ -128,3 +128,46 @@ fn production_removes_test_entries() {
         .args(["explain-usage", "a.test.ts", "--production"]));
     assert_eq!(production.code, 2, "{}{}", production.stdout, production.stderr);
 }
+
+#[test]
+fn a_file_in_a_package_with_unreadable_configs_names_each_config() {
+    let dir = project();
+    put(
+        dir.path(),
+        "package.json",
+        r#"{"name":"app","version":"1.0.0","private":true,"main":"index.ts","devDependencies":{"vite":"6.0.0"}}"#,
+    );
+    put(
+        dir.path(),
+        "vite.config.ts",
+        "import base from './vite.base';\nexport default { ...base, build: { lib: { entry: pick() } } };\n",
+    );
+    let human = run(skif().current_dir(dir.path()).args(["explain-usage", "orphan.ts"]));
+    assert_eq!(human.code, 2, "{}{}", human.stdout, human.stderr);
+    insta::assert_snapshot!("explain_usage_entries_incomplete", redact(&human.stderr, dir.path()));
+
+    let json = run(skif()
+        .current_dir(dir.path())
+        .args(["explain-usage", "orphan.ts", "--format", "json"]));
+    assert_eq!(json.code, 2);
+    let document = json.json();
+    assert_eq!(document["report"]["absence"], "entries-incomplete");
+    assert_eq!(
+        document["report"]["incomplete"],
+        serde_json::json!([
+            { "cause": "unknown-spread", "plugin": "vite", "file": "vite.config.ts" },
+            { "cause": "computed-entries", "plugin": "vite", "file": "vite.config.ts" },
+        ])
+    );
+}
+
+#[test]
+fn an_ignored_file_says_so() {
+    let dir = project();
+    put(dir.path(), "skif.toml", "[js]\nignore = [\"orphan.ts\"]\n");
+    let json = run(skif()
+        .current_dir(dir.path())
+        .args(["explain-usage", "orphan.ts", "--format", "json"]));
+    assert_eq!(json.code, 2, "{}{}", json.stdout, json.stderr);
+    assert_eq!(json.json()["report"]["absence"], "ignored");
+}
