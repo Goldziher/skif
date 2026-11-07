@@ -19,7 +19,8 @@ pub enum ImportKind {
     Dynamic,
     /// `require("x")`, `require.resolve("x")` and `import x = require("x")`.
     Require,
-    /// One pattern of `import.meta.glob(...)` (a glob, not a module specifier).
+    /// One pattern of `import.meta.glob(...)`, or the glob of a computed relative `require` or `import()`
+    /// (`./commands/${name}`): a glob, not a module specifier.
     ImportMetaGlob,
     /// `export … from "x"`; the matching [`Export`] is recorded too.
     ExportFrom,

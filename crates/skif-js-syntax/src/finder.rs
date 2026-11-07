@@ -99,6 +99,31 @@ pub(crate) fn static_string(expr: &Expression<'_>) -> Option<String> {
     }
 }
 
+/// The glob a computed relative specifier can match: `./commands/${name}.js` reads `./commands/*.js`. `None` for
+/// anything else, whose target nothing in the source narrows down.
+fn template_glob(expr: &Expression<'_>) -> Option<String> {
+    let Expression::TemplateLiteral(template) = expr.get_inner_expression() else {
+        return None;
+    };
+    if template.expressions.is_empty() {
+        return None;
+    }
+    let parts: Vec<String> = template
+        .quasis
+        .iter()
+        .map(|quasi| {
+            quasi
+                .value
+                .cooked
+                .map_or_else(|| quasi.value.raw.as_str().to_owned(), crate::js_string)
+        })
+        .collect();
+    let relative = parts
+        .first()
+        .is_some_and(|first| first.starts_with("./") || first.starts_with("../"));
+    relative.then(|| parts.join("*"))
+}
+
 fn is_ident(expr: &Expression<'_>, wanted: &str) -> bool {
     matches!(expr, Expression::Identifier(id) if id.name.as_str() == wanted)
 }
@@ -202,14 +227,16 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
 
     fn visit_import_expression(&mut self, it: &ImportExpression<'a>) {
         let names = self.pending.remove(&it.span.start);
-        match static_string(&it.source) {
-            Some(specifier) => self.info.imports.push(Import {
+        let span = self.ctx.span(it.span);
+        if let Some(specifier) = static_string(&it.source) {
+            self.info.imports.push(Import {
                 specifier,
                 kind: ImportKind::Dynamic,
                 names: names.unwrap_or_else(escaping_namespace),
-                span: self.ctx.span(it.span),
-            }),
-            None => self.info.unresolved_dynamic.push(self.ctx.span(it.span)),
+                span,
+            });
+        } else {
+            self.computed_specifier(Some(&it.source), span);
         }
         walk::walk_import_expression(self, it);
     }
@@ -406,7 +433,7 @@ impl Finder<'_, '_> {
                         span,
                     });
                 }
-                None if !it.arguments.is_empty() => self.info.unresolved_dynamic.push(span),
+                None if !it.arguments.is_empty() => self.computed_specifier(first, span),
                 None => {}
             },
             Expression::StaticMemberExpression(m) => {
@@ -426,6 +453,21 @@ impl Finder<'_, '_> {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// A `require` or `import()` whose specifier is not a constant: followed as a glob when the source narrows it to
+    /// a directory, and every matching module counts as read in full. Otherwise it is an unknown target.
+    fn computed_specifier(&mut self, specifier: Option<&Expression<'_>>, span: skif_core::Span) {
+        if let Some(specifier) = specifier.and_then(template_glob) {
+            self.info.imports.push(Import {
+                specifier,
+                kind: ImportKind::ImportMetaGlob,
+                names: escaping_namespace(),
+                span,
+            });
+        } else {
+            self.info.unresolved_dynamic.push(span);
         }
     }
 
