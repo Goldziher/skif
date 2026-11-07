@@ -9,6 +9,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The knip comparison runs skif recursively on `vercel-examples`, whose examples are nested roots knip reads from the
+  root ([#27](https://github.com/Goldziher/skif/issues/27)).
+
 ### Fixed
 
 - `mise run bench:publish` writes a `summary.md` that passes `format:check` ([#27](https://github.com/Goldziher/skif/issues/27)).
