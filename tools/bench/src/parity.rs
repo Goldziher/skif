@@ -61,9 +61,14 @@ const KNIP_CATEGORIES: [(&str, &str); 14] = [
 pub const NON_CODE_FILE: &str = "non-code-file";
 pub const TEST_FILE: &str = "test-file";
 pub const FIXTURE_FILE: &str = "fixture-file";
+pub const KNIP_UNREAD: &str = "knip-unread";
 
-/// The intended differences between skif and knip in the `files` category.
-pub const KNIP_DEVIATIONS: [Deviation; 3] = [
+/// Categories that name the same thing, `<file>|<export>`, and differ only in how the tools label it: knip counts a
+/// `const enum` as a type and files an export under `nsExports` when any importer uses a namespace, skif when all do.
+const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
+
+/// The known differences between skif and knip.
+pub const KNIP_DEVIATIONS: [Deviation; 4] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -75,6 +80,10 @@ pub const KNIP_DEVIATIONS: [Deviation; 3] = [
     Deviation {
         id: FIXTURE_FILE,
         reason: "skif skips fixture directories (ADR 0023); knip reports their files as unused",
+    },
+    Deviation {
+        id: KNIP_UNREAD,
+        reason: "knip reads no files below these paths (a deny-all .gitignore hides them), so it reports every dependency there as unused and has no view of their files",
     },
 ];
 
@@ -252,6 +261,30 @@ pub fn knip_keys(document: &Value, root: &Path) -> Keys {
         }
     }
     keys
+}
+
+/// Moves each export finding of `skif` that knip has under another label to that label, so the same `<file>|<export>`
+/// counts as agreement.
+fn align_export_labels(skif: &mut Keys, knip: &Keys) {
+    for category in EXPORT_LABELS {
+        let Some(keys) = skif.get(category) else { continue };
+        let moved: Vec<(String, &str)> = keys
+            .iter()
+            .filter(|key| !knip.get(category).is_some_and(|own| own.contains(*key)))
+            .filter_map(|key| {
+                EXPORT_LABELS
+                    .iter()
+                    .find(|other| knip.get(**other).is_some_and(|theirs| theirs.contains(key)))
+                    .map(|other| (key.clone(), *other))
+            })
+            .collect();
+        for (key, label) in moved {
+            if let Some(keys) = skif.get_mut(category) {
+                keys.remove(&key);
+            }
+            skif.entry(label.to_owned()).or_default().insert(key);
+        }
+    }
 }
 
 /// Whether a knip-reported unused file is a known deviation: outside skif's project set (not code), a fixture, or a
@@ -448,9 +481,13 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         }
     };
 
-    let skif_found = skif_keys(&skif_doc, &root);
+    let mut skif_found = skif_keys(&skif_doc, &root);
     let knip_found = knip_keys(&knip_doc, &root);
+    align_export_labels(&mut skif_found, &knip_found);
     let split = diff::split_known(&skif_found, &knip_found, &|side, category, key| {
+        if repo.knip_unread.iter().any(|prefix| key.starts_with(prefix.as_str())) {
+            return Some(KNIP_UNREAD);
+        }
         (side == Side::Tool && category == "files")
             .then(|| classify_file(key, options.include_test_files))
             .flatten()
@@ -670,6 +707,7 @@ mod tests {
             install,
             notes: "why".into(),
             recursive: false,
+            knip_unread: Vec::new(),
             install_timeout_secs: None,
             install_command: Vec::new(),
         };
@@ -825,5 +863,40 @@ mod tests {
         );
         assert_eq!(split.known[NON_CODE_FILE].tool_only, 1);
         assert_eq!(split.known[TEST_FILE].tool_only, 1);
+    }
+
+    #[test]
+    fn the_same_export_under_another_label_is_agreement() {
+        let mut skif = Keys::from([
+            (
+                "exports".to_owned(),
+                ["a.ts|ns", "a.ts|plain", "a.ts|mine"].map(str::to_owned).into(),
+            ),
+            ("types".to_owned(), ["b.ts|Shared"].map(str::to_owned).into()),
+        ]);
+        let knip = Keys::from([
+            ("exports".to_owned(), ["a.ts|plain"].map(str::to_owned).into()),
+            ("nsExports".to_owned(), ["a.ts|ns"].map(str::to_owned).into()),
+            ("types".to_owned(), ["b.ts|Shared"].map(str::to_owned).into()),
+        ]);
+        align_export_labels(&mut skif, &knip);
+        let (counts, _) = diff::compare(&skif, &knip);
+        assert_eq!(
+            counts["exports"],
+            Counts {
+                skif_only: 1,
+                tool_only: 0,
+                both: 1
+            }
+        );
+        assert_eq!(
+            counts["nsExports"],
+            Counts {
+                skif_only: 0,
+                tool_only: 0,
+                both: 1
+            }
+        );
+        assert_eq!(counts["types"].both, 1);
     }
 }

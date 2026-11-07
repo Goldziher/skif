@@ -43,6 +43,11 @@ pub struct Repo {
     /// directory, so the two stay comparable.
     #[serde(default)]
     pub recursive: bool,
+    /// Path prefixes knip does not read here (a deny-all `.gitignore` hides them), so it reports everything their
+    /// manifests list as unused and nothing about their files. Findings below them on one side only are a known
+    /// deviation, not a disagreement.
+    #[serde(default)]
+    pub knip_unread: Vec<String>,
     /// Seconds the install may take, instead of the global timeout.
     #[serde(default)]
     pub install_timeout_secs: Option<u64>,
