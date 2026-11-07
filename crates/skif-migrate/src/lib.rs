@@ -28,6 +28,7 @@ mod value;
 
 use std::path::Path;
 
+pub use knip::{knip_issue_type_rules, knip_shortcut_types};
 pub use merge::Merged;
 pub use notes::{Note, NoteClass, Tool};
 pub use scripts::script_config_path;

@@ -15,12 +15,14 @@ mod config_toml;
 mod env;
 mod error;
 mod explain;
+mod filter;
 mod fix;
 mod install;
 mod lint;
 mod migrate;
 mod output;
 mod roots;
+mod trace;
 mod write;
 
 use args::{Cli, Command, Format};

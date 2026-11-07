@@ -268,6 +268,18 @@ pub struct LintArgs {
     #[arg(long, conflicts_with = "max_warnings")]
     pub fail_on_warnings: bool,
 
+    /// Exit 1 only when there are more than N errors (counted over all roots); warnings still follow --max-warnings.
+    #[arg(long, value_name = "N")]
+    pub max_issues: Option<usize>,
+
+    /// Show at most N findings of each rule; the summary still counts all of them, and the exit code is unchanged.
+    #[arg(long, value_name = "N")]
+    pub max_show_issues: Option<usize>,
+
+    /// Exit 0 when the run finds problems; exit 2 when skif could not run is kept.
+    #[arg(long)]
+    pub no_exit_code: bool,
+
     /// Never ask which alternative fix to apply; the diagnostic stays unfixed unless --select decides.
     #[arg(long)]
     pub no_prompt: bool,
@@ -312,9 +324,77 @@ pub struct LintArgs {
     #[arg(long)]
     pub production: bool,
 
+    /// Also analyse the source files that `.gitignore` files hide (the git index is not used to list files then).
+    #[arg(long)]
+    pub no_gitignore: bool,
+
+    /// Report unused exports of entry files too, overriding `[js] include-entry-exports`.
+    #[arg(long)]
+    pub include_entry_exports: bool,
+
+    /// knip's strict mode: --production, and each workspace package uses only the dependencies its own manifest
+    /// lists, not those of a containing package or the root.
+    #[arg(long)]
+    pub strict: bool,
+
     /// When to colour human output.
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     pub color: ColorChoice,
+
+    /// Instead of linting, print where this dependency is listed, every import of it and the packages that count it
+    /// as used.
+    #[arg(long, value_name = "NAME", conflicts_with_all = ["fix", "fix_unsafe"])]
+    pub trace_dependency: Option<String>,
+
+    /// Print what the run loaded (roots, configuration files, packages) and the phase timings to stderr.
+    #[arg(long)]
+    pub debug: bool,
+
+    /// Print the time each phase of the run took to stderr, as `SKIF_TIMINGS=1` does.
+    #[arg(long)]
+    pub performance: bool,
+
+    /// Print the wall time of the run to stderr.
+    #[arg(long)]
+    pub duration: bool,
+
+    /// Print the peak memory (resident set size) of the run to stderr; Linux only.
+    #[arg(long)]
+    pub memory: bool,
+
+    /// Report only the findings of these workspace packages, by name or directory relative to the root (globs, `!`
+    /// to exclude). The analysis still covers every package. Repeatable.
+    #[arg(short = 'W', long, value_name = "NAME|DIR")]
+    pub workspace: Vec<String>,
+
+    /// Report only these knip issue types (`files`, `dependencies`, `exports`, ...) or skif rule ids; a rule that is
+    /// off is turned on. Comma separated, repeatable.
+    #[arg(long, value_name = "TYPE|RULE", value_delimiter = ',')]
+    pub include: Vec<String>,
+
+    /// Do not report these knip issue types or skif rule ids. Comma separated, repeatable.
+    #[arg(long, value_name = "TYPE|RULE", value_delimiter = ',')]
+    pub exclude: Vec<String>,
+
+    /// Shortcut for `--include` of knip's dependency issue types.
+    #[arg(long)]
+    pub dependencies: bool,
+
+    /// Shortcut for `--include` of knip's export issue types.
+    #[arg(long)]
+    pub exports: bool,
+
+    /// Shortcut for `--include files`.
+    #[arg(long)]
+    pub files: bool,
+
+    /// Shortcut for `--include cycles`.
+    #[arg(long)]
+    pub cycles: bool,
+
+    /// Do not report exports tagged with these `JSDoc` tags, written `-TAG` as in knip. Comma separated, repeatable.
+    #[arg(long, value_name = "-TAG", value_delimiter = ',', allow_hyphen_values = true)]
+    pub tags: Vec<String>,
 }
 
 impl LintArgs {
