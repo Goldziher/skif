@@ -141,7 +141,8 @@ rev = "de867239d0a7dd55c9130f1e3f87fcf877db96e8"
 package-manager = "pnpm"
 suites = ["parity"]
 install-timeout-secs = 5400
-notes = "Hundreds of standalone example projects below one workspace."
+recursive = true
+notes = "Hundreds of standalone example projects below one workspace; they are nested roots, so skif runs recursively to read the files knip reads from the root."
 
 [[repo]]
 name = "next-js"
