@@ -11,8 +11,8 @@ skif init [PATH]
 skif config [PATH] [-r] (--show | --explain <KEY> [--package <NAME>]) [--format human|json]
 skif explain-usage <FILE[#EXPORT]> [PATH]
 skif migrate [PATH] [--from sherif|syncpack|knip|auto,...] [--profile exact|full] [--merge | --force] [--dry-run]
-skif list [PATH] [-r] [--show instances,statuses,hints,ignored,all,none]
-skif json [PATH] [-r]
+skif list [PATH] [-r] [--show instances,statuses,hints,ignored,all,none] [FILTERS]
+skif json [PATH] [-r] [FILTERS]
 ```
 
 `skif [PATH]` lints the project containing `PATH` (default `.`). The root is resolved in this order:
@@ -57,6 +57,7 @@ another root. `--fix` plans, writes and installs per root.
 | `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires `--format`. |
 | `--fix` | Apply safe fixes, lint again, then run the package manager's install command. |
 | `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. |
+| `--dependencies`, `--dependency-types`, `--specifier-types`, `--source` | Narrow the version-group policies to some instances (see [Filtering instances](#filtering-instances)). |
 | `--dry-run` | With `--fix` or `--fix-unsafe`: plan the fixes and print them as a unified diff, write nothing and run no install (see [Fixing](#fixing)). |
 | `--select <highest\|lowest>` | Which version a version alignment fix targets, overriding `[policy] prefer` for this run. |
 | `--no-install` | Do not run the package manager after fixing. |
@@ -165,6 +166,24 @@ to the root), `packageName`, `versionGroup` (syncpack's name: `HighestSemver`, `
 `rule`, `severity`, `isLocal`, `actual` and `expected` (each `{ "raw", "type" }`, `expected` `null` when unknown).
 
 Both exit `1` when an instance is reported at `error` severity, `0` otherwise, and `2` when skif could not run.
+
+## Filtering instances
+
+`skif`, `skif list` and `skif json` take syncpack's instance filters. An instance that does not pass is left out
+before it is assigned to a version group, so it is neither reported nor aligned with: `--source
+packages/app/package.json` checks that package's instances against each other only, as syncpack does.
+
+| Flag | Keeps |
+| --- | --- |
+| `--dependencies <NAME>` | Dependencies whose name matches the name or glob (`react`, `@types/**`, `!eslint`, `$LOCAL`). Repeatable. |
+| `--dependency-types <TYPES>` | These dependency types, comma separated (`prod,dev`, `!local`, a `[[custom-types]]` name). The list also replaces `[policy] dependency-types` as the scope of the default group for the run, so `--dependency-types peer` checks peer ranges. |
+| `--specifier-types <TYPES>` | These specifier types, comma separated (`exact`, `range`, `!workspace-protocol`; the values of `specifier-types` selectors). |
+| `--source <GLOB>` | Instances declared in files matching the glob, relative to the root (`packages/*/package.json`, `pnpm-workspace.yaml`). Repeatable. Unlike syncpack's `--source`, it does not change which packages make up the workspace. |
+
+The filters apply to the version-group and semver-group rules (`version-mismatch`, `banned-dependency`,
+`semver-range-mismatch`, `policy-conflict`, `invalid-local-version`) and to the listing; the catalog, workspace
+protocol, family and manifest rules see the whole workspace. A configured group that the filters leave without
+instances is not reported as unused.
 
 ## Exit codes
 

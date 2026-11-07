@@ -144,9 +144,10 @@ pub use skif_config::Workspace as WorkspaceConfig;
 pub use skif_config::{
     Assignment, CONFIG_FILE_NAMES, Catalog, CatalogMode, Ceiling, Config, ConfigBuilder, ConfigCache, ConfigError,
     ConfigLoader, ConfigOverrides, ConfigSource, DependencyFamily, DependencyTypes, ExportKinds, IgnoreEntry,
-    IgnoreExportsUsedInFile, Js, JsWorkspace, Level, Lint, Op, Origins, Override, OverrideScope, PackageJs,
-    PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey, ResolvedConfig, RuleConfig, RuleOptions,
-    Selector, SemverGroup, SemverRange, SourceKind, VersionGroup, VersionPolicy, WorkspaceProtocol, join_key,
+    IgnoreExportsUsedInFile, InstanceFilter, Js, JsWorkspace, Level, Lint, Op, Origins, Override, OverrideScope,
+    PackageJs, PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey, ResolvedConfig, RuleConfig,
+    RuleOptions, Selector, SemverGroup, SemverRange, SourceKind, VersionGroup, VersionPolicy, WorkspaceProtocol,
+    join_key,
 };
 /// `[[custom-types]]` and the places a version can be declared.
 pub use skif_config::{CustomStrategy, CustomType, DependencyType};
