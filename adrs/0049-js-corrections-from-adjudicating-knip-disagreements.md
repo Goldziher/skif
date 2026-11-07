@@ -5,7 +5,7 @@ decision-makers: ["Na'aman Hirschfeld"]
 amends: ["0036"]
 ---
 
-# JS Corrections from Adjudicating knip Disagreements: Linked Files, Subpath Imports, Aliased Packages, Computed Specifiers, tap and oxfmt
+# JS Corrections from Adjudicating knip Disagreements: Linked Files, Subpath Imports, Aliased Packages, Computed Specifiers, Component Styles and Three Plugins
 
 ## Context and Problem Statement
 
@@ -38,7 +38,9 @@ Chosen option: "Fix the false findings, add `tap` without a knip row, and teach 
 
 **Computed specifiers.** A template literal that starts with a relative path is a glob of the files it can name, with `*` for each expression, and each matching module counts as read in full. It stays narrow: ``import(`./pages/${name}.js`)`` matches one directory and one extension. Any other computed specifier stays an unknown target.
 
-**Plugins.** `tap` is added with the default test locations tap documents, which amends the line of ADR 0036 that declined it: a plugin needs a documented behaviour to follow, which is not always a knip row. `oxfmt` follows knip. `jest` keeps a runner name that is already a jest package as written, and `eslint --format` loads `eslint-formatter-<name>`.
+**Component styles.** A specifier in a style block of a `.vue`, `.svelte` or `.astro` file that the script resolver cannot find is looked up as a stylesheet, so a Sass partial resolves. It stays unresolved when neither finds it.
+
+**Plugins.** `tap` is added with the default test locations tap documents, which amends the line of ADR 0036 that declined it: a plugin needs a documented behaviour to follow, which is not always a knip row. `oxfmt` follows knip, and so does `bun`, which adds an enabler for a text in a script: a package can use `bun test` without depending on anything that names bun. `jest` keeps a runner name that is already a jest package as written, and `eslint --format` loads `eslint-formatter-<name>`.
 
 **Comparison.** `exports`, `types`, `nsExports` and `nsTypes` name the same `<file>|<export>`, so the same key under another label is agreement. skif's own labels do not change. `knip-unread` in `corpus.toml` lists the paths knip does not read in a repository, and one-sided findings below them are a known deviation.
 
@@ -49,12 +51,12 @@ Chosen option: "Fix the false findings, add `tap` without a knip row, and teach 
 * Bad, because a dependency only reached through an alias is not reported even if the alias makes it redundant.
 * Bad, because every literal `imports` target is an entry, so a mapping nothing imports keeps its file alive.
 * Bad, because a computed specifier keeps every file it can name alive, including one no runtime value reaches.
-* Neutral, because the plugin table holds 104 plugins.
+* Neutral, because the plugin table holds 105 plugins.
 
 ### Confirmation
 
-* `crates/skif-js/tests/fp_graph.rs` covers linked files, every condition of a subpath import, patterns not being entries, aliased packages, augmentation and computed specifiers.
-* `crates/skif-js-plugins/tests/plugins.rs` covers `tap`, `oxfmt` and the jest runner, and `scripts/tests.rs` covers the formatter names.
+* `crates/skif-js/tests/fp_graph.rs` covers linked files, every condition of a subpath import, patterns not being entries, aliased packages, augmentation, computed specifiers and component styles.
+* `crates/skif-js-plugins/tests/plugins.rs` covers `tap`, `oxfmt`, `bun` and the jest runner, and `scripts/tests.rs` covers the formatter names.
 * `the_same_export_under_another_label_is_agreement` in `tools/bench/src/parity.rs` covers the labels.
 
 ## Pros and Cons of the Options

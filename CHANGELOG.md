@@ -18,7 +18,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- `tap` and `oxfmt` plugins. The table holds 104 plugins.
+- `tap`, `oxfmt` and `bun` plugins. The table holds 105 plugins.
 
 ### Fixed
 
@@ -30,6 +30,7 @@ False findings on real repositories ([ADR 0049](adrs/0049-js-corrections-from-ad
 - A package reached through a `tsconfig` path alias, or augmented with `declare module`, counts as used when the
   manifest lists it.
 - ``require(`./commands/${name}`)`` and ``import(`./pages/${name}.js`)`` reach the files they can name.
+- `@use` of a Sass partial in a `.vue`, `.svelte` or `.astro` style block resolves.
 - A jest `runner` that is already a jest package is read as written, and `eslint --format <name>` counts
   `eslint-formatter-<name>` as used.
 
