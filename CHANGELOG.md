@@ -17,6 +17,9 @@ All notable changes to this project are documented here. The format follows
   ([#22](https://github.com/Goldziher/skif/issues/22)).
 - A file a script runs through a path that leaves its package (`tsx ../../scripts/seed.ts`) is the file it names and
   belongs to the package it lies in ([#22](https://github.com/Goldziher/skif/issues/22)).
+- The script parser reads `$((n+1))` and `((n++))` as arithmetic, not as commands; `bun --cwd <dir>` and
+  `pnpm --prefix <dir>` (like `--dir` and `-C`) run in another package, so the scripts and binaries they name are that
+  package's ([#22](https://github.com/Goldziher/skif/issues/22)).
 
 ## [0.1.1] - 2026-11-07
 
