@@ -1,6 +1,6 @@
 ---
 title: Editors and agents
-description: Use skif from AI agents through its MCP server, and re-lint on every change with watch mode.
+description: Use skif from AI agents through its MCP server, in editors through its language server, and re-lint on every change with watch mode.
 ---
 
 skif runs as a server for the tools you write code with. Everything here is part of the `skif` binary; nothing
@@ -55,3 +55,35 @@ longer), skips `node_modules`, `.git` and `target`, and honours `.gitignore`, so
 run. A run starts once the tree has been quiet for 100 milliseconds, so a branch switch or a formatter that touches
 many files causes one run. When the configuration cannot be read, the error is printed and the watcher keeps going,
 so the next save of `skif.toml` runs again. `--watch` cannot be combined with `--fix` or `--fix-unsafe`.
+
+## Language server
+
+`skif lsp` is a minimal [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) server on
+stdio. When the editor opens or saves a file, skif lints the project that contains it and publishes the diagnostics
+of every file of that project, with the rule ID as the code and `skif` as the source; a file whose findings are gone
+gets an empty list. It lints the files as saved on disk, so findings update on save, not while typing. It offers no
+code actions yet: apply fixes with `skif --fix`.
+
+There is no skif editor extension. Any editor that can start a language server for JSON files can run it, for
+example Neovim:
+
+```lua
+vim.lsp.config("skif", {
+  cmd = { "skif", "lsp" },
+  filetypes = { "json", "javascript", "typescript" },
+  root_markers = { "package.json" },
+})
+vim.lsp.enable("skif")
+```
+
+or Helix, in `languages.toml`:
+
+```toml
+[language-server.skif]
+command = "skif"
+args = ["lsp"]
+
+[[language]]
+name = "json"
+language-servers = ["vscode-json-language-server", "skif"]
+```

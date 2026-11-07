@@ -19,6 +19,9 @@ All notable changes to this project are documented here. The format follows
   needs no native file events
   ([ADR 0050](adrs/0050-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
   [#44](https://github.com/Goldziher/skif/issues/44)).
+- `skif lsp`, a minimal language server on stdio that publishes skif's diagnostics when a file is opened or saved
+  ([ADR 0050](adrs/0050-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
 
 ## [0.1.1] - 2026-11-07
 
