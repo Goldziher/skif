@@ -119,3 +119,21 @@ fn vue_auto_import_declarations_keep_components_and_composables_used() {
     assert_eq!(found(&diagnostics, "unused-files"), Vec::<String>::new());
     assert_eq!(found(&diagnostics, "unused-exports"), Vec::<String>::new());
 }
+
+#[test]
+fn stylus_tsrx_snapshot() {
+    insta::assert_json_snapshot!("stylus-tsrx", lint_fixture("stylus-tsrx"));
+}
+
+#[test]
+fn stylus_and_tsrx_imports_are_followed() {
+    let diagnostics = lint_fixture("stylus-tsrx");
+    assert_eq!(found(&diagnostics, "unused-files"), ["src/Orphan.ts: src/Orphan.ts"]);
+    // `nib` is required by a Stylus file, `@tsrx/react` imported by a `.tsrx` file, and `stylus` and `@tsrx/core`
+    // compile the files that use them.
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        ["package.json: unused-dependency"]
+    );
+    assert_eq!(found(&diagnostics, "unresolved-imports"), Vec::<String>::new());
+}

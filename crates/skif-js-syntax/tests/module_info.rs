@@ -691,6 +691,27 @@ fn angular_component_resources_are_side_effect_imports() {
 }
 
 #[test]
+fn tsrx_yields_its_imports_only() {
+    let source = "import * as ui from './ui';\nimport { useState } from '@tsrx/react';\n\nexport component App() {\n  <ui.Button />\n}\n";
+    let info = parse("App.tsrx", source);
+    assert_eq!(
+        specifiers(&info),
+        [("./ui", ImportKind::Static), ("@tsrx/react", ImportKind::Static)]
+    );
+    assert_eq!(info.imports[1].span.start_line, 2);
+    assert_eq!(info.exports.len(), 0);
+    // The template is not read, so a namespace counts as used as a whole.
+    assert_eq!(accessed(&info, "ui"), (Vec::new(), true));
+}
+
+#[test]
+fn stylus_style_blocks_are_imports() {
+    let vue = "<template/>\n<style lang=\"stylus\">\n@require 'nib'\n@import './theme'\n</style>\n";
+    let found: Vec<_> = parse("A.vue", vue).imports.into_iter().map(|i| i.specifier).collect();
+    assert_eq!(found, ["nib", "./theme"]);
+}
+
+#[test]
 fn public_types_are_send_and_sync() {
     fn check<T: Send + Sync>() {}
     check::<ModuleInfo>();
