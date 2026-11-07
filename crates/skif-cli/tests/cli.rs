@@ -846,3 +846,41 @@ fn lint_to_json_classifies_its_errors() {
     assert_eq!(broken.kind, skif_cli::Kind::Config);
     assert!(broken.path.is_some_and(|path| path.ends_with("skif.toml")));
 }
+
+#[test]
+fn format_check_exits_one_and_format_writes_the_fix() {
+    let dir = fixture("format");
+    let manifest = dir.path().join("packages").join("a").join("package.json");
+    let before = tree(dir.path());
+
+    let check = run(skif().args(["format", "--check"]).arg(dir.path()));
+    assert_eq!(check.code, 1, "{}{}", check.stdout, check.stderr);
+    assert_eq!(tree(dir.path()), before, "--check wrote a file");
+    insta::assert_snapshot!("format_check_human", redact(&check.stdout, dir.path()));
+
+    let refused = run(skif().args(["format"]).arg(dir.path()).env("CI", "true"));
+    assert_eq!(refused.code, 2, "{}{}", refused.stdout, refused.stderr);
+    assert_eq!(tree(dir.path()), before, "a refused run wrote a file");
+
+    let lint = run(skif().args(["--format", "json", "--no-js"]).arg(dir.path()));
+    assert!(
+        !rule_ids(&lint.json()).contains("package-json-format"),
+        "the rule is off in a plain lint"
+    );
+
+    let format = run(skif().args(["format"]).arg(dir.path()));
+    assert_eq!(format.code, 0, "{}{}", format.stdout, format.stderr);
+    let formatted = fs::read_to_string(&manifest).unwrap();
+    insta::assert_snapshot!("format_fixed_manifest", formatted);
+
+    let again = run(skif().args(["format", "--check", "--format", "json"]).arg(dir.path()));
+    assert_eq!(again.code, 0, "{}{}", again.stdout, again.stderr);
+    assert_eq!(again.json()["summary"]["errors"], 0);
+    let twice = run(skif().args(["format"]).arg(dir.path()));
+    assert_eq!(twice.code, 0);
+    assert_eq!(
+        fs::read_to_string(&manifest).unwrap(),
+        formatted,
+        "formatting twice changed the file"
+    );
+}
