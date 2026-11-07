@@ -75,3 +75,21 @@ fn an_alias_tag_exempts_an_export_from_unused_and_duplicate_exports() {
     );
     insta::assert_snapshot!(report(&diagnostics));
 }
+
+const MEMBERS: &str = "export enum Color {\n  Red,\n  /** @internal */\n  Green,\n  /** @beta */\n  Blue,\n  /** @alpha */\n  Cyan,\n  /** @lintignore */\n  Pink,\n  Plain,\n}\nexport namespace Shapes {\n  export const circle = 1;\n  /** @internal */\n  export const square = 2;\n  /** @lintignore */\n  export const star = 3;\n  export const line = 4;\n}\n/** @lintignore */\nexport enum Ignored {\n  A,\n  B,\n}\n";
+
+const MEMBERS_INDEX: &str =
+    "import { Color, Shapes, Ignored } from \"./lib\";\nconsole.log(Color.Red, Shapes.circle, Ignored.A);\n";
+
+#[test]
+fn member_tags_exempt_enum_and_namespace_members() {
+    let files = package(MEMBERS, MEMBERS_INDEX);
+    insta::assert_snapshot!("member_tags_default", report(&lint(&files, "")));
+    insta::assert_snapshot!(
+        "member_tags_production_and_ignore_tags",
+        report(&lint(
+            &files,
+            "[js]\nproduction = true\n[rules]\nunused-exports = { ignore-tags = [\"lintignore\"] }\n"
+        ))
+    );
+}

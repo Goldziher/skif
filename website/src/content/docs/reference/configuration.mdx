@@ -333,7 +333,9 @@ workspace directory. Each target is tried as a module alias ahead of the aliases
 `namespace`, `type` and `interface`: an export that the same file references is then not reported. skif does not tell
 type aliases from interfaces, so `type` and `interface` are the same switch. `member` is accepted; members read in
 their own file always count as used. **`ignore-members`** lists enum and namespace member names never reported by
-`unused-enum-members` and `unused-namespace-members`. **`include-entry-exports`** may be set per workspace.
+`unused-enum-members` and `unused-namespace-members`. A member is also exempt when its own JSDoc carries a tag that
+exempts an export (`@public`, `@beta`, `@alpha`, `@alias`, `@internal` with `production`, or an `ignore-tags` name).
+**`include-entry-exports`** may be set per workspace.
 
 **`stale-js-config`** (a warning) reports `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
 `ignore-workspaces` entries that matched nothing in the run, and `[js.workspaces]` keys that select no package, like
