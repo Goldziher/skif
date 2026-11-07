@@ -97,13 +97,19 @@ pub struct RootView<'a> {
     pub fix: Option<&'a FixRun>,
 }
 
+/// Renders the report and writes it to `output`, or to stdout without one.
+///
+/// A file is written whole (see [`write_atomic`]). Stdout gets the report as it is rendered: a report with tens of
+/// thousands of diagnostics runs to tens of megabytes, and holding it in memory first was a visible part of the run.
+/// A reader that went away is not a failure, as in [`write_stdout`].
 pub fn render(
     report: &Report,
     roots: &[RootView<'_>],
     rendering: &Rendering<'_>,
     fs: &dyn FileSystem,
     fixes: &[RootFix<'_>],
-) -> Result<Vec<u8>, CliError> {
+    output: Option<&Path>,
+) -> Result<(), CliError> {
     let root = rendering.root;
     let mut options = RenderOptions::default()
         .with_color(rendering.color)
@@ -122,17 +128,27 @@ pub fn render(
     if rendering.format == Format::Sarif {
         options = options.with_rules(rendering.rules.iter().copied());
     }
-    let mut buffer = Vec::new();
-    write_report(report, roots, rendering, &options, fixes, &mut buffer)
-        .map_err(|error| CliError::new(Kind::Io, format!("cannot render the report: {error}")))?;
-    Ok(buffer)
+    let cannot_render = |error: io::Error| CliError::new(Kind::Io, format!("cannot render the report: {error}"));
+    if let Some(path) = output {
+        let mut buffer = Vec::new();
+        write_report(report, roots, rendering, &options, fixes, &mut buffer).map_err(cannot_render)?;
+        return write_atomic(path, &buffer).map_err(|error| CliError::io("cannot write", path, &error));
+    }
+    let mut out = io::BufWriter::with_capacity(64 * 1024, io::stdout().lock());
+    match write_report(report, roots, rendering, &options, fixes, &mut out).and_then(|()| out.flush()) {
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        // The renderers' own failure (an `extra` member that shadows a reserved key); every other one is stdout's.
+        Err(error) if error.kind() == io::ErrorKind::InvalidInput => Err(cannot_render(error)),
+        Err(error) => Err(CliError::new(Kind::Io, format!("cannot write to stdout: {error}"))),
+        Ok(()) => Ok(()),
+    }
 }
 
 fn write_human_roots(
     roots: &[RootView<'_>],
     rendering: &Rendering<'_>,
     options: &RenderOptions,
-    out: &mut Vec<u8>,
+    out: &mut dyn Write,
 ) -> io::Result<()> {
     for view in roots {
         if rendering.multi {
@@ -155,7 +171,7 @@ fn write_report(
     rendering: &Rendering<'_>,
     options: &RenderOptions,
     fixes: &[RootFix<'_>],
-    out: &mut Vec<u8>,
+    out: &mut dyn Write,
 ) -> io::Result<()> {
     match rendering.format {
         Format::Human => {
@@ -197,12 +213,5 @@ fn plural_roots(count: usize) -> String {
         "1 root".to_owned()
     } else {
         format!("{count} roots")
-    }
-}
-
-pub fn emit(bytes: &[u8], output: Option<&Path>) -> Result<(), CliError> {
-    match output {
-        Some(path) => write_atomic(path, bytes).map_err(|error| CliError::io("cannot write", path, &error)),
-        None => write_stdout(bytes),
     }
 }

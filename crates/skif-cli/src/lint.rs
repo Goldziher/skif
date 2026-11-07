@@ -464,10 +464,9 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         errors: root_errors.iter().map(RootError::to_json).collect(),
         truncated: truncated_json(&truncated),
     };
-    let rendered = timing::phase("render", || {
-        output::render(&aggregate, &views, &rendering, &fs, &root_fixes)
+    timing::phase("render", || {
+        output::render(&aggregate, &views, &rendering, &fs, &root_fixes, args.output.as_deref())
     })?;
-    output::emit(&rendered, args.output.as_deref())?;
     if !fixes.is_empty() && matches!(args.format(), Format::Sarif | Format::Github) {
         write_summary_to_stderr(&root_fixes);
     }
@@ -492,7 +491,14 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     if !install_failures.is_empty() || !root_errors.is_empty() {
         return Ok(COULD_NOT_RUN);
     }
-    Ok(run_exit_code(args, &runs, &aggregate))
+    let code = run_exit_code(args, &runs, &aggregate);
+    // The process exits next: freeing every diagnostic and the workspace model one allocation at a time is a
+    // measurable part of a large run, and the operating system reclaims the memory at once.
+    std::mem::forget(views);
+    std::mem::forget(aggregate);
+    std::mem::forget(reports);
+    std::mem::forget(runs);
+    Ok(code)
 }
 
 fn roots_fix<'a>(prefixes: &[&'a Path], fixes: &'a [FixRun]) -> Vec<RootFix<'a>> {
