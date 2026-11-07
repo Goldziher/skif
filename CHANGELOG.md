@@ -9,6 +9,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `unused-dependencies` no longer reports `optionalDependencies`, as knip does not: they are mostly platform packages
+  loaded by a computed name ([#21](https://github.com/Goldziher/skif/issues/21)).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed

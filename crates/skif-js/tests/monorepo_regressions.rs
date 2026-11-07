@@ -1,5 +1,6 @@
 //! Regressions found on a large pnpm monorepo: builtin-named packages, HTML entries of the vitest plugin, referenced
-//! `tsconfig` paths, extglob entries, shared config helpers, stylesheet lookups and per-package bundler extensions.
+//! `tsconfig` paths, extglob entries, shared config helpers, stylesheet lookups, per-package bundler extensions and
+//! platform packages in `optionalDependencies`.
 //!
 //! Every case is a minimal synthetic workspace.
 
@@ -299,6 +300,28 @@ fn bundler_extensions_apply_to_the_package_that_declares_them() {
     assert_eq!(
         found(&diagnostics, "unresolved-imports"),
         ["other/src/index.js: ./logo"],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn optional_dependencies_are_not_reported_as_unused() {
+    // Platform packages are loaded by a computed name (`import(`@lydell/node-pty-${platform}`)`), as in knip, which
+    // never reports `optionalDependencies`.
+    let package = manifest(&format!(
+        r#""name":"app","version":"1.0.0","private":true,{PNPM},"main":"index.js","dependencies":{{"left-pad":"1.3.0"}},"optionalDependencies":{{"@lydell/node-pty-linux-x64":"1.1.0","@lydell/node-pty-darwin-arm64":"1.1.0"}}"#
+    ));
+    let files = [
+        ("package.json", package.as_str()),
+        (
+            "index.js",
+            "const platform = `${process.platform}-${process.arch}`;\nexport default () => import(`@lydell/node-pty-${platform}`);\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        vec!["package.json: left-pad".to_owned()],
         "{diagnostics:#?}"
     );
 }
