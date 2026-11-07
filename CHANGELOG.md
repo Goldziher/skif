@@ -25,6 +25,9 @@ All notable changes to this project are documented here. The format follows
   that module statically instead of treating the value as unknown, so the package's entry files are known and its dead
   files are reported. `mergeConfig` keeps a key unknown when either side of it is, and ESLint's `defineConfig` and
   `tseslint.config` list all their arguments ([#23](https://github.com/Goldziher/skif/issues/23)).
+- Without an install, the peer dependencies of a workspace package are read from its manifest, so a package that lists
+  them for a workspace dependency (`@testing-library/jest-dom` for a shared vitest setup) is not told they are unused
+  ([#23](https://github.com/Goldziher/skif/issues/23)).
 - The files an n8n node package lists in `package.json` `n8n.nodes` and `n8n.credentials` are entries, mapped from
   `dist` back to their sources, so node and credential files are not reported unused
   ([#23](https://github.com/Goldziher/skif/issues/23)).
