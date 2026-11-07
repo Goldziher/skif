@@ -98,10 +98,14 @@ fn is_package_manifest(fs: &dyn FileSystem, dir: &Path) -> bool {
 /// The matchers of the ignore files listed in `entries`, the listing of `dir`, if any.
 ///
 /// Only files the listing names are opened, so a directory without ignore files costs no `open`.
-fn ignore_file_matcher(fs: &dyn FileSystem, dir: &Path, entries: &[DirEntry]) -> Option<Gitignore> {
+fn ignore_file_matcher(fs: &dyn FileSystem, dir: &Path, entries: &[DirEntry], gitignore: bool) -> Option<Gitignore> {
     let mut builder = GitignoreBuilder::new(dir);
     let mut any = false;
-    for name in IGNORE_FILES.iter().filter(|name| lists_file(entries, name)) {
+    for name in IGNORE_FILES
+        .iter()
+        .filter(|name| gitignore || **name != ".gitignore")
+        .filter(|name| lists_file(entries, name))
+    {
         let path = dir.join(name);
         let Ok(text) = fs.read_to_string(&path) else { continue };
         for line in text.lines() {
@@ -144,6 +148,8 @@ struct Walk<'a> {
     owners: HashMap<PathBuf, PackageId>,
     skipped: HashSet<PathBuf>,
     sequential: bool,
+    /// Honour `.gitignore` files; `.ignore` files are honoured either way.
+    gitignore: bool,
 }
 
 impl Walk<'_> {
@@ -162,7 +168,7 @@ impl Walk<'_> {
             return Vec::new();
         }
         let mut matchers = frame.matchers.clone();
-        if let Some(matcher) = ignore_file_matcher(self.fs, &frame.dir, &entries) {
+        if let Some(matcher) = ignore_file_matcher(self.fs, &frame.dir, &entries, self.gitignore) {
             matchers.push(Arc::new(matcher));
         }
         let mut found = Vec::new();
@@ -226,7 +232,19 @@ impl Walk<'_> {
 /// Directories are listed once each, and the ignore files and manifests are found in the listing instead of probed.
 /// Sibling directories are walked in parallel (on the calling thread with `sequential`); the sort makes the result
 /// independent of scheduling.
+#[cfg(test)]
 pub(crate) fn discover(fs: &dyn FileSystem, workspace: &Workspace, sequential: bool) -> Vec<Candidate> {
+    discover_with(fs, workspace, sequential, true)
+}
+
+/// Like [`discover`]; without `gitignore` the `.gitignore` files are not read, so the files they hide are found too
+/// (`skif --no-gitignore`).
+pub(crate) fn discover_with(
+    fs: &dyn FileSystem,
+    workspace: &Workspace,
+    sequential: bool,
+    gitignore: bool,
+) -> Vec<Candidate> {
     let mut owners: HashMap<PathBuf, PackageId> = HashMap::new();
     let mut skipped: HashSet<PathBuf> = HashSet::new();
     for (id, package) in workspace.iter().filter(|(_, package)| !package.is_root) {
@@ -243,6 +261,7 @@ pub(crate) fn discover(fs: &dyn FileSystem, workspace: &Workspace, sequential: b
         owners,
         skipped,
         sequential,
+        gitignore,
     };
     let mut found = walk.directory(&Frame {
         dir: workspace.root.clone(),

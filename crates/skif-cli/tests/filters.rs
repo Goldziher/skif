@@ -240,3 +240,14 @@ fn trace_dependency_lists_manifests_imports_and_users() {
     assert_eq!(result.code, 2);
     assert_eq!(error["error"]["kind"], "usage", "{error:#}");
 }
+
+#[test]
+fn no_gitignore_analyses_ignored_files() {
+    let dir = fixture("filters");
+    std::fs::write(dir.path().join(".gitignore"), "packages/a/orphan.ts\n").unwrap();
+    let orphan = ("unused-files".to_owned(), "packages/a/orphan.ts".to_owned());
+    let honoured = run(skif().args(["--format", "json"]).arg(dir.path())).json();
+    assert!(!findings(&honoured).contains(&orphan), "{honoured:#}");
+    let ignored = run(skif().args(["--format", "json", "--no-gitignore"]).arg(dir.path())).json();
+    assert!(findings(&ignored).contains(&orphan), "{ignored:#}");
+}
