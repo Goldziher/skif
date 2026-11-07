@@ -420,10 +420,11 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         roots::resolve(&start, args.recursive, &fs, &overrides(args))
     })?;
     note_truncated(&truncated);
+    let filter = Filter::new(args)?;
     for target in &mut targets {
         adjust(args, &mut target.config)?;
+        filter.configure(&mut target.config);
     }
-    let filter = Filter::new(args)?;
     let linters = Linters::build(&targets)?;
     let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
     filter.apply_runs(&mut runs)?;
