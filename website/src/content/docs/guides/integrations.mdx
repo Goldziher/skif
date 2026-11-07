@@ -66,6 +66,25 @@ skif:
 
 Exit code `1` fails the job when errors remain; add `allow_failure: true` to report without blocking the pipeline.
 
+One run can write several reports. Each `--format FORMAT=FILE` goes to its own file and at most one format goes to
+stdout, so this job keeps the human report in the job log, the JSON report as an artifact for scripts and the Code
+Quality report for the merge request:
+
+```yaml
+skif:
+  image: node:lts
+  script:
+    - npx skif-cli --format human --format json=skif.json --format codeclimate=gl-code-quality.json
+  artifacts:
+    when: always
+    paths:
+      - skif.json
+    reports:
+      codequality: gl-code-quality.json
+```
+
+No file is written when the run fails, so a broken configuration cannot leave a stale report behind.
+
 ## Git hooks
 
 skif belongs in a pre-commit hook: a mismatched version or an unsorted dependency map is cheapest to fix before
