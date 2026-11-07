@@ -1251,6 +1251,9 @@ pub struct Js {
     pub project: Vec<String>,
     /// Globs of files that are not analysed.
     pub ignore: Vec<String>,
+    /// Globs of files, relative to the workspace root, never reported by `unused-files`; other rules still analyse
+    /// them (knip's `ignoreFiles`).
+    pub ignore_files: Vec<String>,
     /// Dependencies never reported as unused or unlisted.
     pub ignore_dependencies: Vec<String>,
     /// Binaries never reported as unlisted.
@@ -1345,6 +1348,7 @@ impl Default for Js {
             entry: Vec::new(),
             project: Vec::new(),
             ignore: Vec::new(),
+            ignore_files: Vec::new(),
             ignore_dependencies: Vec::new(),
             ignore_binaries: Vec::new(),
             ignore_unresolved: Vec::new(),
@@ -1451,6 +1455,8 @@ pub struct JsWorkspace {
     pub project: Vec<String>,
     /// Globs of files that are not analysed.
     pub ignore: Vec<String>,
+    /// Globs of files, relative to the workspace directory, never reported by `unused-files`.
+    pub ignore_files: Vec<String>,
     /// Dependencies never reported as unused or unlisted.
     pub ignore_dependencies: Vec<String>,
     /// Binaries never reported as unlisted.

@@ -167,8 +167,8 @@ fn knip_ts_with_workspaces_plugins_and_a_non_static_value() {
         migration
             .notes
             .iter()
-            .any(|note| note.path == "ignoreFiles" && note.class == NoteClass::Approximate),
-        "ignoreFiles widens to every rule"
+            .any(|note| note.path == "ignoreFiles" && note.class == NoteClass::Exact),
+        "ignoreFiles maps to ignore-files"
     );
     assert!(
         migration

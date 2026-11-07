@@ -262,6 +262,7 @@ enabled = true
 entry = ["src/index.ts", "src/server.ts!"]
 project = ["src/**/*.ts"]
 ignore = ["**/*.generated.ts"]
+ignore-files = ["scripts/one-off/**"]
 ignore-dependencies = ["@types/node", "/^@org\\/.+$/"]
 ignore-binaries = ["docker"]
 ignore-unresolved = ["#internal/*", "/^virtual:/"]
@@ -296,7 +297,7 @@ jest = { enabled = true, config = ["jest.config.cjs"] }
 `enabled` defaults to `true`, so a plain `skif` run checks everything; the git hooks pass `--no-js`. Per-workspace
 tables, keyed by directory (a glob such as `packages/*` works, an exact key wins over a glob, and `"."` is the root
 workspace; `*` stops at `/`, so `packages/*` does not select `packages/a/nested`, and when several glob keys select a
-directory the first in file order wins), take `entry`, `project`, `ignore`, `ignore-dependencies`, `ignore-binaries`,
+directory the first in file order wins), take `entry`, `project`, `ignore`, `ignore-files`, `ignore-dependencies`, `ignore-binaries`,
 `ignore-unresolved`, `ignore-members`, `ignore-exports-used-in-file`, `include-entry-exports`, `paths` and `plugins`. A plugin entry is
 `true`, `false` or a table with `enabled`, `config`, `entry` and `project`; the plugin names are checked, and a
 misspelt one is a configuration error with the closest name suggested. The `"."` table adds to the top-level ignore
@@ -342,6 +343,10 @@ their own file always count as used. **`ignore-members`** lists enum and namespa
 exempts an export (`@public`, `@beta`, `@alpha`, `@alias`, `@internal` with `production`, or an `ignore-tags` name).
 **`include-entry-exports`** may be set per workspace.
 
+**`ignore-files`** lists globs of files that `unused-files` never reports, at the top level (relative to the workspace
+root) and per workspace (relative to its directory), like knip's `ignoreFiles`. Unlike `ignore`, every other rule still
+analyses them.
+
 **`[js.cycles]`** configures `circular-imports` (off by default), like knip's `cycles`. `allow` lists cycles that are
 not reported, each as the list of its files relative to the workspace root (`./` is optional): skif reports a cycle as
 the set of modules that import each other, so an entry allows the cycle whose files are exactly its files, in any
@@ -352,7 +357,8 @@ imports never do.
 `ignore-workspaces` entries that matched nothing in the run, `[js.workspaces]` keys that select no package, and
 `entry`, `project` and `ignore` patterns (top level and per workspace) that match no source file, like knip's
 configuration hints (`entry-empty`, `project-empty` and stale `ignore`). A pattern of a workspace glob key is judged
-per package it selects. Negated patterns and patterns that leave the package (`../`) are not judged. `[rules] stale-js-config = "error"` is knip's `--treat-config-hints-as-errors` (`skif migrate` writes `warn` unless `--strict-hints` is given). An
+per package it selects. Negated patterns and patterns that leave the package (`../`) are not judged. An `ignore-files`
+pattern is reported when it hides no file `unused-files` would report (while that rule runs). `[rules] stale-js-config = "error"` is knip's `--treat-config-hints-as-errors` (`skif migrate` writes `warn` unless `--strict-hints` is given). An
 `ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off, and the
 dependency lists are not judged when a package has entry files skif cannot determine. It also reports knip's tag
 hints: an `ignore-tags` tag, or `@internal` with `production`, on an export or member that is used anyway (while

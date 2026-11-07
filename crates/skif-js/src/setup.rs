@@ -62,6 +62,7 @@ struct Configured {
     entry: Vec<String>,
     project: Vec<String>,
     ignore: Vec<String>,
+    ignore_files: Vec<String>,
     ignore_dependencies: Vec<String>,
     ignore_binaries: Vec<String>,
     ignore_unresolved: Vec<String>,
@@ -105,6 +106,7 @@ impl From<&JsWorkspace> for Configured {
             entry: workspace.entry.clone(),
             project: workspace.project.clone(),
             ignore: workspace.ignore.clone(),
+            ignore_files: workspace.ignore_files.clone(),
             ignore_dependencies: workspace.ignore_dependencies.clone(),
             ignore_binaries: workspace.ignore_binaries.clone(),
             ignore_unresolved: workspace.ignore_unresolved.clone(),
@@ -128,6 +130,7 @@ impl Configured {
         replace(&mut self.entry, root.entry);
         replace(&mut self.project, root.project);
         self.ignore.extend(root.ignore);
+        self.ignore_files.extend(root.ignore_files);
         self.ignore_dependencies.extend(root.ignore_dependencies);
         self.ignore_binaries.extend(root.ignore_binaries);
         self.ignore_unresolved.extend(root.ignore_unresolved);
@@ -308,6 +311,8 @@ pub(crate) struct PackageSetup {
     pub project: Globs,
     /// Files whose issues are not reported, relative to the package directory.
     pub ignore: Globs,
+    /// Files never reported unused, relative to the package directory (`ignore-files` of the workspace).
+    pub ignore_files: Globs,
     /// Dependencies and binaries plugins say are never reported.
     pub ignore_dependencies: Names,
     pub ignore_binaries: Names,
@@ -347,6 +352,7 @@ pub(crate) struct UserPatterns {
     pub entry: Vec<String>,
     pub project: Vec<String>,
     pub ignore: Vec<String>,
+    pub ignore_files: Vec<String>,
 }
 
 /// Settings for the whole workspace.
@@ -355,6 +361,8 @@ pub(crate) struct Setup {
     pub packages: Vec<Option<PackageSetup>>,
     /// `[js] ignore`, relative to the workspace root.
     pub global_ignore: Globs,
+    /// `[js] ignore-files`, relative to the workspace root.
+    pub global_ignore_files: Globs,
     /// Root-level `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and `ignore-members` apply to every
     /// package.
     pub global_ignore_dependencies: Listed,
@@ -573,6 +581,7 @@ impl Setup {
                 entry: user.entry.clone(),
                 project: user.project.clone(),
                 ignore: user.ignore.clone(),
+                ignore_files: user.ignore_files.clone(),
             };
             let mut ignore = user.ignore;
             ignore.extend(plugin.ignore);
@@ -601,6 +610,7 @@ impl Setup {
                 entries_incomplete: plugin.entries_incomplete,
                 project: Globs::new(project),
                 ignore: Globs::new(ignore),
+                ignore_files: Globs::new(&user.ignore_files),
                 ignore_dependencies: Names::new(ignore_dependencies),
                 ignore_binaries: Names::new(ignore_binaries),
                 user_ignore_dependencies: Listed::new(&user.ignore_dependencies, production),
@@ -627,6 +637,7 @@ impl Setup {
         Self {
             packages,
             global_ignore: Globs::new(&js.ignore),
+            global_ignore_files: Globs::new(&js.ignore_files),
             global_ignore_dependencies: Listed::new(&js.ignore_dependencies, production),
             global_ignore_binaries: Listed::new(&js.ignore_binaries, production),
             global_ignore_unresolved: Listed::new(&js.ignore_unresolved, production),

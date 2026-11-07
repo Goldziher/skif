@@ -122,6 +122,7 @@
         "entry": [],
         "project": [],
         "ignore": [],
+        "ignore-files": [],
         "ignore-dependencies": [],
         "ignore-binaries": [],
         "ignore-unresolved": [],
@@ -841,6 +842,14 @@
           "description": "Globs of files that are not analysed.",
           "default": []
         },
+        "ignore-files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of files, relative to the workspace root, never reported by `unused-files`; other rules still analyse\nthem (knip's `ignoreFiles`).",
+          "default": []
+        },
         "ignore-dependencies": {
           "type": "array",
           "items": {
@@ -1085,6 +1094,14 @@
             "type": "string"
           },
           "description": "Globs of files that are not analysed.",
+          "default": []
+        },
+        "ignore-files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of files, relative to the workspace directory, never reported by `unused-files`.",
           "default": []
         },
         "ignore-dependencies": {
