@@ -18,7 +18,7 @@ use crate::package::{Package, PackageId};
 use crate::parallel::map_ordered;
 use crate::pattern::{self, Expander, Pattern};
 use crate::pnpm::{self, YamlSource};
-use crate::rush;
+use crate::{lerna, rush};
 
 const MANIFEST: &str = "package.json";
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
@@ -36,6 +36,8 @@ pub enum WorkspaceSource {
     PnpmWorkspaceYaml,
     /// `projects[].projectFolder` in `rush.json`.
     RushJson,
+    /// `packages` in `lerna.json`.
+    LernaJson,
     /// Nothing declares a workspace: the root package is the only package.
     SinglePackage,
 }
@@ -309,6 +311,15 @@ impl Workspace {
         } else {
             None
         };
+        let lerna_path = root.join(lerna::FILE);
+        let lerna = if has_root_manifest && fs.is_file(&lerna_path) {
+            let text = fs
+                .read_to_string(&lerna_path)
+                .map_err(|error| io_error(&lerna_path, error))?;
+            Some(lerna::parse(text)?)
+        } else {
+            None
+        };
 
         let (pnpm_workspace, pnpm_config) = if fs.is_file(&yaml_path) {
             let text = fs
@@ -334,7 +345,9 @@ impl Workspace {
             &root,
             config,
             &root_package.manifest.value,
-            rush.as_ref().and_then(|rush| rush.package_manager),
+            rush.as_ref()
+                .and_then(|rush| rush.package_manager)
+                .or_else(|| lerna.as_ref().and_then(|lerna| lerna.package_manager)),
             pnpm_workspace.is_some(),
         );
 
@@ -377,10 +390,16 @@ impl Workspace {
             implicit: false,
             patterns: rush.projects,
         });
+        let from_lerna = lerna.and_then(|lerna| lerna.packages).map(|packages| Declared {
+            source: WorkspaceSource::LernaJson,
+            file: PathBuf::from(lerna::FILE),
+            implicit: false,
+            patterns: packages,
+        });
         let chosen = if package_manager == Some(PackageManager::Pnpm) && yaml_declared.is_some() {
             yaml_declared
         } else {
-            from_json.or(yaml_declared).or(from_rush)
+            from_json.or(yaml_declared).or(from_rush).or(from_lerna)
         };
         // A plain package with no workspace declaration is linted on its own.
         let declared = chosen.unwrap_or_else(|| Declared {
