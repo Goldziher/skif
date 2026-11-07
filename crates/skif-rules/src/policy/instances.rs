@@ -10,11 +10,10 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
-use rayon::prelude::*;
 use skif_config::{CustomType, DependencyType, OverrideReading};
 use skif_core::{DependencyKind, FixOp, JsonAction, Location, PathSeg};
 use skif_specifier::Specifier;
-use skif_workspace::{DependencyEntry, Package, Workspace};
+use skif_workspace::{DependencyEntry, Package, Workspace, map_ordered};
 
 use super::catalog;
 use super::fields::{self, Field};
@@ -195,6 +194,7 @@ impl<'w> Instances<'w> {
         owned: &BTreeSet<&str>,
         custom: &[CustomType],
         reading: OverrideReading,
+        sequential: bool,
     ) -> Self {
         let local_names: HashSet<&str> = workspace
             .all_packages()
@@ -227,9 +227,9 @@ impl<'w> Instances<'w> {
             }
             items
         };
-        // Packages are read in parallel, and their instances kept in package order.
+        // Packages are read in parallel (unless the run is `sequential`), and their instances kept in package order.
         let packages: Vec<&'w Package> = support::active_packages(workspace).collect();
-        let per_package: Vec<Vec<Instance<'w>>> = packages.into_par_iter().map(of_package).collect();
+        let per_package: Vec<Vec<Instance<'w>>> = map_ordered(&packages, sequential, |package| of_package(package));
         let mut items = Vec::with_capacity(per_package.iter().map(Vec::len).sum());
         for instances in per_package {
             items.extend(instances);
@@ -259,7 +259,13 @@ impl<'w> Instances<'w> {
         } else {
             BTreeSet::new()
         };
-        Self::collect_with(workspace, &owned, &config.custom_types, config.policy.override_reading)
+        Self::collect_with(
+            workspace,
+            &owned,
+            &config.custom_types,
+            config.policy.override_reading,
+            true,
+        )
     }
 
     /// The workspace the instances were read from.
