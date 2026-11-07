@@ -74,8 +74,6 @@ const INERT_FLAGS: &[&str] = &[
     "--reporter-options",
     "--directory",
     "-D",
-    "--tsConfig",
-    "-t",
     "--cache",
     "--cache-location",
     "--debug",
@@ -92,7 +90,6 @@ const INERT_FLAGS: &[&str] = &[
     "--trace-dependency",
     "--output-file",
     "--isolate-workspaces",
-    "--use-tsconfig-files",
     "--include-libs",
     "--format",
     "-F",
@@ -126,6 +123,9 @@ const HANDLED_FLAGS: &[&str] = &[
     "--no-gitignore",
     "--preprocessor",
     "--preprocessor-options",
+    "--tsConfig",
+    "-t",
+    "--use-tsconfig-files",
 ];
 
 /// Keys of the knip configuration that are not settings of one workspace, handled where they appear.
@@ -234,6 +234,9 @@ struct Plan {
     tags: Vec<String>,
     hints: Option<Level>,
     include_entry_exports: bool,
+    /// `--tsConfig` of a script.
+    tsconfig: Option<String>,
+    use_tsconfig_files: bool,
     runs: Vec<Run>,
     /// Where the issue type settings came from, for the note.
     origins: Vec<String>,
@@ -785,6 +788,24 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, plan: &
             "written to [js] include-entry-exports",
         );
     }
+    if let Some(path) = invocation.values("tsConfig", Some("t")).pop() {
+        plan.tsconfig = Some(path);
+        state.note(
+            src,
+            NoteClass::Exact,
+            flag_path("--tsConfig"),
+            "written to [js] tsconfig",
+        );
+    }
+    if invocation.has("use-tsconfig-files", None) {
+        plan.use_tsconfig_files = true;
+        state.note(
+            src,
+            NoteClass::Exact,
+            flag_path("--use-tsconfig-files"),
+            "written to [js] use-tsconfig-files",
+        );
+    }
     if invocation.has("treat-config-hints-as-errors", None) {
         plan.hints = Some(Level::Error);
         plan.origin(flag_path("--treat-config-hints-as-errors"));
@@ -805,6 +826,7 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, plan: &
 fn note_differing_flags(state: &mut State<'_>, src: &Src, invocations: &[Invocation]) {
     for flag in [
         "include-entry-exports",
+        "use-tsconfig-files",
         "treat-config-hints-as-errors",
         "no-config-hints",
     ] {
@@ -1056,6 +1078,12 @@ fn js_settings(state: &mut State<'_>, src: &Src, plan: &Plan) {
     production(state, src, plan);
     if plan.include_entry_exports {
         table(&mut state.doc, &js).set(keys::JS_INCLUDE_ENTRY_EXPORTS, Val::Bool(true));
+    }
+    if let Some(path) = &plan.tsconfig {
+        table(&mut state.doc, &js).set(keys::JS_TSCONFIG, Val::str(path.as_str()));
+    }
+    if plan.use_tsconfig_files {
+        table(&mut state.doc, &js).set(keys::JS_USE_TSCONFIG_FILES, Val::Bool(true));
     }
 }
 
