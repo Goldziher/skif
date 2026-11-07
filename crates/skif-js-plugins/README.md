@@ -3,7 +3,7 @@
 JavaScript and TypeScript tool knowledge for skif.
 
 - `scripts`: parses `package.json` scripts into the binaries, entry files and dependencies they reference.
-- `plugin`, `plugins`, `registry`: the declarative plugin table of ADR 0011 (extended by ADR 0022, ADR 0025, ADR 0029 and ADR 0036). A plugin is a `PluginSpec` row
+- `plugin`, `plugins`, `registry`: the declarative plugin table of ADR 0011 (extended by ADR 0022, ADR 0025, ADR 0029, ADR 0036, ADR 0049 and ADR 0050). A plugin is a `PluginSpec` row
   (enablers, config, entry, production and project globs, provided binaries) with an optional resolver that reads the
   tool's config statically and reports the dependencies, entries and scripts it references. Configs are never
   executed (ADR 0010).
@@ -25,4 +25,4 @@ The table holds 126 plugins: `typescript`, `eslint`, `prettier`, `vite`, `vitest
 
 The behaviour of each plugin (enablers, config file names, entry patterns and which configuration values name
 dependencies) follows [knip](https://github.com/webpro-nl/knip) (ISC licence), checked at commit
-`da07b6e9887f9a1eb08545da29755b7f9d309bca`. The implementation is independent. `aws-cdk` and `browser-extension` have no knip counterpart at that commit.
+`da07b6e9887f9a1eb08545da29755b7f9d309bca`. The implementation is independent. `aws-cdk`, `browser-extension`, `azure-pipelines` and `sapper` have no knip counterpart at that commit.
