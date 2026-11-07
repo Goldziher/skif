@@ -462,19 +462,23 @@ impl<'a, 'w> Visitor<'a, 'w> {
         let (floating, ranked): (Vec<InstanceId>, Vec<InstanceId>) =
             ids.iter().copied().partition(|&id| is_floating(self.spec(id)));
         let target = {
-            let candidates: Vec<Arc<Specifier>> = ranked
+            // Ranked by the lowest version each admits, so `^18` never outranks `^18.3.1`. The floor is worked out
+            // once per candidate, not once per comparison.
+            let candidates: Vec<_> = ranked
                 .iter()
                 .copied()
                 .filter(|&id| self.spec(id).get_node_version().is_some())
-                .map(|id| self.with_preferred(id).unwrap_or_else(|| Arc::clone(self.spec(id))))
+                .map(|id| {
+                    let specifier = self.with_preferred(id).unwrap_or_else(|| Arc::clone(self.spec(id)));
+                    (floor_version(&specifier), specifier)
+                })
                 .collect();
-            // Ranked by the lowest version each admits, so `^18` never outranks `^18.3.1`.
-            let order =
-                |a: &Arc<Specifier>, b: &Arc<Specifier>| floor_version(a).cmp(&floor_version(b)).then_with(|| a.cmp(b));
-            match prefer {
-                Prefer::Lowest => candidates.into_iter().min_by(order),
-                _ => candidates.into_iter().max_by(order),
-            }
+            let candidates = candidates.into_iter();
+            let chosen = match prefer {
+                Prefer::Lowest => candidates.min_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1))),
+                _ => candidates.max_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1))),
+            };
+            chosen.map(|(_, specifier)| specifier)
         };
         let Some(target) = target else {
             self.without_semver(ids);
