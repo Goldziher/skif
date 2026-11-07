@@ -152,7 +152,7 @@ An import specifier does not resolve to a file or a package.
 
 ## unused-dependencies
 
-A package in `dependencies` is never imported, required or run by a script.
+A package in `dependencies` is never imported, required or run by a script; `optionalDependencies` are not checked.
 
 - Category: js
 - Default severity: error
