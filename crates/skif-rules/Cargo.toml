@@ -19,6 +19,7 @@ serde.workspace = true
 serde_json.workspace = true
 skif-config.workspace = true
 skif-core.workspace = true
+skif-edit.workspace = true
 skif-lint.workspace = true
 skif-specifier.workspace = true
 skif-workspace.workspace = true
