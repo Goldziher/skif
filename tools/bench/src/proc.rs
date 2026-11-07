@@ -29,6 +29,19 @@ impl Captured {
             .unwrap_or("no output");
         line.chars().take(160).collect()
     }
+
+    /// The first line of stderr or stdout that reports an error, shortened, for a skip reason; the first non-empty
+    /// line of stderr when none does. Package managers print warnings first (`npm warn ...`) and some print the error
+    /// itself to stdout (`ERR_PNPM_...`).
+    pub fn failure_summary(&self) -> String {
+        let stdout = String::from_utf8_lossy(&self.stdout);
+        let error = self
+            .stderr
+            .lines()
+            .chain(stdout.lines())
+            .find(|line| line.contains("ERR") || line.to_ascii_lowercase().contains("error"));
+        error.map_or_else(|| self.stderr_summary(), |line| line.trim().chars().take(160).collect())
+    }
 }
 
 /// Runs `command` to completion or until `timeout`, whichever is first, capturing stdout and stderr through files
@@ -101,6 +114,27 @@ mod tests {
         assert_eq!(got.stderr_summary(), "err");
         assert!(!got.timed_out);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn failure_summary_finds_the_error_behind_warnings() {
+        let captured = |stdout: &str, stderr: &str| Captured {
+            code: Some(1),
+            timed_out: false,
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.to_owned(),
+            elapsed: Duration::ZERO,
+        };
+        let pnpm = captured(
+            "Scope: all 15 workspace projects\n ERR_PNPM_LOCKFILE_CONFIG_MISMATCH  Cannot proceed\n",
+            "npm warn Unknown project config \"hoist\".\n",
+        );
+        assert_eq!(
+            pnpm.failure_summary(),
+            "ERR_PNPM_LOCKFILE_CONFIG_MISMATCH  Cannot proceed"
+        );
+        assert_eq!(captured("", "just this\n").failure_summary(), "just this");
+        assert_eq!(captured("", "warn x\nError: y\n").failure_summary(), "Error: y");
     }
 
     #[test]

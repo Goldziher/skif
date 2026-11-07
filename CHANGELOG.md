@@ -9,6 +9,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `skif-bench run --install` installs the corpus before timing knip, which otherwise fails to load create-t3-turbo's
+  tool configurations; `mise run bench:publish` passes it ([#27](https://github.com/Goldziher/skif/issues/27)).
+- `corpus.toml` takes a per-repository `entry` list that the knip comparison gives both tools; vscode lists the entry
+  points its bundler names, so the 1,030 workbench files both tools reported as unused are no longer counted as
+  agreement ([#27](https://github.com/Goldziher/skif/issues/27)).
+- The knip comparison runs skif recursively on `vercel-examples`, `mastra` and `next-js`, whose examples, templates
+  and test apps are nested roots knip reads from the root ([#27](https://github.com/Goldziher/skif/issues/27)).
+
+### Fixed
+
+- The knip comparison installs `rules-js` with the pnpm its `MODULE.bazel` pins (pnpm 9 rejected the lockfile), a
+  failed install is reported with its error line instead of the first npm warning, and the corpus notes say why
+  `rushstack` cannot be compared with knip ([#27](https://github.com/Goldziher/skif/issues/27)).
+- The `test-file` deviation of the knip comparison says why skif has no finding there: most are apps and helpers below
+  test directories that are outside skif's graph, not test entries ([#27](https://github.com/Goldziher/skif/issues/27)).
+- `mise run bench:publish` writes a `summary.md` that passes `format:check` ([#27](https://github.com/Goldziher/skif/issues/27)).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed

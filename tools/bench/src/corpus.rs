@@ -54,6 +54,11 @@ pub struct Repo {
     /// The install command (program first) to use instead of the package manager's default.
     #[serde(default)]
     pub install_command: Vec<String>,
+    /// Entry files of the root workspace (globs relative to the checkout) that neither tool finds by itself, such as
+    /// the entry points a bundler script names. Both tools get them in addition to their default entries, so files
+    /// only these reach are not reported as unused on both sides.
+    #[serde(default)]
+    pub entry: Vec<String>,
 }
 
 const fn default_install() -> bool {

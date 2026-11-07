@@ -54,7 +54,7 @@ Directly:
 ```sh
 cargo run --release -p skif-bench -- generate --packages 500 --out DIR [--seed S] [--pm pnpm|npm|yarn|bun] [--catalog] [--mismatch-rate F] [--force]
 cargo run --release -p skif-bench -- corpus fetch [--suite bench|parity] [--only NAME,...] [--file corpus.toml] [--dir target/bench-corpus]
-cargo run --release -p skif-bench -- run [--skif PATH] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus] [--warmup 3] [--runs 10] [--skif-arg ARG]... [--no-enforce]
+cargo run --release -p skif-bench -- run [--skif PATH] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus] [--warmup 3] [--runs 10] [--skif-arg ARG]... [--no-enforce] [--install]
 cargo run --release -p skif-bench -- parity [--skif PATH] [--only NAME,...] [--install] [--recursive] [--repo-knip-config] [--include-test-files] [--check | --write-baseline]
 cargo run --release -p skif-bench -- syncpack-diff [--skif PATH] [--only NAME,...] [--no-fixtures] [--no-corpus] [--check | --write-baseline]
 ```
@@ -104,15 +104,20 @@ nearly every import as unresolved or unlisted. `--install` installs each reposit
 `--ignore-scripts` (`pnpm install --frozen-lockfile`, `yarn install --immutable --mode=skip-build` or
 `--frozen-lockfile`, `npm ci`, `bun install --frozen-lockfile`); the installed state is cached in the checkout. A
 repository is skipped, with the reason in the report, when its package manager is not on `PATH`, the install fails or
-times out (`install = false` in `corpus.toml` for Rush, which has no lockfile in the tree), skif fails, or knip prints
-no JSON. Without `--install` the run is quick but dominated by that noise; the baseline records which way it was made and
+times out (`install = false` in `corpus.toml` for rushstack: knip has no Rush support and finds no root `package.json`
+there, so nothing would use the install), skif fails, or knip prints no JSON; the reason names the first error line
+the install printed, on stderr or stdout. Without `--install` the run is quick but dominated by that noise; the baseline records which way it was made and
 `--check` rejects a mismatch. A repository may set `install-command` (program first; `rules-js` installs with
-`npx pnpm@9`) and `install-timeout-secs` (`vercel-examples`) in `corpus.toml`.
+the pnpm its `MODULE.bazel` pins) and `install-timeout-secs` (`vercel-examples`) in `corpus.toml`.
 
 **Scope.** knip runs with an empty configuration (`--config` to a `{}` file in the scratch directory), so a repository's
 own ignores and disabled issue types do not hide findings; `--repo-knip-config` uses the repository's own. skif runs with
 `--recursive` on repositories that set `recursive = true` in `corpus.toml` (nested roots that are not workspace members),
-or on all with `--recursive`; paths stay relative to the start directory, as in knip's report. Enum and namespace
+or on all with `--recursive`; paths stay relative to the start directory, as in knip's report. A repository's `entry`
+list in `corpus.toml` names entry files of the root workspace that neither tool finds by itself (vscode's workbench and
+workers, which only its bundler script names); both tools get them after their shared defaults (`[js.workspaces."."]`
+in a `--config` file for skif, `workspaces["."].entry` in knip's configuration), so the files only they reach are no
+longer reported as unused on both sides. Enum and namespace
 members are keyed by the member name on both sides. knip's stdout may carry banners around its JSON; the first object
 that is a knip report is used.
 
@@ -123,8 +128,10 @@ skif when all do. A skif finding knip has under another of these labels counts a
 **Known deviations.** Findings on one side below a path in a repository's `knip-unread` list are the `knip-unread`
 deviation: knip reads no files there, as npm's deny-all `.gitignore` hides its workspaces, so it reports every
 dependency there as unused and says nothing about the files. In `files`, a file only knip reports is not counted as a difference when it is outside skif's
-project set (`non-code-file`), in a fixture directory (`fixture-file`) or a test file (`test-file`); those are reported
-in their own column and section, with the reason, and `--check` ignores them. `--include-test-files` counts the last
+project set (`non-code-file`), in a fixture directory (`fixture-file`) or a test file or any file below a test
+directory (`test-file`); those are reported in their own column and section, with the reason, and `--check` ignores
+them. Most `test-file` findings are not tests but apps and helpers below test directories (next.js has thousands) that
+skif leaves out of its graph, because they are nested projects or their package's entry files are not fully known. `--include-test-files` counts the last
 two as differences (not usable with a baseline, nor is `--repo-knip-config`). See
 [ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md).
 
@@ -177,7 +184,7 @@ The decision is [ADR 0026](../../adrs/0026-parity-and-diff-tasks-on-a-pinned-cor
 ratios rather than the absolute times. A rerun of the 500-package case alone, at load 15, measured 49.6 ms against its 50 ms target,
 so it sits on the line rather than clearly over it. The `FAIL` for npm-cli is not like for like: npm's `.gitignore` hides its workspaces
 from knip, which analyses only the root package there. knip also exits with an error on create-t3-turbo, so that time
-is a partial run. sherif 1.13.0, syncpack 15.3.3 and knip 6.44.1, run through their npm launchers.
+is a partial run (these numbers predate `run --install`). sherif 1.13.0, syncpack 15.3.3 and knip 6.44.1, run through their npm launchers.
 
 <!-- bench:numbers:start -->
 Measured with hyperfine 1.20.0, 3 warmup and 10 measured runs on macos aarch64; skif 0.1.0.
@@ -325,9 +332,12 @@ part.
 - **Comparison tools are measured as installed.** Versions are whatever is on `PATH`, and their output formats and
   defaults differ; `sherif` and `syncpack` only check manifests, `knip` analyses code. The summary records only the
   hyperfine version, so note tool versions when sharing numbers.
-- **knip needs installed dependencies** to give realistic results; the corpus is cloned, not installed, so run
-  `pnpm install` (or the matching package manager) in a corpus checkout before timing knip, or use
-  `parity --install` for the findings comparison.
+- **knip needs installed dependencies** to give realistic results: without them it fails to load tool configurations
+  that import the repository's own packages (create-t3-turbo's `@acme/tsconfig`), and the time is that of a partial
+  run. `run --install` installs each corpus repository first, as `parity --install` does (`mise run bench:publish`
+  passes it); a repository whose install fails is timed without knip. Installed, knip still reports two errors on
+  create-t3-turbo that are the repository's own: `apps/expo/metro.config.js` requires `metro-cache`, which it does not
+  list, and `packages/db/drizzle.config.ts` throws without a `POSTGRES_URL`.
 - Non-zero exits are ignored (`--ignore-failure`): linters exit 1 when they find something.
 - The skif command line is `skif . --format json --no-install [--no-js]`; the working directory is the target.
 - Wall-clock times include process start-up. For sub-10 ms runs hyperfine warns about short commands; trust the
