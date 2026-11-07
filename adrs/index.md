@@ -59,6 +59,7 @@ old one.
 | 0049 | [JS Corrections from Adjudicating knip Disagreements: Linked Files, Subpath Imports, Aliased Packages, Computed Specifiers, Component Styles and Three Plugins](0049-js-corrections-from-adjudicating-knip-disagreements.md) | accepted |
 | 0050 | [Fixture Directories in the JS Analysis: Not Unused by Default, `include-fixtures` to Report Them](0050-fixture-directories-in-the-js-analysis.md) | accepted |
 | 0051 | [Safe Version Alignment Fixes: What `--fix` Applies Once the Target Version Is Explicit](0051-safe-version-alignment-fixes.md) | accepted |
+| 0052 | [File Deletion Opt-In, Fix Types and Member Removal Fixes](0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md) | accepted |
 
 ## Effective statements
 
@@ -147,3 +148,4 @@ the lines below stay as written; this table says which record governs.
 | [0023](0023-root-discovery-semantics-nested-roots-rush-and-fixture-directories.md), "Fixture directories" paragraph | fixture directories concern root locations only and do not affect the JS analysis | [0050](0050-fixture-directories-in-the-js-analysis.md): that holds for `discover-ignore`; inside every root, files in `fixtures` and `__fixtures__` are not reported by `unused-files` and their exports and members are not reported unused unless `[js] include-fixtures` is set |
 | [0008](0008-fix-and-edit-model.md), "Safety levels" | changing a version and replacing a specifier with `catalog:` are `Unsafe` | [0051](0051-safe-version-alignment-fixes.md): a version alignment to a pin, or a compatible upgrade of the same shape to an explicit target, including an existing catalog entry, is `Safe` |
 | [0009](0009-version-and-catalog-policies.md), states table | policy fixes are `Unsafe` | [0051](0051-safe-version-alignment-fixes.md): `DiffersToPin` is `Safe`; `DiffersToHighestOrLowestSemver`, `DiffersToSnapTarget`, `DiffersToLocal`, `NotUsingCatalog` and `DiffersToCatalog` are `Safe` when the move is a compatible upgrade of the same shape |
+| [0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md), flag table | `--fix-unsafe` applies `Safe` and `Unsafe` fixes | [0052](0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md): fixes that delete a file also need `--allow-remove-files`; `--fix-type` limits a fix run to rule ids or knip issue types |
