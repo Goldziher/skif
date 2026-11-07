@@ -27,7 +27,7 @@ npm · pnpm · yarn · bun · **41 rules** · **105 plugins** · format-preservi
 | | |
 | --- | --- |
 | **One tool** | Manifest hygiene, version policy and dead-code analysis in one run, one `skif.toml` and one report. |
-| **Fast** | 7 to 29 times faster than knip on real repositories, and faster than sherif and syncpack on manifest checks. [See the numbers.](#benchmarks) |
+| **Fast** | 4 to 37 times faster than knip on real repositories. Manifest checks beat sherif on every real repository and syncpack on every target; sherif wins at 2,000 generated packages. [See the numbers.](#benchmarks) |
 | **Safe** | Analysis is static: skif reads your code and configs without running them. Fixes keep key order, indentation and comments. |
 | **Easy to adopt** | `skif migrate` translates your sherif, syncpack and knip configuration in one step. |
 | **Built for CI** | Human, JSON, SARIF and GitHub annotation output, stable rule ids and a GitHub Action. |
@@ -63,30 +63,33 @@ skif is younger than all three. The JS analysis is close to knip but not identic
 ## Benchmarks
 
 Medians of 10 runs on an Apple M4 Pro, on [pinned public repositories](tools/bench/corpus.toml) with dependencies
-installed. **The machine was busy during this run** (load average around 200), so treat the ratios as the result and
-expect lower absolute times on a quiet machine. Reproduce with `mise run bench:publish`.
+installed. The machine was still busy during this run (load average around 17), so treat the ratios as the result.
+Reproduce with `mise run bench:publish`.
 
 **Dead-code analysis against knip** (full skif run)
 
 | Repository | skif | knip | Faster by |
 | --- | ---: | ---: | ---: |
-| create-t3-turbo | 92 ms | 2.6 s | 29x |
-| vue-core | 176 ms | 2.9 s | 16x |
-| tanstack-query | 818 ms | 5.7 s | 7x |
-| babel | 1.1 s | 16.3 s | 15x |
-| npm-cli | 241 ms | 2.7 s | 11x |
+| create-t3-turbo | 22 ms | 824 ms | 37x |
+| vue-core | 37 ms | 1.3 s | 35x |
+| tanstack-query | 175 ms | 1.8 s | 10x |
+| babel | 420 ms | 3.9 s | 9x |
+| npm-cli | 82 ms | 315 ms | 4x |
+
+knip stops early on two of these, so its time is not a full analysis: it exits with an error on create-t3-turbo, and
+npm's `.gitignore` hides every workspace of npm-cli from it.
 
 **Manifest and policy checks** (`skif --no-js`)
 
 | Target | skif | sherif | syncpack |
 | --- | ---: | ---: | ---: |
-| create-t3-turbo | 18 ms | 202 ms | 211 ms |
-| vue-core | 44 ms | 191 ms | 173 ms |
-| tanstack-query | 63 ms | 188 ms | 366 ms |
-| babel | 119 ms | 358 ms | 1.5 s |
-| npm-cli | 35 ms | 334 ms | 464 ms |
-| Generated, 500 packages | 242 ms | 370 ms | 863 ms |
-| Generated, 2000 packages | 404 ms | 559 ms | 1.2 s |
+| create-t3-turbo | 4.6 ms | 32 ms | 46 ms |
+| vue-core | 5.0 ms | 33 ms | 38 ms |
+| tanstack-query | 17 ms | 41 ms | 109 ms |
+| babel | 13 ms | 40 ms | 495 ms |
+| npm-cli | 6.5 ms | 35 ms | 89 ms |
+| Generated, 500 packages | 54 ms | 61 ms | 176 ms |
+| Generated, 2000 packages | 268 ms | 194 ms | 869 ms |
 
 ### Accuracy on seeded defects
 
@@ -105,19 +108,21 @@ nothing unique to either. `n/a` means the tool does not check for that defect.
 
 ### Agreement with knip
 
-Dead code has no answer key, so this measures agreement, not correctness: findings skif and knip share on the same 5
-repositories. A low score means the tools differ, and either one could be right.
+Dead code has no answer key, so this measures agreement, not correctness: findings skif and knip share on 14 pinned
+repositories. A low score means the tools differ, and either one could be right. Reading the disagreements found
+false findings on both sides, and skif's are fixed in the current source
+([ADR 0049](adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md)).
 
 | Finding | Shared | Of skif's findings | Of knip's findings |
 | --- | ---: | ---: | ---: |
-| Unused files | 18,211 | 98% | 100% |
-| Unused dev dependencies | 327 | 95% | 89% |
-| Unused dependencies | 106 | 95% | 49% |
-| Unlisted dependencies | 72 | 100% | 69% |
-| Unused exports | 53 | 32% | 77% |
-| Unresolved imports | 44 | 98% | 100% |
-| Unused types | 26 | 90% | 84% |
-| Unlisted binaries | 18 | 100% | 86% |
+| Unused files | 27,193 | 92% | 73% |
+| Unused exports | 9,997 | 96% | 86% |
+| Unused types | 5,011 | 90% | 87% |
+| Unlisted dependencies | 959 | 91% | 34% |
+| Unused dev dependencies | 917 | 86% | 76% |
+| Unused dependencies | 467 | 84% | 66% |
+| Unresolved imports | 69 | 34% | 56% |
+| Unlisted binaries | 32 | 89% | 21% |
 
 Method, caveats and every run: [`tools/bench`](tools/bench/README.md).
 

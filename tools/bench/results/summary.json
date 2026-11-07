@@ -15,30 +15,30 @@
       "results": [
         {
           "tool": "skif --no-js",
-          "mean_ms": 129.10939160000004,
-          "stddev_ms": 32.473875575076725,
-          "median_ms": 126.066438,
-          "min_ms": 93.859834,
-          "max_ms": 191.24516599999998,
+          "mean_ms": 10.7602918,
+          "stddev_ms": 0.3357600148716672,
+          "median_ms": 10.826458,
+          "min_ms": 10.045292000000002,
+          "max_ms": 11.224875,
           "relative_to_skif": 1.0
         },
         {
           "tool": "sherif",
-          "mean_ms": 346.87415010000007,
-          "stddev_ms": 132.15165047178468,
-          "median_ms": 346.50202100000007,
-          "min_ms": 202.971083,
-          "max_ms": 578.003584,
-          "relative_to_skif": 2.686668613346637
+          "mean_ms": 46.7173792,
+          "stddev_ms": 18.63004063434692,
+          "median_ms": 37.715063,
+          "min_ms": 33.894041,
+          "max_ms": 92.848417,
+          "relative_to_skif": 4.341646125247274
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 564.2995082,
-          "stddev_ms": 191.56243303977942,
-          "median_ms": 584.6788955,
-          "min_ms": 293.757833,
-          "max_ms": 831.696375,
-          "relative_to_skif": 4.370708445039251
+          "mean_ms": 41.801278999999994,
+          "stddev_ms": 1.1633453374868723,
+          "median_ms": 41.729853999999996,
+          "min_ms": 40.333208,
+          "max_ms": 43.573583000000006,
+          "relative_to_skif": 3.884771879513528
         }
       ]
     },
@@ -50,30 +50,30 @@
       "results": [
         {
           "tool": "skif --no-js",
-          "mean_ms": 224.04974560000005,
-          "stddev_ms": 51.30417303911485,
-          "median_ms": 242.00193700000003,
-          "min_ms": 126.48933300000002,
-          "max_ms": 288.192375,
+          "mean_ms": 54.119929400000004,
+          "stddev_ms": 2.0570988248984805,
+          "median_ms": 53.867791499999996,
+          "min_ms": 51.824125,
+          "max_ms": 58.987292,
           "relative_to_skif": 1.0
         },
         {
           "tool": "sherif",
-          "mean_ms": 439.00674600000013,
-          "stddev_ms": 130.21093452297066,
-          "median_ms": 369.858542,
-          "min_ms": 302.22729200000003,
-          "max_ms": 699.047625,
-          "relative_to_skif": 1.9594164002478565
+          "mean_ms": 61.5191959,
+          "stddev_ms": 1.5367564432318308,
+          "median_ms": 61.272000000000006,
+          "min_ms": 59.897375000000004,
+          "max_ms": 64.49725000000001,
+          "relative_to_skif": 1.1367198106507506
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 861.4209415999999,
-          "stddev_ms": 402.26401500626713,
-          "median_ms": 863.2490205,
-          "min_ms": 405.51966699999997,
-          "max_ms": 1756.656875,
-          "relative_to_skif": 3.8447753613517146
+          "mean_ms": 183.3372708,
+          "stddev_ms": 18.698715691909776,
+          "median_ms": 175.62633300000002,
+          "min_ms": 158.049292,
+          "max_ms": 219.61191599999998,
+          "relative_to_skif": 3.387611048879158
         }
       ]
     },
@@ -85,30 +85,30 @@
       "results": [
         {
           "tool": "skif --no-js",
-          "mean_ms": 416.932075,
-          "stddev_ms": 65.53967578292766,
-          "median_ms": 404.1561460000001,
-          "min_ms": 345.01004100000006,
-          "max_ms": 527.898875,
+          "mean_ms": 272.25035820000005,
+          "stddev_ms": 17.19350034950685,
+          "median_ms": 267.99264600000004,
+          "min_ms": 251.66604200000003,
+          "max_ms": 306.701583,
           "relative_to_skif": 1.0
         },
         {
           "tool": "sherif",
-          "mean_ms": 740.7984875,
-          "stddev_ms": 419.4791332382593,
-          "median_ms": 558.4722915,
-          "min_ms": 346.81687500000004,
-          "max_ms": 1578.559042,
-          "relative_to_skif": 1.7767845937494733
+          "mean_ms": 193.5958873,
+          "stddev_ms": 5.009767010212594,
+          "median_ms": 193.7861665,
+          "min_ms": 183.23862499999998,
+          "max_ms": 203.544833,
+          "relative_to_skif": 0.7110950691854773
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 1318.5788831999998,
-          "stddev_ms": 470.07649948347506,
-          "median_ms": 1153.563833,
-          "min_ms": 1031.33225,
-          "max_ms": 2590.103333,
-          "relative_to_skif": 3.162574822769392
+          "mean_ms": 849.4475626999999,
+          "stddev_ms": 171.80430979594777,
+          "median_ms": 868.8127080000002,
+          "min_ms": 650.803584,
+          "max_ms": 1050.9271250000002,
+          "relative_to_skif": 3.120097135284503
         }
       ]
     },
@@ -120,11 +120,11 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 2619.7127290999997,
-          "stddev_ms": 949.9775579215408,
-          "median_ms": 2360.1181665,
-          "min_ms": 1678.019833,
-          "max_ms": 4438.728542,
+          "mean_ms": 376.5281042000001,
+          "stddev_ms": 216.68216270909986,
+          "median_ms": 318.389729,
+          "min_ms": 218.902875,
+          "max_ms": 921.376667,
           "relative_to_skif": 1.0
         }
       ]
@@ -137,48 +137,48 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 91.80337080000001,
-          "stddev_ms": 20.814424401523606,
-          "median_ms": 91.50333300000001,
-          "min_ms": 63.821957999999995,
-          "max_ms": 127.665792,
+          "mean_ms": 22.190820900000002,
+          "stddev_ms": 0.9361684051225269,
+          "median_ms": 22.274729,
+          "min_ms": 20.102792,
+          "max_ms": 23.196542,
           "relative_to_skif": 1.0
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 19.9449083,
-          "stddev_ms": 10.698854845589036,
-          "median_ms": 17.862541500000003,
-          "min_ms": 7.9360420000000005,
-          "max_ms": 39.460167,
-          "relative_to_skif": 0.2172568188531047
+          "mean_ms": 4.620966500000001,
+          "stddev_ms": 0.1761294974369395,
+          "median_ms": 4.6085,
+          "min_ms": 4.3565000000000005,
+          "max_ms": 4.851583000000001,
+          "relative_to_skif": 0.20823774482358154
         },
         {
           "tool": "sherif",
-          "mean_ms": 214.53377930000002,
-          "stddev_ms": 53.67437750550348,
-          "median_ms": 201.5149795,
-          "min_ms": 150.44833400000002,
-          "max_ms": 302.38662500000004,
-          "relative_to_skif": 10.756318157652297
+          "mean_ms": 31.642666500000008,
+          "stddev_ms": 1.2798731059425172,
+          "median_ms": 31.954749500000005,
+          "min_ms": 29.598667,
+          "max_ms": 34.052416,
+          "relative_to_skif": 6.84762949482538
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 241.3713085,
-          "stddev_ms": 72.50261758736288,
-          "median_ms": 211.435354,
-          "min_ms": 165.395334,
-          "max_ms": 357.926583,
-          "relative_to_skif": 12.101901140352698
+          "mean_ms": 47.6361124,
+          "stddev_ms": 8.297265254637582,
+          "median_ms": 45.949333,
+          "min_ms": 37.654374999999995,
+          "max_ms": 62.716750000000005,
+          "relative_to_skif": 10.308690270747471
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 2891.4020833,
-          "stddev_ms": 803.6079580866892,
-          "median_ms": 2634.0576045,
-          "min_ms": 2106.158041,
-          "max_ms": 4377.789457999999,
-          "relative_to_skif": 31.49559823461297
+          "mean_ms": 820.0656,
+          "stddev_ms": 12.250610893004593,
+          "median_ms": 824.287854,
+          "min_ms": 802.3609580000001,
+          "max_ms": 833.697542,
+          "relative_to_skif": 36.9551718566662
         }
       ]
     },
@@ -190,48 +190,48 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 185.3866084,
-          "stddev_ms": 41.44559449818778,
-          "median_ms": 176.084562,
-          "min_ms": 127.82587500000001,
-          "max_ms": 258.508792,
+          "mean_ms": 37.2858877,
+          "stddev_ms": 2.005608388097185,
+          "median_ms": 37.435792,
+          "min_ms": 34.314292,
+          "max_ms": 40.015750000000004,
           "relative_to_skif": 1.0
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 40.4458293,
-          "stddev_ms": 12.030731946207172,
-          "median_ms": 43.5379795,
-          "min_ms": 23.029291999999998,
-          "max_ms": 55.21812500000001,
-          "relative_to_skif": 0.21817017771171435
+          "mean_ms": 5.022412600000001,
+          "stddev_ms": 0.2784721872241064,
+          "median_ms": 4.970729,
+          "min_ms": 4.705458,
+          "max_ms": 5.472958,
+          "relative_to_skif": 0.134700094588334
         },
         {
           "tool": "sherif",
-          "mean_ms": 177.14418339999997,
-          "stddev_ms": 32.22831665175882,
-          "median_ms": 190.7840415,
-          "min_ms": 107.30687499999999,
-          "max_ms": 209.978292,
-          "relative_to_skif": 4.3797886324956625
+          "mean_ms": 33.029358300000005,
+          "stddev_ms": 1.0939966800026848,
+          "median_ms": 33.194874999999996,
+          "min_ms": 31.390917000000005,
+          "max_ms": 34.733542,
+          "relative_to_skif": 6.576392847533076
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 174.8746499,
-          "stddev_ms": 20.360694647187405,
-          "median_ms": 172.7590625,
-          "min_ms": 152.346166,
-          "max_ms": 220.485667,
-          "relative_to_skif": 4.3236757145686715
+          "mean_ms": 38.4766085,
+          "stddev_ms": 0.6649998284671877,
+          "median_ms": 38.485312500000006,
+          "min_ms": 37.531084,
+          "max_ms": 39.694917000000004,
+          "relative_to_skif": 7.660981198557838
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 3081.1166541999996,
-          "stddev_ms": 1667.7083451139804,
-          "median_ms": 2860.606229,
-          "min_ms": 1694.653041,
-          "max_ms": 7523.290958,
-          "relative_to_skif": 16.6199526534949
+          "mean_ms": 1589.0538541,
+          "stddev_ms": 974.1698862518804,
+          "median_ms": 1315.5124375,
+          "min_ms": 638.3686670000001,
+          "max_ms": 4080.1067499999995,
+          "relative_to_skif": 42.61810438537581
         }
       ]
     },
@@ -243,48 +243,48 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 752.5265957999999,
-          "stddev_ms": 136.61569844057837,
-          "median_ms": 818.359646,
-          "min_ms": 572.218625,
-          "max_ms": 890.433417,
+          "mean_ms": 179.7030249,
+          "stddev_ms": 11.260109462766522,
+          "median_ms": 174.64408350000002,
+          "min_ms": 169.87954200000001,
+          "max_ms": 198.200333,
           "relative_to_skif": 1.0
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 58.98582910000001,
-          "stddev_ms": 19.361491709838432,
-          "median_ms": 62.731167000000006,
-          "min_ms": 25.459166,
-          "max_ms": 94.179833,
-          "relative_to_skif": 0.0783837135181821
+          "mean_ms": 17.106546100000003,
+          "stddev_ms": 0.5073469345906645,
+          "median_ms": 17.0633755,
+          "min_ms": 16.453959,
+          "max_ms": 18.205625,
+          "relative_to_skif": 0.09519342320208211
         },
         {
           "tool": "sherif",
-          "mean_ms": 195.5459457,
-          "stddev_ms": 38.39245913235385,
-          "median_ms": 188.0862495,
-          "min_ms": 139.862792,
-          "max_ms": 267.958208,
-          "relative_to_skif": 3.3151343074026567
+          "mean_ms": 41.1401168,
+          "stddev_ms": 1.2030221131102206,
+          "median_ms": 41.155249999999995,
+          "min_ms": 39.467667000000006,
+          "max_ms": 43.246292000000004,
+          "relative_to_skif": 2.4049341438947747
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 371.3722544,
-          "stddev_ms": 64.5514557127013,
-          "median_ms": 366.314813,
-          "min_ms": 290.37829200000004,
-          "max_ms": 473.642833,
-          "relative_to_skif": 6.295957182705768
+          "mean_ms": 108.7248585,
+          "stddev_ms": 1.5734305130867712,
+          "median_ms": 108.61383300000001,
+          "min_ms": 106.81033400000001,
+          "max_ms": 110.81229200000001,
+          "relative_to_skif": 6.35574579838767
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 6016.216329100001,
-          "stddev_ms": 1478.394863476128,
-          "median_ms": 5713.820333000001,
-          "min_ms": 4442.681542,
-          "max_ms": 8274.867208,
-          "relative_to_skif": 7.994689307564273
+          "mean_ms": 1801.9570336,
+          "stddev_ms": 13.916951841098065,
+          "median_ms": 1802.8686665,
+          "min_ms": 1776.6447090000001,
+          "max_ms": 1825.946333,
+          "relative_to_skif": 10.027416258589644
         }
       ]
     },
@@ -296,48 +296,48 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 1123.6958083,
-          "stddev_ms": 65.56795614567869,
-          "median_ms": 1115.4265,
-          "min_ms": 1041.2277080000001,
-          "max_ms": 1222.940958,
+          "mean_ms": 420.9232998,
+          "stddev_ms": 12.331503242700602,
+          "median_ms": 419.7812705,
+          "min_ms": 400.754583,
+          "max_ms": 440.51308300000005,
           "relative_to_skif": 1.0
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 115.44924580000001,
-          "stddev_ms": 18.443101916012406,
-          "median_ms": 118.577271,
-          "min_ms": 90.99095799999999,
-          "max_ms": 143.60025000000002,
-          "relative_to_skif": 0.10274065716651479
+          "mean_ms": 12.969812600000001,
+          "stddev_ms": 0.39931520695900263,
+          "median_ms": 12.999521,
+          "min_ms": 12.350625,
+          "max_ms": 13.548417,
+          "relative_to_skif": 0.030812769466937458
         },
         {
           "tool": "sherif",
-          "mean_ms": 403.66172499999993,
-          "stddev_ms": 152.14382152038948,
-          "median_ms": 358.192646,
-          "min_ms": 203.60325,
-          "max_ms": 668.0705829999999,
-          "relative_to_skif": 3.4964431530309734
+          "mean_ms": 39.8417208,
+          "stddev_ms": 1.8249612404683373,
+          "median_ms": 39.537896,
+          "min_ms": 37.364709000000005,
+          "max_ms": 43.117999999999995,
+          "relative_to_skif": 3.0718809923282926
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 1506.6986958999994,
-          "stddev_ms": 126.43704506629264,
-          "median_ms": 1473.0773964999998,
-          "min_ms": 1321.747625,
-          "max_ms": 1714.3248330000001,
-          "relative_to_skif": 13.05074524705123
+          "mean_ms": 495.6203831000001,
+          "stddev_ms": 23.26983601391678,
+          "median_ms": 494.8896245000001,
+          "min_ms": 472.63125,
+          "max_ms": 539.9114999999999,
+          "relative_to_skif": 38.2133804385115
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 21278.506724900002,
-          "stddev_ms": 13175.64298676642,
-          "median_ms": 16256.778687500002,
-          "min_ms": 13062.840916000001,
-          "max_ms": 55372.427166,
-          "relative_to_skif": 18.936180563929938
+          "mean_ms": 4152.1334291,
+          "stddev_ms": 593.5356013360602,
+          "median_ms": 3942.822771,
+          "min_ms": 3520.6935829999998,
+          "max_ms": 5420.113875,
+          "relative_to_skif": 9.864346856239296
         }
       ]
     },
@@ -349,48 +349,48 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 250.95808749999998,
-          "stddev_ms": 63.13254641607653,
-          "median_ms": 241.0891455,
-          "min_ms": 182.99295800000002,
-          "max_ms": 407.50208399999997,
+          "mean_ms": 83.3930208,
+          "stddev_ms": 3.707394377300011,
+          "median_ms": 81.96481250000001,
+          "min_ms": 79.625708,
+          "max_ms": 91.438792,
           "relative_to_skif": 1.0
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 37.75007510000001,
-          "stddev_ms": 14.789575531876155,
-          "median_ms": 35.057375,
-          "min_ms": 21.321375,
-          "max_ms": 62.921667,
-          "relative_to_skif": 0.15042382365939894
+          "mean_ms": 6.803012500000001,
+          "stddev_ms": 1.126656742073966,
+          "median_ms": 6.481229,
+          "min_ms": 5.735958,
+          "max_ms": 9.512458,
+          "relative_to_skif": 0.08157771999068776
         },
         {
           "tool": "sherif",
-          "mean_ms": 339.8696793000001,
-          "stddev_ms": 54.42209966812026,
-          "median_ms": 334.09652050000005,
-          "min_ms": 266.66062500000004,
-          "max_ms": 428.98908400000005,
-          "relative_to_skif": 9.003152401675619
+          "mean_ms": 35.225870900000004,
+          "stddev_ms": 1.9196445081075975,
+          "median_ms": 34.5782085,
+          "min_ms": 33.263958,
+          "max_ms": 38.87737500000001,
+          "relative_to_skif": 5.177981210529894
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 467.31567520000004,
-          "stddev_ms": 75.00912718459442,
-          "median_ms": 464.143667,
-          "min_ms": 360.914167,
-          "max_ms": 556.9501250000001,
-          "relative_to_skif": 12.37919855687916
+          "mean_ms": 87.92916260000001,
+          "stddev_ms": 1.9507031202509297,
+          "median_ms": 88.7133335,
+          "min_ms": 84.96175000000001,
+          "max_ms": 90.54912499999999,
+          "relative_to_skif": 12.925033226089177
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 2494.4718667,
-          "stddev_ms": 537.1976607837877,
-          "median_ms": 2654.804521,
-          "min_ms": 1629.705375,
-          "max_ms": 3404.418583,
-          "relative_to_skif": 9.939794694602142
+          "mean_ms": 315.71626269999996,
+          "stddev_ms": 5.107568257977826,
+          "median_ms": 314.59475000000003,
+          "min_ms": 310.19829200000004,
+          "max_ms": 327.54775,
+          "relative_to_skif": 3.7858835148468435
         }
       ]
     }
@@ -398,38 +398,38 @@
   "adr_0001_checks": [
     {
       "target": "generated: 500 packages (pnpm)",
-      "description": "manifest and policy rules < 50 ms (measured 224.0 ms)",
+      "description": "manifest and policy rules < 50 ms (measured 54.1 ms)",
       "passed": false
     },
     {
       "target": "graph: 10000 files in 100 packages",
-      "description": "parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 2619.7 ms)",
-      "passed": false
+      "description": "parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 376.5 ms)",
+      "passed": true
     },
     {
       "target": "corpus: create-t3-turbo (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 31.5x)",
+      "description": "JS analysis >= 5x faster than knip (measured 37.0x)",
       "passed": true
     },
     {
       "target": "corpus: vue-core (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 16.6x)",
+      "description": "JS analysis >= 5x faster than knip (measured 42.6x)",
       "passed": true
     },
     {
       "target": "corpus: tanstack-query (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 8.0x)",
+      "description": "JS analysis >= 5x faster than knip (measured 10.0x)",
       "passed": true
     },
     {
       "target": "corpus: babel (yarn)",
-      "description": "JS analysis >= 5x faster than knip (measured 18.9x)",
+      "description": "JS analysis >= 5x faster than knip (measured 9.9x)",
       "passed": true
     },
     {
       "target": "corpus: npm-cli (npm)",
-      "description": "JS analysis >= 5x faster than knip (measured 9.9x)",
-      "passed": true
+      "description": "JS analysis >= 5x faster than knip (measured 3.8x)",
+      "passed": false
     }
   ]
 }
