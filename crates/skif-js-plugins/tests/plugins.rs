@@ -1513,6 +1513,48 @@ fn prisma() {
 }
 
 #[test]
+fn prisma_reads_the_generator_providers_of_the_schema() {
+    let schema = r#"generator client {
+  provider = "prisma-client-js"
+}
+
+// generator old { provider = "commented-out" }
+generator kysely {
+  provider     = "prisma-kysely" // the Kysely types
+  output       = "../src/db"
+}
+
+generator zod {
+  provider = "zod-prisma-types"
+}
+
+generator erd {
+  provider = "npx prisma-erd-generator"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+"#;
+    let results = resolve(&[("prisma/schema.prisma", schema)], &["prisma"]);
+    let out = output(&results, "prisma");
+    assert_deps(out, &["prisma-kysely", "zod-prisma-types"]);
+    assert_absent(out, &["prisma-client-js", "postgresql", "commented-out", "npx"]);
+    let manifest = r#"{"name":"app","prisma":{"schema":"db/main.prisma"}}"#;
+    let results = resolve(
+        &[
+            ("package.json", manifest),
+            (
+                "db/main.prisma",
+                "generator g {\n  provider = \"prisma-dbml-generator\"\n}\n",
+            ),
+        ],
+        &["prisma"],
+    );
+    assert_deps(output(&results, "prisma"), &["prisma-dbml-generator"]);
+}
+
+#[test]
 fn graphql_codegen() {
     let config = r#"export default {
       generates: {
