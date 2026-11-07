@@ -35,6 +35,8 @@ pub enum Command {
     ExplainUsage(ExplainUsageArgs),
     /// Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file.
     Migrate(MigrateArgs),
+    /// Run a Model Context Protocol server on stdin and stdout, for AI agents.
+    Mcp,
 }
 
 #[derive(Debug, clap::Args)]

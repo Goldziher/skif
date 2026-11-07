@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
-use skif::{CachedFs, ConfigOverrides, FileSystem, OsFs, Target};
+use skif::{CachedFs, ConfigOverrides, FileSystem, OsFs, Target, UsageReport};
 
 use crate::args::{ExplainUsageArgs, Format};
 use crate::config::document;
@@ -28,7 +28,7 @@ pub fn run(args: &ExplainUsageArgs) -> u8 {
     }
 }
 
-type Failure = Box<(CliError, Map<String, Value>)>;
+pub type Failure = Box<(CliError, Map<String, Value>)>;
 
 fn fail(kind: Kind, message: impl Into<String>) -> Failure {
     Box::new((CliError::new(kind, message), Map::new()))
@@ -44,7 +44,7 @@ fn split_target(target: &str) -> (&str, Option<&str>) {
 }
 
 /// The canonical absolute path of `file`, which is relative to the current directory when it is not absolute.
-fn resolve_file(cwd: &Path, file: &str) -> Result<PathBuf, CliError> {
+pub fn resolve_file(cwd: &Path, file: &str) -> Result<PathBuf, CliError> {
     let path = Path::new(file);
     let absolute = if path.is_absolute() {
         path.to_path_buf()
@@ -73,15 +73,18 @@ fn overrides(args: &ExplainUsageArgs) -> ConfigOverrides {
         .with_no_config(args.no_config)
 }
 
-fn execute(args: &ExplainUsageArgs, format: Format) -> Result<(), Failure> {
-    let cwd = std::env::current_dir()
-        .map_err(|error| fail(Kind::Io, format!("cannot read the current directory: {error}")))?;
-    let (file, export) = split_target(&args.target);
-    let file = resolve_file(&cwd, file).map_err(|error| Box::new((error, Map::new())))?;
-    let start = canonical(&args.path).map_err(|error| Box::new((error, Map::new())))?;
-    let Resolved { targets, .. } = roots::resolve(&start, false, &CachedFs::new(OsFs), &overrides(args))
-        .map_err(|error| Box::new((error, Map::new())))?;
-    let target = owning_target(&targets, &file).ok_or_else(|| {
+/// Explains `file` (canonical and absolute), or its `export`, in the root found from `start` (also canonical).
+///
+/// A file outside the module graph is a failure that carries the report, so the reason reaches the user.
+pub fn explain(
+    start: &Path,
+    file: &Path,
+    export: Option<&str>,
+    overrides: &ConfigOverrides,
+) -> Result<UsageReport, Failure> {
+    let Resolved { targets, .. } =
+        roots::resolve(start, false, &CachedFs::new(OsFs), overrides).map_err(|error| Box::new((error, Map::new())))?;
+    let target = owning_target(&targets, file).ok_or_else(|| {
         fail(
             Kind::Usage,
             format!(
@@ -91,11 +94,11 @@ fn execute(args: &ExplainUsageArgs, format: Format) -> Result<(), Failure> {
             ),
         )
     })?;
-    let relative = file.strip_prefix(&target.root).unwrap_or(&file);
+    let relative = file.strip_prefix(&target.root).unwrap_or(file);
     let fs: Arc<dyn FileSystem> = Arc::new(OsFs);
     let report = skif::explain_usage(&target.config, &fs, &target.workspace, relative, export);
-    let value = serde_json::to_value(&report).map_err(|error| fail(Kind::Internal, error.to_string()))?;
     if !report.in_graph {
+        let value = serde_json::to_value(&report).map_err(|error| fail(Kind::Internal, error.to_string()))?;
         let mut extra = Map::new();
         extra.insert("report".to_owned(), value);
         return Err(Box::new((
@@ -103,8 +106,19 @@ fn execute(args: &ExplainUsageArgs, format: Format) -> Result<(), Failure> {
             extra,
         )));
     }
+    Ok(report)
+}
+
+fn execute(args: &ExplainUsageArgs, format: Format) -> Result<(), Failure> {
+    let cwd = std::env::current_dir()
+        .map_err(|error| fail(Kind::Io, format!("cannot read the current directory: {error}")))?;
+    let (file, export) = split_target(&args.target);
+    let file = resolve_file(&cwd, file).map_err(|error| Box::new((error, Map::new())))?;
+    let start = canonical(&args.path).map_err(|error| Box::new((error, Map::new())))?;
+    let report = explain(&start, &file, export, &overrides(args))?;
     match format {
         Format::Json => {
+            let value = serde_json::to_value(&report).map_err(|error| fail(Kind::Internal, error.to_string()))?;
             let mut members = Map::new();
             members.insert("report".to_owned(), value);
             let text = document(members).map_err(|error| Box::new((error, Map::new())))?;
