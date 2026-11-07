@@ -131,6 +131,9 @@ pub use linter::{Linter, RunOptions, builtin_providers};
 pub use root::{config_file, find_workspace_root, load_config, resolve_config};
 #[cfg(feature = "js-analysis")]
 pub use skif_js::{Absence, EntryReason, ExportReport, ExportUser, Importer, ReExport, UsageReport, Verdict};
+/// The state of one dependency instance, from [`Linter::instances`].
+#[cfg(feature = "manifest")]
+pub use skif_rules::policy::{GroupRef, InstanceStatus, StatusType};
 pub use targets::{
     Discovery, RootFailure, Target, UnappliedConfig, UnappliedReason, discover_all, discover_targets, find_target,
     load_target, unapplied_config_files, unapplied_config_files_all,

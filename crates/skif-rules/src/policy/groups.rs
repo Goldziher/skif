@@ -203,6 +203,7 @@ impl<'c> Groups<'c> {
     /// Assigns every instance to its owning version group and its preferred semver range.
     pub(crate) fn assign<'i>(&self, instances: &'i Instances<'_>) -> Assignment<'i> {
         let mut preferred = Vec::with_capacity(instances.len());
+        let mut owners = Vec::with_capacity(instances.len());
         let mut dependencies: Vec<BTreeMap<Dependency<'i>, Vec<InstanceId>>> =
             self.groups.iter().map(|_| BTreeMap::new()).collect();
         for (id, instance) in instances.iter() {
@@ -211,9 +212,11 @@ impl<'c> Groups<'c> {
                 None if self.governs_by_default(instance) => self.groups.len() - 1,
                 None => {
                     preferred.push(None);
+                    owners.push(None);
                     continue;
                 }
             };
+            owners.push(Some(owner));
             dependencies[owner]
                 .entry((instance.name.as_str(), instance.alias_target()))
                 .or_default()
@@ -222,6 +225,7 @@ impl<'c> Groups<'c> {
         }
         Assignment {
             preferred,
+            owners,
             dependencies,
         }
     }
@@ -251,6 +255,8 @@ impl<'c> Groups<'c> {
 #[derive(Debug)]
 pub(crate) struct Assignment<'i> {
     preferred: Vec<Option<SemverRange>>,
+    /// The index of the version group that owns each instance; `None` for an instance no group governs.
+    owners: Vec<Option<usize>>,
     dependencies: Vec<BTreeMap<Dependency<'i>, Vec<InstanceId>>>,
 }
 
@@ -262,6 +268,11 @@ impl<'i> Assignment<'i> {
     /// The semver range `id` must use, when a semver group applies and the specifier can carry it.
     pub(crate) fn preferred(&self, id: InstanceId) -> Option<&SemverRange> {
         self.preferred[id.index()].as_ref()
+    }
+
+    /// The index of the version group that owns `id`, the catch-all last; `None` when no group governs it.
+    pub(crate) fn owner(&self, id: InstanceId) -> Option<usize> {
+        self.owners[id.index()]
     }
 
     /// The instances `group` owns, by dependency name in byte order.

@@ -205,6 +205,16 @@ impl Linter {
         })
     }
 
+    /// The state of every dependency instance the version groups and the catalog rules govern, valid or not, as
+    /// `skif list` and `skif json` show it. `report` is this linter's report of `workspace`: an instance it reports
+    /// takes that diagnostic's state and severity.
+    #[cfg(feature = "manifest")]
+    #[must_use]
+    pub fn instances(&self, workspace: &Workspace, report: &Report) -> Vec<skif_rules::policy::InstanceStatus> {
+        let enabled = self.registry.enabled(&self.config);
+        skif_rules::policy::inspect(workspace, &self.config, &|id| enabled.contains(id), &report.diagnostics)
+    }
+
     /// Metadata of every registered rule, enabled or not.
     pub fn rules(&self) -> impl Iterator<Item = &'static RuleMeta> + '_ {
         self.registry.rules()
