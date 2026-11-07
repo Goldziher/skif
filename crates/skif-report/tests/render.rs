@@ -1,6 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use skif_core::{Diagnostic, Fix, FixOp, FixSafety, LineIndex, Location, Related, Report, RuleId, Severity, Span};
+use skif_core::{
+    Diagnostic, Fix, FixOp, FixSafety, IncompleteCause, IncompleteEntries, IncompletePackage, LineIndex, Location,
+    Related, Report, RuleId, Severity, Span,
+};
 use skif_report::{Format, RenderOptions, render, render_json_error};
 
 const MANIFEST: &str =
@@ -108,6 +111,54 @@ fn json_empty() {
 #[test]
 fn json_rich() {
     insta::assert_snapshot!(run(&rich(), Format::Json, &options(false)));
+}
+
+/// The rich report with two packages whose entries are incomplete, given out of order.
+fn with_incomplete() -> Report {
+    rich().with_incomplete_packages(vec![
+        IncompletePackage::new(
+            "web".to_owned(),
+            "packages/web".into(),
+            vec![
+                IncompleteEntries {
+                    cause: IncompleteCause::UnknownSpread,
+                    plugin: Some("vite".to_owned()),
+                    file: Some("packages/web/vite.config.ts".into()),
+                },
+                IncompleteEntries {
+                    cause: IncompleteCause::UnmappedPublished,
+                    plugin: None,
+                    file: Some("packages/web/package.json".into()),
+                },
+            ],
+        ),
+        IncompletePackage::new(
+            "root".to_owned(),
+            "".into(),
+            vec![IncompleteEntries {
+                cause: IncompleteCause::Unspecified,
+                plugin: None,
+                file: None,
+            }],
+        ),
+    ])
+}
+
+#[test]
+fn json_incomplete_packages() {
+    insta::assert_snapshot!(run(&with_incomplete(), Format::Json, &options(false)));
+}
+
+#[test]
+fn human_notes_incomplete_packages() {
+    let rendered = run(&with_incomplete(), Format::Human, &options(false));
+    let lines: Vec<&str> = rendered.lines().rev().take(2).collect();
+    assert!(lines[0].starts_with("Found "), "{rendered}");
+    assert!(
+        lines[1].starts_with("note: unused files and dependencies were not checked in 2 packages (root, web)"),
+        "{rendered}"
+    );
+    assert!(!run(&rich(), Format::Human, &options(false)).contains("were not checked"));
 }
 
 #[test]
