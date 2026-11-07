@@ -120,6 +120,35 @@ pub(crate) fn add_entry(
     }
 }
 
+/// Replaces the version of the existing entry `dependency` of `catalog` in `file`.
+pub(crate) fn set_entry(
+    workspace: &Workspace,
+    file: &CatalogFile,
+    catalog: &CatalogName,
+    dependency: &str,
+    version: &str,
+) -> FixOp {
+    match file {
+        CatalogFile::Yaml(_) => add_entry(workspace, file, catalog, dependency, version),
+        CatalogFile::RootJson(path) => {
+            let mut pointer = json_pointer(workspace, catalog);
+            pointer.push(key(dependency));
+            FixOp::json(
+                path.clone(),
+                pointer,
+                JsonAction::Set(Value::String(version.to_owned())),
+            )
+        }
+    }
+}
+
+/// The file holding `catalog`.
+pub(crate) const fn file_path(file: &CatalogFile) -> &PathBuf {
+    match file {
+        CatalogFile::Yaml(path) | CatalogFile::RootJson(path) => path,
+    }
+}
+
 /// Creates the default catalog in `file` holding all of `entries`.
 ///
 /// Every diagnostic that needs the new catalog carries this same operation with the complete entry list, so applying

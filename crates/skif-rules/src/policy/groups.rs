@@ -86,7 +86,7 @@ fn in_default_scope(scope: &DependencyTypes, ty: &DependencyType) -> bool {
 }
 
 /// `value` against identifiers where a leading `!` excludes; no plain identifier admits everything not excluded.
-fn identifier_matches(patterns: &[String], value: &str) -> bool {
+pub(crate) fn identifier_matches(patterns: &[String], value: &str) -> bool {
     let named = |negated: bool| {
         patterns
             .iter()
