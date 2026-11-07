@@ -39,7 +39,8 @@ impl Plugin for Eslint {
     }
 }
 
-fn collect(value: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<PluginInput>, depth: u8) {
+/// What a config object, or an array of them, names: shared configs, plugins, parsers and resolvers; `xo` reuses it.
+pub(crate) fn collect(value: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<PluginInput>, depth: u8) {
     if depth > 8 {
         return;
     }

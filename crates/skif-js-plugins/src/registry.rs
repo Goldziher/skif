@@ -3,21 +3,22 @@
 use crate::plugin::Plugin;
 use crate::plugins::{
     angular, astro, ava, aws_cdk, azure_pipelines, babel, biome, browser_extension, bun, c8, capacitor, changelogen,
-    changesets, commitizen, commitlint, convex, cspell, cypress, danger, dependency_cruiser, docusaurus, dotenv,
-    drizzle, electron_forge, electron_vite, esbuild, eslint, execa, expo, expo_router, fumadocs, gatsby, github_action,
-    github_actions, graphql_codegen, hardhat, husky, i18next_parser, jasmine, jest, karma, knex, lefthook, lingui,
-    lint_staged, markdownlint, mastra, mdx, metro, mocha, msw, nano_spawn, nest, netlify, next, next_intl, next_mdx,
-    nitro, node, nodemon, nuxt, nuxtjs_i18n, nx, nyc, oclif, openapi_ts, oxfmt, oxlint, panda_css, parcel, payload,
-    pino, playwright, playwright_ct, plop, pm2, pnpm, postcss, pre_commit, preconstruct, prettier, prisma, purgecss,
-    react_email, react_native, react_router, release_it, remark, remix, rolldown, rollup, rsbuild, rslib, rspack,
-    sanity, sapper, semantic_release, sentry, serverless_framework, simple_git_hooks, size_limit, starlight, storybook,
-    stryker, stylelint, svelte, sveltekit, svgo, svgr, swc, syncpack, tailwind, tanstack_router, tap, tauri, temporal,
+    changesets, commitizen, commitlint, convex, cspell, cucumber, cypress, danger, dependency_cruiser, docusaurus,
+    dotenv, drizzle, electron_forge, electron_vite, eleventy, esbuild, eslint, execa, expo, expo_router, fumadocs,
+    gatsby, github_action, github_actions, graphql_codegen, hardhat, husky, i18next_parser, jasmine, jest, karma, knex,
+    lefthook, lingui, lint_staged, markdownlint, mastra, mdx, metro, mocha, msw, nano_spawn, nest, netlify, next,
+    next_intl, next_mdx, nitro, node, nodemon, nuxt, nuxtjs_i18n, nx, nyc, oclif, openapi_ts, orval, oxfmt, oxlint,
+    panda_css, parcel, payload, pino, playwright, playwright_ct, plop, pm2, pnpm, postcss, pre_commit, preconstruct,
+    prettier, prisma, purgecss, quasar, qwik, react_email, react_native, react_router, relay, release_it, remark,
+    remix, rolldown, rollup, rsbuild, rslib, rspack, rstest, sanity, sapper, semantic_release, sentry,
+    serverless_framework, simple_git_hooks, size_limit, sst, starlight, stencil, storybook, stryker, stylelint, svelte,
+    sveltejs_package, sveltekit, svgo, svgr, swc, syncpack, tailwind, tanstack_router, tap, tauri, temporal, textlint,
     ts_node, tsd, tsdown, tsup, tsx, turbo, typedoc, typescript, unbuild, unocss, unplugin_auto_import,
-    unplugin_vue_components, unplugin_vue_router, vercel, vike, vite, vitepress, vitest, vue, webdriver_io, webpack,
-    wrangler, wxt, yarn, zx,
+    unplugin_vue_components, unplugin_vue_router, vercel, vike, vite, vite_plugin_pwa, vitepress, vitest, vue,
+    webdriver_io, webpack, wrangler, wxt, xo, yarn, zx,
 };
 
-static PLUGINS: [&dyn Plugin; 141] = [
+static PLUGINS: [&dyn Plugin; 154] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -159,6 +160,19 @@ static PLUGINS: [&dyn Plugin; 141] = [
     &fumadocs::Fumadocs,
     &nuxtjs_i18n::NuxtjsI18n,
     &playwright_ct::PlaywrightCt,
+    &sst::Sst,
+    &qwik::Qwik,
+    &quasar::Quasar,
+    &stencil::Stencil,
+    &eleventy::Eleventy,
+    &cucumber::Cucumber,
+    &relay::Relay,
+    &orval::Orval,
+    &vite_plugin_pwa::VitePluginPwa,
+    &xo::Xo,
+    &textlint::Textlint,
+    &rstest::Rstest,
+    &sveltejs_package::SveltejsPackage,
 ];
 
 /// Every plugin, in the order of the table (ADR 0011, ADR 0022, ADR 0025, ADR 0029).
