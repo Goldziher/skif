@@ -8,7 +8,8 @@
 //! Astro frontmatter), the `<style>` imports and the markup identifiers of `.vue`, `.svelte` and `.astro` files:
 //! component tags and the expressions of the template count as uses of the imports they name. `.mdx` files yield the
 //! facts of their top-level `import` and `export` statements, and the components their markup names count as uses.
-//! Stylesheets go through [`parse_stylesheet`]. Other extensions yield [`SyntaxError::Unsupported`].
+//! `.tsrx` files yield their imports only, since their templates are no JavaScript. Stylesheets go through
+//! [`parse_stylesheet`]. Other extensions yield [`SyntaxError::Unsupported`].
 
 #![warn(missing_docs)]
 
@@ -26,6 +27,7 @@ mod sfc;
 mod signature_refs;
 mod style;
 mod template;
+mod tsrx;
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -63,6 +65,7 @@ pub fn parse_module(path: &Path, source: &str, options: &ParseOptions) -> Result
     match extension.as_str() {
         "vue" | "svelte" | "astro" => parse_component(&extension, source, &lines, *options),
         "mdx" => Ok(parse_mdx(source, &lines, *options)),
+        "tsrx" => Ok(parse_tsrx(source, &lines, *options)),
         _ => {
             let source_type = source_type_for(path).ok_or_else(|| unsupported(&extension))?;
             Ok(parse_block(source, 0, source_type, &lines, *options, None))
@@ -237,6 +240,16 @@ fn parse_mdx(source: &str, lines: &LineIndex, options: ParseOptions) -> ModuleIn
             template::scan(&source[start..end], template::Flavor::Astro, &mut markup);
         }
         members::credit(&mut info, &markup);
+    }
+    info
+}
+
+/// Parses a `.tsrx` file: its `import` statements and `import()` calls as TypeScript. Its templates are not read,
+/// so every imported binding counts as used as a whole.
+fn parse_tsrx(source: &str, lines: &LineIndex, options: ParseOptions) -> ModuleInfo {
+    let mut info = parse_block(&tsrx::extract(source), 0, SourceType::tsx(), lines, options, None);
+    for name in info.imports.iter_mut().flat_map(|import| &mut import.names) {
+        name.escapes = true;
     }
     info
 }

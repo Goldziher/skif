@@ -383,6 +383,14 @@ declaration files `unplugin-vue-components` and `unplugin-auto-import` generate 
 used, whether or not a template names it. A generated file that `.gitignore` excludes is not read, and the
 components it registers then look unused.
 
+Stylesheets that code imports are followed: `@import`, `@use`, `@forward` and the Tailwind at-rules of `.css`,
+`.scss`, `.sass`, `.less` and `.pcss` files, and `@import` and `@require` of Stylus (`.styl`, `.stylus`, and
+`<style lang="stylus">` blocks), where a bare name is looked up next to the file before it is taken as a package and a
+glob (`@import "mixins/*"`) is skipped. A reached Stylus file uses the `stylus` package. `.tsrx` files (`@tsrx/core`)
+are not TypeScript a parser accepts, so only their `import` statements and `import()` calls are read: the packages and
+files they name are used, every imported binding counts as used as a whole, and their exports are not known. A reached
+`.tsrx` file uses the `@tsrx/*` packages its package lists. Like `.mdx`, `.tsrx` files are not in the default `project`.
+
 Test files are entries when a test-runner plugin is enabled (Jest, Vitest, Mocha, Playwright, Cypress and the like),
 with the patterns of that plugin; a project without a runner reports unused test files like any other, as knip does.
 Add other test files to `entry`. Directories named `fixtures` or `__fixtures__` hold test data: their imports are not checked for unresolved or

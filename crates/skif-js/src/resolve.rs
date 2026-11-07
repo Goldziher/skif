@@ -26,9 +26,9 @@ pub(crate) const CODE_EXTENSIONS: &[&str] = &[
     "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "vue", "svelte", "astro",
 ];
 
-/// Documents whose top-level ESM is extracted and followed. They are never the source of a published file, so the
-/// manifest mapping does not probe for them.
-const DOCUMENT_EXTENSIONS: &[&str] = &["mdx"];
+/// Files whose imports are extracted without a compiler and followed (MDX documents, TSRX components). They are not
+/// in the default project and are never probed as the source of a published file.
+const EXTRACTED_EXTENSIONS: &[&str] = &["mdx", "tsrx"];
 
 /// Whether a path has an extension that is parsed and followed.
 pub(crate) fn is_code_file(path: &Path) -> bool {
@@ -36,7 +36,7 @@ pub(crate) fn is_code_file(path: &Path) -> bool {
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| {
             let extension = extension.to_ascii_lowercase();
-            CODE_EXTENSIONS.contains(&extension.as_str()) || DOCUMENT_EXTENSIONS.contains(&extension.as_str())
+            CODE_EXTENSIONS.contains(&extension.as_str()) || EXTRACTED_EXTENSIONS.contains(&extension.as_str())
         })
 }
 
@@ -391,7 +391,7 @@ fn style_options(tsconfig: bool) -> ResolveOptions {
     let owned = |items: &[&str]| items.iter().map(|item| (*item).to_owned()).collect::<Vec<_>>();
     ResolveOptions {
         tsconfig: tsconfig.then_some(TsconfigDiscovery::Auto),
-        extensions: owned(&[".scss", ".sass", ".css", ".less", ".pcss"]),
+        extensions: owned(&[".scss", ".sass", ".css", ".less", ".pcss", ".styl"]),
         condition_names: owned(&["style", "sass", "less", "import", "node", "default"]),
         main_fields: owned(&["style", "sass", "less", "main"]),
         symlinks: false,
@@ -779,8 +779,8 @@ impl ModuleResolver {
 
     /// Resolves `specifier` as written in the stylesheet `importer`.
     ///
-    /// A bare specifier is looked up next to the stylesheet first when the language resolves it that way (Sass and
-    /// Less) or it names a stylesheet file (`@import "reset.css"`), and as a package otherwise.
+    /// A bare specifier is looked up next to the stylesheet first when the language resolves it that way (Sass, Less
+    /// and Stylus) or it names a stylesheet file (`@import "reset.css"`), and as a package otherwise.
     pub(crate) fn resolve_style(&self, importer: &Path, specifier: &str) -> Outcome {
         let outcome = |target, package| Outcome { target, package };
         if has_foreign_scheme(specifier) {
@@ -793,7 +793,12 @@ impl ModuleResolver {
         let preprocessed = importer
             .extension()
             .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "scss" | "sass" | "less"));
+            .is_some_and(|extension| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
+                    "scss" | "sass" | "less" | "styl" | "stylus"
+                )
+            });
         if relative || preprocessed || is_stylesheet(Path::new(specifier)) {
             let local = if relative {
                 specifier.to_owned()

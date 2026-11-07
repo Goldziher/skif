@@ -30,20 +30,35 @@ const ALWAYS_USED: &[&str] = &["typescript", "knip", "skif"];
 
 /// The packages that compile a file type skif extracts imports from without running a compiler (ADR 0001): a file
 /// of that type in the graph uses those of them its package lists, the way knip's built-in compilers mark them.
-const COMPILER_DEPENDENCIES: &[(&str, &[&str])] = &[(
-    "mdx",
-    &[
-        "@mdx-js/esbuild",
-        "@mdx-js/loader",
-        "@mdx-js/mdx",
-        "@mdx-js/node-loader",
-        "@mdx-js/preact",
-        "@mdx-js/react",
-        "@mdx-js/rollup",
-        "@mdx-js/vue",
-        "remark-mdx",
-    ],
-)];
+const COMPILER_DEPENDENCIES: &[(&str, &[&str])] = &[
+    (
+        "mdx",
+        &[
+            "@mdx-js/esbuild",
+            "@mdx-js/loader",
+            "@mdx-js/mdx",
+            "@mdx-js/node-loader",
+            "@mdx-js/preact",
+            "@mdx-js/react",
+            "@mdx-js/rollup",
+            "@mdx-js/vue",
+            "remark-mdx",
+        ],
+    ),
+    ("styl", &["stylus"]),
+    (
+        "tsrx",
+        &[
+            "@tsrx/core",
+            "@tsrx/react",
+            "@tsrx/preact",
+            "@tsrx/vue",
+            "@tsrx/solid",
+            "@tsrx/ripple",
+        ],
+    ),
+    ("stylus", &["stylus"]),
+];
 
 /// Packages whose `@types` twin does not need the package itself.
 const UNPAIRED_TYPES: &[&str] = &["node", "bun", "jest"];
