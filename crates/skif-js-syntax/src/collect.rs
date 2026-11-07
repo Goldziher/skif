@@ -403,6 +403,7 @@ fn export_from_declared(ctx: &Ctx<'_>, d: Declared, tags: Vec<String>, removal: 
         referenced_in: Vec::new(),
         members_read_in_file: Vec::new(),
         alias_of: d.alias_of,
+        registrations: Vec::new(),
     }
 }
 
@@ -424,6 +425,7 @@ impl Export {
             referenced_in: Vec::new(),
             members_read_in_file: Vec::new(),
             alias_of: None,
+            registrations: Vec::new(),
         }
     }
 }
