@@ -272,7 +272,7 @@ fn run_plugin(
             ..PluginOutput::default()
         },
         queue: VecDeque::new(),
-        confine_to_package: spec.id == "typescript",
+        confine_to_package: matches!(spec.id, "typescript" | "tsrs"),
     };
     for production in spec.production {
         push_unique(&mut collector.out.entries, (*production).to_string());
