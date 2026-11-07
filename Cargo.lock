@@ -2168,6 +2168,7 @@ dependencies = [
  "insta",
  "memchr",
  "proptest",
+ "rustc-hash",
  "schemars",
  "serde",
  "serde_json",
