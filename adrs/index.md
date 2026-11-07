@@ -57,6 +57,7 @@ old one.
 | 0047 | [npm Package Name skif-cli](0047-npm-package-name-skif-cli.md) | accepted |
 | 0048 | [Catalog Version Divergence and Reasons on Ignores](0048-catalog-version-divergence-and-reasons-on-ignores.md) | accepted |
 | 0049 | [JS Corrections from Adjudicating knip Disagreements: Linked Files, Subpath Imports, Aliased Packages, Computed Specifiers, Component Styles and Three Plugins](0049-js-corrections-from-adjudicating-knip-disagreements.md) | accepted |
+| 0050 | [Registry Updates: An Opt-In `skif update` Command, the Only Code That Uses the Network](0050-registry-updates-an-opt-in-skif-update-command.md) | accepted |
 
 ## Effective statements
 
@@ -142,3 +143,6 @@ the lines below stay as written; this table says which record governs.
 | [0013](0013-distribution-and-naming.md), npm row | the npm umbrella package is `skif` | [0047](0047-npm-package-name-skif-cli.md): it is `skif-cli` |
 | [0018](0018-npm-distribution-via-napi-rs.md), package name | the npm package is `skif` and the hooks run `pnpm dlx skif@<version>` | [0047](0047-npm-package-name-skif-cli.md): `skif-cli`, with `napi.packageName` keeping the platform packages |
 | [0036](0036-thirty-nine-more-knip-plugins-by-real-world-usage.md), `tap` and plugin count | no `tap` plugin is added because knip has none; the table holds 102 plugins | [0049](0049-js-corrections-from-adjudicating-knip-disagreements.md): `tap`, `oxfmt` and `bun` are added; the table holds 105 plugins |
+| [0001](0001-mission-and-scope.md), line 68 | registry updates are out of scope; skif never contacts a package registry and opens no network connection | [0050](0050-registry-updates-an-opt-in-skif-update-command.md): `skif update` asks the registry when invoked; linting and every other command still open no connection |
+| [0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md), line 103 | skif's own process never opens a network connection and never resolves a version | [0050](0050-registry-updates-an-opt-in-skif-update-command.md): true of linting and `--fix`; `skif update` is the one exception |
+| [0009](0009-version-and-catalog-policies.md), line 113 | `DiffersToNpmRegistry` maps to no rule because registry updates are out of scope | [0050](0050-registry-updates-an-opt-in-skif-update-command.md): still no rule; `skif update` reports the state |
