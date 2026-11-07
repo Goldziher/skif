@@ -9,6 +9,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `vue`, `mdx`, `next-mdx`, `pre-commit`, `parcel`, `electron-forge`, `unplugin-auto-import`,
+  `unplugin-vue-components`, `unplugin-vue-router`, `github-action`, `pino`, `next-intl`, `dependency-cruiser`,
+  `commitizen`, `serverless-framework`, `starlight`, `execa`, `zx`, `nano-spawn`, `azure-pipelines` and `sapper`
+  plugins ([ADR 0050](adrs/0050-twenty-one-more-plugins-and-commands-run-from-source.md),
+  [#39](https://github.com/Goldziher/skif/issues/39)). The table holds 126 plugins.
+- The command of `glob -c "<command>" <patterns>` in a script is parsed as a script
+  ([#39](https://github.com/Goldziher/skif/issues/39)).
+- A plugin's `package.json` key may be nested (`config.commitizen`, `config.forge`).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed
