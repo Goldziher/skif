@@ -57,7 +57,7 @@ another root. `--fix` plans, writes and installs per root.
 | `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires `--format`. |
 | `--fix` | Apply safe fixes, lint again, then run the package manager's install command. |
 | `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. |
-| `--dependencies`, `--dependency-types`, `--specifier-types`, `--source` | Narrow the version-group policies to some instances (see [Filtering instances](#filtering-instances)). |
+| `--dependency`, `--dependency-types`, `--specifier-types`, `--source` | Narrow the version-group policies to some instances (see [Filtering instances](#filtering-instances)). |
 | `--dry-run` | With `--fix` or `--fix-unsafe`: plan the fixes and print them as a unified diff, write nothing and run no install (see [Fixing](#fixing)). |
 | `--select <highest\|lowest>` | Which version a version alignment fix targets, overriding `[policy] prefer` for this run. |
 | `--no-install` | Do not run the package manager after fixing. |
@@ -175,7 +175,7 @@ packages/app/package.json` checks that package's instances against each other on
 
 | Flag | Keeps |
 | --- | --- |
-| `--dependencies <NAME>` | Dependencies whose name matches the name or glob (`react`, `@types/**`, `!eslint`, `$LOCAL`). Repeatable. |
+| `--dependency <NAME>` | Dependencies whose name matches the name or glob (`react`, `@types/**`, `!eslint`, `$LOCAL`). Repeatable. syncpack calls it `--dependencies`; skif keeps that name for knip's issue-type shortcut. |
 | `--dependency-types <TYPES>` | These dependency types, comma separated (`prod,dev`, `!local`, a `[[custom-types]]` name). The list also replaces `[policy] dependency-types` as the scope of the default group for the run, so `--dependency-types peer` checks peer ranges. |
 | `--specifier-types <TYPES>` | These specifier types, comma separated (`exact`, `range`, `!workspace-protocol`; the values of `specifier-types` selectors). |
 | `--source <GLOB>` | Instances declared in files matching the glob, relative to the root (`packages/*/package.json`, `pnpm-workspace.yaml`). Repeatable. Unlike syncpack's `--source`, it does not change which packages make up the workspace. |

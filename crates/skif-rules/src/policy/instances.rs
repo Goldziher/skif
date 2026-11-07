@@ -27,7 +27,7 @@ fn owned_by_catalog(entry: &DependencyEntry) -> bool {
     entry.kind != DependencyKind::PeerDependencies && catalog::is_catalogable(&entry.parsed)
 }
 
-/// Whether `instance` passes the command-line filter (syncpack's `--dependencies`, `--dependency-types`,
+/// Whether `instance` passes the command-line filter (`--dependency`, syncpack's `--dependencies`, `--dependency-types`,
 /// `--specifier-types` and `--source`).
 fn passes(filter: &InstanceFilter, instance: &Instance<'_>) -> bool {
     (filter.dependencies.is_empty() || filter.dependencies.matches(&instance.name, instance.is_local))

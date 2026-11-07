@@ -950,17 +950,18 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, workspa
     if !sources.is_empty() {
         compare_source(state, src, &format!("{path}: --source"), &sources, workspace_patterns);
     }
-    for (flag, what) in [
-        ("dependencies", "dependency names"),
-        ("specifier-types", "specifier types"),
+    // skif's flag for syncpack's `--dependencies` is `--dependency`: `--dependencies` is knip's shortcut there.
+    for (flag, skif_flag, what) in [
+        ("dependencies", "dependency", "dependency names"),
+        ("specifier-types", "specifier-types", "specifier types"),
     ] {
         if invocation.has(flag, None) {
             state.note_with(
                 src,
                 NoteClass::Human,
                 format!("{path}: --{flag}"),
-                format!("limited the run to some {what}; skif checks every one"),
-                "silence the rest with [[ignore]] if the narrowing was intended",
+                format!("limited the run to some {what}; a skif.toml cannot, so skif checks every one"),
+                format!("pass `--{skif_flag}` to skif for the same narrowing, or silence the rest with [[ignore]]"),
             );
         }
     }

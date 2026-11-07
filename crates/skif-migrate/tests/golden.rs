@@ -132,6 +132,13 @@ fn syncpack_yaml_with_custom_types_and_groups() {
         class(&migration, "scripts.lint:versions: --dependencies"),
         NoteClass::Human
     );
+    assert!(
+        note(&migration, "scripts.lint:versions: --dependencies")
+            .suggestion
+            .as_deref()
+            .is_some_and(|suggestion| suggestion.contains("`--dependency`")),
+        "syncpack's --dependencies is skif's --dependency"
+    );
     assert!(migration.needs_human());
     assert_eq!(migration.config.version_groups.len(), 8);
     assert_eq!(

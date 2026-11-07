@@ -68,8 +68,9 @@ pub struct InstancesArgs {
 #[derive(Debug, Default, clap::Args)]
 pub struct FilterArgs {
     /// Only the dependencies whose name matches this name or glob (`react`, `@types/**`, `!eslint`), in the
-    /// version-group policies. Repeatable.
-    #[arg(long, value_name = "NAME")]
+    /// version-group policies. Repeatable. syncpack's `--dependencies`.
+    // Not `--dependencies`: that is knip's issue-type shortcut on the same command.
+    #[arg(long = "dependency", value_name = "NAME")]
     pub dependencies: Vec<String>,
 
     /// Only these dependency types (`prod,dev`, `peer`, `!local`, a custom type), in the version-group policies; also

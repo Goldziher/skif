@@ -943,7 +943,7 @@ fn instance_filters_narrow_the_version_group_policies() {
     );
 
     let named = run(skif()
-        .args(["--format", "json", "--dependencies", "is-*"])
+        .args(["--format", "json", "--dependency", "is-*"])
         .arg(dir.path()));
     assert_eq!(
         rule_ids(&named.json()),
