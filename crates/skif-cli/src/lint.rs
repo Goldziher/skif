@@ -37,10 +37,10 @@ pub fn run(args: &LintArgs, env: Env) -> u8 {
     }
 }
 
-/// The format to render and whether GitHub annotations accompany it: with no `--format`, `GITHUB_ACTIONS=true`
-/// selects human output plus annotations (ADR 0012).
-fn rendering_format(args: &LintArgs, env: Env) -> (Format, bool) {
-    (args.format(), args.format.is_none() && env.github_actions)
+/// Whether GitHub annotations accompany the human output: with no `--format`, `GITHUB_ACTIONS=true` selects human
+/// output plus annotations (ADR 0012).
+fn annotations(args: &LintArgs, env: Env) -> bool {
+    args.format.is_empty() && env.github_actions
 }
 
 /// A path as the OS resolves it: symlinks and `..` gone, and no Windows `\\?\` prefix on a plain drive path.
@@ -164,12 +164,16 @@ fn install_step(args: &LintArgs, changed: &[&Path], workspace: &Workspace) -> In
     }
 }
 
-fn color_enabled(args: &LintArgs, env: Env) -> bool {
-    args.format() == Format::Human
+/// Whether the rendering of `format` to `file` is coloured: only the rendering of [`LintArgs::format`] can be, and
+/// only when it is `human` and goes to stdout or `--output`; a `FORMAT=FILE` rendering never is (ADR 0050).
+fn color_enabled(args: &LintArgs, env: Env, format: Format, file: Option<&Path>) -> bool {
+    let primary = format == args.format() && (file.is_none() || args.output.is_some());
+    primary
+        && format == Format::Human
         && match args.color {
             ColorChoice::Always => true,
             ColorChoice::Never => false,
-            ColorChoice::Auto => env.stdout_tty && !env.no_color && args.output.is_none(),
+            ColorChoice::Auto => env.stdout_tty && !env.no_color && file.is_none(),
         }
 }
 
@@ -400,6 +404,7 @@ fn roots_json(runs: &[RootRun], reports: &[Cow<'_, Report>]) -> Value {
 
 fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     let fs = CachedFs::new(OsFs);
+    let targets_out = args.targets()?;
     if args.fixing() && env.ci {
         return Err(CliError::ci_refusal());
     }
@@ -450,27 +455,25 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
             fix: fixes.get(index),
         })
         .collect();
-    let (format, annotations) = rendering_format(args, env);
     let rendering = Rendering {
-        format,
-        annotations,
-        color: color_enabled(args, env),
+        format: Format::default(),
+        annotations: annotations(args, env),
+        color: false,
         root: &base,
-        repo_root: (matches!(
-            format,
-            Format::Github | Format::Sarif | Format::Codeclimate | Format::Codeowners
-        ) || annotations)
-            .then(|| repo_root(&base))
-            .flatten(),
+        repo_root: None,
         rules: linters.rules(),
         multi,
         errors: root_errors.iter().map(RootError::to_json).collect(),
         truncated: truncated_json(&truncated),
     };
-    let rendered = timing::phase("render", || {
-        output::render(&aggregate, &views, &rendering, &fs, &root_fixes)
-    })?;
-    output::emit(&rendered, args.output.as_deref())?;
+    render_and_write(
+        args,
+        env,
+        &targets_out,
+        rendering,
+        (&aggregate, &views, &root_fixes),
+        &fs,
+    )?;
     if !fixes.is_empty() && !matches!(args.format(), Format::Human | Format::Json) {
         write_summary_to_stderr(&root_fixes);
     }
@@ -496,6 +499,47 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         return Ok(COULD_NOT_RUN);
     }
     Ok(run_exit_code(args, &runs, &aggregate))
+}
+
+/// Renders every requested format, then writes the files and stdout (ADR 0050). Every rendering is made before
+/// anything is written, so a failing one leaves every file untouched.
+fn render_and_write(
+    args: &LintArgs,
+    env: Env,
+    targets: &[(Format, Option<PathBuf>)],
+    mut rendering: Rendering<'_>,
+    (report, views, fixes): (&Report, &[RootView<'_>], &[RootFix<'_>]),
+    fs: &dyn FileSystem,
+) -> Result<(), CliError> {
+    let needs_repo_root = rendering.annotations
+        || targets.iter().any(|(format, _)| {
+            matches!(
+                format,
+                Format::Github | Format::Sarif | Format::Codeclimate | Format::Codeowners
+            )
+        });
+    if needs_repo_root {
+        rendering.repo_root = repo_root(rendering.root);
+    }
+    let mut rendered = Vec::with_capacity(targets.len());
+    for (format, file) in targets {
+        rendering.format = *format;
+        rendering.color = color_enabled(args, env, *format, file.as_deref());
+        let bytes = timing::phase("render", || output::render(report, views, &rendering, fs, fixes))?;
+        rendered.push((bytes, file.as_deref()));
+    }
+    // Files first: a failed write then still reaches a JSON consumer of stdout as the only document.
+    for (bytes, file) in &rendered {
+        if let Some(file) = file {
+            output::emit(bytes, Some(file))?;
+        }
+    }
+    for (bytes, file) in &rendered {
+        if file.is_none() {
+            output::emit(bytes, None)?;
+        }
+    }
+    Ok(())
 }
 
 fn roots_fix<'a>(prefixes: &[&'a Path], fixes: &'a [FixRun]) -> Vec<RootFix<'a>> {
