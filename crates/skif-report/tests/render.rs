@@ -296,3 +296,112 @@ fn the_specifier_is_reported_when_set() {
     );
     assert!(!sarif.contains("\"specifier\""));
 }
+
+#[test]
+fn codeclimate_rich() {
+    insta::assert_snapshot!(run(&rich(), Format::Codeclimate, &options(false)));
+}
+
+#[test]
+fn codeclimate_empty_is_an_empty_array() {
+    let rendered = run(&Report::new(Vec::new(), 2), Format::Codeclimate, &options(false));
+    assert_eq!(rendered, "[]\n");
+}
+
+#[test]
+fn codeclimate_fingerprints_are_unique_and_ignore_the_line() {
+    let at = |line: u32| {
+        let mut span = span_of("\"lodash\"");
+        span.start_line = line;
+        diag(
+            "unused-dependency",
+            Severity::Warning,
+            "a/package.json",
+            Some(span),
+            "m",
+        )
+    };
+    let fingerprints = |report: &Report| -> Vec<String> {
+        let value: serde_json::Value =
+            serde_json::from_str(&run(report, Format::Codeclimate, &options(false))).unwrap();
+        value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|issue| issue["fingerprint"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let twice = fingerprints(&Report::new(vec![at(5), at(9)], 1));
+    assert_ne!(twice[0], twice[1]);
+    assert_eq!(
+        fingerprints(&Report::new(vec![at(5)], 1))[0],
+        fingerprints(&Report::new(vec![at(40)], 1))[0]
+    );
+}
+
+#[test]
+fn compact_rich() {
+    insta::assert_snapshot!(run(&rich(), Format::Compact, &options(false)));
+}
+
+#[test]
+fn compact_keeps_one_line_per_diagnostic() {
+    let report = Report::new(
+        vec![diag("sorted-keys", Severity::Warning, "package.json", None, "one\ntwo")],
+        1,
+    );
+    assert_eq!(
+        run(&report, Format::Compact, &options(false)),
+        "package.json sorted-keys one\\u{a}two\n"
+    );
+}
+
+#[test]
+fn markdown_rich() {
+    insta::assert_snapshot!(run(&rich(), Format::Markdown, &options(false)));
+}
+
+#[test]
+fn markdown_empty() {
+    insta::assert_snapshot!(run(&Report::new(Vec::new(), 2), Format::Markdown, &options(false)));
+}
+
+#[test]
+fn disclosure_rich() {
+    insta::assert_snapshot!(run(&rich(), Format::Disclosure, &options(false)));
+}
+
+#[test]
+fn codeowners_rich() {
+    let codeowners =
+        skif_report::CodeOwners::parse("* @org/core\n/packages/web/ @org/web @org/design\n/package.json\n");
+    insta::assert_snapshot!(run(
+        &rich(),
+        Format::Codeowners,
+        &options(false).with_codeowners(codeowners)
+    ));
+}
+
+#[test]
+fn codeowners_without_a_file_lists_every_diagnostic_as_unowned() {
+    let rendered = run(&rich(), Format::Codeowners, &options(false));
+    assert!(rendered.starts_with("(unowned) (3)\n"), "{rendered}");
+}
+
+#[test]
+fn every_format_is_deterministic() {
+    let report = rich();
+    for format in [
+        Format::Codeclimate,
+        Format::Compact,
+        Format::Markdown,
+        Format::Disclosure,
+        Format::Codeowners,
+    ] {
+        assert_eq!(
+            run(&report, format, &options(false)),
+            run(&report, format, &options(false)),
+            "{format:?}"
+        );
+    }
+}
