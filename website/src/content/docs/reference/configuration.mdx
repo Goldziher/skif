@@ -367,6 +367,10 @@ analysed root that a script of a `package.json` above it runs (up to the git rep
 `node build/npm/postinstall.ts` in the outer project keeps `build/npm/postinstall.ts` used in the nested root at
 `build` (except in production mode, where scripts give no entries).
 
+A package with no source file at or below its directory, no entry and no script, such as a `remote/package.json` that
+only lists what code elsewhere in the repository installs it for, has no code skif could check its dependencies
+against, so they are not judged, as for a package whose entry files skif cannot determine.
+
 The default `project` globs include `.vue`, `.svelte` and `.astro` files. Their `<script>` blocks (`<script setup>`,
 `<script context="module">`, any `lang="ts"` or `lang="tsx"`) and the Astro frontmatter are analysed as modules, with
 diagnostics located in the original file. The markup is scanned for identifiers, not compiled: component tags
