@@ -68,6 +68,7 @@ another root. `--fix` plans, writes and installs per root.
 | `--no-config` | Read no configuration file: the defaults plus the other flags. |
 | `--no-js` | Skip JavaScript analysis. Overrides `[js] enabled`. |
 | `--production` | Only analyse production code in JavaScript analysis. Overrides `[js] production`. |
+| `--strict` | knip's strict mode: `--production`, and each workspace package uses only the dependencies its own `package.json` lists. An import is no longer satisfied by a containing package or the root, so it is reported as unlisted there, and a root dependency only members import is unused. |
 | `--color <auto\|always\|never>` | When to colour human output. |
 | `-W`, `--workspace <NAME\|DIR>` | Report only the findings of these workspace packages, by package name or directory relative to the root (`.` is the root). Globs and `!` exclusions work as in `[workspace] ignore-packages`. Repeatable. The analysis still covers every package, so the findings are those of a full run; `--fix` fixes only what is reported. No matching package exits `2`. |
 

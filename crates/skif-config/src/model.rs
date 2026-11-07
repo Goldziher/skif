@@ -1228,6 +1228,10 @@ pub enum JsDiscovery {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 #[non_exhaustive]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent switch of the analysis"
+)]
 pub struct Js {
     /// Run the JavaScript analysis.
     pub enabled: bool,
@@ -1252,6 +1256,11 @@ pub struct Js {
     pub ignore_members: Vec<String>,
     /// Analyse production code only.
     pub production: bool,
+    /// Each workspace package uses only the dependencies its own manifest lists: an import is not satisfied by a
+    /// containing package or the root. Set by `skif --strict`; not a configuration key, so a file never sets it.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub isolate_workspaces: bool,
     /// Report unused exports of entry files too.
     pub include_entry_exports: bool,
     /// How source files are found: `auto` lists them from the git index and re-lists from disk every directory
@@ -1314,6 +1323,13 @@ impl Js {
         self
     }
 
+    /// Makes each workspace package use only the dependencies its own manifest lists, as knip's `--strict` does.
+    #[must_use]
+    pub const fn with_isolate_workspaces(mut self, isolate: bool) -> Self {
+        self.isolate_workspaces = isolate;
+        self
+    }
+
     /// Switches a plugin on or off, or configures it.
     #[must_use]
     pub fn with_plugin(mut self, name: impl Into<String>, plugin: PluginConfig) -> Self {
@@ -1336,6 +1352,7 @@ impl Default for Js {
             ignore_exports_used_in_file: IgnoreExportsUsedInFile::default(),
             ignore_members: Vec::new(),
             production: false,
+            isolate_workspaces: false,
             include_entry_exports: false,
             discovery: JsDiscovery::Auto,
             workspaces: IndexMap::new(),

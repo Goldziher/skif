@@ -312,6 +312,11 @@ pub struct LintArgs {
     #[arg(long)]
     pub production: bool,
 
+    /// knip's strict mode: --production, and each workspace package uses only the dependencies its own manifest
+    /// lists, not those of a containing package or the root.
+    #[arg(long)]
+    pub strict: bool,
+
     /// When to colour human output.
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     pub color: ColorChoice,
