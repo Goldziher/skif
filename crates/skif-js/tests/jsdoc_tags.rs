@@ -93,3 +93,41 @@ fn member_tags_exempt_enum_and_namespace_members() {
         ))
     );
 }
+
+const INCLUDE: &str = "/** @custom */\nexport const tagged = 1;\nexport const plain = 2;\n/** @custom */\nexport enum Color {\n  Red,\n  /** @custom */\n  Green,\n  Blue,\n}\nexport enum Untagged {\n  A,\n  B,\n}\n";
+
+#[test]
+fn include_tags_limit_the_report_to_tagged_exports_and_members() {
+    let files = package(
+        INCLUDE,
+        "import { Color, Untagged } from \"./lib\";\nconsole.log(Color.Red, Untagged.A);\n",
+    );
+    insta::assert_snapshot!(report(&lint(
+        &files,
+        "[rules]\nunused-exports = { include-tags = [\"custom\"] }\n"
+    )));
+}
+
+const HINTS: &str = "/** @lintignore */\nexport const used = 1;\n/** @lintignore */\nexport const unused = 2;\n/** @internal */\nexport const internalUsed = 3;\n/** @public @lintignore */\nexport const documented = 4;\n/** @lintignore */\nexport enum Hiding {\n  A,\n  B,\n}\nexport enum Members {\n  A,\n  /** @lintignore */\n  B,\n  /** @lintignore */\n  C,\n}\n";
+
+#[test]
+fn a_tag_on_a_used_export_or_member_is_a_hint() {
+    let files = package(
+        HINTS,
+        "import { used, internalUsed, documented, Hiding, Members } from \"./lib\";\nconsole.log(used, internalUsed, documented, Hiding.A, Members.A, Members.B);\n",
+    );
+    insta::assert_snapshot!(
+        "tag_hints",
+        report(&lint(
+            &files,
+            "[js]\nproduction = true\n[rules]\nunused-exports = { ignore-tags = [\"lintignore\"] }\n"
+        ))
+    );
+    insta::assert_snapshot!(
+        "tag_hints_without_unused_exports",
+        report(&lint(
+            &files,
+            "[js]\nproduction = true\n[rules]\nunused-exports = { level = \"off\", ignore-tags = [\"lintignore\"] }\n"
+        ))
+    );
+}

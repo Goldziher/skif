@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use skif_config::{Config, JsDiscovery};
+use skif_core::Span;
 use skif_core::{FileSystem, timing};
-use skif_js_syntax::{Export, ExportKind, ParseOptions, parse_module};
+use skif_js_syntax::{Export, ExportKind, Member, ParseOptions, parse_module};
 use skif_workspace::{PackageId, Workspace, map_ordered};
 
 use crate::deps::DependencyUsage;
@@ -19,6 +20,17 @@ use crate::resolve::ModuleResolver;
 use crate::setup::Setup;
 use crate::specifier::package_name;
 use crate::usage::ExportUsage;
+
+/// A `JSDoc` tag that exempts an export or member that is used anyway, so the tag does nothing (knip's tag hint).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnneededTag<'m> {
+    /// The export name, or `Export.member` for an enum or namespace member.
+    pub identifier: String,
+    /// Location of the tagged export or member.
+    pub span: Span,
+    /// The tag name, without `@`.
+    pub tag: &'m str,
+}
 
 /// A project file nothing reaches.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -312,12 +324,98 @@ impl<'a> JsAnalysis<'a> {
         self.exempts_tags(&export.tags)
     }
 
-    /// Whether `JSDoc` tags `tags` (of an export, or of an enum or namespace member) keep it out of the report.
+    /// Whether `JSDoc` tags `tags` (of an export, or of an enum or namespace member) keep it out of the report: an
+    /// always-exempting tag, an excluding tag ([`Self::excluding_tags`]), or, with `include-tags`, none of those.
     pub(crate) fn exempts_tags(&self, tags: &[String]) -> bool {
-        tags.iter().any(|tag| match tag.as_str() {
-            "public" | "beta" | "alpha" | "alias" => true,
-            "internal" => self.setup.production,
-            other => self.setup.ignore_tags.iter().any(|ignored| ignored == other),
+        always_exempt(tags) || self.excluding_tags(tags).next().is_some() || self.lacks_included_tag(tags)
+    }
+
+    /// The tags of `tags` that exempt by configuration: `internal` in production mode and the `ignore-tags` names.
+    fn excluding_tags<'t>(&self, tags: &'t [String]) -> impl Iterator<Item = &'t str> {
+        tags.iter().map(String::as_str).filter(|tag| {
+            (*tag == "internal" && self.setup.production) || self.setup.ignore_tags.iter().any(|ignored| ignored == tag)
         })
     }
+
+    /// Whether `include-tags` is set and `tags` carries none of its names.
+    fn lacks_included_tag(&self, tags: &[String]) -> bool {
+        !self.setup.include_tags.is_empty()
+            && !tags
+                .iter()
+                .any(|tag| self.setup.include_tags.iter().any(|included| included == tag))
+    }
+
+    /// The members of an enum or namespace export.
+    pub(crate) fn members_of(export: &Export) -> &[Member] {
+        match export.kind {
+            ExportKind::Enum => &export.enum_members,
+            ExportKind::Namespace => &export.namespace_members,
+            _ => &[],
+        }
+    }
+
+    /// Whether `member` of the used export `export` of `module` is used, or listed in `ignore-members`.
+    pub(crate) fn member_in_use(&self, module: &Module, export: &Export, member: &Member) -> bool {
+        self.ignores_member(module.owner, &member.name)
+            || export.members_read_in_file.contains(&member.name)
+            || self.exports.is_member_used(module.id, &export.name, &member.name)
+    }
+
+    /// Whether `export` of `module` is used: imported, in the signature of a used export, or referenced in its own
+    /// file when `ignore-exports-used-in-file` covers it.
+    fn export_in_use(&self, module: &Module, export: &Export) -> bool {
+        (export.referenced_in_file && self.setup.ignores_in_file_use(module.owner, export))
+            || self.exports.is_used(module.id, &export.name)
+            || self.in_used_signature(module, export, &mut HashSet::new())
+    }
+
+    /// Tags of the exports and members of `module` that exempt something used anyway, in source order.
+    ///
+    /// Only tags that exempt by configuration count (`internal` in production mode and `ignore-tags` names), as in
+    /// knip: `@public`, `@beta`, `@alpha` and `@alias` document an API and are never unneeded. A tag on an enum or
+    /// namespace export is needed while it hides an unused member.
+    #[must_use]
+    pub fn unneeded_tags<'m>(&self, module: &'m Module) -> Vec<UnneededTag<'m>> {
+        let mut found = Vec::new();
+        if !self.reports_exports_of(module) {
+            return found;
+        }
+        for export in &module.info.exports {
+            if always_exempt(&export.tags) || !self.export_in_use(module, export) {
+                continue;
+            }
+            let mut hides_member = false;
+            if self.exports.is_used(module.id, &export.name) {
+                for member in Self::members_of(export) {
+                    if always_exempt(&member.tags) {
+                        continue;
+                    }
+                    let mut excluding = self.excluding_tags(&member.tags).peekable();
+                    if self.member_in_use(module, export, member) {
+                        found.extend(excluding.map(|tag| UnneededTag {
+                            identifier: format!("{}.{}", export.name, member.name),
+                            span: member.span,
+                            tag,
+                        }));
+                    } else if excluding.peek().is_none() && !self.lacks_included_tag(&member.tags) {
+                        hides_member = true;
+                    }
+                }
+            }
+            if !hides_member {
+                found.extend(self.excluding_tags(&export.tags).map(|tag| UnneededTag {
+                    identifier: export.name.clone(),
+                    span: export.span,
+                    tag,
+                }));
+            }
+        }
+        found
+    }
+}
+
+/// Whether `tags` carries a tag that always exempts: `public`, `beta`, `alpha` or `alias`.
+fn always_exempt(tags: &[String]) -> bool {
+    tags.iter()
+        .any(|tag| matches!(tag.as_str(), "public" | "beta" | "alpha" | "alias"))
 }

@@ -82,6 +82,7 @@ Rules with options:
 | --- | --- | --- |
 | `member-toolchain-fields` | `mode` | `forbid` (default) reports every `packageManager` or `engines` field a private member declares; `match-root` allows a field equal to the root's. |
 | `unused-exports`, `unused-types` | `ignore-tags` | JSDoc tag names, without the `@` (a list of strings), that exempt an export. It is read from `unused-exports` and applies to `unused-types` as well. `public`, `beta`, `alpha` and `alias` always exempt, and `alias` also keeps an export out of `duplicate-exports`. |
+| `unused-exports`, `unused-types` | `include-tags` | JSDoc tag names; when set, only exports carrying one of them are reported, and only such enum and namespace members (knip's `--tags +name`). |
 
 An unknown option is an error that names the rule.
 
@@ -341,7 +342,9 @@ exempts an export (`@public`, `@beta`, `@alpha`, `@alias`, `@internal` with `pro
 `ignore-workspaces` entries that matched nothing in the run, and `[js.workspaces]` keys that select no package, like
 knip's configuration hints. `[rules] stale-js-config = "error"` is knip's `--treat-config-hints-as-errors` (`skif migrate` writes `warn` unless `--strict-hints` is given). An
 `ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off, and the
-dependency lists are not judged when a package has entry files skif cannot determine.
+dependency lists are not judged when a package has entry files skif cannot determine. It also reports knip's tag
+hints: an `ignore-tags` tag, or `@internal` with `production`, on an export or member that is used anyway (while
+`unused-exports` runs). A tag on an enum or namespace that hides an unused member is needed and not reported.
 
 `discovery` chooses how source files are found. `auto` (the default) lists the files from the git index when the
 analysed root is in a git work tree and checks each directory with one `stat` instead of walking it: a directory

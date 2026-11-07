@@ -31,11 +31,7 @@ pub(super) fn report(
                 continue;
             }
             for member in members_of(export) {
-                if analysis.exempts_tags(&member.tags)
-                    || analysis.ignores_member(module.owner, &member.name)
-                    || export.members_read_in_file.contains(&member.name)
-                    || analysis.exports.is_member_used(module.id, &export.name, &member.name)
-                {
+                if analysis.exempts_tags(&member.tags) || analysis.member_in_use(module, export, member) {
                     continue;
                 }
                 let mut builder = diagnostic(

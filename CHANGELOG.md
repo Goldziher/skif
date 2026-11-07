@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The `include-tags` option of `unused-exports` reports only exports and members carrying one of its tags, like knip's
+  `--tags +name`; `skif migrate` translates `+tag` to it. `stale-js-config` reports knip's tag hints: an
+  `ignore-tags` tag, or `@internal` in production mode, on an export or member that is used anyway
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
+
 ### Fixed
 
 - An export tagged `@alias` is no longer reported by `unused-exports`, `unused-types` or `duplicate-exports`, as in
