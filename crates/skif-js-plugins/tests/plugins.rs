@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 120] = [
+const ADR_IDS: [&str; 124] = [
     "typescript",
     "eslint",
     "prettier",
@@ -135,6 +135,10 @@ const ADR_IDS: [&str; 120] = [
     "mdx",
     "next-mdx",
     "starlight",
+    "pino",
+    "execa",
+    "zx",
+    "nano-spawn",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -2961,4 +2965,53 @@ fn starlight_component_overrides_and_custom_css_are_entries() {
         &["src/components/Head.astro", "src/styles/custom.css"],
     );
     assert_deps(out, &["@fontsource/inter"]);
+}
+
+#[test]
+fn pino_transport_targets_are_dependencies_or_entries() {
+    let results = resolve(
+        &[(
+            "src/log.ts",
+            r#"import pino, { transport as makeTransport } from "pino";
+            export const logger = pino({ transport: { target: "pino-pretty" } });
+            export const multi = makeTransport({ targets: [{ target: "./transports/file.mjs" }, { target: "@axiomhq/pino" }] });
+            export const piped = pino.transport({ pipeline: [{ target: "pino-syslog" }] });"#,
+        )],
+        &["pino"],
+    );
+    let out = output(&results, "pino");
+    assert_deps(out, &["pino-pretty", "@axiomhq/pino", "pino-syslog"]);
+    assert_entries(&out.entries, &["src/transports/file.mjs"]);
+}
+
+#[test]
+fn execa_zx_and_nano_spawn_commands_are_scripts() {
+    let files = [
+        (
+            "scripts/release.ts",
+            r#"import { execa, $ } from "execa";
+            await execa("changeset", ["publish", someFlag]);
+            await $`tsx scripts/notes.ts ${version}`;"#,
+        ),
+        ("scripts/deploy.mjs", "#!/usr/bin/env zx\nawait $`wrangler deploy`;\n"),
+        (
+            "scripts/check.js",
+            r#"import spawn from "nano-spawn"; await spawn("eslint", ["."]);"#,
+        ),
+    ];
+    let results = resolve(&files, &["execa", "zx", "nano-spawn"]);
+    let binaries = |id: &str| output(&results, id).referenced_binaries.clone();
+    assert!(
+        binaries("execa").contains(&"changeset".to_owned()),
+        "{:?}",
+        binaries("execa")
+    );
+    assert!(binaries("execa").contains(&"tsx".to_owned()));
+    assert_entries(&output(&results, "execa").entries, &["scripts/notes.ts"]);
+    assert!(binaries("zx").contains(&"wrangler".to_owned()), "{:?}", binaries("zx"));
+    assert!(
+        binaries("nano-spawn").contains(&"eslint".to_owned()),
+        "{:?}",
+        binaries("nano-spawn")
+    );
 }
