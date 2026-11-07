@@ -179,6 +179,7 @@ mod tests {
 
     fn candidate(rel: &str) -> Candidate {
         Candidate {
+            is_link: false,
             abs: Path::new("/ws").join(rel),
             rel: rel.to_owned(),
             owner: PackageId::ROOT,

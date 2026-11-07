@@ -62,6 +62,8 @@ pub(crate) struct Candidate {
     pub rel: String,
     /// The package whose directory is the closest ancestor.
     pub owner: PackageId,
+    /// The path is a symbolic link.
+    pub is_link: bool,
 }
 
 /// The path relative to `base`, `/`-separated; `None` when `path` is not below `base`.
@@ -198,6 +200,7 @@ impl Walk<'_> {
                     abs: entry.path.clone(),
                     rel,
                     owner: frame.owner,
+                    is_link: entry.is_symlink,
                 });
             }
         }
@@ -250,6 +253,40 @@ pub(crate) fn discover(fs: &dyn FileSystem, workspace: &Workspace, sequential: b
     });
     found.sort_by(|a, b| a.rel.cmp(&b.rel));
     found
+}
+
+/// Takes the symbolic links to other candidates out of `candidates`, returning each link with its target.
+///
+/// A linked file is one module, as it is for Node and TypeScript: otherwise its exports are reported once per link
+/// and the file itself looks unused. A link that leaves the workspace or points at a file outside the analysis stays
+/// a candidate of its own. Only links are canonicalized, so a tree without them pays nothing.
+pub(crate) fn take_file_links(
+    fs: &dyn FileSystem,
+    root: &Path,
+    candidates: &mut Vec<Candidate>,
+) -> HashMap<PathBuf, PathBuf> {
+    if !candidates.iter().any(|candidate| candidate.is_link) {
+        return HashMap::new();
+    }
+    let real_root = fs.canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let files: HashSet<&Path> = candidates
+        .iter()
+        .filter(|candidate| !candidate.is_link)
+        .map(|candidate| candidate.abs.as_path())
+        .collect();
+    let links: HashMap<PathBuf, PathBuf> = candidates
+        .iter()
+        .filter(|candidate| candidate.is_link)
+        .filter_map(|candidate| {
+            let real = fs.canonicalize(&candidate.abs).ok()?;
+            let target = root.join(real.strip_prefix(&real_root).ok()?);
+            files
+                .contains(target.as_path())
+                .then(|| (candidate.abs.clone(), target))
+        })
+        .collect();
+    candidates.retain(|candidate| !links.contains_key(&candidate.abs));
+    links
 }
 
 #[cfg(test)]

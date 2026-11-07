@@ -10,7 +10,7 @@ use skif_js_syntax::{Export, ExportKind, ParseOptions, parse_module};
 use skif_workspace::{PackageId, Workspace, map_ordered};
 
 use crate::deps::DependencyUsage;
-use crate::discover::{Candidate, discover, relative};
+use crate::discover::{Candidate, discover, relative, take_file_links};
 use crate::entries::entry_files;
 use crate::git_index::{IndexCache, Listing, indexed_fs};
 use crate::graph::{self, Inputs, Module, ModuleGraph};
@@ -145,6 +145,7 @@ impl<'a> JsAnalysis<'a> {
         if !setup.js_ignored.is_empty() {
             candidates.retain(|candidate| !setup.js_ignored.contains(&candidate.owner));
         }
+        let links = take_file_links(fs.as_ref(), &workspace.root, &mut candidates);
         let found = timing::phase(phase("entries"), || {
             entry_files(fs.as_ref(), workspace, &setup, &candidates)
         });
@@ -158,6 +159,7 @@ impl<'a> JsAnalysis<'a> {
             resolver: &resolver,
             root: &workspace.root,
             candidates: &candidates,
+            links: &links,
             setup: &setup,
             sequential,
         };
