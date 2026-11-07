@@ -358,6 +358,8 @@ pub(crate) struct Setup {
     pub unmatched_workspace_keys: Vec<String>,
     pub production: bool,
     pub include_entry_exports: bool,
+    /// `[js] include-fixtures`: files in fixture directories are reported as unused like any other.
+    pub include_fixtures: bool,
     /// `[js] ignore-exports-used-in-file`.
     pub used_in_file: IgnoreExportsUsedInFile,
     /// `JSDoc` tags that exempt an export from `unused-exports` and `unused-types`.
@@ -611,6 +613,7 @@ impl Setup {
             unmatched_workspace_keys,
             production,
             include_entry_exports: js.include_entry_exports,
+            include_fixtures: js.include_fixtures,
             used_in_file: js.ignore_exports_used_in_file.clone(),
             ignore_tags,
         }

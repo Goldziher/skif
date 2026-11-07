@@ -130,6 +130,7 @@
         "ignore-members": [],
         "production": false,
         "include-entry-exports": false,
+        "include-fixtures": false,
         "discovery": "auto",
         "workspaces": {},
         "plugins": {}
@@ -890,6 +891,11 @@
         "include-entry-exports": {
           "type": "boolean",
           "description": "Report unused exports of entry files too.",
+          "default": false
+        },
+        "include-fixtures": {
+          "type": "boolean",
+          "description": "Report files in `fixtures` and `__fixtures__` directories as unused, and their unused exports, types and\nmembers, like any other file. Off by default: those directories hold test data that tests load by path.",
           "default": false
         },
         "discovery": {
