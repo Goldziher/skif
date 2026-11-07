@@ -54,7 +54,7 @@ Directly:
 ```sh
 cargo run --release -p skif-bench -- generate --packages 500 --out DIR [--seed S] [--pm pnpm|npm|yarn|bun] [--catalog] [--mismatch-rate F] [--force]
 cargo run --release -p skif-bench -- corpus fetch [--suite bench|parity] [--only NAME,...] [--file corpus.toml] [--dir target/bench-corpus]
-cargo run --release -p skif-bench -- run [--skif PATH] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus] [--warmup 3] [--runs 10] [--skif-arg ARG]... [--no-enforce]
+cargo run --release -p skif-bench -- run [--skif PATH] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus] [--warmup 3] [--runs 10] [--skif-arg ARG]... [--no-enforce] [--install]
 cargo run --release -p skif-bench -- parity [--skif PATH] [--only NAME,...] [--install] [--recursive] [--repo-knip-config] [--include-test-files] [--check | --write-baseline]
 cargo run --release -p skif-bench -- syncpack-diff [--skif PATH] [--only NAME,...] [--no-fixtures] [--no-corpus] [--check | --write-baseline]
 ```
@@ -184,7 +184,7 @@ The decision is [ADR 0026](../../adrs/0026-parity-and-diff-tasks-on-a-pinned-cor
 ratios rather than the absolute times. A rerun of the 500-package case alone, at load 15, measured 49.6 ms against its 50 ms target,
 so it sits on the line rather than clearly over it. The `FAIL` for npm-cli is not like for like: npm's `.gitignore` hides its workspaces
 from knip, which analyses only the root package there. knip also exits with an error on create-t3-turbo, so that time
-is a partial run. sherif 1.13.0, syncpack 15.3.3 and knip 6.44.1, run through their npm launchers.
+is a partial run (these numbers predate `run --install`). sherif 1.13.0, syncpack 15.3.3 and knip 6.44.1, run through their npm launchers.
 
 <!-- bench:numbers:start -->
 Measured with hyperfine 1.20.0, 3 warmup and 10 measured runs on macos aarch64; skif 0.1.0.
@@ -332,9 +332,12 @@ part.
 - **Comparison tools are measured as installed.** Versions are whatever is on `PATH`, and their output formats and
   defaults differ; `sherif` and `syncpack` only check manifests, `knip` analyses code. The summary records only the
   hyperfine version, so note tool versions when sharing numbers.
-- **knip needs installed dependencies** to give realistic results; the corpus is cloned, not installed, so run
-  `pnpm install` (or the matching package manager) in a corpus checkout before timing knip, or use
-  `parity --install` for the findings comparison.
+- **knip needs installed dependencies** to give realistic results: without them it fails to load tool configurations
+  that import the repository's own packages (create-t3-turbo's `@acme/tsconfig`), and the time is that of a partial
+  run. `run --install` installs each corpus repository first, as `parity --install` does (`mise run bench:publish`
+  passes it); a repository whose install fails is timed without knip. Installed, knip still reports two errors on
+  create-t3-turbo that are the repository's own: `apps/expo/metro.config.js` requires `metro-cache`, which it does not
+  list, and `packages/db/drizzle.config.ts` throws without a `POSTGRES_URL`.
 - Non-zero exits are ignored (`--ignore-failure`): linters exit 1 when they find something.
 - The skif command line is `skif . --format json --no-install [--no-js]`; the working directory is the target.
 - Wall-clock times include process start-up. For sub-10 ms runs hyperfine warns about short commands; trust the

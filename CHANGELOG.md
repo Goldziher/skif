@@ -11,6 +11,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `skif-bench run --install` installs the corpus before timing knip, which otherwise fails to load create-t3-turbo's
+  tool configurations; `mise run bench:publish` passes it ([#27](https://github.com/Goldziher/skif/issues/27)).
 - `corpus.toml` takes a per-repository `entry` list that the knip comparison gives both tools; vscode lists the entry
   points its bundler names, so the 1,030 workbench files both tools reported as unused are no longer counted as
   agreement ([#27](https://github.com/Goldziher/skif/issues/27)).
