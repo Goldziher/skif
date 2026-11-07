@@ -224,15 +224,21 @@ fn declared(ctx: &Ctx<'_>, decl: &Declaration<'_>) -> Vec<Declared> {
         }
         Declaration::TSEnumDeclaration(e) => {
             let mut d = Declared::simple(e.id.name.as_str(), e.id.span, ExportKind::Enum, false);
-            d.enum_members = e
-                .body
-                .members
+            let members = &e.body.members;
+            d.enum_members = members
                 .iter()
                 .filter_map(|m| {
-                    enum_member_name(&m.id).map(|name| Member {
-                        name,
-                        span: ctx.span(m.span),
-                        tags: ctx.tags_at(m.span.start),
+                    enum_member_name(&m.id).map(|name| {
+                        let mentioned = members.iter().any(|other| {
+                            other.span != m.span
+                                && mentions_word(&ctx.src[other.span.start as usize..other.span.end as usize], &name)
+                        });
+                        Member {
+                            removal: (!mentioned).then(|| member_removal(ctx, m.span, true)),
+                            name,
+                            span: ctx.span(m.span),
+                            tags: ctx.tags_at(m.span.start),
+                        }
                     })
                 })
                 .collect();
@@ -254,9 +260,16 @@ fn namespace_members(ctx: &Ctx<'_>, body: &TSNamespaceDeclarationBody<'_>) -> Ve
         TSNamespaceDeclarationBody::TSModuleBlock(block) => {
             for stmt in &block.body {
                 if let Statement::ExportDeclaration(e) = stmt {
-                    let decl = &e.declaration;
-                    for d in declared(ctx, decl) {
+                    let declared = declared(ctx, &e.declaration);
+                    let alone = declared.len() == 1;
+                    for d in declared {
+                        // The rest of the namespace body, without this statement: a sibling that mentions the name
+                        // would break when the statement goes.
+                        let before = &ctx.src[block.span.start as usize..e.span.start as usize];
+                        let after = &ctx.src[e.span.end as usize..block.span.end as usize];
+                        let mentioned = mentions_word(before, &d.name) || mentions_word(after, &d.name);
                         out.push(Member {
+                            removal: (alone && !mentioned).then(|| member_removal(ctx, e.span, false)),
                             name: d.name,
                             span: ctx.span(d.name_span),
                             tags: ctx.tags_at(e.span.start),
@@ -270,10 +283,61 @@ fn namespace_members(ctx: &Ctx<'_>, body: &TSNamespaceDeclarationBody<'_>) -> Ve
                 name: inner.id.name.as_str().to_string(),
                 span: ctx.span(inner.id.span),
                 tags: Vec::new(),
+                removal: None,
             });
         }
     }
     out
+}
+
+/// Whether `text` holds `name` as a whole identifier, not inside a longer one.
+fn mentions_word(text: &str, name: &str) -> bool {
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    !name.is_empty()
+        && text.match_indices(name).any(|(at, _)| {
+            !text[..at].chars().next_back().is_some_and(is_ident)
+                && !text[at + name.len()..].chars().next().is_some_and(is_ident)
+        })
+}
+
+/// The range that deletes a member spanning `span` (absolute offsets). With `comma`, a comma right after it goes too.
+/// A member alone on its line takes the whole line with its line break, so the remaining lines keep their layout;
+/// otherwise the member, its comma and the blanks after it go.
+fn member_removal(ctx: &Ctx<'_>, span: OxcSpan, comma: bool) -> (u32, u32) {
+    let bytes = ctx.src.as_bytes();
+    let blank = |b: u8| b == b' ' || b == b'\t';
+    let mut end = span.end as usize;
+    if comma {
+        let mut i = end;
+        while i < bytes.len() && blank(bytes[i]) {
+            i += 1;
+        }
+        if bytes.get(i) == Some(&b',') {
+            end = i + 1;
+        }
+    }
+    let mut after = end;
+    while after < bytes.len() && blank(bytes[after]) {
+        after += 1;
+    }
+    let mut line_start = span.start as usize;
+    while line_start > 0 && blank(bytes[line_start - 1]) {
+        line_start -= 1;
+    }
+    let starts_line = line_start == 0 || bytes[line_start - 1] == b'\n';
+    let line_end = if bytes[after..].starts_with(b"\r\n") {
+        Some(after + 2)
+    } else if bytes.get(after) == Some(&b'\n') {
+        Some(after + 1)
+    } else {
+        None
+    };
+    let (start, end) = match line_end {
+        Some(line_end) if starts_line => (line_start, line_end),
+        _ => (span.start as usize, after),
+    };
+    let to_u32 = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    (ctx.off(to_u32(start)), ctx.off(to_u32(end)))
 }
 
 /// Range of a statement extended over one trailing line break (absolute offsets).

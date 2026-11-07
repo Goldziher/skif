@@ -1,20 +1,23 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use skif_core::{Category, Fixability, LineIndex, Location, PathSeg, RuleMeta, Severity, Span, diagnostic};
+use skif_core::{
+    Category, Fix, FixSafety, Fixability, LineIndex, Location, PathSeg, RuleMeta, Severity, Span, diagnostic,
+};
 use skif_lint::{Emitter, LintContext, Rule};
 use skif_workspace::Workspace;
 
 use super::names::{CatalogName, referenced};
 use super::references::override_references;
 use super::support::key;
+use super::target::{existing_file, remove_entry};
 
 /// Metadata of `unused-catalog-entries`.
 pub static META: RuleMeta = RuleMeta::new(
     "unused-catalog-entries",
     Category::Catalog,
     Some(Severity::Warning),
-    Fixability::None,
+    Fixability::Unsafe,
     "A catalog entry that no manifest references; reported only when `[catalog] report-unused-entries` is `true`.",
 );
 
@@ -67,6 +70,13 @@ impl Rule for UnusedCatalogEntries {
                 .help("remove the entry or reference it with `catalog:`");
                 if source == workspace.root_package().manifest.path.as_path() {
                     builder = builder.package_id(workspace.root_package().id);
+                }
+                if let Some(file) = existing_file(workspace, &catalog) {
+                    builder = builder.fix(Fix::new(
+                        format!("Remove `{name}` from {}", catalog.display()),
+                        FixSafety::Unsafe,
+                        vec![remove_entry(workspace, &file, &catalog, name)],
+                    ));
                 }
                 out.emit(builder.build());
             }

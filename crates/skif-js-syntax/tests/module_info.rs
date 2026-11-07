@@ -331,6 +331,69 @@ fn enum_and_namespace_members() {
     assert_eq!(members, ["x", "f"]);
 }
 
+/// What deleting each member's removal range leaves of `source`, per member name; `None` for a member without one.
+fn member_removals(source: &str, members: &[skif_js_syntax::Member]) -> Vec<(String, Option<String>)> {
+    members
+        .iter()
+        .map(|member| {
+            let left = member
+                .removal
+                .map(|(start, end)| format!("{}{}", &source[..start as usize], &source[end as usize..]));
+            (member.name.clone(), left)
+        })
+        .collect()
+}
+
+#[test]
+fn member_removal_ranges_keep_the_layout() {
+    let source = "export enum E {\n  A = 1,\n  B = A + 1,\n  C\n}\nexport enum F { X, Y }\nexport namespace N {\n  export const x = 1;\n  export const y = x, z = 2;\n}\n";
+    let info = parse("a.ts", source);
+    let enum_e = member_removals(source, &info.exports[0].enum_members);
+    assert_eq!(enum_e[0], ("A".to_owned(), None), "B mentions A");
+    assert_eq!(
+        enum_e[1].1.as_deref(),
+        Some(
+            "export enum E {\n  A = 1,\n  C\n}\nexport enum F { X, Y }\nexport namespace N {\n  export const x = 1;\n  export const y = x, z = 2;\n}\n"
+        )
+    );
+    assert_eq!(
+        enum_e[2].1.as_deref(),
+        Some(
+            "export enum E {\n  A = 1,\n  B = A + 1,\n}\nexport enum F { X, Y }\nexport namespace N {\n  export const x = 1;\n  export const y = x, z = 2;\n}\n"
+        )
+    );
+    let enum_f = member_removals(source, &info.exports[1].enum_members);
+    assert!(
+        enum_f[0].1.as_deref().unwrap().contains("export enum F { Y }"),
+        "{enum_f:?}"
+    );
+    assert!(
+        enum_f[1].1.as_deref().unwrap().contains("export enum F { X, }"),
+        "{enum_f:?}"
+    );
+    let namespace = member_removals(source, &info.exports[2].namespace_members);
+    let names: Vec<(&str, bool)> = namespace
+        .iter()
+        .map(|(name, left)| (name.as_str(), left.is_some()))
+        .collect();
+    assert_eq!(
+        names,
+        [("x", false), ("y", false), ("z", false)],
+        "x is read by y; y and z share a statement"
+    );
+    let source = "export namespace N {\n  export const a = 1;\n  export function b() {}\n}\n";
+    let info = parse("b.ts", source);
+    let namespace = member_removals(source, &info.exports[0].namespace_members);
+    assert_eq!(
+        namespace[0].1.as_deref(),
+        Some("export namespace N {\n  export function b() {}\n}\n")
+    );
+    assert_eq!(
+        namespace[1].1.as_deref(),
+        Some("export namespace N {\n  export const a = 1;\n}\n")
+    );
+}
+
 #[test]
 fn jsdoc_tags_attach_to_exports() {
     let source = "/**\n * Docs.\n * @public\n * @alias foo\n */\nexport const a = 1;\n\n// plain\nexport const b = 2;\n/** @internal */ export function c() {}\n";

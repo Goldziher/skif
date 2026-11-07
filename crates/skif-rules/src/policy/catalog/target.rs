@@ -1,4 +1,4 @@
-//! Where catalog entries live and the operations that add them.
+//! Where catalog entries live and the operations that add and remove them.
 
 use std::path::{Path, PathBuf};
 
@@ -117,6 +117,32 @@ pub(crate) fn add_entry(
                 InsertPosition::Sorted,
             ),
         ),
+    }
+}
+
+/// Removes the entry of `dependency` from `catalog` in `file`.
+pub(crate) fn remove_entry(
+    workspace: &Workspace,
+    file: &CatalogFile,
+    catalog: &CatalogName,
+    dependency: &str,
+) -> FixOp {
+    match file {
+        CatalogFile::Yaml(path) => {
+            let mut entry_route =
+                if matches!(catalog, CatalogName::Default) && workspace.catalogs.default_declared_as_named() {
+                    vec![key("catalogs"), key("default")]
+                } else {
+                    route(catalog)
+                };
+            entry_route.push(key(dependency));
+            FixOp::yaml(path.clone(), entry_route, YamlAction::Remove)
+        }
+        CatalogFile::RootJson(path) => {
+            let mut pointer = json_pointer(workspace, catalog);
+            pointer.push(key(dependency));
+            FixOp::json(path.clone(), pointer, JsonAction::Remove)
+        }
     }
 }
 

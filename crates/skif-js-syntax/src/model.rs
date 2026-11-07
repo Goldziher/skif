@@ -104,6 +104,11 @@ pub struct Member {
     pub span: Span,
     /// `JSDoc` tag names (without `@`) on the member.
     pub tags: Vec<String>,
+    /// The byte range (absolute, end exclusive) that deletes the member: its line when it stands alone on it, else
+    /// the member with its comma and the blanks after it. `None` when deleting it would break the file: another
+    /// member mentions its name, or one statement declares it with siblings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removal: Option<(u32, u32)>,
 }
 
 /// What a removal edit deletes.
