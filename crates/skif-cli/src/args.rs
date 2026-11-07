@@ -325,6 +325,35 @@ pub struct LintArgs {
     /// to exclude). The analysis still covers every package. Repeatable.
     #[arg(short = 'W', long, value_name = "NAME|DIR")]
     pub workspace: Vec<String>,
+
+    /// Report only these knip issue types (`files`, `dependencies`, `exports`, ...) or skif rule ids; a rule that is
+    /// off is turned on. Comma separated, repeatable.
+    #[arg(long, value_name = "TYPE|RULE", value_delimiter = ',')]
+    pub include: Vec<String>,
+
+    /// Do not report these knip issue types or skif rule ids. Comma separated, repeatable.
+    #[arg(long, value_name = "TYPE|RULE", value_delimiter = ',')]
+    pub exclude: Vec<String>,
+
+    /// Shortcut for `--include` of knip's dependency issue types.
+    #[arg(long)]
+    pub dependencies: bool,
+
+    /// Shortcut for `--include` of knip's export issue types.
+    #[arg(long)]
+    pub exports: bool,
+
+    /// Shortcut for `--include files`.
+    #[arg(long)]
+    pub files: bool,
+
+    /// Shortcut for `--include cycles`.
+    #[arg(long)]
+    pub cycles: bool,
+
+    /// Do not report exports tagged with these `JSDoc` tags, written `-TAG` as in knip. Comma separated, repeatable.
+    #[arg(long, value_name = "-TAG", value_delimiter = ',', allow_hyphen_values = true)]
+    pub tags: Vec<String>,
 }
 
 impl LintArgs {

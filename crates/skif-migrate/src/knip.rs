@@ -35,6 +35,29 @@ const SHORTCUTS: &[(&str, &[&str])] = &[
     ("cycles", &["cycles"]),
 ];
 
+/// The knip issue types the shortcut flag `--<flag>` (`dependencies`, `exports`, `files` or `cycles`) selects, as
+/// knip works them out: outside production mode `--dependencies` also selects `devDependencies` and
+/// `optionalPeerDependencies`. `None` for any other flag.
+#[must_use]
+pub fn knip_shortcut_types(flag: &str, production: bool) -> Option<Vec<&'static str>> {
+    let (_, types) = SHORTCUTS.iter().find(|(name, _)| *name == flag)?;
+    let mut types = types.to_vec();
+    if flag == "dependencies" && !production {
+        types.extend(["devDependencies", "optionalPeerDependencies"]);
+    }
+    Some(types)
+}
+
+/// The skif rules that report the findings of the knip issue type `name` (empty when skif has none), or `None` when
+/// `name` is not a knip issue type.
+#[must_use]
+pub fn knip_issue_type_rules(name: &str) -> Option<Vec<&'static str>> {
+    tables::knip_types()
+        .into_iter()
+        .find(|knip_type| knip_type.name == name)
+        .map(|knip_type| knip_type.rules)
+}
+
 /// Issue types that only add to the defaults when they are the only ones included.
 const ADD_ON: &[&str] = &["nsExports", "nsTypes"];
 
@@ -1072,5 +1095,22 @@ fn production(state: &mut State<'_>, src: &Src, plan: &Plan) {
             ),
             "set [js] production = true if every check should skip dev dependencies and test files",
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{knip_issue_type_rules, knip_shortcut_types};
+
+    #[test]
+    fn issue_types_and_shortcuts_name_rules() {
+        assert_eq!(knip_issue_type_rules("files"), Some(vec!["unused-files"]));
+        assert_eq!(knip_issue_type_rules("unused-files"), None);
+        assert_eq!(knip_shortcut_types("files", false), Some(vec!["files"]));
+        let dependencies = knip_shortcut_types("dependencies", false).unwrap();
+        assert!(dependencies.contains(&"devDependencies"));
+        let production = knip_shortcut_types("dependencies", true).unwrap();
+        assert!(!production.contains(&"devDependencies"));
+        assert_eq!(knip_shortcut_types("tags", false), None);
     }
 }
