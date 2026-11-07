@@ -163,7 +163,7 @@ run = "cargo doc --workspace --no-deps --all-features --locked"
 description = "Check the facade with each feature on its own (the CI feature matrix)"
 run = '''
 set -e
-for features in "" manifest js-analysis fix yaml-fix report schema; do
+for features in "" manifest js-analysis fix yaml-fix report schema update; do
   echo "skif features: ${features:-<none>}"
   cargo check -p skif --locked --no-default-features --features "$features"
   cargo test -p skif --locked --no-default-features --features "$features" --lib

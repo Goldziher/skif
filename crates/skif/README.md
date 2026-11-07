@@ -34,6 +34,7 @@ assert_eq!(report.summary.packages, 2);
 | `yaml-fix` | YAML edits for `pnpm-workspace.yaml` (implies `fix`). |
 | `report` | Human, JSON, SARIF and GitHub renderers, re-exported as `skif::render`. |
 | `schema` | The JSON Schema of `skif.toml`, as `skif::config_schema`. |
+| `update` | `skif::update`: newer published versions through a registry the host supplies, planned as a `FixPlan`. |
 | `js-analysis` | JavaScript and TypeScript analysis and the plugin table; `Linter` adds it to the built-in rules. Off by default. |
 
 The command-line tool is the [`skif-cli`](https://crates.io/crates/skif-cli) crate. See the
