@@ -301,6 +301,7 @@ const fn variant(policy: &Policy) -> &'static str {
         Policy::SameRange => "SameRange",
         Policy::SameMinor => "SameMinor",
         Policy::SnappedTo(_) => "SnappedTo",
+        Policy::SemverRangeOnly => "SemverRangeOnly",
         Policy::PreferredSemver(Prefer::Lowest) => "LowestSemver",
         Policy::PreferredSemver(_) => "HighestSemver",
     }
@@ -339,6 +340,7 @@ fn valid_code(
         Policy::Pinned(_) => "IsIdenticalToPin",
         Policy::SameRange => "SatisfiesSameRangeGroup",
         Policy::SameMinor => "SatisfiesSameMinorGroup",
+        Policy::SemverRangeOnly => "MatchesSemverGroup",
         Policy::SnappedTo(_) if ranged && !identical => "SatisfiesSnapTarget",
         Policy::SnappedTo(_) => "IsIdenticalToSnapTarget",
         _ => match siblings.iter().find(|other| other.is_own_version()) {

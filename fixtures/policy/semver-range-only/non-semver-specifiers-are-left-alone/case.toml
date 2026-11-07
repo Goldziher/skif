@@ -1,0 +1,4 @@
+description = "A specifier without a version (a git URL) and a package's own version carry no range, so a semver-range-only group reports neither."
+source = "syncpack:src/version_group/semver_range_only_test.rs::local_instance_with_valid_version_is_local_and_valid"
+tags = ["semver-range-only", "semver-groups"]
+valid-states = ["IsLocalAndValid", "MatchesSemverGroup"]

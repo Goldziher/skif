@@ -20,7 +20,7 @@ use skif_lint::{Registry, RuleProvider, RunOptions, run};
 use skif_workspace::Workspace;
 
 /// The number of fixture cases below `fixtures/policy`.
-pub const TOTAL_CASES: usize = 185;
+pub const TOTAL_CASES: usize = 188;
 
 /// The groups whose rules are `policy_provider()`'s.
 pub const POLICY_GROUPS: &[&str] = &[
@@ -32,6 +32,7 @@ pub const POLICY_GROUPS: &[&str] = &[
     "same-minor",
     "snapped-to",
     "semver-groups",
+    "semver-range-only",
     "dependency-types",
     "selectors",
     "invalid-local-version",

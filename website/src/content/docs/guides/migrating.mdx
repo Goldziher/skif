@@ -106,7 +106,7 @@ Every construct that was not copied one to one has a note with the file, the key
 | `versionGroups[]` with `label`, `dependencies`, `packages`, `dependencyTypes`, `specifierTypes` | `[[version-groups]]` with the same keys |
 | `isBanned`, `isIgnored`, `pinVersion`, `snapTo`, `preferVersion`, `policy: sameRange`, `policy: sameMinor` | `policy = "banned"`, `"ignored"`, `"pinned"` with `pin`, `"snapped-to"` with `snap-to`, `prefer`, `"same-range"`, `"same-minor"` |
 | `policy: catalog` | `[catalog] mode = "prefer"` when the group selects every dependency. A group with `dependencies`, `packages`, `dependencyTypes` or `specifierTypes` is not written (H): the catalog setting is global, so writing it would check every dependency |
-| `policy: semverRangeOnly` | written as `policy = "ignored"` (X): skif cannot check ranges while letting versions differ |
+| `policy: semverRangeOnly` | `policy = "semver-range-only"` |
 | `severity` | none (H): levels are set per rule |
 | `semverGroups[]` with `range` | `[[semver-groups]]` |
 | `semverGroups[]` with `isIgnored` or `isDisabled` | `[[semver-groups]]` with `ignored = true` |
