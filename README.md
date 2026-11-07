@@ -106,9 +106,24 @@ answer is known:
 skif and sherif name the same 200 dependencies. skif and syncpack report the same 4,568 mismatched instances, with
 nothing unique to either. `n/a` means the tool does not check for that defect.
 
+### Precision on seeded dead code
+
+A generated 5-package workspace with seeded unused files, exports, types and dependencies, next to live code that is
+reached only through patterns that caused false findings on real repositories (namespace reads, `typeof import()`,
+`import.meta.glob`, tsconfig `paths`, `#` subpath imports, manual mocks, fixtures and more). The answer key lists all
+33 seeded findings:
+
+| Tool | Precision | Recall |
+| --- | ---: | ---: |
+| skif | 87% | 100% |
+| knip | 77% | 100% |
+
+skif's false findings are files in `fixtures` directories; knip reports those too, plus exports read through
+`typeof import()`. Per issue type and pattern: [`tools/bench`](tools/bench/README.md#dead-code-precision-and-recall).
+
 ### Agreement with knip
 
-Dead code has no answer key, so this measures agreement, not correctness: findings skif and knip share on 14 pinned
+Real repositories have no answer key for dead code, so this measures agreement, not correctness: findings skif and knip share on 14 pinned
 repositories. A low score means the tools differ, and either one could be right. Reading the disagreements found
 false findings on both sides, and skif's are fixed in the current source
 ([ADR 0049](adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md)).
