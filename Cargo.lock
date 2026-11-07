@@ -2133,6 +2133,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "similar",
  "skif",
  "skif-core",
  "skif-migrate",

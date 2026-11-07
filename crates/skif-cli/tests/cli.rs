@@ -900,3 +900,30 @@ fn json_prints_one_instance_per_line_with_syncpack_status_codes() {
     assert_eq!(warned.code, 0, "warnings alone do not fail: {}", warned.stdout);
     assert!(warned.stdout.contains(r#""severity":"warning""#), "{}", warned.stdout);
 }
+
+#[test]
+fn dry_run_shows_the_fix_plan_and_writes_nothing() {
+    let dir = fixture("mismatch");
+    let before = tree(dir.path());
+    let human = run(skif()
+        .args(["--fix-unsafe", "--no-prompt", "--dry-run"])
+        .arg(dir.path()));
+    assert_eq!(human.code, 1, "the report is of the unchanged tree: {}", human.stderr);
+    assert_eq!(tree(dir.path()), before);
+    insta::assert_snapshot!("fix_dry_run_human", redact(&human.stdout, dir.path()));
+
+    let json = run(skif()
+        .args(["--fix-unsafe", "--dry-run", "--format", "json"])
+        .env("CI", "true")
+        .arg(dir.path()));
+    assert_eq!(json.code, 1, "a dry run is not refused in CI: {}", json.stdout);
+    assert_eq!(tree(dir.path()), before);
+    let fix = &json.json()["fix"];
+    assert_eq!(fix["dry-run"], true);
+    assert_eq!(fix["install"]["reason"], "--dry-run was given");
+    insta::assert_snapshot!("fix_dry_run_json", serde_json::to_string_pretty(fix).unwrap());
+
+    let alone = run(skif().args(["--dry-run", "--format", "json"]).arg(dir.path()));
+    assert_eq!(alone.code, 2);
+    assert_eq!(alone.json()["error"]["kind"], "usage");
+}

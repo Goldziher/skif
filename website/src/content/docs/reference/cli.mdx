@@ -57,6 +57,7 @@ another root. `--fix` plans, writes and installs per root.
 | `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires `--format`. |
 | `--fix` | Apply safe fixes, lint again, then run the package manager's install command. |
 | `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. |
+| `--dry-run` | With `--fix` or `--fix-unsafe`: plan the fixes and print them as a unified diff, write nothing and run no install (see [Fixing](#fixing)). |
 | `--select <highest\|lowest>` | Which version a version alignment fix targets, overriding `[policy] prefer` for this run. |
 | `--no-install` | Do not run the package manager after fixing. |
 | `--no-prompt` | Never ask which alternative fix to apply; the diagnostic stays unfixed unless `--select` decides. |
@@ -197,6 +198,11 @@ the error goes to stdout.
    remain after fixing.
 4. Runs the detected package manager's `install` in the workspace root, unless `--no-install` was given, no file
    changed, or no package manager was detected. If the install fails the fixes stay written and the exit code is `2`.
+
+`--dry-run` stops after step 1: human output shows `Would fix ...` and a unified diff per file before the report of
+the unchanged tree, and `--format json` adds `"dry-run": true` and a `changes` array (`path`, `kind` `modify`,
+`create` or `delete`, and `diff`) to the `fix` object. The exit code is the one of the unchanged tree. A dry run is
+allowed in CI.
 
 skif's own process never opens a network connection and never resolves a version. The only network traffic comes
 from your package manager during the install step.

@@ -14,6 +14,9 @@ All notable changes to this project are documented here. The format follows
 - `skif list` and `skif json` show every dependency instance the version groups and the catalog govern, with its
   version group, specifier and state, as syncpack's `list` and `json` do; `json` prints one object per line with
   syncpack's `statusCode` names ([#35](https://github.com/Goldziher/skif/issues/35)).
+- `--dry-run` with `--fix` or `--fix-unsafe` prints the planned changes as a unified diff and writes nothing; with
+  `--format json` the `fix` object carries the plan's `changes` and their diffs
+  ([#35](https://github.com/Goldziher/skif/issues/35)).
 
 ## [0.1.1] - 2026-11-07
 

@@ -3,12 +3,16 @@
 use std::borrow::Cow;
 use std::fmt;
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use inquire::InquireError;
 use serde_json::{Value, json};
-use skif::{Alternatives, FixPlan, FixSafety, FixSelection, Prefer, Report, SkipReason, preferred_alternative, slash};
-use skif_report::escape_controls;
+use similar::TextDiff;
+use skif::{
+    Alternatives, FileChange, FileSystem, FixPlan, FixSafety, FixSelection, Prefer, Report, SkipReason,
+    preferred_alternative, slash,
+};
+use skif_report::{escape_controls, escape_multiline};
 
 use crate::args::{Format, LintArgs};
 use crate::env::Env;
@@ -20,6 +24,65 @@ use crate::roots;
 pub struct FixRun {
     pub plan: FixPlan,
     pub install: InstallStatus,
+    /// The files a `--dry-run` would change, with their diffs; `None` when the plan was written.
+    pub preview: Option<Vec<Preview>>,
+}
+
+/// One file a dry run would change.
+pub struct Preview {
+    /// Relative to the root of the run.
+    pub path: PathBuf,
+    /// `modify`, `create` or `delete`.
+    pub kind: &'static str,
+    /// A unified diff of the change, with `a/` and `b/` paths.
+    pub diff: String,
+}
+
+/// The diff of every change in `plan`, reading the current contents of the files under `root` through `fs`. A file
+/// that cannot be read is diffed as empty: the plan read it a moment ago, so this only happens if it was removed since.
+pub fn preview(plan: &FixPlan, root: &Path, fs: &dyn FileSystem) -> Vec<Preview> {
+    let current = |path: &Path| {
+        fs.read_to_string(&root.join(path))
+            .map(|text| text.to_string())
+            .unwrap_or_default()
+    };
+    plan.changes
+        .iter()
+        .map(|change| {
+            let path = change.path().to_path_buf();
+            let shown = slash(&path);
+            let (kind, old, new, old_name, new_name) = match change {
+                FileChange::Create { contents, .. } => (
+                    "create",
+                    String::new(),
+                    contents.clone(),
+                    "/dev/null".to_owned(),
+                    format!("b/{shown}"),
+                ),
+                FileChange::Delete { .. } => (
+                    "delete",
+                    current(&path),
+                    String::new(),
+                    format!("a/{shown}"),
+                    "/dev/null".to_owned(),
+                ),
+                FileChange::Modify { new_contents, .. } => (
+                    "modify",
+                    current(&path),
+                    new_contents.clone(),
+                    format!("a/{shown}"),
+                    format!("b/{shown}"),
+                ),
+                _ => ("modify", String::new(), String::new(), String::new(), String::new()),
+            };
+            let diff = TextDiff::from_lines(&old, &new)
+                .unified_diff()
+                .context_radius(3)
+                .header(&old_name, &new_name)
+                .to_string();
+            Preview { path, kind, diff }
+        })
+        .collect()
 }
 
 struct Choice {
@@ -122,7 +185,29 @@ impl FixRun {
             install: InstallStatus::Skipped {
                 reason: "the re-lint after fixing failed",
             },
+            preview: None,
         }
+    }
+
+    /// A planned fix run that a `--dry-run` shows instead of writing.
+    pub const fn dry_run(plan: FixPlan, preview: Vec<Preview>) -> Self {
+        Self {
+            plan,
+            install: InstallStatus::Skipped {
+                reason: "--dry-run was given",
+            },
+            preview: Some(preview),
+        }
+    }
+
+    fn changes_json<'a>(&'a self, prefix: &'a Path) -> impl Iterator<Item = Value> + 'a {
+        self.preview.iter().flatten().map(move |preview| {
+            json!({
+                "path": slash(&prefix.join(&preview.path)),
+                "kind": preview.kind,
+                "diff": preview.diff,
+            })
+        })
     }
 
     fn applied_json(&self) -> impl Iterator<Item = Value> + '_ {
@@ -143,14 +228,19 @@ impl FixRun {
         self.plan.paths().map(move |path| slash(&prefix.join(path)))
     }
 
-    /// The `fix` object of the JSON report.
+    /// The `fix` object of the JSON report; a dry run adds `dry-run` and the `changes` with their diffs.
     pub fn to_json(&self) -> Value {
-        json!({
+        let mut value = json!({
             "applied": self.applied_json().collect::<Vec<_>>(),
             "skipped": self.skipped_json().collect::<Vec<_>>(),
             "changed": self.changed_at(Path::new("")).collect::<Vec<_>>(),
             "install": install_json(&self.install),
-        })
+        });
+        if self.preview.is_some() {
+            value["dry-run"] = Value::Bool(true);
+            value["changes"] = Value::Array(self.changes_json(Path::new("")).collect());
+        }
+        value
     }
 
     /// A short account of the fix run in the root `prefix` for terminals: the root is named when it is not the base,
@@ -161,9 +251,14 @@ impl FixRun {
             writeln!(out, "{}:", escape_controls(&slash(prefix)))?;
         }
         let files = self.plan.changes.len();
-        writeln!(out, "Fixed {} issue(s) in {files} file(s).", self.plan.applied.len())?;
+        let (verb, each) = if self.preview.is_some() {
+            ("Would fix", "would fix")
+        } else {
+            ("Fixed", "fixed")
+        };
+        writeln!(out, "{verb} {} issue(s) in {files} file(s).", self.plan.applied.len())?;
         for path in self.changed_at(prefix) {
-            writeln!(out, "  fixed {}", escape_controls(&path))?;
+            writeln!(out, "  {each} {}", escape_controls(&path))?;
         }
         for skipped in &self.plan.skipped {
             let (reason, detail) = skip_parts(&skipped.reason);
@@ -178,6 +273,10 @@ impl FixRun {
                 skipped.rule,
                 escape_controls(&skipped.message)
             )?;
+        }
+        for preview in self.preview.iter().flatten() {
+            writeln!(out)?;
+            out.write_all(escape_multiline(&preview.diff).as_bytes())?;
         }
         writeln!(out)
     }
@@ -235,12 +334,21 @@ pub fn fixes_json(runs: &[RootFix<'_>]) -> Value {
     {
         return only.run.to_json();
     }
-    json!({
+    let mut value = json!({
         "applied": runs.iter().flat_map(|root| root.run.applied_json()).collect::<Vec<_>>(),
         "skipped": runs.iter().flat_map(|root| root.run.skipped_json()).collect::<Vec<_>>(),
         "changed": runs.iter().flat_map(|root| root.run.changed_at(root.prefix)).collect::<Vec<_>>(),
         "install": install_json(&merged_install(runs)),
-    })
+    });
+    if runs.iter().any(|root| root.run.preview.is_some()) {
+        value["dry-run"] = Value::Bool(true);
+        value["changes"] = Value::Array(
+            runs.iter()
+                .flat_map(|root| root.run.changes_json(root.prefix))
+                .collect(),
+        );
+    }
+    value
 }
 
 /// The human account of every root's fix run, in order.

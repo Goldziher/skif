@@ -46,6 +46,9 @@ Options:
       --fix-unsafe
           Apply safe and unsafe fixes; implies --fix
 
+      --dry-run
+          With --fix or --fix-unsafe: print the planned changes as a unified diff (JSON: the `fix` object with `changes`) and write nothing; no install runs
+
       --select <SELECT>
           Which version a version alignment fix targets, overriding `[policy] prefer` for this run
           
