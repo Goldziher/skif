@@ -5,15 +5,15 @@ use crate::plugins::{
     angular, astro, ava, aws_cdk, babel, biome, browser_extension, c8, changesets, commitlint, cspell, cypress,
     docusaurus, dotenv, drizzle, electron_vite, esbuild, eslint, expo, expo_router, gatsby, github_actions,
     graphql_codegen, husky, i18next_parser, jasmine, jest, karma, knex, lefthook, lingui, lint_staged, markdownlint,
-    mastra, metro, mocha, msw, nest, netlify, next, nitro, node, nodemon, nuxt, nx, nyc, oclif, oxlint, panda_css,
-    playwright, plop, pm2, pnpm, postcss, preconstruct, prettier, prisma, react_native, react_router, release_it,
-    remark, remix, rolldown, rollup, rsbuild, rslib, rspack, sanity, semantic_release, sentry, simple_git_hooks,
-    size_limit, storybook, stryker, stylelint, svelte, sveltekit, svgo, svgr, swc, syncpack, tailwind, tanstack_router,
-    ts_node, tsd, tsdown, tsup, tsx, turbo, typedoc, typescript, unbuild, unocss, vercel, vike, vite, vitepress,
-    vitest, webdriver_io, webpack, wrangler, yarn,
+    mastra, metro, mocha, msw, nest, netlify, next, nitro, node, nodemon, nuxt, nx, nyc, oclif, oxfmt, oxlint,
+    panda_css, playwright, plop, pm2, pnpm, postcss, preconstruct, prettier, prisma, react_native, react_router,
+    release_it, remark, remix, rolldown, rollup, rsbuild, rslib, rspack, sanity, semantic_release, sentry,
+    simple_git_hooks, size_limit, storybook, stryker, stylelint, svelte, sveltekit, svgo, svgr, swc, syncpack,
+    tailwind, tanstack_router, tap, ts_node, tsd, tsdown, tsup, tsx, turbo, typedoc, typescript, unbuild, unocss,
+    vercel, vike, vite, vitepress, vitest, webdriver_io, webpack, wrangler, yarn,
 };
 
-static PLUGINS: [&dyn Plugin; 102] = [
+static PLUGINS: [&dyn Plugin; 104] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -41,6 +41,7 @@ static PLUGINS: [&dyn Plugin; 102] = [
     &browser_extension::BrowserExtension,
     &tsdown::Tsdown,
     &oxlint::Oxlint,
+    &oxfmt::Oxfmt,
     &angular::Angular,
     &karma::Karma,
     &esbuild::Esbuild,
@@ -78,6 +79,7 @@ static PLUGINS: [&dyn Plugin; 102] = [
     &expo_router::ExpoRouter,
     &tanstack_router::TanstackRouter,
     &ava::Ava,
+    &tap::Tap,
     &biome::Biome,
     &c8::C8,
     &dotenv::Dotenv,
