@@ -212,6 +212,16 @@ pub enum Format {
     Sarif,
     /// GitHub Actions workflow-command annotations.
     Github,
+    /// Code Climate JSON for GitLab Code Quality.
+    Codeclimate,
+    /// One `path:line:col rule message` line per diagnostic.
+    Compact,
+    /// Markdown tables per rule, for pull request comments.
+    Markdown,
+    /// Markdown tables per rule, each in a collapsed `<details>` section.
+    Disclosure,
+    /// Compact lines grouped by owner, from the repository's CODEOWNERS file.
+    Codeowners,
 }
 
 /// Which version a version alignment fix targets.
