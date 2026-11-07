@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `skif migrate` accepts knip's `compilers: true` and `true` for an extension skif reads itself (`mdx`, `vue`,
+  `svelte`, `astro`, the stylesheet languages, `tsrx`) as the built-in extractors, instead of reporting it as
+  unsupported; a custom compiler function for one of them is an approximation, since it never runs
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
+
 ### Fixed
 
 - `.mdx` files are followed: their top-level `import` and `export` statements are analysed and the components their

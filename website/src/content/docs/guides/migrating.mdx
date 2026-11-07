@@ -151,7 +151,9 @@ of it), because skif's own default is narrower. `--dependencies` and
 | `treatConfigHintsAsErrors`, `--treat-config-hints-as-errors` | `[rules] stale-js-config = "warn"` (A), or `"error"` with `skif migrate --strict-hints`; the rule is then on and is not listed among the checks the profile turned off. skif's hints differ from knip's (they also flag entries skif never needed, such as a regular expression in `ignoreUnresolved` for an import skif does not report), so `error` could fail a project that knip passed |
 | `--no-config-hints` | `[rules] stale-js-config = "off"` |
 | `--production`, `--strict` | `[js] production = true` when every script runs knip in production mode (otherwise H), and the issue types production leaves out (`devDependencies`, `catalog`, `catalogReferences`) are turned off; knip's strict mode has no further equivalent (X) |
-| `compilers`, `asyncCompilers`, `preprocessor`, `ignoreGlobalBinaries`, `cycles` options, `+tag` | none (X): functions are never run |
+| `compilers: true`, or `true` for `mdx`, `vue`, `svelte`, `astro`, `css`, `scss`, `sass`, `less`, `styl`, `stylus` or `tsrx` | none (D): skif reads those files with built-in extractors, without a compiler; for `mdx` and `tsrx` the note suggests adding them to `project`, which knip does when a compiler reads them |
+| a `compilers` function for one of those extensions | none (A): the function is never run, and the built-in extractor reads the files |
+| `compilers` for other extensions, `asyncCompilers`, `preprocessor`, `ignoreGlobalBinaries`, `cycles` options, `+tag` | none (X): functions are never run |
 | `ignoreIssues` with a name that is not a knip issue type (`classMembers`) | none (X): knip 6 has no such issue type |
 | a plugin key skif has no plugin for | none (X), named in the report |
 
