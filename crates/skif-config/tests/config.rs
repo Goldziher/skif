@@ -758,6 +758,7 @@ fn custom_types_are_parsed_and_selectable_in_dependency_types() {
         "[[custom-types]]\nname = \"node\"\npath = \"engines.node\"\nstrategy = \"version\"\n\n\
          [[custom-types]]\nname = \"manager\"\npath = \"packageManager\"\nstrategy = \"name@version\"\n\n\
          [[custom-types]]\nname = \"allowed\"\npath = \"pnpm.peerDependencyRules.allowedVersions\"\nstrategy = \"versions-by-name\"\n\n\
+         [[custom-types]]\nname = \"runtime\"\npath = \"volta.version\"\nname-path = \"volta.tool\"\nstrategy = \"name~version\"\n\n\
          [policy]\ndependency-types = [\"prod\", \"node\", \"local\", \"resolutions\"]\n\n\
          [[version-groups]]\ndependency-types = [\"manager\", \"!allowed\"]\npolicy = \"ignored\"\n",
     )
@@ -768,9 +769,11 @@ fn custom_types_are_parsed_and_selectable_in_dependency_types() {
         [
             CustomStrategy::Version,
             CustomStrategy::NameAtVersion,
-            CustomStrategy::VersionsByName
+            CustomStrategy::VersionsByName,
+            CustomStrategy::NameTildeVersion
         ]
     );
+    assert_eq!(config.custom_types[3].name_path.as_deref(), Some("volta.tool"));
     assert_eq!(
         config.custom_types[2].segments().collect::<Vec<_>>(),
         ["pnpm", "peerDependencyRules", "allowedVersions"]
@@ -803,6 +806,18 @@ fn invalid_custom_types_are_rejected() {
                 custom("name = \"x\"\npath = \"b\"\nstrategy = \"version\"")
             ),
             "defined twice",
+        ),
+        (
+            custom("name = \"x\"\npath = \"a\"\nstrategy = \"name~version\""),
+            "requires `name-path`",
+        ),
+        (
+            custom("name = \"x\"\npath = \"a\"\nname-path = \"b\"\nstrategy = \"version\""),
+            "only valid with strategy `name~version`",
+        ),
+        (
+            custom("name = \"x\"\npath = \"a\"\nname-path = \"b.\"\nstrategy = \"name~version\""),
+            "`name-path` must be a dotted path",
         ),
         (
             "[policy]\ndependency-types = [\"nodes\"]\n".to_owned(),
