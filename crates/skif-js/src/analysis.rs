@@ -309,7 +309,12 @@ impl<'a> JsAnalysis<'a> {
     }
 
     pub(crate) fn is_tagged_public(&self, export: &Export) -> bool {
-        export.tags.iter().any(|tag| match tag.as_str() {
+        self.exempts_tags(&export.tags)
+    }
+
+    /// Whether `JSDoc` tags `tags` (of an export, or of an enum or namespace member) keep it out of the report.
+    pub(crate) fn exempts_tags(&self, tags: &[String]) -> bool {
+        tags.iter().any(|tag| match tag.as_str() {
             "public" | "beta" | "alpha" | "alias" => true,
             "internal" => self.setup.production,
             other => self.setup.ignore_tags.iter().any(|ignored| ignored == other),

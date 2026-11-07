@@ -9,7 +9,9 @@ use crate::analysis::JsAnalysis;
 
 /// Reports members of exports of `kind` that are used nowhere.
 ///
-/// The export itself must be used; unused exports are reported by `unused-exports`. A member read in the declaring
+/// The export itself must be used; unused exports are reported by `unused-exports`. The tags that exempt an export
+/// (`@public`, `@beta`, `@alpha`, `@alias`, `@internal` in production mode and the `ignore-tags` of `unused-exports`)
+/// exempt the whole enum or namespace when on the export, and one member when on the member. A member read in the declaring
 /// file (`E.A`, `E["A"]`, `const { A } = E`) counts as a use. Using the whole enum there (`Object.values(E)`, `E[key]`,
 /// a spread, a bare reference) does not count any member.
 pub(super) fn report(
@@ -25,11 +27,11 @@ pub(super) fn report(
             continue;
         }
         for export in module.info.exports.iter().filter(|export| export.kind == kind) {
-            if export.tags.iter().any(|tag| tag == "public") || !analysis.exports.is_used(module.id, &export.name) {
+            if analysis.is_tagged_public(export) || !analysis.exports.is_used(module.id, &export.name) {
                 continue;
             }
             for member in members_of(export) {
-                if member.tags.iter().any(|tag| tag == "public")
+                if analysis.exempts_tags(&member.tags)
                     || analysis.ignores_member(module.owner, &member.name)
                     || export.members_read_in_file.contains(&member.name)
                     || analysis.exports.is_member_used(module.id, &export.name, &member.name)
