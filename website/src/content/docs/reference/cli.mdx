@@ -69,6 +69,7 @@ another root. `--fix` plans, writes and installs per root.
 | `--no-js` | Skip JavaScript analysis. Overrides `[js] enabled`. |
 | `--production` | Only analyse production code in JavaScript analysis. Overrides `[js] production`. |
 | `--color <auto\|always\|never>` | When to colour human output. |
+| `-W`, `--workspace <NAME\|DIR>` | Report only the findings of these workspace packages, by package name or directory relative to the root (`.` is the root). Globs and `!` exclusions work as in `[workspace] ignore-packages`. Repeatable. The analysis still covers every package, so the findings are those of a full run; `--fix` fixes only what is reported. No matching package exits `2`. |
 
 Flags are the top layer of the [configuration precedence](../configuration/#precedence): defaults, then the file,
 then the command line. `--ignore-package` replaces the file's `[workspace] ignore-packages`; `--ignore-dependency` and

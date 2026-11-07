@@ -315,6 +315,11 @@ pub struct LintArgs {
     /// When to colour human output.
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     pub color: ColorChoice,
+
+    /// Report only the findings of these workspace packages, by name or directory relative to the root (globs, `!`
+    /// to exclude). The analysis still covers every package. Repeatable.
+    #[arg(short = 'W', long, value_name = "NAME|DIR")]
+    pub workspace: Vec<String>,
 }
 
 impl LintArgs {
