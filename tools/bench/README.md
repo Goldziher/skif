@@ -46,6 +46,7 @@ mise run corpus:fetch     # fetch the parity corpus (all pinned repositories)
 mise run parity           # findings parity with knip (see "Parity with knip")
 mise run diff:syncpack    # policy diff against syncpack (see "Policy diff against syncpack")
 mise run corpus:check     # both of the above against the committed baselines
+mise run bench:deadcode   # dead-code precision and recall against an answer key (see "Dead-code precision and recall")
 mise run bench:generate -- --packages 500 --out target/bench-generated/demo
 ```
 
@@ -57,6 +58,7 @@ cargo run --release -p skif-bench -- corpus fetch [--suite bench|parity] [--only
 cargo run --release -p skif-bench -- run [--skif PATH] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus] [--warmup 3] [--runs 10] [--skif-arg ARG]... [--no-enforce]
 cargo run --release -p skif-bench -- parity [--skif PATH] [--only NAME,...] [--install] [--recursive] [--repo-knip-config] [--include-test-files] [--check | --write-baseline]
 cargo run --release -p skif-bench -- syncpack-diff [--skif PATH] [--only NAME,...] [--no-fixtures] [--no-corpus] [--check | --write-baseline]
+cargo run --release -p skif-bench -- deadcode [--skif PATH] [--packages 5] [--seed 1] [--knip] [--json] [--out target/bench-deadcode]
 ```
 
 `generate` is deterministic for a seed: the same options produce byte-identical files. It writes a root
@@ -289,6 +291,63 @@ Run `skif --no-js`, `sherif` and `syncpack lint` on the output and compare with 
 The generator reports 347 mismatched entries; the tools count every instance off the aligned version, which is 4,568
 for both skif and syncpack, as the same set. It reports 30 empty objects because it counts `optionalDependencies`; the
 root also has an empty `devDependencies`. This covers only the defect classes the generator injects.
+
+## Dead-code precision and recall
+
+Agreement with knip on the corpus is not precision: either tool can be wrong where they agree or differ. `skif-bench
+deadcode` measures both tools against a right answer instead. It generates a pnpm workspace of `--packages` packages
+(default 5) with seeded dead code, deterministic for `--seed`, writes it to `<out>/repo` and the answer key, every
+expected finding as a knip issue type and a parity key, to `<out>/answer-key.json`. It then runs
+`skif . --format json --no-install` and, with `--knip`, the knip pinned in `corpus.toml` with an empty configuration (as
+`parity` does; needs `npx` and the npm registry). Both reports are reduced to the parity keys, and each tool gets
+precision (seeded findings among those reported) and recall (reported findings among those seeded) per issue type.
+`nsExports` and `nsTypes` count as `exports` and `types`. A finding in a type the key does not seed (`unlisted`,
+`unresolved`, `binaries`, ...) is false by construction. The report goes to stdout (`--json` for JSON) and to
+`<out>/deadcode.{md,json}`, with every false finding and miss listed.
+
+Every package holds the dead code: unused dependencies and devDependencies (plain runtime libraries with no knip plugin
+or skif tool mapping), unused files (one standalone, one that imports live code), unused exports and types in a
+module the entry imports, and an unused export behind a re-export chain. Next to it sits live code reached only
+through a pattern that has caused false findings on real repositories. A false finding that names that code is
+attributed to its pattern:
+
+| Pattern | Live code |
+| --- | --- |
+| `namespace-member` | exports read as `ns.member` through `import * as ns` |
+| `namespace-bare` | a namespace import passed as a value, which uses every export |
+| `ts-namespace` | members of an exported TypeScript `namespace` |
+| `declare-module` | an import of a virtual module declared in a `.d.ts` |
+| `test-mock` | a manual mock in `__mocks__` for a `vi.mock()` call |
+| `typeof-import` | an export read only through `typeof import("./file")` |
+| `dynamic-import` | a module loaded with `await import()` |
+| `re-export-chain` | exports reached through `export *` and `export { } from` |
+| `import-meta-glob` | modules loaded with `import.meta.glob` |
+| `script-entry` | a file run by a `package.json` script |
+| `tsconfig-paths` | an import through a tsconfig `paths` alias |
+| `fixture-dir` | a file in a `fixtures` directory (test data) |
+| `optional-dependency` | an optional dependency loaded with `import()` in a `try` |
+| `subpath-import` | a `#` subpath import mapped by the `imports` field |
+
+The workspace is not installed, so nothing depends on `node_modules`: the only script runs `node`, and every import of
+a dependency names a listed package. The `skif-bench` unit tests run skif in process on the same workspace (two seeds,
+no binary, network or Node) and fail when it misses a seeded finding or reports a false one other than the known
+deviations listed in the test.
+
+Default run (`--packages 5 --seed 1`: 33 seeded findings, 120 live items), skif 0.1.1 and knip 6.44.1:
+
+| Issue type | Seeded | skif precision | skif recall | knip precision | knip recall |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `dependencies` | 4 | 1.000 | 1.000 | 1.000 | 1.000 |
+| `devDependencies` | 5 | 1.000 | 1.000 | 1.000 | 1.000 |
+| `exports` | 15 | 1.000 | 1.000 | 0.750 | 1.000 |
+| `files` | 6 | 0.545 | 1.000 | 0.545 | 1.000 |
+| `types` | 3 | 1.000 | 1.000 | 1.000 | 1.000 |
+| All | 33 | 0.868 | 1.000 | 0.767 | 1.000 |
+
+Both tools find every seeded finding. skif's false findings are the five fixture files (`fixture-dir`): its
+`unused-files` reads `fixtures` directories, which ADR 0023 skips only in root discovery. knip's are the same five
+plus an export read through `typeof import()` in each package (`typeof-import`). The patterns are synthetic and cover
+only these cases, so the numbers say which known traps a tool falls into, not how precise it is on a real repository.
 
 ## In-process benchmarks
 

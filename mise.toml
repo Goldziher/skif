@@ -79,6 +79,13 @@ run = [
   "cargo run --release --locked -p skif-bench -- syncpack-diff --skif target/release/skif",
 ]
 
+[tasks."bench:deadcode"]
+description = "Dead-code precision and recall of skif (and the pinned knip with --knip) against a generated answer key: mise run bench:deadcode -- [--packages 5] [--seed 1] [--knip] [--json]"
+run = [
+  "cargo build --release --locked -p skif-cli",
+  "cargo run --release --locked -p skif-bench -- deadcode --skif target/release/skif",
+]
+
 [tasks."corpus:fetch"]
 description = "Fetch the pinned parity corpus into target/bench-corpus (add --suite bench for the timed repositories)"
 run = "cargo run --release --locked -p skif-bench -- corpus fetch"
