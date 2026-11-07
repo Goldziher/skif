@@ -2,20 +2,22 @@
 
 use crate::plugin::Plugin;
 use crate::plugins::{
-    angular, astro, ava, aws_cdk, azure_pipelines, babel, biome, browser_extension, bun, c8, changesets, commitizen,
-    commitlint, cspell, cypress, dependency_cruiser, docusaurus, dotenv, drizzle, electron_forge, electron_vite,
-    esbuild, eslint, execa, expo, expo_router, gatsby, github_action, github_actions, graphql_codegen, husky,
-    i18next_parser, jasmine, jest, karma, knex, lefthook, lingui, lint_staged, markdownlint, mastra, mdx, metro, mocha,
-    msw, nano_spawn, nest, netlify, next, next_intl, next_mdx, nitro, node, nodemon, nuxt, nx, nyc, oclif, oxfmt,
-    oxlint, panda_css, parcel, pino, playwright, plop, pm2, pnpm, postcss, pre_commit, preconstruct, prettier, prisma,
-    react_native, react_router, release_it, remark, remix, rolldown, rollup, rsbuild, rslib, rspack, sanity, sapper,
-    semantic_release, sentry, serverless_framework, simple_git_hooks, size_limit, starlight, storybook, stryker,
-    stylelint, svelte, sveltekit, svgo, svgr, swc, syncpack, tailwind, tanstack_router, tap, ts_node, tsd, tsdown,
-    tsup, tsx, turbo, typedoc, typescript, unbuild, unocss, unplugin_auto_import, unplugin_vue_components,
-    unplugin_vue_router, vercel, vike, vite, vitepress, vitest, vue, webdriver_io, webpack, wrangler, yarn, zx,
+    angular, astro, ava, aws_cdk, azure_pipelines, babel, biome, browser_extension, bun, c8, capacitor, changelogen,
+    changesets, commitizen, commitlint, convex, cspell, cypress, danger, dependency_cruiser, docusaurus, dotenv,
+    drizzle, electron_forge, electron_vite, esbuild, eslint, execa, expo, expo_router, fumadocs, gatsby, github_action,
+    github_actions, graphql_codegen, hardhat, husky, i18next_parser, jasmine, jest, karma, knex, lefthook, lingui,
+    lint_staged, markdownlint, mastra, mdx, metro, mocha, msw, nano_spawn, nest, netlify, next, next_intl, next_mdx,
+    nitro, node, nodemon, nuxt, nuxtjs_i18n, nx, nyc, oclif, openapi_ts, oxfmt, oxlint, panda_css, parcel, payload,
+    pino, playwright, playwright_ct, plop, pm2, pnpm, postcss, pre_commit, preconstruct, prettier, prisma, purgecss,
+    react_email, react_native, react_router, release_it, remark, remix, rolldown, rollup, rsbuild, rslib, rspack,
+    sanity, sapper, semantic_release, sentry, serverless_framework, simple_git_hooks, size_limit, starlight, storybook,
+    stryker, stylelint, svelte, sveltekit, svgo, svgr, swc, syncpack, tailwind, tanstack_router, tap, tauri, temporal,
+    ts_node, tsd, tsdown, tsup, tsx, turbo, typedoc, typescript, unbuild, unocss, unplugin_auto_import,
+    unplugin_vue_components, unplugin_vue_router, vercel, vike, vite, vitepress, vitest, vue, webdriver_io, webpack,
+    wrangler, wxt, yarn, zx,
 };
 
-static PLUGINS: [&dyn Plugin; 126] = [
+static PLUGINS: [&dyn Plugin; 141] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -142,6 +144,21 @@ static PLUGINS: [&dyn Plugin; 126] = [
     &nano_spawn::NanoSpawn,
     &azure_pipelines::AzurePipelines,
     &sapper::Sapper,
+    &tauri::Tauri,
+    &capacitor::Capacitor,
+    &convex::Convex,
+    &payload::Payload,
+    &wxt::Wxt,
+    &hardhat::Hardhat,
+    &temporal::Temporal,
+    &react_email::ReactEmail,
+    &openapi_ts::OpenapiTs,
+    &danger::Danger,
+    &changelogen::Changelogen,
+    &purgecss::Purgecss,
+    &fumadocs::Fumadocs,
+    &nuxtjs_i18n::NuxtjsI18n,
+    &playwright_ct::PlaywrightCt,
 ];
 
 /// Every plugin, in the order of the table (ADR 0011, ADR 0022, ADR 0025, ADR 0029).

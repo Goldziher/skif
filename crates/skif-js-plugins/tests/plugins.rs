@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 126] = [
+const ADR_IDS: [&str; 141] = [
     "typescript",
     "eslint",
     "prettier",
@@ -141,6 +141,21 @@ const ADR_IDS: [&str; 126] = [
     "nano-spawn",
     "azure-pipelines",
     "sapper",
+    "tauri",
+    "capacitor",
+    "convex",
+    "payload",
+    "wxt",
+    "hardhat",
+    "temporal",
+    "react-email",
+    "openapi-ts",
+    "danger",
+    "changelogen",
+    "purgecss",
+    "fumadocs",
+    "nuxtjs-i18n",
+    "playwright-ct",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -3056,4 +3071,162 @@ fn sapper_declares_its_fixed_layout() {
             "src/routes/**/*.{svelte,html,js,ts}",
         ],
     );
+}
+
+#[test]
+fn tauri_runs_its_before_commands_where_they_say() {
+    let results = resolve(
+        &[(
+            "src-tauri/tauri.conf.json",
+            r#"{"build":{"beforeDevCommand":"vite dev","beforeBuildCommand":{"script":"node scripts/build.js","cwd":"ui"}}}"#,
+        )],
+        &["@tauri-apps/cli"],
+    );
+    let out = output(&results, "tauri");
+    assert!(
+        out.referenced_binaries.contains(&"vite".to_owned()),
+        "{:?}",
+        out.referenced_binaries
+    );
+    assert_entries(&out.entries, &["ui/scripts/build.js"]);
+    let results = resolve(
+        &[(
+            "src-tauri/Tauri.toml",
+            "[build]\nbefore-bundle-command = \"node bundle.js\"\n",
+        )],
+        &["@tauri-apps/cli"],
+    );
+    assert_entries(&output(&results, "tauri").entries, &["bundle.js"]);
+}
+
+#[test]
+fn capacitor_credits_plugins_and_native_platforms() {
+    let results = resolve(
+        &[
+            (
+                "capacitor.config.json",
+                r#"{"appId":"x","includePlugins":["@capacitor/camera"]}"#,
+            ),
+            ("android/capacitor.settings.gradle", "include ':capacitor-android'"),
+            ("ios/App/Podfile", "platform :ios"),
+        ],
+        &["@capacitor/core"],
+    );
+    let out = output(&results, "capacitor");
+    assert_deps(out, &["@capacitor/camera", "@capacitor/android", "@capacitor/ios"]);
+}
+
+#[test]
+fn convex_functions_directory_from_convex_json() {
+    let results = resolve(&[], &["convex"]);
+    assert_entries(&output(&results, "convex").production_entries, &["convex/**/*.{js,ts}"]);
+    let results = resolve(&[("convex.json", r#"{"functions":"src/convex/"}"#)], &["convex"]);
+    assert_entries(
+        &output(&results, "convex").production_entries,
+        &["src/convex/**/*.{js,ts}"],
+    );
+}
+
+#[test]
+fn payload_import_map_follows_the_admin_route() {
+    let config = r#"import { buildConfig } from "payload";
+        export default buildConfig({ routes: { admin: "/cms" }, collections: [] });"#;
+    let results = resolve(&[("src/payload.config.ts", config)], &["payload"]);
+    let out = output(&results, "payload");
+    assert_entries(
+        &out.entries,
+        &["app/(payload)/cms/importMap.js", "src/app/(payload)/cms/importMap.js"],
+    );
+    assert!(out.ignore.contains(&"src/payload-types.ts".to_owned()));
+    assert!(!out.entries_incomplete);
+    let config = r#"import { buildConfig } from "payload";
+        export default buildConfig({ admin: { importMap: { importMapFile: "./app/admin/importMap.js" } } });"#;
+    let results = resolve(&[("payload.config.ts", config)], &["payload"]);
+    assert_entries(&output(&results, "payload").entries, &["app/admin/importMap.js"]);
+}
+
+#[test]
+fn wxt_entrypoints_and_modules() {
+    let results = resolve(
+        &[(
+            "wxt.config.ts",
+            r#"import { defineConfig } from "wxt"; export default defineConfig({ modules: ["@wxt-dev/module-react"] });"#,
+        )],
+        &["wxt"],
+    );
+    let out = output(&results, "wxt");
+    assert_entries(&out.production_entries, &["entrypoints/**/*"]);
+    assert_deps(out, &["@wxt-dev/module-react"]);
+}
+
+#[test]
+fn declarative_rows_of_issue_40() {
+    let results = resolve(
+        &[],
+        &[
+            "hardhat",
+            "@temporalio/worker",
+            "@hey-api/openapi-ts",
+            "danger",
+            "changelogen",
+            "@fullhuman/postcss-purgecss",
+            "fumadocs-mdx",
+            "@nuxtjs/i18n",
+        ],
+    );
+    let hardhat = output(&results, "hardhat");
+    assert_entries(&hardhat.entries, &["hardhat.config.{js,cjs,mjs,ts,cts,mts}"]);
+    assert_deps(hardhat, &["hardhat"]);
+    assert_entries(
+        &output(&results, "temporal").production_entries,
+        &["src/workflows{,/index}.{js,cjs,mjs,ts,cts,mts}"],
+    );
+    assert_entries(
+        &output(&results, "openapi-ts").entries,
+        &["openapi-ts.config.{js,ts,mjs,cjs,mts,cts}"],
+    );
+    assert_entries(&output(&results, "danger").entries, &["dangerfile.{js,cjs,mjs,ts}"]);
+    assert_entries(
+        &output(&results, "changelogen").entries,
+        &["changelog.config.{js,ts,mjs,cjs,mts,cts}"],
+    );
+    assert_entries(&output(&results, "purgecss").entries, &["purgecss.config.js"]);
+    assert_entries(&output(&results, "fumadocs").entries, &["content/**/*.mdx"]);
+    assert_entries(
+        &output(&results, "nuxtjs-i18n").entries,
+        &["i18n/i18n.config.{js,mjs,ts}"],
+    );
+    let nested = resolve_with(&[], &["changelogen"], false, &IndexMap::new());
+    assert!(!nested.iter().any(|(id, _)| *id == "changelogen"), "root only");
+}
+
+#[test]
+fn react_email_preview_commands_and_dir() {
+    let results = resolve_with_scripts(&[], &["react-email"], &[("dev", "email dev --dir src/mail")]);
+    let out = output(&results, "react-email");
+    assert_deps(out, &["@react-email/ui", "@react-email/preview-server"]);
+    assert!(out.referenced_dependencies.iter().all(|d| d.optional));
+    assert_entries(&out.entries, &["emails/**/*.tsx", "src/mail/**/*.tsx"]);
+    let results = resolve_with_scripts(&[], &["react-email"], &[("export", "email export")]);
+    assert_absent(output(&results, "react-email"), &["@react-email/ui"]);
+}
+
+#[test]
+fn playwright_ct_reads_its_config_like_playwright() {
+    let results = resolve(
+        &[(
+            "playwright-ct.config.ts",
+            r#"export default { testDir: "./tests/ct", reporter: [["playwright-ctrf-json-reporter"]] };"#,
+        )],
+        &["@playwright/experimental-ct-react"],
+    );
+    let out = output(&results, "playwright-ct");
+    assert_entries(
+        &out.entries,
+        &[
+            "tests/ct/**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "playwright/index.{js,ts,jsx,tsx}",
+        ],
+    );
+    assert_deps(out, &["playwright-ctrf-json-reporter"]);
 }
