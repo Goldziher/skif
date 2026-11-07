@@ -111,7 +111,7 @@ same `report`, whose `absence` is one of `unused-file` (reported by `unused-file
 `entries-incomplete`. For `entries-incomplete` the files of the package are not judged unused because its entry files
 are not fully known, and `incomplete` lists each cause with its `plugin` and `file`: `unparsable-config`,
 `unknown-config` (the config evaluates to a value that cannot be known statically), `unknown-spread` (it spreads or
-merges in an unknown value, such as an imported base config), `computed-entries` (the keys the tool reads entries from
+merges in an unknown value, such as a base config imported from an installed package), `computed-entries` (the keys the tool reads entries from
 are computed), `unmapped-published` (`package.json` publishes build output with no source behind it) or
 `unspecified`. It also exits `2` when the root cannot be loaded or the file lies outside the workspace.
 

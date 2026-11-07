@@ -28,6 +28,7 @@ fn resolve(files: &[(&str, &str)], dependencies: &[&str], id: &str) -> PluginOut
         scripts: &scripts,
         fs: &fs,
         plugins: &plugins,
+        modules: None,
     };
     resolve_plugins(&ctx)
         .into_iter()

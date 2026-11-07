@@ -6,6 +6,7 @@ use indexmap::IndexMap;
 use skif_config::{JsWorkspace, Override, PluginConfig};
 use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins};
 
+use crate::config_modules::ConfigModules;
 use crate::input::{
     BuildDir, IncompleteCause, IncompleteEntries, InputRequest, InputSource, PathAlias, WorkspaceInputs,
 };
@@ -218,6 +219,7 @@ impl InputSource for PluginSource {
             if package.is_root { &request.workspace.root } else { &dir },
             &key,
         );
+        let modules = ConfigModules::new(request.fs, request.workspace);
         let context = PluginContext {
             dir: &dir,
             is_root: package.is_root,
@@ -227,6 +229,7 @@ impl InputSource for PluginSource {
             scripts: &scripts,
             fs: request.fs,
             plugins: &plugins,
+            modules: Some(&modules),
         };
         resolve_plugins(&context)
             .into_iter()
