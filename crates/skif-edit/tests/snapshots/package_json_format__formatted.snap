@@ -1,0 +1,27 @@
+---
+source: crates/skif-edit/tests/package_json_format.rs
+expression: "report(\"formatted\")"
+---
+issues:
+--- before
+{
+  "name": "formatted",
+  "description": "Already formatted",
+  "version": "1.0.0",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest"
+  }
+}
+--- after
+{
+  "name": "formatted",
+  "description": "Already formatted",
+  "version": "1.0.0",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest"
+  }
+}
