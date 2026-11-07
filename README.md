@@ -39,6 +39,7 @@ npm · pnpm · yarn · bun · **41 rules** · **105 plugins** · format-preservi
 npx skif-cli              # lint the workspace or package you are in
 npx skif-cli --fix        # apply safe fixes
 npx skif-cli migrate      # turn sherif, syncpack and knip config into a skif.toml
+npx skif-cli update --check  # list newer published versions; the only command that uses the network
 ```
 
 With skif installed, the command is `skif`. See the [CLI reference](https://goldziher.github.io/skif/reference/cli/).
@@ -54,6 +55,7 @@ follows knip's issue types. The difference is that one tool covers all three job
 | Manifest and workspace rules | Yes | Yes | No | No |
 | Version and semver-range policy | Yes | Version mismatches | Yes | No |
 | Catalog policy | Yes | No | Yes | Catalog entries |
+| Registry updates (`update --check`) | Yes, opt-in | No | Yes | No |
 | Unused dependencies, files and exports | Yes | No | No | Yes |
 | Runs project code to read configs | No | No | No | Yes |
 

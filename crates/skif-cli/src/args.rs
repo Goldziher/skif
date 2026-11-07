@@ -35,6 +35,55 @@ pub enum Command {
     ExplainUsage(ExplainUsageArgs),
     /// Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file.
     Migrate(MigrateArgs),
+    /// Update dependencies to newer published versions from the npm registry; the only command that uses the network.
+    Update(UpdateArgs),
+}
+
+/// How far `skif update` may move a version.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum Target {
+    /// The highest published version.
+    #[default]
+    Latest,
+    /// The highest version with the same major.
+    Minor,
+    /// The highest version with the same major and minor.
+    Patch,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct UpdateArgs {
+    /// A path inside a project, resolved to its workspace root as for linting.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+
+    /// Write nothing; exit 1 when an update is available.
+    #[arg(long)]
+    pub check: bool,
+
+    /// How far a version may move; an `[[update-groups]]` entry can narrow it further.
+    #[arg(long, value_enum, default_value_t = Target::Latest)]
+    pub target: Target,
+
+    /// Only these dependencies, by name or glob. Repeatable.
+    #[arg(long = "dependencies", value_name = "NAME")]
+    pub dependencies: Vec<String>,
+
+    /// Do not run the package manager after writing.
+    #[arg(long)]
+    pub no_install: bool,
+
+    /// Use this configuration file (and the files it extends) instead of discovering `skif.toml` files.
+    #[arg(long, value_name = "FILE", conflicts_with = "no_config")]
+    pub config: Option<PathBuf>,
+
+    /// Read no configuration file: the defaults plus the flags.
+    #[arg(long)]
+    pub no_config: bool,
+
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = RulesFormat::Human)]
+    pub format: RulesFormat,
 }
 
 #[derive(Debug, clap::Args)]
