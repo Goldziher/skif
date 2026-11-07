@@ -15,6 +15,12 @@ All notable changes to this project are documented here. The format follows
   reading an export, as in knip. `typeof import("./m").A` uses `A`, and `typeof import("./m").E.B` only member `B` of
   `E` ([#25](https://github.com/Goldziher/skif/issues/25)).
 
+### Added
+
+- An `unplugin-icons` plugin: with that dependency, `~icons/*` imports and the `@iconify-json/*` and `@iconify/json`
+  collections are virtual, as in knip. The table holds 106 plugins
+  ([#18](https://github.com/Goldziher/skif/issues/18)).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed
