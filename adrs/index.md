@@ -57,6 +57,7 @@ old one.
 | 0047 | [npm Package Name skif-cli](0047-npm-package-name-skif-cli.md) | accepted |
 | 0048 | [Catalog Version Divergence and Reasons on Ignores](0048-catalog-version-divergence-and-reasons-on-ignores.md) | accepted |
 | 0049 | [JS Corrections from Adjudicating knip Disagreements: Linked Files, Subpath Imports, Aliased Packages, Computed Specifiers, Component Styles and Three Plugins](0049-js-corrections-from-adjudicating-knip-disagreements.md) | accepted |
+| 0050 | [Several Reports in One Run: A Repeatable `--format FORMAT=FILE`](0050-several-reports-in-one-run.md) | accepted |
 
 ## Effective statements
 
@@ -142,3 +143,5 @@ the lines below stay as written; this table says which record governs.
 | [0013](0013-distribution-and-naming.md), npm row | the npm umbrella package is `skif` | [0047](0047-npm-package-name-skif-cli.md): it is `skif-cli` |
 | [0018](0018-npm-distribution-via-napi-rs.md), package name | the npm package is `skif` and the hooks run `pnpm dlx skif@<version>` | [0047](0047-npm-package-name-skif-cli.md): `skif-cli`, with `napi.packageName` keeping the platform packages |
 | [0036](0036-thirty-nine-more-knip-plugins-by-real-world-usage.md), `tap` and plugin count | no `tap` plugin is added because knip has none; the table holds 102 plugins | [0049](0049-js-corrections-from-adjudicating-knip-disagreements.md): `tap`, `oxfmt` and `bun` are added; the table holds 105 plugins |
+| [0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md), flag table and JSON mode | one `--format` and one `--output`; JSON mode is on when the format is `json` | [0050](0050-several-reports-in-one-run.md): `--format FORMAT[=FILE]` is repeatable with at most one format on stdout, `--output` needs exactly one `--format`, files are written only after every rendering succeeds, and the stdout format (else the first one) decides JSON mode and colour |
+| [0012](0012-reporting.md), title and renderer table | four renderers, one selected by `--format` | [0050](0050-several-reports-in-one-run.md): nine renderers, and one run may render several, each to stdout or its own file |
