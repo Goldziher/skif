@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 190] = [
+const ADR_IDS: [&str; 198] = [
     "typescript",
     "eslint",
     "prettier",
@@ -205,6 +205,14 @@ const ADR_IDS: [&str; 190] = [
     "tsrs",
     "varlock",
     "yorkie",
+    "filesystem-routing",
+    "flue",
+    "laravel-vite-plugin",
+    "railway",
+    "solidjs-vite-plugin",
+    "vite-plugin-pages",
+    "vite-plugin-vue-layouts-next",
+    "vite-plus",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -4258,4 +4266,165 @@ fn yorkie_git_hooks_are_scripts() {
     assert!(out.referenced_binaries.contains(&"lint-staged".to_owned()));
     assert_entries(&out.entries, &["scripts/verify-commit.js"]);
     assert_deps(out, &["yorkie"]);
+}
+
+#[test]
+fn filesystem_routing_dir_and_extensions() {
+    let results = resolve(
+        &[(
+            "vite.config.ts",
+            r#"import routes from "filesystem-routing/vite";
+export default { root: "app", plugins: [routes({ dir: "pages", extensions: ["tsx"] })] };"#,
+        )],
+        &["filesystem-routing"],
+    );
+    assert_entries(
+        &output(&results, "filesystem-routing").production_entries,
+        &["app/pages/**/*.tsx"],
+    );
+    let results = resolve(
+        &[("vite.config.ts", "export default { root: 'web' };")],
+        &["filesystem-routing"],
+    );
+    assert_entries(
+        &output(&results, "filesystem-routing").production_entries,
+        &["web/src/routes/**/*.{js,jsx,ts,tsx,tsrx}"],
+    );
+}
+
+#[test]
+fn flue_modules_and_agents() {
+    let results = resolve(
+        &[
+            (
+                "flue.config.ts",
+                r#"export default { app: "./server/app.ts", agents: "bots/*.ts" };"#,
+            ),
+            ("src/db.ts", ""),
+        ],
+        &["@flue/runtime"],
+    );
+    let out = output(&results, "flue");
+    assert_entries(
+        &out.production_entries,
+        &["server/app.ts", "src/db.{ts,mts,js,mjs}", "src/bots/*.ts"],
+    );
+}
+
+#[test]
+fn laravel_vite_plugin_inputs() {
+    let results = resolve(
+        &[(
+            "vite.config.js",
+            r#"import { defineConfig } from "vite";
+import laravel from "laravel-vite-plugin";
+export default defineConfig({ plugins: [laravel({ input: ["resources/css/app.css", "resources/js/app.js"], ssr: "resources/js/ssr.js" })] });"#,
+        )],
+        &["laravel-vite-plugin"],
+    );
+    assert_entries(
+        &output(&results, "laravel-vite-plugin").production_entries,
+        &["resources/css/app.css", "resources/js/app.js", "resources/js/ssr.js"],
+    );
+}
+
+#[test]
+fn railway_service_commands() {
+    let manifest = ("package.json", r#"{"name":"app","repository":"github:acme/app"}"#);
+    let results = resolve(
+        &[
+            manifest,
+            (
+                ".railway/railway.ts",
+                r#"import { service } from "railway/iac";
+service("api", { root: "services/api", build: "tsc -b", start: "node dist/server.js", deploy: { preDeployCommand: ["node migrate.js"] } });
+service("web", { source: { repo: "acme/app" }, start: "node web.js" });
+service("db", { source: { image: "postgres:16" }, start: "node never.js" });
+service("other", { source: { repo: "https://github.com/else/where" }, start: "node elsewhere.js" });"#,
+            ),
+        ],
+        &["railway"],
+    );
+    let out = output(&results, "railway");
+    assert_entries(
+        &out.entries,
+        &["services/api/dist/server.js", "services/api/migrate.js", "web.js"],
+    );
+    for absent in ["never.js", "elsewhere.js"] {
+        assert!(
+            !out.entries.iter().any(|entry| entry == absent),
+            "{absent}: {:?}",
+            out.entries
+        );
+    }
+}
+
+#[test]
+fn solidjs_vite_plugin_start_entries() {
+    let results = resolve(
+        &[
+            (
+                "vite.config.ts",
+                r#"import { solid } from "@solidjs/vite-plugin";
+export default { plugins: [solid({ ssr: true, start: { app: "./src/root.tsx", middleware: "./src/middleware.ts" }, serverFunctions: { configure: "./src/fns.ts" } })] };"#,
+            ),
+            ("src/entry-server.tsx", ""),
+        ],
+        &["@solidjs/vite-plugin"],
+    );
+    let out = output(&results, "solidjs-vite-plugin");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "src/root.tsx",
+            "src/middleware.ts",
+            "src/fns.ts",
+            "src/Document.{tsx,jsx,tsrx}",
+            "src/entry-server.{tsx,jsx,ts,js,mjs,tsrx}",
+        ],
+    );
+}
+
+#[test]
+fn vite_plugin_pages_and_layouts_dirs() {
+    let config = (
+        "vite.config.ts",
+        r#"import Pages from "vite-plugin-pages";
+import Layouts from "vite-plugin-vue-layouts-next";
+export default { plugins: [Pages({ dirs: ["src/views", { dir: "src/admin", baseRoute: "admin" }] }), Layouts({ layoutsDirs: "src/shells" })] };"#,
+    );
+    let results = resolve(&[config], &["vite-plugin-pages", "vite-plugin-vue-layouts-next"]);
+    let pages = output(&results, "vite-plugin-pages");
+    assert_entries(
+        &pages.production_entries,
+        &[
+            "src/views/**/*.{vue,jsx,tsx,md,mdx}",
+            "src/admin/**/*.{vue,jsx,tsx,md,mdx}",
+        ],
+    );
+    assert!(pages.virtual_modules.contains(&"~pages".to_owned()));
+    assert_entries(
+        &output(&results, "vite-plugin-vue-layouts-next").production_entries,
+        &["src/shells/**/*.vue"],
+    );
+}
+
+#[test]
+fn vite_plus_tasks_and_staged_commands() {
+    let results = resolve(
+        &[(
+            "vite.config.ts",
+            r#"import { defineConfig } from "vite-plus";
+export default defineConfig({
+  run: { tasks: { gen: { command: "node scripts/gen.js" }, check: { command: ["tsc --noEmit"] } } },
+  staged: { "*.ts": "eslint --fix" },
+});"#,
+        )],
+        &["vite-plus"],
+    );
+    let out = output(&results, "vite-plus");
+    assert_entries(&out.entries, &["scripts/gen.js"]);
+    for binary in ["tsc", "eslint"] {
+        assert!(out.referenced_binaries.contains(&binary.to_owned()), "{binary}");
+    }
 }
