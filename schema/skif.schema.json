@@ -122,6 +122,7 @@
         "entry": [],
         "project": [],
         "ignore": [],
+        "ignore-files": [],
         "ignore-dependencies": [],
         "ignore-binaries": [],
         "ignore-unresolved": [],
@@ -131,6 +132,10 @@
         "production": false,
         "include-entry-exports": false,
         "discovery": "auto",
+        "cycles": {
+          "allow": [],
+          "dynamic-imports": false
+        },
         "workspaces": {},
         "plugins": {}
       }
@@ -837,6 +842,14 @@
           "description": "Globs of files that are not analysed.",
           "default": []
         },
+        "ignore-files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of files, relative to the workspace root, never reported by `unused-files`; other rules still analyse\nthem (knip's `ignoreFiles`).",
+          "default": []
+        },
         "ignore-dependencies": {
           "type": "array",
           "items": {
@@ -896,6 +909,14 @@
           "$ref": "#/$defs/JsDiscovery",
           "description": "How source files are found: `auto` lists them from the git index and re-lists from disk every directory\nmodified since the index was written, which gives the walk's result without walking every directory; `git`\ntrusts the index alone (faster, blind to untracked and deleted files); `walk` always walks. Both index modes\nfall back to the walk when the workspace is not in a git work tree with a usable SHA-1 index.",
           "default": "auto"
+        },
+        "cycles": {
+          "$ref": "#/$defs/JsCycles",
+          "description": "What `circular-imports` reports.",
+          "default": {
+            "allow": [],
+            "dynamic-imports": false
+          }
         },
         "workspaces": {
           "type": "object",
@@ -1024,6 +1045,29 @@
       ],
       "description": "`[js] discovery`"
     },
+    "JsCycles": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "Cycles that are not reported, each the list of its files relative to the workspace root. A cycle is allowed\nwhen its files are exactly the files of one entry, in any order.",
+          "default": []
+        },
+        "dynamic-imports": {
+          "type": "boolean",
+          "description": "Count dynamic `import()` as an edge of a cycle. Off by default: a dynamic import runs after the module graph\nis loaded, so it cannot cause an initialisation-order problem.",
+          "default": false
+        }
+      },
+      "description": "`[js.cycles]`: knip's `cycles` options of the `circular-imports` rule."
+    },
     "JsWorkspace": {
       "type": "object",
       "additionalProperties": false,
@@ -1050,6 +1094,14 @@
             "type": "string"
           },
           "description": "Globs of files that are not analysed.",
+          "default": []
+        },
+        "ignore-files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of files, relative to the workspace directory, never reported by `unused-files`.",
           "default": []
         },
         "ignore-dependencies": {

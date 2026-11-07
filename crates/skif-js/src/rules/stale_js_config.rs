@@ -3,6 +3,7 @@ use skif_lint::Emitter;
 use skif_workspace::PackageId;
 
 use super::JsRule;
+use super::support::module_location;
 use crate::analysis::JsAnalysis;
 
 /// Metadata of `stale-js-config`.
@@ -11,7 +12,7 @@ pub static META: RuleMeta = RuleMeta::new(
     Category::Js,
     Some(Severity::Warning),
     Fixability::None,
-    "A `[js]` ignore entry or workspace key matched nothing in the run.",
+    "A `[js]` ignore entry, workspace key, file pattern or ignore tag matched nothing in the run.",
 );
 
 /// The rules that consult `ignore-dependencies`. An entry can only be called stale when all of them ran.
@@ -24,7 +25,12 @@ const DEPENDENCY_RULES: [&str; 5] = [
 ];
 
 /// Reports configuration that does nothing: `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
-/// `ignore-workspaces` entries that matched nothing, and `[js.workspaces]` keys that select no package.
+/// `ignore-workspaces` entries that matched nothing, `[js.workspaces]` keys that select no package, and `entry`,
+/// `project` and `ignore` patterns that match no file (knip's `entry-empty`, `project-empty` and `ignore` hints), and
+/// `ignore-files` patterns that hide no file `unused-files` would report.
+///
+/// It also reports knip's tag hints: a tag that exempts by configuration (`@internal` in production mode, an
+/// `ignore-tags` name of `unused-exports`) on an export or enum or namespace member that is used anyway.
 ///
 /// It is the counterpart of knip's configuration hints. Raise it with `[rules] stale-js-config = "error"` to fail the
 /// run on them. It runs after every other `js` rule, because an entry is stale only when no rule used it, and it is
@@ -51,6 +57,28 @@ impl StaleJsConfig {
                 .help("remove the entry, or correct it if it was meant to match")
                 .build(),
             );
+        }
+    }
+}
+
+impl StaleJsConfig {
+    fn report_tags(analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
+        for module in analysis.graph.modules() {
+            for hint in analysis.unneeded_tags(module) {
+                let mut builder = diagnostic(
+                    &META,
+                    format!(
+                        "`{}` is used, so its `@{}` tag exempts nothing",
+                        hint.identifier, hint.tag
+                    ),
+                    module_location(module, Some(hint.span)),
+                )
+                .help("remove the tag");
+                if let Some(package) = analysis.workspace.package(module.owner) {
+                    builder = builder.package(package.display_name());
+                }
+                out.emit(builder.build());
+            }
         }
     }
 }
@@ -129,6 +157,14 @@ impl JsRule for StaleJsConfig {
         }
         for key in &setup.unmatched_workspace_keys {
             Self::report(analysis, out, "js.workspaces", vec![key.as_str()]);
+        }
+        let unused_files_ran = ran(&["unused-files"]);
+        let ignore_files = analysis.unused_ignore_files.iter().filter(|_| unused_files_ran);
+        for empty in analysis.empty_patterns.iter().chain(ignore_files) {
+            Self::report(analysis, out, &empty.key, vec![empty.pattern.as_str()]);
+        }
+        if ran(&["unused-exports"]) {
+            Self::report_tags(analysis, out);
         }
     }
 }

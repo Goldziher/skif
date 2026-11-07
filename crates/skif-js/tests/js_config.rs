@@ -347,7 +347,8 @@ fn stale_js_config_reports_entries_that_matched_nothing() {
 
 #[test]
 fn stale_js_config_is_silent_when_every_entry_matched() {
-    let files = two_packages("import \"./gone\";\n");
+    let mut files = two_packages("import \"./gone\";\n");
+    files.push(("index.ts", "export {};\n"));
     let diagnostics = lint(
         &files,
         "[js]\nignore-dependencies = [\"left\"]\nignore-unresolved = [\"./gone\"]\n[js.workspaces.\".\"]\nentry = [\"index.ts\"]\n",
@@ -418,5 +419,80 @@ fn invalid_js_configuration_is_rejected_when_the_configuration_is_checked() {
     assert!(
         plugin.contains("unknown plugin `vitset`") && plugin.contains("did you mean `vit"),
         "{plugin}"
+    );
+}
+
+#[test]
+fn stale_js_config_reports_entry_project_and_ignore_patterns_that_match_no_file() {
+    let mut files = two_packages("export {};\n");
+    files.push(("index.ts", "export {};\n"));
+    files.push(("packages/a/src/extra.ts", "export {};\n"));
+    let diagnostics = lint(
+        &files,
+        "[js]\nentry = [\"index.ts\", \"main.ts\", \"!skip.ts\"]\nproject = [\"**/*.ts\", \"lib/**\"]\nignore = [\"packages/a/src/extra.ts\", \"generated/**\"]\n\
+         [js.workspaces.\"packages/*\"]\nentry = [\"src/index.ts\", \"src/cli.ts!\"]\nproject = [\"src/**/*.ts\"]\nignore = [\"src/extra.ts\", \"src/gone/**\"]\n",
+    );
+    insta::assert_snapshot!(messages(&diagnostics).join("\n"));
+}
+
+fn cycle_files() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("package.json", r#"{"name":"app","private":true,"main":"src/index.ts"}"#),
+        (
+            "src/index.ts",
+            "import { a } from \"./a\";\nimport { c } from \"./c\";\nconsole.log(a, c);\n",
+        ),
+        ("src/a.ts", "import { b } from \"./b\";\nexport const a = () => b;\n"),
+        ("src/b.ts", "import { a } from \"./a\";\nexport const b = () => a;\n"),
+        ("src/c.ts", "export const c = () => import(\"./d\");\n"),
+        ("src/d.ts", "import { c } from \"./c\";\nexport const d = c;\n"),
+    ]
+}
+
+#[test]
+fn cycles_allow_and_dynamic_imports() {
+    let on = "[rules]\ncircular-imports = \"warn\"\n";
+    let cycles = |toml: &str| found(&lint(&cycle_files(), &format!("{on}{toml}")), "circular-imports");
+    assert_eq!(cycles(""), ["src/a.ts: 2 modules import each other in a cycle"]);
+    assert_eq!(
+        cycles("[js.cycles]\ndynamic-imports = true\n"),
+        [
+            "src/a.ts: 2 modules import each other in a cycle",
+            "src/c.ts: 2 modules import each other in a cycle",
+        ]
+    );
+    assert_eq!(
+        cycles("[js.cycles]\ndynamic-imports = true\nallow = [[\"./src/b.ts\", \"src/a.ts\"], [\"src/c.ts\"]]\n"),
+        ["src/c.ts: 2 modules import each other in a cycle"]
+    );
+}
+
+#[test]
+fn ignore_files_hides_files_from_unused_files_only() {
+    let mut files = two_packages("export const unusedExport = 1;\n");
+    files.push(("packages/a/src/legacy.ts", "export const old = 1;\n"));
+    files.push(("packages/b/src/orphan.ts", "export {};\n"));
+    files.push(("packages/b/src/keep.ts", "export {};\n"));
+    let before = lint(&files, "");
+    assert_eq!(
+        paths(&before, "unused-files"),
+        [
+            "packages/a/src/legacy.ts",
+            "packages/b/src/keep.ts",
+            "packages/b/src/orphan.ts"
+        ]
+    );
+    let after = lint(
+        &files,
+        "[js]\nignore-files = [\"packages/a/src/legacy.ts\", \"nowhere/**\"]\n\
+         [js.workspaces.\"packages/b\"]\nignore-files = [\"src/keep.ts\", \"src/gone.ts\"]\n",
+    );
+    assert_eq!(paths(&after, "unused-files"), ["packages/b/src/orphan.ts"]);
+    assert_eq!(
+        messages(&after),
+        [
+            "`nowhere/**` in `js.ignore-files` matched nothing",
+            "`src/gone.ts` in `js.workspaces.\"packages/b\".ignore-files` matched nothing",
+        ]
     );
 }

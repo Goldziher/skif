@@ -135,7 +135,7 @@ of it), because skif's own default is narrower. `--dependencies` and
 | knip | skif |
 | --- | --- |
 | `entry`, `project`, `ignore` | `[js] entry`, `project`, `ignore`; a `!` production suffix is kept on the pattern |
-| `ignoreFiles` | appended to `[js] ignore` (A): it then hides the files from every rule, where knip hid them from the unused files report only |
+| `ignoreFiles` | `[js] ignore-files`, and `ignore-files` of the workspace table |
 | `ignoreDependencies`, `ignoreBinaries` | `[js] ignore-dependencies`, `ignore-binaries` |
 | `ignoreUnresolved` | `[js] ignore-unresolved` (and per workspace) |
 | `ignoreMembers` | `[js] ignore-members`, or `[js.workspaces."<dir>"] ignore-members` inside a workspace |
@@ -148,10 +148,14 @@ of it), because skif's own default is narrower. `--dependencies` and
 | plugin keys (`vitest: true`, `"config.ts"`, `["a", "b"]`, `{ config, entry, project }`) | `[js.plugins]`, or `[js.workspaces."<dir>".plugins]` inside a workspace |
 | `rules`, `include`, `exclude`, and `--include`, `--exclude`, `--dependencies`, `--exports`, `--files`, `--cycles` | a level for each rule of the issue types that stay enabled, worked out as knip 6 does (the flags override the configuration; `--dependencies` also covers the catalog types and the dev dependencies; an include of only `nsExports` or `nsTypes` adds the defaults); the `exact` profile turns the others off |
 | `tags` with `-tag` | `unused-exports` option `ignore-tags` |
+| `tags` with `+tag` | `unused-exports` option `include-tags` |
+| `cycles.allow`, `cycles.dynamicImports` | `[js.cycles] allow` (A: a cycle is matched as a set of files, not as an ordered path) and `dynamic-imports` |
 | `treatConfigHintsAsErrors`, `--treat-config-hints-as-errors` | `[rules] stale-js-config = "warn"` (A), or `"error"` with `skif migrate --strict-hints`; the rule is then on and is not listed among the checks the profile turned off. skif's hints differ from knip's (they also flag entries skif never needed, such as a regular expression in `ignoreUnresolved` for an import skif does not report), so `error` could fail a project that knip passed |
 | `--no-config-hints` | `[rules] stale-js-config = "off"` |
 | `--production`, `--strict` | `[js] production = true` when every script runs knip in production mode (otherwise H), and the issue types production leaves out (`devDependencies`, `catalog`, `catalogReferences`) are turned off; knip's strict mode has no further equivalent (X) |
-| `compilers`, `asyncCompilers`, `preprocessor`, `ignoreGlobalBinaries`, `cycles` options, `+tag` | none (X): functions are never run |
+| `compilers`, `asyncCompilers`, `preprocessor` | none (X): functions are never run |
+| `ignoreGlobalBinaries` | `true` is what skif always does; `false` has no equivalent (X) |
+| `treatTagHintsAsErrors` | none (A): tag hints are part of `stale-js-config`, which `--strict-hints` makes an error |
 | `ignoreIssues` with a name that is not a knip issue type (`classMembers`) | none (X): knip 6 has no such issue type |
 | a plugin key skif has no plugin for | none (X), named in the report |
 

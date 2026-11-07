@@ -167,10 +167,20 @@ fn knip_ts_with_workspaces_plugins_and_a_non_static_value() {
         migration
             .notes
             .iter()
-            .any(|note| note.path == "ignoreFiles" && note.class == NoteClass::Approximate),
-        "ignoreFiles widens to every rule"
+            .any(|note| note.path == "ignoreFiles" && note.class == NoteClass::Exact),
+        "ignoreFiles maps to ignore-files"
     );
-    assert_eq!(class(&migration, "tags[1]"), NoteClass::Unsupported);
+    assert!(
+        migration
+            .notes
+            .iter()
+            .any(|note| note.path == "tags" && note.class == NoteClass::Exact && note.message.contains("only exports")),
+        "+public limits unused-exports to tagged exports"
+    );
+    assert_eq!(class(&migration, "treatTagHintsAsErrors"), NoteClass::Approximate);
+    assert_eq!(class(&migration, "ignoreGlobalBinaries"), NoteClass::Unsupported);
+    assert_eq!(class(&migration, "cycles.allow"), NoteClass::Approximate);
+    assert_eq!(class(&migration, "cycles.dynamicImports"), NoteClass::Exact);
     assert_eq!(class(&migration, "compilers"), NoteClass::Unsupported);
     assert_eq!(
         class(&migration, "workspaces[\"packages/*\"].mystery"),

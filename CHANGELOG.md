@@ -9,6 +9,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The `include-tags` option of `unused-exports` reports only exports and members carrying one of its tags, like knip's
+  `--tags +name`; `skif migrate` translates `+tag` to it. `stale-js-config` reports knip's tag hints: an
+  `ignore-tags` tag, or `@internal` in production mode, on an export or member that is used anyway
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `stale-js-config` reports `entry`, `project` and `ignore` patterns that match no source file, like knip's
+  `entry-empty`, `project-empty` and `ignore` configuration hints ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `[js.cycles]` with `allow` (cycles not reported) and `dynamic-imports` (count `import()` in `circular-imports`),
+  translated by `skif migrate` from knip's `cycles` ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `[js] ignore-files`, top level and per workspace: files `unused-files` never reports, which other rules still analyse.
+  `skif migrate` writes knip's `ignoreFiles` there instead of widening it to `ignore`, and `stale-js-config` reports an
+  entry that hides nothing ([#43](https://github.com/Goldziher/skif/issues/43)).
+
+### Fixed
+
+- An export tagged `@alias` is no longer reported by `unused-exports`, `unused-types` or `duplicate-exports`, as in
+  knip ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `skif migrate` no longer says skif has no tag hints or global binaries list: `treatTagHintsAsErrors` points at
+  `stale-js-config`, and `ignoreGlobalBinaries: true` is noted as what skif always does
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
+- An enum or namespace member tagged `@internal` (with `production`), `@beta`, `@alpha`, `@alias` or an `ignore-tags`
+  name is no longer reported by `unused-enum-members` or `unused-namespace-members`; only `@public` was honoured
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed

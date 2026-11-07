@@ -62,6 +62,7 @@ struct Configured {
     entry: Vec<String>,
     project: Vec<String>,
     ignore: Vec<String>,
+    ignore_files: Vec<String>,
     ignore_dependencies: Vec<String>,
     ignore_binaries: Vec<String>,
     ignore_unresolved: Vec<String>,
@@ -105,6 +106,7 @@ impl From<&JsWorkspace> for Configured {
             entry: workspace.entry.clone(),
             project: workspace.project.clone(),
             ignore: workspace.ignore.clone(),
+            ignore_files: workspace.ignore_files.clone(),
             ignore_dependencies: workspace.ignore_dependencies.clone(),
             ignore_binaries: workspace.ignore_binaries.clone(),
             ignore_unresolved: workspace.ignore_unresolved.clone(),
@@ -128,6 +130,7 @@ impl Configured {
         replace(&mut self.entry, root.entry);
         replace(&mut self.project, root.project);
         self.ignore.extend(root.ignore);
+        self.ignore_files.extend(root.ignore_files);
         self.ignore_dependencies.extend(root.ignore_dependencies);
         self.ignore_binaries.extend(root.ignore_binaries);
         self.ignore_unresolved.extend(root.ignore_unresolved);
@@ -308,6 +311,8 @@ pub(crate) struct PackageSetup {
     pub project: Globs,
     /// Files whose issues are not reported, relative to the package directory.
     pub ignore: Globs,
+    /// Files never reported unused, relative to the package directory (`ignore-files` of the workspace).
+    pub ignore_files: Globs,
     /// Dependencies and binaries plugins say are never reported.
     pub ignore_dependencies: Names,
     pub ignore_binaries: Names,
@@ -316,6 +321,9 @@ pub(crate) struct PackageSetup {
     pub user_ignore_binaries: Listed,
     pub ignore_unresolved: Listed,
     pub ignore_members: Listed,
+    /// The `entry`, `project` and `ignore` patterns the configuration gives this package (no plugin or default
+    /// ones), for the configuration hints of `stale-js-config`.
+    pub user_patterns: UserPatterns,
     /// Whether unused exports of entry files are reported (`include-entry-exports`, workspace over top level).
     pub include_entry_exports: bool,
     /// Which exports used in their own file are not reported.
@@ -338,12 +346,23 @@ pub(crate) struct PackageSetup {
     pub extensions: Vec<String>,
 }
 
+/// The `entry`, `project` and `ignore` patterns a package is configured with, as written.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct UserPatterns {
+    pub entry: Vec<String>,
+    pub project: Vec<String>,
+    pub ignore: Vec<String>,
+    pub ignore_files: Vec<String>,
+}
+
 /// Settings for the whole workspace.
 pub(crate) struct Setup {
     /// Indexed by package; `None` for packages excluded with `ignore-packages`.
     pub packages: Vec<Option<PackageSetup>>,
     /// `[js] ignore`, relative to the workspace root.
     pub global_ignore: Globs,
+    /// `[js] ignore-files`, relative to the workspace root.
+    pub global_ignore_files: Globs,
     /// Root-level `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and `ignore-members` apply to every
     /// package.
     pub global_ignore_dependencies: Listed,
@@ -362,6 +381,10 @@ pub(crate) struct Setup {
     pub used_in_file: IgnoreExportsUsedInFile,
     /// `JSDoc` tags that exempt an export from `unused-exports` and `unused-types`.
     pub ignore_tags: Vec<String>,
+    /// `JSDoc` tags an export must carry to be reported at all; empty reports every export (knip's `+tag`).
+    pub include_tags: Vec<String>,
+    /// `[js.cycles]`.
+    pub cycles: skif_config::JsCycles,
 }
 
 /// `pattern`, written relative to the package directory `dir`, relative to the workspace root instead. `None` when it
@@ -447,6 +470,8 @@ fn is_shared_pattern(pattern: &str) -> bool {
 pub(crate) struct UnusedExportsOptions {
     /// `JSDoc` tags that exempt an export.
     pub ignore_tags: Vec<String>,
+    /// `JSDoc` tags that limit the report to the exports carrying one of them.
+    pub include_tags: Vec<String>,
 }
 
 impl Setup {
@@ -460,10 +485,12 @@ impl Setup {
         let js = &config.js;
         let production = js.production;
         let ancestor_dependencies = ancestors::external_dependencies(fs.as_ref(), &workspace.root);
-        let ignore_tags = config
+        let UnusedExportsOptions {
+            ignore_tags,
+            include_tags,
+        } = config
             .rule("unused-exports")
             .and_then(|rule| skif_lint::parse_options::<UnusedExportsOptions>(&rule.options).ok())
-            .map(|options| options.ignore_tags)
             .unwrap_or_default();
         let ignore_workspaces = Listed::directories(&js.ignore_workspaces, production);
         let workspace_keys = WorkspaceKeys::new(&js.workspaces);
@@ -550,6 +577,12 @@ impl Setup {
                 project.extend(plugin.project);
             }
 
+            let user_patterns = UserPatterns {
+                entry: user.entry.clone(),
+                project: user.project.clone(),
+                ignore: user.ignore.clone(),
+                ignore_files: user.ignore_files.clone(),
+            };
             let mut ignore = user.ignore;
             ignore.extend(plugin.ignore);
             let mut ignore_dependencies = plugin.ignore_dependencies;
@@ -577,12 +610,14 @@ impl Setup {
                 entries_incomplete: plugin.entries_incomplete,
                 project: Globs::new(project),
                 ignore: Globs::new(ignore),
+                ignore_files: Globs::new(&user.ignore_files),
                 ignore_dependencies: Names::new(ignore_dependencies),
                 ignore_binaries: Names::new(ignore_binaries),
                 user_ignore_dependencies: Listed::new(&user.ignore_dependencies, production),
                 user_ignore_binaries: Listed::new(&user.ignore_binaries, production),
                 ignore_unresolved: Listed::new(&user.ignore_unresolved, production),
                 ignore_members: Listed::new(&user.ignore_members, production),
+                user_patterns,
                 include_entry_exports: user.include_entry_exports.unwrap_or(js.include_entry_exports),
                 used_in_file: user
                     .ignore_exports_used_in_file
@@ -602,6 +637,7 @@ impl Setup {
         Self {
             packages,
             global_ignore: Globs::new(&js.ignore),
+            global_ignore_files: Globs::new(&js.ignore_files),
             global_ignore_dependencies: Listed::new(&js.ignore_dependencies, production),
             global_ignore_binaries: Listed::new(&js.ignore_binaries, production),
             global_ignore_unresolved: Listed::new(&js.ignore_unresolved, production),
@@ -613,6 +649,8 @@ impl Setup {
             include_entry_exports: js.include_entry_exports,
             used_in_file: js.ignore_exports_used_in_file.clone(),
             ignore_tags,
+            include_tags,
+            cycles: js.cycles.clone(),
         }
     }
 

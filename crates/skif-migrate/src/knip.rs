@@ -209,6 +209,8 @@ struct Plan {
     exclude: Vec<String>,
     rules: Vec<(String, Level)>,
     tags: Vec<String>,
+    /// `+tag` entries: the report is limited to exports with one of these tags.
+    include_tags: Vec<String>,
     hints: Option<Level>,
     include_entry_exports: bool,
     runs: Vec<Run>,
@@ -371,22 +373,67 @@ fn read_root(state: &mut State<'_>, src: &Src, root: &str, config: &ConfigValue,
             }
             "treatTagHintsAsErrors" => {
                 if boolean(state, src, &path, item) == Some(true) {
-                    state.note(
+                    state.note_with(
                         src,
-                        NoteClass::Unsupported,
+                        NoteClass::Approximate,
                         path,
-                        "skif has no tag hints to turn into errors",
+                        "skif reports tag hints through `stale-js-config`, together with the configuration hints",
+                        "run `skif migrate --strict-hints` to make `stale-js-config` an error",
                     );
                 }
             }
-            "cycles" => state.note(
-                src,
-                NoteClass::Unsupported,
-                path,
-                "`circular-imports` has no `allow` or `dynamicImports` options; it is written at the level of the \
-                 `cycles` issue type",
-            ),
+            "cycles" => cycles(state, src, &path, item),
             _ => workspace_key(state, src, &target, key, &path, item),
+        }
+    }
+}
+
+/// `cycles`: `allow` and `dynamicImports` go to `[js.cycles]`.
+fn cycles(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue) {
+    let section = ["js".to_owned(), "cycles".to_owned()];
+    for (key, item) in entries(state, src, path, value) {
+        let key_path = join(path, key);
+        match key {
+            "dynamicImports" => {
+                if let Some(enabled) = boolean(state, src, &key_path, item) {
+                    table(&mut state.doc, &section).set("dynamic-imports", Val::Bool(enabled));
+                    state.note(
+                        src,
+                        NoteClass::Exact,
+                        key_path,
+                        "written to [js.cycles] dynamic-imports",
+                    );
+                }
+            }
+            "allow" => {
+                let ConfigValue::Array(items) = item else {
+                    state.note(src, NoteClass::Human, key_path, "expected an array of file lists");
+                    continue;
+                };
+                let mut allowed = Vec::new();
+                for (index, files) in items.iter().enumerate() {
+                    let files = string_list(state, src, &format!("{key_path}[{index}]"), files);
+                    if !files.is_empty() {
+                        allowed.push(Val::strs(files));
+                    }
+                }
+                if !allowed.is_empty() {
+                    table(&mut state.doc, &section).set("allow", Val::List(allowed));
+                    state.note(
+                        src,
+                        NoteClass::Approximate,
+                        key_path,
+                        "written to [js.cycles] allow; skif reports a cycle as the set of its files, so an entry \
+                         allows the cycle with exactly those files in any order",
+                    );
+                }
+            }
+            _ => state.note(
+                src,
+                NoteClass::Human,
+                key_path,
+                "not a knip `cycles` option (`allow`, `dynamicImports`)",
+            ),
         }
     }
 }
@@ -431,19 +478,22 @@ fn rules(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue, plan
 
 fn tags(state: &mut State<'_>, src: &Src, path: &str, list: &[String], plan: &mut Plan) {
     for (index, tag) in list.iter().enumerate() {
-        if let Some(name) = tag.strip_prefix('-') {
-            plan.tags.push(name.to_owned());
-        } else {
+        let name = tag.trim_start_matches(['-', '+']).trim_start_matches('@');
+        if name.is_empty() {
             state.note_with(
                 src,
                 NoteClass::Unsupported,
                 format!("{path}[{index}]"),
-                format!("`{tag}` limits the report to exports with that tag"),
-                "skif can only ignore exports by tag (`-tag`)",
+                format!("`{tag}` names no tag"),
+                "write the tag name, prefixed with `-` to ignore or `+` to include",
             );
+        } else if tag.starts_with('-') {
+            plan.tags.push(name.to_owned());
+        } else {
+            plan.include_tags.push(name.to_owned());
         }
     }
-    if !plan.tags.is_empty() {
+    if !plan.tags.is_empty() || !plan.include_tags.is_empty() {
         plan.origin(path.to_owned());
     }
 }
@@ -528,14 +578,7 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
         }
         "ignoreFiles" => {
             let list = string_list(state, src, path, item);
-            write_list(state, src, &js, "ignore", path, list, "");
-            state.note_with(
-                src,
-                NoteClass::Approximate,
-                path,
-                "knip hid these files from the unused files report only; skif's `ignore` hides them from every rule",
-                "none needed unless another rule should still look at them",
-            );
+            write_list(state, src, &js, "ignore-files", path, list, "");
         }
         "ignoreDependencies" | "ignoreBinaries" => {
             let list = pattern_list(state, src, path, item, true);
@@ -578,12 +621,21 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
         }
         "ignoreExportsUsedInFile" => ignore_exports_used_in_file(state, src, target, path, item),
         "ignoreIssues" => ignore_issues(state, src, target, path, item),
-        "ignoreGlobalBinaries" => state.note(
-            src,
-            NoteClass::Unsupported,
-            path,
-            "skif has no list of binaries that are assumed to be installed globally",
-        ),
+        "ignoreGlobalBinaries" => match boolean(state, src, path, item) {
+            Some(true) => state.note(
+                src,
+                NoteClass::Exact,
+                path,
+                "skif always ignores the binaries that are assumed to be installed globally, as knip does by default",
+            ),
+            Some(false) => state.note(
+                src,
+                NoteClass::Unsupported,
+                path,
+                "skif always ignores the binaries that are assumed to be installed globally; it cannot report them",
+            ),
+            None => {}
+        },
         "compilers" | "asyncCompilers" | "preprocessor" | "preprocessorOptions" => state.note_with(
             src,
             NoteClass::Unsupported,
@@ -1023,6 +1075,18 @@ fn js_settings(state: &mut State<'_>, src: &Src, plan: &Plan) {
             format!(
                 "exports tagged {} are ignored by `unused-exports`",
                 plan.tags.join(", ")
+            ),
+        );
+    }
+    if !plan.include_tags.is_empty() {
+        state.add_include_tags("unused-exports", plan.include_tags.iter().cloned());
+        state.note(
+            src,
+            NoteClass::Exact,
+            "tags",
+            format!(
+                "only exports tagged {} are reported by `unused-exports`",
+                plan.include_tags.join(", ")
             ),
         );
     }
