@@ -32,6 +32,9 @@ pub enum Enabler {
     File(&'static str),
     /// A script of the workspace contains this text (`bun test`).
     Script(&'static str),
+    /// The workspace's `package.json` has this key; a `.` separates the keys of a nested object
+    /// (`typescript.contentMapper`).
+    ManifestKey(&'static str),
 }
 
 /// The declarative row of a plugin.
