@@ -6,7 +6,8 @@
     "dependency": "react",
     "detail": "DiffersToCatalog",
     "path": "packages/web/package.json",
-    "fixable": true
+    "fixable": true,
+    "safe": true
   },
   {
     "rule": "unresolved-catalog-references",

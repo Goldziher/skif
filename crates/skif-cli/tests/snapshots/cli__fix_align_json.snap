@@ -1,0 +1,138 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: "redact(&result.stdout, dir.path())"
+---
+{
+  "version": 1,
+  "skif": "0.1.1",
+  "summary": {
+    "errors": 2,
+    "warnings": 0,
+    "infos": 0,
+    "fixable": 2,
+    "packages": 3
+  },
+  "diagnostics": [
+    {
+      "rule": "version-mismatch",
+      "severity": "error",
+      "message": "`is-number@6.0.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
+      "help": "use `7.0.0`",
+      "location": {
+        "path": "packages/a/package.json",
+        "span": {
+          "start": 87,
+          "end": 107,
+          "start-line": 6,
+          "start-col": 5,
+          "end-line": 6,
+          "end-col": 25
+        }
+      },
+      "related": [
+        {
+          "message": "`is-number@7.0.0` in @cli/b holds the version this should align with",
+          "location": {
+            "path": "packages/b/package.json",
+            "span": {
+              "start": 68,
+              "end": 88,
+              "start-line": 5,
+              "start-col": 5,
+              "end-line": 5,
+              "end-col": 25
+            }
+          }
+        }
+      ],
+      "package": "@cli/a",
+      "dependency": "is-number",
+      "specifier": "6.0.0",
+      "detail": "DiffersToHighestOrLowestSemver",
+      "fixes": [
+        {
+          "title": "Set `is-number` to `7.0.0`",
+          "safety": "unsafe"
+        }
+      ]
+    },
+    {
+      "rule": "version-mismatch",
+      "severity": "error",
+      "message": "`ms@^2.1.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
+      "help": "use `2.1.3`",
+      "location": {
+        "path": "packages/a/package.json",
+        "span": {
+          "start": 138,
+          "end": 152,
+          "start-line": 8,
+          "start-col": 5,
+          "end-line": 8,
+          "end-col": 19
+        }
+      },
+      "related": [
+        {
+          "message": "`ms@2.1.3` in @cli/b holds the version this should align with",
+          "location": {
+            "path": "packages/b/package.json",
+            "span": {
+              "start": 119,
+              "end": 132,
+              "start-line": 7,
+              "start-col": 5,
+              "end-line": 7,
+              "end-col": 18
+            }
+          }
+        }
+      ],
+      "package": "@cli/a",
+      "dependency": "ms",
+      "specifier": "^2.1.0",
+      "detail": "DiffersToHighestOrLowestSemver",
+      "fixes": [
+        {
+          "title": "Set `ms` to `2.1.3`",
+          "safety": "unsafe"
+        }
+      ]
+    }
+  ],
+  "fix": {
+    "applied": [
+      {
+        "rule": "types-in-dependencies",
+        "message": "private package has `@types/node` in `dependencies`",
+        "title": "Move the `@types/*` packages to `devDependencies`"
+      },
+      {
+        "rule": "version-mismatch",
+        "message": "`left-pad@1.0.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
+        "title": "Set `left-pad` to `1.3.0`"
+      }
+    ],
+    "skipped": [
+      {
+        "rule": "version-mismatch",
+        "message": "`is-number@6.0.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
+        "reason": "safety",
+        "detail": "needs --fix-unsafe"
+      },
+      {
+        "rule": "version-mismatch",
+        "message": "`ms@^2.1.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
+        "reason": "safety",
+        "detail": "needs --fix-unsafe"
+      }
+    ],
+    "changed": [
+      "packages/a/package.json"
+    ],
+    "install": {
+      "status": "skipped",
+      "reason": "--no-install was given"
+    }
+  }
+}

@@ -4,9 +4,11 @@ use std::path::Path;
 
 use skif_core::{Diagnostic, Fix, FixSafety, Location, Related, diagnostic};
 use skif_lint::Emitter;
+use skif_specifier::Specifier;
 
 use super::analysis::{Analysis, ConfiguredGroup};
 use super::instances::{Instance, InstanceId};
+use super::specifiers::is_compatible_upgrade;
 use super::state::{State, Verdict};
 
 /// Emits one diagnostic per non-valid instance, then one per unused group and one per unusable pin; the latter two
@@ -129,21 +131,43 @@ fn related_of(analysis: &Analysis<'_>, id: InstanceId, verdict: &Verdict) -> Opt
 
 /// The fix of a fixable state: the entry is removed when banned, and set to the chosen specifier otherwise.
 ///
-/// The specifier is written as the group chose it, never re-rendered. Changing what gets installed is unsafe.
+/// The specifier is written as the group chose it, never re-rendered. Its safety follows ADR 0051.
 fn fix_of(instance: &Instance<'_>, verdict: &Verdict) -> Option<Fix> {
     if !verdict.state.is_fixable() {
         return None;
     }
-    let (title, op) = if verdict.state == State::IsBanned {
-        (format!("Remove `{}`", instance.name), instance.remove()?)
-    } else {
-        let target = verdict.target.as_ref()?.get_raw();
+    let (title, op, safety) = if verdict.state == State::IsBanned {
         (
-            format!("Set `{}` to `{target}`", instance.name),
-            instance.set_specifier(target)?,
+            format!("Remove `{}`", instance.name),
+            instance.remove()?,
+            FixSafety::Unsafe,
+        )
+    } else {
+        let target = verdict.target.as_ref()?;
+        (
+            format!("Set `{}` to `{}`", instance.name, target.get_raw()),
+            instance.set_specifier(target.get_raw())?,
+            alignment_safety(instance, verdict.state, target),
         )
     };
-    Some(Fix::new(title, FixSafety::Unsafe, vec![op]))
+    Some(Fix::new(title, safety, vec![op]))
+}
+
+/// How safe rewriting `instance` to `target` is (ADR 0051).
+///
+/// A pin is a version the configuration names, so moving to it is safe. A version the workspace decides (the highest
+/// or lowest in use, the version of a snap target or of the workspace package) is safe only as a compatible upgrade
+/// that keeps the specifier's shape. Range changes and the fixes of policy conflicts change what a configuration
+/// asked for, and stay unsafe.
+fn alignment_safety(instance: &Instance<'_>, state: State, target: &Specifier) -> FixSafety {
+    let safe = match state {
+        State::DiffersToPin => true,
+        State::DiffersToHighestOrLowestSemver | State::DiffersToSnapTarget | State::DiffersToLocal => {
+            is_compatible_upgrade(&instance.specifier, target)
+        }
+        _ => false,
+    };
+    if safe { FixSafety::Safe } else { FixSafety::Unsafe }
 }
 
 /// A finding about a configured version group, located in the configuration file.
