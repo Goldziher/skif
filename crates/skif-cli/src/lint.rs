@@ -16,6 +16,7 @@ use skif_report::{escape_controls, render_json_with};
 use crate::args::{Format, LintArgs, Select};
 use crate::env::{Env, github_workspace};
 use crate::error::{CliError, Kind};
+use crate::explain;
 use crate::filter::{self, Filter};
 use crate::fix::{self, FixRun, RootFix};
 use crate::install::{self, InstallStatus};
@@ -31,7 +32,11 @@ const COULD_NOT_RUN: u8 = 2;
 /// Runs the lint command and returns the process exit code.
 pub fn run(args: &LintArgs, env: Env) -> u8 {
     let trace = Trace::start(args);
-    let code = match execute(args, env) {
+    let result = match &args.trace_dependency {
+        Some(name) => explain::trace_dependency(args, name).map(|()| CLEAN),
+        None => execute(args, env),
+    };
+    let code = match result {
         Ok(code) => code,
         Err(error) => {
             emit_error(&error, args.format());
@@ -81,7 +86,7 @@ fn repo_root(root: &Path) -> Option<PathBuf> {
         })
 }
 
-fn overrides(args: &LintArgs) -> ConfigOverrides {
+pub(crate) fn overrides(args: &LintArgs) -> ConfigOverrides {
     ConfigOverrides::default()
         .with_rules(args.rules.iter().cloned())
         .with_ignore_rules(args.ignore_rule.clone())
@@ -110,7 +115,7 @@ fn require_reasons(config: &Config) -> Result<(), CliError> {
 }
 
 /// The flags that are not plain configuration overrides, applied over a loaded configuration.
-fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
+pub(crate) fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
     // Before the flags add entries of their own, which have nowhere to carry a reason.
     if args.require_ignore_reasons {
         require_reasons(config)?;

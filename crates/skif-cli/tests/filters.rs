@@ -220,3 +220,23 @@ fn run_diagnostics_go_to_stderr() {
     assert!(traced.stderr.contains("skif: peak memory"), "{}", traced.stderr);
     assert!(!plain.stderr.contains("skif"), "{}", plain.stderr);
 }
+
+#[test]
+fn trace_dependency_lists_manifests_imports_and_users() {
+    let dir = fixture("filters");
+    let human = run(skif().args(["--trace-dependency", "left-pad"]).arg(dir.path()));
+    assert_eq!(human.code, 0, "{}{}", human.stdout, human.stderr);
+    insta::assert_snapshot!("trace_left_pad_human", redact(&human.stdout, dir.path()));
+
+    let (result, unused) = lint_json(&["--trace-dependency", "is-number"]);
+    assert_eq!(result.code, 0);
+    let trace = &unused["traces"][0];
+    assert_eq!(trace["root"], ".");
+    assert_eq!(trace["listed-in"][0]["manifest"], "packages/a/package.json");
+    assert_eq!(trace["imported-by"], Value::Array(Vec::new()));
+    assert_eq!(trace["used-by"], Value::Array(Vec::new()));
+
+    let (result, error) = lint_json(&["--trace-dependency", "left-pad", "--fix"]);
+    assert_eq!(result.code, 2);
+    assert_eq!(error["error"]["kind"], "usage", "{error:#}");
+}
