@@ -14,6 +14,8 @@ All notable changes to this project are documented here. The format follows
 - `unlisted-dependencies` no longer reports packages that a test only mocks (`vi.mock("x")`, `jest.mock("x")`),
   and mock calls are read from the syntax tree, so module names inside strings and template literals are no longer
   imports; `{ virtual: true }` mocks are ignored ([#16](https://github.com/Goldziher/skif/issues/16)).
+- Imports inside `declare module "x" { ... }` bodies now count as uses of the packages they name, so those
+  packages are no longer reported as unused ([#20](https://github.com/Goldziher/skif/issues/20)).
 
 ## [0.1.1] - 2026-11-07
 
