@@ -8,12 +8,12 @@ use globset::{Glob, GlobBuilder, GlobMatcher};
 use indexmap::IndexMap;
 use skif_config::{Config, IgnoreExportsUsedInFile, JsWorkspace, PackageJs};
 use skif_core::FileSystem;
-use skif_js_syntax::{Export, ExportKind};
+use skif_js_syntax::{Export, ExportKind, Registration};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::ancestors;
 use crate::globs::{Globs, Names};
-use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
+use crate::input::{BuildDir, CustomElementLibrary, InputRequest, InputSource, PathAlias, WorkspaceInputs};
 use crate::listed::{self, Listed};
 use crate::scripts::{self, ScriptBinary, ScriptFacts};
 
@@ -336,6 +336,8 @@ pub(crate) struct PackageSetup {
     pub module_dirs: Vec<String>,
     /// File extensions (with the leading dot) imports may omit, from bundler `resolve.extensions`.
     pub extensions: Vec<String>,
+    /// Custom element libraries of the enabled plugins, whose registered classes are used.
+    pub custom_elements: Vec<CustomElementLibrary>,
 }
 
 /// Settings for the whole workspace.
@@ -596,6 +598,7 @@ impl Setup {
                 conditions: plugin.conditions,
                 module_dirs: plugin.module_dirs,
                 extensions: plugin.extensions,
+                custom_elements: plugin.custom_elements,
             })
         });
         forward_workspace_binaries(&mut packages, workspace);
@@ -677,6 +680,24 @@ impl Setup {
     pub(crate) fn ignores_in_file_use(&self, id: PackageId, export: &Export) -> bool {
         let setting = self.package(id).map_or(&self.used_in_file, |setup| &setup.used_in_file);
         ignores_in_file_use(setting, export)
+    }
+
+    /// Whether `export` of a module of package `id` is a registered custom element (ADR 0053):
+    /// `customElements.define` always counts, a decorator or base class only when it comes from the library of a
+    /// plugin enabled for the package.
+    pub(crate) fn is_registered(&self, id: PackageId, export: &Export) -> bool {
+        let libraries = self
+            .package(id)
+            .map_or(&[][..], |setup| setup.custom_elements.as_slice());
+        export.registrations.iter().any(|registration| match registration {
+            Registration::Define => true,
+            Registration::Decorator { module, name } => libraries
+                .iter()
+                .any(|library| library.decorator == *name && library.is_module(module)),
+            Registration::BaseClassDefine { module, name } => libraries
+                .iter()
+                .any(|library| library.base_class.as_deref() == Some(name.as_str()) && library.is_module(module)),
+        })
     }
 }
 

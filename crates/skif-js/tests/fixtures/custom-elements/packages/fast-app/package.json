@@ -1,0 +1,8 @@
+{
+  "name": "fast-app",
+  "private": true,
+  "main": "src/index.ts",
+  "dependencies": {
+    "@microsoft/fast-element": "^2.0.0"
+  }
+}
