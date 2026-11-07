@@ -98,7 +98,8 @@ url = "https://github.com/mastra-ai/mastra.git"
 rev = "01524b22db5adb7dfdfe4950190918202338d9bd"
 package-manager = "pnpm"
 suites = ["parity"]
-notes = "Large pnpm workspace with many exports."
+recursive = true
+notes = "Large pnpm workspace with many exports. templates/* and examples/* are standalone projects (nested roots), so skif runs recursively to read the files knip reads from the root."
 
 [[repo]]
 name = "rushstack"
@@ -150,4 +151,5 @@ url = "https://github.com/vercel/next.js.git"
 rev = "e8ec2aed9266e4550789c78749d4de6297e66d5d"
 package-manager = "pnpm"
 suites = ["parity"]
-notes = "Largest tree of the corpus."
+recursive = true
+notes = "Largest tree of the corpus. examples/* and many test apps are standalone projects (nested roots), so skif runs recursively to read the files knip reads from the root."
