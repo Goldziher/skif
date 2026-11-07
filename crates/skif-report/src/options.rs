@@ -1,5 +1,6 @@
 //! Caller-supplied rendering configuration.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -65,13 +66,13 @@ impl RenderOptions {
     /// The report does not carry source text; without this, frames are skipped.
     #[must_use]
     pub fn with_source(mut self, path: impl AsRef<Path>, text: impl Into<String>) -> Self {
-        let key = relativize(path.as_ref(), self.root.as_deref());
+        let key = relativize(path.as_ref(), self.root.as_deref()).into_owned();
         self.sources.insert(key, Source::new(text.into()));
         self
     }
 
     /// Path as displayed: relative to the root, with `/` separators.
-    pub(crate) fn display_path(&self, path: &Path) -> String {
+    pub(crate) fn display_path<'a>(&self, path: &'a Path) -> Cow<'a, str> {
         relativize(path, self.root.as_deref())
     }
 
@@ -83,12 +84,12 @@ impl RenderOptions {
             (Some(root), Some(repo)) if !is_absolute_text(&shown) => {
                 let prefix = relativize(root, Some(repo));
                 if is_absolute_text(&prefix) || prefix.is_empty() || prefix == "." {
-                    shown
+                    shown.into_owned()
                 } else {
                     collapse_dots(&format!("{prefix}/{shown}"))
                 }
             }
-            _ => shown,
+            _ => shown.into_owned(),
         }
     }
 
