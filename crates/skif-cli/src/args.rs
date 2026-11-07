@@ -35,6 +35,86 @@ pub enum Command {
     ExplainUsage(ExplainUsageArgs),
     /// Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file.
     Migrate(MigrateArgs),
+    /// List every dependency the version groups govern, by version group, with its specifiers and states.
+    List(ListArgs),
+    /// Print every dependency instance the version groups govern as one JSON object per line (NDJSON).
+    Json(InstancesArgs),
+}
+
+/// What `skif list` and `skif json` read.
+#[derive(Debug, clap::Args)]
+pub struct InstancesArgs {
+    /// A path inside a project, resolved to its workspace root as for linting.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+
+    /// Cover every workspace and standalone package at or below PATH, each with its own configuration.
+    #[arg(short, long)]
+    pub recursive: bool,
+
+    /// Use this configuration file (and the files it extends) instead of discovering `skif.toml` files.
+    #[arg(long, value_name = "FILE", conflicts_with = "no_config")]
+    pub config: Option<PathBuf>,
+
+    /// Read no configuration file: the defaults plus the flags.
+    #[arg(long)]
+    pub no_config: bool,
+
+    #[command(flatten)]
+    pub filter: FilterArgs,
+}
+
+/// syncpack's instance filters: what the version-group policies see in this run.
+#[derive(Debug, Default, clap::Args)]
+pub struct FilterArgs {
+    /// Only the dependencies whose name matches this name or glob (`react`, `@types/**`, `!eslint`), in the
+    /// version-group policies. Repeatable.
+    #[arg(long, value_name = "NAME")]
+    pub dependencies: Vec<String>,
+
+    /// Only these dependency types (`prod,dev`, `peer`, `!local`, a custom type), in the version-group policies; also
+    /// their default scope for this run. Comma separated.
+    #[arg(long, value_name = "TYPES", value_delimiter = ',')]
+    pub dependency_types: Vec<String>,
+
+    /// Only instances with these specifier types (`exact,range`, `!workspace-protocol`), in the version-group
+    /// policies. Comma separated.
+    #[arg(long, value_name = "TYPES", value_delimiter = ',')]
+    pub specifier_types: Vec<String>,
+
+    /// Only instances declared in files matching this glob, relative to the root (`packages/app/package.json`), in
+    /// the version-group policies. Repeatable.
+    #[arg(long, value_name = "GLOB")]
+    pub source: Vec<String>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ListArgs {
+    #[command(flatten)]
+    pub instances: InstancesArgs,
+
+    /// What to show, comma separated: `instances` (every instance of each dependency), `statuses` (the state names),
+    /// `hints` (mark dependencies that are workspace packages), `ignored` (the dependencies of `ignored` groups),
+    /// `all` or `none`.
+    #[arg(long, value_enum, value_delimiter = ',', default_value = "hints,statuses")]
+    pub show: Vec<Show>,
+}
+
+/// The details `skif list --show` turns on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Show {
+    /// Every instance of every dependency.
+    Instances,
+    /// The state of each dependency and instance.
+    Statuses,
+    /// A mark on dependencies that are packages of the workspace.
+    Hints,
+    /// The dependencies of `ignored` version groups.
+    Ignored,
+    /// Everything above.
+    All,
+    /// Nothing above.
+    None,
 }
 
 #[derive(Debug, clap::Args)]
@@ -252,6 +332,11 @@ pub struct LintArgs {
     #[arg(long)]
     pub fix_unsafe: bool,
 
+    /// With --fix or --fix-unsafe: print the planned changes as a unified diff (JSON: the `fix` object with
+    /// `changes`) and write nothing; no install runs.
+    #[arg(long)]
+    pub dry_run: bool,
+
     /// Which version a version alignment fix targets, overriding `[policy] prefer` for this run.
     #[arg(long, value_enum)]
     pub select: Option<Select>,
@@ -315,12 +400,20 @@ pub struct LintArgs {
     /// When to colour human output.
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     pub color: ColorChoice,
+
+    #[command(flatten)]
+    pub filter: FilterArgs,
 }
 
 impl LintArgs {
     /// Whether any fixing flag was given.
     pub const fn fixing(&self) -> bool {
         self.fix || self.fix_unsafe
+    }
+
+    /// Whether fixes are planned and shown but not written.
+    pub const fn dry_run(&self) -> bool {
+        self.dry_run && self.fixing()
     }
 
     pub fn format(&self) -> Format {

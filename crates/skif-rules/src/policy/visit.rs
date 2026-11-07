@@ -64,6 +64,20 @@ impl<'a, 'w> Visitor<'a, 'w> {
             Policy::SameMinor => self.same_minor(ids),
             Policy::SnappedTo(packages) => self.snapped_to(ids, packages),
             Policy::PreferredSemver(prefer) => self.preferred_semver(ids, *prefer),
+            Policy::SemverRangeOnly => self.semver_range_only(ids),
+        }
+    }
+
+    /// syncpack's `semverRangeOnly`: the versions may differ, and each instance only has to use the range its semver
+    /// group asks for. A package's own version has no range to check.
+    fn semver_range_only(&mut self, ids: &[InstanceId]) {
+        for id in self.members(ids) {
+            if self.is_own_version(id) || self.matches_preferred(id) || self.spec(id).get_node_version().is_none() {
+                continue;
+            }
+            if let Some(corrected) = self.with_preferred(id) {
+                self.mark(id, State::SemverRangeMismatch, Some(corrected));
+            }
         }
     }
 

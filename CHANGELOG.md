@@ -9,6 +9,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `skif list` and `skif json` show every dependency instance the version groups and the catalog govern, with its
+  version group, specifier and state, as syncpack's `list` and `json` do; `json` prints one object per line with
+  syncpack's `statusCode` names ([#35](https://github.com/Goldziher/skif/issues/35)).
+- `--dry-run` with `--fix` or `--fix-unsafe` prints the planned changes as a unified diff and writes nothing; with
+  `--format json` the `fix` object carries the plan's `changes` and their diffs
+  ([#35](https://github.com/Goldziher/skif/issues/35)).
+- `--dependencies`, `--dependency-types`, `--specifier-types` and `--source` narrow the version-group policies of a
+  lint run, `skif list` and `skif json` to the instances they select, as syncpack's filters do
+  ([#35](https://github.com/Goldziher/skif/issues/35)).
+- The `semver-range-only` version-group policy: versions may differ and only the range the semver groups require is
+  checked and fixed. `skif migrate` writes it for syncpack's `semverRangeOnly`, which it used to turn into `ignored`,
+  dropping the range check ([#35](https://github.com/Goldziher/skif/issues/35)).
+- The `name~version` custom type strategy reads the dependency name from `name-path` and the version from `path`;
+  `skif migrate` translates syncpack's `name~version` custom types ([#35](https://github.com/Goldziher/skif/issues/35)).
+- The `packages` of `lerna.json` declare the workspace members when nothing else does, and its `npmClient` names the
+  package manager, as syncpack reads them ([#35](https://github.com/Goldziher/skif/issues/35)).
+- [ADR 0050](adrs/0050-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md) records these
+  additions and what of syncpack stays out: per-group and per-state severity, `dependencyGroups`, a scoped `catalog`
+  policy, custom type `source`, catalog entries as instances, `.x` ranges and `--log-levels`.
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed

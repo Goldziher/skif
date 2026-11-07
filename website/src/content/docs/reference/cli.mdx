@@ -11,6 +11,8 @@ skif init [PATH]
 skif config [PATH] [-r] (--show | --explain <KEY> [--package <NAME>]) [--format human|json]
 skif explain-usage <FILE[#EXPORT]> [PATH]
 skif migrate [PATH] [--from sherif|syncpack|knip|auto,...] [--profile exact|full] [--merge | --force] [--dry-run]
+skif list [PATH] [-r] [--show instances,statuses,hints,ignored,all,none] [FILTERS]
+skif json [PATH] [-r] [FILTERS]
 ```
 
 `skif [PATH]` lints the project containing `PATH` (default `.`). The root is resolved in this order:
@@ -43,6 +45,8 @@ another root. `--fix` plans, writes and installs per root.
 | `skif config [PATH]` | Show how the configuration of the root at `PATH` was built (see below). |
 | `skif explain-usage <FILE[#EXPORT]> [PATH]` | Explain why the JavaScript analysis counts a file, or one export of it, as used (see below). |
 | `skif migrate [PATH]` | Translate the configuration of sherif, syncpack and knip into a `skif.toml` (see below). |
+| `skif list [PATH]` | List every dependency the version groups and the catalog govern, by version group, with its specifiers and states (see below). |
+| `skif json [PATH]` | Print every dependency instance the version groups and the catalog govern as one JSON object per line (see below). |
 
 ## Flags
 
@@ -53,6 +57,8 @@ another root. `--fix` plans, writes and installs per root.
 | `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires `--format`. |
 | `--fix` | Apply safe fixes, lint again, then run the package manager's install command. |
 | `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. |
+| `--dependencies`, `--dependency-types`, `--specifier-types`, `--source` | Narrow the version-group policies to some instances (see [Filtering instances](#filtering-instances)). |
+| `--dry-run` | With `--fix` or `--fix-unsafe`: plan the fixes and print them as a unified diff, write nothing and run no install (see [Fixing](#fixing)). |
 | `--select <highest\|lowest>` | Which version a version alignment fix targets, overriding `[policy] prefer` for this run. |
 | `--no-install` | Do not run the package manager after fixing. |
 | `--no-prompt` | Never ask which alternative fix to apply; the diagnostic stays unfixed unless `--select` decides. |
@@ -131,6 +137,54 @@ the old tools stays where it is. The [migration guide](../../guides/migrating/) 
 Exit `0` when the file was produced (also when notes need a human, unless `--strict`), `1` with `--strict` and such notes,
 `2` when a configuration cannot be read or the output cannot be written.
 
+## Listing instances
+
+`skif list [PATH]` and `skif json [PATH]` show every dependency instance the version groups and the catalog govern,
+valid or not, as syncpack's `list` and `json` do. The root is resolved as for linting, `-r` covers every root below
+`PATH`, and `--config` and `--no-config` work as for linting. Instances are ordered by version group (the configured
+groups in order, then the default group, then the catalog), then dependency name, then where they are declared.
+Instances outside the default scope (`[policy] dependency-types`) that no group names are not listed.
+
+The state of an instance is the one a lint run gives it: the syncpack state name of the
+[version and catalog policies](../configuration/#version-groups), including the valid states (`IsHighestOrLowestSemver`,
+`IsIdenticalToPin`, `IsLocalAndValid`, `IsCatalog`, `IsIgnored`, ...). skif's own names are `UnusedGroup`,
+`InvalidPin`, `DiffersToOtherCatalog` and `IsIdenticalToCatalog` (a plain version the catalog rules leave alone).
+An instance a rule reports carries that rule and its severity; a state whose rule is off, or which an `[[ignore]]`
+entry silences, has none. Workspace-protocol and dependency-family findings are left to the lint run.
+
+`skif list` prints one line per dependency under a heading per version group: the worst severity (`ok` when every
+instance is valid, `-` when a state is not reported), the name and the distinct specifiers. `--show` takes a comma
+separated list: `instances` adds a line per instance, `statuses` the state names, `hints` marks dependencies that
+are workspace packages, `ignored` lists the dependencies of `ignored` groups, `all` and `none` set everything.
+The default is `hints,statuses`.
+
+`skif json` prints one object per instance with `dependency`, `dependencyType` (`prod`, `dev`, `peer`, `optional`,
+`local`, `resolutions`, `overrides`, `pnpm-overrides` or a custom type), `property`, `package` (the file, relative
+to the root), `packageName`, `versionGroup` (syncpack's name: `HighestSemver`, `LowestSemver`, `Pinned`, `Banned`,
+`Ignored`, `SameRange`, `SameMinor`, `SnappedTo` or `Catalog`), `versionGroupIndex`, `versionGroupLabel`,
+`preferredSemverRange`, `statusCode`, `statusType` (`Valid`, `Fixable`, `Unfixable`, `Conflict` or `Suspect`),
+`rule`, `severity`, `isLocal`, `actual` and `expected` (each `{ "raw", "type" }`, `expected` `null` when unknown).
+
+Both exit `1` when an instance is reported at `error` severity, `0` otherwise, and `2` when skif could not run.
+
+## Filtering instances
+
+`skif`, `skif list` and `skif json` take syncpack's instance filters. An instance that does not pass is left out
+before it is assigned to a version group, so it is neither reported nor aligned with: `--source
+packages/app/package.json` checks that package's instances against each other only, as syncpack does.
+
+| Flag | Keeps |
+| --- | --- |
+| `--dependencies <NAME>` | Dependencies whose name matches the name or glob (`react`, `@types/**`, `!eslint`, `$LOCAL`). Repeatable. |
+| `--dependency-types <TYPES>` | These dependency types, comma separated (`prod,dev`, `!local`, a `[[custom-types]]` name). The list also replaces `[policy] dependency-types` as the scope of the default group for the run, so `--dependency-types peer` checks peer ranges. |
+| `--specifier-types <TYPES>` | These specifier types, comma separated (`exact`, `range`, `!workspace-protocol`; the values of `specifier-types` selectors). |
+| `--source <GLOB>` | Instances declared in files matching the glob, relative to the root (`packages/*/package.json`, `pnpm-workspace.yaml`). Repeatable. Unlike syncpack's `--source`, it does not change which packages make up the workspace. |
+
+The filters apply to the version-group and semver-group rules (`version-mismatch`, `banned-dependency`,
+`semver-range-mismatch`, `policy-conflict`, `invalid-local-version`) and to the listing; the catalog, workspace
+protocol, family and manifest rules see the whole workspace. A configured group that the filters leave without
+instances is not reported as unused.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -163,6 +217,11 @@ the error goes to stdout.
    remain after fixing.
 4. Runs the detected package manager's `install` in the workspace root, unless `--no-install` was given, no file
    changed, or no package manager was detected. If the install fails the fixes stay written and the exit code is `2`.
+
+`--dry-run` stops after step 1: human output shows `Would fix ...` and a unified diff per file before the report of
+the unchanged tree, and `--format json` adds `"dry-run": true` and a `changes` array (`path`, `kind` `modify`,
+`create` or `delete`, and `diff`) to the `fix` object. The exit code is the one of the unchanged tree. A dry run is
+allowed in CI.
 
 skif's own process never opens a network connection and never resolves a version. The only network traffic comes
 from your package manager during the install step.

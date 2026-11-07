@@ -114,7 +114,7 @@ fn syncpack_yaml_with_custom_types_and_groups() {
 
     assert_eq!(class(&migration, "customTypes.engines"), NoteClass::Exact);
     assert_eq!(class(&migration, "customTypes.optional"), NoteClass::Exact);
-    assert_eq!(class(&migration, "customTypes.localish"), NoteClass::Unsupported);
+    assert_eq!(class(&migration, "customTypes.localish"), NoteClass::Exact);
     assert_eq!(
         class(&migration, "versionGroups[5]"),
         NoteClass::Exact,
@@ -133,7 +133,12 @@ fn syncpack_yaml_with_custom_types_and_groups() {
         NoteClass::Human
     );
     assert!(migration.needs_human());
-    assert_eq!(migration.config.version_groups.len(), 7);
+    assert_eq!(migration.config.version_groups.len(), 8);
+    assert_eq!(
+        migration.config.version_groups[7].policy,
+        skif_config::VersionPolicy::SemverRangeOnly,
+        "semverRangeOnly keeps its range check"
+    );
     assert_eq!(migration.config.semver_groups.len(), 3);
 }
 
@@ -540,7 +545,7 @@ fn a_catalog_policy_group_does_not_widen_to_every_dependency() {
 #[test]
 fn a_group_that_only_covers_a_type_skif_cannot_read_is_not_written() {
     let config = r#"{
-      "customTypes": { "odd": { "path": "name", "namePath": "x", "strategy": "name~version" } },
+      "customTypes": { "odd": { "path": "x", "strategy": "version", "source": ["other.json"] } },
       "versionGroups": [{ "dependencyTypes": ["odd"], "isBanned": true }]
     }"#;
     let migration = syncpack(config, Profile::Full);

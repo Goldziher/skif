@@ -846,3 +846,134 @@ fn lint_to_json_classifies_its_errors() {
     assert_eq!(broken.kind, skif_cli::Kind::Config);
     assert!(broken.path.is_some_and(|path| path.ends_with("skif.toml")));
 }
+
+#[test]
+fn list_shows_every_instance_by_version_group_and_exits_one_on_errors() {
+    let dir = fixture("mismatch");
+    let result = run(skif().args(["list", "--show", "all"]).arg(dir.path()));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    insta::assert_snapshot!("list_human", redact(&result.stdout, dir.path()));
+
+    let ok = run(skif()
+        .args(["list", "--show", "none", "--config"])
+        .arg(dir.path().join("skif.toml"))
+        .arg(dir.path().join("packages").join("a")));
+    assert_eq!(ok.code, 1, "a member path lists its workspace: {}", ok.stdout);
+}
+
+#[test]
+fn json_prints_one_instance_per_line_with_syncpack_status_codes() {
+    let dir = fixture("mismatch");
+    let result = run(skif().arg("json").arg(dir.path()));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    let lines: Vec<Value> = result
+        .stdout
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let is_number: Vec<(&str, &str, &str)> = lines
+        .iter()
+        .filter(|line| line["dependency"] == "is-number")
+        .map(|line| {
+            (
+                line["package"].as_str().unwrap(),
+                line["statusCode"].as_str().unwrap(),
+                line["statusType"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        is_number,
+        [
+            ("packages/a/package.json", "IsHighestOrLowestSemver", "Valid"),
+            ("packages/b/package.json", "DiffersToHighestOrLowestSemver", "Fixable"),
+        ]
+    );
+    insta::assert_snapshot!("json_instances", redact(&result.stdout, dir.path()));
+
+    fs::write(
+        dir.path().join("skif.toml"),
+        "[js]\nenabled = false\n\n[rules]\nversion-mismatch = \"warn\"\n",
+    )
+    .unwrap();
+    let warned = run(skif().arg("json").arg(dir.path()));
+    assert_eq!(warned.code, 0, "warnings alone do not fail: {}", warned.stdout);
+    assert!(warned.stdout.contains(r#""severity":"warning""#), "{}", warned.stdout);
+}
+
+#[test]
+fn dry_run_shows_the_fix_plan_and_writes_nothing() {
+    let dir = fixture("mismatch");
+    let before = tree(dir.path());
+    let human = run(skif()
+        .args(["--fix-unsafe", "--no-prompt", "--dry-run"])
+        .arg(dir.path()));
+    assert_eq!(human.code, 1, "the report is of the unchanged tree: {}", human.stderr);
+    assert_eq!(tree(dir.path()), before);
+    insta::assert_snapshot!("fix_dry_run_human", redact(&human.stdout, dir.path()));
+
+    let json = run(skif()
+        .args(["--fix-unsafe", "--dry-run", "--format", "json"])
+        .env("CI", "true")
+        .arg(dir.path()));
+    assert_eq!(json.code, 1, "a dry run is not refused in CI: {}", json.stdout);
+    assert_eq!(tree(dir.path()), before);
+    let fix = &json.json()["fix"];
+    assert_eq!(fix["dry-run"], true);
+    assert_eq!(fix["install"]["reason"], "--dry-run was given");
+    insta::assert_snapshot!("fix_dry_run_json", serde_json::to_string_pretty(fix).unwrap());
+
+    let alone = run(skif().args(["--dry-run", "--format", "json"]).arg(dir.path()));
+    assert_eq!(alone.code, 2);
+    assert_eq!(alone.json()["error"]["kind"], "usage");
+}
+
+#[test]
+fn instance_filters_narrow_the_version_group_policies() {
+    let dir = fixture("mismatch");
+    fs::write(
+        dir.path().join("skif.toml"),
+        "[js]\nenabled = false\n\n[[version-groups]]\ndependencies = [\"left-pad\"]\npolicy = \"pinned\"\npin = \"1.3.0\"\n",
+    )
+    .unwrap();
+    let all = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert_eq!(
+        rule_ids(&all.json()),
+        BTreeSet::from(["policy-conflict".to_owned(), "version-mismatch".to_owned()])
+    );
+
+    let named = run(skif()
+        .args(["--format", "json", "--dependencies", "is-*"])
+        .arg(dir.path()));
+    assert_eq!(
+        rule_ids(&named.json()),
+        BTreeSet::from(["version-mismatch".to_owned()]),
+        "a group the filter empties is not reported as unused"
+    );
+
+    let one_file = run(skif()
+        .args(["--format", "json", "--source", "packages/b/package.json"])
+        .arg(dir.path()));
+    assert_eq!(one_file.code, 0, "nothing is left to align with: {}", one_file.stdout);
+
+    let listed = run(skif()
+        .args(["json", "--specifier-types", "exact", "--dependency-types", "prod"])
+        .arg(dir.path()));
+    let dependencies: BTreeSet<String> = listed
+        .stdout
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<Value>(line).unwrap()["dependency"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(dependencies, BTreeSet::from(["is-number".to_owned()]));
+
+    let unknown = run(skif()
+        .args(["--format", "json", "--dependency-types", "engines"])
+        .arg(dir.path()));
+    assert_eq!(unknown.code, 2);
+    assert_eq!(unknown.json()["error"]["kind"], "usage");
+}

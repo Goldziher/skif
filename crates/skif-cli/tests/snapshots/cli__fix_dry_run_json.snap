@@ -1,0 +1,29 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: "serde_json::to_string_pretty(fix).unwrap()"
+---
+{
+  "applied": [
+    {
+      "rule": "version-mismatch",
+      "message": "`is-number@6.0.0` in `dependencies` of @cli/b differs from the version the workspace aligns on",
+      "title": "Set `is-number` to `7.0.0`"
+    }
+  ],
+  "skipped": [],
+  "changed": [
+    "packages/b/package.json"
+  ],
+  "install": {
+    "status": "skipped",
+    "reason": "--dry-run was given"
+  },
+  "dry-run": true,
+  "changes": [
+    {
+      "path": "packages/b/package.json",
+      "kind": "modify",
+      "diff": "--- a/packages/b/package.json\n+++ b/packages/b/package.json\n@@ -2,6 +2,6 @@\n   \"name\": \"@cli/b\",\n   \"version\": \"0.0.0\",\n   \"dependencies\": {\n-    \"is-number\": \"6.0.0\"\n+    \"is-number\": \"7.0.0\"\n   }\n }\n"
+    }
+  ]
+}

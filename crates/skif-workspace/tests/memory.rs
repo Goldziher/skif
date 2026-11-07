@@ -1285,3 +1285,42 @@ fn yarn_berry_files_identify_yarn_when_nothing_stronger_does() {
     .unwrap();
     assert_eq!(lockfile.package_manager, Some(PackageManager::Npm));
 }
+
+const LERNA: &str = r#"{
+  "version": "independent",
+  "npmClient": "yarn",
+  "packages": ["packages/*", "tools/gone/*"]
+}
+"#;
+
+#[test]
+fn lerna_json_declares_the_members_and_the_package_manager_when_nothing_else_does() {
+    let files = [
+        ("package.json", r#"{"name":"root","private":true}"#),
+        ("lerna.json", LERNA),
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+        ("packages/b/package.json", r#"{"name":"b"}"#),
+        ("other/c/package.json", r#"{"name":"c"}"#),
+    ];
+    let workspace = discover(&files, &Config::default()).unwrap();
+    assert_eq!(workspace.facts.source, WorkspaceSource::LernaJson);
+    assert_eq!(workspace.package_manager, Some(PackageManager::Yarn));
+    assert_eq!(dirs(&workspace), ["packages/a", "packages/b"]);
+    let fact = &workspace.facts.patterns[1];
+    assert_eq!((fact.file.as_path(), fact.matched), (Path::new("lerna.json"), 0));
+    let span = fact.span.unwrap();
+    assert_eq!(&LERNA[span.start as usize..span.end as usize], "\"tools/gone/*\"");
+
+    let with_workspaces = [
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["other/*"]}"#,
+        ),
+        ("lerna.json", LERNA),
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+        ("other/c/package.json", r#"{"name":"c"}"#),
+    ];
+    let workspace = discover(&with_workspaces, &Config::default()).unwrap();
+    assert_eq!(workspace.facts.source, WorkspaceSource::PackageJsonWorkspaces);
+    assert_eq!(dirs(&workspace), ["other/c"]);
+}
