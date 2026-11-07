@@ -49,7 +49,7 @@ another root. `--fix` plans, writes and installs per root.
 | Flag | Meaning |
 | --- | --- |
 | `-r`, `--recursive` | Lint every workspace and standalone package at or below `PATH` in one run, instead of only the project containing `PATH`. |
-| `--format <human\|json\|sarif\|github>` | Output format. Default `human`, or `human` plus GitHub annotations when `GITHUB_ACTIONS=true`. |
+| `--format <human\|json\|sarif\|github\|codeclimate\|compact\|markdown\|disclosure\|codeowners>` | Output format. Default `human`, or `human` plus GitHub annotations when `GITHUB_ACTIONS=true`. |
 | `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires `--format`. |
 | `--fix` | Apply safe fixes, lint again, then run the package manager's install command. |
 | `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. |
@@ -147,6 +147,11 @@ Exit `0` when the file was produced (also when notes need a human, unless `--str
 | `json` | One versioned document with `version`, `summary` and `diagnostics`; a multi-root run adds a `roots` array with each root's `path`, `packages` and `summary`. Each diagnostic has rule, severity, message, location with line and column span, related locations and fix titles. |
 | `sarif` | SARIF 2.1.0 for code scanning. |
 | `github` | GitHub Actions workflow-command annotations. |
+| `codeclimate` | A Code Climate JSON array for GitLab Code Quality: one issue per diagnostic with `description`, `check_name` (the rule), `fingerprint`, `severity` and `location` (`path`, `lines.begin`). Errors are `major`, warnings `minor` and infos `info`. The fingerprint is a hash of the rule, path, package, dependency, specifier and message (not the line), so an issue keeps its identity when code above it moves. Paths are relative to the repository top-level. |
+| `compact` | One line per diagnostic, `path:line:col rule message` (`path rule message` without a position), and nothing else. |
+| `markdown` | A heading, a summary line and a table per rule (location, severity, message), for pull request comments. Repository text is escaped so it cannot break the table. |
+| `disclosure` | Like `markdown`, with each rule's table folded in a `<details>` section. |
+| `codeowners` | `compact` lines grouped under each owner from the repository's CODEOWNERS file (`.github/CODEOWNERS`, `CODEOWNERS` or `docs/CODEOWNERS`, the first that exists at the repository top-level). The last matching pattern wins; a diagnostic with several owners is listed under each, and diagnostics no pattern covers are under `(unowned)`. Exit `2` when there is no CODEOWNERS file. |
 
 In `--format json` mode stdout holds exactly one JSON document in every case, including failures. A failure is an
 `error` document with a `kind` (`config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`, a bug in skif), a message and, when known,

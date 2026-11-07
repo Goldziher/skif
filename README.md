@@ -30,7 +30,7 @@ npm · pnpm · yarn · bun · **41 rules** · **105 plugins** · format-preservi
 | **Fast** | 4 to 37 times faster than knip on real repositories. Manifest checks beat sherif on every real repository and syncpack on every target; sherif wins at 2,000 generated packages. [See the numbers.](#benchmarks) |
 | **Safe** | Analysis is static: skif reads your code and configs without running them. Fixes keep key order, indentation and comments. |
 | **Easy to adopt** | `skif migrate` translates your sherif, syncpack and knip configuration in one step. |
-| **Built for CI** | Human, JSON, SARIF and GitHub annotation output, stable rule ids and a GitHub Action. |
+| **Built for CI** | Human, JSON, SARIF, GitHub annotation, GitLab Code Quality, compact, Markdown and CODEOWNERS output, stable rule ids and a GitHub Action. |
 | **Embeddable** | The [`skif`](crates/skif/README.md) crate is a library that does no I/O of its own. |
 
 ## Quick start
