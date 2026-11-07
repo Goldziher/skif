@@ -112,6 +112,23 @@ fn jest_and_vitest_monorepo_has_no_findings() {
     assert!(diagnostics.is_empty(), "{diagnostics:#?}");
 }
 
+/// Issue #14: `@fx/playground-ui` publishes `./components/*` from library entries its `vite.config.ts` builds with a
+/// spread helper call, so its entries are incomplete. `Comment/index.ts` is reached through `src/index.ts`, and its
+/// `CommentQuote`, which nothing in the graph imports, is not judged. `@fx/control` has a static entry, so its unused file, export and type are reported.
+#[test]
+fn glob_exports_built_from_a_spread_vite_lib_entry_are_not_judged() {
+    let diagnostics = lint_fixture("glob-exports");
+    for rule in ["unused-files", "unused-exports", "unused-types"] {
+        assert!(
+            !found(&diagnostics, rule)
+                .iter()
+                .any(|subject| subject.starts_with("packages/playground-ui/")),
+            "{rule}: {diagnostics:#?}"
+        );
+    }
+    insta::assert_json_snapshot!("glob_exports", diagnostics);
+}
+
 #[test]
 fn rspack_jsconfig_app_has_no_false_positives() {
     let diagnostics = lint_fixture("rspack-jsconfig-app");
