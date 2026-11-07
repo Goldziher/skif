@@ -189,3 +189,20 @@ fn imports_inside_declare_module_bodies_are_imports() {
     );
     assert_eq!(imported(&info, "@hapi/accept"), ["default"]);
 }
+
+#[test]
+fn declare_module_in_a_module_file_is_an_augmentation() {
+    let info = parse(
+        "next-auth.d.ts",
+        "import 'next-auth';\ndeclare module 'next-auth' { interface Session { id: string } }\n",
+    );
+    assert_eq!(info.ambient_modules, [] as [&str; 0]);
+    assert_eq!(info.augmented_modules, ["next-auth"]);
+    for source in [
+        "export {};\ndeclare module 'dayjs' {}\n",
+        "import x = require('y');\ndeclare module 'dayjs' {}\n",
+    ] {
+        let info = parse("types.d.ts", source);
+        assert_eq!(info.augmented_modules, ["dayjs"], "{source}");
+    }
+}

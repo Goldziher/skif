@@ -6,9 +6,9 @@ use std::collections::{HashMap, HashSet};
 use oxc_ast::ast::{
     Argument, AssignmentExpression, AssignmentOperator, AssignmentTarget, BindingPattern, CallExpression,
     ComputedMemberExpression, Expression, FormalParameters, IdentifierReference, ImportExpression, JSXElement,
-    JSXFragment, ObjectPropertyKind, Statement, StaticMemberExpression, TSAsExpression, TSExternalModuleDeclaration,
-    TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier, TSModuleReference, TSType, TSTypeQueryExprName,
-    VariableDeclarator,
+    JSXFragment, ObjectPropertyKind, Program, Statement, StaticMemberExpression, TSAsExpression,
+    TSExternalModuleDeclaration, TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier, TSModuleReference,
+    TSType, TSTypeQueryExprName, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
@@ -23,6 +23,8 @@ pub(crate) struct Finder<'c, 's> {
     pending: HashMap<u32, Vec<ImportedName>>,
     /// Start offsets of `typeof import("x")` types that only type the result of the `require("x")` they follow.
     redundant_types: HashSet<u32>,
+    /// The file has top-level `import` or `export`, so its `declare module` blocks augment rather than declare.
+    module_file: bool,
 }
 
 impl Finder<'_, '_> {
@@ -62,12 +64,13 @@ impl Finder<'_, '_> {
 }
 
 impl<'c, 's> Finder<'c, 's> {
-    pub(crate) fn new(ctx: &'c Ctx<'s>, info: &'c mut ModuleInfo) -> Self {
+    pub(crate) fn new(ctx: &'c Ctx<'s>, info: &'c mut ModuleInfo, program: &Program<'_>) -> Self {
         Self {
             ctx,
             info,
             pending: HashMap::new(),
             redundant_types: HashSet::new(),
+            module_file: is_module_file(program),
         }
     }
 }
@@ -294,7 +297,12 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
     }
 
     fn visit_ts_external_module_declaration(&mut self, it: &TSExternalModuleDeclaration<'a>) {
-        self.info.ambient_modules.push(crate::js_string(it.id.value));
+        let name = crate::js_string(it.id.value);
+        if self.module_file {
+            self.info.augmented_modules.push(name);
+        } else {
+            self.info.ambient_modules.push(name);
+        }
         // `declare module "x" { import m from "y"; }` needs `y` as much as a top-level import does.
         for statement in it.body.iter().flat_map(|body| &body.body) {
             if let Statement::ImportDeclaration(declaration) = statement {
@@ -557,4 +565,17 @@ impl Finder<'_, '_> {
             None => self.info.unresolved_dynamic.push(span),
         }
     }
+}
+
+/// TypeScript's test for a module file: a top-level `import`, `export` or `import x = require(…)`. In a script,
+/// `declare module 'x'` declares `x`; in a module file it augments the `x` that is already there.
+fn is_module_file(program: &Program<'_>) -> bool {
+    program.body.iter().any(|statement| {
+        statement.is_module_declaration()
+            || matches!(
+                statement,
+                Statement::TSImportEqualsDeclaration(declaration)
+                    if matches!(declaration.module_reference, TSModuleReference::ExternalModuleReference(_))
+            )
+    })
 }
