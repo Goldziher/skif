@@ -547,6 +547,11 @@
           "type": "string",
           "const": "preferred-semver",
           "description": "Versions must match the highest or lowest one in use."
+        },
+        {
+          "type": "string",
+          "const": "semver-range-only",
+          "description": "Versions may differ; only the range the semver groups require is checked (syncpack's `semverRangeOnly`)."
         }
       ],
       "description": "The policy of a version group."

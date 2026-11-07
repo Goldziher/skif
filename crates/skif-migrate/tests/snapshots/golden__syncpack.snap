@@ -57,6 +57,12 @@ label = "Engines in sync"
 dependency-types = ["engines"]
 prefer = "lowest"
 
+# syncpack versionGroups[7]: Ranges only for plugins
+[[version-groups]]
+label = "Ranges only for plugins"
+dependencies = ["eslint-plugin-*"]
+policy = "semver-range-only"
+
 # syncpack semverGroups[0]: Exact in prod
 [[semver-groups]]
 label = "Exact in prod"

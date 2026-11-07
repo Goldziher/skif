@@ -783,6 +783,8 @@ pub enum VersionPolicy {
     /// Versions must match the highest or lowest one in use.
     #[default]
     PreferredSemver,
+    /// Versions may differ; only the range the semver groups require is checked (syncpack's `semverRangeOnly`).
+    SemverRangeOnly,
 }
 
 /// One `[[version-groups]]` entry; first match wins. Selectors accept `!` negation and `$LOCAL`.

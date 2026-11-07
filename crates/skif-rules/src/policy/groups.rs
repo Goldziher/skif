@@ -111,6 +111,8 @@ pub(crate) enum Policy {
     /// The names of the packages whose declaration is the target.
     SnappedTo(Vec<String>),
     PreferredSemver(Prefer),
+    /// Versions may differ; only the semver groups' ranges are checked.
+    SemverRangeOnly,
 }
 
 /// A compiled `[[version-groups]]` entry, or the catch-all after them.
@@ -301,6 +303,7 @@ fn policy_of(group: &VersionGroup, default: Prefer) -> Policy {
         VersionPolicy::SameMinor => Policy::SameMinor,
         VersionPolicy::SnappedTo => Policy::SnappedTo(group.snap_to.clone()),
         VersionPolicy::PreferredSemver => Policy::PreferredSemver(group.prefer.unwrap_or(default)),
+        VersionPolicy::SemverRangeOnly => Policy::SemverRangeOnly,
         // `Ignored`, and any policy this build does not know: leave the group alone.
         _ => Policy::Ignored,
     }

@@ -133,7 +133,12 @@ fn syncpack_yaml_with_custom_types_and_groups() {
         NoteClass::Human
     );
     assert!(migration.needs_human());
-    assert_eq!(migration.config.version_groups.len(), 7);
+    assert_eq!(migration.config.version_groups.len(), 8);
+    assert_eq!(
+        migration.config.version_groups[7].policy,
+        skif_config::VersionPolicy::SemverRangeOnly,
+        "semverRangeOnly keeps its range check"
+    );
     assert_eq!(migration.config.semver_groups.len(), 3);
 }
 

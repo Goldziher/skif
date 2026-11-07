@@ -609,6 +609,7 @@ enum Policy {
     SameMinor,
     Snapped(Vec<String>),
     Catalog,
+    SemverRangeOnly,
 }
 
 #[derive(Default)]
@@ -711,6 +712,7 @@ fn version_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigVal
             element.set("policy", Val::str("snapped-to"));
             element.set("snap-to", Val::strs(packages));
         }
+        Policy::SemverRangeOnly => element.set("policy", Val::str("semver-range-only")),
         Policy::Catalog => {}
     }
     state.note(src, NoteClass::Exact, path, "written to [[version-groups]]");
@@ -773,16 +775,7 @@ fn group_policy(
         Some("banned") => Some(Policy::Banned),
         Some("ignored") => Some(Policy::Ignored),
         Some("catalog") => Some(Policy::Catalog),
-        Some("semverRangeOnly") => {
-            state.note_with(
-                src,
-                NoteClass::Unsupported,
-                policy_path,
-                "skif cannot check ranges while letting versions differ; the group was written with policy = \"ignored\"",
-                "the semver groups still apply to these dependencies",
-            );
-            Some(Policy::Ignored)
-        }
+        Some("semverRangeOnly") => Some(Policy::SemverRangeOnly),
         Some(other) => {
             state.note(
                 src,
