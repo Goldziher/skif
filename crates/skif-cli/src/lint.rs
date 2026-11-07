@@ -492,12 +492,14 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         return Ok(COULD_NOT_RUN);
     }
     let code = run_exit_code(args, &runs, &aggregate);
-    // The process exits next: freeing every diagnostic and the workspace model one allocation at a time is a
-    // measurable part of a large run, and the operating system reclaims the memory at once.
+    // The process exits next: freeing every diagnostic, the workspace model and the file caches one allocation at a
+    // time is a measurable part of a large run, and the operating system reclaims the memory at once.
     std::mem::forget(views);
     std::mem::forget(aggregate);
     std::mem::forget(reports);
     std::mem::forget(runs);
+    std::mem::forget(linters);
+    std::mem::forget(fs);
     Ok(code)
 }
 
