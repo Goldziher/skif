@@ -613,6 +613,13 @@ pub(crate) fn sources_containing(cx: &PluginContext<'_>, needle: &str) -> Vec<(S
         .collect()
 }
 
+/// The workspace's `package.json`, parsed; `None` when it is missing or not JSON.
+pub(crate) fn manifest(cx: &PluginContext<'_>) -> Option<ConfigValue> {
+    let path = cx.dir.join("package.json");
+    let source = cx.fs.read_to_string(&path).ok()?;
+    crate::config_load::load_config(&path, &source)
+}
+
 /// The directory of a path relative to the workspace, `""` for a file at the top.
 pub(crate) fn parent_dir(relative: &str) -> &str {
     relative.rsplit_once('/').map_or("", |(dir, _)| dir)

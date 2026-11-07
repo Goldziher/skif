@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 174] = [
+const ADR_IDS: [&str; 190] = [
     "typescript",
     "eslint",
     "prettier",
@@ -189,6 +189,22 @@ const ADR_IDS: [&str; 174] = [
     "node-modules-inspector",
     "vercel-og",
     "vite-pwa-assets-generator",
+    "astro-markdoc",
+    "borp",
+    "ladle",
+    "linthtml",
+    "lunaria",
+    "marko",
+    "mcp",
+    "mdxlint",
+    "npm-package-json-lint",
+    "osls",
+    "playwright-test",
+    "raycast",
+    "react-cosmos",
+    "tsrs",
+    "varlock",
+    "yorkie",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -3878,4 +3894,368 @@ fn node_modules_inspector_config_is_a_config_file() {
     );
     let out = output(&results, "node-modules-inspector");
     assert_eq!(out.config_files.len(), 1, "{out:?}");
+}
+
+#[test]
+fn astro_markdoc_render_components() {
+    let results = resolve(
+        &[(
+            "markdoc.config.mjs",
+            r#"import { defineMarkdocConfig, component } from "@astrojs/markdoc/config";
+export default defineMarkdocConfig({
+  tags: {
+    aside: { render: component("./src/components/Aside.astro"), attributes: {} },
+    table: { render: component("@astrojs/markdoc/components", "Table") },
+  },
+  nodes: { heading: { render: "./src/components/Heading.astro#Heading" } },
+});"#,
+        )],
+        &["@astrojs/markdoc"],
+    );
+    let out = output(&results, "astro-markdoc");
+    assert_entries(
+        &out.production_entries,
+        &["src/components/Aside.astro", "src/components/Heading.astro"],
+    );
+    assert_deps(out, &["@astrojs/markdoc"]);
+}
+
+#[test]
+fn borp_config_and_command_line() {
+    let results = resolve_with_scripts(
+        &[(
+            ".borp.yaml",
+            "files:\n  - 'test/**/*.spec.ts'\nreporters:\n  - spec\n  - '@reporters/github'\n  - ./reporters/custom.js:out.txt\n",
+        )],
+        &["borp"],
+        &[(
+            "test",
+            "borp --coverage -r gh -r borp-reporter-x --pattern 'it/**/*.test.js' unit/a.test.ts",
+        )],
+    );
+    let out = output(&results, "borp");
+    assert_entries(
+        &out.entries,
+        &[
+            "**/*.test.{js,mjs,cjs,ts,mts,cts}",
+            "test/**/*.spec.ts",
+            "reporters/custom.js",
+            "it/**/*.test.js",
+            "unit/a.test.ts",
+        ],
+    );
+    assert_deps(out, &["@reporters/github", "borp-reporter-x"]);
+    assert_absent(out, &["spec", "gh"]);
+}
+
+#[test]
+fn ladle_stories_and_vite_config() {
+    let results = resolve(
+        &[
+            (
+                ".ladle/config.mjs",
+                r#"export default { stories: "components/**/*.stories.tsx", viteConfig: "ladle.vite.config.ts" };"#,
+            ),
+            (
+                "ladle.vite.config.ts",
+                "export default { test: { setupFiles: ['./ladle-setup.ts'] } }",
+            ),
+        ],
+        &["@ladle/react"],
+    );
+    let out = output(&results, "ladle");
+    assert_entries(
+        &out.entries,
+        &["components/**/*.stories.tsx", ".ladle/components.{js,jsx,ts,tsx}"],
+    );
+    assert!(
+        out.config_files
+            .iter()
+            .any(|path| path.ends_with("ladle.vite.config.ts")),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn linthtml_extends_and_plugins() {
+    let results = resolve(
+        &[(
+            ".linthtmlrc.json",
+            r#"{"extends":["@linthtml/linthtml-config-recommended","./base.json"],"plugins":["linthtml-plugin-x","./rules/local.js"]}"#,
+        )],
+        &["@linthtml/linthtml"],
+    );
+    let out = output(&results, "linthtml");
+    assert_deps(out, &["@linthtml/linthtml-config-recommended", "linthtml-plugin-x"]);
+    assert_entries(&out.entries, &["rules/local.js"]);
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","linthtmlConfig":{"extends":"linthtml-config-y"}}"#,
+    );
+    let results = resolve(&[manifest], &["@linthtml/linthtml"]);
+    assert_deps(output(&results, "linthtml"), &["linthtml-config-y"]);
+}
+
+#[test]
+fn lunaria_files_renderer_and_dashboard() {
+    let results = resolve(
+        &[(
+            "docs/lunaria.config.json",
+            r#"{"files":[{"location":"src/content/**/*.md","pattern":"x"}],"renderer":"lunaria.renderer.ts","dashboard":{"customCss":["./styles/l.css"],"favicon":{"inline":"<svg/>"}}}"#,
+        )],
+        &["@lunariajs/core"],
+    );
+    let out = output(&results, "lunaria");
+    assert!(out.config_files.is_empty(), "the config sits at the workspace root");
+    let results = resolve(
+        &[(
+            "lunaria.config.json",
+            r#"{"files":[{"location":"src/content/**/*.md","pattern":"x"}],"renderer":"lunaria.renderer.ts","dashboard":{"customCss":["./styles/l.css"],"favicon":{"inline":"<svg/>"}}}"#,
+        )],
+        &["@lunariajs/core"],
+    );
+    let out = output(&results, "lunaria");
+    assert_entries(
+        &out.production_entries,
+        &["src/content/**/*.md", "lunaria.renderer.ts", "styles/l.css"],
+    );
+    assert!(out.production_entries.iter().all(|entry| !entry.contains('<')));
+}
+
+#[test]
+fn marko_taglibs_and_templates() {
+    let results = resolve(
+        &[
+            ("lib/marko.json", r#"{"taglib-id":"x"}"#),
+            (
+                "tags/fancy/marko-tag.json",
+                r#"{"renderer":"./renderer.js","transform":"marko-transform-x"}"#,
+            ),
+            ("src/pages/index.marko", "<div/>"),
+        ],
+        &["marko"],
+    );
+    let out = output(&results, "marko");
+    assert_entries(
+        &out.production_entries,
+        &["**/{components,tags}/**/*.marko", "lib/**/{components,tags}/**/*.marko"],
+    );
+    assert_entries(&out.entries, &["tags/fancy/renderer.js"]);
+    assert_deps(out, &["marko-transform-x", "marko"]);
+    let without_templates = resolve(&[], &["marko"]);
+    assert_absent(output(&without_templates, "marko"), &["marko"]);
+}
+
+#[test]
+fn mcp_server_commands_are_scripts() {
+    let results = resolve(
+        &[
+            (
+                ".mcp.json",
+                r#"{"mcpServers":{"local":{"command":"node","args":["${CLAUDE_PROJECT_DIR}/tools/mcp.js"]},"remote":{"type":"http","url":"https://x"},"pkg":{"command":"npx","args":["-y","@acme/mcp-server"]}}}"#,
+            ),
+            (
+                ".vscode/mcp.json",
+                r#"{"servers":{"svc":{"command":"tsx","args":["server.ts"],"cwd":"${workspaceFolder}/packages/svc"}}}"#,
+            ),
+            (
+                ".codex/config.toml",
+                "[mcp_servers.docs]\ncommand = \"node\"\nargs = [\"scripts/docs-mcp.mjs\"]\n",
+            ),
+        ],
+        &[],
+    );
+    let out = output(&results, "mcp");
+    assert_entries(
+        &out.entries,
+        &["./tools/mcp.js", "packages/svc/server.ts", "scripts/docs-mcp.mjs"],
+    );
+    assert!(
+        out.referenced_dependencies
+            .iter()
+            .any(|d| d.name == "@acme/mcp-server" && d.optional),
+        "{out:?}"
+    );
+    let nested = resolve_with(&[(".mcp.json", "{}")], &[], false, &IndexMap::new());
+    assert!(!nested.iter().any(|(id, _)| *id == "mcp"), "root only");
+    let none = resolve(&[], &[]);
+    assert!(!none.iter().any(|(id, _)| *id == "mcp"));
+}
+
+#[test]
+fn mdxlint_plugins_are_remark_packages() {
+    let results = resolve(
+        &[(
+            ".mdxlintrc.json",
+            r#"{"plugins":["lint-no-dead-urls",["remark-lint-heading-style","atx"],"mdxlint-plugin-x","@acme/remark-y","./local-plugin.js"]}"#,
+        )],
+        &["mdxlint"],
+    );
+    let out = output(&results, "mdxlint");
+    assert_deps(
+        out,
+        &[
+            "remark-lint-no-dead-urls",
+            "remark-lint-heading-style",
+            "mdxlint-plugin-x",
+            "@acme/remark-y",
+        ],
+    );
+    assert_entries(&out.entries, &["local-plugin.js"]);
+}
+
+#[test]
+fn npm_package_json_lint_extends() {
+    let results = resolve(
+        &[(
+            ".npmpackagejsonlintrc.json",
+            r#"{"extends":"npm-package-json-lint-config-default","rules":{}}"#,
+        )],
+        &["npm-package-json-lint"],
+    );
+    let out = output(&results, "npm-package-json-lint");
+    assert_deps(out, &["npm-package-json-lint-config-default"]);
+    assert!(out.provided_binaries.contains(&"npmPkgJsonLint".to_owned()));
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","npmpackagejsonlint":{"extends":["@acme/npmpkgjsonlint-config"]}}"#,
+    );
+    let results = resolve(&[manifest], &["npm-package-json-lint"]);
+    assert_deps(
+        output(&results, "npm-package-json-lint"),
+        &["@acme/npmpkgjsonlint-config"],
+    );
+}
+
+#[test]
+fn osls_reads_serverless_config() {
+    let results = resolve(
+        &[(
+            "serverless.yml",
+            "service: x\nplugins:\n  - serverless-offline\nfunctions:\n  api:\n    handler: src/api.handler\n",
+        )],
+        &["osls"],
+    );
+    let out = output(&results, "osls");
+    assert_deps(out, &["serverless-offline"]);
+    assert!(out.entries.iter().any(|entry| entry.starts_with("src/api")), "{out:?}");
+}
+
+#[test]
+fn playwright_test_first_positional_is_an_entry() {
+    let results = resolve_with_scripts(
+        &[],
+        &["playwright-test"],
+        &[
+            ("test", "playwright-test test/browser.test.js --runner mocha"),
+            ("glob", "pw-test 'test/**/*.spec.js' --mode worker"),
+            ("install", "playwright-test install"),
+        ],
+    );
+    let out = output(&results, "playwright-test");
+    assert_entries(&out.entries, &["test/browser.test.js", "test/**/*.spec.js"]);
+    assert!(!out.entries.iter().any(|entry| entry == "install"), "{:?}", out.entries);
+}
+
+#[test]
+fn raycast_commands_and_tools() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"ext","commands":[{"name":"search","mode":"view"},{"name":"../x"}],"tools":[{"name":"lookup"}],"dependencies":{"@raycast/api":"1"}}"#,
+    );
+    let results = resolve(&[manifest], &["@raycast/api"]);
+    let out = output(&results, "raycast");
+    assert_entries(
+        &out.production_entries,
+        &["src/search.{js,jsx,ts,tsx}", "src/tools/lookup.{js,jsx,ts,tsx}"],
+    );
+    assert_eq!(out.production_entries.len(), 2, "{:?}", out.production_entries);
+}
+
+#[test]
+fn react_cosmos_fixtures_dir_and_suffix() {
+    let results = resolve(
+        &[(
+            "cosmos.config.json",
+            r#"{"fixturesDir":"cosmos","fixtureFileSuffix":"story","plugins":["react-cosmos-plugin-vite"]}"#,
+        )],
+        &["react-cosmos"],
+    );
+    let out = output(&results, "react-cosmos");
+    assert_entries(
+        &out.entries,
+        &[
+            "cosmos/**/*.{js,jsx,ts,tsx,md,mdx}",
+            "cosmos/**/*.story.{js,jsx,ts,tsx,md,mdx}",
+            "**/*.fixture.{js,jsx,ts,tsx,md,mdx}",
+        ],
+    );
+    assert_deps(out, &["react-cosmos-plugin-vite"]);
+}
+
+#[test]
+fn tsrs_reads_tsconfig() {
+    let results = resolve(
+        &[(
+            "tsconfig.json",
+            r#"{"extends":"@tsconfig/node20/tsconfig.json","compilerOptions":{"types":["node"]}}"#,
+        )],
+        &["tsrs"],
+    );
+    let out = output(&results, "tsrs");
+    assert_deps(out, &["@tsconfig/node20"]);
+    assert!(out.provided_binaries.contains(&"tsrs".to_owned()));
+}
+
+#[test]
+fn varlock_decorators_of_env_files() {
+    let manifest = ("package.json", r#"{"name":"app","varlock":{"loadPath":"./env/"}}"#);
+    let results = resolve_with_scripts(
+        &[
+            manifest,
+            (
+                "env/.env.schema",
+                "# @plugin(@varlock/1password-plugin)\n# @plugin(./plugins/custom.ts)\n# @import(../shared/.env.shared)\n# ---\n\n# @sensitive\nAPI_KEY=\n",
+            ),
+            ("shared/.env.shared", "# @plugin(varlock-plugin-shared)\n\nX=1\n"),
+            ("config/.env.ci", "# @plugin(varlock-plugin-ci, enabled=false)\n\nY=1\n"),
+            (
+                "config/.env.extra",
+                "# @plugin(varlock-plugin-extra)\n# ---\n# @plugin(not-root)\nZ=1\n",
+            ),
+            (".env", "# @plugin(varlock-plugin-default)\n"),
+        ],
+        &["varlock"],
+        &[
+            ("start", "varlock run -- node server.js"),
+            ("ci", "varlock load --path config/"),
+        ],
+    );
+    let out = output(&results, "varlock");
+    assert_deps(
+        out,
+        &[
+            "@varlock/1password-plugin",
+            "varlock-plugin-shared",
+            "varlock-plugin-extra",
+        ],
+    );
+    assert_absent(out, &["varlock-plugin-ci", "varlock-plugin-default", "not-root"]);
+    assert_entries(&out.production_entries, &["env/plugins/custom.ts"]);
+    assert_entries(&out.entries, &["server.js"]);
+    let defaults = resolve(&[(".env", "# @plugin(varlock-plugin-default)\n")], &["varlock"]);
+    assert_deps(output(&defaults, "varlock"), &["varlock-plugin-default"]);
+}
+
+#[test]
+fn yorkie_git_hooks_are_scripts() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","gitHooks":{"pre-commit":"lint-staged","commit-msg":"node scripts/verify-commit.js"}}"#,
+    );
+    let results = resolve(&[manifest], &["yorkie"]);
+    let out = output(&results, "yorkie");
+    assert!(out.referenced_binaries.contains(&"lint-staged".to_owned()));
+    assert_entries(&out.entries, &["scripts/verify-commit.js"]);
+    assert_deps(out, &["yorkie"]);
 }
