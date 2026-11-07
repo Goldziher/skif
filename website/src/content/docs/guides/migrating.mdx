@@ -113,10 +113,9 @@ Every construct that was not copied one to one has a note with the file, the key
 | `dependencyTypes` with `prod`, `dev`, `peer`, `local`, `resolutions`, `overrides`, `pnpmOverrides` and `!` negation | the same tokens (`pnpmOverrides` is `pnpm-overrides`) |
 | `dependencyTypes: ["**"]` | no `dependency-types` key: every type |
 | `specifierTypes` | `specifier-types` with the types skif knows; `hosted-git` is `git` (A), `**` is no filter, and a type skif does not know (`delete`) is dropped (A) or, when the group selects only such types, the group is not written (X) |
-| `customTypes` with `strategy` `name@version`, `version` or `versionsByName` | `[[custom-types]]` with `name`, `path` and `strategy` (`"name@version"`, `"version"`, `"versions-by-name"`) |
+| `customTypes` with `strategy` `name@version`, `version`, `versionsByName` or `name~version` | `[[custom-types]]` with `name`, `path` and `strategy` (`"name@version"`, `"version"`, `"versions-by-name"`, `"name~version"` with `name-path` from `namePath`) |
 | a custom type whose name is a built-in token (`dev`, `overrides`, ...) | `[[custom-types]]` under `<name>-custom` (A); groups that name the token select the built-in type |
 | a custom type for `optionalDependencies` | the native `optional` dependency type |
-| `name~version` custom types | none (X). A group that only covers them is not written, because without the selector it would match everything |
 | `dependencyGroups`, `strict`, `sourceMode` | none (X or H) |
 | `source` | dropped when it lists the workspace patterns (D); otherwise H |
 | `sortAz` with dependency maps | `unsorted-dependencies` stays on; `sortFirst`, `sortExports`, `sortPackages`, `indent`, `formatBugs` and `formatRepository` only matter to `syncpack format` and are dropped |

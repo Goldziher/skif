@@ -1064,6 +1064,10 @@ pub enum CustomStrategy {
     /// The value is an object of `name: version` (`pnpm.peerDependencyRules.allowedVersions`).
     #[serde(rename = "versions-by-name", alias = "versionsByName")]
     VersionsByName,
+    /// The value is a version string and the dependency name is the string at `name-path` (how syncpack reads a
+    /// package's own `name` and `version`).
+    #[serde(rename = "name~version")]
+    NameTildeVersion,
 }
 
 /// One `[[custom-types]]` entry: a field of `package.json` that holds versions. Name it in a `dependency-types` list to
@@ -1081,6 +1085,9 @@ pub struct CustomType {
     pub path: String,
     /// How the value at `path` holds versions.
     pub strategy: CustomStrategy,
+    /// With the `name~version` strategy: dotted path of the field that holds the dependency name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_path: Option<String>,
 }
 
 impl CustomType {
@@ -1091,7 +1098,20 @@ impl CustomType {
             name: name.into(),
             path: path.into(),
             strategy,
+            name_path: None,
         }
+    }
+
+    /// Sets the field that holds the dependency name, for the `name~version` strategy.
+    #[must_use]
+    pub fn with_name_path(mut self, name_path: impl Into<String>) -> Self {
+        self.name_path = Some(name_path.into());
+        self
+    }
+
+    /// The `name-path` split into its keys; empty when there is none.
+    pub fn name_segments(&self) -> impl Iterator<Item = &str> {
+        self.name_path.iter().flat_map(|path| path.split('.'))
     }
 
     /// The `path` split into its keys.
@@ -1114,6 +1134,15 @@ impl CustomType {
                 "`path` \"{}\" must be a dotted path of non-empty keys",
                 self.path
             ));
+        }
+        let takes_name_path = self.strategy == CustomStrategy::NameTildeVersion;
+        match (takes_name_path, self.name_path.is_some()) {
+            (true, false) => return Some("strategy `name~version` requires `name-path`".to_owned()),
+            (false, true) => return Some("`name-path` is only valid with strategy `name~version`".to_owned()),
+            _ => {}
+        }
+        if self.name_segments().any(str::is_empty) {
+            return Some("`name-path` must be a dotted path of non-empty keys".to_owned());
         }
         None
     }

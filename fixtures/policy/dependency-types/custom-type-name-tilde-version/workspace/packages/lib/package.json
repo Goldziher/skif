@@ -1,0 +1,9 @@
+{
+  "name": "lib",
+  "version": "1.0.0",
+  "private": true,
+  "volta": {
+    "tool": "node",
+    "toolVersion": "22.1.0"
+  }
+}

@@ -91,3 +91,10 @@ strategy = "version"
 name = "toolchain"
 path = "packageManager"
 strategy = "name@version"
+
+# syncpack customTypes.localish
+[[custom-types]]
+name = "localish"
+path = "version"
+strategy = "name~version"
+name-path = "name"

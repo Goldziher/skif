@@ -195,19 +195,26 @@ are aligned, pinned, banned and ranged like dependencies, and fixed in place (sy
 [[custom-types]]
 name = "node"                # the token for dependency-types; the dependency name with strategy "version"
 path = "engines.node"        # dotted path of keys in package.json
-strategy = "version"         # version | name@version | versions-by-name
+strategy = "version"         # version | name@version | versions-by-name | name~version
 
 [[custom-types]]
 name = "package-manager"
 path = "packageManager"      # "pnpm@9.15.0": the dependency is pnpm
 strategy = "name@version"
 
+[[custom-types]]
+name = "runtime"
+path = "volta.toolVersion"   # the version
+name-path = "volta.tool"     # the dependency name, read from another field
+strategy = "name~version"
+
 [policy]
-dependency-types = ["prod", "dev", "node", "package-manager"]
+dependency-types = ["prod", "dev", "node", "package-manager", "runtime"]
 ```
 
-`versions-by-name` reads an object of `name: version`. A name must not be one of the built-in types. The `name~version`
-strategy and `source` of syncpack are not supported.
+`versions-by-name` reads an object of `name: version`. `name~version` reads the version at `path` and the dependency
+name at `name-path`, which only this strategy takes; a fix rewrites the version. A name must not be one of the
+built-in types. syncpack's `source` (a custom type read from another file) is not supported.
 
 ### `[catalog]`
 

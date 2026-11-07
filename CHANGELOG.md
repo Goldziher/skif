@@ -23,6 +23,8 @@ All notable changes to this project are documented here. The format follows
 - The `semver-range-only` version-group policy: versions may differ and only the range the semver groups require is
   checked and fixed. `skif migrate` writes it for syncpack's `semverRangeOnly`, which it used to turn into `ignored`,
   dropping the range check ([#35](https://github.com/Goldziher/skif/issues/35)).
+- The `name~version` custom type strategy reads the dependency name from `name-path` and the version from `path`;
+  `skif migrate` translates syncpack's `name~version` custom types ([#35](https://github.com/Goldziher/skif/issues/35)).
 
 ## [0.1.1] - 2026-11-07
 
