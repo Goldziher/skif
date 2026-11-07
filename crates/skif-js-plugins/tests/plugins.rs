@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 105] = [
+const ADR_IDS: [&str; 113] = [
     "typescript",
     "eslint",
     "prettier",
@@ -120,6 +120,14 @@ const ADR_IDS: [&str; 105] = [
     "vercel",
     "vike",
     "webdriver-io",
+    "pre-commit",
+    "parcel",
+    "next-intl",
+    "dependency-cruiser",
+    "commitizen",
+    "electron-forge",
+    "serverless-framework",
+    "github-action",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -2692,4 +2700,150 @@ fn biome_root_reference_is_the_config_of_the_farthest_ancestor() {
     std::fs::remove_dir_all(&repo).unwrap();
     assert!(root_config_read, "{:?}", out.config_files);
     assert!(dependencies_found, "{:?}", deps(out));
+}
+
+#[test]
+fn pre_commit_counts_its_own_package_as_used() {
+    let results = resolve(&[], &["@fastify/pre-commit"]);
+    let out = output(&results, "pre-commit");
+    assert_deps(out, &["@fastify/pre-commit"]);
+    assert_absent(out, &["pre-commit"]);
+    let nested = resolve_with(&[], &["pre-commit"], false, &IndexMap::new());
+    assert!(!nested.iter().any(|(id, _)| *id == "pre-commit"), "root only");
+}
+
+#[test]
+fn parcel_reads_plugins_of_parcelrc() {
+    let results = resolve(
+        &[(
+            ".parcelrc",
+            r#"{
+              "extends": ["@parcel/config-default", "./base.parcelrc"],
+              "transformers": { "*.svg": ["...", "@parcel/transformer-svg-react"], "*.local": "./plugins/local.js" },
+              "reporters": ["...", "parcel-reporter-static-files-copy"],
+              "bundler": "@parcel/bundler-experimental"
+            }"#,
+        )],
+        &["parcel"],
+    );
+    let out = output(&results, "parcel");
+    assert_deps(
+        out,
+        &[
+            "@parcel/config-default",
+            "@parcel/transformer-svg-react",
+            "parcel-reporter-static-files-copy",
+            "@parcel/bundler-experimental",
+        ],
+    );
+    assert_entries(&out.entries, &["plugins/local.js"]);
+    assert!(!deps(out).contains("..."));
+}
+
+#[test]
+fn next_intl_and_dependency_cruiser_rows() {
+    let results = resolve(&[], &["next-intl", "dependency-cruiser"]);
+    assert_entries(
+        &output(&results, "next-intl").production_entries,
+        &["{,src/}i18n/request.{js,jsx,ts,tsx}"],
+    );
+    let cruiser = output(&results, "dependency-cruiser");
+    assert_entries(&cruiser.entries, &[".dependency-cruiser.{js,cjs,mjs,json}"]);
+    assert!(cruiser.provided_binaries.contains(&"depcruise".to_owned()));
+}
+
+#[test]
+fn dependency_cruiser_config_flag_names_a_config_file() {
+    let results = resolve_with_scripts(
+        &[("tools/cruiser.cjs", "module.exports = {};")],
+        &["dependency-cruiser"],
+        &[("deps", "depcruise src --config tools/cruiser.cjs")],
+    );
+    let out = output(&results, "dependency-cruiser");
+    assert!(out.config_files.iter().any(|f| f.ends_with("tools/cruiser.cjs")));
+}
+
+#[test]
+fn commitizen_adapter_from_package_json_and_czrc() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","config":{"commitizen":{"path":"./node_modules/cz-conventional-changelog"}}}"#,
+    );
+    let results = resolve(&[manifest], &["commitizen"]);
+    assert_deps(output(&results, "commitizen"), &["cz-conventional-changelog"]);
+    let results = resolve(&[(".czrc", r#"{"path":"@commitlint/cz-commitlint"}"#)], &["commitizen"]);
+    assert_deps(output(&results, "commitizen"), &["@commitlint/cz-commitlint"]);
+}
+
+#[test]
+fn electron_forge_reads_plugins_from_package_json_and_constructors() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","config":{"forge":{"makers":[{"name":"@electron-forge/maker-zip"}],"plugins":[{"name":"@electron-forge/plugin-webpack","config":{"mainConfig":"./webpack.main.config.js","renderer":{"config":"./webpack.renderer.config.js","entryPoints":[{"js":"./src/renderer.ts","preload":{"js":"./src/preload.ts"}}]}}}]}}}"#,
+    );
+    let main_config = ("webpack.main.config.js", "module.exports = { entry: './src/main.ts' };");
+    let results = resolve(&[manifest, main_config], &["@electron-forge/cli"]);
+    let out = output(&results, "electron-forge");
+    assert_deps(out, &["@electron-forge/maker-zip", "@electron-forge/plugin-webpack"]);
+    assert_entries(&out.production_entries, &["src/renderer.ts", "src/preload.ts"]);
+    assert_entries(&out.entries, &["src/main.ts"]);
+
+    let results = resolve(
+        &[
+            (
+                "forge.config.ts",
+                r#"import { VitePlugin } from "@electron-forge/plugin-vite";
+                export default { plugins: [new VitePlugin({ build: [{ entry: "src/main.ts", config: "vite.main.config.ts" }], renderer: [{ name: "main_window", config: "vite.renderer.config.ts" }] })] };"#,
+            ),
+            ("vite.main.config.ts", "export default {};"),
+        ],
+        &["@electron-forge/cli", "vite"],
+    );
+    let out = output(&results, "electron-forge");
+    assert_entries(&out.production_entries, &["src/main.ts"]);
+    assert!(
+        out.config_files.iter().any(|f| f.ends_with("vite.main.config.ts")),
+        "{:?}",
+        out.config_files
+    );
+}
+
+#[test]
+fn serverless_framework_handlers_plugins_and_file_variables() {
+    let results = resolve(
+        &[
+            (
+                "serverless.yml",
+                "service: api\nplugins:\n  - serverless-offline\n  - ./plugins/local.js\ncustom:\n  esbuild:\n    inject: [./shims.js]\nfunctions:\n  hello:\n    handler: src/hello.main\n  typed:\n    handler: src/typed.ts.handler\n  more: ${file(./functions.yml):extra}\n",
+            ),
+            ("functions.yml", "extra:\n  handler: src/extra.run\n"),
+        ],
+        &["serverless"],
+    );
+    let out = output(&results, "serverless-framework");
+    assert_deps(out, &["serverless-offline", "esbuild"]);
+    assert_entries(
+        &out.production_entries,
+        &[
+            "src/hello.{js,ts}",
+            "src/typed.ts",
+            "plugins/local.js",
+            "shims.js",
+            "src/extra.{js,ts}",
+        ],
+    );
+}
+
+#[test]
+fn github_action_runs_its_sources_but_not_its_build_output() {
+    let results = resolve(
+        &[(
+            "action.yml",
+            "name: x\nruns:\n  using: node20\n  pre: src/setup.js\n  main: dist/index.js\n  post: src/cleanup.js\n",
+        )],
+        &["@actions/core"],
+    );
+    let out = output(&results, "github-action");
+    assert_entries(&out.entries, &["src/setup.js", "src/cleanup.js"]);
+    assert!(!out.entries.iter().any(|e| e.starts_with("dist/")), "{:?}", out.entries);
 }
