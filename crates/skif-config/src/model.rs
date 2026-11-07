@@ -483,7 +483,14 @@ pub enum PackageManager {
     Bun,
 }
 
+/// Names of the directories that hold test fixtures. Recursive root discovery skips them by default (they lead
+/// [`DEFAULT_DISCOVER_IGNORE`]), and the JavaScript analysis reports nothing about their files that would only hold
+/// for production code: their imports are not unresolved or unlisted, and, unless `[js] include-fixtures` is set,
+/// their files and exports are not unused.
+pub const FIXTURE_DIRECTORIES: [&str; 2] = ["__fixtures__", "fixtures"];
+
 /// Directory names that recursive root discovery skips by default: they hold fixtures and test doubles, not projects.
+/// The first entries are [`FIXTURE_DIRECTORIES`].
 pub const DEFAULT_DISCOVER_IGNORE: [&str; 4] = ["__fixtures__", "fixtures", "__mocks__", "__snapshots__"];
 
 fn default_discover_ignore() -> Vec<String> {
@@ -1228,6 +1235,8 @@ pub enum JsDiscovery {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 #[non_exhaustive]
+// Each switch is a key of `[js]`.
+#[allow(clippy::struct_excessive_bools)]
 pub struct Js {
     /// Run the JavaScript analysis.
     pub enabled: bool,
@@ -1254,6 +1263,9 @@ pub struct Js {
     pub production: bool,
     /// Report unused exports of entry files too.
     pub include_entry_exports: bool,
+    /// Report files in `fixtures` and `__fixtures__` directories as unused, and their unused exports, types and
+    /// members, like any other file. Off by default: those directories hold test data that tests load by path.
+    pub include_fixtures: bool,
     /// How source files are found: `auto` lists them from the git index and re-lists from disk every directory
     /// modified since the index was written, which gives the walk's result without walking every directory; `git`
     /// trusts the index alone (faster, blind to untracked and deleted files); `walk` always walks. Both index modes
@@ -1337,6 +1349,7 @@ impl Default for Js {
             ignore_members: Vec::new(),
             production: false,
             include_entry_exports: false,
+            include_fixtures: false,
             discovery: JsDiscovery::Auto,
             workspaces: IndexMap::new(),
             plugins: IndexMap::new(),

@@ -136,6 +136,45 @@ fn cycles_snapshot() {
 }
 
 #[test]
+fn fixture_dirs_snapshot() {
+    let diagnostics = Run::new("fixture-dirs", "").lint();
+    insta::assert_json_snapshot!("fixture_dirs", diagnostics);
+}
+
+#[test]
+fn files_in_fixture_directories_are_not_unused_by_default() {
+    let diagnostics = Run::new("fixture-dirs", "").lint();
+    assert_eq!(found(&diagnostics, "unused-files"), ["src/orphan.ts: src/orphan.ts"]);
+    assert_eq!(found(&diagnostics, "unused-exports"), ["src/helper.ts: unusedHelper"]);
+    assert_eq!(found(&diagnostics, "unused-types"), Vec::<String>::new());
+    assert_eq!(found(&diagnostics, "unused-enum-members"), Vec::<String>::new());
+}
+
+#[test]
+fn include_fixtures_reports_fixture_directories_like_any_other() {
+    let diagnostics = Run::new("fixture-dirs", "[js]\ninclude-fixtures = true\n").lint();
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "fixtures/broken/input.ts: fixtures/broken/input.ts",
+            "src/orphan.ts: src/orphan.ts"
+        ]
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-exports"),
+        [
+            "src/__fixtures__/sample.ts: unusedSample",
+            "src/__fixtures__/sample.ts: SampleKind",
+            "src/helper.ts: unusedHelper"
+        ]
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-types"),
+        ["src/__fixtures__/sample.ts: SampleShape"]
+    );
+}
+
+#[test]
 fn monorepo_dependencies() {
     let diagnostics = Run::new("monorepo", "").lint();
     assert_eq!(

@@ -9,6 +9,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Files in `fixtures` and `__fixtures__` directories are no longer reported by `unused-files`, and their exports,
+  types and members are no longer reported by `unused-exports`, `unused-types`, the namespace rules and
+  `unused-enum-members`. `[js] include-fixtures = true` reports them like any other file
+  ([ADR 0050](adrs/0050-fixture-directories-in-the-js-analysis.md),
+  [#28](https://github.com/Goldziher/skif/issues/28)).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed
