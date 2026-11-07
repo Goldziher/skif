@@ -10,6 +10,7 @@
 #   install-command  optional install command (program first) replacing the package manager's default
 #   install-timeout-secs  optional install time limit, replacing the global --timeout-secs for the install only
 #   recursive        true when skif must run with --recursive here (nested roots that are not workspace members)
+#   knip-unread      path prefixes knip does not read here; one-sided findings below them are a known deviation
 #   notes            why the repository is in the corpus and what to expect from it
 
 [tools]
@@ -54,7 +55,8 @@ url = "https://github.com/npm/cli.git"
 rev = "fc517df18fb59a33b39d383c6766690bc427ac06"
 package-manager = "npm"
 suites = ["bench", "parity"]
-notes = "npm workspaces."
+knip-unread = ["docs/", "mock-globals/", "mock-registry/", "smoke-tests/", "workspaces/"]
+notes = "npm workspaces. A deny-all root .gitignore re-includes these directories one by one; knip reads none of their files."
 
 [[repo]]
 name = "angular"
