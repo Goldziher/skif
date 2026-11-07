@@ -218,8 +218,7 @@ impl Rule for UnsyncedDependencyFamily {
             }
             Some((major(&specifier)?, floor_version(&specifier)?))
         };
-        // The families each dependency name belongs to, matched once per name rather than once per declaration:
-        // a large workspace declares the same few hundred names thousands of times.
+        // Each name's families, matched once per name: large workspaces repeat a few hundred names thousands of times.
         let mut memberships: HashMap<&str, Vec<usize>> = HashMap::new();
         for package in active_packages(cx.workspace) {
             let mut members_of: Vec<Vec<_>> = families.iter().map(|_| Vec::new()).collect();
