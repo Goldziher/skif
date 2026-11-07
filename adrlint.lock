@@ -240,3 +240,8 @@ blake3 = "e8ca15819a03d8daef2bb35736a318e540af6d2818511410a5203705066e19d1"
 number = 48
 status = "accepted"
 blake3 = "7137af869a1a8ec1124a68a0e29841801ffa77964cbb1a8485a5ab3a38818378"
+
+[adrs."adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md"]
+number = 49
+status = "accepted"
+blake3 = "c11c3f75c5a48c0754027355f27336682efaa1a9651521a891fcb749492a6d80"

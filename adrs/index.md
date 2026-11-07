@@ -56,6 +56,7 @@ old one.
 | 0046 | [Corrections to ADR 0044 and ADR 0042: Config Helpers Are Not Built, Referenced Paths Are Scoped to Listed Packages, a Zero Trailer Does Not Detect a Torn Read](0046-corrections-to-adr-0044-config-helpers-not-built-and-the-torn-read-limit-of-zero-trailers.md) | accepted |
 | 0047 | [npm Package Name skif-cli](0047-npm-package-name-skif-cli.md) | accepted |
 | 0048 | [Catalog Version Divergence and Reasons on Ignores](0048-catalog-version-divergence-and-reasons-on-ignores.md) | accepted |
+| 0049 | [JS Corrections from Adjudicating knip Disagreements: Linked Files, Subpath Imports, Aliased Packages, Computed Specifiers, tap and oxfmt](0049-js-corrections-from-adjudicating-knip-disagreements.md) | accepted |
 
 ## Effective statements
 
@@ -140,3 +141,4 @@ the lines below stay as written; this table says which record governs.
 | [0002](0002-crate-layout-and-publishing.md), title and crate list | fourteen crates | [0046](0046-corrections-to-adr-0044-config-helpers-not-built-and-the-torn-read-limit-of-zero-trailers.md): fourteen published crates plus the unpublished `skif-node`; `skif-migrate` ([0039](0039-skif-migrate-a-one-shot-translator-from-sherif-syncpack-and-knip.md)) is among the fourteen |
 | [0013](0013-distribution-and-naming.md), npm row | the npm umbrella package is `skif` | [0047](0047-npm-package-name-skif-cli.md): it is `skif-cli` |
 | [0018](0018-npm-distribution-via-napi-rs.md), package name | the npm package is `skif` and the hooks run `pnpm dlx skif@<version>` | [0047](0047-npm-package-name-skif-cli.md): `skif-cli`, with `napi.packageName` keeping the platform packages |
+| [0036](0036-thirty-nine-more-knip-plugins-by-real-world-usage.md), `tap` and plugin count | no `tap` plugin is added because knip has none; the table holds 102 plugins | [0049](0049-js-corrections-from-adjudicating-knip-disagreements.md): `tap` and `oxfmt` are added; the table holds 104 plugins |

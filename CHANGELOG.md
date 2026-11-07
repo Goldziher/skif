@@ -13,6 +13,25 @@ All notable changes to this project are documented here. The format follows
 
 - The README leads with what skif does and how it compares, and publishes measured speed, seeded-defect accuracy and
   agreement with knip.
+- The comparison with knip counts the same export under another label as agreement, and reports paths knip does not
+  read as a known deviation ([ADR 0049](adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md)).
+
+### Added
+
+- `tap` and `oxfmt` plugins. The table holds 104 plugins.
+
+### Fixed
+
+False findings on real repositories ([ADR 0049](adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md)):
+
+- A symbolic link to a source file is that file: its exports are no longer reported once per link, and its target no
+  longer looks unused.
+- Every condition of a `package.json` `imports` entry is reachable, so a file only `browser` selects is not unused.
+- A package reached through a `tsconfig` path alias, or augmented with `declare module`, counts as used when the
+  manifest lists it.
+- ``require(`./commands/${name}`)`` and ``import(`./pages/${name}.js`)`` reach the files they can name.
+- A jest `runner` that is already a jest package is read as written, and `eslint --format <name>` counts
+  `eslint-formatter-<name>` as used.
 
 ## [0.1.0] - 2026-11-06
 
