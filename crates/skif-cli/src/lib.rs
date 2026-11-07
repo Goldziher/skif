@@ -22,6 +22,7 @@ mod mcp;
 mod migrate;
 mod output;
 mod roots;
+mod watch;
 mod write;
 
 use args::{Cli, Command, Format};
@@ -40,6 +41,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         Err(error) => return usage(&raw, &error),
     };
     match cli.command {
+        None if cli.lint.watch => watch::run(&cli.lint, Env::detect()),
         None => lint::run(&cli.lint, Env::detect()),
         Some(Command::Rules(args)) => commands::rules(&args),
         Some(Command::Schema) => commands::schema(),

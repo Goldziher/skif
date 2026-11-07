@@ -30,11 +30,14 @@ const COULD_NOT_RUN: u8 = 2;
 pub fn run(args: &LintArgs, env: Env) -> u8 {
     match execute(args, env) {
         Ok(code) => code,
-        Err(error) => {
-            emit_error(&error, args.format());
-            COULD_NOT_RUN
-        }
+        Err(error) => run_failed(args, &error),
     }
+}
+
+/// Reports `error` in the format of the run and returns the exit code of a run that could not start.
+pub fn run_failed(args: &LintArgs, error: &CliError) -> u8 {
+    emit_error(error, args.format());
+    COULD_NOT_RUN
 }
 
 /// The format to render and whether GitHub annotations accompany it: with no `--format`, `GITHUB_ACTIONS=true`
@@ -76,7 +79,7 @@ fn repo_root(root: &Path) -> Option<PathBuf> {
         })
 }
 
-fn overrides(args: &LintArgs) -> ConfigOverrides {
+pub fn overrides(args: &LintArgs) -> ConfigOverrides {
     ConfigOverrides::default()
         .with_rules(args.rules.iter().cloned())
         .with_ignore_rules(args.ignore_rule.clone())
