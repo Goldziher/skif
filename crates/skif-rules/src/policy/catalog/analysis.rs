@@ -15,7 +15,7 @@ use skif_workspace::{DependencyEntry, Package, PackageId, Workspace};
 
 use super::super::groups::Groups;
 use super::super::instances::Instance as PolicyInstance;
-use super::super::specifiers::floor_version;
+use super::super::specifiers::{floor_version, is_compatible_upgrade};
 use super::names::{CatalogName, defined_catalogs, defining, referenced};
 use super::support::{active_packages, set_specifier, value_location};
 use super::target::{CatalogFile, add_entry, creatable_file, create_default_catalog, existing_file};
@@ -456,11 +456,28 @@ pub(super) fn emit(
     out.emit(builder.build());
 }
 
-/// An unsafe fix that rewrites `instance` to `catalog`, after `catalog_ops`.
-pub(super) fn use_catalog_fix(instance: Instance<'_>, catalog: &CatalogName, catalog_ops: &[FixOp]) -> Fix {
+/// A fix that rewrites `instance` to `catalog`, after `catalog_ops`.
+///
+/// Moving to an entry the catalog already holds is safe when the entry is the instance's own specifier or a
+/// compatible upgrade of the same shape (ADR 0051). A fix that also writes the entry (`catalog_ops` is not empty)
+/// chose that version itself and stays unsafe, as does every other move.
+pub(super) fn use_catalog_fix(
+    workspace: &Workspace,
+    instance: Instance<'_>,
+    catalog: &CatalogName,
+    catalog_ops: &[FixOp],
+) -> Fix {
+    let entry = workspace
+        .catalogs
+        .resolve(&instance.entry.name, &catalog.reference())
+        .map(Specifier::create);
+    let safe = catalog_ops.is_empty()
+        && entry.is_some_and(|entry| {
+            entry.get_raw() == instance.entry.specifier || is_compatible_upgrade(&instance.entry.parsed, &entry)
+        });
     Fix::new(
         format!("Use `{}` for `{}`", catalog.reference(), instance.entry.name),
-        FixSafety::Unsafe,
+        if safe { FixSafety::Safe } else { FixSafety::Unsafe },
         use_catalog_ops(instance, catalog, catalog_ops),
     )
 }

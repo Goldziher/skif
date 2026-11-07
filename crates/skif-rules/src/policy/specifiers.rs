@@ -1,6 +1,7 @@
 //! What the policies need to know about a specifier beyond its parsed form: how it ranks, and whether it aliases.
 
 use skif_specifier::Specifier;
+use skif_specifier::semver_range::SemverRange;
 
 /// The lowest version `specifier` admits, for ranking.
 ///
@@ -17,6 +18,61 @@ pub(super) fn floor_version(specifier: &Specifier) -> Option<impl Ord + Clone + 
         Specifier::new_node_version(&format!("{}{suffix}", parts.join(".")))
     });
     floor.or_else(|| specifier.get_node_version())
+}
+
+/// Whether rewriting `from` to `to` is a version alignment that `--fix` may apply on its own (ADR 0051).
+///
+/// Both must be plain versions or `^`/`~` ranges of the same shape (`1.2.3` stays exact, `^1.2` stays `^` with a
+/// major and a minor), neither may carry a prerelease or build suffix, and `to` must be the same version or a later
+/// one that semver calls compatible with `from`: the same major, the same minor under `0.x`, the same patch under
+/// `0.0.x`. Anything else (a cross-major move, a downgrade, a change of range, an alias, a complex range) stays
+/// unsafe.
+pub(super) fn is_compatible_upgrade(from: &Specifier, to: &Specifier) -> bool {
+    let (Some(from_shape), Some(to_shape)) = (shape(from), shape(to)) else {
+        return false;
+    };
+    let (Some(from), Some(to)) = (release(from), release(to)) else {
+        return false;
+    };
+    let compatible = match from {
+        (0, 0, _) => to == from,
+        (0, minor, _) => to.0 == 0 && to.1 == minor,
+        (major, _, _) => to.0 == major,
+    };
+    from_shape == to_shape && compatible && to >= from
+}
+
+/// The kind of specifier and its range operator, for the plain versions and `^`/`~` ranges only.
+fn shape(specifier: &Specifier) -> Option<(std::mem::Discriminant<Specifier>, char)> {
+    let plain = matches!(
+        specifier,
+        Specifier::Exact(_)
+            | Specifier::Major(_)
+            | Specifier::Minor(_)
+            | Specifier::Range(_)
+            | Specifier::RangeMajor(_)
+            | Specifier::RangeMinor(_)
+    );
+    let operator = match specifier.get_semver_range()? {
+        SemverRange::Exact => '=',
+        SemverRange::Minor => '^',
+        SemverRange::Patch => '~',
+        _ => return None,
+    };
+    plain.then(|| (std::mem::discriminant(specifier), operator))
+}
+
+/// The release `specifier` names as major, minor and patch, missing parts being zero; `None` with a prerelease or
+/// build suffix.
+fn release(specifier: &Specifier) -> Option<(u64, u64, u64)> {
+    let number = specifier.get_semver_number()?;
+    if number.contains(['-', '+']) {
+        return None;
+    }
+    let mut parts = number.split('.').map(str::parse::<u64>);
+    let mut next = || parts.next().transpose().ok().map(Option::unwrap_or_default);
+    let release = (next()?, next()?, next()?);
+    parts.next().is_none().then_some(release)
 }
 
 /// The major version `specifier` names, for telling release lines apart.
@@ -66,6 +122,34 @@ mod tests {
         assert_eq!(target("npm:@scope/bar@^1.0.0").as_deref(), Some("@scope/bar"));
         assert_eq!(target("npm:foo@^1.0.0"), None);
         assert_eq!(target("^1.0.0"), None);
+    }
+
+    #[test]
+    fn only_compatible_upgrades_of_the_same_shape_are_safe_alignments() {
+        let safe = |from: &str, to: &str| is_compatible_upgrade(&Specifier::create(from), &Specifier::create(to));
+        let cases = [
+            ("1.0.0", "1.3.0", true),
+            ("1.3.0", "1.3.0", true),
+            ("^1.0.0", "^1.3.0", true),
+            ("~1.2.0", "~1.2.5", true),
+            ("^1", "^1.4", false),
+            ("^1.2", "^1.4", true),
+            ("0.4.1", "0.4.9", true),
+            ("0.4.1", "0.5.0", false),
+            ("0.0.3", "0.0.4", false),
+            ("6.0.0", "7.0.0", false),
+            ("1.3.0", "1.0.0", false),
+            ("^1.0.0", "1.3.0", false),
+            ("1.0.0", "^1.3.0", false),
+            (">=1.0.0", ">=1.3.0", false),
+            ("1.0.0", "1.3.0-beta.1", false),
+            ("npm:a@1.0.0", "npm:a@1.3.0", false),
+            ("latest", "1.3.0", false),
+            ("1.0.0", "workspace:1.3.0", false),
+        ];
+        for (from, to, expected) in cases {
+            assert_eq!(safe(from, to), expected, "{from} -> {to}");
+        }
     }
 
     #[test]

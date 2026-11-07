@@ -591,6 +591,50 @@ fn select_decides_which_version_alignment_is_applied() {
     }
 }
 
+fn dependency_versions(dir: &Path, member: &str, section: &str) -> Value {
+    let text = fs::read_to_string(dir.join("packages").join(member).join("package.json")).unwrap();
+    serde_json::from_str::<Value>(&text).unwrap()[section].clone()
+}
+
+/// ADR 0051: `--fix` aligns a version within its major and moves type packages out of `dependencies`, and leaves the
+/// cross-major move and the change of range to `--fix-unsafe`.
+#[test]
+fn fix_applies_compatible_version_alignments_and_leaves_the_rest() {
+    let dir = fixture("align");
+    let result = run(skif()
+        .args(["--fix", "--no-install", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+
+    let a = dependency_versions(dir.path(), "a", "dependencies");
+    let b = dependency_versions(dir.path(), "b", "dependencies");
+    assert_eq!(
+        (&a["left-pad"], &b["left-pad"]),
+        (&Value::from("1.3.0"), &Value::from("1.3.0"))
+    );
+    assert_eq!(
+        (&a["is-number"], &b["is-number"]),
+        (&Value::from("6.0.0"), &Value::from("7.0.0"))
+    );
+    assert_eq!((&a["ms"], &b["ms"]), (&Value::from("^2.1.0"), &Value::from("2.1.3")));
+    assert!(a.get("@types/node").is_none(), "{a}");
+    assert_eq!(
+        dependency_versions(dir.path(), "a", "devDependencies")["@types/node"],
+        "22.0.0"
+    );
+
+    let report = result.json();
+    let diagnostics = report["diagnostics"].as_array().unwrap();
+    assert!(
+        diagnostics
+            .iter()
+            .flat_map(|diagnostic| diagnostic["fixes"].as_array().into_iter().flatten())
+            .all(|fix| fix["safety"] != "safe"),
+        "a safe fix survived --fix: {report}"
+    );
+    insta::assert_snapshot!("fix_align_json", redact(&result.stdout, dir.path()));
+}
+
 #[test]
 fn color_always_emits_escapes_and_never_does_not() {
     let dir = fixture("dirty");

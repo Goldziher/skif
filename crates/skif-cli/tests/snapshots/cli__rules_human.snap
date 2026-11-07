@@ -7,7 +7,7 @@ empty-dependencies                 manifest   error    safe       A dependency s
 root-package-private-field         manifest   error    safe       The root `package.json` must set `"private": true` so it cannot be published by accident.
 root-package-manager-field         manifest   error    none       The root `package.json` must declare the package manager in `packageManager` or `devEngines.packageManager`.
 root-package-dependencies          manifest   warning  unsafe     The root package should only have `devDependencies`; runtime dependencies belong to the packages that use them.
-types-in-dependencies              manifest   error    unsafe     A private package lists `@types/*` packages in `dependencies`; type packages belong in `devDependencies`.
+types-in-dependencies              manifest   error    safe       A private package lists `@types/*` packages in `dependencies`; type packages belong in `devDependencies`.
 member-toolchain-fields            manifest   warning  unsafe     Private member packages should not declare `packageManager` or `engines`; the root package owns the toolchain.
 incompatible-peer-dependencies     manifest   warning  none       The version a package installs in `devDependencies` does not satisfy the range it declares in `peerDependencies`.
 unsorted-dependencies              manifest   error    safe       The entries of a dependency section are not in alphabetical (byte) order.

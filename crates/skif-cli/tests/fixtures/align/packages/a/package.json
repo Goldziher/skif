@@ -1,0 +1,11 @@
+{
+  "name": "@cli/a",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@types/node": "22.0.0",
+    "is-number": "6.0.0",
+    "left-pad": "1.0.0",
+    "ms": "^2.1.0"
+  }
+}
