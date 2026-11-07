@@ -438,7 +438,8 @@ impl Finder<'_, '_> {
             },
             Expression::StaticMemberExpression(m) => {
                 let property = m.property.name.as_str();
-                if is_ident(&m.object, "require") && property == "resolve" {
+                let resolves = property == "resolve" && (is_ident(&m.object, "require") || is_import_meta(&m.object));
+                if resolves {
                     match first.and_then(static_string) {
                         Some(specifier) => self.info.imports.push(Import {
                             specifier,

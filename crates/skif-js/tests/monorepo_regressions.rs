@@ -302,3 +302,45 @@ fn bundler_extensions_apply_to_the_package_that_declares_them() {
         "{diagnostics:#?}"
     );
 }
+
+#[test]
+fn a_script_path_that_leaves_its_package_is_the_file_it_names() {
+    let root = manifest(&format!(
+        r#""name":"root","version":"1.0.0","private":true,{PNPM},"devDependencies":{{"lodash":"4.17.21"}}"#
+    ));
+    let db = manifest(
+        r#""name":"db","version":"1.0.0","private":true,"scripts":{"seed":"tsx ../../scripts/seed.ts"},"devDependencies":{"tsx":"4.0.0"}"#,
+    );
+    let diagnostics = lint_files(
+        &[
+            ("package.json", &root),
+            ("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+            ("packages/db/package.json", &db),
+            ("scripts/seed.ts", "import { noop } from 'lodash';\nnoop();\n"),
+        ],
+        "",
+    );
+    assert_eq!(found(&diagnostics, "unused-files"), none(), "{diagnostics:#?}");
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none(), "{diagnostics:#?}");
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
+}
+
+#[test]
+fn a_url_into_node_modules_is_a_path_not_a_package() {
+    let package = manifest(&format!(
+        r#""name":"app","version":"1.0.0","private":true,{PNPM},"main":"src/index.js""#
+    ));
+    let diagnostics = lint_files(
+        &[
+            ("package.json", &package),
+            (
+                "src/index.js",
+                "export const tsx = new URL('../node_modules/.bin/tsx', import.meta.url);\n\
+                 export const later = new URL('./node_modules/later', import.meta.url);\n",
+            ),
+            ("node_modules/.bin/tsx", "#!/usr/bin/env node\n"),
+        ],
+        "",
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+}
