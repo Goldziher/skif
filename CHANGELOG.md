@@ -20,6 +20,9 @@ All notable changes to this project are documented here. The format follows
 - The script parser reads `$((n+1))` and `((n++))` as arithmetic, not as commands; `bun --cwd <dir>` and
   `pnpm --prefix <dir>` (like `--dir` and `-C`) run in another package, so the scripts and binaries they name are that
   package's ([#22](https://github.com/Goldziher/skif/issues/22)).
+- `new URL("../node_modules/.bin/tsx", import.meta.url)` and `new URL("./node_modules/later", import.meta.url)` name
+  installed files, not modules, so they no longer report `.bin` or `later` as unlisted
+  ([#22](https://github.com/Goldziher/skif/issues/22)).
 
 ## [0.1.1] - 2026-11-07
 

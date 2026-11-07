@@ -324,3 +324,23 @@ fn a_script_path_that_leaves_its_package_is_the_file_it_names() {
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), none(), "{diagnostics:#?}");
     assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
 }
+
+#[test]
+fn a_url_into_node_modules_is_a_path_not_a_package() {
+    let package = manifest(&format!(
+        r#""name":"app","version":"1.0.0","private":true,{PNPM},"main":"src/index.js""#
+    ));
+    let diagnostics = lint_files(
+        &[
+            ("package.json", &package),
+            (
+                "src/index.js",
+                "export const tsx = new URL('../node_modules/.bin/tsx', import.meta.url);\n\
+                 export const later = new URL('./node_modules/later', import.meta.url);\n",
+            ),
+            ("node_modules/.bin/tsx", "#!/usr/bin/env node\n"),
+        ],
+        "",
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+}
