@@ -731,6 +731,20 @@ fn package_managers_are_recorded() {
 }
 
 #[test]
+fn test_runner_arguments_are_file_trees() {
+    let info = parse("mocha --file ./build/test/setup.js --recursive --timeout 9000 ./build/test && node ./run.js");
+    let trees: Vec<(&str, bool)> = info.files.iter().map(|f| (f.path.as_str(), f.tree)).collect();
+    assert_eq!(
+        trees,
+        [
+            ("./build/test/setup.js", false),
+            ("./build/test", true),
+            ("./run.js", false)
+        ]
+    );
+}
+
+#[test]
 fn the_node_test_runner_is_detected_and_custom_reporters_are_packages() {
     assert!(parse("node --test").node_test);
     assert!(parse("cross-env A=1 node --test --test-reporter=spec test/").node_test);

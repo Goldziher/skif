@@ -33,6 +33,8 @@ pub(crate) struct ScriptFacts {
     pub package_managers: Vec<String>,
     /// Files the scripts run, relative to the package directory.
     pub files: Vec<String>,
+    /// The subset of `files` a test runner reads, where a directory stands for every file below it.
+    pub file_trees: Vec<String>,
     pub dependencies: Vec<String>,
 }
 
@@ -59,6 +61,7 @@ pub(crate) fn analyze(package: &Package) -> ScriptFacts {
     let mut forwarded = IndexSet::new();
     let mut package_managers = IndexSet::new();
     let mut files = IndexSet::new();
+    let mut file_trees = IndexSet::new();
     let mut dependencies = IndexSet::new();
     for (name, body) in commands {
         let info = parse_script(body, &context.clone().with_current_script(name));
@@ -89,7 +92,12 @@ pub(crate) fn analyze(package: &Package) -> ScriptFacts {
             });
         }
         package_managers.extend(info.package_managers);
-        files.extend(info.files.into_iter().map(|file| file.path));
+        for file in info.files {
+            if file.tree {
+                file_trees.insert(file.path.clone());
+            }
+            files.insert(file.path);
+        }
         dependencies.extend(
             info.dependencies
                 .into_iter()
@@ -103,6 +111,7 @@ pub(crate) fn analyze(package: &Package) -> ScriptFacts {
         forwarded: forwarded.into_iter().collect(),
         package_managers: package_managers.into_iter().collect(),
         files: files.into_iter().collect(),
+        file_trees: file_trees.into_iter().collect(),
         dependencies: dependencies.into_iter().collect(),
     }
 }

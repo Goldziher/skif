@@ -11,7 +11,7 @@ use crate::globs::Globs;
 use crate::manifest_paths::{
     bin_stub_sources, bin_targets, crossing_stars, manifest_targets, map_to_source, should_have_source, source_patterns,
 };
-use crate::resolve::is_code_file;
+use crate::resolve::{is_code_file, join_normalized};
 use crate::setup::{PackageSetup, Setup};
 
 /// The entry files of the workspace.
@@ -80,7 +80,7 @@ pub(crate) fn entry_files(
                         .filter(|(_, rel)| globs.is_match(rel))
                         .map(|(candidate, _)| candidate.abs.clone()),
                 );
-            } else if let Some(path) = map_to_source(fs, &package_setup.dir, &target)
+            } else if let Some(path) = map_published(fs, package_setup, &target)
                 && is_code_file(&path)
             {
                 mapped_any = true;
@@ -105,7 +105,7 @@ pub(crate) fn entry_files(
                 .cloned(),
         );
         if !setup.production {
-            entries.extend(script_files(fs, package_setup));
+            entries.extend(script_files(fs, package_setup, mine));
         }
     }
     EntryFiles {
@@ -163,13 +163,75 @@ fn owned_by<'a>(owned: &'a [&'a Candidate], dir: &'a Path) -> impl Iterator<Item
         .filter_map(move |candidate| Some((candidate, relative(&candidate.abs, dir)?)))
 }
 
-fn script_files(fs: &dyn FileSystem, package_setup: &PackageSetup) -> Vec<PathBuf> {
-    package_setup
-        .scripts
-        .files
+/// The files the package's scripts run. A path inside a build output directory (`outDir` of a `tsconfig`) stands for
+/// its source below the matching `rootDir`, and a directory a test runner reads (`mocha build/compiled/test`) for
+/// every code file below it.
+fn script_files(fs: &dyn FileSystem, package_setup: &PackageSetup, mine: &[&Candidate]) -> Vec<PathBuf> {
+    let dir = &package_setup.dir;
+    let mut found = Vec::new();
+    for file in &package_setup.scripts.files {
+        let path = join_normalized(dir, file);
+        if is_code_file(&path) && fs.is_file(&path) {
+            found.push(path);
+            continue;
+        }
+        let Some(rel) = relative(&path, dir) else {
+            continue;
+        };
+        let tree = package_setup.scripts.file_trees.contains(file);
+        let sources = source_paths(package_setup, &rel);
+        let mapped = sources
+            .iter()
+            .filter_map(|source| map_to_source(fs, dir, source))
+            .find(|source| is_code_file(source));
+        if let Some(source) = mapped {
+            found.push(source);
+        } else if tree {
+            let directories = if sources.is_empty() { vec![rel] } else { sources };
+            for directory in directories.iter().filter(|directory| !directory.is_empty()) {
+                let prefix = format!("{directory}/");
+                found.extend(
+                    owned_by(mine, dir)
+                        .filter(|(candidate, rel)| rel.starts_with(&prefix) && is_code_file(&candidate.abs))
+                        .map(|(candidate, _)| candidate.abs.clone()),
+                );
+            }
+        }
+    }
+    found
+}
+
+/// The source file behind a published path: through the package's build directories first, then by the `dist` to
+/// `src` convention.
+fn map_published(fs: &dyn FileSystem, package_setup: &PackageSetup, target: &str) -> Option<PathBuf> {
+    let dir = &package_setup.dir;
+    relative(&join_normalized(dir, target), dir)
+        .map(|rel| source_paths(package_setup, &rel))
+        .unwrap_or_default()
         .iter()
-        .map(|file| package_setup.dir.join(file.trim_start_matches("./")))
-        .filter(|path| is_code_file(path) && fs.is_file(path))
+        .find_map(|source| map_to_source(fs, dir, source))
+        .or_else(|| map_to_source(fs, dir, target))
+}
+
+/// The source paths behind `rel`, a package-relative path inside the output directory of one of the package's build
+/// directories, in the order the build directories are declared.
+fn source_paths(package_setup: &PackageSetup, rel: &str) -> Vec<String> {
+    package_setup
+        .build_dirs
+        .iter()
+        .filter(|build| !build.out_dir.is_empty() && !build.root_dir.starts_with(".."))
+        .filter_map(|build| {
+            let rest = rel.strip_prefix(build.out_dir.as_str())?;
+            if !rest.is_empty() && !rest.starts_with('/') {
+                return None;
+            }
+            let rest = rest.trim_start_matches('/');
+            Some(match (build.root_dir.as_str(), rest) {
+                ("", rest) => rest.to_owned(),
+                (root, "") => root.to_owned(),
+                (root, rest) => format!("{root}/{rest}"),
+            })
+        })
         .collect()
 }
 

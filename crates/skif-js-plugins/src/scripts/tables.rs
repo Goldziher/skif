@@ -583,7 +583,7 @@ pub(super) enum Files {
     First,
     /// Every positional argument with a JavaScript or TypeScript extension.
     ScriptExt,
-    /// Every positional argument.
+    /// Every positional argument, where a directory stands for every file below it (a test runner's arguments).
     All,
 }
 
