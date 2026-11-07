@@ -584,6 +584,25 @@ pub(crate) fn production_entries<'a>(base: &str, patterns: impl IntoIterator<Ite
         .collect()
 }
 
+/// The JavaScript and TypeScript source files of the workspace whose text contains `needle`, as their path relative to
+/// the workspace and their text. Declaration files are left out.
+pub(crate) fn sources_containing(cx: &PluginContext<'_>, needle: &str) -> Vec<(String, std::sync::Arc<str>)> {
+    let patterns = ["**/*.{ts,mts,cts,tsx,js,mjs,cjs,jsx}".to_owned()];
+    crate::files::find_files(cx.fs, cx.dir, &patterns)
+        .into_iter()
+        .filter(|source| !source.ends_with(".d.ts") && !source.ends_with(".d.mts") && !source.ends_with(".d.cts"))
+        .filter_map(|source| {
+            let text = cx.fs.read_to_string(&cx.dir.join(&source)).ok()?;
+            text.contains(needle).then_some((source, text))
+        })
+        .collect()
+}
+
+/// The directory of a path relative to the workspace, `""` for a file at the top.
+pub(crate) fn parent_dir(relative: &str) -> &str {
+    relative.rsplit_once('/').map_or("", |(dir, _)| dir)
+}
+
 /// The end of the string literal that starts at `start` (the index of its closing quote).
 fn string_end(bytes: &[u8], start: usize) -> usize {
     let quote = bytes[start];
