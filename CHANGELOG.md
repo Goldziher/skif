@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `unused-exports`, `unused-types`, the namespace export rules and the member rules no longer report exports of a
+  package whose entry files are incomplete, as `unused-files` and `unused-dependencies` already did: a file no known
+  entry reaches may import them. `explain-usage` gives such an export the verdict `not-judged`
+  ([#12](https://github.com/Goldziher/skif/issues/12)).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed

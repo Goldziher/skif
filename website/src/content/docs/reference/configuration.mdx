@@ -326,6 +326,12 @@ only the patterns ending in `!` count and the others are excluded; when none end
 entries that do not end in `!` are also removed from the project, so a file only they reach (`scripts/*.ts` next to
 `src/index.ts!`) is not reported as unused, and the files that tools add to the project are removed as well.
 
+**Incomplete entries.** When skif cannot know all the entry files of a package (a tool configuration it cannot read
+statically, or a published `main`, `exports` or `bin` that maps to no source file), a file no known entry reaches may
+still be one. Nothing in that package is then reported unused: `unused-files`, `unused-dependencies`,
+`unused-dev-dependencies`, `unused-exports`, `unused-types`, the namespace export rules and the member rules skip it,
+and `explain-usage` gives its exports the verdict `not-judged`.
+
 **`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
 workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.
 
