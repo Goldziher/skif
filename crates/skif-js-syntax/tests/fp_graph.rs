@@ -180,3 +180,12 @@ fn test_runner_mocks_are_mock_imports_and_strings_are_not() {
         .collect();
     assert_eq!(mocks, ["./dep", "pkg"]);
 }
+
+#[test]
+fn imports_inside_declare_module_bodies_are_imports() {
+    let info = parse(
+        "types.d.ts",
+        "declare module 'compiled/accept' {\n  import m from '@hapi/accept';\n  export = m;\n}\n",
+    );
+    assert_eq!(imported(&info, "@hapi/accept"), ["default"]);
+}

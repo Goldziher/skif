@@ -6,14 +6,14 @@ use std::collections::{HashMap, HashSet};
 use oxc_ast::ast::{
     Argument, AssignmentExpression, AssignmentOperator, AssignmentTarget, BindingPattern, CallExpression,
     ComputedMemberExpression, Expression, FormalParameters, IdentifierReference, ImportExpression, JSXElement,
-    JSXFragment, ObjectPropertyKind, StaticMemberExpression, TSAsExpression, TSExternalModuleDeclaration,
+    JSXFragment, ObjectPropertyKind, Statement, StaticMemberExpression, TSAsExpression, TSExternalModuleDeclaration,
     TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier, TSModuleReference, TSType, TSTypeQueryExprName,
     VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 
-use crate::collect::{Ctx, imported_kind};
+use crate::collect::{Ctx, collect_import, imported_kind};
 use crate::model::{Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, ModuleInfo};
 
 pub(crate) struct Finder<'c, 's> {
@@ -295,6 +295,12 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
 
     fn visit_ts_external_module_declaration(&mut self, it: &TSExternalModuleDeclaration<'a>) {
         self.info.ambient_modules.push(crate::js_string(it.id.value));
+        // `declare module "x" { import m from "y"; }` needs `y` as much as a top-level import does.
+        for statement in it.body.iter().flat_map(|body| &body.body) {
+            if let Statement::ImportDeclaration(declaration) = statement {
+                collect_import(self.ctx, declaration, self.info);
+            }
+        }
         walk::walk_ts_external_module_declaration(self, it);
     }
 

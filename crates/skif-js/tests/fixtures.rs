@@ -149,6 +149,13 @@ fn test_mocks_snapshot() {
     insta::assert_json_snapshot!("test_mocks", diagnostics);
 }
 
+/// Imports inside `declare module` bodies use the packages they name (#20).
+#[test]
+fn ambient_module_imports_snapshot() {
+    let diagnostics = Run::new("ambient-module-imports", "").lint();
+    insta::assert_json_snapshot!("ambient_module_imports", diagnostics);
+}
+
 #[test]
 fn monorepo_dependencies() {
     let diagnostics = Run::new("monorepo", "").lint();
