@@ -75,7 +75,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 4] = [
     },
     Deviation {
         id: TEST_FILE,
-        reason: "skif treats test files and test directories as entries, so it never reports them as unused; knip does without its test-runner plugin",
+        reason: "knip reports these test files and files below test directories as unused and skif does not: a test-runner plugin makes test files entries, and most other files below test directories are apps and helpers that skif leaves out of its graph, in a nested project (read only with --recursive) or in a package whose entry files it cannot fully read, where it reports no file as unused",
     },
     Deviation {
         id: FIXTURE_FILE,
@@ -287,8 +287,9 @@ fn align_export_labels(skif: &mut Keys, knip: &Keys) {
     }
 }
 
-/// Whether a knip-reported unused file is a known deviation: outside skif's project set (not code), a fixture, or a
-/// test. Fixtures and tests only count when `include_test_files` is off.
+/// Whether a knip-reported unused file is a known deviation: outside skif's project set (not code), a fixture, a test
+/// file or any code file below a test directory (such as the apps of an end-to-end suite). Fixtures and tests only
+/// count when `include_test_files` is off.
 fn classify_file(path: &str, include_test_files: bool) -> Option<&'static str> {
     let normalized = path.replace('\\', "/");
     let (directories, name) = normalized.rsplit_once('/').unwrap_or(("", normalized.as_str()));
