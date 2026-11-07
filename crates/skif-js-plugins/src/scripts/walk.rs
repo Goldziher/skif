@@ -316,6 +316,36 @@ impl<'c> Walker<'c> {
                 self.dep(package, frame.span(&word.span), false);
             }
         }
+        if tool == "eslint" {
+            self.eslint_formatter(args, frame);
+        }
+    }
+
+    /// `eslint --format <name>` loads `eslint-formatter-<name>` unless the name is built in or a path.
+    fn eslint_formatter(&mut self, args: &[Word], frame: &Frame) {
+        let inline = args
+            .iter()
+            .find_map(|word| word.text.strip_prefix("--format=").map(|value| (word, value)));
+        let separate = || {
+            args.iter()
+                .position(|word| word.text == "--format" || word.text == "-f")
+                .and_then(|index| args.get(index + 1))
+                .map(|word| (word, word.text.as_str()))
+        };
+        let Some((word, value)) = inline.or_else(separate) else {
+            return;
+        };
+        if tables::ESLINT_FORMATTERS.contains(&value) || value.starts_with('.') || value.contains('$') {
+            return;
+        }
+        let name = match value.split_once('/') {
+            Some((scope, _)) if !scope.starts_with('@') => return,
+            Some((scope, rest)) if rest.starts_with(tables::ESLINT_FORMATTER_PREFIX) => format!("{scope}/{rest}"),
+            Some((scope, rest)) => format!("{scope}/{}{rest}", tables::ESLINT_FORMATTER_PREFIX),
+            None if value.starts_with(tables::ESLINT_FORMATTER_PREFIX) => value.to_owned(),
+            None => format!("{}{value}", tables::ESLINT_FORMATTER_PREFIX),
+        };
+        self.dep(&name, frame.span(&word.span), false);
     }
 
     fn dep(&mut self, name: &str, span: Range<usize>, ephemeral: bool) {

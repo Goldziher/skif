@@ -749,3 +749,17 @@ fn the_node_test_runner_is_detected_and_custom_reporters_are_packages() {
     assert_eq!(package_names("node --test --test-reporter spec"), Vec::<String>::new());
     assert_eq!(package_names("node --test-reporter=lcov --test"), Vec::<String>::new());
 }
+
+#[test]
+fn eslint_formatters_follow_the_naming_convention() {
+    let deps = |script: &str| deps_of(&parse(script));
+    assert_eq!(deps("eslint --format=codeframe ."), ["eslint-formatter-codeframe"]);
+    assert_eq!(deps("eslint -f pretty ."), ["eslint-formatter-pretty"]);
+    assert_eq!(deps("eslint --format @scope/x ."), ["@scope/eslint-formatter-x"]);
+    assert_eq!(
+        deps("eslint --format eslint-formatter-rdjson ."),
+        ["eslint-formatter-rdjson"]
+    );
+    assert_eq!(deps("eslint --format stylish ."), [] as [&str; 0]);
+    assert_eq!(deps("eslint --format ./formatter.js ."), [] as [&str; 0]);
+}

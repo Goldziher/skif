@@ -288,6 +288,12 @@ pub(super) const NPM_VALUE_FLAGS: &[&str] = &[
 ];
 /// Packages a tool loads on demand: the tool, the flag or subcommand that triggers it, the packages it needs. Any
 /// of the packages may satisfy the need, so every candidate is credited when listed.
+/// The prefix of a package `eslint --format` loads by its short name.
+pub(super) const ESLINT_FORMATTER_PREFIX: &str = "eslint-formatter-";
+
+/// Formatters built into `ESLint`.
+pub(super) const ESLINT_FORMATTERS: &[&str] = &["stylish", "html", "json", "json-with-metadata"];
+
 pub(super) const FLAG_DEPENDENCIES: &[(&str, &str, &[&str])] = &[
     ("vitest", "--ui", &["@vitest/ui"]),
     (
