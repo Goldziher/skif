@@ -162,6 +162,7 @@ pub mod tailwind;
 pub mod tanstack_router;
 pub mod tap;
 pub mod taskfile;
+pub mod taskr;
 pub mod tauri;
 pub mod temporal;
 pub mod textlint;

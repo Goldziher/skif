@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 203] = [
+const ADR_IDS: [&str; 204] = [
     "typescript",
     "eslint",
     "prettier",
@@ -218,6 +218,7 @@ const ADR_IDS: [&str; 203] = [
     "lit",
     "catalyst",
     "fast",
+    "taskr",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -4513,4 +4514,20 @@ fn custom_element_plugins_name_their_registering_library() {
     }
     let none = resolve(&[], &["react"]);
     assert!(none.iter().all(|(_, out)| out.custom_elements.is_none()));
+}
+
+#[test]
+fn taskr_reads_the_taskfile_its_required_plugins_and_named_plugins() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"next","taskr":{"requires":["./taskfile-ncc.js","./taskfile-swc.js","taskr-shared"]}}"#,
+    );
+    let results = resolve(&[manifest], &["taskr", "@taskr/clear", "taskr-babel", "react"]);
+    let out = output(&results, "taskr");
+    assert_entries(&out.entries, &["{T,t}askfile.js", "taskfile-ncc.js", "taskfile-swc.js"]);
+    assert_deps(out, &["@taskr/clear", "taskr-babel", "taskr-shared"]);
+    assert_absent(out, &["react"]);
+    assert!(out.provided_binaries.contains(&"taskr".to_string()));
+    let none = resolve(&[], &["react"]);
+    assert!(!none.iter().any(|(id, _)| *id == "taskr"));
 }
