@@ -371,3 +371,32 @@ fn rule_metadata_is_stable() {
     assert!(defaults.contains(&("stale-js-config", true)));
     assert_eq!(defaults.len(), 17);
 }
+
+#[test]
+fn root_tsconfig_replaces_tsconfig_json_for_the_root_package() {
+    let default = Run::new("tsconfig-flags", "").lint();
+    assert_eq!(found(&default, "unresolved-imports").len(), 1, "{default:#?}");
+    let configured = Run::new("tsconfig-flags", "[js]\ntsconfig = \"tsconfig.app.json\"").lint();
+    assert_eq!(found(&configured, "unresolved-imports"), Vec::<String>::new());
+    let mut unused = found(&configured, "unused-files");
+    unused.sort();
+    assert_eq!(
+        unused,
+        [
+            "packages/a/lib/unused.ts: packages/a/lib/unused.ts",
+            "packages/a/other/stray.ts: packages/a/other/stray.ts",
+            "scripts/tool.ts: scripts/tool.ts",
+            "src/orphan.ts: src/orphan.ts",
+        ]
+    );
+}
+
+#[test]
+fn use_tsconfig_files_takes_the_project_from_the_tsconfig() {
+    let diagnostics = Run::new(
+        "tsconfig-flags",
+        "[js]\ntsconfig = \"tsconfig.app.json\"\nuse-tsconfig-files = true",
+    )
+    .lint();
+    insta::assert_json_snapshot!("tsconfig_flags", diagnostics);
+}
