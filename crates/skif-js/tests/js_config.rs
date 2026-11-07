@@ -347,7 +347,8 @@ fn stale_js_config_reports_entries_that_matched_nothing() {
 
 #[test]
 fn stale_js_config_is_silent_when_every_entry_matched() {
-    let files = two_packages("import \"./gone\";\n");
+    let mut files = two_packages("import \"./gone\";\n");
+    files.push(("index.ts", "export {};\n"));
     let diagnostics = lint(
         &files,
         "[js]\nignore-dependencies = [\"left\"]\nignore-unresolved = [\"./gone\"]\n[js.workspaces.\".\"]\nentry = [\"index.ts\"]\n",
@@ -419,4 +420,17 @@ fn invalid_js_configuration_is_rejected_when_the_configuration_is_checked() {
         plugin.contains("unknown plugin `vitset`") && plugin.contains("did you mean `vit"),
         "{plugin}"
     );
+}
+
+#[test]
+fn stale_js_config_reports_entry_project_and_ignore_patterns_that_match_no_file() {
+    let mut files = two_packages("export {};\n");
+    files.push(("index.ts", "export {};\n"));
+    files.push(("packages/a/src/extra.ts", "export {};\n"));
+    let diagnostics = lint(
+        &files,
+        "[js]\nentry = [\"index.ts\", \"main.ts\", \"!skip.ts\"]\nproject = [\"**/*.ts\", \"lib/**\"]\nignore = [\"packages/a/src/extra.ts\", \"generated/**\"]\n\
+         [js.workspaces.\"packages/*\"]\nentry = [\"src/index.ts\", \"src/cli.ts!\"]\nproject = [\"src/**/*.ts\"]\nignore = [\"src/extra.ts\", \"src/gone/**\"]\n",
+    );
+    insta::assert_snapshot!(messages(&diagnostics).join("\n"));
 }

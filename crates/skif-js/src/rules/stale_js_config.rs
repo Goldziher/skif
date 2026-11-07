@@ -12,7 +12,7 @@ pub static META: RuleMeta = RuleMeta::new(
     Category::Js,
     Some(Severity::Warning),
     Fixability::None,
-    "A `[js]` ignore entry, workspace key or ignore tag matched nothing in the run.",
+    "A `[js]` ignore entry, workspace key, file pattern or ignore tag matched nothing in the run.",
 );
 
 /// The rules that consult `ignore-dependencies`. An entry can only be called stale when all of them ran.
@@ -25,7 +25,8 @@ const DEPENDENCY_RULES: [&str; 5] = [
 ];
 
 /// Reports configuration that does nothing: `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
-/// `ignore-workspaces` entries that matched nothing, and `[js.workspaces]` keys that select no package.
+/// `ignore-workspaces` entries that matched nothing, `[js.workspaces]` keys that select no package, and `entry`,
+/// `project` and `ignore` patterns that match no file (knip's `entry-empty`, `project-empty` and `ignore` hints).
 ///
 /// It also reports knip's tag hints: a tag that exempts by configuration (`@internal` in production mode, an
 /// `ignore-tags` name of `unused-exports`) on an export or enum or namespace member that is used anyway.
@@ -155,6 +156,9 @@ impl JsRule for StaleJsConfig {
         }
         for key in &setup.unmatched_workspace_keys {
             Self::report(analysis, out, "js.workspaces", vec![key.as_str()]);
+        }
+        for empty in &analysis.empty_patterns {
+            Self::report(analysis, out, &empty.key, vec![empty.pattern.as_str()]);
         }
         if ran(&["unused-exports"]) {
             Self::report_tags(analysis, out);

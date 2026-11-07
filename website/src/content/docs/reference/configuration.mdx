@@ -339,8 +339,10 @@ exempts an export (`@public`, `@beta`, `@alpha`, `@alias`, `@internal` with `pro
 **`include-entry-exports`** may be set per workspace.
 
 **`stale-js-config`** (a warning) reports `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
-`ignore-workspaces` entries that matched nothing in the run, and `[js.workspaces]` keys that select no package, like
-knip's configuration hints. `[rules] stale-js-config = "error"` is knip's `--treat-config-hints-as-errors` (`skif migrate` writes `warn` unless `--strict-hints` is given). An
+`ignore-workspaces` entries that matched nothing in the run, `[js.workspaces]` keys that select no package, and
+`entry`, `project` and `ignore` patterns (top level and per workspace) that match no source file, like knip's
+configuration hints (`entry-empty`, `project-empty` and stale `ignore`). A pattern of a workspace glob key is judged
+per package it selects. Negated patterns and patterns that leave the package (`../`) are not judged. `[rules] stale-js-config = "error"` is knip's `--treat-config-hints-as-errors` (`skif migrate` writes `warn` unless `--strict-hints` is given). An
 `ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off, and the
 dependency lists are not judged when a package has entry files skif cannot determine. It also reports knip's tag
 hints: an `ignore-tags` tag, or `@internal` with `production`, on an export or member that is used anyway (while

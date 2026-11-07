@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use skif_config::{Config, JsDiscovery};
-use skif_core::Span;
-use skif_core::{FileSystem, timing};
+use skif_core::{FileSystem, Span, timing};
 use skif_js_syntax::{Export, ExportKind, Member, ParseOptions, parse_module};
 use skif_workspace::{PackageId, Workspace, map_ordered};
 
@@ -14,6 +13,7 @@ use crate::deps::DependencyUsage;
 use crate::discover::{Candidate, discover, relative, take_file_links};
 use crate::entries::entry_files;
 use crate::git_index::{IndexCache, Listing, indexed_fs};
+use crate::globs::Globs;
 use crate::graph::{self, Inputs, Module, ModuleGraph};
 use crate::input::InputSource;
 use crate::resolve::ModuleResolver;
@@ -30,6 +30,15 @@ pub struct UnneededTag<'m> {
     pub span: Span,
     /// The tag name, without `@`.
     pub tag: &'m str,
+}
+
+/// A configured `entry`, `project` or `ignore` pattern that matches no file the analysis knows (knip's `entry-empty`,
+/// `project-empty` and `ignore` hints).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EmptyPattern {
+    /// The configuration key, such as `js.entry` or `js.workspaces."packages/a".project`.
+    pub key: String,
+    pub pattern: String,
 }
 
 /// A project file nothing reaches.
@@ -59,6 +68,8 @@ pub struct JsAnalysis<'a> {
     pub(crate) enabled_rules: Option<HashSet<String>>,
     /// The configuration file, relative to the workspace root, that configuration findings point at.
     pub(crate) config_path: Option<PathBuf>,
+    /// Configured `entry`, `project` and `ignore` patterns that match no file.
+    pub(crate) empty_patterns: Vec<EmptyPattern>,
 }
 
 /// Names declared with `declare module 'name'` by graph modules and by declaration files nothing imports.
@@ -92,6 +103,86 @@ fn collect_ambient_modules(
     });
     names.extend(found.into_iter().flatten());
     names
+}
+
+/// The configured `entry`, `project` and `ignore` patterns that match none of the files the analysis knows: the
+/// discovered source files and the modules of the graph. Negated patterns, patterns that leave the package (`../`) and
+/// the defaults are not judged. A file only reaches a package's patterns when the package owns it, as for entries.
+fn empty_patterns(
+    workspace: &Workspace,
+    config: &Config,
+    setup: &Setup,
+    candidates: &[Candidate],
+    graph: &ModuleGraph,
+) -> Vec<EmptyPattern> {
+    let files: Vec<(PackageId, &Path, String)> = candidates
+        .iter()
+        .map(|candidate| (candidate.owner, candidate.abs.as_path(), candidate.rel.clone()))
+        .chain(graph.modules().iter().map(|module| {
+            (
+                module.owner,
+                module.abs.as_path(),
+                module.path.to_string_lossy().replace('\\', "/"),
+            )
+        }))
+        .collect();
+    let judged = |pattern: &&String| {
+        let body = pattern.trim();
+        !body.is_empty() && !body.starts_with('!') && !body.starts_with("../")
+    };
+    let mut found = Vec::new();
+    for pattern in config.js.ignore.iter().filter(judged) {
+        let globs = Globs::new([pattern]);
+        if !files.iter().any(|(_, _, rel)| globs.matches_any(rel)) {
+            found.push(EmptyPattern {
+                key: "js.ignore".to_owned(),
+                pattern: pattern.clone(),
+            });
+        }
+    }
+    for (id, package) in workspace.iter() {
+        let Some(package_setup) = setup.package(id) else {
+            continue;
+        };
+        let owned: Vec<String> = files
+            .iter()
+            .filter(|(owner, _, _)| *owner == id)
+            .filter_map(|(_, abs, _)| relative(abs, &package_setup.dir))
+            .collect();
+        let dir = if package.is_root {
+            ".".to_owned()
+        } else {
+            package.dir.to_string_lossy().replace('\\', "/")
+        };
+        let user = &package_setup.user_patterns;
+        for (name, patterns, top_level) in [
+            ("entry", &user.entry, &config.js.entry),
+            ("project", &user.project, &config.js.project),
+            ("ignore", &user.ignore, &config.js.ignore),
+        ] {
+            for pattern in patterns.iter().filter(judged) {
+                let from_top_level = package.is_root && top_level.contains(pattern);
+                if from_top_level && name == "ignore" {
+                    continue;
+                }
+                let globs = Globs::new([pattern]);
+                if owned.iter().any(|rel| globs.matches_any(rel)) {
+                    continue;
+                }
+                let key = if from_top_level {
+                    format!("js.{name}")
+                } else {
+                    format!("js.workspaces.\"{dir}\".{name}")
+                };
+                found.push(EmptyPattern {
+                    key,
+                    pattern: pattern.clone(),
+                });
+            }
+        }
+    }
+    found.dedup();
+    found
 }
 
 /// `fs` with the files tracked by git listed from the git index, as `[js] discovery` says: `auto` checks the
@@ -218,6 +309,7 @@ impl<'a> JsAnalysis<'a> {
                 owner: candidate.owner,
             })
             .collect();
+        let empty_patterns = empty_patterns(workspace, config, &setup, &candidates, &graph);
         Self {
             workspace,
             graph,
@@ -228,6 +320,7 @@ impl<'a> JsAnalysis<'a> {
             setup,
             enabled_rules: None,
             config_path: None,
+            empty_patterns,
         }
     }
 
