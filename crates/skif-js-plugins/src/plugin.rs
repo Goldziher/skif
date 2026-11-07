@@ -30,6 +30,8 @@ pub enum Enabler {
     ManifestNameContains(&'static str),
     /// A file matching this glob exists, relative to the workspace directory.
     File(&'static str),
+    /// A script of the workspace contains this text (`bun test`).
+    Script(&'static str),
 }
 
 /// The declarative row of a plugin.

@@ -7,6 +7,7 @@ pub mod aws_cdk;
 pub mod babel;
 pub mod biome;
 pub mod browser_extension;
+pub mod bun;
 pub mod c8;
 pub mod changesets;
 pub mod commitlint;

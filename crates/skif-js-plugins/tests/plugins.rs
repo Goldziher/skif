@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 104] = [
+const ADR_IDS: [&str; 105] = [
     "typescript",
     "eslint",
     "prettier",
@@ -81,6 +81,7 @@ const ADR_IDS: [&str; 104] = [
     "tanstack-router",
     "ava",
     "tap",
+    "bun",
     "biome",
     "c8",
     "dotenv",
@@ -2381,6 +2382,31 @@ fn tap() {
             "test/fixtures/cleanup.js",
         ],
     );
+}
+
+#[test]
+fn bun_is_enabled_by_a_test_script_or_a_lockfile() {
+    let results = resolve_with_scripts(&[], &[], &[("test", "bun test --timeout 30000")]);
+    let out = output(&results, "bun");
+    assert_entries(
+        &out.entries,
+        &["**/*.{test,spec}.{js,jsx,ts,tsx}", "**/*_{test,spec}.{js,jsx,ts,tsx}"],
+    );
+    assert!(resolve(&[("bun.lock", "")], &[]).iter().any(|(id, _)| *id == "bun"));
+    assert!(
+        !resolve_with_scripts(&[], &[], &[("test", "vitest run")])
+            .iter()
+            .any(|(id, _)| *id == "bun")
+    );
+}
+
+#[test]
+fn bun_reads_preloads_from_bunfig() {
+    let config = "[test]\npreload = [\"./test/setup.ts\", \"happy-dom-setup\"]\n";
+    let results = resolve(&[("bun.lock", ""), ("bunfig.toml", config)], &[]);
+    let out = output(&results, "bun");
+    assert_entries(&out.entries, &["test/setup.ts"]);
+    assert_deps(out, &["happy-dom-setup"]);
 }
 
 #[test]

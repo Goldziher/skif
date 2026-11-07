@@ -2,7 +2,7 @@
 
 use crate::plugin::Plugin;
 use crate::plugins::{
-    angular, astro, ava, aws_cdk, babel, biome, browser_extension, c8, changesets, commitlint, cspell, cypress,
+    angular, astro, ava, aws_cdk, babel, biome, browser_extension, bun, c8, changesets, commitlint, cspell, cypress,
     docusaurus, dotenv, drizzle, electron_vite, esbuild, eslint, expo, expo_router, gatsby, github_actions,
     graphql_codegen, husky, i18next_parser, jasmine, jest, karma, knex, lefthook, lingui, lint_staged, markdownlint,
     mastra, metro, mocha, msw, nest, netlify, next, nitro, node, nodemon, nuxt, nx, nyc, oclif, oxfmt, oxlint,
@@ -13,7 +13,7 @@ use crate::plugins::{
     vercel, vike, vite, vitepress, vitest, webdriver_io, webpack, wrangler, yarn,
 };
 
-static PLUGINS: [&dyn Plugin; 104] = [
+static PLUGINS: [&dyn Plugin; 105] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -80,6 +80,7 @@ static PLUGINS: [&dyn Plugin; 104] = [
     &tanstack_router::TanstackRouter,
     &ava::Ava,
     &tap::Tap,
+    &bun::Bun,
     &biome::Biome,
     &c8::C8,
     &dotenv::Dotenv,
