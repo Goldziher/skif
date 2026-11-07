@@ -1,0 +1,65 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "unused-exports",
+    "severity": "warning",
+    "message": "export `unusedHelper` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "src/helper.ts",
+      "span": {
+        "start": 77,
+        "end": 89,
+        "start-line": 3,
+        "start-col": 14,
+        "end-line": 3,
+        "end-col": 26
+      }
+    },
+    "package": "fixture-dirs",
+    "fixes": [
+      {
+        "title": "Remove the unused export `unusedHelper`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/helper.ts",
+              "edit": {
+                "start": 64,
+                "end": 71,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`src/orphan.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "src/orphan.ts"
+    },
+    "package": "fixture-dirs",
+    "fixes": [
+      {
+        "title": "Delete `src/orphan.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "src/orphan.ts"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

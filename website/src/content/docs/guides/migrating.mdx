@@ -195,5 +195,7 @@ rule stays on.
 
 - Values that are only known at run time, and everything the report marks `H` or `X`.
 - Severities: syncpack's `severity` and knip's configuration hints are not carried over one to one.
+- Fixtures: knip reports files and exports in `fixtures` and `__fixtures__` directories as unused, skif does not.
+  Set `[js] include-fixtures = true` to keep knip's behaviour; the command does not write it.
 - The scripts and CI jobs that still run the old tools: replace them with `skif` once the report is clean. The command
   does not edit them.
