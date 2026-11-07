@@ -21,9 +21,12 @@ pub(crate) fn config_flags(id: &str) -> Vec<&'static str> {
     if id == "buf" {
         flags.push("--template");
     }
-    // `kysely-codegen --config-file x.ts`.
+    // `kysely-codegen --config-file x.ts`, `railway up --file x.ts`.
     if id == "kysely-codegen" {
         flags.push("--config-file");
+    }
+    if id == "railway" {
+        flags.push("--file");
     }
     flags
 }
