@@ -58,6 +58,7 @@ old one.
 | 0048 | [Catalog Version Divergence and Reasons on Ignores](0048-catalog-version-divergence-and-reasons-on-ignores.md) | accepted |
 | 0049 | [JS Corrections from Adjudicating knip Disagreements: Linked Files, Subpath Imports, Aliased Packages, Computed Specifiers, Component Styles and Three Plugins](0049-js-corrections-from-adjudicating-knip-disagreements.md) | accepted |
 | 0050 | [Twenty-One More Plugins: Widely Used Tools, Commands Run From Source and Imported Call Options](0050-twenty-one-more-plugins-and-commands-run-from-source.md) | accepted |
+| 0051 | [Thirty-Five More Plugins: Frameworks, Task Runners and Options Written Anywhere in a Config](0051-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md) | accepted |
 
 ## Effective statements
 
@@ -144,3 +145,4 @@ the lines below stay as written; this table says which record governs.
 | [0018](0018-npm-distribution-via-napi-rs.md), package name | the npm package is `skif` and the hooks run `pnpm dlx skif@<version>` | [0047](0047-npm-package-name-skif-cli.md): `skif-cli`, with `napi.packageName` keeping the platform packages |
 | [0036](0036-thirty-nine-more-knip-plugins-by-real-world-usage.md), `tap` and plugin count | no `tap` plugin is added because knip has none; the table holds 102 plugins | [0049](0049-js-corrections-from-adjudicating-knip-disagreements.md): `tap`, `oxfmt` and `bun` are added; the table holds 105 plugins |
 | [0049](0049-js-corrections-from-adjudicating-knip-disagreements.md), plugin count | the table holds 105 plugins | [0050](0050-twenty-one-more-plugins-and-commands-run-from-source.md): 21 plugins are added; the table holds 126 plugins |
+| [0050](0050-twenty-one-more-plugins-and-commands-run-from-source.md), plugin count | the table holds 126 plugins | [0051](0051-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md): 35 plugins are added; the table holds 161 plugins |
