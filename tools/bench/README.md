@@ -104,10 +104,11 @@ nearly every import as unresolved or unlisted. `--install` installs each reposit
 `--ignore-scripts` (`pnpm install --frozen-lockfile`, `yarn install --immutable --mode=skip-build` or
 `--frozen-lockfile`, `npm ci`, `bun install --frozen-lockfile`); the installed state is cached in the checkout. A
 repository is skipped, with the reason in the report, when its package manager is not on `PATH`, the install fails or
-times out (`install = false` in `corpus.toml` for Rush, which has no lockfile in the tree), skif fails, or knip prints
-no JSON. Without `--install` the run is quick but dominated by that noise; the baseline records which way it was made and
+times out (`install = false` in `corpus.toml` for rushstack: knip has no Rush support and finds no root `package.json`
+there, so nothing would use the install), skif fails, or knip prints no JSON; the reason names the first error line
+the install printed, on stderr or stdout. Without `--install` the run is quick but dominated by that noise; the baseline records which way it was made and
 `--check` rejects a mismatch. A repository may set `install-command` (program first; `rules-js` installs with
-`npx pnpm@9`) and `install-timeout-secs` (`vercel-examples`) in `corpus.toml`.
+the pnpm its `MODULE.bazel` pins) and `install-timeout-secs` (`vercel-examples`) in `corpus.toml`.
 
 **Scope.** knip runs with an empty configuration (`--config` to a `{}` file in the scratch directory), so a repository's
 own ignores and disabled issue types do not hide findings; `--repo-knip-config` uses the repository's own. skif runs with

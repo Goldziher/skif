@@ -412,7 +412,7 @@ fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duration) -
         )));
     }
     if run.code != Some(0) {
-        return Ok(Some(format!("{program} install failed: {}", run.stderr_summary())));
+        return Ok(Some(format!("{program} install failed: {}", run.failure_summary())));
     }
     fs::write(&marker, &repo.rev).with_context(|| format!("writing {}", marker.display()))?;
     Ok(None)
