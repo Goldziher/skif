@@ -9,6 +9,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `unused-namespace-members` counts a member read by its bare name inside the namespace body, as a value or as a
+  type, unless a parameter or local of the same name shadows it; the declarations of a merged namespace share their
+  members ([#15](https://github.com/Goldziher/skif/issues/15)).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed
