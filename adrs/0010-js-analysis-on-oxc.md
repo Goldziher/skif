@@ -55,7 +55,7 @@ shows the approach is viable and is a useful design reference.
 
 ## Considered Options
 
-* Native knip-semantics analysis on exactly pinned oxc crates, with static config extraction, in three crates
+* Native knip-semantics analysis on oxc crates held to one release, with static config extraction, in three crates
 * Run knip and translate its JSON
 * The TypeScript compiler API or `swc`
 * Evaluate configs in an embedded JS engine (QuickJS, Boa)
@@ -63,7 +63,7 @@ shows the approach is viable and is a useful design reference.
 
 ## Decision Outcome
 
-Chosen option: "Native knip-semantics analysis on exactly pinned oxc crates, with static config extraction, in three crates", because it removes Node, the binding boundary and config execution, so analysis runs in one process on rayon, is safe on untrusted pull requests and confines oxc upgrades to three crates.
+Chosen option: "Native knip-semantics analysis on oxc crates held to one release, with static config extraction, in three crates", because it removes Node, the binding boundary and config execution, so analysis runs in one process on rayon, is safe on untrusted pull requests and confines oxc upgrades to three crates.
 
 skif implements knip's semantics natively on **oxc crates**, in three crates and nowhere else
 ([ADR 0002](0002-crate-layout-and-publishing.md)):
@@ -97,10 +97,10 @@ Issue types map to rule IDs one to one: `files` → `unused-files`, `dependencie
 
 Binding constraints:
 
-* **Every oxc dependency is pinned exactly** in `[workspace.dependencies]` with an `=` requirement.
-  The parser, AST, semantic and span crates are released in lockstep and share one version
-  (`=0.156.0` at the time of writing); `oxc_resolver` is a separate project on its own version line
-  and is pinned exactly in the same way (`=11.24.2`). Dependabot groups every oxc dependency,
+* **Every oxc dependency is a caret range** in `[workspace.dependencies]`, not an `=` requirement.
+  The parser, AST, semantic and span crates are released in lockstep and share one version; below
+  1.0 a caret admits patches of that minor and nothing newer. `oxc_resolver` is a separate project
+  on its own version line, with its own caret. Dependabot groups every oxc dependency,
   resolver included, into one pull request. oxc publishes breaking minor releases roughly weekly;
   a partial upgrade does not compile, and a resolver that drifts from the parser changes which
   files a specifier resolves to.
@@ -126,14 +126,14 @@ Binding constraints:
 * Bad, because static extraction misses configuration built at runtime (`process.env` branches, imported
   helpers, async config functions). Those cases produce a hint and may produce false
   `unused-files` until the user adds `entry` patterns. Measured on the corpus by `mise run parity`.
-* Bad, because exact oxc pins conflict with any host that uses a different oxc (poly pins a git revision); such a
-  host leaves `js-analysis` off or aligns its pin. This is the main reason the feature is opt-in.
+* Bad, because oxc requirements conflict with any host on a different oxc minor (poly pins a git revision); such a
+  host leaves `js-analysis` off or aligns its version. This is the main reason the feature is opt-in.
 * Bad, because matching knip's semantics without its code means its edge cases are rediscovered through the
   corpus diff, not inherited.
 
 ### Confirmation
 
-* The `consistency` job runs a check over the root `Cargo.toml` that every `oxc_*` entry in `[workspace.dependencies]` has an exact `=` requirement, and that the lockstep crates share one version; `.github/dependabot.yml` groups `oxc*` into one update.
+* The `consistency` job runs a check over the root `Cargo.toml` that every `oxc_*` entry in `[workspace.dependencies]` is a caret range, and that the lockstep crates share one version; `.github/dependabot.yml` groups `oxc*` into one update.
 * The same job runs `cargo tree -e normal --invert oxc_parser` (and the same for `oxc_resolver`) and fails if any crate other than `skif-js-syntax`, `skif-js-plugins` and `skif-js` appears.
 * A `skif-js-syntax` test asserts that the crate's public items name no `oxc_*` type, using the same rustdoc-JSON check as [ADR 0003](0003-library-first-embedding.md).
 * A CLI integration test lints a fixture whose `vite.config.ts` has a side effect when evaluated, and asserts the side effect did not happen and that the file's static `entry` values were still honoured.
@@ -142,7 +142,7 @@ Binding constraints:
 
 ## Pros and Cons of the Options
 
-### Native knip-semantics analysis on exactly pinned oxc crates, with static config extraction, in three crates
+### Native knip-semantics analysis on oxc crates held to one release, with static config extraction, in three crates
 
 * Good, because no Node, no binding boundary and no config execution means one process on rayon, safe on untrusted pull requests, and oxc upgrades touch three crates.
 * Good, because the parser and resolver are the same projects knip uses, so syntax coverage and resolution start aligned.

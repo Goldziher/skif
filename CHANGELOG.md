@@ -15,7 +15,7 @@ All notable changes to this project are documented here. The format follows
   agreement with knip.
 - The comparison with knip counts the same export under another label as agreement, and reports paths knip does not
   read as a known deviation ([ADR 0049](adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md)).
-- The oxc crates move from 0.156.0 to 0.157.0.
+- The oxc crates move from 0.156.0 to 0.157.0, and use caret ranges instead of exact pins.
 
 ### Added
 

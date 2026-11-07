@@ -58,8 +58,9 @@ pins="$(new_tree pins)"
 mkdir -p "${pins}/crates/a" "${pins}/tools"
 cat >"${pins}/Cargo.toml" <<'TOML'
 [workspace.dependencies]
-oxc_parser = "=0.1.0"
-oxc_span = { version = "=0.1.0", default-features = false }
+oxc_parser = "0.1.0"
+oxc_span = { version = "0.1.0", default-features = false }
+oxc_resolver = "11.0.0"
 serde = "1"
 TOML
 cat >"${pins}/crates/a/Cargo.toml" <<'TOML'
@@ -70,11 +71,16 @@ name = "a"
 serde.workspace = true
 oxc_parser = { workspace = true }
 TOML
-expect "check-pins accepts pinned and inherited dependencies" 0 run_in "$pins" check-pins.sh
+expect "check-pins accepts caret ranges and inherited dependencies" 0 run_in "$pins" check-pins.sh
 
-sed -i.bak 's/oxc_parser = "=0.1.0"/oxc_parser = "0.1.0"/' "${pins}/Cargo.toml"
-expect "check-pins rejects an unpinned oxc crate" 1 run_in "$pins" check-pins.sh
-expect_in_out "check-pins unpinned" "oxc dependency is not pinned exactly"
+sed -i.bak 's/oxc_parser = "0.1.0"/oxc_parser = "=0.1.0"/' "${pins}/Cargo.toml"
+expect "check-pins rejects an exact oxc pin" 1 run_in "$pins" check-pins.sh
+expect_in_out "check-pins exact" "oxc dependency is not a caret range"
+mv "${pins}/Cargo.toml.bak" "${pins}/Cargo.toml"
+
+sed -i.bak 's/oxc_parser = "0.1.0"/oxc_parser = "0.2.0"/' "${pins}/Cargo.toml"
+expect "check-pins rejects oxc crates on two releases" 1 run_in "$pins" check-pins.sh
+expect_in_out "check-pins lockstep" "the oxc crates must name one release"
 mv "${pins}/Cargo.toml.bak" "${pins}/Cargo.toml"
 
 printf 'tokio = "1"\n' >>"${pins}/crates/a/Cargo.toml"
@@ -271,7 +277,7 @@ expect_in_out "check-schema stale" "is stale"
 # ---------------------------------------------------------------- check-oxc-git-patch
 oxc="$(new_tree oxc)"
 cp Cargo.lock "${oxc}/Cargo.lock"
-printf '[workspace.dependencies]\noxc_parser = "=0.99.0"\n' >"${oxc}/Cargo.toml"
+printf '[workspace.dependencies]\noxc_parser = "0.99.0"\n' >"${oxc}/Cargo.toml"
 cat >"${stubs}/git" <<'STUB'
 #!/usr/bin/env bash
 [[ "$1" == ls-remote ]] && printf '%s\n' "${STUB_LS_REMOTE:-}"
@@ -280,8 +286,8 @@ chmod +x "${stubs}/git"
 printf '#!/usr/bin/env bash\necho "Patch oxc_parser was not used in the crate graph"\n' >"${stubs}/cargo"
 
 expect "check-oxc-git-patch needs a readable parser pin" 1 env bash -c 'cd "$1" && : >Cargo.toml && bash scripts/check-oxc-git-patch.sh' _ "$oxc"
-expect_in_out "check-oxc-git-patch pin" "cannot read the exact oxc_parser pin"
-printf '[workspace.dependencies]\noxc_parser = "=0.99.0"\n' >"${oxc}/Cargo.toml"
+expect_in_out "check-oxc-git-patch pin" "cannot read the oxc_parser version"
+printf '[workspace.dependencies]\noxc_parser = "0.99.0"\n' >"${oxc}/Cargo.toml"
 
 expect "check-oxc-git-patch rejects an unknown tag" 1 env STUB_LS_REMOTE="" bash "${oxc}/scripts/check-oxc-git-patch.sh"
 expect_in_out "check-oxc-git-patch tag" "tag crates_v0.99.0 not found"

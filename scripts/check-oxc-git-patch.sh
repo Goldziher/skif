@@ -16,9 +16,9 @@ cd "$(dirname "$0")/.."
 crates=(oxc_allocator oxc_ast oxc_ast_visit oxc_parser oxc_semantic oxc_span oxc_str)
 repo="${OXC_REPO:-https://github.com/oxc-project/oxc}"
 
-pinned="$(sed -n 's/^oxc_parser *= *"=\([0-9][0-9.]*\)".*/\1/p' Cargo.toml)"
+pinned="$(sed -n 's/^oxc_parser *= *"\([0-9][0-9.]*\)".*/\1/p' Cargo.toml)"
 if [[ -z "$pinned" ]]; then
-  echo "::error file=Cargo.toml::cannot read the exact oxc_parser pin" >&2
+  echo "::error file=Cargo.toml::cannot read the oxc_parser version" >&2
   exit 1
 fi
 tag="${1:-${OXC_TAG:-crates_v${pinned}}}"
