@@ -1,0 +1,19 @@
+{
+  "name": "exports",
+  "exports": {
+    ".": {
+      "default": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.ts"
+    },
+    "./feature": {
+      "node": {
+        "default": "./dist/feature.node.js",
+        "import": "./dist/feature.node.mjs"
+      },
+      "browser": "./dist/feature.browser.js"
+    },
+    "./package.json": "./package.json"
+  }
+}
