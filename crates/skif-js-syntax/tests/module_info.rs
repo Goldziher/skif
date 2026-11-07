@@ -179,10 +179,27 @@ fn import_forms() {
 fn unresolved_dynamic_references_are_recorded() {
     let info = parse(
         "a.js",
-        "import(name); require(name); import(`./x/${n}.js`); import.meta.glob(pattern);",
+        "import(name); require(name); import(`${n}/x.js`); import.meta.glob(pattern);",
     );
     assert_eq!(info.imports, [] as [skif_js_syntax::Import; 0]);
     assert_eq!(info.unresolved_dynamic.len(), 4);
+}
+
+#[test]
+fn computed_relative_specifiers_are_globs() {
+    let info = parse(
+        "a.js",
+        "require(`./commands/${name}`); import(`../pages/${a}/${b}.js`); require(`${root}/x.js`);",
+    );
+    let got: Vec<_> = info.imports.iter().map(|i| (i.specifier.as_str(), i.kind)).collect();
+    assert_eq!(
+        got,
+        [
+            ("./commands/*", ImportKind::ImportMetaGlob),
+            ("../pages/*/*.js", ImportKind::ImportMetaGlob),
+        ]
+    );
+    assert_eq!(info.unresolved_dynamic.len(), 1);
 }
 
 #[test]

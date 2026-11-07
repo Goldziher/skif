@@ -231,38 +231,20 @@ fn fixture_directories_are_not_held_to_their_imports() {
 }
 
 #[test]
-fn a_symbolic_link_to_a_source_file_is_that_file() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
-    let write = |path: &str, text: &str| {
-        let path = root.join(path);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, text).unwrap();
-    };
-    write(
-        "package.json",
-        r#"{"name":"r","private":true,"workspaces":["packages/*"]}"#,
-    );
-    write("shared.ts", "export const used = 1;\nexport const dead = 2;\n");
-    for name in ["a", "b"] {
-        write(
-            &format!("packages/{name}/package.json"),
-            &format!(r#"{{"name":"{name}","private":true,"main":"index.ts"}}"#),
-        );
-        write(
-            &format!("packages/{name}/index.ts"),
-            "import { used } from './linked.ts';\nused;\n",
-        );
-        std::os::unix::fs::symlink("../../shared.ts", root.join(format!("packages/{name}/linked.ts"))).unwrap();
-    }
-    let config = Config::from_toml_str("").unwrap();
-    let workspace = Workspace::discover(&root, &config).unwrap();
-    let fs: Arc<dyn FileSystem> = Arc::new(OsFs);
-    let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
-    let registry = Registry::new(vec![Box::new(provider)]).unwrap();
-    let diagnostics = run_unsorted(&registry, &workspace, &config, &RunOptions::default()).unwrap();
-    assert_eq!(found(&diagnostics, "unused-files"), none());
-    assert_eq!(found(&diagnostics, "unused-exports"), ["shared.ts: dead"]);
+fn a_listed_package_reached_through_a_path_alias_is_used() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"main":"src/index.ts","dependencies":{"@scope/dep":"1.0.0","other":"1.0.0"}}"#,
+        ),
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"baseUrl":".","paths":{"@scope/*":["vendor/*/src"]}}}"#,
+        ),
+        ("src/index.ts", "import { a } from '@scope/dep';\na();\n"),
+        ("vendor/dep/src/index.ts", "export const a = () => 1;\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: other"]);
 }
 
 #[test]
@@ -298,23 +280,6 @@ fn a_subpath_import_pattern_is_not_an_entry() {
 }
 
 #[test]
-fn a_listed_package_reached_through_a_path_alias_is_used() {
-    let diagnostics = lint(&[
-        (
-            "package.json",
-            r#"{"name":"app","private":true,"main":"src/index.ts","dependencies":{"@scope/dep":"1.0.0","other":"1.0.0"}}"#,
-        ),
-        (
-            "tsconfig.json",
-            r#"{"compilerOptions":{"baseUrl":".","paths":{"@scope/*":["vendor/*/src"]}}}"#,
-        ),
-        ("src/index.ts", "import { a } from '@scope/dep';\na();\n"),
-        ("vendor/dep/src/index.ts", "export const a = () => 1;\n"),
-    ]);
-    assert_eq!(found(&diagnostics, "unused-dependencies"), ["package.json: other"]);
-}
-
-#[test]
 fn augmenting_a_listed_package_uses_it() {
     let diagnostics = lint(&[
         (
@@ -339,4 +304,67 @@ fn augmenting_an_unlisted_package_is_not_an_unlisted_import() {
         ),
     ]);
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symbolic_link_to_a_source_file_is_that_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let write = |path: &str, text: &str| {
+        let path = root.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    write(
+        "package.json",
+        r#"{"name":"r","private":true,"workspaces":["packages/*"]}"#,
+    );
+    write("shared.ts", "export const used = 1;\nexport const dead = 2;\n");
+    for name in ["a", "b"] {
+        write(
+            &format!("packages/{name}/package.json"),
+            &format!(r#"{{"name":"{name}","private":true,"main":"index.ts"}}"#),
+        );
+        write(
+            &format!("packages/{name}/index.ts"),
+            "import { used } from './linked.ts';\nused;\n",
+        );
+        std::os::unix::fs::symlink("../../shared.ts", root.join(format!("packages/{name}/linked.ts"))).unwrap();
+    }
+    let config = Config::from_toml_str("").unwrap();
+    let workspace = Workspace::discover(&root, &config).unwrap();
+    let fs: Arc<dyn FileSystem> = Arc::new(OsFs);
+    let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
+    let registry = Registry::new(vec![Box::new(provider)]).unwrap();
+    let diagnostics = run_unsorted(&registry, &workspace, &config, &RunOptions::default()).unwrap();
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+    assert_eq!(found(&diagnostics, "unused-exports"), ["shared.ts: dead"]);
+}
+
+#[test]
+fn a_computed_relative_specifier_reaches_the_files_it_can_name() {
+    let diagnostics = lint(&[
+        ("package.json", r#"{"name":"app","private":true,"main":"lib/index.js"}"#),
+        (
+            "lib/index.js",
+            "module.exports = (name) => [require(`./commands/${name}`), import(`./pages/${name}.js`)];\n",
+        ),
+        (
+            "lib/commands/login.js",
+            "const { open } = require('../utils.js');\nmodule.exports = () => open();\n",
+        ),
+        ("lib/utils.js", "exports.open = () => 1;\nexports.dead = () => 2;\n"),
+        ("lib/pages/home.js", "export const page = 1;\n"),
+        ("lib/pages/home.css.ts", "export const style = 1;\n"),
+        ("lib/other/stray.js", "module.exports = 1;\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "lib/other/stray.js: lib/other/stray.js",
+            "lib/pages/home.css.ts: lib/pages/home.css.ts"
+        ]
+    );
+    assert_eq!(found(&diagnostics, "unused-exports"), ["lib/utils.js: dead"]);
 }
