@@ -20,6 +20,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A tool config that imports a base config from another file of the project or from a workspace package (a vite
+  config merging `@scope/vitest-config` with `mergeConfig`, an ESLint config listing a shared flat config) evaluates
+  that module statically instead of treating the value as unknown, so the package's entry files are known and its dead
+  files are reported. `mergeConfig` keeps a key unknown when either side of it is, and ESLint's `defineConfig` and
+  `tseslint.config` list all their arguments ([#23](https://github.com/Goldziher/skif/issues/23)).
 - The files an n8n node package lists in `package.json` `n8n.nodes` and `n8n.credentials` are entries, mapped from
   `dist` back to their sources, so node and credential files are not reported unused
   ([#23](https://github.com/Goldziher/skif/issues/23)).

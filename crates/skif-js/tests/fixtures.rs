@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use skif_config::Config;
 use skif_core::{Diagnostic, FileSystem, Fix, FixOp, FixSafety, JsonAction, MemoryFs, PathSeg, apply_text_edits};
-use skif_js::{InputRequest, InputSource, JsProvider, WorkspaceInputs};
+use skif_js::{InputRequest, InputSource, JsProvider, PluginSource, WorkspaceInputs};
 use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
 
@@ -82,6 +82,12 @@ impl Run {
     fn lint(&self) -> Vec<Diagnostic> {
         self.lint_with(JsProvider::new(Arc::clone(&self.fs)))
     }
+
+    /// Lints with the tool knowledge of the plugin table, as the `skif` facade does.
+    fn lint_with_plugins(&self) -> Vec<Diagnostic> {
+        let source = PluginSource::new(self.config.js.plugins.clone());
+        self.lint_with(JsProvider::new(Arc::clone(&self.fs)).with_input_source(Arc::new(source)))
+    }
 }
 
 fn subject(diagnostic: &Diagnostic) -> String {
@@ -143,6 +149,21 @@ fn n8n_nodes_and_credentials_are_entries() {
         ["nodes/Example/Orphan.ts: nodes/Example/Orphan.ts"]
     );
     insta::assert_json_snapshot!("n8n_nodes", diagnostics);
+}
+
+#[test]
+fn imported_base_configs_are_followed() {
+    let diagnostics = Run::new("imported-base-configs", "").lint_with_plugins();
+    // The base configs of a workspace package and of a relative module are read, so the packages using them are
+    // judged and their dead files reported. The config that imports itself back stays unknown, and its package is not.
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "packages/app/src/orphan.ts: packages/app/src/orphan.ts",
+            "packages/web/src/dead.ts: packages/web/src/dead.ts",
+        ]
+    );
+    insta::assert_json_snapshot!("imported_base_configs", diagnostics);
 }
 
 #[test]

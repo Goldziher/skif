@@ -162,6 +162,7 @@ fn resolve_inheriting(
         scripts: &scripts,
         fs: &fs,
         plugins,
+        modules: None,
     };
     resolve_plugins(&ctx)
 }
@@ -187,6 +188,7 @@ fn resolve_with_scripts(
         scripts: &scripts,
         fs: &fs,
         plugins: &plugins,
+        modules: None,
     };
     resolve_plugins(&ctx)
 }
@@ -2684,6 +2686,7 @@ fn biome_root_reference_is_the_config_of_the_farthest_ancestor() {
         scripts: &scripts,
         fs: &fs,
         plugins: &plugins,
+        modules: None,
     };
     let results = resolve_plugins(&ctx);
     let out = output(&results, "biome");
