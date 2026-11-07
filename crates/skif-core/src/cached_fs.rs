@@ -2,11 +2,13 @@
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::hash::{BuildHasher, RandomState};
+use std::hash::BuildHasher;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::SystemTime;
+
+use rustc_hash::FxBuildHasher;
 
 use crate::fs::{DirEntry, FileSystem, PathKind};
 
@@ -23,21 +25,23 @@ const MAX_CACHED_TEXT: usize = 128 * 1024;
 type Listing = Result<Arc<[DirEntry]>, io::ErrorKind>;
 
 /// A path-keyed map split over independently locked shards, so parallel readers rarely contend.
+///
+/// Keys are hashed with `FxHash`: a run hashes every probed path several times, and `SipHash` over the bytes of long
+/// absolute paths was a visible share of discovering a large workspace.
 struct Sharded<V> {
-    hasher: RandomState,
-    shards: Vec<RwLock<HashMap<PathBuf, V>>>,
+    shards: Vec<RwLock<HashMap<PathBuf, V, FxBuildHasher>>>,
 }
 
 impl<V: Clone> Sharded<V> {
     fn new() -> Self {
         Self {
-            hasher: RandomState::new(),
-            shards: (0..SHARDS).map(|_| RwLock::new(HashMap::new())).collect(),
+            shards: (0..SHARDS).map(|_| RwLock::new(HashMap::default())).collect(),
         }
     }
 
-    fn shard(&self, key: &Path) -> &RwLock<HashMap<PathBuf, V>> {
-        let index = usize::try_from(self.hasher.hash_one(key) % SHARDS).unwrap_or(0);
+    fn shard(&self, key: &Path) -> &RwLock<HashMap<PathBuf, V, FxBuildHasher>> {
+        // Middle bits: each shard's table indexes by the low bits and tags entries with the top seven.
+        let index = usize::try_from((FxBuildHasher.hash_one(key) >> 32) % SHARDS).unwrap_or(0);
         &self.shards[index]
     }
 
