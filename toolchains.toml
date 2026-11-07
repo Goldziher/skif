@@ -216,3 +216,7 @@ format = "Rust is formatted by rustfmt before poly formats the rest of the tree.
 "fixtures/policy/workspace-protocol/link-path-rejected-by-default/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "fixtures/policy/workspace-protocol/version-mismatch-and-protocol-both-reported/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "fixtures/policy/workspace-protocol/workspace-protocol-valid/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
+"fixtures/policy/dependency-types/custom-type-name-tilde-version/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
+"fixtures/policy/semver-range-only/non-semver-specifiers-are-left-alone/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
+"fixtures/policy/semver-range-only/range-checked-versions-may-differ/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
+"fixtures/policy/semver-range-only/versions-differ-without-a-semver-group/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
