@@ -890,3 +890,132 @@ fn lint_to_json_classifies_its_errors() {
     assert_eq!(broken.kind, skif_cli::Kind::Config);
     assert!(broken.path.is_some_and(|path| path.ends_with("skif.toml")));
 }
+
+/// The files of `dir` that differ from the `autofix` fixture, with their new contents (`<deleted>` when gone), as
+/// one text for a snapshot.
+fn autofix_changes(dir: &Path) -> String {
+    let before = tree(fixture("autofix").path());
+    let after = tree(dir);
+    let mut text = String::new();
+    for path in changed(&before, &after) {
+        let contents = after.get(&path).map_or("<deleted>\n", String::as_str);
+        let shown = path.display().to_string().replace('\\', "/");
+        text.push_str("--- ");
+        text.push_str(&shown);
+        text.push('\n');
+        text.push_str(contents);
+    }
+    text
+}
+
+fn skipped_reasons(report: &Value) -> Vec<(String, String)> {
+    report["fix"]["skipped"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|skipped| {
+            (
+                skipped["rule"].as_str().unwrap().to_owned(),
+                skipped["reason"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// Issue #37: `--fix-unsafe` removes enum and namespace members, `export default <expression>` and catalog entries in
+/// place, but deletes no file without `--allow-remove-files`.
+#[test]
+fn fix_unsafe_deletes_files_only_with_allow_remove_files() {
+    let dir = fixture("autofix");
+    let result = run(skif()
+        .args(["--fix-unsafe", "--no-install", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let report = result.json();
+    assert!(dir.path().join("packages/app/src/orphan.ts").is_file());
+    assert_eq!(
+        skipped_reasons(&report),
+        [("unused-files".to_owned(), "removes-files".to_owned())]
+    );
+    assert_eq!(rule_ids(&report), BTreeSet::from(["unused-files".to_owned()]));
+    insta::assert_snapshot!("autofix_fix_unsafe", autofix_changes(dir.path()));
+
+    let human = fixture("autofix");
+    let result = run(skif().args(["--fix-unsafe", "--no-install"]).arg(human.path()));
+    assert!(
+        result
+            .stdout
+            .contains("skipped [unused-files] `packages/app/src/orphan.ts` is not reachable from any entry file (removes-files: needs --allow-remove-files)"),
+        "{}",
+        result.stdout
+    );
+
+    let allowed = fixture("autofix");
+    let result = run(skif()
+        .args([
+            "--fix-unsafe",
+            "--allow-remove-files",
+            "--no-install",
+            "--format",
+            "json",
+        ])
+        .arg(allowed.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    assert!(!allowed.path().join("packages/app/src/orphan.ts").exists());
+    assert_eq!(result.json()["diagnostics"], Value::Array(Vec::new()));
+}
+
+/// `--fix-type` takes knip issue types and rule ids, comma separated or repeated.
+#[test]
+fn fix_type_limits_the_fixes_to_some_rules() {
+    let dir = fixture("autofix");
+    let result = run(skif()
+        .args(["--fix-unsafe", "--no-install", "--fix-type", "enumMembers,catalog"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    insta::assert_snapshot!("autofix_fix_type", autofix_changes(dir.path()));
+
+    let dir = fixture("autofix");
+    let result = run(skif()
+        .args(["--fix-unsafe", "--no-install", "--allow-remove-files"])
+        .args(["--fix-type", "files", "--fix-type", "unused-namespace-members"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let changes = autofix_changes(dir.path());
+    assert!(
+        changes.contains("--- packages/app/src/orphan.ts\n<deleted>"),
+        "{changes}"
+    );
+    assert!(!changes.contains("pnpm-workspace.yaml"), "{changes}");
+    assert!(changes.contains("  Green,"), "{changes}");
+    assert!(!changes.contains("unused()"), "{changes}");
+}
+
+#[test]
+fn fix_type_and_allow_remove_files_are_usage_errors_without_fix() {
+    let dir = fixture("autofix");
+    let unknown = run(skif()
+        .args(["--fix-unsafe", "--fix-type", "nonsense", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(unknown.code, 2);
+    let document = unknown.json();
+    assert_eq!(document["error"]["kind"], "usage");
+    assert!(
+        document["error"]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("unknown --fix-type `nonsense`"),
+        "{document}"
+    );
+    assert_eq!(
+        changed(&tree(fixture("autofix").path()), &tree(dir.path())),
+        Vec::<PathBuf>::new()
+    );
+
+    for flags in [["--allow-remove-files", ""], ["--fix-type", "files"]] {
+        let flags: Vec<&str> = flags.into_iter().filter(|flag| !flag.is_empty()).collect();
+        let result = run(skif().args(&flags).args(["--format", "json"]).arg(dir.path()));
+        assert_eq!(result.code, 2, "{flags:?}: {}", result.stdout);
+        assert_eq!(result.json()["error"]["kind"], "usage", "{flags:?}");
+    }
+}
