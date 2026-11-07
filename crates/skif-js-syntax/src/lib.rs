@@ -36,7 +36,7 @@ use skif_core::LineIndex;
 
 pub use config::{
     ConfigValue, ImportedCall, TEMPLATE_SUBSTITUTION, extract_config_object, extract_constructor_options,
-    extract_imported_calls,
+    extract_imported_calls, extract_property_values,
 };
 pub use error::SyntaxError;
 pub use model::{
