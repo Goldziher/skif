@@ -9,6 +9,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `skif-bench deadcode` (`mise run bench:deadcode`) measures dead-code precision and recall of skif and the pinned
+  knip against a generated workspace with seeded dead code, live code behind the patterns that caused false findings,
+  and an answer key ([#26](https://github.com/Goldziher/skif/issues/26)).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed

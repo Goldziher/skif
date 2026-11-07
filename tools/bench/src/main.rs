@@ -4,6 +4,7 @@ mod corpus;
 mod diff;
 mod evidence;
 mod parity;
+mod precision;
 mod proc;
 mod run;
 mod sources;
@@ -47,6 +48,36 @@ enum Command {
     Parity(ParityArgs),
     /// Compare skif's policy findings with a pinned syncpack on the policy fixtures and the corpus.
     SyncpackDiff(SyncpackArgs),
+    /// Measure dead-code precision and recall of skif (and the pinned knip) against a generated answer key.
+    Deadcode(DeadcodeArgs),
+}
+
+#[derive(Args)]
+struct DeadcodeArgs {
+    /// The skif binary under test.
+    #[arg(long, default_value = "target/release/skif")]
+    skif: PathBuf,
+    /// Number of packages to generate.
+    #[arg(long, default_value_t = 5)]
+    packages: usize,
+    /// Seed of the pseudo-random generator.
+    #[arg(long, default_value_t = 1)]
+    seed: u64,
+    /// Where the workspace (`repo/`), `answer-key.json` and the report are written.
+    #[arg(long, default_value = "target/bench-deadcode")]
+    out: PathBuf,
+    /// Also run the knip version pinned in the corpus manifest (needs npx and the npm registry).
+    #[arg(long)]
+    knip: bool,
+    /// Corpus manifest (for the pinned knip version).
+    #[arg(long, default_value = DEFAULT_CORPUS_FILE)]
+    corpus_file: PathBuf,
+    /// Print the report as JSON instead of Markdown.
+    #[arg(long)]
+    json: bool,
+    /// Seconds each skif run and knip run may take.
+    #[arg(long, default_value_t = 600)]
+    timeout_secs: u64,
 }
 
 #[derive(Args)]
@@ -322,6 +353,16 @@ fn main() -> Result<()> {
             no_corpus: args.no_corpus,
             timeout: Duration::from_secs(args.timeout_secs),
             gate: args.gate.gate(args.baseline),
+        }),
+        Command::Deadcode(args) => precision::run(&precision::Options {
+            skif: args.skif,
+            packages: args.packages,
+            seed: args.seed,
+            out: args.out,
+            knip: args.knip,
+            corpus_file: args.corpus_file,
+            json: args.json,
+            timeout: Duration::from_secs(args.timeout_secs),
         }),
         Command::Run(args) => run::run(&RunOptions {
             skif: args.skif,
