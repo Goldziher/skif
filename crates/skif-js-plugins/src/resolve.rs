@@ -69,6 +69,7 @@ fn enabler_matches(enabler: &Enabler, ctx: &PluginContext<'_>) -> bool {
         Enabler::ManifestNamePrefix(prefix) => ctx.package_name.is_some_and(|n| n.starts_with(prefix)),
         Enabler::ManifestNameContains(text) => ctx.package_name.is_some_and(|n| n.contains(text)),
         Enabler::File(glob) => !find_files(ctx.fs, ctx.dir, &[glob.to_string()]).is_empty(),
+        Enabler::Script(text) => ctx.scripts.values().any(|script| script.contains(text)),
     }
 }
 
