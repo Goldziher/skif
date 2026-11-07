@@ -73,8 +73,9 @@ url = "https://github.com/aspect-build/rules_js.git"
 rev = "25bca017a89e5f7099b4a5a92ad336c48864523e"
 package-manager = "pnpm"
 suites = ["parity"]
-# pnpm 10 rejects the committed lockfile (ERR_PNPM_INVALID_DEPENDENCY_NAME), so the install runs with pnpm 9.
-install-command = ["npx", "--yes", "pnpm@9", "install", "--ignore-scripts", "--frozen-lockfile"]
+# The pnpm that MODULE.bazel pins (pnpm_version). pnpm 9 rejects the lockfile's overrides
+# (ERR_PNPM_LOCKFILE_CONFIG_MISMATCH); this one accepts it. The install fetches tarballs from codeload.github.com.
+install-command = ["npx", "--yes", "pnpm@10.22.0", "install", "--ignore-scripts", "--frozen-lockfile"]
 notes = "Many e2e and example roots, some without a root package.json."
 
 [[repo]]
@@ -109,7 +110,7 @@ rev = "ca0b960ced9324f65be85800a72184edeb91cc3b"
 package-manager = "rush"
 suites = ["parity"]
 install = false
-notes = "Rush workspace (rush.json); no lockfile in the tree, so it is never installed."
+notes = "Rush workspace (rush.json) without a root package.json, for skif and the syncpack diff. knip has no Rush support and stops with 'Unable to find package.json', so the knip comparison cannot run and the install (rush, lockfiles under common/config/subspaces) is not attempted."
 
 [[repo]]
 name = "vscode"
