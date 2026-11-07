@@ -1,0 +1,18 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: autofix_changes(dir.path())
+---
+--- packages/app/src/color.ts
+export enum Color {
+  Red,
+}
+
+export namespace Space {
+  export const used = 1;
+  export function unused() {}
+}
+--- pnpm-workspace.yaml
+packages:
+  - "packages/*"
+catalog:
+  is-number: ^7.0.0

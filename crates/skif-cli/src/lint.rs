@@ -242,9 +242,10 @@ fn fix_roots(
     runs: Vec<RootRun>,
     fs: &CachedFs<OsFs>,
 ) -> Result<Fixed, CliError> {
+    let only = fix::fix_type_rules(&args.fix_type, linters.rules().into_iter().map(|meta| meta.id))?;
     let mut planned = Vec::with_capacity(runs.len());
     for run in runs {
-        let selection = fix::selection(args, env, &run.report, run.config.policy.prefer)?;
+        let selection = fix::selection(args, env, &run.report, run.config.policy.prefer, only.as_ref())?;
         let plan = skif::apply_fixes(&run.workspace, &run.report, &selection, fs)?;
         planned.push((run, plan));
     }

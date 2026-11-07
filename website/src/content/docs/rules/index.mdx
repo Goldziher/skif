@@ -19,7 +19,7 @@ Set a level in `[rules]`, or per run with `--rule ID=LEVEL`.
 | Fixable | Meaning |
 | --- | --- |
 | `safe` | Applied by `--fix`. |
-| `unsafe` | Applied only by `--fix-unsafe`. |
+| `unsafe` | Applied only by `--fix-unsafe`; a fix that deletes a file also needs `--allow-remove-files`. |
 | `sometimes` | Fixable for some findings, depending on the situation. |
 | `none` | Reported only. |
 
