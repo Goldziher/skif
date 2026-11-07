@@ -18,6 +18,7 @@ mod explain;
 mod fix;
 mod install;
 mod lint;
+mod mcp;
 mod migrate;
 mod output;
 mod roots;
@@ -46,6 +47,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         Some(Command::Config(args)) => config::run(&args),
         Some(Command::ExplainUsage(args)) => explain::run(&args),
         Some(Command::Migrate(args)) => migrate::run(&args),
+        Some(Command::Mcp) => mcp::run(),
     }
 }
 

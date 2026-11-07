@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `skif mcp`, a Model Context Protocol server on stdio for AI agents, with the tools `lint`, `explain_usage` and
+  `list_rules`, which return the documents of `--format json`
+  ([ADR 0050](adrs/0050-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed
