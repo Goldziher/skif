@@ -133,6 +133,12 @@ pub(crate) fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliErro
     if args.no_gitignore {
         config.js.no_gitignore = true;
     }
+    if let Some(path) = &args.tsconfig {
+        config.js.tsconfig = Some(path.clone());
+    }
+    if args.use_tsconfig_files {
+        config.js.use_tsconfig_files = true;
+    }
     if args.include_entry_exports {
         config.js.include_entry_exports = true;
         for workspace in config.js.workspaces.values_mut() {

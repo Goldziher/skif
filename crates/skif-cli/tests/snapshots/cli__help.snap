@@ -106,6 +106,14 @@ Options:
       --include-entry-exports
           Report unused exports of entry files too, overriding `[js] include-entry-exports`
 
+  -t, --tsconfig <FILE>
+          The TypeScript configuration of the root package, relative to the workspace root, used instead of its `tsconfig.json` (overrides `[js] tsconfig`)
+          
+          [alias: --tsConfig]
+
+      --use-tsconfig-files
+          Take the project files of each package from its `tsconfig.json` (`files`, `include`, `exclude`) instead of the `project` globs
+
       --strict
           knip's strict mode: --production, and each workspace package uses only the dependencies its own manifest lists, not those of a containing package or the root
 

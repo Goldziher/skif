@@ -18,6 +18,10 @@ All notable changes to this project are documented here. The format follows
     `--exports`, `--files` and `--cycles`; `--tags -TAG` leaves out tagged exports.
   - `--max-issues <N>`, `--max-show-issues <N>`, `--no-exit-code` and `--include-entry-exports`.
   - `--no-gitignore` analyses the files `.gitignore` hides.
+  - `--tsconfig <FILE>` (also `--tsConfig`, `-t`) and `[js] tsconfig` name the root package's TypeScript
+    configuration in place of its `tsconfig.json`; `--use-tsconfig-files` and `[js] use-tsconfig-files` take each
+    package's project files from its `tsconfig.json` (`files`, `include`, `exclude`). `skif migrate` maps knip's
+    `--tsConfig` and `--use-tsconfig-files`.
   - `--trace-dependency <NAME>` prints where a dependency is listed, imported and used.
   - `--debug`, `--performance`, `--duration` and `--memory` print what was loaded, phase timings, wall time and peak
     memory to stderr.
