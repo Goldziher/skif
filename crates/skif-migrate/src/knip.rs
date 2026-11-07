@@ -965,6 +965,9 @@ fn apply(state: &mut State<'_>, src: &Src, plan: &Plan) {
             }
         }
     }
+    if written.contains(&keys::RULE_UNUSED_CATALOG_ENTRIES) {
+        report_unused_catalog_entries(state, src);
+    }
     state.note_with(
         src,
         NoteClass::Exact,
@@ -981,6 +984,25 @@ fn apply(state: &mut State<'_>, src: &Src, plan: &Plan) {
         "the `exact` profile turns every other rule off; `full` leaves skif's defaults for them",
     );
     js_settings(state, src, plan);
+}
+
+/// knip reports unused catalog entries by default; `unused-catalog-entries` only reports them when
+/// `[catalog] report-unused-entries` is `true`, so the rule level alone would not keep knip's findings.
+fn report_unused_catalog_entries(state: &mut State<'_>, src: &Src) {
+    state
+        .doc
+        .table(&[keys::CATALOG])
+        .set(keys::CATALOG_REPORT_UNUSED_ENTRIES, Val::Bool(true));
+    state.note(
+        src,
+        NoteClass::Exact,
+        "catalog",
+        format!(
+            "[catalog] {} = true: knip reports unused catalog entries, and `{}` needs it to report them",
+            keys::CATALOG_REPORT_UNUSED_ENTRIES,
+            keys::RULE_UNUSED_CATALOG_ENTRIES
+        ),
+    );
 }
 
 /// knip's configuration hints are not skif's: `stale-js-config` also flags entries skif itself never needed, so an
