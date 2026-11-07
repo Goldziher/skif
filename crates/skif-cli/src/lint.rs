@@ -21,6 +21,7 @@ use crate::fix::{self, FixRun, RootFix};
 use crate::install::{self, InstallStatus};
 use crate::output::{self, Rendering, RootView, emit_error, emit_error_with, stderr_line};
 use crate::roots::{self, Linters, Resolved, RootError, RootRun};
+use crate::trace::{self, Trace};
 use crate::write::write_plan;
 
 const CLEAN: u8 = 0;
@@ -29,13 +30,16 @@ const COULD_NOT_RUN: u8 = 2;
 
 /// Runs the lint command and returns the process exit code.
 pub fn run(args: &LintArgs, env: Env) -> u8 {
-    match execute(args, env) {
+    let trace = Trace::start(args);
+    let code = match execute(args, env) {
         Ok(code) => code,
         Err(error) => {
             emit_error(&error, args.format());
             COULD_NOT_RUN
         }
-    }
+    };
+    trace.finish();
+    code
 }
 
 /// The format to render and whether GitHub annotations accompany it: with no `--format`, `GITHUB_ACTIONS=true`
@@ -426,6 +430,9 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         roots::resolve(&start, args.recursive, &fs, &overrides(args))
     })?;
     note_truncated(&truncated);
+    if args.debug {
+        trace::debug_targets(&base, &targets);
+    }
     let filter = Filter::new(args)?;
     for target in &mut targets {
         adjust(args, &mut target.config)?;

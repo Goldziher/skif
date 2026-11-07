@@ -337,6 +337,22 @@ pub struct LintArgs {
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     pub color: ColorChoice,
 
+    /// Print what the run loaded (roots, configuration files, packages) and the phase timings to stderr.
+    #[arg(long)]
+    pub debug: bool,
+
+    /// Print the time each phase of the run took to stderr, as `SKIF_TIMINGS=1` does.
+    #[arg(long)]
+    pub performance: bool,
+
+    /// Print the wall time of the run to stderr.
+    #[arg(long)]
+    pub duration: bool,
+
+    /// Print the peak memory (resident set size) of the run to stderr; Linux only.
+    #[arg(long)]
+    pub memory: bool,
+
     /// Report only the findings of these workspace packages, by name or directory relative to the root (globs, `!`
     /// to exclude). The analysis still covers every package. Repeatable.
     #[arg(short = 'W', long, value_name = "NAME|DIR")]

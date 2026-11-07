@@ -199,3 +199,24 @@ fn include_entry_exports_reports_exports_of_entry_files() {
     let (_, included) = lint_json(&["--exports", "--include-entry-exports"]);
     assert!(findings(&included).contains(&entry), "{included:#}");
 }
+
+#[test]
+fn run_diagnostics_go_to_stderr() {
+    let dir = fixture("filters");
+    let plain = run(skif().args(["--format", "json"]).arg(dir.path()));
+    let traced = run(skif()
+        .args(["--format", "json", "--debug", "--duration", "--memory", "--performance"])
+        .arg(dir.path()));
+    // stdout keeps exactly the report.
+    assert_eq!(traced.json(), plain.json());
+    let debug: Vec<&str> = traced
+        .stderr
+        .lines()
+        .filter(|line| line.starts_with("skif debug:"))
+        .collect();
+    insta::assert_snapshot!("debug_lines", redact(&debug.join("\n"), dir.path()));
+    assert!(traced.stderr.contains("skif timing: lint roots: "), "{}", traced.stderr);
+    assert!(traced.stderr.contains("skif: finished in "), "{}", traced.stderr);
+    assert!(traced.stderr.contains("skif: peak memory"), "{}", traced.stderr);
+    assert!(!plain.stderr.contains("skif"), "{}", plain.stderr);
+}
