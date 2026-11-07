@@ -95,29 +95,31 @@ fn instance_diagnostic(
 ) -> Diagnostic {
     let state = verdict.state;
     let package = instance.package.display_name();
-    let subject = if instance.is_own_version() {
-        format!("the version `{}` of {package}", instance.raw())
+    let message = if instance.is_own_version() {
+        concat(&["the version `", instance.raw(), "` of ", package, " ", state.summary()])
     } else {
-        format!(
-            "`{}@{}` in `{}` of {package}",
-            instance.name,
+        concat(&[
+            "`",
+            &instance.name,
+            "@",
             instance.raw(),
-            instance.ty().label()
-        )
+            "` in `",
+            instance.ty().label(),
+            "` of ",
+            package,
+            " ",
+            state.summary(),
+        ])
     };
-    let mut builder = diagnostic(
-        state.rule(),
-        format!("{subject} {}", state.summary()),
-        instance.location(),
-    )
-    .package(package)
-    .package_id(instance.package.id)
-    .dependency(&instance.name)
-    .specifier(instance.raw())
-    .detail(state.name());
+    let mut builder = diagnostic(state.rule(), message, instance.location())
+        .package(package)
+        .package_id(instance.package.id)
+        .dependency(&instance.name)
+        .specifier(instance.raw())
+        .detail(state.name());
     let help = match (&verdict.target, state) {
-        (_, State::IsBanned) => Some(format!("remove `{}`", instance.name)),
-        (Some(target), state) if state.is_fixable() => Some(format!("use `{}`", target.get_raw())),
+        (_, State::IsBanned) => Some(concat(&["remove `", &instance.name, "`"])),
+        (Some(target), state) if state.is_fixable() => Some(concat(&["use `", target.get_raw(), "`"])),
         _ => None,
     };
     if let Some(help) = help {
@@ -130,6 +132,16 @@ fn instance_diagnostic(
         builder = builder.fix(fix);
     }
     builder.build()
+}
+
+/// `parts` joined, in one allocation: the messages of tens of thousands of findings are built this way, and
+/// `format!` was a visible part of building them.
+fn concat(parts: &[&str]) -> String {
+    let mut text = String::with_capacity(parts.iter().map(|part| part.len()).sum());
+    for part in parts {
+        text.push_str(part);
+    }
+    text
 }
 
 /// The other instances of the dependency of `id`, in collection order.
@@ -167,12 +179,16 @@ fn related_of(analysis: &Analysis<'_>, holders: &Holders<'_>, id: InstanceId, ve
         _ => return None,
     };
     Some(Related::new(
-        format!(
-            "`{}@{}` in {} {why}",
-            counterpart.name,
+        concat(&[
+            "`",
+            &counterpart.name,
+            "@",
             counterpart.raw(),
-            counterpart.package.display_name()
-        ),
+            "` in ",
+            counterpart.package.display_name(),
+            " ",
+            why,
+        ]),
         counterpart.location(),
     ))
 }
@@ -185,11 +201,11 @@ fn fix_of(instance: &Instance<'_>, verdict: &Verdict) -> Option<Fix> {
         return None;
     }
     let (title, op) = if verdict.state == State::IsBanned {
-        (format!("Remove `{}`", instance.name), instance.remove()?)
+        (concat(&["Remove `", &instance.name, "`"]), instance.remove()?)
     } else {
         let target = verdict.target.as_ref()?.get_raw();
         (
-            format!("Set `{}` to `{target}`", instance.name),
+            concat(&["Set `", &instance.name, "` to `", target, "`"]),
             instance.set_specifier(target)?,
         )
     };

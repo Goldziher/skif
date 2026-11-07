@@ -464,14 +464,29 @@ impl<'a, 'w> Visitor<'a, 'w> {
             ids.iter().copied().partition(|&id| is_floating(self.spec(id)));
         let target = {
             // Ranked by the lowest version each admits, so `^18` never outranks `^18.3.1`. The floor is worked out
-            // once per candidate, not once per comparison.
+            // once per distinct specifier of the dependency, not once per comparison: the instances of one dependency
+            // repeat a few specifiers, and a specifier's text decides its floor (a `workspace:` one aside, which
+            // depends on what it resolves to).
+            let mut floors = Vec::new();
+            let mut floor_of = |specifier: &Arc<Specifier>| {
+                if matches!(**specifier, Specifier::WorkspaceProtocol(_)) {
+                    return floor_version(specifier);
+                }
+                let raw = specifier.get_raw();
+                if let Some((_, floor)) = floors.iter().find(|(known, _): &&(String, _)| known == raw) {
+                    return Clone::clone(floor);
+                }
+                let floor = floor_version(specifier);
+                floors.push((raw.to_owned(), floor.clone()));
+                floor
+            };
             let candidates: Vec<_> = ranked
                 .iter()
                 .copied()
                 .filter(|&id| self.spec(id).get_node_version().is_some())
                 .map(|id| {
                     let specifier = self.with_preferred(id).unwrap_or_else(|| Arc::clone(self.spec(id)));
-                    (floor_version(&specifier), specifier)
+                    (floor_of(&specifier), specifier)
                 })
                 .collect();
             let candidates = candidates.into_iter();

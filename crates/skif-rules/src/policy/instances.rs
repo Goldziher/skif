@@ -236,7 +236,12 @@ impl<'w> Instances<'w> {
         }
         let mut by_name: BTreeMap<String, Vec<InstanceId>> = BTreeMap::new();
         for (index, item) in items.iter().enumerate() {
-            by_name.entry(item.name.clone()).or_default().push(InstanceId(index));
+            // The name is copied once per dependency, not once per instance.
+            if let Some(ids) = by_name.get_mut(item.name.as_str()) {
+                ids.push(InstanceId(index));
+            } else {
+                by_name.insert(item.name.clone(), vec![InstanceId(index)]);
+            }
         }
         Self {
             workspace,

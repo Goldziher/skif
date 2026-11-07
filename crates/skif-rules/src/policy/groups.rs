@@ -189,6 +189,11 @@ impl<'c> Groups<'c> {
         &self.groups
     }
 
+    /// Whether any group can claim an instance, that is has selectors: [`claim`](Self::claim) is `None` otherwise.
+    pub(crate) fn has_selectors(&self) -> bool {
+        self.groups.iter().any(|group| group.selectors.is_some())
+    }
+
     /// The configured version group that claims `instance`: the first one whose selectors match it, whatever its
     /// policy. The catalog rules leave a claimed instance to that group, as syncpack's first-match-wins order does.
     pub(crate) fn claim(&self, instance: &Instance<'_>) -> Option<usize> {
