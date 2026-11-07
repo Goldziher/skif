@@ -677,6 +677,20 @@ fn mdx_yields_its_top_level_esm_with_original_offsets() {
 }
 
 #[test]
+fn angular_component_resources_are_side_effect_imports() {
+    let source = "import { Component as Ng } from '@angular/core';\nimport { Other } from './other';\n@Ng({ templateUrl: './a.html', styleUrl: 'a.scss', styleUrls: ['./b.css', `c.less`, ...more] })\nexport class A {}\n@Other({ styleUrls: ['./ignored.css'] })\nexport class B {}\n";
+    let info = parse("a.component.ts", source);
+    let resources: Vec<_> = specifiers(&info)
+        .into_iter()
+        .filter(|(_, kind)| *kind == ImportKind::SideEffect)
+        .map(|(specifier, _)| specifier)
+        .collect();
+    assert_eq!(resources, ["./a.html", "./a.scss", "./b.css", "./c.less"]);
+    let style = info.imports.iter().find(|i| i.specifier == "./a.scss").unwrap();
+    assert_eq!(slice(source, style.span.start, style.span.end), "'a.scss'");
+}
+
+#[test]
 fn public_types_are_send_and_sync() {
     fn check<T: Send + Sync>() {}
     check::<ModuleInfo>();
