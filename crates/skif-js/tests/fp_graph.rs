@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use skif_config::Config;
-use skif_core::{Diagnostic, FileSystem, MemoryFs};
+use skif_core::{Diagnostic, FileSystem, MemoryFs, OsFs};
 use skif_js::{JsProvider, PluginSource};
 use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
@@ -228,4 +228,39 @@ fn fixture_directories_are_not_held_to_their_imports() {
         found(&diagnostics, "unlisted-dependencies"),
         ["src/index.ts: real-missing"]
     );
+}
+
+#[test]
+fn a_symbolic_link_to_a_source_file_is_that_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let write = |path: &str, text: &str| {
+        let path = root.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    write(
+        "package.json",
+        r#"{"name":"r","private":true,"workspaces":["packages/*"]}"#,
+    );
+    write("shared.ts", "export const used = 1;\nexport const dead = 2;\n");
+    for name in ["a", "b"] {
+        write(
+            &format!("packages/{name}/package.json"),
+            &format!(r#"{{"name":"{name}","private":true,"main":"index.ts"}}"#),
+        );
+        write(
+            &format!("packages/{name}/index.ts"),
+            "import { used } from './linked.ts';\nused;\n",
+        );
+        std::os::unix::fs::symlink("../../shared.ts", root.join(format!("packages/{name}/linked.ts"))).unwrap();
+    }
+    let config = Config::from_toml_str("").unwrap();
+    let workspace = Workspace::discover(&root, &config).unwrap();
+    let fs: Arc<dyn FileSystem> = Arc::new(OsFs);
+    let provider = JsProvider::new(fs).with_input_source(Arc::new(PluginSource::new(config.js.plugins.clone())));
+    let registry = Registry::new(vec![Box::new(provider)]).unwrap();
+    let diagnostics = run_unsorted(&registry, &workspace, &config, &RunOptions::default()).unwrap();
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+    assert_eq!(found(&diagnostics, "unused-exports"), ["shared.ts: dead"]);
 }

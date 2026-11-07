@@ -172,6 +172,8 @@ pub(crate) struct Inputs<'a> {
     pub resolver: &'a ModuleResolver,
     pub root: &'a Path,
     pub candidates: &'a [Candidate],
+    /// Symbolic links to candidates, with their targets: a link is the file it points at.
+    pub links: &'a HashMap<PathBuf, PathBuf>,
     pub setup: &'a Setup,
     /// Parse on the calling thread instead of the current rayon pool.
     pub sequential: bool,
@@ -345,10 +347,11 @@ impl<'a> Builder<'a> {
 
     /// The id of `abs`, creating an unparsed module on first sight. The flag is true for a new module.
     fn intern(&mut self, abs: &Path) -> (ModuleId, bool) {
+        let inputs = self.inputs;
+        let abs = inputs.links.get(abs).map_or(abs, PathBuf::as_path);
         if let Some(id) = self.index.get(abs) {
             return (*id, false);
         }
-        let inputs = self.inputs;
         let id = ModuleId::from_index(self.modules.len());
         let candidate = self
             .candidate_index
