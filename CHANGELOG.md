@@ -19,6 +19,9 @@ All notable changes to this project are documented here. The format follows
   `entry-empty`, `project-empty` and `ignore` configuration hints ([#43](https://github.com/Goldziher/skif/issues/43)).
 - `[js.cycles]` with `allow` (cycles not reported) and `dynamic-imports` (count `import()` in `circular-imports`),
   translated by `skif migrate` from knip's `cycles` ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `[js] ignore-files`, top level and per workspace: files `unused-files` never reports, which other rules still analyse.
+  `skif migrate` writes knip's `ignoreFiles` there instead of widening it to `ignore`, and `stale-js-config` reports an
+  entry that hides nothing ([#43](https://github.com/Goldziher/skif/issues/43)).
 
 ### Fixed
 

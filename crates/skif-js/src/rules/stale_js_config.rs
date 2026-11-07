@@ -26,7 +26,8 @@ const DEPENDENCY_RULES: [&str; 5] = [
 
 /// Reports configuration that does nothing: `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
 /// `ignore-workspaces` entries that matched nothing, `[js.workspaces]` keys that select no package, and `entry`,
-/// `project` and `ignore` patterns that match no file (knip's `entry-empty`, `project-empty` and `ignore` hints).
+/// `project` and `ignore` patterns that match no file (knip's `entry-empty`, `project-empty` and `ignore` hints), and
+/// `ignore-files` patterns that hide no file `unused-files` would report.
 ///
 /// It also reports knip's tag hints: a tag that exempts by configuration (`@internal` in production mode, an
 /// `ignore-tags` name of `unused-exports`) on an export or enum or namespace member that is used anyway.
@@ -157,7 +158,9 @@ impl JsRule for StaleJsConfig {
         for key in &setup.unmatched_workspace_keys {
             Self::report(analysis, out, "js.workspaces", vec![key.as_str()]);
         }
-        for empty in &analysis.empty_patterns {
+        let unused_files_ran = ran(&["unused-files"]);
+        let ignore_files = analysis.unused_ignore_files.iter().filter(|_| unused_files_ran);
+        for empty in analysis.empty_patterns.iter().chain(ignore_files) {
             Self::report(analysis, out, &empty.key, vec![empty.pattern.as_str()]);
         }
         if ran(&["unused-exports"]) {

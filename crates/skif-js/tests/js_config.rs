@@ -466,3 +466,33 @@ fn cycles_allow_and_dynamic_imports() {
         ["src/c.ts: 2 modules import each other in a cycle"]
     );
 }
+
+#[test]
+fn ignore_files_hides_files_from_unused_files_only() {
+    let mut files = two_packages("export const unusedExport = 1;\n");
+    files.push(("packages/a/src/legacy.ts", "export const old = 1;\n"));
+    files.push(("packages/b/src/orphan.ts", "export {};\n"));
+    files.push(("packages/b/src/keep.ts", "export {};\n"));
+    let before = lint(&files, "");
+    assert_eq!(
+        paths(&before, "unused-files"),
+        [
+            "packages/a/src/legacy.ts",
+            "packages/b/src/keep.ts",
+            "packages/b/src/orphan.ts"
+        ]
+    );
+    let after = lint(
+        &files,
+        "[js]\nignore-files = [\"packages/a/src/legacy.ts\", \"nowhere/**\"]\n\
+         [js.workspaces.\"packages/b\"]\nignore-files = [\"src/keep.ts\", \"src/gone.ts\"]\n",
+    );
+    assert_eq!(paths(&after, "unused-files"), ["packages/b/src/orphan.ts"]);
+    assert_eq!(
+        messages(&after),
+        [
+            "`nowhere/**` in `js.ignore-files` matched nothing",
+            "`src/gone.ts` in `js.workspaces.\"packages/b\".ignore-files` matched nothing",
+        ]
+    );
+}

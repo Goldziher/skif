@@ -577,14 +577,7 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
         }
         "ignoreFiles" => {
             let list = string_list(state, src, path, item);
-            write_list(state, src, &js, "ignore", path, list, "");
-            state.note_with(
-                src,
-                NoteClass::Approximate,
-                path,
-                "knip hid these files from the unused files report only; skif's `ignore` hides them from every rule",
-                "none needed unless another rule should still look at them",
-            );
+            write_list(state, src, &js, "ignore-files", path, list, "");
         }
         "ignoreDependencies" | "ignoreBinaries" => {
             let list = pattern_list(state, src, path, item, true);

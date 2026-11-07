@@ -70,6 +70,8 @@ pub struct JsAnalysis<'a> {
     pub(crate) config_path: Option<PathBuf>,
     /// Configured `entry`, `project` and `ignore` patterns that match no file.
     pub(crate) empty_patterns: Vec<EmptyPattern>,
+    /// `ignore-files` patterns that hide no file `unused-files` would report.
+    pub(crate) unused_ignore_files: Vec<EmptyPattern>,
 }
 
 /// Names declared with `declare module 'name'` by graph modules and by declaration files nothing imports.
@@ -185,6 +187,56 @@ fn empty_patterns(
     found
 }
 
+/// The `ignore-files` patterns that hide none of the files that would be reported unused (knip's `ignoreFiles` hint).
+fn unused_ignore_files(
+    workspace: &Workspace,
+    config: &Config,
+    setup: &Setup,
+    unreached: &[&Candidate],
+) -> Vec<EmptyPattern> {
+    let mut found = Vec::new();
+    let all_judged = workspace
+        .iter()
+        .all(|(id, _)| setup.package(id).is_none_or(|package| !package.entries_incomplete));
+    for pattern in config.js.ignore_files.iter().filter(|_| all_judged) {
+        let globs = Globs::new([pattern]);
+        if !globs.is_empty() && !unreached.iter().any(|candidate| globs.matches_any(&candidate.rel)) {
+            found.push(EmptyPattern {
+                key: "js.ignore-files".to_owned(),
+                pattern: pattern.clone(),
+            });
+        }
+    }
+    for (id, package) in workspace.iter() {
+        let Some(package_setup) = setup.package(id) else {
+            continue;
+        };
+        if package_setup.entries_incomplete {
+            continue;
+        }
+        let dir = if package.is_root {
+            ".".to_owned()
+        } else {
+            package.dir.to_string_lossy().replace('\\', "/")
+        };
+        let owned: Vec<String> = unreached
+            .iter()
+            .filter(|candidate| candidate.owner == id)
+            .filter_map(|candidate| relative(&candidate.abs, &package_setup.dir))
+            .collect();
+        for pattern in &package_setup.user_patterns.ignore_files {
+            let globs = Globs::new([pattern]);
+            if !globs.is_empty() && !owned.iter().any(|rel| globs.matches_any(rel)) {
+                found.push(EmptyPattern {
+                    key: format!("js.workspaces.\"{dir}\".ignore-files"),
+                    pattern: pattern.clone(),
+                });
+            }
+        }
+    }
+    found
+}
+
 /// `fs` with the files tracked by git listed from the git index, as `[js] discovery` says: `auto` checks the
 /// modification time of each directory against the index, `git` trusts the index alone and `walk` does not use it.
 /// `None` for `walk` and when the workspace is not in a git work tree with a usable index.
@@ -284,7 +336,7 @@ impl<'a> JsAnalysis<'a> {
             .filter_map(|declared| package_name(declared))
             .collect();
         ambient_modules.extend(packages);
-        let unused_files = candidates
+        let unreached: Vec<&Candidate> = candidates
             .iter()
             .filter(|candidate| graph.id_of(&candidate.abs).is_none())
             .filter(|candidate| !candidate.rel.ends_with(".d.ts"))
@@ -304,12 +356,23 @@ impl<'a> JsAnalysis<'a> {
             })
             // The index may still list a file deleted since it was written; one `stat` per unused file settles it.
             .filter(|candidate| !listed_from_index || fs.kind(&candidate.abs).is_file)
+            .collect();
+        let ignores_file = |candidate: &Candidate| {
+            setup.global_ignore_files.matches_any(&candidate.rel)
+                || setup.package(candidate.owner).is_some_and(|package| {
+                    relative(&candidate.abs, &package.dir).is_some_and(|rel| package.ignore_files.matches_any(&rel))
+                })
+        };
+        let empty_patterns = empty_patterns(workspace, config, &setup, &candidates, &graph);
+        let unused_ignore_files = unused_ignore_files(workspace, config, &setup, &unreached);
+        let unused_files = unreached
+            .iter()
+            .filter(|candidate| !ignores_file(candidate))
             .map(|candidate| UnusedFile {
                 path: PathBuf::from(&candidate.rel),
                 owner: candidate.owner,
             })
             .collect();
-        let empty_patterns = empty_patterns(workspace, config, &setup, &candidates, &graph);
         Self {
             workspace,
             graph,
@@ -321,6 +384,7 @@ impl<'a> JsAnalysis<'a> {
             enabled_rules: None,
             config_path: None,
             empty_patterns,
+            unused_ignore_files,
         }
     }
 
