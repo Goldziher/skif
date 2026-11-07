@@ -116,7 +116,13 @@ or on all with `--recursive`; paths stay relative to the start directory, as in 
 members are keyed by the member name on both sides. knip's stdout may carry banners around its JSON; the first object
 that is a knip report is used.
 
-**Known deviations.** In `files`, a file only knip reports is not counted as a difference when it is outside skif's
+**Labels.** `exports`, `types`, `nsExports` and `nsTypes` key the same `<file>|<name>`, and the tools label some
+differently: knip calls a `const enum` a type and files an export under `nsExports` when any importer uses a namespace,
+skif when all do. A skif finding knip has under another of these labels counts as shared, under knip's label.
+
+**Known deviations.** Findings on one side below a path in a repository's `knip-unread` list are the `knip-unread`
+deviation: knip reads no files there, as npm's deny-all `.gitignore` hides its workspaces, so it reports every
+dependency there as unused and says nothing about the files. In `files`, a file only knip reports is not counted as a difference when it is outside skif's
 project set (`non-code-file`), in a fixture directory (`fixture-file`) or a test file (`test-file`); those are reported
 in their own column and section, with the reason, and `--check` ignores them. `--include-test-files` counts the last
 two as differences (not usable with a baseline, nor is `--repo-knip-config`). See
@@ -167,9 +173,11 @@ The decision is [ADR 0026](../../adrs/0026-parity-and-diff-tasks-on-a-pinned-cor
 ## Measured numbers
 
 `mise run bench:publish` writes `tools/bench/results/summary.{json,md}` and rewrites this section with
-`refresh-numbers.mjs`. These numbers come from one Apple M4 Pro (14 cores) under heavy unrelated load (load average
-around 200), so the ratios mean more than the absolute times, and the two ADR 0001 time budgets that show as failed
-have not been judged on a quiet machine. sherif 1.13.0, syncpack 15.3.3 and knip 6.44.1, run through their npm launchers.
+`refresh-numbers.mjs`. These numbers come from one Apple M4 Pro (14 cores) with other work running (load average around 17), so read the
+ratios rather than the absolute times. A rerun of the 500-package case alone, at load 15, measured 49.6 ms against its 50 ms target,
+so it sits on the line rather than clearly over it. The `FAIL` for npm-cli is not like for like: npm's `.gitignore` hides its workspaces
+from knip, which analyses only the root package there. knip also exits with an error on create-t3-turbo, so that time
+is a partial run. sherif 1.13.0, syncpack 15.3.3 and knip 6.44.1, run through their npm launchers.
 
 <!-- bench:numbers:start -->
 Measured with hyperfine 1.20.0, 3 warmup and 10 measured runs on macos aarch64; skif 0.1.0.
@@ -178,91 +186,91 @@ Measured with hyperfine 1.20.0, 3 warmup and 10 measured runs on macos aarch64; 
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif --no-js | 129 | 126 | 1.0x |
-| sherif | 347 | 347 | 2.7x |
-| syncpack lint | 564 | 585 | 4.4x |
+| skif --no-js | 10.8 | 10.8 | 1.0x |
+| sherif | 46.7 | 37.7 | 4.3x |
+| syncpack lint | 41.8 | 41.7 | 3.9x |
 
 **generated: 500 packages (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif --no-js | 224 | 242 | 1.0x |
-| sherif | 439 | 370 | 2.0x |
-| syncpack lint | 861 | 863 | 3.8x |
+| skif --no-js | 54.1 | 53.9 | 1.0x |
+| sherif | 61.5 | 61.3 | 1.1x |
+| syncpack lint | 183 | 176 | 3.4x |
 
 **generated: 2000 packages (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif --no-js | 417 | 404 | 1.0x |
-| sherif | 741 | 558 | 1.8x |
-| syncpack lint | 1319 | 1154 | 3.2x |
+| skif --no-js | 272 | 268 | 1.0x |
+| sherif | 194 | 194 | 0.7x |
+| syncpack lint | 849 | 869 | 3.1x |
 
 **graph: 10000 files in 100 packages**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 2620 | 2360 | 1.0x |
+| skif | 377 | 318 | 1.0x |
 
 **corpus: create-t3-turbo (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 91.8 | 91.5 | 1.0x |
-| skif --no-js | 19.9 | 17.9 | 0.2x |
-| sherif | 215 | 202 | 10.8x |
-| syncpack lint | 241 | 211 | 12.1x |
-| knip --reporter json | 2891 | 2634 | 31.5x |
+| skif | 22.2 | 22.3 | 1.0x |
+| skif --no-js | 4.6 | 4.6 | 0.2x |
+| sherif | 31.6 | 32.0 | 6.8x |
+| syncpack lint | 47.6 | 45.9 | 10.3x |
+| knip --reporter json | 820 | 824 | 37.0x |
 
 **corpus: vue-core (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 185 | 176 | 1.0x |
-| skif --no-js | 40.4 | 43.5 | 0.2x |
-| sherif | 177 | 191 | 4.4x |
-| syncpack lint | 175 | 173 | 4.3x |
-| knip --reporter json | 3081 | 2861 | 16.6x |
+| skif | 37.3 | 37.4 | 1.0x |
+| skif --no-js | 5.0 | 5.0 | 0.1x |
+| sherif | 33.0 | 33.2 | 6.6x |
+| syncpack lint | 38.5 | 38.5 | 7.7x |
+| knip --reporter json | 1589 | 1316 | 42.6x |
 
 **corpus: tanstack-query (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 753 | 818 | 1.0x |
-| skif --no-js | 59.0 | 62.7 | 0.1x |
-| sherif | 196 | 188 | 3.3x |
-| syncpack lint | 371 | 366 | 6.3x |
-| knip --reporter json | 6016 | 5714 | 8.0x |
+| skif | 180 | 175 | 1.0x |
+| skif --no-js | 17.1 | 17.1 | 0.1x |
+| sherif | 41.1 | 41.2 | 2.4x |
+| syncpack lint | 109 | 109 | 6.4x |
+| knip --reporter json | 1802 | 1803 | 10.0x |
 
 **corpus: babel (yarn)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 1124 | 1115 | 1.0x |
-| skif --no-js | 115 | 119 | 0.1x |
-| sherif | 404 | 358 | 3.5x |
-| syncpack lint | 1507 | 1473 | 13.1x |
-| knip --reporter json | 21279 | 16257 | 18.9x |
+| skif | 421 | 420 | 1.0x |
+| skif --no-js | 13.0 | 13.0 | 0.0x |
+| sherif | 39.8 | 39.5 | 3.1x |
+| syncpack lint | 496 | 495 | 38.2x |
+| knip --reporter json | 4152 | 3943 | 9.9x |
 
 **corpus: npm-cli (npm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 251 | 241 | 1.0x |
-| skif --no-js | 37.8 | 35.1 | 0.2x |
-| sherif | 340 | 334 | 9.0x |
-| syncpack lint | 467 | 464 | 12.4x |
-| knip --reporter json | 2494 | 2655 | 9.9x |
+| skif | 83.4 | 82.0 | 1.0x |
+| skif --no-js | 6.8 | 6.5 | 0.1x |
+| sherif | 35.2 | 34.6 | 5.2x |
+| syncpack lint | 87.9 | 88.7 | 12.9x |
+| knip --reporter json | 316 | 315 | 3.8x |
 
 | ADR 0001 target | Check | Result |
 | --- | --- | --- |
-| generated: 500 packages (pnpm) | manifest and policy rules < 50 ms (measured 224.0 ms) | FAIL |
-| graph: 10000 files in 100 packages | parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 2619.7 ms) | FAIL |
-| corpus: create-t3-turbo (pnpm) | JS analysis >= 5x faster than knip (measured 31.5x) | pass |
-| corpus: vue-core (pnpm) | JS analysis >= 5x faster than knip (measured 16.6x) | pass |
-| corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 8.0x) | pass |
-| corpus: babel (yarn) | JS analysis >= 5x faster than knip (measured 18.9x) | pass |
-| corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 9.9x) | pass |
+| generated: 500 packages (pnpm) | manifest and policy rules < 50 ms (measured 54.1 ms) | FAIL |
+| graph: 10000 files in 100 packages | parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 376.5 ms) | pass |
+| corpus: create-t3-turbo (pnpm) | JS analysis >= 5x faster than knip (measured 37.0x) | pass |
+| corpus: vue-core (pnpm) | JS analysis >= 5x faster than knip (measured 42.6x) | pass |
+| corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 10.0x) | pass |
+| corpus: babel (yarn) | JS analysis >= 5x faster than knip (measured 9.9x) | pass |
+| corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 3.8x) | FAIL |
 
 <!-- bench:numbers:end -->
 
