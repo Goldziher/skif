@@ -33,6 +33,10 @@ others; the exit code is then `2`. A search stopped by the depth limit lists the
 `truncated` array. `root-package-manager-field` is not reported for a standalone package below
 another root. `--fix` plans, writes and installs per root.
 
+`-r` is `--recursive`, not sherif's `--ignore-rule`. When the `PATH` given with `-r` does not exist and is the name
+of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2` with a usage error that names the
+`--ignore-rule` and `--rule` flags for that rule, using the skif rule id.
+
 ## Subcommands
 
 | Command | Does |

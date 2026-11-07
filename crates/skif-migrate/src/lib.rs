@@ -282,6 +282,13 @@ pub const fn config_file_names(tool: Tool) -> &'static [&'static str] {
     }
 }
 
+/// The skif rule id of the sherif rule `name` (`multiple-dependency-versions` is `version-mismatch`), or `None` when
+/// sherif has no rule of that name.
+#[must_use]
+pub fn sherif_rule_id(name: &str) -> Option<&'static str> {
+    tables::sherif_rule(name)
+}
+
 /// Whether the root `package.json` text configures or runs `tool`: it has the tool's key, or a script runs it.
 /// Text that is not JSON counts as no.
 #[must_use]
