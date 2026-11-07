@@ -17,6 +17,7 @@ mod error;
 mod explain;
 mod fix;
 mod install;
+mod instances;
 mod lint;
 mod migrate;
 mod output;
@@ -46,6 +47,8 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         Some(Command::Config(args)) => config::run(&args),
         Some(Command::ExplainUsage(args)) => explain::run(&args),
         Some(Command::Migrate(args)) => migrate::run(&args),
+        Some(Command::List(args)) => instances::list(&args),
+        Some(Command::Json(args)) => instances::json(&args),
     }
 }
 

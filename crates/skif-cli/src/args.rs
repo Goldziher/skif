@@ -35,6 +35,59 @@ pub enum Command {
     ExplainUsage(ExplainUsageArgs),
     /// Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file.
     Migrate(MigrateArgs),
+    /// List every dependency the version groups govern, by version group, with its specifiers and states.
+    List(ListArgs),
+    /// Print every dependency instance the version groups govern as one JSON object per line (NDJSON).
+    Json(InstancesArgs),
+}
+
+/// What `skif list` and `skif json` read.
+#[derive(Debug, clap::Args)]
+pub struct InstancesArgs {
+    /// A path inside a project, resolved to its workspace root as for linting.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+
+    /// Cover every workspace and standalone package at or below PATH, each with its own configuration.
+    #[arg(short, long)]
+    pub recursive: bool,
+
+    /// Use this configuration file (and the files it extends) instead of discovering `skif.toml` files.
+    #[arg(long, value_name = "FILE", conflicts_with = "no_config")]
+    pub config: Option<PathBuf>,
+
+    /// Read no configuration file: the defaults plus the flags.
+    #[arg(long)]
+    pub no_config: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ListArgs {
+    #[command(flatten)]
+    pub instances: InstancesArgs,
+
+    /// What to show, comma separated: `instances` (every instance of each dependency), `statuses` (the state names),
+    /// `hints` (mark dependencies that are workspace packages), `ignored` (the dependencies of `ignored` groups),
+    /// `all` or `none`.
+    #[arg(long, value_enum, value_delimiter = ',', default_value = "hints,statuses")]
+    pub show: Vec<Show>,
+}
+
+/// The details `skif list --show` turns on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Show {
+    /// Every instance of every dependency.
+    Instances,
+    /// The state of each dependency and instance.
+    Statuses,
+    /// A mark on dependencies that are packages of the workspace.
+    Hints,
+    /// The dependencies of `ignored` version groups.
+    Ignored,
+    /// Everything above.
+    All,
+    /// Nothing above.
+    None,
 }
 
 #[derive(Debug, clap::Args)]

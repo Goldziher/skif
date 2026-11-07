@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 
 use skif_config::Config;
+use skif_specifier::semver_range::SemverRange;
 use skif_workspace::Workspace;
 
 use super::groups::{Group, Groups, Policy};
@@ -27,6 +28,21 @@ pub(crate) struct Analysis<'w> {
     pub(crate) unused_groups: Vec<ConfiguredGroup>,
     /// `pinned` groups whose `pin` cannot be applied.
     pub(crate) invalid_pins: Vec<ConfiguredGroup>,
+    /// Every version group, the catch-all last, as `skif list` names it.
+    pub(crate) groups: Vec<GroupSummary>,
+    /// Indexed like `verdicts`: the position in `groups` of the group that owns the instance, if any.
+    pub(crate) owners: Vec<Option<usize>>,
+    /// Indexed like `verdicts`: the range the instance's semver group asks for, if any.
+    pub(crate) preferred: Vec<Option<String>>,
+}
+
+/// A version group as the instance listing shows it.
+#[derive(Debug, Clone)]
+pub(crate) struct GroupSummary {
+    /// Position in `[[version-groups]]`; `None` for the catch-all.
+    pub(crate) configured: Option<usize>,
+    pub(crate) label: Option<String>,
+    pub(crate) policy: Policy,
 }
 
 impl<'w> Analysis<'w> {
@@ -49,9 +65,23 @@ impl<'w> Analysis<'w> {
     }
 
     fn from_instances(workspace: &'w Workspace, config: &Config, instances: Instances<'w>) -> Self {
-        let (verdicts, unused_groups, invalid_pins) = {
+        let (verdicts, unused_groups, invalid_pins, summaries, owners, preferred) = {
             let groups = Groups::compile(workspace, config);
             let assignment = groups.assign(&instances);
+            let owners: Vec<Option<usize>> = instances.iter().map(|(id, _)| assignment.owner(id)).collect();
+            let preferred: Vec<Option<String>> = instances
+                .iter()
+                .map(|(id, _)| assignment.preferred(id).map(SemverRange::unwrap))
+                .collect();
+            let summaries = groups
+                .groups()
+                .iter()
+                .map(|group| GroupSummary {
+                    configured: group.configured,
+                    label: group.label.map(str::to_owned),
+                    policy: group.policy.clone(),
+                })
+                .collect();
             let mut visitor = Visitor::new(&instances, &assignment);
             for (index, group) in groups.groups().iter().enumerate() {
                 for (_, ids) in assignment.dependencies(index) {
@@ -80,13 +110,16 @@ impl<'w> Analysis<'w> {
                 .filter(|group| is_invalid(group))
                 .filter_map(configured)
                 .collect();
-            (visitor.into_verdicts(), unused, invalid)
+            (visitor.into_verdicts(), unused, invalid, summaries, owners, preferred)
         };
         Self {
             instances,
             verdicts,
             unused_groups,
             invalid_pins,
+            groups: summaries,
+            owners,
+            preferred,
         }
     }
 }

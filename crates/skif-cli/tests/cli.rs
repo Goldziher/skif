@@ -846,3 +846,57 @@ fn lint_to_json_classifies_its_errors() {
     assert_eq!(broken.kind, skif_cli::Kind::Config);
     assert!(broken.path.is_some_and(|path| path.ends_with("skif.toml")));
 }
+
+#[test]
+fn list_shows_every_instance_by_version_group_and_exits_one_on_errors() {
+    let dir = fixture("mismatch");
+    let result = run(skif().args(["list", "--show", "all"]).arg(dir.path()));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    insta::assert_snapshot!("list_human", redact(&result.stdout, dir.path()));
+
+    let ok = run(skif()
+        .args(["list", "--show", "none", "--config"])
+        .arg(dir.path().join("skif.toml"))
+        .arg(dir.path().join("packages").join("a")));
+    assert_eq!(ok.code, 1, "a member path lists its workspace: {}", ok.stdout);
+}
+
+#[test]
+fn json_prints_one_instance_per_line_with_syncpack_status_codes() {
+    let dir = fixture("mismatch");
+    let result = run(skif().arg("json").arg(dir.path()));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    let lines: Vec<Value> = result
+        .stdout
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let is_number: Vec<(&str, &str, &str)> = lines
+        .iter()
+        .filter(|line| line["dependency"] == "is-number")
+        .map(|line| {
+            (
+                line["package"].as_str().unwrap(),
+                line["statusCode"].as_str().unwrap(),
+                line["statusType"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        is_number,
+        [
+            ("packages/a/package.json", "IsHighestOrLowestSemver", "Valid"),
+            ("packages/b/package.json", "DiffersToHighestOrLowestSemver", "Fixable"),
+        ]
+    );
+    insta::assert_snapshot!("json_instances", redact(&result.stdout, dir.path()));
+
+    fs::write(
+        dir.path().join("skif.toml"),
+        "[js]\nenabled = false\n\n[rules]\nversion-mismatch = \"warn\"\n",
+    )
+    .unwrap();
+    let warned = run(skif().arg("json").arg(dir.path()));
+    assert_eq!(warned.code, 0, "warnings alone do not fail: {}", warned.stdout);
+    assert!(warned.stdout.contains(r#""severity":"warning""#), "{}", warned.stdout);
+}
