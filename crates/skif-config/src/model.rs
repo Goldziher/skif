@@ -57,6 +57,8 @@ pub struct Config {
     pub dependency_families: Vec<DependencyFamily>,
     /// `[js]`: the JavaScript and TypeScript analysis.
     pub js: Js,
+    /// `[format]`: how `package-json-format` and `skif format` order and lay out `package.json` files.
+    pub format: Format,
     /// Scoped rules for packages and files; only package-scoped keys are allowed in them.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub overrides: Vec<Override>,
@@ -234,6 +236,9 @@ impl Config {
             if entry.reason.as_deref().is_some_and(|reason| reason.trim().is_empty()) {
                 return invalid(format!("ignore[{index}]: `reason` is empty; say why or remove it"));
             }
+        }
+        if let Some(message) = self.format.inconsistency() {
+            return invalid(format!("format.{message}"));
         }
         for (index, scoped) in self.overrides.iter().enumerate() {
             if let Some(message) = scoped.inconsistency() {
@@ -1159,6 +1164,138 @@ impl WorkspaceProtocol {
     pub const fn with_allow_local_paths(mut self, allow_local_paths: bool) -> Self {
         self.allow_local_paths = allow_local_paths;
         self
+    }
+}
+
+/// `[format]`: what the `package-json-format` rule and `skif format` check, with syncpack's defaults (ADR 0050).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct Format {
+    /// Top-level keys that come first, in this order.
+    pub sort_first: Vec<String>,
+    /// Fields sorted alphabetically one level deep: an object by key, an array of strings by value. `a/b` names a
+    /// nested field.
+    pub sort_az: Vec<String>,
+    /// Keys that come first, in this order, in every object of `exports`; `default` is always last.
+    pub sort_exports: Vec<String>,
+    /// Sort the top-level keys `sort-first` does not name.
+    pub sort_packages: bool,
+    /// Write a `bugs` object that holds only `url` as that string.
+    pub format_bugs: bool,
+    /// Write a `repository` object that holds only `url` and `type` as its shorthand.
+    pub format_repository: bool,
+    /// Check the layout against `JSON.stringify(manifest, null, indent)`: spaces or tabs, for example `"  "` or
+    /// `"\t"`. Unset keeps each file's layout.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub indent: Option<String>,
+}
+
+fn strings(items: &[&str]) -> Vec<String> {
+    items.iter().map(|item| (*item).to_owned()).collect()
+}
+
+impl Default for Format {
+    fn default() -> Self {
+        Self {
+            sort_first: strings(&["name", "description", "version", "author"]),
+            sort_az: strings(&[
+                "bin",
+                "contributors",
+                "dependencies",
+                "devDependencies",
+                "keywords",
+                "peerDependencies",
+                "resolutions",
+                "scripts",
+            ]),
+            sort_exports: strings(&[
+                "types",
+                "node-addons",
+                "node",
+                "browser",
+                "module",
+                "import",
+                "require",
+                "svelte",
+                "development",
+                "production",
+                "script",
+                "default",
+            ]),
+            sort_packages: true,
+            format_bugs: false,
+            format_repository: false,
+            indent: None,
+        }
+    }
+}
+
+impl Format {
+    /// Sets the keys that come first.
+    #[must_use]
+    pub fn with_sort_first<I: IntoIterator<Item = S>, S: Into<String>>(mut self, keys: I) -> Self {
+        self.sort_first = keys.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Sets the fields sorted alphabetically.
+    #[must_use]
+    pub fn with_sort_az<I: IntoIterator<Item = S>, S: Into<String>>(mut self, keys: I) -> Self {
+        self.sort_az = keys.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Sets the order of the `exports` conditions.
+    #[must_use]
+    pub fn with_sort_exports<I: IntoIterator<Item = S>, S: Into<String>>(mut self, keys: I) -> Self {
+        self.sort_exports = keys.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Sets whether the remaining top-level keys are sorted.
+    #[must_use]
+    pub const fn with_sort_packages(mut self, sort: bool) -> Self {
+        self.sort_packages = sort;
+        self
+    }
+
+    /// Sets whether `bugs` is collapsed to its URL.
+    #[must_use]
+    pub const fn with_format_bugs(mut self, format: bool) -> Self {
+        self.format_bugs = format;
+        self
+    }
+
+    /// Sets whether `repository` is collapsed to its shorthand.
+    #[must_use]
+    pub const fn with_format_repository(mut self, format: bool) -> Self {
+        self.format_repository = format;
+        self
+    }
+
+    /// Sets the indent the layout is checked against.
+    #[must_use]
+    pub fn with_indent(mut self, indent: impl Into<String>) -> Self {
+        self.indent = Some(indent.into());
+        self
+    }
+
+    /// The indent with a written `\t` read as a tab, as syncpack reads it.
+    #[must_use]
+    pub fn indent_text(&self) -> Option<String> {
+        self.indent.as_ref().map(|indent| indent.replace("\\t", "\t"))
+    }
+
+    fn inconsistency(&self) -> Option<String> {
+        let indent = self.indent_text()?;
+        (indent.is_empty() || indent.chars().any(|c| c != ' ' && c != '\t')).then(|| {
+            format!(
+                "indent: {:?} is not a run of spaces or tabs",
+                self.indent.as_deref().unwrap_or_default()
+            )
+        })
     }
 }
 
