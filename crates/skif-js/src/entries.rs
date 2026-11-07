@@ -11,7 +11,7 @@ use crate::globs::Globs;
 use crate::manifest_paths::{
     bin_stub_sources, bin_targets, crossing_stars, manifest_targets, map_to_source, should_have_source, source_patterns,
 };
-use crate::resolve::is_code_file;
+use crate::resolve::{is_code_file, join_normalized};
 use crate::setup::{PackageSetup, Setup};
 
 /// The entry files of the workspace.
@@ -163,12 +163,14 @@ fn owned_by<'a>(owned: &'a [&'a Candidate], dir: &'a Path) -> impl Iterator<Item
         .filter_map(move |candidate| Some((candidate, relative(&candidate.abs, dir)?)))
 }
 
+/// The files the package's scripts run. A path that leaves the package (`../../scripts/seed.ts`) is collapsed
+/// lexically, so it is the same file as the candidate it names and is owned by the package it lies in.
 fn script_files(fs: &dyn FileSystem, package_setup: &PackageSetup) -> Vec<PathBuf> {
     package_setup
         .scripts
         .files
         .iter()
-        .map(|file| package_setup.dir.join(file.trim_start_matches("./")))
+        .map(|file| join_normalized(&package_setup.dir, file))
         .filter(|path| is_code_file(path) && fs.is_file(path))
         .collect()
 }
