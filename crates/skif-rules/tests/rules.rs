@@ -11,7 +11,7 @@ use skif_lint::{Registry, RuleProvider, RunOptions, run};
 use skif_rules::{manifest_provider, policy_provider, providers};
 use skif_workspace::Workspace;
 
-const EXPECTED: [&str; 11] = [
+const EXPECTED: [&str; 12] = [
     "empty-dependencies",
     "root-package-private-field",
     "root-package-manager-field",
@@ -23,6 +23,7 @@ const EXPECTED: [&str; 11] = [
     "unmatched-workspace-patterns",
     "missing-package-manifest",
     "local-path-dependency",
+    "package-json-format",
 ];
 
 /// The manifest rules only: the snapshot fixtures are not meant to exercise the policy rules.
@@ -86,7 +87,12 @@ fn rule_ids_are_unique_kebab_case_and_documented() {
         assert!(RuleId::new(meta.id).is_ok(), "{} is not kebab-case", meta.id);
         assert!(meta.summary.len() > 20, "{} has no real summary", meta.id);
         assert!(meta.summary.ends_with('.'), "{} summary must be a sentence", meta.id);
-        assert!(meta.default.is_some(), "{} must be on by default", meta.id);
+        // `package-json-format` is opt-in: it reformats manifests no other rule touches (ADR 0050).
+        assert!(
+            meta.default.is_some() || meta.id == "package-json-format",
+            "{} must be on by default",
+            meta.id
+        );
     }
     let summaries: HashSet<&str> = metas.iter().map(|meta| meta.summary).collect();
     assert_eq!(summaries.len(), metas.len(), "two rules share a summary");
@@ -126,7 +132,11 @@ fn every_rule_fires_on_the_dirty_workspace() {
         .iter()
         .map(|diagnostic| diagnostic.rule.as_str())
         .collect();
-    for id in EXPECTED {
+    // An opt-in rule is off under the default configuration; its own tests turn it on.
+    for id in EXPECTED
+        .into_iter()
+        .filter(|id| registry().get(id).unwrap().default.is_some())
+    {
         assert!(fired.contains(id), "{id} did not fire on the dirty fixture");
     }
 }

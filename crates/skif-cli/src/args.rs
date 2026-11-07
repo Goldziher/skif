@@ -35,6 +35,39 @@ pub enum Command {
     ExplainUsage(ExplainUsageArgs),
     /// Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file.
     Migrate(MigrateArgs),
+    /// Format every `package.json` as `[format]` describes (the `package-json-format` rule alone); never installs.
+    Format(FormatArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct FormatArgs {
+    /// A path inside a project, resolved to its workspace root as for linting.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+
+    /// Report the manifests that are not formatted and exit 1, without writing.
+    #[arg(long)]
+    pub check: bool,
+
+    /// Format every workspace and standalone package at or below PATH.
+    #[arg(short, long)]
+    pub recursive: bool,
+
+    /// Output format [default: human, or human plus GitHub annotations when `GITHUB_ACTIONS=true`].
+    #[arg(long, value_enum)]
+    pub format: Option<Format>,
+
+    /// Use this configuration file (and the files it extends) instead of discovering `skif.toml` files.
+    #[arg(long, value_name = "FILE", conflicts_with = "no_config")]
+    pub config: Option<PathBuf>,
+
+    /// Read no configuration file: the defaults plus the flags.
+    #[arg(long)]
+    pub no_config: bool,
+
+    /// When to colour human output.
+    #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
+    pub color: ColorChoice,
 }
 
 #[derive(Debug, clap::Args)]

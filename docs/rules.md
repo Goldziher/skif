@@ -31,6 +31,7 @@
 | [`incompatible-peer-dependencies`](#incompatible-peer-dependencies) | manifest | warning | none |
 | [`local-path-dependency`](#local-path-dependency) | manifest | error | sometimes |
 | [`member-toolchain-fields`](#member-toolchain-fields) | manifest | warning | unsafe |
+| [`package-json-format`](#package-json-format) | manifest | off | safe |
 | [`root-package-dependencies`](#root-package-dependencies) | manifest | warning | unsafe |
 | [`root-package-manager-field`](#root-package-manager-field) | manifest | error | none |
 | [`root-package-private-field`](#root-package-private-field) | manifest | error | safe |
@@ -262,6 +263,14 @@ Private member packages should not declare `packageManager` or `engines`; the ro
 - Category: manifest
 - Default severity: warning
 - Fixable: unsafe
+
+## package-json-format
+
+A `package.json` is not formatted as `[format]` describes: key order, sorted fields, `exports` conditions, shorthand `bugs` and `repository`, and the indent.
+
+- Category: manifest
+- Default severity: off
+- Fixable: safe
 
 ## root-package-dependencies
 
