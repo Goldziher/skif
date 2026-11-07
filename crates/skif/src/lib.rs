@@ -136,6 +136,8 @@ pub use targets::{
     load_target, unapplied_config_files, unapplied_config_files_all,
 };
 
+/// The `[format]` table of the configuration: what `package-json-format` checks.
+pub use skif_config::Format as FormatConfig;
 /// The `[workspace]` table of the configuration (the discovered [`Workspace`] is a different type).
 pub use skif_config::Workspace as WorkspaceConfig;
 pub use skif_config::{
