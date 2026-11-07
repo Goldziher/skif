@@ -171,7 +171,7 @@ fn knip_ts_with_workspaces_plugins_and_a_non_static_value() {
         "ignoreFiles widens to every rule"
     );
     assert_eq!(class(&migration, "tags[1]"), NoteClass::Unsupported);
-    assert_eq!(class(&migration, "compilers"), NoteClass::Unsupported);
+    assert_eq!(class(&migration, "compilers.mdx"), NoteClass::Approximate);
     assert_eq!(
         class(&migration, "workspaces[\"packages/*\"].mystery"),
         NoteClass::Unsupported
@@ -282,6 +282,43 @@ fn an_unreadable_configuration_is_an_error_naming_the_file() {
         Ok(migration) => assert!(migration.needs_human(), "{:#?}", migration.notes),
         Err(error) => assert!(error.to_string().contains("knip.ts"), "{error}"),
     }
+}
+
+#[test]
+fn knip_built_in_compilers_map_to_skif_extractors() {
+    let migration = knip(
+        Some(r#"{ "compilers": { "mdx": true, ".styl": true, "vue": false, "hbs": true } }"#),
+        &[],
+    );
+    assert_eq!(class(&migration, "compilers.mdx"), NoteClass::Default);
+    assert!(
+        note(&migration, "compilers.mdx")
+            .suggestion
+            .as_deref()
+            .is_some_and(|hint| hint.contains("**/*.mdx"))
+    );
+    assert_eq!(class(&migration, "compilers..styl"), NoteClass::Default);
+    assert_eq!(class(&migration, "compilers.vue"), NoteClass::Default);
+    assert_eq!(class(&migration, "compilers.hbs"), NoteClass::Unsupported);
+    let notes: Vec<String> = migration
+        .notes
+        .iter()
+        .filter(|note| note.path.starts_with("compilers"))
+        .map(|note| {
+            format!(
+                "{} {}: {} ({})",
+                note.class.letter(),
+                note.path,
+                note.message,
+                note.suggestion.as_deref().unwrap_or("-")
+            )
+        })
+        .collect();
+    insta::assert_snapshot!("knip-compilers", notes.join("\n"));
+
+    let all = knip(Some(r#"{ "compilers": true }"#), &[]);
+    assert_eq!(class(&all, "compilers"), NoteClass::Default);
+    assert!(!all.needs_human());
 }
 
 fn text(path: &str, text: &str) -> Input {
