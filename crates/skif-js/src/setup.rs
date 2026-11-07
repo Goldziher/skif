@@ -357,6 +357,8 @@ pub(crate) struct Setup {
     /// `[js.workspaces]` keys that select no package.
     pub unmatched_workspace_keys: Vec<String>,
     pub production: bool,
+    /// Each package uses only what its own manifest lists (`--strict`).
+    pub isolate_workspaces: bool,
     pub include_entry_exports: bool,
     /// `[js] ignore-exports-used-in-file`.
     pub used_in_file: IgnoreExportsUsedInFile,
@@ -610,6 +612,7 @@ impl Setup {
             js_ignored,
             unmatched_workspace_keys,
             production,
+            isolate_workspaces: js.isolate_workspaces,
             include_entry_exports: js.include_entry_exports,
             used_in_file: js.ignore_exports_used_in_file.clone(),
             ignore_tags,

@@ -13,6 +13,7 @@ All notable changes to this project are documented here. The format follows
 
 - knip's run-time filters on the lint command ([#36](https://github.com/Goldziher/skif/issues/36)):
   - `--workspace <NAME|DIR>` (`-W`) reports only the findings of the selected workspace packages.
+  - `--strict` is `--production` with each workspace package limited to the dependencies its own manifest lists.
 
 ## [0.1.1] - 2026-11-07
 

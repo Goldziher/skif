@@ -95,3 +95,15 @@ fn workspace_limits_what_fix_changes() {
     let b = std::fs::read_to_string(dir.path().join("packages/b/package.json")).unwrap();
     assert!(!b.contains("is-even"), "{b}");
 }
+
+#[test]
+fn strict_uses_only_each_packages_own_dependencies() {
+    let unlisted = ("unlisted-dependencies".to_owned(), "packages/a/index.ts".to_owned());
+    let (_, production) = lint_json(&["--production"]);
+    assert!(!findings(&production).contains(&unlisted), "{production:#}");
+    let (result, strict) = lint_json(&["--strict"]);
+    assert_eq!(result.code, 1);
+    // `left-pad` is listed by the root only, which strict mode does not consult for `@cli/a`.
+    assert!(findings(&strict).contains(&unlisted), "{strict:#}");
+    assert!(findings(&strict).is_superset(&findings(&production)));
+}

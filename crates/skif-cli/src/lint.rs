@@ -84,7 +84,7 @@ fn overrides(args: &LintArgs) -> ConfigOverrides {
         .with_ignore_packages(args.ignore_package.clone())
         .with_ignore_dependencies(args.ignore_dependency.clone())
         .with_fail_on_warnings(args.fail_on_warnings.then_some(true))
-        .with_production(args.production.then_some(true))
+        .with_production((args.production || args.strict).then_some(true))
         .with_no_js(args.no_js)
         .with_config_file(
             args.config
@@ -117,6 +117,9 @@ fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
                 .with_rules([rule.clone()])
                 .with_packages(Selector::new([package.clone()])?),
         );
+    }
+    if args.strict {
+        config.js.isolate_workspaces = true;
     }
     if let Some(select) = args.select {
         config.policy.prefer = match select {
