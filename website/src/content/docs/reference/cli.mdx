@@ -43,6 +43,7 @@ another root. `--fix` plans, writes and installs per root.
 | `skif config [PATH]` | Show how the configuration of the root at `PATH` was built (see below). |
 | `skif explain-usage <FILE[#EXPORT]> [PATH]` | Explain why the JavaScript analysis counts a file, or one export of it, as used (see below). |
 | `skif migrate [PATH]` | Translate the configuration of sherif, syncpack and knip into a `skif.toml` (see below). |
+| `skif format [PATH]` | Format every `package.json` as `[format]` describes, or check it with `--check` (see below). |
 
 ## Flags
 
@@ -130,6 +131,23 @@ the old tools stays where it is. The [migration guide](../../guides/migrating/) 
 
 Exit `0` when the file was produced (also when notes need a human, unless `--strict`), `1` with `--strict` and such notes,
 `2` when a configuration cannot be read or the output cannot be written.
+
+## Formatting `package.json`
+
+`skif format [PATH]` lints with the [`package-json-format`](../../rules/manifest/#package-json-format) rule alone, at
+`error`, and applies its safe fix to every `package.json` of the workspace: the key order, the sorted fields, the
+order of the `exports` conditions, the `bugs` and `repository` shorthands and, with `[format] indent`, the layout. The
+[`[format]`](../configuration/#format) table configures it; the defaults are syncpack's. It never runs the package
+manager, and like `--fix` it is refused when `CI` is truthy.
+
+| Flag | Meaning |
+| --- | --- |
+| `--check` | Report the manifests that are not formatted and write nothing. |
+| `-r`, `--recursive`, `--format`, `--config <FILE>`, `--no-config`, `--color` | As for a lint run. |
+
+The exit codes are a lint's: `--check` exits `1` when a manifest is not formatted and `0` when every one is; without
+`--check` the code comes from the lint after writing. `[[ignore]]` entries and `ignore-packages` apply. To check
+formatting in every lint instead, set `package-json-format = "error"` in `[rules]`; `--fix` then formats too.
 
 ## Exit codes
 
