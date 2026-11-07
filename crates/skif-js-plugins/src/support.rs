@@ -103,6 +103,21 @@ pub(crate) fn script_inputs(value: &ConfigValue) -> Vec<PluginInput> {
         .collect()
 }
 
+/// A script that runs in `dir`, a directory relative to the workspace: a script of the workspace itself when `dir` is
+/// its root, a [`PluginInput::ScriptAt`] otherwise. A directory that is computed, absolute or outside the workspace
+/// drops the script.
+pub(crate) fn script_in(dir: &str, script: String) -> Option<PluginInput> {
+    let dir = dir.trim();
+    if dir.starts_with('/') || dir.contains(['$', '`', '{']) {
+        return None;
+    }
+    let dir = join_rel("", dir);
+    if dir.is_empty() {
+        return Some(PluginInput::Script(script));
+    }
+    (dir != ".." && !dir.starts_with("../")).then_some(PluginInput::ScriptAt { dir, script })
+}
+
 /// The files, relative to the workspace, a `projects` string of a test runner names: a config file or a glob of them,
 /// or a directory (or glob of directories) holding a file called like one of `names` (a brace group of file names).
 /// `<rootDir>` stands for `base`. Negated strings name nothing.
