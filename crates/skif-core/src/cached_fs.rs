@@ -1,7 +1,7 @@
 //! A memoizing [`FileSystem`] so one run reads every directory and configuration file at most once.
 
 use std::collections::HashMap;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::hash::BuildHasher;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -26,10 +26,12 @@ type Listing = Result<Arc<[DirEntry]>, io::ErrorKind>;
 
 /// A path-keyed map split over independently locked shards, so parallel readers rarely contend.
 ///
-/// Keys are hashed with `FxHash`: a run hashes every probed path several times, and `SipHash` over the bytes of long
-/// absolute paths was a visible share of discovering a large workspace.
+/// Keys are the bytes of the path as spelled, hashed with `FxHash`: a run hashes every probed path several times, and
+/// hashing a `Path` (component by component, with `SipHash`) was a visible share of discovering a large workspace.
+/// Two spellings of one path (`a//b`, `a/b`) are two keys; the second asks the inner file system once, which gives
+/// the same answer.
 struct Sharded<V> {
-    shards: Vec<RwLock<HashMap<PathBuf, V, FxBuildHasher>>>,
+    shards: Vec<RwLock<HashMap<OsString, V, FxBuildHasher>>>,
 }
 
 impl<V: Clone> Sharded<V> {
@@ -39,20 +41,22 @@ impl<V: Clone> Sharded<V> {
         }
     }
 
-    fn shard(&self, key: &Path) -> &RwLock<HashMap<PathBuf, V, FxBuildHasher>> {
+    fn shard(&self, key: &OsStr) -> &RwLock<HashMap<OsString, V, FxBuildHasher>> {
         // Middle bits: each shard's table indexes by the low bits and tags entries with the top seven.
         let index = usize::try_from((FxBuildHasher.hash_one(key) >> 32) % SHARDS).unwrap_or(0);
         &self.shards[index]
     }
 
     fn get(&self, key: &Path) -> Option<V> {
+        let key = key.as_os_str();
         let shard = self.shard(key).read().unwrap_or_else(PoisonError::into_inner);
         shard.get(key).cloned()
     }
 
     fn insert(&self, key: &Path, value: V) {
+        let key = key.as_os_str();
         let mut shard = self.shard(key).write().unwrap_or_else(PoisonError::into_inner);
-        shard.insert(key.to_path_buf(), value);
+        shard.insert(key.to_os_string(), value);
     }
 
     fn clear(&self) {
@@ -162,7 +166,10 @@ impl<F: FileSystem> CachedFs<F> {
         let Ok(entries) = listing else {
             return Some(PathKind::NONE);
         };
-        match entries.binary_search_by(|entry| entry.path.as_path().cmp(path)) {
+        // The entries are the parent's children, sorted by path, which for one parent is the order of their names;
+        // comparing names skips the parent's bytes that every comparison of whole paths would walk again.
+        let name = path.file_name()?;
+        match entries.binary_search_by(|entry| entry.path.file_name().cmp(&Some(name))) {
             Ok(index) => Some(PathKind {
                 is_file: entries[index].is_file,
                 is_dir: entries[index].is_dir,
