@@ -9,6 +9,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-07
+
 ### Changed
 
 - The README leads with what skif does and how it compares, and publishes measured speed, seeded-defect accuracy and

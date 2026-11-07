@@ -17,7 +17,7 @@ set -euo pipefail
 # shellcheck source=../lib/libc.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/libc.sh"
 
-SKIF_VERSION="${SKIF_VERSION:-v0.1.0}"
+SKIF_VERSION="${SKIF_VERSION:-v0.1.1}"
 SKIF_BINARY="${SKIF_BINARY:-}"
 SKIF_RESOLVE_ONLY="${SKIF_RESOLVE_ONLY:-0}"
 

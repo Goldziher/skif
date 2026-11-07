@@ -4,7 +4,7 @@ expression: json.stdout
 ---
 {
   "version": 1,
-  "skif": "0.1.0",
+  "skif": "0.1.1",
   "key": "lint.fail-on-warnings",
   "roots": [
     {
