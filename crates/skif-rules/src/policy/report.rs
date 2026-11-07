@@ -3,9 +3,9 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use rayon::prelude::*;
 use skif_core::{Diagnostic, Fix, FixSafety, Location, Related, diagnostic};
 use skif_lint::Emitter;
+use skif_workspace::map_ordered;
 
 use super::analysis::{Analysis, ConfiguredGroup};
 use super::instances::{Instance, InstanceId};
@@ -15,19 +15,18 @@ use super::state::{State, Verdict};
 /// point at `config_file`.
 ///
 /// Building the instance diagnostics (messages, locations, the counterpart, the fix) is most of the provider's time on
-/// a large workspace with many findings, so they are built in parallel and then emitted in instance order.
-pub(super) fn emit(analysis: &Analysis<'_>, config_file: &Path, out: &mut Emitter<'_>) {
+/// a large workspace with many findings, so they are built in parallel (unless the run is `sequential`) and then
+/// emitted in instance order.
+pub(super) fn emit(analysis: &Analysis<'_>, config_file: &Path, out: &mut Emitter<'_>, sequential: bool) {
     let findings: Vec<(InstanceId, &Instance<'_>, &Verdict)> = analysis
         .instances
         .iter()
         .filter_map(|(id, instance)| Some((id, instance, analysis.verdicts[id.index()].as_ref()?)))
         .collect();
     let holders = Holders::index(analysis);
-    let diagnostics: Vec<Diagnostic> = findings
-        .par_iter()
-        .with_min_len(64)
-        .map(|&(id, instance, verdict)| instance_diagnostic(analysis, &holders, id, instance, verdict))
-        .collect();
+    let diagnostics: Vec<Diagnostic> = map_ordered(&findings, sequential, |&(id, instance, verdict)| {
+        instance_diagnostic(analysis, &holders, id, instance, verdict)
+    });
     for diagnostic in diagnostics {
         out.emit(diagnostic);
     }
