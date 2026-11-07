@@ -324,6 +324,10 @@ pub struct LintArgs {
     #[arg(long)]
     pub production: bool,
 
+    /// Also analyse the source files that `.gitignore` files hide (the git index is not used to list files then).
+    #[arg(long)]
+    pub no_gitignore: bool,
+
     /// Report unused exports of entry files too, overriding `[js] include-entry-exports`.
     #[arg(long)]
     pub include_entry_exports: bool,

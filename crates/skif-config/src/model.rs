@@ -1261,6 +1261,11 @@ pub struct Js {
     #[serde(skip)]
     #[cfg_attr(feature = "schema", schemars(skip))]
     pub isolate_workspaces: bool,
+    /// Find source files that `.gitignore` files hide (the git index is not used then). Set by
+    /// `skif --no-gitignore`; not a configuration key.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub no_gitignore: bool,
     /// Report unused exports of entry files too.
     pub include_entry_exports: bool,
     /// How source files are found: `auto` lists them from the git index and re-lists from disk every directory
@@ -1353,6 +1358,7 @@ impl Default for Js {
             ignore_members: Vec::new(),
             production: false,
             isolate_workspaces: false,
+            no_gitignore: false,
             include_entry_exports: false,
             discovery: JsDiscovery::Auto,
             workspaces: IndexMap::new(),

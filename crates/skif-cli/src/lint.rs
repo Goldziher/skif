@@ -130,6 +130,9 @@ pub(crate) fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliErro
     if args.strict {
         config.js.isolate_workspaces = true;
     }
+    if args.no_gitignore {
+        config.js.no_gitignore = true;
+    }
     if args.include_entry_exports {
         config.js.include_entry_exports = true;
         for workspace in config.js.workspaces.values_mut() {

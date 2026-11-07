@@ -100,6 +100,9 @@ Options:
       --production
           Only analyse production code in JavaScript analysis
 
+      --no-gitignore
+          Also analyse the source files that `.gitignore` files hide (the git index is not used to list files then)
+
       --include-entry-exports
           Report unused exports of entry files too, overriding `[js] include-entry-exports`
 
