@@ -375,6 +375,8 @@ pub(crate) struct Setup {
     pub ignore_tags: Vec<String>,
     /// `JSDoc` tags an export must carry to be reported at all; empty reports every export (knip's `+tag`).
     pub include_tags: Vec<String>,
+    /// `[js.cycles]`.
+    pub cycles: skif_config::JsCycles,
 }
 
 /// `pattern`, written relative to the package directory `dir`, relative to the workspace root instead. `None` when it
@@ -637,6 +639,7 @@ impl Setup {
             used_in_file: js.ignore_exports_used_in_file.clone(),
             ignore_tags,
             include_tags,
+            cycles: js.cycles.clone(),
         }
     }
 
