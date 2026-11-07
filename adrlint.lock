@@ -249,4 +249,4 @@ blake3 = "57ee9ff85eda7dc829451d63690e462fb1d7e1dbf3a9c19ce039ae63c232cd0e"
 [adrs."adrs/0050-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md"]
 number = 50
 status = "accepted"
-blake3 = "5cba81423b270364f60b25409ef2edd83c7d12461f77086102eadf064a7778e3"
+blake3 = "1cc213a82b74ed90c668aef7b64ebb931dccb2c95c77a8d4f03968f87d863a5b"

@@ -37,6 +37,8 @@ pub enum Command {
     Migrate(MigrateArgs),
     /// Run a Model Context Protocol server on stdin and stdout, for AI agents.
     Mcp,
+    /// Run a Language Server Protocol server on stdin and stdout: diagnostics on open and save.
+    Lsp,
 }
 
 #[derive(Debug, clap::Args)]

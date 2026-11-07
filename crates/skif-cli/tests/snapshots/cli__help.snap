@@ -15,6 +15,7 @@ Commands:
   explain-usage  Explain why the JavaScript analysis counts a file, or one export of it, as used
   migrate        Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file
   mcp            Run a Model Context Protocol server on stdin and stdout, for AI agents
+  lsp            Run a Language Server Protocol server on stdin and stdout: diagnostics on open and save
   help           Print this message or the help of the given subcommand(s)
 
 Arguments:
