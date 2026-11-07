@@ -368,6 +368,13 @@ a use of that member. `<style>` blocks and `src` attributes of `<script>` and `<
 name, so a template variable that shadows an import hides it from the unused check, and nothing in a template is
 type-checked. Imports of one script block count as used when another block reads them.
 
+`.mdx` files are read without an MDX compiler: their top-level `import` and `export` statements (at the first column,
+outside frontmatter and fenced code, as MDX delimits them) are analysed as JavaScript with JSX, and the prose is
+scanned for the components and expressions it uses, as in a component template. Imports written in code samples,
+inline code and frontmatter are not imports. A reached `.mdx` file uses the `@mdx-js/*` and `remark-mdx` packages its
+package lists. `.mdx` files are not in the default `project` globs: they are followed when an entry glob (Docusaurus
+docs, Astro pages, Storybook stories) or an import reaches them, and reported as unused only when `project` names them.
+
 Test files are entries when a test-runner plugin is enabled (Jest, Vitest, Mocha, Playwright, Cypress and the like),
 with the patterns of that plugin; a project without a runner reports unused test files like any other, as knip does.
 Add other test files to `entry`. Directories named `fixtures` or `__fixtures__` hold test data: their imports are not checked for unresolved or

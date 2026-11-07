@@ -633,7 +633,7 @@ fn component_blocks_report_their_diagnostics_with_original_offsets() {
 
 #[test]
 fn unsupported_extensions() {
-    for path in ["a.json", "a.mdx", "a", "a.css"] {
+    for path in ["a.json", "a", "a.css"] {
         let err = parse_module(Path::new(path), "", &ParseOptions::default()).unwrap_err();
         assert!(matches!(err, SyntaxError::Unsupported { .. }), "{path}");
     }
@@ -657,6 +657,23 @@ fn single_file_components_map_spans_back() {
     let svelte = "<script>\n  import x from './x.js';\n</script>\n<p>{x}</p>";
     assert_eq!(parse("A.svelte", svelte).imports[0].specifier, "./x.js");
     assert_eq!(parse("B.vue", "<template/>").imports, [] as [skif_js_syntax::Import; 0]);
+}
+
+#[test]
+fn mdx_yields_its_top_level_esm_with_original_offsets() {
+    let mdx = "---\ntitle: Intro\n---\nimport { Card } from '@site/components';\nimport * as ui from './ui';\n\n# Intro\n\n```js\nimport fenced from 'not-a-dependency';\n```\n\n<Card><ui.Button/></Card>\n\nexport const meta = { draft: true };\n";
+    let info = parse("docs/intro.mdx", mdx);
+    let specifiers: Vec<_> = info.imports.iter().map(|i| i.specifier.as_str()).collect();
+    assert_eq!(specifiers, ["@site/components", "./ui"]);
+    let card = &info.imports[0];
+    assert_eq!(
+        slice(mdx, card.span.start, card.span.end),
+        "import { Card } from '@site/components';"
+    );
+    assert_eq!(info.imports[0].span.start_line, 4);
+    assert_eq!(info.exports[0].name, "meta");
+    assert!(info.parse_diagnostics.is_empty(), "{:?}", info.parse_diagnostics);
+    assert_eq!(accessed(&info, "ui"), (vec!["Button".to_owned()], false));
 }
 
 #[test]

@@ -1,0 +1,106 @@
+---
+source: crates/skif-js/tests/frameworks.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "unused-dependencies",
+    "severity": "error",
+    "message": "`unused-dependency` is listed in `dependencies` but never used",
+    "help": "remove it, or add it to `ignore-dependencies` when a tool uses it without importing it",
+    "location": {
+      "path": "package.json",
+      "span": {
+        "start": 233,
+        "end": 261,
+        "start-line": 12,
+        "start-col": 5,
+        "end-line": 12,
+        "end-col": 33
+      }
+    },
+    "package": "mdx-docs",
+    "dependency": "unused-dependency",
+    "fixes": [
+      {
+        "title": "Remove `unused-dependency` from `dependencies`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "json": {
+              "path": "package.json",
+              "pointer": [
+                {
+                  "key": "dependencies"
+                },
+                {
+                  "key": "unused-dependency"
+                }
+              ],
+              "action": "remove"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`src/components/Orphan.jsx` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "src/components/Orphan.jsx"
+    },
+    "package": "mdx-docs",
+    "fixes": [
+      {
+        "title": "Delete `src/components/Orphan.jsx`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "src/components/Orphan.jsx"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-namespace-exports",
+    "severity": "warning",
+    "message": "export `Unread` is never read through a namespace import",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "src/components/ui.js",
+      "span": {
+        "start": 47,
+        "end": 53,
+        "start-line": 2,
+        "start-col": 14,
+        "end-line": 2,
+        "end-col": 20
+      }
+    },
+    "package": "mdx-docs",
+    "fixes": [
+      {
+        "title": "Remove the unused export `Unread`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/components/ui.js",
+              "edit": {
+                "start": 34,
+                "end": 41,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

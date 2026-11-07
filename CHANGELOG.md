@@ -9,6 +9,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `.mdx` files are followed: their top-level `import` and `export` statements are analysed and the components their
+  prose names count as uses, so the components, packages and `@mdx-js/*` compilers of a docs site are no longer
+  unused ([#38](https://github.com/Goldziher/skif/issues/38)).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed
