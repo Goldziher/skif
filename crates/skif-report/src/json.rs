@@ -4,9 +4,16 @@ use std::io::{self, Write};
 
 use serde::Serialize;
 use serde_json::{Map, Value};
-use skif_core::{Diagnostic, FixSafety, Location, Report, Summary};
+use skif_core::{Diagnostic, FixSafety, Location, Report, Severity, Summary};
 
 use crate::options::RenderOptions;
+
+/// A member name of the document as [`Object::key`] takes it: quoted and followed by the colon.
+macro_rules! quoted {
+    ($name:literal) => {
+        concat!("\"", $name, "\": ")
+    };
+}
 
 /// Current JSON schema version; bumped only on breaking changes.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -125,13 +132,13 @@ pub fn render_json_with(
     ensure_unreserved(&extra, &RESERVED)?;
     let mut buffer = Vec::with_capacity(CHUNK + CHUNK / 4);
     let mut document = Object::open(&mut buffer, 0);
-    number(document.key("version"), u64::from(SCHEMA_VERSION));
+    number(document.key(quoted!("version")), u64::from(SCHEMA_VERSION));
     string(
-        document.key("skif"),
+        document.key(quoted!("skif")),
         options.tool_version.as_deref().unwrap_or(TOOL_VERSION),
     );
-    write_summary(document.key("summary"), &report.summary);
-    document.key("diagnostics").push(b'[');
+    write_summary(document.key(quoted!("summary")), &report.summary);
+    document.key(quoted!("diagnostics")).push(b'[');
     for (index, diagnostic) in report.diagnostics.iter().enumerate() {
         separate(&mut buffer, index == 0, 2);
         write_diagnostic(&mut buffer, diagnostic, options);
@@ -180,15 +187,16 @@ impl<'a> Object<'a> {
         }
     }
 
-    /// Starts the member `key`, one of this module's names, which need no escaping, and returns the buffer to write
-    /// its value to.
-    fn key(&mut self, key: &'static str) -> &mut Vec<u8> {
-        debug_assert!(!needs_escape(key), "{key} needs escaping");
+    /// Starts a member and returns the buffer to write its value to. `quoted` is one of this module's names as
+    /// [`quoted!`] writes it: quoted and followed by the colon, with nothing to escape.
+    fn key(&mut self, quoted: &'static str) -> &mut Vec<u8> {
+        debug_assert!(
+            quoted.starts_with('"') && quoted.ends_with("\": "),
+            "{quoted} is not quoted"
+        );
         separate(self.out, self.empty, self.depth + 1);
         self.empty = false;
-        self.out.push(b'"');
-        self.out.extend_from_slice(key.as_bytes());
-        self.out.extend_from_slice(b"\": ");
+        self.out.extend_from_slice(quoted.as_bytes());
         self.out
     }
 
@@ -201,10 +209,10 @@ impl<'a> Object<'a> {
         self.out
     }
 
-    /// Starts the member `key` with an object value one level deeper.
-    fn object(&mut self, key: &'static str) -> Object<'_> {
+    /// Starts a member (`quoted` as for [`key`](Self::key)) with an object value one level deeper.
+    fn object(&mut self, quoted: &'static str) -> Object<'_> {
         let depth = self.depth + 1;
-        Object::open(self.key(key), depth)
+        Object::open(self.key(quoted), depth)
     }
 
     fn close(self) {
@@ -294,9 +302,9 @@ fn string(out: &mut Vec<u8>, value: &str) {
     }
 }
 
-fn optional_string(object: &mut Object<'_>, key: &'static str, value: Option<&str>) {
+fn optional_string(object: &mut Object<'_>, quoted: &'static str, value: Option<&str>) {
     if let Some(value) = value {
-        string(object.key(key), value);
+        string(object.key(quoted), value);
     }
 }
 
@@ -321,40 +329,46 @@ fn count(out: &mut Vec<u8>, value: usize) {
 
 fn write_summary(out: &mut Vec<u8>, summary: &Summary) {
     let mut object = Object::open(out, 1);
-    count(object.key("errors"), summary.errors);
-    count(object.key("warnings"), summary.warnings);
-    count(object.key("infos"), summary.infos);
-    count(object.key("fixable"), summary.fixable);
-    count(object.key("packages"), summary.packages);
+    count(object.key(quoted!("errors")), summary.errors);
+    count(object.key(quoted!("warnings")), summary.warnings);
+    count(object.key(quoted!("infos")), summary.infos);
+    count(object.key(quoted!("fixable")), summary.fixable);
+    count(object.key(quoted!("packages")), summary.packages);
     object.close();
 }
 
 /// A diagnostic, an element of the top-level `diagnostics` array (depth 2).
 fn write_diagnostic(out: &mut Vec<u8>, diagnostic: &Diagnostic, options: &RenderOptions) {
     let mut object = Object::open(out, 2);
-    string(object.key("rule"), diagnostic.rule.as_str());
-    // Writing to a `Vec` cannot fail, and a severity always serializes.
-    let _ = serde_json::to_writer(&mut *object.key("severity"), &diagnostic.severity);
-    string(object.key("message"), &diagnostic.message);
-    optional_string(&mut object, "help", diagnostic.help.as_deref());
-    write_location(object.object("location"), &diagnostic.location, options);
-    let mut related = Array::open(object.key("related"), 3);
+    string(object.key(quoted!("rule")), diagnostic.rule.as_str());
+    let severity = object.key(quoted!("severity"));
+    match diagnostic.severity {
+        Severity::Error => string(severity, "error"),
+        Severity::Warning => string(severity, "warning"),
+        Severity::Info => string(severity, "info"),
+        // Writing to a `Vec` cannot fail, and a severity always serializes.
+        _ => drop(serde_json::to_writer(&mut *severity, &diagnostic.severity)),
+    }
+    string(object.key(quoted!("message")), &diagnostic.message);
+    optional_string(&mut object, quoted!("help"), diagnostic.help.as_deref());
+    write_location(object.object(quoted!("location")), &diagnostic.location, options);
+    let mut related = Array::open(object.key(quoted!("related")), 3);
     for entry in &diagnostic.related {
         let mut item = Object::open(related.element(), 4);
-        string(item.key("message"), &entry.message);
-        write_location(item.object("location"), &entry.location, options);
+        string(item.key(quoted!("message")), &entry.message);
+        write_location(item.object(quoted!("location")), &entry.location, options);
         item.close();
     }
     related.close();
-    optional_string(&mut object, "package", diagnostic.package.as_deref());
-    optional_string(&mut object, "dependency", diagnostic.dependency.as_deref());
-    optional_string(&mut object, "specifier", diagnostic.specifier.as_deref());
-    optional_string(&mut object, "detail", diagnostic.detail.as_deref());
-    let mut fixes = Array::open(object.key("fixes"), 3);
+    optional_string(&mut object, quoted!("package"), diagnostic.package.as_deref());
+    optional_string(&mut object, quoted!("dependency"), diagnostic.dependency.as_deref());
+    optional_string(&mut object, quoted!("specifier"), diagnostic.specifier.as_deref());
+    optional_string(&mut object, quoted!("detail"), diagnostic.detail.as_deref());
+    let mut fixes = Array::open(object.key(quoted!("fixes")), 3);
     for fix in &diagnostic.fixes {
         let mut item = Object::open(fixes.element(), 4);
-        string(item.key("title"), &fix.title);
-        string(item.key("safety"), safety(fix.safety));
+        string(item.key(quoted!("title")), &fix.title);
+        string(item.key(quoted!("safety")), safety(fix.safety));
         item.close();
     }
     fixes.close();
@@ -362,16 +376,16 @@ fn write_diagnostic(out: &mut Vec<u8>, diagnostic: &Diagnostic, options: &Render
 }
 
 fn write_location(mut object: Object<'_>, location: &Location, options: &RenderOptions) {
-    string(object.key("path"), &options.display_path(&location.path));
+    string(object.key(quoted!("path")), &options.display_path(&location.path));
     if let Some(span) = &location.span {
-        let mut fields = object.object("span");
+        let mut fields = object.object(quoted!("span"));
         for (key, value) in [
-            ("start", span.start),
-            ("end", span.end),
-            ("start-line", span.start_line),
-            ("start-col", span.start_col),
-            ("end-line", span.end_line),
-            ("end-col", span.end_col),
+            (quoted!("start"), span.start),
+            (quoted!("end"), span.end),
+            (quoted!("start-line"), span.start_line),
+            (quoted!("start-col"), span.start_col),
+            (quoted!("end-line"), span.end_line),
+            (quoted!("end-col"), span.end_col),
         ] {
             number(fields.key(key), u64::from(value));
         }
