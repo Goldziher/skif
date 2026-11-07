@@ -147,7 +147,7 @@ pub fn render_json_with(
         empty: false,
     };
     for (key, value) in &extra {
-        write_value(document.key(key), value)?;
+        write_value(document.any_key(key), value)?;
     }
     document.close();
     buffer.push(b'\n');
@@ -180,8 +180,20 @@ impl<'a> Object<'a> {
         }
     }
 
-    /// Starts the member `key` and returns the buffer to write its value to.
-    fn key(&mut self, key: &str) -> &mut Vec<u8> {
+    /// Starts the member `key`, one of this module's names, which need no escaping, and returns the buffer to write
+    /// its value to.
+    fn key(&mut self, key: &'static str) -> &mut Vec<u8> {
+        debug_assert!(!needs_escape(key), "{key} needs escaping");
+        separate(self.out, self.empty, self.depth + 1);
+        self.empty = false;
+        self.out.push(b'"');
+        self.out.extend_from_slice(key.as_bytes());
+        self.out.extend_from_slice(b"\": ");
+        self.out
+    }
+
+    /// Starts the member `key`, any name, and returns the buffer to write its value to.
+    fn any_key(&mut self, key: &str) -> &mut Vec<u8> {
         separate(self.out, self.empty, self.depth + 1);
         self.empty = false;
         string(self.out, key);
@@ -190,7 +202,7 @@ impl<'a> Object<'a> {
     }
 
     /// Starts the member `key` with an object value one level deeper.
-    fn object(&mut self, key: &str) -> Object<'_> {
+    fn object(&mut self, key: &'static str) -> Object<'_> {
         let depth = self.depth + 1;
         Object::open(self.key(key), depth)
     }
@@ -257,15 +269,17 @@ fn line_break(out: &mut Vec<u8>, from: usize, depth: usize) {
     }
 }
 
-/// Whether `serde_json` escapes something in `value`.
-#[allow(
-    clippy::needless_bitwise_bool,
-    reason = "not short-circuiting, the scan compiles to vector instructions"
-)]
+/// Whether `serde_json` escapes something in `value`: a control character, `"` or `\\`. Eight bytes at a time.
 fn needs_escape(value: &str) -> bool {
-    value.bytes().fold(false, |found, byte| {
-        found | (byte < 0x20) | (byte == b'"') | (byte == b'\\')
-    })
+    const ONES: u64 = u64::from_ne_bytes([0x01; 8]);
+    const HIGH: u64 = u64::from_ne_bytes([0x80; 8]);
+    // Whether some byte of `word` is below `limit` (at most 0x80); `limit` 1 finds a zero byte.
+    let below = |word: u64, limit: u8| word.wrapping_sub(ONES * u64::from(limit)) & !word & HIGH != 0;
+    let (words, rest) = value.as_bytes().as_chunks::<8>();
+    words.iter().any(|&bytes| {
+        let word = u64::from_ne_bytes(bytes);
+        below(word, 0x20) || below(word ^ (ONES * u64::from(b'"')), 1) || below(word ^ (ONES * u64::from(b'\\')), 1)
+    }) || rest.iter().any(|&byte| byte < 0x20 || byte == b'"' || byte == b'\\')
 }
 
 /// A JSON string. Most strings need no escaping and are copied as they are; any other goes through `serde_json`.
@@ -280,7 +294,7 @@ fn string(out: &mut Vec<u8>, value: &str) {
     }
 }
 
-fn optional_string(object: &mut Object<'_>, key: &str, value: Option<&str>) {
+fn optional_string(object: &mut Object<'_>, key: &'static str, value: Option<&str>) {
     if let Some(value) = value {
         string(object.key(key), value);
     }
@@ -636,6 +650,28 @@ mod tests {
             Location::new("C:\\repo\\a.json", None),
         );
         Report::new(vec![full, bare, info], 3)
+    }
+
+    #[test]
+    fn escapes_are_found_at_every_position() {
+        for special in ['"', '\\', '\n', '\0', '\u{1f}'] {
+            for length in 1..20 {
+                for position in 0..length {
+                    let text: String = (0..length)
+                        .map(|index| if index == position { special } else { 'a' })
+                        .collect();
+                    assert!(needs_escape(&text), "{text:?}");
+                }
+            }
+        }
+        for plain in [
+            "",
+            "a",
+            " !#$%&'()*+,-./0123456789:;<=>?@[]^_`{|}~\u{7f}",
+            "réact 日本語 ✓ and more text",
+        ] {
+            assert!(!needs_escape(plain), "{plain:?}");
+        }
     }
 
     #[test]
