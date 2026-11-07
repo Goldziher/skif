@@ -51,7 +51,8 @@ pub struct PluginSpec {
     pub production: &'static [&'static str],
     /// Project file globs.
     pub project: &'static [&'static str],
-    /// Key in `package.json` that holds the tool's config, when the tool supports it.
+    /// Key in `package.json` that holds the tool's config, when the tool supports it; a `.` separates the keys of a
+    /// nested object (`config.commitizen`).
     pub package_json_key: Option<&'static str>,
     /// Binaries the tool's packages provide.
     pub binaries: &'static [&'static str],

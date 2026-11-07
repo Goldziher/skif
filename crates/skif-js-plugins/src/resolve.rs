@@ -299,7 +299,7 @@ fn run_plugin(
     let found_config = !collector.out.config_files.is_empty();
 
     if let (Some(key), Some(manifest)) = (spec.package_json_key, manifest)
-        && let Some(value) = manifest.get(key)
+        && let Some(value) = key.split('.').try_fold(manifest, |value, part| value.get(part))
     {
         let path = ctx.dir.join("package.json");
         let ast = ConfigAst {
