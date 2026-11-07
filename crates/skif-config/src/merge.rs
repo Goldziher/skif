@@ -79,8 +79,8 @@ impl Merger {
     ///   options; a non-empty options table replaces the options and keeps the level.
     /// - `[js.plugins]` merges per plugin: `true` / `false` sets `enabled` and keeps the options; a table replaces the
     ///   options and sets `enabled` only when it gives it.
-    /// - `[[ignore]]` and `[[overrides]]` append; `[[version-groups]]` and `[[semver-groups]]` are put before the
-    ///   inherited ones, so the nearer file wins the first-match; `[[dependency-families]]` and `[[custom-types]]` replace the
+    /// - `[[ignore]]` and `[[overrides]]` append; `[[version-groups]]`, `[[semver-groups]]` and `[[update-groups]]` are
+    ///   put before the inherited ones, so the nearer file wins the first-match; `[[dependency-families]]` and `[[custom-types]]` replace the
     ///   entry of the same name and append the others.
     /// - Every other table merges key by key, and every other value replaces.
     /// - An `extend-*` key appends to the list it extends, after that list was replaced when the same layer sets it.
@@ -98,7 +98,7 @@ impl Merger {
             match (key.as_str(), value) {
                 ("root" | "extends" | "reset", _) => {}
                 ("rules", Value::Table(rules)) => merge_rules(table, rules, &mut cx),
-                ("version-groups" | "semver-groups", Value::Array(items)) => {
+                ("version-groups" | "semver-groups" | "update-groups", Value::Array(items)) => {
                     merge_list(table, lists, key, items, Placement::Prepend, &mut cx);
                 }
                 ("ignore" | "overrides", Value::Array(items)) => {

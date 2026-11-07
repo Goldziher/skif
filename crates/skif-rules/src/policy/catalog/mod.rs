@@ -7,16 +7,15 @@
 mod analysis;
 mod mismatch;
 mod missing_entry;
-mod names;
+pub(crate) mod names;
 mod not_used;
 mod references;
 pub(crate) mod support;
-mod target;
+pub(crate) mod target;
 mod unresolved_references;
 mod unused_entries;
 mod version_divergence;
 
-#[cfg(test)]
 pub(crate) use analysis::UsageIndex;
 pub(crate) use analysis::{is_catalogable, owned_dependencies, usages};
 pub use mismatch::CatalogMismatch;

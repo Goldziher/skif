@@ -1,8 +1,8 @@
 //! The `skif` command line as a library: a thin consumer of the `skif` library.
 //!
-//! It is the only code that reads the environment, prints, prompts, writes files and spawns a process; [`run`]
-//! returns an exit code and no function below calls `std::process::exit`, except the panic hook that
-//! [`install_panic_hook`] puts in place for the `skif` binary. The binary and the npm addon both call [`run`].
+//! It is the only code that reads the environment, prints, prompts, writes files, spawns a process and opens a network
+//! connection (`skif update` only); [`run`] returns an exit code and no function below calls `std::process::exit`,
+//! except the panic hook that [`install_panic_hook`] puts in place for the `skif` binary. The binary and the npm addon both call [`run`].
 
 use std::ffi::OsString;
 
@@ -19,8 +19,11 @@ mod fix;
 mod install;
 mod lint;
 mod migrate;
+mod npmrc;
 mod output;
+mod registry;
 mod roots;
+mod update;
 mod write;
 
 use args::{Cli, Command, Format};
@@ -46,6 +49,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         Some(Command::Config(args)) => config::run(&args),
         Some(Command::ExplainUsage(args)) => explain::run(&args),
         Some(Command::Migrate(args)) => migrate::run(&args),
+        Some(Command::Update(args)) => update::run(&args, Env::detect()),
     }
 }
 

@@ -98,7 +98,7 @@ fn skip_parts(reason: &SkipReason) -> (&'static str, String) {
     }
 }
 
-fn install_json(status: &InstallStatus) -> Value {
+pub fn install_json(status: &InstallStatus) -> Value {
     match status {
         InstallStatus::Ran { command } => json!({"status": "ran", "command": command}),
         InstallStatus::Skipped { reason } => json!({"status": "skipped", "reason": reason}),
