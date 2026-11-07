@@ -130,6 +130,12 @@ fn reexports_snapshot() {
 }
 
 #[test]
+fn typeof_import_snapshot() {
+    let diagnostics = Run::new("typeof-import", "").lint();
+    insta::assert_json_snapshot!("typeof_import", diagnostics);
+}
+
+#[test]
 fn cycles_snapshot() {
     let diagnostics = Run::new("cycles", "").lint();
     insta::assert_json_snapshot!("cycles", diagnostics);

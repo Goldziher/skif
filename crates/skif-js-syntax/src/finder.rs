@@ -193,10 +193,15 @@ fn bindings_for_pattern(pattern: &BindingPattern<'_>) -> Vec<ImportedName> {
     }
 }
 
-fn first_qualifier<'q>(qualifier: &'q TSImportTypeQualifier<'_>) -> &'q str {
+/// The export a qualified import type names and the member it reads of that export: `A` and `None` for
+/// `import("x").A`, `A` and `Some("B")` for `import("x").A.B` (and `.A.B.C`).
+fn qualifier_parts<'q>(qualifier: &'q TSImportTypeQualifier<'_>) -> (&'q str, Option<&'q str>) {
     match qualifier {
-        TSImportTypeQualifier::Identifier(i) => i.name.as_str(),
-        TSImportTypeQualifier::QualifiedName(n) => first_qualifier(&n.left),
+        TSImportTypeQualifier::Identifier(i) => (i.name.as_str(), None),
+        TSImportTypeQualifier::QualifiedName(n) => match &n.left {
+            TSImportTypeQualifier::Identifier(i) => (i.name.as_str(), Some(n.right.name.as_str())),
+            left @ TSImportTypeQualifier::QualifiedName(_) => qualifier_parts(left),
+        },
     }
 }
 
@@ -288,9 +293,17 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
             walk::walk_ts_import_type(self, it);
             return;
         }
+        // `import("x").A` uses export `A` as a whole and `import("x").A.B` only its member `B`. A bare `import("x")`
+        // names the module's type without reading any export of it, so it credits none: the module is reached, like
+        // a side-effect import, and its exports stay to the members read elsewhere (knip credits none either).
         let mut bound = match &it.qualifier {
-            Some(qualifier) => name(imported_kind(first_qualifier(qualifier).to_string()), None, false),
-            None => name(ImportedKind::Namespace, None, true),
+            Some(qualifier) => {
+                let (export, member) = qualifier_parts(qualifier);
+                let mut bound = name(imported_kind(export.to_string()), None, member.is_none());
+                bound.accessed_members.extend(member.map(str::to_string));
+                bound
+            }
+            None => name(ImportedKind::Namespace, None, false),
         };
         bound.is_type = true;
         self.info.imports.push(Import {
