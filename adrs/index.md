@@ -57,6 +57,7 @@ old one.
 | 0047 | [npm Package Name skif-cli](0047-npm-package-name-skif-cli.md) | accepted |
 | 0048 | [Catalog Version Divergence and Reasons on Ignores](0048-catalog-version-divergence-and-reasons-on-ignores.md) | accepted |
 | 0049 | [JS Corrections from Adjudicating knip Disagreements: Linked Files, Subpath Imports, Aliased Packages, Computed Specifiers, Component Styles and Three Plugins](0049-js-corrections-from-adjudicating-knip-disagreements.md) | accepted |
+| 0050 | [Incomplete Packages in the JSON Report: Naming What skif Did Not Judge, and a Harness Category for It](0050-incomplete-packages-in-the-json-report.md) | accepted |
 
 ## Effective statements
 
@@ -142,3 +143,5 @@ the lines below stay as written; this table says which record governs.
 | [0013](0013-distribution-and-naming.md), npm row | the npm umbrella package is `skif` | [0047](0047-npm-package-name-skif-cli.md): it is `skif-cli` |
 | [0018](0018-npm-distribution-via-napi-rs.md), package name | the npm package is `skif` and the hooks run `pnpm dlx skif@<version>` | [0047](0047-npm-package-name-skif-cli.md): `skif-cli`, with `napi.packageName` keeping the platform packages |
 | [0036](0036-thirty-nine-more-knip-plugins-by-real-world-usage.md), `tap` and plugin count | no `tap` plugin is added because knip has none; the table holds 102 plugins | [0049](0049-js-corrections-from-adjudicating-knip-disagreements.md): `tap`, `oxfmt` and `bun` are added; the table holds 105 plugins |
+| [0012](0012-reporting.md), JSON contract | a report document carries `summary`, `diagnostics` and, with `--fix`, `fix` | [0050](0050-incomplete-packages-in-the-json-report.md): it also carries `incomplete-packages` when the JS analysis could not judge a package's files and dependencies |
+| [0030](0030-harness-known-deviations-and-comparison-scope.md), known deviations from knip | the knip deviations are `non-code-file`, `fixture-file`, `test-file` (and `knip-unread`, ADR 0049) | [0050](0050-incomplete-packages-in-the-json-report.md): knip-only files and dependencies in a package skif lists under `incomplete-packages` are `not-judged-by-skif`, counted in their own column |

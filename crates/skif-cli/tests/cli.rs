@@ -846,3 +846,67 @@ fn lint_to_json_classifies_its_errors() {
     assert_eq!(broken.kind, skif_cli::Kind::Config);
     assert!(broken.path.is_some_and(|path| path.ends_with("skif.toml")));
 }
+
+#[test]
+fn json_names_the_packages_whose_files_and_dependencies_were_not_judged() {
+    let dir = tempfile::tempdir().unwrap();
+    let put = |relative: &str, content: &str| {
+        let path = dir.path().join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    };
+    fs::create_dir_all(dir.path().join(".git")).unwrap();
+    put(
+        "package.json",
+        r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+    );
+    put(
+        "packages/web/package.json",
+        r#"{"name":"web","version":"1.0.0","private":true,"main":"index.ts","devDependencies":{"vite":"6.0.0"}}"#,
+    );
+    put("packages/web/index.ts", "export const main = 1;\n");
+    put("packages/web/orphan.ts", "export const lonely = 1;\n");
+    put(
+        "packages/web/vite.config.ts",
+        "import base from './vite.base';\nexport default { ...base };\n",
+    );
+    put(
+        "packages/api/package.json",
+        r#"{"name":"api","version":"1.0.0","private":true,"main":"index.ts"}"#,
+    );
+    put("packages/api/index.ts", "export const api = 1;\n");
+    put("packages/api/orphan.ts", "export const lonely = 1;\n");
+
+    let json = run(skif().args(["--format", "json"]).arg(dir.path()));
+    let document = json.json();
+    assert_eq!(
+        document["incomplete-packages"],
+        serde_json::json!([{
+            "name": "web",
+            "dir": "packages/web",
+            "reasons": [
+                { "cause": "unknown-spread", "plugin": "vite", "file": "packages/web/vite.config.ts" },
+                { "cause": "computed-entries", "plugin": "vite", "file": "packages/web/vite.config.ts" },
+            ],
+        }]),
+        "{}",
+        json.stdout
+    );
+    let unused_files: Vec<&str> = document["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == "unused-files")
+        .filter_map(|diagnostic| diagnostic["location"]["path"].as_str())
+        .collect();
+    assert_eq!(unused_files, ["packages/api/orphan.ts"]);
+
+    let human = run(skif().arg(dir.path()));
+    assert!(
+        human
+            .stdout
+            .contains("note: unused files and dependencies were not checked in 1 package (web)"),
+        "{}",
+        human.stdout
+    );
+}

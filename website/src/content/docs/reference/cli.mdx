@@ -149,10 +149,16 @@ Exit `0` when the file was produced (also when notes need a human, unless `--str
 
 | Format | Output |
 | --- | --- |
-| `human` | Diagnostics grouped by file, optionally coloured, with a summary. Colour is on only when stdout is a TTY, `NO_COLOR` is unset and the format is `human`. |
-| `json` | One versioned document with `version`, `summary` and `diagnostics`; a multi-root run adds a `roots` array with each root's `path`, `packages` and `summary`. Each diagnostic has rule, severity, message, location with line and column span, related locations and fix titles. |
+| `human` | Diagnostics grouped by file, optionally coloured, with a summary. Colour is on only when stdout is a TTY, `NO_COLOR` is unset and the format is `human`. A note before the summary names the packages whose unused files and dependencies were not checked. |
+| `json` | One versioned document with `version`, `summary` and `diagnostics`; a multi-root run adds a `roots` array with each root's `path`, `packages` and `summary`. Each diagnostic has rule, severity, message, location with line and column span, related locations and fix titles. `incomplete-packages` (omitted when empty) lists the packages whose unused files and dependencies were not checked, see below. |
 | `sarif` | SARIF 2.1.0 for code scanning. |
 | `github` | GitHub Actions workflow-command annotations. |
+
+When a package's entry files are not all known (a tool config skif cannot read, or published build output with no
+source behind it), skif does not report its unused files or dependencies. The JSON report names each such package in
+`incomplete-packages`, sorted by directory: its `name`, its `dir` (`.` for the root package) and its `reasons`, each a
+`cause` with the `plugin` and `file` when known, using the causes `skif explain-usage` reports. Paths are relative to
+the run's base. The field is additive, so `version` stays `1`.
 
 In `--format json` mode stdout holds exactly one JSON document in every case, including failures. A failure is an
 `error` document with a `kind` (`config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`, a bug in skif), a message and, when known,

@@ -17,6 +17,11 @@ All notable changes to this project are documented here. The format follows
   value, it spreads in an unknown base config, its entry keys are computed, or `package.json` publishes build output
   with no source behind it). The JSON `absence` values replace `not-analysed`, and `incomplete` lists the configs
   ([#23](https://github.com/Goldziher/skif/issues/23)).
+- The JSON report lists under `incomplete-packages` the packages whose unused files and dependencies were not checked
+  because their entry files are not all known, with each reason (plugin, config file, cause); human output names them
+  in a note before the summary. `Report` carries them as `incomplete_packages`. `skif-bench parity` counts knip-only
+  files and dependencies in those packages as `not-judged-by-skif`, apart from agreement and the other deviations
+  ([#27](https://github.com/Goldziher/skif/issues/27)).
 
 ### Fixed
 
