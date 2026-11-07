@@ -49,8 +49,8 @@ another root. `--fix` plans, writes and installs per root.
 | Flag | Meaning |
 | --- | --- |
 | `-r`, `--recursive` | Lint every workspace and standalone package at or below `PATH` in one run, instead of only the project containing `PATH`. |
-| `--format <human\|json\|sarif\|github\|codeclimate\|compact\|markdown\|disclosure\|codeowners>` | Output format. Default `human`, or `human` plus GitHub annotations when `GITHUB_ACTIONS=true`. |
-| `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires `--format`. |
+| `--format <FORMAT[=FILE]>` | Output format: `human`, `json`, `sarif`, `github`, `codeclimate`, `compact`, `markdown`, `disclosure` or `codeowners`. `FORMAT=FILE` writes that rendering to `FILE`. Repeatable, with at most one format on stdout (see [Several reports in one run](#several-reports-in-one-run)). Default `human`, or `human` plus GitHub annotations when `GITHUB_ACTIONS=true`. |
+| `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires exactly one `--format`, without `=FILE`. |
 | `--fix` | Apply safe fixes, lint again, then run the package manager's install command. |
 | `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. |
 | `--select <highest\|lowest>` | Which version a version alignment fix targets, overriding `[policy] prefer` for this run. |
@@ -157,6 +157,25 @@ In `--format json` mode stdout holds exactly one JSON document in every case, in
 `error` document with a `kind` (`config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`, a bug in skif), a message and, when known,
 `path`, `line` and `column`. `--output` never receives an error document: on failure the file is not written and
 the error goes to stdout.
+
+### Several reports in one run
+
+`--format` is repeatable, so one lint can feed several consumers. Each value is `FORMAT` (written to stdout) or
+`FORMAT=FILE` (written to `FILE`); at most one value may go to stdout, and with none stdout stays empty:
+
+```sh
+skif --format human --format json=skif.json --format codeclimate=gl-code-quality.json
+```
+
+* Two formats on stdout, the same file twice, or `--output` together with several formats or with `FORMAT=FILE` is a
+  usage error (exit `2`). `--output FILE` is the single-format spelling of `FORMAT=FILE`.
+* Every rendering is made before any file is written. When one fails (for example `codeowners` without a CODEOWNERS
+  file), no file is written or replaced and the run exits `2`. Each file is replaced atomically.
+* The format on stdout decides JSON mode: with `json` on stdout, an error is a JSON `error` document there; when no
+  format goes to stdout, the first `--format` decides, so `--format json=skif.json` alone behaves like
+  `--format json --output skif.json`.
+* Only the rendering on stdout (or in `--output`) is coloured; a `FORMAT=FILE` rendering never is.
+* The exit code is the same whatever the formats.
 
 ## Fixing
 
