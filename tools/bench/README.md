@@ -123,8 +123,10 @@ skif when all do. A skif finding knip has under another of these labels counts a
 **Known deviations.** Findings on one side below a path in a repository's `knip-unread` list are the `knip-unread`
 deviation: knip reads no files there, as npm's deny-all `.gitignore` hides its workspaces, so it reports every
 dependency there as unused and says nothing about the files. In `files`, a file only knip reports is not counted as a difference when it is outside skif's
-project set (`non-code-file`), in a fixture directory (`fixture-file`) or a test file (`test-file`); those are reported
-in their own column and section, with the reason, and `--check` ignores them. `--include-test-files` counts the last
+project set (`non-code-file`), in a fixture directory (`fixture-file`) or a test file or any file below a test
+directory (`test-file`); those are reported in their own column and section, with the reason, and `--check` ignores
+them. Most `test-file` findings are not tests but apps and helpers below test directories (next.js has thousands) that
+skif leaves out of its graph, because they are nested projects or their package's entry files are not fully known. `--include-test-files` counts the last
 two as differences (not usable with a baseline, nor is `--repo-knip-config`). See
 [ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md).
 

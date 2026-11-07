@@ -16,6 +16,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The `test-file` deviation of the knip comparison says why skif has no finding there: most are apps and helpers below
+  test directories that are outside skif's graph, not test entries ([#27](https://github.com/Goldziher/skif/issues/27)).
 - `mise run bench:publish` writes a `summary.md` that passes `format:check` ([#27](https://github.com/Goldziher/skif/issues/27)).
 
 ## [0.1.1] - 2026-11-07
