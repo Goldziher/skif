@@ -179,6 +179,12 @@ fn files_a_script_above_a_nested_root_runs_are_its_entries() {
 }
 
 #[test]
+fn a_root_without_source_files_does_not_judge_its_dependencies() {
+    // `remote` only lists what the code of the outer project installs it for.
+    assert_eq!(nested_root_findings("remote", "unused-dependencies"), none());
+}
+
+#[test]
 fn monorepo_dependencies() {
     let diagnostics = Run::new("monorepo", "").lint();
     assert_eq!(

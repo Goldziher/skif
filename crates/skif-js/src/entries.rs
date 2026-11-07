@@ -20,9 +20,11 @@ use crate::setup::{PackageSetup, Setup};
 pub(crate) struct EntryFiles {
     /// Sorted and without duplicates.
     pub files: Vec<PathBuf>,
-    /// Packages that publish build output or bin files none of which maps back to a source file. Their real entries
-    /// are unknown, so their files and dependencies cannot be judged unused.
-    pub unmapped: Vec<PackageId>,
+    /// Packages whose real entries are unknown, so their files and dependencies cannot be judged unused: those that
+    /// publish build output or bin files none of which maps back to a source file, and those with no source file at
+    /// or below their directory, no entry and no script, whose manifest only lists what code elsewhere installs it
+    /// for.
+    pub unknown: Vec<PackageId>,
 }
 
 /// The entry files of every package.
@@ -33,7 +35,7 @@ pub(crate) fn entry_files(
     candidates: &[Candidate],
 ) -> EntryFiles {
     let mut entries = BTreeSet::new();
-    let mut unmapped = Vec::new();
+    let mut unknown = Vec::new();
     let mut by_owner: Vec<Vec<&Candidate>> = vec![Vec::new(); workspace.iter().count()];
     for candidate in candidates {
         if let Some(owned) = by_owner.get_mut(candidate.owner.index()) {
@@ -46,6 +48,7 @@ pub(crate) fn entry_files(
         };
         let mine: &[&Candidate] = by_owner.get(id.index()).map_or(&[], Vec::as_slice);
         let owned = || owned_by(mine, &package_setup.dir);
+        let found_before = entries.len();
         for (candidate, rel) in owned() {
             if package_setup.entry.is_match(&rel) {
                 entries.insert(candidate.abs.clone());
@@ -97,7 +100,7 @@ pub(crate) fn entry_files(
             entries.extend(sources);
         }
         if published_without_source && !mapped_any {
-            unmapped.push(id);
+            unknown.push(id);
         }
         entries.extend(
             package_setup
@@ -109,13 +112,19 @@ pub(crate) fn entry_files(
         if !setup.production {
             entries.extend(script_files(fs, package_setup));
         }
+        if entries.len() == found_before
+            && package.manifest.value().get("scripts").is_none_or(is_empty_object)
+            && below(candidates, &workspace.root, &package_setup.dir).is_empty()
+        {
+            unknown.push(id);
+        }
     }
     if !setup.production {
         entries.extend(ancestor_script_files(fs, workspace, candidates));
     }
     EntryFiles {
         files: entries.into_iter().collect(),
-        unmapped,
+        unknown,
     }
 }
 
@@ -188,6 +197,10 @@ fn ancestor_script_files(fs: &dyn FileSystem, workspace: &Workspace, candidates:
         }
     }
     files
+}
+
+fn is_empty_object(value: &serde_json::Value) -> bool {
+    value.as_object().is_some_and(serde_json::Map::is_empty)
 }
 
 fn script_files(fs: &dyn FileSystem, package_setup: &PackageSetup) -> Vec<PathBuf> {

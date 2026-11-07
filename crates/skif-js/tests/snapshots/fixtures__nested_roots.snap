@@ -37,48 +37,6 @@ expression: nested_roots()
   ],
   [
     "remote",
-    [
-      {
-        "rule": "unused-dependencies",
-        "severity": "error",
-        "message": "`express` is listed in `dependencies` but never used",
-        "help": "remove it, or add it to `ignore-dependencies` when a tool uses it without importing it",
-        "location": {
-          "path": "package.json",
-          "span": {
-            "start": 65,
-            "end": 84,
-            "start-line": 5,
-            "start-col": 5,
-            "end-line": 5,
-            "end-col": 24
-          }
-        },
-        "package": "remote",
-        "dependency": "express",
-        "fixes": [
-          {
-            "title": "Remove `express` from `dependencies`",
-            "safety": "unsafe",
-            "ops": [
-              {
-                "json": {
-                  "path": "package.json",
-                  "pointer": [
-                    {
-                      "key": "dependencies"
-                    },
-                    {
-                      "key": "express"
-                    }
-                  ],
-                  "action": "remove"
-                }
-              }
-            ]
-          }
-        ]
-      }
-    ]
+    []
   ]
 ]
