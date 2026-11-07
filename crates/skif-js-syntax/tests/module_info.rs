@@ -704,7 +704,37 @@ fn import_types_are_type_only_imports() {
     assert_eq!(info.imports[0].names[0].kind, ImportedKind::Named("T".into()));
     assert!(info.imports[0].names[0].is_type);
     assert_eq!(info.imports[1].names[0].kind, ImportedKind::Namespace);
-    assert!(info.imports[1].names[0].escapes);
+    assert!(
+        !info.imports[1].names[0].escapes,
+        "a bare `typeof import` reads no export"
+    );
+}
+
+#[test]
+fn qualified_import_types_name_one_export_and_the_member_read() {
+    let info = parse(
+        "a.ts",
+        "type A = typeof import('./m').A;
+type B = typeof import('./m').E.B;
+type C = import('./m').N.C.D;
+",
+    );
+    let names: Vec<_> = info
+        .imports
+        .iter()
+        .map(|import| {
+            let name = &import.names[0];
+            (name.kind.clone(), name.accessed_members.clone(), name.escapes)
+        })
+        .collect();
+    assert_eq!(
+        names,
+        [
+            (ImportedKind::Named("A".into()), vec![], true),
+            (ImportedKind::Named("E".into()), vec!["B".to_owned()], false),
+            (ImportedKind::Named("N".into()), vec!["C".to_owned()], false),
+        ]
+    );
 }
 
 #[test]
