@@ -13,6 +13,8 @@ All notable changes to this project are documented here. The format follows
 
 - `unused-dependencies` no longer reports `optionalDependencies`, as knip does not: they are mostly platform packages
   loaded by a computed name ([#21](https://github.com/Goldziher/skif/issues/21)).
+- `skif migrate` writes `[catalog] report-unused-entries = true` when knip's `catalog` issue type stays enabled, so
+  `unused-catalog-entries` keeps reporting what knip reported ([#32](https://github.com/Goldziher/skif/issues/32)).
 
 ## [0.1.1] - 2026-11-07
 
