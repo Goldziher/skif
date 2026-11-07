@@ -377,7 +377,10 @@ unlisted packages. Other directories of test data (`api-fixtures`, `__testfixtur
 member read in its own file (`E.A`, `E["A"]`, `const { A } = E`) counts as used; using the whole enum there
 (`Object.values(E)`, `E[key]`, a spread, passing it as a value) or mentioning its type (`x: E`, `typeof E`) credits no
 member, as in knip. A file that another loads with `new URL("./x", import.meta.url)` is used as a
-whole.
+whole. A module that a test mocks (`vi.mock("x")`, `jest.mock("x")`, `jest.requireActual("x")` and the like, read from
+the syntax tree, so a call written inside a string does not count) stays reachable, and a listed package it names is
+used, but mocking a package that no `package.json` lists is not an unlisted import; a `{ virtual: true }` mock is
+ignored.
 
 The table holds 105 built-in plugins:
 

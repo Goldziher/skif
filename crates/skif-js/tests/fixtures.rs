@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use skif_config::Config;
 use skif_core::{Diagnostic, FileSystem, Fix, FixOp, FixSafety, JsonAction, MemoryFs, PathSeg, apply_text_edits};
-use skif_js::{InputRequest, InputSource, JsProvider, WorkspaceInputs};
+use skif_js::{InputRequest, InputSource, JsProvider, PluginSource, WorkspaceInputs};
 use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
 
@@ -82,6 +82,12 @@ impl Run {
     fn lint(&self) -> Vec<Diagnostic> {
         self.lint_with(JsProvider::new(Arc::clone(&self.fs)))
     }
+
+    /// Lints with the plugin table, the way the CLI does.
+    fn lint_with_plugins(&self) -> Vec<Diagnostic> {
+        let plugins = PluginSource::new(self.config.js.plugins.clone());
+        self.lint_with(JsProvider::new(Arc::clone(&self.fs)).with_input_source(Arc::new(plugins)))
+    }
 }
 
 fn subject(diagnostic: &Diagnostic) -> String {
@@ -133,6 +139,14 @@ fn reexports_snapshot() {
 fn cycles_snapshot() {
     let diagnostics = Run::new("cycles", "").lint();
     insta::assert_json_snapshot!("cycles", diagnostics);
+}
+
+/// Test-runner mocks keep local files reachable but are not imports of dependencies; module names in strings are
+/// not mocks (#16).
+#[test]
+fn test_mocks_snapshot() {
+    let diagnostics = Run::new("test-mocks", "").lint_with_plugins();
+    insta::assert_json_snapshot!("test_mocks", diagnostics);
 }
 
 #[test]

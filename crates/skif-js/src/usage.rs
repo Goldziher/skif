@@ -93,7 +93,7 @@ impl ReexportIndex {
                         ImportKind::ExportFrom => {
                             sources.insert(import.specifier.as_str(), *id);
                         }
-                        ImportKind::ImportMetaGlob | ImportKind::SideEffect => {}
+                        ImportKind::ImportMetaGlob | ImportKind::SideEffect | ImportKind::Mock => {}
                         _ => {
                             sources.entry(import.specifier.as_str()).or_insert(*id);
                         }
@@ -183,7 +183,10 @@ impl ExportUsage {
                 let Some(import) = module.info.imports.get(resolved.import) else {
                     continue;
                 };
-                if matches!(import.kind, ImportKind::ExportFrom | ImportKind::SideEffect) {
+                if matches!(
+                    import.kind,
+                    ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock
+                ) {
                     continue;
                 }
                 let target = match &resolved.target {

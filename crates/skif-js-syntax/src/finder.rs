@@ -1,5 +1,5 @@
-//! Nested module references: `require`, dynamic `import()`, `import.meta.glob`, `import x = require()`, `CommonJS`
-//! exports and JSX.
+//! Nested module references: `require`, dynamic `import()`, `import.meta.glob`, `import x = require()`, test-runner
+//! mocks, `CommonJS` exports and JSX.
 
 use std::collections::{HashMap, HashSet};
 
@@ -122,6 +122,52 @@ fn template_glob(expr: &Expression<'_>) -> Option<String> {
         .first()
         .is_some_and(|first| first.starts_with("./") || first.starts_with("../"));
     relative.then(|| parts.join("*"))
+}
+
+/// Test-runner calls whose first argument names a module: `vi.mock("x")`, `jest.requireActual("x")`.
+const MOCK_CALLS: &[(&str, &[&str])] = &[
+    (
+        "vi",
+        &["mock", "doMock", "unmock", "doUnmock", "importActual", "importMock"],
+    ),
+    (
+        "jest",
+        &[
+            "mock",
+            "doMock",
+            "unmock",
+            "dontMock",
+            "requireActual",
+            "requireMock",
+            "createMockFromModule",
+            "genMockFromModule",
+        ],
+    ),
+];
+
+fn is_mock_call(member: &StaticMemberExpression<'_>) -> bool {
+    let Expression::Identifier(object) = &member.object else {
+        return false;
+    };
+    let property = member.property.name.as_str();
+    MOCK_CALLS
+        .iter()
+        .any(|(runner, methods)| object.name.as_str() == *runner && methods.contains(&property))
+}
+
+/// `jest.mock("x", factory, { virtual: true })` mocks a module that does not exist.
+fn is_virtual_mock(call: &CallExpression<'_>) -> bool {
+    let Some(Expression::ObjectExpression(options)) = call.arguments.get(2).and_then(Argument::as_expression) else {
+        return false;
+    };
+    options.properties.iter().any(|property| {
+        matches!(
+            property,
+            ObjectPropertyKind::ObjectProperty(p)
+                if p.key.is_specific_static_name("virtual")
+                    && matches!(&p.value, Expression::BooleanLiteral(b) if b.value)
+        )
+    })
 }
 
 fn is_ident(expr: &Expression<'_>, wanted: &str) -> bool {
@@ -450,6 +496,16 @@ impl Finder<'_, '_> {
                     }
                 } else if is_import_meta(&m.object) && (property == "glob" || property == "globEager") {
                     self.glob(first, span);
+                } else if is_mock_call(m)
+                    && !is_virtual_mock(it)
+                    && let Some(specifier) = first.and_then(static_string).filter(|s| !s.is_empty())
+                {
+                    self.info.imports.push(Import {
+                        specifier,
+                        kind: ImportKind::Mock,
+                        names: Vec::new(),
+                        span,
+                    });
                 }
             }
             _ => {}

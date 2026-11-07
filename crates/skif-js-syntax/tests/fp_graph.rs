@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use skif_js_syntax::{ImportedKind, ModuleInfo, ParseOptions, parse_module};
+use skif_js_syntax::{ImportKind, ImportedKind, ModuleInfo, ParseOptions, parse_module};
 
 fn parse(path: &str, source: &str) -> ModuleInfo {
     parse_module(Path::new(path), source, &ParseOptions::default()).expect("parses")
@@ -164,4 +164,19 @@ fn typeof_import_asserting_a_require_is_not_a_use_of_the_whole_module() {
     );
     assert_eq!(imported(&info, "./x"), ["used"]);
     assert_eq!(imported(&info, "./y"), ["*"]);
+}
+
+#[test]
+fn test_runner_mocks_are_mock_imports_and_strings_are_not() {
+    let info = parse(
+        "a.test.ts",
+        "vi.mock('./dep');\njest.requireActual<typeof import('x')>('pkg');\njest.mock('virtual', () => ({}), { virtual: true });\nconst code = `vi.mock('inv1')`;\nconst text = \"jest.mock('inv2')\";\n",
+    );
+    let mocks: Vec<&str> = info
+        .imports
+        .iter()
+        .filter(|import| import.kind == ImportKind::Mock)
+        .map(|import| import.specifier.as_str())
+        .collect();
+    assert_eq!(mocks, ["./dep", "pkg"]);
 }
