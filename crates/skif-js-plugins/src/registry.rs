@@ -2,23 +2,25 @@
 
 use crate::plugin::Plugin;
 use crate::plugins::{
-    angular, astro, ava, aws_cdk, azure_pipelines, babel, biome, browser_extension, buf, bun, c8, capacitor,
-    changelogen, changesets, commitizen, commitlint, convex, cspell, cucumber, cypress, danger, dependency_cruiser,
-    docusaurus, dotenv, drizzle, electron_forge, electron_vite, eleventy, esbuild, eslint, execa, expo, expo_router,
-    fumadocs, gatsby, github_action, github_actions, graphql_codegen, hardhat, husky, i18next_parser, jasmine, jest,
-    karma, knex, lefthook, lingui, lint_staged, markdownlint, mastra, mdx, metro, mise, mocha, moonrepo, msw,
-    nano_spawn, nano_staged, nest, netlify, next, next_intl, next_mdx, nitro, node, nodemon, nuxt, nuxtjs_i18n, nx,
-    nyc, oclif, openapi_ts, orval, oxfmt, oxlint, panda_css, parcel, payload, pino, playwright, playwright_ct, plop,
-    pm2, pnpm, postcss, pre_commit, preconstruct, prettier, prisma, purgecss, quasar, qwik, react_email, react_native,
-    react_router, relay, release_it, remark, remix, rolldown, rollup, rsbuild, rslib, rspack, rstest, sanity, sapper,
-    semantic_release, sentry, serverless_framework, simple_git_hooks, size_limit, sst, starlight, stencil, storybook,
-    stryker, stylelint, svelte, sveltejs_package, sveltekit, svgo, svgr, swc, syncpack, tailwind, tanstack_router, tap,
-    taskfile, tauri, temporal, textlint, travis, ts_node, tsd, tsdown, tsup, tsx, turbo, typedoc, typescript, unbuild,
-    unocss, unplugin_auto_import, unplugin_vue_components, unplugin_vue_router, vercel, vike, vite, vite_plugin_pwa,
-    vitepress, vitest, vue, webdriver_io, webpack, wireit, wrangler, wxt, xo, yarn, zx,
+    angular, astro, astro_db, astro_og_canvas, ava, aws_cdk, azure_pipelines, babel, biome, browser_extension, buf,
+    bumpp, bun, c8, capacitor, changelogen, changelogithub, changesets, commitizen, commitlint, convex,
+    create_typescript_app, cspell, cucumber, cypress, danger, dependency_cruiser, docusaurus, dotenv, drizzle,
+    electron_forge, electron_vite, eleventy, esbuild, eslint, eve, execa, expo, expo_router, expressive_code, fumadocs,
+    gatsby, github_action, github_actions, graphql_codegen, hardhat, husky, i18next_parser, jasmine, jest, karma, knex,
+    kysely_codegen, lefthook, lingui, lint_staged, lockfile_lint, lost_pixel, markdownlint, mastra, mdx, metro, mise,
+    mocha, moonrepo, msw, nano_spawn, nano_staged, nest, netlify, next, next_intl, next_mdx, nitro, node,
+    node_modules_inspector, nodemon, nuxt, nuxtjs_i18n, nx, nyc, oclif, openapi_ts, orval, oxfmt, oxlint, panda_css,
+    parcel, payload, pino, playwright, playwright_ct, plop, pm2, pnpm, postcss, pre_commit, preconstruct, prettier,
+    prisma, purgecss, quasar, qwik, react_email, react_native, react_router, relay, release_it, remark, remix,
+    rolldown, rollup, rsbuild, rslib, rspack, rstest, sanity, sapper, semantic_release, sentry, serverless_framework,
+    simple_git_hooks, size_limit, sst, starlight, stencil, storybook, stryker, stylelint, svelte, sveltejs_package,
+    sveltekit, svgo, svgr, swc, syncpack, tailwind, tanstack_router, tap, taskfile, tauri, temporal, textlint, travis,
+    ts_node, tsd, tsdown, tsup, tsx, turbo, typedoc, typescript, unbuild, unocss, unplugin_auto_import,
+    unplugin_vue_components, unplugin_vue_router, vercel, vercel_og, vike, vite, vite_plugin_pwa,
+    vite_pwa_assets_generator, vitepress, vitest, vue, webdriver_io, webpack, wireit, wrangler, wxt, xo, yarn, zx,
 };
 
-static PLUGINS: [&dyn Plugin; 161] = [
+static PLUGINS: [&dyn Plugin; 174] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -180,6 +182,19 @@ static PLUGINS: [&dyn Plugin; 161] = [
     &travis::Travis,
     &buf::Buf,
     &nano_staged::NanoStaged,
+    &astro_db::AstroDb,
+    &astro_og_canvas::AstroOgCanvas,
+    &bumpp::Bumpp,
+    &changelogithub::Changelogithub,
+    &create_typescript_app::CreateTypescriptApp,
+    &eve::Eve,
+    &expressive_code::ExpressiveCode,
+    &kysely_codegen::KyselyCodegen,
+    &lockfile_lint::LockfileLint,
+    &lost_pixel::LostPixel,
+    &node_modules_inspector::NodeModulesInspector,
+    &vercel_og::VercelOg,
+    &vite_pwa_assets_generator::VitePwaAssetsGenerator,
 ];
 
 /// Every plugin, in the order of the table (ADR 0011, ADR 0022, ADR 0025, ADR 0029).

@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 161] = [
+const ADR_IDS: [&str; 174] = [
     "typescript",
     "eslint",
     "prettier",
@@ -176,6 +176,19 @@ const ADR_IDS: [&str; 161] = [
     "travis",
     "buf",
     "nano-staged",
+    "astro-db",
+    "astro-og-canvas",
+    "bumpp",
+    "changelogithub",
+    "create-typescript-app",
+    "eve",
+    "expressive-code",
+    "kysely-codegen",
+    "lockfile-lint",
+    "lost-pixel",
+    "node-modules-inspector",
+    "vercel-og",
+    "vite-pwa-assets-generator",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -3715,4 +3728,154 @@ fn nano_staged_commands() {
     for binary in ["prettier", "eslint", "markdownlint"] {
         assert!(out.referenced_binaries.contains(&binary.to_owned()), "{binary}");
     }
+}
+
+#[test]
+fn declarative_plugins_of_issue_41() {
+    // (id, enabling dependency, an entry, a production entry, a provided binary)
+    let table = [
+        ("astro-db", "@astrojs/db", Some("db/seed.{js,ts}"), None, None),
+        ("astro-og-canvas", "astro-og-canvas", None, None, None),
+        (
+            "bumpp",
+            "bumpp",
+            Some("bump.config.{js,ts,mjs,cjs,mts,cts}"),
+            None,
+            Some("bumpp"),
+        ),
+        (
+            "changelogithub",
+            "changelogithub",
+            Some(".changelogithubrc.{json,jsonc,json5,yaml,yml,js,ts,mjs,cjs,mts,cts,toml}"),
+            None,
+            Some("changelogithub"),
+        ),
+        (
+            "create-typescript-app",
+            "create-typescript-app",
+            Some("create-typescript-app.config.{js,cjs,mjs,ts}"),
+            None,
+            None,
+        ),
+        ("eve", "eve", Some("{evals,agents/*/evals}/**/*.eval.ts"), None, None),
+        (
+            "expressive-code",
+            "astro-expressive-code",
+            Some("ec.config.{js,mjs,cjs,ts}"),
+            None,
+            None,
+        ),
+        (
+            "kysely-codegen",
+            "kysely-codegen",
+            Some("kysely-codegen.config.{js,ts,cjs}"),
+            None,
+            Some("kysely-codegen"),
+        ),
+        (
+            "lockfile-lint",
+            "lockfile-lint",
+            Some(".lockfile-lintrc.{json,yaml,yml,js,ts,cjs,mjs,toml}"),
+            None,
+            Some("lockfile-lint"),
+        ),
+        (
+            "lost-pixel",
+            "lost-pixel",
+            Some("lostpixel.config.{js,ts}"),
+            None,
+            Some("lost-pixel"),
+        ),
+        (
+            "node-modules-inspector",
+            "node-modules-inspector",
+            None,
+            None,
+            Some("node-modules-inspector"),
+        ),
+        (
+            "vercel-og",
+            "@vercel/og",
+            None,
+            Some("{src/,}app/api/og/route.{jsx,tsx}"),
+            None,
+        ),
+        (
+            "vite-pwa-assets-generator",
+            "@vite-pwa/assets-generator",
+            Some("pwa-assets.config.{js,cjs,mjs,ts,cts,mts}"),
+            None,
+            Some("pwa-assets-generator"),
+        ),
+    ];
+    let without = resolve(&[], &[]);
+    for (id, dependency, entry, production, binary) in table {
+        let results = resolve(&[], &[dependency]);
+        let out = output(&results, id);
+        if let Some(entry) = entry {
+            assert_entries(&out.entries, &[entry]);
+        }
+        if let Some(production) = production {
+            assert_entries(&out.production_entries, &[production]);
+        }
+        if let Some(binary) = binary {
+            assert!(out.provided_binaries.contains(&binary.to_owned()), "{id}: {out:?}");
+        }
+        assert!(
+            !without.iter().any(|(plugin, _)| *plugin == id),
+            "{id} must not be enabled without {dependency}"
+        );
+    }
+    let nested = resolve_with(&[], &["changelogithub"], false, &IndexMap::new());
+    assert!(!nested.iter().any(|(id, _)| *id == "changelogithub"), "root only");
+}
+
+#[test]
+fn astro_og_canvas_loads_canvaskit_optionally() {
+    let results = resolve(&[], &["astro-og-canvas"]);
+    let out = output(&results, "astro-og-canvas");
+    assert!(
+        out.referenced_dependencies
+            .iter()
+            .any(|d| d.name == "canvaskit-wasm" && d.optional),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn eve_agent_files_are_production_entries() {
+    let results = resolve(&[], &["eve"]);
+    let out = output(&results, "eve");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "{,agent/,agents/*/,agents/*/agent/}{channels,connections,hooks,skills,tools,schedules}/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "{,agent/,agents/*/,agents/*/agent/}extensions/*/{extension,instructions}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        ],
+    );
+    assert!(out.production_entries.iter().all(|pattern| !pattern.contains("+(")));
+}
+
+#[test]
+fn kysely_codegen_reads_a_config_passed_with_config_file() {
+    let results = resolve_with_scripts(
+        &[("db/codegen.ts", "export default {}")],
+        &["kysely-codegen"],
+        &[("gen", "kysely-codegen --config-file db/codegen.ts")],
+    );
+    let out = output(&results, "kysely-codegen");
+    assert!(
+        out.config_files.iter().any(|path| path.ends_with("db/codegen.ts")),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn node_modules_inspector_config_is_a_config_file() {
+    let results = resolve(
+        &[("node-modules-inspector.config.ts", "export default {}")],
+        &["node-modules-inspector"],
+    );
+    let out = output(&results, "node-modules-inspector");
+    assert_eq!(out.config_files.len(), 1, "{out:?}");
 }
