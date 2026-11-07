@@ -26,6 +26,7 @@ schema = ["dep:schemars", "dep:serde_json", "skif-core/schema"]
 globset.workspace = true
 ignore.workspace = true
 indexmap.workspace = true
+rayon.workspace = true
 schemars = { workspace = true, optional = true }
 serde.workspace = true
 serde_json = { workspace = true, optional = true }

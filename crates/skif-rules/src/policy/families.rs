@@ -1,5 +1,6 @@
 //! `unsynced-dependency-family`: packages released together must be declared on one version within a package.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use skif_config::{Config, Selector};
@@ -210,25 +211,45 @@ impl Rule for UnsyncedDependencyFamily {
                 Some(Arc::clone(&entry.parsed))
             }
         };
+        let member = |entry: &'_ DependencyEntry| {
+            let specifier = resolved(entry)?;
+            if is_floating(&specifier) || alias_target(&specifier, &entry.name).is_some() {
+                return None;
+            }
+            Some((major(&specifier)?, floor_version(&specifier)?))
+        };
+        // Each name's families, matched once per name: large workspaces repeat a few hundred names thousands of times.
+        let mut memberships: HashMap<&str, Vec<usize>> = HashMap::new();
         for package in active_packages(cx.workspace) {
-            for family in &families {
-                let members: Vec<_> = package
-                    .dependencies
-                    .iter()
-                    .filter(|entry| entry.kind != DependencyKind::PeerDependencies)
-                    .filter(|entry| family.members.matches(&entry.name, false))
-                    .filter_map(|entry| {
-                        let specifier = resolved(entry)?;
-                        if is_floating(&specifier) || alias_target(&specifier, &entry.name).is_some() {
-                            return None;
-                        }
-                        Some((entry, major(&specifier)?, floor_version(&specifier)?))
-                    })
-                    .collect();
+            let mut members_of: Vec<Vec<_>> = families.iter().map(|_| Vec::new()).collect();
+            for entry in package
+                .dependencies
+                .iter()
+                .filter(|entry| entry.kind != DependencyKind::PeerDependencies)
+            {
+                let of = memberships.entry(entry.name.as_str()).or_insert_with(|| {
+                    families
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, family)| family.members.matches(&entry.name, false))
+                        .map(|(index, _)| index)
+                        .collect()
+                });
+                if of.is_empty() {
+                    continue;
+                }
+                let Some((entry_major, version)) = member(entry) else {
+                    continue;
+                };
+                for &index in of.iter() {
+                    members_of[index].push((entry, entry_major, version.clone()));
+                }
+            }
+            for (family, members) in families.iter().zip(&members_of) {
                 let Some((leader, leader_major, highest)) = members.iter().max_by(|a, b| a.2.cmp(&b.2)) else {
                     continue;
                 };
-                for (entry, entry_major, version) in &members {
+                for (entry, entry_major, version) in members {
                     // A 0.x package next to a released family is on a version line of its own.
                     if version >= highest || (*leader_major >= 1 && *entry_major == 0) {
                         continue;
