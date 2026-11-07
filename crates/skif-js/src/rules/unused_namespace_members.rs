@@ -11,7 +11,7 @@ pub static META: RuleMeta = RuleMeta::new(
     "unused-namespace-members",
     Category::Js,
     Some(Severity::Warning),
-    Fixability::None,
+    Fixability::Unsafe,
     "An exported member of a TypeScript namespace is never read.",
 );
 
