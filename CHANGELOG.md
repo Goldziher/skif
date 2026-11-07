@@ -16,6 +16,10 @@ All notable changes to this project are documented here. The format follows
   comments, folded in `<details>` sections for `disclosure`) and `codeowners` (findings grouped by the owners in the
   repository's CODEOWNERS file, last matching pattern wins). The renderers are in `skif-report` and `skif::render`
   ([#42](https://github.com/Goldziher/skif/issues/42)).
+- `--format` is repeatable and takes `FORMAT=FILE`, so one run writes several reports, each to its own file, with at
+  most one format on stdout. Files are written only after every rendering succeeds; `--output` stays the
+  single-format form ([ADR 0050](adrs/0050-several-reports-in-one-run.md),
+  [#42](https://github.com/Goldziher/skif/issues/42)).
 
 ## [0.1.1] - 2026-11-07
 

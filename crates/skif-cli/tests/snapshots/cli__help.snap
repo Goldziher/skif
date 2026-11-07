@@ -26,8 +26,8 @@ Options:
   -r, --recursive
           Lint every workspace and standalone package at or below PATH, each with the `skif.toml` files that govern it
 
-      --format <FORMAT>
-          Output format [default: human, or human plus GitHub annotations when `GITHUB_ACTIONS=true`]
+      --format <FORMAT[=FILE]>
+          Output format, as FORMAT or FORMAT=FILE to write that rendering to FILE. Repeatable; at most one goes to stdout [default: human, or human plus GitHub annotations when `GITHUB_ACTIONS=true`]
 
           Possible values:
           - human:       Grouped, optionally coloured text
@@ -41,7 +41,7 @@ Options:
           - codeowners:  Compact lines grouped by owner, from the repository's CODEOWNERS file
 
       --output <FILE>
-          Write the rendering to this file instead of stdout
+          Write the rendering to this file instead of stdout; needs exactly one --format, without `=FILE`
 
       --fix
           Apply safe fixes, then lint again and run the package manager's install command
