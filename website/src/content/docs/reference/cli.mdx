@@ -103,7 +103,7 @@ JavaScript part of a lint run.
 | Flag | Meaning |
 | --- | --- |
 | `--production`, `--config <FILE>`, `--no-config` | Analyse as the lint run with the same flag does. |
-| `--format <human\|json>` | `json` prints one document with `version`, `skif` and a `report` member: `file`, `in-graph`, `entry` (the rule that makes the file an entry), `imported-by` (`file`, `line`, `kind`, `names`, `reachable`), `chain-from-entry` and, with `#EXPORT`, `export` (`verdict`, `users`, `re-exports`, `entry-public`, `tagged-public`, `in-used-signature`). |
+| `--format <human\|json>` | `json` prints one document with `version`, `skif` and a `report` member: `file`, `in-graph`, `entry` (the rule that makes the file an entry), `imported-by` (`file`, `line`, `kind`, `names`, `reachable`), `chain-from-entry` and, with `#EXPORT`, `export` (`verdict`, `users`, `re-exports`, `entry-public`, `tagged-public`, `in-used-signature` and, for a custom element, `registered`). |
 
 A file that is not part of the module graph (an unused file, an ignored file, or a file outside the project globs)
 exits `2` with the reason; in JSON mode the `error` document carries the same `report`. It also exits `2` when the root

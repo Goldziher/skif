@@ -29,6 +29,28 @@ pub struct BuildDir {
     pub root_dir: String,
 }
 
+/// A custom element library: a class it registers is used by the browser through its tag name, so it is no unused
+/// export (ADR 0053). `customElements.define('x-y', Class)` counts without one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomElementLibrary {
+    /// Specifiers the library is imported from; one that ends with `/` matches every specifier below it.
+    pub modules: Vec<String>,
+    /// The name of the registering decorator as the library exports it (`customElement`).
+    pub decorator: String,
+    /// The base class whose subclasses register with a static `define(…)` (`FASTElement`), when there is one.
+    pub base_class: Option<String>,
+}
+
+impl CustomElementLibrary {
+    /// Whether `specifier` imports this library.
+    #[must_use]
+    pub fn is_module(&self, specifier: &str) -> bool {
+        self.modules
+            .iter()
+            .any(|module| module == specifier || (module.ends_with('/') && specifier.starts_with(module.as_str())))
+    }
+}
+
 /// What an [`InputSource`] contributes for one workspace package.
 ///
 /// Globs are relative to the package directory and use `/` separators. A leading `!` excludes.
@@ -66,6 +88,8 @@ pub struct WorkspaceInputs {
     pub module_dirs: Vec<String>,
     /// File extensions (with the leading dot) imports may omit, from bundler `resolve.extensions`.
     pub extensions: Vec<String>,
+    /// Custom element libraries the package uses, whose registered classes are used exports.
+    pub custom_elements: Vec<CustomElementLibrary>,
     /// Whether a tool's entries could only be partly read (a computed `entry`), so unused files and dependencies of
     /// the package cannot be told apart from ones reached through the unknown entries.
     pub entries_incomplete: bool,
@@ -89,6 +113,7 @@ impl WorkspaceInputs {
         self.conditions.extend(other.conditions);
         self.module_dirs.extend(other.module_dirs);
         self.extensions.extend(other.extensions);
+        self.custom_elements.extend(other.custom_elements);
         self.entries_incomplete |= other.entries_incomplete;
     }
 }

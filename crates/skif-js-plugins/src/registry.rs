@@ -3,16 +3,16 @@
 use crate::plugin::Plugin;
 use crate::plugins::{
     angular, astro, astro_db, astro_markdoc, astro_og_canvas, ava, aws_cdk, azure_pipelines, babel, biome, borp,
-    browser_extension, buf, bumpp, bun, c8, capacitor, changelogen, changelogithub, changesets, commitizen, commitlint,
-    convex, create_typescript_app, cspell, cucumber, cypress, danger, dependency_cruiser, docusaurus, dotenv, drizzle,
-    electron_forge, electron_vite, eleventy, esbuild, eslint, eve, execa, expo, expo_router, expressive_code,
-    filesystem_routing, flue, fumadocs, gatsby, github_action, github_actions, graphql_codegen, hardhat, husky,
-    i18next_parser, jasmine, jest, karma, knex, kysely_codegen, ladle, laravel_vite_plugin, lefthook, lingui,
-    lint_staged, linthtml, lockfile_lint, lost_pixel, lunaria, markdownlint, marko, mastra, mcp, mdx, mdxlint, metro,
-    mise, mocha, moonrepo, msw, nano_spawn, nano_staged, nest, netlify, next, next_intl, next_mdx, nitro, node,
-    node_modules_inspector, nodemon, npm_package_json_lint, nuxt, nuxtjs_i18n, nx, nyc, oclif, openapi_ts, openclaw,
-    orval, osls, oxfmt, oxlint, panda_css, parcel, payload, pino, playwright, playwright_ct, playwright_test, plop,
-    pm2, pnpm, postcss, pre_commit, preconstruct, prettier, prisma, purgecss, quasar, qwik, railway, raycast,
+    browser_extension, buf, bumpp, bun, c8, capacitor, catalyst, changelogen, changelogithub, changesets, commitizen,
+    commitlint, convex, create_typescript_app, cspell, cucumber, cypress, danger, dependency_cruiser, docusaurus,
+    dotenv, drizzle, electron_forge, electron_vite, eleventy, esbuild, eslint, eve, execa, expo, expo_router,
+    expressive_code, fast, filesystem_routing, flue, fumadocs, gatsby, github_action, github_actions, graphql_codegen,
+    hardhat, husky, i18next_parser, jasmine, jest, karma, knex, kysely_codegen, ladle, laravel_vite_plugin, lefthook,
+    lingui, lint_staged, linthtml, lit, lockfile_lint, lost_pixel, lunaria, markdownlint, marko, mastra, mcp, mdx,
+    mdxlint, metro, mise, mocha, moonrepo, msw, nano_spawn, nano_staged, nest, netlify, next, next_intl, next_mdx,
+    nitro, node, node_modules_inspector, nodemon, npm_package_json_lint, nuxt, nuxtjs_i18n, nx, nyc, oclif, openapi_ts,
+    openclaw, orval, osls, oxfmt, oxlint, panda_css, parcel, payload, pino, playwright, playwright_ct, playwright_test,
+    plop, pm2, pnpm, postcss, pre_commit, preconstruct, prettier, prisma, purgecss, quasar, qwik, railway, raycast,
     react_cosmos, react_email, react_native, react_router, relay, release_it, remark, remix, rolldown, rollup, rsbuild,
     rslib, rspack, rstest, sanity, sapper, semantic_release, sentry, serverless_framework, simple_git_hooks,
     size_limit, solidjs_vite_plugin, sst, starlight, stencil, storybook, stryker, stylelint, svelte, sveltejs_package,
@@ -23,7 +23,7 @@ use crate::plugins::{
     vitest, vue, webdriver_io, webpack, wireit, wrangler, wxt, xo, yarn, yorkie, zx,
 };
 
-static PLUGINS: [&dyn Plugin; 200] = [
+static PLUGINS: [&dyn Plugin; 203] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -224,6 +224,9 @@ static PLUGINS: [&dyn Plugin; 200] = [
     &vite_plus::VitePlus,
     &openclaw::Openclaw,
     &typescript_content_mapper::TypescriptContentMapper,
+    &lit::Lit,
+    &catalyst::Catalyst,
+    &fast::Fast,
 ];
 
 /// Every plugin, in the order of the table (ADR 0011, ADR 0022, ADR 0025, ADR 0029).

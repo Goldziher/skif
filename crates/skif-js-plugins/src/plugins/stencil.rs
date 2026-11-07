@@ -1,9 +1,10 @@
 //! Stencil: components under `srcDir`, spec and e2e tests, and the global script and styles, TypeScript config and
-//! test setup files named anywhere in `stencil.config.*`.
+//! test setup files named anywhere in `stencil.config.*`. A class decorated with `@Component` from `@stencil/core` is
+//! a registered custom element and so a used export (ADR 0053).
 
 use skif_js_syntax::{ConfigValue, extract_property_values};
 
-use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
+use crate::plugin::{ConfigAst, CustomElements, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::support::{leaf_strings, objects};
 
 /// The `stencil` plugin.
@@ -16,6 +17,11 @@ static SPEC: PluginSpec = PluginSpec {
     entry: &["**/*.spec.{ts,tsx}", "**/*.e2e.{ts,tsx}"],
     production: &["src/**/*.tsx"],
     binaries: &["stencil"],
+    custom_elements: Some(CustomElements {
+        modules: &["@stencil/core"],
+        decorator: "Component",
+        base_class: None,
+    }),
     ..PluginSpec::DEFAULT
 };
 
