@@ -250,3 +250,8 @@ blake3 = "57ee9ff85eda7dc829451d63690e462fb1d7e1dbf3a9c19ce039ae63c232cd0e"
 number = 50
 status = "accepted"
 blake3 = "906d58d5e421b233cfc31695083bd495b13900c023c7047a48fbd1b3783fd419"
+
+[adrs."adrs/0051-safe-version-alignment-fixes.md"]
+number = 51
+status = "accepted"
+blake3 = "d598f5d4ca6dc074a9505bbf9e28c238813f728a674a1473848c85693799698a"
