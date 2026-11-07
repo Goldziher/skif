@@ -155,3 +155,47 @@ fn tags_leave_out_tagged_exports() {
     assert_eq!(result.code, 2);
     assert_eq!(error["error"]["kind"], "usage", "{error:#}");
 }
+
+#[test]
+fn max_issues_and_no_exit_code_change_only_the_exit_code() {
+    // The fixture has two errors.
+    let (result, report) = lint_json(&["--max-issues", "2"]);
+    assert_eq!(result.code, 0);
+    assert_eq!(report["summary"]["errors"], 2);
+    let (result, _) = lint_json(&["--max-issues", "1"]);
+    assert_eq!(result.code, 1);
+    let (result, report) = lint_json(&["--no-exit-code"]);
+    assert_eq!(result.code, 0);
+    assert_eq!(report["summary"]["errors"], 2);
+    let (result, _) = lint_json(&["--no-exit-code", "--workspace", "@cli/missing"]);
+    assert_eq!(result.code, 2);
+}
+
+#[test]
+fn max_show_issues_shortens_the_list_but_not_the_summary() {
+    let dir = fixture("filters");
+    let human = run(skif()
+        .args(["--color", "never", "--max-show-issues", "1"])
+        .arg(dir.path()));
+    assert_eq!(human.code, 1);
+    assert!(
+        human.stderr.contains("left 1 finding out of the list"),
+        "{}",
+        human.stderr
+    );
+    insta::assert_snapshot!("max_show_issues_human", redact(&human.stdout, dir.path()));
+
+    let (_, all) = lint_json(&[]);
+    let (_, shown) = lint_json(&["--max-show-issues", "1"]);
+    assert_eq!(shown["summary"], all["summary"]);
+    assert_eq!(shown["diagnostics"].as_array().unwrap().len(), 3);
+}
+
+#[test]
+fn include_entry_exports_reports_exports_of_entry_files() {
+    let entry = ("unused-exports".to_owned(), "packages/a/index.ts".to_owned());
+    let (_, default) = lint_json(&["--exports"]);
+    assert!(!findings(&default).contains(&entry), "{default:#}");
+    let (_, included) = lint_json(&["--exports", "--include-entry-exports"]);
+    assert!(findings(&included).contains(&entry), "{included:#}");
+}
