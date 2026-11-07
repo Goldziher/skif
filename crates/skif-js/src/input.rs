@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 
+use serde::Serialize;
 use skif_core::FileSystem;
 use skif_workspace::{Package, Workspace};
 
@@ -69,6 +70,62 @@ pub struct WorkspaceInputs {
     /// Whether a tool's entries could only be partly read (a computed `entry`), so unused files and dependencies of
     /// the package cannot be told apart from ones reached through the unknown entries.
     pub entries_incomplete: bool,
+    /// Why the entries are incomplete, when `entries_incomplete` is set and the source knows.
+    pub incomplete_reasons: Vec<IncompleteEntries>,
+}
+
+/// Why the entry files of a package are not all known, so its files and dependencies are not judged unused.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct IncompleteEntries {
+    /// What could not be read.
+    pub cause: IncompleteCause,
+    /// The tool whose configuration could not be read, when it is a tool's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<String>,
+    /// The file that could not be read: absolute in [`WorkspaceInputs`], relative to the workspace root with `/`
+    /// separators in a [`UsageReport`](crate::UsageReport).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<PathBuf>,
+}
+
+/// What made the entry files of a package incomplete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum IncompleteCause {
+    /// A tool configuration does not parse.
+    UnparsableConfig,
+    /// A tool configuration evaluates to a value that is not known statically.
+    UnknownConfig,
+    /// A tool configuration spreads or merges in a value that is not known statically, such as an imported base
+    /// config.
+    UnknownSpread,
+    /// The keys a tool reads entry files from are computed in a way that cannot be evaluated statically.
+    ComputedEntries,
+    /// `package.json` publishes build output or bin files none of which maps back to a source file.
+    UnmappedPublished,
+    /// An input source reported the entries incomplete without a reason.
+    Unspecified,
+}
+
+impl IncompleteCause {
+    /// A sentence fragment for terminal output.
+    #[must_use]
+    pub const fn describe(self) -> &'static str {
+        match self {
+            Self::UnparsableConfig => "the configuration does not parse",
+            Self::UnknownConfig => "the configuration evaluates to a value that is not known statically",
+            Self::UnknownSpread => {
+                "the configuration spreads or merges in a value that is not known statically (an imported base config)"
+            }
+            Self::ComputedEntries => "the keys the tool reads entry files from are computed",
+            Self::UnmappedPublished => {
+                "package.json publishes build output or bin files none of which maps back to a source file"
+            }
+            Self::Unspecified => "an input source reported its entries incomplete",
+        }
+    }
 }
 
 impl WorkspaceInputs {
@@ -90,6 +147,7 @@ impl WorkspaceInputs {
         self.module_dirs.extend(other.module_dirs);
         self.extensions.extend(other.extensions);
         self.entries_incomplete |= other.entries_incomplete;
+        self.incomplete_reasons.extend(other.incomplete_reasons);
     }
 }
 

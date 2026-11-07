@@ -8,7 +8,7 @@ use std::path::Path;
 
 use indexmap::IndexMap;
 use skif_core::MemoryFs;
-use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
+use skif_js_plugins::{IncompleteCause, PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
@@ -141,6 +141,42 @@ fn computed_entries_are_flagged_as_incomplete() {
         let results = run(&[(file, source)], &[dependency], &[]);
         assert!(output(&results, plugin).entries_incomplete, "{plugin}: {source}");
     }
+}
+
+#[test]
+fn each_unreadable_config_is_named_with_its_cause() {
+    let cases = [
+        (
+            "vite.config.ts",
+            "export default makeConfig();",
+            IncompleteCause::UnknownValue,
+        ),
+        (
+            "vite.config.ts",
+            "import base from './base';\nexport default { ...base };",
+            IncompleteCause::UnknownSpread,
+        ),
+        ("vite.config.ts", "export default {", IncompleteCause::Unparsable),
+        (
+            "vite.config.ts",
+            "export default { build: { lib: { entry: pick() } } };",
+            IncompleteCause::ComputedEntries,
+        ),
+    ];
+    for (file, source, cause) in cases {
+        let results = run(&[(file, source)], &["vite"], &[]);
+        let out = output(&results, "vite");
+        assert!(out.entries_incomplete, "{source}");
+        let reason = out
+            .incomplete_reasons
+            .iter()
+            .find(|reason| reason.cause == cause)
+            .unwrap_or_else(|| panic!("{source}: {:?}", out.incomplete_reasons));
+        assert_eq!(reason.plugin, "vite");
+        assert_eq!(reason.file, Path::new(DIR).join(file));
+    }
+    let complete = run(&[("vite.config.ts", "export default { base: '/' };")], &["vite"], &[]);
+    assert_eq!(output(&complete, "vite").incomplete_reasons, []);
 }
 
 #[test]

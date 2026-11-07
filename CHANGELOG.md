@@ -9,6 +9,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `explain-usage` says why a file outside the module graph is not reported: the package is excluded, a declaration
+  file, ignored, outside the project globs, not discovered, or in a package whose entry files are not fully known. For
+  the last it names every tool config that could not be read and why (it does not parse, it evaluates to an unknown
+  value, it spreads in an unknown base config, its entry keys are computed, or `package.json` publishes build output
+  with no source behind it). The JSON `absence` values replace `not-analysed`, and `incomplete` lists the configs
+  ([#23](https://github.com/Goldziher/skif/issues/23)).
+
+### Fixed
+
+- The files an n8n node package lists in `package.json` `n8n.nodes` and `n8n.credentials` are entries, mapped from
+  `dist` back to their sources, so node and credential files are not reported unused
+  ([#23](https://github.com/Goldziher/skif/issues/23)).
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed
