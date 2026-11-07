@@ -428,6 +428,17 @@ counterpart. These differences are deliberate:
 - `react-email` credits both `@react-email/ui` and `@react-email/preview-server` for a preview command, as the
   installed major version is not known. `payload` keeps migrations and `payload-types.ts` from being reported
   through `ignore`. `mise` does not read file tasks. `unplugin-vue-i18n` is no plugin: knip's has nothing to port.
+- `marko` does not compile `.marko` files or read the tag libraries of installed packages; it credits `marko` when
+  a template exists. `catalyst` and `fast` are no plugins: knip's only mark custom element classes as used.
+  `unplugin-vue-markdown` is no plugin: skif compiles no Markdown.
+- `varlock` reads the `@plugin` and `@import` decorators in the root comments of the `.env` files under
+  `package.json#varlock.loadPath` and those a script passes with `--path`, but not `~/` paths, and does not skip
+  git-ignored files. `railway` counts a service whose `source` is a call (`image("postgres")`) as local, and knows
+  the local repository from `package.json#repository` only, not from the git remotes.
+- `openclaw` and `typescript-content-mapper` are enabled by their `package.json` key. The files of OpenClaw
+  `assetScripts` are entries, not production entries. `mdxlint` keeps a scoped plugin name as written.
+- `solidjs-vite-plugin`, `filesystem-routing`, `vite-plugin-pages`, `vite-plugin-vue-layouts-next` and `flue` keep
+  their conventional production entries when they read a config, as every plugin does; knip replaces them.
 
 ## Layered configuration
 
