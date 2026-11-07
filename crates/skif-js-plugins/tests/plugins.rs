@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 161] = [
+const ADR_IDS: [&str; 200] = [
     "typescript",
     "eslint",
     "prettier",
@@ -176,6 +176,45 @@ const ADR_IDS: [&str; 161] = [
     "travis",
     "buf",
     "nano-staged",
+    "astro-db",
+    "astro-og-canvas",
+    "bumpp",
+    "changelogithub",
+    "create-typescript-app",
+    "eve",
+    "expressive-code",
+    "kysely-codegen",
+    "lockfile-lint",
+    "lost-pixel",
+    "node-modules-inspector",
+    "vercel-og",
+    "vite-pwa-assets-generator",
+    "astro-markdoc",
+    "borp",
+    "ladle",
+    "linthtml",
+    "lunaria",
+    "marko",
+    "mcp",
+    "mdxlint",
+    "npm-package-json-lint",
+    "osls",
+    "playwright-test",
+    "raycast",
+    "react-cosmos",
+    "tsrs",
+    "varlock",
+    "yorkie",
+    "filesystem-routing",
+    "flue",
+    "laravel-vite-plugin",
+    "railway",
+    "solidjs-vite-plugin",
+    "vite-plugin-pages",
+    "vite-plugin-vue-layouts-next",
+    "vite-plus",
+    "openclaw",
+    "typescript-content-mapper",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -3715,4 +3754,726 @@ fn nano_staged_commands() {
     for binary in ["prettier", "eslint", "markdownlint"] {
         assert!(out.referenced_binaries.contains(&binary.to_owned()), "{binary}");
     }
+}
+
+#[test]
+fn declarative_plugins_of_issue_41() {
+    // (id, enabling dependency, an entry, a production entry, a provided binary)
+    let table = [
+        ("astro-db", "@astrojs/db", Some("db/seed.{js,ts}"), None, None),
+        ("astro-og-canvas", "astro-og-canvas", None, None, None),
+        (
+            "bumpp",
+            "bumpp",
+            Some("bump.config.{js,ts,mjs,cjs,mts,cts}"),
+            None,
+            Some("bumpp"),
+        ),
+        (
+            "changelogithub",
+            "changelogithub",
+            Some(".changelogithubrc.{json,jsonc,json5,yaml,yml,js,ts,mjs,cjs,mts,cts,toml}"),
+            None,
+            Some("changelogithub"),
+        ),
+        (
+            "create-typescript-app",
+            "create-typescript-app",
+            Some("create-typescript-app.config.{js,cjs,mjs,ts}"),
+            None,
+            None,
+        ),
+        ("eve", "eve", Some("{evals,agents/*/evals}/**/*.eval.ts"), None, None),
+        (
+            "expressive-code",
+            "astro-expressive-code",
+            Some("ec.config.{js,mjs,cjs,ts}"),
+            None,
+            None,
+        ),
+        (
+            "kysely-codegen",
+            "kysely-codegen",
+            Some("kysely-codegen.config.{js,ts,cjs}"),
+            None,
+            Some("kysely-codegen"),
+        ),
+        (
+            "lockfile-lint",
+            "lockfile-lint",
+            Some(".lockfile-lintrc.{json,yaml,yml,js,ts,cjs,mjs,toml}"),
+            None,
+            Some("lockfile-lint"),
+        ),
+        (
+            "lost-pixel",
+            "lost-pixel",
+            Some("lostpixel.config.{js,ts}"),
+            None,
+            Some("lost-pixel"),
+        ),
+        (
+            "node-modules-inspector",
+            "node-modules-inspector",
+            None,
+            None,
+            Some("node-modules-inspector"),
+        ),
+        (
+            "vercel-og",
+            "@vercel/og",
+            None,
+            Some("{src/,}app/api/og/route.{jsx,tsx}"),
+            None,
+        ),
+        (
+            "vite-pwa-assets-generator",
+            "@vite-pwa/assets-generator",
+            Some("pwa-assets.config.{js,cjs,mjs,ts,cts,mts}"),
+            None,
+            Some("pwa-assets-generator"),
+        ),
+    ];
+    let without = resolve(&[], &[]);
+    for (id, dependency, entry, production, binary) in table {
+        let results = resolve(&[], &[dependency]);
+        let out = output(&results, id);
+        if let Some(entry) = entry {
+            assert_entries(&out.entries, &[entry]);
+        }
+        if let Some(production) = production {
+            assert_entries(&out.production_entries, &[production]);
+        }
+        if let Some(binary) = binary {
+            assert!(out.provided_binaries.contains(&binary.to_owned()), "{id}: {out:?}");
+        }
+        assert!(
+            !without.iter().any(|(plugin, _)| *plugin == id),
+            "{id} must not be enabled without {dependency}"
+        );
+    }
+    let nested = resolve_with(&[], &["changelogithub"], false, &IndexMap::new());
+    assert!(!nested.iter().any(|(id, _)| *id == "changelogithub"), "root only");
+}
+
+#[test]
+fn astro_og_canvas_loads_canvaskit_optionally() {
+    let results = resolve(&[], &["astro-og-canvas"]);
+    let out = output(&results, "astro-og-canvas");
+    assert!(
+        out.referenced_dependencies
+            .iter()
+            .any(|d| d.name == "canvaskit-wasm" && d.optional),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn eve_agent_files_are_production_entries() {
+    let results = resolve(&[], &["eve"]);
+    let out = output(&results, "eve");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "{,agent/,agents/*/,agents/*/agent/}{channels,connections,hooks,skills,tools,schedules}/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "{,agent/,agents/*/,agents/*/agent/}extensions/*/{extension,instructions}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        ],
+    );
+    assert!(out.production_entries.iter().all(|pattern| !pattern.contains("+(")));
+}
+
+#[test]
+fn kysely_codegen_reads_a_config_passed_with_config_file() {
+    let results = resolve_with_scripts(
+        &[("db/codegen.ts", "export default {}")],
+        &["kysely-codegen"],
+        &[("gen", "kysely-codegen --config-file db/codegen.ts")],
+    );
+    let out = output(&results, "kysely-codegen");
+    assert!(
+        out.config_files.iter().any(|path| path.ends_with("db/codegen.ts")),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn node_modules_inspector_config_is_a_config_file() {
+    let results = resolve(
+        &[("node-modules-inspector.config.ts", "export default {}")],
+        &["node-modules-inspector"],
+    );
+    let out = output(&results, "node-modules-inspector");
+    assert_eq!(out.config_files.len(), 1, "{out:?}");
+}
+
+#[test]
+fn astro_markdoc_render_components() {
+    let results = resolve(
+        &[(
+            "markdoc.config.mjs",
+            r#"import { defineMarkdocConfig, component } from "@astrojs/markdoc/config";
+export default defineMarkdocConfig({
+  tags: {
+    aside: { render: component("./src/components/Aside.astro"), attributes: {} },
+    table: { render: component("@astrojs/markdoc/components", "Table") },
+  },
+  nodes: { heading: { render: "./src/components/Heading.astro#Heading" } },
+});"#,
+        )],
+        &["@astrojs/markdoc"],
+    );
+    let out = output(&results, "astro-markdoc");
+    assert_entries(
+        &out.production_entries,
+        &["src/components/Aside.astro", "src/components/Heading.astro"],
+    );
+    assert_deps(out, &["@astrojs/markdoc"]);
+}
+
+#[test]
+fn borp_config_and_command_line() {
+    let results = resolve_with_scripts(
+        &[(
+            ".borp.yaml",
+            "files:\n  - 'test/**/*.spec.ts'\nreporters:\n  - spec\n  - '@reporters/github'\n  - ./reporters/custom.js:out.txt\n",
+        )],
+        &["borp"],
+        &[(
+            "test",
+            "borp --coverage -r gh -r borp-reporter-x --pattern 'it/**/*.test.js' unit/a.test.ts",
+        )],
+    );
+    let out = output(&results, "borp");
+    assert_entries(
+        &out.entries,
+        &[
+            "**/*.test.{js,mjs,cjs,ts,mts,cts}",
+            "test/**/*.spec.ts",
+            "reporters/custom.js",
+            "it/**/*.test.js",
+            "unit/a.test.ts",
+        ],
+    );
+    assert_deps(out, &["@reporters/github", "borp-reporter-x"]);
+    assert_absent(out, &["spec", "gh"]);
+}
+
+#[test]
+fn ladle_stories_and_vite_config() {
+    let results = resolve(
+        &[
+            (
+                ".ladle/config.mjs",
+                r#"export default { stories: "components/**/*.stories.tsx", viteConfig: "ladle.vite.config.ts" };"#,
+            ),
+            (
+                "ladle.vite.config.ts",
+                "export default { test: { setupFiles: ['./ladle-setup.ts'] } }",
+            ),
+        ],
+        &["@ladle/react"],
+    );
+    let out = output(&results, "ladle");
+    assert_entries(
+        &out.entries,
+        &["components/**/*.stories.tsx", ".ladle/components.{js,jsx,ts,tsx}"],
+    );
+    assert!(
+        out.config_files
+            .iter()
+            .any(|path| path.ends_with("ladle.vite.config.ts")),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn linthtml_extends_and_plugins() {
+    let results = resolve(
+        &[(
+            ".linthtmlrc.json",
+            r#"{"extends":["@linthtml/linthtml-config-recommended","./base.json"],"plugins":["linthtml-plugin-x","./rules/local.js"]}"#,
+        )],
+        &["@linthtml/linthtml"],
+    );
+    let out = output(&results, "linthtml");
+    assert_deps(out, &["@linthtml/linthtml-config-recommended", "linthtml-plugin-x"]);
+    assert_entries(&out.entries, &["rules/local.js"]);
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","linthtmlConfig":{"extends":"linthtml-config-y"}}"#,
+    );
+    let results = resolve(&[manifest], &["@linthtml/linthtml"]);
+    assert_deps(output(&results, "linthtml"), &["linthtml-config-y"]);
+}
+
+#[test]
+fn lunaria_files_renderer_and_dashboard() {
+    let results = resolve(
+        &[(
+            "docs/lunaria.config.json",
+            r#"{"files":[{"location":"src/content/**/*.md","pattern":"x"}],"renderer":"lunaria.renderer.ts","dashboard":{"customCss":["./styles/l.css"],"favicon":{"inline":"<svg/>"}}}"#,
+        )],
+        &["@lunariajs/core"],
+    );
+    let out = output(&results, "lunaria");
+    assert!(out.config_files.is_empty(), "the config sits at the workspace root");
+    let results = resolve(
+        &[(
+            "lunaria.config.json",
+            r#"{"files":[{"location":"src/content/**/*.md","pattern":"x"}],"renderer":"lunaria.renderer.ts","dashboard":{"customCss":["./styles/l.css"],"favicon":{"inline":"<svg/>"}}}"#,
+        )],
+        &["@lunariajs/core"],
+    );
+    let out = output(&results, "lunaria");
+    assert_entries(
+        &out.production_entries,
+        &["src/content/**/*.md", "lunaria.renderer.ts", "styles/l.css"],
+    );
+    assert!(out.production_entries.iter().all(|entry| !entry.contains('<')));
+}
+
+#[test]
+fn marko_taglibs_and_templates() {
+    let results = resolve(
+        &[
+            ("lib/marko.json", r#"{"taglib-id":"x"}"#),
+            (
+                "tags/fancy/marko-tag.json",
+                r#"{"renderer":"./renderer.js","transform":"marko-transform-x"}"#,
+            ),
+            ("src/pages/index.marko", "<div/>"),
+        ],
+        &["marko"],
+    );
+    let out = output(&results, "marko");
+    assert_entries(
+        &out.production_entries,
+        &["**/{components,tags}/**/*.marko", "lib/**/{components,tags}/**/*.marko"],
+    );
+    assert_entries(&out.entries, &["tags/fancy/renderer.js"]);
+    assert_deps(out, &["marko-transform-x", "marko"]);
+    let without_templates = resolve(&[], &["marko"]);
+    assert_absent(output(&without_templates, "marko"), &["marko"]);
+}
+
+#[test]
+fn mcp_server_commands_are_scripts() {
+    let results = resolve(
+        &[
+            (
+                ".mcp.json",
+                r#"{"mcpServers":{"local":{"command":"node","args":["${CLAUDE_PROJECT_DIR}/tools/mcp.js"]},"remote":{"type":"http","url":"https://x"},"pkg":{"command":"npx","args":["-y","@acme/mcp-server"]}}}"#,
+            ),
+            (
+                ".vscode/mcp.json",
+                r#"{"servers":{"svc":{"command":"tsx","args":["server.ts"],"cwd":"${workspaceFolder}/packages/svc"}}}"#,
+            ),
+            (
+                ".codex/config.toml",
+                "[mcp_servers.docs]\ncommand = \"node\"\nargs = [\"scripts/docs-mcp.mjs\"]\n",
+            ),
+        ],
+        &[],
+    );
+    let out = output(&results, "mcp");
+    assert_entries(
+        &out.entries,
+        &["./tools/mcp.js", "packages/svc/server.ts", "scripts/docs-mcp.mjs"],
+    );
+    assert!(
+        out.referenced_dependencies
+            .iter()
+            .any(|d| d.name == "@acme/mcp-server" && d.optional),
+        "{out:?}"
+    );
+    let nested = resolve_with(&[(".mcp.json", "{}")], &[], false, &IndexMap::new());
+    assert!(!nested.iter().any(|(id, _)| *id == "mcp"), "root only");
+    let none = resolve(&[], &[]);
+    assert!(!none.iter().any(|(id, _)| *id == "mcp"));
+}
+
+#[test]
+fn mdxlint_plugins_are_remark_packages() {
+    let results = resolve(
+        &[(
+            ".mdxlintrc.json",
+            r#"{"plugins":["lint-no-dead-urls",["remark-lint-heading-style","atx"],"mdxlint-plugin-x","@acme/remark-y","./local-plugin.js"]}"#,
+        )],
+        &["mdxlint"],
+    );
+    let out = output(&results, "mdxlint");
+    assert_deps(
+        out,
+        &[
+            "remark-lint-no-dead-urls",
+            "remark-lint-heading-style",
+            "mdxlint-plugin-x",
+            "@acme/remark-y",
+        ],
+    );
+    assert_entries(&out.entries, &["local-plugin.js"]);
+}
+
+#[test]
+fn npm_package_json_lint_extends() {
+    let results = resolve(
+        &[(
+            ".npmpackagejsonlintrc.json",
+            r#"{"extends":"npm-package-json-lint-config-default","rules":{}}"#,
+        )],
+        &["npm-package-json-lint"],
+    );
+    let out = output(&results, "npm-package-json-lint");
+    assert_deps(out, &["npm-package-json-lint-config-default"]);
+    assert!(out.provided_binaries.contains(&"npmPkgJsonLint".to_owned()));
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","npmpackagejsonlint":{"extends":["@acme/npmpkgjsonlint-config"]}}"#,
+    );
+    let results = resolve(&[manifest], &["npm-package-json-lint"]);
+    assert_deps(
+        output(&results, "npm-package-json-lint"),
+        &["@acme/npmpkgjsonlint-config"],
+    );
+}
+
+#[test]
+fn osls_reads_serverless_config() {
+    let results = resolve(
+        &[(
+            "serverless.yml",
+            "service: x\nplugins:\n  - serverless-offline\nfunctions:\n  api:\n    handler: src/api.handler\n",
+        )],
+        &["osls"],
+    );
+    let out = output(&results, "osls");
+    assert_deps(out, &["serverless-offline"]);
+    assert!(out.entries.iter().any(|entry| entry.starts_with("src/api")), "{out:?}");
+}
+
+#[test]
+fn playwright_test_first_positional_is_an_entry() {
+    let results = resolve_with_scripts(
+        &[],
+        &["playwright-test"],
+        &[
+            ("test", "playwright-test test/browser.test.js --runner mocha"),
+            ("glob", "pw-test 'test/**/*.spec.js' --mode worker"),
+            ("install", "playwright-test install"),
+        ],
+    );
+    let out = output(&results, "playwright-test");
+    assert_entries(&out.entries, &["test/browser.test.js", "test/**/*.spec.js"]);
+    assert!(!out.entries.iter().any(|entry| entry == "install"), "{:?}", out.entries);
+}
+
+#[test]
+fn raycast_commands_and_tools() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"ext","commands":[{"name":"search","mode":"view"},{"name":"../x"}],"tools":[{"name":"lookup"}],"dependencies":{"@raycast/api":"1"}}"#,
+    );
+    let results = resolve(&[manifest], &["@raycast/api"]);
+    let out = output(&results, "raycast");
+    assert_entries(
+        &out.production_entries,
+        &["src/search.{js,jsx,ts,tsx}", "src/tools/lookup.{js,jsx,ts,tsx}"],
+    );
+    assert_eq!(out.production_entries.len(), 2, "{:?}", out.production_entries);
+}
+
+#[test]
+fn react_cosmos_fixtures_dir_and_suffix() {
+    let results = resolve(
+        &[(
+            "cosmos.config.json",
+            r#"{"fixturesDir":"cosmos","fixtureFileSuffix":"story","plugins":["react-cosmos-plugin-vite"]}"#,
+        )],
+        &["react-cosmos"],
+    );
+    let out = output(&results, "react-cosmos");
+    assert_entries(
+        &out.entries,
+        &[
+            "cosmos/**/*.{js,jsx,ts,tsx,md,mdx}",
+            "cosmos/**/*.story.{js,jsx,ts,tsx,md,mdx}",
+            "**/*.fixture.{js,jsx,ts,tsx,md,mdx}",
+        ],
+    );
+    assert_deps(out, &["react-cosmos-plugin-vite"]);
+}
+
+#[test]
+fn tsrs_reads_tsconfig() {
+    let results = resolve(
+        &[(
+            "tsconfig.json",
+            r#"{"extends":"@tsconfig/node20/tsconfig.json","compilerOptions":{"types":["node"]}}"#,
+        )],
+        &["tsrs"],
+    );
+    let out = output(&results, "tsrs");
+    assert_deps(out, &["@tsconfig/node20"]);
+    assert!(out.provided_binaries.contains(&"tsrs".to_owned()));
+}
+
+#[test]
+fn varlock_decorators_of_env_files() {
+    let manifest = ("package.json", r#"{"name":"app","varlock":{"loadPath":"./env/"}}"#);
+    let results = resolve_with_scripts(
+        &[
+            manifest,
+            (
+                "env/.env.schema",
+                "# @plugin(@varlock/1password-plugin)\n# @plugin(./plugins/custom.ts)\n# @import(../shared/.env.shared)\n# ---\n\n# @sensitive\nAPI_KEY=\n",
+            ),
+            ("shared/.env.shared", "# @plugin(varlock-plugin-shared)\n\nX=1\n"),
+            ("config/.env.ci", "# @plugin(varlock-plugin-ci, enabled=false)\n\nY=1\n"),
+            (
+                "config/.env.extra",
+                "# @plugin(varlock-plugin-extra)\n# ---\n# @plugin(not-root)\nZ=1\n",
+            ),
+            (".env", "# @plugin(varlock-plugin-default)\n"),
+        ],
+        &["varlock"],
+        &[
+            ("start", "varlock run -- node server.js"),
+            ("ci", "varlock load --path config/"),
+        ],
+    );
+    let out = output(&results, "varlock");
+    assert_deps(
+        out,
+        &[
+            "@varlock/1password-plugin",
+            "varlock-plugin-shared",
+            "varlock-plugin-extra",
+        ],
+    );
+    assert_absent(out, &["varlock-plugin-ci", "varlock-plugin-default", "not-root"]);
+    assert_entries(&out.production_entries, &["env/plugins/custom.ts"]);
+    assert_entries(&out.entries, &["server.js"]);
+    let defaults = resolve(&[(".env", "# @plugin(varlock-plugin-default)\n")], &["varlock"]);
+    assert_deps(output(&defaults, "varlock"), &["varlock-plugin-default"]);
+}
+
+#[test]
+fn yorkie_git_hooks_are_scripts() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","gitHooks":{"pre-commit":"lint-staged","commit-msg":"node scripts/verify-commit.js"}}"#,
+    );
+    let results = resolve(&[manifest], &["yorkie"]);
+    let out = output(&results, "yorkie");
+    assert!(out.referenced_binaries.contains(&"lint-staged".to_owned()));
+    assert_entries(&out.entries, &["scripts/verify-commit.js"]);
+    assert_deps(out, &["yorkie"]);
+}
+
+#[test]
+fn filesystem_routing_dir_and_extensions() {
+    let results = resolve(
+        &[(
+            "vite.config.ts",
+            r#"import routes from "filesystem-routing/vite";
+export default { root: "app", plugins: [routes({ dir: "pages", extensions: ["tsx"] })] };"#,
+        )],
+        &["filesystem-routing"],
+    );
+    assert_entries(
+        &output(&results, "filesystem-routing").production_entries,
+        &["app/pages/**/*.tsx"],
+    );
+    let results = resolve(
+        &[("vite.config.ts", "export default { root: 'web' };")],
+        &["filesystem-routing"],
+    );
+    assert_entries(
+        &output(&results, "filesystem-routing").production_entries,
+        &["web/src/routes/**/*.{js,jsx,ts,tsx,tsrx}"],
+    );
+}
+
+#[test]
+fn flue_modules_and_agents() {
+    let results = resolve(
+        &[
+            (
+                "flue.config.ts",
+                r#"export default { app: "./server/app.ts", agents: "bots/*.ts" };"#,
+            ),
+            ("src/db.ts", ""),
+        ],
+        &["@flue/runtime"],
+    );
+    let out = output(&results, "flue");
+    assert_entries(
+        &out.production_entries,
+        &["server/app.ts", "src/db.{ts,mts,js,mjs}", "src/bots/*.ts"],
+    );
+}
+
+#[test]
+fn laravel_vite_plugin_inputs() {
+    let results = resolve(
+        &[(
+            "vite.config.js",
+            r#"import { defineConfig } from "vite";
+import laravel from "laravel-vite-plugin";
+export default defineConfig({ plugins: [laravel({ input: ["resources/css/app.css", "resources/js/app.js"], ssr: "resources/js/ssr.js" })] });"#,
+        )],
+        &["laravel-vite-plugin"],
+    );
+    assert_entries(
+        &output(&results, "laravel-vite-plugin").production_entries,
+        &["resources/css/app.css", "resources/js/app.js", "resources/js/ssr.js"],
+    );
+}
+
+#[test]
+fn railway_service_commands() {
+    let manifest = ("package.json", r#"{"name":"app","repository":"github:acme/app"}"#);
+    let results = resolve(
+        &[
+            manifest,
+            (
+                ".railway/railway.ts",
+                r#"import { service } from "railway/iac";
+service("api", { root: "services/api", build: "tsc -b", start: "node dist/server.js", deploy: { preDeployCommand: ["node migrate.js"] } });
+service("web", { source: { repo: "acme/app" }, start: "node web.js" });
+service("db", { source: { image: "postgres:16" }, start: "node never.js" });
+service("other", { source: { repo: "https://github.com/else/where" }, start: "node elsewhere.js" });"#,
+            ),
+        ],
+        &["railway"],
+    );
+    let out = output(&results, "railway");
+    assert_entries(
+        &out.entries,
+        &["services/api/dist/server.js", "services/api/migrate.js", "web.js"],
+    );
+    for absent in ["never.js", "elsewhere.js"] {
+        assert!(
+            !out.entries.iter().any(|entry| entry == absent),
+            "{absent}: {:?}",
+            out.entries
+        );
+    }
+}
+
+#[test]
+fn solidjs_vite_plugin_start_entries() {
+    let results = resolve(
+        &[
+            (
+                "vite.config.ts",
+                r#"import { solid } from "@solidjs/vite-plugin";
+export default { plugins: [solid({ ssr: true, start: { app: "./src/root.tsx", middleware: "./src/middleware.ts" }, serverFunctions: { configure: "./src/fns.ts" } })] };"#,
+            ),
+            ("src/entry-server.tsx", ""),
+        ],
+        &["@solidjs/vite-plugin"],
+    );
+    let out = output(&results, "solidjs-vite-plugin");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "src/root.tsx",
+            "src/middleware.ts",
+            "src/fns.ts",
+            "src/Document.{tsx,jsx,tsrx}",
+            "src/entry-server.{tsx,jsx,ts,js,mjs,tsrx}",
+        ],
+    );
+}
+
+#[test]
+fn vite_plugin_pages_and_layouts_dirs() {
+    let config = (
+        "vite.config.ts",
+        r#"import Pages from "vite-plugin-pages";
+import Layouts from "vite-plugin-vue-layouts-next";
+export default { plugins: [Pages({ dirs: ["src/views", { dir: "src/admin", baseRoute: "admin" }] }), Layouts({ layoutsDirs: "src/shells" })] };"#,
+    );
+    let results = resolve(&[config], &["vite-plugin-pages", "vite-plugin-vue-layouts-next"]);
+    let pages = output(&results, "vite-plugin-pages");
+    assert_entries(
+        &pages.production_entries,
+        &[
+            "src/views/**/*.{vue,jsx,tsx,md,mdx}",
+            "src/admin/**/*.{vue,jsx,tsx,md,mdx}",
+        ],
+    );
+    assert!(pages.virtual_modules.contains(&"~pages".to_owned()));
+    assert_entries(
+        &output(&results, "vite-plugin-vue-layouts-next").production_entries,
+        &["src/shells/**/*.vue"],
+    );
+}
+
+#[test]
+fn vite_plus_tasks_and_staged_commands() {
+    let results = resolve(
+        &[(
+            "vite.config.ts",
+            r#"import { defineConfig } from "vite-plus";
+export default defineConfig({
+  run: { tasks: { gen: { command: "node scripts/gen.js" }, check: { command: ["tsc --noEmit"] } } },
+  staged: { "*.ts": "eslint --fix" },
+});"#,
+        )],
+        &["vite-plus"],
+    );
+    let out = output(&results, "vite-plus");
+    assert_entries(&out.entries, &["scripts/gen.js"]);
+    for binary in ["tsc", "eslint"] {
+        assert!(out.referenced_binaries.contains(&binary.to_owned()), "{binary}");
+    }
+}
+
+#[test]
+fn openclaw_is_enabled_by_its_manifest_key() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"plugin","openclaw":{"extensions":["./src/index.ts"],"setupEntry":"./src/setup.ts","channel":{"configuredState":{"specifier":"./src/state.ts"}},"hooks":["./hooks/on-message/"],"build":{"staticAssets":[{"source":"./assets/logo.svg"}]},"assetScripts":{"build":"node scripts/assets.js"}}}"#,
+    );
+    let results = resolve(
+        &[
+            manifest,
+            (
+                "openclaw.plugin.json",
+                r#"{"id":"x","providers":[{"providerCatalogEntry":"./src/catalog.ts"}]}"#,
+            ),
+        ],
+        &[],
+    );
+    let out = output(&results, "openclaw");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "src/index.ts",
+            "src/setup.ts",
+            "src/state.ts",
+            "hooks/on-message/{handler,index}.{ts,js}",
+            "assets/logo.svg",
+            "src/catalog.ts",
+        ],
+    );
+    assert_entries(&out.entries, &["scripts/assets.js"]);
+    let none = resolve(&[], &[]);
+    assert!(!none.iter().any(|(id, _)| *id == "openclaw"));
+}
+
+#[test]
+fn typescript_content_mapper_exec_is_a_script() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","typescript":{"contentMapper":{"exec":["node","scripts/map content.js"]}}}"#,
+    );
+    let results = resolve(&[manifest], &[]);
+    let out = output(&results, "typescript-content-mapper");
+    assert_entries(&out.entries, &["scripts/map content.js"]);
+    let plain = ("package.json", r#"{"name":"app","typescript":{"other":true}}"#);
+    let results = resolve(&[plain], &[]);
+    assert!(!results.iter().any(|(id, _)| *id == "typescript-content-mapper"));
 }

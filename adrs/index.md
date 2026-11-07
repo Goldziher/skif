@@ -59,6 +59,7 @@ old one.
 | 0049 | [JS Corrections from Adjudicating knip Disagreements: Linked Files, Subpath Imports, Aliased Packages, Computed Specifiers, Component Styles and Three Plugins](0049-js-corrections-from-adjudicating-knip-disagreements.md) | accepted |
 | 0050 | [Twenty-One More Plugins: Widely Used Tools, Commands Run From Source and Imported Call Options](0050-twenty-one-more-plugins-and-commands-run-from-source.md) | accepted |
 | 0051 | [Thirty-Five More Plugins: Frameworks, Task Runners and Options Written Anywhere in a Config](0051-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md) | accepted |
+| 0052 | [Thirty-Nine More Plugins and Plugins Enabled by a package.json Key](0052-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md) | accepted |
 
 ## Effective statements
 
@@ -146,3 +147,4 @@ the lines below stay as written; this table says which record governs.
 | [0036](0036-thirty-nine-more-knip-plugins-by-real-world-usage.md), `tap` and plugin count | no `tap` plugin is added because knip has none; the table holds 102 plugins | [0049](0049-js-corrections-from-adjudicating-knip-disagreements.md): `tap`, `oxfmt` and `bun` are added; the table holds 105 plugins |
 | [0049](0049-js-corrections-from-adjudicating-knip-disagreements.md), plugin count | the table holds 105 plugins | [0050](0050-twenty-one-more-plugins-and-commands-run-from-source.md): 21 plugins are added; the table holds 126 plugins |
 | [0050](0050-twenty-one-more-plugins-and-commands-run-from-source.md), plugin count | the table holds 126 plugins | [0051](0051-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md): 35 plugins are added; the table holds 161 plugins |
+| [0051](0051-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md), plugin count | the table holds 161 plugins | [0052](0052-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md): 39 plugins are added; the table holds 200 plugins |

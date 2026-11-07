@@ -613,6 +613,46 @@ pub(crate) fn sources_containing(cx: &PluginContext<'_>, needle: &str) -> Vec<(S
         .collect()
 }
 
+/// The workspace's `package.json`, parsed; `None` when it is missing or not JSON.
+pub(crate) fn manifest(cx: &PluginContext<'_>) -> Option<ConfigValue> {
+    let path = cx.dir.join("package.json");
+    let source = cx.fs.read_to_string(&path).ok()?;
+    crate::config_load::load_config(&path, &source)
+}
+
+/// The directories the `key` option of the last call of a Vite plugin imported from one of `modules` lists in the
+/// config's source: a string, or an array of strings and `{ dir }` objects. `None` when no call sets it.
+pub(crate) fn vite_plugin_dirs(config: &ConfigAst<'_>, modules: &[&str], key: &str) -> Option<Vec<String>> {
+    let mut dirs = None;
+    for call in skif_js_syntax::extract_imported_calls(config.source, config.path, modules, &[]) {
+        let Some(value) = call.arguments.first().and_then(|options| options.get(key)) else {
+            continue;
+        };
+        let collected: Vec<String> = match value {
+            ConfigValue::String(dir) => vec![dir.clone()],
+            ConfigValue::Array(items) => items
+                .iter()
+                .filter_map(|item| item.as_str().or_else(|| item.get("dir").and_then(ConfigValue::as_str)))
+                .map(str::to_owned)
+                .collect(),
+            _ => Vec::new(),
+        };
+        if !collected.is_empty() {
+            dirs = Some(collected);
+        }
+    }
+    dirs
+}
+
+/// The `root` of a Vite config's exported value, relative to the workspace; the workspace itself by default.
+pub(crate) fn vite_root(config: &ConfigAst<'_>) -> String {
+    config
+        .value
+        .get("root")
+        .and_then(ConfigValue::as_str)
+        .map_or_else(String::new, |root| join_rel("", root))
+}
+
 /// The directory of a path relative to the workspace, `""` for a file at the top.
 pub(crate) fn parent_dir(relative: &str) -> &str {
     relative.rsplit_once('/').map_or("", |(dir, _)| dir)
