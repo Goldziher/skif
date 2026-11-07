@@ -170,7 +170,13 @@ fn knip_ts_with_workspaces_plugins_and_a_non_static_value() {
             .any(|note| note.path == "ignoreFiles" && note.class == NoteClass::Approximate),
         "ignoreFiles widens to every rule"
     );
-    assert_eq!(class(&migration, "tags[1]"), NoteClass::Unsupported);
+    assert!(
+        migration
+            .notes
+            .iter()
+            .any(|note| note.path == "tags" && note.class == NoteClass::Exact && note.message.contains("only exports")),
+        "+public limits unused-exports to tagged exports"
+    );
     assert_eq!(class(&migration, "compilers"), NoteClass::Unsupported);
     assert_eq!(
         class(&migration, "workspaces[\"packages/*\"].mystery"),

@@ -362,6 +362,8 @@ pub(crate) struct Setup {
     pub used_in_file: IgnoreExportsUsedInFile,
     /// `JSDoc` tags that exempt an export from `unused-exports` and `unused-types`.
     pub ignore_tags: Vec<String>,
+    /// `JSDoc` tags an export must carry to be reported at all; empty reports every export (knip's `+tag`).
+    pub include_tags: Vec<String>,
 }
 
 /// `pattern`, written relative to the package directory `dir`, relative to the workspace root instead. `None` when it
@@ -447,6 +449,8 @@ fn is_shared_pattern(pattern: &str) -> bool {
 pub(crate) struct UnusedExportsOptions {
     /// `JSDoc` tags that exempt an export.
     pub ignore_tags: Vec<String>,
+    /// `JSDoc` tags that limit the report to the exports carrying one of them.
+    pub include_tags: Vec<String>,
 }
 
 impl Setup {
@@ -460,10 +464,12 @@ impl Setup {
         let js = &config.js;
         let production = js.production;
         let ancestor_dependencies = ancestors::external_dependencies(fs.as_ref(), &workspace.root);
-        let ignore_tags = config
+        let UnusedExportsOptions {
+            ignore_tags,
+            include_tags,
+        } = config
             .rule("unused-exports")
             .and_then(|rule| skif_lint::parse_options::<UnusedExportsOptions>(&rule.options).ok())
-            .map(|options| options.ignore_tags)
             .unwrap_or_default();
         let ignore_workspaces = Listed::directories(&js.ignore_workspaces, production);
         let workspace_keys = WorkspaceKeys::new(&js.workspaces);
@@ -613,6 +619,7 @@ impl Setup {
             include_entry_exports: js.include_entry_exports,
             used_in_file: js.ignore_exports_used_in_file.clone(),
             ignore_tags,
+            include_tags,
         }
     }
 

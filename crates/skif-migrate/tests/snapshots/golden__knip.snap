@@ -52,7 +52,7 @@ unused-dev-dependencies = "error"
 unused-optional-peer-dependencies = "error"
 unlisted-binaries = "error"
 unresolved-imports = "error"
-unused-exports = { level = "error", ignore-tags = ["lintignore"] }
+unused-exports = { level = "error", ignore-tags = ["lintignore"], include-tags = ["public"] }
 unused-namespace-exports = "error"
 unused-types = "error"
 unused-namespace-types = "error"

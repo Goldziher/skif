@@ -209,6 +209,8 @@ struct Plan {
     exclude: Vec<String>,
     rules: Vec<(String, Level)>,
     tags: Vec<String>,
+    /// `+tag` entries: the report is limited to exports with one of these tags.
+    include_tags: Vec<String>,
     hints: Option<Level>,
     include_entry_exports: bool,
     runs: Vec<Run>,
@@ -431,19 +433,22 @@ fn rules(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue, plan
 
 fn tags(state: &mut State<'_>, src: &Src, path: &str, list: &[String], plan: &mut Plan) {
     for (index, tag) in list.iter().enumerate() {
-        if let Some(name) = tag.strip_prefix('-') {
-            plan.tags.push(name.to_owned());
-        } else {
+        let name = tag.trim_start_matches(['-', '+']).trim_start_matches('@');
+        if name.is_empty() {
             state.note_with(
                 src,
                 NoteClass::Unsupported,
                 format!("{path}[{index}]"),
-                format!("`{tag}` limits the report to exports with that tag"),
-                "skif can only ignore exports by tag (`-tag`)",
+                format!("`{tag}` names no tag"),
+                "write the tag name, prefixed with `-` to ignore or `+` to include",
             );
+        } else if tag.starts_with('-') {
+            plan.tags.push(name.to_owned());
+        } else {
+            plan.include_tags.push(name.to_owned());
         }
     }
-    if !plan.tags.is_empty() {
+    if !plan.tags.is_empty() || !plan.include_tags.is_empty() {
         plan.origin(path.to_owned());
     }
 }
@@ -1023,6 +1028,18 @@ fn js_settings(state: &mut State<'_>, src: &Src, plan: &Plan) {
             format!(
                 "exports tagged {} are ignored by `unused-exports`",
                 plan.tags.join(", ")
+            ),
+        );
+    }
+    if !plan.include_tags.is_empty() {
+        state.add_include_tags("unused-exports", plan.include_tags.iter().cloned());
+        state.note(
+            src,
+            NoteClass::Exact,
+            "tags",
+            format!(
+                "only exports tagged {} are reported by `unused-exports`",
+                plan.include_tags.join(", ")
             ),
         );
     }
