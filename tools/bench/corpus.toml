@@ -11,6 +11,7 @@
 #   install-timeout-secs  optional install time limit, replacing the global --timeout-secs for the install only
 #   recursive        true when skif must run with --recursive here (nested roots that are not workspace members)
 #   knip-unread      path prefixes knip does not read here; one-sided findings below them are a known deviation
+#   entry            entry files of the root workspace neither tool finds (globs); both get them besides their defaults
 #   notes            why the repository is in the corpus and what to expect from it
 
 [tools]
@@ -117,6 +118,38 @@ rev = "6b7063d8883d0d6af80246f2f79df95cb8251059"
 package-manager = "pnpm"
 suites = ["parity"]
 recursive = true
+# The entry points build/next/index.ts bundles for every target (the workbench, workers, shared and utility
+# processes); nothing imports them, so without them both tools report the workbench as unused.
+entry = [
+  "src/vs/code/browser/workbench/workbench.ts",
+  "src/vs/code/electron-browser/workbench/workbench.ts",
+  "src/vs/code/electron-utility/sharedProcess/sharedProcessMain.ts",
+  "src/vs/code/node/cliProcessMain.ts",
+  "src/vs/editor/common/services/editorWebWorkerMain.ts",
+  "src/vs/platform/agentHost/node/agentHostMain.ts",
+  "src/vs/platform/agentHost/node/diffWorkerMain.ts",
+  "src/vs/platform/files/node/watcher/watcherMain.ts",
+  "src/vs/platform/localTranscription/node/localTranscriptionMain.ts",
+  "src/vs/platform/profiling/electron-browser/profileAnalysisWorkerMain.ts",
+  "src/vs/platform/terminal/node/ptyHostMain.ts",
+  "src/vs/sessions/electron-browser/sessions.ts",
+  "src/vs/sessions/sessions.desktop.main.ts",
+  "src/vs/sessions/sessions.web.main.internal.ts",
+  "src/vs/workbench/api/node/extensionHostProcess.ts",
+  "src/vs/workbench/api/worker/extensionHostWorkerMain.ts",
+  "src/vs/workbench/contrib/debug/node/telemetryApp.ts",
+  "src/vs/workbench/contrib/mediaPreview/browser/imageEncoderWorkerMain.ts",
+  "src/vs/workbench/contrib/notebook/common/services/notebookWebWorkerMain.ts",
+  "src/vs/workbench/contrib/output/common/outputLinkComputerMain.ts",
+  "src/vs/workbench/services/keybinding/browser/keyboardLayouts/layout.contribution.darwin.ts",
+  "src/vs/workbench/services/keybinding/browser/keyboardLayouts/layout.contribution.linux.ts",
+  "src/vs/workbench/services/keybinding/browser/keyboardLayouts/layout.contribution.win.ts",
+  "src/vs/workbench/services/languageDetection/browser/languageDetectionWebWorkerMain.ts",
+  "src/vs/workbench/services/search/worker/localFileSearchMain.ts",
+  "src/vs/workbench/services/textMate/browser/backgroundTokenization/worker/textMateTokenizationWorker.workerMain.ts",
+  "src/vs/workbench/workbench.desktop.main.ts",
+  "src/vs/workbench/workbench.web.main.internal.ts",
+]
 notes = "Very large application tree; extensions/copilot is a nested root with its own workspace."
 
 [[repo]]

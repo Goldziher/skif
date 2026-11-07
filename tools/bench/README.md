@@ -112,7 +112,11 @@ no JSON. Without `--install` the run is quick but dominated by that noise; the b
 **Scope.** knip runs with an empty configuration (`--config` to a `{}` file in the scratch directory), so a repository's
 own ignores and disabled issue types do not hide findings; `--repo-knip-config` uses the repository's own. skif runs with
 `--recursive` on repositories that set `recursive = true` in `corpus.toml` (nested roots that are not workspace members),
-or on all with `--recursive`; paths stay relative to the start directory, as in knip's report. Enum and namespace
+or on all with `--recursive`; paths stay relative to the start directory, as in knip's report. A repository's `entry`
+list in `corpus.toml` names entry files of the root workspace that neither tool finds by itself (vscode's workbench and
+workers, which only its bundler script names); both tools get them after their shared defaults (`[js.workspaces."."]`
+in a `--config` file for skif, `workspaces["."].entry` in knip's configuration), so the files only they reach are no
+longer reported as unused on both sides. Enum and namespace
 members are keyed by the member name on both sides. knip's stdout may carry banners around its JSON; the first object
 that is a knip report is used.
 
