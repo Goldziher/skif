@@ -17,7 +17,7 @@ pub enum ImportKind {
     SideEffect,
     /// `import("x")` with a literal specifier.
     Dynamic,
-    /// `require("x")`, `require.resolve("x")` and `import x = require("x")`.
+    /// `require("x")`, `require.resolve("x")`, `import.meta.resolve("x")` and `import x = require("x")`.
     Require,
     /// One pattern of `import.meta.glob(...)`, or the glob of a computed relative `require` or `import()`
     /// (`./commands/${name}`): a glob, not a module specifier.
