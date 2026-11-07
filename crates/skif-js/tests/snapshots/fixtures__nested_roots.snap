@@ -1,0 +1,194 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: nested_roots()
+---
+[
+  [
+    "",
+    []
+  ],
+  [
+    "build",
+    [
+      {
+        "rule": "unused-dev-dependencies",
+        "severity": "warning",
+        "message": "`vinyl` is listed in `devDependencies` but never used",
+        "help": "remove it, or add it to `ignore-dependencies` when a tool uses it without importing it",
+        "location": {
+          "path": "package.json",
+          "span": {
+            "start": 67,
+            "end": 83,
+            "start-line": 5,
+            "start-col": 5,
+            "end-line": 5,
+            "end-col": 21
+          }
+        },
+        "package": "build",
+        "dependency": "vinyl",
+        "fixes": [
+          {
+            "title": "Remove `vinyl` from `devDependencies`",
+            "safety": "unsafe",
+            "ops": [
+              {
+                "json": {
+                  "path": "package.json",
+                  "pointer": [
+                    {
+                      "key": "devDependencies"
+                    },
+                    {
+                      "key": "vinyl"
+                    }
+                  ],
+                  "action": "remove"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "rule": "unused-files",
+        "severity": "warning",
+        "message": "`hygiene.ts` is not reachable from any entry file",
+        "help": "delete it, or add it to `entry` when a tool loads it",
+        "location": {
+          "path": "hygiene.ts"
+        },
+        "package": "build",
+        "fixes": [
+          {
+            "title": "Delete `hygiene.ts`",
+            "safety": "unsafe",
+            "ops": [
+              {
+                "delete-file": {
+                  "path": "hygiene.ts"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "rule": "unused-files",
+        "severity": "warning",
+        "message": "`lib/orphan.ts` is not reachable from any entry file",
+        "help": "delete it, or add it to `entry` when a tool loads it",
+        "location": {
+          "path": "lib/orphan.ts"
+        },
+        "package": "build",
+        "fixes": [
+          {
+            "title": "Delete `lib/orphan.ts`",
+            "safety": "unsafe",
+            "ops": [
+              {
+                "delete-file": {
+                  "path": "lib/orphan.ts"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "rule": "unused-files",
+        "severity": "warning",
+        "message": "`npm/helper.ts` is not reachable from any entry file",
+        "help": "delete it, or add it to `entry` when a tool loads it",
+        "location": {
+          "path": "npm/helper.ts"
+        },
+        "package": "build",
+        "fixes": [
+          {
+            "title": "Delete `npm/helper.ts`",
+            "safety": "unsafe",
+            "ops": [
+              {
+                "delete-file": {
+                  "path": "npm/helper.ts"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "rule": "unused-files",
+        "severity": "warning",
+        "message": "`npm/postinstall.ts` is not reachable from any entry file",
+        "help": "delete it, or add it to `entry` when a tool loads it",
+        "location": {
+          "path": "npm/postinstall.ts"
+        },
+        "package": "build",
+        "fixes": [
+          {
+            "title": "Delete `npm/postinstall.ts`",
+            "safety": "unsafe",
+            "ops": [
+              {
+                "delete-file": {
+                  "path": "npm/postinstall.ts"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ],
+  [
+    "remote",
+    [
+      {
+        "rule": "unused-dependencies",
+        "severity": "error",
+        "message": "`express` is listed in `dependencies` but never used",
+        "help": "remove it, or add it to `ignore-dependencies` when a tool uses it without importing it",
+        "location": {
+          "path": "package.json",
+          "span": {
+            "start": 65,
+            "end": 84,
+            "start-line": 5,
+            "start-col": 5,
+            "end-line": 5,
+            "end-col": 24
+          }
+        },
+        "package": "remote",
+        "dependency": "express",
+        "fixes": [
+          {
+            "title": "Remove `express` from `dependencies`",
+            "safety": "unsafe",
+            "ops": [
+              {
+                "json": {
+                  "path": "package.json",
+                  "pointer": [
+                    {
+                      "key": "dependencies"
+                    },
+                    {
+                      "key": "express"
+                    }
+                  ],
+                  "action": "remove"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  ]
+]
