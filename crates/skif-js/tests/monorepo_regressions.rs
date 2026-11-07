@@ -302,3 +302,55 @@ fn bundler_extensions_apply_to_the_package_that_declares_them() {
         "{diagnostics:#?}"
     );
 }
+
+/// A package reached from `src/main.ts` only, where `src/role-selector.ts` imports exports of `src/store.ts` but no
+/// entry reaches it. `published` is the `main` of the manifest.
+fn incomplete_entries_workspace(published: &str) -> Vec<(&'static str, String)> {
+    let package = manifest(&format!(
+        r#""name":"web","version":"1.0.0","private":true,{PNPM},"main":"{published}","scripts":{{"start":"node src/main.ts"}}"#
+    ));
+    vec![
+        ("package.json", package),
+        (
+            "src/main.ts",
+            "import { createStore } from './store';\ncreateStore();\n".to_owned(),
+        ),
+        (
+            "src/store.ts",
+            "export enum InviteRole { Admin, Member }\nexport type Invite = { role: InviteRole };\nexport function createStore() {}\n"
+                .to_owned(),
+        ),
+        (
+            "src/role-selector.ts",
+            "import { InviteRole, type Invite } from './store';\nexport const pick = (invite: Invite) => invite.role === InviteRole.Admin;\n"
+                .to_owned(),
+        ),
+    ]
+}
+
+#[test]
+fn exports_and_types_are_not_judged_in_a_package_with_incomplete_entries() {
+    // `dist/server.js` maps to no source, so the package's real entries are unknown and `role-selector.ts` may be one.
+    let diagnostics = lint_owned(&incomplete_entries_workspace("./dist/server.js"));
+    for rule in ["unused-files", "unused-exports", "unused-types", "unused-enum-members"] {
+        assert_eq!(found(&diagnostics, rule), none(), "{rule}: {diagnostics:#?}");
+    }
+
+    // With entries that are fully known, the same exports are reported.
+    let diagnostics = lint_owned(&incomplete_entries_workspace("./src/main.ts"));
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["src/role-selector.ts: src/role-selector.ts"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-exports"),
+        ["src/store.ts: InviteRole"],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-types"),
+        ["src/store.ts: Invite"],
+        "{diagnostics:#?}"
+    );
+}
