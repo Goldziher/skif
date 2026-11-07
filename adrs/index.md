@@ -57,6 +57,7 @@ old one.
 | 0047 | [npm Package Name skif-cli](0047-npm-package-name-skif-cli.md) | accepted |
 | 0048 | [Catalog Version Divergence and Reasons on Ignores](0048-catalog-version-divergence-and-reasons-on-ignores.md) | accepted |
 | 0049 | [JS Corrections from Adjudicating knip Disagreements: Linked Files, Subpath Imports, Aliased Packages, Computed Specifiers, Component Styles and Three Plugins](0049-js-corrections-from-adjudicating-knip-disagreements.md) | accepted |
+| 0050 | [The Rest of syncpack's Surface: `list` and `json`, Dry-Run Fixes, Instance Filters, `semver-range-only`, `name~version` and `lerna.json`](0050-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md) | accepted |
 
 ## Effective statements
 
@@ -142,3 +143,4 @@ the lines below stay as written; this table says which record governs.
 | [0013](0013-distribution-and-naming.md), npm row | the npm umbrella package is `skif` | [0047](0047-npm-package-name-skif-cli.md): it is `skif-cli` |
 | [0018](0018-npm-distribution-via-napi-rs.md), package name | the npm package is `skif` and the hooks run `pnpm dlx skif@<version>` | [0047](0047-npm-package-name-skif-cli.md): `skif-cli`, with `napi.packageName` keeping the platform packages |
 | [0036](0036-thirty-nine-more-knip-plugins-by-real-world-usage.md), `tap` and plugin count | no `tap` plugin is added because knip has none; the table holds 102 plugins | [0049](0049-js-corrections-from-adjudicating-knip-disagreements.md): `tap`, `oxfmt` and `bun` are added; the table holds 105 plugins |
+| [0037](0037-override-sections-custom-types-and-ignored-semver-groups.md), "Custom types" and "Deferred" | the `name~version` strategy and `semverRangeOnly` are not supported | [0050](0050-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md): `name~version` with `name-path` and the `semver-range-only` policy are supported; `source` stays unsupported |

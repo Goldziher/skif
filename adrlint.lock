@@ -245,3 +245,8 @@ blake3 = "7137af869a1a8ec1124a68a0e29841801ffa77964cbb1a8485a5ab3a38818378"
 number = 49
 status = "accepted"
 blake3 = "57ee9ff85eda7dc829451d63690e462fb1d7e1dbf3a9c19ce039ae63c232cd0e"
+
+[adrs."adrs/0050-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md"]
+number = 50
+status = "accepted"
+blake3 = "612241edc0166e18ece11a79359ff5145134138493757ae6802161bac97dfe53"
