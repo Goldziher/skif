@@ -5,16 +5,17 @@ use crate::plugins::{
     angular, astro, ava, aws_cdk, babel, biome, browser_extension, bun, c8, changesets, commitizen, commitlint, cspell,
     cypress, dependency_cruiser, docusaurus, dotenv, drizzle, electron_forge, electron_vite, esbuild, eslint, expo,
     expo_router, gatsby, github_action, github_actions, graphql_codegen, husky, i18next_parser, jasmine, jest, karma,
-    knex, lefthook, lingui, lint_staged, markdownlint, mastra, metro, mocha, msw, nest, netlify, next, next_intl,
-    nitro, node, nodemon, nuxt, nx, nyc, oclif, oxfmt, oxlint, panda_css, parcel, playwright, plop, pm2, pnpm, postcss,
-    pre_commit, preconstruct, prettier, prisma, react_native, react_router, release_it, remark, remix, rolldown,
-    rollup, rsbuild, rslib, rspack, sanity, semantic_release, sentry, serverless_framework, simple_git_hooks,
-    size_limit, storybook, stryker, stylelint, svelte, sveltekit, svgo, svgr, swc, syncpack, tailwind, tanstack_router,
-    tap, ts_node, tsd, tsdown, tsup, tsx, turbo, typedoc, typescript, unbuild, unocss, vercel, vike, vite, vitepress,
-    vitest, webdriver_io, webpack, wrangler, yarn,
+    knex, lefthook, lingui, lint_staged, markdownlint, mastra, mdx, metro, mocha, msw, nest, netlify, next, next_intl,
+    next_mdx, nitro, node, nodemon, nuxt, nx, nyc, oclif, oxfmt, oxlint, panda_css, parcel, playwright, plop, pm2,
+    pnpm, postcss, pre_commit, preconstruct, prettier, prisma, react_native, react_router, release_it, remark, remix,
+    rolldown, rollup, rsbuild, rslib, rspack, sanity, semantic_release, sentry, serverless_framework, simple_git_hooks,
+    size_limit, starlight, storybook, stryker, stylelint, svelte, sveltekit, svgo, svgr, swc, syncpack, tailwind,
+    tanstack_router, tap, ts_node, tsd, tsdown, tsup, tsx, turbo, typedoc, typescript, unbuild, unocss,
+    unplugin_auto_import, unplugin_vue_components, unplugin_vue_router, vercel, vike, vite, vitepress, vitest, vue,
+    webdriver_io, webpack, wrangler, yarn,
 };
 
-static PLUGINS: [&dyn Plugin; 113] = [
+static PLUGINS: [&dyn Plugin; 120] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -128,6 +129,13 @@ static PLUGINS: [&dyn Plugin; 113] = [
     &electron_forge::ElectronForge,
     &serverless_framework::ServerlessFramework,
     &github_action::GithubAction,
+    &vue::Vue,
+    &unplugin_auto_import::UnpluginAutoImport,
+    &unplugin_vue_components::UnpluginVueComponents,
+    &unplugin_vue_router::UnpluginVueRouter,
+    &mdx::Mdx,
+    &next_mdx::NextMdx,
+    &starlight::Starlight,
 ];
 
 /// Every plugin, in the order of the table (ADR 0011, ADR 0022, ADR 0025, ADR 0029).
