@@ -1,0 +1,5 @@
+{
+  "name": "templates",
+  "private": true,
+  "main": "src/index.ts"
+}
