@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 198] = [
+const ADR_IDS: [&str; 200] = [
     "typescript",
     "eslint",
     "prettier",
@@ -213,6 +213,8 @@ const ADR_IDS: [&str; 198] = [
     "vite-plugin-pages",
     "vite-plugin-vue-layouts-next",
     "vite-plus",
+    "openclaw",
+    "typescript-content-mapper",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -4427,4 +4429,51 @@ export default defineConfig({
     for binary in ["tsc", "eslint"] {
         assert!(out.referenced_binaries.contains(&binary.to_owned()), "{binary}");
     }
+}
+
+#[test]
+fn openclaw_is_enabled_by_its_manifest_key() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"plugin","openclaw":{"extensions":["./src/index.ts"],"setupEntry":"./src/setup.ts","channel":{"configuredState":{"specifier":"./src/state.ts"}},"hooks":["./hooks/on-message/"],"build":{"staticAssets":[{"source":"./assets/logo.svg"}]},"assetScripts":{"build":"node scripts/assets.js"}}}"#,
+    );
+    let results = resolve(
+        &[
+            manifest,
+            (
+                "openclaw.plugin.json",
+                r#"{"id":"x","providers":[{"providerCatalogEntry":"./src/catalog.ts"}]}"#,
+            ),
+        ],
+        &[],
+    );
+    let out = output(&results, "openclaw");
+    assert_entries(
+        &out.production_entries,
+        &[
+            "src/index.ts",
+            "src/setup.ts",
+            "src/state.ts",
+            "hooks/on-message/{handler,index}.{ts,js}",
+            "assets/logo.svg",
+            "src/catalog.ts",
+        ],
+    );
+    assert_entries(&out.entries, &["scripts/assets.js"]);
+    let none = resolve(&[], &[]);
+    assert!(!none.iter().any(|(id, _)| *id == "openclaw"));
+}
+
+#[test]
+fn typescript_content_mapper_exec_is_a_script() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"app","typescript":{"contentMapper":{"exec":["node","scripts/map content.js"]}}}"#,
+    );
+    let results = resolve(&[manifest], &[]);
+    let out = output(&results, "typescript-content-mapper");
+    assert_entries(&out.entries, &["scripts/map content.js"]);
+    let plain = ("package.json", r#"{"name":"app","typescript":{"other":true}}"#);
+    let results = resolve(&[plain], &[]);
+    assert!(!results.iter().any(|(id, _)| *id == "typescript-content-mapper"));
 }

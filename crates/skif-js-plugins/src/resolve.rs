@@ -33,7 +33,8 @@ pub fn resolve_plugins(ctx: &PluginContext<'_>) -> Vec<(PluginId, PluginOutput)>
         .filter_map(|&plugin| {
             let spec = plugin.spec();
             let setting = ctx.plugins.get(spec.id);
-            is_enabled(spec, setting, ctx).then(|| (spec.id, run_plugin(plugin, setting, ctx, manifest.as_ref())))
+            is_enabled(spec, setting, ctx, manifest.as_ref())
+                .then(|| (spec.id, run_plugin(plugin, setting, ctx, manifest.as_ref())))
         })
         .collect()
 }
@@ -44,20 +45,29 @@ fn read_manifest(ctx: &PluginContext<'_>) -> Option<ConfigValue> {
     Some(from_json(&value))
 }
 
-fn is_enabled(spec: &PluginSpec, setting: Option<&PluginConfig>, ctx: &PluginContext<'_>) -> bool {
+fn is_enabled(
+    spec: &PluginSpec,
+    setting: Option<&PluginConfig>,
+    ctx: &PluginContext<'_>,
+    manifest: Option<&ConfigValue>,
+) -> bool {
     let forced = match setting {
         Some(PluginConfig::Enabled(enabled)) => Some(*enabled),
         Some(PluginConfig::Options(options)) => options.enabled,
         _ => None,
     };
-    forced.unwrap_or_else(|| detected(spec, ctx))
+    forced.unwrap_or_else(|| detected(spec, ctx, manifest))
 }
 
-fn detected(spec: &PluginSpec, ctx: &PluginContext<'_>) -> bool {
-    (ctx.is_root || !spec.root_only) && spec.enablers.iter().any(|enabler| enabler_matches(enabler, ctx))
+fn detected(spec: &PluginSpec, ctx: &PluginContext<'_>, manifest: Option<&ConfigValue>) -> bool {
+    (ctx.is_root || !spec.root_only)
+        && spec
+            .enablers
+            .iter()
+            .any(|enabler| enabler_matches(enabler, ctx, manifest))
 }
 
-fn enabler_matches(enabler: &Enabler, ctx: &PluginContext<'_>) -> bool {
+fn enabler_matches(enabler: &Enabler, ctx: &PluginContext<'_>, manifest: Option<&ConfigValue>) -> bool {
     match *enabler {
         Enabler::Always => true,
         Enabler::Dependency(name) => ctx.has_dependency_in_ancestors(name),
@@ -70,6 +80,11 @@ fn enabler_matches(enabler: &Enabler, ctx: &PluginContext<'_>) -> bool {
         Enabler::ManifestNameContains(text) => ctx.package_name.is_some_and(|n| n.contains(text)),
         Enabler::File(glob) => !find_files(ctx.fs, ctx.dir, &[glob.to_string()]).is_empty(),
         Enabler::Script(text) => ctx.scripts.values().any(|script| script.contains(text)),
+        Enabler::ManifestKey(key) => manifest.is_some_and(|manifest| {
+            key.split('.')
+                .try_fold(manifest, |value, part| value.get(part))
+                .is_some()
+        }),
     }
 }
 
