@@ -7,4 +7,4 @@ The oxc boundary of [skif](https://github.com/Goldziher/skif): one JavaScript or
   in-file references to exports, and CommonJS/JSX/directive hints.
 - `extract_config_object` statically evaluates the object a tool config file exports. Nothing is ever executed.
 
-No oxc type appears in the public API; the oxc crates are pinned exactly (see ADR 0010).
+No oxc type appears in the public API; the oxc crates are held to one release (see ADR 0010).
