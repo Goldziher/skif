@@ -123,6 +123,8 @@ pub struct FileRef {
     pub path: String,
     /// Byte range of the path in the parsed script.
     pub span: Range<usize>,
+    /// A test runner reads the path, so a directory stands for every file below it (`mocha build/test`).
+    pub tree: bool,
 }
 
 /// A package the script needs that is not a binary name.

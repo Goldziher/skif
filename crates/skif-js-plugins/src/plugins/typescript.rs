@@ -80,14 +80,18 @@ impl Plugin for Typescript {
             }
         }
         out.extend(paths(options, config));
-        if let (Some(out_dir), Some(root_dir)) = (
-            options.get("outDir").and_then(ConfigValue::as_str),
-            options.get("rootDir").and_then(ConfigValue::as_str),
-        ) {
-            out.push(PluginInput::BuildDir {
-                out_dir: config.join(out_dir),
-                root_dir: config.join(root_dir),
-            });
+        if let Some(out_dir) = options.get("outDir").and_then(ConfigValue::as_str) {
+            let root_dir = options
+                .get("rootDir")
+                .and_then(ConfigValue::as_str)
+                .map(str::to_owned)
+                .or_else(|| inferred_root_dir(value));
+            if let Some(root_dir) = root_dir {
+                out.push(PluginInput::BuildDir {
+                    out_dir: config.join(out_dir),
+                    root_dir: config.join(&root_dir),
+                });
+            }
         }
         if let Some(conditions) = options.get("customConditions") {
             out.extend(
@@ -148,6 +152,62 @@ fn paths(options: &ConfigValue, config: &ConfigAst<'_>) -> Vec<PluginInput> {
     }
     out.extend(base_url.map(|base_url| PluginInput::ModuleDir(config.join(base_url))));
     out
+}
+
+/// The `rootDir` TypeScript uses when a config sets none: the longest common directory of its input files, here
+/// approximated from the `include` and `files` the config lists. An `include` pattern stands for its directory part
+/// before the first wildcard, and a listed file for its directory; declaration files are not inputs and are skipped.
+/// Without `include` or `files` the inputs are not known statically, and the `dist` to `src` convention applies.
+fn inferred_root_dir(value: &ConfigValue) -> Option<String> {
+    let mut roots = Vec::new();
+    for pattern in value.get("include").map(strings).unwrap_or_default() {
+        if is_declaration(pattern) {
+            continue;
+        }
+        let segments: Vec<&str> = pattern.split('/').collect();
+        let wildcard = segments
+            .iter()
+            .position(|segment| segment.contains(['*', '?', '{', '[']));
+        let directory = match wildcard {
+            Some(at) => &segments[..at],
+            // A pattern without a wildcard names a directory, or a file when it has an extension.
+            None if segments
+                .last()
+                .is_some_and(|last| last.contains('.') && *last != "." && *last != "..") =>
+            {
+                &segments[..segments.len() - 1]
+            }
+            None => &segments[..],
+        };
+        roots.push(join_rel("", &directory.join("/")));
+    }
+    for file in value.get("files").map(strings).unwrap_or_default() {
+        if is_declaration(file) {
+            continue;
+        }
+        roots.push(join_rel(
+            "",
+            file.rsplit_once('/').map_or("", |(directory, _)| directory),
+        ));
+    }
+    let (first, rest) = roots.split_first()?;
+    let mut common: Vec<&str> = first.split('/').filter(|segment| !segment.is_empty()).collect();
+    for root in rest {
+        let segments: Vec<&str> = root.split('/').filter(|segment| !segment.is_empty()).collect();
+        let shared = common.iter().zip(&segments).take_while(|(a, b)| a == b).count();
+        common.truncate(shared);
+    }
+    Some(if common.is_empty() {
+        ".".to_owned()
+    } else {
+        common.join("/")
+    })
+}
+
+fn is_declaration(path: &str) -> bool {
+    [".d.ts", ".d.mts", ".d.cts"]
+        .iter()
+        .any(|suffix| path.ends_with(suffix))
 }
 
 fn with_json_extension(path: &str) -> String {

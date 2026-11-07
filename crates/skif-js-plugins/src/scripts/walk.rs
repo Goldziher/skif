@@ -278,6 +278,11 @@ impl<'c> Walker<'c> {
     }
 
     fn file(&mut self, path: &str, span: Range<usize>) {
+        self.file_ref(path, span, false);
+    }
+
+    /// A file, or with `tree` a path a test runner reads, where a directory means every file below it.
+    fn file_ref(&mut self, path: &str, span: Range<usize>, tree: bool) {
         if path.is_empty() || path.starts_with('-') || path.contains('$') {
             return;
         }
@@ -288,6 +293,7 @@ impl<'c> Walker<'c> {
         self.info.files.push(FileRef {
             path: path.to_owned(),
             span,
+            tree,
         });
     }
 
@@ -1018,7 +1024,9 @@ impl<'c> Walker<'c> {
             Files::ScriptExt | Files::All => {
                 for &i in &parsed.positionals {
                     let word = &rest[i];
-                    if matches!(runner.files, Files::All) || tables::has_script_ext(&word.text) {
+                    if matches!(runner.files, Files::All) {
+                        self.file_ref(&word.text, frame.span(&word.span), true);
+                    } else if tables::has_script_ext(&word.text) {
                         self.file(&word.text, frame.span(&word.span));
                     }
                 }
