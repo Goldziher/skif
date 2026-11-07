@@ -9,7 +9,7 @@ JavaScript and TypeScript tool knowledge for skif.
   executed (ADR 0010).
 - `resolve_plugins`: the entry point the module graph calls, given a `PluginContext` for one workspace.
 
-The table holds 124 plugins: `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`,
+The table holds 126 plugins: `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`,
 `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`,
 `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`,
 `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`,
@@ -19,7 +19,7 @@ The table holds 124 plugins: `typescript`, `eslint`, `prettier`, `vite`, `vitest
 `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`,
 `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`,
 `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun`, `webdriver-io`,
-`pre-commit`, `parcel`, `next-intl`, `dependency-cruiser`, `commitizen`, `electron-forge`, `serverless-framework`, `github-action`, `vue`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `mdx`, `next-mdx`, `starlight`, `pino`, `execa`, `zx` and `nano-spawn`.
+`pre-commit`, `parcel`, `next-intl`, `dependency-cruiser`, `commitizen`, `electron-forge`, `serverless-framework`, `github-action`, `vue`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `mdx`, `next-mdx`, `starlight`, `pino`, `execa`, `zx`, `nano-spawn`, `azure-pipelines` and `sapper`.
 
 ## Acknowledgements
 

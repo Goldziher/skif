@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 124] = [
+const ADR_IDS: [&str; 126] = [
     "typescript",
     "eslint",
     "prettier",
@@ -139,6 +139,8 @@ const ADR_IDS: [&str; 124] = [
     "execa",
     "zx",
     "nano-spawn",
+    "azure-pipelines",
+    "sapper",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -3013,5 +3015,45 @@ fn execa_zx_and_nano_spawn_commands_are_scripts() {
         binaries("nano-spawn").contains(&"eslint".to_owned()),
         "{:?}",
         binaries("nano-spawn")
+    );
+}
+
+#[test]
+fn azure_pipelines_script_steps_and_templates() {
+    let results = resolve(
+        &[
+            (
+                "azure-pipelines.yml",
+                "stages:\n- stage: build\n  jobs:\n  - job: web\n    steps:\n    - script: pnpm exec vitest run\n    - bash: node scripts/check.mjs\n      workingDirectory: packages/web\n    - script: echo $(Build.SourcesDirectory)\n      workingDirectory: $(Build.SourcesDirectory)/x\n    - template: templates/lint.yml\n",
+            ),
+            ("templates/lint.yml", "steps:\n- script: eslint .\n"),
+        ],
+        &[],
+    );
+    let out = output(&results, "azure-pipelines");
+    assert!(
+        out.referenced_binaries.contains(&"vitest".to_owned()),
+        "{:?}",
+        out.referenced_binaries
+    );
+    assert!(
+        out.referenced_binaries.contains(&"eslint".to_owned()),
+        "{:?}",
+        out.referenced_binaries
+    );
+    assert_entries(&out.entries, &["packages/web/scripts/check.mjs"]);
+    let nested = resolve_with(&[("azure-pipelines.yml", "steps: []")], &[], false, &IndexMap::new());
+    assert!(!nested.iter().any(|(id, _)| *id == "azure-pipelines"), "root only");
+}
+
+#[test]
+fn sapper_declares_its_fixed_layout() {
+    let results = resolve(&[], &["sapper"]);
+    assert_entries(
+        &output(&results, "sapper").production_entries,
+        &[
+            "src/{client,server,service-worker}.{js,ts}",
+            "src/routes/**/*.{svelte,html,js,ts}",
+        ],
     );
 }
