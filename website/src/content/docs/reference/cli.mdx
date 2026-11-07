@@ -70,6 +70,7 @@ another root. `--fix` plans, writes and installs per root.
 | `--no-js` | Skip JavaScript analysis. Overrides `[js] enabled`. |
 | `--production` | Only analyse production code in JavaScript analysis. Overrides `[js] production`. |
 | `--color <auto\|always\|never>` | When to colour human output. |
+| `--watch` | Lint again whenever a file below the root changes, until interrupted. Conflicts with `--fix` and `--fix-unsafe`. See [editors and agents](../../guides/editors-and-agents/#watch-mode). |
 
 Flags are the top layer of the [configuration precedence](../configuration/#precedence): defaults, then the file,
 then the command line. `--ignore-package` replaces the file's `[workspace] ignore-packages`; `--ignore-dependency` and

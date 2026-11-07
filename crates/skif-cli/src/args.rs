@@ -317,6 +317,10 @@ pub struct LintArgs {
     /// When to colour human output.
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     pub color: ColorChoice,
+
+    /// Lint again whenever a file below the root changes, until interrupted.
+    #[arg(long, conflicts_with_all = ["fix", "fix_unsafe"])]
+    pub watch: bool,
 }
 
 impl LintArgs {

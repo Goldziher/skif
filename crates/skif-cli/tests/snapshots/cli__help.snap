@@ -98,6 +98,9 @@ Options:
           [default: auto]
           [possible values: auto, always, never]
 
+      --watch
+          Lint again whenever a file below the root changes, until interrupted
+
   -h, --help
           Print help (see a summary with '-h')
 
