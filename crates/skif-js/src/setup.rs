@@ -324,6 +324,8 @@ pub(crate) struct PackageSetup {
     /// Entry globs from plugins and tool configuration. Unlike the defaults they also match files that belong to a
     /// workspace package nested below this one: a root `playwright.config.ts` names the tests of the packages.
     pub shared_entry: Globs,
+    /// The entry globs plugins provide inside the package, for the `entry-redundant` hint of `stale-js-config`.
+    pub plugin_entry: Globs,
     /// The tool configuration of the package could not be fully read, so its entry files are not all known.
     /// Files and dependencies cannot be judged unused then.
     pub entries_incomplete: bool,
@@ -610,10 +612,13 @@ impl Setup {
                 .filter(|pattern| is_shared_pattern(pattern))
                 .cloned()
                 .collect();
+            let mut plugin_entry: Vec<String> = plugin.production_entry.clone();
             if !production {
+                plugin_entry.extend(plugin.entry.iter().cloned());
                 entry.extend(plugin.entry);
             }
             entry.extend(plugin.production_entry);
+            plugin_entry.retain(|pattern| !pattern.trim_start_matches('!').starts_with("../"));
 
             let tsconfig_project = js
                 .use_tsconfig_files
@@ -679,6 +684,7 @@ impl Setup {
                 entry: Globs::new(entry),
                 external_entry,
                 shared_entry: Globs::new(shared_entry),
+                plugin_entry: Globs::new(plugin_entry),
                 entries_incomplete: plugin.entries_incomplete,
                 incomplete_reasons: if plugin.entries_incomplete && plugin.incomplete_reasons.is_empty() {
                     vec![IncompleteEntries {
