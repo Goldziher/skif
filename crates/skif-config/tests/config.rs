@@ -3,9 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use skif_config::{
-    Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, CustomStrategy, IgnoreEntry,
-    IgnoreExportsUsedInFile, Level, PackageManager, PluginConfig, Prefer, RuleConfig, Selector, SemverRange,
-    UpdateTarget, VersionPolicy, discover, discover_with_fs,
+    Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, CustomStrategy, DEFAULT_DISCOVER_IGNORE,
+    FIXTURE_DIRECTORIES, IgnoreEntry, IgnoreExportsUsedInFile, Level, PackageManager, PluginConfig, Prefer, RuleConfig,
+    Selector, SemverRange, UpdateTarget, VersionPolicy, discover, discover_with_fs,
 };
 use skif_core::{MemoryFs, Severity};
 
@@ -313,7 +313,7 @@ fn full_fixture_sections() {
     assert!(!config.dependency_families[1].enabled);
 
     let js = &config.js;
-    assert!(js.enabled && js.production && js.include_entry_exports);
+    assert!(js.enabled && js.production && js.include_entry_exports && js.include_fixtures);
     assert_eq!(js.entry, ["src/index.ts"]);
     assert_eq!(js.project, ["src/**/*.ts"]);
     assert_eq!(js.ignore, ["**/generated/**"]);
@@ -342,11 +342,19 @@ fn full_fixture_round_trips() {
 fn defaults_are_sensible() {
     let config = Config::default();
     assert_eq!(Config::from_toml_str("").unwrap(), config);
-    assert!(config.js.enabled && !config.js.production);
+    assert!(config.js.enabled && !config.js.production && !config.js.include_fixtures);
     assert_eq!(config.catalog.mode, CatalogMode::Off);
     assert_eq!(config.catalog.min_packages, 2);
     assert_eq!(config.policy.prefer, Prefer::Highest);
     assert!(!config.lint.fail_on_warnings && config.rules.is_empty());
+}
+
+#[test]
+fn root_discovery_skips_the_fixture_directories_the_js_analysis_knows() {
+    assert_eq!(
+        DEFAULT_DISCOVER_IGNORE[..FIXTURE_DIRECTORIES.len()],
+        FIXTURE_DIRECTORIES
+    );
 }
 
 #[test]
@@ -746,6 +754,7 @@ fn root_only_js_keys_are_rejected_in_an_override() {
         "ignore-workspaces = [\"a\"]",
         "ignore-members = [\"a\"]",
         "ignore-exports-used-in-file = true",
+        "include-fixtures = true",
     ] {
         let source = format!("[[overrides]]\npackages = [\"a\"]\n[overrides.js]\n{key}\n");
         assert!(Config::from_toml_str(&source).is_err(), "{key}");

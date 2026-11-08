@@ -19,7 +19,7 @@ const UNIMPLEMENTED_STATES: [(&str, &str); 3] = [
     ),
     (
         "DiffersToNpmRegistry",
-        "reported by `skif update`, never by a lint rule, see ADR 0050",
+        "reported by `skif update`, never by a lint rule, see ADR 0056",
     ),
     (
         "RefuseToCatalogLocal",

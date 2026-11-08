@@ -16,6 +16,9 @@ override-reading = "syncpack"
 minimum-release-age = 2880
 max-concurrent-requests = 4
 
+[rules]
+package-json-format = "error"
+
 # syncpack versionGroups[0]: Pin react
 [[version-groups]]
 label = "Pin react"
@@ -100,3 +103,6 @@ strategy = "version"
 name = "toolchain"
 path = "packageManager"
 strategy = "name@version"
+
+[format]
+sort-az = ["dependencies", "scripts"]

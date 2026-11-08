@@ -1,4 +1,4 @@
-//! `skif update`: propose, or write, newer published versions (ADR 0050). The only command that uses the network.
+//! `skif update`: propose, or write, newer published versions (ADR 0056). The only command that uses the network.
 //!
 //! The plan is the library's ([`skif::update::plan_updates`]); this module supplies the HTTP registry, the clock, the
 //! output and the writes. Exit codes follow ADR 0016: `0` nothing to do or everything written, `1` updates are

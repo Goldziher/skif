@@ -1,0 +1,2 @@
+# Written by a build step, so absent from a fresh checkout.
+packages/db/src/migrations/sqlite/index.ts

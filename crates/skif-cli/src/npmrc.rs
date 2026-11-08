@@ -1,4 +1,4 @@
-//! Which registry a package is fetched from, and with which token, as npm's configuration says (ADR 0050).
+//! Which registry a package is fetched from, and with which token, as npm's configuration says (ADR 0056).
 //!
 //! Read: `registry`, `@scope:registry` and `//host/path/:_authToken`, from `npm_config_registry` in the environment,
 //! the project's `.npmrc` and the user's `.npmrc` (`NPM_CONFIG_USERCONFIG`, else `~/.npmrc`), in that order of
