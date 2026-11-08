@@ -85,7 +85,21 @@ fn usage(raw: &[OsString], error: &clap::Error) -> u8 {
     2
 }
 
+/// Whether the command line asks for JSON-mode errors: the format that goes to stdout is `json`, or, when every
+/// `--format` names a file, the first one is (ADR 0054). Read from the raw arguments, before clap has parsed them.
 fn wants_json(raw: &[OsString]) -> bool {
     let args: Vec<&str> = raw.iter().filter_map(|arg| arg.to_str()).collect();
-    args.contains(&"--format=json") || args.windows(2).any(|pair| pair[0] == "--format" && pair[1] == "json")
+    let mut values = Vec::new();
+    for (index, arg) in args.iter().enumerate() {
+        if let Some(value) = arg.strip_prefix("--format=") {
+            values.push(value);
+        } else if *arg == "--format" {
+            values.extend(args.get(index + 1));
+        }
+    }
+    values
+        .iter()
+        .find(|value| !value.contains('='))
+        .or_else(|| values.first())
+        .is_some_and(|value| value.split('=').next() == Some("json"))
 }

@@ -1,9 +1,11 @@
 //! The command line, as specified by ADR 0016.
 
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use clap::{ArgGroup, ColorChoice, Parser, Subcommand, ValueEnum};
 use skif::Level;
+
+use crate::error::{CliError, Kind};
 
 /// Fast dependency linter for JavaScript and TypeScript monorepos.
 #[derive(Debug, Parser)]
@@ -247,11 +249,12 @@ pub struct LintArgs {
     #[arg(short, long)]
     pub recursive: bool,
 
-    /// Output format [default: human, or human plus GitHub annotations when `GITHUB_ACTIONS=true`].
-    #[arg(long, value_enum)]
-    pub format: Option<Format>,
+    /// Output format, as FORMAT or FORMAT=FILE to write that rendering to FILE. Repeatable; at most one goes to
+    /// stdout [default: human, or human plus GitHub annotations when `GITHUB_ACTIONS=true`].
+    #[arg(long, value_name = "FORMAT[=FILE]", value_parser = FormatSpecParser)]
+    pub format: Vec<FormatSpec>,
 
-    /// Write the rendering to this file instead of stdout.
+    /// Write the rendering to this file instead of stdout; needs exactly one --format, without `=FILE`.
     #[arg(long, value_name = "FILE", requires = "format")]
     pub output: Option<PathBuf>,
 
@@ -343,8 +346,155 @@ impl LintArgs {
         self.fix || self.fix_unsafe
     }
 
+    /// The format that decides the run's behaviour (JSON-mode errors, colour, prompts, where the fix summary goes):
+    /// the one written to stdout, else the first one given, else `human` (ADR 0054).
     pub fn format(&self) -> Format {
-        self.format.unwrap_or_default()
+        self.format
+            .iter()
+            .find(|spec| spec.file.is_none())
+            .or_else(|| self.format.first())
+            .map_or_else(Format::default, |spec| spec.format)
+    }
+
+    /// Where each rendering goes, in the order given: `None` is stdout. Fails, as a usage error, when two
+    /// renderings would go to stdout, two to the same file (however it is spelled), a `FORMAT=FILE` names an
+    /// existing directory, or `--output` is combined with several formats or with `FORMAT=FILE`.
+    pub fn targets(&self) -> Result<Vec<(Format, Option<PathBuf>)>, CliError> {
+        if let Some(output) = &self.output {
+            return match self.format.as_slice() {
+                [FormatSpec { format, file: None }] => Ok(vec![(*format, Some(output.clone()))]),
+                _ => Err(CliError::new(
+                    Kind::Usage,
+                    "--output takes exactly one --format without `=FILE`; to write several formats, give each its \
+                     own file as --format FORMAT=FILE",
+                )),
+            };
+        }
+        if self.format.is_empty() {
+            return Ok(vec![(Format::default(), None)]);
+        }
+        if self.format.iter().filter(|spec| spec.file.is_none()).count() > 1 {
+            return Err(CliError::new(
+                Kind::Usage,
+                "at most one --format can go to stdout; write the others to files with --format FORMAT=FILE",
+            ));
+        }
+        let mut files = std::collections::BTreeSet::new();
+        for file in self.format.iter().filter_map(|spec| spec.file.as_ref()) {
+            if file.is_dir() {
+                return Err(CliError::new(
+                    Kind::Usage,
+                    format!("--format names {}, which is a directory, not a file", file.display()),
+                ));
+            }
+            if !files.insert(file_identity(file)) {
+                return Err(CliError::new(
+                    Kind::Usage,
+                    format!("--format names the file {} twice", file.display()),
+                ));
+            }
+        }
+        Ok(self
+            .format
+            .iter()
+            .map(|spec| (spec.format, spec.file.clone()))
+            .collect())
+    }
+}
+
+/// A key that is equal for two spellings of the same output file: the path made absolute with `.` and `..` resolved
+/// lexically, and its parent directory canonicalised when it exists, so `a/../x`, `./x` and a symlinked parent all
+/// name `x`. The parent is resolved as the OS would first; the lexical form is the fallback for a parent that does
+/// not exist (yet).
+fn file_identity(file: &Path) -> PathBuf {
+    let absolute = std::path::absolute(file).unwrap_or_else(|_| file.to_path_buf());
+    let canonical_parent = |path: &Path| {
+        let name = path.file_name()?;
+        let parent = path.parent()?.canonicalize().ok()?;
+        Some(parent.join(name))
+    };
+    canonical_parent(&absolute).unwrap_or_else(|| {
+        let lexical = lexical_normal(&absolute);
+        canonical_parent(&lexical).unwrap_or(lexical)
+    })
+}
+
+/// `path` with `.` dropped and each `..` removing the component before it, without asking the file system.
+fn lexical_normal(path: &Path) -> PathBuf {
+    let mut normal = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                // `..` above the root is the root; above the start of a relative path it stays.
+                if !normal.pop() && !normal.has_root() {
+                    normal.push(component);
+                }
+            }
+            other => normal.push(other),
+        }
+    }
+    normal
+}
+
+/// One `--format` value: a format, and the file its rendering goes to instead of stdout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormatSpec {
+    pub format: Format,
+    pub file: Option<PathBuf>,
+}
+
+impl FormatSpec {
+    /// Parses `FORMAT` or `FORMAT=FILE`; the file is everything after the first `=`.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        let (name, file) = match value.split_once('=') {
+            Some((_, "")) => {
+                return Err("expected a file name after `=`, as in `codeclimate=gl-code-quality.json`".to_owned());
+            }
+            Some((name, file)) => (name, Some(PathBuf::from(file))),
+            None => (value, None),
+        };
+        let format = Format::from_str(name, false).map_err(|_| {
+            let names: Vec<String> = Format::value_variants()
+                .iter()
+                .filter_map(|format| format.to_possible_value().map(|value| value.get_name().to_owned()))
+                .collect();
+            format!("unknown format `{name}`; expected one of {}", names.join(", "))
+        })?;
+        Ok(Self { format, file })
+    }
+}
+
+/// The value parser of `--format`, which keeps the format list in `--help`.
+#[derive(Debug, Clone, Copy)]
+struct FormatSpecParser;
+
+impl clap::builder::TypedValueParser for FormatSpecParser {
+    type Value = FormatSpec;
+
+    fn parse_ref(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &std::ffi::OsStr,
+    ) -> Result<Self::Value, clap::Error> {
+        let text = value
+            .to_str()
+            .ok_or_else(|| clap::Error::new(clap::error::ErrorKind::InvalidUtf8).with_cmd(cmd))?;
+        FormatSpec::parse(text).map_err(|message| {
+            let arg = arg.map_or_else(|| "--format".to_owned(), ToString::to_string);
+            clap::Error::raw(
+                clap::error::ErrorKind::ValueValidation,
+                format!("invalid value '{text}' for '{arg}': {message}\n"),
+            )
+            .with_cmd(cmd)
+        })
+    }
+
+    fn possible_values(&self) -> Option<Box<dyn Iterator<Item = clap::builder::PossibleValue> + '_>> {
+        Some(Box::new(
+            Format::value_variants().iter().filter_map(ValueEnum::to_possible_value),
+        ))
     }
 }
 
@@ -391,6 +541,26 @@ mod tests {
         );
         assert!(parse_rule_package("r:").is_err());
         assert!(parse_rule_package("r").is_err());
+    }
+
+    #[test]
+    fn format_specs_parse() {
+        assert_eq!(
+            FormatSpec::parse("json"),
+            Ok(FormatSpec {
+                format: Format::Json,
+                file: None
+            })
+        );
+        assert_eq!(
+            FormatSpec::parse("codeclimate=out/gl=cq.json"),
+            Ok(FormatSpec {
+                format: Format::Codeclimate,
+                file: Some(PathBuf::from("out/gl=cq.json"))
+            })
+        );
+        assert!(FormatSpec::parse("json=").is_err());
+        assert!(FormatSpec::parse("yaml=x").is_err());
     }
 
     #[test]
