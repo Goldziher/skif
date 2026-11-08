@@ -423,3 +423,64 @@ fn an_early_return_is_not_skipped_for_the_last_one() {
         ConfigValue::Object(vec![("a".to_owned(), ConfigValue::Number(3.0))])
     );
 }
+
+#[test]
+fn a_declaration_in_a_block_does_not_replace_the_outer_binding() {
+    let value = extract(
+        "vite.config.ts",
+        "const outer = () => { const c = { a: 1 }; if (true) { const c = { a: 2 }; } { let c = 3; } return c; };\n\
+         const fn = () => { const f = () => 1; if (1) { const f = () => 2; } return { r: f() }; };\n\
+         const hoisted = () => { if (true) { var v = 1; } return { v }; };\n\
+         export default [outer(), fn(), hoisted()];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(get(&configs[0], &["a"]), &ConfigValue::Number(1.0));
+    assert_eq!(get(&configs[1], &["r"]), &ConfigValue::Number(1.0));
+    assert_eq!(get(&configs[2], &["v"]), &ConfigValue::Unknown);
+}
+
+#[test]
+fn what_code_may_or_may_not_write_is_unknown_after_it() {
+    let value = extract(
+        "vite.config.ts",
+        "const plugins = [];\nif (process.env.A) plugins.push('x');\n\
+         const base = { a: 1 };\nfor (const k of keys) base[k] = 1;\n\
+         const make = () => {\n\
+           let mode = 'a'; const list = []; const c = { a: 1 }; let n = 0;\n\
+           if (env()) { mode = 'b'; }\n\
+           for (const x of y) list.push(x);\n\
+           env() && (c.a = 2);\n\
+           if (env()) n++;\n\
+           return { mode, some: list.length ? 1 : 2, c, n: n ? 1 : 2 };\n\
+         };\n\
+         export default [{ some: plugins.length ? 1 : 2, base }, make()];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(get(&configs[0], &["some"]), &ConfigValue::Unknown);
+    assert!(get(&configs[0], &["base"]).get("...").is_some());
+    for key in ["mode", "some", "n"] {
+        assert_eq!(get(&configs[1], &[key]), &ConfigValue::Unknown, "{key}");
+    }
+    assert!(get(&configs[1], &["c"]).get("...").is_some());
+}
+
+#[test]
+fn a_return_in_an_else_branch_is_not_read_after_the_code_that_follows() {
+    let value = extract(
+        "vite.config.ts",
+        "const make = () => {\n\
+           const c = { a: 1 };\n\
+           if (env()) { setup(); } else { return c; }\n\
+           c.a = 2;\n\
+           return c;\n\
+         };\n\
+         const pick = ({ mode = 'dev' }) => ({ mode });\n\
+         export default [make(), pick({ mode: 'prod', ...options() }), pick({ ...options(), mode: 'prod' })];",
+    );
+    let configs = value.as_array().unwrap();
+    // One path returns `{ a: 1 }` and the other `{ a: 2 }`.
+    assert_eq!(get(&configs[0], &["a"]), &ConfigValue::Unknown);
+    // A spread after a key may replace it.
+    assert_eq!(get(&configs[1], &["mode"]), &ConfigValue::Unknown);
+    assert_eq!(get(&configs[2], &["mode"]), &s("prod"));
+}

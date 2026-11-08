@@ -9,9 +9,9 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget, BinaryOperator,
     BindingPattern, CallExpression, ConditionalExpression, Declaration, ExportDefaultDeclarationKind, Expression,
-    Function, ImportDeclarationSpecifier, ImportOrExportKind, LogicalExpression, LogicalOperator, NewExpression,
-    ObjectPropertyKind, Program, ReturnStatement, Statement, StaticMemberExpression, TemplateLiteral, UnaryOperator,
-    VariableDeclaration, VariableDeclarationKind,
+    Function, IfStatement, ImportDeclarationSpecifier, ImportOrExportKind, LogicalExpression, LogicalOperator,
+    MemberExpression, NewExpression, ObjectPropertyKind, Program, ReturnStatement, SimpleAssignmentTarget, Statement,
+    StaticMemberExpression, TemplateLiteral, UnaryOperator, VariableDeclaration, VariableDeclarationKind,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
@@ -246,6 +246,7 @@ fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> 
     let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
     let eval = Evaluator {
         consts: &top.consts,
+        changed: &top.changed,
         functions: &top.functions,
         bindings: &bindings,
         file,
@@ -513,6 +514,7 @@ impl Modules<'_> {
         let dir = relative_dir(&self.root, path.parent().unwrap_or(path));
         let eval = Evaluator {
             consts: &top.consts,
+            changed: &top.changed,
             functions: &top.functions,
             bindings: &bindings,
             file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
@@ -586,6 +588,9 @@ fn first_parameter(callable: Callable<'_, '_>) -> Option<String> {
 struct TopLevel<'p, 'a> {
     consts: HashMap<String, &'p Expression<'a>>,
     functions: HashMap<String, Callable<'p, 'a>>,
+    /// The names top-level statements other than declarations assign or change (`config.plugins.push(x)`,
+    /// `if (env) config.a = 1`): a constant among them is not only its initialiser.
+    changed: HashSet<String>,
 }
 
 /// A function the evaluator can call.
@@ -618,12 +623,32 @@ fn top_level<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
     let mut top = TopLevel {
         consts: HashMap::new(),
         functions: HashMap::new(),
+        changed: HashSet::new(),
     };
     for stmt in &program.body {
         let decl = match stmt {
             Statement::ExportDeclaration(e) => Some(&e.declaration),
             other => other.as_declaration(),
         };
+        let writes = match stmt {
+            // Only what the statement itself does, as for a statement of a function: an exported value may read
+            // members of a constant (`base.plugins.map(f)`) without changing it.
+            Statement::ExpressionStatement(s) => Some(Writes::of_effect(&s.expression)),
+            Statement::IfStatement(_)
+            | Statement::BlockStatement(_)
+            | Statement::ForStatement(_)
+            | Statement::ForInStatement(_)
+            | Statement::ForOfStatement(_)
+            | Statement::WhileStatement(_)
+            | Statement::DoWhileStatement(_)
+            | Statement::SwitchStatement(_)
+            | Statement::TryStatement(_)
+            | Statement::LabeledStatement(_) => Some(Writes::of_statement(stmt)),
+            _ => None,
+        };
+        if let Some(writes) = writes {
+            top.changed.extend(writes.assigned.into_iter().chain(writes.changed));
+        }
         match decl {
             Some(Declaration::VariableDeclaration(v)) if v.kind == VariableDeclarationKind::Const => {
                 for d in &v.declarations {
@@ -873,6 +898,7 @@ impl<'a> Visit<'a> for OptionFinder<'_, '_, 'a> {
         if name == Some(self.constructor) {
             let eval = Evaluator {
                 consts: &self.top.consts,
+                changed: &self.top.changed,
                 functions: &self.top.functions,
                 bindings: self.bindings,
                 file: self.file,
@@ -954,6 +980,8 @@ fn node_count(value: &ConfigValue) -> usize {
 
 struct Evaluator<'c, 'p, 'a> {
     consts: &'c HashMap<String, &'p Expression<'a>>,
+    /// Top-level names changed by statements after their declaration; see [`TopLevel::changed`].
+    changed: &'c HashSet<String>,
     functions: &'c HashMap<String, Callable<'p, 'a>>,
     bindings: &'c ModuleBindings,
     /// File name of the module, which `__filename` and `import.meta.url` name.
@@ -1059,6 +1087,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         self.chain.borrow_mut().pop();
         let value = if node_count(&value) > MAX_CONST_NODES {
             ConfigValue::Unknown
+        } else if self.changed.contains(name) {
+            changed(value)
         } else {
             value
         };
@@ -1568,11 +1598,12 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 for property in &object.properties {
                     let key = property.key.static_name().map(|key| crate::js_string(key.as_js_str()));
                     let field = match (&value, key) {
-                        (ConfigValue::Object(_), Some(key)) => match value.get(&key) {
-                            Some(field) => Some(field.clone()),
-                            None if value.get("...").is_some() => Some(ConfigValue::Unknown),
-                            None => None,
-                        },
+                        (ConfigValue::Object(entries), Some(key)) => entries.iter().rev().find_map(|(name, field)| {
+                            // An unknown spread after the key may replace it.
+                            (name == &key)
+                                .then(|| field.clone())
+                                .or_else(|| (name == "...").then_some(ConfigValue::Unknown))
+                        }),
                         _ => Some(ConfigValue::Unknown),
                     };
                     match (&property.value, field) {
@@ -1597,8 +1628,13 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
 
     /// Binds `name` to `value` in the innermost frame.
     fn bind(&self, name: &str, value: ConfigValue) {
+        self.bind_to(name, Binding::Value(value));
+    }
+
+    /// Binds `name` in the innermost frame, shadowing any binding of it in an outer one.
+    fn bind_to(&self, name: &str, binding: Binding<'p, 'a>) {
         if let Some(frame) = self.frames.borrow_mut().last_mut() {
-            frame.insert(name.to_owned(), Binding::Value(value));
+            frame.insert(name.to_owned(), binding);
         }
     }
 
@@ -1615,7 +1651,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// without one. An `if` with a known test runs the branch it takes; with an unknown test, a branch that is a single
     /// `return x` makes the value what `x` and the other path's value have in common, and any other `return` that may
     /// or may not be reached (in a loop, a `switch`, a `try`, a larger branch) makes the value unknown, never only the
-    /// last `return`.
+    /// last `return`. A statement that may or may not run (a branch of an unknown test, a loop) leaves every local it
+    /// assigns or changes unknown, so the value after it is never the one from before it.
     fn run(&self, statements: &'p [Statement<'a>], depth: u32) -> Option<ConfigValue> {
         for (index, statement) in statements.iter().enumerate() {
             match statement {
@@ -1628,7 +1665,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 }
                 Statement::ExpressionStatement(s) => self.mutation(&s.expression, depth),
                 Statement::BlockStatement(b) => {
-                    if let Some(value) = self.run(&b.body, depth) {
+                    if let Some(value) = self.block(&b.body, depth) {
                         return Some(value);
                     }
                 }
@@ -1638,13 +1675,14 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                         Some(false) => i.alternate.as_ref(),
                         None => {
                             if !returns(statement) {
+                                self.havoc(Writes::of_statement(statement));
                                 continue;
                             }
                             let rest = &statements[index + 1..];
-                            return Some(self.either_return(&i.consequent, i.alternate.as_ref(), rest, depth));
+                            return Some(self.either_return(i, rest, depth));
                         }
                     };
-                    if let Some(value) = taken.and_then(|branch| self.run(std::slice::from_ref(branch), depth)) {
+                    if let Some(value) = taken.and_then(|branch| self.block(std::slice::from_ref(branch), depth)) {
                         return Some(value);
                     }
                 }
@@ -1653,25 +1691,38 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     Some(Declaration::VariableDeclaration(v)) => self.declare(v, depth),
                     Some(Declaration::FunctionDeclaration(f)) => {
                         if let Some(id) = &f.id {
-                            self.assign(id.name.as_str(), Binding::Callable(Callable::Function(f)));
+                            self.bind_to(id.name.as_str(), Binding::Callable(Callable::Function(f)));
                         }
                     }
-                    _ => {}
+                    Some(_) => {}
+                    None => self.havoc(Writes::of_statement(other)),
                 },
             }
         }
         None
     }
 
-    /// The value of `if (unknown) consequent else alternate` followed by `rest`, where a branch returns: what a
-    /// branch's single `return x` and the other path's value have in common, or unknown when a branch does more.
-    fn either_return(
-        &self,
-        consequent: &'p Statement<'a>,
-        alternate: Option<&'p Statement<'a>>,
-        rest: &'p [Statement<'a>],
-        depth: u32,
-    ) -> ConfigValue {
+    /// Runs the statements of a block in a frame of their own, so a `const` or `let` declared in it does not replace a
+    /// binding outside it. A `var` it declares is function-scoped, and is left unknown outside the block.
+    fn block(&self, statements: &'p [Statement<'a>], depth: u32) -> Option<ConfigValue> {
+        self.frames.borrow_mut().push(Frame::new());
+        let value = self.run(statements, depth);
+        self.frames.borrow_mut().pop();
+        let mut vars = Vars::default();
+        for statement in statements {
+            vars.visit_statement(statement);
+        }
+        for name in vars.0 {
+            self.assign(&name, Binding::Value(ConfigValue::Unknown));
+        }
+        value
+    }
+
+    /// The value of an `if` with an unknown test followed by `rest`, where a branch returns: what a branch's single
+    /// `return x` and the other path's value have in common, or unknown when a branch does more. A branch that goes on
+    /// to `rest` leaves what it assigns unknown there.
+    fn either_return(&self, statement: &'p IfStatement<'a>, rest: &'p [Statement<'a>], depth: u32) -> ConfigValue {
+        self.havoc(Writes::of_expression(&statement.test));
         let path = |branch: Option<&'p Statement<'a>>| -> Option<ConfigValue> {
             match branch.map(single_return) {
                 // A branch that returns its value.
@@ -1686,23 +1737,37 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 _ => None,
             }
         };
-        let (Some(a), b) = (path(Some(consequent)), path(alternate)) else {
-            // The consequent goes on to `rest`, so the alternate returns.
-            let a = self.run(rest, depth).unwrap_or(ConfigValue::Unknown);
-            return either(&a, &path(alternate).unwrap_or(ConfigValue::Unknown));
+        // Both returns are evaluated before `rest` runs, which may change the locals they read.
+        let consequent = path(Some(&statement.consequent));
+        let alternate = path(statement.alternate.as_ref());
+        let after = || {
+            for branch in [Some(&statement.consequent), statement.alternate.as_ref()]
+                .into_iter()
+                .flatten()
+            {
+                if !returns(branch) {
+                    self.havoc(Writes::of_statement(branch));
+                }
+            }
+            self.run(rest, depth).unwrap_or(ConfigValue::Unknown)
         };
-        let b = b.unwrap_or_else(|| self.run(rest, depth).unwrap_or(ConfigValue::Unknown));
+        let (a, b) = match (consequent, alternate) {
+            (Some(a), Some(b)) => (a, b),
+            (Some(a), None) => (a, after()),
+            (None, Some(b)) => (after(), b),
+            (None, None) => return ConfigValue::Unknown,
+        };
         either(&a, &b)
     }
 
-    /// Binds the names a `const`/`let`/`var` declaration declares; destructured names stay unbound.
+    /// Binds the names a `const`/`let`/`var` declaration declares in the innermost frame: a destructured name to the
+    /// part of the value it takes, or to [`ConfigValue::Unknown`].
     fn declare(&self, declaration: &'p VariableDeclaration<'a>, depth: u32) {
         for declarator in &declaration.declarations {
-            let BindingPattern::BindingIdentifier(id) = &declarator.id else {
-                continue;
-            };
-            if let Some(callable) = declarator.init.as_ref().and_then(Callable::of_expression) {
-                self.assign(id.name.as_str(), Binding::Callable(callable));
+            if let BindingPattern::BindingIdentifier(id) = &declarator.id
+                && let Some(callable) = declarator.init.as_ref().and_then(Callable::of_expression)
+            {
+                self.bind_to(id.name.as_str(), Binding::Callable(callable));
                 continue;
             }
             let value = declarator
@@ -1714,12 +1779,23 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             } else {
                 value
             };
-            self.assign(id.name.as_str(), Binding::Value(value));
+            self.bind_pattern(&declarator.id, value, depth);
+        }
+    }
+
+    /// Leaves every local `writes` assigns unknown, and every local object or array it changes partly unknown.
+    fn havoc(&self, writes: Writes) {
+        for name in writes.assigned {
+            self.assign(&name, Binding::Value(ConfigValue::Unknown));
+        }
+        for name in writes.changed {
+            self.taint(&name);
         }
     }
 
     /// Applies what an expression statement does to a local object: `name = x`, `name.key = x`, and anything else
-    /// that reaches into the object (`name.list.push(x)`, `name.a.b = x`), which leaves it partly unknown.
+    /// that reaches into the object (`name.list.push(x)`, `name.a.b = x`), which leaves it partly unknown. Any other
+    /// expression leaves what it may write unknown.
     fn mutation(&self, expr: &'p Expression<'a>, depth: u32) {
         match expr.get_inner_expression() {
             Expression::AwaitExpression(a) => self.mutation(&a.argument, depth),
@@ -1744,7 +1820,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                             self.taint(root);
                         }
                     }
-                    _ => {}
+                    _ => self.havoc(Writes::of_expression(expr)),
                 }
             }
             Expression::CallExpression(c) => {
@@ -1768,7 +1844,8 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     self.taint(root);
                 }
             }
-            _ => {}
+            // `cond && (x = 1)`, `x++`, `a = b = 1`: what it writes may or may not be written.
+            _ => self.havoc(Writes::of_expression(expr)),
         }
     }
 
@@ -1953,6 +2030,127 @@ fn returns(statement: &Statement<'_>) -> bool {
     finder.0
 }
 
+/// The locals a statement or expression may write, outside the functions it declares: the names it assigns
+/// (`x = …`, `x++`, `[x] = …`) and the objects it may change (`x.a = …`, `x.list.push(…)`, `Object.assign(x, …)`).
+#[derive(Default)]
+struct Writes {
+    assigned: Vec<String>,
+    changed: Vec<String>,
+}
+
+impl Writes {
+    fn of_statement(statement: &Statement<'_>) -> Self {
+        let mut writes = Self::default();
+        writes.visit_statement(statement);
+        writes
+    }
+
+    fn of_expression(expression: &Expression<'_>) -> Self {
+        let mut writes = Self::default();
+        writes.visit_expression(expression);
+        writes
+    }
+
+    /// What an expression statement writes itself, as [`Evaluator::mutation`] reads it: the target of an assignment
+    /// and the object a method call (or `Object.assign`) may change; anything else, in full.
+    fn of_effect(expression: &Expression<'_>) -> Self {
+        let mut writes = Self::default();
+        match expression.get_inner_expression() {
+            Expression::AssignmentExpression(a) => match a.left.as_simple_assignment_target() {
+                Some(target) => writes.visit_simple_assignment_target(target),
+                None => writes.visit_assignment_target(&a.left),
+            },
+            Expression::CallExpression(c) => {
+                let target = changed_by_call(c);
+                writes.changed.extend(target.and_then(member_root).map(str::to_owned));
+            }
+            Expression::AwaitExpression(a) => return Self::of_effect(&a.argument),
+            other => writes.visit_expression(other),
+        }
+        writes
+    }
+}
+
+impl<'a> Visit<'a> for Writes {
+    fn visit_simple_assignment_target(&mut self, it: &SimpleAssignmentTarget<'a>) {
+        match it {
+            SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => self.assigned.push(id.name.as_str().to_owned()),
+            other => {
+                if let Some(root) = other.as_member_expression().and_then(|m| member_root(m.object())) {
+                    self.changed.push(root.to_owned());
+                }
+            }
+        }
+        walk::walk_simple_assignment_target(self, it);
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        let target = changed_by_call(it);
+        if let Some(root) = target.and_then(member_root) {
+            self.changed.push(root.to_owned());
+        }
+        walk::walk_call_expression(self, it);
+    }
+
+    fn visit_function(&mut self, _: &Function<'a>, _: oxc_semantic::ScopeFlags) {}
+    fn visit_arrow_function_expression(&mut self, _: &ArrowFunctionExpression<'a>) {}
+    fn visit_class(&mut self, _: &oxc_ast::ast::Class<'a>) {}
+}
+
+/// The object a call may change: the first argument of `Object.assign`, or the object a method is called on.
+fn changed_by_call<'p, 'a>(call: &'p CallExpression<'a>) -> Option<&'p Expression<'a>> {
+    match call.callee.get_inner_expression() {
+        Expression::StaticMemberExpression(m)
+            if m.property.name.as_str() == "assign"
+                && matches!(m.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == "Object") =>
+        {
+            call.arguments.first().and_then(Argument::as_expression)
+        }
+        callee => callee.as_member_expression().map(MemberExpression::object),
+    }
+}
+
+/// The names `var` declarations bind in a statement, outside the functions it declares.
+#[derive(Default)]
+struct Vars(Vec<String>);
+
+impl<'a> Visit<'a> for Vars {
+    fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
+        if it.kind == VariableDeclarationKind::Var {
+            for declarator in &it.declarations {
+                self.0.extend(
+                    declarator
+                        .id
+                        .get_binding_identifiers()
+                        .iter()
+                        .map(|id| id.name.as_str().to_owned()),
+                );
+            }
+        }
+        walk::walk_variable_declaration(self, it);
+    }
+
+    fn visit_function(&mut self, _: &Function<'a>, _: oxc_semantic::ScopeFlags) {}
+    fn visit_arrow_function_expression(&mut self, _: &ArrowFunctionExpression<'a>) {}
+    fn visit_class(&mut self, _: &oxc_ast::ast::Class<'a>) {}
+}
+
+/// A value that code the evaluator does not follow may have changed: an object may have any other key and an array
+/// any other element, as [`Evaluator::taint`] leaves them; anything else is unknown.
+fn changed(value: ConfigValue) -> ConfigValue {
+    match value {
+        ConfigValue::Object(mut entries) => {
+            entries.push(("...".to_owned(), ConfigValue::Unknown));
+            ConfigValue::Object(entries)
+        }
+        ConfigValue::Array(mut items) => {
+            items.push(ConfigValue::Unknown);
+            ConfigValue::Array(items)
+        }
+        _ => ConfigValue::Unknown,
+    }
+}
+
 /// Whether a value is truthy in JavaScript; `None` when it is unknown.
 fn truthiness(value: &ConfigValue) -> Option<bool> {
     match value {
@@ -2054,6 +2252,7 @@ fn member_root<'a>(expr: &'a Expression<'_>) -> Option<&'a str> {
     match expr.get_inner_expression() {
         Expression::Identifier(id) => Some(id.name.as_str()),
         Expression::StaticMemberExpression(m) => member_root(&m.object),
+        Expression::ComputedMemberExpression(m) => member_root(&m.object),
         _ => None,
     }
 }
