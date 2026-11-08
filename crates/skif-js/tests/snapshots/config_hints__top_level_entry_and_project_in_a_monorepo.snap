@@ -1,0 +1,7 @@
+---
+source: crates/skif-js/tests/config_hints.rs
+expression: "hints(&lint(&files, toml))"
+---
+package.json: `js.entry` = [index.ts, …] applies to the root package only, but the workspace has several
+package.json: `js.project` = [**/*.ts] applies to the root package only, but the workspace has several
+package.json: `src/index.ts` in `js.entry` matched nothing

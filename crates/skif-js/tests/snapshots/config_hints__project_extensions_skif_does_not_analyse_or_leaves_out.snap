@@ -1,0 +1,6 @@
+---
+source: crates/skif-js/tests/config_hints.rs
+expression: hints(&diagnostics)
+---
+package.json: `.json` files selected by `js.project` are not analysed
+package.json: `js.project` leaves out the package's `.vue` files
