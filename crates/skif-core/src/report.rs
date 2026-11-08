@@ -1,6 +1,7 @@
 //! Deterministic collection of diagnostics with summary counts.
 
 use std::cmp::Ordering;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +41,12 @@ pub struct Report {
     /// by directory.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub incomplete_packages: Vec<IncompletePackage>,
+    /// Files of other projects (a directory below a package that holds a `package.json` of its own, such as a nested
+    /// root) that the analysed code imports, relative to the workspace root and sorted. The run does not judge them;
+    /// a multi-root host hands them to the root that owns them as extra entries
+    /// (see `RunOptions::with_extra_entries` of the `skif` crate). Not rendered.
+    #[serde(skip)]
+    pub other_project_files: Vec<PathBuf>,
 }
 
 impl Report {
@@ -58,6 +65,7 @@ impl Report {
             diagnostics,
             summary,
             incomplete_packages: Vec::new(),
+            other_project_files: Vec::new(),
         }
     }
 
@@ -66,6 +74,15 @@ impl Report {
     pub fn with_incomplete_packages(mut self, mut packages: Vec<IncompletePackage>) -> Self {
         packages.sort_by(|a, b| a.dir.cmp(&b.dir).then_with(|| a.name.cmp(&b.name)));
         self.incomplete_packages = packages;
+        self
+    }
+
+    /// Sets the files of other projects the analysed code imports, sorted and without duplicates.
+    #[must_use]
+    pub fn with_other_project_files(mut self, mut files: Vec<PathBuf>) -> Self {
+        files.sort();
+        files.dedup();
+        self.other_project_files = files;
         self
     }
 }

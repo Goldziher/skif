@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -21,6 +22,7 @@ pub struct Emitter<'a> {
     cancel: Option<&'a AtomicBool>,
     diagnostics: Vec<Diagnostic>,
     incomplete_packages: Vec<IncompletePackage>,
+    other_project_files: Vec<PathBuf>,
 }
 
 impl<'a> Emitter<'a> {
@@ -34,6 +36,7 @@ impl<'a> Emitter<'a> {
             cancel: None,
             diagnostics: Vec::new(),
             incomplete_packages: Vec::new(),
+            other_project_files: Vec::new(),
         }
     }
 
@@ -54,13 +57,15 @@ impl<'a> Emitter<'a> {
             cancel: self.cancel,
             diagnostics: Vec::new(),
             incomplete_packages: Vec::new(),
+            other_project_files: Vec::new(),
         }
     }
 
-    /// Appends the diagnostics and incomplete packages collected by `other`.
+    /// Appends the diagnostics, incomplete packages and files of other projects collected by `other`.
     pub fn merge(&mut self, other: Self) {
         self.diagnostics.extend(other.diagnostics);
         self.incomplete_packages.extend(other.incomplete_packages);
+        self.other_project_files.extend(other.other_project_files);
     }
 
     /// Whether the host asked the run to stop.
@@ -100,6 +105,18 @@ impl<'a> Emitter<'a> {
     /// instead of passing the silence off as a clean result.
     pub fn report_incomplete_package(&mut self, package: IncompletePackage) {
         self.incomplete_packages.push(package);
+    }
+
+    /// Records a file of another project (such as a nested root) that the analysed code imports, relative to the
+    /// workspace root, so a multi-root host can make it an entry of the root that owns it.
+    pub fn report_other_project_file(&mut self, path: PathBuf) {
+        self.other_project_files.push(path);
+    }
+
+    /// Takes the recorded files of other projects, in emission order.
+    #[must_use]
+    pub fn take_other_project_files(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.other_project_files)
     }
 
     /// The kept diagnostics, in emission order.
