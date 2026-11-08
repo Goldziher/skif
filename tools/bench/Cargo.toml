@@ -24,5 +24,9 @@ serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 
+[dev-dependencies]
+# The dead-code test runs skif in process on a `MemoryFs`, so it needs no built binary, network or Node.
+skif = { workspace = true, features = ["js-analysis"] }
+
 [lints]
 workspace = true
