@@ -157,7 +157,9 @@ equivalent.
 | `--no-config-hints` | `[rules] stale-js-config = "off"` |
 | `--fix`, `--fix-type`, `--allow-remove-files` | none in the file; `skif --fix-unsafe` with `--fix-type` and `--allow-remove-files` does the same on the command line (`--fix-type` takes knip's issue types) |
 | `--production`, `--strict` | `[js] production = true` when every script runs knip in production mode (otherwise H), and the issue types production leaves out (`devDependencies`, `catalog`, `catalogReferences`) are turned off; knip's strict mode has no further equivalent (X) |
-| `compilers`, `asyncCompilers`, `preprocessor` | none (X): functions are never run |
+| `compilers: true`, or `true` for `mdx`, `vue`, `svelte`, `astro`, `css`, `scss`, `sass`, `less`, `styl`, `stylus` or `tsrx` | none (D): skif reads those files with built-in extractors, without a compiler; for `mdx` and `tsrx` the note suggests adding them to `project`, which knip does when a compiler reads them |
+| a `compilers` function for one of those extensions | none (A): the function is never run, and the built-in extractor reads the files |
+| `compilers` for other extensions, `asyncCompilers`, `preprocessor` | none (X): functions are never run |
 | `ignoreGlobalBinaries` | `true` is what skif always does; `false` has no equivalent (X) |
 | `treatTagHintsAsErrors` | none (A): tag hints are part of `stale-js-config`, which `--strict-hints` makes an error |
 | `ignoreIssues` with a name that is not a knip issue type (`classMembers`) | none (X): knip 6 has no such issue type |

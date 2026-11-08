@@ -790,7 +790,7 @@ fn component_blocks_report_their_diagnostics_with_original_offsets() {
 
 #[test]
 fn unsupported_extensions() {
-    for path in ["a.json", "a.mdx", "a", "a.css"] {
+    for path in ["a.json", "a", "a.css"] {
         let err = parse_module(Path::new(path), "", &ParseOptions::default()).unwrap_err();
         assert!(matches!(err, SyntaxError::Unsupported { .. }), "{path}");
     }
@@ -814,6 +814,65 @@ fn single_file_components_map_spans_back() {
     let svelte = "<script>\n  import x from './x.js';\n</script>\n<p>{x}</p>";
     assert_eq!(parse("A.svelte", svelte).imports[0].specifier, "./x.js");
     assert_eq!(parse("B.vue", "<template/>").imports, [] as [skif_js_syntax::Import; 0]);
+}
+
+#[test]
+fn mdx_yields_its_top_level_esm_with_original_offsets() {
+    let mdx = "---\ntitle: Intro\n---\nimport { Card } from '@site/components';\nimport * as ui from './ui';\n\n# Intro\n\n```js\nimport fenced from 'not-a-dependency';\n```\n\n<Card><ui.Button/></Card>\n\nexport const meta = { draft: true };\n";
+    let info = parse("docs/intro.mdx", mdx);
+    let specifiers: Vec<_> = info.imports.iter().map(|i| i.specifier.as_str()).collect();
+    assert_eq!(specifiers, ["@site/components", "./ui"]);
+    let card = &info.imports[0];
+    assert_eq!(
+        slice(mdx, card.span.start, card.span.end),
+        "import { Card } from '@site/components';"
+    );
+    assert_eq!(info.imports[0].span.start_line, 4);
+    assert_eq!(info.exports[0].name, "meta");
+    assert!(info.parse_diagnostics.is_empty(), "{:?}", info.parse_diagnostics);
+    assert_eq!(accessed(&info, "ui"), (vec!["Button".to_owned()], false));
+}
+
+#[test]
+fn mdx_inline_code_is_not_a_use() {
+    let mdx = "import * as ui from './ui';\n\nWrite `<ui.Card/>` or ``{ui.format(x)}`` to get <ui.Button/>.\n";
+    let info = parse("docs/usage.mdx", mdx);
+    assert_eq!(accessed(&info, "ui"), (vec!["Button".to_owned()], false));
+}
+
+#[test]
+fn angular_component_resources_are_side_effect_imports() {
+    let source = "import { Component as Ng } from '@angular/core';\nimport { Other } from './other';\n@Ng({ templateUrl: './a.html', styleUrl: 'a.scss', styleUrls: ['./b.css', `c.less`, ...more] })\nexport class A {}\n@Other({ styleUrls: ['./ignored.css'] })\nexport class B {}\n";
+    let info = parse("a.component.ts", source);
+    let resources: Vec<_> = specifiers(&info)
+        .into_iter()
+        .filter(|(_, kind)| *kind == ImportKind::SideEffect)
+        .map(|(specifier, _)| specifier)
+        .collect();
+    assert_eq!(resources, ["./a.html", "./a.scss", "./b.css", "./c.less"]);
+    let style = info.imports.iter().find(|i| i.specifier == "./a.scss").unwrap();
+    assert_eq!(slice(source, style.span.start, style.span.end), "'a.scss'");
+}
+
+#[test]
+fn tsrx_yields_its_imports_only() {
+    let source = "import * as ui from './ui';\nimport { useState } from '@tsrx/react';\n\nexport component App() {\n  <ui.Button />\n}\n";
+    let info = parse("App.tsrx", source);
+    assert_eq!(
+        specifiers(&info),
+        [("./ui", ImportKind::Static), ("@tsrx/react", ImportKind::Static)]
+    );
+    assert_eq!(info.imports[1].span.start_line, 2);
+    assert_eq!(info.exports.len(), 0);
+    // The template is not read, so a namespace counts as used as a whole.
+    assert_eq!(accessed(&info, "ui"), (Vec::new(), true));
+}
+
+#[test]
+fn stylus_style_blocks_are_imports() {
+    let vue = "<template/>\n<style lang=\"stylus\">\n@require 'nib'\n@import './theme'\n</style>\n";
+    let found: Vec<_> = parse("A.vue", vue).imports.into_iter().map(|i| i.specifier).collect();
+    assert_eq!(found, ["nib", "./theme"]);
 }
 
 #[test]
@@ -920,6 +979,21 @@ fn bare_jsdoc_import_types_read_no_export() {
         !name.escapes,
         "a bare `import('./m')` type reads no export, as in TypeScript"
     );
+}
+
+#[test]
+fn an_indexed_typeof_import_reads_the_export_it_names() {
+    // unplugin-auto-import writes `const useCounter: typeof import('./counter')['useCounter']`.
+    let info = parse(
+        "auto-imports.d.ts",
+        "declare global {\n  const useCounter: typeof import('./counter')['useCounter']\n  const all: typeof import('./all')\n}\nexport {}\n",
+    );
+    let named = &info.imports[0].names[0];
+    assert_eq!(named.kind, ImportedKind::Named("useCounter".to_owned()));
+    assert!(named.escapes, "the indexed export is used as a whole");
+    let bare = &info.imports[1].names[0];
+    assert_eq!(bare.kind, ImportedKind::Namespace);
+    assert!(!bare.escapes);
 }
 
 #[test]
