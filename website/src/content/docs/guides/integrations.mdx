@@ -83,7 +83,8 @@ skif:
       codequality: gl-code-quality.json
 ```
 
-No file is written when the run fails, so a broken configuration cannot leave a stale report behind.
+A run that fails before writing (a broken configuration, a rendering that fails) writes and replaces no file. A write
+that fails partway can leave the files written before it in place.
 
 ## Git hooks
 

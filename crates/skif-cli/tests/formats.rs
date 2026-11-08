@@ -110,6 +110,45 @@ fn the_same_file_twice_is_a_usage_error() {
 }
 
 #[test]
+fn the_same_file_spelled_twice_is_a_usage_error() {
+    let dir = fixture("dirty");
+    let out = tempfile::tempdir().unwrap();
+    let target = out.path().join("report");
+    let result = run(skif()
+        .arg(format!(
+            "--format=json={}",
+            out.path().join("missing/../report").display()
+        ))
+        .arg(format!("--format=sarif={}", out.path().join("./report").display()))
+        .arg(dir.path()));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert_eq!(result.json()["error"]["kind"], "usage");
+    assert!(!target.exists());
+
+    fs::create_dir(out.path().join("sub")).unwrap();
+    let result = run(skif()
+        .arg(format!("--format=json={}", out.path().join("sub/../report").display()))
+        .arg(format!("--format=sarif={}", target.display()))
+        .arg(dir.path()));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert!(!target.exists());
+}
+
+#[test]
+fn a_directory_target_is_a_usage_error_before_any_write() {
+    let dir = fixture("dirty");
+    let out = tempfile::tempdir().unwrap();
+    let json_file = out.path().join("skif.json");
+    let result = run(skif()
+        .arg(format!("--format=json={}", json_file.display()))
+        .arg(format!("--format=sarif={}", out.path().display()))
+        .arg(dir.path()));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert_eq!(result.json()["error"]["kind"], "usage");
+    assert!(!json_file.exists());
+}
+
+#[test]
 fn a_failing_render_writes_no_file() {
     let dir = fixture("dirty");
     let out = tempfile::tempdir().unwrap();

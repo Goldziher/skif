@@ -167,10 +167,12 @@ the error goes to stdout.
 skif --format human --format json=skif.json --format codeclimate=gl-code-quality.json
 ```
 
-* Two formats on stdout, the same file twice, or `--output` together with several formats or with `FORMAT=FILE` is a
-  usage error (exit `2`). `--output FILE` is the single-format spelling of `FORMAT=FILE`.
+* Two formats on stdout, the same file twice (however it is spelled, so `a/../x` and `x` are the same file), a
+  `FORMAT=FILE` that names an existing directory, or `--output` together with several formats or with `FORMAT=FILE`
+  is a usage error (exit `2`). `--output FILE` is the single-format spelling of `FORMAT=FILE`.
 * Every rendering is made before any file is written. When one fails (for example `codeowners` without a CODEOWNERS
-  file), no file is written or replaced and the run exits `2`. Each file is replaced atomically.
+  file), no file is written or replaced and the run exits `2`. Each file is replaced atomically, but a write that
+  fails partway leaves the files written before it in place.
 * The format on stdout decides JSON mode: with `json` on stdout, an error is a JSON `error` document there; when no
   format goes to stdout, the first `--format` decides, so `--format json=skif.json` alone behaves like
   `--format json --output skif.json`.
