@@ -67,6 +67,7 @@ old one.
 | 0057 | [The Rest of syncpack's Surface: `list` and `json`, Dry-Run Fixes, Instance Filters, `semver-range-only`, `name~version` and `lerna.json`](0057-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md) | accepted |
 | 0058 | [Registry Updates: An Opt-In `skif update` Command, the Only Code That Uses the Network](0058-registry-updates-an-opt-in-skif-update-command.md) | accepted |
 | 0059 | [Twenty-One More Plugins: Widely Used Tools, Commands Run From Source and Imported Call Options](0059-twenty-one-more-plugins-and-commands-run-from-source.md) | accepted |
+| 0060 | [Thirty-Five More Plugins: Frameworks, Task Runners and Options Written Anywhere in a Config](0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md) | accepted |
 
 ## Effective statements
 
@@ -167,3 +168,4 @@ the lines below stay as written; this table says which record governs.
 | [0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md), line 103 | skif's own process never opens a network connection and never resolves a version | [0058](0058-registry-updates-an-opt-in-skif-update-command.md): true of linting and `--fix`; `skif update` is the one exception |
 | [0009](0009-version-and-catalog-policies.md), line 113 | `DiffersToNpmRegistry` maps to no rule because registry updates are out of scope | [0058](0058-registry-updates-an-opt-in-skif-update-command.md): still no rule; `skif update` reports the state |
 | [0049](0049-js-corrections-from-adjudicating-knip-disagreements.md), plugin count | the table holds 105 plugins | [0059](0059-twenty-one-more-plugins-and-commands-run-from-source.md): 21 plugins are added; with `unplugin-icons` the table holds 127 plugins |
+| [0059](0059-twenty-one-more-plugins-and-commands-run-from-source.md), plugin count | the table holds 127 plugins | [0060](0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md): 35 plugins are added; the table holds 162 plugins |

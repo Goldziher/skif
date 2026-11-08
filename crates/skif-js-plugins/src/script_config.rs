@@ -17,6 +17,10 @@ pub(crate) fn config_flags(id: &str) -> Vec<&'static str> {
     if id == "typescript" {
         flags.extend(PROJECT_FLAGS);
     }
+    // `buf generate --template buf.gen.yaml`.
+    if id == "buf" {
+        flags.push("--template");
+    }
     flags
 }
 
@@ -120,13 +124,15 @@ pub(crate) fn positionals(script: &str, binaries: &[&str], boolean_flags: &[&str
     found
 }
 
-/// A config path or directory from a script, relative to the workspace; `None` when it is computed, absolute or
-/// outside the workspace.
+/// A config path or directory from a script, relative to the workspace; `None` when it is computed, absolute,
+/// home-relative or outside the workspace. A backslash counts as a separator, so `..\x` and `C:\x` are outside too.
 pub(crate) fn workspace_path(value: &str) -> Option<String> {
-    if value.is_empty() || value.starts_with('/') || value.contains(['$', '`', '(', '*']) {
+    let value = value.replace('\\', "/");
+    let has_drive = value.as_bytes().get(1) == Some(&b':');
+    if value.is_empty() || value.starts_with(['/', '~']) || has_drive || value.contains(['$', '`', '(', '*']) {
         return None;
     }
-    let path = join_rel("", value);
+    let path = join_rel("", &value);
     (!path.is_empty() && path != ".." && !path.starts_with("../")).then_some(path)
 }
 
@@ -197,7 +203,19 @@ mod tests {
     #[test]
     fn computed_and_outside_paths_are_dropped() {
         assert_eq!(workspace_path("./ui/.storybook/"), Some("ui/.storybook".to_owned()));
-        for value in ["$DIR/x", "../x", "/abs/x", "", ".", "a/*.ts"] {
+        for value in [
+            "$DIR/x",
+            "../x",
+            "a/../../x",
+            "/abs/x",
+            "~/x",
+            "..\\x",
+            "C:\\x",
+            "C:/x",
+            "",
+            ".",
+            "a/*.ts",
+        ] {
             assert_eq!(workspace_path(value), None, "{value}");
         }
     }

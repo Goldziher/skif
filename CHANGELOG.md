@@ -19,6 +19,14 @@ All notable changes to this project are documented here. The format follows
 - The command of `glob -c "<command>" <patterns>` in a script is parsed as a script
   ([#39](https://github.com/Goldziher/skif/issues/39)).
 - A plugin's `package.json` key may be nested (`config.commitizen`, `config.forge`).
+- `tauri`, `capacitor`, `convex`, `sst`, `payload`, `qwik`, `quasar`, `wxt`, `stencil`, `eleventy`, `cucumber`,
+  `hardhat`, `temporal`, `relay`, `react-email`, `openapi-ts`, `orval`, `danger`, `xo`, `textlint`, `taskfile`, `mise`,
+  `moonrepo`, `wireit`, `travis`, `buf`, `vite-plugin-pwa`, `nuxtjs-i18n`, `rstest`, `sveltejs-package`,
+  `playwright-ct`, `fumadocs`, `purgecss`, `nano-staged` and `changelogen` plugins
+  ([ADR 0060](adrs/0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md),
+  [#40](https://github.com/Goldziher/skif/issues/40)). The table holds 162 plugins. `sst` also reads the handlers of
+  the modules `sst.config.ts` imports, such as `infra/*`.
+- `skif-js-syntax` extracts the values of a property wherever it is written in a file (`extract_property_values`).
 - `skif list` and `skif json` show every dependency instance the version groups and the catalog govern, with its
   version group, specifier and state, as syncpack's `list` and `json` do; `json` prints one object per line with
   syncpack's `statusCode` names ([#35](https://github.com/Goldziher/skif/issues/35)).
