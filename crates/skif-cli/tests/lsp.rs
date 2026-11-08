@@ -1,4 +1,4 @@
-//! End-to-end test of `skif lsp`, the language server of ADR 0050, over a scripted stdin.
+//! End-to-end test of `skif lsp`, the language server of ADR 0056, over a scripted stdin.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

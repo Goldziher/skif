@@ -70,6 +70,7 @@ pub(crate) fn validate(config: &Config) -> Problem {
     globs("js.project", &js.project)?;
     globs("js.ignore", &js.ignore)?;
     globs("js.extend-ignore", &js.extend_ignore)?;
+    globs("js.ignore-files", &js.ignore_files)?;
     names("js.ignore-dependencies", &js.ignore_dependencies)?;
     names("js.extend-ignore-dependencies", &js.extend_ignore_dependencies)?;
     names("js.ignore-binaries", &js.ignore_binaries)?;
@@ -79,6 +80,13 @@ pub(crate) fn validate(config: &Config) -> Problem {
     names("js.ignore-members", &js.ignore_members)?;
     names("js.ignore-workspaces", &js.ignore_workspaces)?;
     plugin_globs("js.plugins", &js.plugins)?;
+    for (index, cycle) in js.cycles.allow.iter().enumerate() {
+        if cycle.is_empty() || cycle.iter().any(|file| file.trim().is_empty()) {
+            return invalid(format!(
+                "js.cycles.allow[{index}]: an allowed cycle needs at least one file and no empty path"
+            ));
+        }
+    }
     for (dir, workspace) in &js.workspaces {
         let key = format!("js.workspaces.\"{dir}\"");
         if let Some(message) = glob_problem(dir) {
@@ -87,6 +95,7 @@ pub(crate) fn validate(config: &Config) -> Problem {
         globs(&format!("{key}.entry"), &workspace.entry)?;
         globs(&format!("{key}.project"), &workspace.project)?;
         globs(&format!("{key}.ignore"), &workspace.ignore)?;
+        globs(&format!("{key}.ignore-files"), &workspace.ignore_files)?;
         names(&format!("{key}.ignore-dependencies"), &workspace.ignore_dependencies)?;
         names(&format!("{key}.ignore-binaries"), &workspace.ignore_binaries)?;
         names(&format!("{key}.ignore-unresolved"), &workspace.ignore_unresolved)?;

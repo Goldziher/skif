@@ -1,4 +1,4 @@
-//! `skif lsp`: a minimal Language Server Protocol server over stdio (ADR 0050).
+//! `skif lsp`: a minimal Language Server Protocol server over stdio (ADR 0056).
 //!
 //! On open and save of a document it lints the root containing the file, as saved on disk, and publishes the
 //! diagnostics of every file of that root. Code actions and unsaved buffers are not supported.

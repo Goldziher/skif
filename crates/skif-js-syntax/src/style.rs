@@ -1,7 +1,7 @@
-//! A lightweight import scanner for stylesheets (`.css .scss .sass .less .pcss`).
+//! A lightweight import scanner for stylesheets (`.css .scss .sass .less .pcss .styl .stylus`).
 //!
 //! It understands comments and strings, and recognises `@import`, `@use`, `@forward`, `@plugin`, `@config`,
-//! `@reference` and CSS modules `composes: … from "x"`. `@source` is a glob and `url()` in other properties is an
+//! `@reference`, Stylus `@require` and CSS modules `composes: … from "x"`. `@source` is a glob and `url()` in other properties is an
 //! asset, so neither is reported.
 
 use std::path::Path;
@@ -10,7 +10,7 @@ use skif_core::LineIndex;
 
 use crate::model::{Import, ImportKind, ModuleInfo};
 
-const EXTENSIONS: &[&str] = &["css", "scss", "sass", "less", "pcss"];
+const EXTENSIONS: &[&str] = &["css", "scss", "sass", "less", "pcss", "styl", "stylus"];
 
 /// Whether `path` has a stylesheet extension.
 #[must_use]
@@ -26,6 +26,7 @@ enum Flavor {
     Scss,
     Sass,
     Less,
+    Stylus,
 }
 
 struct Found {
@@ -35,8 +36,8 @@ struct Found {
 }
 
 /// Scans the stylesheet `source` (the content of `path`) for the files and packages it imports. Every import has
-/// [`ImportKind::SideEffect`]. Nothing is reported for remote URLs, `data:` URLs, Sass built-in modules and
-/// specifiers with interpolation.
+/// [`ImportKind::SideEffect`]. Nothing is reported for remote URLs, `data:` URLs, Sass built-in modules,
+/// specifiers with interpolation and Stylus globs (`@import "mixins/*"`).
 #[must_use]
 pub fn parse_stylesheet(path: &Path, source: &str) -> ModuleInfo {
     let extension = path
@@ -48,6 +49,7 @@ pub fn parse_stylesheet(path: &Path, source: &str) -> ModuleInfo {
         "scss" | "pcss" => Flavor::Scss,
         "sass" => Flavor::Sass,
         "less" => Flavor::Less,
+        "styl" | "stylus" => Flavor::Stylus,
         _ => Flavor::Css,
     };
     let mut scanner = Scanner {
@@ -62,6 +64,7 @@ pub fn parse_stylesheet(path: &Path, source: &str) -> ModuleInfo {
     let imports = scanner
         .found
         .into_iter()
+        .filter(|found| flavor != Flavor::Stylus || !found.specifier.contains('*'))
         .filter_map(|found| {
             let specifier = normalize(&found.specifier)?;
             let start = u32::try_from(found.start.min(source.len())).ok()?;
@@ -252,6 +255,7 @@ impl Scanner<'_> {
             .to_ascii_lowercase();
         match name.as_str() {
             "import" => self.import_list(start),
+            "require" if self.flavor == Flavor::Stylus => self.import_list(start),
             "use" | "forward" | "plugin" | "config" | "reference" => {
                 self.skip_trivia();
                 self.target(start);
@@ -280,7 +284,7 @@ impl Scanner<'_> {
         }
     }
 
-    /// Reads a string, `url(…)` or (in indented Sass) bare word and records it. False when none is here.
+    /// Reads a string, `url(…)` or (in indented Sass and Stylus) bare word and records it. False when none is here.
     fn target(&mut self, start: usize) -> bool {
         let Some(byte) = self.cur() else {
             return false;
@@ -312,7 +316,10 @@ impl Scanner<'_> {
             });
             return true;
         }
-        if self.flavor == Flavor::Sass && !byte.is_ascii_whitespace() && !matches!(byte, b';' | b',') {
+        if matches!(self.flavor, Flavor::Sass | Flavor::Stylus)
+            && !byte.is_ascii_whitespace()
+            && !matches!(byte, b';' | b',')
+        {
             let from = self.pos;
             while self
                 .cur()
@@ -430,6 +437,18 @@ mod tests {
         let source =
             "@use \"sass:math\";\n@use \"pkg\" as p with ($a: 1);\n@forward \"./theme\";\n@use \"~legacy/mixins\";";
         assert_eq!(specifiers("a.scss", source), ["pkg", "./theme", "legacy/mixins"]);
+    }
+
+    #[test]
+    fn stylus_import_and_require() {
+        let source = "// @import 'gone'\n@import 'vars'\n@require \"./mixins\", '~nib'\n@import mixins/*\n@import theme\n\
+                      @require 'grid.css'\n.a\n  color red";
+        assert_eq!(
+            specifiers("a.styl", source),
+            ["vars", "./mixins", "nib", "theme", "grid.css"]
+        );
+        assert_eq!(specifiers("a.stylus", "@require 'b'"), ["b"]);
+        assert_eq!(specifiers("a.scss", "@require 'not-scss';"), [] as [String; 0]);
     }
 
     #[test]

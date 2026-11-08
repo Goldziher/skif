@@ -1,23 +1,9 @@
-//! A cheap text scan for module specifiers the parser does not see: `new URL("./x", import.meta.url)` and
-//! `vi.mock("./x")`. A `new URL` target is loaded as a whole, so every export of it counts as used; a mocked module
-//! is only loaded. Identifiers used only in component templates are read by `skif-js-syntax`.
+//! A cheap text scan for module specifiers the parser does not see: `new URL("./x", import.meta.url)`. A `new URL`
+//! target is loaded as a whole, so every export of it counts as used. Test-runner mocks and identifiers used only in
+//! component templates are read by `skif-js-syntax`.
 
 use skif_core::Span;
 use skif_js_syntax::{Import, ImportKind, ModuleInfo};
-
-const MOCK_CALLS: &[&str] = &[
-    "vi.mock(",
-    "vi.doMock(",
-    "vi.unmock(",
-    "vi.importActual(",
-    "vi.importMock(",
-    "jest.mock(",
-    "jest.doMock(",
-    "jest.unmock(",
-    "jest.requireActual(",
-    "jest.requireMock(",
-    "jest.createMockFromModule(",
-];
 
 fn skip_whitespace(text: &str, position: usize) -> usize {
     position + (text.len() - position - text[position..].trim_start().len())
@@ -58,18 +44,15 @@ fn span(source: &str, start: usize, end: usize) -> Span {
     )
 }
 
-/// `(specifier, kind, start, end)` of the specifiers written in `new URL("./x", import.meta.url)` and in mock calls.
+/// Whether a relative path reaches into a `node_modules` directory (`../node_modules/.bin/tsx`). Such a `new URL`
+/// names an installed file or a directory the code creates, not a module it loads, so it is no import.
+fn in_node_modules(path: &str) -> bool {
+    path.split('/').any(|segment| segment == "node_modules")
+}
+
+/// `(specifier, kind, start, end)` of the specifiers written in `new URL("./x", import.meta.url)`.
 fn extra_specifiers(source: &str) -> Vec<(String, ImportKind, usize, usize)> {
     let mut found = Vec::new();
-    for call in MOCK_CALLS {
-        for (start, _) in source.match_indices(call) {
-            if let Some((literal, end)) = string_literal(source, start + call.len())
-                && !literal.is_empty()
-            {
-                found.push((literal.to_owned(), ImportKind::SideEffect, start, end));
-            }
-        }
-    }
     for (start, _) in source.match_indices("new URL(") {
         let Some((literal, after)) = string_literal(source, start + "new URL(".len()) else {
             continue;
@@ -79,7 +62,10 @@ fn extra_specifiers(source: &str) -> Vec<(String, ImportKind, usize, usize)> {
             continue;
         }
         let base = skip_whitespace(source, comma + 1);
-        if source[base..].starts_with("import.meta.url") && (literal.starts_with("./") || literal.starts_with("../")) {
+        if source[base..].starts_with("import.meta.url")
+            && (literal.starts_with("./") || literal.starts_with("../"))
+            && !in_node_modules(literal)
+        {
             found.push((
                 literal.to_owned(),
                 ImportKind::Require,
@@ -92,13 +78,10 @@ fn extra_specifiers(source: &str) -> Vec<(String, ImportKind, usize, usize)> {
     found
 }
 
-/// Adds the specifiers of `new URL(…, import.meta.url)` and mock calls that the parser does not report. A mock is an
-/// import that only loads the module; a `new URL` target is an import of the whole module.
+/// Adds the specifiers of `new URL(…, import.meta.url)` that the parser does not report: an import of the whole
+/// module.
 pub(crate) fn add_textual_imports(info: &mut ModuleInfo, source: &str) {
-    if !["import.meta.url", "mock", "Mock", "Actual"]
-        .iter()
-        .any(|needle| source.contains(needle))
-    {
+    if !source.contains("import.meta.url") {
         return;
     }
     for (specifier, kind, start, end) in extra_specifiers(source) {
@@ -123,20 +106,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn url_and_mock_specifiers_are_found() {
-        let source = "const w = new URL('./worker.ts', import.meta.url);\nvi.mock(\"./dep\", () => ({}));\njest.mock('axios');\nnew URL('https://x.dev', import.meta.url);\nnew URL(`./${name}.ts`, import.meta.url);";
+    fn urls_into_node_modules_are_not_imports() {
+        let source = "new URL('../../node_modules/.bin/tsx', import.meta.url);\n\
+                      new URL('./node_modules/later', import.meta.url);\nnew URL('./modules/a.ts', import.meta.url);";
         let found: Vec<String> = extra_specifiers(source).into_iter().map(|(s, _, _, _)| s).collect();
-        assert_eq!(found, ["./worker.ts", "./dep", "axios"]);
+        assert_eq!(found, ["./modules/a.ts"]);
     }
 
     #[test]
-    fn url_targets_are_whole_module_imports_and_mocks_only_load() {
-        let source = "new URL('./a.ts', import.meta.url);\nvi.mock('./b');";
-        let kinds: Vec<ImportKind> = extra_specifiers(source)
+    fn url_specifiers_are_whole_module_imports() {
+        let source = "const w = new URL('./worker.ts', import.meta.url);\nvi.mock(\"./dep\", () => ({}));\nnew URL('https://x.dev', import.meta.url);\nnew URL(`./${name}.ts`, import.meta.url);";
+        let found: Vec<(String, ImportKind)> = extra_specifiers(source)
             .into_iter()
-            .map(|(_, kind, _, _)| kind)
+            .map(|(s, kind, _, _)| (s, kind))
             .collect();
-        assert_eq!(kinds, [ImportKind::Require, ImportKind::SideEffect]);
+        assert_eq!(found, [("./worker.ts".to_owned(), ImportKind::Require)]);
     }
 
     #[test]

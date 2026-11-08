@@ -1,0 +1,11 @@
+{
+  "name": "test-mocks",
+  "private": true,
+  "main": "src/index.ts",
+  "dependencies": {
+    "axios": "1.7.0"
+  },
+  "devDependencies": {
+    "vitest": "3.0.0"
+  }
+}

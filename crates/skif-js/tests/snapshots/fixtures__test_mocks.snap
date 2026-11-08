@@ -1,0 +1,25 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "unlisted-dependencies",
+    "severity": "error",
+    "message": "`left-pad` is imported but not listed in `package.json`",
+    "help": "add `left-pad` to the dependencies of `test-mocks`",
+    "location": {
+      "path": "src/index.test.ts",
+      "span": {
+        "start": 41,
+        "end": 59,
+        "start-line": 2,
+        "start-col": 1,
+        "end-line": 2,
+        "end-col": 19
+      }
+    },
+    "package": "test-mocks",
+    "dependency": "left-pad"
+  }
+]

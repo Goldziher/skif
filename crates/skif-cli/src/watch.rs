@@ -1,4 +1,4 @@
-//! `skif --watch`: lint, then lint again whenever a file below the root changes (ADR 0050).
+//! `skif --watch`: lint, then lint again whenever a file below the root changes (ADR 0056).
 //!
 //! The watcher polls: it lists the files below the root with their size and modification time and compares the
 //! list with the previous one. A run starts once the tree has been quiet for [`QUIET`], so a checkout or a
