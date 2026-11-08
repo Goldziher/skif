@@ -17,9 +17,13 @@ with `--warmup` and `--runs`) on two kinds of targets:
 
 `sherif`, `syncpack` and `knip` are optional: a tool that is not on `PATH` is skipped with a note. Results go to
 `target/bench-results/` (or `--out`): `summary.md` (tables plus the ADR checks), `summary.json` (schema 1: skif
-version, host, hyperfine version, every target with mean, stddev, median, min and max in ms, and the checks), and one raw
+version, host, hyperfine version, every target with mean, stddev, median, min and max in ms and the number of runs that exited with an
+error, and the checks), and one raw
 hyperfine export per target under `raw/`. `run` exits non-zero when an ADR 0001 check fails, after writing the
-summary; `--no-enforce` turns that off.
+summary; `--no-enforce` turns that off. A tool that exits with a status above 1 (knip's exit code when it fails or cannot
+load a configuration file) is noted under its table and in the knip check, since its time may be that of a partial run.
+A corpus repository's `bench-knip-args` in `corpus.toml` are passed to knip, so it reads the files skif reads (npm-cli
+sets `--no-gitignore`). hyperfine 1.x and 2.x exports are both read.
 
 ## Targets (ADR 0001)
 
@@ -192,104 +196,118 @@ checks. The decision is [ADR 0026](../../adrs/0026-parity-and-diff-tasks-on-a-pi
 ## Measured numbers
 
 `mise run bench:publish` writes `tools/bench/results/summary.{json,md}` and rewrites this section with
-`refresh-numbers.mjs`. These numbers come from one Apple M4 Pro (14 cores) with other work running (load average around 17), so read the
-ratios rather than the absolute times. A rerun of the 500-package case alone, at load 15, measured 49.6 ms against its 50 ms target,
-so it sits on the line rather than clearly over it. The `FAIL` for npm-cli is not like for like: npm's `.gitignore` hides its workspaces
-from knip, which analyses only the root package there. knip also exits with an error on create-t3-turbo, so that time
-is a partial run (these numbers predate `run --install`). sherif 1.13.0, syncpack 15.3.3 and knip 6.44.1, run through their npm launchers.
+`refresh-numbers.mjs`. These numbers come from skif at commit `a923580` (after 0.1.1) on a 4-vCPU Linux VM (Intel Xeon
+at 2.10 GHz, 15 GB RAM, Linux 6.18) with no other work running and an idle CPU (load average 1.5 to 1.7 from the VM
+itself), using hyperfine 2.0.0 and sherif 1.13.0, syncpack 15.3.3 and knip 6.44.1 through their npm launchers on Node 22.
+The corpus was installed first (`npm-cli` with npm 11, whose lockfile npm 10 rejects), so knip ran on every repository.
+Read the ratios rather than the absolute times, which depend on the machine.
+
+knip's error lines below are not failed runs: on create-t3-turbo and vue-core knip finishes its analysis and prints its
+whole report, then exits with 2 because some of the repository's tool configurations do not load (create-t3-turbo:
+`apps/expo/metro.config.js` requires the unlisted `metro-cache`, and `packages/db/drizzle.config.ts` throws without
+`POSTGRES_URL`; vue-core: two `vite.config.ts` files read an undefined `__DEV__`). Setting the missing variables on
+create-t3-turbo changes neither its findings nor its time. On npm-cli knip runs with `--no-gitignore` (the repository's
+`bench-knip-args` in `corpus.toml`): npm's deny-all `.gitignore` otherwise hides the workspaces from knip, which then
+analyses only the root package. At 2,000 packages skif and sherif are level within the noise: 137 ms against 135 ms
+(median) here, 124 ms against 131 ms in a separate 30-run comparison; skif reports about 24,700 diagnostics there,
+sherif 638.
 
 <!-- bench:numbers:start -->
-Measured with hyperfine 1.20.0, 3 warmup and 10 measured runs on macos aarch64; skif 0.1.0.
+Measured with hyperfine 2.0.0, 3 warmup and 10 measured runs on linux x86_64; skif 0.1.1.
 
 **generated: 50 packages (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif --no-js | 10.8 | 10.8 | 1.0x |
-| sherif | 46.7 | 37.7 | 4.3x |
-| syncpack lint | 41.8 | 41.7 | 3.9x |
+| skif --no-js | 6.6 | 6.4 | 1.0x |
+| sherif | 39.0 | 38.7 | 6.0x |
+| syncpack lint | 52.0 | 52.6 | 7.9x |
 
 **generated: 500 packages (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif --no-js | 54.1 | 53.9 | 1.0x |
-| sherif | 61.5 | 61.3 | 1.1x |
-| syncpack lint | 183 | 176 | 3.4x |
+| skif --no-js | 34.7 | 34.3 | 1.0x |
+| sherif | 69.4 | 67.8 | 2.0x |
+| syncpack lint | 157 | 159 | 4.5x |
 
 **generated: 2000 packages (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif --no-js | 272 | 268 | 1.0x |
-| sherif | 194 | 194 | 0.7x |
-| syncpack lint | 849 | 869 | 3.1x |
+| skif --no-js | 137 | 137 | 1.0x |
+| sherif | 138 | 135 | 1.0x |
+| syncpack lint | 642 | 665 | 4.7x |
 
 **graph: 10000 files in 100 packages**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 377 | 318 | 1.0x |
+| skif | 282 | 280 | 1.0x |
 
 **corpus: create-t3-turbo (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 22.2 | 22.3 | 1.0x |
-| skif --no-js | 4.6 | 4.6 | 0.2x |
-| sherif | 31.6 | 32.0 | 6.8x |
-| syncpack lint | 47.6 | 45.9 | 10.3x |
-| knip --reporter json | 820 | 824 | 37.0x |
+| skif | 35.3 | 35.2 | 1.0x |
+| skif --no-js | 5.7 | 4.7 | 0.2x |
+| sherif | 39.2 | 39.2 | 6.9x |
+| syncpack lint | 44.1 | 43.7 | 7.8x |
+| knip --reporter json | 2164 | 2142 | 61.3x |
+
+knip --reporter json exited with an error in 10 of 10 runs, so its time may be that of a partial run.
 
 **corpus: vue-core (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 37.3 | 37.4 | 1.0x |
-| skif --no-js | 5.0 | 5.0 | 0.1x |
-| sherif | 33.0 | 33.2 | 6.6x |
-| syncpack lint | 38.5 | 38.5 | 7.7x |
-| knip --reporter json | 1589 | 1316 | 42.6x |
+| skif | 73.9 | 72.0 | 1.0x |
+| skif --no-js | 4.7 | 4.7 | 0.1x |
+| sherif | 39.0 | 38.2 | 8.4x |
+| syncpack lint | 50.8 | 50.2 | 10.9x |
+| knip --reporter json | 1885 | 1862 | 25.5x |
+
+knip --reporter json exited with an error in 10 of 10 runs, so its time may be that of a partial run.
 
 **corpus: tanstack-query (pnpm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 180 | 175 | 1.0x |
-| skif --no-js | 17.1 | 17.1 | 0.1x |
-| sherif | 41.1 | 41.2 | 2.4x |
-| syncpack lint | 109 | 109 | 6.4x |
-| knip --reporter json | 1802 | 1803 | 10.0x |
+| skif | 416 | 415 | 1.0x |
+| skif --no-js | 12.2 | 12.5 | 0.0x |
+| sherif | 48.6 | 46.5 | 4.0x |
+| syncpack lint | 124 | 124 | 10.1x |
+| knip --reporter json | 5295 | 5360 | 12.7x |
 
 **corpus: babel (yarn)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 421 | 420 | 1.0x |
-| skif --no-js | 13.0 | 13.0 | 0.0x |
-| sherif | 39.8 | 39.5 | 3.1x |
-| syncpack lint | 496 | 495 | 38.2x |
-| knip --reporter json | 4152 | 3943 | 9.9x |
+| skif | 1040 | 1037 | 1.0x |
+| skif --no-js | 10.7 | 10.2 | 0.0x |
+| sherif | 45.6 | 44.4 | 4.3x |
+| syncpack lint | 338 | 337 | 31.7x |
+| knip --reporter json | 8514 | 8497 | 8.2x |
 
 **corpus: npm-cli (npm)**
 
 | Tool | Mean (ms) | Median (ms) | vs skif |
 | --- | ---: | ---: | ---: |
-| skif | 83.4 | 82.0 | 1.0x |
-| skif --no-js | 6.8 | 6.5 | 0.1x |
-| sherif | 35.2 | 34.6 | 5.2x |
-| syncpack lint | 87.9 | 88.7 | 12.9x |
-| knip --reporter json | 316 | 315 | 3.8x |
+| skif | 124 | 124 | 1.0x |
+| skif --no-js | 6.0 | 5.9 | 0.0x |
+| sherif | 45.4 | 43.5 | 7.6x |
+| syncpack lint | 86.7 | 87.7 | 14.4x |
+| knip --reporter json | 1063 | 1051 | 8.5x |
 
 | ADR 0001 target | Check | Result |
 | --- | --- | --- |
-| generated: 500 packages (pnpm) | manifest and policy rules < 50 ms (measured 54.1 ms) | FAIL |
-| graph: 10000 files in 100 packages | parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 376.5 ms) | pass |
-| corpus: create-t3-turbo (pnpm) | JS analysis >= 5x faster than knip (measured 37.0x) | pass |
-| corpus: vue-core (pnpm) | JS analysis >= 5x faster than knip (measured 42.6x) | pass |
-| corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 10.0x) | pass |
-| corpus: babel (yarn) | JS analysis >= 5x faster than knip (measured 9.9x) | pass |
-| corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 3.8x) | FAIL |
+| generated: 500 packages (pnpm) | manifest and policy rules < 50 ms (measured 34.7 ms) | pass |
+| graph: 10000 files in 100 packages | parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 282.3 ms) | pass |
+| corpus: create-t3-turbo (pnpm) | JS analysis >= 5x faster than knip (measured 61.3x; knip exited with an error in 10 runs) | pass |
+| corpus: vue-core (pnpm) | JS analysis >= 5x faster than knip (measured 25.5x; knip exited with an error in 10 runs) | pass |
+| corpus: tanstack-query (pnpm) | JS analysis >= 5x faster than knip (measured 12.7x) | pass |
+| corpus: babel (yarn) | JS analysis >= 5x faster than knip (measured 8.2x) | pass |
+| corpus: npm-cli (npm) | JS analysis >= 5x faster than knip (measured 8.5x) | pass |
 
 <!-- bench:numbers:end -->
 
