@@ -33,7 +33,8 @@ pub struct Repo {
     /// When non-empty, only these directories (plus the files at the root) are checked out.
     #[serde(default)]
     pub sparse: Vec<String>,
-    /// `false` when dependencies cannot be installed for this repository.
+    /// `false` when dependencies cannot be installed for this repository; `parity --install` then compares it
+    /// uninstalled.
     #[serde(default = "default_install")]
     pub install: bool,
     #[serde(default)]

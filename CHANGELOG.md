@@ -196,6 +196,9 @@ All notable changes to this project are documented here. The format follows
   does not report; knip-only files below `fixture`, `testdata`, `test_root`, `__testfixtures__` or `*-fixtures`, which
   skif judges, count as differences unless they are test files
   ([ADR 0068](adrs/0068-what-the-knip-comparison-sets-apart.md), [#27](https://github.com/Goldziher/skif/issues/27)).
+- `parity --install` compares a repository with `install = false` uninstalled instead of skipping it before either
+  tool runs, so rushstack's entry names knip's own error (`Unable to find package.json`); npm-cli installs with npm 11,
+  since npm 10 rejects its lockfile ([#27](https://github.com/Goldziher/skif/issues/27)).
 - Manifest checks are faster on large workspaces: about 2.5 times faster on a generated 2,000-package workspace with
   tens of thousands of findings, and twice as fast at 500 packages. Package configuration files are probed in
   parallel, the version-group analysis and its findings run in parallel, the JSON report is written without the

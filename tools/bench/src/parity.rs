@@ -508,9 +508,9 @@ fn skipped(reason: impl Into<String>) -> Outcome {
 fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: &Path) -> Result<Outcome> {
     let root = fs::canonicalize(dir).with_context(|| format!("resolving {}", dir.display()))?;
     let scratch = options.out.join("scratch").join(&repo.name);
-    if options.install
-        && let Some(reason) = install(repo, &root, &scratch, options.timeout)?
-    {
+    // A repository with `install = false` is compared uninstalled, so a tool that cannot run there says why itself.
+    let installs = options.install && repo.install;
+    if installs && let Some(reason) = install(repo, &root, &scratch, options.timeout)? {
         return Ok(skipped(format!("install: {reason}")));
     }
 
@@ -597,6 +597,7 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
     let (counts, samples) = diff::compare(&split.skif, &split.tool);
     let detail = json!({
         "status": COMPARED,
+        "installed": installs,
         "recursive": recursive,
         "knip_exit": knip_run.code,
         "knip_errors": knip_errors,

@@ -110,9 +110,10 @@ nearly every import as unresolved or unlisted. `--install` installs each reposit
 `--ignore-scripts` (`pnpm install --frozen-lockfile`, `yarn install --immutable --mode=skip-build` or
 `--frozen-lockfile`, `npm ci`, `bun install --frozen-lockfile`); the installed state is cached in the checkout. A
 repository is skipped, with the reason in the report, when its package manager is not on `PATH`, the install fails or
-times out (`install = false` in `corpus.toml` for rushstack: knip has no Rush support and finds no root `package.json`
-there, so nothing would use the install), skif fails, or knip prints no JSON; the reason names the first error line
-the install printed, on stderr or stdout. Without `--install` the run is quick but dominated by that noise; the baseline records which way it was made and
+times out, skif fails, or knip prints no JSON; the reason names the first error line the install printed, on stderr
+or stdout, or knip's error. A repository with `install = false` in `corpus.toml` (rushstack: Rush keeps its lockfiles
+under `common/config`) is compared uninstalled, so the tools say themselves whether they can run there: knip has no
+Rush support and stops with `Unable to find package.json`, which becomes the skip reason. Without `--install` the run is quick but dominated by that noise; the baseline records which way it was made and
 `--check` rejects a mismatch. A repository may set `install-command` (program first; `rules-js` installs with
 the pnpm its `MODULE.bazel` pins) and `install-timeout-secs` (`vercel-examples`) in `corpus.toml`.
 
