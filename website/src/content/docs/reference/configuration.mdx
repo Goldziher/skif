@@ -515,7 +515,8 @@ a base config merged with `mergeConfig`, spread into an object, or listed in an 
 from an installed package stays unknown, and an imported value that depends on itself through imports is unknown there.
 A conditional (`cond ? a : b`, `&&`, `||`, `??`) whose test is known takes its branch, so a key spread in only when
 `pinCjs.length` is truthy is left out when `pinCjs` defaults to `[]`; with an unknown test, a key only one branch sets
-is unknown and the other keys stay known.
+is unknown and the other keys stay known. The same holds for `if (test) return a;` before a function's last `return`:
+a known test takes its branch, and with an unknown test the value is what both returns share, never the last one alone.
 
 Plugins read configs and sources statically and never run a tool, so some of knip's plugin behaviour has no
 counterpart. These differences are deliberate:

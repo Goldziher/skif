@@ -395,3 +395,31 @@ fn a_conditional_with_an_unknown_test_keeps_what_both_branches_share() {
     // A branch that is not an object leaves the spread unknown.
     assert!(value.get("...").is_some());
 }
+
+#[test]
+fn an_early_return_is_not_skipped_for_the_last_one() {
+    let value = extract(
+        "vitest.config.ts",
+        "const make = (mode) => {\n\
+           if (process.env.CI) return { test: { include: ['ci'] }, root: '.' };\n\
+           return { test: { include: ['all'] }, root: '.' };\n\
+         };\n\
+         const known = (mode = 'dev') => { if (mode) { return { a: 1 }; } return { a: 2 }; };\n\
+         const loop = () => { for (const x of y) { return { a: 1 }; } return { a: 2 }; };\n\
+         const big = () => { if (env()) { const a = 1; return { a }; } return { a: 2 }; };\n\
+         const none = () => { if (env()) { setup(); } return { a: 3 }; };\n\
+         export default [make(), known(), loop(), big(), none()];",
+    );
+    let configs = value.as_array().unwrap();
+    // The two returns share `root`; `test.include` differs, so it is unknown rather than the last return's.
+    assert_eq!(get(&configs[0], &["root"]), &s("."));
+    assert_eq!(get(&configs[0], &["test", "include"]), &ConfigValue::Unknown);
+    // A known test takes its branch.
+    assert_eq!(get(&configs[1], &["a"]), &ConfigValue::Number(1.0));
+    assert_eq!(configs[2], ConfigValue::Unknown);
+    assert_eq!(configs[3], ConfigValue::Unknown);
+    assert_eq!(
+        configs[4],
+        ConfigValue::Object(vec![("a".to_owned(), ConfigValue::Number(3.0))])
+    );
+}

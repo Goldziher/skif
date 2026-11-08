@@ -10,7 +10,7 @@ use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget, BinaryOperator,
     BindingPattern, CallExpression, ConditionalExpression, Declaration, ExportDefaultDeclarationKind, Expression,
     Function, ImportDeclarationSpecifier, ImportOrExportKind, LogicalExpression, LogicalOperator, NewExpression,
-    ObjectPropertyKind, Program, Statement, StaticMemberExpression, TemplateLiteral, UnaryOperator,
+    ObjectPropertyKind, Program, ReturnStatement, Statement, StaticMemberExpression, TemplateLiteral, UnaryOperator,
     VariableDeclaration, VariableDeclarationKind,
 };
 use oxc_ast_visit::{Visit, walk};
@@ -184,6 +184,8 @@ pub trait ModuleLoader {
 /// `a ? b : c` takes the branch a known test selects; with an unknown test it is what both branches share (for two
 /// objects, every key either has, unknown where they differ or only one has it). `a && b`, `a || b`, `a ?? b` and `!a`
 /// are followed when `a` is known, and `.length` of a known string or array is its length.
+/// An `if (test) return a;` before a function's last `return` is followed the same way: a known test takes its branch,
+/// and an unknown one makes the value what both returns share.
 ///
 /// Functions are followed: a returned config function may declare local `const`/`let` bindings and local functions,
 /// assign members of a local object, and call top-level or local functions with known arguments, a parameter not passed
@@ -1600,21 +1602,53 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
     }
 
-    /// Value returned by a function body: its single expression or the first `return <expr>`. Declarations before
-    /// it are bound in the innermost frame.
+    /// Value returned by a function body: its single expression or the value of the `return` it reaches.
+    /// Declarations before it are bound in the innermost frame.
     fn returned(&self, statements: &'p [Statement<'a>], depth: u32) -> ConfigValue {
         if let [Statement::ExpressionStatement(s)] = statements {
             return self.expr(&s.expression, depth);
         }
-        for statement in statements {
+        self.run(statements, depth).unwrap_or(ConfigValue::Unknown)
+    }
+
+    /// Runs `statements` in the innermost frame: the value of the `return` they reach, or `None` when they finish
+    /// without one. An `if` with a known test runs the branch it takes; with an unknown test, a branch that is a single
+    /// `return x` makes the value what `x` and the other path's value have in common, and any other `return` that may
+    /// or may not be reached (in a loop, a `switch`, a `try`, a larger branch) makes the value unknown, never only the
+    /// last `return`.
+    fn run(&self, statements: &'p [Statement<'a>], depth: u32) -> Option<ConfigValue> {
+        for (index, statement) in statements.iter().enumerate() {
             match statement {
                 Statement::ReturnStatement(r) => {
-                    return r
-                        .argument
-                        .as_ref()
-                        .map_or(ConfigValue::Unknown, |e| self.expr(e, depth));
+                    return Some(
+                        r.argument
+                            .as_ref()
+                            .map_or(ConfigValue::Unknown, |e| self.expr(e, depth)),
+                    );
                 }
                 Statement::ExpressionStatement(s) => self.mutation(&s.expression, depth),
+                Statement::BlockStatement(b) => {
+                    if let Some(value) = self.run(&b.body, depth) {
+                        return Some(value);
+                    }
+                }
+                Statement::IfStatement(i) => {
+                    let taken = match truthiness(&self.expr(&i.test, depth)) {
+                        Some(true) => Some(&i.consequent),
+                        Some(false) => i.alternate.as_ref(),
+                        None => {
+                            if !returns(statement) {
+                                continue;
+                            }
+                            let rest = &statements[index + 1..];
+                            return Some(self.either_return(&i.consequent, i.alternate.as_ref(), rest, depth));
+                        }
+                    };
+                    if let Some(value) = taken.and_then(|branch| self.run(std::slice::from_ref(branch), depth)) {
+                        return Some(value);
+                    }
+                }
+                other if returns(other) => return Some(ConfigValue::Unknown),
                 other => match other.as_declaration() {
                     Some(Declaration::VariableDeclaration(v)) => self.declare(v, depth),
                     Some(Declaration::FunctionDeclaration(f)) => {
@@ -1626,7 +1660,39 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 },
             }
         }
-        ConfigValue::Unknown
+        None
+    }
+
+    /// The value of `if (unknown) consequent else alternate` followed by `rest`, where a branch returns: what a
+    /// branch's single `return x` and the other path's value have in common, or unknown when a branch does more.
+    fn either_return(
+        &self,
+        consequent: &'p Statement<'a>,
+        alternate: Option<&'p Statement<'a>>,
+        rest: &'p [Statement<'a>],
+        depth: u32,
+    ) -> ConfigValue {
+        let path = |branch: Option<&'p Statement<'a>>| -> Option<ConfigValue> {
+            match branch.map(single_return) {
+                // A branch that returns its value.
+                Some(Some(r)) => Some(
+                    r.argument
+                        .as_ref()
+                        .map_or(ConfigValue::Unknown, |e| self.expr(e, depth)),
+                ),
+                // A branch that does more than return, and may return.
+                Some(None) if branch.is_some_and(returns) => Some(ConfigValue::Unknown),
+                // No branch, or one that does not return: control goes on to the statements after the `if`.
+                _ => None,
+            }
+        };
+        let (Some(a), b) = (path(Some(consequent)), path(alternate)) else {
+            // The consequent goes on to `rest`, so the alternate returns.
+            let a = self.run(rest, depth).unwrap_or(ConfigValue::Unknown);
+            return either(&a, &path(alternate).unwrap_or(ConfigValue::Unknown));
+        };
+        let b = b.unwrap_or_else(|| self.run(rest, depth).unwrap_or(ConfigValue::Unknown));
+        either(&a, &b)
     }
 
     /// Binds the names a `const`/`let`/`var` declaration declares; destructured names stay unbound.
@@ -1856,6 +1922,35 @@ fn merge_objects(base: &mut Vec<(String, ConfigValue)>, incoming: Vec<(String, C
             (_, _, value) => *slot = value,
         }
     }
+}
+
+/// A statement that is only a `return` (or a block holding just one).
+fn single_return<'p, 'a>(statement: &'p Statement<'a>) -> Option<&'p ReturnStatement<'a>> {
+    match statement {
+        Statement::ReturnStatement(r) => Some(r),
+        Statement::BlockStatement(b) => match b.body.as_slice() {
+            [only] => single_return(only),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether a statement may `return` from the function it is in (a `return` inside a nested function does not count).
+fn returns(statement: &Statement<'_>) -> bool {
+    #[derive(Default)]
+    struct Finder(bool);
+    impl<'a> Visit<'a> for Finder {
+        fn visit_return_statement(&mut self, _: &ReturnStatement<'a>) {
+            self.0 = true;
+        }
+        fn visit_function(&mut self, _: &Function<'a>, _: oxc_semantic::ScopeFlags) {}
+        fn visit_arrow_function_expression(&mut self, _: &ArrowFunctionExpression<'a>) {}
+        fn visit_class(&mut self, _: &oxc_ast::ast::Class<'a>) {}
+    }
+    let mut finder = Finder::default();
+    finder.visit_statement(statement);
+    finder.0
 }
 
 /// Whether a value is truthy in JavaScript; `None` when it is unknown.
