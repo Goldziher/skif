@@ -27,7 +27,7 @@ npm · pnpm · yarn · bun · **42 rules** · **205 plugins** · format-preservi
 | | |
 | --- | --- |
 | **One tool** | Manifest hygiene, version policy and dead-code analysis in one run, one `skif.toml` and one report. |
-| **Fast** | 8 to 61 times faster than knip on real repositories. Manifest checks beat sherif on every real repository and syncpack on every target, and match sherif at 2,000 generated packages. [See the numbers.](#benchmarks) |
+| **Fast** | 8 to 61 times faster than knip on real repositories. Manifest checks beat sherif and syncpack on every target, by 1.3 times or more at 2,000 generated packages. [See the numbers.](#benchmarks) |
 | **Safe** | Analysis is static: skif reads your code and configs without running them. Fixes keep key order, indentation and comments. |
 | **Easy to adopt** | `skif migrate` translates your sherif, syncpack and knip configuration in one step. |
 | **Built for CI** | Human, JSON, SARIF, GitHub annotation, GitLab Code Quality, compact, Markdown and CODEOWNERS output, stable rule ids and a GitHub Action. |
@@ -64,20 +64,20 @@ skif is younger than all three. The JS analysis is close to knip but not identic
 
 ## Benchmarks
 
-Medians of 10 runs on a 4-vCPU Linux VM (Intel Xeon at 2.10 GHz) with no other work running, on
+Medians of 15 runs on a 4-vCPU Linux VM (Intel Xeon at 2.10 GHz) with no other work running, on
 [pinned public repositories](tools/bench/corpus.toml) with dependencies installed, measured on 2026-11-08 at commit
-`a923580` (after 0.1.1). Absolute times depend on the machine; the ratios are the result. Reproduce with
+`bbb0971` (0.1.1 with the manifest-check work of [#29](https://github.com/Goldziher/skif/issues/29)). Absolute times depend on the machine; the ratios are the result. Reproduce with
 `mise run bench:publish`.
 
 **Dead-code analysis against knip** (full skif run)
 
 | Repository | skif | knip | Faster by |
 | --- | ---: | ---: | ---: |
-| create-t3-turbo | 35 ms | 2.1 s | 61x |
-| vue-core | 72 ms | 1.9 s | 26x |
-| tanstack-query | 415 ms | 5.4 s | 13x |
-| babel | 1.0 s | 8.5 s | 8x |
-| npm-cli | 124 ms | 1.1 s | 8x |
+| create-t3-turbo | 32 ms | 2.0 s | 61x |
+| vue-core | 62 ms | 1.7 s | 27x |
+| tanstack-query | 375 ms | 4.5 s | 12x |
+| babel | 884 ms | 7.2 s | 8x |
+| npm-cli | 99 ms | 968 ms | 10x |
 
 knip completes its analysis on all five. On create-t3-turbo and vue-core it then exits with an error because some of
 the repositories' tool configurations do not load; on npm-cli it runs with `--no-gitignore`, since npm's `.gitignore`
@@ -87,17 +87,17 @@ otherwise hides every workspace from it.
 
 | Target | skif | sherif | syncpack |
 | --- | ---: | ---: | ---: |
-| create-t3-turbo | 4.7 ms | 39 ms | 44 ms |
-| vue-core | 4.7 ms | 38 ms | 50 ms |
-| tanstack-query | 13 ms | 47 ms | 124 ms |
-| babel | 10 ms | 44 ms | 337 ms |
-| npm-cli | 5.9 ms | 44 ms | 88 ms |
-| Generated, 50 packages | 6.4 ms | 39 ms | 53 ms |
-| Generated, 500 packages | 34 ms | 68 ms | 159 ms |
-| Generated, 2000 packages | 137 ms | 135 ms | 665 ms |
+| create-t3-turbo | 4.6 ms | 36 ms | 41 ms |
+| vue-core | 5.5 ms | 36 ms | 43 ms |
+| tanstack-query | 11 ms | 42 ms | 106 ms |
+| babel | 9.4 ms | 37 ms | 280 ms |
+| npm-cli | 5.3 ms | 38 ms | 77 ms |
+| Generated, 50 packages | 6.3 ms | 39 ms | 46 ms |
+| Generated, 500 packages | 27 ms | 59 ms | 156 ms |
+| Generated, 2000 packages | 102 ms | 130 ms | 655 ms |
 
-At 2,000 generated packages skif and sherif are level within the noise (124 ms against 131 ms in a separate 30-run
-comparison), while skif reports about 24,700 diagnostics there and sherif 638.
+At 2,000 generated packages skif is 1.3 times faster than sherif (101 ms against 125 to 128 ms in two separate 30-run
+comparisons), while skif reports about 24,700 diagnostics there and sherif 638.
 
 ### Accuracy on seeded defects
 

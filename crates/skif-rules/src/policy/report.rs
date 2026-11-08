@@ -25,13 +25,11 @@ pub(super) fn emit(analysis: &Analysis<'_>, config_file: &Path, out: &mut Emitte
         .iter()
         .filter_map(|(id, instance)| Some((id, instance, analysis.verdicts[id.index()].as_ref()?)))
         .collect();
-    let holders = Holders::index(analysis);
+    let holders = Holders::index(analysis, sequential);
     let diagnostics: Vec<Diagnostic> = map_ordered(&findings, sequential, |&(id, instance, verdict)| {
         instance_diagnostic(analysis, &holders, id, instance, verdict)
     });
-    for diagnostic in diagnostics {
-        out.emit(diagnostic);
-    }
+    out.emit_all(diagnostics);
     for unused in &analysis.unused_groups {
         out.emit(group_diagnostic(
             State::UnusedGroup,
@@ -55,31 +53,39 @@ pub(super) fn emit(analysis: &Analysis<'_>, config_file: &Path, out: &mut Emitte
 /// The instances of each dependency (and alias target) that hold each specifier: the first two in collection order,
 /// so the one an aligned finding points at is found without scanning every instance of the dependency.
 struct Holders<'a> {
-    first: HashMap<HolderKey<'a>, [Option<InstanceId>; 2]>,
+    by_name: HashMap<&'a str, HashMap<HolderKey<'a>, [Option<InstanceId>; 2]>>,
 }
 
-/// A dependency name, the package its alias installs (if another one) and a specifier.
-type HolderKey<'a> = (&'a str, Option<&'a str>, &'a str);
+/// The package an alias installs (if another one) and a specifier.
+type HolderKey<'a> = (Option<&'a str>, &'a str);
 
 impl<'a> Holders<'a> {
-    fn index(analysis: &'a Analysis<'_>) -> Self {
-        let mut first: HashMap<_, [Option<InstanceId>; 2]> = HashMap::new();
-        for (id, instance) in analysis.instances.iter() {
-            let slots = first
-                .entry((instance.name.as_str(), instance.alias_target(), instance.raw()))
-                .or_default();
-            if let Some(slot) = slots.iter_mut().find(|slot| slot.is_none()) {
-                *slot = Some(id);
+    /// Indexes each dependency on its own, in parallel unless the run is `sequential`: one map of every instance was a
+    /// visible serial step on a large workspace.
+    fn index(analysis: &'a Analysis<'_>, sequential: bool) -> Self {
+        let names: Vec<(&'a str, &'a [InstanceId])> = analysis.instances.names().collect();
+        let maps = map_ordered(&names, sequential, |&(_, ids)| {
+            let mut first: HashMap<HolderKey<'a>, [Option<InstanceId>; 2]> = HashMap::new();
+            for &id in ids {
+                let instance = analysis.instances.get(id);
+                let slots = first.entry((instance.alias_target(), instance.raw())).or_default();
+                if let Some(slot) = slots.iter_mut().find(|slot| slot.is_none()) {
+                    *slot = Some(id);
+                }
             }
+            first
+        });
+        Self {
+            by_name: names.iter().map(|&(name, _)| name).zip(maps).collect(),
         }
-        Self { first }
     }
 
     /// The first instance other than `id` of the dependency of `instance` that holds `raw`, as
     /// `counterparts(analysis, id).find(|other| other.raw() == raw)` finds it.
     fn other(&self, id: InstanceId, instance: &Instance<'_>, raw: &str) -> Option<InstanceId> {
-        self.first
-            .get(&(instance.name.as_str(), instance.alias_target(), raw))?
+        self.by_name
+            .get(&*instance.name)?
+            .get(&(instance.alias_target(), raw))?
             .iter()
             .flatten()
             .copied()
@@ -115,7 +121,7 @@ fn instance_diagnostic(
     let mut builder = diagnostic(state.rule(), message, instance.location())
         .package(package)
         .package_id(instance.package.id)
-        .dependency(&instance.name)
+        .dependency(&*instance.name)
         .specifier(instance.raw())
         .detail(state.name());
     let help = match (&verdict.target, state) {

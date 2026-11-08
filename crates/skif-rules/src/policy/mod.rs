@@ -20,6 +20,8 @@ mod state;
 mod visit;
 mod workspace_protocol;
 
+use std::collections::BTreeSet;
+
 use skif_core::RuleMeta;
 use skif_lint::{
     Emitter, EnabledRules, LintContext, OptionsError, ProviderError, RuleProvider, RulesProvider, reject_options,
@@ -66,13 +68,27 @@ impl RuleProvider for PolicyProvider {
             // The catalog rules own a dependency only while the rule that reports it is on; otherwise the version
             // groups keep it. Either way exactly one rule reports an instance.
             let catalog_owns = enabled.contains(catalog::owning_rule(cx.config.catalog.mode));
-            let usages = catalog_owns.then(|| catalog::usages(cx));
-            let owned = usages
-                .as_deref()
-                .map_or_else(std::collections::BTreeSet::new, |usages| {
-                    catalog::owned_dependencies(usages, cx.workspace, &cx.config.catalog)
-                });
-            let analysis = analysis::Analysis::run_with(cx.workspace, cx.config, &owned, cx.sequential);
+            // The usage index (shared with the catalog rules) and the instances do not depend on each other, so they
+            // are built side by side; the dependencies the catalog rules own are flagged once both are done.
+            let (usages, mut instances) = skif_workspace::join(
+                cx.sequential,
+                || catalog_owns.then(|| catalog::usages(cx)),
+                || {
+                    instances::Instances::collect_with(
+                        cx.workspace,
+                        &BTreeSet::new(),
+                        &cx.config.custom_types,
+                        cx.config.policy.override_reading,
+                        &cx.config.filter,
+                        cx.sequential,
+                    )
+                },
+            );
+            let owned = usages.as_deref().map_or_else(BTreeSet::new, |usages| {
+                catalog::owned_dependencies(usages, cx.workspace, &cx.config.catalog)
+            });
+            instances.mark_catalog_owned(&owned);
+            let analysis = analysis::Analysis::from_instances(cx.workspace, cx.config, instances, cx.sequential);
             report::emit(&analysis, cx.config_file(), out, cx.sequential);
         }
         Ok(())

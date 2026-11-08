@@ -102,6 +102,56 @@ fn merge_order_is_providers_then_rules_then_emission_regardless_of_scheduling() 
     }
 }
 
+/// Providers and rules that emit uneven numbers of diagnostics, the most in the middle of each: merging keeps the
+/// largest part in place and moves the others around it, which must not change the order.
+#[test]
+fn merge_order_holds_when_a_middle_part_is_the_largest() {
+    let counts: [&[usize]; 3] = [&[1, 0, 2], &[2, 1, 9, 3, 0, 2], &[1]];
+    let providers: Vec<Box<dyn skif_lint::RuleProvider>> = counts
+        .iter()
+        .enumerate()
+        .map(|(p, counts)| {
+            let rules: Vec<Box<dyn Rule>> = counts
+                .iter()
+                .enumerate()
+                .map(|(i, &count)| {
+                    let meta = leak_meta(&format!("uneven{p}-rule-{i}"), Some(Severity::Warning));
+                    let items = (0..count).map(|j| item(&message(p, i, j), None, None)).collect();
+                    Box::new(FixedRule { meta, items }) as Box<dyn Rule>
+                })
+                .collect();
+            Box::new(RulesProvider::new(
+                Box::leak(format!("uneven{p}").into_boxed_str()),
+                rules,
+            )) as Box<dyn skif_lint::RuleProvider>
+        })
+        .collect();
+    let registry = Registry::new(providers).unwrap();
+    let expected: Vec<String> = counts
+        .iter()
+        .enumerate()
+        .flat_map(|(p, counts)| {
+            counts
+                .iter()
+                .enumerate()
+                .flat_map(move |(i, &count)| (0..count).map(move |j| message(p, i, j)))
+        })
+        .collect();
+    let cfg = config("");
+    let ws = workspace(&cfg);
+    let messages = |options: &RunOptions<'_>| -> Vec<String> {
+        run_unsorted(&registry, &ws, &cfg, options)
+            .unwrap()
+            .into_iter()
+            .map(|d| d.message)
+            .collect()
+    };
+    assert_eq!(messages(&RunOptions::default()), expected);
+    for pool in &pools() {
+        assert_eq!(messages(&RunOptions::default().with_executor(pool)), expected);
+    }
+}
+
 #[test]
 fn report_is_the_sorted_merge_and_identical_across_runs_and_pools() {
     let registry = many_rules();

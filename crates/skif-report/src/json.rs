@@ -1,6 +1,7 @@
 //! The versioned JSON renderer.
 
 use std::io::{self, Write};
+use std::path::Path;
 
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -139,9 +140,10 @@ pub fn render_json_with(
     );
     write_summary(document.key(quoted!("summary")), &report.summary);
     document.key(quoted!("diagnostics")).push(b'[');
+    let mut paths = Paths::default();
     for (index, diagnostic) in report.diagnostics.iter().enumerate() {
         separate(&mut buffer, index == 0, 2);
-        write_diagnostic(&mut buffer, diagnostic, options);
+        write_diagnostic(&mut buffer, diagnostic, options, &mut paths);
         if buffer.len() >= CHUNK {
             out.write_all(&buffer)?;
             buffer.clear();
@@ -344,8 +346,35 @@ fn write_summary(out: &mut Vec<u8>, summary: &Summary) {
     object.close();
 }
 
+/// The rendered `path` of the last primary and the last related location written. A report is sorted by path, so
+/// the diagnostics of one file follow each other and their path is displayed and escaped once, not once each.
+#[derive(Default)]
+struct Paths<'r> {
+    primary: RenderedPath<'r>,
+    related: RenderedPath<'r>,
+}
+
+#[derive(Default)]
+struct RenderedPath<'r> {
+    path: Option<&'r Path>,
+    json: Vec<u8>,
+}
+
+impl<'r> RenderedPath<'r> {
+    /// Writes `path` as a JSON string, as `string(out, &options.display_path(path))` does.
+    fn write(&mut self, out: &mut Vec<u8>, path: &'r Path, options: &RenderOptions) {
+        // Equal bytes display the same: the display depends on nothing else than the path and the options.
+        if self.path.is_none_or(|last| last.as_os_str() != path.as_os_str()) {
+            self.json.clear();
+            string(&mut self.json, &options.display_path(path));
+            self.path = Some(path);
+        }
+        out.extend_from_slice(&self.json);
+    }
+}
+
 /// A diagnostic, an element of the top-level `diagnostics` array (depth 2).
-fn write_diagnostic(out: &mut Vec<u8>, diagnostic: &Diagnostic, options: &RenderOptions) {
+fn write_diagnostic<'r>(out: &mut Vec<u8>, diagnostic: &'r Diagnostic, options: &RenderOptions, paths: &mut Paths<'r>) {
     let mut object = Object::open(out, 2);
     string(object.key(quoted!("rule")), diagnostic.rule.as_str());
     let severity = object.key(quoted!("severity"));
@@ -358,12 +387,16 @@ fn write_diagnostic(out: &mut Vec<u8>, diagnostic: &Diagnostic, options: &Render
     }
     string(object.key(quoted!("message")), &diagnostic.message);
     optional_string(&mut object, quoted!("help"), diagnostic.help.as_deref());
-    write_location(object.object(quoted!("location")), &diagnostic.location, options);
+    write_location(object.object(quoted!("location")), &diagnostic.location, |out| {
+        paths.primary.write(out, &diagnostic.location.path, options);
+    });
     let mut related = Array::open(object.key(quoted!("related")), 3);
     for entry in &diagnostic.related {
         let mut item = Object::open(related.element(), 4);
         string(item.key(quoted!("message")), &entry.message);
-        write_location(item.object(quoted!("location")), &entry.location, options);
+        write_location(item.object(quoted!("location")), &entry.location, |out| {
+            paths.related.write(out, &entry.location.path, options);
+        });
         item.close();
     }
     related.close();
@@ -403,8 +436,9 @@ fn write_incomplete_package(out: &mut Vec<u8>, package: &IncompletePackage, opti
     object.close();
 }
 
-fn write_location(mut object: Object<'_>, location: &Location, options: &RenderOptions) {
-    string(object.key(quoted!("path")), &options.display_path(&location.path));
+/// A location object; `path` writes the value of its `path` member.
+fn write_location(mut object: Object<'_>, location: &Location, path: impl FnOnce(&mut Vec<u8>)) {
+    path(object.key(quoted!("path")));
     if let Some(span) = &location.span {
         let mut fields = object.object(quoted!("span"));
         for (key, value) in [

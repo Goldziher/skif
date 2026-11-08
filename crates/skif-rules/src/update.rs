@@ -494,7 +494,7 @@ fn instance_candidates<'w>(
                     continue;
                 };
                 out.push(Candidate {
-                    dependency: instance.name.clone(),
+                    dependency: instance.name.to_string(),
                     package: instance.package.name.clone(),
                     place: instance.ty().label().to_owned(),
                     specifier: Arc::clone(&instance.specifier),

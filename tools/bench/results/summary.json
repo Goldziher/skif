@@ -4,7 +4,7 @@
   "host": "linux x86_64",
   "hyperfine": "hyperfine 2.0.0",
   "warmup": 3,
-  "runs": 10,
+  "runs": 15,
   "skipped_tools": [],
   "targets": [
     {
@@ -15,32 +15,32 @@
       "results": [
         {
           "tool": "skif --no-js",
-          "mean_ms": 6.5569419,
-          "stddev_ms": 0.4242360386976543,
-          "median_ms": 6.4021475,
-          "min_ms": 5.961691000000001,
-          "max_ms": 7.2640780000000005,
+          "mean_ms": 6.312415133333333,
+          "stddev_ms": 0.45476367972448317,
+          "median_ms": 6.262304,
+          "min_ms": 5.512423000000001,
+          "max_ms": 7.426895999999999,
           "relative_to_skif": 1.0,
           "error_runs": 0
         },
         {
           "tool": "sherif",
-          "mean_ms": 39.03552020000001,
-          "stddev_ms": 2.1927870679330455,
-          "median_ms": 38.6979915,
-          "min_ms": 36.326464,
-          "max_ms": 42.579477,
-          "relative_to_skif": 5.9533118937655995,
+          "mean_ms": 40.4137844,
+          "stddev_ms": 6.146289960398999,
+          "median_ms": 38.759838,
+          "min_ms": 30.937883000000003,
+          "max_ms": 55.294200000000004,
+          "relative_to_skif": 6.4022697408779425,
           "error_runs": 0
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 51.995090100000006,
-          "stddev_ms": 4.2473966980835955,
-          "median_ms": 52.626564,
-          "min_ms": 46.444632,
-          "max_ms": 58.01336200000001,
-          "relative_to_skif": 7.929777462264842,
+          "mean_ms": 46.76424946666667,
+          "stddev_ms": 5.190534692350379,
+          "median_ms": 46.281624,
+          "min_ms": 39.371,
+          "max_ms": 62.73261000000001,
+          "relative_to_skif": 7.408297534128169,
           "error_runs": 0
         }
       ]
@@ -53,32 +53,32 @@
       "results": [
         {
           "tool": "skif --no-js",
-          "mean_ms": 34.6593683,
-          "stddev_ms": 2.66234778251586,
-          "median_ms": 34.33104350000001,
-          "min_ms": 31.042120999999998,
-          "max_ms": 40.527385,
+          "mean_ms": 27.114499733333336,
+          "stddev_ms": 2.6550430860844654,
+          "median_ms": 26.871316999999998,
+          "min_ms": 23.958406,
+          "max_ms": 31.628824,
           "relative_to_skif": 1.0,
           "error_runs": 0
         },
         {
           "tool": "sherif",
-          "mean_ms": 69.3770967,
-          "stddev_ms": 8.47549234191424,
-          "median_ms": 67.76124450000002,
-          "min_ms": 59.136217,
-          "max_ms": 86.39869500000002,
-          "relative_to_skif": 2.00168381891715,
+          "mean_ms": 59.0327026,
+          "stddev_ms": 4.749440347380187,
+          "median_ms": 58.812934999999996,
+          "min_ms": 50.151473,
+          "max_ms": 68.20916700000001,
+          "relative_to_skif": 2.1771636276006183,
           "error_runs": 0
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 157.2578433,
-          "stddev_ms": 13.709817499815776,
-          "median_ms": 159.2818145,
-          "min_ms": 130.922171,
-          "max_ms": 182.649916,
-          "relative_to_skif": 4.537239165435106,
+          "mean_ms": 155.1141684,
+          "stddev_ms": 11.436633174310181,
+          "median_ms": 155.80409,
+          "min_ms": 129.761029,
+          "max_ms": 177.95012599999998,
+          "relative_to_skif": 5.720709211880081,
           "error_runs": 0
         }
       ]
@@ -91,32 +91,32 @@
       "results": [
         {
           "tool": "skif --no-js",
-          "mean_ms": 137.2597988,
-          "stddev_ms": 7.013765530799951,
-          "median_ms": 136.60515850000002,
-          "min_ms": 127.310743,
-          "max_ms": 149.533454,
+          "mean_ms": 99.35969786666669,
+          "stddev_ms": 7.123179784710878,
+          "median_ms": 101.523292,
+          "min_ms": 87.79449,
+          "max_ms": 108.437879,
           "relative_to_skif": 1.0,
           "error_runs": 0
         },
         {
           "tool": "sherif",
-          "mean_ms": 137.7351731,
-          "stddev_ms": 7.261607344294892,
-          "median_ms": 135.1317605,
-          "min_ms": 126.692579,
-          "max_ms": 150.550991,
-          "relative_to_skif": 1.0034633177678824,
+          "mean_ms": 131.22537800000003,
+          "stddev_ms": 12.361977757164517,
+          "median_ms": 129.55603299999999,
+          "min_ms": 113.797971,
+          "max_ms": 157.657732,
+          "relative_to_skif": 1.3207103163306184,
           "error_runs": 0
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 642.1164852,
-          "stddev_ms": 56.494947815377444,
-          "median_ms": 665.0630130000001,
-          "min_ms": 533.8477190000001,
-          "max_ms": 693.07401,
-          "relative_to_skif": 4.678110348505043,
+          "mean_ms": 649.4433049333334,
+          "stddev_ms": 52.8622961580745,
+          "median_ms": 655.2837930000001,
+          "min_ms": 533.031742,
+          "max_ms": 739.1195740000001,
+          "relative_to_skif": 6.536285021768462,
           "error_runs": 0
         }
       ]
@@ -129,11 +129,11 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 282.26108759999994,
-          "stddev_ms": 15.456065252757824,
-          "median_ms": 280.33954700000004,
-          "min_ms": 265.049409,
-          "max_ms": 316.433736,
+          "mean_ms": 275.77525673333344,
+          "stddev_ms": 24.023772414556632,
+          "median_ms": 270.593426,
+          "min_ms": 249.365258,
+          "max_ms": 331.94447,
           "relative_to_skif": 1.0,
           "error_runs": 0
         }
@@ -147,53 +147,53 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 35.2849049,
-          "stddev_ms": 1.7572727863326205,
-          "median_ms": 35.15298,
-          "min_ms": 32.805020000000006,
-          "max_ms": 38.7692,
+          "mean_ms": 33.15025746666666,
+          "stddev_ms": 3.401157042732011,
+          "median_ms": 31.913743,
+          "min_ms": 30.106418,
+          "max_ms": 43.065135999999995,
           "relative_to_skif": 1.0,
           "error_runs": 0
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 5.686463700000001,
-          "stddev_ms": 3.2793578761257196,
-          "median_ms": 4.6740425000000005,
-          "min_ms": 4.3304290000000005,
-          "max_ms": 14.998750000000001,
-          "relative_to_skif": 0.16115853836409236,
+          "mean_ms": 4.888952933333333,
+          "stddev_ms": 0.6031486228230588,
+          "median_ms": 4.588351,
+          "min_ms": 4.171099,
+          "max_ms": 5.782012,
+          "relative_to_skif": 0.14747858107133216,
           "error_runs": 0
         },
         {
           "tool": "sherif",
-          "mean_ms": 39.2091408,
-          "stddev_ms": 5.098843983032708,
-          "median_ms": 39.1936885,
-          "min_ms": 31.369798000000003,
-          "max_ms": 46.02297,
-          "relative_to_skif": 6.895171211591484,
+          "mean_ms": 35.44146540000001,
+          "stddev_ms": 3.3421233276384075,
+          "median_ms": 36.03075,
+          "min_ms": 29.745628000000004,
+          "max_ms": 41.510192,
+          "relative_to_skif": 7.2492956842265395,
           "error_runs": 0
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 44.1381996,
-          "stddev_ms": 3.1808909416906457,
-          "median_ms": 43.702394000000005,
-          "min_ms": 40.168301,
-          "max_ms": 49.801281,
-          "relative_to_skif": 7.761976850392976,
+          "mean_ms": 41.111940466666674,
+          "stddev_ms": 3.158728084508584,
+          "median_ms": 40.999172,
+          "min_ms": 36.50412,
+          "max_ms": 48.736216000000006,
+          "relative_to_skif": 8.409150390129893,
           "error_runs": 0
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 2164.3916155,
-          "stddev_ms": 81.90325848730348,
-          "median_ms": 2141.969117,
-          "min_ms": 2085.6699500000004,
-          "max_ms": 2349.362564,
-          "relative_to_skif": 61.340440668156646,
-          "error_runs": 10
+          "mean_ms": 2011.1440710666661,
+          "stddev_ms": 104.7507338999602,
+          "median_ms": 2010.8276059999998,
+          "min_ms": 1776.438303,
+          "max_ms": 2232.794572,
+          "relative_to_skif": 60.66752492311462,
+          "error_runs": 15
         }
       ]
     },
@@ -205,53 +205,53 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 73.94970730000001,
-          "stddev_ms": 6.879458745942122,
-          "median_ms": 72.00988600000001,
-          "min_ms": 66.356226,
-          "max_ms": 89.369015,
+          "mean_ms": 62.714132000000006,
+          "stddev_ms": 5.278161827901614,
+          "median_ms": 61.886143999999994,
+          "min_ms": 55.09789800000001,
+          "max_ms": 79.533669,
           "relative_to_skif": 1.0,
           "error_runs": 0
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 4.6744904,
-          "stddev_ms": 0.29362317997286547,
-          "median_ms": 4.749417500000001,
-          "min_ms": 3.9820720000000005,
-          "max_ms": 5.087715,
-          "relative_to_skif": 0.06321174985908293,
+          "mean_ms": 5.4759322,
+          "stddev_ms": 0.5566533148883347,
+          "median_ms": 5.462791000000001,
+          "min_ms": 4.705331,
+          "max_ms": 6.567060000000001,
+          "relative_to_skif": 0.08731576162132006,
           "error_runs": 0
         },
         {
           "tool": "sherif",
-          "mean_ms": 39.049795399999994,
-          "stddev_ms": 4.693340033262481,
-          "median_ms": 38.153367,
-          "min_ms": 31.617212,
-          "max_ms": 50.086825000000005,
-          "relative_to_skif": 8.35380802151182,
+          "mean_ms": 36.689297333333336,
+          "stddev_ms": 4.471601595746007,
+          "median_ms": 35.642099,
+          "min_ms": 30.632297,
+          "max_ms": 44.858461000000005,
+          "relative_to_skif": 6.700100730489931,
           "error_runs": 0
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 50.8486373,
-          "stddev_ms": 4.069635917176951,
-          "median_ms": 50.222468000000006,
-          "min_ms": 46.421962,
-          "max_ms": 58.907527,
-          "relative_to_skif": 10.877899610190664,
+          "mean_ms": 42.653160733333344,
+          "stddev_ms": 3.262908680627552,
+          "median_ms": 42.502720000000004,
+          "min_ms": 37.860105000000004,
+          "max_ms": 50.881135,
+          "relative_to_skif": 7.7892054129766874,
           "error_runs": 0
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 1884.5344209999998,
-          "stddev_ms": 75.81482659041087,
-          "median_ms": 1862.2894235,
-          "min_ms": 1792.689545,
-          "max_ms": 2034.3156169999997,
-          "relative_to_skif": 25.4840010840719,
-          "error_runs": 10
+          "mean_ms": 1688.3080089999999,
+          "stddev_ms": 83.96062776469341,
+          "median_ms": 1656.7400120000002,
+          "min_ms": 1580.566669,
+          "max_ms": 1838.1532419999999,
+          "relative_to_skif": 26.920694828400073,
+          "error_runs": 15
         }
       ]
     },
@@ -263,52 +263,52 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 415.9406512,
-          "stddev_ms": 10.581867297720951,
-          "median_ms": 415.24466550000005,
-          "min_ms": 401.5808460000001,
-          "max_ms": 440.37284700000004,
+          "mean_ms": 375.31570046666667,
+          "stddev_ms": 16.895019042780888,
+          "median_ms": 374.731127,
+          "min_ms": 352.37359000000004,
+          "max_ms": 406.46984500000013,
           "relative_to_skif": 1.0,
           "error_runs": 0
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 12.248034200000001,
-          "stddev_ms": 0.5490962766734283,
-          "median_ms": 12.478171,
-          "min_ms": 11.305829999999998,
-          "max_ms": 12.888787,
-          "relative_to_skif": 0.02944659091306438,
+          "mean_ms": 12.153569266666667,
+          "stddev_ms": 3.563958674211915,
+          "median_ms": 11.075183,
+          "min_ms": 10.734029000000001,
+          "max_ms": 24.948329,
+          "relative_to_skif": 0.03238225646183985,
           "error_runs": 0
         },
         {
           "tool": "sherif",
-          "mean_ms": 48.60052110000001,
-          "stddev_ms": 6.439096870035656,
-          "median_ms": 46.4508075,
-          "min_ms": 42.927664,
-          "max_ms": 61.775281,
-          "relative_to_skif": 3.9680262404884536,
+          "mean_ms": 43.199881266666665,
+          "stddev_ms": 4.5178391761962065,
+          "median_ms": 41.954882000000005,
+          "min_ms": 36.187311,
+          "max_ms": 52.976289,
+          "relative_to_skif": 3.554501588693788,
           "error_runs": 0
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 123.60563169999998,
-          "stddev_ms": 12.295607503594464,
-          "median_ms": 123.88735100000001,
-          "min_ms": 97.090303,
-          "max_ms": 145.067904,
-          "relative_to_skif": 10.091875127193878,
+          "mean_ms": 111.38450653333335,
+          "stddev_ms": 11.662071644260056,
+          "median_ms": 106.265954,
+          "min_ms": 99.956878,
+          "max_ms": 139.789602,
+          "relative_to_skif": 9.164756796081726,
           "error_runs": 0
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 5295.0044753,
-          "stddev_ms": 207.55703573756014,
-          "median_ms": 5359.586284000001,
-          "min_ms": 4895.609813,
-          "max_ms": 5569.735591,
-          "relative_to_skif": 12.73019230032883,
+          "mean_ms": 4562.814619,
+          "stddev_ms": 147.80422432014288,
+          "median_ms": 4527.300144,
+          "min_ms": 4380.666733,
+          "max_ms": 4827.7199550000005,
+          "relative_to_skif": 12.157270834464445,
           "error_runs": 0
         }
       ]
@@ -321,52 +321,52 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 1039.529543,
-          "stddev_ms": 72.19909478986096,
-          "median_ms": 1037.1694825,
-          "min_ms": 914.120171,
-          "max_ms": 1123.502451,
+          "mean_ms": 884.412296066667,
+          "stddev_ms": 54.77044744813649,
+          "median_ms": 883.6274340000001,
+          "min_ms": 758.18415,
+          "max_ms": 998.814961,
           "relative_to_skif": 1.0,
           "error_runs": 0
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 10.6509645,
-          "stddev_ms": 1.203980827145262,
-          "median_ms": 10.151722,
-          "min_ms": 9.619818,
-          "max_ms": 13.524387,
-          "relative_to_skif": 0.010245946901385947,
+          "mean_ms": 9.153723733333337,
+          "stddev_ms": 0.8545580656363072,
+          "median_ms": 9.388530000000001,
+          "min_ms": 7.744565,
+          "max_ms": 11.061024,
+          "relative_to_skif": 0.010350063849229126,
           "error_runs": 0
         },
         {
           "tool": "sherif",
-          "mean_ms": 45.622236900000004,
-          "stddev_ms": 7.323453507997963,
-          "median_ms": 44.442004000000004,
-          "min_ms": 34.397017000000005,
-          "max_ms": 62.192252,
-          "relative_to_skif": 4.283390194380988,
+          "mean_ms": 37.485191466666656,
+          "stddev_ms": 2.1764312835307087,
+          "median_ms": 37.301674999999996,
+          "min_ms": 34.355286,
+          "max_ms": 41.03782,
+          "relative_to_skif": 4.095075682715235,
           "error_runs": 0
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 337.62139500000006,
-          "stddev_ms": 34.2855282739399,
-          "median_ms": 336.5575630000001,
-          "min_ms": 279.505062,
-          "max_ms": 402.110394,
-          "relative_to_skif": 31.698668698031998,
+          "mean_ms": 276.69394366666666,
+          "stddev_ms": 21.308031728169386,
+          "median_ms": 279.58074500000004,
+          "min_ms": 237.691112,
+          "max_ms": 309.122324,
+          "relative_to_skif": 30.227473728432958,
           "error_runs": 0
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 8514.4907985,
-          "stddev_ms": 505.3243844240054,
-          "median_ms": 8496.673754,
-          "min_ms": 7647.771852,
-          "max_ms": 9406.890632999999,
-          "relative_to_skif": 8.190715555738661,
+          "mean_ms": 7180.972491,
+          "stddev_ms": 232.53170228779732,
+          "median_ms": 7217.4398200000005,
+          "min_ms": 6693.1249099999995,
+          "max_ms": 7474.6205899999995,
+          "relative_to_skif": 8.119485134859206,
           "error_runs": 0
         }
       ]
@@ -379,52 +379,52 @@
       "results": [
         {
           "tool": "skif",
-          "mean_ms": 124.37224859999999,
-          "stddev_ms": 8.18980029471635,
-          "median_ms": 123.64068250000001,
-          "min_ms": 106.482333,
-          "max_ms": 134.50259,
+          "mean_ms": 99.78940066666668,
+          "stddev_ms": 9.439294471994641,
+          "median_ms": 98.574688,
+          "min_ms": 84.043474,
+          "max_ms": 125.57194300000002,
           "relative_to_skif": 1.0,
           "error_runs": 0
         },
         {
           "tool": "skif --no-js",
-          "mean_ms": 6.004836699999999,
-          "stddev_ms": 0.5988655718254215,
-          "median_ms": 5.879971,
-          "min_ms": 5.205309,
-          "max_ms": 7.304270000000001,
-          "relative_to_skif": 0.04828116213700103,
+          "mean_ms": 5.311473466666666,
+          "stddev_ms": 0.3950090854920513,
+          "median_ms": 5.296545000000001,
+          "min_ms": 4.573353000000001,
+          "max_ms": 6.118093000000001,
+          "relative_to_skif": 0.05322683001583447,
           "error_runs": 0
         },
         {
           "tool": "sherif",
-          "mean_ms": 45.449874699999995,
-          "stddev_ms": 6.04947970139598,
-          "median_ms": 43.47192950000001,
-          "min_ms": 38.30595100000001,
-          "max_ms": 54.401315000000004,
-          "relative_to_skif": 7.568877718190072,
+          "mean_ms": 38.01828100000001,
+          "stddev_ms": 5.650151964845067,
+          "median_ms": 38.002079,
+          "min_ms": 29.227425,
+          "max_ms": 47.76073400000001,
+          "relative_to_skif": 7.1577653994870145,
           "error_runs": 0
         },
         {
           "tool": "syncpack lint",
-          "mean_ms": 86.7020085,
-          "stddev_ms": 6.172142815973061,
-          "median_ms": 87.68222150000001,
-          "min_ms": 73.533106,
-          "max_ms": 94.110206,
-          "relative_to_skif": 14.438695476931125,
+          "mean_ms": 79.14425239999998,
+          "stddev_ms": 6.987108876213402,
+          "median_ms": 77.23534400000001,
+          "min_ms": 70.67606500000001,
+          "max_ms": 91.200024,
+          "relative_to_skif": 14.900620872284755,
           "error_runs": 0
         },
         {
           "tool": "knip --reporter json",
-          "mean_ms": 1062.6081152000002,
-          "stddev_ms": 81.76633869023702,
-          "median_ms": 1051.4187335,
-          "min_ms": 956.0419730000001,
-          "max_ms": 1221.148799,
-          "relative_to_skif": 8.543771839468056,
+          "mean_ms": 960.1109113333332,
+          "stddev_ms": 94.68344713335284,
+          "median_ms": 968.203672,
+          "min_ms": 832.5507200000001,
+          "max_ms": 1170.292077,
+          "relative_to_skif": 9.621371657902396,
           "error_runs": 0
         }
       ]
@@ -433,37 +433,37 @@
   "adr_0001_checks": [
     {
       "target": "generated: 500 packages (pnpm)",
-      "description": "manifest and policy rules < 50 ms (measured 34.7 ms)",
+      "description": "manifest and policy rules < 50 ms (measured 27.1 ms)",
       "passed": true
     },
     {
       "target": "graph: 10000 files in 100 packages",
-      "description": "parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 282.3 ms)",
+      "description": "parse and module graph of 10000 files < 2000 ms, whole run including every JS rule (measured 275.8 ms)",
       "passed": true
     },
     {
       "target": "corpus: create-t3-turbo (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 61.3x; knip exited with an error in 10 runs)",
+      "description": "JS analysis >= 5x faster than knip (measured 60.7x; knip exited with an error in 15 runs)",
       "passed": true
     },
     {
       "target": "corpus: vue-core (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 25.5x; knip exited with an error in 10 runs)",
+      "description": "JS analysis >= 5x faster than knip (measured 26.9x; knip exited with an error in 15 runs)",
       "passed": true
     },
     {
       "target": "corpus: tanstack-query (pnpm)",
-      "description": "JS analysis >= 5x faster than knip (measured 12.7x)",
+      "description": "JS analysis >= 5x faster than knip (measured 12.2x)",
       "passed": true
     },
     {
       "target": "corpus: babel (yarn)",
-      "description": "JS analysis >= 5x faster than knip (measured 8.2x)",
+      "description": "JS analysis >= 5x faster than knip (measured 8.1x)",
       "passed": true
     },
     {
       "target": "corpus: npm-cli (npm)",
-      "description": "JS analysis >= 5x faster than knip (measured 8.5x)",
+      "description": "JS analysis >= 5x faster than knip (measured 9.6x)",
       "passed": true
     }
   ]

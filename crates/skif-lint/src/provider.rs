@@ -241,9 +241,7 @@ impl RuleProvider for RulesProvider {
             }
             part
         });
-        for part in parts {
-            out.merge(part);
-        }
+        out.merge_all(parts);
         Ok(())
     }
 }
