@@ -490,7 +490,9 @@ docs, Astro pages, Storybook stories) or an import reaches them, and reported as
 
 The `templateUrl`, `styleUrl` and `styleUrls` of an Angular or Stencil `@Component({ … })` (the decorator imported
 from `@angular/core` or `@stencil/core`) are imports of the component file, relative to it with or without `./`, so
-the stylesheets are followed and the packages they import count as used. Vue auto-imports are followed through the
+the stylesheets are followed and the packages they import count as used. This includes Stencil's styles per mode
+(`styleUrls: { ios: 'a.ios.css', md: ['a.md.css'] }`); its `assetsDirs` are directories copied as they are, not
+modules, and are not followed. Vue auto-imports are followed through the
 declaration files `unplugin-vue-components` and `unplugin-auto-import` generate (`components.d.ts`,
 `auto-imports.d.ts`): they are entries like every `.d.ts` file, so each registered component and composable counts as
 used, whether or not a template names it. A generated file that `.gitignore` excludes is not read, and the
