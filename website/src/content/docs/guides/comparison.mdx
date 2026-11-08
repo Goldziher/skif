@@ -18,9 +18,10 @@ skif offers all three kinds of checks in one tool with one configuration file an
 
 The JS analysis follows knip's issue types and its knowledge of tools. It is not a drop-in replacement: a weekly job
 runs both tools on a pinned corpus of public repositories and compares the findings per issue type. They differ
-where they model things differently, for example in which files count as unused (skif treats test files and fixture
-directories as outside the project), and in how a namespace import is read. The harness names the intended
-differences and counts them apart; see the
+where they model things differently, for example in which files count as unused (skif makes test files entries and
+does not report files in `fixtures` directories), and in how a namespace import is read. The harness names the
+intended differences and counts them apart, as it does findings in packages skif does not judge (a tool config it
+cannot read) and in packages where knip could not load a config; see the
 [benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md).
 
 ## Configuration
@@ -55,10 +56,10 @@ sherif 638.
 On a generated workspace with injected defects, where the answer is known, skif, sherif and syncpack found every
 defect they check for. A generated workspace with seeded dead code and live code behind known traps has an answer key
 too: skif and knip both find every seeded finding, with a precision of 100% for skif and 77% for knip
-(6.44.1, measured on 2026-11-07; it reports exports read through `typeof import("./m")["name"]` and fixture files). Real repositories have no answer key, so against knip the measure is agreement: on 14 pinned repositories
-the tools share 96% of skif's unused exports, 92% of its unused files and 84% of its unused dependencies, while skif
-finds 86% of knip's unused exports and 66% of its unused dependencies. Unresolved imports agree least, at 34% of skif's
-findings. The full tables are in the
+(6.44.1, measured on 2026-11-07; it reports exports read through `typeof import("./m")["name"]` and fixture files). Real repositories have no answer key, so against knip the measure is agreement: on 9 pinned repositories
+the tools share 98% of skif's unused exports, 98% of its unused files and 60% of its unused dependencies, while skif
+finds 94% of knip's unused exports and 78% of its unused dependencies. Findings in fixtures, tests, packages skif does
+not judge and packages where knip could not load a config are counted apart. The full tables are in the
 [README](https://github.com/Goldziher/skif#benchmarks) and the
 [benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md), which reproduces them with
 `mise run bench:publish`.

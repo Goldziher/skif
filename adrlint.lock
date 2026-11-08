@@ -335,3 +335,8 @@ blake3 = "80cbab1405c7e7d604aab3de05c8be5eb6056fd74b80db28e1022c8779c1b13a"
 number = 67
 status = "accepted"
 blake3 = "1e878135fc7cac659ff0ead13bea57958afc069746e4cad4d91cfab3f2abc8da"
+
+[adrs."adrs/0068-what-the-knip-comparison-sets-apart.md"]
+number = 68
+status = "accepted"
+blake3 = "2926ac0821d6aaec6a5d092fcb93ae0544d62b343c130fdd264b0ce2126aaf40"

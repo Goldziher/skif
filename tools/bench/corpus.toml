@@ -6,7 +6,7 @@
 #   package-manager  pnpm, yarn, npm, bun or rush; selects the install command of `parity --install`
 #   suites           bench = timed by `skif-bench run`; parity = compared with knip and syncpack
 #   sparse           optional list of directories; when set only these (plus root files) are checked out
-#   install          false when `parity --install` cannot work (the reason is in `notes`)
+#   install          false when the dependencies cannot be installed (the reason is in `notes`); compared uninstalled
 #   install-command  optional install command (program first) replacing the package manager's default
 #   install-timeout-secs  optional install time limit, replacing the global --timeout-secs for the install only
 #   recursive        true when skif must run with --recursive here (nested roots that are not workspace members)
@@ -25,7 +25,7 @@ url = "https://github.com/t3-oss/create-t3-turbo.git"
 rev = "8f945b7bb3bfb3ca8358d48b1ff0214079bc11ee"
 package-manager = "pnpm"
 suites = ["bench", "parity"]
-notes = "Small pnpm monorepo with a catalog. Even installed, knip exits with an error here: apps/expo/metro.config.js requires metro-cache, which is not listed, and packages/db/drizzle.config.ts throws without POSTGRES_URL."
+notes = "Small pnpm monorepo with a catalog. Even installed, knip exits with an error here: apps/expo/metro.config.js requires metro-cache, which is not listed, and packages/db/drizzle.config.ts throws without POSTGRES_URL. knip still prints its report; parity records the two files and counts knip-only findings in those packages as knip-config-error."
 
 [[repo]]
 name = "vue-core"
@@ -58,6 +58,8 @@ rev = "fc517df18fb59a33b39d383c6766690bc427ac06"
 package-manager = "npm"
 suites = ["bench", "parity"]
 knip-unread = ["docs/", "mock-globals/", "mock-registry/", "smoke-tests/", "workspaces/"]
+# npm 10 rejects this lockfile (`npm ci` exits with EUSAGE); npm 11 accepts it.
+install-command = ["npx", "--yes", "npm@11.6.2", "ci", "--ignore-scripts"]
 # The timed knip run reads the workspaces too, as skif does; parity keeps knip's default and the knip-unread deviation.
 bench-knip-args = ["--no-gitignore"]
 notes = "npm workspaces. A deny-all root .gitignore re-includes these directories one by one; knip reads none of their files unless run with --no-gitignore."
@@ -113,7 +115,7 @@ rev = "ca0b960ced9324f65be85800a72184edeb91cc3b"
 package-manager = "rush"
 suites = ["parity"]
 install = false
-notes = "Rush workspace (rush.json) without a root package.json, for skif and the syncpack diff. knip has no Rush support and stops with 'Unable to find package.json', so the knip comparison cannot run and the install (rush, lockfiles under common/config/subspaces) is not attempted."
+notes = "Rush workspace (rush.json) without a root package.json, for skif and the syncpack diff. The install (rush, lockfiles under common/config/subspaces) is not attempted, so parity compares it uninstalled; knip has no Rush support and stops with 'Unable to find package.json', which the parity report records as the skip reason."
 
 [[repo]]
 name = "vscode"

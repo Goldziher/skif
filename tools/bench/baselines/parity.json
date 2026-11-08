@@ -90,11 +90,6 @@
     "babel": {
       "status": "compared",
       "categories": {
-        "binaries": {
-          "skif_only": 0,
-          "tool_only": 3,
-          "both": 0
-        },
         "dependencies": {
           "skif_only": 0,
           "tool_only": 0,
@@ -102,8 +97,8 @@
         },
         "devDependencies": {
           "skif_only": 4,
-          "tool_only": 4,
-          "both": 263
+          "tool_only": 0,
+          "both": 240
         },
         "duplicates": {
           "skif_only": 0,
@@ -116,9 +111,9 @@
           "both": 16
         },
         "files": {
-          "skif_only": 7,
+          "skif_only": 0,
           "tool_only": 5,
-          "both": 17780
+          "both": 666
         },
         "nsExports": {
           "skif_only": 0,
@@ -139,36 +134,40 @@
           "skif_only": 0,
           "tool_only": 1,
           "both": 9
-        },
-        "unresolved": {
-          "skif_only": 1,
-          "tool_only": 0,
-          "both": 0
         }
       },
       "known_deviations": {
         "fixture-file": {
           "skif_only": 0,
-          "tool_only": 40
+          "tool_only": 17127
+        },
+        "knip-config-error": {
+          "skif_only": 0,
+          "tool_only": 3
+        },
+        "not-judged-by-skif": {
+          "skif_only": 0,
+          "tool_only": 54
         }
-      }
+      },
+      "tool_errors": 1
     },
     "cal-com": {
       "status": "compared",
       "categories": {
         "binaries": {
           "skif_only": 0,
-          "tool_only": 7,
+          "tool_only": 5,
           "both": 3
         },
         "dependencies": {
-          "skif_only": 3,
-          "tool_only": 54,
+          "skif_only": 0,
+          "tool_only": 4,
           "both": 86
         },
         "devDependencies": {
           "skif_only": 0,
-          "tool_only": 41,
+          "tool_only": 3,
           "both": 30
         },
         "duplicates": {
@@ -182,14 +181,14 @@
           "both": 6
         },
         "exports": {
-          "skif_only": 14,
-          "tool_only": 86,
-          "both": 497
+          "skif_only": 13,
+          "tool_only": 81,
+          "both": 425
         },
         "files": {
           "skif_only": 2,
-          "tool_only": 216,
-          "both": 304
+          "tool_only": 35,
+          "both": 377
         },
         "nsExports": {
           "skif_only": 0,
@@ -197,35 +196,44 @@
           "both": 0
         },
         "types": {
-          "skif_only": 6,
-          "tool_only": 56,
-          "both": 253
+          "skif_only": 4,
+          "tool_only": 50,
+          "both": 200
         },
         "unlisted": {
-          "skif_only": 34,
-          "tool_only": 45,
-          "both": 789
+          "skif_only": 11,
+          "tool_only": 24,
+          "both": 810
         },
         "unresolved": {
-          "skif_only": 2,
-          "tool_only": 3,
-          "both": 3
+          "skif_only": 3,
+          "tool_only": 4,
+          "both": 2
         }
       },
       "known_deviations": {
         "fixture-file": {
           "skif_only": 0,
-          "tool_only": 13
+          "tool_only": 38
+        },
+        "knip-config-error": {
+          "skif_only": 0,
+          "tool_only": 2
         },
         "non-code-file": {
           "skif_only": 0,
           "tool_only": 4
         },
+        "not-judged-by-skif": {
+          "skif_only": 0,
+          "tool_only": 309
+        },
         "test-file": {
           "skif_only": 0,
-          "tool_only": 17
+          "tool_only": 15
         }
-      }
+      },
+      "tool_errors": 1
     },
     "create-t3-turbo": {
       "status": "compared",
@@ -237,30 +245,26 @@
         },
         "dependencies": {
           "skif_only": 0,
-          "tool_only": 4,
-          "both": 2
-        },
-        "exports": {
-          "skif_only": 0,
           "tool_only": 0,
-          "both": 2
-        },
-        "files": {
-          "skif_only": 0,
-          "tool_only": 4,
-          "both": 0
-        },
-        "types": {
-          "skif_only": 0,
-          "tool_only": 0,
-          "both": 1
+          "both": 5
         },
         "unlisted": {
           "skif_only": 0,
-          "tool_only": 1,
+          "tool_only": 0,
           "both": 2
         }
-      }
+      },
+      "known_deviations": {
+        "knip-config-error": {
+          "skif_only": 0,
+          "tool_only": 1
+        },
+        "not-judged-by-skif": {
+          "skif_only": 0,
+          "tool_only": 8
+        }
+      },
+      "tool_errors": 2
     },
     "jest": {
       "status": "compared",
@@ -272,12 +276,12 @@
         },
         "dependencies": {
           "skif_only": 0,
-          "tool_only": 1,
+          "tool_only": 0,
           "both": 5
         },
         "devDependencies": {
           "skif_only": 5,
-          "tool_only": 20,
+          "tool_only": 1,
           "both": 26
         },
         "duplicates": {
@@ -288,11 +292,11 @@
         "exports": {
           "skif_only": 0,
           "tool_only": 20,
-          "both": 27
+          "both": 25
         },
         "files": {
           "skif_only": 10,
-          "tool_only": 3,
+          "tool_only": 0,
           "both": 0
         },
         "nsExports": {
@@ -306,55 +310,65 @@
           "both": 18
         },
         "unlisted": {
-          "skif_only": 35,
+          "skif_only": 0,
           "tool_only": 78,
           "both": 41
         },
         "unresolved": {
-          "skif_only": 3,
-          "tool_only": 5,
-          "both": 1
+          "skif_only": 0,
+          "tool_only": 4,
+          "both": 2
         }
       },
       "known_deviations": {
+        "not-judged-by-skif": {
+          "skif_only": 0,
+          "tool_only": 25
+        },
         "test-file": {
           "skif_only": 0,
           "tool_only": 1147
         }
-      }
+      },
+      "tool_errors": 1
     },
     "mastra": {
       "status": "compared",
       "categories": {
         "binaries": {
-          "skif_only": 1,
-          "tool_only": 52,
-          "both": 3
+          "skif_only": 0,
+          "tool_only": 53,
+          "both": 2
         },
         "dependencies": {
-          "skif_only": 8,
-          "tool_only": 12,
-          "both": 83
+          "skif_only": 98,
+          "tool_only": 6,
+          "both": 62
         },
         "devDependencies": {
-          "skif_only": 8,
-          "tool_only": 18,
-          "both": 332
+          "skif_only": 42,
+          "tool_only": 4,
+          "both": 333
         },
         "duplicates": {
           "skif_only": 6,
-          "tool_only": 13,
-          "both": 32
+          "tool_only": 10,
+          "both": 35
+        },
+        "enumMembers": {
+          "skif_only": 1,
+          "tool_only": 0,
+          "both": 0
         },
         "exports": {
-          "skif_only": 154,
-          "tool_only": 496,
-          "both": 2227
+          "skif_only": 88,
+          "tool_only": 150,
+          "both": 2253
         },
         "files": {
-          "skif_only": 8,
-          "tool_only": 548,
-          "both": 411
+          "skif_only": 11,
+          "tool_only": 468,
+          "both": 306
         },
         "nsExports": {
           "skif_only": 0,
@@ -372,33 +386,37 @@
           "both": 0
         },
         "types": {
-          "skif_only": 381,
-          "tool_only": 167,
-          "both": 636
+          "skif_only": 38,
+          "tool_only": 64,
+          "both": 617
         },
         "unlisted": {
-          "skif_only": 8,
-          "tool_only": 294,
-          "both": 7
+          "skif_only": 6,
+          "tool_only": 277,
+          "both": 24
         },
         "unresolved": {
-          "skif_only": 6,
-          "tool_only": 4,
-          "both": 0
+          "skif_only": 14,
+          "tool_only": 3,
+          "both": 1
         }
       },
       "known_deviations": {
         "fixture-file": {
           "skif_only": 0,
-          "tool_only": 41
+          "tool_only": 177
         },
         "non-code-file": {
           "skif_only": 0,
           "tool_only": 1018
         },
+        "not-judged-by-skif": {
+          "skif_only": 0,
+          "tool_only": 543
+        },
         "test-file": {
           "skif_only": 0,
-          "tool_only": 78
+          "tool_only": 66
         }
       }
     },
@@ -705,7 +723,7 @@
     },
     "rushstack": {
       "status": "skipped",
-      "reason": "install: install is disabled for this repository: Rush workspace (rush.json); no lockfile in the tree, so it is never installed.",
+      "reason": "knip failed (exit 2): no knip report in the 54 bytes of stdout; stderr: ERROR: Unable to find package.json",
       "categories": {}
     },
     "tanstack-query": {
@@ -713,12 +731,12 @@
       "categories": {
         "dependencies": {
           "skif_only": 0,
-          "tool_only": 18,
+          "tool_only": 7,
           "both": 19
         },
         "devDependencies": {
           "skif_only": 0,
-          "tool_only": 11,
+          "tool_only": 0,
           "both": 6
         },
         "duplicates": {
@@ -727,17 +745,17 @@
           "both": 0
         },
         "exports": {
-          "skif_only": 4,
+          "skif_only": 0,
           "tool_only": 0,
           "both": 10
         },
         "files": {
           "skif_only": 0,
-          "tool_only": 25,
+          "tool_only": 19,
           "both": 120
         },
         "types": {
-          "skif_only": 3,
+          "skif_only": 0,
           "tool_only": 0,
           "both": 10
         },
@@ -753,11 +771,16 @@
         }
       },
       "known_deviations": {
+        "not-judged-by-skif": {
+          "skif_only": 0,
+          "tool_only": 28
+        },
         "test-file": {
           "skif_only": 0,
           "tool_only": 1
         }
-      }
+      },
+      "tool_errors": 18
     },
     "vercel-examples": {
       "status": "compared",
@@ -798,13 +821,13 @@
           "both": 3
         },
         "dependencies": {
-          "skif_only": 75,
-          "tool_only": 38,
-          "both": 11
+          "skif_only": 52,
+          "tool_only": 6,
+          "both": 9
         },
         "devDependencies": {
-          "skif_only": 23,
-          "tool_only": 25,
+          "skif_only": 48,
+          "tool_only": 5,
           "both": 29
         },
         "duplicates": {
@@ -814,58 +837,62 @@
         },
         "enumMembers": {
           "skif_only": 0,
-          "tool_only": 446,
-          "both": 473
+          "tool_only": 364,
+          "both": 88
         },
         "exports": {
-          "skif_only": 48,
-          "tool_only": 81,
-          "both": 3374
+          "skif_only": 7,
+          "tool_only": 26,
+          "both": 1946
         },
         "files": {
-          "skif_only": 43,
-          "tool_only": 467,
-          "both": 1864
+          "skif_only": 13,
+          "tool_only": 132,
+          "both": 771
         },
         "namespaceMembers": {
-          "skif_only": 258,
-          "tool_only": 19,
-          "both": 207
+          "skif_only": 0,
+          "tool_only": 9,
+          "both": 96
         },
         "nsExports": {
-          "skif_only": 2,
-          "tool_only": 43,
-          "both": 461
+          "skif_only": 0,
+          "tool_only": 14,
+          "both": 260
         },
         "nsTypes": {
-          "skif_only": 1,
-          "tool_only": 57,
-          "both": 391
+          "skif_only": 0,
+          "tool_only": 7,
+          "both": 288
         },
         "types": {
-          "skif_only": 85,
-          "tool_only": 149,
-          "both": 1971
+          "skif_only": 49,
+          "tool_only": 64,
+          "both": 1386
         },
         "unlisted": {
-          "skif_only": 3,
-          "tool_only": 1348,
-          "both": 27
+          "skif_only": 4,
+          "tool_only": 1380,
+          "both": 1
         },
         "unresolved": {
-          "skif_only": 39,
-          "tool_only": 21,
-          "both": 8
+          "skif_only": 0,
+          "tool_only": 23,
+          "both": 6
         }
       },
       "known_deviations": {
         "fixture-file": {
           "skif_only": 0,
-          "tool_only": 120
+          "tool_only": 156
+        },
+        "not-judged-by-skif": {
+          "skif_only": 0,
+          "tool_only": 2555
         },
         "test-file": {
           "skif_only": 0,
-          "tool_only": 110
+          "tool_only": 116
         }
       }
     },
@@ -873,14 +900,9 @@
       "status": "compared",
       "categories": {
         "dependencies": {
-          "skif_only": 0,
+          "skif_only": 2,
           "tool_only": 0,
           "both": 6
-        },
-        "devDependencies": {
-          "skif_only": 0,
-          "tool_only": 9,
-          "both": 0
         },
         "duplicates": {
           "skif_only": 0,
@@ -895,40 +917,40 @@
         "exports": {
           "skif_only": 0,
           "tool_only": 1,
-          "both": 23
+          "both": 16
         },
         "files": {
           "skif_only": 0,
-          "tool_only": 1,
-          "both": 5
-        },
-        "optionalPeerDependencies": {
-          "skif_only": 1,
           "tool_only": 0,
-          "both": 0
+          "both": 5
         },
         "types": {
           "skif_only": 0,
-          "tool_only": 2,
-          "both": 15
+          "tool_only": 1,
+          "both": 13
         },
         "unlisted": {
           "skif_only": 0,
-          "tool_only": 30,
-          "both": 61
+          "tool_only": 5,
+          "both": 86
         },
         "unresolved": {
           "skif_only": 0,
-          "tool_only": 0,
-          "both": 1
+          "tool_only": 1,
+          "both": 0
         }
       },
       "known_deviations": {
         "non-code-file": {
           "skif_only": 0,
           "tool_only": 1
+        },
+        "not-judged-by-skif": {
+          "skif_only": 0,
+          "tool_only": 20
         }
-      }
+      },
+      "tool_errors": 2
     }
   }
 }

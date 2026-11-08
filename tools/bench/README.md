@@ -110,9 +110,10 @@ nearly every import as unresolved or unlisted. `--install` installs each reposit
 `--ignore-scripts` (`pnpm install --frozen-lockfile`, `yarn install --immutable --mode=skip-build` or
 `--frozen-lockfile`, `npm ci`, `bun install --frozen-lockfile`); the installed state is cached in the checkout. A
 repository is skipped, with the reason in the report, when its package manager is not on `PATH`, the install fails or
-times out (`install = false` in `corpus.toml` for rushstack: knip has no Rush support and finds no root `package.json`
-there, so nothing would use the install), skif fails, or knip prints no JSON; the reason names the first error line
-the install printed, on stderr or stdout. Without `--install` the run is quick but dominated by that noise; the baseline records which way it was made and
+times out, skif fails, or knip prints no JSON; the reason names the first error line the install printed, on stderr
+or stdout, or knip's error. A repository with `install = false` in `corpus.toml` (rushstack: Rush keeps its lockfiles
+under `common/config`) is compared uninstalled, so the tools say themselves whether they can run there: knip has no
+Rush support and stops with `Unable to find package.json`, which becomes the skip reason. Without `--install` the run is quick but dominated by that noise; the baseline records which way it was made and
 `--check` rejects a mismatch. A repository may set `install-command` (program first; `rules-js` installs with
 the pnpm its `MODULE.bazel` pins) and `install-timeout-secs` (`vercel-examples`) in `corpus.toml`.
 
@@ -127,26 +128,43 @@ longer reported as unused on both sides. Enum and namespace
 members are keyed by the member name on both sides. knip's stdout may carry banners around its JSON; the first object
 that is a knip report is used.
 
+**knip errors.** knip prints `ERROR: Error loading <file>` when a tool configuration of the repository does not load
+(create-t3-turbo's `metro.config.js` requires an unlisted package; vue-core's `vite.config.ts` files read an undefined
+`__DEV__`), runs on without the entry files that configuration names, prints its report and exits with 2. The harness
+records those files in `parity.json` (`knip_errors`, with `knip_exit`), their number in the baseline (`tool_errors`)
+and in the status cell of `parity.md`, and counts a finding only knip reports in a package that holds such a file as
+the `knip-config-error` known deviation rather than as a difference.
+
 **Labels.** `exports`, `types`, `nsExports` and `nsTypes` key the same `<file>|<name>`, and the tools label some
 differently: knip calls a `const enum` a type and files an export under `nsExports` when any importer uses a namespace,
 skif when all do. A skif finding knip has under another of these labels counts as shared, under knip's label.
 
 **Known deviations.** Findings on one side below a path in a repository's `knip-unread` list are the `knip-unread`
 deviation: knip reads no files there, as npm's deny-all `.gitignore` hides its workspaces, so it reports every
-dependency there as unused and says nothing about the files. In `files`, a file only knip reports is not counted as a difference when it is outside skif's
-project set (`non-code-file`), in a fixture directory (`fixture-file`) or a test file or any file below a test
-directory (`test-file`); those are reported in their own column and section, with the reason, and `--check` ignores
-them. Most `test-file` findings are not tests but apps and helpers below test directories (next.js has thousands) that
-skif leaves out of its graph, because they are nested projects or their package's entry files are not fully known. `--include-test-files` counts the last
-two as differences (not usable with a baseline, nor is `--repo-knip-config`). See
-[ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md).
+dependency there as unused and says nothing about the files. In `files`, a file only knip reports is not counted as a
+difference when it is outside skif's project set (`non-code-file`), below a `fixtures` or `__fixtures__` directory,
+which skif does not report unless `[js] include-fixtures` is set (`fixture-file`; other test-data names such as
+`testdata` or `*-fixtures` are judged by skif and not counted here), or a test file or any file below a test directory
+(`test-file`); those are reported in their own column and section, with the reason, and `--check` ignores them. Most
+`test-file` findings are test files, which skif's test-runner plugins make entries, or test helpers and setup files;
+in next.js thousands are the app files of test fixtures below test directories, which are not test entries. The
+harness sets them apart by path, without establishing why skif does not report each one.
+`--include-test-files` counts `fixture-file` and `test-file` as differences (not usable with a baseline, nor is
+`--repo-knip-config`). See [ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md) and
+[ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md).
 
 **Not judged by skif.** skif lists under `incomplete-packages` in its JSON report the packages whose entry files it
-cannot all know (a tool config it cannot read), and does not report their unused files and dependencies. A finding only
-knip reports in `files`, `dependencies` or `devDependencies` whose package (the deepest directory above it with a
-`package.json`) is one of those is counted as `not-judged-by-skif`: in its own column of `parity.md`, apart from the
-agreement counts and the other known deviations, and ignored by `--check`. `parity.json` lists the directories per
-repository under `not_judged_packages`. See [ADR 0053](../../adrs/0053-incomplete-packages-in-the-json-report.md).
+cannot all know (a tool config it cannot read), and does not report their unused dependencies, exports, types and
+members, nor the files the config could make entries. A finding only knip reports in `files`, `dependencies`,
+`devDependencies`, `exports`, `types`, `nsExports`, `nsTypes`, `enumMembers` or `namespaceMembers` whose package (the
+deepest directory above it with a `package.json`) is one of those is counted as `not-judged-by-skif`: in its own
+column of `parity.md`, apart from the agreement counts and the other known deviations, and ignored by `--check`.
+`unlisted`, `unresolved`, `binaries` and `duplicates` are judged in every package and stay compared. For `files` the
+count is an upper bound: skif judges the files outside a narrowed scope
+([ADR 0065](../../adrs/0065-narrowed-scope-for-incomplete-entries.md)), but its JSON does not say which packages are
+narrowed. `parity.json` lists the directories per repository under `not_judged_packages`. See
+[ADR 0053](../../adrs/0053-incomplete-packages-in-the-json-report.md) and
+[ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md).
 
 ## Policy diff against syncpack
 
@@ -186,10 +204,15 @@ mise run diff:syncpack -- --write-baseline
 `--check` compares a run with the baseline and exits non-zero when a count moves by more than
 `--tolerance-percent` (default 10) of its baseline value or `--tolerance-abs` (default 5), whichever is larger, when a
 repository changes between compared and skipped, or when a fixture that agreed before now differs. A run narrowed with
-`--only` is checked against those entries alone, and `--write-baseline --only` updates only them. The committed
-`baselines/parity.json` predates the per-repository `entry` lists, the recursive runs and the `rules-js` install
-command of [#27](https://github.com/Goldziher/skif/issues/27), so it still needs a
-`mise run parity -- --install --write-baseline` refresh before `--check` means anything for those repositories. The
+`--only` is checked against those entries alone, and `--write-baseline --only` updates only them, so the baseline
+can be refreshed one repository at a time (install, run, then delete the checkout's `node_modules`) where the disk
+does not hold every install at once. In the committed `baselines/parity.json` the entries of create-t3-turbo,
+vue-core, tanstack-query, jest, babel, cal-com, mastra, vscode, npm-cli and rushstack were recorded on 2026-11-08 with
+the categories of [ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md). The entries of n8n, angular,
+opencode and rules-js (whose installs fetch tarballs from `codeload.github.com`) and of vercel-examples and next-js
+(whose installs did not fit the disk) predate them, and the per-repository `entry` lists and recursive runs of
+[#27](https://github.com/Goldziher/skif/issues/27), so they still need a
+`mise run parity -- --install --write-baseline --only <name>` refresh before `--check` means anything for them. The
 scheduled `corpus` workflow (`.github/workflows/corpus.yml`, weekly and on demand, never on pull requests) runs both
 checks. The decision is [ADR 0026](../../adrs/0026-parity-and-diff-tasks-on-a-pinned-corpus.md).
 
