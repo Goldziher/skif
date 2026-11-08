@@ -40,13 +40,14 @@ inputs:
     default: "false"
   from-sherif:
     description: >-
-      "auto" (the default): when no skif.toml or .skif.toml is found and the root package.json has a
-      `sherif` key or a script that runs sherif, translate those settings with `skif migrate --from sherif
-      --profile full` into a temporary file and lint with it (`--config`), so a job that replaced sherif
-      keeps its flags. Not done for a skif subcommand or when `args` has `--config` or `--no-config`.
-      "false" turns it off.
+      Migration aid, off by default. "true": when no skif.toml or .skif.toml is found and the root
+      package.json has a `sherif` key or a script that runs sherif, translate those settings with
+      `skif migrate --from sherif --profile full` into a temporary file and lint with it (`--config`), so a
+      job that replaced sherif keeps its flags until skif.toml is committed. Not done for a skif subcommand
+      or when `args` has `--config` or `--no-config`. The skif binary itself never reads sherif
+      configuration (ADR 0039).
     required: false
-    default: "auto"
+    default: "false"
   install-only:
     description: Install skif and put it on PATH, but do not run it.
     required: false

@@ -24,10 +24,10 @@ if [ "${FAIL_ON_WARNINGS:-false}" = "true" ]; then
   parsed_args+=("--fail-on-warnings")
 fi
 
-case "${FROM_SHERIF:-auto}" in
-auto | false) ;;
+case "${FROM_SHERIF:-false}" in
+true | false) ;;
 *)
-  echo "::error::from-sherif must be \"auto\" or \"false\", not \"${FROM_SHERIF}\""
+  echo "::error::from-sherif must be \"true\" or \"false\", not \"${FROM_SHERIF}\""
   exit 2
   ;;
 esac
@@ -56,12 +56,12 @@ has_skif_config() {
   done
 }
 
-# from-sherif: a project with no skif configuration yet whose root package.json runs sherif (a `sherif` key, or a
+# from-sherif (opt-in migration aid): a project with no skif configuration yet whose root package.json runs sherif (a `sherif` key, or a
 # script that runs it) is linted with its sherif settings translated by `skif migrate`, so a job that replaces sherif
 # keeps its ignores and --fail-on-warnings. `--profile full` keeps skif's default rules; the translation goes to a
-# temporary file, never into the repository.
+# temporary file, never into the repository. The skif binary itself never reads sherif configuration (ADR 0039).
 use_sherif_config() {
-  [ "${FROM_SHERIF:-auto}" = "auto" ] || return 1
+  [ "${FROM_SHERIF:-false}" = "true" ] || return 1
   if [ ! -f package.json ] || ! grep -q 'sherif' package.json; then
     return 1
   fi
