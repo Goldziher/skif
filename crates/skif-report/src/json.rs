@@ -728,12 +728,14 @@ mod tests {
             "",
             Location::new("package.json", None),
         );
-        let info = Diagnostic::new(
+        // serde_json leaves U+2028, characters outside the BMP and DEL unescaped; the hand-written path must too.
+        let mut info = Diagnostic::new(
             RuleId::from_static("sorted-keys"),
             Severity::Info,
-            "keys",
+            "keys\u{2028}line separator, \u{1f600} outside the BMP, \u{7f} delete",
             Location::new("C:\\repo\\a.json", None),
         );
+        info.help = Some("\u{7f}\u{2028}\u{1f600}".to_owned());
         let reason = |cause, plugin: Option<&str>, file: Option<&str>| IncompleteEntries {
             cause,
             plugin: plugin.map(str::to_owned),
