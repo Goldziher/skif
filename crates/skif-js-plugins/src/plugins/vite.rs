@@ -7,7 +7,8 @@ use crate::files::find_files;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::postcss;
 use crate::support::{
-    alias_inputs, extension_inputs, get_in, html_entries, join_rel, package_name, path_unknown, strings, values_of,
+    alias_inputs, extension_inputs, get_in, html_entries, html_entries_at, join_rel, package_name, path_unknown,
+    strings, values_of,
 };
 
 /// The `vite` plugin.
@@ -67,15 +68,31 @@ impl Plugin for Vite {
 
 /// The `index.html` scripts and the `build.rollupOptions.input` entries of a config; the vitest plugin reuses them
 /// the way knip does.
+///
+/// `root` moves the project root, where Vite looks for `index.html` and resolves `/`-rooted paths (the `src` of a
+/// script tag, an HTML input written as `/page.html`), relative to the config file. A `root` that is not a static
+/// string leaves those entries unknown.
 pub(crate) fn html_and_build_inputs(config: &ConfigAst<'_>, cx: &PluginContext<'_>) -> Vec<PluginInput> {
-    let mut out = html_entries(cx, config.base, "index.html");
+    let mut out = Vec::new();
+    let root = match get_in(config.value, &["root"]) {
+        None => config.base.to_owned(),
+        Some(ConfigValue::String(root)) if !std::path::Path::new(root).is_absolute() => config.join(root),
+        Some(_) => {
+            out.push(PluginInput::EntriesIncomplete);
+            config.base.to_owned()
+        }
+    };
+    out.extend(html_entries(cx, &root, "index.html"));
     let inputs = get_in(config.value, &["build", "rollupOptions", "input"]);
     for input in inputs.into_iter().flat_map(values_of).flat_map(strings) {
         if std::path::Path::new(input)
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("html"))
         {
-            out.extend(html_entries(cx, config.base, input.trim_start_matches('/')));
+            out.extend(match input.strip_prefix('/') {
+                Some(rooted) => html_entries(cx, &root, rooted),
+                None => html_entries_at(cx, &root, &config.join(input)),
+            });
         } else {
             out.push(PluginInput::ProductionEntry(config.join(input)));
         }

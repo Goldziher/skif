@@ -1,0 +1,6 @@
+---
+source: crates/skif-js/tests/js_config.rs
+expression: "reported.join(\"\\n\")"
+---
+package.json: script `clean` runs `rm`, which no dependency provides
+package.json: script `fetch` runs `curl`, which no dependency provides
