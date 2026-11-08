@@ -197,8 +197,11 @@ const LIBRARIES: [&str; 48] = [
     "zod",
 ];
 
+/// A `Value` built from `json!` has string keys only, so serializing it cannot fail; an empty manifest would hide a
+/// generator bug, hence `expect` rather than a default.
+#[allow(clippy::expect_used, reason = "serializing a serde_json::Value cannot fail")]
 fn to_json(value: &Value) -> String {
-    serde_json::to_string_pretty(value).unwrap_or_default() + "\n"
+    serde_json::to_string_pretty(value).expect("a serde_json::Value always serializes") + "\n"
 }
 
 struct Package {
