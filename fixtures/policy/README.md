@@ -6,7 +6,7 @@ workspace protocol, dependency families and the policy conflicts between them
 tests in `crates/skif-rules/tests` (`policy_conformance.rs` and `policy_catalog_conformance.rs`) walk them, run the
 policy rules and compare the result with `expected.json`.
 
-There are 189 cases in 17 groups. Each case is a minimal monorepo plus the `skif.toml` under
+There are 192 cases in 17 groups. Each case is a minimal monorepo plus the `skif.toml` under
 test and the diagnostics skif must report for it, so a failing case points at one behaviour.
 
 ## Attribution
@@ -39,7 +39,7 @@ Groups: `version-mismatch`, `pinned`, `banned`, `ignored`, `same-range`, `same-m
 | Group | Cases |
 | --- | --- |
 | `banned` | 4 |
-| `catalog` | 28 |
+| `catalog` | 32 |
 | `catalog-groups` | 6 |
 | `dependency-families` | 11 |
 | `dependency-types` | 13 |
@@ -91,6 +91,7 @@ A JSON array of diagnostics, sorted by `path`, then `rule`, then `dependency`, t
 | `detail` | the syncpack state name from the ADR 0009 table, or `null` for rules without a state |
 | `path` | workspace-relative path with `/` separators of the file the diagnostic is located in; `skif.toml` for `UnusedGroup` |
 | `fixable` | whether the diagnostic carries a fix |
+| `safe` | present and `true` when the diagnostic's fix is `safe`, so `--fix` applies it ([ADR 0051](../../adrs/0051-safe-version-alignment-fixes.md)); absent otherwise |
 
 An empty array means the workspace must be clean.
 
@@ -125,7 +126,7 @@ Tags with meaning: `assumption` and `ambiguous`
    below); every other rule is off, so manifest rules (`local-path-dependency`,
    `root-package-dependencies`, ...) never contribute. `[rules]` in `skif.toml` still applies on top.
 4. Run it, drop span and message from each diagnostic, project onto
-   `{rule, severity, package, dependency, detail, path, fixable}`, sort as described above and
+   `{rule, severity, package, dependency, detail, path, fixable, safe}`, sort as described above and
    compare with `expected.json` for equality.
 5. If `expected-fixed/` exists: apply the fixes of all fixable diagnostics and compare each file in
    `expected-fixed/` with the result (parsed JSON / YAML equality, or byte equality when `case.toml`

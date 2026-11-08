@@ -180,6 +180,15 @@ struct Entry {
     hit: AtomicBool,
 }
 
+impl Entry {
+    fn matches(&self, name: &str) -> bool {
+        match &self.matcher {
+            Matcher::Globs(globs) => globs.iter().any(|glob| glob.is_match(name)),
+            Matcher::Regex(regex) => regex.is_match(name),
+        }
+    }
+}
+
 /// A user-configured ignore list that remembers which entries matched, so entries that matched nothing can be
 /// reported.
 #[derive(Default)]
@@ -243,11 +252,7 @@ impl Listed {
     pub(crate) fn is_match(&self, name: &str) -> bool {
         let mut found = false;
         for entry in &self.entries {
-            let matched = match &entry.matcher {
-                Matcher::Globs(globs) => globs.iter().any(|glob| glob.is_match(name)),
-                Matcher::Regex(regex) => regex.is_match(name),
-            };
-            if matched {
+            if entry.matches(name) {
                 entry.hit.store(true, Ordering::Relaxed);
                 found = true;
             }
@@ -260,6 +265,16 @@ impl Listed {
         self.entries
             .iter()
             .filter(|entry| !entry.hit.load(Ordering::Relaxed))
+            .map(|entry| entry.text.as_str())
+            .collect()
+    }
+
+    /// The entries that matched nothing so far and match none of `names` either. Testing `names` records nothing.
+    pub(crate) fn unmatched_except(&self, names: &[&str]) -> Vec<&str> {
+        self.entries
+            .iter()
+            .filter(|entry| !entry.hit.load(Ordering::Relaxed))
+            .filter(|entry| !names.iter().any(|name| entry.matches(name)))
             .map(|entry| entry.text.as_str())
             .collect()
     }

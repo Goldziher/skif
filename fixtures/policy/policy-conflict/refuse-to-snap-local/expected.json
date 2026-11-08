@@ -15,6 +15,7 @@
     "dependency": "lib",
     "detail": "DiffersToSnapTarget",
     "path": "packages/tool/package.json",
-    "fixable": true
+    "fixable": true,
+    "safe": true
   }
 ]

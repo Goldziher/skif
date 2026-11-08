@@ -272,6 +272,26 @@ fn the_explanation_of_a_file_names_its_importers_and_the_chain_from_an_entry() {
 }
 
 #[test]
+fn the_explanation_of_a_script_file_names_the_script_whatever_the_path_spelling() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"],"scripts":{"gen":"tsx ./scripts/gen.ts"}}"#,
+        ),
+        (
+            "packages/db/package.json",
+            r#"{"name":"db","private":true,"scripts":{"seed":"tsx ../../scripts/seed.ts"}}"#,
+        ),
+        ("scripts/gen.ts", "export {};\n"),
+        ("scripts/seed.ts", "export {};\n"),
+    ];
+    for file in ["scripts/gen.ts", "scripts/seed.ts"] {
+        let text = analysis_text(&files, file, None);
+        assert!(text.contains("entry file: run by a script of package.json"), "{text}");
+    }
+}
+
+#[test]
 fn the_explanation_of_an_export_follows_re_exports_to_the_user() {
     let used = analysis_text(&EXPLAIN_FILES, "lib.ts", Some("run"));
     assert!(used.contains("re-exported by barrel.ts as `go`"), "{used}");

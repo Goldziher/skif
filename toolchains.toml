@@ -220,3 +220,4 @@ format = "Rust is formatted by rustfmt before poly formats the rest of the tree.
 "fixtures/policy/semver-range-only/non-semver-specifiers-are-left-alone/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "fixtures/policy/semver-range-only/range-checked-versions-may-differ/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "fixtures/policy/semver-range-only/versions-differ-without-a-semver-group/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
+"crates/skif-cli/tests/fixtures/format/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"

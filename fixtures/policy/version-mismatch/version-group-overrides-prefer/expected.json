@@ -15,6 +15,7 @@
     "dependency": "lodash",
     "detail": "DiffersToHighestOrLowestSemver",
     "path": "packages/lib/package.json",
-    "fixable": true
+    "fixable": true,
+    "safe": true
   }
 ]
