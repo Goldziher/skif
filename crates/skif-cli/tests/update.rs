@@ -321,7 +321,8 @@ fn a_project_token_from_the_environment_is_not_sent_to_an_http_registry_the_proj
 #[test]
 fn a_redirect_to_another_host_does_not_carry_the_token() {
     let (url, seen) = registry();
-    let first = redirector(&url);
+    // Another host name, not only another port, as a registry sending the client elsewhere would use.
+    let first = redirector(&url.replace("127.0.0.1", "localhost"));
     let dir = workspace(
         &format!("//127.0.0.1:{}/:_authToken=t0ken-value\n", url_port(&first)),
         APP,
@@ -338,7 +339,7 @@ fn a_redirect_to_another_host_does_not_carry_the_token() {
     assert_eq!(requests.len(), 2, "{requests:?}");
     assert!(
         requests.iter().all(|(_, authorization)| authorization.is_none()),
-        "the second port is another origin: {requests:?}"
+        "localhost is another host: {requests:?}"
     );
 }
 
