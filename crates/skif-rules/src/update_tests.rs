@@ -546,4 +546,30 @@ fn package_names_follow_the_npm_allowlist() {
     ] {
         assert!(!is_valid_package_name(bad), "{bad}");
     }
+    assert!(is_valid_package_name(&"a".repeat(214)));
+    assert!(!is_valid_package_name(&"a".repeat(215)));
+    assert!(!is_valid_package_name(&format!("@s/{}", "a".repeat(212))));
+}
+
+/// With syncpack's override reading the key of a yarn resolution is the dependency name. `**/foo` and `parent/child`
+/// are not package names: they are noted and not looked up, so they no longer fail the run as a registry 404 would.
+#[test]
+fn a_yarn_resolution_path_read_as_a_name_is_noted_not_failed() {
+    let registry = Fake::default().with("left-pad", &[("1.0.0", 900), ("1.1.0", 400)]);
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"root","version":"0.0.0","private":true,"packageManager":"yarn@1.22.0","workspaces":["packages/*"],"resolutions":{"**/foo":"1.0.0","parent/child":"1.0.0"}}"#,
+        ),
+        (
+            "packages/a/package.json",
+            r#"{"name":"a","dependencies":{"left-pad":"1.0.0"}}"#,
+        ),
+    ];
+    let toml = "[policy]\ndependency-types = [\"prod\", \"resolutions\"]\noverride-reading = \"syncpack\"\n";
+    let report = plan(&files, toml, &registry, &UpdateOptions::new(NOW));
+    assert_eq!(registry.asked(), ["left-pad"]);
+    assert!(report.failures.is_empty(), "{:?}", report.failures.len());
+    let noted: Vec<&str> = report.notes.iter().map(Note::dependency).collect();
+    assert_eq!(noted, ["**/foo", "parent/child"]);
 }
