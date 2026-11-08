@@ -101,13 +101,14 @@ at `PATH`. The report names the entry rule when the file is an entry file, lists
 file and line (and which names the import brings in), and shows the shortest chain of imports from an entry file. With
 `#EXPORT` it lists the modules that import that export by name or as a whole, follows re-exports (`export { x } from`,
 `export *`) into the modules that use them, and ends with a verdict (`public`, `used` or `unused`) computed from the
-same facts as the lines above it. The command builds the whole JavaScript analysis, so it costs as much as the
-JavaScript part of a lint run.
+same facts as the lines above it; an export of a package whose entry files are not fully known is `not-judged`
+instead of `unused`, because it is not reported. The command builds the whole JavaScript analysis, so it costs as much
+as the JavaScript part of a lint run.
 
 | Flag | Meaning |
 | --- | --- |
 | `--production`, `--config <FILE>`, `--no-config` | Analyse as the lint run with the same flag does. |
-| `--format <human\|json>` | `json` prints one document with `version`, `skif` and a `report` member: `file`, `in-graph`, `entry` (the rule that makes the file an entry), `imported-by` (`file`, `line`, `kind`, `names`, `reachable`), `chain-from-entry` and, with `#EXPORT`, `export` (`verdict`, `users`, `re-exports`, `entry-public`, `tagged-public`, `in-used-signature`). |
+| `--format <human\|json>` | `json` prints one document with `version`, `skif` and a `report` member: `file`, `in-graph`, `entry` (the rule that makes the file an entry), `imported-by` (`file`, `line`, `kind`, `names`, `reachable`), `chain-from-entry` and, with `#EXPORT`, `export` (`verdict`, `users`, `re-exports`, `entry-public`, `tagged-public`, `in-used-signature`, and `entries-incomplete` when it is true). |
 
 A file that is not part of the module graph (an unused file, an ignored file, or a file outside the project globs)
 exits `2` with the reason; in JSON mode the `error` document carries the same `report`. It also exits `2` when the root

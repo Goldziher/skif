@@ -264,10 +264,15 @@ impl<'a> JsAnalysis<'a> {
         self.setup.package(id).is_none()
     }
 
-    /// Whether a module's own issues are reported: it is a project file, not ignored, and not a public entry.
+    /// Whether a module's own issues are reported: it is a project file, not ignored, not a public entry, and its
+    /// package's entry files are fully known. In a package whose entries are incomplete, a file no known entry reaches
+    /// may still import the module, so none of its exports can be judged unused.
     #[must_use]
     pub fn reports_exports_of(&self, module: &Module) -> bool {
-        module.in_project && !module.ignored && (!module.is_entry || self.setup.includes_entry_exports(module.owner))
+        module.in_project
+            && !module.ignored
+            && (!module.is_entry || self.setup.includes_entry_exports(module.owner))
+            && !self.entries_incomplete(module.owner)
     }
 
     /// Exports of `module` that no other module uses, values and types alike, in source order.
