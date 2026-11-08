@@ -361,8 +361,9 @@ plugins.
 
 A directory below a package with a `package.json` of its own that is not a workspace member is a separate project,
 often a root of its own in a recursive run (a `build` or `scripts` folder with its own lockfile). Its files are not
-the analysed root's: when a script or an import of the root reaches one, the imports of that file are judged by the
-project's own manifest, so they are never reported as unlisted in the root. In the other direction, a file of the
+the analysed root's: when a script or an import of the root reaches one, that file is not reported in the root, and
+its imports are neither unlisted there nor uses of the root's dependencies. The nested project judges the file against
+its own manifest when it is analysed as a root of its own. In the other direction, a file of the
 analysed root that a script of a `package.json` above it runs (up to the git repository root) is an entry, so
 `node build/npm/postinstall.ts` in the outer project keeps `build/npm/postinstall.ts` used in the nested root at
 `build` (except in production mode, where scripts give no entries).
