@@ -4,8 +4,8 @@ description: Embed skif in a Rust program through the skif crate.
 ---
 
 The `skif` crate is a facade that never prints, prompts, exits, reads the environment or the working directory,
-or writes files. Everything is read through a `FileSystem`: `OsFs` on disk, `MemoryFs` for editor buffers and
-tests. Diagnostics are relative to the workspace root, and fixes come back as a `FixPlan` for the caller to show,
+or writes files. Everything is read through a `FileSystem`: `OsFs` on disk, `MemoryFs` for tests, `BufferFs` for an
+editor's unsaved buffers over another file system. Diagnostics are relative to the workspace root, and fixes come back as a `FixPlan` for the caller to show,
 merge or write. [Poly](https://github.com/Goldziher/poly) is the first host.
 
 ```rust
@@ -113,6 +113,10 @@ A root can lie inside another (a standalone `build/package.json` below the repos
 root that only the outer root imports is unused as far as the inner root alone can tell. `skif -r` therefore lints
 the enclosing roots first and passes the files their reports list in `Report::other_project_files` (relative to the
 enclosing root), made relative to the inner root, to `RunOptions::with_extra_entries` of the inner root's run.
+
+A host that lints repeatedly, such as an editor, passes the same `ModuleCache` to every
+`Linter::with_module_cache` (feature `js-analysis`; `MemoryModuleCache` keeps it in memory), so only changed files
+are parsed again. The cache never changes a report.
 
 A `Linter` built with `Linter::with_fs` remembers directory listings, existence checks and small configuration
 files read through the file system for one run and starts every `run_with` from an empty cache, so a host that edits
