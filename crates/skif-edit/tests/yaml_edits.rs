@@ -60,6 +60,21 @@ fn yaml_edits_keep_comments() {
 }
 
 #[test]
+fn removing_a_key_deletes_whole_lines() {
+    let source = "packages:\n  - a\ncatalog:\n  x: ^1.0.0\ncatalogs:\n  old:\n    y: ^1.0.0\n";
+    let deleted = |route: &[&str]| {
+        let edits = plan_edits(source, FileKind::Yaml, &[&yaml_op(route, YamlAction::Remove)]).unwrap();
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].replacement, "");
+        source[edits[0].start as usize..edits[0].end as usize].to_owned()
+    };
+    // `catalog` is followed by `catalogs`, so the deleted text could also start inside the line; it must not, or it
+    // would overlap the removal of `catalogs`.
+    assert_eq!(deleted(&["catalog"]), "catalog:\n  x: ^1.0.0\n");
+    assert_eq!(deleted(&["catalogs"]), "catalogs:\n  old:\n    y: ^1.0.0\n");
+}
+
+#[test]
 fn the_plan_is_one_minimal_edit() {
     let op = yaml_op(&["catalog", "react"], YamlAction::Set(json!("^19.0.0")));
     let edits = plan_edits(WORKSPACE, FileKind::Yaml, &[&op]).unwrap();

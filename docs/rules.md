@@ -9,7 +9,7 @@
 | [`catalog-not-used`](#catalog-not-used) | catalog | warning | sometimes |
 | [`catalog-version-divergence`](#catalog-version-divergence) | catalog | warning | none |
 | [`unresolved-catalog-references`](#unresolved-catalog-references) | catalog | error | none |
-| [`unused-catalog-entries`](#unused-catalog-entries) | catalog | warning | none |
+| [`unused-catalog-entries`](#unused-catalog-entries) | catalog | warning | unsafe |
 | [`circular-imports`](#circular-imports) | js | off | none |
 | [`duplicate-exports`](#duplicate-exports) | js | warning | none |
 | [`stale-js-config`](#stale-js-config) | js | warning | none |
@@ -19,11 +19,11 @@
 | [`unresolved-imports`](#unresolved-imports) | js | error | none |
 | [`unused-dependencies`](#unused-dependencies) | js | error | unsafe |
 | [`unused-dev-dependencies`](#unused-dev-dependencies) | js | warning | unsafe |
-| [`unused-enum-members`](#unused-enum-members) | js | warning | none |
+| [`unused-enum-members`](#unused-enum-members) | js | warning | unsafe |
 | [`unused-exports`](#unused-exports) | js | warning | unsafe |
 | [`unused-files`](#unused-files) | js | warning | unsafe |
 | [`unused-namespace-exports`](#unused-namespace-exports) | js | warning | unsafe |
-| [`unused-namespace-members`](#unused-namespace-members) | js | warning | none |
+| [`unused-namespace-members`](#unused-namespace-members) | js | warning | unsafe |
 | [`unused-namespace-types`](#unused-namespace-types) | js | warning | unsafe |
 | [`unused-optional-peer-dependencies`](#unused-optional-peer-dependencies) | js | warning | none |
 | [`unused-types`](#unused-types) | js | warning | unsafe |
@@ -92,7 +92,7 @@ A catalog entry that no manifest references; reported only when `[catalog] repor
 
 - Category: catalog
 - Default severity: warning
-- Fixable: none
+- Fixable: unsafe
 
 ## circular-imports
 
@@ -172,7 +172,7 @@ A member of an exported enum is never read.
 
 - Category: js
 - Default severity: warning
-- Fixable: none
+- Fixable: unsafe
 
 ## unused-exports
 
@@ -204,7 +204,7 @@ An exported member of a TypeScript namespace is never read.
 
 - Category: js
 - Default severity: warning
-- Fixable: none
+- Fixable: unsafe
 
 ## unused-namespace-types
 

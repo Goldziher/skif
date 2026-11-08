@@ -107,6 +107,11 @@ pub struct Member {
     pub span: Span,
     /// `JSDoc` tag names (without `@`) on the member.
     pub tags: Vec<String>,
+    /// The byte range (absolute, end exclusive) that deletes the member: its line when it stands alone on it, else
+    /// the member with its comma and the blanks after it. `None` when deleting it would break the file: another
+    /// member mentions its name, or one statement declares it with siblings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removal: Option<(u32, u32)>,
 }
 
 /// What a removal edit deletes.
@@ -140,8 +145,9 @@ pub struct Removal {
     /// Number of exports declared by that statement (including this one).
     pub siblings: u32,
     /// The statement is `export default <expression>` (or an anonymous default declaration) and
-    /// [`RemovalKind::Statement`] deletes the expression too, not only the export: side effects of the expression
-    /// disappear. Callers that want a conservative fix should skip or flag these.
+    /// [`RemovalKind::Statement`] deletes the expression too, not only the export. Only an expression whose evaluation
+    /// has no effect gets a removal (a literal, an identifier, a function, a class that runs no code, or an array or
+    /// object of those); callers that want a conservative fix can still skip or flag these.
     pub default_expression: bool,
 }
 

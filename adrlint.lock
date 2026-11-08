@@ -255,3 +255,8 @@ blake3 = "906d58d5e421b233cfc31695083bd495b13900c023c7047a48fbd1b3783fd419"
 number = 51
 status = "accepted"
 blake3 = "a23d3a7c6f40ed083d6c1b5407adfbafdebadbb157399cc0bed663f6948cf613"
+
+[adrs."adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md"]
+number = 52
+status = "accepted"
+blake3 = "4623a3c4a19a47a47f620744a371775ee2b4a29735214a15daad88564acebb5c"
