@@ -51,7 +51,7 @@ const exitCode = run(["--format", "json", "./my-monorepo"]);
   uses that file (and the files it extends) instead of discovering configuration files, like `--config`, and
   `{ noConfig: true }` reads none, like `--no-config`.
 - `lintAsync(path, options?)` does the same on a worker thread and resolves with `{ report }` or, when the lint
-  cannot run, `{ error: { kind, message, path? } }` (`kind` is `config`, `workspace`, `io` or `internal`). Both
+  cannot run, `{ error: { kind, message, path? } }` (`kind` is `config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`). Both
   functions read the configuration file the way the command line does.
 - `run(argv)` runs the full command line (`argv` excludes the program name) and returns its exit code. Output
   streams to the process's stdout and stderr.

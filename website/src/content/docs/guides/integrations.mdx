@@ -186,7 +186,7 @@ const exitCode = run(["--format", "json", "./my-monorepo"]);
   `ignorePackages`, `ignoreDependencies`, `recursive`, `config` (use that file and the files it extends instead of
   discovering `skif.toml` files) and `noConfig` (read no file).
 - `lintAsync(path, options?)` does the same on a worker thread and resolves with `{ report }` or, when the lint
-  cannot run, `{ error: { kind, message, path? } }`. `kind` is `config`, `workspace`, `io` or `internal`.
+  cannot run, `{ error: { kind, message, path? } }`. `kind` is `config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`.
 - `run(argv)` runs the full command line (`argv` excludes the program name) and returns its exit code. Output
   streams to the process's stdout and stderr.
 
