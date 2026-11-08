@@ -20,8 +20,8 @@ use common::{CATALOG_GROUPS, JOINT_GROUPS, POLICY_GROUPS, Planned, rule_ids, run
 
 const ROOT: &str = "/ws";
 
-/// Plans the first fix of every diagnostic of `family` through the facade, at the `Unsafe` ceiling (ADR 0009: these
-/// fixes change what is installed).
+/// Plans the first fix of every diagnostic of `family` through the facade, at the `Unsafe` ceiling; the harness
+/// compares which fixes are safe through `expected.json` (ADR 0051).
 fn through_the_facade(
     files: &BTreeMap<String, String>,
     config: &Config,
@@ -36,20 +36,6 @@ fn through_the_facade(
     let registry = Registry::new(skif_rules::providers()).map_err(|error| error.to_string())?;
     let report =
         run(&registry, &workspace, config, &RunOptions::default()).map_err(|error| format!("lint: {error}"))?;
-    for diagnostic in report
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| family.contains(diagnostic.rule.as_str()))
-    {
-        if let Some(fix) = diagnostic.fixes.first().filter(|fix| fix.safety != FixSafety::Unsafe) {
-            return Err(format!(
-                "{} {}: a {:?} fix; ADR 0009 makes these fixes unsafe",
-                diagnostic.rule.as_str(),
-                diagnostic.message,
-                fix.safety
-            ));
-        }
-    }
     let selection = FixSelection::new(FixSafety::Unsafe)
         .with_alternatives(Alternatives::First)
         .with_rules(family.iter().map(|id| (*id).to_owned()));
