@@ -2437,6 +2437,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "siphasher",
  "skif-core",
  "thiserror",
 ]
