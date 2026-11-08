@@ -7,7 +7,7 @@ use std::path::Path;
 use skif_config::{PluginConfig, PluginOptions};
 use skif_js_syntax::ConfigValue;
 
-use crate::config_load::{from_json, load_config};
+use crate::config_load::{from_json, load_config_with};
 use crate::files::find_files;
 use crate::plugin::{
     BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, PathAlias, Plugin, PluginContext,
@@ -416,7 +416,7 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             continue;
         };
         collector.out.config_files.push(path.clone());
-        let Some(value) = load_config(&path, &source) else {
+        let Some(value) = load_config_with(&path, &source, ctx.modules) else {
             if reader.reads_config() && is_structured(&path) && !source.trim().is_empty() {
                 collector.mark_incomplete(reader.spec().id, &path, IncompleteCause::Unparsable);
             }
@@ -496,6 +496,7 @@ mod tests {
             scripts: &scripts,
             fs: &fs,
             plugins: &plugins,
+            modules: None,
         };
         let mut collector = Collector {
             ctx: &ctx,

@@ -286,7 +286,8 @@ fn qualifier_parts<'q>(qualifier: &'q TSImportTypeQualifier<'_>) -> (&'q str, Op
 
 impl Finder<'_, '_> {
     /// Records `templateUrl`, `styleUrl` and `styleUrls` of an Angular or Stencil `@Component({ … })` as
-    /// side-effect imports, so the stylesheets are followed and their packages count as used.
+    /// side-effect imports, so the stylesheets are followed and their packages count as used. Stencil's `styleUrls`
+    /// may map modes to URLs. Its `assetsDirs` name directories copied as they are, not modules, and are not followed.
     fn component_resources(&mut self, decorator: &Decorator<'_>) {
         let Expression::CallExpression(call) = &decorator.expression else {
             return;
@@ -310,14 +311,17 @@ impl Finder<'_, '_> {
             };
             match crate::js_string(key.as_js_str()).as_str() {
                 "templateUrl" | "styleUrl" => found.push(&property.value),
-                "styleUrls" => {
-                    if let Expression::ArrayExpression(array) = property.value.get_inner_expression() {
-                        found.extend(array.elements.iter().filter_map(|element| match element {
-                            ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_) => None,
-                            element => element.as_expression(),
-                        }));
+                "styleUrls" => match property.value.get_inner_expression() {
+                    Expression::ObjectExpression(modes) => {
+                        // Stencil's styles per mode: `{ ios: 'a.ios.css', md: ['a.md.css'] }`.
+                        for mode in &modes.properties {
+                            if let ObjectPropertyKind::ObjectProperty(mode) = mode {
+                                style_urls(&mode.value, &mut found);
+                            }
+                        }
                     }
-                }
+                    value => style_urls(value, &mut found),
+                },
                 _ => {}
             }
         }
@@ -331,6 +335,19 @@ impl Finder<'_, '_> {
                 });
             }
         }
+    }
+}
+
+/// Collects the URLs of a `styleUrls` array, or of a single URL as Stencil allows for one mode.
+fn style_urls<'b>(value: &'b Expression<'_>, found: &mut Vec<&'b Expression<'b>>) {
+    match value.get_inner_expression() {
+        Expression::ArrayExpression(array) => {
+            found.extend(array.elements.iter().filter_map(|element| match element {
+                ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_) => None,
+                element => element.as_expression(),
+            }));
+        }
+        _ => found.push(value),
     }
 }
 

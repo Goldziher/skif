@@ -17,6 +17,7 @@
 mod catalogs;
 mod detect;
 mod error;
+mod lerna;
 mod manifest;
 mod package;
 mod parallel;

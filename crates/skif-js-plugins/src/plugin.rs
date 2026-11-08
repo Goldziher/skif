@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use indexmap::IndexMap;
 use skif_config::PluginConfig;
 use skif_core::FileSystem;
-use skif_js_syntax::ConfigValue;
+use skif_js_syntax::{ConfigValue, ModuleLoader};
 
 /// The knip commit every plugin row was last checked against.
 pub const KNIP_COMMIT: &str = "da07b6e9887f9a1eb08545da29755b7f9d309bca";
@@ -217,6 +217,9 @@ pub struct PluginContext<'a> {
     pub fs: &'a dyn FileSystem,
     /// `[js.plugins]` switches and overrides.
     pub plugins: &'a IndexMap<String, PluginConfig>,
+    /// Finds the modules a config file imports values from (a base config of the project or of a workspace package),
+    /// so they are evaluated too; `None` leaves imported values unknown.
+    pub modules: Option<&'a dyn ModuleLoader>,
 }
 
 impl PluginContext<'_> {

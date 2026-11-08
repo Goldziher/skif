@@ -3,7 +3,7 @@
 JavaScript and TypeScript tool knowledge for skif.
 
 - `scripts`: parses `package.json` scripts into the binaries, entry files and dependencies they reference.
-- `plugin`, `plugins`, `registry`: the declarative plugin table of ADR 0011 (extended by ADR 0022, ADR 0025, ADR 0029, ADR 0036, ADR 0049 and ADR 0057). A plugin is a `PluginSpec` row
+- `plugin`, `plugins`, `registry`: the declarative plugin table of ADR 0011 (extended by ADR 0022, ADR 0025, ADR 0029, ADR 0036, ADR 0049 and ADR 0059). A plugin is a `PluginSpec` row
   (enablers, config, entry, production and project globs, provided binaries) with an optional resolver that reads the
   tool's config statically and reports the dependencies, entries and scripts it references. Configs are never
   executed (ADR 0010).
