@@ -1230,6 +1230,20 @@ pub enum JsDiscovery {
     Walk,
 }
 
+/// `[js.cycles]`: knip's `cycles` options of the `circular-imports` rule.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct JsCycles {
+    /// Cycles that are not reported, each the list of its files relative to the workspace root. A cycle is allowed
+    /// when its files are exactly the files of one entry, in any order.
+    pub allow: Vec<Vec<String>>,
+    /// Count dynamic `import()` as an edge of a cycle. Off by default: a dynamic import runs after the module graph
+    /// is loaded, so it cannot cause an initialisation-order problem.
+    pub dynamic_imports: bool,
+}
+
 /// `[js]`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -1246,6 +1260,9 @@ pub struct Js {
     pub project: Vec<String>,
     /// Globs of files that are not analysed.
     pub ignore: Vec<String>,
+    /// Globs of files, relative to the workspace root, never reported by `unused-files`; other rules still analyse
+    /// them (knip's `ignoreFiles`).
+    pub ignore_files: Vec<String>,
     /// Dependencies never reported as unused or unlisted.
     pub ignore_dependencies: Vec<String>,
     /// Binaries never reported as unlisted.
@@ -1271,6 +1288,8 @@ pub struct Js {
     /// trusts the index alone (faster, blind to untracked and deleted files); `walk` always walks. Both index modes
     /// fall back to the walk when the workspace is not in a git work tree with a usable SHA-1 index.
     pub discovery: JsDiscovery,
+    /// What `circular-imports` reports.
+    pub cycles: JsCycles,
     /// Per-workspace overrides keyed by directory. The key `"."` is the root workspace.
     pub workspaces: IndexMap<String, JsWorkspace>,
     /// Plugin switches keyed by plugin name.
@@ -1341,6 +1360,7 @@ impl Default for Js {
             entry: Vec::new(),
             project: Vec::new(),
             ignore: Vec::new(),
+            ignore_files: Vec::new(),
             ignore_dependencies: Vec::new(),
             ignore_binaries: Vec::new(),
             ignore_unresolved: Vec::new(),
@@ -1351,6 +1371,7 @@ impl Default for Js {
             include_entry_exports: false,
             include_fixtures: false,
             discovery: JsDiscovery::Auto,
+            cycles: JsCycles::default(),
             workspaces: IndexMap::new(),
             plugins: IndexMap::new(),
             extend_ignore: Vec::new(),
@@ -1447,6 +1468,8 @@ pub struct JsWorkspace {
     pub project: Vec<String>,
     /// Globs of files that are not analysed.
     pub ignore: Vec<String>,
+    /// Globs of files, relative to the workspace directory, never reported by `unused-files`.
+    pub ignore_files: Vec<String>,
     /// Dependencies never reported as unused or unlisted.
     pub ignore_dependencies: Vec<String>,
     /// Binaries never reported as unlisted.
