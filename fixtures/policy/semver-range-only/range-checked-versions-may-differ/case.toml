@@ -1,0 +1,5 @@
+description = "A semver-range-only group lets versions differ and reports only the instance whose range is not the semver group's."
+source = "syncpack:src/version_group/semver_range_only_test.rs::mismatching_semver_group_range_is_fixable"
+tags = ["semver-range-only", "semver-groups", "fix"]
+valid-states = ["MatchesSemverGroup"]
+compare = "bytes"

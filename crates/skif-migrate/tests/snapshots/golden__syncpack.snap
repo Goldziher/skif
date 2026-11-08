@@ -64,6 +64,12 @@ label = "Engines in sync"
 dependency-types = ["engines"]
 prefer = "lowest"
 
+# syncpack versionGroups[7]: Ranges only for plugins
+[[version-groups]]
+label = "Ranges only for plugins"
+dependencies = ["eslint-plugin-*"]
+policy = "semver-range-only"
+
 # syncpack semverGroups[0]: Exact in prod
 [[semver-groups]]
 label = "Exact in prod"
@@ -103,6 +109,13 @@ strategy = "version"
 name = "toolchain"
 path = "packageManager"
 strategy = "name@version"
+
+# syncpack customTypes.localish
+[[custom-types]]
+name = "localish"
+path = "version"
+strategy = "name~version"
+name-path = "name"
 
 [format]
 sort-az = ["dependencies", "scripts"]

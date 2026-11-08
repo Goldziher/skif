@@ -2321,6 +2321,7 @@ dependencies = [
  "rustls-native-certs",
  "serde",
  "serde_json",
+ "similar",
  "skif",
  "skif-core",
  "skif-migrate",

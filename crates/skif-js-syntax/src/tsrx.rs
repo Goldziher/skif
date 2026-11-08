@@ -14,26 +14,31 @@ const fn is_ident(byte: u8) -> bool {
 }
 
 /// The end of the comment that starts at `i` (past the line of a `//` comment, before its line break, or past the
-/// `*/` of a block comment), or `None` when no comment starts there. An unclosed block comment runs to the end.
+/// `*/` of a block comment), or `None` when no comment starts there. A `/*` with no `*/` after it is not a comment,
+/// which TypeScript would reject, but a regular expression (`/\/*/`) or template text the lexer does not tell apart:
+/// it runs to the end of its line, not of the file, so the imports after it are kept.
 fn comment_end(bytes: &[u8], i: usize) -> Option<usize> {
     if bytes.get(i) != Some(&b'/') {
         return None;
     }
     match bytes.get(i + 1)? {
-        b'/' => Some(
-            bytes[i..]
-                .iter()
-                .position(|&b| b == b'\n')
-                .map_or(bytes.len(), |at| i + at),
-        ),
+        b'/' => Some(line_end(bytes, i)),
         b'*' => Some(
             bytes[i + 2..]
                 .windows(2)
                 .position(|pair| pair == b"*/")
-                .map_or(bytes.len(), |at| i + 2 + at + 2),
+                .map_or_else(|| line_end(bytes, i), |at| i + 2 + at + 2),
         ),
         _ => None,
     }
+}
+
+/// The offset of the line break that ends the line `i` is on, or the end of `bytes`.
+fn line_end(bytes: &[u8], i: usize) -> usize {
+    bytes[i..]
+        .iter()
+        .position(|&b| b == b'\n')
+        .map_or(bytes.len(), |at| i + at)
 }
 
 /// The end of the `'` or `"` string that starts at `i`, past its closing quote, or `None` when the quote does not
@@ -229,6 +234,21 @@ mod tests {
     fn an_apostrophe_in_template_text_does_not_hide_the_next_import() {
         let source = "component App() {\n  <p>don't</p>\n  const lazy = import('./lazy');\n}\n";
         assert_eq!(kept(source), ["import('./lazy')"]);
+    }
+
+    #[test]
+    fn an_unclosed_comment_opener_ends_at_its_line() {
+        let source = "const re = /\\/*/;\nimport a from './a';\n";
+        assert_eq!(kept(source), ["import a from './a'"]);
+    }
+
+    #[test]
+    fn crlf_line_breaks_are_kept() {
+        let source = "import a from './a';\r\n// x\r\nconst re = /\\/*/;\r\nimport b from './b';\r\n";
+        let extracted = extract(source);
+        assert_eq!(extracted.len(), source.len());
+        assert_eq!(extracted.matches("\r\n").count(), 4);
+        assert_eq!(kept(source), ["import a from './a'", "import b from './b'"]);
     }
 
     #[test]

@@ -33,7 +33,7 @@ yaml-fix = ["fix", "skif-edit/yaml"]
 report = ["dep:skif-report"]
 # JSON Schema of `skif.toml`, as `skif::config_schema`.
 schema = ["skif-config/schema"]
-# `skif::update`: newer published versions through a registry the host supplies, planned as a `FixPlan` (ADR 0057).
+# `skif::update`: newer published versions through a registry the host supplies, planned as a `FixPlan` (ADR 0058).
 update = ["manifest", "fix"]
 
 [dependencies]
