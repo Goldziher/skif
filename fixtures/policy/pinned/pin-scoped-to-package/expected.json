@@ -6,7 +6,6 @@
     "dependency": "react",
     "detail": "DiffersToPin",
     "path": "packages/app/package.json",
-    "fixable": true,
-    "safe": true
+    "fixable": true
   }
 ]

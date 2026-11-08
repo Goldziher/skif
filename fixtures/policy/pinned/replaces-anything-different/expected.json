@@ -6,8 +6,7 @@
     "dependency": "react",
     "detail": "DiffersToPin",
     "path": "packages/app/package.json",
-    "fixable": true,
-    "safe": true
+    "fixable": true
   },
   {
     "rule": "version-mismatch",
@@ -16,7 +15,6 @@
     "dependency": "react",
     "detail": "DiffersToPin",
     "path": "packages/tool/package.json",
-    "fixable": true,
-    "safe": true
+    "fixable": true
   }
 ]

@@ -6,13 +6,40 @@ expression: "redact(&result.stdout, dir.path())"
   "version": 1,
   "skif": "0.1.1",
   "summary": {
-    "errors": 2,
+    "errors": 4,
     "warnings": 0,
     "infos": 0,
-    "fixable": 2,
+    "fixable": 4,
     "packages": 3
   },
   "diagnostics": [
+    {
+      "rule": "types-in-dependencies",
+      "severity": "error",
+      "message": "private package has `@types/node` in `dependencies`",
+      "help": "move `@types/*` packages to `devDependencies`; a private package is never installed as a dependency",
+      "location": {
+        "path": "packages/a/package.json",
+        "span": {
+          "start": 87,
+          "end": 110,
+          "start-line": 6,
+          "start-col": 5,
+          "end-line": 6,
+          "end-col": 28
+        }
+      },
+      "related": [],
+      "package": "@cli/a",
+      "dependency": "@types/node",
+      "specifier": "22.0.0",
+      "fixes": [
+        {
+          "title": "Move the `@types/*` packages to `devDependencies`",
+          "safety": "unsafe"
+        }
+      ]
+    },
     {
       "rule": "version-mismatch",
       "severity": "error",
@@ -21,11 +48,11 @@ expression: "redact(&result.stdout, dir.path())"
       "location": {
         "path": "packages/a/package.json",
         "span": {
-          "start": 87,
-          "end": 107,
-          "start-line": 6,
+          "start": 138,
+          "end": 158,
+          "start-line": 8,
           "start-col": 5,
-          "end-line": 6,
+          "end-line": 8,
           "end-col": 25
         }
       },
@@ -64,11 +91,11 @@ expression: "redact(&result.stdout, dir.path())"
       "location": {
         "path": "packages/a/package.json",
         "span": {
-          "start": 138,
-          "end": 152,
-          "start-line": 8,
+          "start": 189,
+          "end": 203,
+          "start-line": 10,
           "start-col": 5,
-          "end-line": 8,
+          "end-line": 10,
           "end-col": 19
         }
       },
@@ -98,22 +125,56 @@ expression: "redact(&result.stdout, dir.path())"
           "safety": "unsafe"
         }
       ]
+    },
+    {
+      "rule": "version-mismatch",
+      "severity": "error",
+      "message": "`react@18.3.1` in `dependencies` of @cli/a differs from the pinned version",
+      "help": "use `19.0.0`",
+      "location": {
+        "path": "packages/a/package.json",
+        "span": {
+          "start": 209,
+          "end": 226,
+          "start-line": 11,
+          "start-col": 5,
+          "end-line": 11,
+          "end-col": 22
+        }
+      },
+      "related": [],
+      "package": "@cli/a",
+      "dependency": "react",
+      "specifier": "18.3.1",
+      "detail": "DiffersToPin",
+      "fixes": [
+        {
+          "title": "Set `react` to `19.0.0`",
+          "safety": "unsafe"
+        }
+      ]
     }
   ],
   "fix": {
     "applied": [
       {
-        "rule": "types-in-dependencies",
-        "message": "private package has `@types/node` in `dependencies`",
-        "title": "Move the `@types/*` packages to `devDependencies`"
+        "rule": "version-mismatch",
+        "message": "`chalk@5.3.0` in `dependencies` of @cli/a differs from the pinned version",
+        "title": "Set `chalk` to `5.3.1`"
       },
       {
         "rule": "version-mismatch",
-        "message": "`left-pad@1.0.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
-        "title": "Set `left-pad` to `1.3.0`"
+        "message": "`left-pad@1.3.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
+        "title": "Set `left-pad` to `1.3.2`"
       }
     ],
     "skipped": [
+      {
+        "rule": "types-in-dependencies",
+        "message": "private package has `@types/node` in `dependencies`",
+        "reason": "safety",
+        "detail": "needs --fix-unsafe"
+      },
       {
         "rule": "version-mismatch",
         "message": "`is-number@6.0.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
@@ -123,6 +184,12 @@ expression: "redact(&result.stdout, dir.path())"
       {
         "rule": "version-mismatch",
         "message": "`ms@^2.1.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
+        "reason": "safety",
+        "detail": "needs --fix-unsafe"
+      },
+      {
+        "rule": "version-mismatch",
+        "message": "`react@18.3.1` in `dependencies` of @cli/a differs from the pinned version",
         "reason": "safety",
         "detail": "needs --fix-unsafe"
       }

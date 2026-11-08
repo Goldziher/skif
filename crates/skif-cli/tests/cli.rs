@@ -596,8 +596,8 @@ fn dependency_versions(dir: &Path, member: &str, section: &str) -> Value {
     serde_json::from_str::<Value>(&text).unwrap()[section].clone()
 }
 
-/// ADR 0051: `--fix` aligns a version within its major and moves type packages out of `dependencies`, and leaves the
-/// cross-major move and the change of range to `--fix-unsafe`.
+/// ADR 0051: `--fix` aligns an exact version to a later patch, whether the workspace or a pin chose it, and leaves the
+/// cross-major move (also to a pin), the change of range and the move of type packages to `--fix-unsafe`.
 #[test]
 fn fix_applies_compatible_version_alignments_and_leaves_the_rest() {
     let dir = fixture("align");
@@ -610,18 +610,16 @@ fn fix_applies_compatible_version_alignments_and_leaves_the_rest() {
     let b = dependency_versions(dir.path(), "b", "dependencies");
     assert_eq!(
         (&a["left-pad"], &b["left-pad"]),
-        (&Value::from("1.3.0"), &Value::from("1.3.0"))
+        (&Value::from("1.3.2"), &Value::from("1.3.2"))
     );
+    assert_eq!(a["chalk"], "5.3.1", "a patch pin is applied");
+    assert_eq!(a["react"], "18.3.1", "a cross-major pin is left to --fix-unsafe");
     assert_eq!(
         (&a["is-number"], &b["is-number"]),
         (&Value::from("6.0.0"), &Value::from("7.0.0"))
     );
     assert_eq!((&a["ms"], &b["ms"]), (&Value::from("^2.1.0"), &Value::from("2.1.3")));
-    assert!(a.get("@types/node").is_none(), "{a}");
-    assert_eq!(
-        dependency_versions(dir.path(), "a", "devDependencies")["@types/node"],
-        "22.0.0"
-    );
+    assert_eq!(a["@types/node"], "22.0.0", "type packages stay in dependencies");
 
     let report = result.json();
     let diagnostics = report["diagnostics"].as_array().unwrap();
