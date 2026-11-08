@@ -34,8 +34,9 @@ const ROOT_SCOPED: [&str; 13] = [
 ];
 
 /// `[js]` keys that cannot appear in an override.
-pub(crate) const ROOT_SCOPED_JS: [&str; 8] = [
+pub(crate) const ROOT_SCOPED_JS: [&str; 9] = [
     "enabled",
+    "cycles",
     "production",
     "include-entry-exports",
     "include-fixtures",

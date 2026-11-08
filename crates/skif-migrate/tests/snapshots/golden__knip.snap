@@ -14,7 +14,8 @@ report-unused-entries = true
 [js]
 entry = ["src/index.ts!", "scripts/*.ts", "src/index.ts"]
 project = ["src/**/*.ts!", "scripts/**/*.ts"]
-ignore = ["src/generated/**", "src/legacy/**"]
+ignore = ["src/generated/**"]
+ignore-files = ["src/legacy/**"]
 ignore-dependencies = ["left-pad", "/^@demo\\/.+$/", "eslint-*", "/tsx|ts-node/"]
 ignore-binaries = ["docker", "lefthook"]
 ignore-unresolved = ["/#internal/(.*)/", "/\\.svg$/"]
@@ -22,6 +23,10 @@ ignore-members = ["render", "/^handle/"]
 ignore-exports-used-in-file = true
 ignore-workspaces = ["examples/**"]
 include-entry-exports = true
+
+[js.cycles]
+allow = [["src/a.ts", "src/b.ts"]]
+dynamic-imports = true
 
 [js.plugins]
 vitest = { config = ["vitest.config.ts", "vitest.workspace.ts"], entry = ["**/*.test.ts"] }
@@ -55,7 +60,7 @@ unused-dev-dependencies = "error"
 unused-optional-peer-dependencies = "error"
 unlisted-binaries = "error"
 unresolved-imports = "error"
-unused-exports = { level = "error", ignore-tags = ["lintignore"] }
+unused-exports = { level = "error", ignore-tags = ["lintignore"], include-tags = ["public"] }
 unused-namespace-exports = "error"
 unused-types = "error"
 unused-namespace-types = "error"

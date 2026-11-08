@@ -139,6 +139,29 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   most one format on stdout. Files are written only after every rendering succeeds, though a write that fails
   partway can leave earlier files written; `--output` stays the single-format form ([ADR 0054](adrs/0054-several-reports-in-one-run.md),
   [#42](https://github.com/Goldziher/skif/issues/42)).
+- The `include-tags` option of `unused-exports` reports only exports and members carrying one of its tags, like knip's
+  `--tags +name`; `skif migrate` translates `+tag` to it. A tag it names is judged even when it would exempt, so
+  `include-tags = ["public"]` reports unused `@public` exports (knip reports none). `stale-js-config` reports knip's tag hints: an
+  `ignore-tags` tag, or `@internal` in production mode, on an export or member that is used anyway
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `stale-js-config` reports `entry`, `project` and `ignore` patterns that match no file, known to the analysis or on
+  disk (gitignored and non-source files count), like knip's `entry-empty`, `project-empty` and `ignore` configuration
+  hints; a pattern of a glob `[js.workspaces]` key is reported once, under the key as written, when it matches in none
+  of its packages ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `[js.cycles]` with `allow` (cycles not reported; an empty cycle or path is a configuration error) and
+  `dynamic-imports` (count `import()` in `circular-imports`), translated by `skif migrate` from knip's `cycles`
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `[js] ignore-files`, top level and per workspace: files `unused-files` never reports, which other rules still analyse.
+  `skif migrate` writes knip's `ignoreFiles` there instead of widening it to `ignore`, and `stale-js-config` reports an
+  entry that hides nothing ([#43](https://github.com/Goldziher/skif/issues/43)).
+- An export tagged `@alias` is no longer reported by `unused-exports`, `unused-types` or `duplicate-exports`, as in
+  knip ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `skif migrate` no longer says skif has no tag hints or global binaries list: `treatTagHintsAsErrors` points at
+  `stale-js-config`, and `ignoreGlobalBinaries: true` is noted as what skif always does
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
+- An enum or namespace member tagged `@internal` (with `production`), `@beta`, `@alpha`, `@alias` or an `ignore-tags`
+  name is no longer reported by `unused-enum-members` or `unused-namespace-members`; only `@public` was honoured
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
 
 ## [0.1.1] - 2026-11-07
 

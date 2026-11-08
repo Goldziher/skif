@@ -112,7 +112,7 @@ One binding is exported under several names.
 
 ## stale-js-config
 
-A `[js]` ignore entry or workspace key matched nothing in the run.
+A `[js]` ignore entry, workspace key, file pattern or ignore tag matched nothing in the run.
 
 - Category: js
 - Default severity: warning

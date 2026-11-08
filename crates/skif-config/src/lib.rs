@@ -28,7 +28,7 @@ pub use discover::{CONFIG_FILE_NAMES, Ceiling, ConfigCache, ConfigLoader, discov
 pub use error::ConfigError;
 pub use model::{
     Catalog, CatalogMode, Config, CustomStrategy, CustomType, DEFAULT_DISCOVER_IGNORE, DependencyFamily, ExportKinds,
-    FIXTURE_DIRECTORIES, IgnoreEntry, IgnoreExportsUsedInFile, Js, JsDiscovery, JsWorkspace, Lint, Override,
+    FIXTURE_DIRECTORIES, IgnoreEntry, IgnoreExportsUsedInFile, Js, JsCycles, JsDiscovery, JsWorkspace, Lint, Override,
     OverrideReading, OverrideScope, PackageJs, PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey,
     SemverGroup, SemverRange, VersionGroup, VersionPolicy, Workspace, WorkspaceProtocol,
 };
