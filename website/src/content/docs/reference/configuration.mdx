@@ -338,8 +338,9 @@ their own file always count as used. **`ignore-members`** lists enum and namespa
 **`stale-js-config`** (a warning) reports `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
 `ignore-workspaces` entries that matched nothing in the run, and `[js.workspaces]` keys that select no package, like
 knip's configuration hints. `[rules] stale-js-config = "error"` is knip's `--treat-config-hints-as-errors` (`skif migrate` writes `warn` unless `--strict-hints` is given). An
-`ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off, and the
-dependency lists are not judged when a package has entry files skif cannot determine.
+`ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off. The
+`ignore-dependencies` list of a package whose entry files skif cannot determine is not judged; the global list is
+judged over the other packages, and an entry that matches a dependency such a package lists is never called stale.
 
 `discovery` chooses how source files are found. `auto` (the default) lists the files from the git index when the
 analysed root is in a git work tree and checks each directory with one `stat` instead of walking it: a directory

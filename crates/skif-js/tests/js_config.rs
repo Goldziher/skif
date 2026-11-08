@@ -375,6 +375,34 @@ fn stale_js_config_is_silent_when_every_entry_matched() {
 }
 
 #[test]
+fn stale_js_config_judges_ignore_dependencies_over_the_packages_whose_dependencies_were_checked() {
+    // `packages/b` has no code, so its dependencies are not judged; an entry matching one of them may be needed.
+    let files = vec![
+        MANIFEST,
+        (
+            "packages/a/package.json",
+            r#"{"name":"@x/a","dependencies":{"left":"1"}}"#,
+        ),
+        ("packages/a/src/index.ts", "import \"left\";\n"),
+        (
+            "packages/b/package.json",
+            r#"{"name":"@x/b","dependencies":{"right":"1"}}"#,
+        ),
+    ];
+    let diagnostics = lint(
+        &files,
+        "[js]\nignore-dependencies = [\"nothing-here\", \"right\"]\n[js.workspaces.\"packages/a\"]\nignore-dependencies = [\"zzz\"]\n",
+    );
+    assert_eq!(
+        messages(&diagnostics),
+        [
+            "`nothing-here` in `js.ignore-dependencies` matched nothing",
+            "`zzz` in `js.workspaces.\"packages/a\".ignore-dependencies` matched nothing",
+        ]
+    );
+}
+
+#[test]
 fn stale_js_config_can_be_raised_to_an_error() {
     let files = two_packages("export {};\n");
     let diagnostics = lint(

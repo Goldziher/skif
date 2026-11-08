@@ -20,6 +20,9 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   of that root, so it and what it imports are no longer reported as unused files.
 - A package with no source file, no entry and no script no longer reports every dependency it lists as unused: there
   is no code to judge them against.
+- `stale-js-config` no longer stays silent about every `ignore-dependencies` list when one package has entry files
+  skif cannot determine: the lists are judged over the other packages, and only a global entry matching a dependency
+  of such a package is spared.
 
 ## [0.1.1] - 2026-11-07
 
