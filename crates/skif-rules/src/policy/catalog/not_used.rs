@@ -43,7 +43,7 @@ impl Rule for CatalogNotUsed {
                         "use `{}` so every package shares one version",
                         catalog.reference()
                     )),
-                    Some(use_catalog_fix(finding.instance, catalog, &[])),
+                    Some(use_catalog_fix(cx.workspace, finding.instance, catalog, &[])),
                 ),
                 FindingKind::NotUsingCatalogAndCatalogUnknown => emit(
                     out,

@@ -3,13 +3,13 @@
 JavaScript and TypeScript tool knowledge for skif.
 
 - `scripts`: parses `package.json` scripts into the binaries, entry files and dependencies they reference.
-- `plugin`, `plugins`, `registry`: the declarative plugin table of ADR 0011 (extended by ADR 0022, ADR 0025, ADR 0029, ADR 0036, ADR 0049 and ADR 0050). A plugin is a `PluginSpec` row
+- `plugin`, `plugins`, `registry`: the declarative plugin table of ADR 0011 (extended by ADR 0022, ADR 0025, ADR 0029, ADR 0036, ADR 0049 and ADR 0057). A plugin is a `PluginSpec` row
   (enablers, config, entry, production and project globs, provided binaries) with an optional resolver that reads the
   tool's config statically and reports the dependencies, entries and scripts it references. Configs are never
   executed (ADR 0010).
 - `resolve_plugins`: the entry point the module graph calls, given a `PluginContext` for one workspace.
 
-The table holds 126 plugins: `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`,
+The table holds 127 plugins: `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`,
 `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`,
 `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`,
 `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`,
@@ -18,7 +18,7 @@ The table holds 126 plugins: `typescript`, `eslint`, `prettier`, `vite`, `vitest
 `yarn`, `syncpack`, `node`, `expo-router`, `tanstack-router`, `ava`, `biome`, `c8`, `dotenv`, `electron-vite`,
 `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`,
 `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`,
-`sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun`, `webdriver-io`,
+`sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun`, `unplugin-icons`, `webdriver-io`,
 `pre-commit`, `parcel`, `next-intl`, `dependency-cruiser`, `commitizen`, `electron-forge`, `serverless-framework`, `github-action`, `vue`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `mdx`, `next-mdx`, `starlight`, `pino`, `execa`, `zx`, `nano-spawn`, `azure-pipelines` and `sapper`.
 
 ## Acknowledgements

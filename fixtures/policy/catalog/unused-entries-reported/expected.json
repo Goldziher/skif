@@ -6,7 +6,7 @@
     "dependency": "left-pad",
     "detail": null,
     "path": "pnpm-workspace.yaml",
-    "fixable": false
+    "fixable": true
   },
   {
     "rule": "unused-catalog-entries",
@@ -15,6 +15,6 @@
     "dependency": "lodash",
     "detail": null,
     "path": "pnpm-workspace.yaml",
-    "fixable": false
+    "fixable": true
   }
 ]

@@ -57,6 +57,8 @@ pub struct Config {
     pub dependency_families: Vec<DependencyFamily>,
     /// `[js]`: the JavaScript and TypeScript analysis.
     pub js: Js,
+    /// `[format]`: how `package-json-format` and `skif format` order and lay out `package.json` files.
+    pub format: Format,
     /// Scoped rules for packages and files; only package-scoped keys are allowed in them.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub overrides: Vec<Override>,
@@ -234,6 +236,9 @@ impl Config {
             if entry.reason.as_deref().is_some_and(|reason| reason.trim().is_empty()) {
                 return invalid(format!("ignore[{index}]: `reason` is empty; say why or remove it"));
             }
+        }
+        if let Some(message) = self.format.inconsistency() {
+            return invalid(format!("format.{message}"));
         }
         for (index, scoped) in self.overrides.iter().enumerate() {
             if let Some(message) = scoped.inconsistency() {
@@ -483,7 +488,14 @@ pub enum PackageManager {
     Bun,
 }
 
+/// Names of the directories that hold test fixtures. Recursive root discovery skips them by default (they lead
+/// [`DEFAULT_DISCOVER_IGNORE`]), and the JavaScript analysis reports nothing about their files that would only hold
+/// for production code: their imports are not unresolved or unlisted, and, unless `[js] include-fixtures` is set,
+/// their files and exports are not unused.
+pub const FIXTURE_DIRECTORIES: [&str; 2] = ["__fixtures__", "fixtures"];
+
 /// Directory names that recursive root discovery skips by default: they hold fixtures and test doubles, not projects.
+/// The first entries are [`FIXTURE_DIRECTORIES`].
 pub const DEFAULT_DISCOVER_IGNORE: [&str; 4] = ["__fixtures__", "fixtures", "__mocks__", "__snapshots__"];
 
 fn default_discover_ignore() -> Vec<String> {
@@ -1162,6 +1174,126 @@ impl WorkspaceProtocol {
     }
 }
 
+/// `[format]`: what the `package-json-format` rule and `skif format` check, with syncpack's defaults (ADR 0055).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct Format {
+    /// Top-level keys that come first, in this order.
+    pub sort_first: Vec<String>,
+    /// Fields sorted alphabetically one level deep: an object by key, an array of strings by value. `a/b` names a
+    /// nested field. For fields whose order means nothing: an array with a `!`-prefixed entry keeps its order.
+    pub sort_az: Vec<String>,
+    /// Keys that come first, in this order, in every object of `exports`; `default` is always last. The default moves
+    /// only `types` and `default`; a key that reorders other conditions makes the fix unsafe.
+    pub sort_exports: Vec<String>,
+    /// Sort the top-level keys `sort-first` does not name.
+    pub sort_packages: bool,
+    /// Write a `bugs` object that holds only `url` as that string.
+    pub format_bugs: bool,
+    /// Write a `repository` object that holds only `url` and a `type` of `git` (or no `type`) as its shorthand.
+    pub format_repository: bool,
+    /// Check the layout against `JSON.stringify(manifest, null, indent)`: spaces or tabs, for example `"  "` or
+    /// `"\t"`. Unset keeps each file's layout.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub indent: Option<String>,
+}
+
+fn strings(items: &[&str]) -> Vec<String> {
+    items.iter().map(|item| (*item).to_owned()).collect()
+}
+
+impl Default for Format {
+    fn default() -> Self {
+        Self {
+            sort_first: strings(&["name", "description", "version", "author"]),
+            sort_az: strings(&[
+                "bin",
+                "contributors",
+                "dependencies",
+                "devDependencies",
+                "keywords",
+                "peerDependencies",
+                "resolutions",
+                "scripts",
+            ]),
+            sort_exports: strings(&["types", "default"]),
+            sort_packages: true,
+            format_bugs: false,
+            format_repository: false,
+            indent: None,
+        }
+    }
+}
+
+impl Format {
+    /// Sets the keys that come first.
+    #[must_use]
+    pub fn with_sort_first<I: IntoIterator<Item = S>, S: Into<String>>(mut self, keys: I) -> Self {
+        self.sort_first = keys.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Sets the fields sorted alphabetically.
+    #[must_use]
+    pub fn with_sort_az<I: IntoIterator<Item = S>, S: Into<String>>(mut self, keys: I) -> Self {
+        self.sort_az = keys.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Sets the order of the `exports` conditions.
+    #[must_use]
+    pub fn with_sort_exports<I: IntoIterator<Item = S>, S: Into<String>>(mut self, keys: I) -> Self {
+        self.sort_exports = keys.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Sets whether the remaining top-level keys are sorted.
+    #[must_use]
+    pub const fn with_sort_packages(mut self, sort: bool) -> Self {
+        self.sort_packages = sort;
+        self
+    }
+
+    /// Sets whether `bugs` is collapsed to its URL.
+    #[must_use]
+    pub const fn with_format_bugs(mut self, format: bool) -> Self {
+        self.format_bugs = format;
+        self
+    }
+
+    /// Sets whether `repository` is collapsed to its shorthand.
+    #[must_use]
+    pub const fn with_format_repository(mut self, format: bool) -> Self {
+        self.format_repository = format;
+        self
+    }
+
+    /// Sets the indent the layout is checked against.
+    #[must_use]
+    pub fn with_indent(mut self, indent: impl Into<String>) -> Self {
+        self.indent = Some(indent.into());
+        self
+    }
+
+    /// The indent with a written `\t` read as a tab, as syncpack reads it.
+    #[must_use]
+    pub fn indent_text(&self) -> Option<String> {
+        self.indent.as_ref().map(|indent| indent.replace("\\t", "\t"))
+    }
+
+    fn inconsistency(&self) -> Option<String> {
+        let indent = self.indent_text()?;
+        (indent.is_empty() || indent.chars().any(|c| c != ' ' && c != '\t')).then(|| {
+            format!(
+                "indent: {:?} is not a run of spaces or tabs",
+                self.indent.as_deref().unwrap_or_default()
+            )
+        })
+    }
+}
+
 /// One `[[dependency-families]]` entry: packages that must share a version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -1223,11 +1355,29 @@ pub enum JsDiscovery {
     Walk,
 }
 
+/// `[js.cycles]`: knip's `cycles` options of the `circular-imports` rule.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct JsCycles {
+    /// Cycles that are not reported, each the list of its files relative to the workspace root. A cycle is allowed
+    /// when its files are exactly the files of one entry, in any order.
+    pub allow: Vec<Vec<String>>,
+    /// Count dynamic `import()` as an edge of a cycle. Off by default: a dynamic import runs after the module graph
+    /// is loaded, so it cannot cause an initialisation-order problem.
+    pub dynamic_imports: bool,
+}
+
 /// `[js]`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 #[non_exhaustive]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent switch of the analysis"
+)]
 pub struct Js {
     /// Run the JavaScript analysis.
     pub enabled: bool,
@@ -1237,6 +1387,9 @@ pub struct Js {
     pub project: Vec<String>,
     /// Globs of files that are not analysed.
     pub ignore: Vec<String>,
+    /// Globs of files, relative to the workspace root, never reported by `unused-files`; other rules still analyse
+    /// them (knip's `ignoreFiles`).
+    pub ignore_files: Vec<String>,
     /// Dependencies never reported as unused or unlisted.
     pub ignore_dependencies: Vec<String>,
     /// Binaries never reported as unlisted.
@@ -1252,13 +1405,36 @@ pub struct Js {
     pub ignore_members: Vec<String>,
     /// Analyse production code only.
     pub production: bool,
+    /// Each workspace package uses only the dependencies its own manifest lists: an import is not satisfied by a
+    /// containing package or the root. Set by `skif --strict`; not a configuration key, so a file never sets it.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub isolate_workspaces: bool,
+    /// Find source files that `.gitignore` files hide (the git index is not used then). Set by
+    /// `skif --no-gitignore`; not a configuration key.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub no_gitignore: bool,
     /// Report unused exports of entry files too.
     pub include_entry_exports: bool,
+    /// The TypeScript configuration of the root package, relative to the workspace root and inside it, used instead
+    /// of `tsconfig.json` for its path aliases and compiler options (knip's `--tsConfig`). Other packages keep their
+    /// own `tsconfig.json`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tsconfig: Option<String>,
+    /// The project files of a package with a TypeScript configuration are the files its `files` names and those its
+    /// `include` selects minus its `exclude`, instead of the `project` globs (knip's `--use-tsconfig-files`).
+    pub use_tsconfig_files: bool,
+    /// Report files in `fixtures` and `__fixtures__` directories as unused, and their unused exports, types and
+    /// members, like any other file. Off by default: those directories hold test data that tests load by path.
+    pub include_fixtures: bool,
     /// How source files are found: `auto` lists them from the git index and re-lists from disk every directory
     /// modified since the index was written, which gives the walk's result without walking every directory; `git`
     /// trusts the index alone (faster, blind to untracked and deleted files); `walk` always walks. Both index modes
     /// fall back to the walk when the workspace is not in a git work tree with a usable SHA-1 index.
     pub discovery: JsDiscovery,
+    /// What `circular-imports` reports.
+    pub cycles: JsCycles,
     /// Per-workspace overrides keyed by directory. The key `"."` is the root workspace.
     pub workspaces: IndexMap<String, JsWorkspace>,
     /// Plugin switches keyed by plugin name.
@@ -1314,6 +1490,28 @@ impl Js {
         self
     }
 
+    /// Makes each workspace package use only the dependencies its own manifest lists, as knip's `--strict` does.
+    #[must_use]
+    pub const fn with_isolate_workspaces(mut self, isolate: bool) -> Self {
+        self.isolate_workspaces = isolate;
+        self
+    }
+
+    /// Uses `path`, relative to the workspace root, as the TypeScript configuration of the root package.
+    #[must_use]
+    pub fn with_tsconfig(mut self, path: impl Into<String>) -> Self {
+        self.tsconfig = Some(path.into());
+        self
+    }
+
+    /// Takes the project files of each package with a TypeScript configuration from its `files`, `include` and
+    /// `exclude`.
+    #[must_use]
+    pub const fn with_use_tsconfig_files(mut self, enabled: bool) -> Self {
+        self.use_tsconfig_files = enabled;
+        self
+    }
+
     /// Switches a plugin on or off, or configures it.
     #[must_use]
     pub fn with_plugin(mut self, name: impl Into<String>, plugin: PluginConfig) -> Self {
@@ -1329,6 +1527,7 @@ impl Default for Js {
             entry: Vec::new(),
             project: Vec::new(),
             ignore: Vec::new(),
+            ignore_files: Vec::new(),
             ignore_dependencies: Vec::new(),
             ignore_binaries: Vec::new(),
             ignore_unresolved: Vec::new(),
@@ -1336,8 +1535,14 @@ impl Default for Js {
             ignore_exports_used_in_file: IgnoreExportsUsedInFile::default(),
             ignore_members: Vec::new(),
             production: false,
+            isolate_workspaces: false,
+            no_gitignore: false,
             include_entry_exports: false,
+            tsconfig: None,
+            use_tsconfig_files: false,
+            include_fixtures: false,
             discovery: JsDiscovery::Auto,
+            cycles: JsCycles::default(),
             workspaces: IndexMap::new(),
             plugins: IndexMap::new(),
             extend_ignore: Vec::new(),
@@ -1434,6 +1639,8 @@ pub struct JsWorkspace {
     pub project: Vec<String>,
     /// Globs of files that are not analysed.
     pub ignore: Vec<String>,
+    /// Globs of files, relative to the workspace directory, never reported by `unused-files`.
+    pub ignore_files: Vec<String>,
     /// Dependencies never reported as unused or unlisted.
     pub ignore_dependencies: Vec<String>,
     /// Binaries never reported as unlisted.

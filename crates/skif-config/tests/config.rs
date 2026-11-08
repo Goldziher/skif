@@ -3,9 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use skif_config::{
-    Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, CustomStrategy, IgnoreEntry,
-    IgnoreExportsUsedInFile, Level, PackageManager, PluginConfig, Prefer, RuleConfig, Selector, SemverRange,
-    VersionPolicy, discover, discover_with_fs,
+    Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, CustomStrategy, DEFAULT_DISCOVER_IGNORE,
+    FIXTURE_DIRECTORIES, IgnoreEntry, IgnoreExportsUsedInFile, Level, PackageManager, PluginConfig, Prefer, RuleConfig,
+    Selector, SemverRange, VersionPolicy, discover, discover_with_fs,
 };
 use skif_core::{MemoryFs, Severity};
 
@@ -313,7 +313,7 @@ fn full_fixture_sections() {
     assert!(!config.dependency_families[1].enabled);
 
     let js = &config.js;
-    assert!(js.enabled && js.production && js.include_entry_exports);
+    assert!(js.enabled && js.production && js.include_entry_exports && js.include_fixtures);
     assert_eq!(js.entry, ["src/index.ts"]);
     assert_eq!(js.project, ["src/**/*.ts"]);
     assert_eq!(js.ignore, ["**/generated/**"]);
@@ -342,11 +342,19 @@ fn full_fixture_round_trips() {
 fn defaults_are_sensible() {
     let config = Config::default();
     assert_eq!(Config::from_toml_str("").unwrap(), config);
-    assert!(config.js.enabled && !config.js.production);
+    assert!(config.js.enabled && !config.js.production && !config.js.include_fixtures);
     assert_eq!(config.catalog.mode, CatalogMode::Off);
     assert_eq!(config.catalog.min_packages, 2);
     assert_eq!(config.policy.prefer, Prefer::Highest);
     assert!(!config.lint.fail_on_warnings && config.rules.is_empty());
+}
+
+#[test]
+fn root_discovery_skips_the_fixture_directories_the_js_analysis_knows() {
+    assert_eq!(
+        DEFAULT_DISCOVER_IGNORE[..FIXTURE_DIRECTORIES.len()],
+        FIXTURE_DIRECTORIES
+    );
 }
 
 #[test]
@@ -659,6 +667,8 @@ ignore-unresolved = ["#internal/*"]
 ignore-workspaces = ["tools/*"]
 ignore-members = ["/^_/"]
 ignore-exports-used-in-file = { type = true, enum = true }
+tsconfig = "tsconfig.app.json"
+use-tsconfig-files = true
 
 [js.workspaces."."]
 include-entry-exports = true
@@ -678,6 +688,8 @@ vite = { config = ["vite.web.config.ts"] }
     assert_eq!(js.ignore_unresolved, ["#internal/*"]);
     assert_eq!(js.ignore_workspaces, ["tools/*"]);
     assert_eq!(js.ignore_members, ["/^_/"]);
+    assert_eq!(js.tsconfig.as_deref(), Some("tsconfig.app.json"));
+    assert!(js.use_tsconfig_files);
     let IgnoreExportsUsedInFile::Kinds(kinds) = &js.ignore_exports_used_in_file else {
         panic!("expected a table of kinds");
     };
@@ -699,6 +711,7 @@ vite = { config = ["vite.web.config.ts"] }
 fn js_defaults_ignore_nothing_new() {
     let js = Config::default().js;
     assert!(js.ignore_unresolved.is_empty() && js.ignore_workspaces.is_empty() && js.ignore_members.is_empty());
+    assert!(js.tsconfig.is_none() && !js.use_tsconfig_files);
     assert_eq!(js.ignore_exports_used_in_file, IgnoreExportsUsedInFile::All(false));
 }
 
@@ -746,6 +759,7 @@ fn root_only_js_keys_are_rejected_in_an_override() {
         "ignore-workspaces = [\"a\"]",
         "ignore-members = [\"a\"]",
         "ignore-exports-used-in-file = true",
+        "include-fixtures = true",
     ] {
         let source = format!("[[overrides]]\npackages = [\"a\"]\n[overrides.js]\n{key}\n");
         assert!(Config::from_toml_str(&source).is_err(), "{key}");

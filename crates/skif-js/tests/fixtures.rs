@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use skif_config::Config;
 use skif_core::{Diagnostic, FileSystem, Fix, FixOp, FixSafety, JsonAction, MemoryFs, PathSeg, apply_text_edits};
-use skif_js::{InputRequest, InputSource, JsProvider, WorkspaceInputs};
+use skif_js::{InputRequest, InputSource, JsProvider, PluginSource, WorkspaceInputs};
 use skif_lint::{Registry, RunOptions, run_unsorted};
 use skif_workspace::Workspace;
 
@@ -45,13 +45,18 @@ struct Run {
 
 impl Run {
     fn new(case: &str, extra_toml: &str) -> Self {
+        Self::at(case, "", extra_toml)
+    }
+
+    /// The fixture with the root at `root`, a directory of the fixture (`""` for the fixture itself).
+    fn at(case: &str, root: &str, extra_toml: &str) -> Self {
         let base = fixture_dir(case);
         let mut memory = MemoryFs::new();
         let mut file_config = None;
         load(&base, &base, &mut memory, &mut file_config);
         let toml = format!("{}\n{extra_toml}", file_config.unwrap_or_default());
         let config = Config::from_toml_str(&toml).unwrap();
-        let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+        let workspace = Workspace::discover_with_fs(&Path::new(ROOT).join(root), &config, &memory).unwrap();
         Self {
             fs: Arc::new(memory),
             workspace,
@@ -82,6 +87,12 @@ impl Run {
     fn lint(&self) -> Vec<Diagnostic> {
         self.lint_with(JsProvider::new(Arc::clone(&self.fs)))
     }
+
+    /// Lints with the plugin table, the way the CLI does.
+    fn lint_with_plugins(&self) -> Vec<Diagnostic> {
+        let plugins = PluginSource::new(self.config.js.plugins.clone());
+        self.lint_with(JsProvider::new(Arc::clone(&self.fs)).with_input_source(Arc::new(plugins)))
+    }
 }
 
 fn subject(diagnostic: &Diagnostic) -> String {
@@ -100,6 +111,10 @@ fn found(diagnostics: &[Diagnostic], rule: &str) -> Vec<String> {
         .filter(|d| d.rule.as_str() == rule)
         .map(subject)
         .collect()
+}
+
+fn none() -> Vec<String> {
+    Vec::new()
 }
 
 fn only<'a>(diagnostics: &'a [Diagnostic], rule: &str, name: &str) -> &'a Diagnostic {
@@ -130,9 +145,99 @@ fn reexports_snapshot() {
 }
 
 #[test]
+fn typeof_import_snapshot() {
+    let diagnostics = Run::new("typeof-import", "").lint();
+    insta::assert_json_snapshot!("typeof_import", diagnostics);
+}
+
+#[test]
+fn unresolved_imports_snapshot() {
+    let diagnostics = Run::new("unresolved-imports", "").lint_with_plugins();
+    insta::assert_json_snapshot!("unresolved_imports", diagnostics);
+}
+
+#[test]
 fn cycles_snapshot() {
     let diagnostics = Run::new("cycles", "").lint();
     insta::assert_json_snapshot!("cycles", diagnostics);
+}
+
+/// A repository whose `build` and `remote` directories hold projects of their own, linted as roots of their own
+/// (vscode's layout): the outer scripts run files of `build`, and `remote` only lists what it installs.
+fn nested_roots() -> Vec<(&'static str, Vec<Diagnostic>)> {
+    ["", "build", "remote"]
+        .into_iter()
+        .map(|root| (root, Run::at("nested-roots", root, "").lint()))
+        .collect()
+}
+
+#[test]
+fn nested_roots_snapshot() {
+    insta::assert_json_snapshot!("nested_roots", nested_roots());
+}
+
+fn nested_root_findings(root: &str, rule: &str) -> Vec<String> {
+    found(&Run::at("nested-roots", root, "").lint(), rule)
+}
+
+#[test]
+fn a_file_of_a_nested_root_is_judged_by_its_own_manifest() {
+    // The outer root runs `build/hygiene.ts`, whose `vinyl` the manifest of `build` lists.
+    assert_eq!(nested_root_findings("", "unlisted-dependencies"), none());
+}
+
+#[test]
+fn a_file_of_a_nested_root_does_not_use_the_dependencies_of_the_outer_root() {
+    // Only `build/hygiene.ts`, a file of the nested root, imports `kleur`; the outer root lists it too.
+    assert_eq!(nested_root_findings("", "unused-dependencies"), ["package.json: kleur"]);
+}
+
+#[test]
+fn files_a_script_above_a_nested_root_runs_are_its_entries() {
+    // `node build/npm/postinstall.ts` and `node build/hygiene.ts` in the outer manifest; nothing runs the orphan.
+    assert_eq!(
+        nested_root_findings("build", "unused-files"),
+        ["lib/orphan.ts: lib/orphan.ts"]
+    );
+    assert_eq!(nested_root_findings("build", "unused-dev-dependencies"), none());
+}
+
+#[test]
+fn a_root_without_source_files_does_not_judge_its_dependencies() {
+    // `remote` only lists what the code of the outer project installs it for.
+    assert_eq!(nested_root_findings("remote", "unused-dependencies"), none());
+}
+
+#[test]
+fn production_mode_takes_no_entries_from_scripts_above_a_nested_root() {
+    // Scripts give no entries in production mode, those of the outer manifest included.
+    let diagnostics = Run::at("nested-roots", "build", "[js]\nproduction = true").lint();
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "hygiene.ts: hygiene.ts",
+            "lib/orphan.ts: lib/orphan.ts",
+            "npm/helper.ts: npm/helper.ts",
+            "npm/postinstall.ts: npm/postinstall.ts"
+        ]
+    );
+}
+
+/// A member excluded with `ignore-packages` whose file the root imports: the file belongs to the member, a project of
+/// its own that the run does not analyse, so nothing in it is reported, neither in the member nor in the root.
+#[test]
+fn ignored_member_reached_from_the_root_snapshot() {
+    insta::assert_json_snapshot!("ignored_member", Run::new("ignored-member", "").lint());
+}
+
+#[test]
+fn n8n_nodes_and_credentials_are_entries() {
+    let diagnostics = Run::new("n8n-nodes", "").lint();
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["nodes/Example/Orphan.ts: nodes/Example/Orphan.ts"]
+    );
+    insta::assert_json_snapshot!("n8n_nodes", diagnostics);
 }
 
 #[test]
@@ -370,4 +475,87 @@ fn rule_metadata_is_stable() {
     assert!(defaults.contains(&("circular-imports", false)));
     assert!(defaults.contains(&("stale-js-config", true)));
     assert_eq!(defaults.len(), 17);
+}
+
+#[test]
+fn root_tsconfig_replaces_tsconfig_json_for_the_root_package() {
+    let default = Run::new("tsconfig-flags", "").lint();
+    assert_eq!(found(&default, "unresolved-imports").len(), 1, "{default:#?}");
+    let configured = Run::new("tsconfig-flags", "[js]\ntsconfig = \"tsconfig.app.json\"").lint();
+    assert_eq!(found(&configured, "unresolved-imports"), Vec::<String>::new());
+    let mut unused = found(&configured, "unused-files");
+    unused.sort();
+    assert_eq!(
+        unused,
+        [
+            "packages/a/lib/unused.ts: packages/a/lib/unused.ts",
+            "packages/a/other/stray.ts: packages/a/other/stray.ts",
+            "scripts/tool.ts: scripts/tool.ts",
+            "src/orphan.ts: src/orphan.ts",
+        ]
+    );
+}
+
+#[test]
+fn use_tsconfig_files_takes_the_project_from_the_tsconfig() {
+    let diagnostics = Run::new(
+        "tsconfig-flags",
+        "[js]\ntsconfig = \"tsconfig.app.json\"\nuse-tsconfig-files = true",
+    )
+    .lint();
+    insta::assert_json_snapshot!("tsconfig_flags", diagnostics);
+}
+
+/// Test-runner mocks keep local files reachable but are not imports of dependencies; module names in strings are
+/// not mocks (#16).
+#[test]
+fn test_mocks_snapshot() {
+    let diagnostics = Run::new("test-mocks", "").lint_with_plugins();
+    insta::assert_json_snapshot!("test_mocks", diagnostics);
+}
+
+/// Imports inside `declare module` bodies use the packages they name (#20).
+#[test]
+fn ambient_module_imports_snapshot() {
+    let diagnostics = Run::new("ambient-module-imports", "").lint();
+    insta::assert_json_snapshot!("ambient_module_imports", diagnostics);
+}
+
+#[test]
+fn fixture_dirs_snapshot() {
+    let diagnostics = Run::new("fixture-dirs", "").lint();
+    insta::assert_json_snapshot!("fixture_dirs", diagnostics);
+}
+
+#[test]
+fn files_in_fixture_directories_are_not_unused_by_default() {
+    let diagnostics = Run::new("fixture-dirs", "").lint();
+    assert_eq!(found(&diagnostics, "unused-files"), ["src/orphan.ts: src/orphan.ts"]);
+    assert_eq!(found(&diagnostics, "unused-exports"), ["src/helper.ts: unusedHelper"]);
+    assert_eq!(found(&diagnostics, "unused-types"), Vec::<String>::new());
+    assert_eq!(found(&diagnostics, "unused-enum-members"), Vec::<String>::new());
+}
+
+#[test]
+fn include_fixtures_reports_fixture_directories_like_any_other() {
+    let diagnostics = Run::new("fixture-dirs", "[js]\ninclude-fixtures = true\n").lint();
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "fixtures/broken/input.ts: fixtures/broken/input.ts",
+            "src/orphan.ts: src/orphan.ts"
+        ]
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-exports"),
+        [
+            "src/__fixtures__/sample.ts: unusedSample",
+            "src/__fixtures__/sample.ts: SampleKind",
+            "src/helper.ts: unusedHelper"
+        ]
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-types"),
+        ["src/__fixtures__/sample.ts: SampleShape"]
+    );
 }

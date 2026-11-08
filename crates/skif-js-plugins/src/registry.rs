@@ -11,11 +11,12 @@ use crate::plugins::{
     react_native, react_router, release_it, remark, remix, rolldown, rollup, rsbuild, rslib, rspack, sanity, sapper,
     semantic_release, sentry, serverless_framework, simple_git_hooks, size_limit, starlight, storybook, stryker,
     stylelint, svelte, sveltekit, svgo, svgr, swc, syncpack, tailwind, tanstack_router, tap, ts_node, tsd, tsdown,
-    tsup, tsx, turbo, typedoc, typescript, unbuild, unocss, unplugin_auto_import, unplugin_vue_components,
-    unplugin_vue_router, vercel, vike, vite, vitepress, vitest, vue, webdriver_io, webpack, wrangler, yarn, zx,
+    tsup, tsx, turbo, typedoc, typescript, unbuild, unocss, unplugin_auto_import, unplugin_icons,
+    unplugin_vue_components, unplugin_vue_router, vercel, vike, vite, vitepress, vitest, vue, webdriver_io, webpack,
+    wrangler, yarn, zx,
 };
 
-static PLUGINS: [&dyn Plugin; 126] = [
+static PLUGINS: [&dyn Plugin; 127] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -118,6 +119,7 @@ static PLUGINS: [&dyn Plugin; 126] = [
     &typedoc::Typedoc,
     &unbuild::Unbuild,
     &unocss::Unocss,
+    &unplugin_icons::UnpluginIcons,
     &vercel::Vercel,
     &vike::Vike,
     &webdriver_io::WebdriverIo,
