@@ -5,16 +5,21 @@
 //! ` (unsafe)` after its title, because choosing it is the explicit consent `--fix-unsafe` stands for on the
 //! command line. A `source.fixAll.skif` action applies every safe fix of the document's diagnostics, taking the
 //! alternative `[policy] prefer` names where there are several, as a non-interactive `skif --fix` does. A plan that
-//! creates or deletes a file is never offered (deleting files stays a CLI opt-in, ADR 0052), and neither is one that
-//! touches a document with unsaved changes: the edits are positions in the file as saved, which is what was linted.
+//! creates or deletes a file is never offered (deleting files stays a CLI opt-in, ADR 0052).
+//!
+//! Plans read the open documents' buffers (ADR 0066), so their edits are positions in the text the editor holds. A
+//! plan is offered only when every file it edits still has the text it was planned against, and every file it edits
+//! that was or is open still has the text the last lint of its root read; otherwise it waits for the next lint. When the client
+//! supports `documentChanges`, the edit of an open document carries its version, so the client refuses it if the
+//! user typed in between.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 use skif::{
-    Alternatives, CachedFs, Diagnostic, FileChange, FileSystem, FixPlan, FixSafety, FixSelection, OsFs, Report,
-    apply_fixes, content_hash,
+    Alternatives, CachedFs, Diagnostic, FileChange, FileSystem, FixPlan, FixSafety, FixSelection, Report, apply_fixes,
+    content_hash,
 };
 use skif_core::LineIndex;
 
@@ -37,17 +42,28 @@ pub struct Request<'a> {
     pub range: (Position, Position),
     /// `context.only`: the kinds the client wants, or `None` for every kind.
     pub only: Option<Vec<String>>,
-    /// The canonical paths of open documents with unsaved changes.
-    pub dirty: &'a BTreeSet<PathBuf>,
+    /// The open documents by canonical path: the [`content_hash`] of their current text and their version.
+    pub documents: &'a BTreeMap<PathBuf, (u64, Option<i64>)>,
+    /// For each root, the hash of every open document's text its last lint read.
+    pub linted: &'a BTreeMap<PathBuf, BTreeMap<PathBuf, u64>>,
+    /// Whether the client takes `documentChanges` in a `WorkspaceEdit`.
+    pub document_changes: bool,
 }
 
+/// The edits of one file: the version of its open document, if it is one, and the LSP `TextEdit`s.
+type FileEdits = (Option<i64>, Vec<Value>);
+
 /// The code actions of `request` from the runs of the last lint of each root, keyed by the directory their prefixes
-/// are relative to.
-pub fn code_actions(request: &Request<'_>, roots: &BTreeMap<PathBuf, Vec<RootRun>>) -> Vec<Value> {
-    let fs = CachedFs::new(OsFs);
+/// are relative to. Files are read through `fs`, the open documents over the disk.
+pub fn code_actions(request: &Request<'_>, roots: &BTreeMap<PathBuf, Vec<RootRun>>, fs: &dyn FileSystem) -> Vec<Value> {
+    let fs = CachedFs::new(fs);
     let mut quick_fixes = Vec::new();
-    let mut fix_all = BTreeMap::new();
+    let mut fix_all: BTreeMap<String, FileEdits> = BTreeMap::new();
     for (base, runs) in roots {
+        let check = Check {
+            request,
+            linted: request.linted.get(base),
+        };
         for run in runs {
             let in_file: Vec<&Diagnostic> = run
                 .report
@@ -64,7 +80,7 @@ pub fn code_actions(request: &Request<'_>, roots: &BTreeMap<PathBuf, Vec<RootRun
                 for diagnostic in &in_file {
                     let lsp = lsp_diagnostic(diagnostic, &index, &text);
                     if overlaps(&lsp["range"], request.range) {
-                        quick_fixes.extend(fixes_of(run, diagnostic, &lsp, request.dirty, &fs));
+                        quick_fixes.extend(fixes_of(run, diagnostic, &lsp, &check, &fs));
                     }
                 }
             }
@@ -73,10 +89,14 @@ pub fn code_actions(request: &Request<'_>, roots: &BTreeMap<PathBuf, Vec<RootRun
                 let selection = FixSelection::new(FixSafety::Safe)
                     .with_alternatives(Alternatives::Preferred(run.config.policy.prefer));
                 if let Ok(plan) = apply_fixes(&run.workspace, &report, &selection, &fs)
-                    && let Some(changes) = workspace_changes(&plan, &run.workspace.root, request.dirty, &fs)
+                    && let Some(changes) = workspace_changes(&plan, &run.workspace.root, &check, &fs)
                 {
-                    for (uri, edits) in changes {
-                        fix_all.entry(uri).or_insert_with(Vec::new).extend(edits);
+                    for (uri, (version, edits)) in changes {
+                        fix_all
+                            .entry(uri)
+                            .or_insert_with(|| (version, Vec::new()))
+                            .1
+                            .extend(edits);
                     }
                 }
             }
@@ -86,20 +106,14 @@ pub fn code_actions(request: &Request<'_>, roots: &BTreeMap<PathBuf, Vec<RootRun
         quick_fixes.push(json!({
             "title": "Fix all safe skif problems in this file",
             "kind": FIX_ALL_KIND,
-            "edit": { "changes": fix_all },
+            "edit": workspace_edit(fix_all, request.document_changes),
         }));
     }
     quick_fixes
 }
 
-/// One `quickfix` per fix of `diagnostic` that plans to edits of existing, saved files.
-fn fixes_of(
-    run: &RootRun,
-    diagnostic: &Diagnostic,
-    lsp: &Value,
-    dirty: &BTreeSet<PathBuf>,
-    fs: &dyn FileSystem,
-) -> Vec<Value> {
+/// One `quickfix` per fix of `diagnostic` that plans to edits of existing files that still hold the linted text.
+fn fixes_of(run: &RootRun, diagnostic: &Diagnostic, lsp: &Value, check: &Check<'_>, fs: &dyn FileSystem) -> Vec<Value> {
     let report = Report::new(vec![diagnostic.clone()], 0);
     let preferred = diagnostic.fixes.len() == 1;
     diagnostic
@@ -112,7 +126,7 @@ fn fixes_of(
             if plan.applied.is_empty() {
                 return None;
             }
-            let changes = workspace_changes(&plan, &run.workspace.root, dirty, fs)?;
+            let changes = workspace_changes(&plan, &run.workspace.root, check, fs)?;
             let (title, is_preferred) = match fix.safety {
                 FixSafety::Safe => (fix.title.clone(), preferred),
                 _ => (format!("{} (unsafe)", fix.title), false),
@@ -122,20 +136,45 @@ fn fixes_of(
                 "kind": QUICK_FIX_KIND,
                 "diagnostics": [lsp],
                 "isPreferred": is_preferred,
-                "edit": { "changes": changes },
+                "edit": workspace_edit(changes, check.request.document_changes),
             }))
         })
         .collect()
 }
 
-/// The `WorkspaceEdit.changes` of `plan`, or `None` when the plan changes nothing, creates or deletes a file, touches
-/// a document with unsaved changes, or a file no longer has the contents it was planned against.
+/// What a plan's edits are checked against: the open documents of the request and the texts the root's last lint
+/// read.
+struct Check<'a> {
+    request: &'a Request<'a>,
+    linted: Option<&'a BTreeMap<PathBuf, u64>>,
+}
+
+impl Check<'_> {
+    /// Whether `file`, whose current text hashes to `hash`, may be edited: an open document only while it has the
+    /// text the last lint read, and a file that was open during that lint (and has been closed since) only while it
+    /// still has the text the lint read, since a closed document reverts to the file on disk.
+    fn editable(&self, file: &Path, hash: u64) -> bool {
+        let read = self.linted.and_then(|linted| linted.get(file));
+        match self.request.documents.get(file) {
+            Some((current, _)) => *current == hash && read == Some(&hash),
+            None => read.is_none_or(|read| *read == hash),
+        }
+    }
+
+    /// The version of the open document of `file`, if it is one and the client gave one.
+    fn version(&self, file: &Path) -> Option<i64> {
+        self.request.documents.get(file).and_then(|(_, version)| *version)
+    }
+}
+
+/// The edits of `plan` by document URI, or `None` when the plan changes nothing, creates or deletes a file, or edits
+/// a file that no longer has the text it was planned against or an open document the last lint did not read as it is.
 fn workspace_changes(
     plan: &FixPlan,
     root: &Path,
-    dirty: &BTreeSet<PathBuf>,
+    check: &Check<'_>,
     fs: &dyn FileSystem,
-) -> Option<BTreeMap<String, Vec<Value>>> {
+) -> Option<BTreeMap<String, FileEdits>> {
     if plan.is_empty() {
         return None;
     }
@@ -145,13 +184,15 @@ fn workspace_changes(
             return None;
         };
         let file = root.join(path);
-        if dirty.contains(&file) {
-            return None;
-        }
         let source = fs.read_to_string(&file).ok()?;
-        if plan.base_hash(path) != Some(content_hash(source.as_bytes())) {
+        let hash = content_hash(source.as_bytes());
+        if plan.base_hash(path) != Some(hash) {
             return None;
         }
+        if !check.editable(&file, hash) {
+            return None;
+        }
+        let version = check.version(&file);
         let index = LineIndex::new(&source);
         let edits: Vec<Value> = edits
             .iter()
@@ -162,9 +203,26 @@ fn workspace_changes(
                 })
             })
             .collect();
-        changes.insert(path_to_uri(&file), edits);
+        changes.insert(path_to_uri(&file), (version, edits));
     }
     Some(changes)
+}
+
+/// The `WorkspaceEdit` of `changes`: `documentChanges` with each document's version when the client supports them
+/// (a file without an open document has version `null`), else `changes`.
+fn workspace_edit(changes: BTreeMap<String, FileEdits>, document_changes: bool) -> Value {
+    if document_changes {
+        let documents: Vec<Value> = changes
+            .into_iter()
+            .map(
+                |(uri, (version, edits))| json!({ "textDocument": { "uri": uri, "version": version }, "edits": edits }),
+            )
+            .collect();
+        json!({ "documentChanges": documents })
+    } else {
+        let changes: BTreeMap<String, Vec<Value>> = changes.into_iter().map(|(uri, (_, edits))| (uri, edits)).collect();
+        json!({ "changes": changes })
+    }
 }
 
 /// Whether `kind` is one of the kinds `only` asks for: equal to one, or below one in the dotted hierarchy.
@@ -204,6 +262,33 @@ mod tests {
         assert!(!wants(Some(&only(&["source.fix"])), FIX_ALL_KIND));
         assert!(!wants(Some(&only(&["quickfix"])), FIX_ALL_KIND));
         assert!(wants(Some(&only(&["refactor", "quickfix"])), QUICK_FIX_KIND));
+    }
+
+    #[test]
+    fn a_document_closed_since_the_lint_is_editable_only_with_the_linted_text() {
+        let (open, closed, untouched) = (Path::new("/ws/a"), Path::new("/ws/b"), Path::new("/ws/c"));
+        let documents = BTreeMap::from([(open.to_path_buf(), (1, Some(3)))]);
+        let linted = BTreeMap::from([(open.to_path_buf(), 1), (closed.to_path_buf(), 2)]);
+        let roots = BTreeMap::new();
+        let request = Request {
+            file: open,
+            range: ((0, 0), (0, 0)),
+            only: None,
+            documents: &documents,
+            linted: &roots,
+            document_changes: false,
+        };
+        let check = Check {
+            request: &request,
+            linted: Some(&linted),
+        };
+        assert!(check.editable(open, 1));
+        assert!(!check.editable(open, 9));
+        // Closed after the lint read its buffer: the file on disk must still have that text.
+        assert!(check.editable(closed, 2));
+        assert!(!check.editable(closed, 9));
+        // Never open: the plan's base hash is the only check.
+        assert!(check.editable(untouched, 9));
     }
 
     #[test]

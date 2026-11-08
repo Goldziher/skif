@@ -2,7 +2,7 @@
 //!
 //! The crate is a thin facade over the `skif-*` crates and behaves like a pure function of its inputs: it never
 //! prints, prompts, exits, reads the environment or the working directory, or writes files. Everything is read
-//! through a [`FileSystem`] ([`OsFs`] on disk, [`MemoryFs`] for unsaved buffers and tests), every path in a
+//! through a [`FileSystem`] ([`OsFs`] on disk, [`MemoryFs`] for tests, [`BufferFs`] for unsaved buffers), every path in a
 //! diagnostic or edit is relative to the workspace root, and fixes are returned as data ([`FixPlan`]) for the caller
 //! to show, merge or write. The phase timings of `skif_core::timing` are off unless the host installs a sink there.
 //!
@@ -64,6 +64,10 @@
 //! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
+//!
+//! A host that lints repeatedly, such as an editor, passes the same [`ModuleCache`] to every
+//! [`Linter::with_module_cache`] (feature `js-analysis`), so only changed files are parsed again, and lints unsaved
+//! buffers through a [`BufferFs`] over the disk. Neither changes a report: a cold, a warm and no cache report alike.
 //!
 //! A root nested in another cannot see what the outer root imports from it. A host that wants those files counted
 //! lints the enclosing roots first and passes the files their reports list in [`Report::other_project_files`],
@@ -136,10 +140,14 @@ pub use fix::{
 pub use js::{explain_usage, trace_dependency};
 pub use linter::{Linter, RunOptions, builtin_providers};
 pub use root::{config_file, find_workspace_root, load_config, resolve_config};
+/// The version a persisted [`ModuleCache`] records: a store written under another version is stale as a whole.
+#[cfg(feature = "js-analysis")]
+pub use skif_js::cache_version as module_cache_version;
 #[cfg(feature = "js-analysis")]
 pub use skif_js::{
-    Absence, DependencyImport, DependencyListing, DependencyTrace, EntryReason, ExportReport, ExportUser, Importer,
-    ReExport, UsageReport, Verdict, empty_tsconfig_projects, relative_tsconfig,
+    Absence, CachedModule, DependencyImport, DependencyListing, DependencyTrace, EntryReason, ExportReport, ExportUser,
+    Importer, MemoryModuleCache, ModuleCache, ModuleKey, ReExport, UsageReport, Verdict, empty_tsconfig_projects,
+    relative_tsconfig,
 };
 /// The state of one dependency instance, from [`Linter::instances`].
 #[cfg(feature = "manifest")]
@@ -166,10 +174,10 @@ pub use skif_config::{
 /// `[[custom-types]]` and the places a version can be declared.
 pub use skif_config::{CustomStrategy, CustomType, DependencyType};
 pub use skif_core::{
-    CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixPreference,
-    FixSafety, Fixability, IncompleteCause, IncompleteEntries, IncompletePackage, InsertPosition, JsonAction, Location,
-    MemoryFs, OsFs, PathKind, PathSeg, Related, Report, RuleId, RuleMeta, Severity, Span, Summary, TextEdit,
-    YamlAction, diagnostic, slash,
+    BufferFs, CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp,
+    FixPreference, FixSafety, Fixability, IncompleteCause, IncompleteEntries, IncompletePackage, InsertPosition,
+    JsonAction, Location, MemoryFs, OsFs, PathKind, PathSeg, Related, Report, RuleId, RuleMeta, Severity, Span,
+    Summary, TextEdit, YamlAction, diagnostic, slash,
 };
 pub use skif_lint::{
     Emitter, EnabledRules, Executor, ExecutorError, LintContext, LintError, ProviderError, RegistryError, Rule,
@@ -216,6 +224,7 @@ const _: () = {
     let _ = assert_send_sync::<Fix>;
     let _ = assert_send_sync::<FixOp>;
     let _ = assert_send_sync::<CachedFs<OsFs>>;
+    let _ = assert_send_sync::<BufferFs<OsFs>>;
     let _ = assert_send_sync::<OsFs>;
     let _ = assert_send_sync::<MemoryFs>;
     let _ = assert_send_sync::<ConfigLoader>;
@@ -228,6 +237,10 @@ const _: () = {
     #[cfg(feature = "js-analysis")]
     {
         let _ = assert_send_sync::<UsageReport>;
+        let _ = assert_send_sync::<MemoryModuleCache>;
+        let _ = assert_send_sync::<CachedModule>;
+        let _ = assert_send_sync::<ModuleKey>;
+        let _ = assert_send_sync::<std::sync::Arc<dyn ModuleCache>>;
         let _ = assert_send_sync::<DependencyTrace>;
         let _ = assert_send_sync::<skif_js::JsProvider>;
     }

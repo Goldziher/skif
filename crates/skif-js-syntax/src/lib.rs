@@ -10,9 +10,13 @@
 //! facts of their top-level `import` and `export` statements, and the components their markup names count as uses.
 //! `.tsrx` files yield their imports only, since their templates are no JavaScript. Stylesheets go through
 //! [`parse_stylesheet`]. Other extensions yield [`SyntaxError::Unsupported`].
+//!
+//! [`parse_cached`] parses through a [`ModuleCache`] the host supplies, keyed by a [`ModuleKey`] over everything a
+//! parse depends on, so a long-lived or persisting host parses only the files that changed (ADR 0066).
 
 #![warn(missing_docs)]
 
+mod cache;
 mod collect;
 mod comments;
 mod config;
@@ -40,6 +44,10 @@ use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
 use oxc_span::SourceType;
 use skif_core::LineIndex;
 
+pub use cache::{
+    CACHE_SCHEMA, CACHE_SCHEMA_DIGEST, CachedModule, MemoryModuleCache, ModuleCache, ModuleKey, cache_version,
+    parse_cached,
+};
 pub use config::{
     ConfigValue, ImportedCall, ModuleLoader, TEMPLATE_SUBSTITUTION, extract_config_object, extract_config_object_with,
     extract_constructor_options, extract_imported_calls, extract_property_values,

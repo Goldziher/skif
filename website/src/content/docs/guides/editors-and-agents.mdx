@@ -62,12 +62,40 @@ costs more in a large repository; the interval stretches to twice the time a sca
 to at most about a third of one core. When the configuration cannot be read, the error is printed and the watcher keeps going,
 so the next save of `skif.toml` runs again. `--watch` cannot be combined with `--fix` or `--fix-unsafe`.
 
+## The module cache
+
+Parsing source files is the largest part of a JavaScript analysis. skif keeps the parse result of each file under
+a key of its file name, its text and the parser's version, so an unchanged file is not parsed again and a changed
+file always is: the cache never changes a report. Everything else (configuration, manifests, the module graph, the
+rules) is computed on every run. The design is recorded in
+[ADR 0066](https://github.com/Goldziher/skif/blob/main/adrs/0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md).
+
+- **`skif --cache`** keeps the results between runs in `node_modules/.cache/skif/modules.bin` below the workspace
+  root (or below the invocation directory of a multi-root run); `--cache-location <DIR>` puts the file elsewhere.
+  The file is written after a run only when its entries changed, and it holds exactly the files that run parsed, so
+  it does not grow with edits; a narrower run (`--production`, one root of several) drops the entries it did not
+  use. A damaged file, or one written by another skif version, is ignored and replaced. If the file cannot be
+  written, skif prints a warning and the exit code is unchanged. A warm run still reads every file, so the gain is
+  the parse share of a run, which `--performance` shows as `js parse` beside `js module cache: H hits, M misses`.
+- **`--watch`** keeps the cache in memory across its runs (with `--cache` also on disk, written after each run).
+- **`skif lsp`** and **`skif mcp`** keep one in memory per project, for as long as the server runs; they never read
+  or write `modules.bin`.
+
 ## Language server
 
 `skif lsp` is a minimal [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) server on
 stdio. When the editor opens or saves a file, skif lints the project that contains it and publishes the diagnostics
 of every file of that project, with the rule ID as the code and `skif` as the source; a file whose findings are gone
-gets an empty list. It lints the files as saved on disk, so findings update on save, not while typing.
+gets an empty list.
+
+It lints what the editor holds, not only what is saved: the open documents' unsaved text replaces the files on
+disk for the lint, so a manifest, `pnpm-workspace.yaml`, `skif.toml` or source file is linted as you type. The
+server asks for the full text on every change (`textDocumentSync.change: 1`) and lints a project 250 milliseconds
+after its last change, so a burst of keystrokes causes one lint; opening or saving a file lints at once, and so
+does closing a file without saving its changes, since the file on disk counts again. While a lint
+runs the server answers nothing else. A new file that was never saved is not linted until it exists on disk, and
+files changed outside the editor are seen on the next lint of their project. Each project keeps an in-memory
+[module cache](#the-module-cache), so a lint parses only the files that changed.
 
 ### Code actions
 
@@ -83,8 +111,10 @@ the editor applies them; the server writes nothing.
   it from a "fix all" command or on save; in VS Code, `"editor.codeActionsOnSave": { "source.fixAll.skif": "explicit" }`.
 
 A fix that creates or deletes a file (such as the `unused-files` fix) is not offered: deleting files stays a
-command-line opt-in (`--allow-remove-files`). Neither is a fix that edits a file open with unsaved changes, because
-its edits are positions in the file as saved; save the file and the fixes come back with the new lint.
+command-line opt-in (`--allow-remove-files`). A fix for a document with unsaved changes edits the text the editor
+holds. It is offered only while every open document it edits still has the text the last lint read; after a
+further change it waits for the next lint. When the editor supports `documentChanges` in a workspace edit, the edit
+of an open document carries the document's version, so the editor refuses it if the text changed in between.
 
 A message larger than 64 MiB, or one whose header the server cannot read, ends the session: skif prints the reason
 to stderr and exits with code 1, and the editor can restart it.

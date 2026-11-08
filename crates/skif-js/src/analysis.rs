@@ -7,7 +7,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use skif_config::{Config, JsDiscovery};
 use skif_core::{FileSystem, IncompletePackage, Span, timing};
-use skif_js_syntax::{Export, ExportKind, Member, ParseOptions, parse_module};
+use skif_js_syntax::{Export, ExportKind, Member, ModuleCache, ParseOptions, parse_cached};
 use skif_workspace::{PackageId, Workspace, map_ordered};
 
 use crate::config_hints::{ConfigHint, HintInputs, config_hints};
@@ -82,12 +82,23 @@ pub struct JsAnalysis<'a> {
     pub(crate) config_hints: Vec<ConfigHint>,
 }
 
+/// What one run of the analysis shares with the other runs of its host.
+#[derive(Clone, Copy)]
+pub(crate) struct Caches<'c> {
+    /// The parsed git indexes, so that the roots of one run share them.
+    pub indexes: &'c IndexCache,
+    /// The host's cache of parse results.
+    pub modules: Option<&'c dyn ModuleCache>,
+    /// Files, relative to the workspace root, that other roots of the run import as entries.
+    pub extra_entries: &'c [PathBuf],
+}
+
 /// Names declared with `declare module 'name'` by graph modules and by declaration files nothing imports.
 fn collect_ambient_modules(
     fs: &dyn FileSystem,
     graph: &ModuleGraph,
     candidates: &[Candidate],
-    sequential: bool,
+    (sequential, modules): (bool, Option<&dyn ModuleCache>),
 ) -> HashSet<String> {
     let mut names: HashSet<String> = graph
         .modules()
@@ -107,7 +118,7 @@ fn collect_ambient_modules(
         fs.read_to_string(path)
             .ok()
             .filter(|source| source.contains("declare module"))
-            .and_then(|source| parse_module(path, &source, &options).ok())
+            .and_then(|source| parse_cached(modules, path, &source, &options).ok())
             .map(|info| info.ambient_modules)
             .unwrap_or_default()
     });
@@ -390,20 +401,29 @@ impl<'a> JsAnalysis<'a> {
             fs,
             sources,
             sequential,
-            (&IndexCache::default(), &[]),
+            &Caches {
+                indexes: &IndexCache::default(),
+                modules: None,
+                extra_entries: &[],
+            },
         )
     }
 
-    /// Like [`build`](Self::build), reading the git index through `cache` so that the roots of one run share it, with
-    /// `extra_entries` (relative to the workspace root) that other roots of the run import as entries.
+    /// Like [`build`](Self::build), reading the git index and parse results through `caches`, with the extra entries
+    /// other roots of the run import.
     pub(crate) fn build_cached(
         workspace: &'a Workspace,
         config: &Config,
         fs: &Arc<dyn FileSystem>,
         sources: &[Arc<dyn InputSource>],
         sequential: bool,
-        (cache, extra_entries): (&IndexCache, &[PathBuf]),
+        caches: &Caches<'_>,
     ) -> Self {
+        let Caches {
+            indexes: cache,
+            modules,
+            extra_entries,
+        } = *caches;
         let phase = |name: &str| format!("js {name} {}", workspace.root.display());
         let indexed = timing::phase(phase("git index"), || overlay(fs, workspace, config, cache));
         let listed_from_index = indexed.is_some();
@@ -448,6 +468,7 @@ impl<'a> JsAnalysis<'a> {
             links: &links,
             setup: &setup,
             sequential,
+            modules,
         };
         let graph = timing::phase(phase("graph (read, parse, resolve)"), || {
             graph::build(&inputs, &entries)
@@ -461,7 +482,7 @@ impl<'a> JsAnalysis<'a> {
             DependencyUsage::compute(workspace, &setup, &graph, fs.as_ref(), sequential)
         });
 
-        let mut ambient_modules = collect_ambient_modules(fs.as_ref(), &graph, &candidates, sequential);
+        let mut ambient_modules = collect_ambient_modules(fs.as_ref(), &graph, &candidates, (sequential, modules));
         // `declare module 'pkg/sub'` also declares `pkg`: both spellings are looked up by name.
         let packages: Vec<String> = ambient_modules
             .iter()

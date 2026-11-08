@@ -1,9 +1,10 @@
-//! `skif lsp`: a minimal Language Server Protocol server over stdio (ADR 0056).
+//! `skif lsp`: a minimal Language Server Protocol server over stdio (ADR 0056, ADR 0066).
 //!
-//! On open and save of a document it lints the root containing the file, as saved on disk, and publishes the
-//! diagnostics of every file of that root. It keeps the last lint of each root to answer `textDocument/codeAction`
-//! with the fixes of those diagnostics ([`actions`]). Unsaved buffers are not linted: a change only marks the
-//! document as modified, which withholds code actions that edit it until it is saved.
+//! It lints the root containing a document and publishes the diagnostics of every file of that root. The lint reads
+//! the text of the open documents, unsaved changes included, through a [`BufferFs`] over the disk: on open, save and
+//! a close that discards changes at once, and [`DEBOUNCE`] after the last change of a root. It keeps the last lint of
+//! each root to answer `textDocument/codeAction` with the fixes of those diagnostics ([`actions`]), and a module cache
+//! per root, so a lint parses only the files that changed.
 //!
 //! A malformed frame (no `Content-Length`, one that is not a number or exceeds [`MAX_BODY`], a header line longer
 //! than [`MAX_HEADER_LINE`], or input ending inside a message) cannot be skipped, since the next message's start is
@@ -13,12 +14,18 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use skif::{ConfigOverrides, Diagnostic, Severity};
+use skif::{
+    BufferFs, ConfigOverrides, Diagnostic, FileSystem, MemoryModuleCache, ModuleCache, OsFs, Severity, content_hash,
+};
 use skif_core::LineIndex;
 
 use crate::lint::lint_root;
+use crate::module_cache::CacheHost;
 use crate::output::stderr_line;
 use crate::roots::RootRun;
 
@@ -28,19 +35,22 @@ const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
 const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
-/// `TextDocumentSyncKind.Incremental`: the smallest change notifications, which only mark a document as modified.
-const SYNC_INCREMENTAL: u8 = 2;
+/// `TextDocumentSyncKind.Full`: every change carries the whole text, so no range arithmetic can drift from the
+/// client's buffer.
+const SYNC_FULL: u8 = 1;
 /// The LSP error for a request that arrives before `initialize`.
 const SERVER_NOT_INITIALIZED: i64 = -32002;
 /// The largest message body accepted; a larger `Content-Length` is refused before anything is allocated.
 const MAX_BODY: usize = 64 * 1024 * 1024;
 /// The longest header line accepted, so a client that never sends a newline cannot make the server buffer forever.
 const MAX_HEADER_LINE: u64 = 8 * 1024;
+/// How long after the last change of a root its lint starts, so a burst of keystrokes causes one lint.
+const DEBOUNCE: Duration = Duration::from_millis(250);
 
 /// Serves stdin and stdout until `exit`; returns 0 when `shutdown` came first, 1 otherwise, as the protocol asks.
 /// On a malformed frame or an I/O error it reports the reason on stderr and returns 1: the server exits.
 pub fn run() -> u8 {
-    match serve(io::stdin().lock(), io::stdout().lock()) {
+    match serve(io::BufReader::new(io::stdin()), io::stdout().lock()) {
         Ok(code) => code,
         Err(error) => {
             stderr_line(&format!("error: skif lsp: {error}; exiting"));
@@ -51,13 +61,47 @@ pub fn run() -> u8 {
 
 /// Answers the framed messages of `input` on `output` until `exit` or the end of `input`, and returns the exit code.
 ///
+/// A reader thread passes the frames over a channel, so the loop can wait for the next message and for the
+/// deadline of a pending lint at once. The thread is not joined: after `exit` the server returns even when the
+/// client keeps its end of the input open.
+///
 /// # Errors
 /// An error reading `input` or writing `output`, or a malformed header.
-pub fn serve(mut input: impl BufRead, mut output: impl Write) -> io::Result<u8> {
+pub fn serve(mut input: impl BufRead + Send + 'static, mut output: impl Write) -> io::Result<u8> {
+    let (sender, frames) = mpsc::channel();
+    std::thread::spawn(move || {
+        loop {
+            let frame = read_message(&mut input);
+            let last = !matches!(frame, Ok(Some(_)));
+            if sender.send(frame).is_err() || last {
+                return;
+            }
+        }
+    });
     let mut server = Server::default();
-    while let Some(body) = read_message(&mut input)? {
+    loop {
+        let frame = match server.next_deadline() {
+            Some(deadline) => match frames.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(frame) => frame,
+                Err(RecvTimeoutError::Timeout) => {
+                    for notification in server.lint_due(Instant::now()) {
+                        write_message(&mut output, &notification)?;
+                    }
+                    continue;
+                }
+                Err(RecvTimeoutError::Disconnected) => Ok(None),
+            },
+            None => frames.recv().unwrap_or(Ok(None)),
+        };
+        let Some(body) = frame? else {
+            // The input ended: the pending lints still publish, so a scripted session sees them.
+            for notification in server.lint_all_pending() {
+                write_message(&mut output, &notification)?;
+            }
+            return Ok(u8::from(!server.shut_down));
+        };
         let replies = match serde_json::from_slice::<Value>(&body) {
-            Ok(message) => match server.handle(&message) {
+            Ok(message) => match server.handle(&message, Instant::now()) {
                 Step::Reply(replies) => replies,
                 Step::Exit => return Ok(u8::from(!server.shut_down)),
             },
@@ -67,7 +111,6 @@ pub fn serve(mut input: impl BufRead, mut output: impl Write) -> io::Result<u8> 
             write_message(&mut output, reply)?;
         }
     }
-    Ok(u8::from(!server.shut_down))
 }
 
 /// The body of the next message, or `None` at the end of the input. A header line is read through a bounded
@@ -140,23 +183,59 @@ enum Step {
     Exit,
 }
 
+/// An open document: its text as the editor holds it and the version the client gave it.
+struct Document {
+    text: Arc<str>,
+    version: Option<i64>,
+}
+
+/// One in-memory module cache per root, pruned after each lint of that root to what the lint used.
+#[derive(Default)]
+struct RootCaches(Mutex<BTreeMap<PathBuf, Arc<MemoryModuleCache>>>);
+
+impl RootCaches {
+    fn prune(&self, base: &Path) {
+        if let Some(cache) = self.0.lock().unwrap_or_else(PoisonError::into_inner).get(base) {
+            cache.prune_unused();
+        }
+    }
+}
+
+impl CacheHost for RootCaches {
+    fn modules(&self, base: &Path) -> Arc<dyn ModuleCache> {
+        let mut caches = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        Arc::clone(caches.entry(base.to_path_buf()).or_default()) as Arc<dyn ModuleCache>
+    }
+
+    /// The server prunes the cache of the root it linted; see [`RootCaches::prune`].
+    fn finish(&self) {}
+}
+
 #[derive(Default)]
 struct Server {
     /// Whether `initialize` has been answered; until then requests get [`SERVER_NOT_INITIALIZED`] and
     /// notifications other than `exit` are dropped, as the protocol asks.
     initialized: bool,
     shut_down: bool,
+    /// The client applies a `WorkspaceEdit` with `documentChanges`, so an edit can carry the document's version.
+    document_changes: bool,
     /// For each root, the documents that last received a non-empty list, so a fixed file is cleared.
     published: BTreeMap<PathBuf, BTreeSet<String>>,
     /// For each root, the runs of its last lint, whose workspaces and reports code actions are planned from.
     runs: BTreeMap<PathBuf, Vec<RootRun>>,
-    /// The open documents with changes not yet saved, as canonical paths; fixes that edit them are not offered,
-    /// since the edits are positions in the file as saved.
-    dirty: BTreeSet<PathBuf>,
+    /// The open documents, by canonical path.
+    documents: BTreeMap<PathBuf, Document>,
+    /// For each root, the [`content_hash`] of the text of every open document its last lint read: a fix that edits
+    /// an open document is offered only while the document still has that text.
+    linted: BTreeMap<PathBuf, BTreeMap<PathBuf, u64>>,
+    /// The lints waiting for their root to be quiet: by root (or by directory before the first lint of a root),
+    /// when they are due and the directory to lint.
+    pending: BTreeMap<PathBuf, (Instant, PathBuf)>,
+    modules: RootCaches,
 }
 
 impl Server {
-    fn handle(&mut self, message: &Value) -> Step {
+    fn handle(&mut self, message: &Value, now: Instant) -> Step {
         let method = message.get("method").and_then(Value::as_str);
         let id = message.get("id");
         match (method, id) {
@@ -167,26 +246,70 @@ impl Server {
                 "the server is not initialized",
             )]),
             (Some(_), None) if !self.initialized => Step::Reply(Vec::new()),
+            (Some("shutdown"), Some(id)) if !self.shut_down => {
+                // The lints still pending publish before the answer, so nothing typed is left unlinted.
+                let mut replies = self.lint_all_pending();
+                replies.push(self.request("shutdown", id, message));
+                Step::Reply(replies)
+            }
             (Some(method), Some(id)) => Step::Reply(vec![self.request(method, id, message)]),
-            (Some("textDocument/didOpen" | "textDocument/didSave"), None) => {
-                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str);
-                // An opened or saved document matches the file on disk, which is what the server lints.
-                if let Some(file) = uri.and_then(local_file) {
-                    self.dirty.remove(&file);
+            (Some("textDocument/didOpen"), None) => {
+                let Some(file) = document_file(message) else {
+                    return Step::Reply(Vec::new());
+                };
+                if let Some(text) = message.pointer("/params/textDocument/text").and_then(Value::as_str) {
+                    self.documents.insert(
+                        file.clone(),
+                        Document {
+                            text: Arc::from(text),
+                            version: message.pointer("/params/textDocument/version").and_then(Value::as_i64),
+                        },
+                    );
                 }
-                Step::Reply(uri.map(|uri| self.publish(uri)).unwrap_or_default())
+                Step::Reply(self.lint_now(&file))
             }
             (Some("textDocument/didChange"), None) => {
-                if let Some(file) = document_file(message) {
-                    self.dirty.insert(file);
+                let Some(file) = document_file(message) else {
+                    return Step::Reply(Vec::new());
+                };
+                // Full sync: the last change carries the whole text.
+                let text = message
+                    .pointer("/params/contentChanges")
+                    .and_then(Value::as_array)
+                    .and_then(|changes| changes.last())
+                    .and_then(|change| change.get("text"))
+                    .and_then(Value::as_str);
+                if let Some(text) = text {
+                    self.documents.insert(
+                        file.clone(),
+                        Document {
+                            text: Arc::from(text),
+                            version: message.pointer("/params/textDocument/version").and_then(Value::as_i64),
+                        },
+                    );
+                    self.schedule(&file, now);
                 }
                 Step::Reply(Vec::new())
             }
+            (Some("textDocument/didSave"), None) => match document_file(message) {
+                // The text is kept: it now matches the file.
+                Some(file) => Step::Reply(self.lint_now(&file)),
+                None => Step::Reply(Vec::new()),
+            },
             (Some("textDocument/didClose"), None) => {
-                if let Some(file) = document_file(message) {
-                    self.dirty.remove(&file);
+                let Some(file) = document_file(message) else {
+                    return Step::Reply(Vec::new());
+                };
+                // A document closed with unsaved changes reverts to the file: its root is linted again, so no
+                // diagnostic or fix is left at positions of the discarded text.
+                let discarded = self.documents.remove(&file).is_some_and(|document| {
+                    std::fs::read_to_string(&file).map_or(true, |saved| *saved != *document.text)
+                });
+                if discarded {
+                    Step::Reply(self.lint_now(&file))
+                } else {
+                    Step::Reply(Vec::new())
                 }
-                Step::Reply(Vec::new())
             }
             // Other notifications, and responses to requests this server never sends.
             _ => Step::Reply(Vec::new()),
@@ -200,12 +323,16 @@ impl Server {
         let result = match method {
             "initialize" => {
                 self.initialized = true;
+                self.document_changes = message
+                    .pointer("/params/capabilities/workspace/workspaceEdit/documentChanges")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 json!({
                 "capabilities": {
                     "positionEncoding": "utf-16",
                     "textDocumentSync": {
                         "openClose": true,
-                        "change": SYNC_INCREMENTAL,
+                        "change": SYNC_FULL,
                         "save": { "includeText": false },
                     },
                     "codeActionProvider": { "codeActionKinds": [actions::QUICK_FIX_KIND, actions::FIX_ALL_KIND] },
@@ -232,16 +359,83 @@ impl Server {
         json!({ "jsonrpc": "2.0", "id": id, "result": result })
     }
 
-    /// Lints the root containing the document at `uri` and returns the `publishDiagnostics` notifications of its
-    /// files, or a log message when the root cannot be linted.
-    fn publish(&mut self, uri: &str) -> Vec<Value> {
-        let Some(file) = uri_to_path(uri) else {
-            return Vec::new();
-        };
-        let Some(dir) = file.parent().filter(|_| file.is_file()) else {
-            return Vec::new();
-        };
-        let (base, report, runs) = match lint_root(dir, &ConfigOverrides::default()) {
+    /// The root `file` belongs to: the deepest root of a lint that contains it, else its directory.
+    fn root_of(&self, file: &Path) -> Option<PathBuf> {
+        self.runs
+            .keys()
+            .filter(|base| file.starts_with(base))
+            .max_by_key(|base| base.components().count())
+            .cloned()
+            .or_else(|| file.parent().map(Path::to_path_buf))
+    }
+
+    /// Schedules a lint of the root of `file`, [`DEBOUNCE`] after `now`, replacing the one pending for that root.
+    fn schedule(&mut self, file: &Path, now: Instant) {
+        if let (Some(root), Some(dir)) = (self.root_of(file), file.parent()) {
+            self.pending.insert(root, (now + DEBOUNCE, dir.to_path_buf()));
+        }
+    }
+
+    /// The earliest deadline of a pending lint.
+    fn next_deadline(&self) -> Option<Instant> {
+        self.pending.values().map(|(deadline, _)| *deadline).min()
+    }
+
+    /// Takes the directories whose lint is due at `now`, in root order.
+    fn take_due(&mut self, now: Instant) -> Vec<PathBuf> {
+        let due: Vec<PathBuf> = self
+            .pending
+            .iter()
+            .filter(|(_, (deadline, _))| *deadline <= now)
+            .map(|(root, _)| root.clone())
+            .collect();
+        due.into_iter()
+            .filter_map(|root| self.pending.remove(&root).map(|(_, dir)| dir))
+            .collect()
+    }
+
+    /// Runs the lints due at `now` and returns their notifications.
+    fn lint_due(&mut self, now: Instant) -> Vec<Value> {
+        let dirs = self.take_due(now);
+        dirs.iter().flat_map(|dir| self.lint_dir(dir)).collect()
+    }
+
+    /// Runs every pending lint, due or not, and returns their notifications.
+    fn lint_all_pending(&mut self) -> Vec<Value> {
+        let dirs: Vec<PathBuf> = std::mem::take(&mut self.pending)
+            .into_values()
+            .map(|(_, dir)| dir)
+            .collect();
+        dirs.iter().flat_map(|dir| self.lint_dir(dir)).collect()
+    }
+
+    /// Lints the root of `file` now, cancelling the lint pending for it.
+    fn lint_now(&mut self, file: &Path) -> Vec<Value> {
+        if let Some(root) = self.root_of(file) {
+            self.pending.remove(&root);
+        }
+        match file.parent().filter(|_| file.is_file()) {
+            Some(dir) => self.lint_dir(dir),
+            None => Vec::new(),
+        }
+    }
+
+    /// The open documents over the disk: what a lint and a fix plan read.
+    fn overlay(&self) -> Arc<dyn FileSystem> {
+        let buffers = self
+            .documents
+            .iter()
+            .map(|(path, document)| (path.clone(), Arc::clone(&document.text)))
+            .collect();
+        Arc::new(BufferFs::new(OsFs, buffers))
+    }
+
+    /// Lints the root containing `dir` and returns the `publishDiagnostics` notifications of its files, or a log
+    /// message when the root cannot be linted.
+    fn lint_dir(&mut self, dir: &Path) -> Vec<Value> {
+        let fs = self.overlay();
+        let linted = lint_root(dir, &ConfigOverrides::default(), &fs, Some(&self.modules));
+        let (base, report, runs) = match linted {
             Ok(linted) => linted,
             Err(error) => {
                 return vec![json!({
@@ -251,6 +445,14 @@ impl Server {
                 })];
             }
         };
+        self.modules.prune(&base);
+        let read: BTreeMap<PathBuf, u64> = self
+            .documents
+            .iter()
+            .filter(|(path, _)| path.starts_with(&base))
+            .map(|(path, document)| (path.clone(), content_hash(document.text.as_bytes())))
+            .collect();
+        self.linted.insert(base.clone(), read);
         let mut by_file: BTreeMap<PathBuf, Vec<&Diagnostic>> = BTreeMap::new();
         for diagnostic in &report.diagnostics {
             by_file
@@ -262,7 +464,8 @@ impl Server {
         let mut current = BTreeSet::new();
         for (path, diagnostics) in &by_file {
             let uri = path_to_uri(path);
-            let text = std::fs::read_to_string(path).unwrap_or_default();
+            // Positions are computed in the text the lint read: the buffer of an open document.
+            let text = fs.read_to_string(path).unwrap_or_default();
             let index = LineIndex::new(&text);
             let items: Vec<Value> = diagnostics
                 .iter()
@@ -293,6 +496,11 @@ impl Server {
         let Some(file) = local_file(uri) else {
             return Some(Vec::new());
         };
+        let versions: BTreeMap<PathBuf, (u64, Option<i64>)> = self
+            .documents
+            .iter()
+            .map(|(path, document)| (path.clone(), (content_hash(document.text.as_bytes()), document.version)))
+            .collect();
         let request = actions::Request {
             file: &file,
             range: (
@@ -300,9 +508,11 @@ impl Server {
                 actions::position_of(&range["end"]),
             ),
             only,
-            dirty: &self.dirty,
+            documents: &versions,
+            linted: &self.linted,
+            document_changes: self.document_changes,
         };
-        Some(actions::code_actions(&request, &self.runs))
+        Some(actions::code_actions(&request, &self.runs, self.overlay().as_ref()))
     }
 }
 
@@ -476,7 +686,7 @@ mod tests {
             input.extend(frame(&message));
         }
         let mut output = Vec::new();
-        assert_eq!(serve(input.as_slice(), &mut output).unwrap(), 0);
+        assert_eq!(serve(io::Cursor::new(input), &mut output).unwrap(), 0);
         let mut reader = output.as_slice();
         let mut replies = Vec::new();
         while let Some(body) = read_message(&mut reader).unwrap() {
@@ -521,7 +731,7 @@ mod tests {
             input.extend(frame(&message));
         }
         let mut output = Vec::new();
-        assert_eq!(serve(input.as_slice(), &mut output).unwrap(), 1);
+        assert_eq!(serve(io::Cursor::new(input), &mut output).unwrap(), 1);
         let mut reader = output.as_slice();
         let mut replies = Vec::new();
         while let Some(body) = read_message(&mut reader).unwrap() {
@@ -534,8 +744,27 @@ mod tests {
     }
 
     #[test]
+    fn a_burst_of_changes_schedules_one_lint_after_the_last() {
+        let start = Instant::now();
+        let ms = Duration::from_millis(1);
+        let mut server = Server::default();
+        let file = Path::new("/ws/packages/a/package.json");
+        server.schedule(file, start);
+        server.schedule(file, start + 100 * ms);
+        server.schedule(&Path::new("/ws/packages/a").join("index.js"), start + 200 * ms);
+        assert_eq!(server.pending.len(), 1);
+        assert_eq!(server.next_deadline(), Some(start + 200 * ms + DEBOUNCE));
+        assert_eq!(server.take_due(start + 300 * ms), Vec::<PathBuf>::new());
+        assert_eq!(
+            server.take_due(start + 200 * ms + DEBOUNCE),
+            [PathBuf::from("/ws/packages/a")]
+        );
+        assert_eq!(server.next_deadline(), None);
+    }
+
+    #[test]
     fn exit_without_shutdown_exits_one() {
         let input = frame(&json!({ "jsonrpc": "2.0", "method": "exit" }));
-        assert_eq!(serve(input.as_slice(), Vec::new()).unwrap(), 1);
+        assert_eq!(serve(io::Cursor::new(input), Vec::new()).unwrap(), 1);
     }
 }

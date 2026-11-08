@@ -4,8 +4,10 @@ Embeddable facade of [skif](https://github.com/Goldziher/skif), a dependency and
 JavaScript and TypeScript monorepos (npm, pnpm, yarn and bun).
 
 The crate discovers a workspace, runs the rules and plans fixes. It never prints, prompts, exits, reads the
-environment or the working directory, or writes files: everything is read through a `FileSystem` (`OsFs` on disk, `MemoryFs` for editor
-buffers and tests), and fixes come back as a `FixPlan` for the caller to show, merge or write.
+environment or the working directory, or writes files: everything is read through a `FileSystem` (`OsFs` on disk, `MemoryFs` for
+tests, `BufferFs` for an editor's unsaved buffers over another file system), and fixes come back as a `FixPlan` for the
+caller to show, merge or write. A host that lints repeatedly passes one `ModuleCache` to `Linter::with_module_cache`
+(feature `js-analysis`), so only changed files are parsed again.
 
 ```rust
 use std::path::Path;

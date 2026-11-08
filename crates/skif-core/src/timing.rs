@@ -66,6 +66,14 @@ pub fn phase<T>(label: impl Display, work: impl FnOnce() -> T) -> T {
     value
 }
 
+/// With timings on, sends `message` to the sink as one line: a count or another fact about a phase that is not a
+/// duration.
+pub fn note(message: impl Display) {
+    if let Some(sink) = SINK.get() {
+        sink(&format!("skif timing: {message}"));
+    }
+}
+
 /// Time spent in a step that runs many times, possibly on several threads, summed over all calls.
 #[derive(Debug, Default)]
 pub struct Tally {
