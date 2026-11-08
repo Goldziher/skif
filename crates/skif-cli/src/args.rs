@@ -47,7 +47,7 @@ pub enum Command {
     Format(FormatArgs),
     /// Run a Model Context Protocol server on stdin and stdout, for AI agents.
     Mcp,
-    /// Run a Language Server Protocol server on stdin and stdout: diagnostics on open and save.
+    /// Run a Language Server Protocol server on stdin and stdout: diagnostics as you edit, fixes as code actions.
     Lsp,
 }
 

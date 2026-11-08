@@ -13,7 +13,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
     cargo binstall skif-cli
     ```
 
-    `cargo install skif` installs the library crate, not the binary. The command-line tool is `skif-cli`.
+    The `skif` crate is the library and has no binary, so `cargo install skif` fails. The command-line tool is `skif-cli`.
   </TabItem>
   <TabItem label="npm">
     ```bash

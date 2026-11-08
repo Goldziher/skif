@@ -10,7 +10,7 @@ cargo install skif-cli
 cargo binstall skif-cli
 ```
 
-The binary is named `skif`. `cargo install skif` installs the embeddable library crate, not the tool. Other
+The binary is named `skif`. The `skif` crate is the embeddable library and has no binary, so `cargo install skif` fails. Other
 channels (npm, Homebrew, Scoop, GitHub release archives and the GitHub Action) are listed in the
 [repository README](https://github.com/Goldziher/skif#installation).
 
