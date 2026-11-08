@@ -58,7 +58,7 @@ cargo run --release -p skif-bench -- corpus fetch [--suite bench|parity] [--only
 cargo run --release -p skif-bench -- run [--skif PATH] [--sizes 50,500,2000] [--graph-files 10000] [--pm pnpm] [--no-corpus] [--warmup 3] [--runs 10] [--skif-arg ARG]... [--no-enforce]
 cargo run --release -p skif-bench -- parity [--skif PATH] [--only NAME,...] [--install] [--recursive] [--repo-knip-config] [--include-test-files] [--check | --write-baseline]
 cargo run --release -p skif-bench -- syncpack-diff [--skif PATH] [--only NAME,...] [--no-fixtures] [--no-corpus] [--check | --write-baseline]
-cargo run --release -p skif-bench -- deadcode [--skif PATH] [--packages 5] [--seed 1] [--knip] [--json] [--out target/bench-deadcode]
+cargo run --release -p skif-bench -- deadcode [--skif PATH] [--packages 5] [--seed 1] [--knip] [--json] [--out target/bench-deadcode] [--force]
 ```
 
 `generate` is deterministic for a seed: the same options produce byte-identical files. It writes a root
@@ -310,7 +310,8 @@ expected finding as a knip issue type and a parity key, to `<out>/answer-key.jso
 precision (seeded findings among those reported) and recall (reported findings among those seeded) per issue type.
 `nsExports` and `nsTypes` count as `exports` and `types`. A finding in a type the key does not seed (`unlisted`,
 `unresolved`, `binaries`, ...) is false by construction. The report goes to stdout (`--json` for JSON) and to
-`<out>/deadcode.{md,json}`, with every false finding and miss listed.
+`<out>/deadcode.{md,json}`, with every false finding and miss listed. A rerun replaces `<out>/repo` only when `<out>`
+holds the `answer-key.json` of an earlier run; `--force` replaces it regardless.
 
 Every package holds the dead code: unused dependencies and devDependencies (plain runtime libraries with no knip plugin
 or skif tool mapping), unused files (one standalone, one that imports live code), unused exports and types in a
