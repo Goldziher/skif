@@ -142,9 +142,28 @@ fn many_unused_files_suggest_missing_entries() {
         hints(&lint(&borrowed, ""))
     };
     let single = [("package.json", r#"{"name":"app"}"#), ("index.ts", "export {};\n")];
-    // knip's thresholds: more than 20 unused files, making up more than a fifth of the files.
+    // knip's thresholds: more than 20 unused files, more than a fifth as many as the files reached.
     assert_eq!(run(&owned(orphans("src/", 20), &single)), "");
     let many = run(&owned(orphans("src/", 21), &single));
+    // `index.ts` and the files it imports are reached: 21 unused files are a fifth of 105, but more than a fifth of 104.
+    let reached = |count: usize| {
+        let imports = (1..count)
+            .map(|index| format!("import \"./src/used{index}\";\n"))
+            .collect::<Vec<_>>()
+            .concat();
+        let mut files = vec![
+            ("package.json".to_owned(), r#"{"name":"app"}"#.to_owned()),
+            ("index.ts".to_owned(), imports),
+        ];
+        files.extend((1..count).map(|index| (format!("src/used{index}.ts"), "export {};\n".to_owned())));
+        files.extend(orphans("src/", 21));
+        files
+    };
+    assert_eq!(run(&reached(105)), "");
+    assert_eq!(
+        run(&reached(104)),
+        "package.json: 21 of 125 files are unused, so `[js]` likely misses entry files"
+    );
     let monorepo = [
         MONOREPO,
         ("packages/a/package.json", r#"{"name":"a"}"#),
