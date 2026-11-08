@@ -3,7 +3,7 @@
 //! One pass over the workspace yields a [`Finding`] for every instance that a catalog rule reports; the rules pick
 //! the findings of their own kind.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
@@ -147,7 +147,8 @@ impl UsageIndex {
     pub(crate) fn build(workspace: &Workspace, config: &Config) -> Self {
         let exclude = Selector::new(config.catalog.exclude.iter().cloned()).unwrap_or_default();
         let claims = Claims::new(workspace, config);
-        let mut by_name: BTreeMap<String, Usage> = BTreeMap::new();
+        // Looked up once per dependency entry: a hash map while walking, ordered by name once at the end.
+        let mut by_name: HashMap<&str, Usage> = HashMap::new();
         for package in active_packages(workspace) {
             for (position, entry) in package
                 .dependencies
@@ -158,12 +159,7 @@ impl UsageIndex {
                 .filter(|(_, entry)| workspace.package_by_name(&entry.name).is_none())
                 .filter(|(_, entry)| !claims.claims(package, entry))
             {
-                if !by_name.contains_key(entry.name.as_str()) {
-                    by_name.insert(entry.name.clone(), Usage::default());
-                }
-                let Some(usage) = by_name.get_mut(entry.name.as_str()) else {
-                    continue;
-                };
+                let usage = by_name.entry(entry.name.as_str()).or_default();
                 usage.packages.insert(package.id);
                 if entry.parsed.is_catalog() {
                     usage.references.push((package.id, position));
@@ -172,7 +168,12 @@ impl UsageIndex {
                 }
             }
         }
-        Self { by_name }
+        Self {
+            by_name: by_name
+                .into_iter()
+                .map(|(name, usage)| (name.to_owned(), usage))
+                .collect(),
+        }
     }
 }
 
