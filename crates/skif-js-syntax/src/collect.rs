@@ -3,9 +3,9 @@
 use std::collections::HashMap;
 
 use oxc_ast::ast::{
-    BindingPattern, Declaration, ExportDefaultDeclarationKind, ExportSpecifier, ImportDeclarationSpecifier,
-    ImportOrExportKind, ModuleExportName, Program, Statement, StringLiteral, TSEnumMemberName,
-    TSNamespaceDeclarationBody,
+    ArrayExpressionElement, BindingPattern, Class, ClassElement, Declaration, ExportDefaultDeclarationKind,
+    ExportSpecifier, Expression, ImportDeclarationSpecifier, ImportOrExportKind, ModuleExportName, ObjectPropertyKind,
+    Program, Statement, StringLiteral, TSEnumMemberName, TSNamespaceDeclarationBody,
 };
 use oxc_span::Span as OxcSpan;
 use skif_core::{LineIndex, Span};
@@ -868,12 +868,78 @@ fn collect_default_export(
             false
         }
     };
+    let pure = match &e.declaration {
+        ExportDefaultDeclarationKind::FunctionDeclaration(_)
+        | ExportDefaultDeclarationKind::TSInterfaceDeclaration(_) => true,
+        ExportDefaultDeclarationKind::ClassDeclaration(c) => pure_class(c),
+        other => other.as_expression().is_some_and(pure_expression),
+    };
     export.removal = if keep_declaration {
         keyword_range(ctx, e.span, true).map(|range| removal(ctx, e.span, range, RemovalKind::ExportKeyword, 1))
-    } else {
+    } else if pure {
         let mut whole = whole_statement(ctx, e.span, 1);
         whole.default_expression = true;
         Some(whole)
+    } else {
+        None
     };
     info.exports.push(export);
+}
+
+/// Whether evaluating `expression` can have no effect beyond producing its value: literals, identifiers, functions,
+/// classes without evaluated members, and arrays and objects of such values. Deleting `export default <expression>`
+/// is only offered for these, so a call such as `export default registerPlugin()` keeps running.
+fn pure_expression(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::RegExpLiteral(_)
+        | Expression::Identifier(_)
+        | Expression::FunctionExpression(_)
+        | Expression::ArrowFunctionExpression(_) => true,
+        Expression::TemplateLiteral(t) => t.expressions.is_empty(),
+        Expression::UnaryExpression(u) => {
+            matches!(u.argument, Expression::NumericLiteral(_) | Expression::BigIntLiteral(_))
+        }
+        Expression::ClassExpression(c) => pure_class(c),
+        Expression::ArrayExpression(a) => a.elements.iter().all(|element| match element {
+            ArrayExpressionElement::SpreadElement(_) => false,
+            ArrayExpressionElement::Elision(_) => true,
+            element => element.as_expression().is_some_and(pure_expression),
+        }),
+        Expression::ObjectExpression(o) => o.properties.iter().all(|property| match property {
+            ObjectPropertyKind::ObjectProperty(p) => !p.computed && pure_expression(&p.value),
+            ObjectPropertyKind::SpreadProperty(_) => false,
+        }),
+        Expression::ParenthesizedExpression(p) => pure_expression(&p.expression),
+        Expression::TSAsExpression(t) => pure_expression(&t.expression),
+        Expression::TSSatisfiesExpression(t) => pure_expression(&t.expression),
+        Expression::TSNonNullExpression(t) => pure_expression(&t.expression),
+        Expression::TSTypeAssertion(t) => pure_expression(&t.expression),
+        _ => false,
+    }
+}
+
+/// Whether defining `class` runs no code of the module: no decorators, a plain superclass, no computed keys, no static
+/// blocks and no static field initialisers with effects.
+fn pure_class(class: &Class<'_>) -> bool {
+    class.decorators.is_empty()
+        && class
+            .heritage
+            .as_ref()
+            .is_none_or(|heritage| matches!(heritage.expression, Expression::Identifier(_)))
+        && class.body.body.iter().all(|element| match element {
+            ClassElement::StaticBlock(_) => false,
+            ClassElement::MethodDefinition(m) => m.decorators.is_empty() && !m.computed,
+            ClassElement::PropertyDefinition(p) => {
+                p.decorators.is_empty() && !p.computed && (!p.r#static || p.value.as_ref().is_none_or(pure_expression))
+            }
+            ClassElement::AccessorProperty(p) => {
+                p.decorators.is_empty() && !p.computed && (!p.r#static || p.value.as_ref().is_none_or(pure_expression))
+            }
+            ClassElement::TSIndexSignature(_) => true,
+        })
 }

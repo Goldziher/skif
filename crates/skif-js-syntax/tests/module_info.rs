@@ -447,6 +447,40 @@ fn member_removal_takes_the_comments_of_the_member() {
 }
 
 #[test]
+fn default_expression_removal_keeps_side_effects() {
+    let removable = |source: &str| parse("a.ts", source).exports[0].removal.is_some();
+    for source in [
+        "export default 42;\n",
+        "export default -1;\n",
+        "export default `plain`;\n",
+        "export default value;\n",
+        "export default () => {};\n",
+        "export default function () {}\n",
+        "export default class { method() {} static x = 1; }\n",
+        "export default [1, \"a\", , { b: [c], d() {} }];\n",
+        "export default ({ a: 1 } as const);\n",
+    ] {
+        assert!(removable(source), "{source}");
+    }
+    for source in [
+        "export default registerPlugin();\n",
+        "export default new Thing();\n",
+        "export default a.b;\n",
+        "export default `x${y}`;\n",
+        "export default [...items];\n",
+        "export default { ...rest };\n",
+        "export default { [key()]: 1 };\n",
+        "export default { a: setup() };\n",
+        "export default class extends mixin(Base) {}\n",
+        "export default class { static { init(); } }\n",
+        "export default class { static x = init(); }\n",
+        "export default (x = 1);\n",
+    ] {
+        assert!(!removable(source), "{source}");
+    }
+}
+
+#[test]
 fn jsdoc_tags_attach_to_exports() {
     let source = "/**\n * Docs.\n * @public\n * @alias foo\n */\nexport const a = 1;\n\n// plain\nexport const b = 2;\n/** @internal */ export function c() {}\n";
     let info = parse("a.ts", source);

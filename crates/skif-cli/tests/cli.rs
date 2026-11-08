@@ -937,8 +937,9 @@ fn fix_unsafe_deletes_files_only_with_allow_remove_files() {
         skipped_reasons(&report),
         [("unused-files".to_owned(), "removes-files".to_owned())]
     );
-    // Removing `Size.Small` would renumber `Size.Large`: it stays reported without a fix.
-    let unfixable = ["unused-enum-members"].map(str::to_owned);
+    // `Size.Small` would renumber `Size.Large`, and `export default registerPlugin(...)` has a side effect: both stay
+    // reported without a fix.
+    let unfixable = ["unused-enum-members", "unused-exports"].map(str::to_owned);
     assert_eq!(
         rule_ids(&report),
         BTreeSet::from_iter(unfixable.iter().cloned().chain(["unused-files".to_owned()]))

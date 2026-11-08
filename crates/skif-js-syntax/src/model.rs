@@ -142,8 +142,9 @@ pub struct Removal {
     /// Number of exports declared by that statement (including this one).
     pub siblings: u32,
     /// The statement is `export default <expression>` (or an anonymous default declaration) and
-    /// [`RemovalKind::Statement`] deletes the expression too, not only the export: side effects of the expression
-    /// disappear. Callers that want a conservative fix should skip or flag these.
+    /// [`RemovalKind::Statement`] deletes the expression too, not only the export. Only an expression whose evaluation
+    /// has no effect gets a removal (a literal, an identifier, a function, a class that runs no code, or an array or
+    /// object of those); callers that want a conservative fix can still skip or flag these.
     pub default_expression: bool,
 }
 
