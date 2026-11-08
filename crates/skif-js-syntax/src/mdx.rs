@@ -79,41 +79,87 @@ fn starts_esm(line: &str) -> bool {
     })
 }
 
-/// Open bracket depth after scanning `text`, skipping strings, template literals and comments. A blank line ends an
-/// ESM paragraph only at depth zero, so `export const meta = {` may span blank lines.
-fn depth_after(text: &str, mut depth: i32) -> i32 {
-    let bytes = text.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            quote @ (b'"' | b'\'' | b'`') => {
-                i += 1;
-                while i < bytes.len() && bytes[i] != quote {
-                    if bytes[i] == b'\\' {
+/// The lexical state of an ESM paragraph between lines: its open bracket depth, and the template literals and block
+/// comment it is inside of. A blank line ends the paragraph only at depth zero outside both, so
+/// `export const meta = {` and a multi-line template literal may span blank lines.
+#[derive(Default)]
+struct Scan {
+    depth: i32,
+    /// For each template literal that is open, the depth its `${}` expressions return to; the last is innermost.
+    templates: Vec<i32>,
+    /// Whether the scan is in a template literal's text (not in one of its `${}` expressions).
+    in_template: bool,
+    in_block_comment: bool,
+}
+
+impl Scan {
+    fn is_open(&self) -> bool {
+        self.depth > 0 || self.in_template || self.in_block_comment
+    }
+
+    /// Scans one line, skipping strings, template literals and comments. A `'` or `"` that does not close on its line
+    /// is JSX text such as `<p>don't</p>`, not a string, and is skipped alone.
+    fn line(&mut self, text: &str) {
+        let bytes = text.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if self.in_block_comment {
+                match bytes[i..].windows(2).position(|pair| pair == b"*/") {
+                    Some(at) => {
+                        self.in_block_comment = false;
+                        i += at + 2;
+                    }
+                    None => return,
+                }
+                continue;
+            }
+            if self.in_template {
+                match bytes[i] {
+                    b'\\' => i += 1,
+                    b'`' => {
+                        self.in_template = false;
+                        self.templates.pop();
+                    }
+                    b'$' if bytes.get(i + 1) == Some(&b'{') => {
+                        self.in_template = false;
+                        self.depth += 1;
                         i += 1;
                     }
-                    i += 1;
-                }
-            }
-            b'/' if bytes.get(i + 1) == Some(&b'/') => {
-                while i < bytes.len() && bytes[i] != b'\n' {
-                    i += 1;
-                }
-            }
-            b'/' if bytes.get(i + 1) == Some(&b'*') => {
-                i += 2;
-                while i < bytes.len() && !(bytes[i] == b'*' && bytes.get(i + 1) == Some(&b'/')) {
-                    i += 1;
+                    _ => {}
                 }
                 i += 1;
+                continue;
             }
-            b'(' | b'[' | b'{' => depth += 1,
-            b')' | b']' | b'}' => depth -= 1,
-            _ => {}
+            match bytes[i] {
+                quote @ (b'"' | b'\'') => {
+                    let mut j = i + 1;
+                    while j < bytes.len() && bytes[j] != quote {
+                        j += if bytes[j] == b'\\' { 2 } else { 1 };
+                    }
+                    if j < bytes.len() {
+                        i = j;
+                    }
+                }
+                b'`' => {
+                    self.templates.push(self.depth);
+                    self.in_template = true;
+                }
+                b'/' if bytes.get(i + 1) == Some(&b'/') => return,
+                b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                    self.in_block_comment = true;
+                    i += 1;
+                }
+                b'(' | b'[' | b'{' => self.depth += 1,
+                b'}' if self.templates.last() == Some(&(self.depth - 1)) => {
+                    self.depth -= 1;
+                    self.in_template = true;
+                }
+                b')' | b']' | b'}' => self.depth -= 1,
+                _ => {}
+            }
+            i += 1;
         }
-        i += 1;
     }
-    depth
 }
 
 /// The end of a YAML frontmatter block at the very start of `source`, if there is one.
@@ -151,14 +197,14 @@ pub(crate) fn extract(source: &str) -> Extracted {
                 }
             }
         } else if starts_esm(text) {
-            let mut depth = 0;
+            let mut scan = Scan::default();
             while index < all.len() {
                 let line = &source[all[index].start..all[index].end];
-                if line.trim().is_empty() && depth <= 0 {
+                if line.trim().is_empty() && !scan.is_open() {
                     break;
                 }
                 regions[index] = Region::Esm;
-                depth = depth_after(line, depth);
+                scan.line(line);
                 index += 1;
             }
         } else {
@@ -217,6 +263,28 @@ mod tests {
             ]
         );
         assert_eq!(extract(source).esm.len(), source.len());
+    }
+
+    #[test]
+    fn an_apostrophe_in_jsx_text_does_not_keep_the_paragraph_open() {
+        let source = "export const Note = () => (<p>don't</p>)\n\n# Title\n\n<Note/>\n";
+        assert_eq!(kept(source), ["export const Note = () => (<p>don't</p>)"]);
+    }
+
+    #[test]
+    fn a_multi_line_template_literal_spans_blank_lines_and_ends() {
+        let source =
+            "export const css = `\n  a :( {\n\n  b ${x({ y: '`' })} c\n`\n\n# Title :(\n\nimport A from './a'\n";
+        assert_eq!(
+            kept(source),
+            [
+                "export const css = `",
+                "  a :( {",
+                "  b ${x({ y: '`' })} c",
+                "`",
+                "import A from './a'"
+            ]
+        );
     }
 
     #[test]
