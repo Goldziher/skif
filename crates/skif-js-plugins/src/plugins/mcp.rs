@@ -1,9 +1,11 @@
 //! MCP: the command and arguments of every server in `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json` or
-//! `.codex/config.toml` are a script, run in the server's `cwd`.
+//! `.codex/config.toml` are a script, run in the server's `cwd`. An argument holding a space is quoted, so it stays one
+//! word.
 
 use skif_js_syntax::ConfigValue;
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
+use crate::script_config::quote_word;
 use crate::support::{script_in, strings, values_of};
 
 /// The `mcp` plugin.
@@ -65,8 +67,15 @@ impl Plugin for Mcp {
                 let Some(command) = server.get("command").and_then(ConfigValue::as_str) else {
                     continue;
                 };
-                let mut words = vec![command];
-                words.extend(server.get("args").map(strings).unwrap_or_default());
+                let mut words = vec![quote_word(command)];
+                words.extend(
+                    server
+                        .get("args")
+                        .map(strings)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(quote_word),
+                );
                 let script = expand_project_dir(&words.join(" "));
                 let dir = server
                     .get("cwd")

@@ -1,6 +1,7 @@
 //! Varlock: the `@plugin(…)` and `@import(…)` decorators in the root comments of the `.env` files under
 //! `package.json#varlock.loadPath` (the workspace by default), and of the files a script passes with `--path`: a local
-//! plugin is a production entry, a plugin package is used, an import is scanned too. The command of
+//! plugin inside the workspace is a production entry, a plugin package (with any `@version` cut off) is used, an import
+//! is scanned too. The command of
 //! `varlock run -- <command>` is a script.
 
 use std::collections::BTreeSet;
@@ -79,8 +80,11 @@ impl Plugin for Varlock {
                         }
                     }
                 } else if is_relative(descriptor) {
-                    out.push(PluginInput::ProductionEntry(join_rel(dir, descriptor)));
-                } else if !local && let Some(name) = package_name(descriptor) {
+                    let path = join_rel(dir, descriptor);
+                    if !path.starts_with("..") {
+                        out.push(PluginInput::ProductionEntry(path));
+                    }
+                } else if !local && let Some(name) = package_name(without_version(descriptor)) {
                     out.push(PluginInput::Dependency(name));
                 }
             }
@@ -99,6 +103,15 @@ fn env_files(cx: &PluginContext<'_>, path: &str) -> Vec<String> {
     } else {
         Vec::new()
     }
+}
+
+/// A plugin package descriptor without its version (`@varlock/1password-plugin@1.2.0`): the text before the first `@`
+/// that does not start a scope.
+fn without_version(descriptor: &str) -> &str {
+    let skip = usize::from(descriptor.starts_with('@'));
+    descriptor[skip..]
+        .find('@')
+        .map_or(descriptor, |at| &descriptor[..skip + at])
 }
 
 fn is_external_url(path: &str) -> bool {
@@ -368,5 +381,16 @@ mod tests {
         assert!(parsed.directives[1].disabled);
         assert!(parse("# @disable\n").disabled);
         assert_eq!(parse("# @plugin(\"a\") # comment\n").directives.len(), 1);
+    }
+
+    #[test]
+    fn plugin_versions_are_cut_off() {
+        assert_eq!(
+            without_version("@varlock/1password-plugin@1.2.0"),
+            "@varlock/1password-plugin"
+        );
+        assert_eq!(without_version("varlock-plugin-x@latest"), "varlock-plugin-x");
+        assert_eq!(without_version("@varlock/x"), "@varlock/x");
+        assert_eq!(without_version("plain"), "plain");
     }
 }
