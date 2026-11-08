@@ -121,7 +121,8 @@ Every construct that was not copied one to one has a note with the file, the key
 | `source` | dropped when it lists the workspace patterns (D); otherwise H |
 | `sortFirst`, `sortAz`, `sortExports`, `sortPackages`, `formatBugs`, `formatRepository`, `indent` | `[format]` `sort-first`, `sort-az`, `sort-exports`, `sort-packages`, `format-bugs`, `format-repository`, `indent`, and `package-json-format = "error"`. skif sorts in byte order where syncpack uses a collator (A), by default moves only `types` first and `default` last among `exports` conditions, since reordering the others changes resolution; a configured `sortExports` naming others becomes an unsafe fix (A), collapses `bugs` and `repository` only when nothing is lost (A), and with `indent` also checks the layout (A). `unsorted-dependencies` stays on when `sortAz` names a dependency map |
 | a script running `syncpack format` | `package-json-format = "error"`; run `skif format` or `skif format --check` in its place |
-| `updateGroups`, `minimumReleaseAge`, `maxConcurrentRequests` | dropped: skif never queries a registry |
+| `updateGroups[]` with `target` or `isIgnored` | `[[update-groups]]` with `target` or `ignored = true`, and the same selectors; a group with both, neither, or another target is not written (H) |
+| `minimumReleaseAge`, `maxConcurrentRequests` | `[update] minimum-release-age`, `max-concurrent-requests` |
 | the override sections (`pnpmOverrides`, `overrides`, `resolutions`) | `[policy] override-reading = "syncpack"`: an override key is its own dependency, so `parent@4>child` is not compared with `child`; nested objects and `pnpm.overrides` of a `package.json` are not read, as in syncpack 15 (`pnpmOverrides` is the `overrides` of `pnpm-workspace.yaml`). Without it skif would compare them with the dependency they replace |
 | `--dependency-types` | `[policy] dependency-types` |
 
@@ -130,7 +131,8 @@ Without `--dependency-types`, `[policy] dependency-types` is set to the scope sy
 of it), because skif's own default is narrower. `--dependencies` and
 `--specifier-types` narrowed the old run; a `skif.toml` cannot, so they are reported. To narrow a skif run the same
 way, pass `--dependency` (syncpack's `--dependencies`; skif's `--dependencies` is knip's issue-type shortcut) and
-`--specifier-types` on the command line. `syncpack update` has no equivalent.
+`--specifier-types` on the command line. `syncpack update` is `skif update` with the same
+`--check`, `--target` and `--dependencies` (A: `--interactive` has no equivalent).
 
 ## knip
 
@@ -158,11 +160,11 @@ way, pass `--dependency` (syncpack's `--dependencies`; skif's `--dependencies` i
 | `treatConfigHintsAsErrors`, `--treat-config-hints-as-errors` | `[rules] stale-js-config = "warn"` (A), or `"error"` with `skif migrate --strict-hints`; the rule is then on and is not listed among the checks the profile turned off. skif's hints differ from knip's (they also flag entries skif never needed, such as a regular expression in `ignoreUnresolved` for an import skif does not report), so `error` could fail a project that knip passed |
 | `--no-config-hints` | `[rules] stale-js-config = "off"` |
 | `--fix`, `--fix-type`, `--allow-remove-files` | none in the file; `skif --fix-unsafe` with `--fix-type` and `--allow-remove-files` does the same on the command line (`--fix-type` takes knip's issue types) |
-| `--production`, `--strict` | `[js] production = true` when every script runs knip in production mode (otherwise H), and the issue types production leaves out (`devDependencies`, `catalog`, `catalogReferences`) are turned off; knip's strict mode has no further equivalent (X) |
+| `--production`, `--strict` | `[js] production = true` when every script runs knip in production mode (otherwise H), and the issue types production leaves out (`devDependencies`, `catalog`, `catalogReferences`) are turned off; the rest of knip's strict mode is `skif --strict`, which a file cannot set (X) |
 | `compilers: true`, or `true` for `mdx`, `vue`, `svelte`, `astro`, `css`, `scss`, `sass`, `less`, `styl`, `stylus` or `tsrx` | none (D): skif reads those files with built-in extractors, without a compiler; for `mdx` and `tsrx` the note suggests adding them to `project`, which knip does when a compiler reads them |
 | a `compilers` function for one of those extensions | none (A): the function is never run, and the built-in extractor reads the files |
 | `compilers` for other extensions, `asyncCompilers`, `preprocessor` | none (X): functions are never run |
-| `ignoreGlobalBinaries` | `true` is what skif always does; `false` has no equivalent (X) |
+| `ignoreGlobalBinaries` | `[js] ignore-global-binaries` (`true` is the default); a workspace-level `false` has no equivalent (X) |
 | `treatTagHintsAsErrors` | none (A): tag hints are part of `stale-js-config`, which `--strict-hints` makes an error |
 | `ignoreIssues` with a name that is not a knip issue type (`classMembers`) | none (X): knip 6 has no such issue type |
 | a plugin key skif has no plugin for | none (X), named in the report |

@@ -1,0 +1,8 @@
+---
+source: crates/skif-js/tests/config_hints.rs
+expression: "format!(\"{many}\\n---\\n{workspaces}\")"
+---
+package.json: 21 of 22 files are unused, so `[js]` likely misses entry files
+---
+package.json: 15 files of workspace `packages/a` are unused, so `[js.workspaces."packages/a"]` likely misses entry files
+package.json: 8 files of workspace `packages/b` are unused, so `[js.workspaces."packages/b"]` likely misses entry files

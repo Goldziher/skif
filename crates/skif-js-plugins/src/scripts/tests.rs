@@ -817,3 +817,11 @@ fn eslint_formatters_follow_the_naming_convention() {
     assert_eq!(deps("eslint --format stylish ."), [] as [&str; 0]);
     assert_eq!(deps("eslint --format ./formatter.js ."), [] as [&str; 0]);
 }
+
+#[test]
+fn shell_builtins_are_neither_binaries_nor_global_binaries() {
+    let names = |uses: &[super::BinaryUse]| uses.iter().map(|b| b.name.clone()).collect::<Vec<_>>();
+    let info = parse("cd x && mapfile -t a < f && readarray b < f && caller && echo hi && rm -rf out && git pull");
+    assert_eq!(names(&info.binaries), Vec::<String>::new());
+    assert_eq!(names(&info.global_binaries), ["rm", "git"]);
+}

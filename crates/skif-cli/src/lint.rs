@@ -253,16 +253,26 @@ fn warn_empty_tsconfig_projects(targets: &[Target], fs: &dyn FileSystem) {
     }
 }
 
+/// Lints the root of `previous` again from disk. What root discovery decided about it (a standalone package nested
+/// below another root, members another root lints) is carried over, so the re-lint judges the root as the first
+/// lint did.
 fn lint_once(
     linter: &Linter,
-    root: &Path,
-    config: &Config,
-    config_path: Option<&Path>,
+    previous: &Workspace,
+    (config, config_path, extra_entries): (&Config, Option<&Path>, &[PathBuf]),
     fs: &dyn FileSystem,
     filter: &Filter,
 ) -> Result<(Workspace, Report), CliError> {
-    let workspace = Workspace::discover_with_fs(root, config, fs)?;
-    let report = roots::lint_loaded(linter, &workspace, config_path)?;
+    let mut workspace = Workspace::discover_with_fs(&previous.root, config, fs)?;
+    workspace.set_nested(previous.is_nested());
+    let ignored: BTreeSet<PathBuf> = previous
+        .package_ids()
+        .filter(|id| previous.is_ignored(*id))
+        .filter_map(|id| previous.package(id))
+        .map(|package| previous.root.join(&package.dir))
+        .collect();
+    workspace.ignore_dirs(&ignored);
+    let report = roots::lint_loaded(linter, &workspace, config_path, extra_entries)?;
     let report = filter.apply(&workspace, report);
     Ok((workspace, report))
 }
@@ -332,7 +342,7 @@ type Relint = Result<(Workspace, Report), CliError>;
 fn write_and_relint(
     (args, filter): (&LintArgs, &Filter),
     linter: &Linter,
-    (config, config_path): (&Config, Option<&Path>),
+    (config, config_path, extra_entries): (&Config, Option<&Path>, &[PathBuf]),
     state: (Workspace, Report),
     plan: FixPlan,
     fs: &CachedFs<OsFs>,
@@ -352,22 +362,23 @@ fn write_and_relint(
     }
     // The written files are stale in the cache; the re-lint must read them from disk.
     fs.clear();
-    let root = workspace.root.clone();
-    Ok(match lint_once(linter, &root, config, config_path, fs, filter) {
-        Ok((workspace, report)) => {
-            let changed: Vec<&Path> = plan.paths().collect();
-            let install = install_step(args, &changed, &workspace);
-            (
-                FixRun {
-                    plan,
-                    install,
-                    preview: None,
-                },
-                Ok((workspace, report)),
-            )
-        }
-        Err(error) => (FixRun::relint_failed(plan), Err(error)),
-    })
+    Ok(
+        match lint_once(linter, &workspace, (config, config_path, extra_entries), fs, filter) {
+            Ok((workspace, report)) => {
+                let changed: Vec<&Path> = plan.paths().collect();
+                let install = install_step(args, &changed, &workspace);
+                (
+                    FixRun {
+                        plan,
+                        install,
+                        preview: None,
+                    },
+                    Ok((workspace, report)),
+                )
+            }
+            Err(error) => (FixRun::relint_failed(plan), Err(error)),
+        },
+    )
 }
 
 /// What fixing every root left behind: the re-linted roots with their fix runs, or the exit code of a run that
@@ -404,11 +415,12 @@ fn fix_roots(
             linter,
             workspace,
             report,
+            extra_entries,
         } = run;
         let written = write_and_relint(
             (args, filter),
             linters.get(linter),
-            (&config, config_path.as_deref()),
+            (&config, config_path.as_deref(), &extra_entries),
             (workspace, report),
             plan,
             fs,
@@ -435,6 +447,7 @@ fn fix_roots(
                 linter,
                 workspace,
                 report,
+                extra_entries,
             }),
             Err(error) => {
                 let prefixes: Vec<&Path> = done

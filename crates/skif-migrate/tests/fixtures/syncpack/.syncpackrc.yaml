@@ -54,4 +54,13 @@ source:
   - package.json
   - packages/*/package.json
 sortAz: [dependencies, scripts]
-updateGroups: []
+updateGroups:
+  - dependencies: ["@types/**"]
+    isIgnored: true
+  - label: Hold React to minors
+    dependencies: [react, react-dom]
+    target: minor
+  - dependencies: [left-pad]
+    target: major
+minimumReleaseAge: 2880
+maxConcurrentRequests: 4

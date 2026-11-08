@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use skif_config::{
     Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, CustomStrategy, DEFAULT_DISCOVER_IGNORE,
     FIXTURE_DIRECTORIES, IgnoreEntry, IgnoreExportsUsedInFile, Level, PackageManager, PluginConfig, Prefer, RuleConfig,
-    Selector, SemverRange, VersionPolicy, discover, discover_with_fs,
+    Selector, SemverRange, UpdateTarget, VersionPolicy, discover, discover_with_fs,
 };
 use skif_core::{MemoryFs, Severity};
 
@@ -869,6 +869,52 @@ fn semver_groups_take_a_range_or_ignored_but_not_both() {
         assert!(error.to_string().contains(expected), "{toml}: {error}");
     }
     assert!(Config::from_toml_str("[[semver-groups]]\nrange = \"^\"\nignored = false\n").is_ok());
+}
+
+#[test]
+fn update_groups_take_a_target_or_ignored_but_not_both() {
+    let config = Config::from_toml_str(
+        "[update]\nminimum-release-age = 0\n[[update-groups]]\ndependencies = [\"react\"]\ntarget = \"minor\"\n[[update-groups]]\ndependencies = [\"@types/*\"]\nignored = true\n",
+    )
+    .unwrap();
+    assert_eq!(config.update.minimum_release_age, Some(0));
+    assert_eq!(config.update.max_concurrent_requests, 12);
+    assert_eq!(config.update_groups[0].target, Some(UpdateTarget::Minor));
+    assert!(config.update_groups[1].ignored);
+    assert_eq!(
+        Config::from_toml_str(&config.to_toml_string().unwrap()).unwrap(),
+        config
+    );
+    for (toml, expected) in [
+        ("[[update-groups]]\n", "set `target`"),
+        (
+            "[[update-groups]]\ntarget = \"patch\"\nignored = true\n",
+            "mutually exclusive",
+        ),
+        ("[[update-groups]]\ntarget = \"major\"\n", "unknown variant"),
+        ("[update]\nmax-concurrent-requests = 0\n", "at least 1"),
+        (
+            "[[update-groups]]\nspecifier-types = [\"exakt\"]\ntarget = \"patch\"\n",
+            "update-groups[0]: unknown specifier type",
+        ),
+    ] {
+        let error = Config::from_toml_str(toml).unwrap_err();
+        assert!(error.to_string().contains(expected), "{toml}: {error}");
+    }
+}
+
+#[test]
+fn the_stricter_update_target_wins() {
+    use UpdateTarget::{Latest, Minor, Patch};
+    for (a, b, expected) in [
+        (Latest, Latest, Latest),
+        (Latest, Minor, Minor),
+        (Minor, Latest, Minor),
+        (Minor, Patch, Patch),
+        (Patch, Latest, Patch),
+    ] {
+        assert_eq!(a.stricter(b), expected, "{a:?} {b:?}");
+    }
 }
 
 #[test]

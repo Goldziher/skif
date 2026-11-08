@@ -1,0 +1,12 @@
+{
+  "name": "factory-ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "7.1.0"
+  }
+}

@@ -120,6 +120,35 @@ pub(crate) fn add_entry(
     }
 }
 
+/// Replaces the version of the existing entry `dependency` of `catalog` in `file`.
+pub(crate) fn set_entry(
+    workspace: &Workspace,
+    file: &CatalogFile,
+    catalog: &CatalogName,
+    dependency: &str,
+    version: &str,
+) -> FixOp {
+    match file {
+        CatalogFile::Yaml(_) => add_entry(workspace, file, catalog, dependency, version),
+        CatalogFile::RootJson(path) => {
+            let mut pointer = json_pointer(workspace, catalog);
+            pointer.push(key(dependency));
+            FixOp::json(
+                path.clone(),
+                pointer,
+                JsonAction::Set(Value::String(version.to_owned())),
+            )
+        }
+    }
+}
+
+/// The file holding `catalog`.
+pub(crate) const fn file_path(file: &CatalogFile) -> &PathBuf {
+    match file {
+        CatalogFile::Yaml(path) | CatalogFile::RootJson(path) => path,
+    }
+}
+
 /// The parsed contents of `file`, which [`remove_entry`] reads to see whether a removal empties a catalog. `None` when
 /// the file is not one the workspace read or does not parse.
 pub(crate) fn catalog_document(workspace: &Workspace, file: &CatalogFile) -> Option<Value> {
