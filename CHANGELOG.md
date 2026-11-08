@@ -27,6 +27,17 @@ All notable changes to this project are documented here. The format follows
   [#40](https://github.com/Goldziher/skif/issues/40)). The table holds 162 plugins. `sst` also reads the handlers of
   the modules `sst.config.ts` imports, such as `infra/*`.
 - `skif-js-syntax` extracts the values of a property wherever it is written in a file (`extract_property_values`).
+- `astro-db`, `astro-markdoc`, `astro-og-canvas`, `borp`, `bumpp`, `changelogithub`, `create-typescript-app`, `eve`,
+  `expressive-code`, `filesystem-routing`, `flue`, `kysely-codegen`, `ladle`, `laravel-vite-plugin`, `linthtml`,
+  `lockfile-lint`, `lost-pixel`, `lunaria`, `marko`, `mcp`, `mdxlint`, `node-modules-inspector`,
+  `npm-package-json-lint`, `openclaw`, `osls`, `playwright-test`, `railway`, `raycast`, `react-cosmos`,
+  `solidjs-vite-plugin`, `tsrs`, `typescript-content-mapper`, `varlock`, `vercel-og`, `vite-plugin-pages`,
+  `vite-plugin-vue-layouts-next`, `vite-plus`, `vite-pwa-assets-generator` and `yorkie` plugins
+  ([ADR 0061](adrs/0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md),
+  [#41](https://github.com/Goldziher/skif/issues/41)). The table holds 201 plugins. `mcp` reads the commands of the
+  servers in `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json` and `.codex/config.toml`, and `varlock` the
+  `@plugin` and `@import` decorators of `.env` files.
+- A plugin can be enabled by a key of the workspace's `package.json` (`Enabler::ManifestKey`).
 - `skif list` and `skif json` show every dependency instance the version groups and the catalog govern, with its
   version group, specifier and state, as syncpack's `list` and `json` do; `json` prints one object per line with
   syncpack's `statusCode` names ([#35](https://github.com/Goldziher/skif/issues/35)).
