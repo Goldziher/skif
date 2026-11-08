@@ -310,3 +310,8 @@ blake3 = "fb801baf95421900cb4935f773fa5b57cc8e4889d649eebb18f41a413d92f519"
 number = 62
 status = "accepted"
 blake3 = "50377c6b09beefe17d71d5d8fbfaa55e911b965c91ebe6b50b50596ed04a499f"
+
+[adrs."adrs/0063-skif-update-interactive-a-terminal-picker-on-the-update-report.md"]
+number = 63
+status = "accepted"
+blake3 = "e7aaf26eda074d0d5cc9bc3ca09ad4373e72d7f9b21e5dcc50d0b09bf2270187"
