@@ -448,9 +448,10 @@ tool looks for them:
 The files in the scope are treated as entries, so what they import is not reported either; every other file of the
 package is judged as usual. The whole package stays unjudged when the configuration does not parse, when a `vite`
 config computes `root`, `build.rollupOptions.input` or `build.lib.entry` itself or is unknown as a whole, when a
-`vitest` config computes `root`, when the plugin gives no scope (any other plugin), when the published build output maps
-to no source file (publishing may expose any file), and when a module of the package imports a computed path
-(`import(name)`, `require(name)`), which may load any of its files. `explain-usage` says which applies: a file in the
+`vitest` config computes `root`, `test.include`, `test.setupFiles` or `test.globalSetup` itself or is unknown as a
+whole, when a `playwright` config is unknown as a whole, when the plugin gives no scope (any other plugin), when the
+published build output maps to no source file (publishing may expose any file), and when a module of the package
+imports a computed path (`import(name)`, `require(name)`), which may load any of its files. `explain-usage` says which applies: a file in the
 scope is an entry of kind `incomplete-scope`, a file outside it reported by `unused-files` names the scope, and a file
 of a package left unjudged as a whole is `entries-incomplete`.
 

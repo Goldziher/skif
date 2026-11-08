@@ -748,10 +748,12 @@ fn incomplete_configs_are_scoped_to_what_the_tool_could_make_an_entry() {
         "vitest",
         "**/*{setup,Setup,teardown,Teardown}*.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte,astro,mdx}"
     ));
-    // An unknown test config as a whole is still a test config.
-    let unknown = run(&[("vitest.config.ts", "export default make();")], &["vitest"], &[]);
+    // A test config merged into an unknown base is still a test config.
+    let merged = "import { mergeConfig } from 'vitest/config';\nimport base from './base';\n\
+                  export default mergeConfig(base, { test: { environment: 'node' } });";
+    let merged = run(&[("vitest.config.ts", merged)], &["vitest"], &[]);
     assert!(scoped_to(
-        &unknown,
+        &merged,
         "vitest",
         "**/__mocks__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}"
     ));
@@ -782,11 +784,11 @@ fn incomplete_configs_are_scoped_to_what_the_tool_could_make_an_entry() {
     ));
 }
 
-/// A key the config computes itself, an unknown Vite config, a config that does not parse and a plugin that gives no
-/// scope keep the whole package unjudged.
+/// A key naming files the config computes itself, an unknown Vite or Vitest config, a config that does not parse and a
+/// plugin that gives no scope keep the whole package unjudged.
 #[test]
 fn computed_unparsable_and_unscoped_configs_stay_package_wide() {
-    let cases: [(&str, &str, &str); 6] = [
+    let cases: [(&str, &str, &str); 11] = [
         (
             "vite",
             "vite.config.ts",
@@ -804,10 +806,41 @@ fn computed_unparsable_and_unscoped_configs_stay_package_wide() {
             "vitest.config.ts",
             "export default { root: here(), test: {} };",
         ),
+        (
+            "vitest",
+            "vitest.config.ts",
+            "export default { test: { include: process.env.CI ? ['src/**/*.check.ts'] : ['src/**/*.unit.ts'] } };",
+        ),
+        (
+            "vitest",
+            "vitest.config.ts",
+            "import base from './base';\nexport default { ...base, test: { setupFiles: [pick()] } };",
+        ),
+        (
+            "vitest",
+            "vitest.config.ts",
+            "export default { test: { projects: [{ test: { globalSetup: pick() } }] } };",
+        ),
+        // A factory called with the package's options may name any of its files.
+        (
+            "vitest",
+            "vitest.config.ts",
+            "export default make({ include: ['src/**/*.check.ts'] });",
+        ),
+        (
+            "playwright",
+            "playwright.config.ts",
+            "export default make({ testDir: './browser', testMatch: '**/*.pw.ts' });",
+        ),
         ("webpack", "webpack.config.js", "module.exports = { entry: pick() };"),
     ];
     for (plugin, file, source) in cases {
-        let results = run(&[(file, source)], &[plugin], &[]);
+        let dependency = if plugin == "playwright" {
+            "@playwright/test"
+        } else {
+            plugin
+        };
+        let results = run(&[(file, source)], &[dependency], &[]);
         assert!(
             package_wide(&results, plugin),
             "{plugin}: {source}: {:?}",
