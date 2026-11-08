@@ -1,6 +1,15 @@
 //! Static knowledge about shells, package managers and the tools commonly run from scripts.
 
-/// Shell builtins and common system binaries that never need a package dependency.
+/// POSIX and bash builtins: words a shell runs itself, which are no program anyone installs.
+pub const SHELL_BUILTINS: &[&str] = &[
+    ".", ":", "[", "[[", "alias", "bg", "bind", "break", "builtin", "cd", "command", "compgen", "continue", "declare",
+    "dirs", "disown", "echo", "enable", "eval", "exec", "exit", "export", "false", "fc", "fg", "getopts", "hash",
+    "help", "history", "jobs", "kill", "let", "local", "logout", "popd", "printf", "pushd", "pwd", "read", "readonly",
+    "return", "set", "shift", "shopt", "source", "suspend", "test", "times", "trap", "true", "type", "typeset",
+    "ulimit", "umask", "unalias", "unset", "wait",
+];
+
+/// System binaries and platform tools that never need a package dependency, because they are installed globally.
 ///
 /// The selection follows `IGNORED_GLOBAL_BINARIES` of [knip](https://github.com/webpro-nl/knip) (ISC) and extends it
 /// with the platform tools that are common in scripts.
@@ -9,64 +18,6 @@
 /// and is never reported as a binary. The package managers (`npm`, `npx`, `pnpm`, `pnpx`, `yarn`,
 /// `yarnpkg`, `bun`, `bunx`, `corepack`) are interpreted rather than reported.
 pub const IGNORED_BINARIES: &[&str] = &[
-    // POSIX and bash builtins.
-    ".",
-    ":",
-    "[",
-    "[[",
-    "alias",
-    "bg",
-    "bind",
-    "break",
-    "builtin",
-    "cd",
-    "command",
-    "compgen",
-    "continue",
-    "declare",
-    "dirs",
-    "disown",
-    "echo",
-    "enable",
-    "eval",
-    "exec",
-    "exit",
-    "export",
-    "false",
-    "fc",
-    "fg",
-    "getopts",
-    "hash",
-    "help",
-    "history",
-    "jobs",
-    "kill",
-    "let",
-    "local",
-    "logout",
-    "popd",
-    "printf",
-    "pushd",
-    "pwd",
-    "read",
-    "readonly",
-    "return",
-    "set",
-    "shift",
-    "shopt",
-    "source",
-    "suspend",
-    "test",
-    "times",
-    "trap",
-    "true",
-    "type",
-    "typeset",
-    "ulimit",
-    "umask",
-    "unalias",
-    "unset",
-    "wait",
     // Shells.
     "ash",
     "bash",
@@ -214,7 +165,13 @@ pub const IGNORED_BINARIES: &[&str] = &[
 /// Whether `name` is a system or shell command that is not a dependency.
 #[must_use]
 pub fn is_ignored_binary(name: &str) -> bool {
-    IGNORED_BINARIES.contains(&name)
+    is_shell_builtin(name) || IGNORED_BINARIES.contains(&name)
+}
+
+/// Whether `name` is a shell builtin ([`SHELL_BUILTINS`]), which no setting ever reports as a binary.
+#[must_use]
+pub fn is_shell_builtin(name: &str) -> bool {
+    SHELL_BUILTINS.contains(&name)
 }
 
 /// Commands that only forward to the command in their arguments: the flags that take a value, and how many

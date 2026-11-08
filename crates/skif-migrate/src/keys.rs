@@ -47,6 +47,7 @@ pub(crate) const JS_PRODUCTION: &str = "production";
 pub(crate) const JS_INCLUDE_ENTRY_EXPORTS: &str = "include-entry-exports";
 pub(crate) const JS_TSCONFIG: &str = "tsconfig";
 pub(crate) const JS_USE_TSCONFIG_FILES: &str = "use-tsconfig-files";
+pub(crate) const JS_IGNORE_GLOBAL_BINARIES: &str = "ignore-global-binaries";
 
 // `[js.workspaces."<dir>"]`; the root is `"."`.
 pub(crate) const WS_PATHS: &str = "paths";

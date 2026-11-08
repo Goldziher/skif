@@ -12,6 +12,7 @@ use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 use crate::ancestors::{external_manifests, listed_names};
 use crate::graph::{ModuleGraph, ModuleId};
 use crate::lockfile;
+use crate::scripts::ScriptBinary;
 use crate::setup::Setup;
 use crate::specifier::{RUNTIME_PACKAGES, package_name, typed_package, types_package};
 use crate::tsconfig_paths::resolve_extends;
@@ -752,7 +753,12 @@ impl DependencyUsage {
                     self.reference(found, manager);
                 }
             }
-            for binary in &package_setup.scripts.binaries {
+            let global_binaries: &[ScriptBinary] = if setup.ignore_global_binaries {
+                &[]
+            } else {
+                &package_setup.scripts.global_binaries
+            };
+            for binary in package_setup.scripts.binaries.iter().chain(global_binaries) {
                 if !self.provide_binary(id, &binary.name)
                     && !self.ancestor_bins.contains(&binary.name)
                     && !setup.ignores_binary(id, &binary.name)

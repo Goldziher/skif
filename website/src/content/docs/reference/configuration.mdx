@@ -300,6 +300,7 @@ ignore = ["**/*.generated.ts"]
 ignore-files = ["scripts/one-off/**"]
 ignore-dependencies = ["@types/node", "/^@org\\/.+$/"]
 ignore-binaries = ["docker"]
+ignore-global-binaries = true
 ignore-unresolved = ["#internal/*", "/^virtual:/"]
 ignore-workspaces = ["tools/*"]
 ignore-members = ["/^_/"]
@@ -437,6 +438,12 @@ over the other packages, and an entry that matches a dependency such a package l
 reports knip's tag hints: an `ignore-tags` tag, or `@internal` with `production`, on an export or member that is used
 anyway (while `unused-exports` runs). A tag on an enum or namespace that hides an unused member is needed and not
 reported.
+
+**`ignore-global-binaries`** (default `true`, top level only) keeps `unlisted-binaries` quiet about the system and
+platform tools scripts run (`rm`, `curl`, `git`, `docker`), which are installed globally, like knip's
+`ignoreGlobalBinaries`. Set it to `false` to report each one that no dependency provides, unless `ignore-binaries`
+lists it. Shell builtins (`cd`, `echo`, `export`), shells, pass-through commands (`env`, `sudo`, `xargs`), the package
+managers and `node` are never reported.
 
 `discovery` chooses how source files are found. `auto` (the default) lists the files from the git index when the
 analysed root is in a git work tree and checks each directory with one `stat` instead of walking it: a directory

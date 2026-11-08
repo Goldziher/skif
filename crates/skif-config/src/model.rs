@@ -1394,6 +1394,10 @@ pub struct Js {
     pub ignore_dependencies: Vec<String>,
     /// Binaries never reported as unlisted.
     pub ignore_binaries: Vec<String>,
+    /// Never report the system and shell tools scripts run (`rm`, `curl`, `git`, `docker`) as unlisted binaries,
+    /// since they are installed globally rather than from npm (knip's `ignoreGlobalBinaries`). On by default; turn it
+    /// off to have `unlisted-binaries` report them unless a dependency provides them.
+    pub ignore_global_binaries: bool,
     /// Import specifiers never reported as unresolved. Entries are exact specifiers, globs or regular expressions
     /// (`/^@org\/.+$/`), see the `[js]` documentation.
     pub ignore_unresolved: Vec<String>,
@@ -1530,6 +1534,7 @@ impl Default for Js {
             ignore_files: Vec::new(),
             ignore_dependencies: Vec::new(),
             ignore_binaries: Vec::new(),
+            ignore_global_binaries: true,
             ignore_unresolved: Vec::new(),
             ignore_workspaces: Vec::new(),
             ignore_exports_used_in_file: IgnoreExportsUsedInFile::default(),

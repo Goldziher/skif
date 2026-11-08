@@ -162,7 +162,7 @@ equivalent.
 | `compilers: true`, or `true` for `mdx`, `vue`, `svelte`, `astro`, `css`, `scss`, `sass`, `less`, `styl`, `stylus` or `tsrx` | none (D): skif reads those files with built-in extractors, without a compiler; for `mdx` and `tsrx` the note suggests adding them to `project`, which knip does when a compiler reads them |
 | a `compilers` function for one of those extensions | none (A): the function is never run, and the built-in extractor reads the files |
 | `compilers` for other extensions, `asyncCompilers`, `preprocessor` | none (X): functions are never run |
-| `ignoreGlobalBinaries` | `true` is what skif always does; `false` has no equivalent (X) |
+| `ignoreGlobalBinaries` | `[js] ignore-global-binaries` (`true` is the default); a workspace-level `false` has no equivalent (X) |
 | `treatTagHintsAsErrors` | none (A): tag hints are part of `stale-js-config`, which `--strict-hints` makes an error |
 | `ignoreIssues` with a name that is not a knip issue type (`classMembers`) | none (X): knip 6 has no such issue type |
 | a plugin key skif has no plugin for | none (X), named in the report |
