@@ -1216,6 +1216,11 @@ fn tsconfig_root_dir_is_inferred_from_include_and_files() {
         build_dirs(r#"{"compilerOptions":{"outDir":"dist"},"files":["src/cli/main.ts","src/index.ts"]}"#),
         pair("dist", "src")
     );
+    // A pattern without a wildcard or a code extension is a directory, even with a dot in its name.
+    assert_eq!(
+        build_dirs(r#"{"compilerOptions":{"outDir":"dist"},"include":["packages/v1.2"]}"#),
+        pair("dist", "packages/v1.2")
+    );
     // An explicit `rootDir` wins, and without `include` or `files` nothing is inferred.
     assert_eq!(
         build_dirs(r#"{"compilerOptions":{"outDir":"dist","rootDir":"lib"},"include":["src"]}"#),

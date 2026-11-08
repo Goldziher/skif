@@ -154,6 +154,16 @@ fn paths(options: &ConfigValue, config: &ConfigAst<'_>) -> Vec<PluginInput> {
     out
 }
 
+/// The extensions of the files TypeScript reads as inputs, `json` included for `resolveJsonModule`.
+const INPUT_EXTENSIONS: &[&str] = &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "json"];
+
+/// Whether a path segment names a file TypeScript reads as an input.
+fn has_input_extension(segment: &str) -> bool {
+    segment.rsplit_once('.').is_some_and(|(stem, extension)| {
+        !stem.is_empty() && INPUT_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+    })
+}
+
 /// The `rootDir` TypeScript uses when a config sets none: the longest common directory of its input files, here
 /// approximated from the `include` and `files` the config lists. An `include` pattern stands for its directory part
 /// before the first wildcard, and a listed file for its directory; declaration files are not inputs and are skipped.
@@ -170,13 +180,9 @@ fn inferred_root_dir(value: &ConfigValue) -> Option<String> {
             .position(|segment| segment.contains(['*', '?', '{', '[']));
         let directory = match wildcard {
             Some(at) => &segments[..at],
-            // A pattern without a wildcard names a directory, or a file when it has an extension.
-            None if segments
-                .last()
-                .is_some_and(|last| last.contains('.') && *last != "." && *last != "..") =>
-            {
-                &segments[..segments.len() - 1]
-            }
+            // A pattern without a wildcard names a directory, or a file when it has an input extension
+            // (`packages/v1.2` is a directory).
+            None if segments.last().is_some_and(|last| has_input_extension(last)) => &segments[..segments.len() - 1],
             None => &segments[..],
         };
         roots.push(join_rel("", &directory.join("/")));
