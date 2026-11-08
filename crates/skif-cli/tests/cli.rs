@@ -848,6 +848,79 @@ fn lint_to_json_classifies_its_errors() {
 }
 
 #[test]
+fn format_writes_an_unsafe_exports_reorder_only_with_unsafe() {
+    let dir = fixture("format");
+    let manifest = dir.path().join("packages").join("a").join("package.json");
+    fs::write(
+        &manifest,
+        r#"{"name":"@format/a","exports":{"import":"./a.mjs","module":"./a.esm.js"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("skif.toml"),
+        "[format]\nsort-exports = [\"types\", \"module\", \"import\", \"default\"]\n",
+    )
+    .unwrap();
+    let before = tree(dir.path());
+
+    let safe = run(skif().args(["format"]).arg(dir.path()));
+    assert_eq!(safe.code, 1, "{}{}", safe.stdout, safe.stderr);
+    assert_eq!(
+        tree(dir.path()),
+        before,
+        "an unsafe change was written without --unsafe"
+    );
+
+    let refused = run(skif().args(["format", "--check", "--unsafe"]).arg(dir.path()));
+    assert_eq!(refused.code, 2, "{}{}", refused.stdout, refused.stderr);
+
+    let applied = run(skif().args(["format", "--unsafe"]).arg(dir.path()));
+    assert_eq!(applied.code, 0, "{}{}", applied.stdout, applied.stderr);
+    assert_eq!(
+        fs::read_to_string(&manifest).unwrap(),
+        r#"{"name":"@format/a","exports":{"module":"./a.esm.js","import":"./a.mjs"}}"#
+    );
+}
+
+#[test]
+fn format_check_exits_one_and_format_writes_the_fix() {
+    let dir = fixture("format");
+    let manifest = dir.path().join("packages").join("a").join("package.json");
+    let before = tree(dir.path());
+
+    let check = run(skif().args(["format", "--check"]).arg(dir.path()));
+    assert_eq!(check.code, 1, "{}{}", check.stdout, check.stderr);
+    assert_eq!(tree(dir.path()), before, "--check wrote a file");
+    insta::assert_snapshot!("format_check_human", redact(&check.stdout, dir.path()));
+
+    let refused = run(skif().args(["format"]).arg(dir.path()).env("CI", "true"));
+    assert_eq!(refused.code, 2, "{}{}", refused.stdout, refused.stderr);
+    assert_eq!(tree(dir.path()), before, "a refused run wrote a file");
+
+    let lint = run(skif().args(["--format", "json", "--no-js"]).arg(dir.path()));
+    assert!(
+        !rule_ids(&lint.json()).contains("package-json-format"),
+        "the rule is off in a plain lint"
+    );
+
+    let format = run(skif().args(["format"]).arg(dir.path()));
+    assert_eq!(format.code, 0, "{}{}", format.stdout, format.stderr);
+    let formatted = fs::read_to_string(&manifest).unwrap();
+    insta::assert_snapshot!("format_fixed_manifest", formatted);
+
+    let again = run(skif().args(["format", "--check", "--format", "json"]).arg(dir.path()));
+    assert_eq!(again.code, 0, "{}{}", again.stdout, again.stderr);
+    assert_eq!(again.json()["summary"]["errors"], 0);
+    let twice = run(skif().args(["format"]).arg(dir.path()));
+    assert_eq!(twice.code, 0);
+    assert_eq!(
+        fs::read_to_string(&manifest).unwrap(),
+        formatted,
+        "formatting twice changed the file"
+    );
+}
+
+#[test]
 fn codeclimate_is_a_json_array_for_gitlab_and_can_go_to_output() {
     let dir = fixture("dirty");
     let stdout = run(skif().args(["--format", "codeclimate"]).arg(dir.path()));

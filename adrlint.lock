@@ -270,3 +270,8 @@ blake3 = "aedad73032cc91a8f5e8db47df271586d5a71682c93d68c79fe8710dd0595871"
 number = 54
 status = "accepted"
 blake3 = "2534213670b270563a225c8cdb19d18d344ce10bb8f42100c500def10fd4e678"
+
+[adrs."adrs/0055-package-json-formatting-the-package-json-format-rule-and-skif-format.md"]
+number = 55
+status = "accepted"
+blake3 = "bd6d672ea69058f32d0b091eaef6c13e382130430ea0e1c67765464d4a1f15c9"

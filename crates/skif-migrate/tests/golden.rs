@@ -22,7 +22,7 @@ fn known_rules() -> Vec<RuleInfo> {
         .lines()
         .map(str::trim)
         .filter(|id| !id.is_empty())
-        .map(|id| RuleInfo::new(id, id != "circular-imports"))
+        .map(|id| RuleInfo::new(id, !["circular-imports", "package-json-format"].contains(&id)))
         .collect()
 }
 
@@ -934,5 +934,67 @@ fn merging_adds_new_tables_after_the_existing_ones() {
         format!(
             "{existing}\n# Added by `skif migrate --merge` from sherif (profile: full).\n\n[lint]\nfail-on-warnings = true\n# skif migrate: sources = [\"sherif\"]\n"
         )
+    );
+}
+
+#[test]
+fn syncpack_format_options_are_written_to_the_format_table() {
+    let mut input = ToolInput::new(Tool::Syncpack);
+    input.config = Some(Input::new(
+        ".syncpackrc.json",
+        r#"{
+  "sortFirst": ["name", "version"],
+  "sortAz": ["keywords"],
+  "sortExports": ["types", "default"],
+  "sortPackages": false,
+  "formatBugs": true,
+  "formatRepository": true,
+  "indent": "    "
+}"#,
+    ));
+    let migration = migrate(&[input], &options(Profile::Exact)).unwrap();
+    let parsed = table(&migration);
+    let format = parsed["format"].as_table().unwrap();
+    assert_eq!(format["sort-first"].as_array().unwrap().len(), 2);
+    assert_eq!(format["sort-az"].as_array().unwrap()[0].as_str(), Some("keywords"));
+    assert_eq!(format["sort-exports"].as_array().unwrap().len(), 2);
+    assert_eq!(format["sort-packages"].as_bool(), Some(false));
+    assert_eq!(format["format-bugs"].as_bool(), Some(true));
+    assert_eq!(format["format-repository"].as_bool(), Some(true));
+    assert_eq!(format["indent"].as_str(), Some("    "));
+    assert_eq!(parsed["rules"]["package-json-format"].as_str(), Some("error"));
+    assert_eq!(class(&migration, "sortFirst"), NoteClass::Exact);
+    assert_eq!(class(&migration, "sortAz"), NoteClass::Approximate);
+    assert_eq!(class(&migration, "indent"), NoteClass::Approximate);
+    assert_eq!(migration.config.format.indent.as_deref(), Some("    "));
+}
+
+#[test]
+fn a_syncpack_format_script_turns_the_format_rule_on() {
+    let mut input = ToolInput::new(Tool::Syncpack);
+    input.package_json = Some(Input::new(
+        "package.json",
+        r#"{"name":"root","private":true,"scripts":{"format:check":"syncpack format --check"}}"#,
+    ));
+    let migration = migrate(&[input], &options(Profile::Exact)).unwrap();
+    let parsed = table(&migration);
+    assert_eq!(parsed["rules"]["package-json-format"].as_str(), Some("error"));
+    assert!(parsed.get("format").is_none(), "syncpack's defaults are skif's");
+    assert_eq!(
+        class(&migration, "scripts.format:check: syncpack format"),
+        NoteClass::Exact
+    );
+
+    let mut plain = ToolInput::new(Tool::Syncpack);
+    plain.package_json = Some(Input::new(
+        "package.json",
+        r#"{"name":"root","private":true,"scripts":{"lint":"syncpack lint"}}"#,
+    ));
+    let migration = migrate(&[plain], &options(Profile::Exact)).unwrap();
+    assert!(
+        table(&migration)
+            .get("rules")
+            .and_then(|rules| rules.get("package-json-format"))
+            .is_none()
     );
 }

@@ -141,6 +141,35 @@
         "plugins": {}
       }
     },
+    "format": {
+      "$ref": "#/$defs/Format",
+      "description": "`[format]`: how `package-json-format` and `skif format` order and lay out `package.json` files.",
+      "default": {
+        "sort-first": [
+          "name",
+          "description",
+          "version",
+          "author"
+        ],
+        "sort-az": [
+          "bin",
+          "contributors",
+          "dependencies",
+          "devDependencies",
+          "keywords",
+          "peerDependencies",
+          "resolutions",
+          "scripts"
+        ],
+        "sort-exports": [
+          "types",
+          "default"
+        ],
+        "sort-packages": true,
+        "format-bugs": false,
+        "format-repository": false
+      }
+    },
     "overrides": {
       "type": "array",
       "items": {
@@ -1232,6 +1261,76 @@
         }
       },
       "description": "Table form of a plugin entry."
+    },
+    "Format": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sort-first": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Top-level keys that come first, in this order.",
+          "default": [
+            "name",
+            "description",
+            "version",
+            "author"
+          ]
+        },
+        "sort-az": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Fields sorted alphabetically one level deep: an object by key, an array of strings by value. `a/b` names a\nnested field. For fields whose order means nothing: an array with a `!`-prefixed entry keeps its order.",
+          "default": [
+            "bin",
+            "contributors",
+            "dependencies",
+            "devDependencies",
+            "keywords",
+            "peerDependencies",
+            "resolutions",
+            "scripts"
+          ]
+        },
+        "sort-exports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Keys that come first, in this order, in every object of `exports`; `default` is always last. The default moves\nonly `types` and `default`; a key that reorders other conditions makes the fix unsafe.",
+          "default": [
+            "types",
+            "default"
+          ]
+        },
+        "sort-packages": {
+          "type": "boolean",
+          "description": "Sort the top-level keys `sort-first` does not name.",
+          "default": true
+        },
+        "format-bugs": {
+          "type": "boolean",
+          "description": "Write a `bugs` object that holds only `url` as that string.",
+          "default": false
+        },
+        "format-repository": {
+          "type": "boolean",
+          "description": "Write a `repository` object that holds only `url` and a `type` of `git` (or no `type`) as its shorthand.",
+          "default": false
+        },
+        "indent": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Check the layout against `JSON.stringify(manifest, null, indent)`: spaces or tabs, for example `\"  \"` or\n`\"\\t\"`. Unset keeps each file's layout."
+        }
+      },
+      "description": "`[format]`: what the `package-json-format` rule and `skif format` check, with syncpack's defaults (ADR 0055)."
     },
     "Override": {
       "type": "object",

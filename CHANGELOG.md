@@ -162,6 +162,13 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
 - An enum or namespace member tagged `@internal` (with `production`), `@beta`, `@alpha`, `@alias` or an `ignore-tags`
   name is no longer reported by `unused-enum-members` or `unused-namespace-members`; only `@public` was honoured
   ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `package.json` formatting with syncpack's `format` semantics: the `package-json-format` rule (off by default),
+  `skif format`, `skif format --check` and `skif format --unsafe`, and a `[format]` table with `sort-first`, `sort-az`,
+  `sort-exports`, `sort-packages`, `format-bugs`, `format-repository` and `indent`. By default only `types` moves first
+  and `default` last among `exports` conditions, since the others decide resolution; a longer `sort-exports` gives an
+  unsafe fix. Comments, negated globs and non-git repositories are kept. `skif migrate` writes syncpack's format
+  options to it ([ADR 0055](adrs/0055-package-json-formatting-the-package-json-format-rule-and-skif-format.md),
+  [#33](https://github.com/Goldziher/skif/issues/33)).
 
 ## [0.1.1] - 2026-11-07
 

@@ -254,6 +254,41 @@ name = "react"
 enabled = false              # disable a built-in family of the same name
 ```
 
+### `[format]`
+
+What the [`package-json-format`](../../rules/manifest/#package-json-format) rule and `skif format` check. The rule is
+off by default; the table is root-scoped and cannot appear in `[[overrides]]`. The defaults are syncpack's, except
+`sort-exports`.
+
+```toml
+[format]
+sort-first = ["name", "description", "version", "author"]   # top-level keys that come first, in this order
+sort-packages = true          # the remaining top-level keys in byte order; false keeps their order
+sort-az = ["bin", "contributors", "dependencies", "devDependencies", "keywords", "peerDependencies", "resolutions", "scripts"]
+sort-exports = ["types", "default"]   # types first, default last, every other condition where it is
+format-bugs = false           # { "url": "..." } becomes "..."
+format-repository = false     # { "type": "git", "url": "git+https://github.com/o/r.git" } becomes "o/r.git"
+# indent = "  "               # unset: keep each file's layout
+```
+
+`sort-az` sorts each named field one level deep: an object by key, an array of strings by value; `a/b` names a nested
+field. It is for fields whose order means nothing: an array with a `!`-prefixed entry, such as `files` with a negated
+glob, keeps its order, because a negation only excludes what the patterns before it matched. `sort-exports` orders the keys of every object in `exports` (the others keep their order) and always puts
+`default` last. Node and bundlers take the first condition that matches, so only `types` first and `default` last
+cannot change how an import resolves; that is the default, and its fix is safe. A list that reorders other conditions,
+such as syncpack's default `["types", "node-addons", "node", "browser", "module", "import", "require", "svelte",
+"development", "production", "script", "default"]`, is applied with an unsafe fix (`skif format --unsafe`,
+`skif --fix-unsafe`). `format-bugs` and `format-repository` collapse only an object the shorthand holds completely:
+a `bugs` with an `email`, or a `repository` with a `directory` or a `type` other than `git` (`svn`, `hg`), stays. An
+empty list turns its step off. Sorting is by byte order, the order `unsorted-dependencies` uses.
+
+Without `indent`, formatting moves members with their own text and keeps every file's whitespace, and whitespace is
+never reported. An object or array with a comment between its members is not reordered, and a `bugs` or `repository`
+with a comment inside is not collapsed, so a comment never ends up beside another member or disappears. With `indent` (spaces or tabs; `"\\t"` is read as a tab), a manifest must be laid out as
+`JSON.stringify(manifest, null, indent)` lays it out, with the file's own line ending and a final newline. A manifest
+that is not strict JSON (comments, trailing commas, single-quoted strings) keeps its layout, because laying it out again
+would drop its comments or write invalid JSON. Only `package.json` files are formatted.
+
 ### `[js]`
 
 ```toml
