@@ -1,13 +1,16 @@
 //! Module resolution on `oxc_resolver`, reading through the host's [`FileSystem`].
 
+use std::borrow::Borrow;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError, RwLock};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use oxc_resolver::{FileMetadata, ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery};
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use serde_json::Value;
 use skif_core::{FileSystem, OsFs};
 use skif_js_syntax::is_stylesheet;
@@ -185,46 +188,59 @@ fn alias_rest<'a>(specifier: &'a str, find: &str) -> Option<&'a str> {
     specifier.strip_prefix(find)?.strip_prefix('/')
 }
 
-/// A map filled on first use; concurrent first uses may both compute, the results are equal.
-struct Memo<K, V>(RwLock<HashMap<K, V>>);
+/// A map filled on first use; concurrent first uses may both compute, the results are equal. A hit allocates
+/// nothing; keys are hashed with `FxHash`, as they are paths and names of the run's own tree.
+struct Memo<K, V>(RwLock<FxHashMap<K, V>>);
 
 impl<K: Eq + Hash, V: Clone> Memo<K, V> {
     fn new() -> Self {
-        Self(RwLock::new(HashMap::new()))
+        Self(RwLock::new(HashMap::with_hasher(FxBuildHasher)))
     }
 
-    fn get_or_compute(&self, key: K, compute: impl FnOnce() -> V) -> V {
-        if let Some(known) = self.0.read().unwrap_or_else(PoisonError::into_inner).get(&key) {
-            return known.clone();
+    fn get<Q>(&self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+    {
+        self.0.read().unwrap_or_else(PoisonError::into_inner).get(key).cloned()
+    }
+
+    fn get_or_compute<Q>(&self, key: &Q, compute: impl FnOnce() -> V) -> V
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash + ToOwned<Owned = K> + ?Sized,
+    {
+        if let Some(known) = self.get(key) {
+            return known;
         }
         let value = compute();
         self.0
             .write()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(key, value.clone());
+            .insert(key.to_owned(), value.clone());
         value
     }
 }
 
-/// Outcomes of the lookup-directory probe by scope index and specifier, misses included. A hit allocates nothing.
-struct ModuleDirProbes(RwLock<HashMap<usize, HashMap<String, Option<Resolved>>>>);
+/// Values memoised by a pair of keys (a scope index or a package name, and a specifier), misses included. A hit
+/// allocates nothing.
+struct PairMemo<K, V>(RwLock<FxHashMap<K, FxHashMap<String, V>>>);
 
-impl ModuleDirProbes {
+impl<K: Eq + Hash + Clone, V: Clone> PairMemo<K, V> {
     fn new() -> Self {
-        Self(RwLock::new(HashMap::new()))
+        Self(RwLock::new(HashMap::with_hasher(FxBuildHasher)))
     }
 
-    fn get_or_compute(
-        &self,
-        scope: usize,
-        specifier: &str,
-        compute: impl FnOnce() -> Option<Resolved>,
-    ) -> Option<Resolved> {
+    fn get_or_compute<Q>(&self, first: &Q, specifier: &str, compute: impl FnOnce() -> V) -> V
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash + ToOwned<Owned = K> + ?Sized,
+    {
         if let Some(known) = self
             .0
             .read()
             .unwrap_or_else(PoisonError::into_inner)
-            .get(&scope)
+            .get(first)
             .and_then(|probes| probes.get(specifier))
         {
             return known.clone();
@@ -233,7 +249,7 @@ impl ModuleDirProbes {
         self.0
             .write()
             .unwrap_or_else(PoisonError::into_inner)
-            .entry(scope)
+            .entry(first.to_owned())
             .or_default()
             .insert(specifier.to_owned(), value.clone());
         value
@@ -255,7 +271,12 @@ pub(crate) struct ModuleResolver {
     members: BTreeMap<String, Member>,
     scopes: Vec<AliasScope>,
     /// The position in `scopes` of the scope of each package directory.
-    scope_index: HashMap<PathBuf, usize>,
+    scope_index: FxHashMap<PathBuf, usize>,
+    /// For each scope, the lookup directories of the scopes whose directories hold it (itself included), in the
+    /// order of `scopes`.
+    module_dir_chains: Vec<Vec<PathBuf>>,
+    /// The positions of the scopes that hold a path, innermost first, by path: every import of a file asks for them.
+    scope_chains: Memo<PathBuf, Arc<[usize]>>,
     /// Whether any scope has lookup directories; without one the lookup-directory probe has nothing to do.
     has_module_dirs: bool,
     /// `exports` conditions that select source files, besides the built-in `source`.
@@ -263,9 +284,11 @@ pub(crate) struct ModuleResolver {
     /// Packages that are not workspace members, by directory, parsed once; `None` when there is no readable manifest.
     directory_packages: Memo<PathBuf, Option<Arc<Member>>>,
     /// Outcomes of the lookup-directory probe by the innermost scope of the importer and specifier.
-    module_dir_probes: ModuleDirProbes,
+    module_dir_probes: PairMemo<usize, Option<Resolved>>,
     /// The same for specifiers written in stylesheets.
-    style_module_dir_probes: ModuleDirProbes,
+    style_module_dir_probes: PairMemo<usize, Option<Resolved>>,
+    /// The source file a workspace member exposes for a specifier, by member name and specifier.
+    member_files: PairMemo<String, Option<PathBuf>>,
     /// The nearest `baseUrl` and `paths` by directory, `None` when no config at or above it sets them.
     nearest_paths: Memo<PathBuf, Option<Arc<TsPaths>>>,
     /// The `tsconfig.json` and `jsconfig.json` files read so far.
@@ -285,6 +308,81 @@ enum Kind {
 struct Resolvers {
     with_tsconfig: ResolverGeneric<ResolverFs>,
     plain: ResolverGeneric<ResolverFs>,
+    /// Shared by every set, as the `oxc_resolver` cache is.
+    tsconfigs: Arc<TsconfigFailures>,
+}
+
+/// The `tsconfig.json` files `oxc_resolver` cannot load, and the directories whose importers meet them first.
+///
+/// `oxc_resolver` keeps a `tsconfig` only once it loaded, so one that fails (it extends a package that is not
+/// installed) is read and parsed again for every importer below it, before the resolution falls back to the
+/// resolver without a `tsconfig`. The failure is the same for every importer whose nearest `tsconfig` it is.
+struct TsconfigFailures {
+    fs: Arc<dyn FileSystem>,
+    /// Why the nearest `tsconfig.json` at or above a directory cannot be loaded, by directory; `None` when it loads,
+    /// when there is none, or when `oxc_resolver` walks on past it. Filled for directories where a resolution met a
+    /// `tsconfig` error.
+    by_directory: Memo<PathBuf, Option<ResolveError>>,
+    /// The error of loading a `tsconfig.json`, by path; `None` when it loads.
+    by_file: Memo<PathBuf, Option<ResolveError>>,
+    /// Whether a resolution met a `tsconfig` error; until then no directory is looked at.
+    seen: AtomicBool,
+}
+
+impl TsconfigFailures {
+    /// The directory whose memo answers for `importer`, `None` for an importer `oxc_resolver` treats differently:
+    /// one it looks up no `tsconfig` for (inside `node_modules`, relative), one whose path it would read as a
+    /// specifier with a query or fragment, or one that is not normalised.
+    fn directory(importer: &Path) -> Option<&Path> {
+        let directory = importer.parent()?;
+        let text = importer.as_os_str().as_encoded_bytes();
+        let plain = importer.is_absolute()
+            && !text.contains(&b'#')
+            && !text.contains(&b'?')
+            && importer.components().all(|component| match component {
+                Component::Normal(name) => name != "node_modules",
+                Component::RootDir | Component::Prefix(_) => true,
+                Component::CurDir | Component::ParentDir => false,
+            });
+        plain.then_some(directory)
+    }
+
+    /// The `tsconfig` error every resolution from `importer` meets, once a resolution of the run met one.
+    fn known(&self, resolver: &ResolverGeneric<ResolverFs>, importer: &Path) -> Option<ResolveError> {
+        if !self.seen.load(Ordering::Relaxed) {
+            return None;
+        }
+        self.of_directory(resolver, Self::directory(importer)?)
+    }
+
+    /// Records that a resolution from `importer` met a `tsconfig` error.
+    fn record(&self, resolver: &ResolverGeneric<ResolverFs>, importer: &Path) {
+        self.seen.store(true, Ordering::Relaxed);
+        if let Some(directory) = Self::directory(importer) {
+            self.of_directory(resolver, directory);
+        }
+    }
+
+    /// The `tsconfig` error of the importers in `directory`: `oxc_resolver` walks up from the importer to the first
+    /// `tsconfig.json`; one that fails to load is the error of the resolution, one that cannot be read is skipped.
+    fn of_directory(&self, resolver: &ResolverGeneric<ResolverFs>, directory: &Path) -> Option<ResolveError> {
+        self.by_directory.get_or_compute(directory, || {
+            let config = directory
+                .ancestors()
+                .map(|dir| dir.join("tsconfig.json"))
+                .find(|config| self.fs.is_file(config))?;
+            self.by_file
+                .get_or_compute(&config, || match resolver.resolve_tsconfig(&config) {
+                    Ok(_) => None,
+                    Err(ResolveError::TsconfigLoadFailed { source, .. })
+                        if matches!(*source, ResolveError::IOError(_)) =>
+                    {
+                        None
+                    }
+                    Err(error) => Some(error),
+                })
+        })
+    }
 }
 
 impl Resolvers {
@@ -292,7 +390,16 @@ impl Resolvers {
     fn new(fs: &Arc<dyn FileSystem>, options: impl Fn(bool) -> ResolveOptions) -> Self {
         let with_tsconfig = ResolverGeneric::new_with_file_system(ResolverFs { fs: Arc::clone(fs) }, options(true));
         let plain = with_tsconfig.clone_with_options(options(false));
-        Self { with_tsconfig, plain }
+        Self {
+            with_tsconfig,
+            plain,
+            tsconfigs: Arc::new(TsconfigFailures {
+                fs: Arc::clone(fs),
+                by_directory: Memo::new(),
+                by_file: Memo::new(),
+                seen: AtomicBool::new(false),
+            }),
+        }
     }
 
     /// Another set with other options over the same cache, so a path is looked up on disk once however many sets
@@ -301,19 +408,51 @@ impl Resolvers {
         Self {
             with_tsconfig: self.with_tsconfig.clone_with_options(options(true)),
             plain: self.with_tsconfig.clone_with_options(options(false)),
+            tsconfigs: Arc::clone(&self.tsconfigs),
         }
     }
 
     fn attempt(&self, importer: &Path, specifier: &str) -> Result<PathBuf, ResolveError> {
-        match self.with_tsconfig.resolve_file(importer, specifier) {
+        // A `tsconfig` known not to load is the error `resolve_file` would return for every importer below it: go
+        // straight to the fallback instead of reading and parsing it again.
+        let with_tsconfig = match self.tsconfigs.known(&self.with_tsconfig, importer) {
+            Some(error) => Err(error),
+            None => self.with_tsconfig.resolve_file(importer, specifier),
+        };
+        match with_tsconfig {
             Ok(resolution) => Ok(resolution.path().to_path_buf()),
             Err(error @ (ResolveError::NotFound(_) | ResolveError::MatchedAliasNotFound(..))) => Err(error),
-            Err(_) => self
-                .plain
-                .resolve_file(importer, specifier)
-                .map(|resolution| resolution.path().to_path_buf()),
+            Err(error) => {
+                if matches!(
+                    error,
+                    ResolveError::TsconfigNotFound(_)
+                        | ResolveError::TsconfigLoadFailed { .. }
+                        | ResolveError::TsconfigCircularExtend(_)
+                        | ResolveError::TsconfigSelfReference(_)
+                ) {
+                    self.tsconfigs.record(&self.with_tsconfig, importer);
+                }
+                self.plain
+                    .resolve_file(importer, specifier)
+                    .map(|resolution| resolution.path().to_path_buf())
+            }
         }
     }
+}
+
+/// For each scope, the lookup directories of the scopes whose directories hold it (itself included), in the order of
+/// `scopes`.
+fn module_dir_chains(scopes: &[AliasScope]) -> Vec<Vec<PathBuf>> {
+    scopes
+        .iter()
+        .map(|innermost| {
+            scopes
+                .iter()
+                .filter(|scope| innermost.dir.starts_with(&scope.dir))
+                .flat_map(|scope| scope.module_dirs.iter().cloned())
+                .collect()
+        })
+        .collect()
 }
 
 /// The `name` argument of a Bazel `module(...)` or `workspace(...)` call.
@@ -516,6 +655,11 @@ impl ModuleResolver {
             .map(|(position, scope)| (scope.dir.clone(), position))
             .collect();
         let has_module_dirs = scopes.iter().any(|scope| !scope.module_dirs.is_empty());
+        let module_dir_chains = if has_module_dirs {
+            module_dir_chains(&scopes)
+        } else {
+            Vec::new()
+        };
         let mut ignore_dirs = vec![workspace.root.clone()];
         for package in workspace.all_packages() {
             let dir = workspace.root.join(&package.dir);
@@ -546,11 +690,14 @@ impl ModuleResolver {
             members,
             scopes,
             scope_index,
+            module_dir_chains,
+            scope_chains: Memo::new(),
             has_module_dirs,
             conditions,
             directory_packages: Memo::new(),
-            module_dir_probes: ModuleDirProbes::new(),
-            style_module_dir_probes: ModuleDirProbes::new(),
+            module_dir_probes: PairMemo::new(),
+            style_module_dir_probes: PairMemo::new(),
+            member_files: PairMemo::new(),
             nearest_paths: Memo::new(),
             tsconfigs,
             declared_imports: Memo::new(),
@@ -597,7 +744,7 @@ impl ModuleResolver {
         let Some(directory) = importer.parent() else {
             return false;
         };
-        self.declared_imports.get_or_compute(directory.to_path_buf(), || {
+        self.declared_imports.get_or_compute(directory, || {
             for dir in directory.ancestors().take_while(|dir| dir.starts_with(&self.root)) {
                 if let Some(member) = self.members.values().find(|member| member.dir == dir) {
                     return member.manifest.get("imports").is_some();
@@ -618,9 +765,7 @@ impl ModuleResolver {
             return false;
         };
         self.nearest_paths
-            .get_or_compute(directory.to_path_buf(), || {
-                self.tsconfigs.nearest(directory).map(Arc::new)
-            })
+            .get_or_compute(directory, || self.tsconfigs.nearest(directory).map(Arc::new))
             .is_some_and(|config| config.maps(specifier))
     }
 
@@ -878,12 +1023,18 @@ impl ModuleResolver {
 
     /// The scopes whose directory holds `importer`, innermost first, with their position in `scopes`.
     ///
-    /// Found by walking up the importer's ancestors instead of testing every scope.
-    fn scopes_of<'a>(&'a self, importer: &'a Path) -> impl Iterator<Item = (usize, &'a AliasScope)> + 'a {
-        importer
-            .ancestors()
-            .filter_map(|dir| self.scope_index.get(dir))
-            .map(|&position| (position, &self.scopes[position]))
+    /// Found by walking up the importer's ancestors instead of testing every scope, once per importer.
+    fn scopes_of(&self, importer: &Path) -> impl Iterator<Item = (usize, &AliasScope)> + '_ {
+        let chain = self.scope_chains.get_or_compute(importer, || {
+            importer
+                .ancestors()
+                .filter_map(|dir| self.scope_index.get(dir).copied())
+                .collect()
+        });
+        (0..chain.len()).map(move |at| {
+            let position = chain[at];
+            (position, &self.scopes[position])
+        })
     }
 
     /// Looks a bare specifier up in the lookup directories of the importer's package (`baseUrl`, `paths` wildcards,
@@ -898,16 +1049,12 @@ impl ModuleResolver {
             Kind::Script => &self.module_dir_probes,
             Kind::Style => &self.style_module_dir_probes,
         };
-        probes.get_or_compute(position, specifier, || {
-            self.scopes
-                .iter()
-                .filter(|scope| innermost.dir.starts_with(&scope.dir))
-                .flat_map(|scope| &scope.module_dirs)
-                .find_map(|dir| {
-                    let path = join_normalized(dir, specifier);
-                    self.resolve_path(kind, &innermost.dir, &path)
-                        .map(|found| self.classify(found))
-                })
+        probes.get_or_compute(&position, specifier, || {
+            self.module_dir_chains[position].iter().find_map(|dir| {
+                let path = join_normalized(dir, specifier);
+                self.resolve_path(kind, &innermost.dir, &path)
+                    .map(|found| self.classify(found))
+            })
         })
     }
 
@@ -915,9 +1062,9 @@ impl ModuleResolver {
     /// when it is in a directory that is not a package or does not include the importer.
     fn through_nearest_tsconfig(&self, kind: Kind, importer: &Path, specifier: &str) -> Option<Resolved> {
         let directory = importer.parent()?;
-        let config = self.nearest_paths.get_or_compute(directory.to_path_buf(), || {
-            self.tsconfigs.nearest(directory).map(Arc::new)
-        })?;
+        let config = self
+            .nearest_paths
+            .get_or_compute(directory, || self.tsconfigs.nearest(directory).map(Arc::new))?;
         config.candidates(specifier).into_iter().find_map(|path| {
             if let Some(package) = node_modules_package(&path) {
                 return Some(Resolved::External(package));
@@ -931,9 +1078,9 @@ impl ModuleResolver {
     /// directory, as for generated code that lives beside the sources in a virtual directory.
     fn through_root_dirs(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
         let directory = importer.parent()?;
-        let config = self.nearest_paths.get_or_compute(directory.to_path_buf(), || {
-            self.tsconfigs.nearest(directory).map(Arc::new)
-        })?;
+        let config = self
+            .nearest_paths
+            .get_or_compute(directory, || self.tsconfigs.nearest(directory).map(Arc::new))?;
         config
             .root_dir_candidates(directory, specifier)
             .into_iter()
@@ -1030,7 +1177,7 @@ impl ModuleResolver {
 
     /// The package in `dir` that is not a workspace member, with its manifest parsed once per directory.
     fn directory_package(&self, dir: &Path) -> Option<Arc<Member>> {
-        self.directory_packages.get_or_compute(dir.to_path_buf(), || {
+        self.directory_packages.get_or_compute(dir, || {
             let text = self.fs.read_to_string(&dir.join("package.json")).ok()?;
             Some(Arc::new(Member {
                 dir: dir.to_path_buf(),
@@ -1041,10 +1188,10 @@ impl ModuleResolver {
     }
 
     fn package_target(&self, name: &str, specifier: &str) -> Outcome {
-        let member_file = self
-            .members
-            .get(name)
-            .and_then(|member| self.member_file(member, subpath(specifier, name)));
+        let member_file = self.members.get(name).and_then(|member| {
+            self.member_files
+                .get_or_compute(name, specifier, || self.member_file(member, subpath(specifier, name)))
+        });
         let target = member_file.map_or_else(|| Resolved::External(name.to_owned()), |path| self.classify(path));
         Outcome {
             target,
@@ -1803,6 +1950,81 @@ src/schema.gen.ts
         assert!(kinds.len() > 3, "the resolvers looked at {kinds:?}");
         let repeated: Vec<_> = kinds.iter().filter(|(_, count)| **count > 1).collect();
         assert_eq!(repeated, Vec::<(&PathBuf, &usize)>::new());
+    }
+
+    /// A [`MemoryFs`] that counts the reads of files named `tsconfig.json`.
+    struct TsconfigReads {
+        inner: MemoryFs,
+        reads: std::sync::atomic::AtomicUsize,
+    }
+
+    impl FileSystem for TsconfigReads {
+        fn read_to_string(&self, path: &Path) -> io::Result<Arc<str>> {
+            if path.file_name().is_some_and(|name| name == "tsconfig.json") {
+                self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            self.inner.read_to_string(path)
+        }
+
+        fn read_dir(&self, path: &Path) -> io::Result<Vec<skif_core::DirEntry>> {
+            self.inner.read_dir(path)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.inner.is_file(path)
+        }
+
+        fn is_dir(&self, path: &Path) -> bool {
+            self.inner.is_dir(path)
+        }
+    }
+
+    #[test]
+    fn a_tsconfig_that_cannot_be_loaded_is_read_once_for_every_importer_below_it() {
+        // The resolver only applies a `tsconfig` found below an absolute path, and `/ws` has no drive on Windows.
+        let root = Path::new(if cfg!(windows) { "C:/ws" } else { "/ws" });
+        let files = [
+            ("package.json", ROOT),
+            ("packages/a/package.json", r#"{"name":"@x/a"}"#),
+            // The base config is a package that is not installed, as in a checkout before `install`.
+            ("packages/a/tsconfig.json", r#"{"extends":"@x/tsconfig/base.json"}"#),
+            ("packages/a/src/a.ts", ""),
+            ("packages/a/src/b.ts", ""),
+            ("packages/a/src/c.ts", ""),
+            ("packages/a/src/deep/d.ts", ""),
+        ];
+        let memory = files
+            .iter()
+            .fold(MemoryFs::new(), |fs, (path, text)| fs.with_file(root.join(path), text));
+        let config = Config::from_toml_str("").unwrap();
+        let workspace = Workspace::discover_with_fs(root, &config, &memory).unwrap();
+        let counting = Arc::new(TsconfigReads {
+            inner: memory,
+            reads: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let fs: Arc<dyn FileSystem> = Arc::clone(&counting) as Arc<dyn FileSystem>;
+        let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(RootInputs(WorkspaceInputs::default()))];
+        let setup = Setup::new(&workspace, &config, &fs, &sources, true);
+        let r = ModuleResolver::new(fs, &workspace, &setup);
+        let before = counting.reads.load(std::sync::atomic::Ordering::SeqCst);
+
+        let src = root.join("packages/a/src");
+        for (importer, specifier, found) in [
+            ("a.ts", "./b", "b.ts"),
+            ("a.ts", "./c.js", "c.ts"),
+            ("b.ts", "./c", "c.ts"),
+            ("c.ts", "./deep/d", "deep/d.ts"),
+            ("deep/d.ts", "../a", "a.ts"),
+        ] {
+            assert_eq!(
+                r.resolve(&src.join(importer), specifier).target,
+                Resolved::File(src.join(found)),
+                "{specifier} from {importer}"
+            );
+        }
+        // Once by the first resolution that fails on it and once to record the failure, instead of once per importer.
+        let reads = counting.reads.load(std::sync::atomic::Ordering::SeqCst) - before;
+        assert_eq!(reads, 2, "the tsconfig was read {reads} times");
     }
 
     #[test]
