@@ -29,7 +29,7 @@ pub fn builtin_providers(config: &Config, fs: Arc<dyn FileSystem>) -> Vec<Box<dy
     #[cfg(feature = "manifest")]
     providers.extend(skif_rules::providers());
     #[cfg(feature = "js-analysis")]
-    providers.push(Box::new(crate::js::provider(config, fs)));
+    providers.push(Box::new(crate::js::provider(config, fs, None)));
     #[cfg(not(feature = "js-analysis"))]
     let _ = (config, fs);
     providers
@@ -197,6 +197,33 @@ impl Linter {
     pub fn with_fs(config: &Config, fs: Arc<dyn FileSystem>) -> Result<Self, Error> {
         let cache = cache::shared(fs);
         let providers = builtin_providers(config, Arc::clone(&cache) as Arc<dyn FileSystem>);
+        let mut linter = Self::with_providers(config, providers)?;
+        linter.cache = Some(cache);
+        Ok(linter)
+    }
+
+    /// Like [`with_fs`](Self::with_fs), with the JS analysis parsing source files through `modules` (ADR 0066).
+    ///
+    /// A host that lints repeatedly (watch mode, an editor) keeps the `Arc` and passes it to every linter it builds,
+    /// so unchanged files are parsed once; [`MemoryModuleCache`](crate::MemoryModuleCache) is an in-process cache,
+    /// and a host that persists one implements [`ModuleCache`](crate::ModuleCache) itself. The cache never changes a
+    /// report: its keys cover the file name, the text and everything else a parse depends on.
+    ///
+    /// # Errors
+    /// As [`Linter::new`].
+    #[cfg(feature = "js-analysis")]
+    pub fn with_module_cache(
+        config: &Config,
+        fs: Arc<dyn FileSystem>,
+        modules: Arc<dyn skif_js::ModuleCache>,
+    ) -> Result<Self, Error> {
+        let cache = cache::shared(fs);
+        let shared = Arc::clone(&cache) as Arc<dyn FileSystem>;
+        #[cfg(feature = "manifest")]
+        let mut providers: Vec<Box<dyn RuleProvider>> = skif_rules::providers();
+        #[cfg(not(feature = "manifest"))]
+        let mut providers: Vec<Box<dyn RuleProvider>> = Vec::new();
+        providers.push(Box::new(crate::js::provider(config, shared, Some(modules))));
         let mut linter = Self::with_providers(config, providers)?;
         linter.cache = Some(cache);
         Ok(linter)

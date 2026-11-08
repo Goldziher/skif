@@ -4,12 +4,13 @@ use std::sync::Arc;
 
 use skif_config::{Config, ConfigError};
 use skif_core::{FileSystem, OsFs, RuleMeta};
+use skif_js_syntax::ModuleCache;
 use skif_lint::{
     Emitter, EnabledRules, LintContext, OptionsError, ProviderError, RuleProvider, parse_options, reject_options,
 };
 use skif_workspace::map_ordered;
 
-use crate::analysis::JsAnalysis;
+use crate::analysis::{Caches, JsAnalysis};
 use crate::config_check;
 use crate::git_index::IndexCache;
 use crate::input::InputSource;
@@ -29,6 +30,8 @@ pub struct JsProvider {
     rules: Vec<Box<dyn JsRule>>,
     /// The parsed git indexes, shared by every root this provider analyses.
     indexes: IndexCache,
+    /// The host's cache of parse results, shared by every run of this provider.
+    modules: Option<Arc<dyn ModuleCache>>,
 }
 
 impl JsProvider {
@@ -40,6 +43,7 @@ impl JsProvider {
             sources: Vec::new(),
             rules: rules(),
             indexes: IndexCache::default(),
+            modules: None,
         }
     }
 
@@ -47,6 +51,14 @@ impl JsProvider {
     #[must_use]
     pub fn on_disk() -> Self {
         Self::new(Arc::new(OsFs))
+    }
+
+    /// Parses source files through `modules`, a cache the host keeps across runs (ADR 0066). The cache changes no
+    /// result: its keys cover everything a parse depends on.
+    #[must_use]
+    pub fn with_module_cache(mut self, modules: Arc<dyn ModuleCache>) -> Self {
+        self.modules = Some(modules);
+        self
     }
 
     /// Adds a source of tool-specific entries, project files, ignores and references (the plugin table).
@@ -61,6 +73,7 @@ impl std::fmt::Debug for JsProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("JsProvider")
             .field("input_sources", &self.sources.len())
+            .field("module_cache", &self.modules.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -110,7 +123,11 @@ impl RuleProvider for JsProvider {
             &self.fs,
             &self.sources,
             cx.sequential,
-            (&self.indexes, cx.extra_entries),
+            &Caches {
+                indexes: &self.indexes,
+                modules: self.modules.as_deref(),
+                extra_entries: cx.extra_entries,
+            },
         );
         analysis.enabled_rules = Some(active.iter().map(|rule| rule.meta().id.to_owned()).collect());
         analysis.config_path = cx.config_path.map(std::path::Path::to_path_buf);
