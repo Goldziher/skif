@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use skif_config::{Config, JsDiscovery};
-use skif_core::{FileSystem, timing};
+use skif_core::{FileSystem, IncompletePackage, timing};
 use skif_js_syntax::{Export, ExportKind, ParseOptions, parse_module};
 use skif_workspace::{PackageId, Workspace, map_ordered};
 
@@ -267,6 +267,35 @@ impl<'a> JsAnalysis<'a> {
     #[must_use]
     pub fn entries_incomplete(&self, id: PackageId) -> bool {
         self.setup.package(id).is_some_and(|package| package.entries_incomplete)
+    }
+
+    /// The analysed packages whose entry files are not all known, with every reason; reason files are relative to
+    /// the workspace root with `/` separators. In workspace order.
+    #[must_use]
+    pub fn incomplete_packages(&self) -> Vec<IncompletePackage> {
+        let root = &self.workspace.root;
+        self.workspace
+            .iter()
+            .filter_map(|(id, package)| {
+                let setup = self.setup.package(id).filter(|setup| setup.entries_incomplete)?;
+                let reasons = setup
+                    .incomplete_reasons
+                    .iter()
+                    .cloned()
+                    .map(|mut reason| {
+                        reason.file = reason
+                            .file
+                            .map(|path| relative(&path, root).map_or(path, PathBuf::from));
+                        reason
+                    })
+                    .collect();
+                Some(IncompletePackage::new(
+                    package.display_name().to_owned(),
+                    package.dir.clone(),
+                    reasons,
+                ))
+            })
+            .collect()
     }
 
     /// Whether the package is excluded from analysis (`ignore-packages`).
