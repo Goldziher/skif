@@ -15,8 +15,9 @@ use ureq::tls::{Certificate, RootCerts, TlsConfig, TlsProvider};
 
 use crate::npmrc::{Npmrc, package_url};
 
-/// The largest registry document read: the full documents of long-lived packages run to tens of megabytes.
-const BODY_LIMIT: u64 = 256 * 1024 * 1024;
+/// The largest registry document read: the full documents of long-lived packages run to tens of megabytes, and a
+/// larger answer is refused rather than held in memory.
+const BODY_LIMIT: u64 = 64 * 1024 * 1024;
 
 /// The npm registry over HTTP.
 pub struct HttpRegistry {
