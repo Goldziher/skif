@@ -64,10 +64,10 @@ fn rule_given_as_path(path: &Path) -> Result<(), CliError> {
     ))
 }
 
-/// The format to render and whether GitHub annotations accompany it: with no `--format`, `GITHUB_ACTIONS=true`
-/// selects human output plus annotations (ADR 0012).
-fn rendering_format(args: &LintArgs, env: Env) -> (Format, bool) {
-    (args.format(), args.format.is_none() && env.github_actions)
+/// Whether GitHub annotations accompany the human output: with no `--format`, `GITHUB_ACTIONS=true` selects human
+/// output plus annotations (ADR 0012).
+fn annotations(args: &LintArgs, env: Env) -> bool {
+    args.format.is_empty() && env.github_actions
 }
 
 /// A path as the OS resolves it: symlinks and `..` gone, and no Windows `\\?\` prefix on a plain drive path.
@@ -191,12 +191,16 @@ fn install_step(args: &LintArgs, changed: &[&Path], workspace: &Workspace) -> In
     }
 }
 
-fn color_enabled(args: &LintArgs, env: Env) -> bool {
-    args.format() == Format::Human
+/// Whether the rendering of `format` to `file` is coloured: only the rendering of [`LintArgs::format`] can be, and
+/// only when it is `human` and goes to stdout or `--output`; a `FORMAT=FILE` rendering never is (ADR 0054).
+fn color_enabled(args: &LintArgs, env: Env, format: Format, file: Option<&Path>) -> bool {
+    let primary = format == args.format() && (file.is_none() || args.output.is_some());
+    primary
+        && format == Format::Human
         && match args.color {
             ColorChoice::Always => true,
             ColorChoice::Never => false,
-            ColorChoice::Auto => env.stdout_tty && !env.no_color && args.output.is_none(),
+            ColorChoice::Auto => env.stdout_tty && !env.no_color && file.is_none(),
         }
 }
 
@@ -428,6 +432,7 @@ fn roots_json(runs: &[RootRun], reports: &[Cow<'_, Report>]) -> Value {
 
 fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     let fs = CachedFs::new(OsFs);
+    let targets_out = args.targets()?;
     if args.fixing() && env.ci {
         return Err(CliError::ci_refusal());
     }
@@ -483,27 +488,25 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
             fix: fixes.get(index),
         })
         .collect();
-    let (format, annotations) = rendering_format(args, env);
     let rendering = Rendering {
-        format,
-        annotations,
-        color: color_enabled(args, env),
+        format: Format::default(),
+        annotations: annotations(args, env),
+        color: false,
         root: &base,
-        repo_root: (matches!(
-            format,
-            Format::Github | Format::Sarif | Format::Codeclimate | Format::Codeowners
-        ) || annotations)
-            .then(|| repo_root(&base))
-            .flatten(),
+        repo_root: None,
         rules: linters.rules(),
         multi,
         errors: root_errors.iter().map(RootError::to_json).collect(),
         truncated: truncated_json(&truncated),
     };
-    let rendered = timing::phase("render", || {
-        output::render(&aggregate, &views, &rendering, &fs, &root_fixes)
-    })?;
-    output::emit(&rendered, args.output.as_deref())?;
+    render_and_write(
+        args,
+        env,
+        &targets_out,
+        rendering,
+        (&aggregate, &views, &root_fixes),
+        &fs,
+    )?;
     if !fixes.is_empty() && !matches!(args.format(), Format::Human | Format::Json) {
         write_summary_to_stderr(&root_fixes);
     }
@@ -529,6 +532,48 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         return Ok(COULD_NOT_RUN);
     }
     Ok(run_exit_code(args, &runs, &aggregate))
+}
+
+/// Renders every requested format, then writes the files and stdout (ADR 0054). Every rendering is made before
+/// anything is written, so a failing one leaves every file untouched; a write that fails partway leaves the files
+/// written before it in place.
+fn render_and_write(
+    args: &LintArgs,
+    env: Env,
+    targets: &[(Format, Option<PathBuf>)],
+    mut rendering: Rendering<'_>,
+    (report, views, fixes): (&Report, &[RootView<'_>], &[RootFix<'_>]),
+    fs: &dyn FileSystem,
+) -> Result<(), CliError> {
+    let needs_repo_root = rendering.annotations
+        || targets.iter().any(|(format, _)| {
+            matches!(
+                format,
+                Format::Github | Format::Sarif | Format::Codeclimate | Format::Codeowners
+            )
+        });
+    if needs_repo_root {
+        rendering.repo_root = repo_root(rendering.root);
+    }
+    let mut rendered = Vec::with_capacity(targets.len());
+    for (format, file) in targets {
+        rendering.format = *format;
+        rendering.color = color_enabled(args, env, *format, file.as_deref());
+        let bytes = timing::phase("render", || output::render(report, views, &rendering, fs, fixes))?;
+        rendered.push((bytes, file.as_deref()));
+    }
+    // Files first: a failed write then still reaches a JSON consumer of stdout as the only document.
+    for (bytes, file) in &rendered {
+        if let Some(file) = file {
+            output::emit(bytes, Some(file))?;
+        }
+    }
+    for (bytes, file) in &rendered {
+        if file.is_none() {
+            output::emit(bytes, None)?;
+        }
+    }
+    Ok(())
 }
 
 fn roots_fix<'a>(prefixes: &[&'a Path], fixes: &'a [FixRun]) -> Vec<RootFix<'a>> {
@@ -577,22 +622,68 @@ fn write_summary_to_stderr(fixes: &[RootFix<'_>]) {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
+    use clap::Parser;
 
-    use super::rule_given_as_path;
-    use crate::error::Kind;
+    use super::*;
+    use crate::args::Cli;
+
+    fn lint_args(flags: &[&str]) -> LintArgs {
+        Cli::try_parse_from(std::iter::once("skif").chain(flags.iter().copied()))
+            .unwrap()
+            .lint
+    }
+
+    const TERMINAL: Env = Env {
+        ci: false,
+        no_color: false,
+        stdin_tty: true,
+        stdout_tty: true,
+        github_actions: false,
+    };
+
+    #[test]
+    fn only_the_primary_human_rendering_is_coloured() {
+        let file = Some(Path::new("report.txt"));
+        let args = lint_args(&["--format", "human", "--format", "human=report.txt"]);
+        assert!(color_enabled(&args, TERMINAL, Format::Human, None));
+        assert!(!color_enabled(&args, TERMINAL, Format::Human, file));
+
+        let args = lint_args(&["--color", "always", "--format", "json", "--format", "human=report.txt"]);
+        assert!(!color_enabled(&args, TERMINAL, Format::Human, file));
+
+        // `--output` is the primary rendering: coloured only when asked for, never by the terminal alone.
+        let args = lint_args(&["--format", "human", "--output", "report.txt"]);
+        assert!(!color_enabled(&args, TERMINAL, Format::Human, file));
+        let args = lint_args(&["--color", "always", "--format", "human", "--output", "report.txt"]);
+        assert!(color_enabled(&args, TERMINAL, Format::Human, file));
+
+        let args = lint_args(&["--format", "human"]);
+        let no_color = Env {
+            no_color: true,
+            ..TERMINAL
+        };
+        assert!(!color_enabled(&args, no_color, Format::Human, None));
+        let piped = Env {
+            stdout_tty: false,
+            ..TERMINAL
+        };
+        assert!(!color_enabled(&args, piped, Format::Human, None));
+        let args = lint_args(&["--color", "never", "--format", "human"]);
+        assert!(!color_enabled(&args, TERMINAL, Format::Human, None));
+    }
 
     #[test]
     fn a_missing_path_named_like_a_rule_is_a_usage_error() {
-        let sherif = rule_given_as_path(Path::new("multiple-dependency-versions")).unwrap_err();
+        let sherif = rule_given_as_path(std::path::Path::new("multiple-dependency-versions")).unwrap_err();
         assert_eq!(sherif.kind, Kind::Usage);
         assert!(
             sherif.message.contains("--ignore-rule version-mismatch"),
             "{}",
             sherif.message
         );
-        let skif = rule_given_as_path(Path::new("unused-dependencies")).unwrap_err();
+        let skif = rule_given_as_path(std::path::Path::new("unused-dependencies")).unwrap_err();
         assert_eq!(skif.kind, Kind::Usage);
         assert!(
             skif.message.contains("--ignore-rule unused-dependencies"),
@@ -603,7 +694,7 @@ mod tests {
 
     #[test]
     fn other_paths_are_left_to_root_discovery() {
-        assert!(rule_given_as_path(Path::new("no-such-directory-here")).is_ok());
-        assert!(rule_given_as_path(Path::new(".")).is_ok());
+        assert!(rule_given_as_path(std::path::Path::new("no-such-directory-here")).is_ok());
+        assert!(rule_given_as_path(std::path::Path::new(".")).is_ok());
     }
 }

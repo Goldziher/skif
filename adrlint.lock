@@ -265,3 +265,8 @@ blake3 = "4623a3c4a19a47a47f620744a371775ee2b4a29735214a15daad88564acebb5c"
 number = 53
 status = "accepted"
 blake3 = "aedad73032cc91a8f5e8db47df271586d5a71682c93d68c79fe8710dd0595871"
+
+[adrs."adrs/0054-several-reports-in-one-run.md"]
+number = 54
+status = "accepted"
+blake3 = "2534213670b270563a225c8cdb19d18d344ce10bb8f42100c500def10fd4e678"
