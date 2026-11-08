@@ -149,6 +149,20 @@ fn a_directory_target_is_a_usage_error_before_any_write() {
 }
 
 #[test]
+fn only_the_stdout_rendering_is_coloured() {
+    let dir = fixture("dirty");
+    let out = tempfile::tempdir().unwrap();
+    let file = out.path().join("report.txt");
+    let result = run(skif()
+        .args(["--color", "always", "--format", "human"])
+        .arg(format!("--format=human={}", file.display()))
+        .arg(dir.path()));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    assert!(result.stdout.contains('\x1b'), "{}", result.stdout);
+    assert!(!fs::read_to_string(&file).unwrap().contains('\x1b'));
+}
+
+#[test]
 fn a_failing_render_writes_no_file() {
     let dir = fixture("dirty");
     let out = tempfile::tempdir().unwrap();
