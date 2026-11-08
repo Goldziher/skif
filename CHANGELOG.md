@@ -179,6 +179,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The `stryker` plugin reads the runner config named by `vitest.configFile` or `jest.configFile` with that runner's
+  plugin, so `vitest.stryker.config.ts` is a config file instead of an unused file
+  ([#23](https://github.com/Goldziher/skif/issues/23)).
 - The GitHub Action's new `from-sherif` input (`true` or `false`, default `false`) is a migration aid: with `true`,
   a project that has no `skif.toml` yet is linted with the settings of its sherif configuration. The
   `sherif` key and the flags of a root script that runs sherif (`sherif -i react -r unordered-dependencies`) are
