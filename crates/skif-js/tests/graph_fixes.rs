@@ -299,12 +299,11 @@ fn unresolvable_aliases_are_unresolved_imports_unless_they_look_like_packages() 
         &[
             (
                 "package.json",
-                // A `#` specifier is only unresolved where the package declares `imports`.
-                r##"{"name":"app","private":true,"imports":{"#app/*":"./src/*.ts"},"devDependencies":{"typescript":"5"}}"##,
+                r#"{"name":"app","private":true,"devDependencies":{"typescript":"5"}}"#,
             ),
             (
                 "tsconfig.json",
-                r#"{"extends":"./.generated/tsconfig.json","compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/lib/*"],"@gone/*":["nowhere/*"]}}}"#,
+                r##"{"extends":"./.generated/tsconfig.json","compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/lib/*"],"@gone/*":["nowhere/*"],"#internal/*":["src/internal/*"]}}}"##,
             ),
             (
                 "src/index.ts",
