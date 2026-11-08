@@ -131,6 +131,19 @@ All notable changes to this project are documented here. The format follows
 - `declare module "x"` in a file with top-level `import` or `export` augments `x` instead of declaring it, so it no
   longer hides unlisted imports of `x` across the workspace; only declarations in script files do
   ([#24](https://github.com/Goldziher/skif/issues/24)).
+- A `/*` that no `*/` follows, such as one in JSX text (`<code>dist/*</code>`) or a regular expression, no longer
+  makes an `.mdx` `export` paragraph swallow the rest of the document, or a `.tsrx` file hide the imports after it
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
+- The `.mdx` ESM scan tells JSX text and regular expressions from code, so `//` or `/*` in them
+  (`<a>http://x</a>`, `/:\/\//`) no longer hides a closing bracket and makes an `export` paragraph swallow the rest of
+  the document ([#38](https://github.com/Goldziher/skif/issues/38)).
+- Inline code in `.mdx` prose follows CommonMark more closely: a backslash-escaped backtick opens no code span, an
+  unpaired backtick does not pair with one past a blank line, a template literal in a `{}` expression is not code
+  (nor one nested in its `${}`), and a stray `{` in prose does not reach past its paragraph, so the components and members they would have hidden count as used
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
+- Stencil's styles per mode (`styleUrls: { ios: 'a.ios.css', md: ['a.md.css'] }`) are followed like a `styleUrls`
+  array, so the packages those stylesheets import are no longer unused
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
 
 Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/19)):
 
