@@ -180,9 +180,12 @@ mise run diff:syncpack -- --write-baseline
 `--check` compares a run with the baseline and exits non-zero when a count moves by more than
 `--tolerance-percent` (default 10) of its baseline value or `--tolerance-abs` (default 5), whichever is larger, when a
 repository changes between compared and skipped, or when a fixture that agreed before now differs. A run narrowed with
-`--only` is checked against those entries alone, and `--write-baseline --only` updates only them. The scheduled
-`corpus` workflow (`.github/workflows/corpus.yml`, weekly and on demand, never on pull requests) runs both checks.
-The decision is [ADR 0026](../../adrs/0026-parity-and-diff-tasks-on-a-pinned-corpus.md).
+`--only` is checked against those entries alone, and `--write-baseline --only` updates only them. The committed
+`baselines/parity.json` predates the per-repository `entry` lists, the recursive runs and the `rules-js` install
+command of [#27](https://github.com/Goldziher/skif/issues/27), so it still needs a
+`mise run parity -- --install --write-baseline` refresh before `--check` means anything for those repositories. The
+scheduled `corpus` workflow (`.github/workflows/corpus.yml`, weekly and on demand, never on pull requests) runs both
+checks. The decision is [ADR 0026](../../adrs/0026-parity-and-diff-tasks-on-a-pinned-corpus.md).
 
 ## Measured numbers
 
@@ -342,9 +345,11 @@ part.
 - **knip needs installed dependencies** to give realistic results: without them it fails to load tool configurations
   that import the repository's own packages (create-t3-turbo's `@acme/tsconfig`), and the time is that of a partial
   run. `run --install` installs each corpus repository first, as `parity --install` does (`mise run bench:publish`
-  passes it); a repository whose install fails is timed without knip. Installed, knip still reports two errors on
-  create-t3-turbo that are the repository's own: `apps/expo/metro.config.js` requires `metro-cache`, which it does not
-  list, and `packages/db/drizzle.config.ts` throws without a `POSTGRES_URL`.
+  passes it); a repository whose install fails is timed without knip. Installing changes the timings of every tool,
+  not only knip's (skif, sherif and syncpack then run on a tree with `node_modules`), so compare only runs made the
+  same way. Installed, knip still reports two errors on create-t3-turbo that are the repository's own:
+  `apps/expo/metro.config.js` requires `metro-cache`, which it does not list, and `packages/db/drizzle.config.ts`
+  throws without a `POSTGRES_URL`.
 - Non-zero exits are ignored (`--ignore-failure`): linters exit 1 when they find something.
 - The skif command line is `skif . --format json --no-install [--no-js]`; the working directory is the target.
 - Wall-clock times include process start-up. For sub-10 ms runs hyperfine warns about short commands; trust the
