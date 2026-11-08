@@ -120,60 +120,93 @@ pub(crate) fn add_entry(
     }
 }
 
-/// Removes the entry of `dependency` from `catalog` in `file`.
+/// The parsed contents of `file`, which [`remove_entry`] reads to see whether a removal empties a catalog. `None` when
+/// the file is not one the workspace read or does not parse.
+pub(crate) fn catalog_document(workspace: &Workspace, file: &CatalogFile) -> Option<Value> {
+    match file {
+        CatalogFile::Yaml(path) => {
+            let yaml = [&workspace.pnpm_workspace, &workspace.yarnrc]
+                .into_iter()
+                .flatten()
+                .find(|yaml| &yaml.path == path)?;
+            let source = yaml.source.strip_prefix('\u{feff}').unwrap_or(&yaml.source);
+            serde_saphyr::from_str(source).ok()
+        }
+        CatalogFile::RootJson(_) => Some(workspace.root_package().manifest.value().clone()),
+    }
+}
+
+/// Removes the entry of `dependency` from `catalog` in `file`, whose parsed contents are `document`.
 ///
-/// In the root `package.json` the removal widens to the whole catalog when `removable` holds every entry the catalog
-/// declares, and to the `catalogs` object when that holds for each of its catalogs, so the last fix leaves no `{}`
-/// behind. Every entry of such a catalog carries the same widened operation, which the planner applies once. The
-/// YAML files need no widening: the YAML editor already drops a mapping its last key leaves empty.
+/// The removal widens to the whole catalog when `removable` holds every entry the catalog declares in `document`, and
+/// to the `catalogs` key when that holds for each of its catalogs, so the fixes leave no empty `catalog:` or `{}`
+/// behind. Every entry of such a catalog carries the same widened operation, which the planner applies once; removing
+/// the entries one by one instead would give the YAML editor overlapping edits.
 pub(crate) fn remove_entry(
     workspace: &Workspace,
     file: &CatalogFile,
+    document: Option<&Value>,
     catalog: &CatalogName,
     dependency: &str,
     removable: &dyn Fn(&CatalogName, &str) -> bool,
 ) -> FixOp {
+    let pointer = match file {
+        CatalogFile::Yaml(_)
+            if matches!(catalog, CatalogName::Default) && workspace.catalogs.default_declared_as_named() =>
+        {
+            vec![key("catalogs"), key("default")]
+        }
+        CatalogFile::Yaml(_) => route(catalog),
+        CatalogFile::RootJson(_) => json_pointer(workspace, catalog),
+    };
+    let pointer = widened(document, pointer, catalog, dependency, removable);
     match file {
-        CatalogFile::Yaml(path) => {
-            let mut entry_route =
-                if matches!(catalog, CatalogName::Default) && workspace.catalogs.default_declared_as_named() {
-                    vec![key("catalogs"), key("default")]
-                } else {
-                    route(catalog)
-                };
-            entry_route.push(key(dependency));
-            FixOp::yaml(path.clone(), entry_route, YamlAction::Remove)
-        }
-        CatalogFile::RootJson(path) => {
-            let root = workspace.root_package().manifest.value();
-            let mut pointer = json_pointer(workspace, catalog);
-            let all_go = |pointer: &[PathSeg], catalog: &CatalogName| {
-                value_at(root, pointer)
-                    .and_then(Value::as_object)
-                    .is_some_and(|entries| entries.keys().all(|name| removable(catalog, name)))
-            };
-            if !all_go(&pointer, catalog) {
-                pointer.push(key(dependency));
-            } else if let Some((_, parent)) = pointer.split_last()
-                && parent.last() == Some(&key("catalogs"))
-                && value_at(root, parent).and_then(Value::as_object).is_some_and(|named| {
-                    named.keys().all(|name| {
-                        let sibling = if name == "default" {
-                            CatalogName::Default
-                        } else {
-                            CatalogName::Named(name.clone())
-                        };
-                        let mut at = parent.to_vec();
-                        at.push(key(name));
-                        all_go(&at, &sibling)
-                    })
-                })
-            {
-                pointer.pop();
-            }
-            FixOp::json(path.clone(), pointer, JsonAction::Remove)
-        }
+        CatalogFile::Yaml(path) => FixOp::yaml(path.clone(), pointer, YamlAction::Remove),
+        CatalogFile::RootJson(path) => FixOp::json(path.clone(), pointer, JsonAction::Remove),
     }
+}
+
+/// What to remove for `dependency` of the catalog at `pointer`: the entry, the catalog, or the `catalogs` key above it.
+fn widened(
+    document: Option<&Value>,
+    mut pointer: Vec<PathSeg>,
+    catalog: &CatalogName,
+    dependency: &str,
+    removable: &dyn Fn(&CatalogName, &str) -> bool,
+) -> Vec<PathSeg> {
+    let all_go = |pointer: &[PathSeg], catalog: &CatalogName| {
+        document
+            .and_then(|document| value_at(document, pointer))
+            .and_then(Value::as_object)
+            .is_some_and(|entries| entries.keys().all(|name| removable(catalog, name)))
+    };
+    if !all_go(&pointer, catalog) {
+        pointer.push(key(dependency));
+        return pointer;
+    }
+    let Some((_, parent)) = pointer.split_last() else {
+        return pointer;
+    };
+    let siblings_go = parent.last() == Some(&key("catalogs"))
+        && document
+            .and_then(|document| value_at(document, parent))
+            .and_then(Value::as_object)
+            .is_some_and(|named| {
+                named.keys().all(|name| {
+                    let sibling = if name == "default" {
+                        CatalogName::Default
+                    } else {
+                        CatalogName::Named(name.clone())
+                    };
+                    let mut at = parent.to_vec();
+                    at.push(key(name));
+                    all_go(&at, &sibling)
+                })
+            });
+    if siblings_go {
+        pointer.pop();
+    }
+    pointer
 }
 
 /// The node at `pointer` (object keys only) in `value`.
