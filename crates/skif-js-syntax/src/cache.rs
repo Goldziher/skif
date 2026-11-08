@@ -42,12 +42,17 @@ impl ModuleKey {
     /// The key for parsing `source`, the text of `path`, with `options`.
     #[must_use]
     pub fn new(path: &Path, source: &str, options: &ParseOptions) -> Self {
+        // Destructured without `..`, so a new parse option does not compile until it is part of the key.
+        let ParseOptions {
+            in_file_references,
+            member_accesses,
+        } = *options;
         let mut hasher = SipHasher13::new_with_keys(0, 0);
         hasher.write(&CACHE_SCHEMA.to_le_bytes());
         write_field(&mut hasher, env!("CARGO_PKG_VERSION").as_bytes());
         hasher.write_u8(u8::from(is_stylesheet(path)));
-        hasher.write_u8(u8::from(options.in_file_references));
-        hasher.write_u8(u8::from(options.member_accesses));
+        hasher.write_u8(u8::from(in_file_references));
+        hasher.write_u8(u8::from(member_accesses));
         write_field(
             &mut hasher,
             path.file_name()
