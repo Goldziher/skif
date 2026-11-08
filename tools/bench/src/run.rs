@@ -28,7 +28,7 @@ const GRAPH_TARGET_MS: f64 = 2000.0;
 const SUMMARY_SCHEMA: u32 = 1;
 const GENERATED_SEED: u64 = 1;
 const GENERATED_MISMATCH_RATE: f64 = 0.05;
-/// Seconds an install of a corpus repository may take, unless the corpus manifest sets its own.
+/// How long an install of a corpus repository may take, unless the corpus manifest sets its own.
 const INSTALL_TIMEOUT: Duration = Duration::from_mins(30);
 
 pub struct RunOptions {
