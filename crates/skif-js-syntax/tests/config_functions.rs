@@ -312,3 +312,271 @@ fn a_merge_of_unknown_operands_leaves_only_the_marker() {
         &ConfigValue::Object(vec![("...".to_owned(), ConfigValue::Unknown)])
     );
 }
+
+#[test]
+fn a_conditional_with_a_known_test_takes_its_branch() {
+    let value = extract(
+        "vite.config.ts",
+        "const pins = [];\nconst on = 'yes';\n\
+         export default { ...(pins.length ? { resolve: {} } : {}), a: on ? 'x' : 'y', b: !pins.length ? 1 : 2, \
+         c: 'ab'.length, d: [1, ...unknown].length };",
+    );
+    assert_eq!(
+        value,
+        ConfigValue::Object(vec![
+            ("a".to_owned(), s("x")),
+            ("b".to_owned(), ConfigValue::Number(1.0)),
+            ("c".to_owned(), ConfigValue::Number(2.0)),
+            ("d".to_owned(), ConfigValue::Unknown),
+        ])
+    );
+}
+
+#[test]
+fn logical_operators_on_known_values() {
+    let value = extract(
+        "vite.config.ts",
+        "const none = null;\nconst list = ['a'];\n\
+         export default { a: none ?? 'd', b: list ?? 'd', c: '' || 'e', d: list && 'f', e: 0 && 'g', \
+         f: env() ?? 'h', g: env() || 'i' };",
+    );
+    let pairs = [
+        ("a", s("d")),
+        ("b", strings(&["a"])),
+        ("c", s("e")),
+        ("d", s("f")),
+        ("e", ConfigValue::Number(0.0)),
+        ("f", ConfigValue::Unknown),
+        ("g", ConfigValue::Unknown),
+    ];
+    for (key, expected) in pairs {
+        assert_eq!(get(&value, &[key]), &expected, "{key}");
+    }
+}
+
+#[test]
+fn destructured_parameters_take_their_defaults() {
+    let value = extract(
+        "vite.config.ts",
+        "const pinCjs = ['outer'];\n\
+         const create = (options = {}, { pinCjs = [], mode = 'dev', ...rest } = {}) => ({ \
+         test: options, mode, rest, ...(pinCjs.length ? { resolve: { alias: pinCjs } } : {}) });\n\
+         export default [create(), create({ a: 1 }, { pinCjs: ['zod'] }), create(undefined, unknown())];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(
+        configs[0],
+        ConfigValue::Object(vec![
+            ("test".to_owned(), ConfigValue::Object(vec![])),
+            ("mode".to_owned(), s("dev")),
+            ("rest".to_owned(), ConfigValue::Unknown),
+        ])
+    );
+    assert_eq!(get(&configs[1], &["resolve", "alias"]), &strings(&["zod"]));
+    assert_eq!(get(&configs[1], &["mode"]), &s("dev"));
+    // An unknown argument leaves its names unknown, not bound to the outer `pinCjs`.
+    assert_eq!(get(&configs[2], &["mode"]), &ConfigValue::Unknown);
+    assert_eq!(configs[2].get("resolve"), Some(&ConfigValue::Unknown));
+}
+
+#[test]
+fn a_conditional_with_an_unknown_test_keeps_what_both_branches_share() {
+    let value = extract(
+        "vitest.config.ts",
+        "export default { build: { outDir: 'dist' }, \
+         ...(process.env.CI ? { test: { include: ['a'], environment: 'node' } } : { test: { environment: 'node' } }), \
+         ...(process.env.X ? { a: 1 } : unknown()) };",
+    );
+    assert_eq!(get(&value, &["build", "outDir"]), &s("dist"));
+    assert_eq!(get(&value, &["test", "environment"]), &s("node"));
+    // A key only one branch has may be present or not.
+    assert_eq!(get(&value, &["test", "include"]), &ConfigValue::Unknown);
+    assert!(value.get("test").unwrap().get("include").is_some());
+    // A branch that is not an object leaves the spread unknown.
+    assert!(value.get("...").is_some());
+}
+
+#[test]
+fn an_early_return_is_not_skipped_for_the_last_one() {
+    let value = extract(
+        "vitest.config.ts",
+        "const make = (mode) => {\n\
+           if (process.env.CI) return { test: { include: ['ci'] }, root: '.' };\n\
+           return { test: { include: ['all'] }, root: '.' };\n\
+         };\n\
+         const known = (mode = 'dev') => { if (mode) { return { a: 1 }; } return { a: 2 }; };\n\
+         const loop = () => { for (const x of y) { return { a: 1 }; } return { a: 2 }; };\n\
+         const big = () => { if (env()) { const a = 1; return { a }; } return { a: 2 }; };\n\
+         const none = () => { if (env()) { setup(); } return { a: 3 }; };\n\
+         export default [make(), known(), loop(), big(), none()];",
+    );
+    let configs = value.as_array().unwrap();
+    // The two returns share `root`; `test.include` differs, so it is unknown rather than the last return's.
+    assert_eq!(get(&configs[0], &["root"]), &s("."));
+    assert_eq!(get(&configs[0], &["test", "include"]), &ConfigValue::Unknown);
+    // A known test takes its branch.
+    assert_eq!(get(&configs[1], &["a"]), &ConfigValue::Number(1.0));
+    assert_eq!(configs[2], ConfigValue::Unknown);
+    assert_eq!(configs[3], ConfigValue::Unknown);
+    assert_eq!(
+        configs[4],
+        ConfigValue::Object(vec![("a".to_owned(), ConfigValue::Number(3.0))])
+    );
+}
+
+#[test]
+fn a_declaration_in_a_block_does_not_replace_the_outer_binding() {
+    let value = extract(
+        "vite.config.ts",
+        "const outer = () => { const c = { a: 1 }; if (true) { const c = { a: 2 }; } { let c = 3; } return c; };\n\
+         const fn = () => { const f = () => 1; if (1) { const f = () => 2; } return { r: f() }; };\n\
+         const hoisted = () => { if (true) { var v = 1; } return { v }; };\n\
+         export default [outer(), fn(), hoisted()];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(get(&configs[0], &["a"]), &ConfigValue::Number(1.0));
+    assert_eq!(get(&configs[1], &["r"]), &ConfigValue::Number(1.0));
+    assert_eq!(get(&configs[2], &["v"]), &ConfigValue::Unknown);
+}
+
+#[test]
+fn what_code_may_or_may_not_write_is_unknown_after_it() {
+    let value = extract(
+        "vite.config.ts",
+        "const plugins = [];\nif (process.env.A) plugins.push('x');\n\
+         const base = { a: 1 };\nfor (const k of keys) base[k] = 1;\n\
+         const make = () => {\n\
+           let mode = 'a'; const list = []; const c = { a: 1 }; let n = 0;\n\
+           if (env()) { mode = 'b'; }\n\
+           for (const x of y) list.push(x);\n\
+           env() && (c.a = 2);\n\
+           if (env()) n++;\n\
+           return { mode, some: list.length ? 1 : 2, c, n: n ? 1 : 2 };\n\
+         };\n\
+         export default [{ some: plugins.length ? 1 : 2, base }, make()];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(get(&configs[0], &["some"]), &ConfigValue::Unknown);
+    assert!(get(&configs[0], &["base"]).get("...").is_some());
+    for key in ["mode", "some", "n"] {
+        assert_eq!(get(&configs[1], &[key]), &ConfigValue::Unknown, "{key}");
+    }
+    assert!(get(&configs[1], &["c"]).get("...").is_some());
+}
+
+#[test]
+fn a_return_in_an_else_branch_is_not_read_after_the_code_that_follows() {
+    let value = extract(
+        "vite.config.ts",
+        "const make = () => {\n\
+           const c = { a: 1 };\n\
+           if (env()) { setup(); } else { return c; }\n\
+           c.a = 2;\n\
+           return c;\n\
+         };\n\
+         const pick = ({ mode = 'dev' }) => ({ mode });\n\
+         export default [make(), pick({ mode: 'prod', ...options() }), pick({ ...options(), mode: 'prod' })];",
+    );
+    let configs = value.as_array().unwrap();
+    // One path returns `{ a: 1 }` and the other `{ a: 2 }`.
+    assert_eq!(get(&configs[0], &["a"]), &ConfigValue::Unknown);
+    // A spread after a key may replace it.
+    assert_eq!(get(&configs[1], &["mode"]), &ConfigValue::Unknown);
+    assert_eq!(get(&configs[2], &["mode"]), &s("prod"));
+}
+
+/// Whether `value` is an object that says it may hold more than the keys it lists.
+fn open(value: &ConfigValue) -> bool {
+    value.get("...").is_some()
+}
+
+#[test]
+fn a_change_through_an_alias_a_call_or_a_closure_reaches_the_original() {
+    let value = extract(
+        "vite.config.ts",
+        "const alias = () => { const cfg = { a: 1 }; const a = cfg; if (env) a.x = 1; return cfg; };\n\
+         const nested = () => { const t = { include: ['a'] }; const cfg = { test: t }; t.include.push('b'); return cfg; };\n\
+         const closure = () => { const cfg = { a: 1 }; const f = () => { cfg.a = 2; }; f(); return cfg; };\n\
+         const callback = () => { const paths = {}; dirs.forEach((d) => { paths[d] = d; }); let m = 'a'; [1].forEach(() => { m = 'b'; }); return { paths, m }; };\n\
+         const helper = () => { const cfg = { a: 1 }; configure(cfg); return cfg; };\n\
+         const local = () => { const cfg = { a: 1 }; const set = (c) => { c.a = 2; return c; }; const r = set(cfg); return cfg; };\n\
+         const top = { a: 1 }; const view = top; view.a = 2;\n\
+         const captured = { a: 1 }; function change() { captured.a = 2; } change();\n\
+         export default [alias(), nested(), closure(), callback(), helper(), local(), top, captured];",
+    );
+    let configs = value.as_array().unwrap();
+    for (index, config) in configs.iter().enumerate() {
+        if index != 3 {
+            assert!(open(config), "{index}: {config:?}");
+        }
+    }
+    assert!(open(get(&configs[3], &["paths"])));
+    assert_eq!(get(&configs[3], &["m"]), &ConfigValue::Unknown);
+}
+
+#[test]
+fn a_write_inside_an_expression_or_a_delete_is_not_lost() {
+    let value = extract(
+        "vite.config.ts",
+        "const list = ['a']; const n = list.push('b');\n\
+         const make = () => {\n\
+           const cfg = { a: 1 }; delete cfg.a;\n\
+           let m = 'a'; const x = env && (m = 'b');\n\
+           let d = 'a'; ({ d } = options);\n\
+           const items = ['a', 'b']; items.length = 0;\n\
+           return { cfg, m, d, n: items.length };\n\
+         };\n\
+         export default [{ list }, make()];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(
+        get(&configs[0], &["list"]),
+        &ConfigValue::Array(vec![s("a"), ConfigValue::Unknown])
+    );
+    assert!(open(get(&configs[1], &["cfg"])));
+    for key in ["m", "d", "n"] {
+        assert_eq!(get(&configs[1], &[key]), &ConfigValue::Unknown, "{key}");
+    }
+}
+
+#[test]
+fn a_later_change_of_module_exports_is_not_lost() {
+    let value = extract(
+        "jest.config.js",
+        "module.exports = { testMatch: ['a'] };\nmodule.exports.testMatch = ['b'];",
+    );
+    assert!(open(&value));
+}
+
+#[test]
+fn a_branch_with_an_unknown_test_leaves_what_it_does_not_change_known() {
+    let value = extract(
+        "jest.config.js",
+        "module.exports = async () => {\n\
+           const config = { testMatch: ['**/*.spec.js'] };\n\
+           const plugins = ['a'];\n\
+           if (process.env.CI) { config.reporters = ['jest-junit']; plugins.push('b'); }\n\
+           return { ...config, plugins };\n\
+         };",
+    );
+    assert!(!open(&value));
+    assert_eq!(get(&value, &["testMatch"]), &strings(&["**/*.spec.js"]));
+    assert_eq!(get(&value, &["reporters"]), &ConfigValue::Unknown);
+    assert_eq!(
+        get(&value, &["plugins"]),
+        &ConfigValue::Array(vec![s("a"), ConfigValue::Unknown])
+    );
+}
+
+#[test]
+fn a_function_in_a_config_does_not_share_what_its_parameters_take() {
+    let value = extract(
+        "next.config.js",
+        "const nextConfig = {\n\
+           transpilePackages: ['ui'],\n\
+           webpack: (config) => { config.resolve.alias = {}; return config; },\n\
+         };\nmodule.exports = nextConfig;",
+    );
+    assert!(!open(&value));
+    assert_eq!(get(&value, &["transpilePackages"]), &strings(&["ui"]));
+}

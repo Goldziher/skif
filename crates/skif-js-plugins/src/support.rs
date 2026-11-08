@@ -347,19 +347,46 @@ pub(crate) fn config_unknown(config: &ConfigValue) -> bool {
 }
 
 /// Whether the value at `path` is not fully known statically: it contains an unknown part, or an object on the way
-/// is unknown or has an unknown spread that could provide the key.
+/// is unknown or has an unknown spread after the key (or without it) that could provide the key.
 pub(crate) fn path_unknown(value: &ConfigValue, path: &[&str]) -> bool {
     let Some((key, rest)) = path.split_first() else {
         return value.has_unknown();
     };
     match value {
         ConfigValue::Unknown => true,
-        ConfigValue::Object(_) => match value.get(key) {
-            Some(child) => path_unknown(child, rest),
-            None => value.get("...").is_some(),
+        ConfigValue::Object(entries) => match entries.iter().rev().find(|(name, _)| name == key || name == "...") {
+            Some((name, _)) if name == "..." => true,
+            Some((_, child)) => path_unknown(child, rest),
+            None => false,
         },
         _ => false,
     }
+}
+
+/// Whether `key` of `object` may hold anything: it is unknown, an unknown spread may provide or replace it, or it is a
+/// list with an unknown element. Unlike [`key_unknown`], what a known element holds is not looked at, so a list of
+/// project objects is known when each object is, whatever their other options are.
+pub(crate) fn shallow_key_unknown(object: &ConfigValue, key: &str) -> bool {
+    match object {
+        ConfigValue::Unknown => true,
+        ConfigValue::Object(entries) => match entries.iter().rev().find(|(name, _)| name == key || name == "...") {
+            Some((name, _)) if name == "..." => true,
+            Some((_, ConfigValue::Unknown)) => true,
+            Some((_, ConfigValue::Array(items))) => items.contains(&ConfigValue::Unknown),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// The strings of `key` in `object`, the files or patterns a plugin takes entries from. When the key is not fully
+/// known (see [`key_unknown`]), the files it names are not all known, so [`PluginInput::EntriesIncomplete`] is added to
+/// `out`.
+pub(crate) fn entry_strings<'v>(object: &'v ConfigValue, key: &str, out: &mut Vec<PluginInput>) -> Vec<&'v str> {
+    if key_unknown(object, key) {
+        out.push(PluginInput::EntriesIncomplete);
+    }
+    object.get(key).map(strings).unwrap_or_default()
 }
 
 /// Whether the value of `key` in a config object is not fully known statically; see [`path_unknown`].

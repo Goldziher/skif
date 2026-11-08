@@ -7,10 +7,12 @@ use std::rc::Rc;
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget, BinaryOperator,
-    BindingPattern, CallExpression, Declaration, ExportDefaultDeclarationKind, Expression, Function,
-    ImportDeclarationSpecifier, ImportOrExportKind, NewExpression, ObjectProperty, ObjectPropertyKind, Program,
-    Statement, StaticMemberExpression, TaggedTemplateExpression, TemplateLiteral, UnaryOperator, VariableDeclaration,
+    Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget,
+    AssignmentTargetPropertyIdentifier, BinaryOperator, BindingPattern, CallExpression, ConditionalExpression,
+    Declaration, ExportDefaultDeclarationKind, Expression, ExpressionStatement, Function, IfStatement,
+    ImportDeclarationSpecifier, ImportOrExportKind, LogicalExpression, LogicalOperator, NewExpression, ObjectProperty,
+    ObjectPropertyKind, Program, ReturnStatement, SimpleAssignmentTarget, Statement, StaticMemberExpression,
+    TaggedTemplateExpression, TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclaration,
     VariableDeclarationKind,
 };
 use oxc_ast_visit::{Visit, walk};
@@ -19,6 +21,7 @@ use oxc_span::SourceType;
 use serde::{Deserialize, Serialize};
 
 use crate::finder::static_string;
+use crate::sharing::{Change, Unstable, changed_by_call, statement_call};
 
 const MAX_DEPTH: u32 = 32;
 
@@ -181,8 +184,15 @@ pub trait ModuleLoader {
 /// `path.join`, `path.dirname` and `fileURLToPath`, however `path` was imported), which evaluate to strings relative to
 /// the config file's directory (`"."`, `"./src"`, `"../shared"`).
 ///
+/// `a ? b : c` takes the branch a known test selects; with an unknown test it is what both branches share (for two
+/// objects, every key either has, unknown where they differ or only one has it). `a && b`, `a || b`, `a ?? b` and `!a`
+/// are followed when `a` is known, and `.length` of a known string or array is its length.
+/// An `if (test) return a;` before a function's last `return` is followed the same way: a known test takes its branch,
+/// and an unknown one makes the value what both returns share.
+///
 /// Functions are followed: a returned config function may declare local `const`/`let` bindings and local functions,
-/// assign members of a local object, and call top-level or local functions with known arguments; `await x` and
+/// assign members of a local object, and call top-level or local functions with known arguments, a parameter not passed
+/// taking its default and an object pattern parameter (`{ pinCjs = [] } = {}`) its properties or their defaults; `await x` and
 /// `Promise.resolve(x)` evaluate to `x`; `require.resolve('pkg')` evaluates to `'pkg'`, and the storybook idiom
 /// `dirname(require.resolve(join('pkg', 'package.json')))` to `'pkg'`. A call of a glob function (`glob`,
 /// `fast-glob`, `globby`, `tinyglobby`, however imported) evaluates to the array of its literal patterns, so a
@@ -239,6 +249,8 @@ fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> 
     let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
     let eval = Evaluator {
         consts: &top.consts,
+        changed: &top.changed,
+        unstable: &top.unstable,
         functions: &top.functions,
         bindings: &bindings,
         file,
@@ -262,6 +274,11 @@ fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> 
     let value = match exported {
         Exported::Expression(expr) => eval.expr(expr, 0),
         Exported::Function(function) => eval.invoke(Callable::Function(function), &[], false, 0),
+    };
+    let value = if exports_changed(program) {
+        changed(value)
+    } else {
+        value
     };
     let captured = eval.captured.borrow_mut().take();
     Some(captured.unwrap_or(value))
@@ -506,6 +523,8 @@ impl Modules<'_> {
         let dir = relative_dir(&self.root, path.parent().unwrap_or(path));
         let eval = Evaluator {
             consts: &top.consts,
+            changed: &top.changed,
+            unstable: &top.unstable,
             functions: &top.functions,
             bindings: &bindings,
             file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
@@ -531,6 +550,13 @@ impl Modules<'_> {
                         (Some(args), None, Expression::Identifier(id)) => eval.call_named(id.name.as_str(), args),
                         (Some(_), None, _) => ConfigValue::Unknown,
                     }
+                }
+            })
+            .map(|value| {
+                if exports_changed(program) {
+                    changed(value)
+                } else {
+                    value
                 }
             }),
             Imported::Named(name) => {
@@ -579,6 +605,11 @@ fn first_parameter(callable: Callable<'_, '_>) -> Option<String> {
 struct TopLevel<'p, 'a> {
     consts: HashMap<String, &'p Expression<'a>>,
     functions: HashMap<String, Callable<'p, 'a>>,
+    /// The names top-level statements other than function declarations assign or change (`config.plugins.push(x)`,
+    /// `if (env) config.a = 1`, `const n = list.push(x)`): a constant among them is not only its initialiser.
+    changed: HashSet<String>,
+    /// The bindings code the evaluator does not follow may change.
+    unstable: Unstable,
 }
 
 /// A function the evaluator can call.
@@ -589,6 +620,15 @@ enum Callable<'p, 'a> {
 }
 
 impl<'p, 'a> Callable<'p, 'a> {
+    /// Whether both are the same function.
+    fn same(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Function(a), Self::Function(b)) => std::ptr::eq(a, b),
+            (Self::Arrow(a), Self::Arrow(b)) => std::ptr::eq(a, b),
+            _ => false,
+        }
+    }
+
     fn of_expression(expr: &'p Expression<'a>) -> Option<Self> {
         match expr.get_inner_expression() {
             Expression::ArrowFunctionExpression(f) => Some(Self::Arrow(f)),
@@ -611,12 +651,36 @@ fn top_level<'p, 'a>(program: &'p Program<'a>) -> TopLevel<'p, 'a> {
     let mut top = TopLevel {
         consts: HashMap::new(),
         functions: HashMap::new(),
+        changed: HashSet::new(),
+        unstable: Unstable::of(program),
     };
     for stmt in &program.body {
         let decl = match stmt {
             Statement::ExportDeclaration(e) => Some(&e.declaration),
             other => other.as_declaration(),
         };
+        let writes = match stmt {
+            // Only what the statement itself does, as for a statement of a function: an exported value may read
+            // members of a constant (`base.plugins.map(f)`) without changing it.
+            Statement::ExpressionStatement(s) => Some(Writes::of_effect(&s.expression)),
+            Statement::IfStatement(_)
+            | Statement::BlockStatement(_)
+            | Statement::ForStatement(_)
+            | Statement::ForInStatement(_)
+            | Statement::ForOfStatement(_)
+            | Statement::WhileStatement(_)
+            | Statement::DoWhileStatement(_)
+            | Statement::SwitchStatement(_)
+            | Statement::TryStatement(_)
+            | Statement::LabeledStatement(_)
+            | Statement::VariableDeclaration(_)
+            | Statement::ExportNamedDeclaration(_)
+            | Statement::ExportDefaultDeclaration(_) => Some(Writes::of_statement(stmt)),
+            _ => None,
+        };
+        if let Some(writes) = writes {
+            top.changed.extend(writes.assigned.into_iter().chain(writes.changed));
+        }
         match decl {
             Some(Declaration::VariableDeclaration(v)) if v.kind == VariableDeclarationKind::Const => {
                 for d in &v.declarations {
@@ -1036,6 +1100,8 @@ impl<'a> Visit<'a> for CallFinder<'_, '_, 'a> {
         if let Some((module, export)) = self.target(&it.callee) {
             let eval = Evaluator {
                 consts: &self.top.consts,
+                changed: &self.top.changed,
+                unstable: &self.top.unstable,
                 functions: &self.top.functions,
                 bindings: self.bindings,
                 file: self.file,
@@ -1106,6 +1172,8 @@ impl<'a> Visit<'a> for OptionFinder<'_, '_, 'a> {
         if name == Some(self.constructor) {
             let eval = Evaluator {
                 consts: &self.top.consts,
+                changed: &self.top.changed,
+                unstable: &self.top.unstable,
                 functions: &self.top.functions,
                 bindings: self.bindings,
                 file: self.file,
@@ -1162,6 +1230,8 @@ impl<'a> Visit<'a> for PropertyFinder<'_, '_, 'a> {
         {
             let eval = Evaluator {
                 consts: &self.top.consts,
+                changed: &self.top.changed,
+                unstable: &self.top.unstable,
                 functions: &self.top.functions,
                 bindings: self.bindings,
                 file: self.file,
@@ -1202,12 +1272,8 @@ fn exported<'p, 'a>(program: &'p Program<'a>) -> Option<Exported<'p, 'a>> {
                 };
             }
             Statement::TSExportAssignment(e) => return Some(Exported::Expression(&e.expression)),
-            Statement::ExpressionStatement(s) => {
-                if let Expression::AssignmentExpression(a) = &s.expression
-                    && let AssignmentTarget::StaticMemberExpression(m) = &a.left
-                    && matches!(&m.object, Expression::Identifier(id) if id.name.as_str() == "module")
-                    && m.property.name.as_str() == "exports"
-                {
+            Statement::ExpressionStatement(s) if is_module_exports_assignment(stmt) => {
+                if let Expression::AssignmentExpression(a) = &s.expression {
                     return Some(Exported::Expression(&a.right));
                 }
             }
@@ -1215,6 +1281,36 @@ fn exported<'p, 'a>(program: &'p Program<'a>) -> Option<Exported<'p, 'a>> {
         }
     }
     None
+}
+
+/// Whether a statement after the `module.exports = …` that [`exported`] reads changes or replaces what it exports
+/// (`module.exports.plugins.push(x)`, `exports.a = 1`).
+fn exports_changed(program: &Program<'_>) -> bool {
+    let mut statements = program
+        .body
+        .iter()
+        .skip_while(|stmt| !is_module_exports_assignment(stmt));
+    statements.next().is_some()
+        && statements.any(|stmt| {
+            let writes = Writes::of_statement(stmt);
+            writes
+                .assigned
+                .iter()
+                .chain(&writes.changed)
+                .any(|name| name == "module" || name == "exports")
+        })
+}
+
+fn is_module_exports_assignment(stmt: &Statement<'_>) -> bool {
+    if let Statement::ExpressionStatement(s) = stmt
+        && let Expression::AssignmentExpression(a) = &s.expression
+        && let AssignmentTarget::StaticMemberExpression(m) = &a.left
+    {
+        matches!(&m.object, Expression::Identifier(id) if id.name.as_str() == "module")
+            && m.property.name.as_str() == "exports"
+    } else {
+        false
+    }
 }
 
 /// The number of values `value` consists of, itself included.
@@ -1228,6 +1324,10 @@ fn node_count(value: &ConfigValue) -> usize {
 
 struct Evaluator<'c, 'p, 'a> {
     consts: &'c HashMap<String, &'p Expression<'a>>,
+    /// Top-level names changed by statements after their declaration; see [`TopLevel::changed`].
+    changed: &'c HashSet<String>,
+    /// The bindings code the evaluator does not follow may change; see [`Unstable`].
+    unstable: &'c Unstable,
     functions: &'c HashMap<String, Callable<'p, 'a>>,
     bindings: &'c ModuleBindings,
     /// File name of the module, which `__filename` and `import.meta.url` name.
@@ -1283,10 +1383,21 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     _ => ConfigValue::Unknown,
                 }
             }
+            Expression::UnaryExpression(u) if u.operator == UnaryOperator::LogicalNot => {
+                truthiness(&self.expr(&u.argument, depth)).map_or(ConfigValue::Unknown, |t| ConfigValue::Bool(!t))
+            }
+            Expression::LogicalExpression(l) => self.logical(l, depth),
+            Expression::ConditionalExpression(c) => self.conditional(c, depth),
             Expression::AwaitExpression(a) => self.expr(&a.argument, depth),
             Expression::ArrayExpression(a) => self.array(&a.elements, depth),
             Expression::ObjectExpression(o) => self.object(&o.properties, depth),
-            Expression::Identifier(id) => self.identifier(id.name.as_str(), depth),
+            Expression::Identifier(id) => {
+                let value = self.identifier(id.name.as_str(), depth);
+                match self.unstable.of_reference(id) {
+                    Some(change) => unstable(value, change),
+                    None => value,
+                }
+            }
             Expression::CallExpression(c) => self.call(c, depth),
             Expression::ArrowFunctionExpression(f) => self.invoke(Callable::Arrow(f), &[], false, depth),
             Expression::FunctionExpression(f) => self.invoke(Callable::Function(f), &[], false, depth),
@@ -1328,6 +1439,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         self.chain.borrow_mut().pop();
         let value = if node_count(&value) > MAX_CONST_NODES {
             ConfigValue::Unknown
+        } else if self.changed.contains(name) {
+            changed(value)
+        } else if let Some(change) = self.unstable.of_top(name) {
+            unstable(value, change)
         } else {
             value
         };
@@ -1457,7 +1572,49 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             {
                 self.namespace_member(object.name.as_str(), property)
             }
+            (object, "length") => {
+                let length = match self.expr(object, depth) {
+                    ConfigValue::String(text) => Some(text.encode_utf16().count()),
+                    // An unknown element may stand for a spread of any length.
+                    ConfigValue::Array(items) if !items.contains(&ConfigValue::Unknown) => Some(items.len()),
+                    _ => None,
+                };
+                length
+                    .and_then(|length| u32::try_from(length).ok())
+                    .map_or(ConfigValue::Unknown, |length| ConfigValue::Number(f64::from(length)))
+            }
             _ => ConfigValue::Unknown,
+        }
+    }
+
+    /// `a && b`, `a || b` and `a ?? b`, when `a` decides which side is the value.
+    fn logical(&self, logical: &'p LogicalExpression<'a>, depth: u32) -> ConfigValue {
+        let left = self.expr(&logical.left, depth);
+        let left_is_value = match logical.operator {
+            LogicalOperator::And => truthiness(&left).map(|truthy| !truthy),
+            LogicalOperator::Or => truthiness(&left),
+            LogicalOperator::Coalesce => match left {
+                ConfigValue::Unknown => None,
+                ConfigValue::Null => Some(false),
+                _ => Some(true),
+            },
+        };
+        match left_is_value {
+            Some(true) => left,
+            Some(false) => self.expr(&logical.right, depth),
+            None => ConfigValue::Unknown,
+        }
+    }
+
+    /// `test ? a : b`: the branch a known test takes, or what both branches have in common when the test is unknown.
+    fn conditional(&self, conditional: &'p ConditionalExpression<'a>, depth: u32) -> ConfigValue {
+        match truthiness(&self.expr(&conditional.test, depth)) {
+            Some(true) => self.expr(&conditional.consequent, depth),
+            Some(false) => self.expr(&conditional.alternate, depth),
+            None => either(
+                &self.expr(&conditional.consequent, depth),
+                &self.expr(&conditional.alternate, depth),
+            ),
         }
     }
 
@@ -1746,23 +1903,24 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             Callable::Function(f) => &f.params,
             Callable::Arrow(f) => &f.params,
         };
-        let mut frame = Frame::new();
-        for (index, param) in params.items.iter().enumerate() {
-            if let BindingPattern::BindingIdentifier(id) = &param.pattern {
-                let value = match (args.get(index), &param.initializer) {
-                    (Some(value), _) => value.clone(),
-                    (None, Some(default)) => self.expr(default, depth),
-                    (None, None) => ConfigValue::Unknown,
-                };
-                frame.insert(id.name.as_str().to_owned(), Binding::Value(value));
-            }
-        }
         let saved = if isolate {
             std::mem::take(&mut *self.frames.borrow_mut())
         } else {
             Vec::new()
         };
-        self.frames.borrow_mut().push(frame);
+        // Parameters are bound in order inside the function, so a default sees the parameters before it.
+        self.frames.borrow_mut().push(Frame::new());
+        for (index, param) in params.items.iter().enumerate() {
+            let value = match (args.get(index), &param.initializer) {
+                (Some(value), _) => value.clone(),
+                (None, Some(default)) => self.expr(default, depth),
+                (None, None) => ConfigValue::Unknown,
+            };
+            self.bind_pattern(&param.pattern, value, depth);
+        }
+        if let Some(param) = &params.rest {
+            self.bind_pattern(&param.rest.argument, ConfigValue::Unknown, depth);
+        }
         let value = match callable {
             Callable::Arrow(f) => match f.get_expression() {
                 Some(body) => self.expr(body, depth),
@@ -1782,43 +1940,227 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         value
     }
 
-    /// Value returned by a function body: its single expression or the first `return <expr>`. Declarations before
-    /// it are bound in the innermost frame.
+    /// Binds the names `pattern` declares to the parts of `value` they take, in the innermost frame. A property of an
+    /// object pattern takes its key's value or, when the object has no such key, its default; a name that cannot be
+    /// known (an array pattern, a rest element, a key an unknown spread may provide) is bound to
+    /// [`ConfigValue::Unknown`], so it does not resolve to a binding of an outer scope.
+    fn bind_pattern(&self, pattern: &'p BindingPattern<'a>, value: ConfigValue, depth: u32) {
+        match pattern {
+            BindingPattern::BindingIdentifier(id) => self.bind(id.name.as_str(), value),
+            BindingPattern::AssignmentPattern(p) => self.bind_pattern(&p.left, value, depth),
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    let key = property.key.static_name().map(|key| crate::js_string(key.as_js_str()));
+                    let field = match (&value, key) {
+                        (ConfigValue::Object(entries), Some(key)) => entries.iter().rev().find_map(|(name, field)| {
+                            // An unknown spread after the key may replace it.
+                            (name == &key)
+                                .then(|| field.clone())
+                                .or_else(|| (name == "...").then_some(ConfigValue::Unknown))
+                        }),
+                        _ => Some(ConfigValue::Unknown),
+                    };
+                    match (&property.value, field) {
+                        (BindingPattern::AssignmentPattern(p), None) => {
+                            let default = self.expr(&p.right, depth);
+                            self.bind_pattern(&p.left, default, depth);
+                        }
+                        (element, field) => self.bind_pattern(element, field.unwrap_or(ConfigValue::Unknown), depth),
+                    }
+                }
+                if let Some(rest) = &object.rest {
+                    self.bind_pattern(&rest.argument, ConfigValue::Unknown, depth);
+                }
+            }
+            BindingPattern::ArrayPattern(_) => {
+                for id in pattern.get_binding_identifiers() {
+                    self.bind(id.name.as_str(), ConfigValue::Unknown);
+                }
+            }
+        }
+    }
+
+    /// Binds `name` to `value` in the innermost frame.
+    fn bind(&self, name: &str, value: ConfigValue) {
+        self.bind_to(name, Binding::Value(value));
+    }
+
+    /// Binds `name` in the innermost frame, shadowing any binding of it in an outer one.
+    fn bind_to(&self, name: &str, binding: Binding<'p, 'a>) {
+        if let Some(frame) = self.frames.borrow_mut().last_mut() {
+            frame.insert(name.to_owned(), binding);
+        }
+    }
+
+    /// Value returned by a function body: its single expression or the value of the `return` it reaches.
+    /// Declarations before it are bound in the innermost frame.
     fn returned(&self, statements: &'p [Statement<'a>], depth: u32) -> ConfigValue {
         if let [Statement::ExpressionStatement(s)] = statements {
             return self.expr(&s.expression, depth);
         }
-        for statement in statements {
+        self.run(statements, depth).unwrap_or(ConfigValue::Unknown)
+    }
+
+    /// Runs `statements` in the innermost frame: the value of the `return` they reach, or `None` when they finish
+    /// without one. An `if` with a known test runs the branch it takes; with an unknown test, a branch that is a single
+    /// `return x` makes the value what `x` and the other path's value have in common, and any other `return` that may
+    /// or may not be reached (in a loop, a `switch`, a `try`, a larger branch) makes the value unknown, never only the
+    /// last `return`. A statement that may or may not run (a branch of an unknown test, a loop) leaves every local it
+    /// assigns or changes unknown, so the value after it is never the one from before it.
+    fn run(&self, statements: &'p [Statement<'a>], depth: u32) -> Option<ConfigValue> {
+        for (index, statement) in statements.iter().enumerate() {
             match statement {
                 Statement::ReturnStatement(r) => {
-                    return r
-                        .argument
-                        .as_ref()
-                        .map_or(ConfigValue::Unknown, |e| self.expr(e, depth));
+                    // What the evaluator reads expressions for, it does not run for what they change.
+                    if let Some(argument) = &r.argument {
+                        self.havoc(Writes::of_expression(argument));
+                    }
+                    return Some(
+                        r.argument
+                            .as_ref()
+                            .map_or(ConfigValue::Unknown, |e| self.expr(e, depth)),
+                    );
                 }
                 Statement::ExpressionStatement(s) => self.mutation(&s.expression, depth),
+                Statement::BlockStatement(b) => {
+                    if let Some(value) = self.block(&b.body, depth) {
+                        return Some(value);
+                    }
+                }
+                Statement::IfStatement(i) => {
+                    self.havoc(Writes::of_expression(&i.test));
+                    let taken = match truthiness(&self.expr(&i.test, depth)) {
+                        Some(true) => Some(&i.consequent),
+                        Some(false) => i.alternate.as_ref(),
+                        None => {
+                            if !returns(statement) {
+                                self.either_branch(i, depth);
+                                continue;
+                            }
+                            let rest = &statements[index + 1..];
+                            return Some(self.either_return(i, rest, depth));
+                        }
+                    };
+                    if let Some(value) = taken.and_then(|branch| self.block(std::slice::from_ref(branch), depth)) {
+                        return Some(value);
+                    }
+                }
+                other if returns(other) => return Some(ConfigValue::Unknown),
                 other => match other.as_declaration() {
-                    Some(Declaration::VariableDeclaration(v)) => self.declare(v, depth),
+                    Some(Declaration::VariableDeclaration(v)) => {
+                        self.havoc(Writes::of_statement(other));
+                        self.declare(v, depth);
+                    }
                     Some(Declaration::FunctionDeclaration(f)) => {
                         if let Some(id) = &f.id {
-                            self.assign(id.name.as_str(), Binding::Callable(Callable::Function(f)));
+                            self.bind_to(id.name.as_str(), Binding::Callable(Callable::Function(f)));
                         }
                     }
-                    _ => {}
+                    Some(_) => {}
+                    None => self.havoc(Writes::of_statement(other)),
                 },
             }
         }
-        ConfigValue::Unknown
+        None
     }
 
-    /// Binds the names a `const`/`let`/`var` declaration declares; destructured names stay unbound.
+    /// Runs the statements of a block in a frame of their own, so a `const` or `let` declared in it does not replace a
+    /// binding outside it. A `var` it declares is function-scoped, and is left unknown outside the block.
+    fn block(&self, statements: &'p [Statement<'a>], depth: u32) -> Option<ConfigValue> {
+        self.frames.borrow_mut().push(Frame::new());
+        let value = self.run(statements, depth);
+        self.frames.borrow_mut().pop();
+        let mut vars = Vars::default();
+        for statement in statements {
+            vars.visit_statement(statement);
+        }
+        for name in vars.0 {
+            self.assign(&name, Binding::Value(ConfigValue::Unknown));
+        }
+        value
+    }
+
+    /// Runs an `if` with an unknown test whose branches do not return: each branch from the same bindings, after which
+    /// a binding is what both branches leave it with in common.
+    fn either_branch(&self, statement: &'p IfStatement<'a>, depth: u32) {
+        let before = self.frames.borrow().clone();
+        let captured = self.captured.borrow().clone();
+        self.block(std::slice::from_ref(&statement.consequent), depth);
+        let consequent = std::mem::replace(&mut *self.frames.borrow_mut(), before);
+        let consequent_captured = std::mem::replace(&mut *self.captured.borrow_mut(), captured);
+        if let Some(alternate) = &statement.alternate {
+            self.block(std::slice::from_ref(alternate), depth);
+        }
+        let mut frames = self.frames.borrow_mut();
+        for (frame, other) in frames.iter_mut().zip(consequent) {
+            let names: Vec<String> = frame.keys().chain(other.keys()).cloned().collect();
+            for name in names {
+                let joined = match (frame.get(&name), other.get(&name)) {
+                    (Some(Binding::Value(a)), Some(Binding::Value(b))) => Binding::Value(join(a, b)),
+                    (Some(Binding::Callable(a)), Some(Binding::Callable(b))) if a.same(*b) => Binding::Callable(*a),
+                    _ => Binding::Value(ConfigValue::Unknown),
+                };
+                frame.insert(name, joined);
+            }
+        }
+        let mut captured = self.captured.borrow_mut();
+        if *captured != consequent_captured {
+            *captured = Some(match (&*captured, &consequent_captured) {
+                (Some(a), Some(b)) => either(a, b),
+                _ => ConfigValue::Unknown,
+            });
+        }
+    }
+
+    /// The value of an `if` with an unknown test followed by `rest`, where a branch returns: what a branch's single
+    /// `return x` and the other path's value have in common, or unknown when a branch does more. A branch that goes on
+    /// to `rest` leaves what it assigns unknown there.
+    fn either_return(&self, statement: &'p IfStatement<'a>, rest: &'p [Statement<'a>], depth: u32) -> ConfigValue {
+        let path = |branch: Option<&'p Statement<'a>>| -> Option<ConfigValue> {
+            match branch.map(single_return) {
+                // A branch that returns its value.
+                Some(Some(r)) => Some(
+                    r.argument
+                        .as_ref()
+                        .map_or(ConfigValue::Unknown, |e| self.expr(e, depth)),
+                ),
+                // A branch that does more than return, and may return.
+                Some(None) if branch.is_some_and(returns) => Some(ConfigValue::Unknown),
+                // No branch, or one that does not return: control goes on to the statements after the `if`.
+                _ => None,
+            }
+        };
+        // Both returns are evaluated before `rest` runs, which may change the locals they read.
+        let consequent = path(Some(&statement.consequent));
+        let alternate = path(statement.alternate.as_ref());
+        let after = || {
+            for branch in [Some(&statement.consequent), statement.alternate.as_ref()]
+                .into_iter()
+                .flatten()
+            {
+                if !returns(branch) {
+                    self.havoc(Writes::of_statement(branch));
+                }
+            }
+            self.run(rest, depth).unwrap_or(ConfigValue::Unknown)
+        };
+        let (a, b) = match (consequent, alternate) {
+            (Some(a), Some(b)) => (a, b),
+            (Some(a), None) => (a, after()),
+            (None, Some(b)) => (after(), b),
+            (None, None) => return ConfigValue::Unknown,
+        };
+        either(&a, &b)
+    }
+
+    /// Binds the names a `const`/`let`/`var` declaration declares in the innermost frame: a destructured name to the
+    /// part of the value it takes, or to [`ConfigValue::Unknown`].
     fn declare(&self, declaration: &'p VariableDeclaration<'a>, depth: u32) {
         for declarator in &declaration.declarations {
-            let BindingPattern::BindingIdentifier(id) = &declarator.id else {
-                continue;
-            };
-            if let Some(callable) = declarator.init.as_ref().and_then(Callable::of_expression) {
-                self.assign(id.name.as_str(), Binding::Callable(callable));
+            if let BindingPattern::BindingIdentifier(id) = &declarator.id
+                && let Some(callable) = declarator.init.as_ref().and_then(Callable::of_expression)
+            {
+                self.bind_to(id.name.as_str(), Binding::Callable(callable));
                 continue;
             }
             let value = declarator
@@ -1830,16 +2172,31 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             } else {
                 value
             };
-            self.assign(id.name.as_str(), Binding::Value(value));
+            self.bind_pattern(&declarator.id, value, depth);
+        }
+    }
+
+    /// Leaves every local `writes` assigns unknown, and every local object or array it changes partly unknown.
+    fn havoc(&self, writes: Writes) {
+        for name in writes.assigned {
+            self.assign(&name, Binding::Value(ConfigValue::Unknown));
+        }
+        let mut changed = writes.changed;
+        changed.sort_unstable();
+        changed.dedup();
+        for name in changed {
+            self.taint(&name);
         }
     }
 
     /// Applies what an expression statement does to a local object: `name = x`, `name.key = x`, and anything else
-    /// that reaches into the object (`name.list.push(x)`, `name.a.b = x`), which leaves it partly unknown.
+    /// that reaches into the object (`name.list.push(x)`, `name.a.b = x`), which leaves it partly unknown. Any other
+    /// expression leaves what it may write unknown.
     fn mutation(&self, expr: &'p Expression<'a>, depth: u32) {
         match expr.get_inner_expression() {
             Expression::AwaitExpression(a) => self.mutation(&a.argument, depth),
             Expression::AssignmentExpression(a) => {
+                self.havoc(Writes::of_expression(&a.right));
                 let assign = a.operator == AssignmentOperator::Assign;
                 match &a.left {
                     AssignmentTarget::AssignmentTargetIdentifier(id) => {
@@ -1860,31 +2217,16 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                             self.taint(root);
                         }
                     }
-                    _ => {}
+                    _ => self.havoc(Writes::of_expression(expr)),
                 }
             }
             Expression::CallExpression(c) => {
-                if self.capture_set(c, depth) {
-                    return;
-                }
-                let object_assign = matches!(
-                    c.callee.get_inner_expression(),
-                    Expression::StaticMemberExpression(m)
-                        if m.property.name.as_str() == "assign"
-                            && matches!(m.object.get_inner_expression(), Expression::Identifier(o) if o.name.as_str() == "Object")
-                );
-                let target = if object_assign {
-                    c.arguments.first().and_then(Argument::as_expression)
-                } else if let Expression::StaticMemberExpression(m) = c.callee.get_inner_expression() {
-                    Some(&m.object)
-                } else {
-                    None
-                };
-                if let Some(root) = target.and_then(member_root) {
-                    self.taint(root);
+                if !self.capture_set(c, depth) {
+                    self.havoc(Writes::of_effect(expr));
                 }
             }
-            _ => {}
+            // `cond && (x = 1)`, `x++`, `a = b = 1`: what it writes may or may not be written.
+            _ => self.havoc(Writes::of_expression(expr)),
         }
     }
 
@@ -1892,11 +2234,16 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     fn set_key(&self, name: &str, key: &str, value: ConfigValue) {
         let mut frames = self.frames.borrow_mut();
         let binding = frames.iter_mut().rev().find_map(|frame| frame.get_mut(name));
-        if let Some(Binding::Value(ConfigValue::Object(entries))) = binding {
-            match entries.iter_mut().find(|(existing, _)| existing == key) {
-                Some((_, slot)) => *slot = value,
-                None => entries.push((key.to_owned(), value)),
+        match binding {
+            Some(Binding::Value(ConfigValue::Object(entries))) => {
+                match entries.iter_mut().find(|(existing, _)| existing == key) {
+                    Some((_, slot)) => *slot = value,
+                    None => entries.push((key.to_owned(), value)),
+                }
             }
+            // `list.length = 0` on an array.
+            Some(Binding::Value(ConfigValue::Array(items))) => items.push(ConfigValue::Unknown),
+            _ => {}
         }
     }
 
@@ -2040,6 +2387,248 @@ fn merge_objects(base: &mut Vec<(String, ConfigValue)>, incoming: Vec<(String, C
     }
 }
 
+/// A statement that is only a `return` (or a block holding just one).
+fn single_return<'p, 'a>(statement: &'p Statement<'a>) -> Option<&'p ReturnStatement<'a>> {
+    match statement {
+        Statement::ReturnStatement(r) => Some(r),
+        Statement::BlockStatement(b) => match b.body.as_slice() {
+            [only] => single_return(only),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether a statement may `return` from the function it is in (a `return` inside a nested function does not count).
+fn returns(statement: &Statement<'_>) -> bool {
+    #[derive(Default)]
+    struct Finder(bool);
+    impl<'a> Visit<'a> for Finder {
+        fn visit_return_statement(&mut self, _: &ReturnStatement<'a>) {
+            self.0 = true;
+        }
+        fn visit_function(&mut self, _: &Function<'a>, _: oxc_semantic::ScopeFlags) {}
+        fn visit_arrow_function_expression(&mut self, _: &ArrowFunctionExpression<'a>) {}
+        fn visit_class(&mut self, _: &oxc_ast::ast::Class<'a>) {}
+    }
+    let mut finder = Finder::default();
+    finder.visit_statement(statement);
+    finder.0
+}
+
+/// The locals a statement or expression may write, outside the functions it declares: the names it assigns
+/// (`x = …`, `x++`, `[x] = …`) and the objects it may change (`x.a = …`, `x.list.push(…)`, `Object.assign(x, …)`).
+#[derive(Default)]
+struct Writes {
+    assigned: Vec<String>,
+    changed: Vec<String>,
+}
+
+impl Writes {
+    fn of_statement(statement: &Statement<'_>) -> Self {
+        let mut writes = Self::default();
+        writes.visit_statement(statement);
+        writes
+    }
+
+    fn of_expression(expression: &Expression<'_>) -> Self {
+        let mut writes = Self::default();
+        writes.visit_expression(expression);
+        writes
+    }
+
+    /// What an expression statement writes itself, as [`Evaluator::mutation`] reads it: the target of an assignment
+    /// and the object a method call (or `Object.assign`) may change; anything else, in full.
+    fn of_effect(expression: &Expression<'_>) -> Self {
+        let mut writes = Self::default();
+        match expression.get_inner_expression() {
+            Expression::AssignmentExpression(a) => match a.left.as_simple_assignment_target() {
+                Some(target) => writes.visit_simple_assignment_target(target),
+                None => writes.visit_assignment_target(&a.left),
+            },
+            Expression::CallExpression(c) => {
+                writes.visit_call_expression(c);
+                writes.arguments(c);
+            }
+            Expression::AwaitExpression(a) => return Self::of_effect(&a.argument),
+            other => writes.visit_expression(other),
+        }
+        writes
+    }
+
+    /// The objects a call made for what it does is given, which it may change.
+    fn arguments(&mut self, call: &CallExpression<'_>) {
+        let arguments = call.arguments.iter().filter_map(Argument::as_expression);
+        self.changed
+            .extend(arguments.filter_map(member_root).map(str::to_owned));
+    }
+}
+
+impl<'a> Visit<'a> for Writes {
+    fn visit_simple_assignment_target(&mut self, it: &SimpleAssignmentTarget<'a>) {
+        match it {
+            SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => self.assigned.push(id.name.as_str().to_owned()),
+            other => {
+                if let Some(root) = other.as_member_expression().and_then(|m| member_root(m.object())) {
+                    self.changed.push(root.to_owned());
+                }
+            }
+        }
+        walk::walk_simple_assignment_target(self, it);
+    }
+
+    fn visit_assignment_target_property_identifier(&mut self, it: &AssignmentTargetPropertyIdentifier<'a>) {
+        self.assigned.push(it.binding.name.as_str().to_owned());
+        walk::walk_assignment_target_property_identifier(self, it);
+    }
+
+    fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
+        if it.operator == UnaryOperator::Delete
+            && let Some(root) = it
+                .argument
+                .get_inner_expression()
+                .as_member_expression()
+                .and_then(|m| member_root(m.object()))
+        {
+            self.changed.push(root.to_owned());
+        }
+        walk::walk_unary_expression(self, it);
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        let target = changed_by_call(it);
+        if let Some(root) = target.and_then(member_root) {
+            self.changed.push(root.to_owned());
+        }
+        walk::walk_call_expression(self, it);
+    }
+
+    fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
+        if let Some(call) = statement_call(&it.expression) {
+            self.arguments(call);
+        }
+        walk::walk_expression_statement(self, it);
+    }
+
+    fn visit_function(&mut self, _: &Function<'a>, _: oxc_semantic::ScopeFlags) {}
+    fn visit_arrow_function_expression(&mut self, _: &ArrowFunctionExpression<'a>) {}
+    fn visit_class(&mut self, _: &oxc_ast::ast::Class<'a>) {}
+}
+
+/// The names `var` declarations bind in a statement, outside the functions it declares.
+#[derive(Default)]
+struct Vars(Vec<String>);
+
+impl<'a> Visit<'a> for Vars {
+    fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
+        if it.kind == VariableDeclarationKind::Var {
+            for declarator in &it.declarations {
+                self.0.extend(
+                    declarator
+                        .id
+                        .get_binding_identifiers()
+                        .iter()
+                        .map(|id| id.name.as_str().to_owned()),
+                );
+            }
+        }
+        walk::walk_variable_declaration(self, it);
+    }
+
+    fn visit_function(&mut self, _: &Function<'a>, _: oxc_semantic::ScopeFlags) {}
+    fn visit_arrow_function_expression(&mut self, _: &ArrowFunctionExpression<'a>) {}
+    fn visit_class(&mut self, _: &oxc_ast::ast::Class<'a>) {}
+}
+
+/// A value that code the evaluator does not follow may have changed: an object may have any other key and an array
+/// any other element, as [`Evaluator::taint`] leaves them; anything else is unknown.
+fn changed(value: ConfigValue) -> ConfigValue {
+    match value {
+        ConfigValue::Object(mut entries) => {
+            entries.push(("...".to_owned(), ConfigValue::Unknown));
+            ConfigValue::Object(entries)
+        }
+        ConfigValue::Array(mut items) => {
+            items.push(ConfigValue::Unknown);
+            ConfigValue::Array(items)
+        }
+        _ => ConfigValue::Unknown,
+    }
+}
+
+/// A value code the evaluator does not follow may have changed as `change` says.
+fn unstable(value: ConfigValue, change: Change) -> ConfigValue {
+    match (change, value) {
+        (
+            Change::Contents,
+            value @ (ConfigValue::Null
+            | ConfigValue::Bool(_)
+            | ConfigValue::Number(_)
+            | ConfigValue::String(_)
+            | ConfigValue::Regex(_)),
+        ) => value,
+        (_, value) => changed(value),
+    }
+}
+
+/// Whether a value is truthy in JavaScript; `None` when it is unknown.
+fn truthiness(value: &ConfigValue) -> Option<bool> {
+    match value {
+        ConfigValue::Null => Some(false),
+        ConfigValue::Bool(b) => Some(*b),
+        ConfigValue::Number(n) => Some(*n != 0.0 && !n.is_nan()),
+        ConfigValue::String(s) => Some(!s.is_empty()),
+        ConfigValue::Array(_) | ConfigValue::Object(_) | ConfigValue::Regex(_) => Some(true),
+        ConfigValue::Unknown => None,
+    }
+}
+
+/// The value of an expression that is `a` or `b`, not knowing which: the value itself when both are equal; for two
+/// objects, an object with every key either has, whose value is what both have in common when both have the key and
+/// [`ConfigValue::Unknown`] when only one does (it may be present or not); anything else is unknown. No key appears
+/// that neither branch has, so other keys stay known, and a key that may differ is unknown wherever it is read.
+fn either(a: &ConfigValue, b: &ConfigValue) -> ConfigValue {
+    if a == b {
+        return a.clone();
+    }
+    let (ConfigValue::Object(left), ConfigValue::Object(right)) = (a, b) else {
+        return ConfigValue::Unknown;
+    };
+    let mut keys: Vec<&str> = Vec::new();
+    for (key, _) in left.iter().chain(right) {
+        if key != "..." && !keys.contains(&key.as_str()) {
+            keys.push(key);
+        }
+    }
+    let mut out: Vec<(String, ConfigValue)> = keys
+        .into_iter()
+        .map(|key| {
+            let value = match (a.get(key), b.get(key)) {
+                (Some(x), Some(y)) => either(x, y),
+                _ => ConfigValue::Unknown,
+            };
+            (key.to_owned(), value)
+        })
+        .collect();
+    if a.get("...").is_some() || b.get("...").is_some() {
+        out.push(("...".to_owned(), ConfigValue::Unknown));
+    }
+    ConfigValue::Object(out)
+}
+
+/// What a binding holds after one of two branches left it `a` and the other `b`: as [`either`], except that a list
+/// one branch appended to (`plugins.push(x)`) keeps the elements both have.
+fn join(a: &ConfigValue, b: &ConfigValue) -> ConfigValue {
+    match (a, b) {
+        (ConfigValue::Array(x), ConfigValue::Array(y)) if x != y && (x.starts_with(y) || y.starts_with(x)) => {
+            let mut common = if x.len() < y.len() { x.clone() } else { y.clone() };
+            common.push(ConfigValue::Unknown);
+            ConfigValue::Array(common)
+        }
+        _ => either(a, b),
+    }
+}
+
 /// Appends a flat config, or the configs of a (nested) list of them, to `list`.
 fn flatten_into(value: ConfigValue, list: &mut Vec<ConfigValue>) {
     match value {
@@ -2096,6 +2685,7 @@ fn member_root<'a>(expr: &'a Expression<'_>) -> Option<&'a str> {
     match expr.get_inner_expression() {
         Expression::Identifier(id) => Some(id.name.as_str()),
         Expression::StaticMemberExpression(m) => member_root(&m.object),
+        Expression::ComputedMemberExpression(m) => member_root(&m.object),
         _ => None,
     }
 }

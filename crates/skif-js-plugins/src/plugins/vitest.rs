@@ -5,7 +5,8 @@ use skif_js_syntax::ConfigValue;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::vite;
 use crate::support::{
-    alias_inputs, entry_glob, get_in, module_input, name_of, objects, package_name, project_files, strings,
+    alias_inputs, entry_glob, entry_strings, get_in, module_input, name_of, objects, package_name, project_files,
+    shallow_key_unknown, strings,
 };
 
 /// The `vitest` plugin.
@@ -65,9 +66,15 @@ fn collect(value: &ConfigValue, config: &ConfigAst<'_>, cx: &PluginContext<'_>, 
                 out.extend(alias_inputs(alias, config));
             }
         }
+        if shallow_key_unknown(object, "test") {
+            out.push(PluginInput::EntriesIncomplete);
+        }
         let Some(test) = object.get("test") else { continue };
         test_options(test, config, out);
         for key in ["workspace", "projects"] {
+            if shallow_key_unknown(test, key) {
+                out.push(PluginInput::EntriesIncomplete);
+            }
             if let Some(projects) = test.get(key) {
                 collect(projects, config, cx, out, depth + 1);
                 string_projects(projects, config, cx, out);
@@ -116,11 +123,11 @@ fn test_options(test: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Plugin
         }
     }
     for key in ["setupFiles", "globalSetup", "snapshotSerializers"] {
-        for specifier in test.get(key).map(strings).unwrap_or_default() {
+        for specifier in entry_strings(test, key, out) {
             out.extend(module_input(config.base, specifier, true));
         }
     }
-    for pattern in test.get("include").map(strings).unwrap_or_default() {
+    for pattern in entry_strings(test, "include", out) {
         out.extend(entry_glob(config.base, pattern).map(PluginInput::Entry));
     }
 }

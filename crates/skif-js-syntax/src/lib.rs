@@ -25,6 +25,7 @@ mod members;
 mod model;
 mod semantic;
 mod sfc;
+mod sharing;
 mod signature_refs;
 mod style;
 mod template;

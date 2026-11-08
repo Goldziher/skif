@@ -384,14 +384,16 @@ fn a_computed_relative_specifier_reaches_the_files_it_can_name() {
         ),
         ("lib/utils.js", "exports.open = () => 1;\nexports.dead = () => 2;\n"),
         ("lib/pages/home.js", "export const page = 1;\n"),
-        ("lib/pages/home.css.ts", "export const style = 1;\n"),
+        // `.js` stands for the TypeScript sources it is built from, not for `.mts`.
+        ("lib/pages/about.ts", "export const page = 2;\n"),
+        ("lib/pages/home.mts", "export const style = 1;\n"),
         ("lib/other/stray.js", "module.exports = 1;\n"),
     ]);
     assert_eq!(
         found(&diagnostics, "unused-files"),
         [
             "lib/other/stray.js: lib/other/stray.js",
-            "lib/pages/home.css.ts: lib/pages/home.css.ts"
+            "lib/pages/home.mts: lib/pages/home.mts"
         ]
     );
     assert_eq!(found(&diagnostics, "unused-exports"), ["lib/utils.js: dead"]);
