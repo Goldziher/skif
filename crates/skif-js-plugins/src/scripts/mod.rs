@@ -19,7 +19,7 @@ use std::ops::Range;
 
 use indexmap::IndexMap;
 
-pub use tables::{IGNORED_BINARIES, is_ignored_binary};
+pub use tables::{IGNORED_BINARIES, SHELL_BUILTINS, is_ignored_binary, is_shell_builtin};
 
 pub use skif_config::PackageManager;
 
@@ -153,6 +153,10 @@ pub struct DepRef {
 pub struct ScriptInfo {
     /// The binaries the script runs.
     pub binaries: Vec<BinaryUse>,
+    /// The system binaries the script runs ([`is_ignored_binary`] but not a [`is_shell_builtin`]), which are assumed
+    /// to be installed globally and are only reported when a caller asks for them (knip's `ignoreGlobalBinaries:
+    /// false`).
+    pub global_binaries: Vec<BinaryUse>,
     /// The files the script runs, loads or passes to a runner.
     pub files: Vec<FileRef>,
     /// The packages the script needs that are not binary names.
@@ -200,6 +204,7 @@ fn dedupe<T: PartialEq>(items: &mut Vec<T>) {
 impl ScriptInfo {
     fn dedupe(&mut self) {
         dedupe(&mut self.binaries);
+        dedupe(&mut self.global_binaries);
         dedupe(&mut self.files);
         dedupe(&mut self.dependencies);
     }

@@ -416,6 +416,8 @@ pub(crate) struct Setup {
     pub include_tags: Vec<String>,
     /// `[js.cycles]`.
     pub cycles: skif_config::JsCycles,
+    /// `[js] ignore-global-binaries`: binaries assumed to be installed globally are never reported unlisted.
+    pub ignore_global_binaries: bool,
 }
 
 /// The TypeScript configuration of the package in `dir`: `root_tsconfig` (`[js] tsconfig`) for the root package,
@@ -733,6 +735,7 @@ impl Setup {
             ignore_tags,
             include_tags,
             cycles: js.cycles.clone(),
+            ignore_global_binaries: js.ignore_global_binaries,
         }
     }
 

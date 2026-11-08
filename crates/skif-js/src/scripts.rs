@@ -25,6 +25,9 @@ pub(crate) struct ForwardedBinary {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ScriptFacts {
     pub binaries: Vec<ScriptBinary>,
+    /// System binaries the scripts run directly (`rm`, `curl`, `git`), assumed to be installed globally: reported
+    /// only with `[js] ignore-global-binaries = false`.
+    pub global_binaries: Vec<ScriptBinary>,
     /// Binaries fetched on demand (`npx x`, `pnpm dlx x`): a listed provider is used, nothing is ever unlisted.
     pub ephemeral_binaries: Vec<ScriptBinary>,
     /// Binaries run in named workspaces; the package they belong to is only known with the whole workspace.
@@ -78,6 +81,7 @@ pub(crate) fn analyze_manifest(manifest: &Value) -> ScriptFacts {
     });
     let mut binaries = IndexSet::new();
     let mut ephemeral_binaries = IndexSet::new();
+    let mut global_binaries = IndexSet::new();
     let mut forwarded = IndexSet::new();
     let mut package_managers = IndexSet::new();
     let mut files = IndexSet::new();
@@ -111,6 +115,14 @@ pub(crate) fn analyze_manifest(manifest: &Value) -> ScriptFacts {
                 script: name.clone(),
             });
         }
+        for binary in info.global_binaries {
+            if !binary.filtered && !binary.via.is_ephemeral() {
+                global_binaries.insert(ScriptBinary {
+                    name: binary.name,
+                    script: name.clone(),
+                });
+            }
+        }
         package_managers.extend(info.package_managers);
         for file in info.files {
             if let Some(tree) = file.tree {
@@ -128,6 +140,7 @@ pub(crate) fn analyze_manifest(manifest: &Value) -> ScriptFacts {
     ScriptFacts {
         binaries: binaries.into_iter().collect(),
         ephemeral_binaries: ephemeral_binaries.into_iter().collect(),
+        global_binaries: global_binaries.into_iter().collect(),
         forwarded: forwarded.into_iter().collect(),
         package_managers: package_managers.into_iter().collect(),
         files: files.into_iter().collect(),

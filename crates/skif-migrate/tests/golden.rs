@@ -177,7 +177,7 @@ fn knip_ts_with_workspaces_plugins_and_a_non_static_value() {
         "+public limits unused-exports to tagged exports, which knip would never report"
     );
     assert_eq!(class(&migration, "treatTagHintsAsErrors"), NoteClass::Approximate);
-    assert_eq!(class(&migration, "ignoreGlobalBinaries"), NoteClass::Unsupported);
+    assert_eq!(class(&migration, "ignoreGlobalBinaries"), NoteClass::Exact);
     assert_eq!(class(&migration, "cycles.allow"), NoteClass::Approximate);
     assert_eq!(class(&migration, "cycles.dynamicImports"), NoteClass::Exact);
     assert_eq!(class(&migration, "compilers.mdx"), NoteClass::Approximate);
