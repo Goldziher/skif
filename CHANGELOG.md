@@ -178,7 +178,8 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   files. Nested roots are linted after the roots that enclose them; a root linted on its own still cannot see what an
   outer root imports.
 - The `vite` and `vitest` plugins honour Vite's `root`: with `root: "src"` the scripts of `src/index.html` are entries
-  and `/`-rooted script sources and HTML inputs start at `src`.
+  and `/`-rooted script sources and HTML inputs start at `src`. A `root` that is not a static string leaves the
+  package's entries incomplete.
 - After `skif -r --fix` the lint of the fixed tree judges each root as the first lint did: a standalone package below
   another root is again not asked for a `packageManager`, and a member that is a workspace of its own is again left
   to its own root instead of being linted twice.
