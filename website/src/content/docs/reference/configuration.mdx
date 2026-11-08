@@ -271,7 +271,8 @@ format-repository = false     # { "type": "git", "url": "git+https://github.com/
 ```
 
 `sort-az` sorts each named field one level deep: an object by key, an array of strings by value; `a/b` names a nested
-field. `sort-exports` orders the keys of every object in `exports` (the others keep their order) and always puts
+field. It is for fields whose order means nothing: an array with a `!`-prefixed entry, such as `files` with a negated
+glob, keeps its order, because a negation only excludes what the patterns before it matched. `sort-exports` orders the keys of every object in `exports` (the others keep their order) and always puts
 `default` last. Node and bundlers take the first condition that matches, so only `types` first and `default` last
 cannot change how an import resolves; that is the default, and its fix is safe. A list that reorders other conditions,
 such as syncpack's default `["types", "node-addons", "node", "browser", "module", "import", "require", "svelte",

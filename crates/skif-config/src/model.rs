@@ -1176,7 +1176,7 @@ pub struct Format {
     /// Top-level keys that come first, in this order.
     pub sort_first: Vec<String>,
     /// Fields sorted alphabetically one level deep: an object by key, an array of strings by value. `a/b` names a
-    /// nested field.
+    /// nested field. For fields whose order means nothing: an array with a `!`-prefixed entry keeps its order.
     pub sort_az: Vec<String>,
     /// Keys that come first, in this order, in every object of `exports`; `default` is always last. The default moves
     /// only `types` and `default`; a key that reorders other conditions makes the fix unsafe.
