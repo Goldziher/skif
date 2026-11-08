@@ -17,10 +17,13 @@ use skif_report::{escape_controls, render_json_with};
 use crate::args::{Format, LintArgs, Select};
 use crate::env::{Env, github_workspace};
 use crate::error::{CliError, Kind};
+use crate::explain;
+use crate::filter::{self, Filter};
 use crate::fix::{self, FixRun, RootFix};
 use crate::install::{self, InstallStatus};
 use crate::output::{self, Rendering, RootView, emit_error, emit_error_with, stderr_line};
 use crate::roots::{self, Linters, Resolved, RootError, RootRun};
+use crate::trace::{self, Trace};
 use crate::write::write_plan;
 
 const CLEAN: u8 = 0;
@@ -29,10 +32,17 @@ const COULD_NOT_RUN: u8 = 2;
 
 /// Runs the lint command and returns the process exit code.
 pub fn run(args: &LintArgs, env: Env) -> u8 {
-    match execute(args, env) {
+    let trace = Trace::start(args);
+    let result = match &args.trace_dependency {
+        Some(name) => explain::trace_dependency(args, name).map(|()| CLEAN),
+        None => execute(args, env),
+    };
+    let code = match result {
         Ok(code) => code,
         Err(error) => run_failed(args, &error),
-    }
+    };
+    trace.finish();
+    code
 }
 
 /// Reports `error` in the format of the run and returns the exit code of a run that could not start.
@@ -113,7 +123,7 @@ pub fn overrides(args: &LintArgs) -> ConfigOverrides {
         .with_ignore_packages(args.ignore_package.clone())
         .with_ignore_dependencies(args.ignore_dependency.clone())
         .with_fail_on_warnings(args.fail_on_warnings.then_some(true))
-        .with_production(args.production.then_some(true))
+        .with_production((args.production || args.strict).then_some(true))
         .with_no_js(args.no_js)
         .with_config_file(
             args.config
@@ -135,7 +145,7 @@ fn require_reasons(config: &Config) -> Result<(), CliError> {
 }
 
 /// The flags that are not plain configuration overrides, applied over a loaded configuration.
-fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
+pub(crate) fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
     // Before the flags add entries of their own, which have nowhere to carry a reason.
     if args.require_ignore_reasons {
         require_reasons(config)?;
@@ -146,6 +156,20 @@ fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
                 .with_rules([rule.clone()])
                 .with_packages(Selector::new([package.clone()])?),
         );
+    }
+    if args.strict {
+        config.js.isolate_workspaces = true;
+    }
+    if args.no_gitignore {
+        config.js.no_gitignore = true;
+    }
+    if args.include_entry_exports {
+        config.js.include_entry_exports = true;
+        for workspace in config.js.workspaces.values_mut() {
+            if workspace.include_entry_exports.is_some() {
+                workspace.include_entry_exports = Some(true);
+            }
+        }
     }
     if let Some(select) = args.select {
         config.policy.prefer = match select {
@@ -162,9 +186,11 @@ fn lint_once(
     config: &Config,
     config_path: Option<&Path>,
     fs: &dyn FileSystem,
+    filter: &Filter,
 ) -> Result<(Workspace, Report), CliError> {
     let workspace = Workspace::discover_with_fs(root, config, fs)?;
     let report = roots::lint_loaded(linter, &workspace, config_path)?;
+    let report = filter.apply(&workspace, report);
     Ok((workspace, report))
 }
 
@@ -207,25 +233,23 @@ fn color_enabled(args: &LintArgs, env: Env, format: Format, file: Option<&Path>)
         }
 }
 
-fn exit_code(report: &Report, max_warnings: Option<usize>) -> u8 {
-    if report.summary.errors > 0 || max_warnings.is_some_and(|max| report.summary.warnings > max) {
-        PROBLEMS
-    } else {
-        CLEAN
-    }
-}
-
-/// The worst exit code over the roots. `--max-warnings` bounds the warnings of the whole run; without it each root
-/// applies its own `fail-on-warnings`.
+/// The exit code of a run that found `report`. Errors beyond `--max-issues` (default 0) are problems;
+/// `--max-warnings` bounds the warnings of the whole run, and without it each root applies its own
+/// `fail-on-warnings`. `--no-exit-code` makes every outcome clean.
 fn run_exit_code(args: &LintArgs, runs: &[RootRun], aggregate: &Report) -> u8 {
-    match args.max_warnings {
-        Some(max) => exit_code(aggregate, Some(max)),
+    if args.no_exit_code {
+        return CLEAN;
+    }
+    if aggregate.summary.errors > args.max_issues.unwrap_or(0) {
+        return PROBLEMS;
+    }
+    let too_many_warnings = match args.max_warnings {
+        Some(max) => aggregate.summary.warnings > max,
         None => runs
             .iter()
-            .map(|run| exit_code(&run.report, run.config.lint.fail_on_warnings.then_some(0)))
-            .max()
-            .unwrap_or(CLEAN),
-    }
+            .any(|run| run.config.lint.fail_on_warnings && run.report.summary.warnings > 0),
+    };
+    if too_many_warnings { PROBLEMS } else { CLEAN }
 }
 
 /// Plans, writes and describes the fixes of one root; the second value is the lint of the tree after fixing, or the
@@ -233,7 +257,7 @@ fn run_exit_code(args: &LintArgs, runs: &[RootRun], aggregate: &Report) -> u8 {
 type Relint = Result<(Workspace, Report), CliError>;
 
 fn write_and_relint(
-    args: &LintArgs,
+    (args, filter): (&LintArgs, &Filter),
     linter: &Linter,
     (config, config_path): (&Config, Option<&Path>),
     state: (Workspace, Report),
@@ -249,7 +273,7 @@ fn write_and_relint(
     // The written files are stale in the cache; the re-lint must read them from disk.
     fs.clear();
     let root = workspace.root.clone();
-    Ok(match lint_once(linter, &root, config, config_path, fs) {
+    Ok(match lint_once(linter, &root, config, config_path, fs, filter) {
         Ok((workspace, report)) => {
             let changed: Vec<&Path> = plan.paths().collect();
             let install = install_step(args, &changed, &workspace);
@@ -270,7 +294,7 @@ enum Fixed {
 /// conflicting edit) leaves every file alone. Writing and re-linting then go root by root; a failure there reports
 /// what was already written. `only` holds the rules `--fix-type` names, if given.
 fn fix_roots(
-    args: &LintArgs,
+    (args, filter): (&LintArgs, &Filter),
     env: Env,
     linters: &Linters,
     runs: Vec<RootRun>,
@@ -295,7 +319,7 @@ fn fix_roots(
             report,
         } = run;
         let written = write_and_relint(
-            args,
+            (args, filter),
             linters.get(linter),
             (&config, config_path.as_deref()),
             (workspace, report),
@@ -455,6 +479,7 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     if args.fixing() && env.ci {
         return Err(CliError::ci_refusal());
     }
+    check_max_show_issues(args, &targets_out)?;
     if args.recursive {
         rule_given_as_path(&args.path)?;
     }
@@ -469,17 +494,23 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         roots::resolve(&start, args.recursive, &fs, &overrides(args))
     })?;
     note_truncated(&truncated);
+    if args.debug {
+        trace::debug_targets(&base, &targets);
+    }
+    let filter = Filter::new(args)?;
     for target in &mut targets {
         adjust(args, &mut target.config)?;
+        filter.configure(&mut target.config)?;
     }
     let linters = Linters::build(&targets)?;
     // An unknown `--fix-type` is a usage error before any root is linted.
     let only = fix::fix_type_rules(&args.fix_type, linters.rules().into_iter().map(|meta| meta.id))?;
     let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
+    filter.apply_runs(&mut runs)?;
 
     let mut fixes: Vec<FixRun> = Vec::new();
     if args.fixing() {
-        match fix_roots(args, env, &linters, runs, &fs, only.as_ref())? {
+        match fix_roots((args, &filter), env, &linters, runs, &fs, only.as_ref())? {
             Fixed::All(fixed_runs, done) => {
                 runs = fixed_runs;
                 fixes = done;
@@ -495,6 +526,21 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     let aggregate = roots::aggregate(&reports);
     let prefixes: Vec<&Path> = runs.iter().map(|run| run.prefix.as_path()).collect();
     let root_fixes = roots_fix(&prefixes, &fixes);
+    let (reports, shown) = match args.max_show_issues {
+        Some(max) => {
+            let (reports, hidden) = filter::truncate_shown(reports, max);
+            if hidden > 0 && args.format() == Format::Human {
+                stderr_line(&format!(
+                    "note: --max-show-issues {max} left {hidden} finding{} out of the list",
+                    if hidden == 1 { "" } else { "s" }
+                ));
+            }
+            let mut shown = roots::aggregate(&reports);
+            shown.summary = aggregate.summary;
+            (reports, Some(shown))
+        }
+        None => (reports, None),
+    };
 
     let views: Vec<RootView<'_>> = runs
         .iter()
@@ -523,7 +569,7 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         env,
         &targets_out,
         rendering,
-        (&aggregate, &views, &root_fixes),
+        (&aggregate, shown.as_ref(), &views, &root_fixes),
         &fs,
     )?;
     if !fixes.is_empty() && !matches!(args.format(), Format::Human | Format::Json) {
@@ -553,15 +599,39 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     Ok(run_exit_code(args, &runs, &aggregate))
 }
 
+/// `--max-show-issues` shortens the list a person reads: human and JSON output only, and not when fixing, where
+/// the list says what is left after the fix. Every other format is rejected rather than silently given the full
+/// list: SARIF and GitHub annotations feed code scanning and checks, which must never miss a finding silently, and
+/// the allowlist keeps a format added later from ignoring the flag. For the same reason the annotations human
+/// output adds under GitHub Actions are rendered from every finding. With several `--format`s, every one must be
+/// human or json.
+fn check_max_show_issues(args: &LintArgs, targets: &[(Format, Option<PathBuf>)]) -> Result<(), CliError> {
+    if args.max_show_issues.is_none() {
+        return Ok(());
+    }
+    let reason = if args.fixing() {
+        "cannot be combined with --fix or --fix-unsafe"
+    } else if targets
+        .iter()
+        .any(|(format, _)| !matches!(format, Format::Human | Format::Json))
+    {
+        "applies to human and json output only; other formats always list every finding"
+    } else {
+        return Ok(());
+    };
+    Err(CliError::new(Kind::Usage, format!("--max-show-issues {reason}")))
+}
+
 /// Renders every requested format, then writes the files and stdout (ADR 0054). Every rendering is made before
 /// anything is written, so a failing one leaves every file untouched; a write that fails partway leaves the files
-/// written before it in place.
+/// written before it in place. `shown` is the report `--max-show-issues` cut short: the JSON rendering lists it, and
+/// the human rendering lists the (equally cut) `views` while its annotations come from the full `report`.
 fn render_and_write(
     args: &LintArgs,
     env: Env,
     targets: &[(Format, Option<PathBuf>)],
     mut rendering: Rendering<'_>,
-    (report, views, fixes): (&Report, &[RootView<'_>], &[RootFix<'_>]),
+    (report, shown, views, fixes): (&Report, Option<&Report>, &[RootView<'_>], &[RootFix<'_>]),
     fs: &dyn FileSystem,
 ) -> Result<(), CliError> {
     let needs_repo_root = rendering.annotations
@@ -578,7 +648,8 @@ fn render_and_write(
     for (format, file) in targets {
         rendering.format = *format;
         rendering.color = color_enabled(args, env, *format, file.as_deref());
-        let bytes = timing::phase("render", || output::render(report, views, &rendering, fs, fixes))?;
+        let listed = shown.filter(|_| *format == Format::Json).unwrap_or(report);
+        let bytes = timing::phase("render", || output::render(listed, views, &rendering, fs, fixes))?;
         rendered.push((bytes, file.as_deref()));
     }
     // Files first: a failed write then still reaches a JSON consumer of stdout as the only document.

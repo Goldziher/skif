@@ -15,6 +15,7 @@ mod config_toml;
 mod env;
 mod error;
 mod explain;
+mod filter;
 mod fix;
 mod format;
 mod install;
@@ -24,6 +25,7 @@ mod mcp;
 mod migrate;
 mod output;
 mod roots;
+mod trace;
 mod watch;
 mod write;
 

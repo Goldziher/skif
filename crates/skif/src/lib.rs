@@ -126,11 +126,14 @@ pub use fix::{
     preferred_alternative,
 };
 #[cfg(feature = "js-analysis")]
-pub use js::explain_usage;
+pub use js::{explain_usage, trace_dependency};
 pub use linter::{Linter, RunOptions, builtin_providers};
 pub use root::{config_file, find_workspace_root, load_config, resolve_config};
 #[cfg(feature = "js-analysis")]
-pub use skif_js::{Absence, EntryReason, ExportReport, ExportUser, Importer, ReExport, UsageReport, Verdict};
+pub use skif_js::{
+    Absence, DependencyImport, DependencyListing, DependencyTrace, EntryReason, ExportReport, ExportUser, Importer,
+    ReExport, UsageReport, Verdict,
+};
 pub use targets::{
     Discovery, RootFailure, Target, UnappliedConfig, UnappliedReason, discover_all, discover_targets, find_target,
     load_target, unapplied_config_files, unapplied_config_files_all,
@@ -212,6 +215,7 @@ const _: () = {
     #[cfg(feature = "js-analysis")]
     {
         let _ = assert_send_sync::<UsageReport>;
+        let _ = assert_send_sync::<DependencyTrace>;
         let _ = assert_send_sync::<skif_js::JsProvider>;
     }
     #[cfg(feature = "fix")]
