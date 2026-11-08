@@ -18,13 +18,21 @@ description: Run skif from GitHub Actions, pre-commit, prek, Poly, Lefthook, npm
 | `args` | Extra skif arguments: one line is split on spaces; several lines are one argument per line, so an argument may contain spaces. |
 | `working-directory` | Directory to run skif in. |
 | `fail-on-warnings` | Exit non-zero on any warning. |
+| `from-sherif` | `auto` (default) or `false`: lint with the translated sherif settings of a project that has no skif configuration yet (below). |
 | `install-only` | Put `skif` on `PATH` without running it. |
 | `token` | Token for the GitHub API and the release download. Defaults to the workflow's `GITHUB_TOKEN`. |
 | `repository` | Advanced: the `owner/repo` the release assets come from. Defaults to `Goldziher/skif`. |
 | `verify-attestation` | Verify the archive's build provenance with `gh attestation verify` (default `true`). |
 
-The action reads `skif.toml`, not the `package.json` scripts: it does not reuse the flags of a `sherif` script the way a
-sherif job did. Run [`skif migrate`](../migrating/) once so those flags land in `skif.toml`, or pass them in `args`.
+A job that replaces sherif keeps its settings. When no `skif.toml` or `.skif.toml` is found (in the working directory,
+above it up to the repository root, or anywhere git tracks one) and the root `package.json` has a `sherif` key or a
+script that runs sherif (`"lint:deps": "sherif -i react -r unordered-dependencies"`), the action runs
+`skif migrate --from sherif --profile full` into a temporary file and lints with `--config <that file>`. The flags are
+translated as [`skif migrate`](../migrating/#sherif) translates them, and skif's default rules stay on. A setting that
+needs a human is reported as a warning and the rest still applies; a translation that fails is a warning and skif runs
+without it. The action does not do this for a skif subcommand in `args` (`rules`, `update`, ...), when `args` has
+`--config` or `--no-config`, or with `from-sherif: false`. Commit the output of `skif migrate` to settle the
+configuration; from then on the action reads `skif.toml`.
 
 A release moves a floating tag: `@vN` for a stable major N from 1 on, and `@v0.M` for a 0.x line. `@v0` itself never
 moves, because a 0.x minor release may break; pin `@v0.1` to take every 0.1.x patch and nothing else. Every release of the action installs the skif version it was

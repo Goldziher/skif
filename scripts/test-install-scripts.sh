@@ -4,7 +4,7 @@
 #   lib/libc.sh              the glibc 2.34 floor: gnu on 2.34 or newer, musl below it or when undetectable
 #   gh-action-resolve.sh     tag and asset selection per runner, the version baked into a release of the Action
 #   gh-action-install.sh     checksum and attestation verification, extraction, outputs, the verified cache-hit path
-#   gh-action-run.sh         argument assembly
+#   gh-action-run.sh         argument assembly, the translated sherif configuration (from-sherif)
 #
 # The launcher is served from a file:// release directory (SKIF_RELEASE_URL), the Action from a stub `gh`.
 #
@@ -417,7 +417,14 @@ run_install "a cache hit without the cached archive downloads it" 0 "$action_rel
 # ---------------------------------------------------------------- Action: run
 cat >"${stubs}/skif" <<'STUB'
 #!/usr/bin/env bash
-echo "cwd=${PWD##*/} args=$*"
+# `skif migrate` writes its --output and exits STUB_MIGRATE_STATUS; the temporary directory is shown as TMP.
+if [[ "$1" == migrate ]]; then
+  echo "migrate: $*"
+  [[ "${STUB_MIGRATE_STATUS:-0}" -ge 2 ]] || echo "# translated" >"${*: -1}"
+  exit "${STUB_MIGRATE_STATUS:-0}"
+fi
+args="$*"
+echo "cwd=${PWD##*/} args=${args//${RUNNER_TEMP:-none}\/skif-from-sherif.??????/TMP}"
 STUB
 chmod +x "${stubs}/skif"
 mkdir -p "${work}/project"
@@ -434,6 +441,33 @@ run_case "fail-on-warnings is appended" "--no-js --fail-on-warnings" ARGS="--no-
 run_case "globs are passed through unexpanded" "*.json" ARGS="*.json"
 run_case "one argument per line keeps spaces" "--config my dir/skif.toml --no-js" ARGS=$'--config\nmy dir/skif.toml\n--no-js'
 run_case "blank lines and a trailing newline are dropped" "--no-js" ARGS=$'\n--no-js\n\n'
+
+# from-sherif: a root package.json that runs sherif and no skif configuration lints with the translated settings.
+mkdir -p "${work}/sherif" "${work}/runner"
+echo '{ "scripts": { "lint:deps": "sherif -i foo -r unordered-dependencies" } }' >"${work}/sherif/package.json"
+sherif_case() {
+  local label="$1" want_out="$2"
+  shift 2
+  expect "run: ${label}" 0 env PATH="${stubs}:${PATH}" WORKING_DIRECTORY="${work}/sherif" RUNNER_TEMP="${work}/runner" \
+    "$@" bash scripts/gh-action-run.sh
+  [[ "$(tail -n 1 "${work}/out")" == "cwd=sherif args=${want_out}" ]] || fail "run: ${label}: got '$(tail -n 1 "${work}/out")', want args '${want_out}'"
+}
+sherif_case "a sherif script is translated" "--no-js --config TMP/skif.toml" ARGS="--no-js"
+expect_in_out "run: sherif translation" "migrate: migrate --from sherif --profile full --strict --output ${work}/runner/skif-from-sherif."
+sherif_case "settings that need a human still apply, with a warning" "--config TMP/skif.toml" STUB_MIGRATE_STATUS=1
+expect_in_out "run: sherif needs a human" "::warning::Some sherif settings were not translated"
+sherif_case "a failed translation runs skif without it" "" STUB_MIGRATE_STATUS=2
+expect_in_out "run: sherif translation failed" "::warning::skif migrate could not translate"
+sherif_case "from-sherif false turns it off" "" FROM_SHERIF=false
+sherif_case "an explicit --no-config wins" "--no-config" ARGS="--no-config"
+sherif_case "an explicit --config wins" "--config=a.toml" ARGS="--config=a.toml"
+sherif_case "a subcommand is not a lint run" "rules" ARGS="rules"
+touch "${work}/sherif/.skif.toml"
+sherif_case "an existing skif configuration wins" "" ARGS=
+rm "${work}/sherif/.skif.toml"
+expect "run: an unknown from-sherif value" 2 env PATH="${stubs}:${PATH}" WORKING_DIRECTORY="${work}/sherif" FROM_SHERIF=yes \
+  bash scripts/gh-action-run.sh
+expect_in_out "run: unknown from-sherif" 'from-sherif must be "auto" or "false"'
 
 if [[ "$failures" -ne 0 ]]; then
   echo "${failures} case(s) failed" >&2

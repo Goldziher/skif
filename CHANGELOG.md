@@ -177,6 +177,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The GitHub Action lints a project that has no `skif.toml` yet with the settings of its sherif configuration: the
+  `sherif` key and the flags of a root script that runs sherif (`sherif -i react -r unordered-dependencies`) are
+  translated by `skif migrate --from sherif --profile full` into a temporary file passed as `--config`. The new
+  `from-sherif` input (`auto` or `false`) turns it off
+  ([#45](https://github.com/Goldziher/skif/issues/45)).
 - `unused-namespace-members` counts a member read by its bare name inside the namespace body, as a value or as a
   type, unless a parameter or local of the same name shadows it; the declarations of a merged namespace share their
   members ([#15](https://github.com/Goldziher/skif/issues/15)).
