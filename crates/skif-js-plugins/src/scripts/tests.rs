@@ -406,6 +406,16 @@ fn table() {
             &["build"],
         ),
         with_scripts("npm test", &[("test", "jest")], &["jest"], &[], &[], &["test"]),
+        // `--cwd` runs a script of the package there, not this package's script of the same name.
+        with_scripts(
+            "bun run --cwd packages/core build",
+            &[("build", "tsc")],
+            &[],
+            &[],
+            &[],
+            &[],
+        ),
+        with_scripts("bun --cwd=packages/core build", &[("build", "tsc")], &[], &[], &[], &[]),
         with_scripts("npm t", &[("test", "jest")], &["jest"], &[], &[], &["test"]),
         with_scripts("npm run missing", &[], &[], &[], &[], &["missing"]),
         with_scripts("npm start", &[], &[], &[], &[], &["start"]),
