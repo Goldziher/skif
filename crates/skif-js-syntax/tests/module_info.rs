@@ -136,6 +136,14 @@ fn import_forms() {
             names: vec![],
         },
         Case {
+            name: "import meta resolve",
+            path: "a.mjs",
+            source: "const url = import.meta.resolve('x');",
+            specifier: "x",
+            kind: ImportKind::Require,
+            names: vec![],
+        },
+        Case {
             name: "import equals require",
             path: "a.ts",
             source: "import fs = require('fs');",

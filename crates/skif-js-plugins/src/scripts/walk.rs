@@ -6,6 +6,8 @@ use std::ops::Range;
 use super::args::{self, Parsed, Val};
 use super::tables::{self, Files, Runner, Wrapper};
 use super::tokenize::{Segment, Word, is_assignment_text, tokenize};
+use crate::support::join_rel;
+
 use super::{BinaryUse, BinaryVia, DepRef, FileRef, ScriptContext, ScriptInfo, is_ignored_binary};
 
 const MAX_DEPTH: usize = 32;
@@ -702,7 +704,8 @@ impl<'c> Walker<'c> {
         let mut names: Vec<String> = Vec::new();
         let (ci, parsed) = loop {
             let parsed = args::parse(args, tables::PNPM_VALUE_FLAGS, true);
-            filter |= parsed.has(&["filter", "F", "filter-prod"]);
+            // `--dir`, `-C` and `--prefix` run the command in another directory, like a filter.
+            filter |= parsed.has(&["filter", "F", "filter-prod", "dir", "C", "prefix"]);
             names.extend(
                 parsed
                     .values(&["filter", "F", "filter-prod"])
@@ -877,7 +880,9 @@ impl<'c> Walker<'c> {
         for value in parsed.values(&["preload", "r", "import", "require"]) {
             self.module_ref(&value.text, frame.span(&value.span));
         }
-        let mut filtered = st.filtered || parsed.has(&["filter"]);
+        // `--cwd <dir>` runs the command in another directory: its scripts and binaries are that package's.
+        let mut cwd = parsed.values(&["cwd"]).next().map(|value| value.text.clone());
+        let mut filtered = st.filtered || parsed.has(&["filter"]) || cwd.is_some();
         let Some(&ci) = parsed.positionals.first() else {
             return;
         };
@@ -896,8 +901,12 @@ impl<'c> Walker<'c> {
             "run" => {
                 let inner = args::parse(after, tables::BUN_VALUE_FLAGS, false);
                 filtered |= inner.has(&["filter"]);
+                if let Some(value) = inner.values(&["cwd"]).next() {
+                    cwd = Some(value.text.clone());
+                    filtered = true;
+                }
                 if let Some(&i) = inner.positionals.first() {
-                    self.bun_target(&after[i..], frame, filtered);
+                    self.bun_target(&after[i..], frame, filtered, cwd.as_deref());
                 }
             }
             _ => {
@@ -907,21 +916,32 @@ impl<'c> Walker<'c> {
                 } else if is_path_like(cmd) {
                     // `bun check` may name a script of the workspace root, which this package's scripts cannot
                     // tell, so only a file is certain.
-                    self.file(cmd, frame.span(&args[ci].span));
+                    self.file_in(cwd.as_deref(), cmd, frame.span(&args[ci].span));
                 }
             }
         }
     }
 
-    /// The target of `bun run <target>`: a script, a file or a binary.
-    fn bun_target(&mut self, from: &[Word], frame: &Frame, filtered: bool) {
+    /// A file a command run in `cwd` names, as a path relative to the package directory. Nothing is recorded when
+    /// `cwd` is not a static relative directory.
+    fn file_in(&mut self, cwd: Option<&str>, path: &str, span: Range<usize>) {
+        match cwd {
+            None => self.file(path, span),
+            Some(_) if path.starts_with('/') => self.file(path, span),
+            Some(dir) if !dir.starts_with('/') && !dir.contains('$') => self.file(&join_rel(dir, path), span),
+            Some(_) => {}
+        }
+    }
+
+    /// The target of `bun run <target>`: a script, a file or a binary. With `cwd`, it runs in that directory.
+    fn bun_target(&mut self, from: &[Word], frame: &Frame, filtered: bool, cwd: Option<&str>) {
         let Some(word) = from.first() else {
             return;
         };
         if self.ctx.scripts.contains_key(&word.text) {
             self.run_script_word(word, frame, filtered);
         } else if is_path_like(&word.text) {
-            self.file(&word.text, frame.span(&word.span));
+            self.file_in(cwd, &word.text, frame.span(&word.span));
         } else if !filtered {
             self.command(
                 from,

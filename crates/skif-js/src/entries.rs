@@ -206,12 +206,14 @@ fn is_empty_object(value: &serde_json::Value) -> bool {
     value.as_object().is_some_and(serde_json::Map::is_empty)
 }
 
+/// The files the package's scripts run. A path that leaves the package (`../../scripts/seed.ts`) is collapsed
+/// lexically, so it is the same file as the candidate it names and is owned by the package it lies in.
 fn script_files(fs: &dyn FileSystem, package_setup: &PackageSetup) -> Vec<PathBuf> {
     package_setup
         .scripts
         .files
         .iter()
-        .map(|file| package_setup.dir.join(file.trim_start_matches("./")))
+        .map(|file| join_normalized(&package_setup.dir, file))
         .filter(|path| is_code_file(path) && fs.is_file(path))
         .collect()
 }
