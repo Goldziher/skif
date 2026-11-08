@@ -2905,13 +2905,18 @@ fn serverless_framework_handlers_plugins_and_file_variables() {
         &[
             (
                 "serverless.yml",
-                "service: api\nplugins:\n  - serverless-offline\n  - ./plugins/local.js\ncustom:\n  esbuild:\n    inject: [./shims.js]\nfunctions:\n  hello:\n    handler: src/hello.main\n  typed:\n    handler: src/typed.ts.handler\n  more: ${file(./functions.yml):extra}\n",
+                "service: api\nplugins:\n  - serverless-offline\n  - ./plugins/local.js\ncustom:\n  esbuild:\n    inject: [./shims.js]\nfunctions:\n  hello:\n    handler: src/hello.main\n  typed:\n    handler: src/typed.ts.handler\n  more: ${file(./functions.yml):extra}\n  dynamic:\n    handler: ${self:custom.dir}/dynamic.main\n  glob:\n    handler: src/dynamic/*.main\n",
             ),
             ("functions.yml", "extra:\n  handler: src/extra.run\n"),
         ],
         &["serverless"],
     );
     let out = output(&results, "serverless-framework");
+    assert!(
+        !out.production_entries.iter().any(|e| e.contains("dynamic")),
+        "{:?}",
+        out.production_entries
+    );
     assert_deps(out, &["serverless-offline", "esbuild"]);
     assert_entries(
         &out.production_entries,
@@ -2951,6 +2956,10 @@ fn vue_reads_configure_webpack_and_the_lint_script() {
     assert_deps(out, &["markdown-loader", "@vue/cli-plugin-eslint"]);
     let results = resolve_with_scripts(&[], &["vue"], &[("build", "vue-cli-service build && eslint lint")]);
     assert_absent(output(&results, "vue"), &["@vue/cli-plugin-eslint"]);
+    let results = resolve_with_scripts(&[], &["vue"], &[("build", "vue-cli-service build --skip lint")]);
+    assert_absent(output(&results, "vue"), &["@vue/cli-plugin-eslint"]);
+    let results = resolve_with_scripts(&[], &["vue"], &[("lint", "vue-cli-service --fix lint")]);
+    assert_deps(output(&results, "vue"), &["@vue/cli-plugin-eslint"]);
 }
 
 #[test]
@@ -3094,6 +3103,61 @@ fn execa_zx_and_nano_spawn_commands_are_scripts() {
         "{:?}",
         binaries("nano-spawn")
     );
+}
+
+#[test]
+fn execa_default_import_and_zx_globals_are_read() {
+    let files = [
+        (
+            "scripts/legacy.js",
+            r#"import execa from "execa";
+            await execa("prettier", ["--write", "."]);
+            await execa.command("tsc --build");
+            execa.sync("vitest", ["run"]);"#,
+        ),
+        (
+            "scripts/globals.mjs",
+            "import 'zx/globals';\nawait $`wrangler deploy`;\n",
+        ),
+        ("scripts/npx.mjs", "#!/usr/bin/env -S npx zx\nawait $`turbo build`;\n"),
+    ];
+    let results = resolve(&files, &["execa", "zx"]);
+    let binaries = |id: &str| output(&results, id).referenced_binaries.clone();
+    for binary in ["prettier", "tsc", "vitest"] {
+        assert!(
+            binaries("execa").contains(&binary.to_owned()),
+            "{:?}",
+            binaries("execa")
+        );
+    }
+    for binary in ["wrangler", "turbo"] {
+        assert!(binaries("zx").contains(&binary.to_owned()), "{:?}", binaries("zx"));
+    }
+}
+
+#[test]
+fn execa_and_nano_spawn_skip_calls_with_an_unsafe_argument() {
+    let files = [
+        (
+            "scripts/release.ts",
+            r#"import { execa } from "execa";
+            await execa("node", ["scripts/build.js", "$(rm -rf /)"]);"#,
+        ),
+        (
+            "scripts/check.js",
+            r#"import spawn from "nano-spawn"; await spawn("eslint", ["src", "a && b"]);"#,
+        ),
+    ];
+    let results = resolve(&files, &["execa", "nano-spawn"]);
+    for id in ["execa", "nano-spawn"] {
+        let out = output(&results, id);
+        assert!(
+            out.referenced_binaries.is_empty(),
+            "{id}: {:?}",
+            out.referenced_binaries
+        );
+        assert!(out.entries.is_empty(), "{id}: {:?}", out.entries);
+    }
 }
 
 #[test]
@@ -3307,6 +3371,7 @@ fn sst_handlers_in_the_config_and_the_modules_it_imports() {
                     new sst.aws.Function("Cron", { handler: "packages/functions/src/cron.handler" });
                     const infra = await import("./infra/api");
                     await import("./infra");
+                    await import("./infra/jobs.js");
                     return { api: infra.api.url };
                   },
                 });"#,
@@ -3326,6 +3391,14 @@ fn sst_handlers_in_the_config_and_the_modules_it_imports() {
                 "infra/index.ts",
                 r#"new sst.aws.Function("Edge", { handler: "edge/index.ts.handler" });"#,
             ),
+            (
+                "infra/jobs.ts",
+                r#"import "./queue.mjs"; import "./api.js"; new sst.aws.Cron("Jobs", { function: { handler: "jobs/run.handler" } });"#,
+            ),
+            (
+                "infra/queue.mts",
+                r#"new sst.aws.Queue("Q").subscribe({ handler: "jobs/queue.handler" });"#,
+            ),
         ],
         &["sst"],
     );
@@ -3339,6 +3412,8 @@ fn sst_handlers_in_the_config_and_the_modules_it_imports() {
             &format!("packages/functions/src/post.{any}"),
             &format!("packages/functions/src/notify.{any}"),
             "edge/index.ts",
+            &format!("jobs/run.{any}"),
+            &format!("jobs/queue.{any}"),
         ],
     );
     assert!(!out.entries_incomplete);
@@ -3637,7 +3712,7 @@ fn taskfile_tasks_and_includes() {
         &[
             (
                 "Taskfile.yml",
-                "version: '3'\nincludes:\n  docs: ./docs/Taskfile.yml\n  other:\n    taskfile: ./other.yml\ntasks:\n  build: tsc -b\n  lint:\n    cmds:\n      - eslint .\n      - cmd: node scripts/check.js\n        defer: { cmd: node scripts/cleanup.js }\n",
+                "version: '3'\nincludes:\n  docs: ./docs/Taskfile.yml\n  other:\n    taskfile: ./other.yml\ntasks:\n  build: tsc -b\n  release: '{{.TOOL}} publish'\n  fmt:\n    cmds:\n      - 'node {{.SCRIPT}}'\n  lint:\n    cmds:\n      - eslint .\n      - cmd: node scripts/check.js\n        defer: { cmd: node scripts/cleanup.js }\n",
             ),
             ("docs/Taskfile.yml", "version: '3'\ntasks:\n  docs:\n    cmd: typedoc\n"),
         ],
@@ -3652,6 +3727,16 @@ fn taskfile_tasks_and_includes() {
         );
     }
     assert_entries(&out.entries, &["scripts/check.js", "scripts/cleanup.js"]);
+    assert!(
+        !out.referenced_binaries.iter().any(|binary| binary.contains("{{")),
+        "{:?}",
+        out.referenced_binaries
+    );
+    assert!(
+        !out.entries.iter().any(|entry| entry.contains("{{")),
+        "{:?}",
+        out.entries
+    );
     let results = resolve(&[("taskfile.dist.yaml", "version: '3'\n")], &[]);
     output(&results, "taskfile");
     let nested = resolve_with(&[("Taskfile.yml", "version: '3'\n")], &[], false, &IndexMap::new());
@@ -4074,7 +4159,7 @@ fn mcp_server_commands_are_scripts() {
             ),
             (
                 ".codex/config.toml",
-                "[mcp_servers.docs]\ncommand = \"node\"\nargs = [\"scripts/docs-mcp.mjs\"]\n",
+                "[mcp_servers.docs]\ncommand = \"node\"\nargs = [\"scripts/docs-mcp.mjs\"]\n[mcp_servers.spaced]\ncommand = \"node\"\nargs = [\"scripts/my server.mjs\"]\n",
             ),
         ],
         &[],
@@ -4082,7 +4167,12 @@ fn mcp_server_commands_are_scripts() {
     let out = output(&results, "mcp");
     assert_entries(
         &out.entries,
-        &["./tools/mcp.js", "packages/svc/server.ts", "scripts/docs-mcp.mjs"],
+        &[
+            "./tools/mcp.js",
+            "packages/svc/server.ts",
+            "scripts/docs-mcp.mjs",
+            "scripts/my server.mjs",
+        ],
     );
     assert!(
         out.referenced_dependencies
@@ -4229,7 +4319,7 @@ fn varlock_decorators_of_env_files() {
             manifest,
             (
                 "env/.env.schema",
-                "# @plugin(@varlock/1password-plugin)\n# @plugin(./plugins/custom.ts)\n# @import(../shared/.env.shared)\n# ---\n\n# @sensitive\nAPI_KEY=\n",
+                "# @plugin(@varlock/1password-plugin@1.2.0)\n# @plugin(./plugins/custom.ts)\n# @plugin(../../outside.ts)\n# @import(../shared/.env.shared)\n# ---\n\n# @sensitive\nAPI_KEY=\n",
             ),
             ("shared/.env.shared", "# @plugin(varlock-plugin-shared)\n\nX=1\n"),
             ("config/.env.ci", "# @plugin(varlock-plugin-ci, enabled=false)\n\nY=1\n"),
@@ -4256,6 +4346,11 @@ fn varlock_decorators_of_env_files() {
     );
     assert_absent(out, &["varlock-plugin-ci", "varlock-plugin-default", "not-root"]);
     assert_entries(&out.production_entries, &["env/plugins/custom.ts"]);
+    assert!(
+        !out.production_entries.iter().any(|entry| entry.starts_with("..")),
+        "{:?}",
+        out.production_entries
+    );
     assert_entries(&out.entries, &["server.js"]);
     let defaults = resolve(&[(".env", "# @plugin(varlock-plugin-default)\n")], &["varlock"]);
     assert_deps(output(&defaults, "varlock"), &["varlock-plugin-default"]);
@@ -4346,7 +4441,9 @@ fn railway_service_commands() {
 service("api", { root: "services/api", build: "tsc -b", start: "node dist/server.js", deploy: { preDeployCommand: ["node migrate.js"] } });
 service("web", { source: { repo: "acme/app" }, start: "node web.js" });
 service("db", { source: { image: "postgres:16" }, start: "node never.js" });
-service("other", { source: { repo: "https://github.com/else/where" }, start: "node elsewhere.js" });"#,
+service("other", { source: { repo: "https://github.com/else/where" }, start: "node elsewhere.js" });
+service("worker", { root: "/services/worker", start: "node worker.js" });
+service("outside", { root: "../other", start: "node outside.js" });"#,
             ),
         ],
         &["railway"],
@@ -4354,9 +4451,14 @@ service("other", { source: { repo: "https://github.com/else/where" }, start: "no
     let out = output(&results, "railway");
     assert_entries(
         &out.entries,
-        &["services/api/dist/server.js", "services/api/migrate.js", "web.js"],
+        &[
+            "services/api/dist/server.js",
+            "services/api/migrate.js",
+            "web.js",
+            "services/worker/worker.js",
+        ],
     );
-    for absent in ["never.js", "elsewhere.js"] {
+    for absent in ["never.js", "elsewhere.js", "outside.js", "../other/outside.js"] {
         assert!(
             !out.entries.iter().any(|entry| entry == absent),
             "{absent}: {:?}",
