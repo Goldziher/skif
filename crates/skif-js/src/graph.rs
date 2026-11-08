@@ -64,6 +64,7 @@ pub struct ResolvedImport {
 
 /// A parsed file of the graph.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools, reason = "independent facts about one file")]
 pub struct Module {
     /// Position in the graph.
     pub id: ModuleId,
@@ -75,9 +76,12 @@ pub struct Module {
     pub owner: PackageId,
     /// Matches the project globs of its package.
     pub in_project: bool,
-    /// Matches an `ignore` glob, or belongs to another project (a directory below its package with a `package.json`
-    /// of its own, such as a nested root): issues in this file are not reported.
+    /// Matches an `ignore` glob, or is [`Module::foreign`]: issues in this file are not reported.
     pub ignored: bool,
+    /// Belongs to another project: a directory between it and its package holds a `package.json` of its own, such as
+    /// a nested root. That project judges the file against its own manifest, so its imports use no dependency of
+    /// `owner` either.
+    pub foreign: bool,
     /// Is an entry file; its exports are public.
     pub is_entry: bool,
     /// What the file declares and references.
@@ -418,6 +422,7 @@ impl<'a> Builder<'a> {
             owner,
             in_project,
             ignored,
+            foreign,
             is_entry: false,
             info: ModuleInfo::default(),
             parse_error: None,
