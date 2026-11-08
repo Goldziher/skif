@@ -16,6 +16,8 @@ Commands:
   migrate        Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file
   update         Update dependencies to newer published versions from the npm registry; the only command that uses the network
   format         Format every `package.json` as `[format]` describes (the `package-json-format` rule alone); never installs
+  mcp            Run a Model Context Protocol server on stdin and stdout, for AI agents
+  lsp            Run a Language Server Protocol server on stdin and stdout: diagnostics on open and save
   help           Print this message or the help of the given subcommand(s)
 
 Arguments:
@@ -109,6 +111,9 @@ Options:
           
           [default: auto]
           [possible values: auto, always, never]
+
+      --watch
+          Lint again whenever a file below the root changes, until interrupted
 
   -h, --help
           Print help (see a summary with '-h')

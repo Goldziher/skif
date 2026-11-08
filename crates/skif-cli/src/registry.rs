@@ -1,4 +1,4 @@
-//! The HTTP side of `skif update` (ADR 0056): the only code in skif that opens a network connection.
+//! The HTTP side of `skif update` (ADR 0057): the only code in skif that opens a network connection.
 //!
 //! Blocking `ureq` over rustls (ring), with the operating system's trust store (`SSL_CERT_FILE` and `SSL_CERT_DIR`
 //! override it), the proxy of `HTTPS_PROXY` / `ALL_PROXY` and `NO_PROXY`, gzip, a 10 second connect timeout and a 60

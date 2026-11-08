@@ -1063,7 +1063,7 @@ impl UpdateTarget {
 /// The default of `[update] max-concurrent-requests`, syncpack's `maxConcurrentRequests`.
 pub const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 12;
 
-/// `[update]`: how `skif update` reads the package registry (ADR 0056). Linting never reads it.
+/// `[update]`: how `skif update` reads the package registry (ADR 0057). Linting never reads it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]

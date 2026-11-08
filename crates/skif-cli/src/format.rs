@@ -54,6 +54,7 @@ fn lint_args(args: &FormatArgs, rules: Vec<(String, Level)>) -> LintArgs {
         no_config: args.no_config,
         production: false,
         color: args.color,
+        watch: false,
     }
 }
 

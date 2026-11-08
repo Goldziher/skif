@@ -19,12 +19,15 @@ mod fix;
 mod format;
 mod install;
 mod lint;
+mod lsp;
+mod mcp;
 mod migrate;
 mod npmrc;
 mod output;
 mod registry;
 mod roots;
 mod update;
+mod watch;
 mod write;
 
 use args::{Cli, Command, Format};
@@ -43,6 +46,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         Err(error) => return usage(&raw, &error),
     };
     match cli.command {
+        None if cli.lint.watch => watch::run(&cli.lint, Env::detect()),
         None => lint::run(&cli.lint, Env::detect()),
         Some(Command::Rules(args)) => commands::rules(&args),
         Some(Command::Schema) => commands::schema(),
@@ -52,6 +56,8 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         Some(Command::Migrate(args)) => migrate::run(&args),
         Some(Command::Update(args)) => update::run(&args, Env::detect()),
         Some(Command::Format(args)) => format::run(&args, Env::detect()),
+        Some(Command::Mcp) => mcp::run(),
+        Some(Command::Lsp) => lsp::run(),
     }
 }
 
