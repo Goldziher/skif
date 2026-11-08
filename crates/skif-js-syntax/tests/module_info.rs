@@ -755,6 +755,17 @@ fn jsdoc_imports_are_type_only_imports() {
 }
 
 #[test]
+fn bare_jsdoc_import_types_read_no_export() {
+    let info = parse("a.js", "/** @type {import('./m')} */\nconst m = load();\n");
+    let name = &info.imports[0].names[0];
+    assert_eq!(name.kind, ImportedKind::Namespace);
+    assert!(
+        !name.escapes,
+        "a bare `import('./m')` type reads no export, as in TypeScript"
+    );
+}
+
+#[test]
 fn triple_slash_references_are_imports_only_in_the_header() {
     let source = "/// <reference types=\"node\" />\n/// <reference path=\"extra.d.ts\" />\nexport const a = 1;\n/// <reference types=\"late\" />\n";
     let info = parse("a.ts", source);

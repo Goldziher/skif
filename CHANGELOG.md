@@ -11,9 +11,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- A bare `typeof import("./m")` no longer marks every export of `./m` used: it names the module's type without
-  reading an export, as in knip. `typeof import("./m").A` uses `A`, and `typeof import("./m").E.B` only member `B` of
-  `E` ([#25](https://github.com/Goldziher/skif/issues/25)).
+- A bare `typeof import("./m")`, or a bare JSDoc `@type {import("./m")}`, no longer marks every export of `./m`
+  used: it names the module's type without reading an export, as in knip. `typeof import("./m").A` uses `A`, and
+  `typeof import("./m").E.B` only member `B` of `E` ([#25](https://github.com/Goldziher/skif/issues/25)).
 - `unresolved-imports` no longer reports `./dir` when a `.gitignore` lists `dir/index.ts` (or an extensionless
   `./file` when it lists `file.ts`), nor a `#` specifier of a package whose nearest `package.json` declares no
   `imports` ([#18](https://github.com/Goldziher/skif/issues/18)).
