@@ -13,7 +13,8 @@
 //!   (columns count Unicode scalar values). [`LineIndex`] converts offsets, including UTF-16 columns for SARIF.
 //!
 //! The [`fs`] module holds the read-only [`FileSystem`] abstraction with its disk ([`OsFs`]) and in-memory
-//! ([`MemoryFs`]) implementations; it is the only code that touches the disk.
+//! ([`MemoryFs`]) implementations; it is the only code that touches the disk. [`BufferFs`] overlays an editor's
+//! unsaved buffers on another file system.
 //!
 //! A rule produces [`Diagnostic`]s; each may carry alternative [`Fix`]es (the first is preferred) made of
 //! structured [`FixOp`]s. [`Report::new`] sorts diagnostics deterministically and computes a [`Summary`].
@@ -33,6 +34,7 @@
 
 #![warn(missing_docs)]
 
+pub mod buffer_fs;
 pub mod builder;
 pub mod cached_fs;
 pub mod dependency;
@@ -47,6 +49,7 @@ pub mod rule;
 pub mod span;
 pub mod timing;
 
+pub use buffer_fs::BufferFs;
 pub use builder::{DiagnosticBuilder, diagnostic};
 pub use cached_fs::CachedFs;
 pub use dependency::DependencyKind;
@@ -78,6 +81,7 @@ const _: () = {
     let _ = assert_send_sync::<MemoryFs>;
     let _ = assert_send_sync::<OsFs>;
     let _ = assert_send_sync::<CachedFs<OsFs>>;
+    let _ = assert_send_sync::<BufferFs<OsFs>>;
     let _ = assert_send_sync::<std::sync::Arc<dyn FileSystem>>;
     let _ = assert_send_sync::<Box<dyn FileSystem>>;
     let _ = assert_send_sync::<Location>;

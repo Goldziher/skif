@@ -3,13 +3,14 @@
 use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use clap::ColorChoice;
 use serde_json::{Map, Value};
 use skif::render::RenderOptions;
 use skif::{
-    CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IgnoreEntry, Linter, OsFs, Prefer, Report,
-    Selector, Target, Workspace, relative_tsconfig,
+    CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IgnoreEntry, Linter, ModuleCache, OsFs,
+    Prefer, Report, Selector, Target, Workspace, relative_tsconfig,
 };
 use skif_core::timing;
 use skif_report::{escape_controls, render_json_with};
@@ -21,6 +22,7 @@ use crate::explain;
 use crate::filter::{self, Filter};
 use crate::fix::{self, FixRun, RootFix};
 use crate::install::{self, InstallStatus};
+use crate::module_cache::{CacheHost, Persistent};
 use crate::output::{self, Rendering, RootView, emit_error, emit_error_with, stderr_line};
 use crate::roots::{self, Linters, Resolved, RootError, RootRun};
 use crate::trace::{self, Trace};
@@ -39,17 +41,33 @@ pub enum Teardown {
     Leak,
 }
 
-/// Runs the lint command and returns the process exit code.
+/// Runs the lint command and returns the process exit code. With `--cache`, the run reads and writes the store of
+/// parse results.
 pub fn run(args: &LintArgs, env: Env, teardown: Teardown) -> u8 {
+    let persistent = args.cache.then(|| Persistent::new(args));
+    run_with_cache(
+        args,
+        env,
+        teardown,
+        persistent.as_ref().map(|host| host as &dyn CacheHost),
+    )
+}
+
+/// Like [`run`], parsing through the module cache of `modules`, which is told when the run has finished, whatever
+/// its outcome: `--watch` keeps one host for every round.
+pub fn run_with_cache(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn CacheHost>) -> u8 {
     let trace = Trace::start(args);
     let result = match &args.trace_dependency {
         Some(name) => explain::trace_dependency(args, name).map(|()| CLEAN),
-        None => execute(args, env, teardown),
+        None => execute(args, env, teardown, modules),
     };
     let code = match result {
         Ok(code) => code,
         Err(error) => run_failed(args, &error),
     };
+    if let Some(modules) = modules {
+        timing::phase("module cache", || modules.finish());
+    }
     trace.finish();
     code
 }
@@ -495,6 +513,16 @@ fn plan_roots(
 /// A [`CliError`] when `path` cannot be resolved, no workspace is found there, the configuration is invalid or
 /// the lint cannot run.
 pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -> Result<String, CliError> {
+    lint_to_json_with(path, overrides, recursive, None)
+}
+
+/// [`lint_to_json`], parsing through `modules` when given (`skif mcp` keeps one per path).
+pub(crate) fn lint_to_json_with(
+    path: &Path,
+    overrides: &ConfigOverrides,
+    recursive: bool,
+    modules: Option<&Arc<dyn ModuleCache>>,
+) -> Result<String, CliError> {
     let fs = CachedFs::new(OsFs);
     let start = canonical(path)?;
     let Resolved {
@@ -507,7 +535,7 @@ pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -
     } = timing::phase("root discovery (roots, configs, workspaces)", || {
         roots::resolve(&start, recursive, &fs, overrides)
     })?;
-    let linters = Linters::build(&targets)?;
+    let linters = Linters::build_with(&targets, None, modules)?;
     let runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
     let reports: Vec<Cow<'_, Report>> = runs
         .iter()
@@ -533,14 +561,20 @@ pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -
     String::from_utf8(buffer).map_err(|error| CliError::new(Kind::Io, format!("the report is not UTF-8: {error}")))
 }
 
-/// Lints the root containing `path` and returns the directory the report's paths are relative to, with the report
-/// and the runs it was aggregated from: the language server plans code actions from a run's workspace and report.
+/// Lints the root containing `path`, reading every file through `fs`, and returns the directory the report's paths
+/// are relative to, with the report and the runs it was aggregated from: the language server plans code actions from
+/// a run's workspace and report. Source files are parsed through the cache `modules` gives for that directory.
 /// Prints and writes nothing, like [`lint_to_json`].
-pub fn lint_root(path: &Path, overrides: &ConfigOverrides) -> Result<(PathBuf, Report, Vec<RootRun>), CliError> {
-    let fs = CachedFs::new(OsFs);
+pub fn lint_root(
+    path: &Path,
+    overrides: &ConfigOverrides,
+    fs: &Arc<dyn FileSystem>,
+    modules: Option<&dyn CacheHost>,
+) -> Result<(PathBuf, Report, Vec<RootRun>), CliError> {
     let start = canonical(path)?;
-    let Resolved { base, targets, .. } = roots::resolve(&start, false, &fs, overrides)?;
-    let linters = Linters::build(&targets)?;
+    let Resolved { base, targets, .. } = roots::resolve(&start, false, &CachedFs::new(Arc::clone(fs)), overrides)?;
+    let modules = modules.map(|host| host.modules(&base));
+    let linters = Linters::build_with(&targets, Some(fs), modules.as_ref())?;
     let runs = roots::lint_targets(&base, targets, &linters)?;
     let reports: Vec<Cow<'_, Report>> = runs
         .iter()
@@ -592,7 +626,7 @@ fn roots_json(runs: &[RootRun], reports: &[Cow<'_, Report>]) -> Value {
     )
 }
 
-fn execute(args: &LintArgs, env: Env, teardown: Teardown) -> Result<u8, CliError> {
+fn execute(args: &LintArgs, env: Env, teardown: Teardown, modules: Option<&dyn CacheHost>) -> Result<u8, CliError> {
     let fs = CachedFs::new(OsFs);
     let targets_out = args.targets()?;
     if args.dry_run && !args.fixing() {
@@ -627,7 +661,8 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown) -> Result<u8, CliError
     }
     apply_tsconfig(args, &mut targets)?;
     warn_empty_tsconfig_projects(&targets, &fs);
-    let linters = Linters::build(&targets)?;
+    let modules = modules.map(|host| host.modules(&base));
+    let linters = Linters::build_with(&targets, None, modules.as_ref())?;
     // An unknown `--fix-type` is a usage error before any root is linted.
     let only = fix::fix_type_rules(&args.fix_type, linters.rules().into_iter().map(|meta| meta.id))?;
     let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;

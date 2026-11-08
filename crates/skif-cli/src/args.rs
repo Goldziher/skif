@@ -568,6 +568,16 @@ pub struct LintArgs {
     #[arg(long, conflicts_with_all = ["fix", "fix_unsafe"])]
     pub watch: bool,
 
+    /// Keep the parse results of source files between runs, so a run parses only the files that changed. The cache
+    /// never changes the report.
+    #[arg(long)]
+    pub cache: bool,
+
+    /// The directory of the --cache store (default: `node_modules/.cache/skif` below the workspace root, or below the
+    /// invocation directory of a multi-root run).
+    #[arg(long, value_name = "DIR", requires = "cache")]
+    pub cache_location: Option<PathBuf>,
+
     /// Instead of linting, print where this dependency is listed, every import of it and the packages that count it
     /// as used.
     #[arg(
@@ -674,6 +684,8 @@ impl Default for LintArgs {
             strict: false,
             color: ColorChoice::Auto,
             watch: false,
+            cache: false,
+            cache_location: None,
             trace_dependency: None,
             debug: false,
             performance: false,
@@ -758,13 +770,22 @@ impl LintArgs {
             .collect())
     }
 
-    /// The files the run itself writes (`--output` and every `FORMAT=FILE` target), each spelled as
-    /// [`file_identity`] resolves it, so `--watch` can leave them out of its scan instead of reacting to its own
-    /// writes.
+    /// The files the run itself writes (`--output`, every `FORMAT=FILE` target and the `--cache-location` store with
+    /// its temporary file), each spelled as [`file_identity`] resolves it, so `--watch` can leave them out of its scan
+    /// instead of reacting to its own writes. The default cache location is below `node_modules`, which the scan
+    /// never enters.
     pub fn written_files(&self) -> std::collections::BTreeSet<PathBuf> {
+        let store = self
+            .cache_location
+            .as_ref()
+            .filter(|_| self.cache)
+            .map(|dir| dir.join(crate::module_cache::FILE_NAME));
+        let temporary = store.as_deref().map(crate::module_cache::temporary_file);
         self.output
             .iter()
             .chain(self.format.iter().filter_map(|spec| spec.file.as_ref()))
+            .chain(store.iter())
+            .chain(temporary.iter())
             .map(|file| file_identity(file))
             .collect()
     }
@@ -968,6 +989,16 @@ mod tests {
             std::collections::BTreeSet::from([root.join("r.json")])
         );
         assert!(parse(Vec::new()).written_files().is_empty());
+        let cached = parse(vec![
+            "--cache".to_owned(),
+            "--cache-location".to_owned(),
+            root.join("cache").display().to_string(),
+        ]);
+        let store = root.join("cache").join("modules.bin");
+        assert_eq!(
+            cached.written_files(),
+            std::collections::BTreeSet::from([crate::module_cache::temporary_file(&store), store])
+        );
     }
 
     #[test]
