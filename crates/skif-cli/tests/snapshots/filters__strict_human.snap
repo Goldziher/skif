@@ -14,18 +14,18 @@ packages/lib/index.ts
 
 packages/lib/package.json
   error[unused-dependencies]: `type-dep` is listed in `dependencies` but never used
-   --> packages/lib/package.json:7:5
+   --> packages/lib/package.json:8:5
     |
-  7 |     "type-dep": "1.0.0"
+  8 |     "type-dep": "1.0.0"
     |     ^^^^^^^^^^^^^^^^^^^
     = package: @strict/lib
     = dependency: type-dep
     = help: remove it, or add it to `ignore-dependencies` when a tool uses it without importing it
     = fix (unsafe): Remove `type-dep` from `dependencies`
   error[unused-dependencies]: `unused-peer` is listed in `peerDependencies` but never used
-    --> packages/lib/package.json:17:5
+    --> packages/lib/package.json:19:5
      |
-  17 |     "unused-peer": "^1.0.0",
+  19 |     "unused-peer": "^1.0.0",
      |     ^^^^^^^^^^^^^^^^^^^^^^^
      = package: @strict/lib
      = dependency: unused-peer

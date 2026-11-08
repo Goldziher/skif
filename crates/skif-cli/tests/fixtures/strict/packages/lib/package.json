@@ -3,10 +3,12 @@
   "version": "0.0.0",
   "main": "index.ts",
   "dependencies": {
+    "declared-dep": "1.0.0",
     "runtime-dep": "1.0.0",
     "type-dep": "1.0.0"
   },
   "devDependencies": {
+    "@types/typed-only": "1.0.0",
     "declared-types": "1.0.0",
     "dev-runtime": "1.0.0",
     "dev-types": "1.0.0",

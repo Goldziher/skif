@@ -111,13 +111,18 @@ fn strict_uses_only_each_packages_own_dependencies() {
 #[test]
 fn strict_counts_required_peers_and_skips_type_only_imports() {
     let dir = fixture("strict");
+    // Outside strict mode an import of a declaration file is not type-only, so `@types/typed-only` does not stand in
+    // for `typed-only`.
+    let expected = BTreeSet::from([("unlisted-dependencies".to_owned(), "packages/lib/types.d.ts".to_owned())]);
     for mode in [None, Some("--production")] {
         let result = run(skif().args(["--format", "json"]).args(mode).arg(dir.path()));
-        assert_eq!(result.code, 0, "{mode:?}: {}{}", result.stdout, result.stderr);
+        assert_eq!(result.code, 1, "{mode:?}: {}{}", result.stdout, result.stderr);
+        assert_eq!(findings(&result.json()), expected, "{mode:?}");
     }
     // `type-dep` is only imported for its types and `unused-peer` is a required peer nothing imports; `dev-runtime`
-    // is imported at run time but listed only in `devDependencies`. The type-only import of `dev-types`, the import
-    // in `types.d.ts` and the optional peer are not reported.
+    // is imported at run time but listed only in `devDependencies`. The type-only import of `dev-types` and the
+    // optional peer are not reported. The imports in `types.d.ts` are kept, as in knip: `declared-dep` is used,
+    // `declared-types` may come from `devDependencies` and `@types/typed-only` stands in for `typed-only`.
     let strict = run(skif().args(["--color", "never", "--strict"]).arg(dir.path()));
     assert_eq!(strict.code, 1, "{}{}", strict.stdout, strict.stderr);
     insta::assert_snapshot!("strict_human", redact(&strict.stdout, dir.path()));
