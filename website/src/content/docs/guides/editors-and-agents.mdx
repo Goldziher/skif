@@ -91,7 +91,8 @@ gets an empty list.
 It lints what the editor holds, not only what is saved: the open documents' unsaved text replaces the files on
 disk for the lint, so a manifest, `pnpm-workspace.yaml`, `skif.toml` or source file is linted as you type. The
 server asks for the full text on every change (`textDocumentSync.change: 1`) and lints a project 250 milliseconds
-after its last change, so a burst of keystrokes causes one lint; opening or saving a file lints at once. While a lint
+after its last change, so a burst of keystrokes causes one lint; opening or saving a file lints at once, and so
+does closing a file without saving its changes, since the file on disk counts again. While a lint
 runs the server answers nothing else. A new file that was never saved is not linted until it exists on disk, and
 files changed outside the editor are seen on the next lint of their project. Each project keeps an in-memory
 [module cache](#the-module-cache), so a lint parses only the files that changed.

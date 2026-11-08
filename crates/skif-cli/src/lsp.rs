@@ -1,10 +1,10 @@
 //! `skif lsp`: a minimal Language Server Protocol server over stdio (ADR 0056, ADR 0066).
 //!
 //! It lints the root containing a document and publishes the diagnostics of every file of that root. The lint reads
-//! the text of the open documents, unsaved changes included, through a [`BufferFs`] over the disk: on open and save
-//! at once, and [`DEBOUNCE`] after the last change of a root. It keeps the last lint of each root to answer
-//! `textDocument/codeAction` with the fixes of those diagnostics ([`actions`]), and a module cache per root, so a
-//! lint parses only the files that changed.
+//! the text of the open documents, unsaved changes included, through a [`BufferFs`] over the disk: on open, save and
+//! a close that discards changes at once, and [`DEBOUNCE`] after the last change of a root. It keeps the last lint of
+//! each root to answer `textDocument/codeAction` with the fixes of those diagnostics ([`actions`]), and a module cache
+//! per root, so a lint parses only the files that changed.
 //!
 //! A malformed frame (no `Content-Length`, one that is not a number or exceeds [`MAX_BODY`], a header line longer
 //! than [`MAX_HEADER_LINE`], or input ending inside a message) cannot be skipped, since the next message's start is
@@ -297,10 +297,19 @@ impl Server {
                 None => Step::Reply(Vec::new()),
             },
             (Some("textDocument/didClose"), None) => {
-                if let Some(file) = document_file(message) {
-                    self.documents.remove(&file);
+                let Some(file) = document_file(message) else {
+                    return Step::Reply(Vec::new());
+                };
+                // A document closed with unsaved changes reverts to the file: its root is linted again, so no
+                // diagnostic or fix is left at positions of the discarded text.
+                let discarded = self.documents.remove(&file).is_some_and(|document| {
+                    std::fs::read_to_string(&file).map_or(true, |saved| *saved != *document.text)
+                });
+                if discarded {
+                    Step::Reply(self.lint_now(&file))
+                } else {
+                    Step::Reply(Vec::new())
                 }
-                Step::Reply(Vec::new())
             }
             // Other notifications, and responses to requests this server never sends.
             _ => Step::Reply(Vec::new()),

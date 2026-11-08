@@ -8,8 +8,8 @@
 //! creates or deletes a file is never offered (deleting files stays a CLI opt-in, ADR 0052).
 //!
 //! Plans read the open documents' buffers (ADR 0066), so their edits are positions in the text the editor holds. A
-//! plan is offered only when every file it edits still has the text it was planned against, and every open document
-//! it edits still has the text the last lint of its root read; otherwise it waits for the next lint. When the client
+//! plan is offered only when every file it edits still has the text it was planned against, and every file it edits
+//! that was or is open still has the text the last lint of its root read; otherwise it waits for the next lint. When the client
 //! supports `documentChanges`, the edit of an open document carries its version, so the client refuses it if the
 //! user typed in between.
 
@@ -150,12 +150,15 @@ struct Check<'a> {
 }
 
 impl Check<'_> {
-    /// Whether `file`, whose current text hashes to `hash`, may be edited: a file without an open document always
-    /// may, an open document only while it has the text the last lint read.
+    /// Whether `file`, whose current text hashes to `hash`, may be edited: an open document only while it has the
+    /// text the last lint read, and a file that was open during that lint (and has been closed since) only while it
+    /// still has the text the lint read, since a closed document reverts to the file on disk.
     fn editable(&self, file: &Path, hash: u64) -> bool {
-        self.request.documents.get(file).is_none_or(|(current, _)| {
-            *current == hash && self.linted.and_then(|linted| linted.get(file)) == Some(&hash)
-        })
+        let read = self.linted.and_then(|linted| linted.get(file));
+        match self.request.documents.get(file) {
+            Some((current, _)) => *current == hash && read == Some(&hash),
+            None => read.is_none_or(|read| *read == hash),
+        }
     }
 
     /// The version of the open document of `file`, if it is one and the client gave one.
@@ -259,6 +262,33 @@ mod tests {
         assert!(!wants(Some(&only(&["source.fix"])), FIX_ALL_KIND));
         assert!(!wants(Some(&only(&["quickfix"])), FIX_ALL_KIND));
         assert!(wants(Some(&only(&["refactor", "quickfix"])), QUICK_FIX_KIND));
+    }
+
+    #[test]
+    fn a_document_closed_since_the_lint_is_editable_only_with_the_linted_text() {
+        let (open, closed, untouched) = (Path::new("/ws/a"), Path::new("/ws/b"), Path::new("/ws/c"));
+        let documents = BTreeMap::from([(open.to_path_buf(), (1, Some(3)))]);
+        let linted = BTreeMap::from([(open.to_path_buf(), 1), (closed.to_path_buf(), 2)]);
+        let roots = BTreeMap::new();
+        let request = Request {
+            file: open,
+            range: ((0, 0), (0, 0)),
+            only: None,
+            documents: &documents,
+            linted: &roots,
+            document_changes: false,
+        };
+        let check = Check {
+            request: &request,
+            linted: Some(&linted),
+        };
+        assert!(check.editable(open, 1));
+        assert!(!check.editable(open, 9));
+        // Closed after the lint read its buffer: the file on disk must still have that text.
+        assert!(check.editable(closed, 2));
+        assert!(!check.editable(closed, 9));
+        // Never open: the plan's base hash is the only check.
+        assert!(check.editable(untouched, 9));
     }
 
     #[test]

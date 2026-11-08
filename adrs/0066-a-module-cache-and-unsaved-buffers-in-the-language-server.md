@@ -164,8 +164,8 @@ The server lints the text of open documents, not only the saved files.
   server needs the text now, and a full text needs no UTF-16 range arithmetic that could drift from the client's
   buffer. The text is bounded by the 64 MiB message limit of ADR 0056. The server keeps, per open document, its
   canonical path, its text and its version: from `didOpen` (`textDocument.text`), replaced by every `didChange`
-  (the last content change carries the full text) and dropped on `didClose`. `didSave` keeps the text, since it now
-  matches the file.
+  (the last content change carries the full text) and dropped on `didClose`. A document closed with unsaved changes
+  reverts to the file, so its root is linted again at once. `didSave` keeps the text, since it now matches the file.
 * **The overlay.** `BufferFs<F>` in `skif-core` is a `FileSystem` over a base file system and an immutable
   `BTreeMap<PathBuf, Arc<str>>` of buffers. `read_to_string` and `read_bytes` return the buffer for a path that has
   one and that the base reports as a file. Every other method, including `read_dir`, `kind`, `canonicalize` and
@@ -178,17 +178,17 @@ The server lints the text of open documents, not only the saved files.
   through the overlay. Unsaved manifests, `pnpm-workspace.yaml`, `skif.toml` and source files are therefore linted
   as typed. Diagnostic positions are computed against the overlay's text, not `std::fs`.
 * **Debounce.** `didChange` schedules a lint of the document's root 250 milliseconds after the root's last change.
-  `didOpen` and `didSave` lint at once and cancel the root's pending lint. A reader thread (`std::thread::scope`)
-  passes frames to the main loop over a channel. The loop waits with `recv_timeout` until the earliest deadline, so
-  a burst of keystrokes causes one lint. Messages that arrive during a lint are handled after it, in order. Pending
+  `didOpen` and `didSave` lint at once and cancel the root's pending lint. A detached reader thread passes frames to
+  the main loop over a channel; it is not joined, so `exit` ends the process while the client holds the input open.
+  The loop waits with `recv_timeout` until the earliest deadline, so a burst of keystrokes causes one lint. Messages that arrive during a lint are handled after it, in order. Pending
   lints also run before `shutdown` is answered and when the input ends, so tests are deterministic without sleeping.
   A request does not flush pending lints: code actions are answered from the last lint, and the rule below keeps
   them correct.
 * **Code actions for unsaved documents.** These are offered instead of withheld. For each root, the server
   records the `content_hash` of every document text the last lint read. A plan is offered when every file it edits
-  either has no open document, or has an open document whose current text has the hash the lint recorded. In both
-  cases the plan's `base_hash` must equal the hash of the current text. `apply_fixes` plans through the same
-  overlay, so the edits are positions in the buffer. The `dirty` set of ADR 0064 is replaced by this comparison.
+  either was not open during that lint and has no open document, or has the hash the lint recorded, whether its
+  document is still open or was closed since. In both cases the plan's `base_hash` must equal the hash of the
+  current text. `apply_fixes` plans through the same overlay, so the edits are positions in the buffer. The `dirty` set of ADR 0064 is replaced by this comparison.
   When the client advertises `workspace.workspaceEdit.documentChanges`, the edit of an open document is a
   `TextDocumentEdit` carrying the document's version, so the client refuses it if the user typed in between.
   Otherwise the edit is `changes`, as before. Plans that create or delete files stay withheld.
