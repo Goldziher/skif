@@ -300,3 +300,42 @@ fn a_redirect_to_another_host_does_not_carry_the_token() {
         "the second port is another origin: {requests:?}"
     );
 }
+
+#[test]
+fn a_registry_document_over_64_mib_is_refused() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+            // A valid document padded with whitespace one byte past the limit.
+            let head = b"{\"versions\": {}}";
+            let padding = 64 * 1024 * 1024 + 1 - head.len();
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                head.len() + padding
+            );
+            let _ = stream.write_all(head);
+            let chunk = vec![b' '; 1024 * 1024];
+            let mut left = padding;
+            while left > 0 {
+                let size = left.min(chunk.len());
+                if stream.write_all(&chunk[..size]).is_err() {
+                    break;
+                }
+                left -= size;
+            }
+        }
+    });
+    let dir = workspace(&format!("registry={url}\n"), APP);
+    let result = run(update(dir.path()).args(["--check", "--format", "json", "--dependencies", "react"]));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert_eq!(result.json()["failures"][0]["dependency"], "react");
+}
