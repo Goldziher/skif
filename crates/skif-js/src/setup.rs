@@ -12,6 +12,7 @@ use skif_js_syntax::{Export, ExportKind};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::ancestors;
+use crate::config_check::relative_tsconfig;
 use crate::deps::member_dirs;
 use crate::globs::{Globs, Names};
 use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
@@ -373,7 +374,7 @@ pub(crate) struct Setup {
 
 /// The TypeScript configuration of the package in `dir`: `root_tsconfig` (`[js] tsconfig`) for the root package,
 /// `tsconfig.json` otherwise.
-fn tsconfig_path(root_tsconfig: Option<&Path>, dir: &Path, is_root: bool) -> PathBuf {
+pub(crate) fn tsconfig_path(root_tsconfig: Option<&Path>, dir: &Path, is_root: bool) -> PathBuf {
     match root_tsconfig {
         Some(config) if is_root => config.to_path_buf(),
         _ => dir.join("tsconfig.json"),
@@ -504,13 +505,11 @@ impl Setup {
             .into_iter()
             .cloned()
             .collect();
-        let root_tsconfig = js.tsconfig.as_deref().map(|path| {
-            if Path::new(path).is_absolute() {
-                PathBuf::from(path)
-            } else {
-                join_normalized(&workspace.root, path)
-            }
-        });
+        let root_tsconfig = js
+            .tsconfig
+            .as_deref()
+            .and_then(relative_tsconfig)
+            .map(|path| join_normalized(&workspace.root, &path));
         let named_members = if js.use_tsconfig_files {
             member_dirs(workspace)
         } else {
@@ -572,17 +571,27 @@ impl Setup {
                 })
                 .flatten();
             let from_tsconfig = tsconfig_project.is_some();
-            let mut project =
-                tsconfig_project.unwrap_or_else(|| listed::user_globs(&user.project, production, &default_project()));
+            let (mut project, mut named_files) = match tsconfig_project {
+                Some(selected) => (selected.patterns, selected.files),
+                None => (
+                    listed::user_globs(&user.project, production, &default_project()),
+                    Vec::new(),
+                ),
+            };
             if production {
-                project.extend(listed::production_exclusions(&plugin.project));
-                project.extend(listed::non_production_entries(&user.entry));
-                project.extend(
+                let mut exclusions = listed::production_exclusions(&plugin.project);
+                exclusions.extend(listed::non_production_entries(&user.entry));
+                exclusions.extend(
                     test_files()
                         .into_iter()
                         .chain(test_directories())
                         .map(|glob| format!("!{glob}")),
                 );
+                // Production mode leaves out tests and the like even when a `tsconfig` names them in `files`.
+                if !named_files.is_empty() {
+                    named_files.extend(exclusions.iter().cloned());
+                }
+                project.extend(exclusions);
             } else if !from_tsconfig {
                 // knip adds no plugin project globs to the files a `tsconfig` selects either.
                 project.extend(plugin.project);
@@ -613,7 +622,7 @@ impl Setup {
                 external_entry,
                 shared_entry: Globs::new(shared_entry),
                 entries_incomplete: plugin.entries_incomplete,
-                project: Globs::new(project),
+                project: Globs::new(project).or(Globs::new(named_files)),
                 ignore: Globs::new(ignore),
                 ignore_dependencies: Names::new(ignore_dependencies),
                 ignore_binaries: Names::new(ignore_binaries),

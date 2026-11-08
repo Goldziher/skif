@@ -6,6 +6,7 @@ use indexmap::IndexMap;
 use skif_config::{JsWorkspace, Override, PluginConfig, PluginOptions};
 use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins};
 
+use crate::config_check::relative_tsconfig;
 use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
 use crate::setup::WorkspaceKeys;
 
@@ -39,9 +40,7 @@ impl PluginSource {
     /// root), besides the config files it looks for by default.
     #[must_use]
     pub fn with_root_tsconfig(mut self, path: Option<&str>) -> Self {
-        self.root_tsconfig = path
-            .map(|path| path.trim_start_matches("./").to_owned())
-            .filter(|path| !path.is_empty() && !Path::new(path).is_absolute());
+        self.root_tsconfig = path.and_then(relative_tsconfig);
         self
     }
 

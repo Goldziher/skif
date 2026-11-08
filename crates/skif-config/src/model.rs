@@ -1268,13 +1268,13 @@ pub struct Js {
     pub no_gitignore: bool,
     /// Report unused exports of entry files too.
     pub include_entry_exports: bool,
-    /// The TypeScript configuration of the root package, relative to the workspace root, used instead of
-    /// `tsconfig.json` for its path aliases and compiler options (knip's `--tsConfig`). Other packages keep their own
-    /// `tsconfig.json`.
+    /// The TypeScript configuration of the root package, relative to the workspace root and inside it, used instead
+    /// of `tsconfig.json` for its path aliases and compiler options (knip's `--tsConfig`). Other packages keep their
+    /// own `tsconfig.json`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tsconfig: Option<String>,
-    /// The project files of a package with a TypeScript configuration are the files its `files` and `include` select
-    /// minus its `exclude`, instead of the `project` globs (knip's `--use-tsconfig-files`).
+    /// The project files of a package with a TypeScript configuration are the files its `files` names and those its
+    /// `include` selects minus its `exclude`, instead of the `project` globs (knip's `--use-tsconfig-files`).
     pub use_tsconfig_files: bool,
     /// How source files are found: `auto` lists them from the git index and re-lists from disk every directory
     /// modified since the index was written, which gives the walk's result without walking every directory; `git`

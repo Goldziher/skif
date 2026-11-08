@@ -1,3 +1,5 @@
 {
-  "include": ["lib"]
+  "files": ["other/stray.ts"],
+  "include": ["lib"],
+  "exclude": ["other"]
 }

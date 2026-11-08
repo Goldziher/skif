@@ -29,6 +29,29 @@ expression: diagnostics
   {
     "rule": "unused-files",
     "severity": "warning",
+    "message": "`packages/a/other/stray.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "packages/a/other/stray.ts"
+    },
+    "package": "@x/a",
+    "fixes": [
+      {
+        "title": "Delete `packages/a/other/stray.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "packages/a/other/stray.ts"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
     "message": "`src/orphan.ts` is not reachable from any entry file",
     "help": "delete it, or add it to `entry` when a tool loads it",
     "location": {
