@@ -150,7 +150,7 @@ impl<'a> JsAnalysis<'a> {
         let found = timing::phase(phase("entries"), || {
             entry_files(fs.as_ref(), workspace, &setup, &candidates)
         });
-        setup.mark_entries_incomplete(&found.unmapped);
+        setup.mark_entries_incomplete(&found.unknown);
         let entries = found.files;
         let resolver = timing::phase(phase("resolver"), || {
             ModuleResolver::new(Arc::clone(fs), workspace, &setup)

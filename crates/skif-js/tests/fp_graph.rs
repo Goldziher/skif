@@ -413,3 +413,24 @@ fn a_style_block_of_a_component_resolves_sass_partials() {
     );
     assert_eq!(found(&diagnostics, "unused-files"), none());
 }
+
+#[test]
+fn a_marker_only_package_json_does_not_make_a_project_of_files_outside_the_sources() {
+    // `tools/gen` is ignored by git, so its file is no candidate; `{"type":"module"}` still makes no project of it.
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"scripts":{"gen":"node tools/gen/run.ts"}}"#,
+        ),
+        (".gitignore", "tools/gen/\n"),
+        ("tools/gen/package.json", r#"{"type":"module"}"#),
+        (
+            "tools/gen/run.ts",
+            "import Vinyl from \"vinyl\";\nconsole.log(new Vinyl());\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        ["tools/gen/run.ts: vinyl"]
+    );
+}

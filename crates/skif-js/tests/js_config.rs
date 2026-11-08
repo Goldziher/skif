@@ -173,6 +173,25 @@ fn ignore_workspaces_skips_the_analysis_of_matching_packages() {
     assert_eq!(paths(&ignored, "unused-dependencies"), ["packages/a/package.json"]);
 }
 
+#[test]
+fn a_package_whose_only_entry_is_already_an_entry_of_another_is_judged() {
+    // `packages/b` has no file of its own; its entry is the entry of `packages/a`, found first.
+    let files = vec![
+        MANIFEST,
+        ("packages/a/package.json", r#"{"name":"@x/a"}"#),
+        ("packages/a/src/index.ts", "export {};\n"),
+        (
+            "packages/b/package.json",
+            r#"{"name":"@x/b","dependencies":{"left":"1"}}"#,
+        ),
+    ];
+    let diagnostics = lint(
+        &files,
+        "[js.workspaces.\"packages/b\"]\nentry = [\"../a/src/index.ts\"]\n",
+    );
+    assert_eq!(paths(&diagnostics, "unused-dependencies"), ["packages/b/package.json"]);
+}
+
 fn nested_packages() -> Vec<(&'static str, &'static str)> {
     vec![
         (
@@ -353,6 +372,34 @@ fn stale_js_config_is_silent_when_every_entry_matched() {
         "[js]\nignore-dependencies = [\"left\"]\nignore-unresolved = [\"./gone\"]\n[js.workspaces.\".\"]\nentry = [\"index.ts\"]\n",
     );
     assert_eq!(messages(&diagnostics), none());
+}
+
+#[test]
+fn stale_js_config_judges_ignore_dependencies_over_the_packages_whose_dependencies_were_checked() {
+    // `packages/b` has no code, so its dependencies are not judged; an entry matching one of them may be needed.
+    let files = vec![
+        MANIFEST,
+        (
+            "packages/a/package.json",
+            r#"{"name":"@x/a","dependencies":{"left":"1"}}"#,
+        ),
+        ("packages/a/src/index.ts", "import \"left\";\n"),
+        (
+            "packages/b/package.json",
+            r#"{"name":"@x/b","dependencies":{"right":"1"}}"#,
+        ),
+    ];
+    let diagnostics = lint(
+        &files,
+        "[js]\nignore-dependencies = [\"nothing-here\", \"right\"]\n[js.workspaces.\"packages/a\"]\nignore-dependencies = [\"zzz\"]\n",
+    );
+    assert_eq!(
+        messages(&diagnostics),
+        [
+            "`nothing-here` in `js.ignore-dependencies` matched nothing",
+            "`zzz` in `js.workspaces.\"packages/a\".ignore-dependencies` matched nothing",
+        ]
+    );
 }
 
 #[test]
