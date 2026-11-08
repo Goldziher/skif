@@ -349,6 +349,7 @@ pub struct LintArgs {
         value_name = "NAME",
         conflicts_with_all = [
             "fix", "fix_unsafe", "workspace", "include", "exclude", "dependencies", "exports", "files", "cycles",
+            "tags", "max_show_issues", "rules", "ignore_rule",
         ]
     )]
     pub trace_dependency: Option<String>,
