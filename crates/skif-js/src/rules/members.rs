@@ -10,8 +10,9 @@ use crate::analysis::JsAnalysis;
 /// Reports members of exports of `kind` that are used nowhere.
 ///
 /// The export itself must be used; unused exports are reported by `unused-exports`. A member read in the declaring
-/// file (`E.A`, `E["A"]`, `const { A } = E`) counts as a use. Using the whole enum there (`Object.values(E)`, `E[key]`,
-/// a spread, a bare reference) does not count any member.
+/// file (`E.A`, `E["A"]`, `const { A } = E`, a namespace member's unshadowed bare name inside the namespace) counts as
+/// a use. Using the whole enum there (`Object.values(E)`, `E[key]`, a spread, a bare reference) does not count any
+/// member.
 pub(super) fn report(
     meta: &'static RuleMeta,
     kind: ExportKind,

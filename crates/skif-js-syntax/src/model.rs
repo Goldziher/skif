@@ -173,7 +173,8 @@ pub struct Export {
     /// Names of the other value exports of this file whose signature mentions this export's local binding.
     #[serde(default)]
     pub referenced_in: Vec<String>,
-    /// Members of an enum or namespace export read in this file by name (`E.A`, `E['A']`, `const { A } = E`); sorted.
+    /// Members of an enum or namespace export read in this file by name (`E.A`, `E['A']`, `const { A } = E`, or a
+    /// namespace member's bare name inside the namespace body); sorted.
     #[serde(default)]
     pub members_read_in_file: Vec<String>,
     /// `export const b = a`: the identifier the exported constant is initialised with.
