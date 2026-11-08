@@ -596,8 +596,8 @@ fn dependency_versions(dir: &Path, member: &str, section: &str) -> Value {
     serde_json::from_str::<Value>(&text).unwrap()[section].clone()
 }
 
-/// ADR 0051: `--fix` aligns an exact version to a later patch, whether the workspace or a pin chose it, and leaves the
-/// cross-major move (also to a pin), the change of range and the move of type packages to `--fix-unsafe`.
+/// ADR 0051: `--fix` aligns a version within its semver window, whether the workspace or a pin chose it, and leaves
+/// the cross-major move (also to a pin), the change of range and the move of type packages to `--fix-unsafe`.
 #[test]
 fn fix_applies_compatible_version_alignments_and_leaves_the_rest() {
     let dir = fixture("align");
@@ -610,7 +610,7 @@ fn fix_applies_compatible_version_alignments_and_leaves_the_rest() {
     let b = dependency_versions(dir.path(), "b", "dependencies");
     assert_eq!(
         (&a["left-pad"], &b["left-pad"]),
-        (&Value::from("1.3.2"), &Value::from("1.3.2"))
+        (&Value::from("1.3.0"), &Value::from("1.3.0"))
     );
     assert_eq!(a["chalk"], "5.3.1", "a patch pin is applied");
     assert_eq!(a["react"], "18.3.1", "a cross-major pin is left to --fix-unsafe");

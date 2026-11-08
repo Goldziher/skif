@@ -18,9 +18,9 @@ All notable changes to this project are documented here. The format follows
   [#28](https://github.com/Goldziher/skif/issues/28)).
 - `--fix` aligns versions when the target is explicit (a `pinned` group's version, the version the workspace aligns
   on, an existing catalog entry) and the move stays within what the specifier already promises, in the same shape: an
-  exact version to a later patch (`1.3.0` to `1.3.2`), a `~` range within its minor, a `^` range within its major.
-  Moves to a new minor of an exact version, across a major, downgrades, prereleases and range changes still need
-  `--fix-unsafe`, also when a pin asks for them
+  exact version or a `^` range within its major (`left-pad` `1.0.0` to `1.3.0`), a `~` range within its minor.
+  Moves across a major, downgrades, prereleases and range changes still need `--fix-unsafe`, also when a pin asks
+  for them
   ([ADR 0051](adrs/0051-safe-version-alignment-fixes.md), [#31](https://github.com/Goldziher/skif/issues/31)).
 
 ## [0.1.1] - 2026-11-07

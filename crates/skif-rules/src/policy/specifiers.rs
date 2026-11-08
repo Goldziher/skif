@@ -24,10 +24,9 @@ pub(super) fn floor_version(specifier: &Specifier) -> Option<impl Ord + Clone + 
 ///
 /// Both must be plain versions or `^`/`~` ranges of the same shape (`1.2.3` stays exact, `^1.2` stays `^` with a
 /// major and a minor), and an identical specifier is always safe. Otherwise neither may carry a prerelease or build
-/// suffix, `to` must not be lower than `from`, and it must stay inside the window the specifier's own kind allows: an
-/// exact version only takes a later patch, a `~` range only a later patch of its minor (or a later minor of its major
-/// when it names no minor), and a `^` range what semver calls compatible: the same major, the same minor under `0.x`,
-/// the same patch under `0.0.x`. Anything else (a cross-major move, a downgrade, a change of range, an alias, a
+/// suffix, `to` must not be lower than `from`, and it must stay inside what semver calls compatible with `from`: the
+/// same major, the same minor under `0.x`, the same patch under `0.0.x`. A `~` range that names a minor also keeps
+/// that minor. Anything else (a cross-major move, a downgrade, a change of range, an alias, a
 /// complex range) stays unsafe.
 pub(super) fn is_compatible_upgrade(from: &Specifier, to: &Specifier) -> bool {
     let (Some(from_shape), Some(to_shape)) = (shape(from), shape(to)) else {
@@ -49,9 +48,8 @@ pub(super) fn is_compatible_upgrade(from: &Specifier, to: &Specifier) -> bool {
     };
     let names_minor = from.get_semver_number().is_some_and(|number| number.contains('.'));
     let shape_window = match from_shape.1 {
-        '^' => true,
-        '~' if !names_minor => new.0 == old.0,
-        _ => (new.0, new.1) == (old.0, old.1),
+        '~' if names_minor => (new.0, new.1) == (old.0, old.1),
+        _ => true,
     };
     semver_window && shape_window && new >= old
 }
@@ -143,13 +141,15 @@ mod tests {
         let safe = |from: &str, to: &str| is_compatible_upgrade(&Specifier::create(from), &Specifier::create(to));
         let cases = [
             ("1.0.0", "1.0.5", true),
-            ("1.0.0", "1.3.0", false),
+            ("1.0.0", "1.3.0", true),
+            ("1.0.0", "2.0.0", false),
             ("1.3.0", "1.3.0", true),
             ("^1.0.0", "^1.3.0", true),
             ("^1.0.0", "^2.0.0", false),
             ("~1.2.0", "~1.2.5", true),
             ("~1.2.0", "~1.3.0", false),
             ("~1", "~1", true),
+            ("~1", "~1.4", false),
             ("^1", "^1.4", false),
             ("^1.2", "^1.4", true),
             ("0.4.1", "0.4.9", true),
