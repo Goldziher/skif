@@ -116,7 +116,8 @@ mod tests {
             Command::new("sh").args(["-c", "echo out; echo err >&2; exit 3"]),
             &dir,
             "t",
-            Duration::from_secs(10),
+            // Generous: the first `sh` a Windows runner starts (Git Bash) can take seconds.
+            Duration::from_secs(60),
         )
         .unwrap();
         assert_eq!(got.code, Some(3));
