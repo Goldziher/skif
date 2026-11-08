@@ -533,9 +533,10 @@ pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -
     String::from_utf8(buffer).map_err(|error| CliError::new(Kind::Io, format!("the report is not UTF-8: {error}")))
 }
 
-/// Lints the root containing `path` and returns the directory the report's paths are relative to, with the report.
+/// Lints the root containing `path` and returns the directory the report's paths are relative to, with the report
+/// and the runs it was aggregated from: the language server plans code actions from a run's workspace and report.
 /// Prints and writes nothing, like [`lint_to_json`].
-pub fn lint_root(path: &Path, overrides: &ConfigOverrides) -> Result<(PathBuf, Report), CliError> {
+pub fn lint_root(path: &Path, overrides: &ConfigOverrides) -> Result<(PathBuf, Report, Vec<RootRun>), CliError> {
     let fs = CachedFs::new(OsFs);
     let start = canonical(path)?;
     let Resolved { base, targets, .. } = roots::resolve(&start, false, &fs, overrides)?;
@@ -546,7 +547,7 @@ pub fn lint_root(path: &Path, overrides: &ConfigOverrides) -> Result<(PathBuf, R
         .map(|run| roots::prefixed(&run.report, &run.prefix))
         .collect();
     let report = roots::aggregate(&reports).into_owned();
-    Ok((base, report))
+    Ok((base, report, runs))
 }
 
 fn errors_json(failures: &[RootError]) -> Value {
