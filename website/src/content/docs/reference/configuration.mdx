@@ -267,7 +267,8 @@ max-concurrent-requests = 12 # registry requests at once, at least 1
 ```
 
 Without `minimum-release-age`, pnpm's `minimumReleaseAge` from `pnpm-workspace.yaml` applies, else one day, as in
-syncpack.
+syncpack. While a minimum release age applies, a version the registry gives no publish time for is not proposed, and
+the report notes it when it would have been the target.
 
 ### `[[update-groups]]`
 

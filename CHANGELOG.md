@@ -15,7 +15,7 @@ All notable changes to this project are documented here. The format follows
   registry, written format-preserving or, with `--check`, reported with exit `1`, as syncpack's `update`
   ([#34](https://github.com/Goldziher/skif/issues/34), [ADR 0050](adrs/0050-registry-updates-an-opt-in-skif-update-command.md)).
   It is the only command that uses the network; linting never does. It reads the registry and tokens of `.npmrc`,
-  honours `[update] minimum-release-age` (else pnpm's `minimumReleaseAge`, else one day) and `[[update-groups]]`, and
+  honours `[update] minimum-release-age` (else pnpm's `minimumReleaseAge`, else one day) (a version without a publish time is then not proposed) and `[[update-groups]]`, and
   reports each instance with syncpack's `DiffersToNpmRegistry` state. The library plans updates through a `Registry`
   trait the host implements (`skif::update`, feature `update`). `skif migrate` translates syncpack's `updateGroups`,
   `minimumReleaseAge` and `maxConcurrentRequests`. `--interactive` is not implemented.
