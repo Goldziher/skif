@@ -48,6 +48,8 @@ All notable changes to this project are documented here. The format follows
   - `--workspace <NAME|DIR>` (`-W`) reports only the findings of the selected workspace packages; findings of no
     package belong to the root.
   - `--strict` is `--production` with each workspace package limited to the dependencies its own manifest lists.
+    As in knip, production code must import from `dependencies` or `peerDependencies`, type-only imports use no
+    package, and `unused-dependencies` also reports required peer dependencies nothing imports.
   - `--include` and `--exclude` take knip issue types or skif rule ids, with the shortcuts `--dependencies`,
     `--exports`, `--files` and `--cycles`; `--include` turns on a rule that is off; `--tags -TAG` leaves out tagged
     exports.

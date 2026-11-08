@@ -403,7 +403,8 @@ pub(crate) struct Setup {
     pub production: bool,
     /// `[js] tsconfig`, absolute: the TypeScript configuration of the root package in place of its `tsconfig.json`.
     pub root_tsconfig: Option<PathBuf>,
-    /// Each package uses only what its own manifest lists (`--strict`).
+    /// knip's strict mode (`--strict`): each package uses only what its own manifest lists, production code only its
+    /// `dependencies` and `peerDependencies`, and type-only imports use no package.
     pub isolate_workspaces: bool,
     pub include_entry_exports: bool,
     /// `[js] include-fixtures`: files in fixture directories are reported as unused like any other.
