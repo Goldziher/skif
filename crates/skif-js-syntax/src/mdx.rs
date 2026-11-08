@@ -418,46 +418,86 @@ pub(crate) fn extract(source: &str) -> Extracted {
 
 /// `markup` with its inline code spans (`` `<Card/>` ``, ``` `` a`b `` ```) blanked, so that code quoted in prose is
 /// not taken for a component or expression it uses. A span opens with a run of backticks and closes at the next run of
-/// the same length; a run that never closes is literal text. Line breaks and the byte length are kept.
+/// the same length in its paragraph (spans do not cross paragraphs); a run that does not close, and a
+/// backslash-escaped backtick, are literal text. In a `{}` expression a backtick opens a template literal, not a span.
+/// Line breaks and the byte length are kept.
 pub(crate) fn blank_inline_code(markup: &str) -> String {
     let bytes = markup.as_bytes();
     let mut out = bytes.to_vec();
-    let run_at = |at: usize| bytes[at..].iter().take_while(|&&b| b == b'`').count();
+    let mut depth = 0_usize;
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] != b'`' {
-            i += 1;
-            continue;
-        }
-        let open = run_at(i);
-        let mut j = i + open;
-        let mut close = None;
-        while j < bytes.len() {
-            if bytes[j] == b'`' {
-                let run = run_at(j);
-                if run == open {
-                    close = Some(j + run);
-                    break;
-                }
-                j += run;
-            } else {
-                j += 1;
+        match bytes[i] {
+            b'\\' => i += 1,
+            b'{' => depth += 1,
+            b'}' => depth = depth.saturating_sub(1),
+            b'`' if depth > 0 => {
+                i = template_literal_end(bytes, i);
+                continue;
             }
-        }
-        match close {
-            Some(end) => {
-                for byte in &mut out[i..end] {
-                    if !matches!(*byte, b'\n' | b'\r') {
-                        *byte = b' ';
+            b'`' => {
+                let open = backtick_run(bytes, i);
+                if let Some(end) = code_span_end(bytes, i + open, open) {
+                    for byte in &mut out[i..end] {
+                        if !matches!(*byte, b'\n' | b'\r') {
+                            *byte = b' ';
+                        }
                     }
+                    i = end;
+                    continue;
                 }
-                i = end;
+                i += open - 1;
             }
-            None => i += open,
+            _ => {}
         }
+        i += 1;
     }
     // Whole spans between ASCII backticks are blanked, so the buffer is valid UTF-8.
     String::from_utf8(out).unwrap_or_default()
+}
+
+fn backtick_run(bytes: &[u8], at: usize) -> usize {
+    bytes[at..].iter().take_while(|&&b| b == b'`').count()
+}
+
+/// The end of the code span whose opening run of `open` backticks ends at `from`: past its closing run, or `None` when
+/// a blank line, which ends the paragraph, or the end of the markup comes first.
+fn code_span_end(bytes: &[u8], from: usize, open: usize) -> Option<usize> {
+    let mut j = from;
+    while j < bytes.len() {
+        match bytes[j] {
+            b'`' => {
+                let run = backtick_run(bytes, j);
+                if run == open {
+                    return Some(j + run);
+                }
+                j += run;
+            }
+            b'\n'
+                if bytes[j + 1..]
+                    .iter()
+                    .find(|&&b| !matches!(b, b' ' | b'\t' | b'\r'))
+                    .is_some_and(|&b| b == b'\n') =>
+            {
+                return None;
+            }
+            _ => j += 1,
+        }
+    }
+    None
+}
+
+/// The end of the template literal whose opening backtick is at `i`, past its closing backtick, or the end of `bytes`.
+fn template_literal_end(bytes: &[u8], i: usize) -> usize {
+    let mut j = i + 1;
+    while j < bytes.len() {
+        match bytes[j] {
+            b'\\' => j += 2,
+            b'`' => return j + 1,
+            _ => j += 1,
+        }
+    }
+    bytes.len()
 }
 
 #[cfg(test)]
@@ -579,6 +619,45 @@ mod tests {
         assert_eq!(blanked.len(), markup.len());
         assert!(!blanked.contains("Card") && !blanked.contains("<B/>"), "{blanked}");
         assert!(blanked.contains("<C/>") && blanked.contains("<D/>"), "{blanked}");
+    }
+
+    #[test]
+    fn escaped_backticks_open_no_inline_code() {
+        let blanked = blank_inline_code("Use \\` then <A/> and `<B/>`\n");
+        assert!(blanked.contains("<A/>") && !blanked.contains("<B/>"), "{blanked}");
+    }
+
+    #[test]
+    fn inline_code_does_not_cross_a_blank_line() {
+        let markup = "A lone ` here\n \t\n<A/> and ` there\n";
+        assert_eq!(blank_inline_code(markup), markup);
+    }
+
+    #[test]
+    fn template_literals_in_expressions_are_not_inline_code() {
+        let blanked = blank_inline_code("{ui.f(`x ${ui.y}`)} and `<B/>`\n");
+        assert!(blanked.contains("${ui.y}") && !blanked.contains("<B/>"), "{blanked}");
+    }
+
+    #[test]
+    fn crlf_line_breaks_are_kept() {
+        let markup = "a `<A/>`\r\n\r\n` b <B/>\r\n";
+        let blanked = blank_inline_code(markup);
+        assert_eq!(blanked, "a       \r\n\r\n` b <B/>\r\n");
+        let source = "import A from './a'\r\nexport const L = () => (<a>http://x</a>)\r\n\r\n# Title\r\n\r\n<A/>\r\n";
+        let extracted = extract(source);
+        assert_eq!(
+            kept(source),
+            ["import A from './a'", "export const L = () => (<a>http://x</a>)"]
+        );
+        assert_eq!(extracted.esm.len(), source.len());
+        assert_eq!(extracted.esm.matches("\r\n").count(), 6);
+        let markup: Vec<&str> = extracted
+            .markup
+            .iter()
+            .map(|&(start, end)| &source[start..end])
+            .collect();
+        assert_eq!(markup, ["\r\n# Title\r\n\r\n<A/>\r\n"]);
     }
 
     #[test]

@@ -100,6 +100,10 @@ All notable changes to this project are documented here. The format follows
 - The `.mdx` ESM scan tells JSX text and regular expressions from code, so `//` or `/*` in them
   (`<a>http://x</a>`, `/:\/\//`) no longer hides a closing bracket and makes an `export` paragraph swallow the rest of
   the document ([#38](https://github.com/Goldziher/skif/issues/38)).
+- Inline code in `.mdx` prose follows CommonMark more closely: a backslash-escaped backtick opens no code span, an
+  unpaired backtick does not pair with one past a blank line, and a template literal in a `{}` expression is not code,
+  so the components and members they would have hidden count as used
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
 
 Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/19)):
 
