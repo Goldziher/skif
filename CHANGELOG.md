@@ -11,6 +11,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `--cache` keeps the parse results of source files between runs in `node_modules/.cache/skif/modules.bin`, and
+  `--cache-location <DIR>` moves the store; the cache is keyed by each file's name and text and never changes the
+  report. `--watch`, `skif lsp` and `skif mcp` keep an in-memory cache for as long as they run. Library hosts pass a
+  `ModuleCache` to `Linter::with_module_cache`; `MemoryModuleCache` is the in-process one
+  ([ADR 0066](adrs/0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
 - `vue`, `mdx`, `next-mdx`, `pre-commit`, `parcel`, `electron-forge`, `unplugin-auto-import`,
   `unplugin-vue-components`, `unplugin-vue-router`, `github-action`, `pino`, `next-intl`, `dependency-cruiser`,
   `commitizen`, `serverless-framework`, `starlight`, `execa`, `zx`, `nano-spawn`, `azure-pipelines` and `sapper`

@@ -13,9 +13,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::{Value, json};
-use skif::{ConfigOverrides, Diagnostic, Severity};
+use skif::{ConfigOverrides, Diagnostic, FileSystem, OsFs, Severity};
 use skif_core::LineIndex;
 
 use crate::lint::lint_root;
@@ -241,7 +242,8 @@ impl Server {
         let Some(dir) = file.parent().filter(|_| file.is_file()) else {
             return Vec::new();
         };
-        let (base, report, runs) = match lint_root(dir, &ConfigOverrides::default()) {
+        let fs: Arc<dyn FileSystem> = Arc::new(OsFs);
+        let (base, report, runs) = match lint_root(dir, &ConfigOverrides::default(), &fs, None) {
             Ok(linted) => linted,
             Err(error) => {
                 return vec![json!({

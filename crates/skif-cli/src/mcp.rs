@@ -6,17 +6,23 @@
 //! Messages are handled one at a time, in order: a `tools/call` blocks the server until its lint finishes, the
 //! next message waits for it, and `notifications/cancelled` cannot stop a call already running. A line longer than
 //! [`MAX_LINE`] is refused with `-32600` without being buffered, and the server goes on with the next line.
+//!
+//! The `lint` tool keeps one in-memory module cache per canonical `path` and `recursive` pair (ADR 0066), pruned
+//! after each call to what it used, so a repeated call parses only the files that changed. `explain_usage` is
+//! uncached.
 
+use std::collections::BTreeMap;
 use std::io::{self, BufRead, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
-use skif::ConfigOverrides;
+use skif::{ConfigOverrides, MemoryModuleCache, ModuleCache};
 
 use crate::commands::rules_document;
 use crate::error::{CliError, Kind};
 use crate::explain::{self, Failure};
-use crate::lint::{canonical, lint_to_json};
+use crate::lint::{canonical, lint_to_json_with};
 use crate::output::{error_document, stderr_line};
 
 /// The protocol revisions this server speaks, newest first; the first is offered when the client asks for another.
@@ -56,6 +62,7 @@ pub fn serve(input: impl BufRead, output: impl Write) -> io::Result<()> {
 
 /// [`serve`] with lines longer than `limit` bytes refused, so a test can exercise the cap with a small one.
 fn serve_limited(mut input: impl BufRead, mut output: impl Write, limit: usize) -> io::Result<()> {
+    let mut caches = Caches::new();
     loop {
         let mut bytes = Vec::new();
         let cap = u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1);
@@ -73,7 +80,7 @@ fn serve_limited(mut input: impl BufRead, mut output: impl Write, limit: usize) 
             if line.trim().is_empty() {
                 continue;
             }
-            handle_line(&line)
+            handle_line(&line, &mut caches)
         };
         let Some(reply) = reply else {
             continue;
@@ -116,8 +123,11 @@ fn error_reply(id: &Value, RpcError(code, message): RpcError) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
+/// The module caches of the `lint` tool, by canonical `path` and `recursive`.
+type Caches = BTreeMap<(PathBuf, bool), Arc<MemoryModuleCache>>;
+
 /// The reply to one line, or `None` for a notification or a response.
-fn handle_line(line: &str) -> Option<Value> {
+fn handle_line(line: &str, caches: &mut Caches) -> Option<Value> {
     let message: Value = match serde_json::from_str(line) {
         Ok(message) => message,
         Err(error) => {
@@ -168,18 +178,18 @@ fn handle_line(line: &str) -> Option<Value> {
     let params = message.get("params").cloned().unwrap_or(Value::Null);
     // Notifications (`notifications/initialized`, `notifications/cancelled`, ...) need no answer.
     let id = id?;
-    Some(match dispatch(method, &params) {
+    Some(match dispatch(method, &params, caches) {
         Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
         Err(error) => error_reply(&id, error),
     })
 }
 
-fn dispatch(method: &str, params: &Value) -> Result<Value, RpcError> {
+fn dispatch(method: &str, params: &Value, caches: &mut Caches) -> Result<Value, RpcError> {
     match method {
         "initialize" => Ok(initialize(params)),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools() })),
-        "tools/call" => call(params),
+        "tools/call" => call(params, caches),
         other => Err(RpcError(METHOD_NOT_FOUND, format!("method not found: {other}"))),
     }
 }
@@ -253,7 +263,7 @@ fn tools() -> Value {
     ])
 }
 
-fn call(params: &Value) -> Result<Value, RpcError> {
+fn call(params: &Value, caches: &mut Caches) -> Result<Value, RpcError> {
     let name = params
         .get("name")
         .and_then(Value::as_str)
@@ -265,10 +275,10 @@ fn call(params: &Value) -> Result<Value, RpcError> {
         Some(_) => return Err(RpcError::params("`arguments` must be an object")),
     };
     let outcome = match name {
-        "lint" => lint(&Arguments::new(
-            arguments,
-            &["path", "recursive", "rules", "production", "no_js"],
-        )?),
+        "lint" => lint(
+            &Arguments::new(arguments, &["path", "recursive", "rules", "production", "no_js"])?,
+            caches,
+        ),
         "explain_usage" => explain_usage(&Arguments::new(arguments, &["file", "export", "path", "production"])?),
         "list_rules" => {
             Arguments::new(arguments, &[])?;
@@ -344,7 +354,7 @@ fn tool_result(outcome: Result<Value, Failure>) -> Value {
     })
 }
 
-fn lint(arguments: &Arguments<'_>) -> Result<Value, Failure> {
+fn lint(arguments: &Arguments<'_>, caches: &mut Caches) -> Result<Value, Failure> {
     let path = arguments.string("path").map_err(usage)?.unwrap_or(".");
     let recursive = arguments.flag("recursive").map_err(usage)?;
     let only = arguments.strings("rules").map_err(usage)?;
@@ -372,7 +382,20 @@ fn lint(arguments: &Arguments<'_>) -> Result<Value, Failure> {
             .collect();
         overrides = overrides.with_ignore_rules(ignored);
     }
-    let text = lint_to_json(Path::new(path), &overrides, recursive).map_err(plain)?;
+    // A path that does not resolve gets no cache; the lint reports why it cannot run.
+    let cache = canonical(Path::new(path))
+        .ok()
+        .map(|start| Arc::clone(caches.entry((start, recursive)).or_default()));
+    let linted = lint_to_json_with(
+        Path::new(path),
+        &overrides,
+        recursive,
+        cache.clone().map(|cache| cache as Arc<dyn ModuleCache>).as_ref(),
+    );
+    if let Some(cache) = cache {
+        cache.prune_unused();
+    }
+    let text = linted.map_err(plain)?;
     serde_json::from_str(&text).map_err(|error| plain(CliError::new(Kind::Internal, error.to_string())))
 }
 

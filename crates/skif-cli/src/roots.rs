@@ -3,11 +3,13 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use skif::{
-    ConfigOverrides, Diagnostic, FileSystem, Linter, Location, Report, RuleMeta, RunOptions, Target, Workspace, slash,
+    ConfigOverrides, Diagnostic, FileSystem, Linter, Location, ModuleCache, OsFs, Report, RuleMeta, RunOptions, Target,
+    Workspace, slash,
 };
 
 use crate::error::{CliError, Kind};
@@ -131,13 +133,27 @@ impl Linters {
     /// Builds one linter per distinct configuration. They read the disk themselves: the cache a linter keeps over its
     /// file system serves all the roots it lints, and a second layer under it would outlive a run.
     pub fn build(targets: &[Target]) -> Result<Self, CliError> {
+        Self::build_with(targets, None, None)
+    }
+
+    /// Like [`Linters::build`], reading through `fs` instead of the disk (the language server's unsaved buffers) and
+    /// parsing source files through `modules` when given.
+    pub fn build_with(
+        targets: &[Target],
+        fs: Option<&Arc<dyn FileSystem>>,
+        modules: Option<&Arc<dyn ModuleCache>>,
+    ) -> Result<Self, CliError> {
         let mut linters: Vec<Linter> = Vec::new();
         let mut of_target = Vec::with_capacity(targets.len());
         for target in targets {
             let index = if let Some(index) = linters.iter().position(|linter| linter.config() == &target.config) {
                 index
             } else {
-                linters.push(Linter::new(&target.config)?);
+                let fs = fs.map_or_else(|| Arc::new(OsFs) as Arc<dyn FileSystem>, Arc::clone);
+                linters.push(match modules {
+                    Some(modules) => Linter::with_module_cache(&target.config, fs, Arc::clone(modules))?,
+                    None => Linter::with_fs(&target.config, fs)?,
+                });
                 linters.len() - 1
             };
             of_target.push(index);
