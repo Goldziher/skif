@@ -344,6 +344,10 @@ fn trace_dependency_conflicts_with_the_report_filters() {
         "--exclude=files",
         "--files",
         "--dependencies",
+        "--tags=-internal",
+        "--max-show-issues=1",
+        "--rule=unused-files=off",
+        "--ignore-rule=unused-files",
     ] {
         let (result, error) = lint_json(&["--trace-dependency", "left-pad", filter]);
         assert_eq!(result.code, 2, "{filter}");
