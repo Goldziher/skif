@@ -123,8 +123,8 @@ skif's false findings are files in `fixtures` directories; knip reports those to
 
 ### Agreement with knip
 
-Real repositories have no answer key for dead code, so this measures agreement, not correctness: findings skif and knip share on 14 pinned
-repositories. A low score means the tools differ, and either one could be right. Reading the disagreements found
+Real repositories have no answer key for dead code, so this measures agreement, not correctness: findings skif and
+knip share on 14 pinned repositories. A low score means the tools differ, and either one could be right. Reading the disagreements found
 false findings on both sides, and skif's are fixed in the current source
 ([ADR 0049](adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md)).
 
