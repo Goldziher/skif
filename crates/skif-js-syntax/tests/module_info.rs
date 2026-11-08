@@ -350,12 +350,7 @@ fn member_removal_ranges_keep_the_layout() {
     let info = parse("a.ts", source);
     let enum_e = member_removals(source, &info.exports[0].enum_members);
     assert_eq!(enum_e[0], ("A".to_owned(), None), "B mentions A");
-    assert_eq!(
-        enum_e[1].1.as_deref(),
-        Some(
-            "export enum E {\n  A = 1,\n  C\n}\nexport enum F { X, Y }\nexport namespace N {\n  export const x = 1;\n  export const y = x, z = 2;\n}\n"
-        )
-    );
+    assert_eq!(enum_e[1], ("B".to_owned(), None), "C would be renumbered");
     assert_eq!(
         enum_e[2].1.as_deref(),
         Some(
@@ -363,10 +358,7 @@ fn member_removal_ranges_keep_the_layout() {
         )
     );
     let enum_f = member_removals(source, &info.exports[1].enum_members);
-    assert!(
-        enum_f[0].1.as_deref().unwrap().contains("export enum F { Y }"),
-        "{enum_f:?}"
-    );
+    assert_eq!(enum_f[0], ("X".to_owned(), None), "Y would be renumbered");
     assert!(
         enum_f[1].1.as_deref().unwrap().contains("export enum F { X, }"),
         "{enum_f:?}"
@@ -392,6 +384,26 @@ fn member_removal_ranges_keep_the_layout() {
         namespace[1].1.as_deref(),
         Some("export namespace N {\n  export const a = 1;\n}\n")
     );
+}
+
+#[test]
+fn enum_member_removal_never_renumbers_a_later_member() {
+    let source = "export enum Color { Red, Green, Blue }\nexport enum Level { Low = 1, Mid, High = 10 }\nexport enum Name { A = \"a\", B = \"b\" }\nexport enum Flag { On = 1, Off = 0 }\n";
+    let info = parse("a.ts", source);
+    let fixable = |index: usize| -> Vec<(String, bool)> {
+        info.exports[index]
+            .enum_members
+            .iter()
+            .map(|member| (member.name.clone(), member.removal.is_some()))
+            .collect()
+    };
+    let pairs = |names: &[(&str, bool)]| -> Vec<(String, bool)> {
+        names.iter().map(|(name, fix)| ((*name).to_owned(), *fix)).collect()
+    };
+    assert_eq!(fixable(0), pairs(&[("Red", false), ("Green", false), ("Blue", true)]));
+    assert_eq!(fixable(1), pairs(&[("Low", false), ("Mid", true), ("High", true)]));
+    assert_eq!(fixable(2), pairs(&[("A", true), ("B", true)]));
+    assert_eq!(fixable(3), pairs(&[("On", true), ("Off", true)]));
 }
 
 #[test]

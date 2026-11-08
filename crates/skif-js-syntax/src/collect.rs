@@ -227,14 +227,18 @@ fn declared(ctx: &Ctx<'_>, decl: &Declaration<'_>) -> Vec<Declared> {
             let members = &e.body.members;
             d.enum_members = members
                 .iter()
-                .filter_map(|m| {
+                .enumerate()
+                .filter_map(|(index, m)| {
                     enum_member_name(&m.id).map(|name| {
                         let mentioned = members.iter().any(|other| {
                             other.span != m.span
                                 && mentions_word(&ctx.src[other.span.start as usize..other.span.end as usize], &name)
                         });
+                        // A later member without an initializer takes its value from the one before it, so removing
+                        // this member would renumber it.
+                        let renumbers = members[index + 1..].iter().any(|later| later.initializer.is_none());
                         Member {
-                            removal: (!mentioned).then(|| member_removal(ctx, m.span, true)),
+                            removal: (!mentioned && !renumbers).then(|| member_removal(ctx, m.span, true)),
                             name,
                             span: ctx.span(m.span),
                             tags: ctx.tags_at(m.span.start),

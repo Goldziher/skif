@@ -937,7 +937,12 @@ fn fix_unsafe_deletes_files_only_with_allow_remove_files() {
         skipped_reasons(&report),
         [("unused-files".to_owned(), "removes-files".to_owned())]
     );
-    assert_eq!(rule_ids(&report), BTreeSet::from(["unused-files".to_owned()]));
+    // Removing `Size.Small` would renumber `Size.Large`: it stays reported without a fix.
+    let unfixable = ["unused-enum-members"].map(str::to_owned);
+    assert_eq!(
+        rule_ids(&report),
+        BTreeSet::from_iter(unfixable.iter().cloned().chain(["unused-files".to_owned()]))
+    );
     insta::assert_snapshot!("autofix_fix_unsafe", autofix_changes(dir.path()));
 
     let human = fixture("autofix");
@@ -962,7 +967,7 @@ fn fix_unsafe_deletes_files_only_with_allow_remove_files() {
         .arg(allowed.path()));
     assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
     assert!(!allowed.path().join("packages/app/src/orphan.ts").exists());
-    assert_eq!(result.json()["diagnostics"], Value::Array(Vec::new()));
+    assert_eq!(rule_ids(&result.json()), BTreeSet::from(unfixable));
 }
 
 /// `--fix-type` takes knip issue types and rule ids, comma separated or repeated.
