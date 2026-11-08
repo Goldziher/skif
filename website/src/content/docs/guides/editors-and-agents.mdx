@@ -24,6 +24,9 @@ in the project are the report, not an error. When a tool cannot run (no workspac
 unknown rule ID, a file outside the module graph) the result is flagged `isError` and holds the JSON `error`
 document with its `kind` and message. The server never writes a file: to apply fixes, run `skif --fix`.
 
+The server handles one call at a time: a `lint` of a large monorepo holds every later request until it finishes,
+and cancelling a call does not stop it. A message longer than 64 MiB is refused.
+
 Claude Code:
 
 ```sh

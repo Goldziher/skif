@@ -50,7 +50,10 @@ JSON-RPC 2.0 message per line on stdin, one per line on stdout, logs on stderr o
 notifications, and answers any other request with the JSON-RPC error `-32601`. It negotiates the protocol
 version: it answers with the version the client asked for when it supports it (`2025-11-25`, `2025-06-18`,
 `2025-03-26` or `2024-11-05`), else with `2025-11-25`. A batch (a JSON array) is answered with `-32600`, as
-batches are not part of the current revision.
+batches are not part of the current revision. An `id` that is not a string, a number or null is `-32600` too, and so is a line
+longer than 64 MiB, which is skipped up to its newline without being buffered. Messages are handled one at a time,
+in order: a `tools/call` holds the server until its lint finishes, and `notifications/cancelled` cannot stop a call
+that is already running.
 
 It offers three tools. Each returns the same JSON document the matching command prints with `--format json`, as
 `structuredContent` and as one `text` content item:
