@@ -405,15 +405,20 @@ counterpart. These differences are deliberate:
   does, and `c8` and `dotenv` follow the command they wrap.
 - `execa`, `zx`, `nano-spawn` and `pino` read the source files of the package as text before parsing those that
   mention the library. A command counts when it is literal: `execa("tsx", ["build.ts"])`, `` $`vite build` `` (the
-  substitutions of a template are placeholders) or `spawn("eslint", ["."])`; a computed argument is left out. `zx`
-  reads `$` in files that start with `#!/usr/bin/env zx` and, unlike knip, also where `$` is imported from `zx`.
+  substitutions of a template are placeholders) or `spawn("eslint", ["."])`; a computed argument is left out, and a
+  call with a literal argument that is not a plain word (`"a && b"`) is skipped. `execa` also reads the default export
+  of execa 5 and earlier (`execa.sync`, `execa.command`, `execa.node`). `zx` reads `$` in files that start with
+  `#!/usr/bin/env zx` and, unlike knip, also where `$` is imported from `zx`, in files that import `zx/globals` and
+  under a shebang such as `#!/usr/bin/env -S npx zx`.
 - `next-mdx` and `starlight` read the options of the `@next/mdx` and `@astrojs/starlight` calls in the config source;
   a plugin or component passed as an imported binding is not a string and is already an import.
 - `unplugin-auto-import` and `unplugin-vue-components` make the declaration files they generate (`auto-imports.d.ts`,
   `components.d.ts`) entries, so the components and composables these import are used; knip compiles every `.vue`
   file against them instead, which also tells which of them a template uses.
-- `vue` reads an object `configureWebpack` as a webpack config and does not call a function one.
-- `serverless-framework` reads `${file(./x.yml)}` and `${file(./x.yml):a.b}` variables, but no other variable kind.
+- `vue` reads an object `configureWebpack` as a webpack config and does not call a function one, and credits
+  `@vue/cli-plugin-eslint` when a script runs `vue-cli-service lint`.
+- `serverless-framework` reads `${file(./x.yml)}` and `${file(./x.yml):a.b}` variables, but no other variable kind; a
+  `handler` holding another variable or a glob is skipped.
 - `github-action` leaves out the `dist/` and `build/` files an `action.yml` runs, as build output; knip also removes
   them from the project files.
 - `azure-pipelines` (the `script` and `bash` steps of `azure-pipelines.yml`, `.azure-pipelines/**` and the templates
@@ -421,13 +426,15 @@ counterpart. These differences are deliberate:
   is no plugin: the command of `glob -c "<command>" <patterns>` is read where the script parser meets it.
 - `sst`, `quasar`, `stencil` and `orval` read their options wherever the config writes them (a `handler` inside
   `run()`, Stencil's `export const config`), as knip does. `sst` also reads the handlers of the modules
-  `sst.config.ts` imports by relative path (`await import("./infra/api")`), and cuts the export off a `.route()`
-  handler; it does not read SST 2 stacks. `quasar` takes the first `sourceFiles`, `boot` and `css` written anywhere.
+  `sst.config.ts` imports by relative path (`await import("./infra/api")`, `./infra/api.js` for `infra/api.ts`), and
+  cuts the export off a `.route()` handler; it does not read SST 2 stacks. `quasar` takes the first `sourceFiles`,
+  `boot` and `css` written anywhere.
 - `qwik` and `stencil` do not compile `.mdx` or Sass files, and `stencil` does not mark custom elements as used.
   `eleventy` does not read passthrough copies. `rstest` does not apply `exclude` and does not read `rs.mock()`.
 - `react-email` credits both `@react-email/ui` and `@react-email/preview-server` for a preview command, as the
   installed major version is not known. `payload` keeps migrations and `payload-types.ts` from being reported
-  through `ignore`. `mise` does not read file tasks. `unplugin-vue-i18n` is no plugin: knip's has nothing to port.
+  through `ignore`. `mise` does not read file tasks. `taskfile` skips commands holding a `{{…}}` template.
+  `unplugin-vue-i18n` is no plugin: knip's has nothing to port.
 - `marko` does not compile `.marko` files or read the tag libraries of installed packages; it credits `marko` when
   a template exists. `catalyst` and `fast` are no plugins: knip's only mark custom element classes as used.
   `unplugin-vue-markdown` is no plugin: skif compiles no Markdown.

@@ -249,12 +249,12 @@ blake3 = "57ee9ff85eda7dc829451d63690e462fb1d7e1dbf3a9c19ce039ae63c232cd0e"
 [adrs."adrs/0050-twenty-one-more-plugins-and-commands-run-from-source.md"]
 number = 50
 status = "accepted"
-blake3 = "bebe1ead500abf4b60f3ccce8d491e0072c96bdbd7fffcee0778b9bca0435a32"
+blake3 = "004941564e0649f25640fcc902fcbb44db943453204098a8b12c3dce39c781b1"
 
 [adrs."adrs/0051-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md"]
 number = 51
 status = "accepted"
-blake3 = "3c3452c517b897a16a9e00b9bc27e07ac80ff3f99efad1cbc775734758528c26"
+blake3 = "985bf7ec82b064cda87b9f842c9de52531a7ed34ffe174f430bc8a03431ed14c"
 
 [adrs."adrs/0052-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md"]
 number = 52

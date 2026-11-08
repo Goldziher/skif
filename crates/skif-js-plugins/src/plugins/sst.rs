@@ -1,6 +1,7 @@
 //! SST: the function handlers of `sst.config.ts`, written as a `handler` property (`new sst.aws.Function("Api",
 //! { handler: "src/api.handler" })`) or as the handler of `api.route("GET /", "src/get.handler")`, in the config or in
-//! the modules it imports by relative path (`await import("./infra/api")`), are production entries.
+//! the modules it imports by relative path (`await import("./infra/api")`, `./infra/api.js` for `infra/api.ts`), are
+//! production entries.
 
 use std::collections::BTreeSet;
 
@@ -57,11 +58,12 @@ impl Plugin for Sst {
                 if import.kind == ImportKind::TypeOnly || !is_relative(&import.specifier) {
                     continue;
                 }
+                if seen.len() >= MAX_MODULES {
+                    break;
+                }
                 let target = join_rel(parent_dir(&file), &import.specifier);
-                let Some((imported, text)) = read_module(cx, &target) else {
-                    continue;
-                };
-                if seen.len() < MAX_MODULES && seen.insert(imported.clone()) {
+                if let Some((imported, text)) = read_module(cx, &target, &seen) {
+                    seen.insert(imported.clone());
                     queue.push((imported, text));
                 }
             }
@@ -73,9 +75,21 @@ impl Plugin for Sst {
     }
 }
 
-/// The file a relative import names, tried as written, with a source extension and as a directory index.
-fn read_module(cx: &PluginContext<'_>, target: &str) -> Option<(String, String)> {
-    let candidates = std::iter::once(target.to_owned())
+/// The file a relative import names, tried as TypeScript resolves it: a `.js`, `.mjs` or `.cjs` specifier as its
+/// TypeScript source (`./api.js` is `api.ts` or `api.tsx`), as written, with a source extension and as a directory
+/// index. `None` when the file is not found or is already in `seen`, which is checked before reading.
+fn read_module(cx: &PluginContext<'_>, target: &str, seen: &BTreeSet<String>) -> Option<(String, String)> {
+    let typescript: &[&str] = match target.rsplit_once('.') {
+        Some((_, "js")) => &["ts", "tsx"],
+        Some((_, "mjs")) => &["mts"],
+        Some((_, "cjs")) => &["cts"],
+        _ => &[],
+    };
+    let stem = target.rsplit_once('.').map_or(target, |(stem, _)| stem);
+    let candidates = typescript
+        .iter()
+        .map(|extension| format!("{stem}.{extension}"))
+        .chain(std::iter::once(target.to_owned()))
         .chain(EXTENSIONS.iter().map(|extension| format!("{target}.{extension}")))
         .chain(EXTENSIONS.iter().map(|extension| format!("{target}/index.{extension}")));
     for candidate in candidates {
@@ -84,6 +98,9 @@ fn read_module(cx: &PluginContext<'_>, target: &str) -> Option<(String, String)>
             .is_some_and(|(_, extension)| EXTENSIONS.contains(&extension));
         if !is_source {
             continue;
+        }
+        if seen.contains(&candidate) {
+            return None;
         }
         if let Ok(text) = cx.fs.read_to_string(&cx.dir.join(&candidate)) {
             return Some((candidate, text.to_string()));
