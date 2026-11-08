@@ -1551,7 +1551,17 @@ datasource db {
         ],
         &["prisma"],
     );
-    assert_deps(output(&results, "prisma"), &["prisma-dbml-generator"]);
+    let out = output(&results, "prisma");
+    assert_deps(out, &["prisma-dbml-generator"]);
+    // A relative provider is a file next to the schema, a command provider a script whose files are entries.
+    let manifest = r#"{"name":"app","prisma":{"schema":"db/main.prisma"}}"#;
+    let schema = "generator custom {\n  provider = \"./generators/custom.js\"\n}\n\
+                  generator cmd {\n  provider = \"tsx scripts/gen.ts\"\n}\n";
+    let results = resolve(&[("package.json", manifest), ("db/main.prisma", schema)], &["prisma"]);
+    let out = output(&results, "prisma");
+    assert_entries(&out.entries, &["db/generators/custom.js", "scripts/gen.ts"]);
+    assert!(out.referenced_binaries.iter().any(|b| b == "tsx"), "{out:?}");
+    assert_absent(out, &["./generators/custom.js", "tsx scripts/gen.ts"]);
 }
 
 #[test]
