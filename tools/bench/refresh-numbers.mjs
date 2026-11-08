@@ -34,6 +34,12 @@ for (const target of summary.targets) {
     lines.push(`| ${row.tool} | ${ms(row.mean_ms)} | ${ms(row.median_ms)} | ${relative} |`);
   }
   lines.push("");
+  for (const row of target.results.filter((r) => (r.error_runs ?? 0) > 0)) {
+    lines.push(
+      `${row.tool} exited with an error in ${row.error_runs} of ${summary.runs} runs, so its time may be that of a partial run.`,
+      "",
+    );
+  }
 }
 if (summary.adr_0001_checks.length > 0) {
   lines.push("| ADR 0001 target | Check | Result |", "| --- | --- | --- |");
