@@ -654,7 +654,7 @@ mod tests {
                 let verdict = analysis.verdicts[id.index()].as_ref()?;
                 Some((
                     instance.package.display_name().to_owned(),
-                    instance.name.clone(),
+                    instance.name.to_string(),
                     verdict.state.name(),
                 ))
             })
@@ -787,7 +787,7 @@ mod tests {
         let flagged: Vec<&str> = analysis
             .instances
             .iter()
-            .filter_map(|(id, instance)| analysis.verdicts[id.index()].as_ref().map(|_| instance.name.as_str()))
+            .filter_map(|(id, instance)| analysis.verdicts[id.index()].as_ref().map(|_| &*instance.name))
             .collect();
         assert_eq!(
             flagged,

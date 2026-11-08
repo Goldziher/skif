@@ -47,7 +47,7 @@ impl Rule for UnusedCatalogEntries {
             .chain(
                 overrides
                     .iter()
-                    .filter_map(|instance| Some((referenced(instance.raw())?, instance.name.as_str()))),
+                    .filter_map(|instance| Some((referenced(instance.raw())?, &*instance.name))),
             )
             .collect();
         let default = std::iter::once((CatalogName::Default, catalogs.default_catalog()));
