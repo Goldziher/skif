@@ -40,6 +40,7 @@ pub mod diagnostic;
 pub mod display;
 pub mod fix;
 pub mod fs;
+pub mod incomplete;
 pub mod package_id;
 pub mod report;
 pub mod rule;
@@ -56,6 +57,7 @@ pub use fix::{
     YamlAction, apply_text_edits,
 };
 pub use fs::{DirEntry, FileSystem, MemoryFs, OsFs, PathKind};
+pub use incomplete::{IncompleteCause, IncompleteEntries, IncompletePackage};
 pub use package_id::PackageId;
 pub use report::{Report, Summary};
 pub use rule::{Category, Fixability, InvalidRuleId, RuleId, RuleMeta, Severity};

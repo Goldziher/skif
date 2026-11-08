@@ -28,10 +28,10 @@ pub use discover::{CONFIG_FILE_NAMES, Ceiling, ConfigCache, ConfigLoader, discov
 pub use error::ConfigError;
 pub use model::{
     Catalog, CatalogMode, Config, CustomStrategy, CustomType, DEFAULT_DISCOVER_IGNORE, DEFAULT_MAX_CONCURRENT_REQUESTS,
-    DependencyFamily, ExportKinds, IgnoreEntry, IgnoreExportsUsedInFile, Js, JsDiscovery, JsWorkspace, Lint, Override,
-    OverrideReading, OverrideScope, PackageJs, PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey,
-    SemverGroup, SemverRange, Update, UpdateGroup, UpdateTarget, VersionGroup, VersionPolicy, Workspace,
-    WorkspaceProtocol,
+    DependencyFamily, ExportKinds, FIXTURE_DIRECTORIES, Format, IgnoreEntry, IgnoreExportsUsedInFile, Js, JsCycles,
+    JsDiscovery, JsWorkspace, Lint, Override, OverrideReading, OverrideScope, PackageJs, PackageManager, PluginConfig,
+    PluginOptions, Policy, Prefer, ResetKey, SemverGroup, SemverRange, Update, UpdateGroup, UpdateTarget, VersionGroup,
+    VersionPolicy, Workspace, WorkspaceProtocol,
 };
 pub use overrides::ConfigOverrides;
 pub use provenance::{Assignment, ConfigSource, Op, Origins, ResolvedConfig, SourceKind, join_key};

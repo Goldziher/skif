@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "name": "@format/a",
+  "exports": {
+    ".": {
+      "default": "./index.js",
+      "types": "./index.d.ts"
+    }
+  },
+  "keywords": ["b", "a"]
+}

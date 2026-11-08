@@ -1,6 +1,7 @@
 //! The CLI side of fixing: choosing among alternatives interactively and describing the outcome.
 
 use std::borrow::Cow;
+use std::collections::BTreeSet;
 use std::fmt;
 use std::io::{self, Write};
 use std::path::Path;
@@ -38,13 +39,22 @@ impl fmt::Display for Choice {
 /// determine the answer. With `--select` the first alternative (which the rules order by the selected version) is
 /// taken; otherwise an alternative that names the version `[policy] prefer` selects is taken; a diagnostic with
 /// several fixes and neither stays unfixed (`needs-choice`), as ADR 0008 requires of a non-interactive run.
-pub fn selection(args: &LintArgs, env: Env, report: &Report, prefer: Prefer) -> Result<FixSelection, CliError> {
+pub fn selection(
+    args: &LintArgs,
+    env: Env,
+    report: &Report,
+    prefer: Prefer,
+    rules: Option<&BTreeSet<String>>,
+) -> Result<FixSelection, CliError> {
     let safety = if args.fix_unsafe {
         FixSafety::Unsafe
     } else {
         FixSafety::Safe
     };
-    let selection = FixSelection::new(safety);
+    let mut selection = FixSelection::new(safety).with_remove_files(args.allow_remove_files);
+    if let Some(rules) = rules {
+        selection = selection.with_rules(rules.iter().cloned());
+    }
     let interactive =
         env.stdin_tty && env.stdout_tty && !args.no_prompt && args.format() == Format::Human && args.select.is_none();
     if !interactive {
@@ -56,7 +66,10 @@ pub fn selection(args: &LintArgs, env: Env, report: &Report, prefer: Prefer) -> 
     }
     let mut selection = selection.with_alternatives(Alternatives::Preferred(prefer));
     for (index, diagnostic) in report.diagnostics.iter().enumerate() {
-        if diagnostic.fixes.len() < 2 || preferred_alternative(&diagnostic.fixes, prefer).is_some() {
+        if diagnostic.fixes.len() < 2
+            || preferred_alternative(&diagnostic.fixes, prefer).is_some()
+            || rules.is_some_and(|rules| !rules.contains(diagnostic.rule.as_str()))
+        {
             continue;
         }
         let mut options: Vec<Choice> = diagnostic
@@ -88,12 +101,43 @@ pub fn selection(args: &LintArgs, env: Env, report: &Report, prefer: Prefer) -> 
     Ok(selection)
 }
 
+/// The rule ids `--fix-type` names, or `None` without the flag. Each value is a rule id of `known`, or a knip issue
+/// type, which stands for the rules that report the same findings (`skif_migrate::knip_fix_type_rules`).
+pub fn fix_type_rules<'a>(
+    names: &[String],
+    known: impl IntoIterator<Item = &'a str>,
+) -> Result<Option<BTreeSet<String>>, CliError> {
+    if names.is_empty() {
+        return Ok(None);
+    }
+    let known: BTreeSet<&str> = known.into_iter().collect();
+    let mut rules = BTreeSet::new();
+    for name in names.iter().map(|name| name.trim()) {
+        if known.contains(name) {
+            rules.insert(name.to_owned());
+        } else if let Some(mapped) = skif_migrate::knip_fix_type_rules(name) {
+            rules.extend(mapped.into_iter().map(str::to_owned));
+        } else {
+            return Err(CliError::new(
+                Kind::Usage,
+                format!(
+                    "unknown --fix-type `{}`: expected a rule id (see `skif rules`) or a knip issue type ({})",
+                    escape_controls(name),
+                    skif_migrate::knip_issue_types().join(", ")
+                ),
+            ));
+        }
+    }
+    Ok(Some(rules))
+}
+
 fn skip_parts(reason: &SkipReason) -> (&'static str, String) {
     match reason {
         SkipReason::Safety(_) => ("safety", "needs --fix-unsafe".to_owned()),
         SkipReason::NeedsChoice { alternatives } => ("needs-choice", alternatives.join(", ")),
         SkipReason::Conflict(message) => ("conflict", message.clone()),
         SkipReason::Failed(message) => ("failed", message.clone()),
+        SkipReason::RemovesFiles => ("removes-files", "re-run with --allow-remove-files".to_owned()),
         _ => ("skipped", String::new()),
     }
 }
@@ -343,6 +387,7 @@ mod selection_tests {
             terminal(),
             &report,
             Prefer::Lowest,
+            None,
         )
         .unwrap();
         assert_eq!(selection.alternatives, Alternatives::Preferred(Prefer::Lowest));
@@ -356,7 +401,7 @@ mod selection_tests {
             stdout_tty: false,
             ..terminal()
         };
-        let selection = selection(&lint_args(&["--fix-unsafe"]), piped, &report, Prefer::Highest).unwrap();
+        let selection = selection(&lint_args(&["--fix-unsafe"]), piped, &report, Prefer::Highest, None).unwrap();
         assert_eq!(selection.alternatives, Alternatives::Preferred(Prefer::Highest));
         assert!(selection.choices.is_empty());
     }
@@ -369,9 +414,72 @@ mod selection_tests {
             terminal(),
             &report,
             Prefer::Highest,
+            None,
         )
         .unwrap();
         assert_eq!(selection.alternatives, Alternatives::First);
+    }
+
+    #[test]
+    fn fix_types_accept_rule_ids_and_knip_issue_types() {
+        let known = ["unused-files", "unused-exports"];
+        let names = |values: &[&str]| values.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>();
+        assert_eq!(fix_type_rules(&[], known).unwrap(), None);
+        let rules = fix_type_rules(&names(&["unused-files", "enumMembers"]), known)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            rules.into_iter().collect::<Vec<_>>(),
+            ["unused-enum-members", "unused-files"]
+        );
+        let error = fix_type_rules(&names(&["nonsense"]), known).unwrap_err();
+        assert_eq!(error.kind, Kind::Usage);
+        assert!(
+            error.message.contains("unknown --fix-type `nonsense`"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn a_fix_type_keeps_other_rules_from_asking() {
+        let report = report(&["pin one", "pin two"]);
+        let only = BTreeSet::from(["unused-files".to_owned()]);
+        let selection = selection(
+            &lint_args(&["--fix-unsafe", "--fix-type", "unused-files"]),
+            terminal(),
+            &report,
+            Prefer::Highest,
+            Some(&only),
+        )
+        .unwrap();
+        assert!(selection.choices.is_empty());
+        assert_eq!(selection.rules, Some(only));
+    }
+
+    #[test]
+    fn allow_remove_files_reaches_the_selection() {
+        let report = report(&[]);
+        let with = selection(
+            &lint_args(&["--fix-unsafe", "--allow-remove-files"]),
+            terminal(),
+            &report,
+            Prefer::Highest,
+            None,
+        )
+        .unwrap();
+        assert!(with.remove_files);
+        let without = selection(
+            &lint_args(&["--fix-unsafe"]),
+            terminal(),
+            &report,
+            Prefer::Highest,
+            None,
+        )
+        .unwrap();
+        assert!(!without.remove_files);
+        assert!(Cli::try_parse_from(["skif", "--allow-remove-files"]).is_err());
+        assert!(Cli::try_parse_from(["skif", "--fix-type", "files"]).is_err());
     }
 
     #[test]

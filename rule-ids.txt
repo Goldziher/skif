@@ -11,6 +11,7 @@ invalid-local-version
 local-path-dependency
 member-toolchain-fields
 missing-package-manifest
+package-json-format
 policy-conflict
 root-package-dependencies
 root-package-manager-field

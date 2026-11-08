@@ -21,7 +21,7 @@ pub(crate) struct ScriptBlock {
 pub(crate) struct StyleBlock {
     pub start: usize,
     pub end: usize,
-    /// Extension of the stylesheet language (`css`, `scss`, `sass`, `less`).
+    /// Extension of the stylesheet language (`css`, `scss`, `sass`, `less`, `styl`).
     pub extension: &'static str,
 }
 
@@ -123,6 +123,7 @@ pub(crate) fn blocks(source: &str, astro: bool) -> Blocks {
                     "scss" => "scss",
                     "sass" => "sass",
                     "less" => "less",
+                    "stylus" | "styl" => "styl",
                     _ => "css",
                 },
             });

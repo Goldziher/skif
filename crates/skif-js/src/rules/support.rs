@@ -10,6 +10,7 @@ use skif_lint::Emitter;
 use skif_workspace::{DependencyEntry, Package};
 
 use crate::analysis::JsAnalysis;
+use crate::fixture::in_fixture_directory;
 use crate::graph::Module;
 
 /// A position in a module.
@@ -17,19 +18,10 @@ pub(super) fn module_location(module: &Module, span: Option<Span>) -> Location {
     Location::new(module.path.clone(), span)
 }
 
-/// Whether a directory name marks test data: `fixtures` or `__fixtures__`.
-fn is_fixture_directory(name: &str) -> bool {
-    matches!(name, "fixtures" | "__fixtures__")
-}
-
-/// Whether the module sits in a fixture directory (see [`is_fixture_directory`]). Fixtures are test data (often
-/// deliberately broken sources), so their imports are not held against the project. Other directories of test data
-/// go on `[js] ignore`.
+/// Whether the module sits in a fixture directory, whose imports are not held against the project (see
+/// [`crate::fixture::in_fixture_directory`]).
 pub(super) fn is_fixture(module: &Module) -> bool {
-    module
-        .path
-        .components()
-        .any(|part| part.as_os_str().to_str().is_some_and(is_fixture_directory))
+    in_fixture_directory(&module.path)
 }
 
 /// A dependency entry of a manifest, from its key through its value.
@@ -102,28 +94,4 @@ fn unused_dependency(meta: &'static RuleMeta, package: &Package, entry: &Depende
 /// The path of a package-relative file for diagnostics that have no module.
 pub(super) fn file_location(path: PathBuf) -> Location {
     Location::new(path, None)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::is_fixture_directory;
-
-    #[test]
-    fn fixture_directories_are_recognised_by_name() {
-        for name in ["fixtures", "__fixtures__"] {
-            assert!(is_fixture_directory(name), "{name}");
-        }
-        for name in [
-            "fixture",
-            "src",
-            "fixtures-api",
-            "test_root",
-            "my-fixtures-lib",
-            "__testfixtures__",
-            "colorize-fixtures",
-            "e2e_fixtures",
-        ] {
-            assert!(!is_fixture_directory(name), "{name}");
-        }
-    }
 }

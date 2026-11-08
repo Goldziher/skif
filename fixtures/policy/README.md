@@ -6,7 +6,7 @@ workspace protocol, dependency families and the policy conflicts between them
 tests in `crates/skif-rules/tests` (`policy_conformance.rs` and `policy_catalog_conformance.rs`) walk them, run the
 policy rules and compare the result with `expected.json`.
 
-There are 185 cases in 16 groups. Each case is a minimal monorepo plus the `skif.toml` under
+There are 188 cases in 16 groups. Each case is a minimal monorepo plus the `skif.toml` under
 test and the diagnostics skif must report for it, so a failing case points at one behaviour.
 
 ## Attribution
@@ -39,7 +39,7 @@ Groups: `version-mismatch`, `pinned`, `banned`, `ignored`, `same-range`, `same-m
 | Group | Cases |
 | --- | --- |
 | `banned` | 4 |
-| `catalog` | 28 |
+| `catalog` | 32 |
 | `catalog-groups` | 6 |
 | `dependency-families` | 11 |
 | `dependency-types` | 12 |
@@ -90,6 +90,7 @@ A JSON array of diagnostics, sorted by `path`, then `rule`, then `dependency`, t
 | `detail` | the syncpack state name from the ADR 0009 table, or `null` for rules without a state |
 | `path` | workspace-relative path with `/` separators of the file the diagnostic is located in; `skif.toml` for `UnusedGroup` |
 | `fixable` | whether the diagnostic carries a fix |
+| `safe` | present and `true` when the diagnostic's fix is `safe`, so `--fix` applies it ([ADR 0051](../../adrs/0051-safe-version-alignment-fixes.md)); absent otherwise |
 
 An empty array means the workspace must be clean.
 
@@ -124,7 +125,7 @@ Tags with meaning: `assumption` and `ambiguous`
    below); every other rule is off, so manifest rules (`local-path-dependency`,
    `root-package-dependencies`, ...) never contribute. `[rules]` in `skif.toml` still applies on top.
 4. Run it, drop span and message from each diagnostic, project onto
-   `{rule, severity, package, dependency, detail, path, fixable}`, sort as described above and
+   `{rule, severity, package, dependency, detail, path, fixable, safe}`, sort as described above and
    compare with `expected.json` for equality.
 5. If `expected-fixed/` exists: apply the fixes of all fixable diagnostics and compare each file in
    `expected-fixed/` with the result (parsed JSON / YAML equality, or byte equality when `case.toml`
@@ -182,7 +183,7 @@ syncpack.
   `preferred-semver` groups, so a same-minor group cannot name a direction.
 * `semverRangeOnly` version groups do not exist in skif. A semver group with `ignored = true` covers syncpack's `isIgnored`
   and `isDisabled` (`semver-groups/ignored-group-exempts-dependency`).
-* `DiffersToNpmRegistry` is reported by `skif update`, never by a lint rule (ADR 0050); no case here, the
+* `DiffersToNpmRegistry` is reported by `skif update`, never by a lint rule (ADR 0056); no case here, the
   update planner has its own tests.
 * Severity is per rule: syncpack's Conflict class (error) and Suspect class (warning) share
   `policy-conflict` and therefore one severity (see "ADR gaps").
@@ -303,7 +304,7 @@ States in the ADR 0009 table. Valid states produce no diagnostic and are listed 
 | Fixable | `DiffersToCatalog` | `catalog-mismatch` | `catalog/off-catalog-mismatch` |
 | Fixable | `NotUsingCatalog` | `catalog-not-used` | `catalog/bun-top-level-catalog`, `catalog/bun-workspaces-catalog`, `catalog/enforce-not-using-catalog`, `catalog/exclude-dependency` (+3 more) |
 | Fixable | `MissingFromCatalog` | `catalog-missing-entry` | `catalog/bun-missing-entry-creates-catalog`, `catalog/missing-entry-identical-non-semver`, `catalog/missing-entry-no-catalog-pnpm`, `catalog/missing-entry-single-catalog` |
-| Fixable | `DiffersToNpmRegistry` | none: `skif update` (ADR 0050) | `skif update` tests (ADR 0050) |
+| Fixable | `DiffersToNpmRegistry` | none: `skif update` (ADR 0056) | `skif update` tests (ADR 0056) |
 | Unfixable | `NonSemverMismatch` | `version-mismatch` | `same-minor/non-semver-differing-unfixable`, `version-mismatch/unsupported-specifiers-differ` |
 | Unfixable | `SameRangeMismatch` | `version-mismatch` | `same-range/different-exact-versions`, `same-range/one-disjoint-range-flags-all`, `same-range/tilde-different-minors` |
 | Unfixable | `SameMinorMismatch` | `version-mismatch` | `same-minor/minor-mismatch-unfixable` |

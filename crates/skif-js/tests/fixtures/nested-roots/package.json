@@ -1,0 +1,14 @@
+{
+  "name": "outer",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/main.ts",
+  "scripts": {
+    "postinstall": "node build/npm/postinstall.ts",
+    "hygiene": "node build/hygiene.ts"
+  },
+  "dependencies": {
+    "kleur": "4.1.5",
+    "left-pad": "1.3.0"
+  }
+}

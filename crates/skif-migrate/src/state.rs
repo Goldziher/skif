@@ -45,6 +45,7 @@ impl Level {
 struct RuleSetting {
     level: Option<Level>,
     ignore_tags: Vec<String>,
+    include_tags: Vec<String>,
     /// The `off` was added by the `exact` profile, not taken from a tool's configuration.
     profile: bool,
 }
@@ -165,6 +166,16 @@ impl<'a> State<'a> {
         }
     }
 
+    /// Adds `tags` to the `include-tags` option of `id`.
+    pub(crate) fn add_include_tags(&mut self, id: &str, tags: impl IntoIterator<Item = String>) {
+        let setting = self.setting(id);
+        for tag in tags {
+            if !setting.include_tags.contains(&tag) {
+                setting.include_tags.push(tag);
+            }
+        }
+    }
+
     fn resolve_ignored_rules(&mut self) {
         for DeferredOff { src, origin, ids } in std::mem::take(&mut self.deferred) {
             let mut turned_off = Vec::new();
@@ -207,14 +218,22 @@ impl<'a> State<'a> {
                 rules.set_commented(id, Val::str("off"), marker.clone());
                 continue;
             }
-            let value = if setting.ignore_tags.is_empty() {
+            let value = if setting.ignore_tags.is_empty() && setting.include_tags.is_empty() {
                 Val::str(setting.level.map_or("error", Level::text))
             } else {
                 let mut options = Vec::new();
                 if let Some(level) = setting.level {
                     options.push(("level".to_owned(), Val::str(level.text())));
                 }
-                options.push(("ignore-tags".to_owned(), Val::strs(setting.ignore_tags.iter().cloned())));
+                if !setting.ignore_tags.is_empty() {
+                    options.push(("ignore-tags".to_owned(), Val::strs(setting.ignore_tags.iter().cloned())));
+                }
+                if !setting.include_tags.is_empty() {
+                    options.push((
+                        "include-tags".to_owned(),
+                        Val::strs(setting.include_tags.iter().cloned()),
+                    ));
+                }
                 Val::Inline(options)
             };
             rules.set(id, value);

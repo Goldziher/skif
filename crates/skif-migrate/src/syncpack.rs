@@ -9,7 +9,7 @@ use crate::doc::Val;
 use crate::keys;
 use crate::notes::{NoteClass, Tool};
 use crate::scripts::{self, Invocation};
-use crate::state::{Src, State};
+use crate::state::{Level, Src, State};
 use crate::tables;
 use crate::value::{at, boolean, entries, join, read, string, string_list};
 use crate::{MigrateError, ToolInput};
@@ -129,6 +129,8 @@ struct Run {
     /// One entry per run of `syncpack lint` (or similar) in a script: the scope its `--dependency-types` gave, which
     /// replaces the default one, or `None` when it gave none.
     scopes: Vec<(String, Option<Vec<String>>)>,
+    /// A format key is set or a script runs `syncpack format`.
+    formats: bool,
 }
 
 pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), MigrateError> {
@@ -177,6 +179,12 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
     }
     emit_scope(state, &src, &run);
     override_reading(state, &src);
+    if run.formats {
+        for id in tables::syncpack_rules("format") {
+            state.keep(Tool::Syncpack, [id]);
+            state.set_level(id, Level::Error);
+        }
+    }
     Ok(())
 }
 
@@ -243,7 +251,7 @@ fn read_config(
                 "syncpack's strict mode has no skif equivalent",
                 "see `skif rules` for the rules that decide what is reported",
             ),
-            _ if FORMAT_KEYS.contains(&key) => format_key(state, src, &path, key, item),
+            _ if FORMAT_KEYS.contains(&key) => format_key(state, src, &path, key, item, run),
             _ if RETIRED_KEYS.contains(&key) => state.note(
                 src,
                 NoteClass::Human,
@@ -260,26 +268,59 @@ fn read_config(
     }
 }
 
-fn format_key(state: &mut State<'_>, src: &Src, path: &str, key: &str, item: &ConfigValue) {
-    if key == "sortAz" {
-        let names = string_list(state, src, path, item);
-        if names.iter().any(|name| DEPENDENCY_MAPS.contains(&name.as_str())) {
-            state.keep(Tool::Syncpack, tables::syncpack_rules("sort-az"));
-            state.note(
-                src,
-                NoteClass::Approximate,
-                path,
-                "dependency maps stay sorted: `unsorted-dependencies` is kept; other manifest formatting is not checked",
-            );
-            return;
+/// Writes a format key to `[format]`; `package-json-format` is turned on once the run is read (ADR 0055).
+fn format_key(state: &mut State<'_>, src: &Src, path: &str, key: &str, item: &ConfigValue, run: &mut Run) {
+    run.formats = true;
+    let (target, value) = match key {
+        "sortFirst" | "sortAz" | "sortExports" => {
+            let names = string_list(state, src, path, item);
+            if key == "sortAz" && names.iter().any(|name| DEPENDENCY_MAPS.contains(&name.as_str())) {
+                state.keep(Tool::Syncpack, tables::syncpack_rules("sort-az"));
+            }
+            let target = match key {
+                "sortFirst" => "sort-first",
+                "sortAz" => "sort-az",
+                _ => "sort-exports",
+            };
+            (target, Val::strs(names))
         }
-    }
-    state.note(
-        src,
-        NoteClass::Approximate,
-        path,
-        "dropped: it only affects `syncpack format`, and skif does not format manifests",
-    );
+        "sortPackages" | "formatBugs" | "formatRepository" => {
+            let Some(flag) = boolean(state, src, path, item) else {
+                return;
+            };
+            let target = match key {
+                "sortPackages" => "sort-packages",
+                "formatBugs" => "format-bugs",
+                _ => "format-repository",
+            };
+            (target, Val::Bool(flag))
+        }
+        _ => {
+            let Some(indent) = string(state, src, path, item) else {
+                return;
+            };
+            ("indent", Val::str(indent))
+        }
+    };
+    state.doc.table(&["format"]).set(target, value);
+    let (class, message) = match key {
+        "sortAz" | "sortPackages" => (
+            NoteClass::Approximate,
+            format!("written to [format] {target}; skif sorts in byte order where syncpack uses a collator"),
+        ),
+        "formatBugs" | "formatRepository" => (
+            NoteClass::Approximate,
+            format!("written to [format] {target}; skif collapses only an object the shorthand holds completely"),
+        ),
+        "indent" => (
+            NoteClass::Approximate,
+            "written to [format] indent; skif then checks the layout of every package.json, which syncpack never \
+             reports"
+                .to_owned(),
+        ),
+        _ => (NoteClass::Exact, format!("written to [format] {target}")),
+    };
+    state.note(src, class, path, message);
 }
 
 fn custom_types(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue, types: &mut Types) {
@@ -1016,21 +1057,22 @@ fn compare_source(state: &mut State<'_>, src: &Src, path: &str, sources: &[Strin
 
 fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, workspace_patterns: &[String], run: &mut Run) {
     let path = invocation.path();
+    if invocation.subcommand() == Some("format") {
+        run.formats = true;
+        state.note(
+            src,
+            NoteClass::Exact,
+            format!("{path}: syncpack format"),
+            "`package-json-format` is turned on; `skif format` writes and `skif format --check` checks",
+        );
+        return;
+    }
     if invocation.subcommand() == Some("update") {
         state.note(
             src,
             NoteClass::Approximate,
             format!("{path}: syncpack update"),
             "run `skif update` instead: it takes `--check`, `--target` and `--dependencies`; `--interactive` has no equivalent",
-        );
-        return;
-    }
-    if invocation.subcommand() == Some("format") {
-        state.note(
-            src,
-            NoteClass::Unsupported,
-            format!("{path}: syncpack format"),
-            "skif does not format; it lints and, with --fix, aligns",
         );
         return;
     }

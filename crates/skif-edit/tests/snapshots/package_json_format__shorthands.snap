@@ -1,0 +1,24 @@
+---
+source: crates/skif-edit/tests/package_json_format.rs
+expression: "report(\"shorthands\")"
+---
+issues:
+  - `bugs` can be written as its URL
+  - `repository` can be written as its shorthand
+--- before
+{
+  "name": "shorthands",
+  "bugs": {
+    "url": "https://github.com/acme/repo/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/acme/repo.git"
+  }
+}
+--- after
+{
+  "name": "shorthands",
+  "bugs": "https://github.com/acme/repo/issues",
+  "repository": "acme/repo.git"
+}

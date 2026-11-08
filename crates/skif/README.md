@@ -32,7 +32,7 @@ assert_eq!(report.summary.packages, 2);
 | `manifest` (default) | The built-in manifest, workspace, version and semver group policy and catalog rules. |
 | `fix` | `apply_fixes` and `FixPlan` (format-preserving JSON edits). |
 | `yaml-fix` | YAML edits for `pnpm-workspace.yaml` (implies `fix`). |
-| `report` | Human, JSON, SARIF and GitHub renderers, re-exported as `skif::render`. |
+| `report` | Human, JSON, SARIF, GitHub, Code Climate, compact, Markdown and CODEOWNERS renderers, re-exported as `skif::render`. |
 | `schema` | The JSON Schema of `skif.toml`, as `skif::config_schema`. |
 | `update` | `skif::update`: newer published versions through a registry the host supplies, planned as a `FixPlan`. |
 | `js-analysis` | JavaScript and TypeScript analysis and the plugin table; `Linter` adds it to the built-in rules. Off by default. |

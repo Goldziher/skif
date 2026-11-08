@@ -15,6 +15,7 @@ Commands:
   explain-usage  Explain why the JavaScript analysis counts a file, or one export of it, as used
   migrate        Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file
   update         Update dependencies to newer published versions from the npm registry; the only command that uses the network
+  format         Format every `package.json` as `[format]` describes (the `package-json-format` rule alone); never installs
   help           Print this message or the help of the given subcommand(s)
 
 Arguments:
@@ -27,23 +28,34 @@ Options:
   -r, --recursive
           Lint every workspace and standalone package at or below PATH, each with the `skif.toml` files that govern it
 
-      --format <FORMAT>
-          Output format [default: human, or human plus GitHub annotations when `GITHUB_ACTIONS=true`]
+      --format <FORMAT[=FILE]>
+          Output format, as FORMAT or FORMAT=FILE to write that rendering to FILE. Repeatable; at most one goes to stdout [default: human, or human plus GitHub annotations when `GITHUB_ACTIONS=true`]
 
           Possible values:
-          - human:  Grouped, optionally coloured text
-          - json:   One JSON document on stdout
-          - sarif:  SARIF 2.1.0 for code scanning
-          - github: GitHub Actions workflow-command annotations
+          - human:       Grouped, optionally coloured text
+          - json:        One JSON document on stdout
+          - sarif:       SARIF 2.1.0 for code scanning
+          - github:      GitHub Actions workflow-command annotations
+          - codeclimate: Code Climate JSON for GitLab Code Quality
+          - compact:     One `path:line:col rule message` line per diagnostic
+          - markdown:    Markdown tables per rule, for pull request comments
+          - disclosure:  Markdown tables per rule, each in a collapsed `<details>` section
+          - codeowners:  Compact lines grouped by owner, from the repository's CODEOWNERS file
 
       --output <FILE>
-          Write the rendering to this file instead of stdout
+          Write the rendering to this file instead of stdout; needs exactly one --format, without `=FILE`
 
       --fix
           Apply safe fixes, then lint again and run the package manager's install command
 
       --fix-unsafe
           Apply safe and unsafe fixes; implies --fix
+
+      --allow-remove-files
+          Let fixes delete files (`unused-files`); without it they are skipped. Needs --fix or --fix-unsafe
+
+      --fix-type <TYPE>
+          Only apply the fixes of these rules: rule ids or knip issue types (`dependencies`, `exports`, `types`, `enumMembers`, `files`, `catalog`, ...). Comma separated or repeatable; needs --fix or --fix-unsafe
 
       --select <SELECT>
           Which version a version alignment fix targets, overriding `[policy] prefer` for this run
