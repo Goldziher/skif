@@ -33,7 +33,7 @@
 use skif_core::{Diagnostic, FileSystem, FixSafety, Report, RuleId, Severity};
 pub use skif_rules::update::{
     DEFAULT_MINIMUM_RELEASE_AGE, Failure, FetchError, Note, Packument, Published, Registry, STATE, Update,
-    UpdateOptions, UpdateReport, minimum_release_age, plan_updates, unix_seconds,
+    UpdateOptions, UpdateReport, is_valid_package_name, minimum_release_age, plan_updates, unix_seconds,
 };
 use skif_workspace::Workspace;
 

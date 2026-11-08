@@ -295,6 +295,11 @@ pub struct Failure {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum Note {
+    /// Not a name the npm registry can hold, so it is not looked up.
+    InvalidName {
+        /// The name as written.
+        dependency: String,
+    },
     /// The registry gives no usable publish time for `version`, which would otherwise be the target; with a minimum
     /// release age it cannot be shown to be old enough, so it is not proposed.
     NoPublishTime {
@@ -310,7 +315,7 @@ impl Note {
     #[must_use]
     pub fn dependency(&self) -> &str {
         match self {
-            Self::NoPublishTime { dependency, .. } => dependency,
+            Self::InvalidName { dependency } | Self::NoPublishTime { dependency, .. } => dependency,
         }
     }
 }
@@ -318,6 +323,7 @@ impl Note {
 impl fmt::Display for Note {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidName { .. } => f.write_str("not a valid npm package name, so it is not looked up"),
             Self::NoPublishTime { version, .. } => write!(
                 f,
                 "{version} is not proposed: the registry gives no publish time to check the minimum release age against"
@@ -396,6 +402,26 @@ fn updatable(specifier: &Specifier, name: &str) -> bool {
         | Specifier::Latest(_) => true,
         Specifier::Alias(alias) => alias.name == name && updatable(&alias.inner_specifier, name),
         _ => false,
+    }
+}
+
+/// Whether `name` is a name the npm registry can hold: `^(@[a-z0-9-~][a-z0-9-._~]*/)?[a-z0-9-~][a-z0-9-._~]*$`,
+/// ignoring case because the registry still serves legacy names with capitals. Only such a name is put in a registry
+/// URL, so a name from a manifest cannot add a path segment, a query or a fragment to it.
+#[must_use]
+pub fn is_valid_package_name(name: &str) -> bool {
+    fn segment(text: &str) -> bool {
+        let mut bytes = text.bytes();
+        bytes
+            .next()
+            .is_some_and(|first| first.is_ascii_alphanumeric() || matches!(first, b'-' | b'~'))
+            && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~'))
+    }
+    match name.strip_prefix('@') {
+        Some(scoped) => scoped
+            .split_once('/')
+            .is_some_and(|(scope, rest)| segment(scope) && segment(rest)),
+        None => segment(name),
     }
 }
 
@@ -620,7 +646,8 @@ fn write_op(workspace: &Workspace, candidate: &Candidate<'_>, specifier: &str) -
 /// Finds every declared version a newer published version can replace (ADR 0050).
 ///
 /// The registry is asked once for each distinct dependency name among the instances that may move, through
-/// [`Registry::fetch_all`]; a name it cannot answer for becomes a [`Failure`] and its instances are left out. Versions
+/// [`Registry::fetch_all`]; a name that is not [a valid package name](is_valid_package_name) is not asked about and
+/// gets a [`Note`], and a name it cannot answer for becomes a [`Failure`] and its instances are left out. Versions
 /// published less than [`minimum_release_age`] minutes before `options.now`, and deprecated versions, are never
 /// proposed. With a minimum release age, neither is a version the registry gives no publish time for; when such a
 /// version would have been the target, a [`Note`] says so.
@@ -641,6 +668,16 @@ pub fn plan_updates(
         .filter_map(|package| package.name.as_deref())
         .collect();
     catalog_candidates(workspace, config, options, &local, &mut candidates);
+    let mut notes = BTreeSet::new();
+    candidates.retain(|candidate| {
+        let valid = is_valid_package_name(&candidate.dependency);
+        if !valid {
+            notes.insert(Note::InvalidName {
+                dependency: candidate.dependency.clone(),
+            });
+        }
+        valid
+    });
 
     let names: Vec<&str> = candidates
         .iter()
@@ -672,7 +709,6 @@ pub fn plan_updates(
         }
     }
 
-    let mut notes = BTreeSet::new();
     let mut updates: Vec<Update> = candidates
         .iter()
         .filter_map(|candidate| {

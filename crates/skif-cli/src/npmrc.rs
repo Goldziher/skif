@@ -14,6 +14,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use skif::update::is_valid_package_name;
+
 /// The public npm registry.
 pub const DEFAULT_REGISTRY: &str = "https://registry.npmjs.org/";
 
@@ -241,9 +243,10 @@ impl Npmrc {
 }
 
 /// The URL of the registry document of `name` under `registry` (which ends in `/`): the `/` of a scoped name is
-/// escaped, as npm does.
-pub fn package_url(registry: &str, name: &str) -> String {
-    format!("{registry}{}", name.replacen('/', "%2f", 1))
+/// escaped, as npm does (`@scope%2fname`). `None` when `name` is not a valid package name, so no name can add a path
+/// segment, a query or a fragment to the URL.
+pub fn package_url(registry: &str, name: &str) -> Option<String> {
+    is_valid_package_name(name).then(|| format!("{registry}{}", name.replacen('/', "%2f", 1)))
 }
 
 #[cfg(test)]
@@ -335,12 +338,33 @@ mod tests {
     #[test]
     fn a_scoped_name_escapes_its_slash() {
         assert_eq!(
-            package_url(DEFAULT_REGISTRY, "@types/node"),
-            "https://registry.npmjs.org/@types%2fnode"
+            package_url(DEFAULT_REGISTRY, "@types/node").as_deref(),
+            Some("https://registry.npmjs.org/@types%2fnode")
         );
         assert_eq!(
-            package_url(DEFAULT_REGISTRY, "react"),
-            "https://registry.npmjs.org/react"
+            package_url(DEFAULT_REGISTRY, "react").as_deref(),
+            Some("https://registry.npmjs.org/react")
         );
+        assert_eq!(
+            package_url(DEFAULT_REGISTRY, "JSONStream").as_deref(),
+            Some("https://registry.npmjs.org/JSONStream"),
+            "a legacy name with capitals"
+        );
+        for bad in [
+            "a?x",
+            "a#b",
+            "a/../b",
+            "..",
+            "@scope/..",
+            "@a/b/c",
+            "a b",
+            "",
+            "@scope",
+            ".hidden",
+            "_x",
+            "a%2fb",
+        ] {
+            assert_eq!(package_url(DEFAULT_REGISTRY, bad), None, "{bad}");
+        }
     }
 }

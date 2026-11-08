@@ -60,7 +60,8 @@ impl HttpRegistry {
 impl Registry for HttpRegistry {
     fn fetch(&self, name: &str) -> Result<Packument, FetchError> {
         let registry = self.npmrc.registry_for(name);
-        let url = package_url(&registry, name);
+        let url =
+            package_url(&registry, name).ok_or_else(|| FetchError::Invalid("not a valid package name".to_owned()))?;
         let mut request = self.agent.get(&url).header("Accept", "application/json");
         if let Some(token) = self.npmrc.token_for(&registry) {
             request = request.header("Authorization", &format!("Bearer {token}"));
