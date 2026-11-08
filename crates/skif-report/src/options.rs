@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use skif_core::RuleMeta;
 
+use crate::codeowners::CodeOwners;
 use crate::path::{collapse_dots, is_absolute_text, relativize};
 use crate::text::{Source, utf16_column};
 
@@ -22,6 +23,7 @@ pub struct RenderOptions {
     repo_root: Option<PathBuf>,
     rules: Vec<&'static RuleMeta>,
     sources: BTreeMap<String, Source>,
+    codeowners: Option<CodeOwners>,
 }
 
 impl RenderOptions {
@@ -68,6 +70,18 @@ impl RenderOptions {
         let key = relativize(path.as_ref(), self.root.as_deref());
         self.sources.insert(key, Source::new(text.into()));
         self
+    }
+
+    /// Sets the CODEOWNERS entries the codeowners format groups diagnostics by.
+    #[must_use]
+    pub fn with_codeowners(mut self, codeowners: CodeOwners) -> Self {
+        self.codeowners = Some(codeowners);
+        self
+    }
+
+    /// The CODEOWNERS entries supplied through [`Self::with_codeowners`].
+    pub(crate) const fn codeowners(&self) -> Option<&CodeOwners> {
+        self.codeowners.as_ref()
     }
 
     /// Path as displayed: relative to the root, with `/` separators.

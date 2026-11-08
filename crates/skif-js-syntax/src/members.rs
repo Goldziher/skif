@@ -257,7 +257,8 @@ impl<'a> Visit<'a> for LocalReads<'_> {
     }
 }
 
-/// Fills [`crate::model::Export::members_read_in_file`] of every enum and namespace export from the uses in `program`.
+/// Fills [`crate::model::Export::members_read_in_file`] of every enum and namespace export from the uses in `program`:
+/// `E.A` anywhere in the file, and a namespace member read by its bare name inside the namespace body.
 pub(crate) fn mark_local_reads(program: &oxc_ast::ast::Program<'_>, info: &mut ModuleInfo) {
     let wanted: HashSet<String> = info
         .exports
@@ -273,6 +274,24 @@ pub(crate) fn mark_local_reads(program: &oxc_ast::ast::Program<'_>, info: &mut M
         reads: HashMap::new(),
     };
     tracker.visit_program(program);
+    let mut namespaces: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for export in info
+        .exports
+        .iter()
+        .filter(|export| !export.namespace_members.is_empty())
+    {
+        if let Some(local) = &export.local_name {
+            namespaces
+                .entry(local.clone())
+                .or_default()
+                .extend(export.namespace_members.iter().map(|member| member.name.clone()));
+        }
+    }
+    if !namespaces.is_empty() {
+        for (name, members) in crate::semantic::namespace_bare_reads(program, &namespaces) {
+            tracker.reads.entry(name).or_default().extend(members);
+        }
+    }
     for export in &mut info.exports {
         let Some(local) = export.local_name.as_deref() else {
             continue;

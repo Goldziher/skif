@@ -328,6 +328,14 @@ impl TsPaths {
         );
         candidates
     }
+
+    /// Whether a `paths` pattern matches `specifier`; `baseUrl`, which every bare specifier falls back to, does not
+    /// count.
+    pub(crate) fn maps(&self, specifier: &str) -> bool {
+        self.paths
+            .iter()
+            .any(|(pattern, _)| match_pattern(pattern, specifier).is_some())
+    }
 }
 
 #[cfg(test)]

@@ -7,7 +7,9 @@ use skif_config::{JsWorkspace, Override, PluginConfig, PluginOptions};
 use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins};
 
 use crate::config_check::relative_tsconfig;
-use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
+use crate::input::{
+    BuildDir, IncompleteCause, IncompleteEntries, InputRequest, InputSource, PathAlias, WorkspaceInputs,
+};
 use crate::setup::WorkspaceKeys;
 
 /// Feeds the entries, project files and references of every enabled plugin to the module graph.
@@ -209,6 +211,21 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
         module_dirs: output.module_dirs,
         extensions: output.extensions,
         entries_incomplete: output.entries_incomplete,
+        incomplete_reasons: output
+            .incomplete_reasons
+            .into_iter()
+            .map(|reason| IncompleteEntries {
+                cause: match reason.cause {
+                    skif_js_plugins::IncompleteCause::Unparsable => IncompleteCause::UnparsableConfig,
+                    skif_js_plugins::IncompleteCause::UnknownValue => IncompleteCause::UnknownConfig,
+                    skif_js_plugins::IncompleteCause::UnknownSpread => IncompleteCause::UnknownSpread,
+                    skif_js_plugins::IncompleteCause::ComputedEntries => IncompleteCause::ComputedEntries,
+                    _ => IncompleteCause::Unspecified,
+                },
+                plugin: Some(reason.plugin.to_owned()),
+                file: Some(reason.file),
+            })
+            .collect(),
     }
 }
 

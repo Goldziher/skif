@@ -33,6 +33,10 @@ others; the exit code is then `2`. A search stopped by the depth limit lists the
 `truncated` array. `root-package-manager-field` is not reported for a standalone package below
 another root. `--fix` plans, writes and installs per root.
 
+`-r` is `--recursive`, not sherif's `--ignore-rule`. When the `PATH` given with `-r` does not exist and is the name
+of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2` with a usage error that names the
+`--ignore-rule` and `--rule` flags for that rule, using the skif rule id.
+
 ## Subcommands
 
 | Command | Does |
@@ -43,28 +47,31 @@ another root. `--fix` plans, writes and installs per root.
 | `skif config [PATH]` | Show how the configuration of the root at `PATH` was built (see below). |
 | `skif explain-usage <FILE[#EXPORT]> [PATH]` | Explain why the JavaScript analysis counts a file, or one export of it, as used (see below). |
 | `skif migrate [PATH]` | Translate the configuration of sherif, syncpack and knip into a `skif.toml` (see below). |
+| `skif format [PATH]` | Format every `package.json` as `[format]` describes, or check it with `--check` (see below). |
 
 ## Flags
 
 | Flag | Meaning |
 | --- | --- |
 | `-r`, `--recursive` | Lint every workspace and standalone package at or below `PATH` in one run, instead of only the project containing `PATH`. |
-| `--format <human\|json\|sarif\|github>` | Output format. Default `human`, or `human` plus GitHub annotations when `GITHUB_ACTIONS=true`. |
-| `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires `--format`. |
+| `--format <FORMAT[=FILE]>` | Output format: `human`, `json`, `sarif`, `github`, `codeclimate`, `compact`, `markdown`, `disclosure` or `codeowners`. `FORMAT=FILE` writes that rendering to `FILE`. Repeatable, with at most one format on stdout (see [Several reports in one run](#several-reports-in-one-run)). Default `human`, or `human` plus GitHub annotations when `GITHUB_ACTIONS=true`. |
+| `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires exactly one `--format`, without `=FILE`. |
 | `--fix` | Apply safe fixes, lint again, then run the package manager's install command. |
-| `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. |
+| `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. Fixes that delete files still need `--allow-remove-files`. |
+| `--allow-remove-files` | Let fixes delete files (`unused-files`); without it they are skipped and reported as `removes-files`. Needs `--fix` or `--fix-unsafe`. |
+| `--fix-type <TYPE>` | Only apply the fixes of these rules: rule ids or knip issue types (see [Fixing](#fixing)). Comma separated or repeatable; needs `--fix` or `--fix-unsafe`. |
 | `--select <highest\|lowest>` | Which version a version alignment fix targets, overriding `[policy] prefer` for this run. |
 | `--no-install` | Do not run the package manager after fixing. |
 | `--no-prompt` | Never ask which alternative fix to apply; the diagnostic stays unfixed unless `--select` decides. |
 | `--max-warnings <N>` | Exit `1` when there are more than `N` warnings. |
 | `--fail-on-warnings` | Same as `--max-warnings 0`. Also set by `[lint] fail-on-warnings`. |
 | `--max-issues <N>` | Exit `1` only when there are more than `N` errors (default `0`), counted over all roots. Warnings still follow `--max-warnings`. |
-| `--max-show-issues <N>` | Show at most `N` findings of each rule, in report order over all roots. The summary still counts every finding and the exit code is unchanged; in human output a note on stderr says how many were left out. Human and `json` output only: with any other `--format`, or with `--fix`, it exits `2`. The annotations human output adds under GitHub Actions still list every finding. |
+| `--max-show-issues <N>` | Show at most `N` findings of each rule, in report order over all roots. The summary still counts every finding and the exit code is unchanged; in human output a note on stderr says how many were left out. Human and `json` output only: when any `--format` is another format, or with `--fix`, it exits `2`; with several formats, each human and `json` rendering is shortened. The annotations human output adds under GitHub Actions still list every finding. |
 | `--no-exit-code` | Exit `0` when problems remain. A run that could not happen still exits `2`. |
 | `--rule <ID>=<off\|info\|warn\|error>` | Set a rule's level. Repeatable. |
 | `--ignore-rule <ID>` | Turn a rule off. Repeatable. |
 | `--ignore-package <NAME>` | Ignore a package by name or glob in every rule. Repeatable. The flags replace `[workspace] ignore-packages` from the configuration files instead of adding to it. |
-| `--ignore-dependency <NAME>` | Ignore a dependency in every rule. Repeatable. Adds to the `[[ignore]]` entries of the configuration files. |
+| `--ignore-dependency <NAME>` | Ignore a dependency in every rule. Repeatable. Adds to the `[[ignore]]` entries of the configuration files. sherif's `-i` only silenced its version check; for that scope write an `[[ignore]]` entry with `rules = ["version-mismatch"]`, as `skif migrate` does. |
 | `--ignore-rule-for-package <RULE:PACKAGE>` | Ignore one rule for one package. Repeatable. Adds to the `[[ignore]]` entries of the configuration files. |
 | `--require-ignore-reasons` | Fail with exit code 2 when an `[[ignore]]` entry of a configuration file has no `reason`. Entries from flags are exempt. |
 | `--config <FILE>` | Use this configuration file (and the files it extends) for every root instead of discovering `skif.toml` files. Conflicts with `--no-config`. |
@@ -115,17 +122,25 @@ at `PATH`. The report names the entry rule when the file is an entry file, lists
 file and line (and which names the import brings in), and shows the shortest chain of imports from an entry file. With
 `#EXPORT` it lists the modules that import that export by name or as a whole, follows re-exports (`export { x } from`,
 `export *`) into the modules that use them, and ends with a verdict (`public`, `used` or `unused`) computed from the
-same facts as the lines above it. The command builds the whole JavaScript analysis, so it costs as much as the
-JavaScript part of a lint run.
+same facts as the lines above it; an export of a package whose entry files are not fully known is `not-judged`
+instead of `unused`, because it is not reported. The command builds the whole JavaScript analysis, so it costs as much
+as the JavaScript part of a lint run.
 
 | Flag | Meaning |
 | --- | --- |
 | `--production`, `--config <FILE>`, `--no-config` | Analyse as the lint run with the same flag does. |
-| `--format <human\|json>` | `json` prints one document with `version`, `skif` and a `report` member: `file`, `in-graph`, `entry` (the rule that makes the file an entry), `imported-by` (`file`, `line`, `kind`, `names`, `reachable`), `chain-from-entry` and, with `#EXPORT`, `export` (`verdict`, `users`, `re-exports`, `entry-public`, `tagged-public`, `in-used-signature`). |
+| `--format <human\|json>` | `json` prints one document with `version`, `skif` and a `report` member: `file`, `in-graph`, `entry` (the rule that makes the file an entry), `imported-by` (`file`, `line`, `kind`, `names`, `reachable`), `chain-from-entry` and, with `#EXPORT`, `export` (`verdict`, `users`, `re-exports`, `entry-public`, `tagged-public`, `in-used-signature`, and `entries-incomplete` when it is true). |
 
-A file that is not part of the module graph (an unused file, an ignored file, or a file outside the project globs)
-exits `2` with the reason; in JSON mode the `error` document carries the same `report`. It also exits `2` when the root
-cannot be loaded or the file lies outside the workspace.
+A file that is not part of the module graph exits `2` with the reason; in JSON mode the `error` document carries the
+same `report`, whose `absence` is one of `unused-file` (reported by `unused-files`), `package-excluded`,
+`declaration-file`, `ignored`, `outside-project`, `not-discovered` (missing, ignored by Git, not a source file, or
+owned by no package) and `entries-incomplete`, which is only given for a source file that discovery, the project globs
+and the ignores leave in. For `entries-incomplete` the files of the package are not judged unused because its entry files
+are not fully known, and `incomplete` lists each cause with its `plugin` and `file`: `unparsable-config`,
+`unknown-config` (the config evaluates to a value that cannot be known statically), `unknown-spread` (it spreads or
+merges in an unknown value, such as an imported base config), `computed-entries` (the keys the tool reads entries from
+are computed), `unmapped-published` (`package.json` publishes build output with no source behind it) or
+`unspecified`. It also exits `2` when the root cannot be loaded or the file lies outside the workspace.
 
 ## Migrating
 
@@ -149,6 +164,26 @@ the old tools stays where it is. The [migration guide](../../guides/migrating/) 
 Exit `0` when the file was produced (also when notes need a human, unless `--strict`), `1` with `--strict` and such notes,
 `2` when a configuration cannot be read or the output cannot be written.
 
+## Formatting `package.json`
+
+`skif format [PATH]` lints with the [`package-json-format`](../../rules/manifest/#package-json-format) rule alone, at
+`error`, and applies its safe fix to every `package.json` of the workspace: the key order, the sorted fields, the
+order of the `exports` conditions, the `bugs` and `repository` shorthands and, with `[format] indent`, the layout. The
+[`[format]`](../configuration/#format) table configures it; the defaults are syncpack's, except that `exports`
+conditions only move `types` first and `default` last. It never runs the package manager, and like `--fix` it is refused
+when `CI` is truthy.
+
+| Flag | Meaning |
+| --- | --- |
+| `--check` | Report the manifests that are not formatted and write nothing. |
+| `--unsafe` | Also write an unsafe fix: a `sort-exports` that reorders conditions other than `types` and `default`, which changes how imports resolve. Conflicts with `--check`. |
+| `-r`, `--recursive`, `--format`, `--config <FILE>`, `--no-config`, `--color` | As for a lint run. |
+
+The exit codes are a lint's: `--check` exits `1` when a manifest is not formatted and `0` when every one is; without
+`--check` the code comes from the lint after writing. `[[ignore]]` entries and `ignore-packages` apply. To check
+formatting in every lint instead, set `package-json-format = "error"` in `[rules]`; `--fix` then formats too, and
+`--fix-unsafe` also applies an unsafe `exports` reorder.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -161,26 +196,91 @@ Exit `0` when the file was produced (also when notes need a human, unless `--str
 
 | Format | Output |
 | --- | --- |
-| `human` | Diagnostics grouped by file, optionally coloured, with a summary. Colour is on only when stdout is a TTY, `NO_COLOR` is unset and the format is `human`. |
-| `json` | One versioned document with `version`, `summary` and `diagnostics`; a multi-root run adds a `roots` array with each root's `path`, `packages` and `summary`. Each diagnostic has rule, severity, message, location with line and column span, related locations and fix titles. |
+| `human` | Diagnostics grouped by file, optionally coloured, with a summary. Colour is on only when stdout is a TTY, `NO_COLOR` is unset and the format is `human`. A note before the summary names the packages whose unused files and dependencies were not checked. |
+| `json` | One versioned document with `version`, `summary` and `diagnostics`; a multi-root run adds a `roots` array with each root's `path`, `packages` and `summary`. Each diagnostic has rule, severity, message, location with line and column span, related locations and fix titles. `incomplete-packages` (omitted when empty) lists the packages whose unused files and dependencies were not checked, see below. |
 | `sarif` | SARIF 2.1.0 for code scanning. |
 | `github` | GitHub Actions workflow-command annotations. |
+| `codeclimate` | A Code Climate JSON array for GitLab Code Quality: one issue per diagnostic with `description`, `check_name` (the rule), `fingerprint`, `severity` and `location` (`path`, `lines.begin`). Errors are `major`, warnings `minor` and infos `info`. The fingerprint is a hash of the rule, path, package, dependency, specifier and message text (not the line), so an issue keeps its identity when code above it moves; a release that rewords a message changes the fingerprints of its issues. Paths are relative to the repository top-level. |
+| `compact` | One line per diagnostic, `path:line:col rule message` (`path rule message` without a position), and nothing else. |
+| `markdown` | A heading, a summary line and a table per rule (location, severity, message), for pull request comments. Repository text is escaped so it cannot break the table, and `@` (as in `@types/node`), `://` and `www.` are broken with an empty HTML comment so they do not become mentions or links. |
+| `disclosure` | Like `markdown`, with each rule's table folded in a `<details>` section. |
+| `codeowners` | `compact` lines grouped under each owner from the repository's CODEOWNERS file (`.github/CODEOWNERS`, `CODEOWNERS` or `docs/CODEOWNERS`, the first that exists at the repository top-level). The last matching pattern wins, and an entry without owners in a GitLab section takes the section's default owners (`[Section] @owner`); a diagnostic with several owners is listed under each, and diagnostics no pattern covers are under `(unowned)`. Exit `2` (a `config` error) when there is no CODEOWNERS file. |
+
+When a package's entry files are not all known (a tool config skif cannot read, or published build output with no
+source behind it), skif does not report its unused files or dependencies. The JSON report names each such package in
+`incomplete-packages`, sorted by directory: its `name`, its `dir` (`.` for the root package) and its `reasons`, each a
+`cause` with the `plugin` and `file` when known, using the causes `skif explain-usage` reports. Paths are relative to
+the run's base. The field is additive, so `version` stays `1`.
 
 In `--format json` mode stdout holds exactly one JSON document in every case, including failures. A failure is an
 `error` document with a `kind` (`config`, `workspace`, `io`, `usage`, `ci-refusal` or `internal`, a bug in skif), a message and, when known,
 `path`, `line` and `column`. `--output` never receives an error document: on failure the file is not written and
 the error goes to stdout.
 
+### Several reports in one run
+
+`--format` is repeatable, so one lint can feed several consumers. Each value is `FORMAT` (written to stdout) or
+`FORMAT=FILE` (written to `FILE`); at most one value may go to stdout, and with none stdout stays empty:
+
+```sh
+skif --format human --format json=skif.json --format codeclimate=gl-code-quality.json
+```
+
+* Two formats on stdout, the same file twice (however it is spelled, so `a/../x` and `x` are the same file), a
+  `FORMAT=FILE` that names an existing directory, or `--output` together with several formats or with `FORMAT=FILE`
+  is a usage error (exit `2`). `--output FILE` is the single-format spelling of `FORMAT=FILE`.
+* Every rendering is made before any file is written. When one fails (for example `codeowners` without a CODEOWNERS
+  file), no file is written or replaced and the run exits `2`. Each file is replaced atomically, but a write that
+  fails partway leaves the files written before it in place.
+* The format on stdout decides JSON mode: with `json` on stdout, an error is a JSON `error` document there; when no
+  format goes to stdout, the first `--format` decides, so `--format json=skif.json` alone behaves like
+  `--format json --output skif.json`.
+* Only the rendering on stdout (or in `--output`) is coloured; a `FORMAT=FILE` rendering never is.
+* The exit code is the same whatever the formats.
+
 ## Fixing
 
-`--fix` applies fixes marked `safe`; `--fix-unsafe` also applies `unsafe` ones. A fix run:
+`--fix` applies fixes marked `safe`; `--fix-unsafe` also applies `unsafe` ones. A version alignment is `safe`
+when it is a later version within semver's compatibility window, in the same shape: an exact version or `^` range
+within its major (`left-pad` `1.0.0` to `1.3.0`), `~` within its minor. A move across a major, a downgrade, a
+prerelease or a change of range needs `--fix-unsafe`, also when a pin asks for it (see
+[fix safety](../../rules/#fix-safety)). A fix run:
 
-1. Lints and builds the fix plan, selecting fixes by `--fix` or `--fix-unsafe` and `--select`.
+1. Lints and builds the fix plan, selecting fixes by `--fix` or `--fix-unsafe`, `--fix-type`, `--allow-remove-files`
+   and `--select`.
 2. Writes the plan, atomically per file.
 3. Lints again on the changed tree. The report and exit code come from this second run, so exit `1` means problems
    remain after fixing.
 4. Runs the detected package manager's `install` in the workspace root, unless `--no-install` was given, no file
    changed, or no package manager was detected. If the install fails the fixes stay written and the exit code is `2`.
+
+Deleting a file is never part of `--fix-unsafe` alone: the fix of `unused-files` is skipped, with the reason
+`removes-files`, unless `--allow-remove-files` is given as well, as with knip. Every other unsafe fix, such as
+removing an unused export, enum member, namespace member, dependency or catalog entry, edits a file in place.
+Some of these findings have no fix because removing them could change behaviour: an enum member followed by a member
+without an initializer (which would be renumbered), a member another member mentions, and an
+`export default <expression>` whose expression may have side effects, such as a call.
+
+`--fix-type` narrows a fix run to some rules. A value is a rule id (`unused-exports`) or one of knip's issue types,
+which stands for the rules that report the same findings:
+
+| `--fix-type` | Rules |
+| --- | --- |
+| `dependencies` | `unused-dependencies`, `unused-dev-dependencies`, `unused-optional-peer-dependencies` |
+| `devDependencies` | `unused-dev-dependencies` |
+| `optionalPeerDependencies` | `unused-optional-peer-dependencies` |
+| `exports` | `unused-exports`, `unused-namespace-exports` |
+| `nsExports` | `unused-namespace-exports` |
+| `types` | `unused-types`, `unused-namespace-types` |
+| `nsTypes` | `unused-namespace-types` |
+| `enumMembers` | `unused-enum-members` |
+| `namespaceMembers` | `unused-namespace-members` |
+| `files` | `unused-files` (with `--allow-remove-files`) |
+| `catalog` | `unused-catalog-entries` |
+
+The other knip issue types (`unlisted`, `binaries`, `unresolved`, `duplicates`, `catalogReferences`, `cycles`) are
+accepted and map to rules that have no fix. An unknown value exits `2` with a `usage` error before anything is linted. For example,
+`skif --fix-unsafe --fix-type exports,types` removes unused exports and types and nothing else.
 
 skif's own process never opens a network connection and never resolves a version. The only network traffic comes
 from your package manager during the install step.

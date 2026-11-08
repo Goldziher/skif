@@ -232,6 +232,8 @@ struct Plan {
     exclude: Vec<String>,
     rules: Vec<(String, Level)>,
     tags: Vec<String>,
+    /// `+tag` entries: the report is limited to exports with one of these tags.
+    include_tags: Vec<String>,
     hints: Option<Level>,
     include_entry_exports: bool,
     /// `--tsConfig` of a script.
@@ -397,22 +399,67 @@ fn read_root(state: &mut State<'_>, src: &Src, root: &str, config: &ConfigValue,
             }
             "treatTagHintsAsErrors" => {
                 if boolean(state, src, &path, item) == Some(true) {
-                    state.note(
+                    state.note_with(
                         src,
-                        NoteClass::Unsupported,
+                        NoteClass::Approximate,
                         path,
-                        "skif has no tag hints to turn into errors",
+                        "skif reports tag hints through `stale-js-config`, together with the configuration hints",
+                        "run `skif migrate --strict-hints` to make `stale-js-config` an error",
                     );
                 }
             }
-            "cycles" => state.note(
-                src,
-                NoteClass::Unsupported,
-                path,
-                "`circular-imports` has no `allow` or `dynamicImports` options; it is written at the level of the \
-                 `cycles` issue type",
-            ),
+            "cycles" => cycles(state, src, &path, item),
             _ => workspace_key(state, src, &target, key, &path, item),
+        }
+    }
+}
+
+/// `cycles`: `allow` and `dynamicImports` go to `[js.cycles]`.
+fn cycles(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue) {
+    let section = ["js".to_owned(), "cycles".to_owned()];
+    for (key, item) in entries(state, src, path, value) {
+        let key_path = join(path, key);
+        match key {
+            "dynamicImports" => {
+                if let Some(enabled) = boolean(state, src, &key_path, item) {
+                    table(&mut state.doc, &section).set("dynamic-imports", Val::Bool(enabled));
+                    state.note(
+                        src,
+                        NoteClass::Exact,
+                        key_path,
+                        "written to [js.cycles] dynamic-imports",
+                    );
+                }
+            }
+            "allow" => {
+                let ConfigValue::Array(items) = item else {
+                    state.note(src, NoteClass::Human, key_path, "expected an array of file lists");
+                    continue;
+                };
+                let mut allowed = Vec::new();
+                for (index, files) in items.iter().enumerate() {
+                    let files = string_list(state, src, &format!("{key_path}[{index}]"), files);
+                    if !files.is_empty() {
+                        allowed.push(Val::strs(files));
+                    }
+                }
+                if !allowed.is_empty() {
+                    table(&mut state.doc, &section).set("allow", Val::List(allowed));
+                    state.note(
+                        src,
+                        NoteClass::Approximate,
+                        key_path,
+                        "written to [js.cycles] allow; skif reports a cycle as the set of its files, so an entry \
+                         allows the cycle with exactly those files in any order",
+                    );
+                }
+            }
+            _ => state.note(
+                src,
+                NoteClass::Human,
+                key_path,
+                "not a knip `cycles` option (`allow`, `dynamicImports`)",
+            ),
         }
     }
 }
@@ -457,19 +504,22 @@ fn rules(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue, plan
 
 fn tags(state: &mut State<'_>, src: &Src, path: &str, list: &[String], plan: &mut Plan) {
     for (index, tag) in list.iter().enumerate() {
-        if let Some(name) = tag.strip_prefix('-') {
-            plan.tags.push(name.to_owned());
-        } else {
+        let name = tag.trim_start_matches(['-', '+']).trim_start_matches('@');
+        if name.is_empty() {
             state.note_with(
                 src,
                 NoteClass::Unsupported,
                 format!("{path}[{index}]"),
-                format!("`{tag}` limits the report to exports with that tag"),
-                "skif can only ignore exports by tag (`-tag`)",
+                format!("`{tag}` names no tag"),
+                "write the tag name, prefixed with `-` to ignore or `+` to include",
             );
+        } else if tag.starts_with('-') {
+            plan.tags.push(name.to_owned());
+        } else {
+            plan.include_tags.push(name.to_owned());
         }
     }
-    if !plan.tags.is_empty() {
+    if !plan.tags.is_empty() || !plan.include_tags.is_empty() {
         plan.origin(path.to_owned());
     }
 }
@@ -554,14 +604,7 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
         }
         "ignoreFiles" => {
             let list = string_list(state, src, path, item);
-            write_list(state, src, &js, "ignore", path, list, "");
-            state.note_with(
-                src,
-                NoteClass::Approximate,
-                path,
-                "knip hid these files from the unused files report only; skif's `ignore` hides them from every rule",
-                "none needed unless another rule should still look at them",
-            );
+            write_list(state, src, &js, "ignore-files", path, list, "");
         }
         "ignoreDependencies" | "ignoreBinaries" => {
             let list = pattern_list(state, src, path, item, true);
@@ -604,18 +647,28 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
         }
         "ignoreExportsUsedInFile" => ignore_exports_used_in_file(state, src, target, path, item),
         "ignoreIssues" => ignore_issues(state, src, target, path, item),
-        "ignoreGlobalBinaries" => state.note(
-            src,
-            NoteClass::Unsupported,
-            path,
-            "skif has no list of binaries that are assumed to be installed globally",
-        ),
-        "compilers" | "asyncCompilers" | "preprocessor" | "preprocessorOptions" => state.note_with(
+        "ignoreGlobalBinaries" => match boolean(state, src, path, item) {
+            Some(true) => state.note(
+                src,
+                NoteClass::Exact,
+                path,
+                "skif always ignores the binaries that are assumed to be installed globally, as knip does by default",
+            ),
+            Some(false) => state.note(
+                src,
+                NoteClass::Unsupported,
+                path,
+                "skif always ignores the binaries that are assumed to be installed globally; it cannot report them",
+            ),
+            None => {}
+        },
+        "compilers" => compilers(state, src, path, item),
+        "asyncCompilers" | "preprocessor" | "preprocessorOptions" => state.note_with(
             src,
             NoteClass::Unsupported,
             path,
             "compilers and preprocessors are functions, which skif never runs",
-            "skif reads Vue, Svelte, Astro and CSS files itself; other file types need a plugin or an entry pattern",
+            BUILT_IN_EXTRACTORS_HINT,
         ),
         other if registry::plugin(other).is_some() => {
             let value = plugin_value(state, src, path, item);
@@ -634,6 +687,88 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
             path,
             format!("`{other}` is not a knip option, and skif has no plugin of that name"),
         ),
+    }
+}
+
+/// The extensions whose imports skif extracts itself, without running a compiler (ADR 0001).
+const BUILT_IN_EXTRACTORS: &[&str] = &[
+    "astro", "css", "less", "mdx", "pcss", "sass", "scss", "styl", "stylus", "svelte", "tsrx", "vue",
+];
+
+const BUILT_IN_EXTRACTORS_HINT: &str = "skif reads Vue, Svelte, Astro, MDX, TSRX, CSS, Sass, Less and Stylus files itself; \
+                                         other file types need a plugin or an entry pattern";
+
+/// Extensions whose files are outside skif's default `project`: knip reports unused ones once a compiler reads them.
+const OUTSIDE_DEFAULT_PROJECT: &[&str] = &["mdx", "tsrx"];
+
+/// `compilers`: `true` for an extension (or for all of them) asks knip for its built-in compiler, which skif's own
+/// extractor stands in for. A function is a custom compiler, which skif never runs.
+fn compilers(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue) {
+    if matches!(value, ConfigValue::Bool(true)) {
+        state.note(
+            src,
+            NoteClass::Default,
+            path,
+            "skif extracts the imports of Vue, Svelte, Astro, MDX, TSRX and stylesheet files itself, without a compiler",
+        );
+        return;
+    }
+    for (extension, compiler) in entries(state, src, path, value) {
+        // `.styl` is written as a quoted key, so it is not joined into `compilers..styl`.
+        let at = if extension
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')
+        {
+            join(path, extension)
+        } else {
+            format!("{path}[\"{extension}\"]")
+        };
+        let name = extension.trim_start_matches('.').to_ascii_lowercase();
+        let built_in = BUILT_IN_EXTRACTORS.contains(&name.as_str());
+        match compiler {
+            ConfigValue::Bool(true) if built_in && OUTSIDE_DEFAULT_PROJECT.contains(&name.as_str()) => state.note_with(
+                src,
+                NoteClass::Default,
+                at,
+                format!("skif reads `.{name}` files with its built-in extractor"),
+                format!("add `**/*.{name}` to `project` to report unused `.{name}` files, as knip does"),
+            ),
+            ConfigValue::Bool(true) if built_in => state.note(
+                src,
+                NoteClass::Default,
+                at,
+                format!("skif reads `.{name}` files with its built-in extractor"),
+            ),
+            ConfigValue::Bool(true) => state.note_with(
+                src,
+                NoteClass::Unsupported,
+                at,
+                format!("neither knip nor skif has a built-in compiler for `.{name}` files"),
+                BUILT_IN_EXTRACTORS_HINT,
+            ),
+            ConfigValue::Bool(false) => state.note(
+                src,
+                NoteClass::Default,
+                at,
+                "knip ignores `false`, and skif's built-in extractors are always on",
+            ),
+            _ if built_in => state.note_with(
+                src,
+                NoteClass::Approximate,
+                at,
+                "custom compilers are functions, which skif never runs",
+                format!(
+                    "skif reads `.{name}` files with its built-in extractor; check that it finds what this compiler did"
+                ),
+            ),
+            _ => state.note_with(
+                src,
+                NoteClass::Unsupported,
+                at,
+                "custom compilers are functions, which skif never runs",
+                BUILT_IN_EXTRACTORS_HINT,
+            ),
+        }
     }
 }
 
@@ -1021,6 +1156,9 @@ fn apply(state: &mut State<'_>, src: &Src, plan: &Plan) {
             }
         }
     }
+    if written.contains(&keys::RULE_UNUSED_CATALOG_ENTRIES) {
+        report_unused_catalog_entries(state, src);
+    }
     state.note_with(
         src,
         NoteClass::Exact,
@@ -1037,6 +1175,25 @@ fn apply(state: &mut State<'_>, src: &Src, plan: &Plan) {
         "the `exact` profile turns every other rule off; `full` leaves skif's defaults for them",
     );
     js_settings(state, src, plan);
+}
+
+/// knip reports unused catalog entries by default; `unused-catalog-entries` only reports them when
+/// `[catalog] report-unused-entries` is `true`, so the rule level alone would not keep knip's findings.
+fn report_unused_catalog_entries(state: &mut State<'_>, src: &Src) {
+    state
+        .doc
+        .table(&[keys::CATALOG])
+        .set(keys::CATALOG_REPORT_UNUSED_ENTRIES, Val::Bool(true));
+    state.note(
+        src,
+        NoteClass::Exact,
+        "catalog",
+        format!(
+            "[catalog] {} = true: knip reports unused catalog entries, and `{}` needs it to report them",
+            keys::CATALOG_REPORT_UNUSED_ENTRIES,
+            keys::RULE_UNUSED_CATALOG_ENTRIES
+        ),
+    );
 }
 
 /// knip's configuration hints are not skif's: `stale-js-config` also flags entries skif itself never needed, so an
@@ -1081,6 +1238,33 @@ fn js_settings(state: &mut State<'_>, src: &Src, plan: &Plan) {
                 plan.tags.join(", ")
             ),
         );
+    }
+    if !plan.include_tags.is_empty() {
+        state.add_include_tags("unused-exports", plan.include_tags.iter().cloned());
+        let exempting: Vec<&str> = plan
+            .include_tags
+            .iter()
+            .map(String::as_str)
+            .filter(|tag| matches!(*tag, "public" | "beta" | "alpha" | "alias" | "internal"))
+            .collect();
+        let listed = format!(
+            "only exports tagged {} are reported by `unused-exports`",
+            plan.include_tags.join(", ")
+        );
+        if exempting.is_empty() {
+            state.note(src, NoteClass::Exact, "tags", listed);
+        } else {
+            // knip keeps exempting these tags even when included, so it reports none of their exports; skif judges them.
+            state.note(
+                src,
+                NoteClass::Approximate,
+                "tags",
+                format!(
+                    "{listed}; knip never reports exports tagged {}, skif reports them when they are unused",
+                    exempting.join(", ")
+                ),
+            );
+        }
     }
     if let Some(hints) = plan.hints {
         config_hints(state, src, hints);

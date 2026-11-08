@@ -323,6 +323,7 @@ fn max_show_issues_is_for_reading_only() {
     for args in [
         &["--format", "sarif", "--max-show-issues", "1"][..],
         &["--format", "github", "--max-show-issues", "1"],
+        &["--format", "compact", "--max-show-issues", "1"],
         &["--fix", "--max-show-issues", "1"],
     ] {
         let dir = fixture("filters");
@@ -334,6 +335,38 @@ fn max_show_issues_is_for_reading_only() {
             result.stderr
         );
     }
+}
+
+#[test]
+fn max_show_issues_rejects_any_other_format_among_several() {
+    let dir = fixture("filters");
+    let report = dir.path().join("report.txt");
+    let result = run(skif()
+        .args(["--format", "human", "--max-show-issues", "1", "--format"])
+        .arg(format!("compact={}", report.display()))
+        .arg(dir.path()));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert!(result.stderr.contains("--max-show-issues"), "{}", result.stderr);
+    assert!(!report.exists());
+
+    let json = dir.path().join("report.json");
+    let result = run(skif()
+        .args([
+            "--color",
+            "never",
+            "--format",
+            "human",
+            "--max-show-issues",
+            "1",
+            "--format",
+        ])
+        .arg(format!("json={}", json.display()))
+        .arg(dir.path()));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    let written: Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    let (_, shown) = lint_json(&["--max-show-issues", "1"]);
+    assert_eq!(written["diagnostics"], shown["diagnostics"]);
+    assert_eq!(written["summary"], shown["summary"]);
 }
 
 #[test]
