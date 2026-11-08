@@ -644,3 +644,53 @@ fn jest_module_name_mapper_prefixes_are_aliases() {
         .collect();
     assert_eq!(aliases, [("@core".to_owned(), Some("src".to_owned()))]);
 }
+
+/// A key a plugin reads files from that the config computes (`setupFiles: isPostgres ? [...] : []`) is not read as
+/// empty: the entries are incomplete. Other unknown options leave them complete.
+#[test]
+fn an_unknown_entry_key_below_the_top_level_is_incomplete() {
+    let cases = [
+        (
+            "vitest.config.ts",
+            "vitest",
+            "export default { test: { setupFiles: isPostgres ? ['./pg.ts'] : [] } };",
+        ),
+        (
+            "vitest.config.ts",
+            "vitest",
+            "export default { test: { include: ['a.test.ts'], ...shared } };",
+        ),
+        ("vitest.config.ts", "vitest", "export default { test: env() };"),
+        (
+            "vitest.config.ts",
+            "vitest",
+            "export default { test: { projects: [base, './pkg'] } };",
+        ),
+        (
+            "jest.config.js",
+            "jest",
+            "module.exports = { setupFilesAfterEnv: [setup()], testMatch: ['**/*.test.js'] };",
+        ),
+        ("jest.config.js", "jest", "module.exports = { projects: projects() };"),
+    ];
+    for (file, plugin, source) in cases {
+        let results = run(&[(file, source)], &[plugin], &[]);
+        assert!(output(&results, plugin).entries_incomplete, "{source}");
+    }
+    let known = [
+        (
+            "vitest.config.ts",
+            "vitest",
+            "export default { test: { setupFiles: ['./a.ts'], retry: env() } };",
+        ),
+        (
+            "jest.config.js",
+            "jest",
+            "module.exports = { projects: [{ displayName: name(), testMatch: ['a.test.js'] }] };",
+        ),
+    ];
+    for (file, plugin, source) in known {
+        let results = run(&[(file, source)], &[plugin], &[]);
+        assert!(!output(&results, plugin).entries_incomplete, "{source}");
+    }
+}

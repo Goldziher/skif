@@ -6,8 +6,8 @@ use crate::config_load::from_json;
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::plugins::babel;
 use crate::support::{
-    conventional, entry_glob, is_relative, module_input, name_of, objects, package_name, pattern_alias, project_files,
-    strings,
+    conventional, entry_glob, entry_strings, is_relative, module_input, name_of, objects, package_name, pattern_alias,
+    project_files, shallow_key_unknown, strings,
 };
 
 /// The `jest` plugin.
@@ -61,6 +61,9 @@ fn collect(value: &ConfigValue, config: &ConfigAst<'_>, cx: &PluginContext<'_>, 
     }
     for object in objects(value) {
         collect_object(object, config, out);
+        if shallow_key_unknown(object, "projects") {
+            out.push(PluginInput::EntriesIncomplete);
+        }
         if let Some(projects) = object.get("projects") {
             collect(projects, config, cx, out, depth + 1);
             string_projects(projects, config, cx, out, depth);
@@ -158,7 +161,7 @@ fn collect_object(object: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Pl
         "globalTeardown",
         "snapshotSerializers",
     ] {
-        for specifier in object.get(key).map(strings).unwrap_or_default() {
+        for specifier in entry_strings(object, key, out) {
             out.extend(module_input(base, specifier, false));
         }
     }
@@ -180,7 +183,7 @@ fn collect_object(object: &ConfigValue, config: &ConfigAst<'_>, out: &mut Vec<Pl
             }
         }
     }
-    for pattern in object.get("testMatch").map(strings).unwrap_or_default() {
+    for pattern in entry_strings(object, "testMatch", out) {
         out.extend(entry_glob(base, pattern).map(PluginInput::Entry));
     }
 }
