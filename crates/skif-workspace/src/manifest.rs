@@ -263,6 +263,8 @@ impl Manifest {
                 continue;
             };
             let section_start = entries.len();
+            // Exactly the room the section needs: a workspace keeps every package's entries for the whole run.
+            entries.reserve_exact(dependencies.properties.len());
             for dependency in &dependencies.properties {
                 if let ast::Value::StringLit(specifier) = &dependency.value {
                     entries.push(DependencyEntry {
