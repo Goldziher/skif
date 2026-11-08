@@ -1,0 +1,10 @@
+---
+source: crates/skif-cli/tests/filters.rs
+expression: "redact(&human.stdout, dir.path())"
+---
+left-pad
+  listed in:
+    package.json devDependencies "1.3.0" (cli-filters)
+  imported by:
+    packages/a/index.ts:1 (@cli/a)
+  used by: cli-filters

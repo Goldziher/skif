@@ -387,8 +387,12 @@ fn member_dirs(workspace: &Workspace) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
-/// For every package, the packages whose directory contains it, innermost first, and the root last.
-fn package_ancestors(workspace: &Workspace) -> Vec<Vec<PackageId>> {
+/// For every package, the packages whose directory contains it, innermost first, and the root last. With `isolate`
+/// (`--strict`) none: each package uses only what its own manifest lists.
+fn package_ancestors(workspace: &Workspace, isolate: bool) -> Vec<Vec<PackageId>> {
+    if isolate {
+        return vec![Vec::new(); workspace.package_ids().count()];
+    }
     let root = workspace.iter().find(|(_, package)| package.is_root).map(|(id, _)| id);
     let mut all = vec![Vec::new(); workspace.package_ids().count()];
     for (id, package) in workspace.iter() {
@@ -449,7 +453,7 @@ impl DependencyUsage {
             listed: vec![HashSet::new(); count],
             known_bins: vec![HashSet::new(); count],
             other_jsx_runtime: vec![false; count],
-            ancestors: package_ancestors(workspace),
+            ancestors: package_ancestors(workspace, setup.isolate_workspaces),
             hosts: vec![HashMap::new(); count],
             bins: vec![HashMap::new(); count],
             members: workspace.all_packages().filter_map(|p| p.name.clone()).collect(),

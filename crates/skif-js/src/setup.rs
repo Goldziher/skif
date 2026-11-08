@@ -373,6 +373,10 @@ pub(crate) struct UserPatterns {
 }
 
 /// Settings for the whole workspace.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent switch of the analysis"
+)]
 pub(crate) struct Setup {
     /// Indexed by package; `None` for packages excluded with `ignore-packages`.
     pub packages: Vec<Option<PackageSetup>>,
@@ -393,6 +397,8 @@ pub(crate) struct Setup {
     /// `[js.workspaces]` keys that select no package.
     pub unmatched_workspace_keys: Vec<String>,
     pub production: bool,
+    /// Each package uses only what its own manifest lists (`--strict`).
+    pub isolate_workspaces: bool,
     pub include_entry_exports: bool,
     /// `[js] include-fixtures`: files in fixture directories are reported as unused like any other.
     pub include_fixtures: bool,
@@ -674,6 +680,7 @@ impl Setup {
             js_ignored,
             unmatched_workspace_keys,
             production,
+            isolate_workspaces: js.isolate_workspaces,
             include_entry_exports: js.include_entry_exports,
             include_fixtures: js.include_fixtures,
             used_in_file: js.ignore_exports_used_in_file.clone(),

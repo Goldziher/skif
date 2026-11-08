@@ -5,11 +5,12 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value};
 use skif::{CachedFs, ConfigOverrides, FileSystem, OsFs, Target, UsageReport};
+use skif_report::escape_multiline;
 
-use crate::args::{ExplainUsageArgs, Format};
+use crate::args::{ExplainUsageArgs, Format, LintArgs};
 use crate::config::document;
 use crate::error::{CliError, Kind};
-use crate::lint::canonical;
+use crate::lint::{self, canonical};
 use crate::output::{emit_error_with, write_stdout};
 use crate::roots::{self, Resolved};
 
@@ -126,6 +127,59 @@ fn execute(args: &ExplainUsageArgs, format: Format) -> Result<(), Failure> {
         }
         _ => write_stdout(report.render().as_bytes()).map_err(|error| Box::new((error, Map::new()))),
     }
+}
+
+/// `skif --trace-dependency NAME`: where every root of the run lists, imports and uses the dependency.
+pub fn trace_dependency(args: &LintArgs, name: &str) -> Result<(), CliError> {
+    let format = args.format();
+    if !matches!(format, Format::Human | Format::Json) || args.output.is_some() {
+        return Err(CliError::new(
+            Kind::Usage,
+            "--trace-dependency prints to stdout as `human` or `json`",
+        ));
+    }
+    let start = canonical(&args.path)?;
+    let Resolved {
+        base,
+        mut targets,
+        failures,
+        ..
+    } = roots::resolve(&start, args.recursive, &CachedFs::new(OsFs), &lint::overrides(args))?;
+    if let Some(failure) = failures.first() {
+        return Err(CliError::new(Kind::Workspace, failure.describe()));
+    }
+    let fs: Arc<dyn FileSystem> = Arc::new(OsFs);
+    let mut traces = Vec::with_capacity(targets.len());
+    for target in &mut targets {
+        lint::adjust(args, &mut target.config)?;
+        let trace = skif::trace_dependency(&target.config, &fs, &target.workspace, name);
+        let root = roots::display(target.root.strip_prefix(&base).unwrap_or(&target.root));
+        traces.push((root, trace));
+    }
+    if format == Format::Json {
+        let mut entries = Vec::with_capacity(traces.len());
+        for (root, trace) in &traces {
+            let mut value =
+                serde_json::to_value(trace).map_err(|error| CliError::new(Kind::Internal, error.to_string()))?;
+            if let Value::Object(members) = &mut value {
+                members.insert("root".to_owned(), Value::String(root.clone()));
+            }
+            entries.push(value);
+        }
+        let mut members = Map::new();
+        members.insert("traces".to_owned(), Value::Array(entries));
+        return write_stdout(document(members)?.as_bytes());
+    }
+    let multi = traces.len() > 1;
+    let mut text = String::new();
+    for (root, trace) in &traces {
+        if multi {
+            text.push_str(&escape_multiline(root));
+            text.push_str(":\n");
+        }
+        text.push_str(&escape_multiline(&trace.render()));
+    }
+    write_stdout(text.as_bytes())
 }
 
 #[cfg(test)]
