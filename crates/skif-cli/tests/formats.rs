@@ -123,7 +123,7 @@ fn a_failing_render_writes_no_file() {
     assert!(!json_file.exists());
     assert!(!owners_file.exists());
     // No format goes to stdout, so the first one decides: the error is a JSON document.
-    assert_eq!(result.json()["error"]["kind"], "usage");
+    assert_eq!(result.json()["error"]["kind"], "config");
 }
 
 #[test]

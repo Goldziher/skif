@@ -42,7 +42,7 @@ impl Pattern {
             segments.push("**".to_owned());
         }
         for segment in text.split('/').filter(|segment| !segment.is_empty()) {
-            // `a/**/**/b` is `a/**/b`; collapsing keeps matching linear in the number of `**`.
+            // `a/**/**/b` is `a/**/b`; collapsing avoids re-trying the same split once per redundant `**`.
             if segment == "**" && segments.last().is_some_and(|last| last == "**") {
                 continue;
             }
@@ -149,34 +149,55 @@ fn tokens(line: &str) -> Vec<String> {
     tokens
 }
 
+/// The default owners of a GitLab section header (`[Section] @owner`, `^[Section][2] @owner`), or `None` when the
+/// line is not a section header.
+fn section_owners(line: &str) -> Option<Vec<String>> {
+    let header = line.strip_prefix('^').unwrap_or(line).strip_prefix('[')?;
+    let (_, rest) = header.split_once(']')?;
+    // An optional approval count, `[2]`, follows the name.
+    let rest = match rest.strip_prefix('[') {
+        Some(count) => count.split_once(']').map_or(count, |(_, rest)| rest),
+        None => rest,
+    };
+    Some(tokens(rest))
+}
+
 /// A parsed CODEOWNERS file: patterns with their owners, in file order.
 ///
 /// Patterns follow the gitignore-like rules GitHub and GitLab document: a leading `/` or a `/` inside the pattern
 /// anchors it to the repository top-level, otherwise it matches at any depth; `*` and `?` stay within a path
 /// segment and `**` crosses segments; a trailing `/` matches a directory and everything in it; a pattern that
 /// matches a directory covers the files inside, except that `dir/*` covers only the files directly in `dir`, as on
-/// GitHub. The **last** matching line wins, and a line with no owners
-/// leaves its paths unowned. Comments (`#`), escaped spaces and `#` (`\ `, `\#`) are understood; GitLab section
-/// headers (`[Section]`, `^[Section]`) are skipped, so their entries count as one list.
+/// GitHub. The **last** matching line wins, and a line with no owners (and no section defaults) leaves its paths
+/// unowned. Comments (`#`),
+/// escaped spaces and `#` (`\ `, `\#`) and a leading byte order mark are understood. A GitLab section header
+/// (`[Section] @owner`, `^[Section]`) gives its default owners, if any, to the entries below it that name none, as
+/// GitLab does; otherwise sections are not kept apart, so their entries count as one list.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CodeOwners {
     entries: Vec<(Pattern, Vec<String>)>,
 }
 
 impl CodeOwners {
-    /// Parses the text of a CODEOWNERS file. Lines that cannot be patterns are skipped; parsing never fails.
+    /// Parses the text of a CODEOWNERS file. A leading UTF-8 byte order mark is ignored. Lines that cannot be
+    /// patterns are skipped; parsing never fails.
     #[must_use]
     pub fn parse(text: &str) -> Self {
-        let entries = text
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.starts_with('[') && !line.starts_with("^["))
-            .filter_map(|line| {
-                let mut tokens = tokens(line).into_iter();
-                let pattern = Pattern::parse(&tokens.next()?)?;
-                Some((pattern, tokens.collect()))
-            })
-            .collect();
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+        let mut entries = Vec::new();
+        let mut defaults: Vec<String> = Vec::new();
+        for line in text.lines().map(str::trim) {
+            if let Some(owners) = section_owners(line) {
+                defaults = owners;
+                continue;
+            }
+            let mut tokens = tokens(line).into_iter();
+            let Some(pattern) = tokens.next().as_deref().and_then(Pattern::parse) else {
+                continue;
+            };
+            let owners: Vec<String> = tokens.collect();
+            entries.push((pattern, if owners.is_empty() { defaults.clone() } else { owners }));
+        }
         Self { entries }
     }
 
@@ -292,10 +313,39 @@ mod tests {
         let text = "# heading\n\n[Frontend] @fe\n/my\\ dir/ @spaced # trailing\n\\#hash @hash\n* @all\n/vendor/\n";
         let codeowners = CodeOwners::parse(text);
         assert_eq!(owners(&codeowners, "my dir/a.ts"), ["@all"]);
+        // `/vendor/` names no owners, so it takes the `[Frontend]` section's default.
+        assert_eq!(owners(&codeowners, "vendor/x.js"), ["@fe"]);
+        let codeowners = CodeOwners::parse(
+            "* @all
+/vendor/
+",
+        );
         assert_eq!(owners(&codeowners, "vendor/x.js"), [] as [&str; 0]);
         let codeowners = CodeOwners::parse("/my\\ dir/ @spaced # trailing\n\\#hash @hash\n");
         assert_eq!(owners(&codeowners, "my dir/a.ts"), ["@spaced"]);
         assert_eq!(owners(&codeowners, "#hash"), ["@hash"]);
+    }
+
+    #[test]
+    fn gitlab_sections_give_default_owners_to_ownerless_entries() {
+        let text = concat!(
+            "/docs/\n[Web] @web @design\n/apps/web/\n/apps/web/api/ @api\n",
+            "^[Optional][2] @opt\n*.md\n[Bare]\n/lib/\n",
+        );
+        let codeowners = CodeOwners::parse(text);
+        assert_eq!(owners(&codeowners, "docs/a.txt"), [] as [&str; 0]);
+        assert_eq!(owners(&codeowners, "apps/web/a.ts"), ["@web", "@design"]);
+        assert_eq!(owners(&codeowners, "apps/web/api/a.ts"), ["@api"]);
+        assert_eq!(owners(&codeowners, "README.md"), ["@opt"]);
+        assert_eq!(owners(&codeowners, "lib/a.ts"), [] as [&str; 0]);
+    }
+
+    #[test]
+    fn a_byte_order_mark_is_ignored() {
+        let codeowners = CodeOwners::parse("\u{feff}/package.json @root\n");
+        assert_eq!(owners(&codeowners, "package.json"), ["@root"]);
+        let codeowners = CodeOwners::parse("\u{feff}[Web] @web\n/apps/\n");
+        assert_eq!(owners(&codeowners, "apps/a.ts"), ["@web"]);
     }
 
     #[test]
