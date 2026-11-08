@@ -502,7 +502,8 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
 }
 
 /// Renders every requested format, then writes the files and stdout (ADR 0050). Every rendering is made before
-/// anything is written, so a failing one leaves every file untouched.
+/// anything is written, so a failing one leaves every file untouched; a write that fails partway leaves the files
+/// written before it in place.
 fn render_and_write(
     args: &LintArgs,
     env: Env,
@@ -584,5 +585,59 @@ fn write_summary_to_stderr(fixes: &[RootFix<'_>]) {
     let mut summary = Vec::new();
     if fix::write_fixes_human(fixes, &mut summary).is_ok() {
         stderr_line(String::from_utf8_lossy(&summary).trim_end());
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+    use crate::args::Cli;
+
+    fn lint_args(flags: &[&str]) -> LintArgs {
+        Cli::try_parse_from(std::iter::once("skif").chain(flags.iter().copied()))
+            .unwrap()
+            .lint
+    }
+
+    const TERMINAL: Env = Env {
+        ci: false,
+        no_color: false,
+        stdin_tty: true,
+        stdout_tty: true,
+        github_actions: false,
+    };
+
+    #[test]
+    fn only_the_primary_human_rendering_is_coloured() {
+        let file = Some(Path::new("report.txt"));
+        let args = lint_args(&["--format", "human", "--format", "human=report.txt"]);
+        assert!(color_enabled(&args, TERMINAL, Format::Human, None));
+        assert!(!color_enabled(&args, TERMINAL, Format::Human, file));
+
+        let args = lint_args(&["--color", "always", "--format", "json", "--format", "human=report.txt"]);
+        assert!(!color_enabled(&args, TERMINAL, Format::Human, file));
+
+        // `--output` is the primary rendering: coloured only when asked for, never by the terminal alone.
+        let args = lint_args(&["--format", "human", "--output", "report.txt"]);
+        assert!(!color_enabled(&args, TERMINAL, Format::Human, file));
+        let args = lint_args(&["--color", "always", "--format", "human", "--output", "report.txt"]);
+        assert!(color_enabled(&args, TERMINAL, Format::Human, file));
+
+        let args = lint_args(&["--format", "human"]);
+        let no_color = Env {
+            no_color: true,
+            ..TERMINAL
+        };
+        assert!(!color_enabled(&args, no_color, Format::Human, None));
+        let piped = Env {
+            stdout_tty: false,
+            ..TERMINAL
+        };
+        assert!(!color_enabled(&args, piped, Format::Human, None));
+        let args = lint_args(&["--color", "never", "--format", "human"]);
+        assert!(!color_enabled(&args, TERMINAL, Format::Human, None));
     }
 }
