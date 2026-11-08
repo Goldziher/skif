@@ -10,8 +10,8 @@ pub static META: RuleMeta = RuleMeta::new(
     "package-json-format",
     Category::Manifest,
     None,
-    Fixability::Safe,
-    "A `package.json` is not formatted as `[format]` describes: key order, sorted fields, `exports` conditions, shorthand `bugs` and `repository`, and the indent.",
+    Fixability::Sometimes,
+    "A `package.json` is not formatted as `[format]` describes: key order, sorted fields, `exports` conditions, shorthand `bugs` and `repository`, and the indent. The fix is unsafe when `sort-exports` reorders conditions other than `types` and `default`.",
 );
 
 /// Reports manifests that `skif format` would change (ADR 0050).
@@ -47,6 +47,12 @@ impl Rule for PackageJsonFormat {
                 continue;
             };
             let found: Vec<String> = formatted.issues.iter().map(skif_edit::FormatIssue::describe).collect();
+            // Reordering conditions other than `types` and `default` changes which one matches first.
+            let safety = if formatted.issues.iter().all(skif_edit::FormatIssue::is_safe) {
+                FixSafety::Safe
+            } else {
+                FixSafety::Unsafe
+            };
             out.emit(
                 diagnostic(&META, "`package.json` is not formatted", document_location(package))
                     .package(package.display_name())
@@ -54,7 +60,7 @@ impl Rule for PackageJsonFormat {
                     .help(format!("{}; run `skif format`", found.join("; ")))
                     .fix(Fix::new(
                         "Format `package.json`".to_owned(),
-                        FixSafety::Safe,
+                        safety,
                         vec![FixOp::text(package.manifest.path.clone(), edit)],
                     ))
                     .build(),
@@ -134,6 +140,20 @@ mod tests {
             Some("the layout differs from the configured indent; run `skif format`")
         );
         assert_fixes_clear(META.id, &files, &config(&toml));
+    }
+
+    #[test]
+    fn a_longer_sort_exports_makes_the_fix_unsafe() {
+        let member = r#"{"name":"a","exports":{"import":"./a.mjs","module":"./a.esm.js","types":"./a.d.ts"}}"#;
+        let files = files(member);
+        let files = borrowed(&files);
+        let safe = lint(META.id, &files, &config(ON));
+        assert_eq!(safe.len(), 1);
+        assert_eq!(safe[0].fixes[0].safety, FixSafety::Safe);
+        let toml = format!("{ON}[format]\nsort-exports = [\"types\", \"module\", \"import\", \"default\"]\n");
+        let reordered = lint(META.id, &files, &config(&toml));
+        assert_eq!(reordered.len(), 1);
+        assert_eq!(reordered[0].fixes[0].safety, FixSafety::Unsafe);
     }
 
     #[test]

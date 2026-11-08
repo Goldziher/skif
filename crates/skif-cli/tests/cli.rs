@@ -848,6 +848,41 @@ fn lint_to_json_classifies_its_errors() {
 }
 
 #[test]
+fn format_writes_an_unsafe_exports_reorder_only_with_unsafe() {
+    let dir = fixture("format");
+    let manifest = dir.path().join("packages").join("a").join("package.json");
+    fs::write(
+        &manifest,
+        r#"{"name":"@format/a","exports":{"import":"./a.mjs","module":"./a.esm.js"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("skif.toml"),
+        "[format]\nsort-exports = [\"types\", \"module\", \"import\", \"default\"]\n",
+    )
+    .unwrap();
+    let before = tree(dir.path());
+
+    let safe = run(skif().args(["format"]).arg(dir.path()));
+    assert_eq!(safe.code, 1, "{}{}", safe.stdout, safe.stderr);
+    assert_eq!(
+        tree(dir.path()),
+        before,
+        "an unsafe change was written without --unsafe"
+    );
+
+    let refused = run(skif().args(["format", "--check", "--unsafe"]).arg(dir.path()));
+    assert_eq!(refused.code, 2, "{}{}", refused.stdout, refused.stderr);
+
+    let applied = run(skif().args(["format", "--unsafe"]).arg(dir.path()));
+    assert_eq!(applied.code, 0, "{}{}", applied.stdout, applied.stderr);
+    assert_eq!(
+        fs::read_to_string(&manifest).unwrap(),
+        r#"{"name":"@format/a","exports":{"module":"./a.esm.js","import":"./a.mjs"}}"#
+    );
+}
+
+#[test]
 fn format_check_exits_one_and_format_writes_the_fix() {
     let dir = fixture("format");
     let manifest = dir.path().join("packages").join("a").join("package.json");

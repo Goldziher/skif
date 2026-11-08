@@ -14,6 +14,24 @@
       },
       "browser": "./dist/feature.browser.js"
     },
+    "./dev": {
+      "development": "./dist/dev.mjs",
+      "import": "./dist/prod.mjs",
+      "types": "./dist/dev.d.ts"
+    },
+    "./worker": {
+      "workerd": "./dist/worker.js",
+      "node": "./dist/node.js",
+      "default": "./dist/worker.js"
+    },
+    "./esm": {
+      "import": "./dist/esm.mjs",
+      "module": "./dist/esm.js"
+    },
+    "./platform": {
+      "browser": "./dist/browser.js",
+      "node": "./dist/node.js"
+    },
     "./package.json": "./package.json"
   }
 }

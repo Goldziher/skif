@@ -87,8 +87,8 @@ expression: json.stdout
       "id": "package-json-format",
       "category": "manifest",
       "default": null,
-      "fixable": "safe",
-      "summary": "A `package.json` is not formatted as `[format]` describes: key order, sorted fields, `exports` conditions, shorthand `bugs` and `repository`, and the indent."
+      "fixable": "sometimes",
+      "summary": "A `package.json` is not formatted as `[format]` describes: key order, sorted fields, `exports` conditions, shorthand `bugs` and `repository`, and the indent. The fix is unsafe when `sort-exports` reorders conditions other than `types` and `default`."
     },
     {
       "id": "version-mismatch",

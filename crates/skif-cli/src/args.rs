@@ -40,6 +40,10 @@ pub enum Command {
 }
 
 #[derive(Debug, clap::Args)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent command-line switch"
+)]
 pub struct FormatArgs {
     /// A path inside a project, resolved to its workspace root as for linting.
     #[arg(default_value = ".")]
@@ -48,6 +52,10 @@ pub struct FormatArgs {
     /// Report the manifests that are not formatted and exit 1, without writing.
     #[arg(long)]
     pub check: bool,
+
+    /// Also write the unsafe change: a `sort-exports` longer than `types` and `default` reordering other conditions.
+    #[arg(long = "unsafe", conflicts_with = "check")]
+    pub allow_unsafe: bool,
 
     /// Format every workspace and standalone package at or below PATH.
     #[arg(short, long)]

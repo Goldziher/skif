@@ -22,7 +22,8 @@ pub struct FormatOptions {
     pub sort_first: Vec<String>,
     /// Fields sorted one level deep: an object by key, an array of strings by value. `a/b` addresses a nested field.
     pub sort_az: Vec<String>,
-    /// Keys that come first, in this order, in every object of `exports`; `default` is always last.
+    /// Keys that come first, in this order, in every object of `exports`; `default` is always last. Moving a key
+    /// other than `types` and `default` changes which condition matches first, so it makes the change unsafe.
     pub sort_exports: Vec<String>,
     /// Sort the top-level keys `sort_first` does not name in byte order.
     pub sort_packages: bool,
@@ -67,21 +68,13 @@ pub const DEFAULT_SORT_AZ: [&str; 8] = [
     "scripts",
 ];
 
-/// syncpack's default `sortExports`.
-pub const DEFAULT_SORT_EXPORTS: [&str; 12] = [
-    "types",
-    "node-addons",
-    "node",
-    "browser",
-    "module",
-    "import",
-    "require",
-    "svelte",
-    "development",
-    "production",
-    "script",
-    "default",
-];
+/// The default `sort-exports`: `types` first and `default` last, every other condition where it is.
+///
+/// Node and bundlers take the first condition of an object that matches, so moving any other key changes how an
+/// import resolves. TypeScript reads `types` only as a condition it matches first, and nothing after `default` is
+/// ever reached, so these two moves are the ones that cannot break a working package. syncpack's longer default list
+/// can be configured; it reorders the other conditions too, and that change is unsafe.
+pub const DEFAULT_SORT_EXPORTS: [&str; 2] = ["types", "default"];
 
 impl FormatOptions {
     /// Sets the keys that come first.
@@ -144,8 +137,11 @@ pub enum FormatIssue {
     Bugs,
     /// `repository` is an object that has a shorthand.
     Repository,
-    /// The conditions of `exports` are not in the configured order.
+    /// `types` is not the first or `default` not the last condition of an object in `exports`.
     Exports,
+    /// The conditions of `exports` are not in the configured order, and putting them in it changes which condition
+    /// matches first: the change is unsafe.
+    ExportsReordered,
     /// The named field is not sorted.
     SortAz(String),
     /// The layout differs from the configured indent.
@@ -161,9 +157,20 @@ impl FormatIssue {
             Self::Bugs => "`bugs` can be written as its URL".to_owned(),
             Self::Repository => "`repository` can be written as its shorthand".to_owned(),
             Self::Exports => "the conditions of `exports` are not in the configured order".to_owned(),
+            Self::ExportsReordered => {
+                "the conditions of `exports` are not in the configured order, and reordering them can change how \
+                 imports resolve"
+                    .to_owned()
+            }
             Self::SortAz(field) => format!("`{field}` is not sorted alphabetically"),
             Self::Layout => "the layout differs from the configured indent".to_owned(),
         }
+    }
+
+    /// Whether the change cannot alter how the package behaves; only [`Self::ExportsReordered`] can.
+    #[must_use]
+    pub const fn is_safe(&self) -> bool {
+        !matches!(self, Self::ExportsReordered)
     }
 }
 
@@ -203,9 +210,14 @@ pub fn format_package_json(source: &str, options: &FormatOptions) -> Result<Form
     }
     if !options.sort_exports.is_empty()
         && let Some(exports) = root.get_mut("exports")
-        && sort_exports(exports, &options.sort_exports)
     {
-        issues.push(FormatIssue::Exports);
+        let mut change = ExportsChange::default();
+        sort_exports(exports, &options.sort_exports, &mut change);
+        if change.reordered {
+            issues.push(FormatIssue::ExportsReordered);
+        } else if change.moved {
+            issues.push(FormatIssue::Exports);
+        }
     }
     for field in &options.sort_az {
         if let Some(value) = root.find_mut(field)
@@ -608,10 +620,19 @@ fn collapse_repository(root: &mut Object) -> bool {
     true
 }
 
+/// What [`sort_exports`] did.
+#[derive(Debug, Default)]
+struct ExportsChange {
+    /// Some object of `exports` changed order.
+    moved: bool,
+    /// Some object changed the relative order of conditions other than `types` and `default`.
+    reordered: bool,
+}
+
 /// In every object of `exports`: the listed keys first, in order, the rest as they were, and `default` last.
-fn sort_exports(node: &mut Node, order: &[String]) -> bool {
+fn sort_exports(node: &mut Node, order: &[String], change: &mut ExportsChange) {
     let Node::Object(object) = node else {
-        return false;
+        return;
     };
     let mut positions: Vec<usize> = Vec::with_capacity(object.members.len());
     for key in order {
@@ -629,11 +650,19 @@ fn sort_exports(node: &mut Node, order: &[String]) -> bool {
         .collect();
     positions.extend(rest);
     positions.extend(defaults);
-    let mut changed = object.reorder(&positions);
-    for member in &mut object.members {
-        changed |= sort_exports(&mut member.value, order);
+    let others: Vec<usize> = positions
+        .iter()
+        .copied()
+        .filter(|index| !DEFAULT_SORT_EXPORTS.contains(&object.members[*index].key.as_str()))
+        .collect();
+    let reordered = others.windows(2).any(|pair| pair[0] > pair[1]);
+    if object.reorder(&positions) {
+        change.moved = true;
+        change.reordered |= reordered;
     }
-    changed
+    for member in &mut object.members {
+        sort_exports(&mut member.value, order, change);
+    }
 }
 
 /// Sorts an object by key or an array of strings by value, one level deep, in byte order.
@@ -755,15 +784,59 @@ mod tests {
     }
 
     #[test]
-    fn exports_conditions_follow_the_order_with_default_last() {
+    fn exports_conditions_move_only_types_first_and_default_last() {
         let source = r#"{"exports":{".":{"default":"./a.js","import":"./a.mjs","types":"./a.d.ts","custom":"./c.js"},"./b":{"require":"./b.cjs","import":"./b.mjs"}}}"#;
         let formatted = defaults(source);
         assert_eq!(formatted.issues, [FormatIssue::Exports]);
+        assert!(formatted.issues.iter().all(FormatIssue::is_safe));
         assert_eq!(
             formatted.output,
-            r#"{"exports":{".":{"types":"./a.d.ts","import":"./a.mjs","custom":"./c.js","default":"./a.js"},"./b":{"import":"./b.mjs","require":"./b.cjs"}}}"#
+            r#"{"exports":{".":{"types":"./a.d.ts","import":"./a.mjs","custom":"./c.js","default":"./a.js"},"./b":{"require":"./b.cjs","import":"./b.mjs"}}}"#
         );
         assert_idempotent(source, &FormatOptions::default());
+    }
+
+    #[test]
+    fn exports_conditions_whose_order_decides_resolution_stay_in_place() {
+        for source in [
+            r#"{"exports":{"development":"./dev.js","import":"./a.mjs","default":"./a.js"}}"#,
+            r#"{"exports":{"workerd":"./worker.js","node":"./node.js","default":"./a.js"}}"#,
+            r#"{"exports":{"import":"./a.mjs","module":"./a.esm.js","default":"./a.js"}}"#,
+            r#"{"exports":{".":{"browser":"./b.js","node":"./n.js"}}}"#,
+        ] {
+            let formatted = defaults(source);
+            assert_eq!(formatted.issues, [], "{source}");
+            assert_eq!(formatted.output, source);
+        }
+        let formatted = defaults(r#"{"exports":{"default":"./a.js","development":"./dev.js","types":"./a.d.ts"}}"#);
+        assert_eq!(
+            formatted.output,
+            r#"{"exports":{"types":"./a.d.ts","development":"./dev.js","default":"./a.js"}}"#
+        );
+    }
+
+    #[test]
+    fn a_longer_sort_exports_reorders_the_other_conditions_unsafely() {
+        let options = FormatOptions::default().with_sort_exports(
+            ["types", "node", "browser", "module", "import", "default"]
+                .map(str::to_owned)
+                .to_vec(),
+        );
+        let source = r#"{"exports":{"import":"./a.mjs","module":"./a.esm.js","types":"./a.d.ts"}}"#;
+        let formatted = format(source, &options);
+        assert_eq!(formatted.issues, [FormatIssue::ExportsReordered]);
+        assert!(!formatted.issues[0].is_safe());
+        assert_eq!(
+            formatted.output,
+            r#"{"exports":{"types":"./a.d.ts","module":"./a.esm.js","import":"./a.mjs"}}"#
+        );
+        assert_idempotent(source, &options);
+        let only_types = format(r#"{"exports":{"import":"./a.mjs","types":"./a.d.ts"}}"#, &options);
+        assert_eq!(
+            only_types.issues,
+            [FormatIssue::Exports],
+            "moving `types` alone is safe"
+        );
     }
 
     #[test]

@@ -137,17 +137,20 @@ Exit `0` when the file was produced (also when notes need a human, unless `--str
 `skif format [PATH]` lints with the [`package-json-format`](../../rules/manifest/#package-json-format) rule alone, at
 `error`, and applies its safe fix to every `package.json` of the workspace: the key order, the sorted fields, the
 order of the `exports` conditions, the `bugs` and `repository` shorthands and, with `[format] indent`, the layout. The
-[`[format]`](../configuration/#format) table configures it; the defaults are syncpack's. It never runs the package
-manager, and like `--fix` it is refused when `CI` is truthy.
+[`[format]`](../configuration/#format) table configures it; the defaults are syncpack's, except that `exports`
+conditions only move `types` first and `default` last. It never runs the package manager, and like `--fix` it is refused
+when `CI` is truthy.
 
 | Flag | Meaning |
 | --- | --- |
 | `--check` | Report the manifests that are not formatted and write nothing. |
+| `--unsafe` | Also write an unsafe fix: a `sort-exports` that reorders conditions other than `types` and `default`, which changes how imports resolve. Conflicts with `--check`. |
 | `-r`, `--recursive`, `--format`, `--config <FILE>`, `--no-config`, `--color` | As for a lint run. |
 
 The exit codes are a lint's: `--check` exits `1` when a manifest is not formatted and `0` when every one is; without
 `--check` the code comes from the lint after writing. `[[ignore]]` entries and `ignore-packages` apply. To check
-formatting in every lint instead, set `package-json-format = "error"` in `[rules]`; `--fix` then formats too.
+formatting in every lint instead, set `package-json-format = "error"` in `[rules]`; `--fix` then formats too, and
+`--fix-unsafe` also applies an unsafe `exports` reorder.
 
 ## Exit codes
 
