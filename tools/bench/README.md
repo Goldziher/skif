@@ -204,10 +204,15 @@ mise run diff:syncpack -- --write-baseline
 `--check` compares a run with the baseline and exits non-zero when a count moves by more than
 `--tolerance-percent` (default 10) of its baseline value or `--tolerance-abs` (default 5), whichever is larger, when a
 repository changes between compared and skipped, or when a fixture that agreed before now differs. A run narrowed with
-`--only` is checked against those entries alone, and `--write-baseline --only` updates only them. The committed
-`baselines/parity.json` predates the per-repository `entry` lists, the recursive runs and the `rules-js` install
-command of [#27](https://github.com/Goldziher/skif/issues/27), so it still needs a
-`mise run parity -- --install --write-baseline` refresh before `--check` means anything for those repositories. The
+`--only` is checked against those entries alone, and `--write-baseline --only` updates only them, so the baseline
+can be refreshed one repository at a time (install, run, then delete the checkout's `node_modules`) where the disk
+does not hold every install at once. In the committed `baselines/parity.json` the entries of create-t3-turbo,
+vue-core, tanstack-query, jest, babel, cal-com, mastra, vscode, npm-cli and rushstack were recorded on 2026-11-08 with
+the categories of [ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md). The entries of n8n, angular,
+opencode and rules-js (whose installs fetch tarballs from `codeload.github.com`) and of vercel-examples and next-js
+(whose installs did not fit the disk) predate them, and the per-repository `entry` lists and recursive runs of
+[#27](https://github.com/Goldziher/skif/issues/27), so they still need a
+`mise run parity -- --install --write-baseline --only <name>` refresh before `--check` means anything for them. The
 scheduled `corpus` workflow (`.github/workflows/corpus.yml`, weekly and on demand, never on pull requests) runs both
 checks. The decision is [ADR 0026](../../adrs/0026-parity-and-diff-tasks-on-a-pinned-corpus.md).
 
