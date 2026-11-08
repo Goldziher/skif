@@ -32,12 +32,14 @@ pub(crate) struct EntryFiles {
     pub provided: HashSet<PathBuf>,
 }
 
-/// The entry files of every package.
+/// The entry files of every package. `extra` are files, relative to the workspace root, that other roots of a
+/// multi-root run import; those the analysis owns are entries too.
 pub(crate) fn entry_files(
     fs: &dyn FileSystem,
     workspace: &Workspace,
     setup: &Setup,
     candidates: &[Candidate],
+    extra: &[PathBuf],
 ) -> EntryFiles {
     let mut entries = BTreeSet::new();
     let mut unknown = Vec::new();
@@ -141,6 +143,12 @@ pub(crate) fn entry_files(
     if !setup.production {
         entries.extend(ancestor_script_files(fs, workspace, candidates));
     }
+    entries.extend(
+        extra
+            .iter()
+            .filter_map(|file| candidate_at(candidates, &file.to_string_lossy().replace('\\', "/")))
+            .map(|candidate| candidate.abs.clone()),
+    );
     EntryFiles {
         files: entries.into_iter().collect(),
         unknown,
@@ -208,15 +216,20 @@ fn ancestor_script_files(fs: &dyn FileSystem, workspace: &Workspace, candidates:
             let Some(rel) = relative(&path, &workspace.root) else {
                 continue;
             };
-            if candidates
-                .binary_search_by(|candidate| candidate.rel.as_str().cmp(rel.as_str()))
-                .is_ok()
-            {
+            if candidate_at(candidates, &rel).is_some() {
                 files.push(path);
             }
         }
     }
     files
+}
+
+/// The candidate at `rel`, relative to the workspace root with `/` separators; candidates are sorted by that path.
+fn candidate_at<'a>(candidates: &'a [Candidate], rel: &str) -> Option<&'a Candidate> {
+    candidates
+        .binary_search_by(|candidate| candidate.rel.as_str().cmp(rel))
+        .ok()
+        .map(|position| &candidates[position])
 }
 
 fn is_empty_object(value: &serde_json::Value) -> bool {

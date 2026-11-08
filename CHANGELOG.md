@@ -11,6 +11,39 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `skif list` and `skif json` show every dependency instance the version groups and the catalog govern, with its
+  version group, specifier and state, as syncpack's `list` and `json` do; `json` prints one object per line with
+  syncpack's `statusCode` names ([#35](https://github.com/Goldziher/skif/issues/35)).
+- `--dry-run` with `--fix` or `--fix-unsafe` prints the planned changes as a unified diff, writes no manifest and runs
+  no install (reports to `--output` or `FORMAT=FILE` files are still written); with `--format json` the `fix` object
+  carries the plan's `changes` and their diffs ([#35](https://github.com/Goldziher/skif/issues/35)).
+- `--dependency`, `--dependency-types`, `--specifier-types` and `--source` narrow the version-group and semver-group
+  rules (and only those) of a lint run, `skif list` and `skif json` to the instances they select, as syncpack's
+  filters do; `--dependency` is syncpack's `--dependencies`, renamed because knip's `--dependencies` shortcut belongs
+  to the same command ([#35](https://github.com/Goldziher/skif/issues/35)).
+- The `semver-range-only` version-group policy: versions may differ and only the range the semver groups require is
+  checked and fixed. `skif migrate` writes it for syncpack's `semverRangeOnly`, which it used to turn into `ignored`,
+  dropping the range check ([#35](https://github.com/Goldziher/skif/issues/35)).
+- The `name~version` custom type strategy reads the dependency name from `name-path` and the version from `path`;
+  `skif migrate` translates syncpack's `name~version` custom types ([#35](https://github.com/Goldziher/skif/issues/35)).
+- The `packages` of `lerna.json` declare the workspace members when nothing else does, and its `npmClient` names the
+  package manager, as syncpack reads them; the file is read only then, and an invalid one declares nothing
+  ([#35](https://github.com/Goldziher/skif/issues/35)).
+- [ADR 0057](adrs/0057-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md) records these
+  additions and what of syncpack stays out: per-group and per-state severity, `dependencyGroups`, a scoped `catalog`
+  policy, custom type `source`, catalog entries as instances, `.x` ranges and `--log-levels`.
+- `skif update [--check] [--target latest|minor|patch] [--dependencies <NAME>]`: newer published versions from the npm
+  registry, written format-preserving or, with `--check`, reported with exit `1`, as syncpack's `update`
+  ([#34](https://github.com/Goldziher/skif/issues/34),
+  [ADR 0058](adrs/0058-registry-updates-an-opt-in-skif-update-command.md)). It is the only command that uses the
+  network; linting never does. It reads the registry and tokens of `.npmrc` (the project's `.npmrc` expands an
+  environment variable only in a token, which is then only sent over https to `registry.npmjs.org` or a host the user's
+  own configuration names; a registry URL there that reads one is ignored), honours
+  `[update] minimum-release-age` (else pnpm's `minimumReleaseAge`, else one day; a version without a publish time is
+  then not proposed) and `[[update-groups]]`, and reports each instance with syncpack's `DiffersToNpmRegistry` state.
+  The library plans updates through a `Registry` trait the host implements (`skif::update`, feature `update`).
+  `skif migrate` translates syncpack's `updateGroups`, `minimumReleaseAge` and `maxConcurrentRequests`. `--interactive`
+  is not implemented.
 - knip's run-time filters on the lint command ([#36](https://github.com/Goldziher/skif/issues/36)):
   - `--workspace <NAME|DIR>` (`-W`) reports only the findings of the selected workspace packages; findings of no
     package belong to the root.
@@ -131,6 +164,19 @@ All notable changes to this project are documented here. The format follows
 - `declare module "x"` in a file with top-level `import` or `export` augments `x` instead of declaring it, so it no
   longer hides unlisted imports of `x` across the workspace; only declarations in script files do
   ([#24](https://github.com/Goldziher/skif/issues/24)).
+- A `/*` that no `*/` follows, such as one in JSX text (`<code>dist/*</code>`) or a regular expression, no longer
+  makes an `.mdx` `export` paragraph swallow the rest of the document, or a `.tsrx` file hide the imports after it
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
+- The `.mdx` ESM scan tells JSX text and regular expressions from code, so `//` or `/*` in them
+  (`<a>http://x</a>`, `/:\/\//`) no longer hides a closing bracket and makes an `export` paragraph swallow the rest of
+  the document ([#38](https://github.com/Goldziher/skif/issues/38)).
+- Inline code in `.mdx` prose follows CommonMark more closely: a backslash-escaped backtick opens no code span, an
+  unpaired backtick does not pair with one past a blank line, a template literal in a `{}` expression is not code
+  (nor one nested in its `${}`), and a stray `{` in prose does not reach past its paragraph, so the components and members they would have hidden count as used
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
+- Stencil's styles per mode (`styleUrls: { ios: 'a.ios.css', md: ['a.md.css'] }`) are followed like a `styleUrls`
+  array, so the packages those stylesheets import are no longer unused
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
 
 Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/19)):
 
@@ -139,6 +185,16 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   the outer root's dependencies. The nested root judges the file against its own manifest in its own run.
 - A file that a script of a `package.json` above a nested root runs (`node build/npm/postinstall.ts`) is an entry
   of that root, so it and what it imports are no longer reported as unused files.
+- In a multi-root run (`skif -r`) a file of a nested root that an enclosing root imports (`build/lib/x.ts`, imported
+  from the outer `src`) is an entry of the nested root, so it and what it imports are no longer reported as unused
+  files. Nested roots are linted after the roots that enclose them; a root linted on its own still cannot see what an
+  outer root imports.
+- The `vite` and `vitest` plugins honour Vite's `root`: with `root: "src"` the scripts of `src/index.html` are entries
+  and `/`-rooted script sources and HTML inputs start at `src`. A `root` that is not a static string leaves the
+  package's entries incomplete.
+- After `skif -r --fix` the lint of the fixed tree judges each root as the first lint did: a standalone package below
+  another root is again not asked for a `packageManager`, and a member that is a workspace of its own is again left
+  to its own root instead of being linted twice.
 - A package with no source file, no entry and no script no longer reports every dependency it lists as unused: there
   is no code to judge them against.
 - `stale-js-config` no longer stays silent about every `ignore-dependencies` list when one package has entry files

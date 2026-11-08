@@ -8,10 +8,11 @@
 //! The catalog, workspace-protocol and dependency-family rules run as a separate provider, [`catalog_provider`].
 
 mod analysis;
-mod catalog;
+pub(crate) mod catalog;
 mod families;
 mod fields;
-mod groups;
+pub(crate) mod groups;
+mod inspect;
 pub(crate) mod instances;
 mod report;
 mod specifiers;
@@ -24,6 +25,7 @@ use skif_lint::{
     Emitter, EnabledRules, LintContext, OptionsError, ProviderError, RuleProvider, RulesProvider, reject_options,
 };
 
+pub use inspect::{GroupRef, InstanceStatus, StatusType, inspect};
 pub use state::{BANNED_DEPENDENCY, INVALID_LOCAL_VERSION, POLICY_CONFLICT, SEMVER_RANGE_MISMATCH, VERSION_MISMATCH};
 
 /// Identifies the policy provider in errors.

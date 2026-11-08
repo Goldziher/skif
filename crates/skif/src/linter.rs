@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -53,6 +53,8 @@ pub struct RunOptions<'a> {
     /// The configuration file the configuration was loaded from, relative to the workspace root (see
     /// [`config_file`](crate::config_file)); diagnostics about the configuration itself point at it.
     config_path: Option<&'a Path>,
+    /// Files of this workspace that other roots of the same run import, relative to the workspace root.
+    extra_entries: &'a [PathBuf],
 }
 
 impl<'a> RunOptions<'a> {
@@ -81,6 +83,16 @@ impl<'a> RunOptions<'a> {
     #[must_use]
     pub const fn with_config_path(mut self, config_path: &'a Path) -> Self {
         self.config_path = Some(config_path);
+        self
+    }
+
+    /// Makes `files`, relative to the workspace root, entries of the JS analysis: the files of this workspace that
+    /// other roots of the same run import, as listed in their reports' [`Report::other_project_files`]. A host that
+    /// lints nested roots passes them so a file only an outer root imports is not reported unused. Files the analysis
+    /// does not own (ignored, outside the root, not source) are left out.
+    #[must_use]
+    pub const fn with_extra_entries(mut self, files: &'a [PathBuf]) -> Self {
+        self.extra_entries = files;
         self
     }
 
@@ -205,6 +217,16 @@ impl Linter {
         })
     }
 
+    /// The state of every dependency instance the version groups and the catalog rules govern, valid or not, as
+    /// `skif list` and `skif json` show it. `report` is this linter's report of `workspace`: an instance it reports
+    /// takes that diagnostic's state and severity.
+    #[cfg(feature = "manifest")]
+    #[must_use]
+    pub fn instances(&self, workspace: &Workspace, report: &Report) -> Vec<skif_rules::policy::InstanceStatus> {
+        let enabled = self.registry.enabled(&self.config);
+        skif_rules::policy::inspect(workspace, &self.config, &|id| enabled.contains(id), &report.diagnostics)
+    }
+
     /// Metadata of every registered rule, enabled or not.
     pub fn rules(&self) -> impl Iterator<Item = &'static RuleMeta> + '_ {
         self.registry.rules()
@@ -269,6 +291,7 @@ impl Linter {
         if let Some(path) = options.config_path {
             run_options = run_options.with_config_path(path);
         }
+        run_options = run_options.with_extra_entries(options.extra_entries);
         Ok(skif_lint::run(&self.registry, workspace, &config, &run_options)?)
     }
 

@@ -166,6 +166,7 @@ pub(crate) fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliErro
                 .with_packages(Selector::new([package.clone()])?),
         );
     }
+    crate::instances::apply_filter(&args.filter, config)?;
     if args.strict {
         config.js.isolate_workspaces = true;
     }
@@ -252,16 +253,26 @@ fn warn_empty_tsconfig_projects(targets: &[Target], fs: &dyn FileSystem) {
     }
 }
 
+/// Lints the root of `previous` again from disk. What root discovery decided about it (a standalone package nested
+/// below another root, members another root lints) is carried over, so the re-lint judges the root as the first
+/// lint did.
 fn lint_once(
     linter: &Linter,
-    root: &Path,
-    config: &Config,
-    config_path: Option<&Path>,
+    previous: &Workspace,
+    (config, config_path, extra_entries): (&Config, Option<&Path>, &[PathBuf]),
     fs: &dyn FileSystem,
     filter: &Filter,
 ) -> Result<(Workspace, Report), CliError> {
-    let workspace = Workspace::discover_with_fs(root, config, fs)?;
-    let report = roots::lint_loaded(linter, &workspace, config_path)?;
+    let mut workspace = Workspace::discover_with_fs(&previous.root, config, fs)?;
+    workspace.set_nested(previous.is_nested());
+    let ignored: BTreeSet<PathBuf> = previous
+        .package_ids()
+        .filter(|id| previous.is_ignored(*id))
+        .filter_map(|id| previous.package(id))
+        .map(|package| previous.root.join(&package.dir))
+        .collect();
+    workspace.ignore_dirs(&ignored);
+    let report = roots::lint_loaded(linter, &workspace, config_path, extra_entries)?;
     let report = filter.apply(&workspace, report);
     Ok((workspace, report))
 }
@@ -331,7 +342,7 @@ type Relint = Result<(Workspace, Report), CliError>;
 fn write_and_relint(
     (args, filter): (&LintArgs, &Filter),
     linter: &Linter,
-    (config, config_path): (&Config, Option<&Path>),
+    (config, config_path, extra_entries): (&Config, Option<&Path>, &[PathBuf]),
     state: (Workspace, Report),
     plan: FixPlan,
     fs: &CachedFs<OsFs>,
@@ -340,19 +351,34 @@ fn write_and_relint(
     write_plan(&plan, &workspace.root)?;
     if plan.is_empty() {
         let install = install_step(args, &[], &workspace);
-        return Ok((FixRun { plan, install }, Ok((workspace, report))));
+        return Ok((
+            FixRun {
+                plan,
+                install,
+                preview: None,
+            },
+            Ok((workspace, report)),
+        ));
     }
     // The written files are stale in the cache; the re-lint must read them from disk.
     fs.clear();
-    let root = workspace.root.clone();
-    Ok(match lint_once(linter, &root, config, config_path, fs, filter) {
-        Ok((workspace, report)) => {
-            let changed: Vec<&Path> = plan.paths().collect();
-            let install = install_step(args, &changed, &workspace);
-            (FixRun { plan, install }, Ok((workspace, report)))
-        }
-        Err(error) => (FixRun::relint_failed(plan), Err(error)),
-    })
+    Ok(
+        match lint_once(linter, &workspace, (config, config_path, extra_entries), fs, filter) {
+            Ok((workspace, report)) => {
+                let changed: Vec<&Path> = plan.paths().collect();
+                let install = install_step(args, &changed, &workspace);
+                (
+                    FixRun {
+                        plan,
+                        install,
+                        preview: None,
+                    },
+                    Ok((workspace, report)),
+                )
+            }
+            Err(error) => (FixRun::relint_failed(plan), Err(error)),
+        },
+    )
 }
 
 /// What fixing every root left behind: the re-linted roots with their fix runs, or the exit code of a run that
@@ -389,11 +415,12 @@ fn fix_roots(
             linter,
             workspace,
             report,
+            extra_entries,
         } = run;
         let written = write_and_relint(
             (args, filter),
             linters.get(linter),
-            (&config, config_path.as_deref()),
+            (&config, config_path.as_deref(), &extra_entries),
             (workspace, report),
             plan,
             fs,
@@ -420,6 +447,7 @@ fn fix_roots(
                 linter,
                 workspace,
                 report,
+                extra_entries,
             }),
             Err(error) => {
                 let prefixes: Vec<&Path> = done
@@ -437,6 +465,24 @@ fn fix_roots(
         }
     }
     Ok(Fixed::All(done, fixes))
+}
+
+/// Plans the fixes of every root and describes them without writing anything: what `--dry-run` shows.
+fn plan_roots(
+    args: &LintArgs,
+    env: Env,
+    runs: &[RootRun],
+    fs: &CachedFs<OsFs>,
+    only: Option<&BTreeSet<String>>,
+) -> Result<Vec<FixRun>, CliError> {
+    runs.iter()
+        .map(|run| {
+            let selection = fix::selection(args, env, &run.report, run.config.policy.prefer, only)?;
+            let plan = skif::apply_fixes(&run.workspace, &run.report, &selection, fs)?;
+            let preview = fix::preview(&plan, &run.workspace.root, fs)?;
+            Ok(FixRun::dry_run(plan, preview))
+        })
+        .collect()
 }
 
 /// Lints the workspace containing `path`, or with `recursive` every root at or below it, and returns the report as
@@ -548,7 +594,11 @@ fn roots_json(runs: &[RootRun], reports: &[Cow<'_, Report>]) -> Value {
 fn execute(args: &LintArgs, env: Env, teardown: Teardown) -> Result<u8, CliError> {
     let fs = CachedFs::new(OsFs);
     let targets_out = args.targets()?;
-    if args.fixing() && env.ci {
+    if args.dry_run && !args.fixing() {
+        return Err(CliError::new(Kind::Usage, "--dry-run needs --fix or --fix-unsafe"));
+    }
+    // A dry run writes nothing, so it is allowed where fixing is not.
+    if args.fixing() && !args.dry_run() && env.ci {
         return Err(CliError::ci_refusal());
     }
     check_max_show_issues(args, &targets_out)?;
@@ -583,7 +633,9 @@ fn execute(args: &LintArgs, env: Env, teardown: Teardown) -> Result<u8, CliError
     filter.apply_runs(&mut runs)?;
 
     let mut fixes: Vec<FixRun> = Vec::new();
-    if args.fixing() {
+    if args.dry_run() {
+        fixes = plan_roots(args, env, &runs, &fs, only.as_ref())?;
+    } else if args.fixing() {
         match fix_roots((args, &filter), env, &linters, runs, &fs, only.as_ref())? {
             Fixed::All(fixed_runs, done) => {
                 runs = fixed_runs;

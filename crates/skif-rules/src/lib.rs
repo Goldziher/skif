@@ -6,12 +6,14 @@
 //!
 //! [`manifest`] holds the rules over `package.json` manifests and the workspace layout. [`policy`] holds the version
 //! group and semver group policies. [`providers`] returns every built-in [`RuleProvider`], ready to register in a
-//! [`skif_lint::Registry`].
+//! [`skif_lint::Registry`]. [`update`] plans `skif update`: newer published versions, through a registry the host
+//! supplies.
 
 #![warn(missing_docs)]
 
 pub mod manifest;
 pub mod policy;
+pub mod update;
 
 pub use manifest::manifest_provider;
 pub use policy::{catalog_provider, policy_provider};
