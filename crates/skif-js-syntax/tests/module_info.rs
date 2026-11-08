@@ -883,6 +883,18 @@ fn angular_component_resources_are_side_effect_imports() {
 }
 
 #[test]
+fn stencil_mode_style_urls_are_side_effect_imports() {
+    let source = "import { Component, h } from '@stencil/core';\n@Component({ tag: 'my-a', styleUrls: { ios: 'a.ios.css', md: ['./a.md.css', 'b.md.css'], [mode]: 'x.css' }, assetsDirs: ['assets'] })\nexport class A {}\n";
+    let info = parse("my-a.tsx", source);
+    let resources: Vec<_> = specifiers(&info)
+        .into_iter()
+        .filter(|(_, kind)| *kind == ImportKind::SideEffect)
+        .map(|(specifier, _)| specifier)
+        .collect();
+    assert_eq!(resources, ["./a.ios.css", "./a.md.css", "./b.md.css", "./x.css"]);
+}
+
+#[test]
 fn tsrx_yields_its_imports_only() {
     let source = "import * as ui from './ui';\nimport { useState } from '@tsrx/react';\n\nexport component App() {\n  <ui.Button />\n}\n";
     let info = parse("App.tsrx", source);
