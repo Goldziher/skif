@@ -306,6 +306,8 @@ ignore-members = ["/^_/"]
 ignore-exports-used-in-file = { type = true, interface = true }
 production = false
 include-entry-exports = false
+tsconfig = "tsconfig.app.json"
+use-tsconfig-files = false
 include-fixtures = false
 discovery = "auto"
 
@@ -381,6 +383,24 @@ and `explain-usage` gives its exports the verdict `not-judged`.
 
 **`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
 workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.
+
+**`tsconfig`** names the TypeScript configuration of the root package, relative to the workspace root, which is read
+in place of its `tsconfig.json`: its `paths`, `baseUrl` and `rootDirs` resolve the imports of the root package's
+files (and of directories below the root that have no config of their own), its `compilerOptions` decide which
+`@types` packages and JSX runtime count as used, and the `typescript` plugin reads it too. Other packages keep their
+own `tsconfig.json`. The path must stay inside the workspace root (no absolute path, no `..` above it), and the
+command line refuses a path that names no file in the root whose configuration sets it. This is knip's `--tsConfig`,
+which `skif --tsconfig` overrides. It can only be set at the top level.
+
+**`use-tsconfig-files`** takes the project files of each package that has a `tsconfig.json` (for the root, the
+`tsconfig` above) from it, as knip's `--use-tsconfig-files` does: the files its `files` and `include` select (every
+file when it sets neither), followed through `extends` and through the `references` that lie below it. As in
+TypeScript, `exclude` and `compilerOptions.outDir` filter only what `include` selects, never the files `files` names.
+These replace the `project` globs and the globs plugins add; entry files are unchanged, and production mode still
+leaves test files out. Patterns that leave the package directory are ignored, and the `exclude` of a referenced config
+applies to what the `include` of all of them selects. Packages without a `tsconfig.json` keep their `project` globs.
+The command line warns on stderr about a `tsconfig` that selects no file of its package, which leaves that package
+without project files.
 
 **`ignore-exports-used-in-file`** is `true`, or a table of the kinds `variable`, `function`, `class`, `enum`,
 `namespace`, `type` and `interface`: an export that the same file references is then not reported. skif does not tell

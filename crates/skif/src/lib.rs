@@ -132,7 +132,7 @@ pub use root::{config_file, find_workspace_root, load_config, resolve_config};
 #[cfg(feature = "js-analysis")]
 pub use skif_js::{
     Absence, DependencyImport, DependencyListing, DependencyTrace, EntryReason, ExportReport, ExportUser, Importer,
-    ReExport, UsageReport, Verdict,
+    ReExport, UsageReport, Verdict, empty_tsconfig_projects, relative_tsconfig,
 };
 pub use targets::{
     Discovery, RootFailure, Target, UnappliedConfig, UnappliedReason, discover_all, discover_targets, find_target,

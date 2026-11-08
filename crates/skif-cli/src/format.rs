@@ -59,6 +59,8 @@ fn lint_args(args: &FormatArgs, rules: Vec<(String, Level)>) -> LintArgs {
         no_gitignore: false,
         include_entry_exports: false,
         strict: false,
+        tsconfig: None,
+        use_tsconfig_files: false,
         color: args.color,
         watch: false,
         trace_dependency: None,
