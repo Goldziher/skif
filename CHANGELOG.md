@@ -143,6 +143,8 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   from the outer `src`) is an entry of the nested root, so it and what it imports are no longer reported as unused
   files. Nested roots are linted after the roots that enclose them; a root linted on its own still cannot see what an
   outer root imports.
+- The `vite` and `vitest` plugins honour Vite's `root`: with `root: "src"` the scripts of `src/index.html` are entries
+  and `/`-rooted script sources and HTML inputs start at `src`.
 - A package with no source file, no entry and no script no longer reports every dependency it lists as unused: there
   is no code to judge them against.
 - `stale-js-config` no longer stays silent about every `ignore-dependencies` list when one package has entry files

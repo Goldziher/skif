@@ -530,7 +530,10 @@ members. A file that another loads with `new URL("./x", import.meta.url)` is use
 inside a string does not count) stays reachable, and a listed package it names is used, but mocking a package that no
 `package.json` lists is not an unlisted import; a `{ virtual: true }` mock is ignored. In an n8n node package the files
 listed in `package.json` `n8n.nodes` and `n8n.credentials` are entries; a `dist/nodes/A.node.js` there maps to
-`nodes/A.node.ts`, since such packages compile without a `rootDir`.
+`nodes/A.node.ts`, since such packages compile without a `rootDir`. The `vite` and `vitest` plugins honour Vite's
+`root` (relative to the config file): `root: "src"` makes the scripts of `src/index.html` entries, and a `/`-rooted
+script `src` or `build.rollupOptions.input` HTML file starts at `src`; a `root` that is not a static string leaves the
+package's entries incomplete.
 
 The table holds 106 built-in plugins:
 
