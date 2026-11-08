@@ -2348,6 +2348,23 @@ fn stryker() {
         &["@stryker-mutator/vitest-runner", "@stryker-mutator/typescript-checker"],
     );
     assert_absent(out, &["@stryker-mutator/*"]);
+
+    // The vitest config Stryker runs with is read as one, and is a config file.
+    let config = "export default { testRunner: 'vitest', vitest: { configFile: 'vitest.stryker.config.ts' } };";
+    let runner = "export default { test: { setupFiles: ['./stryker-setup.ts'] } };";
+    let results = resolve(
+        &[("stryker.config.mjs", config), ("vitest.stryker.config.ts", runner)],
+        &["@stryker-mutator/core"],
+    );
+    let out = output(&results, "stryker");
+    assert!(
+        out.config_files
+            .iter()
+            .any(|file| file.ends_with("vitest.stryker.config.ts")),
+        "{:?}",
+        out.config_files
+    );
+    assert_entries(&out.entries, &["stryker-setup.ts"]);
 }
 
 #[test]
