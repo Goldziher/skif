@@ -454,7 +454,7 @@ The rest of knip's configuration hints are part of `stale-js-config` too:
   files without one, so the second is judged by the files present instead.
 - `package-entry`: a path in `main`, `module`, `browser`, `bin`, `types`, `typings` or `exports` that names no file,
   neither itself nor a source file behind it. Paths a `.gitignore` hides, paths in a build output directory (`dist`,
-  `build`, `lib`, ...; knip reports these unless gitignored) and paths into a listed dependency are not judged. It points
+  `build`, `lib`, ..., whatever the extension; knip reports these unless gitignored) and paths into a listed dependency are not judged. It points
   at the field in `package.json`.
 - `top-level-unconfigured` and `workspace-unconfigured`: more than 20 unused files that are more than a fifth of the
   files analysed suggest missing entries, with knip's thresholds. A single-package workspace gets one hint; otherwise
