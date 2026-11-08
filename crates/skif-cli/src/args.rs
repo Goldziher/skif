@@ -406,6 +406,40 @@ pub struct LintArgs {
     pub filter: FilterArgs,
 }
 
+/// The arguments of a bare `skif`: every flag at its command-line default. A command that lints on its own behalf
+/// sets the fields it needs and takes the rest from here (`LintArgs { path, ..LintArgs::default() }`), so a flag
+/// added later does not break it.
+impl Default for LintArgs {
+    fn default() -> Self {
+        Self {
+            path: PathBuf::from("."),
+            recursive: false,
+            format: None,
+            output: None,
+            fix: false,
+            fix_unsafe: false,
+            dry_run: false,
+            select: None,
+            no_install: false,
+            max_warnings: None,
+            fail_on_warnings: false,
+            no_prompt: false,
+            rules: Vec::new(),
+            ignore_rule: Vec::new(),
+            ignore_package: Vec::new(),
+            ignore_dependency: Vec::new(),
+            ignore_rule_for_package: Vec::new(),
+            require_ignore_reasons: false,
+            no_js: false,
+            config: None,
+            no_config: false,
+            production: false,
+            color: ColorChoice::Auto,
+            filter: FilterArgs::default(),
+        }
+    }
+}
+
 impl LintArgs {
     /// Whether any fixing flag was given.
     pub const fn fixing(&self) -> bool {
@@ -447,6 +481,12 @@ fn parse_rule_package(value: &str) -> Result<(String, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_default_lint_args_are_those_of_a_bare_run() {
+        let parsed = Cli::try_parse_from(["skif"]).unwrap().lint;
+        assert_eq!(format!("{:?}", LintArgs::default()), format!("{parsed:?}"));
+    }
 
     #[test]
     fn rule_levels_parse() {
