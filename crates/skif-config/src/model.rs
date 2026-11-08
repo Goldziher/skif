@@ -55,6 +55,11 @@ pub struct Config {
     pub workspace_protocol: WorkspaceProtocol,
     /// `[[dependency-families]]`: packages that must share a version.
     pub dependency_families: Vec<DependencyFamily>,
+    /// `[update]`: how `skif update` reads the package registry. Linting never reads it.
+    pub update: Update,
+    /// `[[update-groups]]`: how far `skif update` may move the dependencies it matches, first match wins.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub update_groups: Vec<UpdateGroup>,
     /// `[js]`: the JavaScript and TypeScript analysis.
     pub js: Js,
     /// `[format]`: how `package-json-format` and `skif format` order and lay out `package.json` files.
@@ -155,6 +160,8 @@ pub enum ResetKey {
     CustomTypes,
     /// Discard the inherited `overrides`.
     Overrides,
+    /// Discard the inherited `update-groups`.
+    UpdateGroups,
 }
 
 impl ResetKey {
@@ -168,6 +175,7 @@ impl ResetKey {
             Self::DependencyFamilies => "dependency-families",
             Self::CustomTypes => "custom-types",
             Self::Overrides => "overrides",
+            Self::UpdateGroups => "update-groups",
         }
     }
 }
@@ -287,6 +295,17 @@ impl Config {
                 return invalid(format!("semver-groups[{index}]: {message}"));
             }
         }
+        for (index, group) in self.update_groups.iter().enumerate() {
+            if let Some(message) = group.inconsistency() {
+                return invalid(format!("update-groups[{index}]: {message}"));
+            }
+            if let Some(message) = unknown_specifier_type(&group.specifier_types) {
+                return invalid(format!("update-groups[{index}]: {message}"));
+            }
+        }
+        if self.update.max_concurrent_requests == 0 {
+            return invalid("update.max-concurrent-requests must be at least 1".to_string());
+        }
         if let Some(message) = self.custom_type_problem(resolve_references) {
             return invalid(message);
         }
@@ -371,6 +390,12 @@ impl Config {
             .chain(self.semver_groups.iter().enumerate().map(|(index, group)| {
                 (
                     format!("semver-groups[{index}].dependency-types"),
+                    &group.dependency_types,
+                )
+            }))
+            .chain(self.update_groups.iter().enumerate().map(|(index, group)| {
+                (
+                    format!("update-groups[{index}].dependency-types"),
                     &group.dependency_types,
                 )
             }));
@@ -1023,6 +1048,195 @@ impl SemverGroup {
     }
 
     /// Sets the label shown in diagnostics.
+    #[must_use]
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Selects the dependencies the group covers.
+    #[must_use]
+    pub fn with_dependencies(mut self, dependencies: Selector) -> Self {
+        self.dependencies = dependencies;
+        self
+    }
+
+    /// Selects the packages the group covers.
+    #[must_use]
+    pub fn with_packages(mut self, packages: Selector) -> Self {
+        self.packages = packages;
+        self
+    }
+
+    /// Selects the dependency types the group covers.
+    #[must_use]
+    pub fn with_dependency_types(mut self, dependency_types: DependencyTypes) -> Self {
+        self.dependency_types = dependency_types;
+        self
+    }
+
+    /// Selects the specifier types the group covers.
+    #[must_use]
+    pub fn with_specifier_types<I, S>(mut self, specifier_types: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.specifier_types = specifier_types.into_iter().map(Into::into).collect();
+        self
+    }
+}
+
+/// How far `skif update` may move a version: syncpack's `--target` and an update group's `target`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum UpdateTarget {
+    /// The highest published version, across majors.
+    #[default]
+    Latest,
+    /// The highest version with the same major.
+    Minor,
+    /// The highest version with the same major and minor.
+    Patch,
+}
+
+impl UpdateTarget {
+    /// The stricter of two targets: `patch` over `minor` over `latest`. The command line's `--target` and an update
+    /// group's `target` combine this way, so a group can only narrow what the run allows.
+    #[must_use]
+    pub const fn stricter(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Patch, _) | (_, Self::Patch) => Self::Patch,
+            (Self::Minor, _) | (_, Self::Minor) => Self::Minor,
+            _ => Self::Latest,
+        }
+    }
+
+    /// The name as `--target` and `target` write it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Latest => "latest",
+            Self::Minor => "minor",
+            Self::Patch => "patch",
+        }
+    }
+}
+
+/// The default of `[update] max-concurrent-requests`, syncpack's `maxConcurrentRequests`.
+pub const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 12;
+
+/// `[update]`: how `skif update` reads the package registry (ADR 0058). Linting never reads it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
+#[non_exhaustive]
+pub struct Update {
+    /// Minutes a version must have been published before `skif update` proposes it; `0` turns the delay off. Unset,
+    /// the `minimumReleaseAge` of `pnpm-workspace.yaml` applies, else one day (1440), as in syncpack.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimum_release_age: Option<u64>,
+    /// How many registry requests run at once.
+    pub max_concurrent_requests: usize,
+}
+
+impl Default for Update {
+    fn default() -> Self {
+        Self {
+            minimum_release_age: None,
+            max_concurrent_requests: DEFAULT_MAX_CONCURRENT_REQUESTS,
+        }
+    }
+}
+
+impl Update {
+    /// Sets the minimum release age in minutes.
+    #[must_use]
+    pub const fn with_minimum_release_age(mut self, minutes: Option<u64>) -> Self {
+        self.minimum_release_age = minutes;
+        self
+    }
+
+    /// Sets how many registry requests run at once.
+    #[must_use]
+    pub const fn with_max_concurrent_requests(mut self, requests: usize) -> Self {
+        self.max_concurrent_requests = requests;
+        self
+    }
+}
+
+/// One `[[update-groups]]` entry; first match wins. Set `target` to cap how far `skif update` moves the matched
+/// dependencies, or `ignored = true` to leave them alone (syncpack's `updateGroups`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+#[non_exhaustive]
+pub struct UpdateGroup {
+    /// A name for the group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Dependency names the group covers; empty covers every dependency.
+    #[serde(default)]
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub dependencies: Selector,
+    /// Package names the group covers; empty covers every package. A group that names packages does not cover catalog
+    /// entries, which belong to no package.
+    #[serde(default)]
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub packages: Selector,
+    /// Dependency types the group covers; empty covers the types `[policy] dependency-types` governs. A group that
+    /// names types does not cover catalog entries.
+    #[serde(default)]
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub dependency_types: DependencyTypes,
+    /// Specifier types the group covers, optionally negated with `!`; empty covers every type.
+    #[serde(default)]
+    pub specifier_types: Vec<String>,
+    /// The furthest the matched dependencies may move; combined with `--target`, the stricter wins. Required unless
+    /// `ignored` is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<UpdateTarget>,
+    /// `skif update` never changes the matched dependencies. Exclusive with `target`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub ignored: bool,
+}
+
+impl UpdateGroup {
+    /// A group capping every dependency at `target`.
+    #[must_use]
+    pub fn new(target: UpdateTarget) -> Self {
+        Self {
+            label: None,
+            dependencies: Selector::default(),
+            packages: Selector::default(),
+            dependency_types: DependencyTypes::default(),
+            specifier_types: Vec::new(),
+            target: Some(target),
+            ignored: false,
+        }
+    }
+
+    /// A group whose dependencies `skif update` leaves alone.
+    #[must_use]
+    pub fn ignored() -> Self {
+        Self {
+            target: None,
+            ignored: true,
+            ..Self::new(UpdateTarget::Latest)
+        }
+    }
+
+    fn inconsistency(&self) -> Option<&'static str> {
+        match (self.target, self.ignored) {
+            (None, false) => Some("set `target`, or `ignored = true` to leave the dependencies alone"),
+            (Some(_), true) => Some("`target` and `ignored = true` are mutually exclusive"),
+            _ => None,
+        }
+    }
+
+    /// Sets the label.
     #[must_use]
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());

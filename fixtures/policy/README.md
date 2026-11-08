@@ -183,10 +183,11 @@ syncpack.
 * `DiffersToHighestOrLowestSemverMinor` is not covered: skif's `prefer` is valid only on
   `preferred-semver` groups, so a same-minor group cannot name a direction.
 * `semverRangeOnly` is the `semver-range-only` policy: versions may differ and only the semver groups' range is
-  checked (group `semver-range-only`); syncpack's registry updates inside it are out of scope (ADR 0001). A semver
+  checked (group `semver-range-only`); `skif update` does not move its instances. A semver
   group with `ignored = true` covers syncpack's `isIgnored` and `isDisabled`
   (`semver-groups/ignored-group-exempts-dependency`).
-* `DiffersToNpmRegistry` is out of scope (ADR 0001); no case.
+* `DiffersToNpmRegistry` is reported by `skif update`, never by a lint rule (ADR 0058); no case here, the
+  update planner has its own tests.
 * Severity is per rule: syncpack's Conflict class (error) and Suspect class (warning) share
   `policy-conflict` and therefore one severity (see "ADR gaps").
 * `UnusedGroup` is skif-only (`policy-conflict/unused-group-*`).
@@ -306,7 +307,7 @@ States in the ADR 0009 table. Valid states produce no diagnostic and are listed 
 | Fixable | `DiffersToCatalog` | `catalog-mismatch` | `catalog/off-catalog-mismatch` |
 | Fixable | `NotUsingCatalog` | `catalog-not-used` | `catalog/bun-top-level-catalog`, `catalog/bun-workspaces-catalog`, `catalog/enforce-not-using-catalog`, `catalog/exclude-dependency` (+3 more) |
 | Fixable | `MissingFromCatalog` | `catalog-missing-entry` | `catalog/bun-missing-entry-creates-catalog`, `catalog/missing-entry-identical-non-semver`, `catalog/missing-entry-no-catalog-pnpm`, `catalog/missing-entry-single-catalog` |
-| Fixable | `DiffersToNpmRegistry` | none (out of scope) | out of scope (ADR 0001) |
+| Fixable | `DiffersToNpmRegistry` | none: `skif update` (ADR 0058) | `skif update` tests (ADR 0058) |
 | Unfixable | `NonSemverMismatch` | `version-mismatch` | `same-minor/non-semver-differing-unfixable`, `version-mismatch/unsupported-specifiers-differ` |
 | Unfixable | `SameRangeMismatch` | `version-mismatch` | `same-range/different-exact-versions`, `same-range/one-disjoint-range-flags-all`, `same-range/tilde-different-minors` |
 | Unfixable | `SameMinorMismatch` | `version-mismatch` | `same-minor/minor-mismatch-unfixable` |

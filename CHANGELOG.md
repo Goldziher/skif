@@ -32,6 +32,18 @@ All notable changes to this project are documented here. The format follows
 - [ADR 0057](adrs/0057-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md) records these
   additions and what of syncpack stays out: per-group and per-state severity, `dependencyGroups`, a scoped `catalog`
   policy, custom type `source`, catalog entries as instances, `.x` ranges and `--log-levels`.
+- `skif update [--check] [--target latest|minor|patch] [--dependencies <NAME>]`: newer published versions from the npm
+  registry, written format-preserving or, with `--check`, reported with exit `1`, as syncpack's `update`
+  ([#34](https://github.com/Goldziher/skif/issues/34),
+  [ADR 0058](adrs/0058-registry-updates-an-opt-in-skif-update-command.md)). It is the only command that uses the
+  network; linting never does. It reads the registry and tokens of `.npmrc` (the project's `.npmrc` expands an
+  environment variable only in a token, which is then only sent over https to `registry.npmjs.org` or a host the user's
+  own configuration names; a registry URL there that reads one is ignored), honours
+  `[update] minimum-release-age` (else pnpm's `minimumReleaseAge`, else one day; a version without a publish time is
+  then not proposed) and `[[update-groups]]`, and reports each instance with syncpack's `DiffersToNpmRegistry` state.
+  The library plans updates through a `Registry` trait the host implements (`skif::update`, feature `update`).
+  `skif migrate` translates syncpack's `updateGroups`, `minimumReleaseAge` and `maxConcurrentRequests`. `--interactive`
+  is not implemented.
 - knip's run-time filters on the lint command ([#36](https://github.com/Goldziher/skif/issues/36)):
   - `--workspace <NAME|DIR>` (`-W`) reports only the findings of the selected workspace packages; findings of no
     package belong to the root.

@@ -75,6 +75,7 @@
 //! | `yaml-fix` | no | YAML edits for `pnpm-workspace.yaml` (implies `fix`) |
 //! | `report` | no | the renderers (human, JSON, SARIF, GitHub, Code Climate, compact, Markdown, CODEOWNERS), as `skif::render` |
 //! | `schema` | no | `config_schema` |
+//! | `update` | no | [`update`]: newer published versions from a registry the host supplies, planned as a `FixPlan` |
 //!
 //! # Third-party types in the API
 //!
@@ -118,6 +119,8 @@ mod js;
 mod linter;
 mod root;
 mod targets;
+#[cfg(feature = "update")]
+pub mod update;
 
 pub use error::Error;
 #[cfg(feature = "fix")]
@@ -144,6 +147,8 @@ pub use targets::{
 
 /// The `[format]` table of the configuration: what `package-json-format` checks.
 pub use skif_config::Format as FormatConfig;
+/// The `[update]` table of the configuration (an [`update::Update`] is one proposed version).
+pub use skif_config::Update as UpdateConfig;
 /// The `[workspace]` table of the configuration (the discovered [`Workspace`] is a different type).
 pub use skif_config::Workspace as WorkspaceConfig;
 pub use skif_config::{
@@ -151,8 +156,8 @@ pub use skif_config::{
     ConfigLoader, ConfigOverrides, ConfigSource, DependencyFamily, DependencyTypes, ExportKinds, IgnoreEntry,
     IgnoreExportsUsedInFile, InstanceFilter, Js, JsWorkspace, Level, Lint, Op, Origins, Override, OverrideScope,
     PackageJs, PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey, ResolvedConfig, RuleConfig,
-    RuleOptions, Selector, SemverGroup, SemverRange, SourceKind, VersionGroup, VersionPolicy, WorkspaceProtocol,
-    join_key,
+    RuleOptions, Selector, SemverGroup, SemverRange, SourceKind, UpdateGroup, UpdateTarget, VersionGroup,
+    VersionPolicy, WorkspaceProtocol, join_key,
 };
 /// `[[custom-types]]` and the places a version can be declared.
 pub use skif_config::{CustomStrategy, CustomType, DependencyType};
