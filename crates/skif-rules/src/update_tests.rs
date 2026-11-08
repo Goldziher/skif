@@ -488,3 +488,62 @@ fn a_version_without_a_publish_time_is_not_proposed_while_a_release_age_applies(
         "a timeless version that would not be the target is not worth a note"
     );
 }
+
+#[test]
+fn an_invalid_package_name_is_not_looked_up_and_gets_a_note() {
+    let registry = Fake::default().with("left-pad", &[("1.0.0", 900), ("1.1.0", 400)]);
+    let files = [
+        ("package.json", ROOT),
+        (
+            "packages/a/package.json",
+            r#"{"name":"a","dependencies":{"a?x":"1.0.0","a#b":"1.0.0","a/../b":"1.0.0","left-pad":"1.0.0"}}"#,
+        ),
+    ];
+    let report = plan(&files, "", &registry, &UpdateOptions::new(NOW));
+    assert_eq!(registry.asked(), ["left-pad"]);
+    assert_eq!(report.queried, 1);
+    assert_eq!(
+        summary(&report),
+        [row("packages/a/package.json", "left-pad", "1.0.0", "1.1.0")]
+    );
+    let noted: Vec<&str> = report.notes.iter().map(Note::dependency).collect();
+    assert_eq!(noted, ["a#b", "a/../b", "a?x"]);
+    assert!(report.notes[0].to_string().contains("not a valid npm package name"));
+}
+
+#[test]
+fn package_names_follow_the_npm_allowlist() {
+    for good in [
+        "react",
+        "@types/node",
+        "JSONStream",
+        "lodash.merge",
+        "~tilde",
+        "-dash",
+        "a_b",
+        "@a-b/c.d_e~f",
+    ] {
+        assert!(is_valid_package_name(good), "{good}");
+    }
+    for bad in [
+        "",
+        "a?x",
+        "a#b",
+        "a/../b",
+        "a/b",
+        "..",
+        ".x",
+        "_x",
+        "@scope",
+        "@/x",
+        "@scope/",
+        "@scope/..",
+        "@a/b/c",
+        "a b",
+        "a%2fb",
+        "a:b",
+        "é",
+    ] {
+        assert!(!is_valid_package_name(bad), "{bad}");
+    }
+}
