@@ -1,0 +1,6 @@
+---
+source: crates/skif-cli/tests/multi.rs
+expression: "js_findings(&report).join(\"\\n\")"
+---
+unused-files build/lib/orphan.ts: `lib/orphan.ts` is not reachable from any entry file
+unused-exports build/lib/y.ts: export `spare` is never imported by another module

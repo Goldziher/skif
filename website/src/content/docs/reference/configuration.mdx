@@ -467,6 +467,13 @@ analysed root that a script of a `package.json` above it runs (up to the git rep
 `node build/npm/postinstall.ts` in the outer project keeps `build/npm/postinstall.ts` used in the nested root at
 `build` (except in production mode, where scripts give no entries).
 
+In a multi-root run (`skif -r`) the files of a nested root that an enclosing root of the same run imports are entries
+of the nested root: `import { x } from "../build/lib/x"` in the outer `src` keeps `build/lib/x.ts`, and what it
+imports, used in the root at `build`. Only the files the enclosing root's own code imports become entries, so an
+unused export of a file they import is still reported. A nested root is therefore linted after the roots that enclose
+it. A root linted on its own (`skif build`) cannot know what an outer root it was not given imports, so there such a
+file is still reported unused; lint from the top with `-r`, or add it to `entry`.
+
 A package with no source file at or below its directory, no entry and no script, such as a `remote/package.json` that
 only lists what code elsewhere in the repository installs it for, has no code skif could check its dependencies
 against, so they are not judged, as for a package whose entry files skif cannot determine.

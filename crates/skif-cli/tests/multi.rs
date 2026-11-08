@@ -678,3 +678,39 @@ fn fixture_directories_are_not_searched_for_roots_unless_configured() {
     let (_, report) = json(dir.path(), &["-r"]);
     assert_eq!(root_paths(&report), ["fixtures/f"]);
 }
+
+/// The JS findings of a report as `rule path: message`, in report order.
+fn js_findings(report: &Value) -> Vec<String> {
+    report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| matches!(d["rule"].as_str(), Some("unused-files" | "unused-exports")))
+        .map(|d| {
+            format!(
+                "{} {}: {}",
+                d["rule"].as_str().unwrap(),
+                d["location"]["path"].as_str().unwrap(),
+                d["message"].as_str().unwrap()
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_file_of_a_nested_root_that_an_outer_root_imports_is_its_entry() {
+    // `src/main.ts` of the outer root imports `build/lib/x.ts`, a file of the nested root `build`; `x.ts` imports
+    // `y.ts`, whose `spare` nothing uses, and nothing imports `orphan.ts`.
+    let dir = fixture("multi/nested-imports");
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(root_paths(&report), [".", "build"]);
+    insta::assert_snapshot!("nested_imports_recursive", js_findings(&report).join("\n"));
+
+    // Linted on its own, the nested root cannot know what the outer root imports.
+    let (_, alone) = json(&dir.path().join("build"), &[]);
+    let alone = js_findings(&alone);
+    assert!(
+        alone.iter().any(|finding| finding.starts_with("unused-files lib/x.ts")),
+        "{alone:?}"
+    );
+}
