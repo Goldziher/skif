@@ -1,15 +1,7 @@
 //! Static knowledge about shells, package managers and the tools commonly run from scripts.
 
-/// Shell builtins and common system binaries that never need a package dependency.
-///
-/// The selection follows `IGNORED_GLOBAL_BINARIES` of [knip](https://github.com/webpro-nl/knip) (ISC) and extends it
-/// with the platform tools that are common in scripts.
-///
-/// `node` is not listed here: it is handled specially (its arguments yield files and dependencies)
-/// and is never reported as a binary. The package managers (`npm`, `npx`, `pnpm`, `pnpx`, `yarn`,
-/// `yarnpkg`, `bun`, `bunx`, `corepack`) are interpreted rather than reported.
-pub const IGNORED_BINARIES: &[&str] = &[
-    // POSIX and bash builtins.
+/// POSIX and bash builtins: words a shell runs itself, which are no program anyone installs.
+pub const SHELL_BUILTINS: &[&str] = &[
     ".",
     ":",
     "[",
@@ -19,9 +11,12 @@ pub const IGNORED_BINARIES: &[&str] = &[
     "bind",
     "break",
     "builtin",
+    "caller",
     "cd",
     "command",
     "compgen",
+    "complete",
+    "compopt",
     "continue",
     "declare",
     "dirs",
@@ -44,11 +39,13 @@ pub const IGNORED_BINARIES: &[&str] = &[
     "let",
     "local",
     "logout",
+    "mapfile",
     "popd",
     "printf",
     "pushd",
     "pwd",
     "read",
+    "readarray",
     "readonly",
     "return",
     "set",
@@ -67,6 +64,17 @@ pub const IGNORED_BINARIES: &[&str] = &[
     "unalias",
     "unset",
     "wait",
+];
+
+/// System binaries and platform tools that never need a package dependency, because they are installed globally.
+///
+/// The selection follows `IGNORED_GLOBAL_BINARIES` of [knip](https://github.com/webpro-nl/knip) (ISC) and extends it
+/// with the platform tools that are common in scripts.
+///
+/// `node` is not listed here: it is handled specially (its arguments yield files and dependencies)
+/// and is never reported as a binary. The package managers (`npm`, `npx`, `pnpm`, `pnpx`, `yarn`,
+/// `yarnpkg`, `bun`, `bunx`, `corepack`) are interpreted rather than reported.
+pub const IGNORED_BINARIES: &[&str] = &[
     // Shells.
     "ash",
     "bash",
@@ -214,7 +222,13 @@ pub const IGNORED_BINARIES: &[&str] = &[
 /// Whether `name` is a system or shell command that is not a dependency.
 #[must_use]
 pub fn is_ignored_binary(name: &str) -> bool {
-    IGNORED_BINARIES.contains(&name)
+    is_shell_builtin(name) || IGNORED_BINARIES.contains(&name)
+}
+
+/// Whether `name` is a shell builtin ([`SHELL_BUILTINS`]), which no setting ever reports as a binary.
+#[must_use]
+pub fn is_shell_builtin(name: &str) -> bool {
+    SHELL_BUILTINS.contains(&name)
 }
 
 /// Commands that only forward to the command in their arguments: the flags that take a value, and how many

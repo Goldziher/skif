@@ -139,6 +139,7 @@
         "ignore-files": [],
         "ignore-dependencies": [],
         "ignore-binaries": [],
+        "ignore-global-binaries": true,
         "ignore-unresolved": [],
         "ignore-workspaces": [],
         "ignore-exports-used-in-file": false,
@@ -1036,6 +1037,11 @@
           },
           "description": "Binaries never reported as unlisted.",
           "default": []
+        },
+        "ignore-global-binaries": {
+          "type": "boolean",
+          "description": "Never report the system and shell tools scripts run (`rm`, `curl`, `git`, `docker`) as unlisted binaries,\nsince they are installed globally rather than from npm (knip's `ignoreGlobalBinaries`). On by default; turn it\noff to have `unlisted-binaries` report them unless a dependency provides them.",
+          "default": true
         },
         "ignore-unresolved": {
           "type": "array",
