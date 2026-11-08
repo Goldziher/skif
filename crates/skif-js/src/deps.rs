@@ -570,12 +570,21 @@ impl DependencyUsage {
 
     fn collect_imports(&mut self, workspace: &Workspace, setup: &Setup, graph: &ModuleGraph) {
         for module in graph.modules() {
-            if setup.package(module.owner).is_none() {
+            // A file of another project uses that project's dependencies, not those of the package that reaches it.
+            if module.foreign || setup.package(module.owner).is_none() {
                 continue;
             }
             for resolved in &module.imports {
                 if let Some(name) = &resolved.package {
                     let kind = module.info.imports.get(resolved.import).map(|import| import.kind);
+                    if kind == Some(ImportKind::Mock) {
+                        // A test that mocks a package does not need it installed: a listed package is used, an
+                        // unlisted one is not an unlisted import.
+                        if let Some(found) = self.find_listed(module.owner, name) {
+                            self.reference(found, name);
+                        }
+                        continue;
+                    }
                     let type_only = resolved.type_only && kind != Some(ImportKind::ExportFrom);
                     let span = module.info.imports.get(resolved.import).map(|import| import.span);
                     self.handle_import(workspace, module.owner, name, type_only, module.id, span);
@@ -587,7 +596,7 @@ impl DependencyUsage {
             }
             // `declare module 'pkg'` augments the package, which has to be installed for that to compile. It stays
             // out of `imports`: declaring a module the project does not list is not an unlisted import.
-            for name in &module.info.ambient_modules {
+            for name in module.info.ambient_modules.iter().chain(&module.info.augmented_modules) {
                 self.reference_listed(module.owner, name);
             }
             if let Some(source) = module.info.jsx_import_source.as_deref().and_then(package_name) {

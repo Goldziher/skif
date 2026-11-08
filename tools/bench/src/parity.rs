@@ -4,7 +4,7 @@
 //! disagree where the tools model things differently, so the numbers are a measure of drift, not a verdict: the
 //! committed baselines say what the agreement was, and `--check` fails when it moves.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -62,13 +62,17 @@ pub const NON_CODE_FILE: &str = "non-code-file";
 pub const TEST_FILE: &str = "test-file";
 pub const FIXTURE_FILE: &str = "fixture-file";
 pub const KNIP_UNREAD: &str = "knip-unread";
+pub const NOT_JUDGED: &str = "not-judged-by-skif";
+
+/// The categories skif does not judge in a package whose entry files are not all known (ADR 0053).
+const NOT_JUDGED_CATEGORIES: [&str; 3] = ["files", "dependencies", "devDependencies"];
 
 /// Categories that name the same thing, `<file>|<export>`, and differ only in how the tools label it: knip counts a
 /// `const enum` as a type and files an export under `nsExports` when any importer uses a namespace, skif when all do.
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 4] = [
+pub const KNIP_DEVIATIONS: [Deviation; 5] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -79,11 +83,15 @@ pub const KNIP_DEVIATIONS: [Deviation; 4] = [
     },
     Deviation {
         id: FIXTURE_FILE,
-        reason: "skif skips fixture directories (ADR 0023); knip reports their files as unused",
+        reason: "skif does not report files below `fixtures` or `__fixtures__` as unused unless `[js] include-fixtures` is set (ADR 0050); knip reports them, and the harness counts other fixture-like directories (`fixture`, `testdata`, `*-fixtures`) here too",
     },
     Deviation {
         id: KNIP_UNREAD,
         reason: "knip reads no files below these paths (a deny-all .gitignore hides them), so it reports every dependency there as unused and has no view of their files",
+    },
+    Deviation {
+        id: NOT_JUDGED,
+        reason: "skif lists the package under `incomplete-packages`: a tool config it cannot read leaves its entry files unknown, so it does not judge the package's files and dependencies",
     },
 ];
 
@@ -287,6 +295,41 @@ fn align_export_labels(skif: &mut Keys, knip: &Keys) {
     }
 }
 
+/// The directories of the packages skif did not judge (its JSON `incomplete-packages`), relative to the checkout with
+/// `/` separators; the root package is the empty string.
+pub fn not_judged_dirs(document: &Value) -> BTreeSet<String> {
+    document
+        .get("incomplete-packages")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|package| package.get("dir").and_then(Value::as_str))
+        .map(|dir| {
+            if dir == "." {
+                String::new()
+            } else {
+                dir.trim_end_matches('/').to_owned()
+            }
+        })
+        .collect()
+}
+
+/// The package that owns a finding key (`<path>` or `<path>|<name>`): the deepest directory above the path that
+/// `is_package` accepts, the root (`""`) at the latest.
+fn owner_dir(key: &str, is_package: &dyn Fn(&str) -> bool) -> String {
+    let path = key.split_once('|').map_or(key, |(path, _)| path);
+    let mut dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    while !dir.is_empty() && !is_package(dir) {
+        dir = dir.rsplit_once('/').map_or("", |(parent, _)| parent);
+    }
+    dir.to_owned()
+}
+
+/// Whether a one-sided finding is in a category skif does not judge in the package that owns it.
+fn not_judged(category: &str, key: &str, dirs: &BTreeSet<String>, is_package: &dyn Fn(&str) -> bool) -> bool {
+    !dirs.is_empty() && NOT_JUDGED_CATEGORIES.contains(&category) && dirs.contains(&owner_dir(key, is_package))
+}
+
 /// Whether a knip-reported unused file is a known deviation: outside skif's project set (not code), a fixture, or a
 /// test. Fixtures and tests only count when `include_test_files` is off.
 fn classify_file(path: &str, include_test_files: bool) -> Option<&'static str> {
@@ -484,6 +527,8 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
     let mut skif_found = skif_keys(&skif_doc, &root);
     let knip_found = knip_keys(&knip_doc, &root);
     align_export_labels(&mut skif_found, &knip_found);
+    let unjudged = not_judged_dirs(&skif_doc);
+    let is_package = |dir: &str| root.join(dir).join("package.json").is_file();
     let split = diff::split_known(&skif_found, &knip_found, &|side, category, key| {
         if repo.knip_unread.iter().any(|prefix| key.starts_with(prefix.as_str())) {
             return Some(KNIP_UNREAD);
@@ -491,6 +536,7 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         (side == Side::Tool && category == "files")
             .then(|| classify_file(key, options.include_test_files))
             .flatten()
+            .or_else(|| (side == Side::Tool && not_judged(category, key, &unjudged, &is_package)).then_some(NOT_JUDGED))
     });
     let (counts, samples) = diff::compare(&split.skif, &split.tool);
     let detail = json!({
@@ -498,6 +544,7 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         "recursive": recursive,
         "known_deviations": split.known,
         "known_samples": split.samples,
+        "not_judged_packages": unjudged,
         "skif_ms": skif_run.elapsed.as_millis(),
         "knip_ms": knip_run.elapsed.as_millis(),
         "skif_total": total(&skif_found),
@@ -540,24 +587,28 @@ fn category_detail(counts: &BTreeMap<String, Counts>, samples: &BTreeMap<String,
 
 fn markdown(tool: &str, installed: bool, entries: &BTreeMap<String, Entry>) -> String {
     let mut out = format!(
-        "# skif findings parity with {tool}\n\nDependencies installed: {}.\n\n| Repository | Status | skif only | {tool} only | Both | Known deviations |\n| --- | --- | ---: | ---: | ---: | ---: |\n",
+        "# skif findings parity with {tool}\n\nDependencies installed: {}.\n\n| Repository | Status | skif only | {tool} only | Both | Not judged by skif | Known deviations |\n| --- | --- | ---: | ---: | ---: | ---: | ---: |\n",
         if installed { "yes" } else { "no" }
     );
     for (name, entry) in entries {
         if entry.status == COMPARED {
             let sum = |f: fn(&Counts) -> usize| entry.categories.values().map(f).sum::<usize>();
+            let unjudged = entry
+                .known_deviations
+                .get(NOT_JUDGED)
+                .map_or(0, |c| c.skif_only + c.tool_only);
             let _ = writeln!(
                 out,
-                "| {name} | compared | {} | {} | {} | {} |",
+                "| {name} | compared | {} | {} | {} | {unjudged} | {} |",
                 sum(|c| c.skif_only),
                 sum(|c| c.tool_only),
                 sum(|c| c.both),
-                diff::known_total(&entry.known_deviations)
+                diff::known_total(&entry.known_deviations) - unjudged
             );
         } else {
             let _ = writeln!(
                 out,
-                "| {name} | skipped: {} | - | - | - | - |",
+                "| {name} | skipped: {} | - | - | - | - | - |",
                 entry.reason.as_deref().unwrap_or("")
             );
         }
@@ -898,5 +949,102 @@ mod tests {
             }
         );
         assert_eq!(counts["types"].both, 1);
+    }
+
+    #[test]
+    fn knip_only_findings_in_packages_skif_did_not_judge_split_off() {
+        let skif_doc = json!({ "diagnostics": [], "incomplete-packages": [
+            { "name": "web", "dir": "packages/web", "reasons": [{ "cause": "unknown-spread" }] },
+        ]});
+        let dirs = not_judged_dirs(&skif_doc);
+        assert_eq!(dirs, BTreeSet::from(["packages/web".to_owned()]));
+        assert_eq!(
+            not_judged_dirs(&json!({ "incomplete-packages": [{ "dir": "." }] })),
+            BTreeSet::from([String::new()])
+        );
+        assert!(not_judged_dirs(&json!({ "diagnostics": [] })).is_empty());
+
+        let packages = ["packages/web", "packages/web/nested", "packages/api"];
+        let is_package = |dir: &str| packages.contains(&dir);
+        assert_eq!(owner_dir("packages/web/src/a.ts", &is_package), "packages/web");
+        assert_eq!(owner_dir("packages/web/package.json|vite", &is_package), "packages/web");
+        assert_eq!(
+            owner_dir("packages/web/nested/a.ts", &is_package),
+            "packages/web/nested"
+        );
+        assert_eq!(owner_dir("scripts/a.ts", &is_package), "");
+
+        let knip = Keys::from([
+            (
+                "files".to_owned(),
+                [
+                    "packages/web/src/orphan.ts",
+                    "packages/web/nested/orphan.ts",
+                    "packages/api/orphan.ts",
+                ]
+                .map(str::to_owned)
+                .into(),
+            ),
+            (
+                "devDependencies".to_owned(),
+                ["packages/web/package.json|vite"].map(str::to_owned).into(),
+            ),
+            (
+                "exports".to_owned(),
+                ["packages/web/src/a.ts|unused"].map(str::to_owned).into(),
+            ),
+        ]);
+        let split = diff::split_known(&Keys::new(), &knip, &|side, category, key| {
+            (side == Side::Tool && not_judged(category, key, &dirs, &is_package)).then_some(NOT_JUDGED)
+        });
+        assert_eq!(
+            split.known[NOT_JUDGED],
+            diff::KnownCounts {
+                skif_only: 0,
+                tool_only: 2
+            }
+        );
+        let (counts, _) = diff::compare(&split.skif, &split.tool);
+        assert_eq!(
+            counts["files"].tool_only, 2,
+            "a nested complete package and another package stay one-sided"
+        );
+        assert_eq!(
+            counts["exports"].tool_only, 1,
+            "skif judges the exports of an incomplete package"
+        );
+        assert!(!counts.contains_key("devDependencies"));
+    }
+
+    #[test]
+    fn the_summary_counts_not_judged_findings_apart_from_the_known_deviations() {
+        let counts = BTreeMap::from([(
+            "files".to_owned(),
+            Counts {
+                skif_only: 1,
+                tool_only: 2,
+                both: 3,
+            },
+        )]);
+        let known = diff::Known::from([
+            (
+                NOT_JUDGED.to_owned(),
+                diff::KnownCounts {
+                    skif_only: 0,
+                    tool_only: 4,
+                },
+            ),
+            (
+                NON_CODE_FILE.to_owned(),
+                diff::KnownCounts {
+                    skif_only: 0,
+                    tool_only: 5,
+                },
+            ),
+        ]);
+        let entries = BTreeMap::from([("r".to_owned(), Entry::compared(counts).with_known(known))]);
+        let table = markdown("knip", false, &entries);
+        assert!(table.contains("| r | compared | 1 | 2 | 3 | 4 | 5 |"), "{table}");
+        assert!(table.contains("`not-judged-by-skif`"), "{table}");
     }
 }

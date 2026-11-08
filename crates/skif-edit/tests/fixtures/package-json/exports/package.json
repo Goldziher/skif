@@ -1,0 +1,37 @@
+{
+  "name": "exports",
+  "exports": {
+    ".": {
+      "default": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.ts"
+    },
+    "./feature": {
+      "node": {
+        "default": "./dist/feature.node.js",
+        "import": "./dist/feature.node.mjs"
+      },
+      "browser": "./dist/feature.browser.js"
+    },
+    "./dev": {
+      "development": "./dist/dev.mjs",
+      "import": "./dist/prod.mjs",
+      "types": "./dist/dev.d.ts"
+    },
+    "./worker": {
+      "workerd": "./dist/worker.js",
+      "node": "./dist/node.js",
+      "default": "./dist/worker.js"
+    },
+    "./esm": {
+      "import": "./dist/esm.mjs",
+      "module": "./dist/esm.js"
+    },
+    "./platform": {
+      "browser": "./dist/browser.js",
+      "node": "./dist/node.js"
+    },
+    "./package.json": "./package.json"
+  }
+}

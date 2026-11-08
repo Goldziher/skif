@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use skif_core::{Category, Fixability, Location, Related, RuleMeta, diagnostic};
 use skif_js_syntax::ImportKind;
 use skif_lint::Emitter;
@@ -16,7 +18,9 @@ pub static META: RuleMeta = RuleMeta::new(
     "Modules import each other in a cycle.",
 );
 
-/// Reports strongly connected components of value imports. Type-only and dynamic imports do not count.
+/// Reports strongly connected components of value imports. Type-only imports do not count, and dynamic imports count
+/// only with `[js.cycles] dynamic-imports`. A component whose files are exactly those of a `[js.cycles] allow` entry
+/// is not reported.
 pub struct CircularImports;
 
 /// Strongly connected components by Tarjan's algorithm, without recursion.
@@ -72,6 +76,11 @@ fn tarjan(adjacency: &[Vec<usize>]) -> Vec<Vec<usize>> {
     components
 }
 
+/// A workspace-relative path in one spelling: `/`-separated, without a leading `./`.
+fn normalize(path: &str) -> String {
+    path.replace('\\', "/").trim_start_matches("./").to_owned()
+}
+
 impl JsRule for CircularImports {
     fn meta(&self) -> &'static RuleMeta {
         &META
@@ -79,6 +88,13 @@ impl JsRule for CircularImports {
 
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
         let modules = analysis.graph.modules();
+        let cycles_config = &analysis.setup.cycles;
+        let dynamic_imports = cycles_config.dynamic_imports;
+        let allowed: Vec<BTreeSet<String>> = cycles_config
+            .allow
+            .iter()
+            .map(|files| files.iter().map(|file| normalize(file)).collect())
+            .collect();
         let adjacency: Vec<Vec<usize>> = modules
             .iter()
             .map(|module| {
@@ -91,7 +107,7 @@ impl JsRule for CircularImports {
                             .info
                             .imports
                             .get(resolved.import)
-                            .is_some_and(|import| import.kind != ImportKind::Dynamic)
+                            .is_some_and(|import| dynamic_imports || import.kind != ImportKind::Dynamic)
                     })
                     .filter_map(|resolved| match resolved.target {
                         Target::Module(id) => Some(id.index()),
@@ -120,6 +136,15 @@ impl JsRule for CircularImports {
             let first = &modules[cycle[0]];
             if first.ignored {
                 continue;
+            }
+            if !allowed.is_empty() {
+                let files: BTreeSet<String> = cycle
+                    .iter()
+                    .map(|member| normalize(&modules[*member].path.to_string_lossy()))
+                    .collect();
+                if allowed.contains(&files) {
+                    continue;
+                }
             }
             let span = first.imports.iter().find_map(|resolved| {
                 let Target::Module(id) = resolved.target else {
