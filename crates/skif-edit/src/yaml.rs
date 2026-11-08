@@ -155,10 +155,25 @@ fn diff(before: &str, after: &str) -> Option<Planned> {
     while !(before.is_char_boundary(before.len() - suffix) && after.is_char_boundary(after.len() - suffix)) {
         suffix -= 1;
     }
+    let (mut start, mut end) = (prefix, before.len() - suffix);
+    let replacement = &after[prefix..after.len() - suffix];
+    // A deletion can sit anywhere along a run of repeated text: removing `catalog:` before `catalogs:` matches the
+    // `catalog` of the next key. Slide it back to the start of a line, so that removing whole entries gives
+    // line-aligned edits that do not overlap the removal of a neighbouring entry.
+    if replacement.is_empty() {
+        let bytes = before.as_bytes();
+        while start > 0 && bytes[start - 1] != b'\n' && bytes[start - 1] == bytes[end - 1] {
+            start -= 1;
+            end -= 1;
+        }
+        if (start > 0 && bytes[start - 1] != b'\n') || !before.is_char_boundary(start) {
+            (start, end) = (prefix, before.len() - suffix);
+        }
+    }
     Some(Planned {
         op: 0,
-        start: prefix,
-        end: before.len() - suffix,
-        replacement: after[prefix..after.len() - suffix].to_owned(),
+        start,
+        end,
+        replacement: replacement.to_owned(),
     })
 }

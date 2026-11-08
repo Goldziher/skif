@@ -9,7 +9,7 @@
 | [`catalog-not-used`](#catalog-not-used) | catalog | warning | sometimes |
 | [`catalog-version-divergence`](#catalog-version-divergence) | catalog | warning | none |
 | [`unresolved-catalog-references`](#unresolved-catalog-references) | catalog | error | none |
-| [`unused-catalog-entries`](#unused-catalog-entries) | catalog | warning | none |
+| [`unused-catalog-entries`](#unused-catalog-entries) | catalog | warning | unsafe |
 | [`circular-imports`](#circular-imports) | js | off | none |
 | [`duplicate-exports`](#duplicate-exports) | js | warning | none |
 | [`stale-js-config`](#stale-js-config) | js | warning | none |
@@ -19,11 +19,11 @@
 | [`unresolved-imports`](#unresolved-imports) | js | error | none |
 | [`unused-dependencies`](#unused-dependencies) | js | error | unsafe |
 | [`unused-dev-dependencies`](#unused-dev-dependencies) | js | warning | unsafe |
-| [`unused-enum-members`](#unused-enum-members) | js | warning | none |
+| [`unused-enum-members`](#unused-enum-members) | js | warning | unsafe |
 | [`unused-exports`](#unused-exports) | js | warning | unsafe |
 | [`unused-files`](#unused-files) | js | warning | unsafe |
 | [`unused-namespace-exports`](#unused-namespace-exports) | js | warning | unsafe |
-| [`unused-namespace-members`](#unused-namespace-members) | js | warning | none |
+| [`unused-namespace-members`](#unused-namespace-members) | js | warning | unsafe |
 | [`unused-namespace-types`](#unused-namespace-types) | js | warning | unsafe |
 | [`unused-optional-peer-dependencies`](#unused-optional-peer-dependencies) | js | warning | none |
 | [`unused-types`](#unused-types) | js | warning | unsafe |
@@ -31,6 +31,7 @@
 | [`incompatible-peer-dependencies`](#incompatible-peer-dependencies) | manifest | warning | none |
 | [`local-path-dependency`](#local-path-dependency) | manifest | error | sometimes |
 | [`member-toolchain-fields`](#member-toolchain-fields) | manifest | warning | unsafe |
+| [`package-json-format`](#package-json-format) | manifest | off | sometimes |
 | [`root-package-dependencies`](#root-package-dependencies) | manifest | warning | unsafe |
 | [`root-package-manager-field`](#root-package-manager-field) | manifest | error | none |
 | [`root-package-private-field`](#root-package-private-field) | manifest | error | safe |
@@ -92,7 +93,7 @@ A catalog entry that no manifest references; reported only when `[catalog] repor
 
 - Category: catalog
 - Default severity: warning
-- Fixable: none
+- Fixable: unsafe
 
 ## circular-imports
 
@@ -112,7 +113,7 @@ One binding is exported under several names.
 
 ## stale-js-config
 
-A `[js]` ignore entry or workspace key matched nothing in the run.
+A `[js]` ignore entry, workspace key, file pattern or ignore tag matched nothing in the run.
 
 - Category: js
 - Default severity: warning
@@ -152,7 +153,7 @@ An import specifier does not resolve to a file or a package.
 
 ## unused-dependencies
 
-A package in `dependencies` is never imported, required or run by a script.
+A package in `dependencies` is never imported, required or run by a script; `optionalDependencies` are not checked.
 
 - Category: js
 - Default severity: error
@@ -172,7 +173,7 @@ A member of an exported enum is never read.
 
 - Category: js
 - Default severity: warning
-- Fixable: none
+- Fixable: unsafe
 
 ## unused-exports
 
@@ -204,7 +205,7 @@ An exported member of a TypeScript namespace is never read.
 
 - Category: js
 - Default severity: warning
-- Fixable: none
+- Fixable: unsafe
 
 ## unused-namespace-types
 
@@ -262,6 +263,14 @@ Private member packages should not declare `packageManager` or `engines`; the ro
 - Category: manifest
 - Default severity: warning
 - Fixable: unsafe
+
+## package-json-format
+
+A `package.json` is not formatted as `[format]` describes: key order, sorted fields, `exports` conditions, shorthand `bugs` and `repository`, and the indent. The fix is unsafe when `sort-exports` reorders conditions other than `types` and `default`.
+
+- Category: manifest
+- Default severity: off
+- Fixable: sometimes
 
 ## root-package-dependencies
 

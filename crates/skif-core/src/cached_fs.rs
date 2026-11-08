@@ -1,12 +1,14 @@
 //! A memoizing [`FileSystem`] so one run reads every directory and configuration file at most once.
 
 use std::collections::HashMap;
-use std::ffi::OsStr;
-use std::hash::{BuildHasher, RandomState};
+use std::ffi::{OsStr, OsString};
+use std::hash::BuildHasher;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::SystemTime;
+
+use rustc_hash::FxBuildHasher;
 
 use crate::fs::{DirEntry, FileSystem, PathKind};
 
@@ -23,32 +25,42 @@ const MAX_CACHED_TEXT: usize = 128 * 1024;
 type Listing = Result<Arc<[DirEntry]>, io::ErrorKind>;
 
 /// A path-keyed map split over independently locked shards, so parallel readers rarely contend.
+///
+/// Every probe of the resolver looks a long absolute path up here, so keys are the raw bytes of the path hashed with
+/// `FxHash` instead of [`Path`]'s component-wise hash: the keys are paths of the run's own tree, not input chosen to
+/// collide. Two spellings of one path (`a/b` and `a/./b`) are two keys; the second costs one more question to the
+/// wrapped file system, never a different answer.
 struct Sharded<V> {
-    hasher: RandomState,
-    shards: Vec<RwLock<HashMap<PathBuf, V>>>,
+    shards: Vec<RwLock<Shard<V>>>,
 }
+
+type Shard<V> = HashMap<OsString, V, FxBuildHasher>;
 
 impl<V: Clone> Sharded<V> {
     fn new() -> Self {
         Self {
-            hasher: RandomState::new(),
-            shards: (0..SHARDS).map(|_| RwLock::new(HashMap::new())).collect(),
+            shards: (0..SHARDS)
+                .map(|_| RwLock::new(HashMap::with_hasher(FxBuildHasher)))
+                .collect(),
         }
     }
 
-    fn shard(&self, key: &Path) -> &RwLock<HashMap<PathBuf, V>> {
-        let index = usize::try_from(self.hasher.hash_one(key) % SHARDS).unwrap_or(0);
+    fn shard(&self, key: &OsStr) -> &RwLock<Shard<V>> {
+        // The high bits of an Fx hash are the well mixed ones.
+        let index = usize::try_from((FxBuildHasher.hash_one(key) >> 32) % SHARDS).unwrap_or(0);
         &self.shards[index]
     }
 
     fn get(&self, key: &Path) -> Option<V> {
+        let key = key.as_os_str();
         let shard = self.shard(key).read().unwrap_or_else(PoisonError::into_inner);
         shard.get(key).cloned()
     }
 
     fn insert(&self, key: &Path, value: V) {
+        let key = key.as_os_str();
         let mut shard = self.shard(key).write().unwrap_or_else(PoisonError::into_inner);
-        shard.insert(key.to_path_buf(), value);
+        shard.insert(key.to_os_string(), value);
     }
 
     fn clear(&self) {
@@ -158,7 +170,10 @@ impl<F: FileSystem> CachedFs<F> {
         let Ok(entries) = listing else {
             return Some(PathKind::NONE);
         };
-        match entries.binary_search_by(|entry| entry.path.as_path().cmp(path)) {
+        // The entries are siblings in path order, which for siblings is the order of their names: comparing the names
+        // spares parsing every component of two long paths per step.
+        let name = path.file_name()?;
+        match entries.binary_search_by(|entry| entry.path.file_name().unwrap_or_default().cmp(name)) {
             Ok(index) => Some(PathKind {
                 is_file: entries[index].is_file,
                 is_dir: entries[index].is_dir,
@@ -468,6 +483,40 @@ mod tests {
         assert!(!fs.is_file(Path::new("/ws/tsconfig.json")));
         assert!(!fs.is_dir(Path::new("/ws/missing")));
         assert_eq!(count(&fs.inner().stats), 0);
+    }
+
+    #[test]
+    fn another_spelling_of_a_path_gets_the_same_answer() {
+        let fs = cached();
+        fs.read_dir(Path::new("/ws")).unwrap();
+        fs.read_dir(Path::new("/ws/src")).unwrap();
+        // Keys are the bytes of the path: these spellings miss the cache and are asked of the disk, which agrees.
+        for (spelling, is_file, is_dir) in [
+            ("/ws/./package.json", true, false),
+            ("/ws//src/index.ts", true, false),
+            ("/ws/src/", false, true),
+        ] {
+            let kind = fs.kind(Path::new(spelling));
+            assert_eq!((kind.is_file, kind.is_dir), (is_file, is_dir), "{spelling}");
+        }
+    }
+
+    #[test]
+    fn names_are_found_in_a_listing_whatever_their_length_and_order() {
+        let fs = CachedFs::new(
+            MemoryFs::new()
+                .with_file("/ws/a-b.ts", "")
+                .with_file("/ws/a.ts", "")
+                .with_file("/ws/a/b.ts", "")
+                .with_file("/ws/ab.ts", "")
+                .with_file("/ws/B.ts", ""),
+        );
+        fs.read_dir(Path::new("/ws")).unwrap();
+        for name in ["a-b.ts", "a.ts", "ab.ts", "B.ts"] {
+            assert!(fs.is_file(&Path::new("/ws").join(name)), "{name}");
+        }
+        assert!(fs.is_dir(Path::new("/ws/a")));
+        assert!(!fs.is_file(Path::new("/ws/b.ts")));
     }
 
     #[test]

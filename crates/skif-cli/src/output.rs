@@ -7,7 +7,11 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value};
 use skif::render::{RenderOptions, render_github, render_human, render_sarif};
 use skif::{FileSystem, Report, RuleMeta};
-use skif_report::{ErrorInfo, escape_controls, escape_multiline, render_json_error_info_with, render_json_with};
+use skif_report::{
+    CODEOWNERS_LOCATIONS, CodeOwners, ErrorInfo, escape_controls, escape_multiline, render_codeclimate,
+    render_codeowners, render_compact, render_disclosure, render_json_error_info_with, render_json_with,
+    render_markdown,
+};
 
 use crate::args::Format;
 use crate::error::{CliError, Kind};
@@ -130,10 +134,35 @@ pub fn render(
     if rendering.format == Format::Sarif {
         options = options.with_rules(rendering.rules.iter().copied());
     }
+    if rendering.format == Format::Codeowners {
+        options = options.with_codeowners(read_codeowners(rendering.repo_root.as_deref().unwrap_or(root), fs)?);
+    }
     let mut buffer = Vec::new();
     write_report(report, roots, rendering, &options, fixes, &mut buffer)
         .map_err(|error| CliError::new(Kind::Io, format!("cannot render the report: {error}")))?;
     Ok(buffer)
+}
+
+/// The CODEOWNERS file of the repository at `top`, from the first of the locations GitHub and GitLab search.
+fn read_codeowners(top: &Path, fs: &dyn FileSystem) -> Result<CodeOwners, CliError> {
+    for location in CODEOWNERS_LOCATIONS {
+        let path = top.join(location);
+        if fs.is_file(&path) {
+            let text = fs
+                .read_to_string(&path)
+                .map_err(|error| CliError::io("cannot read", &path, &error))?;
+            return Ok(CodeOwners::parse(&text));
+        }
+    }
+    // The repository lacks a file the run is configured to need, like a missing config file, not a bad flag.
+    Err(CliError::new(
+        Kind::Config,
+        format!(
+            "--format codeowners needs a CODEOWNERS file; none of {} exists in {}",
+            CODEOWNERS_LOCATIONS.join(", "),
+            top.display()
+        ),
+    ))
 }
 
 fn write_human_roots(
@@ -197,6 +226,11 @@ fn write_report(
         }
         Format::Sarif => render_sarif(report, options, out),
         Format::Github => render_github(report, options, out),
+        Format::Codeclimate => render_codeclimate(report, options, out),
+        Format::Compact => render_compact(report, options, out),
+        Format::Markdown => render_markdown(report, options, out),
+        Format::Disclosure => render_disclosure(report, options, out),
+        Format::Codeowners => render_codeowners(report, options, out),
     }
 }
 
@@ -212,5 +246,28 @@ pub fn emit(bytes: &[u8], output: Option<&Path>) -> Result<(), CliError> {
     match output {
         Some(path) => write_atomic(path, bytes).map_err(|error| CliError::io("cannot write", path, &error)),
         None => write_stdout(bytes),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use skif::MemoryFs;
+
+    use super::*;
+
+    #[test]
+    fn a_missing_codeowners_file_is_a_config_error() {
+        let error = read_codeowners(Path::new("/repo"), &MemoryFs::new()).unwrap_err();
+        assert_eq!(error.kind, Kind::Config);
+        assert!(error.message.contains("CODEOWNERS"), "{}", error.message);
+    }
+
+    #[test]
+    fn codeowners_is_read_from_the_first_location() {
+        let fs = MemoryFs::new()
+            .with_file("/repo/CODEOWNERS", "* @second\n")
+            .with_file("/repo/.github/CODEOWNERS", "\u{feff}* @first\n");
+        let codeowners = read_codeowners(Path::new("/repo"), &fs).unwrap();
+        assert_eq!(codeowners.owners("package.json"), ["@first"]);
     }
 }

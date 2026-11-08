@@ -66,7 +66,9 @@ pub fn apply_fixes(files: Files<'_>, diagnostics: &[Diagnostic]) -> Vec<(String,
         .flat_map(|fix| &fix.ops)
     {
         match op {
-            FixOp::Json { path, .. } | FixOp::Yaml { path, .. } => by_file.entry(name(path)).or_default().push(op),
+            FixOp::Json { path, .. } | FixOp::Yaml { path, .. } | FixOp::Text { path, .. } => {
+                by_file.entry(name(path)).or_default().push(op);
+            }
             FixOp::CreateFile {
                 path, contents: text, ..
             } => {

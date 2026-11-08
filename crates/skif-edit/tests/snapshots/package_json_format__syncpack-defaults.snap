@@ -1,0 +1,54 @@
+---
+source: crates/skif-edit/tests/package_json_format.rs
+expression: "report(\"syncpack-defaults\")"
+---
+issues:
+  - the top-level keys are not in the configured order
+  - `dependencies` is not sorted alphabetically
+  - `devDependencies` is not sorted alphabetically
+  - `keywords` is not sorted alphabetically
+  - `scripts` is not sorted alphabetically
+--- before
+{
+  "private": true,
+  "version": "2.1.0",
+  "scripts": {
+    "test": "vitest",
+    "build": "tsc -b",
+    "lint": "skif"
+  },
+  "name": "@acme/web",
+  "keywords": ["web", "acme", "app"],
+  "devDependencies": {
+    "vitest": "^3.0.0",
+    "typescript": "^5.9.3"
+  },
+  "files": ["dist", "README.md"],
+  "description": "The web app",
+  "dependencies": { "react": "^19.0.0", "@acme/ui": "workspace:*" },
+  "engines": {
+    "node": ">=22"
+  }
+}
+--- after
+{
+  "name": "@acme/web",
+  "description": "The web app",
+  "version": "2.1.0",
+  "dependencies": { "@acme/ui": "workspace:*", "react": "^19.0.0" },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": ["dist", "README.md"],
+  "keywords": ["acme", "app", "web"],
+  "private": true,
+  "scripts": {
+    "build": "tsc -b",
+    "lint": "skif",
+    "test": "vitest"
+  }
+}

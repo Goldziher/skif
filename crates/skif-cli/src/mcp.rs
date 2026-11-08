@@ -1,4 +1,4 @@
-//! `skif mcp`: a Model Context Protocol server on the stdio transport (ADR 0050).
+//! `skif mcp`: a Model Context Protocol server on the stdio transport (ADR 0056).
 //!
 //! One JSON-RPC 2.0 message per line in each direction. The tools return the same documents the commands print
 //! with `--format json`; a tool that cannot run returns the `error` document with `isError`, as the protocol asks.

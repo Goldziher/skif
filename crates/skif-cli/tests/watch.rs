@@ -1,4 +1,4 @@
-//! `skif --watch` lints again after a file changes (ADR 0050).
+//! `skif --watch` lints again after a file changes (ADR 0056).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
