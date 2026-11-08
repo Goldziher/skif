@@ -8,7 +8,7 @@ use std::path::Path;
 
 use indexmap::IndexMap;
 use skif_core::MemoryFs;
-use skif_js_plugins::{IncompleteCause, PluginContext, PluginId, PluginOutput, resolve_plugins};
+use skif_js_plugins::{IncompleteCause, IncompleteScope, PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
@@ -714,5 +714,137 @@ fn an_unknown_entry_key_below_the_top_level_is_incomplete() {
     for (file, plugin, source) in known {
         let results = run(&[(file, source)], &[plugin], &[]);
         assert!(!output(&results, plugin).entries_incomplete, "{source}");
+    }
+}
+
+/// Whether every reason of `plugin` leaves only files matching globs unjudged, and one of them is `glob`.
+fn scoped_to(results: &[(PluginId, PluginOutput)], plugin: &str, glob: &str) -> bool {
+    let reasons = &output(results, plugin).incomplete_reasons;
+    !reasons.is_empty()
+        && reasons
+            .iter()
+            .all(|reason| matches!(&reason.scope, IncompleteScope::Within(globs) if globs.iter().any(|g| g == glob)))
+}
+
+fn package_wide(results: &[(PluginId, PluginOutput)], plugin: &str) -> bool {
+    let reasons = &output(results, plugin).incomplete_reasons;
+    !reasons.is_empty() && reasons.iter().any(|reason| reason.scope == IncompleteScope::Package)
+}
+
+/// A config a plugin cannot fully read hides only what that tool takes entries from (ADR 0065).
+#[test]
+fn incomplete_configs_are_scoped_to_what_the_tool_could_make_an_entry() {
+    let spread = "import base from './base';\nexport default { ...base };";
+    let vite = run(&[("vite.config.ts", spread)], &["vite"], &[]);
+    assert!(scoped_to(
+        &vite,
+        "vite",
+        "{,src/}{index,main}.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte,astro,mdx}"
+    ));
+
+    let vitest = run(&[("vitest.config.ts", spread)], &["vitest"], &[]);
+    assert!(scoped_to(
+        &vitest,
+        "vitest",
+        "**/*{setup,Setup,teardown,Teardown}*.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte,astro,mdx}"
+    ));
+    // A test config merged into an unknown base is still a test config.
+    let merged = "import { mergeConfig } from 'vitest/config';\nimport base from './base';\n\
+                  export default mergeConfig(base, { test: { environment: 'node' } });";
+    let merged = run(&[("vitest.config.ts", merged)], &["vitest"], &[]);
+    assert!(scoped_to(
+        &merged,
+        "vitest",
+        "**/__mocks__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}"
+    ));
+
+    let next = run(
+        &[("next.config.js", "module.exports = (phase) => wrap({});")],
+        &["next"],
+        &[],
+    );
+    assert!(scoped_to(&next, "next", "{,src/}{app,pages}/**"));
+
+    let playwright = run(&[("playwright.config.ts", spread)], &["@playwright/test"], &[]);
+    assert!(scoped_to(
+        &playwright,
+        "playwright",
+        "**/{test,tests,__tests__,__mocks__,__fixtures__,e2e,spec,specs,fixtures,mocks,testing,test-utils}/**"
+    ));
+    // A config in a subdirectory scopes its conventions to that directory.
+    let nested = run(
+        &[("e2e/playwright.config.ts", spread)],
+        &["@playwright/test"],
+        &[("e2e", "playwright test -c e2e/playwright.config.ts")],
+    );
+    assert!(scoped_to(
+        &nested,
+        "playwright",
+        "e2e/**/{test,tests,__tests__,__mocks__,__fixtures__,e2e,spec,specs,fixtures,mocks,testing,test-utils}/**"
+    ));
+}
+
+/// A key naming files the config computes itself, an unknown Vite or Vitest config, a config that does not parse and a
+/// plugin that gives no scope keep the whole package unjudged.
+#[test]
+fn computed_unparsable_and_unscoped_configs_stay_package_wide() {
+    let cases: [(&str, &str, &str); 11] = [
+        (
+            "vite",
+            "vite.config.ts",
+            "export default { build: { lib: { entry: pick() } } };",
+        ),
+        (
+            "vite",
+            "vite.config.ts",
+            "import base from './base';\nexport default { ...base, build: { rollupOptions: { input: pick() } } };",
+        ),
+        ("vite", "vite.config.ts", "export default makeConfig();"),
+        ("vite", "vite.config.ts", "export default {"),
+        (
+            "vitest",
+            "vitest.config.ts",
+            "export default { root: here(), test: {} };",
+        ),
+        (
+            "vitest",
+            "vitest.config.ts",
+            "export default { test: { include: process.env.CI ? ['src/**/*.check.ts'] : ['src/**/*.unit.ts'] } };",
+        ),
+        (
+            "vitest",
+            "vitest.config.ts",
+            "import base from './base';\nexport default { ...base, test: { setupFiles: [pick()] } };",
+        ),
+        (
+            "vitest",
+            "vitest.config.ts",
+            "export default { test: { projects: [{ test: { globalSetup: pick() } }] } };",
+        ),
+        // A factory called with the package's options may name any of its files.
+        (
+            "vitest",
+            "vitest.config.ts",
+            "export default make({ include: ['src/**/*.check.ts'] });",
+        ),
+        (
+            "playwright",
+            "playwright.config.ts",
+            "export default make({ testDir: './browser', testMatch: '**/*.pw.ts' });",
+        ),
+        ("webpack", "webpack.config.js", "module.exports = { entry: pick() };"),
+    ];
+    for (plugin, file, source) in cases {
+        let dependency = if plugin == "playwright" {
+            "@playwright/test"
+        } else {
+            plugin
+        };
+        let results = run(&[(file, source)], &[dependency], &[]);
+        assert!(
+            package_wide(&results, plugin),
+            "{plugin}: {source}: {:?}",
+            output(&results, plugin).incomplete_reasons
+        );
     }
 }

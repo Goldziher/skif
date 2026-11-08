@@ -271,15 +271,36 @@ fn n8n_nodes_and_credentials_are_entries() {
 fn imported_base_configs_are_followed() {
     let diagnostics = Run::new("imported-base-configs", "").lint_with_plugins();
     // The base configs of a workspace package and of a relative module are read, so the packages using them are
-    // judged and their dead files reported. The config that imports itself back stays unknown, and its package is not.
+    // judged and their dead files reported. The config that imports itself back stays unknown, but a test config can
+    // only hide tests, so the other files of its package are judged too (ADR 0065).
     assert_eq!(
         found(&diagnostics, "unused-files"),
         [
             "packages/app/src/orphan.ts: packages/app/src/orphan.ts",
+            "packages/cyclic/src/hidden.ts: packages/cyclic/src/hidden.ts",
             "packages/web/src/dead.ts: packages/web/src/dead.ts",
         ]
     );
     insta::assert_json_snapshot!("imported_base_configs", diagnostics);
+}
+
+/// A config skif cannot fully read leaves only the files its plugin could make entries unjudged (ADR 0065): Vite's
+/// `index`/`main` module, Vitest's and Playwright's tests, setup modules and test directories, and the Next.js
+/// router directories. Every other file is judged. A computed `import()` or an unparsable config keeps the whole
+/// package unjudged.
+#[test]
+fn incomplete_configs_narrow_what_is_not_judged() {
+    let diagnostics = Run::new("incomplete-scopes", "").lint_with_plugins();
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "packages/e2e/src/dead.ts: packages/e2e/src/dead.ts",
+            "packages/next-app/lib/cropImage.ts: packages/next-app/lib/cropImage.ts",
+            "packages/vite-app/src/dead.ts: packages/vite-app/src/dead.ts",
+            "packages/vitest-lib/src/dead.ts: packages/vitest-lib/src/dead.ts",
+        ]
+    );
+    insta::assert_json_snapshot!("incomplete_scopes", diagnostics);
 }
 
 #[test]

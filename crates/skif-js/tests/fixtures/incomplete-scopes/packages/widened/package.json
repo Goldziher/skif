@@ -1,0 +1,8 @@
+{
+  "name": "@fx/widened",
+  "version": "1.0.0",
+  "type": "module",
+  "devDependencies": {
+    "vite": "^7.0.0"
+  }
+}

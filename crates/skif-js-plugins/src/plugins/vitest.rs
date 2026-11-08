@@ -2,12 +2,22 @@
 
 use skif_js_syntax::ConfigValue;
 
-use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
+use crate::plugin::{
+    ConfigAst, Enabler, IncompleteCause, IncompleteScope, Plugin, PluginContext, PluginInput, PluginSpec,
+};
 use crate::plugins::vite;
 use crate::support::{
-    alias_inputs, entry_glob, entry_strings, get_in, module_input, name_of, objects, package_name, project_files,
-    shallow_key_unknown, strings,
+    alias_inputs, config_unknown, convention_scope, entry_glob, entry_strings, get_in, module_input, name_of, objects,
+    own_path_unknown, package_name, project_files, shallow_key_unknown, strings,
 };
+
+/// Where test runners find what a config names besides the test files of [`SPEC`]: test and fixture directories, and
+/// setup and teardown modules. Shared with the Playwright plugin.
+pub(crate) const TEST_CONVENTIONS: &[&str] = &[
+    "**/{test,tests,__tests__,__mocks__,__fixtures__,e2e,spec,specs,fixtures,mocks,testing,test-utils}/**",
+    "**/*{setup,Setup,teardown,Teardown}*.{ext}",
+    "**/*.{test,spec,bench,e2e,integration}*.{ext}",
+];
 
 /// The `vitest` plugin.
 pub struct Vitest;
@@ -53,6 +63,43 @@ impl Plugin for Vitest {
         collect(config.value, config, cx, &mut out, 0);
         out
     }
+
+    /// What a spread or merged base test config hides is tests: test files, test directories and setup modules. A
+    /// file key the config computes itself, or a config unknown as a whole (a factory called with this package's
+    /// options), may name any file.
+    fn incomplete_scope(&self, _cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
+        if computes_files(config.value, 0) {
+            return IncompleteScope::Package;
+        }
+        convention_scope(&SPEC, config, TEST_CONVENTIONS)
+    }
+}
+
+/// The keys a Vitest config names files by: the project root holding `index.html`, the test globs and the setup
+/// modules.
+const FILE_KEYS: &[&[&str]] = &[
+    &["root"],
+    &["test", "include"],
+    &["test", "setupFiles"],
+    &["test", "globalSetup"],
+];
+
+/// Whether a config, a workspace list of them or a project they nest is unknown as a whole or computes one of
+/// [`FILE_KEYS`] in its own text, leaving aside what an unknown spread or merge may set.
+fn computes_files(value: &ConfigValue, depth: u8) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    if depth == 0 && config_unknown(value) {
+        return true;
+    }
+    objects(value).into_iter().any(|object| {
+        FILE_KEYS.iter().any(|path| own_path_unknown(object, path))
+            || ["workspace", "projects"]
+                .iter()
+                .filter_map(|key| get_in(object, &["test", key]))
+                .any(|projects| computes_files(projects, depth + 1))
+    })
 }
 
 /// Handles a config object, a workspace array of them, and the `test.workspace` / `test.projects` they nest.

@@ -72,6 +72,7 @@ old one.
 | 0062 | [Custom Element Registrations and the taskr Plugin](0062-custom-element-registrations-and-the-taskr-plugin.md) | accepted |
 | 0063 | [`skif update --interactive`: A Terminal Picker on the Update Report](0063-skif-update-interactive-a-terminal-picker-on-the-update-report.md) | accepted |
 | 0064 | [Code Actions in the Language Server](0064-code-actions-in-the-language-server.md) | accepted |
+| 0065 | [Narrowed Scope for Incomplete Entries: Only What an Unreadable Config Could Make an Entry Stays Unjudged](0065-narrowed-scope-for-incomplete-entries.md) | accepted |
 
 ## Effective statements
 
@@ -181,3 +182,6 @@ the lines below stay as written; this table says which record governs.
 | [0058](0058-registry-updates-an-opt-in-skif-update-command.md), line 86 | `--interactive` is deferred | [0063](0063-skif-update-interactive-a-terminal-picker-on-the-update-report.md): implemented in the CLI on a filtered copy of the update report; it needs a terminal, conflicts with `--check`, and Esc writes nothing |
 | [0056](0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md), lines 105 and 114 | document sync is limited to open and save; `didChange` is not handled | [0064](0064-code-actions-in-the-language-server.md): `didChange` is incremental and only marks a document as having unsaved changes; buffers are still not linted |
 | [0056](0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md), line 114 | code actions from fixes are deferred | [0064](0064-code-actions-in-the-language-server.md): `textDocument/codeAction` offers a quick fix per fix alternative (unsafe ones labelled and never preferred) and `source.fixAll.skif` with the safe, prefer-aware fixes; plans that create or delete files or edit unsaved documents are withheld |
+| [0035](0035-js-evaluation-parity-unreadable-configs-unresolved-specifiers-and-test-entries.md), line 39 | a package whose config cannot be read has no unused-file and unused-dependency findings at all | [0065](0065-narrowed-scope-for-incomplete-entries.md): its unused dependencies are still not reported; `unused-files` skips only the files the config could make entries (a plugin's narrowed scope), unless the config does not parse, the plugin gives no scope or the package loads a module by a computed path |
+| [0053](0053-incomplete-packages-in-the-json-report.md), line 14 | skif reports none of the files of an incomplete package as unused | [0065](0065-narrowed-scope-for-incomplete-entries.md): only the files in the narrowed scope of its configs are not judged when every reason has one; a package in `incomplete-packages` may have unused files reported |
+| [0053](0053-incomplete-packages-in-the-json-report.md), line 67 | the human note says unused files and dependencies "were not checked" | [0065](0065-narrowed-scope-for-incomplete-entries.md): it says they "were not fully checked" |

@@ -9,8 +9,8 @@ use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins};
 use crate::config_check::relative_tsconfig;
 use crate::config_modules::ConfigModules;
 use crate::input::{
-    BuildDir, CustomElementLibrary, IncompleteCause, IncompleteEntries, InputRequest, InputSource, PathAlias,
-    WorkspaceInputs,
+    BuildDir, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope, InputRequest, InputSource,
+    PathAlias, WorkspaceInputs,
 };
 use crate::setup::WorkspaceKeys;
 
@@ -172,7 +172,20 @@ fn names(output: &[skif_js_plugins::DepRef], optional: bool) -> impl Iterator<It
         .map(|dependency| dependency.name.clone())
 }
 
+/// The scope of every reason together; the whole package when there is none.
+fn incomplete_scope(reasons: &[skif_js_plugins::IncompleteEntries]) -> IncompleteScope {
+    reasons
+        .iter()
+        .map(|reason| match &reason.scope {
+            skif_js_plugins::IncompleteScope::Within(globs) => IncompleteScope::Within(globs.clone()),
+            _ => IncompleteScope::Package,
+        })
+        .reduce(IncompleteScope::union)
+        .unwrap_or_default()
+}
+
 fn inputs(output: PluginOutput) -> WorkspaceInputs {
+    let incomplete_scope = incomplete_scope(&output.incomplete_reasons);
     let entry = output
         .entries
         .iter()
@@ -237,6 +250,7 @@ fn inputs(output: PluginOutput) -> WorkspaceInputs {
                 file: Some(reason.file),
             })
             .collect(),
+        incomplete_scope,
     }
 }
 

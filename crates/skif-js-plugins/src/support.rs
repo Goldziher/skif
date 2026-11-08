@@ -3,7 +3,7 @@
 
 use skif_js_syntax::ConfigValue;
 
-use crate::plugin::{ConfigAst, PluginContext, PluginInput};
+use crate::plugin::{ConfigAst, IncompleteScope, PluginContext, PluginInput, PluginSpec};
 
 const FILE_EXTENSIONS: &[&str] = &[
     "js", "jsx", "ts", "tsx", "mjs", "cjs", "mts", "cts", "json", "css", "scss", "html", "vue", "svelte",
@@ -392,6 +392,47 @@ pub(crate) fn entry_strings<'v>(object: &'v ConfigValue, key: &str, out: &mut Ve
 /// Whether the value of `key` in a config object is not fully known statically; see [`path_unknown`].
 pub(crate) fn key_unknown(object: &ConfigValue, key: &str) -> bool {
     path_unknown(object, &[key])
+}
+
+/// The extensions of the source files a convention scope matches.
+pub(crate) const SCOPE_EXTENSIONS: &str = "{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte,astro,mdx}";
+
+/// The scope of an incomplete config that can only hide entries where the tool looks by convention: the plugin's
+/// default entry globs and `conventions` (relative to the config's directory, `{ext}` standing for
+/// [`SCOPE_EXTENSIONS`]).
+pub(crate) fn convention_scope(spec: &PluginSpec, config: &ConfigAst<'_>, conventions: &[&str]) -> IncompleteScope {
+    let mut globs: Vec<String> = Vec::new();
+    let spec_globs = spec.entry.iter().chain(spec.production).map(|glob| (*glob).to_owned());
+    let conventions = conventions
+        .iter()
+        .map(|glob| join_rel(config.base, &glob.replace("{ext}", SCOPE_EXTENSIONS)));
+    for glob in spec_globs.chain(conventions) {
+        if !globs.contains(&glob) {
+            globs.push(glob);
+        }
+    }
+    IncompleteScope::Within(globs)
+}
+
+/// Whether the value at `path` is unknown in the config's own text, leaving aside what a spread or merge of an
+/// unknown value may add: a key the config computes itself, not one an imported base config may set.
+pub(crate) fn own_path_unknown(value: &ConfigValue, path: &[&str]) -> bool {
+    path_unknown(&without_spreads(value), path)
+}
+
+/// `value` without the unknown spreads of its objects, at every depth.
+fn without_spreads(value: &ConfigValue) -> ConfigValue {
+    match value {
+        ConfigValue::Object(entries) => ConfigValue::Object(
+            entries
+                .iter()
+                .filter(|(key, _)| key != "...")
+                .map(|(key, value)| (key.clone(), without_spreads(value)))
+                .collect(),
+        ),
+        ConfigValue::Array(items) => ConfigValue::Array(items.iter().map(without_spreads).collect()),
+        other => other.clone(),
+    }
 }
 
 /// The values of an object, the elements of an array or the value itself.

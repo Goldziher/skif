@@ -4,12 +4,22 @@ use skif_js_syntax::ConfigValue;
 
 use crate::config_load::load_config;
 use crate::files::find_files;
-use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
+use crate::plugin::{
+    ConfigAst, Enabler, IncompleteCause, IncompleteScope, Plugin, PluginContext, PluginInput, PluginSpec,
+};
 use crate::plugins::postcss;
 use crate::support::{
-    alias_inputs, extension_inputs, get_in, html_entries, html_entries_at, join_rel, package_name, path_unknown,
-    strings, values_of,
+    alias_inputs, convention_scope, extension_inputs, get_in, html_entries, html_entries_at, join_rel,
+    own_path_unknown, package_name, path_unknown, strings, values_of,
 };
+
+/// The keys Vite takes entry files from: the project root holding `index.html`, the build inputs and the library
+/// entries.
+const ENTRY_KEYS: &[&[&str]] = &[
+    &["root"],
+    &["build", "rollupOptions", "input"],
+    &["build", "lib", "entry"],
+];
 
 /// The `vite` plugin.
 pub struct Vite;
@@ -63,6 +73,16 @@ impl Plugin for Vite {
 
     fn resolve_without_config(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         html_entries(cx, "", "index.html")
+    }
+
+    /// A merged or spread base config is shared between packages, so it names no file of this one; at most it
+    /// replaces the build input with the conventional `index` or `main` module. An entry key the config computes
+    /// itself, or a config that is unknown as a whole, may name any file.
+    fn incomplete_scope(&self, _cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
+        if ENTRY_KEYS.iter().any(|path| own_path_unknown(config.value, path)) {
+            return IncompleteScope::Package;
+        }
+        convention_scope(&SPEC, config, &["{,src/}{index,main}.{ext}"])
     }
 }
 

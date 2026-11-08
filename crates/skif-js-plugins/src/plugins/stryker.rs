@@ -1,5 +1,5 @@
-//! Stryker: the test runner, checkers and plugins the config names are packages, and `stryker run <file>` names a
-//! config file.
+//! Stryker: the test runner, checkers and plugins the config names are packages, the runner config it names is a
+//! config of that runner, and `stryker run <file>` names a config file.
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::script_config::{positionals, workspace_path};
@@ -55,7 +55,22 @@ impl Plugin for Stryker {
                     .map(str::to_owned),
             );
         }
-        names.into_iter().map(PluginInput::OptionalDependency).collect()
+        let mut out: Vec<PluginInput> = names.into_iter().map(PluginInput::OptionalDependency).collect();
+        // The runner reads its own config from the file named here (`vitest.configFile: 'vitest.stryker.config.ts'`).
+        for (runner, plugin) in [("vitest", "vitest"), ("jest", "jest")] {
+            if let Some(file) = config
+                .value
+                .get(runner)
+                .and_then(|options| options.get("configFile"))
+                .and_then(skif_js_syntax::ConfigValue::as_str)
+            {
+                out.push(PluginInput::LinkedConfig {
+                    plugin,
+                    path: config.join(file),
+                });
+            }
+        }
+        out
     }
 
     fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
