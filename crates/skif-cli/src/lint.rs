@@ -620,17 +620,18 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
 }
 
 /// `--max-show-issues` shortens the list a person reads: human and JSON output only, and not when fixing, where
-/// the list says what is left after the fix. SARIF and GitHub annotations feed code scanning and checks, which must
-/// never miss a finding silently; for the same reason the annotations human output adds under GitHub Actions are
-/// rendered from every finding.
+/// the list says what is left after the fix. Every other format is rejected rather than silently given the full
+/// list: SARIF and GitHub annotations feed code scanning and checks, which must never miss a finding silently, and
+/// the allowlist keeps a format added later from ignoring the flag. For the same reason the annotations human
+/// output adds under GitHub Actions are rendered from every finding.
 fn check_max_show_issues(args: &LintArgs, format: Format) -> Result<(), CliError> {
     if args.max_show_issues.is_none() {
         return Ok(());
     }
     let reason = if args.fixing() {
         "cannot be combined with --fix or --fix-unsafe"
-    } else if matches!(format, Format::Sarif | Format::Github) {
-        "applies to human and json output only; sarif and github output always list every finding"
+    } else if !matches!(format, Format::Human | Format::Json) {
+        "applies to human and json output only; other formats always list every finding"
     } else {
         return Ok(());
     };
