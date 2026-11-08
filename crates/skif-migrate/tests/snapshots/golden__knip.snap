@@ -23,6 +23,7 @@ ignore-members = ["render", "/^handle/"]
 ignore-exports-used-in-file = true
 ignore-workspaces = ["examples/**"]
 include-entry-exports = true
+ignore-global-binaries = false
 
 [js.cycles]
 allow = [["src/a.ts", "src/b.ts"]]

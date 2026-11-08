@@ -342,6 +342,7 @@ ignore = ["**/*.generated.ts"]
 ignore-files = ["scripts/one-off/**"]
 ignore-dependencies = ["@types/node", "/^@org\\/.+$/"]
 ignore-binaries = ["docker"]
+ignore-global-binaries = true
 ignore-unresolved = ["#internal/*", "/^virtual:/"]
 ignore-workspaces = ["tools/*"]
 ignore-members = ["/^_/"]
@@ -480,6 +481,33 @@ reports knip's tag hints: an `ignore-tags` tag, or `@internal` with `production`
 anyway (while `unused-exports` runs). A tag on an enum or namespace that hides an unused member is needed and not
 reported.
 
+The rest of knip's configuration hints are part of `stale-js-config` too:
+
+- `entry-redundant`: an `entry` pattern that is a plain path to a file a plugin, the manifest (`main`, `exports`,
+  `bin`, ...), a tool configuration or a script already makes an entry. With `include-entry-exports`, only plugin entry
+  globs and the manifest count, since a configured entry has its exports judged.
+- `project-redundant`: a `project` pattern that is a plain path to an entry file, which is always in the project. Not
+  judged with `use-tsconfig-files`.
+- `entry-top-level` and `project-top-level`: the top-level `entry` or `project` in a workspace with several packages,
+  where they apply to the root package only; move them to the `[js.workspaces]` table they are meant for.
+- `project-extension-unregistered`: a `project` pattern selecting an extension skif does not analyse (`*.json`).
+  `project-extension-excluded`: `project` patterns that name extensions but not `.vue`, `.svelte` or `.astro` while the
+  package has such files, which then leave the project. knip ties both to its compilers; skif reads those component
+  files without one, so the second is judged by the files present instead.
+- `package-entry`: a path in `main`, `module`, `browser`, `bin`, `types`, `typings` or `exports` that names no file,
+  neither itself nor a source file behind it. Paths a `.gitignore` hides, paths in a build output directory (`dist`,
+  `build`, `lib`, ..., whatever the extension; knip reports these unless gitignored) and paths into a listed dependency are not judged. It points
+  at the field in `package.json`.
+- `top-level-unconfigured` and `workspace-unconfigured`: more than 20 unused files that are more than a fifth as many
+  as the files the analysis reached suggest missing entries, with knip's thresholds. A single-package workspace gets one hint; otherwise
+  each package with more than one unused file gets one, largest first.
+
+**`ignore-global-binaries`** (default `true`, top level only) keeps `unlisted-binaries` quiet about the system and
+platform tools scripts run (`rm`, `curl`, `git`, `docker`), which are installed globally, like knip's
+`ignoreGlobalBinaries`. Set it to `false` to report each one that no dependency provides, unless `ignore-binaries`
+lists it. Shell builtins (`cd`, `echo`, `export`), shells, pass-through commands (`env`, `sudo`, `xargs`), the package
+managers and `node` are never reported.
+
 `discovery` chooses how source files are found. `auto` (the default) lists the files from the git index when the
 analysed root is in a git work tree and checks each directory with one `stat` instead of walking it: a directory
 modified at or after the time the index was written (equal counts as modified) is listed from disk, so new untracked
@@ -508,6 +536,13 @@ its own manifest when it is analysed as a root of its own. In the other directio
 analysed root that a script of a `package.json` above it runs (up to the git repository root) is an entry, so
 `node build/npm/postinstall.ts` in the outer project keeps `build/npm/postinstall.ts` used in the nested root at
 `build` (except in production mode, where scripts give no entries).
+
+In a multi-root run (`skif -r`) the files of a nested root that an enclosing root of the same run imports are entries
+of the nested root: `import { x } from "../build/lib/x"` in the outer `src` keeps `build/lib/x.ts`, and what it
+imports, used in the root at `build`. Only the files the enclosing root's own code imports become entries, so an
+unused export of a file they import is still reported. A nested root is therefore linted after the roots that enclose
+it. A root linted on its own (`skif build`) cannot know what an outer root it was not given imports, so there such a
+file is still reported unused; lint from the top with `-r`, or add it to `entry`.
 
 A package with no source file at or below its directory, no entry and no script, such as a `remote/package.json` that
 only lists what code elsewhere in the repository installs it for, has no code skif could check its dependencies
@@ -567,7 +602,10 @@ members. A file that another loads with `new URL("./x", import.meta.url)` is use
 inside a string does not count) stays reachable, and a listed package it names is used, but mocking a package that no
 `package.json` lists is not an unlisted import; a `{ virtual: true }` mock is ignored. In an n8n node package the files
 listed in `package.json` `n8n.nodes` and `n8n.credentials` are entries; a `dist/nodes/A.node.js` there maps to
-`nodes/A.node.ts`, since such packages compile without a `rootDir`.
+`nodes/A.node.ts`, since such packages compile without a `rootDir`. The `vite` and `vitest` plugins honour Vite's
+`root` (relative to the config file): `root: "src"` makes the scripts of `src/index.html` entries, and a `/`-rooted
+script `src` or `build.rollupOptions.input` HTML file starts at `src`; a `root` that is not a static string leaves the
+package's entries incomplete.
 
 The table holds 162 built-in plugins:
 
