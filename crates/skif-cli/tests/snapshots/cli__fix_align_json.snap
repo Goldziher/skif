@@ -164,8 +164,8 @@ expression: "redact(&result.stdout, dir.path())"
       },
       {
         "rule": "version-mismatch",
-        "message": "`left-pad@1.3.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
-        "title": "Set `left-pad` to `1.3.2`"
+        "message": "`left-pad@1.0.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
+        "title": "Set `left-pad` to `1.3.0`"
       }
     ],
     "skipped": [

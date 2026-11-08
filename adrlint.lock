@@ -254,4 +254,4 @@ blake3 = "906d58d5e421b233cfc31695083bd495b13900c023c7047a48fbd1b3783fd419"
 [adrs."adrs/0051-safe-version-alignment-fixes.md"]
 number = 51
 status = "accepted"
-blake3 = "58a01573914a2c08dff9b6fa9d55d15d589313909dca6f98f241a2e097efff06"
+blake3 = "a23d3a7c6f40ed083d6c1b5407adfbafdebadbb157399cc0bed663f6948cf613"
