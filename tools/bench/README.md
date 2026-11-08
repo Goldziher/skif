@@ -146,8 +146,9 @@ difference when it is outside skif's project set (`non-code-file`), below a `fix
 which skif does not report unless `[js] include-fixtures` is set (`fixture-file`; other test-data names such as
 `testdata` or `*-fixtures` are judged by skif and not counted here), or a test file or any file below a test directory
 (`test-file`); those are reported in their own column and section, with the reason, and `--check` ignores them. Most
-`test-file` findings are not tests but apps and helpers below test directories (next.js has thousands), which skif
-reads as nested projects with their own entries or as entries of the narrowed scope of an unreadable test config.
+`test-file` findings are test files, which skif's test-runner plugins make entries, or test helpers and setup files;
+in next.js thousands are the app files of test fixtures below test directories, which are not test entries. The
+harness sets them apart by path, without establishing why skif does not report each one.
 `--include-test-files` counts `fixture-file` and `test-file` as differences (not usable with a baseline, nor is
 `--repo-knip-config`). See [ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md) and
 [ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md).

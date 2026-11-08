@@ -196,6 +196,9 @@ All notable changes to this project are documented here. The format follows
   does not report; knip-only files below `fixture`, `testdata`, `test_root`, `__testfixtures__` or `*-fixtures`, which
   skif judges, count as differences unless they are test files
   ([ADR 0068](adrs/0068-what-the-knip-comparison-sets-apart.md), [#27](https://github.com/Goldziher/skif/issues/27)).
+- The `test-file` deviation of the knip comparison no longer claims why skif has no finding there: next-js's thousands
+  are app files of test fixtures below test directories, not test entries, and the harness sets them apart by path
+  ([#27](https://github.com/Goldziher/skif/issues/27)).
 - `parity --install` compares a repository with `install = false` uninstalled instead of skipping it before either
   tool runs, so rushstack's entry names knip's own error (`Unable to find package.json`); npm-cli installs with npm 11,
   since npm 10 rejects its lockfile ([#27](https://github.com/Goldziher/skif/issues/27)).

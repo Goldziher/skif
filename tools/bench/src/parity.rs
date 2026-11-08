@@ -91,7 +91,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 6] = [
     },
     Deviation {
         id: TEST_FILE,
-        reason: "knip reports these test files and files below test directories as unused and skif does not: a test-runner plugin makes test files entries, and most other files below test directories are not tests but apps and helpers of a test suite (next-js has thousands) that skif does not report, because no test entry reaches them while they sit in a nested project skif analyses on its own, or the narrowed scope of an unreadable test config makes them entries (ADR 0065)",
+        reason: "knip reports these test files and files below test directories as unused and skif does not: its test-runner plugins make test files entries. The other files below test directories are test helpers, setup files and, in next-js (thousands), the app files of test fixtures, which are not test entries; the harness sets them apart by path without establishing why skif does not report each one",
     },
     Deviation {
         id: FIXTURE_FILE,
