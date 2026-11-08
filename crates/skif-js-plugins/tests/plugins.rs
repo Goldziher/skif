@@ -3328,6 +3328,7 @@ fn sst_handlers_in_the_config_and_the_modules_it_imports() {
                     new sst.aws.Function("Cron", { handler: "packages/functions/src/cron.handler" });
                     const infra = await import("./infra/api");
                     await import("./infra");
+                    await import("./infra/jobs.js");
                     return { api: infra.api.url };
                   },
                 });"#,
@@ -3347,6 +3348,14 @@ fn sst_handlers_in_the_config_and_the_modules_it_imports() {
                 "infra/index.ts",
                 r#"new sst.aws.Function("Edge", { handler: "edge/index.ts.handler" });"#,
             ),
+            (
+                "infra/jobs.ts",
+                r#"import "./queue.mjs"; import "./api.js"; new sst.aws.Cron("Jobs", { function: { handler: "jobs/run.handler" } });"#,
+            ),
+            (
+                "infra/queue.mts",
+                r#"new sst.aws.Queue("Q").subscribe({ handler: "jobs/queue.handler" });"#,
+            ),
         ],
         &["sst"],
     );
@@ -3360,6 +3369,8 @@ fn sst_handlers_in_the_config_and_the_modules_it_imports() {
             &format!("packages/functions/src/post.{any}"),
             &format!("packages/functions/src/notify.{any}"),
             "edge/index.ts",
+            &format!("jobs/run.{any}"),
+            &format!("jobs/queue.{any}"),
         ],
     );
     assert!(!out.entries_incomplete);
@@ -3658,7 +3669,7 @@ fn taskfile_tasks_and_includes() {
         &[
             (
                 "Taskfile.yml",
-                "version: '3'\nincludes:\n  docs: ./docs/Taskfile.yml\n  other:\n    taskfile: ./other.yml\ntasks:\n  build: tsc -b\n  lint:\n    cmds:\n      - eslint .\n      - cmd: node scripts/check.js\n        defer: { cmd: node scripts/cleanup.js }\n",
+                "version: '3'\nincludes:\n  docs: ./docs/Taskfile.yml\n  other:\n    taskfile: ./other.yml\ntasks:\n  build: tsc -b\n  release: '{{.TOOL}} publish'\n  fmt:\n    cmds:\n      - 'node {{.SCRIPT}}'\n  lint:\n    cmds:\n      - eslint .\n      - cmd: node scripts/check.js\n        defer: { cmd: node scripts/cleanup.js }\n",
             ),
             ("docs/Taskfile.yml", "version: '3'\ntasks:\n  docs:\n    cmd: typedoc\n"),
         ],
@@ -3673,6 +3684,16 @@ fn taskfile_tasks_and_includes() {
         );
     }
     assert_entries(&out.entries, &["scripts/check.js", "scripts/cleanup.js"]);
+    assert!(
+        !out.referenced_binaries.iter().any(|binary| binary.contains("{{")),
+        "{:?}",
+        out.referenced_binaries
+    );
+    assert!(
+        !out.entries.iter().any(|entry| entry.contains("{{")),
+        "{:?}",
+        out.entries
+    );
     let results = resolve(&[("taskfile.dist.yaml", "version: '3'\n")], &[]);
     output(&results, "taskfile");
     let nested = resolve_with(&[("Taskfile.yml", "version: '3'\n")], &[], false, &IndexMap::new());

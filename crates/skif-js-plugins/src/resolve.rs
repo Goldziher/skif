@@ -340,6 +340,7 @@ fn scripted_configs(spec: &PluginSpec, ctx: &PluginContext<'_>) -> ScriptedConfi
         return found;
     }
     let prefix = spec.config.first().and_then(|pattern| split_last_segment(pattern).0);
+    // `config_paths` yields only paths inside the package (relative, without `..`), so probing one stays inside it.
     for path in config_paths(ctx.scripts, spec.binaries, &config_flags(spec.id)) {
         if looks_like_file(&path) || ctx.fs.is_file(&ctx.dir.join(&path)) {
             found.config.push(path);
