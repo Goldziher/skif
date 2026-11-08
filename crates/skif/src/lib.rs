@@ -73,8 +73,9 @@
 //! | `js-analysis` | no | the oxc based JS and TypeScript analysis and the plugin table (`Linter` adds it to the built-in rules) |
 //! | `fix` | no | `apply_fixes` and `FixPlan` |
 //! | `yaml-fix` | no | YAML edits for `pnpm-workspace.yaml` (implies `fix`) |
-//! | `report` | no | the human, JSON, SARIF and GitHub renderers, as `skif::render` |
+//! | `report` | no | the renderers (human, JSON, SARIF, GitHub, Code Climate, compact, Markdown, CODEOWNERS), as `skif::render` |
 //! | `schema` | no | `config_schema` |
+//! | `update` | no | [`update`]: newer published versions from a registry the host supplies, planned as a `FixPlan` |
 //!
 //! # Third-party types in the API
 //!
@@ -118,6 +119,8 @@ mod js;
 mod linter;
 mod root;
 mod targets;
+#[cfg(feature = "update")]
+pub mod update;
 
 pub use error::Error;
 #[cfg(feature = "fix")]
@@ -126,31 +129,43 @@ pub use fix::{
     preferred_alternative,
 };
 #[cfg(feature = "js-analysis")]
-pub use js::explain_usage;
+pub use js::{explain_usage, trace_dependency};
 pub use linter::{Linter, RunOptions, builtin_providers};
 pub use root::{config_file, find_workspace_root, load_config, resolve_config};
 #[cfg(feature = "js-analysis")]
-pub use skif_js::{Absence, EntryReason, ExportReport, ExportUser, Importer, ReExport, UsageReport, Verdict};
+pub use skif_js::{
+    Absence, DependencyImport, DependencyListing, DependencyTrace, EntryReason, ExportReport, ExportUser, Importer,
+    ReExport, UsageReport, Verdict, empty_tsconfig_projects, relative_tsconfig,
+};
+/// The state of one dependency instance, from [`Linter::instances`].
+#[cfg(feature = "manifest")]
+pub use skif_rules::policy::{GroupRef, InstanceStatus, StatusType};
 pub use targets::{
     Discovery, RootFailure, Target, UnappliedConfig, UnappliedReason, discover_all, discover_targets, find_target,
     load_target, unapplied_config_files, unapplied_config_files_all,
 };
 
+/// The `[format]` table of the configuration: what `package-json-format` checks.
+pub use skif_config::Format as FormatConfig;
+/// The `[update]` table of the configuration (an [`update::Update`] is one proposed version).
+pub use skif_config::Update as UpdateConfig;
 /// The `[workspace]` table of the configuration (the discovered [`Workspace`] is a different type).
 pub use skif_config::Workspace as WorkspaceConfig;
 pub use skif_config::{
     Assignment, CONFIG_FILE_NAMES, Catalog, CatalogMode, Ceiling, Config, ConfigBuilder, ConfigCache, ConfigError,
     ConfigLoader, ConfigOverrides, ConfigSource, DependencyFamily, DependencyTypes, ExportKinds, IgnoreEntry,
-    IgnoreExportsUsedInFile, Js, JsWorkspace, Level, Lint, Op, Origins, Override, OverrideScope, PackageJs,
-    PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey, ResolvedConfig, RuleConfig, RuleOptions,
-    Selector, SemverGroup, SemverRange, SourceKind, VersionGroup, VersionPolicy, WorkspaceProtocol, join_key,
+    IgnoreExportsUsedInFile, InstanceFilter, Js, JsWorkspace, Level, Lint, Op, Origins, Override, OverrideScope,
+    PackageJs, PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey, ResolvedConfig, RuleConfig,
+    RuleOptions, Selector, SemverGroup, SemverRange, SourceKind, UpdateGroup, UpdateTarget, VersionGroup,
+    VersionPolicy, WorkspaceProtocol, join_key,
 };
 /// `[[custom-types]]` and the places a version can be declared.
 pub use skif_config::{CustomStrategy, CustomType, DependencyType};
 pub use skif_core::{
     CachedFs, Category, Diagnostic, DiagnosticBuilder, DirEntry, FileChange, FileSystem, Fix, FixOp, FixPreference,
-    FixSafety, Fixability, InsertPosition, JsonAction, Location, MemoryFs, OsFs, PathKind, PathSeg, Related, Report,
-    RuleId, RuleMeta, Severity, Span, Summary, TextEdit, YamlAction, diagnostic, slash,
+    FixSafety, Fixability, IncompleteCause, IncompleteEntries, IncompletePackage, InsertPosition, JsonAction, Location,
+    MemoryFs, OsFs, PathKind, PathSeg, Related, Report, RuleId, RuleMeta, Severity, Span, Summary, TextEdit,
+    YamlAction, diagnostic, slash,
 };
 pub use skif_lint::{
     Emitter, EnabledRules, Executor, ExecutorError, LintContext, LintError, ProviderError, RegistryError, Rule,
@@ -158,12 +173,14 @@ pub use skif_lint::{
 };
 pub use skif_workspace::{DiscoverOptions, Package, PackageId, RootKind, Workspace, WorkspaceError};
 
-/// The renderers of [`Report`]s: human, JSON, SARIF and GitHub annotations.
+/// The renderers of [`Report`]s: human, JSON, SARIF, GitHub annotations, Code Climate, compact, Markdown and
+/// CODEOWNERS groups.
 #[cfg(feature = "report")]
 pub mod render {
     pub use skif_report::{
-        ErrorInfo, Format, RenderOptions, SCHEMA_VERSION, render, render_github, render_human, render_json,
-        render_json_error, render_json_error_info, render_sarif,
+        CODEOWNERS_LOCATIONS, CodeOwners, ErrorInfo, Format, RenderOptions, SCHEMA_VERSION, render, render_codeclimate,
+        render_codeowners, render_compact, render_disclosure, render_github, render_human, render_json,
+        render_json_error, render_json_error_info, render_markdown, render_sarif,
     };
 }
 
@@ -207,6 +224,7 @@ const _: () = {
     #[cfg(feature = "js-analysis")]
     {
         let _ = assert_send_sync::<UsageReport>;
+        let _ = assert_send_sync::<DependencyTrace>;
         let _ = assert_send_sync::<skif_js::JsProvider>;
     }
     #[cfg(feature = "fix")]

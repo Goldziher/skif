@@ -1,0 +1,26 @@
+---
+source: crates/skif-edit/tests/package_json_format.rs
+expression: "report(\"mixed-newlines-indent\")"
+---
+issues:
+  - the top-level keys are not in the configured order
+  - `keywords` is not sorted alphabetically
+  - the layout differs from the configured indent
+--- before
+{\r\n
+  "version": "1.0.0",
+  "name": "mixed",\r\n
+  "keywords": [
+    "b",\r\n
+    "a"
+  ]\r\n
+}
+--- after
+{\r\n
+  "name": "mixed",\r\n
+  "version": "1.0.0",\r\n
+  "keywords": [\r\n
+    "a",\r\n
+    "b"\r\n
+  ]\r\n
+}\r\n

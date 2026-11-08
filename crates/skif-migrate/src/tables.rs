@@ -140,7 +140,11 @@ mod tests {
     #[test]
     fn syncpack_conditions_are_known() {
         for row in rows(TOOL_RULES).filter(|row| row[1] == "syncpack") {
-            assert!(["always", "catalog-policy", "sort-az"].contains(&row[2]), "{}", row[0]);
+            assert!(
+                ["always", "catalog-policy", "sort-az", "format"].contains(&row[2]),
+                "{}",
+                row[0]
+            );
         }
         assert!(syncpack_rules("catalog-policy").contains(&"catalog-not-used"));
         assert!(!syncpack_rules("always").contains(&"catalog-not-used"));

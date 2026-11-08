@@ -1,0 +1,6 @@
+{
+  "name": "root",
+  "private": true,
+  "main": "src/main.ts",
+  "workspaces": ["packages/*"]
+}

@@ -236,17 +236,44 @@ pub fn prefixed<'a>(report: &'a Report, prefix: &Path) -> Cow<'a, Report> {
             diagnostic
         })
         .collect();
-    Cow::Owned(Report::new(diagnostics, report.summary.packages))
+    let incomplete = report
+        .incomplete_packages
+        .iter()
+        .cloned()
+        .map(|mut package| {
+            package.dir = join(prefix, &package.dir);
+            for reason in &mut package.reasons {
+                reason.file = reason.file.take().map(|file| join(prefix, &file));
+            }
+            package
+        })
+        .collect();
+    Cow::Owned(Report::new(diagnostics, report.summary.packages).with_incomplete_packages(incomplete))
 }
 
-/// All roots as one report: diagnostics merged in the usual deterministic order, package counts summed.
-pub fn aggregate(reports: &[Cow<'_, Report>]) -> Report {
-    Report::new(
-        reports
-            .iter()
-            .flat_map(|report| report.diagnostics.iter().cloned())
-            .collect(),
-        reports.iter().map(|report| report.summary.packages).sum(),
+/// All roots as one report: diagnostics and incomplete packages merged in the usual deterministic order, package
+/// counts summed.
+///
+/// A single root's report is borrowed: [`Report::new`] already put it in that order, and copying thousands of
+/// diagnostics only to sort them again is a measurable part of a large run.
+pub fn aggregate<'a>(reports: &'a [Cow<'_, Report>]) -> Cow<'a, Report> {
+    if let [report] = reports {
+        return Cow::Borrowed(report);
+    }
+    Cow::Owned(
+        Report::new(
+            reports
+                .iter()
+                .flat_map(|report| report.diagnostics.iter().cloned())
+                .collect(),
+            reports.iter().map(|report| report.summary.packages).sum(),
+        )
+        .with_incomplete_packages(
+            reports
+                .iter()
+                .flat_map(|report| report.incomplete_packages.iter().cloned())
+                .collect(),
+        ),
     )
 }
 
@@ -320,5 +347,41 @@ mod tests {
         assert_eq!(error.describe(), "pkgs/a: boom");
         assert_eq!(error.to_json()["path"], "pkgs/a");
         assert_eq!(error.to_json()["kind"], "workspace");
+    }
+
+    #[test]
+    fn prefixing_and_aggregating_relocate_incomplete_packages() {
+        use skif::{IncompleteCause, IncompleteEntries, IncompletePackage};
+
+        let package = |name: &str, dir: &str, file: &str| {
+            IncompletePackage::new(
+                name.to_owned(),
+                dir.into(),
+                vec![IncompleteEntries {
+                    cause: IncompleteCause::UnknownSpread,
+                    plugin: Some("vite".to_owned()),
+                    file: Some(file.into()),
+                }],
+            )
+        };
+        let nested = Report::new(Vec::new(), 1).with_incomplete_packages(vec![package(".", "", "vite.config.ts")]);
+        let base = Report::new(Vec::new(), 1).with_incomplete_packages(vec![package("z", "z", "z/vite.config.ts")]);
+        let reports = [prefixed(&base, Path::new("")), prefixed(&nested, Path::new("apps/web"))];
+        let merged = aggregate(&reports);
+        let shown: Vec<(PathBuf, Option<PathBuf>)> = merged
+            .incomplete_packages
+            .iter()
+            .map(|package| (package.dir.clone(), package.reasons[0].file.clone()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (
+                    PathBuf::from("apps/web"),
+                    Some(PathBuf::from("apps/web/vite.config.ts"))
+                ),
+                (PathBuf::from("z"), Some(PathBuf::from("z/vite.config.ts"))),
+            ]
+        );
     }
 }

@@ -1,20 +1,23 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use skif_core::{Category, Fixability, LineIndex, Location, PathSeg, RuleMeta, Severity, Span, diagnostic};
+use skif_core::{
+    Category, Fix, FixSafety, Fixability, LineIndex, Location, PathSeg, RuleMeta, Severity, Span, diagnostic,
+};
 use skif_lint::{Emitter, LintContext, Rule};
 use skif_workspace::Workspace;
 
 use super::names::{CatalogName, referenced};
 use super::references::override_references;
 use super::support::key;
+use super::target::{CatalogFile, catalog_document, existing_file, remove_entry};
 
 /// Metadata of `unused-catalog-entries`.
 pub static META: RuleMeta = RuleMeta::new(
     "unused-catalog-entries",
     Category::Catalog,
     Some(Severity::Warning),
-    Fixability::None,
+    Fixability::Unsafe,
     "A catalog entry that no manifest references; reported only when `[catalog] report-unused-entries` is `true`.",
 );
 
@@ -52,6 +55,9 @@ impl Rule for UnusedCatalogEntries {
             .named()
             .iter()
             .map(|(name, entries)| (CatalogName::Named(name.clone()), entries));
+        // Each diagnostic is built first and probed against the central ignores: a catalog-wide removal is only
+        // offered when every one of its entries is reported, so an ignored entry is never deleted with the rest.
+        let mut reported = Vec::new();
         for (catalog, entries) in default.chain(named) {
             for (name, version) in entries
                 .iter()
@@ -68,8 +74,37 @@ impl Rule for UnusedCatalogEntries {
                 if source == workspace.root_package().manifest.path.as_path() {
                     builder = builder.package_id(workspace.root_package().id);
                 }
-                out.emit(builder.build());
+                let diagnostic = builder.build();
+                let mut probe = out.fork();
+                probe.emit(diagnostic.clone());
+                if !probe.is_empty() {
+                    reported.push((catalog.clone(), name.clone(), diagnostic));
+                }
             }
+        }
+        let removable: BTreeSet<(CatalogName, &str)> = reported
+            .iter()
+            .map(|(catalog, name, _)| (catalog.clone(), name.as_str()))
+            .collect();
+        let removable = |catalog: &CatalogName, name: &str| removable.contains(&(catalog.clone(), name));
+        let mut documents: Vec<(CatalogFile, Option<serde_json::Value>)> = Vec::new();
+        for (catalog, name, mut diagnostic) in reported.iter().cloned() {
+            if let Some(file) = existing_file(workspace, &catalog) {
+                let position = documents
+                    .iter()
+                    .position(|(known, _)| *known == file)
+                    .unwrap_or_else(|| {
+                        documents.push((file.clone(), catalog_document(workspace, &file)));
+                        documents.len() - 1
+                    });
+                let document = documents[position].1.as_ref();
+                diagnostic.fixes.push(Fix::new(
+                    format!("Remove `{name}` from {}", catalog.display()),
+                    FixSafety::Unsafe,
+                    vec![remove_entry(workspace, &file, document, &catalog, &name, &removable)],
+                ));
+            }
+            out.emit(diagnostic);
         }
     }
 }
@@ -192,5 +227,32 @@ mod tests {
             .filter_map(|diagnostic| diagnostic.dependency)
             .collect();
         assert_eq!(unused, ["react"]);
+    }
+
+    #[test]
+    fn an_ignored_entry_keeps_its_bun_catalog() {
+        use crate::testing::{config, fixed_json};
+
+        let root = r#"{"name":"root","private":true,"packageManager":"bun@1.2.0","workspaces":["packages/*"],"catalog":{"left-pad":"^1.3.0","is-even":"^1.0.0"}}"#;
+        let files = [
+            ("package.json", root),
+            ("packages/a/package.json", r#"{"name":"a","private":true}"#),
+        ];
+        let removed = fixed_json(
+            META.id,
+            &files,
+            &config("[catalog]\nreport-unused-entries = true\n"),
+            "package.json",
+        );
+        assert_eq!(removed.get("catalog"), None, "{removed}");
+        let kept = fixed_json(
+            META.id,
+            &files,
+            &config(
+                "[catalog]\nreport-unused-entries = true\n\n[[ignore]]\nrules = [\"unused-catalog-entries\"]\ndependencies = [\"is-even\"]\n",
+            ),
+            "package.json",
+        );
+        assert_eq!(kept["catalog"], serde_json::json!({ "is-even": "^1.0.0" }), "{kept}");
     }
 }

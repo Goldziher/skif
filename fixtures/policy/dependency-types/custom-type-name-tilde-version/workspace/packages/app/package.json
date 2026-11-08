@@ -1,0 +1,9 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "private": true,
+  "volta": {
+    "tool": "node",
+    "toolVersion": "20.11.0"
+  }
+}

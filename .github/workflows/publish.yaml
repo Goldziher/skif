@@ -662,6 +662,8 @@ jobs:
         env:
           # A musl cdylib must link the C runtime dynamically.
           RUSTFLAGS: ${{ contains(matrix.target, 'musl') && '-C target-feature=-crt-static' || '' }}
+          # ring's assembly needs __ARM_ARCH, which the gcc of napi-rs's aarch64 glibc sysroot does not define.
+          CFLAGS_aarch64_unknown_linux_gnu: -D__ARM_ARCH=8
         run: >-
           pnpm exec napi build --platform --profile node --esm --package skif-node
           --manifest-path ../crates/skif-node/Cargo.toml --output-dir .

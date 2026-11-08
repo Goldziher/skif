@@ -144,6 +144,7 @@ pub mod typescript;
 pub mod unbuild;
 pub mod unocss;
 pub mod unplugin_auto_import;
+pub mod unplugin_icons;
 pub mod unplugin_vue_components;
 pub mod unplugin_vue_router;
 pub mod vercel;

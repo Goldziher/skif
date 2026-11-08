@@ -49,7 +49,7 @@ impl Rule for CatalogMismatch {
                 }),
                 catalog
                     .as_ref()
-                    .map(|catalog| use_catalog_fix(finding.instance, catalog, &[])),
+                    .map(|catalog| use_catalog_fix(cx.workspace, finding.instance, catalog, &[])),
             );
         }
     }

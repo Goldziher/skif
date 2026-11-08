@@ -1,0 +1,15 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: formatted
+---
+{
+  "name": "@format/a",
+  "version": "1.0.0",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "keywords": ["a", "b"]
+}
