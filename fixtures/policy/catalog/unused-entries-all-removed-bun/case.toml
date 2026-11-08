@@ -1,0 +1,5 @@
+description = "When no entry of a catalog is referenced, the fixes remove the empty catalog and an empty catalogs object of the root package.json with it."
+source = "skif"
+tags = ["catalog", "unused-entries", "named-catalog", "fix", "bun"]
+valid-states = ["IsCatalog"]
+compare = "bytes"

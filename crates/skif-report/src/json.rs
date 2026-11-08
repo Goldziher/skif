@@ -4,7 +4,7 @@ use std::io::{self, Write};
 
 use serde::Serialize;
 use serde_json::{Map, Value};
-use skif_core::{Diagnostic, FixSafety, Location, Report, Severity, Summary};
+use skif_core::{Diagnostic, FixSafety, IncompletePackage, Location, Report, Severity, Summary};
 
 use crate::options::RenderOptions;
 
@@ -19,7 +19,7 @@ macro_rules! quoted {
 pub const SCHEMA_VERSION: u32 = 1;
 
 /// Top-level members the document owns; `extra` members may not reuse them.
-const RESERVED: [&str; 4] = ["version", "skif", "summary", "diagnostics"];
+const RESERVED: [&str; 5] = ["version", "skif", "summary", "diagnostics", "incomplete-packages"];
 
 /// Top-level members of an error document that `extra` members may not reuse.
 const RESERVED_ERROR: [&str; 3] = ["version", "skif", "error"];
@@ -117,8 +117,8 @@ pub fn render_json(report: &Report, options: &RenderOptions, out: &mut dyn Write
 ///
 /// # Errors
 ///
-/// Returns an [`io::ErrorKind::InvalidInput`] error when an `extra` member is named `version`, `skif`, `summary` or
-/// `diagnostics`, and any error produced by writing to `out`.
+/// Returns an [`io::ErrorKind::InvalidInput`] error when an `extra` member is named `version`, `skif`, `summary`,
+/// `diagnostics` or `incomplete-packages`, and any error produced by writing to `out`.
 #[allow(
     clippy::needless_pass_by_value,
     reason = "a public signature: `extra` was consumed by the serializer this replaced"
@@ -153,6 +153,13 @@ pub fn render_json_with(
         depth: 0,
         empty: false,
     };
+    if !report.incomplete_packages.is_empty() {
+        let mut packages = Array::open(document.key(quoted!("incomplete-packages")), 1);
+        for package in &report.incomplete_packages {
+            write_incomplete_package(packages.element(), package, options);
+        }
+        packages.close();
+    }
     for (key, value) in &extra {
         write_value(document.any_key(key), value)?;
     }
@@ -375,6 +382,27 @@ fn write_diagnostic(out: &mut Vec<u8>, diagnostic: &Diagnostic, options: &Render
     object.close();
 }
 
+/// A package whose files and dependencies were not judged, an element of `incomplete-packages` (depth 2).
+fn write_incomplete_package(out: &mut Vec<u8>, package: &IncompletePackage, options: &RenderOptions) {
+    let mut object = Object::open(out, 2);
+    string(object.key(quoted!("name")), &package.name);
+    let dir = options.display_path(&package.dir);
+    string(object.key(quoted!("dir")), if dir.is_empty() { "." } else { &dir });
+    let mut reasons = Array::open(object.key(quoted!("reasons")), 3);
+    for reason in &package.reasons {
+        let mut item = Object::open(reasons.element(), 4);
+        // Writing to a `Vec` cannot fail, and a cause always serializes (a kebab-case name).
+        drop(serde_json::to_writer(&mut *item.key(quoted!("cause")), &reason.cause));
+        optional_string(&mut item, quoted!("plugin"), reason.plugin.as_deref());
+        if let Some(file) = &reason.file {
+            string(item.key(quoted!("file")), &options.display_path(file));
+        }
+        item.close();
+    }
+    reasons.close();
+    object.close();
+}
+
 fn write_location(mut object: Object<'_>, location: &Location, options: &RenderOptions) {
     string(object.key(quoted!("path")), &options.display_path(&location.path));
     if let Some(span) = &location.span {
@@ -482,7 +510,7 @@ mod tests {
     //! The hand-written document against the derive-based serialization it replaced.
 
     use serde_json::json;
-    use skif_core::{Fix, FixOp, Related, RuleId, Severity, Span};
+    use skif_core::{Fix, FixOp, IncompleteCause, IncompleteEntries, Related, RuleId, Severity, Span};
 
     use super::*;
 
@@ -492,8 +520,26 @@ mod tests {
         skif: &'a str,
         summary: JsonSummary,
         diagnostics: Vec<JsonDiagnostic<'a>>,
+        #[serde(rename = "incomplete-packages", skip_serializing_if = "Vec::is_empty")]
+        incomplete_packages: Vec<JsonIncompletePackage<'a>>,
         #[serde(flatten)]
         extra: Map<String, Value>,
+    }
+
+    #[derive(Serialize)]
+    struct JsonIncompletePackage<'a> {
+        name: &'a str,
+        dir: String,
+        reasons: Vec<JsonIncompleteReason<'a>>,
+    }
+
+    #[derive(Serialize)]
+    struct JsonIncompleteReason<'a> {
+        cause: IncompleteCause,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        plugin: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file: Option<String>,
     }
 
     #[derive(Serialize)]
@@ -616,6 +662,26 @@ mod tests {
         }
     }
 
+    fn incomplete_package<'a>(package: &'a IncompletePackage, options: &RenderOptions) -> JsonIncompletePackage<'a> {
+        let dir = options.display_path(&package.dir).into_owned();
+        JsonIncompletePackage {
+            name: &package.name,
+            dir: if dir.is_empty() { ".".to_owned() } else { dir },
+            reasons: package
+                .reasons
+                .iter()
+                .map(|reason| JsonIncompleteReason {
+                    cause: reason.cause,
+                    plugin: reason.plugin.as_deref(),
+                    file: reason
+                        .file
+                        .as_deref()
+                        .map(|file| options.display_path(file).into_owned()),
+                })
+                .collect(),
+        }
+    }
+
     /// What `render_json_with` wrote before it was written by hand.
     fn reference(report: &Report, options: &RenderOptions, extra: Map<String, Value>) -> Vec<u8> {
         let document = Document {
@@ -623,6 +689,11 @@ mod tests {
             skif: options.tool_version.as_deref().unwrap_or(TOOL_VERSION),
             summary: summary(&report.summary),
             diagnostics: report.diagnostics.iter().map(|d| diagnostic(d, options)).collect(),
+            incomplete_packages: report
+                .incomplete_packages
+                .iter()
+                .map(|package| incomplete_package(package, options))
+                .collect(),
             extra,
         };
         let mut out = Vec::new();
@@ -663,7 +734,30 @@ mod tests {
             "keys",
             Location::new("C:\\repo\\a.json", None),
         );
-        Report::new(vec![full, bare, info], 3)
+        let reason = |cause, plugin: Option<&str>, file: Option<&str>| IncompleteEntries {
+            cause,
+            plugin: plugin.map(str::to_owned),
+            file: file.map(Into::into),
+        };
+        Report::new(vec![full, bare, info], 3).with_incomplete_packages(vec![
+            IncompletePackage::new(
+                "web".to_owned(),
+                "/repo/packages/web".into(),
+                vec![
+                    reason(
+                        IncompleteCause::UnknownSpread,
+                        Some("vite"),
+                        Some("/repo/packages/web/vite.config.ts"),
+                    ),
+                    reason(IncompleteCause::UnmappedPublished, None, None),
+                ],
+            ),
+            IncompletePackage::new(
+                "root \"q\"".to_owned(),
+                "".into(),
+                vec![reason(IncompleteCause::Unspecified, None, None)],
+            ),
+        ])
     }
 
     #[test]

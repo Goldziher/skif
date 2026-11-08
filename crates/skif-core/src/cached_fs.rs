@@ -26,23 +26,27 @@ type Listing = Result<Arc<[DirEntry]>, io::ErrorKind>;
 
 /// A path-keyed map split over independently locked shards, so parallel readers rarely contend.
 ///
-/// Keys are the bytes of the path as spelled, hashed with `FxHash`: a run hashes every probed path several times, and
-/// hashing a `Path` (component by component, with `SipHash`) was a visible share of discovering a large workspace.
-/// Two spellings of one path (`a//b`, `a/b`) are two keys; the second asks the inner file system once, which gives
-/// the same answer.
+/// Every probe of the resolver looks a long absolute path up here, so keys are the raw bytes of the path hashed with
+/// `FxHash` instead of [`Path`]'s component-wise hash: the keys are paths of the run's own tree, not input chosen to
+/// collide. Two spellings of one path (`a/b` and `a/./b`) are two keys; the second costs one more question to the
+/// wrapped file system, never a different answer.
 struct Sharded<V> {
-    shards: Vec<RwLock<HashMap<OsString, V, FxBuildHasher>>>,
+    shards: Vec<RwLock<Shard<V>>>,
 }
+
+type Shard<V> = HashMap<OsString, V, FxBuildHasher>;
 
 impl<V: Clone> Sharded<V> {
     fn new() -> Self {
         Self {
-            shards: (0..SHARDS).map(|_| RwLock::new(HashMap::default())).collect(),
+            shards: (0..SHARDS)
+                .map(|_| RwLock::new(HashMap::with_hasher(FxBuildHasher)))
+                .collect(),
         }
     }
 
-    fn shard(&self, key: &OsStr) -> &RwLock<HashMap<OsString, V, FxBuildHasher>> {
-        // Middle bits: each shard's table indexes by the low bits and tags entries with the top seven.
+    fn shard(&self, key: &OsStr) -> &RwLock<Shard<V>> {
+        // The high bits of an Fx hash are the well mixed ones.
         let index = usize::try_from((FxBuildHasher.hash_one(key) >> 32) % SHARDS).unwrap_or(0);
         &self.shards[index]
     }
@@ -166,10 +170,10 @@ impl<F: FileSystem> CachedFs<F> {
         let Ok(entries) = listing else {
             return Some(PathKind::NONE);
         };
-        // The entries are the parent's children, sorted by path, which for one parent is the order of their names;
-        // comparing names skips the parent's bytes that every comparison of whole paths would walk again.
+        // The entries are siblings in path order, which for siblings is the order of their names: comparing the names
+        // spares parsing every component of two long paths per step.
         let name = path.file_name()?;
-        match entries.binary_search_by(|entry| entry.path.file_name().cmp(&Some(name))) {
+        match entries.binary_search_by(|entry| entry.path.file_name().unwrap_or_default().cmp(name)) {
             Ok(index) => Some(PathKind {
                 is_file: entries[index].is_file,
                 is_dir: entries[index].is_dir,
@@ -479,6 +483,40 @@ mod tests {
         assert!(!fs.is_file(Path::new("/ws/tsconfig.json")));
         assert!(!fs.is_dir(Path::new("/ws/missing")));
         assert_eq!(count(&fs.inner().stats), 0);
+    }
+
+    #[test]
+    fn another_spelling_of_a_path_gets_the_same_answer() {
+        let fs = cached();
+        fs.read_dir(Path::new("/ws")).unwrap();
+        fs.read_dir(Path::new("/ws/src")).unwrap();
+        // Keys are the bytes of the path: these spellings miss the cache and are asked of the disk, which agrees.
+        for (spelling, is_file, is_dir) in [
+            ("/ws/./package.json", true, false),
+            ("/ws//src/index.ts", true, false),
+            ("/ws/src/", false, true),
+        ] {
+            let kind = fs.kind(Path::new(spelling));
+            assert_eq!((kind.is_file, kind.is_dir), (is_file, is_dir), "{spelling}");
+        }
+    }
+
+    #[test]
+    fn names_are_found_in_a_listing_whatever_their_length_and_order() {
+        let fs = CachedFs::new(
+            MemoryFs::new()
+                .with_file("/ws/a-b.ts", "")
+                .with_file("/ws/a.ts", "")
+                .with_file("/ws/a/b.ts", "")
+                .with_file("/ws/ab.ts", "")
+                .with_file("/ws/B.ts", ""),
+        );
+        fs.read_dir(Path::new("/ws")).unwrap();
+        for name in ["a-b.ts", "a.ts", "ab.ts", "B.ts"] {
+            assert!(fs.is_file(&Path::new("/ws").join(name)), "{name}");
+        }
+        assert!(fs.is_dir(Path::new("/ws/a")));
+        assert!(!fs.is_file(Path::new("/ws/b.ts")));
     }
 
     #[test]

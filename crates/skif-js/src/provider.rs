@@ -114,6 +114,9 @@ impl RuleProvider for JsProvider {
         );
         analysis.enabled_rules = Some(active.iter().map(|rule| rule.meta().id.to_owned()).collect());
         analysis.config_path = cx.config_path.map(std::path::Path::to_path_buf);
+        for package in analysis.incomplete_packages() {
+            out.report_incomplete_package(package);
+        }
         let (last, concurrent): (Vec<&dyn JsRule>, Vec<&dyn JsRule>) =
             active.iter().copied().partition(|rule| rule.runs_last());
         let base = &*out;

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use skif_core::Diagnostic;
+use skif_core::{Diagnostic, IncompletePackage};
 
 use crate::context::{EnabledRules, LintContext};
 use crate::ignore::Suppressions;
@@ -20,6 +20,7 @@ pub struct Emitter<'a> {
     scopes: Arc<Scopes>,
     cancel: Option<&'a AtomicBool>,
     diagnostics: Vec<Diagnostic>,
+    incomplete_packages: Vec<IncompletePackage>,
 }
 
 impl<'a> Emitter<'a> {
@@ -32,6 +33,7 @@ impl<'a> Emitter<'a> {
             scopes: Arc::new(Scopes::new(cx.workspace, cx.config)),
             cancel: None,
             diagnostics: Vec::new(),
+            incomplete_packages: Vec::new(),
         }
     }
 
@@ -51,12 +53,14 @@ impl<'a> Emitter<'a> {
             scopes: Arc::clone(&self.scopes),
             cancel: self.cancel,
             diagnostics: Vec::new(),
+            incomplete_packages: Vec::new(),
         }
     }
 
-    /// Appends the diagnostics collected by `other`.
+    /// Appends the diagnostics and incomplete packages collected by `other`.
     pub fn merge(&mut self, other: Self) {
         self.diagnostics.extend(other.diagnostics);
+        self.incomplete_packages.extend(other.incomplete_packages);
     }
 
     /// Whether the host asked the run to stop.
@@ -92,9 +96,21 @@ impl<'a> Emitter<'a> {
         self.diagnostics.is_empty()
     }
 
+    /// Records a package whose files and dependencies the provider could not judge, so the report can say so
+    /// instead of passing the silence off as a clean result.
+    pub fn report_incomplete_package(&mut self, package: IncompletePackage) {
+        self.incomplete_packages.push(package);
+    }
+
     /// The kept diagnostics, in emission order.
     #[must_use]
     pub fn into_diagnostics(self) -> Vec<Diagnostic> {
         self.diagnostics
+    }
+
+    /// The kept diagnostics and the recorded incomplete packages, each in emission order.
+    #[must_use]
+    pub fn into_parts(self) -> (Vec<Diagnostic>, Vec<IncompletePackage>) {
+        (self.diagnostics, self.incomplete_packages)
     }
 }

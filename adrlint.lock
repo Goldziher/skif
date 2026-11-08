@@ -245,3 +245,33 @@ blake3 = "7137af869a1a8ec1124a68a0e29841801ffa77964cbb1a8485a5ab3a38818378"
 number = 49
 status = "accepted"
 blake3 = "57ee9ff85eda7dc829451d63690e462fb1d7e1dbf3a9c19ce039ae63c232cd0e"
+
+[adrs."adrs/0050-fixture-directories-in-the-js-analysis.md"]
+number = 50
+status = "accepted"
+blake3 = "906d58d5e421b233cfc31695083bd495b13900c023c7047a48fbd1b3783fd419"
+
+[adrs."adrs/0051-safe-version-alignment-fixes.md"]
+number = 51
+status = "accepted"
+blake3 = "a23d3a7c6f40ed083d6c1b5407adfbafdebadbb157399cc0bed663f6948cf613"
+
+[adrs."adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md"]
+number = 52
+status = "accepted"
+blake3 = "4623a3c4a19a47a47f620744a371775ee2b4a29735214a15daad88564acebb5c"
+
+[adrs."adrs/0053-incomplete-packages-in-the-json-report.md"]
+number = 53
+status = "accepted"
+blake3 = "aedad73032cc91a8f5e8db47df271586d5a71682c93d68c79fe8710dd0595871"
+
+[adrs."adrs/0054-several-reports-in-one-run.md"]
+number = 54
+status = "accepted"
+blake3 = "2534213670b270563a225c8cdb19d18d344ce10bb8f42100c500def10fd4e678"
+
+[adrs."adrs/0055-package-json-formatting-the-package-json-format-rule-and-skif-format.md"]
+number = 55
+status = "accepted"
+blake3 = "bd6d672ea69058f32d0b091eaef6c13e382130430ea0e1c67765464d4a1f15c9"

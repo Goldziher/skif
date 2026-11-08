@@ -1,0 +1,5 @@
+---
+source: crates/skif-js/tests/frameworks.rs
+expression: "lint_fixture(\"vue-auto-imports\")"
+---
+[]

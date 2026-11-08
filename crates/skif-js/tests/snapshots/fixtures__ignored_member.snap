@@ -1,0 +1,5 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: "Run::new(\"ignored-member\", \"\").lint()"
+---
+[]
