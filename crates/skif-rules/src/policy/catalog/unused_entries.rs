@@ -10,7 +10,7 @@ use skif_workspace::Workspace;
 use super::names::{CatalogName, referenced};
 use super::references::override_references;
 use super::support::key;
-use super::target::{existing_file, remove_entry};
+use super::target::{CatalogFile, catalog_document, existing_file, remove_entry};
 
 /// Metadata of `unused-catalog-entries`.
 pub static META: RuleMeta = RuleMeta::new(
@@ -87,12 +87,21 @@ impl Rule for UnusedCatalogEntries {
             .map(|(catalog, name, _)| (catalog.clone(), name.as_str()))
             .collect();
         let removable = |catalog: &CatalogName, name: &str| removable.contains(&(catalog.clone(), name));
+        let mut documents: Vec<(CatalogFile, Option<serde_json::Value>)> = Vec::new();
         for (catalog, name, mut diagnostic) in reported.iter().cloned() {
             if let Some(file) = existing_file(workspace, &catalog) {
+                let position = documents
+                    .iter()
+                    .position(|(known, _)| *known == file)
+                    .unwrap_or_else(|| {
+                        documents.push((file.clone(), catalog_document(workspace, &file)));
+                        documents.len() - 1
+                    });
+                let document = documents[position].1.as_ref();
                 diagnostic.fixes.push(Fix::new(
                     format!("Remove `{name}` from {}", catalog.display()),
                     FixSafety::Unsafe,
-                    vec![remove_entry(workspace, &file, &catalog, &name, &removable)],
+                    vec![remove_entry(workspace, &file, document, &catalog, &name, &removable)],
                 ));
             }
             out.emit(diagnostic);
