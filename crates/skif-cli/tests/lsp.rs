@@ -315,6 +315,41 @@ fn a_fix_for_an_unsaved_buffer_edits_the_buffer_until_the_buffer_changes() {
 }
 
 #[test]
+fn closing_a_document_with_unsaved_changes_lints_the_saved_file() {
+    let dir = fixture("dirty");
+    let root = dir.path().canonicalize().unwrap();
+    let manifest = root.join("packages").join("a").join("package.json");
+    let saved = std::fs::read_to_string(&manifest).unwrap();
+    // One line more than the saved file, so `"devDependencies": {}` is on line 8 (0-based 7) of the buffer only.
+    let buffer = saved.replace("  \"version\"", "  \"description\": \"unsaved\",\n  \"version\"");
+    let mut messages = initialized(&json!({}));
+    messages.push(did_open(&manifest, 1, &buffer));
+    messages.push(json!({ "jsonrpc": "2.0", "method": "textDocument/didClose", "params": {
+        "textDocument": { "uri": file_uri(&manifest) }
+    } }));
+    messages.push(code_action(2, &manifest, (6, 5), Some(&["quickfix"])));
+    messages.push(json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown" }));
+    messages.push(json!({ "jsonrpc": "2.0", "method": "exit" }));
+    let result = run(skif().arg("lsp").write_stdin(framed(&messages)));
+    assert_eq!(result.code, 0, "{}", result.stderr);
+    let messages = unframed(&result.stdout);
+
+    // The discarded buffer no longer decides the positions: the file on disk does.
+    let diagnostics = last_published(&messages, &manifest).as_array().unwrap();
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    assert_eq!(
+        diagnostics[0]["range"],
+        json!({ "start": { "line": 6, "character": 2 }, "end": { "line": 6, "character": 23 } })
+    );
+    let actions = messages.iter().find(|message| message["id"] == 2).unwrap()["result"]
+        .as_array()
+        .unwrap();
+    assert_eq!(actions.len(), 1, "{actions:#?}");
+    let edits = actions[0]["edit"]["changes"][file_uri(&manifest)].as_array().unwrap();
+    assert!(!apply(&saved, edits).contains("devDependencies"));
+}
+
+#[test]
 fn with_document_changes_an_edit_carries_the_document_version() {
     let dir = fixture("dirty");
     let root = dir.path().canonicalize().unwrap();

@@ -329,4 +329,4 @@ blake3 = "bca0930c5e6d08d299fe2b8092db127402032297948d6ccc9ab438cc1a3ac0f6"
 [adrs."adrs/0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md"]
 number = 66
 status = "accepted"
-blake3 = "45a4f106922f36531854da561b27751f77de0886e11275cc9f82e9337e17d9f0"
+blake3 = "80cbab1405c7e7d604aab3de05c8be5eb6056fd74b80db28e1022c8779c1b13a"
