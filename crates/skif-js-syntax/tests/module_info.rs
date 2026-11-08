@@ -230,6 +230,32 @@ fn import_meta_glob_yields_one_import_per_pattern() {
 }
 
 #[test]
+fn import_meta_glob_options_that_read_source_text() {
+    let cases = [
+        ("{ query: '?raw', eager: true }", ImportKind::SourceGlob),
+        ("{ query: 'raw&inline' }", ImportKind::SourceGlob),
+        ("{ query: { raw: '' } }", ImportKind::SourceGlob),
+        ("{ as: 'raw' }", ImportKind::SourceGlob),
+        // Vite writes `{ raw: true }` as `raw=true`, which is no `?raw`.
+        ("{ query: { raw: true } }", ImportKind::ImportMetaGlob),
+        ("{ query: '?url' }", ImportKind::ImportMetaGlob),
+        ("{ as: 'url' }", ImportKind::ImportMetaGlob),
+        ("{ query: '?inline' }", ImportKind::ImportMetaGlob),
+        ("{ query: '?worker' }", ImportKind::ImportMetaGlob),
+        ("{ eager: true }", ImportKind::ImportMetaGlob),
+        // Options that are not static stay module imports.
+        ("{ query: q }", ImportKind::ImportMetaGlob),
+        ("{ ...options, query: '?raw' }", ImportKind::ImportMetaGlob),
+        ("options", ImportKind::ImportMetaGlob),
+    ];
+    for (options, kind) in cases {
+        let info = parse("a.ts", &format!("import.meta.glob('./b/*.vue', {options});"));
+        let got: Vec<_> = info.imports.iter().map(|i| (i.specifier.as_str(), i.kind)).collect();
+        assert_eq!(got, [("./b/*.vue", kind)], "{options}");
+    }
+}
+
+#[test]
 fn export_forms() {
     struct Case {
         name: &'static str,

@@ -239,6 +239,24 @@ fn vite_root_locates_index_html_and_its_scripts() {
     insta::assert_json_snapshot!("vite_root", diagnostics);
 }
 
+/// n8n's `ui.store.registration.spec.ts`: a glob or specifier that reads a file's text (`?raw`, legacy `as: 'raw'`)
+/// does not load it as a module, so its matches stay unused; a plain glob and the queries that still load the module
+/// (`?inline`, `?url`, `raw=true`) keep theirs.
+#[test]
+fn raw_globs_do_not_keep_files_used() {
+    let diagnostics = Run::new("raw-globs", "").lint();
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "src/components/Card.ts: src/components/Card.ts",
+            "src/legacy/old.ts: src/legacy/old.ts",
+            "src/objects/one.ts: src/objects/one.ts",
+            "src/text/plain.ts: src/text/plain.ts",
+        ]
+    );
+    insta::assert_json_snapshot!("raw_globs", diagnostics);
+}
+
 #[test]
 fn n8n_nodes_and_credentials_are_entries() {
     let diagnostics = Run::new("n8n-nodes", "").lint();
@@ -254,7 +272,7 @@ fn imported_base_configs_are_followed() {
     let diagnostics = Run::new("imported-base-configs", "").lint_with_plugins();
     // The base configs of a workspace package and of a relative module are read, so the packages using them are
     // judged and their dead files reported. The config that imports itself back stays unknown, but a test config can
-    // only hide tests, so the other files of its package are judged too (ADR 0064).
+    // only hide tests, so the other files of its package are judged too (ADR 0065).
     assert_eq!(
         found(&diagnostics, "unused-files"),
         [
@@ -266,7 +284,7 @@ fn imported_base_configs_are_followed() {
     insta::assert_json_snapshot!("imported_base_configs", diagnostics);
 }
 
-/// A config skif cannot fully read leaves only the files its plugin could make entries unjudged (ADR 0064): Vite's
+/// A config skif cannot fully read leaves only the files its plugin could make entries unjudged (ADR 0065): Vite's
 /// `index`/`main` module, Vitest's and Playwright's tests, setup modules and test directories, and the Next.js
 /// router directories. Every other file is judged. A computed `import()` or an unparsable config keeps the whole
 /// package unjudged.

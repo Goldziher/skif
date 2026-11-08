@@ -731,7 +731,7 @@ fn package_wide(results: &[(PluginId, PluginOutput)], plugin: &str) -> bool {
     !reasons.is_empty() && reasons.iter().any(|reason| reason.scope == IncompleteScope::Package)
 }
 
-/// A config a plugin cannot fully read hides only what that tool takes entries from (ADR 0064).
+/// A config a plugin cannot fully read hides only what that tool takes entries from (ADR 0065).
 #[test]
 fn incomplete_configs_are_scoped_to_what_the_tool_could_make_an_entry() {
     let spread = "import base from './base';\nexport default { ...base };";

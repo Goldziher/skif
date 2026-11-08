@@ -335,7 +335,7 @@ pub(crate) struct PackageSetup {
     pub incomplete_reasons: Vec<IncompleteEntries>,
     /// When the entry files are incomplete, the globs (relative to the package directory) of the only files that may
     /// be unknown entries; `None` when they may be anywhere. The matching project files are treated as entries and
-    /// every other file is judged unused as usual (ADR 0064).
+    /// every other file is judged unused as usual (ADR 0065).
     pub incomplete_scope: Option<IncompleteScopeGlobs>,
     /// The module (relative to the workspace root) and 1-based line of a computed `import()` or `require()` in the
     /// package, which may load any of its files: the narrowed scope a config gave then leaves the package unjudged

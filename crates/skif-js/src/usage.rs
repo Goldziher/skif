@@ -93,7 +93,10 @@ impl ReexportIndex {
                         ImportKind::ExportFrom => {
                             sources.insert(import.specifier.as_str(), *id);
                         }
-                        ImportKind::ImportMetaGlob | ImportKind::SideEffect | ImportKind::Mock => {}
+                        ImportKind::ImportMetaGlob
+                        | ImportKind::SourceGlob
+                        | ImportKind::SideEffect
+                        | ImportKind::Mock => {}
                         _ => {
                             sources.entry(import.specifier.as_str()).or_insert(*id);
                         }

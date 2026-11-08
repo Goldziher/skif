@@ -97,7 +97,7 @@ pub struct WorkspaceInputs {
     /// Why the entries are incomplete, when `entries_incomplete` is set and the source knows.
     pub incomplete_reasons: Vec<IncompleteEntries>,
     /// Where the entries the source could not read can lie, when `entries_incomplete` is set: only files there are
-    /// left unjudged by `unused-files` (ADR 0064).
+    /// left unjudged by `unused-files` (ADR 0065).
     pub incomplete_scope: IncompleteScope,
 }
 

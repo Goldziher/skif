@@ -316,7 +316,12 @@ number = 63
 status = "accepted"
 blake3 = "e7aaf26eda074d0d5cc9bc3ca09ad4373e72d7f9b21e5dcc50d0b09bf2270187"
 
-[adrs."adrs/0064-narrowed-scope-for-incomplete-entries.md"]
+[adrs."adrs/0064-code-actions-in-the-language-server.md"]
 number = 64
+status = "accepted"
+blake3 = "91c07b3d5c179caef6e22e44782e7abb5d2c204c541123fd89cb2b4552089bc5"
+
+[adrs."adrs/0065-narrowed-scope-for-incomplete-entries.md"]
+number = 65
 status = "accepted"
 blake3 = "bca0930c5e6d08d299fe2b8092db127402032297948d6ccc9ab438cc1a3ac0f6"
