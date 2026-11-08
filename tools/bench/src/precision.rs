@@ -25,6 +25,28 @@ pub struct Options {
     pub corpus_file: PathBuf,
     pub json: bool,
     pub timeout: Duration,
+    /// Replace `out/repo` even when `out` holds no `answer-key.json` from an earlier run.
+    pub force: bool,
+}
+
+/// The file a run writes next to `repo/`; its presence marks `out` as an earlier run's output.
+const ANSWER_KEY: &str = "answer-key.json";
+
+/// Removes `out/repo` before a new run writes it, but only when `out` is an earlier run's output (it holds
+/// [`ANSWER_KEY`]) or `force` is set, so a mistyped `--out` cannot delete an unrelated `repo` directory.
+fn clear_repo(out: &Path, force: bool) -> Result<()> {
+    let repo = out.join("repo");
+    if !repo.exists() {
+        return Ok(());
+    }
+    if !force && !out.join(ANSWER_KEY).is_file() {
+        bail!(
+            "{} exists but {} holds no {ANSWER_KEY} from an earlier run (use --force to replace it)",
+            repo.display(),
+            out.display()
+        );
+    }
+    fs::remove_dir_all(&repo).with_context(|| format!("cleaning {}", repo.display()))
 }
 
 fn run_skif(skif: &Path, root: &Path, scratch: &Path, timeout: Duration) -> Result<Value> {
@@ -175,13 +197,11 @@ pub fn run(options: &Options) -> Result<()> {
         packages: options.packages,
         seed: options.seed,
     })?;
+    clear_repo(&options.out, options.force)?;
     let repo = options.out.join("repo");
-    if repo.exists() {
-        fs::remove_dir_all(&repo).with_context(|| format!("cleaning {}", repo.display()))?;
-    }
     generate::write_files(&generated.files, &repo)?;
     fs::write(
-        options.out.join("answer-key.json"),
+        options.out.join(ANSWER_KEY),
         serde_json::to_string_pretty(&generated.answer_key)? + "\n",
     )?;
     let root = fs::canonicalize(&repo)?;
@@ -293,6 +313,30 @@ mod tests {
             assert_eq!(false_findings, known_false_findings(packages), "seed {seed}");
             assert_eq!(score.false_by_pattern.keys().collect::<Vec<_>>(), ["fixture-dir"]);
         }
+    }
+
+    #[test]
+    fn clear_repo_deletes_only_an_earlier_runs_output_unless_forced() {
+        let out = std::env::temp_dir().join(format!("skif-bench-precision-{}", std::process::id()));
+        let repo = out.join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        fs::write(repo.join("keep.txt"), "x").unwrap();
+
+        let error = clear_repo(&out, false).unwrap_err().to_string();
+        assert!(error.contains("--force"), "{error}");
+        assert!(repo.join("keep.txt").exists());
+
+        fs::write(out.join(ANSWER_KEY), "{}").unwrap();
+        clear_repo(&out, false).unwrap();
+        assert!(!repo.exists());
+
+        fs::create_dir_all(&repo).unwrap();
+        fs::remove_file(out.join(ANSWER_KEY)).unwrap();
+        clear_repo(&out, true).unwrap();
+        assert!(!repo.exists());
+
+        clear_repo(&out, false).unwrap();
+        fs::remove_dir_all(&out).unwrap();
     }
 
     #[test]

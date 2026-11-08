@@ -78,6 +78,9 @@ struct DeadcodeArgs {
     /// Seconds each skif run and knip run may take.
     #[arg(long, default_value_t = 600)]
     timeout_secs: u64,
+    /// Replace `<out>/repo` even when `<out>` holds no `answer-key.json` from an earlier run.
+    #[arg(long)]
+    force: bool,
 }
 
 #[derive(Args)]
@@ -363,6 +366,7 @@ fn main() -> Result<()> {
             corpus_file: args.corpus_file,
             json: args.json,
             timeout: Duration::from_secs(args.timeout_secs),
+            force: args.force,
         }),
         Command::Run(args) => run::run(&RunOptions {
             skif: args.skif,
