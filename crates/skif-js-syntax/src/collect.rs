@@ -238,7 +238,11 @@ fn declared(ctx: &Ctx<'_>, decl: &Declaration<'_>) -> Vec<Declared> {
                         // this member would renumber it.
                         let renumbers = members[index + 1..].iter().any(|later| later.initializer.is_none());
                         Member {
-                            removal: (!mentioned && !renumbers).then(|| member_removal(ctx, m.span, true)),
+                            removal: if mentioned || renumbers {
+                                None
+                            } else {
+                                member_removal(ctx, m.span, true)
+                            },
                             name,
                             span: ctx.span(m.span),
                             tags: ctx.tags_at(m.span.start),
@@ -273,7 +277,11 @@ fn namespace_members(ctx: &Ctx<'_>, body: &TSNamespaceDeclarationBody<'_>) -> Ve
                         let after = &ctx.src[e.span.end as usize..block.span.end as usize];
                         let mentioned = mentions_word(before, &d.name) || mentions_word(after, &d.name);
                         out.push(Member {
-                            removal: (alone && !mentioned).then(|| member_removal(ctx, e.span, false)),
+                            removal: if alone && !mentioned {
+                                member_removal(ctx, e.span, false)
+                            } else {
+                                None
+                            },
                             name: d.name,
                             span: ctx.span(d.name_span),
                             tags: ctx.tags_at(e.span.start),
@@ -305,10 +313,14 @@ fn mentions_word(text: &str, name: &str) -> bool {
 }
 
 /// The range that deletes a member spanning `span` (absolute offsets). With `comma`, a comma right after it goes too.
-/// A member alone on its line takes the whole line with its line break, so the remaining lines keep their layout;
-/// otherwise the member, its comma and the blanks after it go.
-fn member_removal(ctx: &Ctx<'_>, span: OxcSpan, comma: bool) -> (u32, u32) {
-    let bytes = ctx.src.as_bytes();
+///
+/// A member alone on its line takes the whole line with its line break, so the remaining lines keep their layout,
+/// together with a comment after it on that line and the comment lines directly above it, which describe it. A member
+/// sharing its line loses only itself, its comma and the blanks after it; `None` when a comment sits right before or
+/// after it, which would be left describing a neighbour.
+fn member_removal(ctx: &Ctx<'_>, span: OxcSpan, comma: bool) -> Option<(u32, u32)> {
+    let src = ctx.src;
+    let bytes = src.as_bytes();
     let blank = |b: u8| b == b' ' || b == b'\t';
     let mut end = span.end as usize;
     if comma {
@@ -329,19 +341,83 @@ fn member_removal(ctx: &Ctx<'_>, span: OxcSpan, comma: bool) -> (u32, u32) {
         line_start -= 1;
     }
     let starts_line = line_start == 0 || bytes[line_start - 1] == b'\n';
-    let line_end = if bytes[after..].starts_with(b"\r\n") {
-        Some(after + 2)
-    } else if bytes.get(after) == Some(&b'\n') {
-        Some(after + 1)
-    } else {
-        None
+    let line_end = |at: usize| {
+        if bytes[at..].starts_with(b"\r\n") {
+            Some(at + 2)
+        } else if bytes.get(at) == Some(&b'\n') {
+            Some(at + 1)
+        } else {
+            None
+        }
     };
-    let (start, end) = match line_end {
-        Some(line_end) if starts_line => (line_start, line_end),
+    let (start, end) = match line_end(skip_line_comment(src, after)) {
+        Some(line_end) if starts_line => (comment_lines_above(src, line_start), line_end),
+        _ if src[..span.start as usize].trim_end().ends_with("*/")
+            || (starts_line && comment_lines_above(src, line_start) < line_start)
+            || trailing_comment(src, after) =>
+        {
+            return None;
+        }
         _ => (span.start as usize, after),
     };
-    let to_u32 = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
-    (ctx.off(to_u32(start)), ctx.off(to_u32(end)))
+    Some((ctx.off(u32::try_from(start).ok()?), ctx.off(u32::try_from(end).ok()?)))
+}
+
+/// Whether the comment at `at` belongs to the member before it: a `//` comment, or a block comment that ends the
+/// line or the body rather than leading into the next member.
+fn trailing_comment(src: &str, at: usize) -> bool {
+    let rest = &src[at..];
+    if rest.starts_with("//") {
+        return true;
+    }
+    rest.strip_prefix("/*")
+        .and_then(|body| {
+            body.find("*/")
+                .map(|close| body[close + 2..].trim_start_matches([' ', '\t']))
+        })
+        .is_some_and(|next| next.is_empty() || next.starts_with(['\r', '\n', '}']))
+}
+
+/// `at` moved past a `//` comment, or a block comment closed on the same line, and the blanks after it.
+fn skip_line_comment(src: &str, at: usize) -> usize {
+    let rest = &src[at..];
+    let line = rest.find('\n').map_or(rest, |newline| &rest[..newline]);
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    if line.starts_with("//") {
+        return at + line.len();
+    }
+    if line.starts_with("/*")
+        && let Some(close) = line.find("*/")
+        && line[close + 2..].trim().is_empty()
+    {
+        return at + line.len();
+    }
+    at
+}
+
+/// The start of the run of comment lines (`//` lines and block comments that open at the start of a line) directly
+/// above the line starting at `line_start`, or `line_start` when there is none. A blank line ends the run.
+fn comment_lines_above(src: &str, line_start: usize) -> usize {
+    let mut start = line_start;
+    while start > 0 {
+        let before = &src[..start - 1];
+        let previous_start = before.rfind('\n').map_or(0, |newline| newline + 1);
+        let previous = before[previous_start..].trim();
+        if previous.starts_with("//") {
+            start = previous_start;
+            continue;
+        }
+        if !previous.ends_with("*/") {
+            break;
+        }
+        let Some(open) = before.rfind("/*") else { break };
+        let open_line = before[..open].rfind('\n').map_or(0, |newline| newline + 1);
+        if !before[open_line..open].trim().is_empty() {
+            break;
+        }
+        start = open_line;
+    }
+    start
 }
 
 /// Range of a statement extended over one trailing line break (absolute offsets).
