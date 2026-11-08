@@ -12,9 +12,10 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 
 - A `tsconfig` with `outDir` and no `rootDir` maps its build output back to source through the common directory of
-  its `include` and `files`, and script arguments inside an `outDir` map to their sources: `mocha
-  ./build/compiled/test` makes every file below `test/` an entry, so compiled test suites are no longer reported as
-  unused files with unused dev dependencies ([#13](https://github.com/Goldziher/skif/issues/13)).
+  its `include` and `files`, and script arguments inside an `outDir` map to their sources, ahead of build output on
+  disk: `mocha --recursive ./build/compiled/test` makes every test file below `test/` an entry (without
+  `--recursive` only those directly in it, with mocha's `--extension` values), so compiled test suites are no longer
+  reported as unused files with unused dev dependencies ([#13](https://github.com/Goldziher/skif/issues/13)).
 
 ## [0.1.1] - 2026-11-07
 

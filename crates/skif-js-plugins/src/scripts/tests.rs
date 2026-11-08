@@ -1,6 +1,6 @@
 use proptest::prelude::*;
 
-use super::{BinaryVia, ScriptContext, ScriptInfo, is_ignored_binary, parse_script};
+use super::{BinaryVia, FileTree, ScriptContext, ScriptInfo, is_ignored_binary, parse_script};
 
 type Scripts = &'static [(&'static str, &'static str)];
 type Names = &'static [&'static str];
@@ -733,14 +733,26 @@ fn package_managers_are_recorded() {
 #[test]
 fn test_runner_arguments_are_file_trees() {
     let info = parse("mocha --file ./build/test/setup.js --recursive --timeout 9000 ./build/test && node ./run.js");
-    let trees: Vec<(&str, bool)> = info.files.iter().map(|f| (f.path.as_str(), f.tree)).collect();
+    let trees: Vec<(&str, Option<FileTree>)> = info.files.iter().map(|f| (f.path.as_str(), f.tree.clone())).collect();
+    let js = |recursive| FileTree {
+        recursive,
+        extensions: vec!["js".to_owned(), "cjs".to_owned(), "mjs".to_owned()],
+    };
     assert_eq!(
         trees,
         [
-            ("./build/test/setup.js", false),
-            ("./build/test", true),
-            ("./run.js", false)
+            ("./build/test/setup.js", None),
+            ("./build/test", Some(js(true))),
+            ("./run.js", None)
         ]
+    );
+    assert_eq!(parse("mocha test").files[0].tree, Some(js(false)));
+    assert_eq!(
+        parse("mocha --extension ts --extension .tsx,mts test").files[0].tree,
+        Some(FileTree {
+            recursive: false,
+            extensions: vec!["ts".to_owned(), "tsx".to_owned(), "mts".to_owned()],
+        })
     );
 }
 

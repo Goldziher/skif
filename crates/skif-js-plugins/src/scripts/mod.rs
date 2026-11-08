@@ -123,8 +123,18 @@ pub struct FileRef {
     pub path: String,
     /// Byte range of the path in the parsed script.
     pub span: Range<usize>,
-    /// A test runner reads the path, so a directory stands for every file below it (`mocha build/test`).
-    pub tree: bool,
+    /// How a test runner reads the path when it is a directory (`mocha build/test`); `None` for a plain file.
+    pub tree: Option<FileTree>,
+}
+
+/// How a test runner reads a directory it is given.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileTree {
+    /// The runner descends into subdirectories (`mocha --recursive`); otherwise it reads only the files directly in
+    /// the directory.
+    pub recursive: bool,
+    /// The extensions, without the dot, of the files the runner reads (`mocha --extension ts`).
+    pub extensions: Vec<String>,
 }
 
 /// A package the script needs that is not a binary name.
