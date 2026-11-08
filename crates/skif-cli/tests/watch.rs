@@ -84,3 +84,34 @@ fn watch_refuses_fix() {
     assert_eq!(result.code, 2, "{}", result.stderr);
     assert!(result.stderr.contains("cannot be used with"), "{}", result.stderr);
 }
+
+#[test]
+fn the_reports_a_run_writes_do_not_start_another_run() {
+    let dir = fixture("clean");
+    let report = dir.path().join("report.txt");
+    let child = Command::new(env!("CARGO_BIN_EXE_skif"))
+        .args(["--watch", "--format", "json", "--format"])
+        .arg(format!("human={}", report.display()))
+        .arg(dir.path())
+        .env_remove("CI")
+        .env_remove("GITHUB_ACTIONS")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut watcher = Watcher(child);
+    let runs = documents(&mut watcher.0);
+
+    let first = runs.recv_timeout(TIMEOUT).expect("the first run");
+    assert_eq!(first["diagnostics"], Value::Array(Vec::new()), "{first}");
+    assert!(
+        report.is_file(),
+        "the human report is written next to the JSON on stdout"
+    );
+    // Writing `report.txt` below the watched root changed the tree; a watcher that sees its own output lints again
+    // within a few polls, and again after that, forever.
+    assert!(
+        runs.recv_timeout(Duration::from_secs(3)).is_err(),
+        "the watcher reacted to the report it wrote"
+    );
+}

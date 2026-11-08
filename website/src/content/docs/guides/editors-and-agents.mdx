@@ -48,12 +48,15 @@ speaks the protocol revisions `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024
 
 `skif --watch [PATH]` lints, then lints again whenever a file below the root changes, until you press Ctrl-C. Every
 other lint flag applies to each run. With human output on a terminal the screen is cleared before each run; with
-`--format json` stdout holds one JSON document per run.
+`--format json` stdout holds one JSON document per run. Several `--format FORMAT=FILE` reports can be written per
+run; the watcher ignores the files it writes itself (those and `--output`), so they do not start another run.
 
 The watcher checks the files below the root every 200 milliseconds (longer in a repository whose scan takes
 longer), skips `node_modules`, `.git` and `target`, and honours `.gitignore`, so build output does not trigger a
 run. A run starts once the tree has been quiet for 100 milliseconds, so a branch switch or a formatter that touches
-many files causes one run. When the configuration cannot be read, the error is printed and the watcher keeps going,
+many files causes one run. Each check walks the tree and reads the size and modification time of every file, so it
+costs more in a large repository; the interval stretches to twice the time a scan takes, which keeps the watcher
+to at most about a third of one core. When the configuration cannot be read, the error is printed and the watcher keeps going,
 so the next save of `skif.toml` runs again. `--watch` cannot be combined with `--fix` or `--fix-unsafe`.
 
 ## Language server

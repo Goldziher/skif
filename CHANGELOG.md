@@ -28,7 +28,7 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0056](adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
   [#44](https://github.com/Goldziher/skif/issues/44)).
 - `--watch` lints again whenever a file below the root changes, after 100 milliseconds of quiet; it polls, so it
-  needs no native file events
+  needs no native file events, and ignores the reports it writes (`--output`, `--format FORMAT=FILE`)
   ([ADR 0056](adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
   [#44](https://github.com/Goldziher/skif/issues/44)).
 - `skif lsp`, a minimal language server on stdio that publishes skif's diagnostics when a file is opened or saved
