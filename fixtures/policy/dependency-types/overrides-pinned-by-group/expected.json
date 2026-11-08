@@ -6,6 +6,7 @@
     "dependency": "minimist",
     "detail": "DiffersToPin",
     "path": "package.json",
-    "fixable": true
+    "fixable": true,
+    "safe": true
   }
 ]

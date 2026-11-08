@@ -1,0 +1,42 @@
+---
+source: crates/skif-report/tests/render.rs
+expression: "run(&rich(), Format::Codeclimate, &options(false))"
+---
+[
+  {
+    "description": "keys are not sorted",
+    "check_name": "sorted-keys",
+    "fingerprint": "a9f3ebc79c37ec19c2a320507251b58d",
+    "severity": "info",
+    "location": {
+      "path": "package.json",
+      "lines": {
+        "begin": 1
+      }
+    }
+  },
+  {
+    "description": "réact is declared with 2 different versions",
+    "check_name": "version-mismatch",
+    "fingerprint": "a58944df9abffb54657f4e5dcc05422f",
+    "severity": "major",
+    "location": {
+      "path": "packages/web/package.json",
+      "lines": {
+        "begin": 4
+      }
+    }
+  },
+  {
+    "description": "lodash is never imported 日本語",
+    "check_name": "unused-dependency",
+    "fingerprint": "2295134de274cab37cb9316a2cd32d9f",
+    "severity": "minor",
+    "location": {
+      "path": "packages/web/package.json",
+      "lines": {
+        "begin": 5
+      }
+    }
+  }
+]

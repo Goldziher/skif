@@ -1,0 +1,7 @@
+---
+source: crates/skif-js/tests/jsdoc_tags.rs
+expression: report(&diagnostics)
+---
+duplicate-exports src/lib.ts: `used` is exported as `duplicate` and `used`
+unused-exports src/lib.ts: export `duplicate` is never imported by another module
+unused-exports src/lib.ts: export `plain` is never imported by another module

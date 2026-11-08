@@ -1,0 +1,41 @@
+---
+source: crates/skif-edit/tests/package_json_format.rs
+expression: "report(\"comments\")"
+---
+issues:
+  - the conditions of `exports` are not in the configured order
+  - `scripts` is not sorted alphabetically
+--- before
+{
+  "version": "1.0.0",
+  // npm rejects comments, but other tools read package.json as JSONC
+  "name": "comments",
+  "scripts": {
+    "test": "vitest",
+    "build": "tsc"
+  },
+  "keywords": ["lint", /* the main one */ "deps"],
+  "exports": {
+    ".": {
+      "default": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  }
+}
+--- after
+{
+  "version": "1.0.0",
+  // npm rejects comments, but other tools read package.json as JSONC
+  "name": "comments",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest"
+  },
+  "keywords": ["lint", /* the main one */ "deps"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  }
+}

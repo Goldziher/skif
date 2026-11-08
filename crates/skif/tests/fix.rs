@@ -368,7 +368,7 @@ fn creating_a_file_another_fix_edits_is_a_conflict() {
 }
 
 #[test]
-fn create_and_delete_become_changes() {
+fn create_and_delete_become_changes_only_when_files_may_be_removed() {
     let fs = fs();
     let workspace = workspace(&fs);
     let meta: &'static RuleMeta = Box::leak(Box::new(meta("demo-files", Fixability::Safe)));
@@ -384,7 +384,12 @@ fn create_and_delete_become_changes() {
         ))
         .build();
     let report = Report::new(vec![diagnostic], 2);
-    let plan = apply_fixes(&workspace, &report, &FixSelection::default(), &fs).unwrap();
+    let refused = apply_fixes(&workspace, &report, &FixSelection::default(), &fs).unwrap();
+    assert!(refused.is_empty(), "{:?}", refused.changes);
+    assert_eq!(refused.skipped[0].reason, SkipReason::RemovesFiles);
+
+    let selection = FixSelection::default().with_remove_files(true);
+    let plan = apply_fixes(&workspace, &report, &selection, &fs).unwrap();
 
     assert_eq!(
         plan.changes,

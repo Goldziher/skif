@@ -1,0 +1,60 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "unresolved-imports",
+    "severity": "error",
+    "message": "cannot resolve `#missing`",
+    "help": "check the path, the `tsconfig` paths, the bundler aliases and the package `exports`",
+    "location": {
+      "path": "packages/db/src/index.ts",
+      "span": {
+        "start": 119,
+        "end": 154,
+        "start-line": 3,
+        "start-col": 1,
+        "end-line": 3,
+        "end-col": 36
+      }
+    },
+    "package": "db"
+  },
+  {
+    "rule": "unresolved-imports",
+    "severity": "error",
+    "message": "cannot resolve `./migrations/postgres`",
+    "help": "check the path, the `tsconfig` paths, the bundler aliases and the package `exports`",
+    "location": {
+      "path": "packages/db/src/index.ts",
+      "span": {
+        "start": 283,
+        "end": 342,
+        "start-line": 7,
+        "start-col": 1,
+        "end-line": 7,
+        "end-col": 60
+      }
+    },
+    "package": "db"
+  },
+  {
+    "rule": "unresolved-imports",
+    "severity": "error",
+    "message": "cannot resolve `~icons/mdi/home`",
+    "help": "check the path, the `tsconfig` paths, the bundler aliases and the package `exports`",
+    "location": {
+      "path": "packages/plain/src/index.ts",
+      "span": {
+        "start": 60,
+        "end": 95,
+        "start-line": 2,
+        "start-col": 1,
+        "end-line": 2,
+        "end-col": 36
+      }
+    },
+    "package": "plain"
+  }
+]
