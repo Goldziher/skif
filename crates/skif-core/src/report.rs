@@ -1,7 +1,7 @@
 //! Deterministic collection of diagnostics with summary counts.
 
 use std::cmp::Ordering;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -53,7 +53,7 @@ impl Report {
     /// Sorts `diagnostics` deterministically and computes the summary; `packages` is the number of packages checked.
     #[must_use]
     pub fn new(mut diagnostics: Vec<Diagnostic>, packages: usize) -> Self {
-        diagnostics.sort_by(compare);
+        sort(&mut diagnostics);
         let summary = diagnostics.iter().fold(
             Summary {
                 packages,
@@ -87,18 +87,98 @@ impl Report {
     }
 }
 
+/// Sorts `diagnostics` stably by path, span start, rule and message, exactly as a stable sort by [`compare`] would.
+///
+/// A report can hold tens of thousands of diagnostics of a few hundred bytes each, about a few thousand files. So the
+/// order is worked out on indices, each distinct path is ranked once instead of being compared at every step, and the
+/// diagnostics are then moved into place by swaps: sorting the diagnostics themselves moved each several times and
+/// needed a scratch copy of the whole vector.
+fn sort(diagnostics: &mut [Diagnostic]) {
+    // Neighbours mostly share a file: each run of one path is ranked once.
+    let mut runs: Vec<&Path> = Vec::new();
+    let mut run_of: Vec<usize> = Vec::with_capacity(diagnostics.len());
+    for diagnostic in diagnostics.iter() {
+        let path = diagnostic.location.path.as_path();
+        if runs.last().is_none_or(|last| last.as_os_str() != path.as_os_str()) {
+            runs.push(path);
+        }
+        run_of.push(runs.len() - 1);
+    }
+    let mut by_path: Vec<usize> = (0..runs.len()).collect();
+    if runs.iter().all(|path| is_plain(path)) {
+        by_path.sort_unstable_by(|&a, &b| plain_cmp(runs[a], runs[b]));
+    } else {
+        by_path.sort_unstable_by(|&a, &b| runs[a].cmp(runs[b]));
+    }
+    // Equal paths share a rank: `Path` equality is by component, as its order is.
+    let mut rank_of_run = vec![0_u32; runs.len()];
+    let mut rank = 0_u32;
+    for (index, &run) in by_path.iter().enumerate() {
+        if index > 0 && runs[by_path[index - 1]] != runs[run] {
+            rank += 1;
+        }
+        rank_of_run[run] = rank;
+    }
+    let keys: Vec<(u32, u32)> = diagnostics
+        .iter()
+        .zip(&run_of)
+        .map(|(diagnostic, &run)| (rank_of_run[run], start(diagnostic)))
+        .collect();
+    let mut order: Vec<usize> = (0..diagnostics.len()).collect();
+    order.sort_by(|&a, &b| {
+        keys[a].cmp(&keys[b]).then_with(|| {
+            let (a, b) = (&diagnostics[a], &diagnostics[b]);
+            a.rule.cmp(&b.rule).then_with(|| a.message.cmp(&b.message))
+        })
+    });
+    // Position `k` takes the diagnostic at `order[k]`; each cycle of the permutation is walked once.
+    for first in 0..order.len() {
+        let mut current = first;
+        while order[current] != usize::MAX {
+            let next = std::mem::replace(&mut order[current], usize::MAX);
+            if next == first {
+                break;
+            }
+            diagnostics.swap(current, next);
+            current = next;
+        }
+    }
+}
+
+/// Whether `path` is spelled so that [`plain_cmp`] orders it as `Path` does: on a platform whose only separator is
+/// `/`, without an empty (`a//b`, `a/`), `.` or `..` component, so its components are exactly its `/`-separated parts.
+fn is_plain(path: &Path) -> bool {
+    !cfg!(windows)
+        && path
+            .as_os_str()
+            .as_encoded_bytes()
+            .split(|&byte| byte == b'/')
+            .enumerate()
+            .all(|(index, part)| (index == 0 || !part.is_empty()) && part != b"." && part != b"..")
+}
+
+/// The order of two [plain](is_plain) paths by component, from their bytes: up to the first difference they share
+/// their components, and there the one whose component ends (a `/`, or the end of the path) is the smaller.
+fn plain_cmp(a: &Path, b: &Path) -> Ordering {
+    let (a, b) = (a.as_os_str().as_encoded_bytes(), b.as_os_str().as_encoded_bytes());
+    let key = |byte: u8| if byte == b'/' { 0 } else { u16::from(byte) + 1 };
+    match a.iter().zip(b).position(|(x, y)| x != y) {
+        Some(index) => key(a[index]).cmp(&key(b[index])),
+        None => a.len().cmp(&b.len()),
+    }
+}
+
 fn start(diagnostic: &Diagnostic) -> u32 {
     diagnostic.location.span.map_or(0, |span| span.start)
 }
 
+/// The order of a report, which [`sort`] computes faster; kept as the reference the tests hold it to.
+#[cfg(test)]
 fn compare(a: &Diagnostic, b: &Diagnostic) -> Ordering {
-    // Most neighbours share a file; equal bytes are equal paths, without comparing them component by component.
-    let path = if a.location.path.as_os_str() == b.location.path.as_os_str() {
-        Ordering::Equal
-    } else {
-        a.location.path.cmp(&b.location.path)
-    };
-    path.then_with(|| start(a).cmp(&start(b)))
+    a.location
+        .path
+        .cmp(&b.location.path)
+        .then_with(|| start(a).cmp(&start(b)))
         .then_with(|| a.rule.cmp(&b.rule))
         .then_with(|| a.message.cmp(&b.message))
 }
@@ -197,6 +277,66 @@ mod tests {
         let mut reversed = input();
         reversed.reverse();
         assert_eq!(Report::new(reversed, 3), forward);
+    }
+
+    #[test]
+    fn sorts_as_a_stable_sort_by_compare() {
+        // Paths that order differently by component than by bytes (`a-b`, `a.b` and `a/b`, `/` and relative), and a
+        // second set with spellings of one path (`a//b`, `./a`) and `..`, which take the general comparison. Missing
+        // spans and diagnostics equal in every sort key, told apart by their help, in a scrambled order.
+        let plain = [
+            "a/b/package.json",
+            "a-b/package.json",
+            "a.b/package.json",
+            "a/package.json",
+            "/a/package.json",
+            "package.json",
+            "a/b",
+        ];
+        let spelled = [
+            "a/b/package.json",
+            "a//b/package.json",
+            "./a/package.json",
+            "../a/package.json",
+            "-a/x",
+        ];
+        for paths in [&plain[..], &spelled[..]] {
+            let rules = ["a-rule", "b-rule"];
+            let mut state: u32 = 7;
+            let mut next = |bound: usize| {
+                state = state.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                usize::try_from(state >> 16).unwrap() % bound
+            };
+            let input: Vec<Diagnostic> = (0..400)
+                .map(|index| {
+                    let start = [None, Some(0), Some(3), Some(9)][next(4)];
+                    let path = paths[next(paths.len())];
+                    let mut diagnostic = diag(rules[next(2)], Severity::Error, path, start, false);
+                    diagnostic.help = Some(index.to_string());
+                    diagnostic
+                })
+                .collect();
+            let mut expected = input.clone();
+            expected.sort_by(compare);
+            assert_eq!(Report::new(input, 1).diagnostics, expected, "{paths:?}");
+        }
+    }
+
+    #[test]
+    fn plain_paths_compare_by_component() {
+        let paths = [
+            "", "/a", "a", "a-b", "a.b", "a/b", "a/b/c", "a/bc", "ab", "b", "a/b-c", "a/b/-",
+        ];
+        for a in paths {
+            for b in paths {
+                let (a, b) = (Path::new(a), Path::new(b));
+                assert!(is_plain(a) && is_plain(b), "{a:?} {b:?}");
+                assert_eq!(plain_cmp(a, b), a.cmp(b), "{a:?} {b:?}");
+            }
+        }
+        for path in ["/", "a//b", "a/", "./a", "a/./b", "a/../b", ".."] {
+            assert!(!is_plain(Path::new(path)), "{path}");
+        }
     }
 
     #[test]
