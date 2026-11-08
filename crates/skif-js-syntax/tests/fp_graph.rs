@@ -138,6 +138,53 @@ fn only_members_read_by_name_in_the_declaring_file_are_recorded() {
 }
 
 #[test]
+fn namespace_members_read_by_their_bare_name_inside_the_namespace_are_recorded() {
+    let info = parse(
+        "a.ts",
+        "export namespace Values {\n\
+           export function findVisible() { return 1; }\n\
+           export function show() { return findVisible(); }\n\
+           export const unread = 1;\n\
+         }\n\
+         export namespace Types {\n\
+           export type ProgressToken = string | number;\n\
+           export interface Progress { token: ProgressToken }\n\
+           export type Unread = string;\n\
+         }\n\
+         export namespace Shadowed {\n\
+           export const a = 1;\n\
+           export const b = 2;\n\
+           export const c = 3;\n\
+           export type T = string;\n\
+           export function f(a: number) { return a; }\n\
+           export function g() { const b = 1; return b; }\n\
+           export function h<T>(x: T): T { return x; }\n\
+           namespace Inner { export const c = 4; console.log(c); }\n\
+         }\n\
+         export namespace Outer {\n\
+           export const v = 1;\n\
+           namespace Inner { console.log(v); }\n\
+         }\n\
+         export namespace Merged { export const one = 1; export const p = 1; }\n\
+         export namespace Merged { export const two = one; const p = 2; console.log(p); }\n\
+         const unread = 2;\n\
+         console.log(unread);\n",
+    );
+    let read = |name: &str| {
+        info.exports
+            .iter()
+            .filter(|export| export.name == name)
+            .map(|export| export.members_read_in_file.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(read("Values"), [["findVisible"]]);
+    assert_eq!(read("Types"), [["ProgressToken"]]);
+    assert_eq!(read("Shadowed"), [Vec::<String>::new()]);
+    assert_eq!(read("Outer"), [["v"]]);
+    assert_eq!(read("Merged"), [["one"], ["one"]]);
+}
+
+#[test]
 fn a_constant_records_the_identifier_it_is_initialised_with() {
     let info = parse(
         "a.ts",
