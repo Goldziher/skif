@@ -13,7 +13,9 @@ use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::ancestors;
 use crate::globs::{Globs, Names};
-use crate::input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
+use crate::input::{
+    BuildDir, IncompleteCause, IncompleteEntries, InputRequest, InputSource, PathAlias, WorkspaceInputs,
+};
 use crate::listed::{self, Listed};
 use crate::scripts::{self, ScriptBinary, ScriptFacts};
 
@@ -305,6 +307,8 @@ pub(crate) struct PackageSetup {
     /// The tool configuration of the package could not be fully read, so its entry files are not all known.
     /// Files and dependencies cannot be judged unused then.
     pub entries_incomplete: bool,
+    /// Why the entry files are incomplete; not empty when they are.
+    pub incomplete_reasons: Vec<IncompleteEntries>,
     pub project: Globs,
     /// Files whose issues are not reported, relative to the package directory.
     pub ignore: Globs,
@@ -577,6 +581,15 @@ impl Setup {
                 external_entry,
                 shared_entry: Globs::new(shared_entry),
                 entries_incomplete: plugin.entries_incomplete,
+                incomplete_reasons: if plugin.entries_incomplete && plugin.incomplete_reasons.is_empty() {
+                    vec![IncompleteEntries {
+                        cause: IncompleteCause::Unspecified,
+                        plugin: None,
+                        file: None,
+                    }]
+                } else {
+                    plugin.incomplete_reasons
+                },
                 project: Globs::new(project),
                 ignore: Globs::new(ignore),
                 ignore_dependencies: Names::new(ignore_dependencies),
@@ -628,6 +641,11 @@ impl Setup {
         for id in ids {
             if let Some(Some(package)) = self.packages.get_mut(id.index()) {
                 package.entries_incomplete = true;
+                package.incomplete_reasons.push(IncompleteEntries {
+                    cause: IncompleteCause::UnmappedPublished,
+                    plugin: None,
+                    file: Some(package.dir.join("package.json")),
+                });
             }
         }
     }
