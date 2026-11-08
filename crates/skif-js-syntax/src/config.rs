@@ -10,7 +10,8 @@ use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget, BinaryOperator,
     BindingPattern, CallExpression, Declaration, ExportDefaultDeclarationKind, Expression, Function,
     ImportDeclarationSpecifier, ImportOrExportKind, NewExpression, ObjectPropertyKind, Program, Statement,
-    StaticMemberExpression, TemplateLiteral, UnaryOperator, VariableDeclaration, VariableDeclarationKind,
+    StaticMemberExpression, TaggedTemplateExpression, TemplateLiteral, UnaryOperator, VariableDeclaration,
+    VariableDeclarationKind,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
@@ -844,6 +845,212 @@ pub fn extract_constructor_options(source: &str, path: &Path, constructor: &str,
     };
     finder.visit_program(program);
     finder.found
+}
+
+/// A call, or a tagged template, of a function a module exports; see [`extract_imported_calls`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportedCall {
+    /// The module the function comes from.
+    pub module: String,
+    /// The export called: `"default"` for the default export or the module object itself (`pino(…)`), the export's
+    /// name for a named import (`execa(…)`), or the member called on the module object (`pino.transport(…)`).
+    pub export: String,
+    /// The statically evaluated arguments, in order; empty for a tagged template.
+    pub arguments: Vec<ConfigValue>,
+    /// For a tagged template (`` $`cmd ${x}` ``), its raw text with every substitution replaced by
+    /// [`TEMPLATE_SUBSTITUTION`]; `None` for a call.
+    pub template: Option<String>,
+}
+
+/// What a substitution of a tagged template reads as in [`ImportedCall::template`].
+pub const TEMPLATE_SUBSTITUTION: &str = "$__skif__";
+
+/// Every call and tagged template in `source` whose function is imported from one of `modules` (`import`, `import * as`,
+/// or a top-level `require`, plain or destructured), with its arguments statically evaluated as in
+/// [`extract_config_object`]. `globals` names functions available without an import, as `(name, module)` pairs (the
+/// `$` of a zx script). Shadowed names are not tracked. Returns nothing when the file does not parse.
+#[must_use]
+pub fn extract_imported_calls(
+    source: &str,
+    path: &Path,
+    modules: &[&str],
+    globals: &[(&str, &str)],
+) -> Vec<ImportedCall> {
+    let Ok(source_type) = SourceType::from_path(path) else {
+        return Vec::new();
+    };
+    let allocator = Allocator::default();
+    let ret = Parser::new(&allocator, source, source_type)
+        .with_options(OxcParseOptions {
+            preserve_parens: false,
+            ..OxcParseOptions::default()
+        })
+        .parse();
+    if ret.diagnostics.errors().next().is_some() {
+        return Vec::new();
+    }
+    let program = &ret.program;
+    let imported = imported_functions(program, modules, globals);
+    if imported.is_empty() {
+        return Vec::new();
+    }
+    let top = top_level(program);
+    let bindings = module_bindings(program);
+    let mut finder = CallFinder {
+        top: &top,
+        bindings: &bindings,
+        file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+        imported: &imported,
+        found: Vec::new(),
+    };
+    finder.visit_program(program);
+    finder.found
+}
+
+/// Local name to module and named export (`None` for the default export or the module object) of everything a
+/// program imports from `modules`, plus `globals`.
+type ImportedFunctions = HashMap<String, (String, Option<String>)>;
+
+fn imported_functions(program: &Program<'_>, modules: &[&str], globals: &[(&str, &str)]) -> ImportedFunctions {
+    let mut imported: ImportedFunctions = globals
+        .iter()
+        .map(|(name, module)| ((*name).to_owned(), ((*module).to_owned(), Some((*name).to_owned()))))
+        .collect();
+    let named = |export: String| Some(export).filter(|e| e != "default");
+    for stmt in &program.body {
+        if let Statement::ImportDeclaration(d) = stmt {
+            let module = d.source.value.as_str().unwrap_or_default();
+            if !modules.contains(&module) {
+                continue;
+            }
+            for specifier in d.specifiers.iter().flatten() {
+                let (local, export) = match specifier {
+                    ImportDeclarationSpecifier::ImportSpecifier(s) => (
+                        s.local.name.as_str(),
+                        named(crate::collect::module_export_name(&s.imported)),
+                    ),
+                    ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => (s.local.name.as_str(), None),
+                    ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => (s.local.name.as_str(), None),
+                };
+                imported.insert(local.to_owned(), (module.to_owned(), export));
+            }
+        } else if let Some(Declaration::VariableDeclaration(v)) = stmt.as_declaration() {
+            for declarator in &v.declarations {
+                if let Some(module) = declarator.init.as_ref().and_then(required_module)
+                    && modules.contains(&module.as_str())
+                {
+                    for (local, export) in required_names(&declarator.id) {
+                        imported.insert(local, (module.clone(), export.and_then(named)));
+                    }
+                }
+            }
+        }
+    }
+    imported
+}
+
+/// The local names a `require` result is bound to, with the export each destructured one takes.
+fn required_names(id: &BindingPattern<'_>) -> Vec<(String, Option<String>)> {
+    match id {
+        BindingPattern::BindingIdentifier(local) => vec![(local.name.as_str().to_owned(), None)],
+        BindingPattern::ObjectPattern(pattern) => pattern
+            .properties
+            .iter()
+            .filter_map(|property| match (property.key.static_name(), &property.value) {
+                (Some(key), BindingPattern::BindingIdentifier(local)) => {
+                    Some((local.name.as_str().to_owned(), Some(crate::js_string(key.as_js_str()))))
+                }
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+struct CallFinder<'t, 'p, 'a> {
+    top: &'t TopLevel<'p, 'a>,
+    bindings: &'t ModuleBindings,
+    file: &'t str,
+    /// Local name to module and named export (`None` for the default export or the module object).
+    imported: &'t ImportedFunctions,
+    found: Vec<ImportedCall>,
+}
+
+impl<'a> CallFinder<'_, '_, 'a> {
+    /// The module and export `callee` calls, when it is an imported function or a member of an imported module.
+    fn target(&self, callee: &Expression<'a>) -> Option<(String, String)> {
+        match callee.get_inner_expression() {
+            Expression::Identifier(id) => self
+                .imported
+                .get(id.name.as_str())
+                .map(|(module, export)| (module.clone(), export.clone().unwrap_or_else(|| "default".to_owned()))),
+            Expression::StaticMemberExpression(member) => match member.object.get_inner_expression() {
+                Expression::Identifier(id) => self
+                    .imported
+                    .get(id.name.as_str())
+                    .filter(|(_, export)| export.is_none())
+                    .map(|(module, _)| (module.clone(), member.property.name.as_str().to_owned())),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
+
+impl<'a> Visit<'a> for CallFinder<'_, '_, 'a> {
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if let Some((module, export)) = self.target(&it.callee) {
+            let eval = Evaluator {
+                consts: &self.top.consts,
+                functions: &self.top.functions,
+                bindings: self.bindings,
+                file: self.file,
+                dir: ".",
+                path: Path::new(self.file),
+                imports: &HashMap::new(),
+                modules: None,
+                evaluated: RefCell::new(HashMap::new()),
+                chain: RefCell::new(Vec::new()),
+                frames: RefCell::new(Vec::new()),
+                calls: Cell::new(0),
+                config_setter: RefCell::new(None),
+                captured: RefCell::new(None),
+            };
+            let arguments = it
+                .arguments
+                .iter()
+                .map(|argument| {
+                    argument
+                        .as_expression()
+                        .map_or(ConfigValue::Unknown, |e| eval.expr(e, 0))
+                })
+                .collect();
+            self.found.push(ImportedCall {
+                module,
+                export,
+                arguments,
+                template: None,
+            });
+        }
+        walk::walk_call_expression(self, it);
+    }
+
+    fn visit_tagged_template_expression(&mut self, it: &TaggedTemplateExpression<'a>) {
+        let tag = match it.tag.get_inner_expression() {
+            Expression::CallExpression(call) => &call.callee,
+            other => other,
+        };
+        if let Some((module, export)) = self.target(tag) {
+            let quasis: Vec<&str> = it.quasi.quasis.iter().map(|q| q.value.raw.as_str()).collect();
+            self.found.push(ImportedCall {
+                module,
+                export,
+                arguments: Vec::new(),
+                template: Some(quasis.join(TEMPLATE_SUBSTITUTION)),
+            });
+        }
+        walk::walk_tagged_template_expression(self, it);
+    }
 }
 
 struct OptionFinder<'t, 'p, 'a> {

@@ -241,6 +241,11 @@ fn table() {
         files("ts-node-dev --respawn src/a.ts", &["ts-node-dev"], &["src/a.ts"]),
         files("vite-node scripts/seed.ts", &["vite-node"], &["scripts/seed.ts"]),
         files("zx scripts/a.mjs", &["zx"], &["scripts/a.mjs"]),
+        files(
+            "glob -c \"tsx scripts/check.ts\" \"src/**/*.ts\"",
+            &["glob", "tsx"],
+            &["scripts/check.ts"],
+        ),
         deps(
             "babel-node -r dotenv/config src/a.js",
             &["babel-node"],

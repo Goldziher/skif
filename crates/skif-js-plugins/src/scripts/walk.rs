@@ -1067,6 +1067,7 @@ impl<'c> Walker<'c> {
                     }
                 }
             }
+            Files::None => {}
         }
     }
 
