@@ -288,6 +288,10 @@ struct RunArgs {
     /// Exit 0 even when an ADR 0001 target check fails.
     #[arg(long)]
     no_enforce: bool,
+    /// Install the dependencies of the corpus repositories (`--ignore-scripts`, as `parity --install`) before timing
+    /// knip, which fails to load their tool configurations without them.
+    #[arg(long)]
+    install: bool,
 }
 
 fn generate_command(args: &GenerateArgs) -> Result<()> {
@@ -383,6 +387,7 @@ fn main() -> Result<()> {
             graph_files: args.graph_files,
             graph_packages: args.graph_packages,
             enforce: !args.no_enforce,
+            install: args.install,
         }),
     }
 }

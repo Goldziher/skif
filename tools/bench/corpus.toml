@@ -11,6 +11,7 @@
 #   install-timeout-secs  optional install time limit, replacing the global --timeout-secs for the install only
 #   recursive        true when skif must run with --recursive here (nested roots that are not workspace members)
 #   knip-unread      path prefixes knip does not read here; one-sided findings below them are a known deviation
+#   entry            entry files of the root workspace neither tool finds (globs); both get them besides their defaults
 #   notes            why the repository is in the corpus and what to expect from it
 
 [tools]
@@ -23,7 +24,7 @@ url = "https://github.com/t3-oss/create-t3-turbo.git"
 rev = "8f945b7bb3bfb3ca8358d48b1ff0214079bc11ee"
 package-manager = "pnpm"
 suites = ["bench", "parity"]
-notes = "Small pnpm monorepo with a catalog."
+notes = "Small pnpm monorepo with a catalog. Even installed, knip exits with an error here: apps/expo/metro.config.js requires metro-cache, which is not listed, and packages/db/drizzle.config.ts throws without POSTGRES_URL."
 
 [[repo]]
 name = "vue-core"
@@ -72,8 +73,9 @@ url = "https://github.com/aspect-build/rules_js.git"
 rev = "25bca017a89e5f7099b4a5a92ad336c48864523e"
 package-manager = "pnpm"
 suites = ["parity"]
-# pnpm 10 rejects the committed lockfile (ERR_PNPM_INVALID_DEPENDENCY_NAME), so the install runs with pnpm 9.
-install-command = ["npx", "--yes", "pnpm@9", "install", "--ignore-scripts", "--frozen-lockfile"]
+# The pnpm that MODULE.bazel pins (pnpm_version). pnpm 9 rejects the lockfile's overrides
+# (ERR_PNPM_LOCKFILE_CONFIG_MISMATCH); this one accepts it. The install fetches tarballs from codeload.github.com.
+install-command = ["npx", "--yes", "pnpm@10.22.0", "install", "--ignore-scripts", "--frozen-lockfile"]
 notes = "Many e2e and example roots, some without a root package.json."
 
 [[repo]]
@@ -98,7 +100,8 @@ url = "https://github.com/mastra-ai/mastra.git"
 rev = "01524b22db5adb7dfdfe4950190918202338d9bd"
 package-manager = "pnpm"
 suites = ["parity"]
-notes = "Large pnpm workspace with many exports."
+recursive = true
+notes = "Large pnpm workspace with many exports. templates/* and examples/* are standalone projects (nested roots), so skif runs recursively to read the files knip reads from the root."
 
 [[repo]]
 name = "rushstack"
@@ -107,7 +110,7 @@ rev = "ca0b960ced9324f65be85800a72184edeb91cc3b"
 package-manager = "rush"
 suites = ["parity"]
 install = false
-notes = "Rush workspace (rush.json); no lockfile in the tree, so it is never installed."
+notes = "Rush workspace (rush.json) without a root package.json, for skif and the syncpack diff. knip has no Rush support and stops with 'Unable to find package.json', so the knip comparison cannot run and the install (rush, lockfiles under common/config/subspaces) is not attempted."
 
 [[repo]]
 name = "vscode"
@@ -116,6 +119,38 @@ rev = "6b7063d8883d0d6af80246f2f79df95cb8251059"
 package-manager = "pnpm"
 suites = ["parity"]
 recursive = true
+# The entry points build/next/index.ts bundles for every target (the workbench, workers, shared and utility
+# processes); nothing imports them, so without them both tools report the workbench as unused.
+entry = [
+  "src/vs/code/browser/workbench/workbench.ts",
+  "src/vs/code/electron-browser/workbench/workbench.ts",
+  "src/vs/code/electron-utility/sharedProcess/sharedProcessMain.ts",
+  "src/vs/code/node/cliProcessMain.ts",
+  "src/vs/editor/common/services/editorWebWorkerMain.ts",
+  "src/vs/platform/agentHost/node/agentHostMain.ts",
+  "src/vs/platform/agentHost/node/diffWorkerMain.ts",
+  "src/vs/platform/files/node/watcher/watcherMain.ts",
+  "src/vs/platform/localTranscription/node/localTranscriptionMain.ts",
+  "src/vs/platform/profiling/electron-browser/profileAnalysisWorkerMain.ts",
+  "src/vs/platform/terminal/node/ptyHostMain.ts",
+  "src/vs/sessions/electron-browser/sessions.ts",
+  "src/vs/sessions/sessions.desktop.main.ts",
+  "src/vs/sessions/sessions.web.main.internal.ts",
+  "src/vs/workbench/api/node/extensionHostProcess.ts",
+  "src/vs/workbench/api/worker/extensionHostWorkerMain.ts",
+  "src/vs/workbench/contrib/debug/node/telemetryApp.ts",
+  "src/vs/workbench/contrib/mediaPreview/browser/imageEncoderWorkerMain.ts",
+  "src/vs/workbench/contrib/notebook/common/services/notebookWebWorkerMain.ts",
+  "src/vs/workbench/contrib/output/common/outputLinkComputerMain.ts",
+  "src/vs/workbench/services/keybinding/browser/keyboardLayouts/layout.contribution.darwin.ts",
+  "src/vs/workbench/services/keybinding/browser/keyboardLayouts/layout.contribution.linux.ts",
+  "src/vs/workbench/services/keybinding/browser/keyboardLayouts/layout.contribution.win.ts",
+  "src/vs/workbench/services/languageDetection/browser/languageDetectionWebWorkerMain.ts",
+  "src/vs/workbench/services/search/worker/localFileSearchMain.ts",
+  "src/vs/workbench/services/textMate/browser/backgroundTokenization/worker/textMateTokenizationWorker.workerMain.ts",
+  "src/vs/workbench/workbench.desktop.main.ts",
+  "src/vs/workbench/workbench.web.main.internal.ts",
+]
 notes = "Very large application tree; extensions/copilot is a nested root with its own workspace."
 
 [[repo]]
@@ -141,7 +176,8 @@ rev = "de867239d0a7dd55c9130f1e3f87fcf877db96e8"
 package-manager = "pnpm"
 suites = ["parity"]
 install-timeout-secs = 5400
-notes = "Hundreds of standalone example projects below one workspace."
+recursive = true
+notes = "Hundreds of standalone example projects below one workspace; they are nested roots, so skif runs recursively to read the files knip reads from the root."
 
 [[repo]]
 name = "next-js"
@@ -149,4 +185,5 @@ url = "https://github.com/vercel/next.js.git"
 rev = "e8ec2aed9266e4550789c78749d4de6297e66d5d"
 package-manager = "pnpm"
 suites = ["parity"]
-notes = "Largest tree of the corpus."
+recursive = true
+notes = "Largest tree of the corpus. examples/* and many test apps are standalone projects (nested roots), so skif runs recursively to read the files knip reads from the root."
