@@ -822,8 +822,19 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, plan: &
     other_flags(state, src, invocation);
 }
 
-/// Flags that change what skif reports for the whole project but that only some scripts passed.
+/// Flags that change what skif reports for the whole project but that only some scripts passed, or passed with
+/// different values.
 fn note_differing_flags(state: &mut State<'_>, src: &Src, invocations: &[Invocation]) {
+    if let Some(scripts) = scripts::differing_values(invocations, "tsConfig", Some("t")) {
+        state.note_with(
+            src,
+            NoteClass::Approximate,
+            format!("{scripts}: --tsConfig"),
+            "these scripts do not all pass the same --tsConfig; skif has one [js] tsconfig for the project, so the \
+             last one is written and applies to all",
+            "check that every check should use it",
+        );
+    }
     for flag in [
         "include-entry-exports",
         "use-tsconfig-files",
