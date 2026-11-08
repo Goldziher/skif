@@ -1,0 +1,7 @@
+{
+  "name": "demo",
+  "private": true,
+  "scripts": {
+    "lint:deps": "pnpm sherif -i react@17.0.2 -i @types/* -r unordered-dependencies -r root-package-private-field -p @demo/legacy --fail-on-warnings"
+  }
+}
