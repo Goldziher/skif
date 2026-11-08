@@ -9,6 +9,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-08
+
 ### Added
 
 - `--cache` keeps the parse results of source files between runs in `node_modules/.cache/skif/modules.bin`, and
