@@ -272,7 +272,8 @@ pub struct LintArgs {
     #[arg(long, value_name = "N")]
     pub max_issues: Option<usize>,
 
-    /// Show at most N findings of each rule; the summary still counts all of them, and the exit code is unchanged.
+    /// Show at most N findings of each rule in human and json output (not with --fix); the summary still counts all
+    /// of them, and the exit code is unchanged.
     #[arg(long, value_name = "N")]
     pub max_show_issues: Option<usize>,
 
@@ -353,7 +354,13 @@ pub struct LintArgs {
 
     /// Instead of linting, print where this dependency is listed, every import of it and the packages that count it
     /// as used.
-    #[arg(long, value_name = "NAME", conflicts_with_all = ["fix", "fix_unsafe"])]
+    #[arg(
+        long,
+        value_name = "NAME",
+        conflicts_with_all = [
+            "fix", "fix_unsafe", "workspace", "include", "exclude", "dependencies", "exports", "files", "cycles",
+        ]
+    )]
     pub trace_dependency: Option<String>,
 
     /// Print what the run loaded (roots, configuration files, packages) and the phase timings to stderr.
@@ -378,7 +385,7 @@ pub struct LintArgs {
     pub workspace: Vec<String>,
 
     /// Report only these knip issue types (`files`, `dependencies`, `exports`, ...) or skif rule ids; a rule that is
-    /// off is turned on. Comma separated, repeatable.
+    /// off (by default or in the configuration) is turned on. Comma separated, repeatable.
     #[arg(long, value_name = "TYPE|RULE", value_delimiter = ',')]
     pub include: Vec<String>,
 
