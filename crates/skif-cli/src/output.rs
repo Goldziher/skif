@@ -146,8 +146,9 @@ fn read_codeowners(top: &Path, fs: &dyn FileSystem) -> Result<CodeOwners, CliErr
             return Ok(CodeOwners::parse(&text));
         }
     }
+    // The repository lacks a file the run is configured to need, like a missing config file, not a bad flag.
     Err(CliError::new(
-        Kind::Usage,
+        Kind::Config,
         format!(
             "--format codeowners needs a CODEOWNERS file; none of {} exists in {}",
             CODEOWNERS_LOCATIONS.join(", "),
@@ -237,5 +238,28 @@ pub fn emit(bytes: &[u8], output: Option<&Path>) -> Result<(), CliError> {
     match output {
         Some(path) => write_atomic(path, bytes).map_err(|error| CliError::io("cannot write", path, &error)),
         None => write_stdout(bytes),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use skif::MemoryFs;
+
+    use super::*;
+
+    #[test]
+    fn a_missing_codeowners_file_is_a_config_error() {
+        let error = read_codeowners(Path::new("/repo"), &MemoryFs::new()).unwrap_err();
+        assert_eq!(error.kind, Kind::Config);
+        assert!(error.message.contains("CODEOWNERS"), "{}", error.message);
+    }
+
+    #[test]
+    fn codeowners_is_read_from_the_first_location() {
+        let fs = MemoryFs::new()
+            .with_file("/repo/CODEOWNERS", "* @second\n")
+            .with_file("/repo/.github/CODEOWNERS", "\u{feff}* @first\n");
+        let codeowners = read_codeowners(Path::new("/repo"), &fs).unwrap();
+        assert_eq!(codeowners.owners("package.json"), ["@first"]);
     }
 }
