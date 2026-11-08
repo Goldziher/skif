@@ -249,4 +249,4 @@ blake3 = "57ee9ff85eda7dc829451d63690e462fb1d7e1dbf3a9c19ce039ae63c232cd0e"
 [adrs."adrs/0050-registry-updates-an-opt-in-skif-update-command.md"]
 number = 50
 status = "accepted"
-blake3 = "96652a194346d3176f0dc8302cdf18bbec0464b1822424902ea8d9977e51bfb7"
+blake3 = "e97707820681ea433e2160f7d41e412e41982df6ad4f4c2a57c9e23a41fa6202"

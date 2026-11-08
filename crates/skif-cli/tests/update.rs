@@ -158,14 +158,12 @@ fn update(dir: &Path) -> assert_cmd::Command {
 fn check_lists_the_updates_exits_one_and_writes_nothing() {
     let (url, seen) = registry();
     let dir = workspace(
-        &format!(
-            "registry={url}\n//127.0.0.1:{}/:_authToken=${{SKIF_TEST_TOKEN}}\n",
-            url_port(&url)
-        ),
+        &format!("//127.0.0.1:{}/:_authToken=${{SKIF_TEST_TOKEN}}\n", url_port(&url)),
         APP,
     );
     let before = tree(dir.path());
-    // The environment names the registry, so the project's `${VAR}` token may be sent to it.
+    // The environment names the registry, so the project's `${VAR}` token may be sent to it; the project's own file
+    // sets no http:// registry for the host, which would drop the token.
     let result = run(update(dir.path())
         .env("npm_config_registry", &url)
         .env("SKIF_TEST_TOKEN", "t0ken-value")
@@ -289,6 +287,35 @@ fn writing_is_refused_when_ci_is_truthy_but_check_runs() {
         "{}",
         check.stdout
     );
+}
+
+#[test]
+fn a_project_token_from_the_environment_is_not_sent_to_an_http_registry_the_project_sets() {
+    let (url, seen) = registry();
+    let dir = workspace(
+        &format!(
+            "registry={url}\n//127.0.0.1:{}/:_authToken=${{SKIF_TEST_TOKEN}}\n",
+            url_port(&url)
+        ),
+        APP,
+    );
+    let result = run(update(dir.path())
+        .env("npm_config_registry", &url)
+        .env("SKIF_TEST_TOKEN", "t0ken-value")
+        .args(["--check", "--format", "json"]));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    let requests = seen.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2, "{requests:?}");
+    assert!(
+        requests.iter().all(|(_, authorization)| authorization.is_none()),
+        "{requests:?}"
+    );
+    assert!(
+        result.stderr.contains("sets an http:// registry for 127.0.0.1:"),
+        "{}",
+        result.stderr
+    );
+    assert!(!result.stdout.contains("t0ken-value") && !result.stderr.contains("t0ken-value"));
 }
 
 #[test]
