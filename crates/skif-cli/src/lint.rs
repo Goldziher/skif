@@ -117,7 +117,7 @@ pub fn canonical(path: &Path) -> Result<PathBuf, CliError> {
 }
 
 #[cfg(windows)]
-fn simplified(path: PathBuf) -> PathBuf {
+pub(crate) fn simplified(path: PathBuf) -> PathBuf {
     let text = path.to_string_lossy();
     match text.strip_prefix(r"\\?\") {
         Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
@@ -126,7 +126,7 @@ fn simplified(path: PathBuf) -> PathBuf {
 }
 
 #[cfg(not(windows))]
-const fn simplified(path: PathBuf) -> PathBuf {
+pub(crate) const fn simplified(path: PathBuf) -> PathBuf {
     path
 }
 
@@ -265,7 +265,7 @@ fn warn_empty_tsconfig_projects(targets: &[Target], fs: &dyn FileSystem) {
             stderr_line(&format!(
                 "warning: {}: selects no file of its package (`files`, `include`), so --use-tsconfig-files leaves \
                  that package without project files",
-                escape_controls(&target.root.join(config).display().to_string())
+                escape_controls(&crate::error::slashes(target.root.join(config).display().to_string()))
             ));
         }
     }
