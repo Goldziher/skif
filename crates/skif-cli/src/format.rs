@@ -5,7 +5,7 @@ use skif::{Config, Level, Linter};
 use crate::args::{FormatArgs, FormatSpec, LintArgs};
 use crate::env::Env;
 use crate::error::CliError;
-use crate::lint;
+use crate::lint::{self, Teardown};
 use crate::output::emit_error;
 
 /// The rule `skif format` runs.
@@ -47,9 +47,9 @@ fn lint_args(args: &FormatArgs, rules: Vec<(String, Level)>) -> LintArgs {
 }
 
 /// Runs `skif format` and returns the exit code: a lint's, so `--check` exits 1 when a manifest is not formatted.
-pub fn run(args: &FormatArgs, env: Env) -> u8 {
+pub fn run(args: &FormatArgs, env: Env, teardown: Teardown) -> u8 {
     match levels() {
-        Ok(rules) => lint::run(&lint_args(args, rules), env),
+        Ok(rules) => lint::run(&lint_args(args, rules), env, teardown),
         Err(error) => {
             emit_error(&error, args.format.unwrap_or_default());
             2

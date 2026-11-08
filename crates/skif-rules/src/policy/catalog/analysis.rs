@@ -102,18 +102,25 @@ pub(crate) fn is_catalogable(specifier: &Specifier) -> bool {
 pub(crate) struct Claims<'c> {
     workspace: &'c Workspace,
     groups: Groups<'c>,
+    /// Whether some configured group has selectors; without one nothing is claimed.
+    selective: bool,
 }
 
 impl<'c> Claims<'c> {
     pub(crate) fn new(workspace: &'c Workspace, config: &'c Config) -> Self {
+        let groups = Groups::compile(workspace, config);
         Self {
             workspace,
-            groups: Groups::compile(workspace, config),
+            selective: groups.has_selectors(),
+            groups,
         }
     }
 
     /// Whether a configured version group claims `entry` of `package`.
     pub(crate) fn claims(&self, package: &Package, entry: &DependencyEntry) -> bool {
+        if !self.selective {
+            return false;
+        }
         let is_local = self.workspace.package_by_name(&entry.name).is_some();
         self.claims_instance(&PolicyInstance::of_entry(package, entry, is_local, false))
     }
