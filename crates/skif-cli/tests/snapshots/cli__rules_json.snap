@@ -84,6 +84,13 @@ expression: json.stdout
       "summary": "A dependency points at a path on disk (`link:`, `file:`, `portal:` or a relative path) instead of a registry or workspace version."
     },
     {
+      "id": "package-json-format",
+      "category": "manifest",
+      "default": null,
+      "fixable": "sometimes",
+      "summary": "A `package.json` is not formatted as `[format]` describes: key order, sorted fields, `exports` conditions, shorthand `bugs` and `repository`, and the indent. The fix is unsafe when `sort-exports` reorders conditions other than `types` and `default`."
+    },
+    {
       "id": "version-mismatch",
       "category": "policy",
       "default": "error",
