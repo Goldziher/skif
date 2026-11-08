@@ -25,6 +25,7 @@ mod lint;
 mod lsp;
 mod mcp;
 mod migrate;
+mod module_cache;
 mod npmrc;
 mod output;
 mod registry;

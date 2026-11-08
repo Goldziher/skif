@@ -62,6 +62,25 @@ costs more in a large repository; the interval stretches to twice the time a sca
 to at most about a third of one core. When the configuration cannot be read, the error is printed and the watcher keeps going,
 so the next save of `skif.toml` runs again. `--watch` cannot be combined with `--fix` or `--fix-unsafe`.
 
+## The module cache
+
+Parsing source files is the largest part of a JavaScript analysis. skif keeps the parse result of each file under
+a key of its file name, its text and the parser's version, so an unchanged file is not parsed again and a changed
+file always is: the cache never changes a report. Everything else (configuration, manifests, the module graph, the
+rules) is computed on every run. The design is recorded in
+[ADR 0066](https://github.com/Goldziher/skif/blob/main/adrs/0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md).
+
+- **`skif --cache`** keeps the results between runs in `node_modules/.cache/skif/modules.bin` below the workspace
+  root (or below the invocation directory of a multi-root run); `--cache-location <DIR>` puts the file elsewhere.
+  The file is written after a run only when its entries changed, and it holds exactly the files that run parsed, so
+  it does not grow with edits; a narrower run (`--production`, one root of several) drops the entries it did not
+  use. A damaged file, or one written by another skif version, is ignored and replaced. If the file cannot be
+  written, skif prints a warning and the exit code is unchanged. A warm run still reads every file, so the gain is
+  the parse share of a run, which `--performance` shows as `js parse` beside `js module cache: H hits, M misses`.
+- **`--watch`** keeps the cache in memory across its runs (with `--cache` also on disk, written after each run).
+- **`skif lsp`** and **`skif mcp`** keep one in memory per project, for as long as the server runs; they never read
+  or write `modules.bin`.
+
 ## Language server
 
 `skif lsp` is a minimal [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) server on

@@ -7,18 +7,23 @@
 //! Polling costs one walk of the tree, one `stat` per file, every interval; the interval grows to twice the scan's
 //! own duration, so on a large repository the watcher spends at most about a third of one core scanning.
 //!
-//! The reports the run writes (`--output`, `--format FORMAT=FILE`) are left out of the scan: each run rewrites them,
-//! and seeing that write would start the next run, forever.
+//! The reports the run writes (`--output`, `--format FORMAT=FILE`) and a `--cache-location` store are left out of the
+//! scan: each run rewrites them, and seeing that write would start the next run, forever.
+//!
+//! The rounds share one module cache (ADR 0066), pruned after each round to what it used: in memory, or with
+//! `--cache` the store on disk, written after each round.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use skif::{CachedFs, OsFs};
+use skif::{CachedFs, MemoryModuleCache, OsFs};
 
 use crate::args::{Format, LintArgs};
 use crate::env::Env;
 use crate::lint::{self, canonical};
+use crate::module_cache::{CacheHost, Persistent};
 use crate::output::{stderr_line, write_stdout};
 use crate::roots;
 
@@ -42,8 +47,15 @@ pub fn run(args: &LintArgs, env: Env) -> u8 {
     };
     let clear = env.stdout_tty && targets.contains(&(Format::Human, None));
     let written = args.written_files();
+    // One cache for every round, so a round parses only what changed: in memory, or the `--cache` store, written
+    // after each round.
+    let modules: Box<dyn CacheHost> = if args.cache {
+        Box::new(Persistent::new(args))
+    } else {
+        Box::new(Arc::new(MemoryModuleCache::new()))
+    };
     let mut snapshot = scan(&dir, &written);
-    lint_round(args, env, clear, &dir);
+    lint_round(args, env, clear, &dir, modules.as_ref());
     let mut debouncer = Debouncer::new(QUIET);
     let mut last_scan = Duration::ZERO;
     loop {
@@ -54,17 +66,17 @@ pub fn run(args: &LintArgs, env: Env) -> u8 {
         let changed = next != snapshot;
         snapshot = next;
         if debouncer.observe(changed, Instant::now()) {
-            lint_round(args, env, clear, &dir);
+            lint_round(args, env, clear, &dir, modules.as_ref());
         }
     }
 }
 
-fn lint_round(args: &LintArgs, env: Env, clear: bool, dir: &Path) {
+fn lint_round(args: &LintArgs, env: Env, clear: bool, dir: &Path, modules: &dyn CacheHost) {
     if clear {
         let _ = write_stdout(b"\x1b[2J\x1b[H");
     }
     // The watcher keeps running between rounds, so every round frees what it built.
-    lint::run(args, env, lint::Teardown::Free);
+    lint::run_with_cache(args, env, lint::Teardown::Free, Some(modules));
     stderr_line(&format!(
         "skif: watching {} for changes; press Ctrl-C to stop",
         roots::display(dir)

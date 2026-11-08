@@ -146,6 +146,12 @@ Options:
       --watch
           Lint again whenever a file below the root changes, until interrupted
 
+      --cache
+          Keep the parse results of source files between runs, so a run parses only the files that changed. The cache never changes the report
+
+      --cache-location <DIR>
+          The directory of the --cache store (default: `node_modules/.cache/skif` below the workspace root, or below the invocation directory of a multi-root run)
+
       --trace-dependency <NAME>
           Instead of linting, print where this dependency is listed, every import of it and the packages that count it as used
 
