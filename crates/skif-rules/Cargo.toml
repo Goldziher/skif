@@ -16,9 +16,11 @@ include = ["/src/**", "/Cargo.toml", "/LICENSE", "/ATTRIBUTIONS.md", "/README.md
 
 [dependencies]
 serde.workspace = true
+serde-saphyr.workspace = true
 serde_json.workspace = true
 skif-config.workspace = true
 skif-core.workspace = true
+skif-edit.workspace = true
 skif-lint.workspace = true
 skif-specifier.workspace = true
 skif-workspace.workspace = true
@@ -26,7 +28,6 @@ toml.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
-serde-saphyr.workspace = true
 skif-edit = { workspace = true, features = ["yaml"] }
 
 [lints]

@@ -19,9 +19,17 @@ Set a level in `[rules]`, or per run with `--rule ID=LEVEL`.
 | Fixable | Meaning |
 | --- | --- |
 | `safe` | Applied by `--fix`. |
-| `unsafe` | Applied only by `--fix-unsafe`. |
+| `unsafe` | Applied only by `--fix-unsafe`; a fix that deletes a file also needs `--allow-remove-files`. |
 | `sometimes` | Fixable for some findings, depending on the situation. |
 | `none` | Reported only. |
+
+A version alignment (`version-mismatch`, and `catalog-not-used` or `catalog-mismatch` moving to an existing catalog
+entry) is `safe` when its target is explicit and the move is a later version within semver's compatibility window,
+written in the same shape: the same major (`1.0.0` to `1.3.0`, `^1.2.0` to `^1.4.0`), the same minor under `0.x`,
+and a `~` range keeps its minor (`~1.2.0` to `~1.2.5`, not `~1.3.0`). This holds for a `pinned` group's version too.
+A move across a major, a downgrade (`prefer = "lowest"`), a prerelease, a change of range (`^1.0.0` to `1.3.0`), a
+catalog entry that is not a plain version or range (`latest`, `npm:`, `workspace:`) and adding a catalog entry stay
+`unsafe`, as does `types-in-dependencies`. See [ADR 0051](https://github.com/Goldziher/skif/blob/main/adrs/0051-safe-version-alignment-fixes.md).
 
 ## Categories
 

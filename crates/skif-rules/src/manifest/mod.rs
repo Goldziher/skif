@@ -5,6 +5,7 @@ mod incompatible_peer_dependencies;
 pub(crate) mod local_path_dependency;
 mod member_toolchain_fields;
 mod missing_package_manifest;
+mod package_json_format;
 mod root_package_dependencies;
 mod root_package_manager_field;
 mod root_package_private_field;
@@ -18,6 +19,7 @@ pub use incompatible_peer_dependencies::IncompatiblePeerDependencies;
 pub use local_path_dependency::LocalPathDependency;
 pub use member_toolchain_fields::{ForbidMode, MemberToolchainFields, MemberToolchainFieldsOptions};
 pub use missing_package_manifest::MissingPackageManifest;
+pub use package_json_format::PackageJsonFormat;
 pub use root_package_dependencies::RootPackageDependencies;
 pub use root_package_manager_field::RootPackageManagerField;
 pub use root_package_private_field::RootPackagePrivateField;
@@ -44,6 +46,7 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(UnmatchedWorkspacePatterns),
         Box::new(MissingPackageManifest),
         Box::new(LocalPathDependency),
+        Box::new(PackageJsonFormat),
     ]
 }
 

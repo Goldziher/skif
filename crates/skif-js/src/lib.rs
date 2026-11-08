@@ -25,6 +25,7 @@ mod deps;
 mod discover;
 mod entries;
 mod explain;
+mod fixture;
 mod git_index;
 mod globs;
 mod graph;
@@ -47,7 +48,7 @@ pub use analysis::{JsAnalysis, UnusedFile, discovery_file_system};
 pub use deps::{DependencyUsage, UnlistedBinary, UnlistedImport};
 pub use explain::{Absence, EntryReason, ExportReport, ExportUser, Importer, ReExport, UsageReport, Verdict};
 pub use graph::{Module, ModuleGraph, ModuleId, ResolvedImport, Target};
-pub use input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
+pub use input::{BuildDir, IncompleteCause, IncompleteEntries, InputRequest, InputSource, PathAlias, WorkspaceInputs};
 pub use plugin_source::PluginSource;
 pub use provider::{JsProvider, PROVIDER_ID};
 pub use rules::{

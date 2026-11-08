@@ -62,8 +62,10 @@ pub fn preferred_alternative(fixes: &[Fix], prefer: Prefer) -> Option<usize> {
 ///
 /// let selection = FixSelection::new(FixSafety::Unsafe)
 ///     .with_alternatives(Alternatives::First)
+///     .with_remove_files(true)
 ///     .choose(3, 1);
 /// assert_eq!(selection.safety, FixSafety::Unsafe);
+/// assert!(selection.remove_files);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -76,6 +78,9 @@ pub struct FixSelection {
     pub choices: BTreeMap<usize, usize>,
     /// How diagnostics with several fixes and no pick are handled.
     pub alternatives: Alternatives,
+    /// Whether a fix that deletes a file may be planned. Off by default: such a fix is skipped with
+    /// [`SkipReason::RemovesFiles`] whatever its safety, so deleting files is always a separate opt-in (ADR 0052).
+    pub remove_files: bool,
 }
 
 impl FixSelection {
@@ -87,7 +92,15 @@ impl FixSelection {
             rules: None,
             choices: BTreeMap::new(),
             alternatives: Alternatives::Ask,
+            remove_files: false,
         }
+    }
+
+    /// Allows (or forbids) fixes that delete files.
+    #[must_use]
+    pub const fn with_remove_files(mut self, remove_files: bool) -> Self {
+        self.remove_files = remove_files;
+        self
     }
 
     /// Restricts the selection to the fixes of `rules`.
@@ -157,6 +170,8 @@ pub enum SkipReason {
     Conflict(String),
     /// The fix could not be planned (unreadable file, path missing from the document, invalid pick).
     Failed(String),
+    /// The fix deletes a file and [`FixSelection::remove_files`] is off.
+    RemovesFiles,
 }
 
 /// A diagnostic whose fix is not in the plan.
@@ -546,6 +561,10 @@ fn text_edits(source: &str, ops: &[&FixOp]) -> Result<Vec<TextEdit>, PlanFailure
     Ok(edits)
 }
 
+fn deletes_files(fix: &Fix) -> bool {
+    fix.ops.iter().any(|op| matches!(op, FixOp::DeleteFile { .. }))
+}
+
 enum Pick<'a> {
     Fix(&'a Fix),
     Skip(SkipReason),
@@ -592,7 +611,8 @@ fn pick<'a>(selection: &FixSelection, index: usize, diagnostic: &'a Diagnostic) 
 ///
 /// For each diagnostic in report order the pick is: the explicit choice, else the only fix the safety ceiling allows,
 /// else (for several allowed alternatives) the first when [`Alternatives::First`], else a [`SkipReason::NeedsChoice`]
-/// skip. A diagnostic whose fixes all exceed the ceiling is skipped with [`SkipReason::Safety`]. Each accepted fix
+/// skip. A diagnostic whose fixes all exceed the ceiling is skipped with [`SkipReason::Safety`], and a picked fix that
+/// deletes a file is skipped with [`SkipReason::RemovesFiles`] unless [`FixSelection::remove_files`] is set. Each accepted fix
 /// is planned on its own against the file as it is on disk (a fix whose edits do not fit is skipped, the others are
 /// unaffected); a fix whose edits overlap an earlier accepted fix is skipped as a conflict (the earlier wins) and
 /// operations or edits that two fixes share count once. The edits of one file become a single
@@ -663,6 +683,7 @@ fn plan_once(
         }
         let outcome = match (dropped.get(&index), pick(selection, index, diagnostic)) {
             (Some(reason), _) => Err(reason.clone()),
+            (None, Pick::Fix(fix)) if !selection.remove_files && deletes_files(fix) => Err(SkipReason::RemovesFiles),
             (None, Pick::Fix(fix)) => planner.try_add(index, fix).map(|()| fix.title.clone()),
             (None, Pick::Skip(reason)) => Err(reason),
         };

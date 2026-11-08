@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  // npm rejects comments, but other tools read package.json as JSONC
+  "name": "comments",
+  "scripts": {
+    "test": "vitest",
+    "build": "tsc"
+  },
+  "keywords": ["lint", /* the main one */ "deps"],
+  "exports": {
+    ".": {
+      "default": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  }
+}
