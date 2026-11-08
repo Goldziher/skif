@@ -167,7 +167,10 @@ or the run could not start.
 the project's `.npmrc`, else in the user's `.npmrc` (`NPM_CONFIG_USERCONFIG` or `~/.npmrc`), else
 `https://registry.npmjs.org/`; `@scope:registry` entries choose a registry per scope, and `@jsr/*` packages go to
 `https://npm.jsr.io/` unless `@jsr:registry` says otherwise. A `//host/path/:_authToken` entry (with `${VAR}` expanded
-from the environment) is sent as a bearer token to that registry only, and is never printed. Credentials written in a
+from the environment) is sent as a bearer token to that registry only, and is never printed. In the
+project's `.npmrc`, which anyone who can change the repository controls, `${VAR}` in a token is expanded only for
+`registry.npmjs.org` or a host that the user's `.npmrc` or `npm_config_registry` also names; any other such token is
+ignored with a warning naming the host, so a changed `.npmrc` cannot send a CI secret elsewhere. Credentials written in a
 registry URL, `_auth`, usernames and passwords, client certificates and `strict-ssl` are not read. Certificates are
 checked against the operating system's trust store (`SSL_CERT_FILE` and `SSL_CERT_DIR` replace it), and
 `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` are honoured. `--interactive` has no equivalent yet: pick dependencies with

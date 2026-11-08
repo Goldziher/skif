@@ -165,7 +165,9 @@ fn check_lists_the_updates_exits_one_and_writes_nothing() {
         APP,
     );
     let before = tree(dir.path());
+    // The environment names the registry, so the project's `${VAR}` token may be sent to it.
     let result = run(update(dir.path())
+        .env("npm_config_registry", &url)
         .env("SKIF_TEST_TOKEN", "t0ken-value")
         .args(["--check", "--format", "json"]));
     assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
@@ -339,4 +341,35 @@ fn a_registry_document_over_64_mib_is_refused() {
     let result = run(update(dir.path()).args(["--check", "--format", "json", "--dependencies", "react"]));
     assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
     assert_eq!(result.json()["failures"][0]["dependency"], "react");
+}
+
+#[test]
+fn a_project_token_from_the_environment_is_not_sent_to_a_host_the_user_did_not_configure() {
+    let (url, seen) = registry();
+    let dir = workspace(
+        &format!(
+            "registry={url}\n//127.0.0.1:{}/:_authToken=${{SKIF_TEST_TOKEN}}\n",
+            url_port(&url)
+        ),
+        APP,
+    );
+    let result = run(update(dir.path())
+        .env("SKIF_TEST_TOKEN", "t0ken-value")
+        .args(["--check", "--format", "json"]));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    let requests = seen.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2, "{requests:?}");
+    assert!(
+        requests.iter().all(|(_, authorization)| authorization.is_none()),
+        "{requests:?}"
+    );
+    let host = format!("127.0.0.1:{}", url_port(&url));
+    assert!(
+        result
+            .stderr
+            .contains(&format!("warning: ignoring the _authToken for {host}")),
+        "{}",
+        result.stderr
+    );
+    assert!(!result.stdout.contains("t0ken-value") && !result.stderr.contains("t0ken-value"));
 }

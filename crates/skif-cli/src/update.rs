@@ -20,7 +20,7 @@ use crate::fix::install_json;
 use crate::install::{self, InstallStatus};
 use crate::lint::canonical;
 use crate::npmrc::Npmrc;
-use crate::output::{emit_error, write_stdout};
+use crate::output::{emit_error, stderr_line, write_stdout};
 use crate::registry::HttpRegistry;
 use crate::write::write_plan;
 
@@ -83,7 +83,11 @@ fn execute(args: &UpdateArgs, env: Env) -> Result<u8, CliError> {
     let options = UpdateOptions::new(now())
         .with_target(target(args.target))
         .with_dependencies(Selector::new(args.dependencies.iter().cloned())?);
-    let registry = HttpRegistry::new(Npmrc::load(&root.root), root.config.update.max_concurrent_requests);
+    let (npmrc, warnings) = Npmrc::load(&root.root);
+    for warning in &warnings {
+        stderr_line(&format!("warning: {}", escape_controls(warning)));
+    }
+    let registry = HttpRegistry::new(npmrc, root.config.update.max_concurrent_requests);
     let report = plan_updates(&root.workspace, &root.config, &registry, &options);
     let written = if args.check || report.updates.is_empty() {
         None
