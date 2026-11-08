@@ -171,11 +171,10 @@ fn knip_ts_with_workspaces_plugins_and_a_non_static_value() {
         "ignoreFiles maps to ignore-files"
     );
     assert!(
-        migration
-            .notes
-            .iter()
-            .any(|note| note.path == "tags" && note.class == NoteClass::Exact && note.message.contains("only exports")),
-        "+public limits unused-exports to tagged exports"
+        migration.notes.iter().any(|note| note.path == "tags"
+            && note.class == NoteClass::Approximate
+            && note.message.contains("only exports")),
+        "+public limits unused-exports to tagged exports, which knip would never report"
     );
     assert_eq!(class(&migration, "treatTagHintsAsErrors"), NoteClass::Approximate);
     assert_eq!(class(&migration, "ignoreGlobalBinaries"), NoteClass::Unsupported);

@@ -1080,15 +1080,30 @@ fn js_settings(state: &mut State<'_>, src: &Src, plan: &Plan) {
     }
     if !plan.include_tags.is_empty() {
         state.add_include_tags("unused-exports", plan.include_tags.iter().cloned());
-        state.note(
-            src,
-            NoteClass::Exact,
-            "tags",
-            format!(
-                "only exports tagged {} are reported by `unused-exports`",
-                plan.include_tags.join(", ")
-            ),
+        let exempting: Vec<&str> = plan
+            .include_tags
+            .iter()
+            .map(String::as_str)
+            .filter(|tag| matches!(*tag, "public" | "beta" | "alpha" | "alias" | "internal"))
+            .collect();
+        let listed = format!(
+            "only exports tagged {} are reported by `unused-exports`",
+            plan.include_tags.join(", ")
         );
+        if exempting.is_empty() {
+            state.note(src, NoteClass::Exact, "tags", listed);
+        } else {
+            // knip keeps exempting these tags even when included, so it reports none of their exports; skif judges them.
+            state.note(
+                src,
+                NoteClass::Approximate,
+                "tags",
+                format!(
+                    "{listed}; knip never reports exports tagged {}, skif reports them when they are unused",
+                    exempting.join(", ")
+                ),
+            );
+        }
     }
     if let Some(hints) = plan.hints {
         config_hints(state, src, hints);

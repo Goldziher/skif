@@ -12,7 +12,8 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - The `include-tags` option of `unused-exports` reports only exports and members carrying one of its tags, like knip's
-  `--tags +name`; `skif migrate` translates `+tag` to it. `stale-js-config` reports knip's tag hints: an
+  `--tags +name`; `skif migrate` translates `+tag` to it. A tag it names is judged even when it would exempt, so
+  `include-tags = ["public"]` reports unused `@public` exports (knip reports none). `stale-js-config` reports knip's tag hints: an
   `ignore-tags` tag, or `@internal` in production mode, on an export or member that is used anyway
   ([#43](https://github.com/Goldziher/skif/issues/43)).
 - `stale-js-config` reports `entry`, `project` and `ignore` patterns that match no source file, like knip's

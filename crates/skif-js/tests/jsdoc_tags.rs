@@ -108,6 +108,17 @@ fn include_tags_limit_the_report_to_tagged_exports_and_members() {
     )));
 }
 
+const PUBLIC: &str = "/** @public */\nexport const documented = 1;\n/** @public */\nexport const used = 2;\n/** @beta */\nexport const beta = 3;\nexport const plain = 4;\n";
+
+#[test]
+fn include_tags_judge_exports_with_an_otherwise_exempting_tag() {
+    let files = package(PUBLIC, "import { used } from \"./lib\";\nconsole.log(used);\n");
+    insta::assert_snapshot!(report(&lint(
+        &files,
+        "[rules]\nunused-exports = { include-tags = [\"public\"] }\n"
+    )));
+}
+
 const HINTS: &str = "/** @lintignore */\nexport const used = 1;\n/** @lintignore */\nexport const unused = 2;\n/** @internal */\nexport const internalUsed = 3;\n/** @public @lintignore */\nexport const documented = 4;\n/** @lintignore */\nexport enum Hiding {\n  A,\n  B,\n}\nexport enum Members {\n  A,\n  /** @lintignore */\n  B,\n  /** @lintignore */\n  C,\n}\n";
 
 #[test]

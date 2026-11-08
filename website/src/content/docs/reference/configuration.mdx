@@ -82,7 +82,7 @@ Rules with options:
 | --- | --- | --- |
 | `member-toolchain-fields` | `mode` | `forbid` (default) reports every `packageManager` or `engines` field a private member declares; `match-root` allows a field equal to the root's. |
 | `unused-exports`, `unused-types` | `ignore-tags` | JSDoc tag names, without the `@` (a list of strings), that exempt an export. It is read from `unused-exports` and applies to `unused-types` as well. `public`, `beta`, `alpha` and `alias` always exempt, and `alias` also keeps an export out of `duplicate-exports`. |
-| `unused-exports`, `unused-types` | `include-tags` | JSDoc tag names; when set, only exports carrying one of them are reported, and only such enum and namespace members (knip's `--tags +name`). |
+| `unused-exports`, `unused-types` | `include-tags` | JSDoc tag names; when set, only exports carrying one of them are reported, and only such enum and namespace members (knip's `--tags +name`). A tag named here is judged even when it would exempt (`public`, `beta`, `alpha`, `alias`, `internal` in production mode), so `include-tags = ["public"]` reports the unused `@public` exports; knip reports none of them. |
 
 An unknown option is an error that names the rule.
 

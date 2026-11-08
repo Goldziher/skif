@@ -442,7 +442,7 @@ impl<'a> JsAnalysis<'a> {
     /// Exports of `module` that no other module uses, values and types alike, in source order.
     ///
     /// Exports tagged `@public`, `@beta`, `@alpha` or `@alias` (and `@internal` in production mode, and the
-    /// `ignore-tags` of `unused-exports`) are not listed.
+    /// `ignore-tags` of `unused-exports`) are not listed, unless `include-tags` names the tag.
     #[must_use]
     pub fn unused_exports<'m>(&self, module: &'m Module) -> Vec<&'m Export> {
         if !self.reports_exports_of(module) {
@@ -484,22 +484,34 @@ impl<'a> JsAnalysis<'a> {
     /// Whether `JSDoc` tags `tags` (of an export, or of an enum or namespace member) keep it out of the report: an
     /// always-exempting tag, an excluding tag ([`Self::excluding_tags`]), or, with `include-tags`, none of those.
     pub(crate) fn exempts_tags(&self, tags: &[String]) -> bool {
-        always_exempt(tags) || self.excluding_tags(tags).next().is_some() || self.lacks_included_tag(tags)
+        self.always_exempt(tags) || self.excluding_tags(tags).next().is_some() || self.lacks_included_tag(tags)
     }
 
-    /// The tags of `tags` that exempt by configuration: `internal` in production mode and the `ignore-tags` names.
+    /// Whether `tags` carries a tag that always exempts (`public`, `beta`, `alpha` or `alias`) and `include-tags` does
+    /// not name it. Naming such a tag in `include-tags` asks for exactly the exports that carry it, so it is judged
+    /// instead of silencing the report (knip keeps exempting it, which reports nothing).
+    fn always_exempt(&self, tags: &[String]) -> bool {
+        tags.iter()
+            .any(|tag| matches!(tag.as_str(), "public" | "beta" | "alpha" | "alias") && !self.includes_tag(tag))
+    }
+
+    /// The tags of `tags` that exempt by configuration: `internal` in production mode (unless `include-tags` names
+    /// it) and the `ignore-tags` names.
     fn excluding_tags<'t>(&self, tags: &'t [String]) -> impl Iterator<Item = &'t str> {
         tags.iter().map(String::as_str).filter(|tag| {
-            (*tag == "internal" && self.setup.production) || self.setup.ignore_tags.iter().any(|ignored| ignored == tag)
+            (*tag == "internal" && self.setup.production && !self.includes_tag(tag))
+                || self.setup.ignore_tags.iter().any(|ignored| ignored == tag)
         })
+    }
+
+    /// Whether `include-tags` names `tag`.
+    fn includes_tag(&self, tag: &str) -> bool {
+        self.setup.include_tags.iter().any(|included| included == tag)
     }
 
     /// Whether `include-tags` is set and `tags` carries none of its names.
     fn lacks_included_tag(&self, tags: &[String]) -> bool {
-        !self.setup.include_tags.is_empty()
-            && !tags
-                .iter()
-                .any(|tag| self.setup.include_tags.iter().any(|included| included == tag))
+        !self.setup.include_tags.is_empty() && !tags.iter().any(|tag| self.includes_tag(tag))
     }
 
     /// The members of an enum or namespace export.
@@ -538,13 +550,13 @@ impl<'a> JsAnalysis<'a> {
             return found;
         }
         for export in &module.info.exports {
-            if always_exempt(&export.tags) || !self.export_in_use(module, export) {
+            if self.always_exempt(&export.tags) || !self.export_in_use(module, export) {
                 continue;
             }
             let mut hides_member = false;
             if self.exports.is_used(module.id, &export.name) {
                 for member in Self::members_of(export) {
-                    if always_exempt(&member.tags) {
+                    if self.always_exempt(&member.tags) {
                         continue;
                     }
                     let mut excluding = self.excluding_tags(&member.tags).peekable();
@@ -569,10 +581,4 @@ impl<'a> JsAnalysis<'a> {
         }
         found
     }
-}
-
-/// Whether `tags` carries a tag that always exempts: `public`, `beta`, `alpha` or `alias`.
-fn always_exempt(tags: &[String]) -> bool {
-    tags.iter()
-        .any(|tag| matches!(tag.as_str(), "public" | "beta" | "alpha" | "alias"))
 }
