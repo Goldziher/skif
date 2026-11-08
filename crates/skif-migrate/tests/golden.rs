@@ -83,6 +83,25 @@ fn sherif_package_json_key_and_script_flags() {
     assert_eq!(migration.config.ignore.len(), 1);
 }
 
+/// A project whose only sherif configuration is the short flags of a root script, as the GitHub Action translates it
+/// (`--profile full`) when the project has no `skif.toml` yet.
+#[test]
+fn sherif_short_flags_of_a_root_script_alone() {
+    let mut input = ToolInput::new(Tool::Sherif);
+    input.package_json = Some(read("sherif-script", "package.json"));
+    let migration = migrate(&[input], &options(Profile::Full)).unwrap();
+    insta::assert_snapshot!("sherif-script", migration.toml);
+
+    assert_eq!(class(&migration, "scripts.lint:deps: --ignore-rule"), NoteClass::Exact);
+    assert_eq!(
+        class(&migration, "scripts.lint:deps: --fail-on-warnings"),
+        NoteClass::Exact
+    );
+    assert!(has_note(&migration, NoteClass::Approximate, "react@17.0.2"));
+    assert!(!migration.needs_human());
+    assert!(migration.config.lint.fail_on_warnings);
+}
+
 #[test]
 fn sherif_exact_profile_turns_off_everything_sherif_did_not_check() {
     let mut input = ToolInput::new(Tool::Sherif);

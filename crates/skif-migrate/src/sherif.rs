@@ -328,7 +328,9 @@ fn emit_dependencies(state: &mut State<'_>, src: &Src, setting: &Setting) {
                 "`name@version` entries ({}) are matched per diagnosed instance",
                 names.join(", ")
             ),
-            "sherif ignored that version everywhere; skif ignores the instance it reports",
+            "sherif left that version out of its comparison; skif only silences the instances at it, which still \
+             count when skif picks the version to align on, so the other instances can be reported against it \
+             (with `prefer = \"lowest\"`, for example); ignore the name instead if that version must not count",
         );
     }
 }
