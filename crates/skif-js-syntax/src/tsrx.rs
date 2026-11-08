@@ -243,6 +243,15 @@ mod tests {
     }
 
     #[test]
+    fn crlf_line_breaks_are_kept() {
+        let source = "import a from './a';\r\n// x\r\nconst re = /\\/*/;\r\nimport b from './b';\r\n";
+        let extracted = extract(source);
+        assert_eq!(extracted.len(), source.len());
+        assert_eq!(extracted.matches("\r\n").count(), 4);
+        assert_eq!(kept(source), ["import a from './a'", "import b from './b'"]);
+    }
+
+    #[test]
     fn identifiers_containing_import_are_not_imports() {
         assert_eq!(
             kept("const reimport = 1; obj.import('x'); important('y');"),

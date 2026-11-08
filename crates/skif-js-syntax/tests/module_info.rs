@@ -857,6 +857,18 @@ fn mdx_a_url_in_jsx_text_does_not_hide_the_prose() {
 }
 
 #[test]
+fn mdx_a_template_literal_in_an_expression_is_not_inline_code() {
+    let mdx = "import * as ui from './ui';\n\n{ui.label(`x ${ui.count}`)}\n";
+    let info = parse("docs/count.mdx", mdx);
+    let (mut members, escapes) = accessed(&info, "ui");
+    members.sort();
+    assert_eq!(
+        (members, escapes),
+        (vec!["count".to_owned(), "label".to_owned()], false)
+    );
+}
+
+#[test]
 fn angular_component_resources_are_side_effect_imports() {
     let source = "import { Component as Ng } from '@angular/core';\nimport { Other } from './other';\n@Ng({ templateUrl: './a.html', styleUrl: 'a.scss', styleUrls: ['./b.css', `c.less`, ...more] })\nexport class A {}\n@Other({ styleUrls: ['./ignored.css'] })\nexport class B {}\n";
     let info = parse("a.component.ts", source);
