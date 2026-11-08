@@ -14,6 +14,13 @@ All notable changes to this project are documented here. The format follows
 - `unused-namespace-members` counts a member read by its bare name inside the namespace body, as a value or as a
   type, unless a parameter or local of the same name shadows it; the declarations of a merged namespace share their
   members ([#15](https://github.com/Goldziher/skif/issues/15)).
+- `unused-dependencies` no longer reports `optionalDependencies`, as knip does not: they are mostly platform packages
+  loaded by a computed name ([#21](https://github.com/Goldziher/skif/issues/21)).
+- `skif migrate` writes `[catalog] report-unused-entries = true` when knip's `catalog` issue type stays enabled, so
+  `unused-catalog-entries` keeps reporting what knip reported ([#32](https://github.com/Goldziher/skif/issues/32)).
+- `skif -r <rule>` with a sherif or skif rule name, where sherif's `-r` is `--ignore-rule`, now fails with a usage error
+  that names `--ignore-rule` and `--rule` for that rule, instead of a missing-path error
+  ([#45](https://github.com/Goldziher/skif/issues/45)).
 
 ## [0.1.1] - 2026-11-07
 

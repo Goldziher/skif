@@ -179,7 +179,7 @@ expression: json.stdout
       "category": "js",
       "default": "error",
       "fixable": "unsafe",
-      "summary": "A package in `dependencies` is never imported, required or run by a script."
+      "summary": "A package in `dependencies` is never imported, required or run by a script; `optionalDependencies` are not checked."
     },
     {
       "id": "unused-dev-dependencies",

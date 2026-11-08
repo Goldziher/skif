@@ -37,6 +37,32 @@ pub fn run(args: &LintArgs, env: Env) -> u8 {
     }
 }
 
+/// sherif's `-r` is `--ignore-rule`, skif's is `--recursive`, so `skif -r <rule>` reads the rule as the path. When the
+/// path does not exist and names a sherif or skif rule, the run fails with a usage error that says so, instead of an
+/// I/O error about a missing directory.
+fn rule_given_as_path(path: &Path) -> Result<(), CliError> {
+    if path.exists() {
+        return Ok(());
+    }
+    let Some(name) = path.to_str() else {
+        return Ok(());
+    };
+    let id = match skif_migrate::sherif_rule_id(name) {
+        Some(id) => id,
+        None => match Linter::new(&Config::default())?.rules().find(|meta| meta.id == name) {
+            Some(meta) => meta.id,
+            None => return Ok(()),
+        },
+    };
+    Err(CliError::new(
+        Kind::Usage,
+        format!(
+            "`{name}` is a rule, not a path: `-r` is `--recursive` in skif, not sherif's `--ignore-rule`; \
+             use `--ignore-rule {id}` to turn the rule off, or `--rule {id}=<level>` to set its level"
+        ),
+    ))
+}
+
 /// The format to render and whether GitHub annotations accompany it: with no `--format`, `GITHUB_ACTIONS=true`
 /// selects human output plus annotations (ADR 0012).
 fn rendering_format(args: &LintArgs, env: Env) -> (Format, bool) {
@@ -403,6 +429,9 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     if args.fixing() && env.ci {
         return Err(CliError::ci_refusal());
     }
+    if args.recursive {
+        rule_given_as_path(&args.path)?;
+    }
     let start = canonical(&args.path)?;
     let Resolved {
         base,
@@ -537,5 +566,37 @@ fn write_summary_to_stderr(fixes: &[RootFix<'_>]) {
     let mut summary = Vec::new();
     if fix::write_fixes_human(fixes, &mut summary).is_ok() {
         stderr_line(String::from_utf8_lossy(&summary).trim_end());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::rule_given_as_path;
+    use crate::error::Kind;
+
+    #[test]
+    fn a_missing_path_named_like_a_rule_is_a_usage_error() {
+        let sherif = rule_given_as_path(Path::new("multiple-dependency-versions")).unwrap_err();
+        assert_eq!(sherif.kind, Kind::Usage);
+        assert!(
+            sherif.message.contains("--ignore-rule version-mismatch"),
+            "{}",
+            sherif.message
+        );
+        let skif = rule_given_as_path(Path::new("unused-dependencies")).unwrap_err();
+        assert_eq!(skif.kind, Kind::Usage);
+        assert!(
+            skif.message.contains("--ignore-rule unused-dependencies"),
+            "{}",
+            skif.message
+        );
+    }
+
+    #[test]
+    fn other_paths_are_left_to_root_discovery() {
+        assert!(rule_given_as_path(Path::new("no-such-directory-here")).is_ok());
+        assert!(rule_given_as_path(Path::new(".")).is_ok());
     }
 }
