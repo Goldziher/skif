@@ -407,6 +407,46 @@ fn enum_member_removal_never_renumbers_a_later_member() {
 }
 
 #[test]
+fn member_removal_takes_the_comments_of_the_member() {
+    let source = "export enum E {\n  A = 1,\n  /**\n   * Docs of B.\n   */\n  B = 2,\n  // note on C\n  C = 3, // trailing\n  D = 4,\n}\n";
+    let info = parse("a.ts", source);
+    let left = member_removals(source, &info.exports[0].enum_members);
+    assert_eq!(
+        left[1].1.as_deref(),
+        Some("export enum E {\n  A = 1,\n  // note on C\n  C = 3, // trailing\n  D = 4,\n}\n")
+    );
+    assert_eq!(
+        left[2].1.as_deref(),
+        Some("export enum E {\n  A = 1,\n  /**\n   * Docs of B.\n   */\n  B = 2,\n  D = 4,\n}\n")
+    );
+
+    let source = "export namespace N {\n  /** First. */\n  export const a = 1; // trailing\n\n  // Second.\n  export const b = 2;\n}\n";
+    let info = parse("b.ts", source);
+    let left = member_removals(source, &info.exports[0].namespace_members);
+    assert_eq!(
+        left[0].1.as_deref(),
+        Some("export namespace N {\n\n  // Second.\n  export const b = 2;\n}\n")
+    );
+    assert_eq!(
+        left[1].1.as_deref(),
+        Some("export namespace N {\n  /** First. */\n  export const a = 1; // trailing\n\n}\n")
+    );
+
+    let source = "export enum F { X = 1, /** y */ Y = 2, Z = 3 /* z */ }\n";
+    let info = parse("c.ts", source);
+    let fixable: Vec<bool> = info.exports[0]
+        .enum_members
+        .iter()
+        .map(|member| member.removal.is_some())
+        .collect();
+    assert_eq!(
+        fixable,
+        [true, false, false],
+        "a comment next to a member on a shared line keeps it"
+    );
+}
+
+#[test]
 fn jsdoc_tags_attach_to_exports() {
     let source = "/**\n * Docs.\n * @public\n * @alias foo\n */\nexport const a = 1;\n\n// plain\nexport const b = 2;\n/** @internal */ export function c() {}\n";
     let info = parse("a.ts", source);
