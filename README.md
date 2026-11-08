@@ -118,8 +118,9 @@ reached only through patterns that caused false findings on real repositories (n
 | skif | 87% | 100% |
 | knip | 77% | 100% |
 
-skif's false findings are files in `fixtures` directories; knip reports those too, plus exports read through
-`typeof import()`. Per issue type and pattern: [`tools/bench`](tools/bench/README.md#dead-code-precision-and-recall).
+skif's false findings are exports read only through `typeof import("./m")["name"]`; knip reports those too, plus files
+in `fixtures` directories. skif was measured at the current source on 2026-11-08, knip 6.44.1 on 2026-11-07. Per issue
+type and pattern: [`tools/bench`](tools/bench/README.md#dead-code-precision-and-recall).
 
 ### Agreement with knip
 

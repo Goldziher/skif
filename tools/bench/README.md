@@ -339,22 +339,26 @@ attributed to its pattern:
 The workspace is not installed, so nothing depends on `node_modules`: the only script runs `node`, and every import of
 a dependency names a listed package. The `skif-bench` unit tests run skif in process on the same workspace (two seeds,
 no binary, network or Node) and fail when it misses a seeded finding or reports a false one other than the known
-deviations listed in the test.
+deviations listed in the test. CI exercises neither the `skif` binary invocation nor the knip side: `skif-bench`
+cannot depend on the `skif` binary in its tests, and knip needs Node and the npm registry. Run `deadcode` with `--knip`
+by hand to check them.
 
-Default run (`--packages 5 --seed 1`: 33 seeded findings, 120 live items), skif 0.1.1 and knip 6.44.1:
+Default run (`--packages 5 --seed 1`: 33 seeded findings, 120 live items). skif was measured at the current source
+(after 0.1.1) on 2026-11-08; knip 6.44.1 on 2026-11-07:
 
 | Issue type | Seeded | skif precision | skif recall | knip precision | knip recall |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `dependencies` | 4 | 1.000 | 1.000 | 1.000 | 1.000 |
 | `devDependencies` | 5 | 1.000 | 1.000 | 1.000 | 1.000 |
-| `exports` | 15 | 1.000 | 1.000 | 0.750 | 1.000 |
-| `files` | 6 | 0.545 | 1.000 | 0.545 | 1.000 |
+| `exports` | 15 | 0.750 | 1.000 | 0.750 | 1.000 |
+| `files` | 6 | 1.000 | 1.000 | 0.545 | 1.000 |
 | `types` | 3 | 1.000 | 1.000 | 1.000 | 1.000 |
 | All | 33 | 0.868 | 1.000 | 0.767 | 1.000 |
 
-Both tools find every seeded finding. skif's false findings are the five fixture files (`fixture-dir`): its
-`unused-files` reads `fixtures` directories, which ADR 0023 skips only in root discovery. knip's are the same five
-plus an export read through `typeof import()` in each package (`typeof-import`). The patterns are synthetic and cover
+Both tools find every seeded finding. skif no longer reports files in `fixtures` directories (ADR 0050). Its false
+findings are the export read only through `typeof import("./typed")["settings"]` in each package (`typeof-import`):
+a bare `typeof import()` credits no export, and the indexed access after it is not read as a use. knip's are the same
+five plus the five fixture files (`fixture-dir`). The patterns are synthetic and cover
 only these cases, so the numbers say which known traps a tool falls into, not how precise it is on a real repository.
 
 ## In-process benchmarks
