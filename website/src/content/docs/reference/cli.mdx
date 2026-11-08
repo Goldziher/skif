@@ -115,13 +115,13 @@ as the JavaScript part of a lint run.
 
 A file that is not part of the module graph exits `2` with the reason; in JSON mode the `error` document carries the
 same `report`, whose `absence` is one of `unused-file` (reported by `unused-files`), `package-excluded`,
-`declaration-file`, `ignored`, `outside-project`, `not-discovered` (missing, ignored by Git, not a source file, or
-owned by no package) and `entries-incomplete`, which is only given for a source file that discovery, the project globs
-and the ignores leave in. For `entries-incomplete` the files of the package are not judged unused because its entry files
-are not fully known, and `incomplete` lists each cause with its `plugin` and `file`: `unparsable-config`,
-`unknown-config` (the config evaluates to a value that cannot be known statically), `unknown-spread` (it spreads or
-merges in an unknown value, such as a base config imported from an installed package), `computed-entries` (the keys the tool reads entries from
-are computed), `unmapped-published` (`package.json` publishes build output with no source behind it) or
+`declaration-file`, `ignored`, `outside-project`, `not-discovered` (missing, ignored by Git, not a source file, or owned
+by no package) and `entries-incomplete`, which is only given for a source file that discovery, the project globs and the
+ignores leave in. For `entries-incomplete` the files of the package are not judged unused because its entry files are
+not fully known, and `incomplete` lists each cause with its `plugin` and `file`: `unparsable-config`, `unknown-config`
+(the config evaluates to a value that cannot be known statically), `unknown-spread` (it spreads or merges in an unknown
+value, such as a base config imported from an installed package), `computed-entries` (the keys the tool reads entries
+from are computed), `unmapped-published` (`package.json` publishes build output with no source behind it) or
 `unspecified`. It also exits `2` when the root cannot be loaded or the file lies outside the workspace.
 
 ## Migrating
