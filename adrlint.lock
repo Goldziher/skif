@@ -330,3 +330,8 @@ blake3 = "bca0930c5e6d08d299fe2b8092db127402032297948d6ccc9ab438cc1a3ac0f6"
 number = 66
 status = "accepted"
 blake3 = "80cbab1405c7e7d604aab3de05c8be5eb6056fd74b80db28e1022c8779c1b13a"
+
+[adrs."adrs/0067-no-editor-extension.md"]
+number = 67
+status = "accepted"
+blake3 = "1e878135fc7cac659ff0ead13bea57958afc069746e4cad4d91cfab3f2abc8da"
