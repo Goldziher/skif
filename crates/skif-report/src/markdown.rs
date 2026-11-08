@@ -7,15 +7,35 @@ use skif_core::{Diagnostic, Report, Severity, Summary};
 
 use crate::options::RenderOptions;
 
+/// An empty HTML comment: GitHub renders nothing for it, but it splits the text around it, so what follows is not
+/// read as part of a mention or an autolink.
+const BREAK: &str = "<!-- -->";
+
 /// Escapes text for a GitHub-flavoured Markdown table cell: punctuation that would start emphasis, a link, HTML,
 /// strikethrough or a new cell is backslash-escaped, control characters are dropped and line breaks become `<br>`.
+///
+/// Backslash escapes do not stop GitHub's mentions and autolinks, so an empty HTML comment follows each `@` (a
+/// scoped package such as `@types/node` would otherwise mention the `types` user or team) and precedes the `:` of
+/// `://` and the `.` of `www.`, so URLs and email addresses in messages stay plain text.
 fn cell(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 8);
-    for c in text.chars() {
+    for (index, c) in text.char_indices() {
         match c {
             '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '|' | '~' | '&' | '#' | '!' => {
                 out.push('\\');
                 out.push(c);
+            }
+            '@' => {
+                out.push('@');
+                out.push_str(BREAK);
+            }
+            ':' if text[index..].starts_with("://") => {
+                out.push_str(BREAK);
+                out.push(':');
+            }
+            '.' if out.len() >= 3 && out.as_bytes()[out.len() - 3..].eq_ignore_ascii_case(b"www") => {
+                out.push_str(BREAK);
+                out.push('.');
             }
             '\n' => out.push_str("<br>"),
             c if c.is_control() => {}
@@ -78,7 +98,7 @@ fn write_table(diagnostics: &[&Diagnostic], options: &RenderOptions, out: &mut d
 
 /// Renders a Markdown report for a pull request comment: a heading, a summary line, then one section per rule with
 /// a table of its diagnostics (location, severity, message). Rules are in ID order. Text from the repository is
-/// escaped so it cannot break the table or inject HTML.
+/// escaped so it cannot break the table, inject HTML, mention a user or team (`@types/node`) or become a link.
 ///
 /// # Errors
 ///
@@ -129,5 +149,13 @@ mod tests {
         assert_eq!(cell("__tests__/*.ts"), "\\_\\_tests\\_\\_/\\*.ts");
         assert_eq!(cell("one\ntwo\u{1b}"), "one<br>two");
         assert_eq!(cell("^18.3.1"), "^18.3.1");
+    }
+
+    #[test]
+    fn cells_cannot_mention_or_autolink() {
+        assert_eq!(cell("@types/node"), "@<!-- -->types/node");
+        assert_eq!(cell("see https://x.dev"), "see https<!-- -->://x.dev");
+        assert_eq!(cell("WWW.x.dev"), "WWW<!-- -->.x.dev");
+        assert_eq!(cell("a.b"), "a.b");
     }
 }
