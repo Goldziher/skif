@@ -714,3 +714,67 @@ fn a_file_of_a_nested_root_that_an_outer_root_imports_is_its_entry() {
         "{alone:?}"
     );
 }
+
+#[test]
+fn the_lint_after_fixing_judges_each_root_as_the_first_lint_did() {
+    // `packages/inner` is a member of the outer workspace and a workspace of its own, so the outer root leaves it to
+    // its own run; `build` is a standalone package below the outer root, which needs no `packageManager`.
+    let dir = tempfile::tempdir().unwrap();
+    let empty_dev = |name: &str| {
+        format!(
+            r#"{{"name": "{name}", "version": "0.0.0", "private": true, "packageManager": "pnpm@9.0.0",
+                "devDependencies": {{}}}}"#
+        )
+    };
+    put(dir.path(), "package.json", &empty_dev("outer"));
+    put(dir.path(), "pnpm-workspace.yaml", "packages:\n  - \"packages/*\"\n");
+    put(dir.path(), "packages/a/package.json", &package("a"));
+    put(dir.path(), "packages/inner/package.json", &empty_dev("inner"));
+    put(
+        dir.path(),
+        "packages/inner/pnpm-workspace.yaml",
+        "packages:\n  - \"libs/*\"\n",
+    );
+    put(dir.path(), "packages/inner/libs/x/package.json", &package("x"));
+    put(
+        dir.path(),
+        "build/package.json",
+        r#"{"name": "build", "version": "0.0.0", "private": true, "devDependencies": {}}"#,
+    );
+    let result = run(skif()
+        .args(["-r", "--fix", "--no-install", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let report = result.json();
+    assert_eq!(root_paths(&report), [".", "build", "packages/inner"]);
+    assert_eq!(packages_of(&report, "."), [".", "packages/a"]);
+    assert_eq!(report["diagnostics"], Value::Array(Vec::new()), "{report}");
+}
+
+#[test]
+fn fixing_keeps_the_files_an_outer_root_imports() {
+    // Deleting unused files and exports must not touch `x.ts` (imported by the outer root) or `helper` of `y.ts`,
+    // and the lint after fixing still makes `x.ts` an entry of `build`.
+    let dir = fixture("multi/nested-imports");
+    let result = run(skif()
+        .args([
+            "-r",
+            "--fix-unsafe",
+            "--allow-remove-files",
+            "--no-install",
+            "--format",
+            "json",
+        ])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let lib = dir.path().join("build").join("lib");
+    assert!(!lib.join("orphan.ts").exists());
+    assert!(lib.join("x.ts").exists());
+    let y = fs::read_to_string(lib.join("y.ts")).unwrap();
+    assert!(
+        y.contains("export function helper") && !y.contains("export const spare"),
+        "{y}"
+    );
+    let report = result.json();
+    assert_eq!(js_findings(&report), Vec::<String>::new());
+}
