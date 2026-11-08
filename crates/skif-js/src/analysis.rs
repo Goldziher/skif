@@ -42,6 +42,9 @@ pub struct JsAnalysis<'a> {
     /// Project files outside the graph.
     pub unused_files: Vec<UnusedFile>,
     ambient_modules: HashSet<String>,
+    /// The discovered source files outside the graph, relative to the workspace root with `/` separators, so
+    /// `explain-usage` can tell a file the analysis never looked at from one it left out.
+    pub(crate) outside_graph: HashSet<String>,
     pub(crate) setup: Setup,
     /// The ids of the rules that run in this pass; `None` when every rule is assumed to run.
     pub(crate) enabled_rules: Option<HashSet<String>>,
@@ -181,6 +184,11 @@ impl<'a> JsAnalysis<'a> {
             .filter_map(|declared| package_name(declared))
             .collect();
         ambient_modules.extend(packages);
+        let outside_graph: HashSet<String> = candidates
+            .iter()
+            .filter(|candidate| graph.id_of(&candidate.abs).is_none())
+            .map(|candidate| candidate.rel.clone())
+            .collect();
         let unused_files = candidates
             .iter()
             .filter(|candidate| graph.id_of(&candidate.abs).is_none())
@@ -213,6 +221,7 @@ impl<'a> JsAnalysis<'a> {
             dependencies,
             unused_files,
             ambient_modules,
+            outside_graph,
             setup,
             enabled_rules: None,
             config_path: None,

@@ -16,6 +16,7 @@ use crate::globs::Globs;
 use crate::graph::{Module, ModuleId, Target};
 use crate::input::IncompleteEntries;
 use crate::manifest_paths::{crossing_stars, manifest_targets, source_candidates, source_patterns};
+use crate::resolve::join_normalized;
 
 /// Re-export hops followed when explaining an export.
 const MAX_DEPTH: usize = 8;
@@ -75,7 +76,8 @@ pub enum Absence {
     OutsideProject,
     /// Matched by an `ignore` glob.
     Ignored,
-    /// Not a source file the analysis looks at: missing, ignored by Git, or of a type that is not analysed.
+    /// Not a source file the analysis looks at: missing, ignored by Git, of a type that is not analysed, or owned by
+    /// no package.
     NotDiscovered,
 }
 
@@ -518,11 +520,16 @@ impl JsAnalysis<'_> {
         }
     }
 
-    /// Why `file` (relative to the workspace root), which is neither in the graph nor reported unused, is not
-    /// analysed. The checks follow the order of the `unused-files` filter.
+    /// Why `file` (relative to the workspace root, or absolute), which is neither in the graph nor reported unused,
+    /// is not analysed. The checks follow the `unused-files` filter, with what discovery, the project globs and the
+    /// ignores leave out ahead of incomplete entries: those only explain a source file the analysis would judge.
     fn absence_of(&self, file: &Path) -> (Absence, Vec<IncompleteEntries>) {
         let root = &self.workspace.root;
-        let abs = root.join(file);
+        let abs = if file.is_absolute() {
+            file.to_path_buf()
+        } else {
+            join_normalized(root, &slashed(file))
+        };
         let owner = self
             .workspace
             .iter()
@@ -530,11 +537,29 @@ impl JsAnalysis<'_> {
             .filter(|(_, dir)| abs.starts_with(dir))
             .max_by_key(|(_, dir)| dir.components().count())
             .map(|(id, _)| id);
-        let Some(package) = owner.and_then(|id| self.setup.package(id)) else {
+        let Some(owner) = owner else {
+            return (Absence::NotDiscovered, Vec::new());
+        };
+        let Some(package) = self.setup.package(owner) else {
             return (Absence::PackageExcluded, Vec::new());
         };
-        if slashed(file).ends_with(".d.ts") {
+        let Some(rel) = relative(&abs, root) else {
+            return (Absence::NotDiscovered, Vec::new());
+        };
+        if !self.outside_graph.contains(&rel) {
+            return (Absence::NotDiscovered, Vec::new());
+        }
+        if rel.ends_with(".d.ts") {
             return (Absence::DeclarationFile, Vec::new());
+        }
+        let Some(in_package) = relative(&abs, &package.dir) else {
+            return (Absence::OutsideProject, Vec::new());
+        };
+        if !package.project.is_match(&in_package) {
+            return (Absence::OutsideProject, Vec::new());
+        }
+        if package.ignore.matches_any(&in_package) || self.setup.global_ignore.matches_any(&rel) {
+            return (Absence::Ignored, Vec::new());
         }
         if package.entries_incomplete {
             let incomplete = package
@@ -549,15 +574,6 @@ impl JsAnalysis<'_> {
                 })
                 .collect();
             return (Absence::EntriesIncomplete, incomplete);
-        }
-        let Some(in_package) = relative(&abs, &package.dir) else {
-            return (Absence::OutsideProject, Vec::new());
-        };
-        if !package.project.is_match(&in_package) {
-            return (Absence::OutsideProject, Vec::new());
-        }
-        if package.ignore.matches_any(&in_package) || self.setup.global_ignore.matches_any(&slashed(file)) {
-            return (Absence::Ignored, Vec::new());
         }
         (Absence::NotDiscovered, Vec::new())
     }
