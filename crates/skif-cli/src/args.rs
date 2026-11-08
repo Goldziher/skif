@@ -64,6 +64,10 @@ pub enum Target {
 }
 
 #[derive(Debug, clap::Args)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent command-line switch"
+)]
 pub struct UpdateArgs {
     /// A path inside a project, resolved to its workspace root as for linting.
     #[arg(default_value = ".")]
@@ -72,6 +76,10 @@ pub struct UpdateArgs {
     /// Write nothing; exit 1 when an update is available.
     #[arg(long)]
     pub check: bool,
+
+    /// Pick the updates to write from a list; needs a terminal on stdin and stdout.
+    #[arg(long, conflicts_with = "check")]
+    pub interactive: bool,
 
     /// How far a version may move; an `[[update-groups]]` entry can narrow it further.
     #[arg(long, value_enum, default_value_t = Target::Latest)]

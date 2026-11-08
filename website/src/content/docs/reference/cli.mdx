@@ -11,7 +11,7 @@ skif init [PATH]
 skif config [PATH] [-r] (--show | --explain <KEY> [--package <NAME>]) [--format human|json]
 skif explain-usage <FILE[#EXPORT]> [PATH]
 skif migrate [PATH] [--from sherif|syncpack|knip|auto,...] [--profile exact|full] [--merge | --force] [--dry-run]
-skif update [PATH] [--check] [--target latest|minor|patch] [--dependencies <NAME>...] [--no-install] [--format human|json]
+skif update [PATH] [--check | --interactive] [--target latest|minor|patch] [--dependencies <NAME>...] [--no-install] [--format human|json]
 skif list [PATH] [-r] [--show instances,statuses,hints,ignored,all,none] [FILTERS]
 skif json [PATH] [-r] [FILTERS]
 ```
@@ -193,11 +193,12 @@ move only when `[policy] dependency-types` covers them. `[update]` and `[[update
 | Flag | Meaning |
 | --- | --- |
 | `--check` | Write nothing; exit `1` when an update is available. Allowed in CI. |
+| `--interactive` | Choose the updates to write from a list, one line per dependency, current and target specifier with the packages and places it moves (space to choose, enter to write, escape to write nothing). Only the chosen updates are written and reported. Refused with exit `2` when stdin or stdout is not a terminal; cannot be combined with `--check`. |
 | `--target <latest\|minor\|patch>` | How far a version may move: the highest version, the highest with the same major, or the highest with the same major and minor. Default `latest`. An `[[update-groups]]` entry can only narrow it. |
 | `--dependencies <NAME>` | Only these dependencies, by name or glob. Repeatable. Other dependencies are not looked up. |
 | `--no-install` | Do not run the package manager after writing. |
 | `--config <FILE>`, `--no-config` | As for linting. |
-| `--format <human\|json>` | `json` prints one document with `version`, `skif`, `check`, `target`, `minimumReleaseAge`, `queried`, `updates` (each with `path`, `line`, `column`, `package`, `dependency`, `place`, `current`, `target` and `state`, which is syncpack's `DiffersToNpmRegistry`), `failures` (`dependency`, `message`), `notes` (`dependency`, `message`: what was left out, such as a version without a publish time) and, after writing, `changed` and `install`. |
+| `--format <human\|json>` | `json` prints one document with `version`, `skif`, `check`, `target`, `minimumReleaseAge`, `queried`, `updates` (each with `path`, `line`, `column`, `package`, `dependency`, `place`, `current`, `target` and `state`, which is syncpack's `DiffersToNpmRegistry`), `failures` (`dependency`, `message`), `notes` (`dependency`, `message`: what was left out, such as a version without a publish time) `declined` with `--interactive` (how many updates were not chosen) and, after writing, `changed` and `install`. |
 
 Without `--check`, `skif update` writes every update atomically per file and then runs the package manager's install,
 as `--fix` does. It is refused with exit `2` when `CI` is truthy; `--check` is the CI form. Exit `0` when there was
@@ -222,7 +223,7 @@ elsewhere, in a URL or over plain http. The user's `.npmrc` expands `${VAR}` eve
 warning, and a redirect never carries a token. Credentials, a query or a fragment written in a registry URL are dropped;
 `_auth`, usernames and passwords, client certificates and `strict-ssl` are not read. Certificates are checked against
 the operating system's trust store (`SSL_CERT_FILE` and `SSL_CERT_DIR` replace it), and `HTTPS_PROXY`, `ALL_PROXY` and
-`NO_PROXY` are honoured. `--interactive` has no equivalent yet: pick dependencies with `--dependencies` instead.
+`NO_PROXY` are honoured.
 
 ## Listing instances
 
