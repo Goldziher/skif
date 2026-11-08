@@ -254,4 +254,4 @@ blake3 = "004941564e0649f25640fcc902fcbb44db943453204098a8b12c3dce39c781b1"
 [adrs."adrs/0051-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md"]
 number = 51
 status = "accepted"
-blake3 = "3c3452c517b897a16a9e00b9bc27e07ac80ff3f99efad1cbc775734758528c26"
+blake3 = "985bf7ec82b064cda87b9f842c9de52531a7ed34ffe174f430bc8a03431ed14c"

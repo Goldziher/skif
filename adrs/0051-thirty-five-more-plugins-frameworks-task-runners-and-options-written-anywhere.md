@@ -39,7 +39,7 @@ The added plugins are `tauri`, `capacitor`, `convex`, `payload`, `wxt`, `hardhat
 Two driver changes support them:
 
 * A plugin that reads the source rather than the exported value (`reads_config` is false) is also called for a config whose export is not understood, with a null value, so Stencil's `export const config` is read.
-* A config path a script passes (`--config`, `buf generate --template`) is a file whenever that file exists, not only when its extension is a source one; `buf` adds `--template` to its config flags.
+* A config path a script passes (`--config`, `buf generate --template`) is a file whenever that file exists, not only when its extension is a source one; only a relative path without `..` is probed, so nothing outside the package is read; `buf` adds `--template` to its config flags.
 
 Not added:
 
@@ -48,14 +48,14 @@ Not added:
 
 Where skif differs from knip:
 
-* `sst` also reads the handlers of the modules `sst.config.ts` imports by relative path, statically or with `await import("./infra/…")`, transitively; knip reads the config and the stacks of SST 2's `.stack(…)`, which skif does not read. A handler is a module and an export (`src/api.handler`): the export is cut off for `.route(path, "src/api.handler")` too, where knip resolves the whole string.
+* `sst` also reads the handlers of the modules `sst.config.ts` imports by relative path, statically or with `await import("./infra/…")`, transitively, resolving a `.js`, `.mjs` or `.cjs` specifier to its `.ts`/`.tsx`, `.mts` or `.cts` source as TypeScript does; knip reads the config and the stacks of SST 2's `.stack(…)`, which skif does not read. A handler is a module and an export (`src/api.handler`): the export is cut off for `.route(path, "src/api.handler")` too, where knip resolves the whole string.
 * `qwik` reads `srcDir` and `routesDir` from `qwikVite` and `qwikCity` imported from their packages, and does not compile `.mdx` routes; `stencil` does not mark custom elements and component style URLs as used and does not compile Sass.
 * `quasar` reads the first `sourceFiles` object and the first `boot` and `css` arrays written anywhere in the config, where knip reads the top-level object of the export.
 * `eleventy` reads `dir` and `templateFormats` from the value the config returns; passthrough copies, which knip collects by calling the config function with a stub, are not read.
 * `rstest` does not apply `exclude` to `include` (more test files are entries, not fewer), does not read `rs.mock(import(…))` calls, and credits the coverage provider of every config it reads, optionally.
 * `react-email` credits both preview server packages, `@react-email/ui` and `@react-email/preview-server`, optionally, as the installed major version is not known; knip picks one by the declared version.
 * `payload` keeps migrations and the generated types from being reported through `ignore`; knip removes them from the project files.
-* `mise` runs a task in its `dir` (`{{config_root}}` expanded) and skips templated commands, as knip does, but does not track whether `node_modules/.bin` is on the task's `PATH`, and does not read file tasks.
+* `taskfile` skips commands and includes holding a `{{…}}` template. `mise` runs a task in its `dir` (`{{config_root}}` expanded) and skips templated commands, as knip does, but does not track whether `node_modules/.bin` is on the task's `PATH`, and does not read file tasks.
 * `moonrepo` reads `$workspaceRoot` and `$projectRoot` as the workspace, as the plugin is enabled at the root only.
 * `textlint` prefers a candidate package declared by the workspace or an ancestor, and names a scoped rule `@scope/textlint-rule-<name>`.
 

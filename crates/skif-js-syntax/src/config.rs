@@ -511,6 +511,7 @@ pub fn extract_property_values(source: &str, path: &Path, key: &str) -> Vec<Conf
         bindings: &bindings,
         file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
         key,
+        evaluated: HashMap::new(),
         found: Vec::new(),
     };
     finder.visit_program(program);
@@ -775,6 +776,8 @@ struct PropertyFinder<'t, 'p, 'a> {
     bindings: &'t ModuleBindings,
     file: &'t str,
     key: &'t str,
+    /// The top-level constants evaluated so far, carried from one property to the next so each is evaluated once.
+    evaluated: HashMap<String, ConfigValue>,
     found: Vec<ConfigValue>,
 }
 
@@ -791,7 +794,7 @@ impl<'a> Visit<'a> for PropertyFinder<'_, '_, 'a> {
                 functions: &self.top.functions,
                 bindings: self.bindings,
                 file: self.file,
-                evaluated: RefCell::new(HashMap::new()),
+                evaluated: RefCell::new(std::mem::take(&mut self.evaluated)),
                 chain: RefCell::new(Vec::new()),
                 frames: RefCell::new(Vec::new()),
                 calls: Cell::new(0),
@@ -799,6 +802,7 @@ impl<'a> Visit<'a> for PropertyFinder<'_, '_, 'a> {
                 captured: RefCell::new(None),
             };
             self.found.push(eval.expr(&it.value, 0));
+            self.evaluated = eval.evaluated.into_inner();
         }
         walk::walk_object_property(self, it);
     }

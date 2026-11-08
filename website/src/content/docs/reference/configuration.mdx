@@ -426,13 +426,15 @@ counterpart. These differences are deliberate:
   is no plugin: the command of `glob -c "<command>" <patterns>` is read where the script parser meets it.
 - `sst`, `quasar`, `stencil` and `orval` read their options wherever the config writes them (a `handler` inside
   `run()`, Stencil's `export const config`), as knip does. `sst` also reads the handlers of the modules
-  `sst.config.ts` imports by relative path (`await import("./infra/api")`), and cuts the export off a `.route()`
-  handler; it does not read SST 2 stacks. `quasar` takes the first `sourceFiles`, `boot` and `css` written anywhere.
+  `sst.config.ts` imports by relative path (`await import("./infra/api")`, `./infra/api.js` for `infra/api.ts`), and
+  cuts the export off a `.route()` handler; it does not read SST 2 stacks. `quasar` takes the first `sourceFiles`,
+  `boot` and `css` written anywhere.
 - `qwik` and `stencil` do not compile `.mdx` or Sass files, and `stencil` does not mark custom elements as used.
   `eleventy` does not read passthrough copies. `rstest` does not apply `exclude` and does not read `rs.mock()`.
 - `react-email` credits both `@react-email/ui` and `@react-email/preview-server` for a preview command, as the
   installed major version is not known. `payload` keeps migrations and `payload-types.ts` from being reported
-  through `ignore`. `mise` does not read file tasks. `unplugin-vue-i18n` is no plugin: knip's has nothing to port.
+  through `ignore`. `mise` does not read file tasks. `taskfile` skips commands holding a `{{…}}` template.
+  `unplugin-vue-i18n` is no plugin: knip's has nothing to port.
 
 ## Layered configuration
 
