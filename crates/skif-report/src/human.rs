@@ -20,7 +20,7 @@ pub fn render_human(report: &Report, options: &RenderOptions, out: &mut dyn Writ
     let mut files: BTreeMap<String, Vec<&Diagnostic>> = BTreeMap::new();
     for diagnostic in &report.diagnostics {
         files
-            .entry(options.display_path(&diagnostic.location.path))
+            .entry(options.display_path(&diagnostic.location.path).into_owned())
             .or_default()
             .push(diagnostic);
     }

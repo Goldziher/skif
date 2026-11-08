@@ -79,7 +79,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 5] = [
     },
     Deviation {
         id: TEST_FILE,
-        reason: "skif treats test files and test directories as entries, so it never reports them as unused; knip does without its test-runner plugin",
+        reason: "knip reports these test files and files below test directories as unused and skif does not: a test-runner plugin makes test files entries, and most other files below test directories are apps and helpers that skif leaves out of its graph, in a nested project (read only with --recursive) or in a package whose entry files it cannot fully read, where it reports no file as unused",
     },
     Deviation {
         id: FIXTURE_FILE,
@@ -102,6 +102,13 @@ const CODE_EXTENSIONS: [&str; 11] = [
 
 const TEST_DIRECTORIES: [&str; 6] = ["test", "tests", "__tests__", "e2e", "cypress", "__mocks__"];
 const FIXTURE_DIRECTORIES: [&str; 5] = ["fixtures", "__fixtures__", "fixture", "test_root", "testdata"];
+
+/// The default entry files of a workspace, the same in knip and skif. A configured `entry` replaces them in both, so a
+/// corpus-level `entry` is given with these in front.
+const DEFAULT_ENTRY: [&str; 2] = [
+    "{index,cli,main}.{js,mjs,cjs,jsx,ts,tsx,mts,cts}",
+    "src/{index,cli,main}.{js,mjs,cjs,jsx,ts,tsx,mts,cts}",
+];
 
 /// Marker written into a checkout once its dependencies are installed, holding the pinned commit.
 const INSTALLED_MARKER: &str = ".skif-bench-installed";
@@ -330,8 +337,9 @@ fn not_judged(category: &str, key: &str, dirs: &BTreeSet<String>, is_package: &d
     !dirs.is_empty() && NOT_JUDGED_CATEGORIES.contains(&category) && dirs.contains(&owner_dir(key, is_package))
 }
 
-/// Whether a knip-reported unused file is a known deviation: outside skif's project set (not code), a fixture, or a
-/// test. Fixtures and tests only count when `include_test_files` is off.
+/// Whether a knip-reported unused file is a known deviation: outside skif's project set (not code), a fixture, a test
+/// file or any code file below a test directory (such as the apps of an end-to-end suite). Fixtures and tests only
+/// count when `include_test_files` is off.
 fn classify_file(path: &str, include_test_files: bool) -> Option<&'static str> {
     let normalized = path.replace('\\', "/");
     let (directories, name) = normalized.rsplit_once('/').unwrap_or(("", normalized.as_str()));
@@ -357,7 +365,7 @@ fn classify_file(path: &str, include_test_files: bool) -> Option<&'static str> {
 
 /// The knip report in its stdout, which may carry banners or log lines around the JSON (dotenv, console output of
 /// config files). Tries every `{` that starts a line or a string key, and accepts the first object that is a report.
-fn parse_knip_report(stdout: &[u8]) -> Result<Value, String> {
+pub fn parse_knip_report(stdout: &[u8]) -> Result<Value, String> {
     let text = String::from_utf8_lossy(stdout);
     if text.trim().is_empty() {
         return Err("stdout is empty".to_owned());
@@ -416,7 +424,10 @@ fn install_command(repo: &Repo, dir: &Path) -> Result<(String, Vec<String>), Str
 }
 
 /// Installs the dependencies of a checkout without running lifecycle scripts; `Some(reason)` when that fails.
-fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duration) -> Result<Option<String>> {
+///
+/// # Errors
+/// Fails when the install cannot be started or the marker cannot be written.
+pub fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duration) -> Result<Option<String>> {
     let timeout = repo.install_timeout_secs.map_or(default_timeout, Duration::from_secs);
     let marker = dir.join(INSTALLED_MARKER);
     if fs::read_to_string(&marker).is_ok_and(|rev| rev.trim() == repo.rev) {
@@ -447,7 +458,7 @@ fn install(repo: &Repo, dir: &Path, scratch: &Path, default_timeout: Duration) -
         )));
     }
     if run.code != Some(0) {
-        return Ok(Some(format!("{program} install failed: {}", run.stderr_summary())));
+        return Ok(Some(format!("{program} install failed: {}", run.failure_summary())));
     }
     fs::write(&marker, &repo.rev).with_context(|| format!("writing {}", marker.display()))?;
     Ok(None)
@@ -483,6 +494,13 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
     if recursive {
         skif_command.arg("--recursive");
     }
+    if !repo.entry.is_empty() {
+        skif_command.arg("--config").arg(write_config(
+            &scratch,
+            "skif-entry.toml",
+            &skif_entry_config(&repo.entry),
+        )?);
+    }
     let skif_run = capture(&mut skif_command, &scratch, "skif", options.timeout)?;
     if skif_run.timed_out {
         return Ok(skipped("skif timed out"));
@@ -506,7 +524,7 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         .env("CI", "1")
         .env("DOTENV_CONFIG_QUIET", "true");
     if !options.repo_knip_config {
-        let config = empty_knip_config(&scratch)?;
+        let config = write_config(&scratch, "knip-config.json", &knip_config(&repo.entry))?;
         knip_command.arg("--config").arg(config);
     }
     let knip_run = capture(&mut knip_command, &scratch, "knip", options.timeout)?;
@@ -559,10 +577,41 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
 
 /// An empty knip configuration, so the repository's own settings (ignores, `files: off`, ignored workspaces) do not
 /// hide findings. Returns its absolute path.
-fn empty_knip_config(scratch: &Path) -> Result<PathBuf> {
+pub fn empty_knip_config(scratch: &Path) -> Result<PathBuf> {
+    write_config(scratch, "knip-empty.json", &knip_config(&[]))
+}
+
+/// The root workspace's entry files: the defaults, then the corpus-level ones.
+fn root_entry(entry: &[String]) -> Vec<String> {
+    DEFAULT_ENTRY
+        .iter()
+        .map(|glob| (*glob).to_owned())
+        .chain(entry.iter().cloned())
+        .collect()
+}
+
+/// The knip configuration: empty, so the repository's own settings (ignores, `files: off`, ignored workspaces) do not
+/// hide findings, apart from the corpus-level entry files of the root workspace.
+fn knip_config(entry: &[String]) -> String {
+    let config = if entry.is_empty() {
+        json!({})
+    } else {
+        json!({ "workspaces": { ".": { "entry": root_entry(entry) } } })
+    };
+    config.to_string() + "\n"
+}
+
+/// The skif configuration that adds the corpus-level entry files to the root workspace. A JSON array of strings is a
+/// TOML array as well.
+fn skif_entry_config(entry: &[String]) -> String {
+    format!("[js.workspaces.\".\"]\nentry = {}\n", json!(root_entry(entry)))
+}
+
+/// Writes a configuration file into the scratch directory and returns its absolute path.
+fn write_config(scratch: &Path, name: &str, contents: &str) -> Result<PathBuf> {
     fs::create_dir_all(scratch).with_context(|| format!("creating {}", scratch.display()))?;
-    let path = fs::canonicalize(scratch)?.join("knip-empty.json");
-    fs::write(&path, "{}\n").with_context(|| format!("writing {}", path.display()))?;
+    let path = fs::canonicalize(scratch)?.join(name);
+    fs::write(&path, contents).with_context(|| format!("writing {}", path.display()))?;
     Ok(path)
 }
 
@@ -761,6 +810,7 @@ mod tests {
             knip_unread: Vec::new(),
             install_timeout_secs: None,
             install_command: Vec::new(),
+            entry: Vec::new(),
         };
         let dir = Path::new("/nonexistent");
         assert_eq!(install_command(&repo("npm", true), dir).unwrap().1[0], "ci");
@@ -845,6 +895,23 @@ mod tests {
         for category in ["enumMembers", "types", "nsExports", "nsTypes", "namespaceMembers"] {
             assert_eq!(counts[category], both, "{category}");
         }
+    }
+
+    #[test]
+    fn corpus_entry_files_reach_both_tools_after_the_defaults() {
+        assert_eq!(knip_config(&[]), "{}\n");
+        let entry = ["src/vs/workbench/workbench.desktop.main.ts".to_owned()];
+        let knip: Value = serde_json::from_str(&knip_config(&entry)).unwrap();
+        let expected = json!([DEFAULT_ENTRY[0], DEFAULT_ENTRY[1], entry[0]]);
+        assert_eq!(knip["workspaces"]["."]["entry"], expected);
+        let skif: toml::Value = toml::from_str(&skif_entry_config(&entry)).unwrap();
+        let listed: Vec<&str> = skif["js"]["workspaces"]["."]["entry"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|glob| glob.as_str().unwrap())
+            .collect();
+        assert_eq!(listed, [DEFAULT_ENTRY[0], DEFAULT_ENTRY[1], entry[0].as_str()]);
     }
 
     #[test]
