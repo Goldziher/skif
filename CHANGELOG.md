@@ -15,7 +15,13 @@ All notable changes to this project are documented here. The format follows
   file, ignored, outside the project globs, not discovered, or in a package whose entry files are not fully known. For
   the last it names every tool config that could not be read and why (it does not parse, it evaluates to an unknown
   value, it spreads in an unknown base config, its entry keys are computed, or `package.json` publishes build output
-  with no source behind it). The JSON `absence` values replace `not-analysed`, and `incomplete` lists the configs
+  with no source behind it). The JSON report's `incomplete` lists the configs
+  ([#23](https://github.com/Goldziher/skif/issues/23)).
+
+### Changed
+
+- **Breaking** for consumers of `explain-usage --format json`: the `absence` value `not-analysed` is gone, replaced
+  by `package-excluded`, `declaration-file`, `entries-incomplete`, `outside-project`, `ignored` and `not-discovered`
   ([#23](https://github.com/Goldziher/skif/issues/23)).
 
 ### Fixed
