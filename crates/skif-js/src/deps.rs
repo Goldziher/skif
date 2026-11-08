@@ -671,14 +671,18 @@ impl DependencyUsage {
                         // nor need one listed.
                         continue;
                     }
-                    let type_only = resolved.type_only && kind != Some(ImportKind::ExportFrom);
+                    let declaration = is_declaration_file(&module.abs);
+                    // knip's strict mode counts every import of a declaration file as type-only, so a listed `@types`
+                    // package stands in for the package.
+                    let type_only =
+                        (resolved.type_only && kind != Some(ImportKind::ExportFrom)) || (self.strict && declaration);
                     let span = module.info.imports.get(resolved.import).map(|import| import.span);
                     let site = ImportSite {
                         owner: module.owner,
                         module: module.id,
                         span,
                         type_only,
-                        declaration: is_declaration_file(&module.abs),
+                        declaration,
                     };
                     self.handle_import(workspace, name, &site);
                 } else if let Some(import) = module.info.imports.get(resolved.import) {
