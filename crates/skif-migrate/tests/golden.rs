@@ -297,7 +297,7 @@ fn knip_built_in_compilers_map_to_skif_extractors() {
             .as_deref()
             .is_some_and(|hint| hint.contains("**/*.mdx"))
     );
-    assert_eq!(class(&migration, "compilers..styl"), NoteClass::Default);
+    assert_eq!(class(&migration, "compilers[\".styl\"]"), NoteClass::Default);
     assert_eq!(class(&migration, "compilers.vue"), NoteClass::Default);
     assert_eq!(class(&migration, "compilers.hbs"), NoteClass::Unsupported);
     let notes: Vec<String> = migration

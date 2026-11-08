@@ -636,7 +636,15 @@ fn compilers(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue) 
         return;
     }
     for (extension, compiler) in entries(state, src, path, value) {
-        let at = join(path, extension);
+        // `.styl` is written as a quoted key, so it is not joined into `compilers..styl`.
+        let at = if extension
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')
+        {
+            join(path, extension)
+        } else {
+            format!("{path}[\"{extension}\"]")
+        };
         let name = extension.trim_start_matches('.').to_ascii_lowercase();
         let built_in = BUILT_IN_EXTRACTORS.contains(&name.as_str());
         match compiler {
