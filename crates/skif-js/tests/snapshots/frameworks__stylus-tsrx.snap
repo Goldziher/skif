@@ -1,0 +1,70 @@
+---
+source: crates/skif-js/tests/frameworks.rs
+expression: "lint_fixture(\"stylus-tsrx\")"
+---
+[
+  {
+    "rule": "unused-dependencies",
+    "severity": "error",
+    "message": "`unused-dependency` is listed in `dependencies` but never used",
+    "help": "remove it, or add it to `ignore-dependencies` when a tool uses it without importing it",
+    "location": {
+      "path": "package.json",
+      "span": {
+        "start": 169,
+        "end": 197,
+        "start-line": 9,
+        "start-col": 5,
+        "end-line": 9,
+        "end-col": 33
+      }
+    },
+    "package": "stylus-tsrx",
+    "dependency": "unused-dependency",
+    "fixes": [
+      {
+        "title": "Remove `unused-dependency` from `dependencies`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "json": {
+              "path": "package.json",
+              "pointer": [
+                {
+                  "key": "dependencies"
+                },
+                {
+                  "key": "unused-dependency"
+                }
+              ],
+              "action": "remove"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`src/Orphan.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "src/Orphan.ts"
+    },
+    "package": "stylus-tsrx",
+    "fixes": [
+      {
+        "title": "Delete `src/Orphan.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "src/Orphan.ts"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

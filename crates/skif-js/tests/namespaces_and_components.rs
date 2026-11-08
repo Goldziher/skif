@@ -440,3 +440,42 @@ fn the_node_plugin_keeps_server_js_reachable() {
         "{disabled:#?}"
     );
 }
+
+#[test]
+fn a_namespace_member_read_by_its_bare_name_inside_the_namespace_is_used() {
+    let diagnostics = lint_files(
+        &[
+            PACKAGE,
+            (
+                "index.ts",
+                "import { Terminal, Protocol } from './ns';\nconsole.log(Terminal.show, Protocol.request);\n",
+            ),
+            (
+                "ns.ts",
+                "export namespace Terminal {\n\
+                   export function findVisible() { return 1; }\n\
+                   export function show() { return findVisible(); }\n\
+                   export function hide(findVisible: () => number) { return findVisible(); }\n\
+                   export function unread() { return 0; }\n\
+                 }\n\
+                 export namespace Protocol {\n\
+                   export type ProgressToken = string | number;\n\
+                   export function request(token: ProgressToken) { return token; }\n\
+                   export const shadowed = 1;\n\
+                   export function shadow() { const shadowed = 2; return shadowed; }\n\
+                 }\n",
+            ),
+        ],
+        "",
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-members"),
+        [
+            "ns.ts: Protocol.shadow",
+            "ns.ts: Protocol.shadowed",
+            "ns.ts: Terminal.hide",
+            "ns.ts: Terminal.unread"
+        ],
+        "{diagnostics:#?}"
+    );
+}

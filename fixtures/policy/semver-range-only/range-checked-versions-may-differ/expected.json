@@ -1,0 +1,11 @@
+[
+  {
+    "rule": "semver-range-mismatch",
+    "severity": "error",
+    "package": "app",
+    "dependency": "react",
+    "detail": "SemverRangeMismatch",
+    "path": "packages/app/package.json",
+    "fixable": true
+  }
+]

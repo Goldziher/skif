@@ -148,6 +148,34 @@ fn declared_ambient_modules_are_not_unlisted() {
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), ["src/index.ts: left-pad"]);
 }
 
+/// An augmentation adds to a module that has to be installed; it does not stand in for it (#24).
+#[test]
+fn augmented_modules_are_still_unlisted() {
+    let diagnostics = lint(&[
+        PACKAGE,
+        (
+            "types/next-auth.d.ts",
+            "import type { DefaultSession } from 'next-auth';\ndeclare module 'next-auth' {\n  interface Session extends DefaultSession { id: string }\n}\n",
+        ),
+        (
+            "types/dayjs.d.ts",
+            "export {};\ndeclare module 'dayjs' {\n  interface Dayjs { tz(): Dayjs }\n}\n",
+        ),
+        (
+            "src/index.ts",
+            "import { getSession } from 'next-auth/react';\nimport dayjs from 'dayjs';\nexport const both = [getSession, dayjs];\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        [
+            "src/index.ts: dayjs",
+            "src/index.ts: next-auth",
+            "types/next-auth.d.ts: next-auth"
+        ]
+    );
+}
+
 #[test]
 fn clause_aliases_and_entry_aliases_are_not_duplicates() {
     let diagnostics = lint(&[
@@ -384,4 +412,25 @@ fn a_style_block_of_a_component_resolves_sass_partials() {
         ["src/App.vue: ../css/mixins/missing"]
     );
     assert_eq!(found(&diagnostics, "unused-files"), none());
+}
+
+#[test]
+fn a_marker_only_package_json_does_not_make_a_project_of_files_outside_the_sources() {
+    // `tools/gen` is ignored by git, so its file is no candidate; `{"type":"module"}` still makes no project of it.
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","private":true,"scripts":{"gen":"node tools/gen/run.ts"}}"#,
+        ),
+        (".gitignore", "tools/gen/\n"),
+        ("tools/gen/package.json", r#"{"type":"module"}"#),
+        (
+            "tools/gen/run.ts",
+            "import Vinyl from \"vinyl\";\nconsole.log(new Vinyl());\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        ["tools/gen/run.ts: vinyl"]
+    );
 }

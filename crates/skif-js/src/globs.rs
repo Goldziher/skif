@@ -8,6 +8,9 @@ pub(crate) struct Globs {
     include: GlobSet,
     exclude: GlobSet,
     has_include: bool,
+    /// A second set matched besides this one, with exclusions of its own: the `files` of a `tsconfig`, which its
+    /// `exclude` does not filter.
+    also: Option<Box<Globs>>,
 }
 
 fn compile(pattern: &str) -> Vec<Glob> {
@@ -50,22 +53,34 @@ impl Globs {
             has_include: !include.is_empty(),
             include: build(include),
             exclude: build(exclude),
+            also: None,
         }
     }
 
+    /// Also matches what `other` matches, whatever the exclusions of this set say.
+    #[must_use]
+    pub(crate) fn or(mut self, other: Self) -> Self {
+        if !other.is_empty() {
+            self.also = Some(Box::new(other));
+        }
+        self
+    }
+
     /// Whether no include glob exists, so nothing can match.
-    pub(crate) const fn is_empty(&self) -> bool {
-        !self.has_include
+    pub(crate) fn is_empty(&self) -> bool {
+        !self.has_include && self.also.as_ref().is_none_or(|also| also.is_empty())
     }
 
     /// Whether `path` matches an include glob and no exclude glob.
     pub(crate) fn is_match(&self, path: &str) -> bool {
-        self.has_include && self.include.is_match(path) && !self.exclude.is_match(path)
+        (self.has_include && self.include.is_match(path) && !self.exclude.is_match(path))
+            || self.also.as_ref().is_some_and(|also| also.is_match(path))
     }
 
     /// Whether `path` matches any include glob, ignoring exclusions (for ignore lists, where `!` has no meaning).
     pub(crate) fn matches_any(&self, path: &str) -> bool {
-        self.has_include && self.include.is_match(path)
+        (self.has_include && self.include.is_match(path))
+            || self.also.as_ref().is_some_and(|also| also.matches_any(path))
     }
 }
 

@@ -313,6 +313,7 @@ pub(super) const PNPM_VALUE_FLAGS: &[&str] = &[
     "filter-prod",
     "dir",
     "C",
+    "prefix",
     "reporter",
     "loglevel",
     "test-pattern",
@@ -583,11 +584,14 @@ pub(super) enum Files {
     First,
     /// Every positional argument with a JavaScript or TypeScript extension.
     ScriptExt,
-    /// Every positional argument.
+    /// Every positional argument, where a directory stands for the files the test runner reads in it.
     All,
     /// No positional argument names a file (`glob -c "cmd" "src/**/*.ts"` takes patterns).
     None,
 }
+
+/// The extensions mocha reads from a directory without `--extension`.
+pub(super) const TEST_TREE_EXTENSIONS: &[&str] = &["js", "cjs", "mjs"];
 
 /// A tool that runs or tests files given on its command line.
 pub(super) struct Runner {

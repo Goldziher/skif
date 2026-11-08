@@ -93,7 +93,7 @@ impl ReexportIndex {
                         ImportKind::ExportFrom => {
                             sources.insert(import.specifier.as_str(), *id);
                         }
-                        ImportKind::ImportMetaGlob | ImportKind::SideEffect => {}
+                        ImportKind::ImportMetaGlob | ImportKind::SideEffect | ImportKind::Mock => {}
                         _ => {
                             sources.entry(import.specifier.as_str()).or_insert(*id);
                         }
@@ -183,7 +183,10 @@ impl ExportUsage {
                 let Some(import) = module.info.imports.get(resolved.import) else {
                     continue;
                 };
-                if matches!(import.kind, ImportKind::ExportFrom | ImportKind::SideEffect) {
+                if matches!(
+                    import.kind,
+                    ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock
+                ) {
                     continue;
                 }
                 let target = match &resolved.target {
@@ -210,8 +213,10 @@ impl ExportUsage {
                         ImportedKind::Named(export) => {
                             queue.push_back(Task::Name(target, export.clone(), access, Via::Named));
                         }
+                        // A namespace without a local binding that does not escape (a bare `typeof import("x")`)
+                        // reads no member, so it credits nothing.
                         ImportedKind::Namespace => {
-                            if name.escapes || name.local.is_none() {
+                            if name.escapes {
                                 queue.push_back(Task::All(target));
                             } else {
                                 queue.extend(name.accessed_members.iter().map(|member| {

@@ -3,6 +3,8 @@
 //! [`plan_edits`] turns structural [`FixOp`]s into byte-level [`TextEdit`]s over the original source, so every byte a
 //! fix does not touch (indentation, comments, key order, line endings) stays identical. [`apply`] plans and applies.
 //!
+//! [`format_package_json`] formats a `package.json` as syncpack's `format` does (ADR 0055).
+//!
 //! JSON (including JSONC comments) is located with `jsonc-parser` byte ranges. YAML needs the `yaml` feature and is
 //! edited with `yamlpatch`; see [`FileKind::Yaml`].
 
@@ -11,6 +13,7 @@
 mod describe;
 mod error;
 mod json;
+mod package_json;
 #[cfg(feature = "yaml")]
 mod yaml;
 
@@ -18,6 +21,10 @@ use std::fmt;
 use std::path::Path;
 
 pub use error::EditPlanError;
+pub use package_json::{
+    DEFAULT_SORT_AZ, DEFAULT_SORT_EXPORTS, DEFAULT_SORT_FIRST, FormatIssue, FormatOptions, Formatted,
+    format_package_json, minimal_edit,
+};
 use skif_core::{FixOp, TextEdit, apply_text_edits};
 
 /// Format of a file that can be edited.

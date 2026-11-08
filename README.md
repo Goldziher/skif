@@ -8,7 +8,7 @@
 skif lints manifests, enforces version and catalog policies, and finds unused dependencies and dead code,
 with one config file and one report. It never runs your project's code.
 
-npm · pnpm · yarn · bun · **41 rules** · **200 plugins** · format-preserving fixes
+npm · pnpm · yarn · bun · **42 rules** · **201 plugins** · format-preserving fixes
 
 [![crates.io](https://img.shields.io/crates/v/skif?style=flat-square)](https://crates.io/crates/skif)
 [![npm](https://img.shields.io/npm/v/skif-cli?style=flat-square)](https://www.npmjs.com/package/skif-cli)
@@ -30,7 +30,7 @@ npm · pnpm · yarn · bun · **41 rules** · **200 plugins** · format-preservi
 | **Fast** | 4 to 37 times faster than knip on real repositories. Manifest checks beat sherif on every real repository and syncpack on every target; sherif wins at 2,000 generated packages. [See the numbers.](#benchmarks) |
 | **Safe** | Analysis is static: skif reads your code and configs without running them. Fixes keep key order, indentation and comments. |
 | **Easy to adopt** | `skif migrate` translates your sherif, syncpack and knip configuration in one step. |
-| **Built for CI** | Human, JSON, SARIF and GitHub annotation output, stable rule ids and a GitHub Action. |
+| **Built for CI** | Human, JSON, SARIF, GitHub annotation, GitLab Code Quality, compact, Markdown and CODEOWNERS output, stable rule ids and a GitHub Action. |
 | **Embeddable** | The [`skif`](crates/skif/README.md) crate is a library that does no I/O of its own. |
 
 ## Quick start
@@ -39,6 +39,7 @@ npm · pnpm · yarn · bun · **41 rules** · **200 plugins** · format-preservi
 npx skif-cli              # lint the workspace or package you are in
 npx skif-cli --fix        # apply safe fixes
 npx skif-cli migrate      # turn sherif, syncpack and knip config into a skif.toml
+npx skif-cli update --check  # list newer published versions; the only command that uses the network
 ```
 
 With skif installed, the command is `skif`. See the [CLI reference](https://goldziher.github.io/skif/reference/cli/).
@@ -54,6 +55,7 @@ follows knip's issue types. The difference is that one tool covers all three job
 | Manifest and workspace rules | Yes | Yes | No | No |
 | Version and semver-range policy | Yes | Version mismatches | Yes | No |
 | Catalog policy | Yes | No | Yes | Catalog entries |
+| Registry updates (`update --check`) | Yes, opt-in | No | Yes | No |
 | Unused dependencies, files and exports | Yes | No | No | Yes |
 | Runs project code to read configs | No | No | No | Yes |
 
@@ -106,10 +108,26 @@ answer is known:
 skif and sherif name the same 200 dependencies. skif and syncpack report the same 4,568 mismatched instances, with
 nothing unique to either. `n/a` means the tool does not check for that defect.
 
+### Precision on seeded dead code
+
+A generated 5-package workspace with seeded unused files, exports, types and dependencies, next to live code that is
+reached only through patterns that caused false findings on real repositories (namespace reads, `typeof import()`,
+`import.meta.glob`, tsconfig `paths`, `#` subpath imports, manual mocks, fixtures and more). The answer key lists all
+33 seeded findings:
+
+| Tool | Precision | Recall |
+| --- | ---: | ---: |
+| skif | 100% | 100% |
+| knip | 77% | 100% |
+
+skif reports no false finding; knip reports exports read only through `typeof import("./m")["name"]` and files in
+`fixtures` directories. skif was measured at the current source on 2026-11-08, knip 6.44.1 on 2026-11-07. Per issue
+type and pattern: [`tools/bench`](tools/bench/README.md#dead-code-precision-and-recall).
+
 ### Agreement with knip
 
-Dead code has no answer key, so this measures agreement, not correctness: findings skif and knip share on 14 pinned
-repositories. A low score means the tools differ, and either one could be right. Reading the disagreements found
+Real repositories have no answer key for dead code, so this measures agreement, not correctness: findings skif and
+knip share on 14 pinned repositories. A low score means the tools differ, and either one could be right. Reading the disagreements found
 false findings on both sides, and skif's are fixed in the current source
 ([ADR 0049](adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md)).
 

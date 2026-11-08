@@ -1,0 +1,10 @@
+{
+  "name": "ambient-module-imports",
+  "private": true,
+  "main": "src/index.ts",
+  "devDependencies": {
+    "@hapi/accept": "6.0.0",
+    "commander": "12.0.0",
+    "left-pad": "1.3.0"
+  }
+}
