@@ -67,8 +67,24 @@ so the next save of `skif.toml` runs again. `--watch` cannot be combined with `-
 `skif lsp` is a minimal [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) server on
 stdio. When the editor opens or saves a file, skif lints the project that contains it and publishes the diagnostics
 of every file of that project, with the rule ID as the code and `skif` as the source; a file whose findings are gone
-gets an empty list. It lints the files as saved on disk, so findings update on save, not while typing. It offers no
-code actions yet: apply fixes with `skif --fix`.
+gets an empty list. It lints the files as saved on disk, so findings update on save, not while typing.
+
+### Code actions
+
+The fixes of the last lint are offered as code actions, planned exactly as `skif --fix --dry-run` plans them, and
+the editor applies them; the server writes nothing.
+
+- **Quick fixes.** Each fix of a diagnostic under the cursor is a `quickfix` with the fix's title. A safe fix that is
+  the diagnostic's only fix is marked preferred. An unsafe fix (one that `skif --fix` leaves to `--fix-unsafe`) is
+  offered too, with `(unsafe)` after its title and never preferred: choosing it is the explicit consent the flag
+  stands for. A diagnostic with several alternatives gets one action per alternative.
+- **Fix all.** `source.fixAll.skif` applies every safe fix of the file's diagnostics in one edit, taking the
+  alternative `[policy] prefer` names where there are several, as a non-interactive `skif --fix` does. Editors run
+  it from a "fix all" command or on save; in VS Code, `"editor.codeActionsOnSave": { "source.fixAll.skif": "explicit" }`.
+
+A fix that creates or deletes a file (such as the `unused-files` fix) is not offered: deleting files stays a
+command-line opt-in (`--allow-remove-files`). Neither is a fix that edits a file open with unsaved changes, because
+its edits are positions in the file as saved; save the file and the fixes come back with the new lint.
 
 A message larger than 64 MiB, or one whose header the server cannot read, ends the session: skif prints the reason
 to stderr and exits with code 1, and the editor can restart it.
