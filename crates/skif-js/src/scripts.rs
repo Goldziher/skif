@@ -2,7 +2,7 @@
 
 use indexmap::{IndexMap, IndexSet};
 use serde_json::Value;
-use skif_js_plugins::scripts::{FileTree, ScriptContext, is_ignored_binary, parse_script};
+use skif_js_plugins::scripts::{FileTree, ScriptContext, ScriptInfo, is_ignored_binary, parse_script};
 use skif_workspace::Package;
 
 /// A binary a script runs.
@@ -79,73 +79,84 @@ pub(crate) fn analyze_manifest(manifest: &Value) -> ScriptFacts {
     let context = commands.iter().fold(ScriptContext::new(), |context, &(name, body)| {
         context.with_script(name, body)
     });
-    let mut binaries = IndexSet::new();
-    let mut ephemeral_binaries = IndexSet::new();
-    let mut global_binaries = IndexSet::new();
-    let mut forwarded = IndexSet::new();
-    let mut package_managers = IndexSet::new();
-    let mut files = IndexSet::new();
-    let mut file_trees: IndexMap<String, FileTree> = IndexMap::new();
-    let mut dependencies = IndexSet::new();
+    let mut collected = Collected::default();
     for (name, body) in commands {
-        let info = parse_script(body, &context.clone().with_current_script(name));
-        for binary in info.binaries {
-            if is_ignored_binary(&binary.name) {
+        collected.add(name, parse_script(body, &context.clone().with_current_script(name)));
+    }
+    collected.into_facts()
+}
+
+/// [`ScriptFacts`] being gathered script by script, without duplicates and in script order.
+#[derive(Default)]
+struct Collected {
+    binaries: IndexSet<ScriptBinary>,
+    ephemeral_binaries: IndexSet<ScriptBinary>,
+    global_binaries: IndexSet<ScriptBinary>,
+    forwarded: IndexSet<ForwardedBinary>,
+    package_managers: IndexSet<String>,
+    files: IndexSet<String>,
+    file_trees: IndexMap<String, FileTree>,
+    dependencies: IndexSet<String>,
+}
+
+impl Collected {
+    /// Adds what the script `name` runs.
+    fn add(&mut self, name: &str, info: ScriptInfo) {
+        let binary = |binary: String| ScriptBinary {
+            name: binary,
+            script: name.to_owned(),
+        };
+        for used in info.binaries {
+            if is_ignored_binary(&used.name) {
                 continue;
             }
-            if binary.filtered {
-                if !binary.workspaces.is_empty() {
-                    forwarded.insert(ForwardedBinary {
-                        targets: binary.workspaces,
-                        binary: ScriptBinary {
-                            name: binary.name,
-                            script: name.clone(),
-                        },
+            if used.filtered {
+                if !used.workspaces.is_empty() {
+                    self.forwarded.insert(ForwardedBinary {
+                        targets: used.workspaces,
+                        binary: binary(used.name),
                     });
                 }
                 continue;
             }
-            let target = if binary.via.is_ephemeral() {
-                &mut ephemeral_binaries
+            let target = if used.via.is_ephemeral() {
+                &mut self.ephemeral_binaries
             } else {
-                &mut binaries
+                &mut self.binaries
             };
-            target.insert(ScriptBinary {
-                name: binary.name,
-                script: name.clone(),
-            });
+            target.insert(binary(used.name));
         }
-        for binary in info.global_binaries {
-            if !binary.filtered && !binary.via.is_ephemeral() {
-                global_binaries.insert(ScriptBinary {
-                    name: binary.name,
-                    script: name.clone(),
-                });
+        for used in info.global_binaries {
+            if !used.filtered && !used.via.is_ephemeral() {
+                self.global_binaries.insert(binary(used.name));
             }
         }
-        package_managers.extend(info.package_managers);
+        self.package_managers.extend(info.package_managers);
         for file in info.files {
             if let Some(tree) = file.tree {
-                merge_tree(&mut file_trees, &file.path, tree);
+                merge_tree(&mut self.file_trees, &file.path, tree);
             }
-            files.insert(file.path);
+            self.files.insert(file.path);
         }
-        dependencies.extend(
+        self.dependencies.extend(
             info.dependencies
                 .into_iter()
                 .filter(|dependency| !dependency.ephemeral)
                 .map(|dependency| dependency.name),
         );
     }
-    ScriptFacts {
-        binaries: binaries.into_iter().collect(),
-        ephemeral_binaries: ephemeral_binaries.into_iter().collect(),
-        global_binaries: global_binaries.into_iter().collect(),
-        forwarded: forwarded.into_iter().collect(),
-        package_managers: package_managers.into_iter().collect(),
-        files: files.into_iter().collect(),
-        file_trees,
-        dependencies: dependencies.into_iter().collect(),
+
+    fn into_facts(self) -> ScriptFacts {
+        ScriptFacts {
+            binaries: self.binaries.into_iter().collect(),
+            ephemeral_binaries: self.ephemeral_binaries.into_iter().collect(),
+            global_binaries: self.global_binaries.into_iter().collect(),
+            forwarded: self.forwarded.into_iter().collect(),
+            package_managers: self.package_managers.into_iter().collect(),
+            files: self.files.into_iter().collect(),
+            file_trees: self.file_trees,
+            dependencies: self.dependencies.into_iter().collect(),
+        }
     }
 }
 

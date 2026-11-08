@@ -230,6 +230,72 @@ fn unused_by_workspace(analysis: &JsAnalysis<'_>, analysed: &[PackageId]) -> Vec
     sizes
 }
 
+/// The ignore lists (`ignore-dependencies`, `ignore-binaries`, `ignore-unresolved`, `ignore-workspaces`) under their
+/// keys, each with its entries that matched nothing. A list is left out when a rule that consults it did not run, or,
+/// for a package's `ignore-dependencies`, when the package's dependencies were not judged.
+fn keyed_ignore_lists<'a>(analysis: &'a JsAnalysis<'_>, ran: &dyn Fn(&[&str]) -> bool) -> Vec<(String, Vec<&'a str>)> {
+    let setup = &analysis.setup;
+    let judged = |id: PackageId| !analysis.is_skipped(id) && !analysis.entries_incomplete(id);
+    let dependencies_ran = ran(&DEPENDENCY_RULES);
+    // The dependencies of a package whose entry files are unknown were not checked, so an entry matching one of
+    // them may be needed.
+    let unchecked_dependencies = analysis
+        .workspace
+        .iter()
+        .filter(|(id, _)| !analysis.is_skipped(*id) && analysis.entries_incomplete(*id))
+        .flat_map(|(_, package)| package.dependencies.iter().map(|entry| entry.name.as_str()))
+        .collect::<Vec<_>>();
+    let unresolved_ran = ran(&["unresolved-imports"]);
+    let binaries_ran = ran(&["unlisted-binaries"]);
+
+    let mut keyed: Vec<(String, Vec<&str>)> = Vec::new();
+    if dependencies_ran {
+        keyed.push((
+            "js.ignore-dependencies".to_owned(),
+            setup
+                .global_ignore_dependencies
+                .unmatched_except(&unchecked_dependencies),
+        ));
+    }
+    if binaries_ran {
+        keyed.push((
+            "js.ignore-binaries".to_owned(),
+            setup.global_ignore_binaries.unmatched(),
+        ));
+    }
+    if unresolved_ran {
+        keyed.push((
+            "js.ignore-unresolved".to_owned(),
+            setup.global_ignore_unresolved.unmatched(),
+        ));
+    }
+    keyed.push(("js.ignore-workspaces".to_owned(), setup.ignore_workspaces.unmatched()));
+    for (id, package) in analysis.workspace.iter() {
+        let Some(package_setup) = setup.package(id) else {
+            continue;
+        };
+        let dir = if package.is_root {
+            ".".to_owned()
+        } else {
+            package.dir.to_string_lossy().replace('\\', "/")
+        };
+        let key = |name: &str| format!("js.workspaces.\"{dir}\".{name}");
+        if dependencies_ran && judged(id) {
+            keyed.push((
+                key("ignore-dependencies"),
+                package_setup.user_ignore_dependencies.unmatched(),
+            ));
+        }
+        if binaries_ran {
+            keyed.push((key("ignore-binaries"), package_setup.user_ignore_binaries.unmatched()));
+        }
+        if unresolved_ran {
+            keyed.push((key("ignore-unresolved"), package_setup.ignore_unresolved.unmatched()));
+        }
+    }
+    keyed
+}
+
 impl JsRule for StaleJsConfig {
     fn meta(&self) -> &'static RuleMeta {
         &META
@@ -240,75 +306,17 @@ impl JsRule for StaleJsConfig {
     }
 
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
-        let setup = &analysis.setup;
         let ran = |ids: &[&str]| {
             analysis
                 .enabled_rules
                 .as_ref()
                 .is_none_or(|enabled| ids.iter().all(|id| enabled.contains(*id)))
         };
-        let judged = |id: PackageId| !analysis.is_skipped(id) && !analysis.entries_incomplete(id);
-        let dependencies_ran = ran(&DEPENDENCY_RULES);
-        // The dependencies of a package whose entry files are unknown were not checked, so an entry matching one of
-        // them may be needed.
-        let unchecked_dependencies = analysis
-            .workspace
-            .iter()
-            .filter(|(id, _)| !analysis.is_skipped(*id) && analysis.entries_incomplete(*id))
-            .flat_map(|(_, package)| package.dependencies.iter().map(|entry| entry.name.as_str()))
-            .collect::<Vec<_>>();
-        let unresolved_ran = ran(&["unresolved-imports"]);
-        let binaries_ran = ran(&["unlisted-binaries"]);
-
-        let mut keyed: Vec<(String, Vec<&str>)> = Vec::new();
-        if dependencies_ran {
-            keyed.push((
-                "js.ignore-dependencies".to_owned(),
-                setup
-                    .global_ignore_dependencies
-                    .unmatched_except(&unchecked_dependencies),
-            ));
-        }
-        if binaries_ran {
-            keyed.push((
-                "js.ignore-binaries".to_owned(),
-                setup.global_ignore_binaries.unmatched(),
-            ));
-        }
-        if unresolved_ran {
-            keyed.push((
-                "js.ignore-unresolved".to_owned(),
-                setup.global_ignore_unresolved.unmatched(),
-            ));
-        }
-        keyed.push(("js.ignore-workspaces".to_owned(), setup.ignore_workspaces.unmatched()));
-        for (id, package) in analysis.workspace.iter() {
-            let Some(package_setup) = setup.package(id) else {
-                continue;
-            };
-            let dir = if package.is_root {
-                ".".to_owned()
-            } else {
-                package.dir.to_string_lossy().replace('\\', "/")
-            };
-            let key = |name: &str| format!("js.workspaces.\"{dir}\".{name}");
-            if dependencies_ran && judged(id) {
-                keyed.push((
-                    key("ignore-dependencies"),
-                    package_setup.user_ignore_dependencies.unmatched(),
-                ));
-            }
-            if binaries_ran {
-                keyed.push((key("ignore-binaries"), package_setup.user_ignore_binaries.unmatched()));
-            }
-            if unresolved_ran {
-                keyed.push((key("ignore-unresolved"), package_setup.ignore_unresolved.unmatched()));
-            }
-        }
+        let keyed = keyed_ignore_lists(analysis, &ran);
         for (key, entries) in keyed {
             Self::report(analysis, out, &key, entries);
         }
-        for key in &setup.unmatched_workspace_keys {
+        for key in &analysis.setup.unmatched_workspace_keys {
             Self::report(analysis, out, "js.workspaces", vec![key.as_str()]);
         }
         let unused_files_ran = ran(&["unused-files"]);
