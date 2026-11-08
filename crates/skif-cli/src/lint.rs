@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 use skif::render::RenderOptions;
 use skif::{
     CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IgnoreEntry, Linter, OsFs, Prefer, Report,
-    Selector, Workspace,
+    Selector, Target, Workspace, relative_tsconfig,
 };
 use skif_core::timing;
 use skif_report::{escape_controls, render_json_with};
@@ -17,25 +17,47 @@ use skif_report::{escape_controls, render_json_with};
 use crate::args::{Format, LintArgs, Select};
 use crate::env::{Env, github_workspace};
 use crate::error::{CliError, Kind};
+use crate::explain;
+use crate::filter::{self, Filter};
 use crate::fix::{self, FixRun, RootFix};
 use crate::install::{self, InstallStatus};
 use crate::output::{self, Rendering, RootView, emit_error, emit_error_with, stderr_line};
 use crate::roots::{self, Linters, Resolved, RootError, RootRun};
+use crate::trace::{self, Trace};
 use crate::write::write_plan;
 
 const CLEAN: u8 = 0;
 const PROBLEMS: u8 = 1;
 const COULD_NOT_RUN: u8 = 2;
 
+/// What happens to the memory of a run when [`run`] returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Teardown {
+    /// Free it, as a host that keeps running must.
+    Free,
+    /// Leave it to the operating system: only for a process that exits next (the `skif` binary).
+    Leak,
+}
+
 /// Runs the lint command and returns the process exit code.
-pub fn run(args: &LintArgs, env: Env) -> u8 {
-    match execute(args, env) {
+pub fn run(args: &LintArgs, env: Env, teardown: Teardown) -> u8 {
+    let trace = Trace::start(args);
+    let result = match &args.trace_dependency {
+        Some(name) => explain::trace_dependency(args, name).map(|()| CLEAN),
+        None => execute(args, env, teardown),
+    };
+    let code = match result {
         Ok(code) => code,
-        Err(error) => {
-            emit_error(&error, args.format());
-            COULD_NOT_RUN
-        }
-    }
+        Err(error) => run_failed(args, &error),
+    };
+    trace.finish();
+    code
+}
+
+/// Reports `error` in the format of the run and returns the exit code of a run that could not start.
+pub fn run_failed(args: &LintArgs, error: &CliError) -> u8 {
+    emit_error(error, args.format());
+    COULD_NOT_RUN
 }
 
 /// sherif's `-r` is `--ignore-rule`, skif's is `--recursive`, so `skif -r <rule>` reads the rule as the path. When the
@@ -103,14 +125,14 @@ fn repo_root(root: &Path) -> Option<PathBuf> {
         })
 }
 
-fn overrides(args: &LintArgs) -> ConfigOverrides {
+pub fn overrides(args: &LintArgs) -> ConfigOverrides {
     ConfigOverrides::default()
         .with_rules(args.rules.iter().cloned())
         .with_ignore_rules(args.ignore_rule.clone())
         .with_ignore_packages(args.ignore_package.clone())
         .with_ignore_dependencies(args.ignore_dependency.clone())
         .with_fail_on_warnings(args.fail_on_warnings.then_some(true))
-        .with_production(args.production.then_some(true))
+        .with_production((args.production || args.strict).then_some(true))
         .with_no_js(args.no_js)
         .with_config_file(
             args.config
@@ -132,7 +154,7 @@ fn require_reasons(config: &Config) -> Result<(), CliError> {
 }
 
 /// The flags that are not plain configuration overrides, applied over a loaded configuration.
-fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
+pub(crate) fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
     // Before the flags add entries of their own, which have nowhere to carry a reason.
     if args.require_ignore_reasons {
         require_reasons(config)?;
@@ -144,6 +166,24 @@ fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
                 .with_packages(Selector::new([package.clone()])?),
         );
     }
+    crate::instances::apply_filter(&args.filter, config)?;
+    if args.strict {
+        config.js.isolate_workspaces = true;
+    }
+    if args.no_gitignore {
+        config.js.no_gitignore = true;
+    }
+    if args.use_tsconfig_files {
+        config.js.use_tsconfig_files = true;
+    }
+    if args.include_entry_exports {
+        config.js.include_entry_exports = true;
+        for workspace in config.js.workspaces.values_mut() {
+            if workspace.include_entry_exports.is_some() {
+                workspace.include_entry_exports = Some(true);
+            }
+        }
+    }
     if let Some(select) = args.select {
         config.policy.prefer = match select {
             Select::Highest => Prefer::Highest,
@@ -153,15 +193,77 @@ fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
     Ok(())
 }
 
+/// Whether `path` names an existing file under `root`, read the way the JS analysis reads it ([`relative_tsconfig`]).
+/// `None` for an empty, absolute or escaping path: the configuration check rejects those, naming the setting.
+fn tsconfig_exists(root: &Path, path: &str) -> Option<bool> {
+    relative_tsconfig(path).map(|relative| root.join(relative).is_file())
+}
+
+/// Applies `--tsconfig` and checks that every root's TypeScript configuration exists.
+///
+/// The flag names a file relative to each root; in a multi-root run it applies to the roots that have that file and
+/// the others keep their own `[js] tsconfig`. A `[js] tsconfig` must exist in the root whose configuration sets it.
+/// Roots without JavaScript analysis (`--no-js`, `[js] enabled = false`) read no tsconfig, so they are skipped.
+///
+/// # Errors
+/// A configuration error naming the path when `--tsconfig` exists in no root that runs the JavaScript analysis, or
+/// a root's `[js] tsconfig` does not exist there.
+pub(crate) fn apply_tsconfig(args: &LintArgs, targets: &mut [Target]) -> Result<(), CliError> {
+    if let Some(path) = &args.tsconfig {
+        let mut found = false;
+        let mut searched = Vec::new();
+        for target in targets.iter_mut().filter(|target| target.config.js.enabled) {
+            if tsconfig_exists(&target.root, path) != Some(false) {
+                target.config.js.tsconfig = Some(path.clone());
+                found = true;
+            }
+            searched.push(target.root.display().to_string());
+        }
+        if !found && !searched.is_empty() {
+            return Err(CliError::new(
+                Kind::Config,
+                format!("--tsconfig: `{path}` does not exist in {}", searched.join(", ")),
+            ));
+        }
+    }
+    for target in targets.iter().filter(|target| target.config.js.enabled) {
+        if let Some(path) = &target.config.js.tsconfig
+            && tsconfig_exists(&target.root, path) == Some(false)
+        {
+            return Err(CliError::new(
+                Kind::Config,
+                format!("[js] tsconfig: `{path}` does not exist in {}", target.root.display()),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Warns on stderr about the packages whose TypeScript configuration selects none of their files under
+/// `--use-tsconfig-files`, since nothing of them can then be reported unused.
+fn warn_empty_tsconfig_projects(targets: &[Target], fs: &dyn FileSystem) {
+    for target in targets {
+        for config in skif::empty_tsconfig_projects(&target.workspace, &target.config, fs) {
+            stderr_line(&format!(
+                "warning: {}: selects no file of its package (`files`, `include`), so --use-tsconfig-files leaves \
+                 that package without project files",
+                escape_controls(&target.root.join(config).display().to_string())
+            ));
+        }
+    }
+}
+
 fn lint_once(
     linter: &Linter,
     root: &Path,
     config: &Config,
     config_path: Option<&Path>,
     fs: &dyn FileSystem,
+    filter: &Filter,
 ) -> Result<(Workspace, Report), CliError> {
     let workspace = Workspace::discover_with_fs(root, config, fs)?;
     let report = roots::lint_loaded(linter, &workspace, config_path)?;
+    let report = filter.apply(&workspace, report);
     Ok((workspace, report))
 }
 
@@ -204,25 +306,23 @@ fn color_enabled(args: &LintArgs, env: Env, format: Format, file: Option<&Path>)
         }
 }
 
-fn exit_code(report: &Report, max_warnings: Option<usize>) -> u8 {
-    if report.summary.errors > 0 || max_warnings.is_some_and(|max| report.summary.warnings > max) {
-        PROBLEMS
-    } else {
-        CLEAN
-    }
-}
-
-/// The worst exit code over the roots. `--max-warnings` bounds the warnings of the whole run; without it each root
-/// applies its own `fail-on-warnings`.
+/// The exit code of a run that found `report`. Errors beyond `--max-issues` (default 0) are problems;
+/// `--max-warnings` bounds the warnings of the whole run, and without it each root applies its own
+/// `fail-on-warnings`. `--no-exit-code` makes every outcome clean.
 fn run_exit_code(args: &LintArgs, runs: &[RootRun], aggregate: &Report) -> u8 {
-    match args.max_warnings {
-        Some(max) => exit_code(aggregate, Some(max)),
+    if args.no_exit_code {
+        return CLEAN;
+    }
+    if aggregate.summary.errors > args.max_issues.unwrap_or(0) {
+        return PROBLEMS;
+    }
+    let too_many_warnings = match args.max_warnings {
+        Some(max) => aggregate.summary.warnings > max,
         None => runs
             .iter()
-            .map(|run| exit_code(&run.report, run.config.lint.fail_on_warnings.then_some(0)))
-            .max()
-            .unwrap_or(CLEAN),
-    }
+            .any(|run| run.config.lint.fail_on_warnings && run.report.summary.warnings > 0),
+    };
+    if too_many_warnings { PROBLEMS } else { CLEAN }
 }
 
 /// Plans, writes and describes the fixes of one root; the second value is the lint of the tree after fixing, or the
@@ -230,7 +330,7 @@ fn run_exit_code(args: &LintArgs, runs: &[RootRun], aggregate: &Report) -> u8 {
 type Relint = Result<(Workspace, Report), CliError>;
 
 fn write_and_relint(
-    args: &LintArgs,
+    (args, filter): (&LintArgs, &Filter),
     linter: &Linter,
     (config, config_path): (&Config, Option<&Path>),
     state: (Workspace, Report),
@@ -241,16 +341,30 @@ fn write_and_relint(
     write_plan(&plan, &workspace.root)?;
     if plan.is_empty() {
         let install = install_step(args, &[], &workspace);
-        return Ok((FixRun { plan, install }, Ok((workspace, report))));
+        return Ok((
+            FixRun {
+                plan,
+                install,
+                preview: None,
+            },
+            Ok((workspace, report)),
+        ));
     }
     // The written files are stale in the cache; the re-lint must read them from disk.
     fs.clear();
     let root = workspace.root.clone();
-    Ok(match lint_once(linter, &root, config, config_path, fs) {
+    Ok(match lint_once(linter, &root, config, config_path, fs, filter) {
         Ok((workspace, report)) => {
             let changed: Vec<&Path> = plan.paths().collect();
             let install = install_step(args, &changed, &workspace);
-            (FixRun { plan, install }, Ok((workspace, report)))
+            (
+                FixRun {
+                    plan,
+                    install,
+                    preview: None,
+                },
+                Ok((workspace, report)),
+            )
         }
         Err(error) => (FixRun::relint_failed(plan), Err(error)),
     })
@@ -267,7 +381,7 @@ enum Fixed {
 /// conflicting edit) leaves every file alone. Writing and re-linting then go root by root; a failure there reports
 /// what was already written. `only` holds the rules `--fix-type` names, if given.
 fn fix_roots(
-    args: &LintArgs,
+    (args, filter): (&LintArgs, &Filter),
     env: Env,
     linters: &Linters,
     runs: Vec<RootRun>,
@@ -292,7 +406,7 @@ fn fix_roots(
             report,
         } = run;
         let written = write_and_relint(
-            args,
+            (args, filter),
             linters.get(linter),
             (&config, config_path.as_deref()),
             (workspace, report),
@@ -338,6 +452,24 @@ fn fix_roots(
         }
     }
     Ok(Fixed::All(done, fixes))
+}
+
+/// Plans the fixes of every root and describes them without writing anything: what `--dry-run` shows.
+fn plan_roots(
+    args: &LintArgs,
+    env: Env,
+    runs: &[RootRun],
+    fs: &CachedFs<OsFs>,
+    only: Option<&BTreeSet<String>>,
+) -> Result<Vec<FixRun>, CliError> {
+    runs.iter()
+        .map(|run| {
+            let selection = fix::selection(args, env, &run.report, run.config.policy.prefer, only)?;
+            let plan = skif::apply_fixes(&run.workspace, &run.report, &selection, fs)?;
+            let preview = fix::preview(&plan, &run.workspace.root, fs)?;
+            Ok(FixRun::dry_run(plan, preview))
+        })
+        .collect()
 }
 
 /// Lints the workspace containing `path`, or with `recursive` every root at or below it, and returns the report as
@@ -388,6 +520,22 @@ pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -
     String::from_utf8(buffer).map_err(|error| CliError::new(Kind::Io, format!("the report is not UTF-8: {error}")))
 }
 
+/// Lints the root containing `path` and returns the directory the report's paths are relative to, with the report.
+/// Prints and writes nothing, like [`lint_to_json`].
+pub fn lint_root(path: &Path, overrides: &ConfigOverrides) -> Result<(PathBuf, Report), CliError> {
+    let fs = CachedFs::new(OsFs);
+    let start = canonical(path)?;
+    let Resolved { base, targets, .. } = roots::resolve(&start, false, &fs, overrides)?;
+    let linters = Linters::build(&targets)?;
+    let runs = roots::lint_targets(&base, targets, &linters)?;
+    let reports: Vec<Cow<'_, Report>> = runs
+        .iter()
+        .map(|run| roots::prefixed(&run.report, &run.prefix))
+        .collect();
+    let report = roots::aggregate(&reports).into_owned();
+    Ok((base, report))
+}
+
 fn errors_json(failures: &[RootError]) -> Value {
     Value::Array(failures.iter().map(RootError::to_json).collect())
 }
@@ -430,12 +578,17 @@ fn roots_json(runs: &[RootRun], reports: &[Cow<'_, Report>]) -> Value {
     )
 }
 
-fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
+fn execute(args: &LintArgs, env: Env, teardown: Teardown) -> Result<u8, CliError> {
     let fs = CachedFs::new(OsFs);
     let targets_out = args.targets()?;
-    if args.fixing() && env.ci {
+    if args.dry_run && !args.fixing() {
+        return Err(CliError::new(Kind::Usage, "--dry-run needs --fix or --fix-unsafe"));
+    }
+    // A dry run writes nothing, so it is allowed where fixing is not.
+    if args.fixing() && !args.dry_run() && env.ci {
         return Err(CliError::ci_refusal());
     }
+    check_max_show_issues(args, &targets_out)?;
     if args.recursive {
         rule_given_as_path(&args.path)?;
     }
@@ -450,17 +603,27 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         roots::resolve(&start, args.recursive, &fs, &overrides(args))
     })?;
     note_truncated(&truncated);
+    if args.debug {
+        trace::debug_targets(&base, &targets);
+    }
+    let filter = Filter::new(args)?;
     for target in &mut targets {
         adjust(args, &mut target.config)?;
+        filter.configure(&mut target.config)?;
     }
+    apply_tsconfig(args, &mut targets)?;
+    warn_empty_tsconfig_projects(&targets, &fs);
     let linters = Linters::build(&targets)?;
     // An unknown `--fix-type` is a usage error before any root is linted.
     let only = fix::fix_type_rules(&args.fix_type, linters.rules().into_iter().map(|meta| meta.id))?;
     let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
+    filter.apply_runs(&mut runs)?;
 
     let mut fixes: Vec<FixRun> = Vec::new();
-    if args.fixing() {
-        match fix_roots(args, env, &linters, runs, &fs, only.as_ref())? {
+    if args.dry_run() {
+        fixes = plan_roots(args, env, &runs, &fs, only.as_ref())?;
+    } else if args.fixing() {
+        match fix_roots((args, &filter), env, &linters, runs, &fs, only.as_ref())? {
             Fixed::All(fixed_runs, done) => {
                 runs = fixed_runs;
                 fixes = done;
@@ -476,10 +639,28 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     let aggregate = roots::aggregate(&reports);
     let prefixes: Vec<&Path> = runs.iter().map(|run| run.prefix.as_path()).collect();
     let root_fixes = roots_fix(&prefixes, &fixes);
+    // `--max-show-issues` cuts a copy of the per-root reports (cheap: they are borrowed), so the full `aggregate`
+    // keeps borrowing the originals.
+    let cut: Option<Vec<Cow<'_, Report>>> = args.max_show_issues.map(|max| {
+        let (cut, hidden) = filter::truncate_shown(reports.clone(), max);
+        if hidden > 0 && args.format() == Format::Human {
+            stderr_line(&format!(
+                "note: --max-show-issues {max} left {hidden} finding{} out of the list",
+                if hidden == 1 { "" } else { "s" }
+            ));
+        }
+        cut
+    });
+    let shown = cut.as_ref().map(|cut| {
+        let mut shown = roots::aggregate(cut).into_owned();
+        shown.summary = aggregate.summary;
+        shown
+    });
+    let listed = cut.as_ref().unwrap_or(&reports);
 
     let views: Vec<RootView<'_>> = runs
         .iter()
-        .zip(&reports)
+        .zip(listed)
         .enumerate()
         .map(|(index, (run, report))| RootView {
             prefix: &run.prefix,
@@ -504,7 +685,7 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         env,
         &targets_out,
         rendering,
-        (&aggregate, &views, &root_fixes),
+        (&aggregate, shown.as_ref(), &views, &root_fixes),
         &fs,
     )?;
     if !fixes.is_empty() && !matches!(args.format(), Format::Human | Format::Json) {
@@ -531,18 +712,57 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     if !install_failures.is_empty() || !root_errors.is_empty() {
         return Ok(COULD_NOT_RUN);
     }
-    Ok(run_exit_code(args, &runs, &aggregate))
+    let code = run_exit_code(args, &runs, &aggregate);
+    if teardown == Teardown::Leak {
+        // The process exits next: freeing every diagnostic, the workspace model and the file caches one allocation at
+        // a time is a measurable part of a large run, and the operating system reclaims the memory at once.
+        std::mem::forget(views);
+        std::mem::forget(aggregate);
+        std::mem::forget(shown);
+        std::mem::forget(cut);
+        std::mem::forget(reports);
+        std::mem::forget(runs);
+        std::mem::forget(linters);
+        std::mem::forget(fs);
+    }
+    Ok(code)
+}
+
+/// `--max-show-issues` shortens the list a person reads: human and JSON output only, and not when fixing, where
+/// the list says what is left after the fix. Every other format is rejected rather than silently given the full
+/// list: SARIF and GitHub annotations feed code scanning and checks, which must never miss a finding silently, and
+/// the allowlist keeps a format added later from ignoring the flag. For the same reason the annotations human
+/// output adds under GitHub Actions are rendered from every finding. With several `--format`s, every one must be
+/// human or json.
+fn check_max_show_issues(args: &LintArgs, targets: &[(Format, Option<PathBuf>)]) -> Result<(), CliError> {
+    if args.max_show_issues.is_none() {
+        return Ok(());
+    }
+    let reason = if args.fixing() {
+        "cannot be combined with --fix or --fix-unsafe"
+    } else if targets
+        .iter()
+        .any(|(format, _)| !matches!(format, Format::Human | Format::Json))
+    {
+        "applies to human and json output only; other formats always list every finding"
+    } else {
+        return Ok(());
+    };
+    Err(CliError::new(Kind::Usage, format!("--max-show-issues {reason}")))
 }
 
 /// Renders every requested format, then writes the files and stdout (ADR 0054). Every rendering is made before
 /// anything is written, so a failing one leaves every file untouched; a write that fails partway leaves the files
-/// written before it in place.
+/// written before it in place. `shown` is the report `--max-show-issues` cut short: the JSON rendering lists it, and
+/// the human rendering lists the (equally cut) `views` while its annotations come from the full `report`.
+/// written before it in place. A run with stdout as its only output streams the report instead (see
+/// [`output::render_to_stdout`]), so a renderer error there can leave a partial report on stdout.
 fn render_and_write(
     args: &LintArgs,
     env: Env,
     targets: &[(Format, Option<PathBuf>)],
     mut rendering: Rendering<'_>,
-    (report, views, fixes): (&Report, &[RootView<'_>], &[RootFix<'_>]),
+    (report, shown, views, fixes): (&Report, Option<&Report>, &[RootView<'_>], &[RootFix<'_>]),
     fs: &dyn FileSystem,
 ) -> Result<(), CliError> {
     let needs_repo_root = rendering.annotations
@@ -555,11 +775,21 @@ fn render_and_write(
     if needs_repo_root {
         rendering.repo_root = repo_root(rendering.root);
     }
+    // A run whose only output is stdout streams it: nothing else is written, so there is no file to keep untouched.
+    if let [(format, None)] = targets {
+        rendering.format = *format;
+        rendering.color = color_enabled(args, env, *format, None);
+        let listed = shown.filter(|_| *format == Format::Json).unwrap_or(report);
+        return timing::phase("render", || {
+            output::render_to_stdout(listed, views, &rendering, fs, fixes)
+        });
+    }
     let mut rendered = Vec::with_capacity(targets.len());
     for (format, file) in targets {
         rendering.format = *format;
         rendering.color = color_enabled(args, env, *format, file.as_deref());
-        let bytes = timing::phase("render", || output::render(report, views, &rendering, fs, fixes))?;
+        let listed = shown.filter(|_| *format == Format::Json).unwrap_or(report);
+        let bytes = timing::phase("render", || output::render(listed, views, &rendering, fs, fixes))?;
         rendered.push((bytes, file.as_deref()));
     }
     // Files first: a failed write then still reaches a JSON consumer of stdout as the only document.

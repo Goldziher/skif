@@ -2119,6 +2119,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
+ "skif",
  "toml",
 ]
 
@@ -2128,11 +2129,13 @@ version = "0.1.1"
 dependencies = [
  "assert_cmd",
  "clap",
+ "ignore",
  "inquire",
  "insta",
  "rayon",
  "serde",
  "serde_json",
+ "similar",
  "skif",
  "skif-core",
  "skif-migrate",
@@ -2149,6 +2152,7 @@ dependencies = [
  "globset",
  "ignore",
  "indexmap",
+ "rayon",
  "schemars",
  "serde",
  "serde_json",

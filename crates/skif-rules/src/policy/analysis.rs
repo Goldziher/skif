@@ -3,10 +3,11 @@
 use std::collections::BTreeSet;
 
 use skif_config::Config;
-use skif_workspace::Workspace;
+use skif_specifier::semver_range::SemverRange;
+use skif_workspace::{Workspace, map_ordered};
 
 use super::groups::{Group, Groups, Policy};
-use super::instances::Instances;
+use super::instances::{InstanceId, Instances};
 use super::state::Verdict;
 use super::visit::Visitor;
 
@@ -27,6 +28,21 @@ pub(crate) struct Analysis<'w> {
     pub(crate) unused_groups: Vec<ConfiguredGroup>,
     /// `pinned` groups whose `pin` cannot be applied.
     pub(crate) invalid_pins: Vec<ConfiguredGroup>,
+    /// Every version group, the catch-all last, as `skif list` names it.
+    pub(crate) groups: Vec<GroupSummary>,
+    /// Indexed like `verdicts`: the position in `groups` of the group that owns the instance, if any.
+    pub(crate) owners: Vec<Option<usize>>,
+    /// Indexed like `verdicts`: the range the instance's semver group asks for, if any.
+    pub(crate) preferred: Vec<Option<String>>,
+}
+
+/// A version group as the instance listing shows it.
+#[derive(Debug, Clone)]
+pub(crate) struct GroupSummary {
+    /// Position in `[[version-groups]]`; `None` for the catch-all.
+    pub(crate) configured: Option<usize>,
+    pub(crate) label: Option<String>,
+    pub(crate) policy: Policy,
 }
 
 impl<'w> Analysis<'w> {
@@ -35,28 +51,66 @@ impl<'w> Analysis<'w> {
     #[cfg(test)]
     pub(crate) fn run(workspace: &'w Workspace, config: &Config, catalog_owns: bool) -> Self {
         let instances = Instances::collect(workspace, config, catalog_owns);
-        Self::from_instances(workspace, config, instances)
+        Self::from_instances(workspace, config, instances, true)
     }
 
     /// Runs the version groups; the dependencies in `owned` are left to the catalog rules (see
-    /// [`Instances::collect_with`]).
-    pub(crate) fn run_with(workspace: &'w Workspace, config: &Config, owned: &BTreeSet<&str>) -> Self {
+    /// [`Instances::collect_with`]). With `sequential` everything runs on the calling thread.
+    pub(crate) fn run_with(
+        workspace: &'w Workspace,
+        config: &Config,
+        owned: &BTreeSet<&str>,
+        sequential: bool,
+    ) -> Self {
         Self::from_instances(
             workspace,
             config,
-            Instances::collect_with(workspace, owned, &config.custom_types, config.policy.override_reading),
+            Instances::collect_with(
+                workspace,
+                owned,
+                &config.custom_types,
+                config.policy.override_reading,
+                &config.filter,
+                sequential,
+            ),
+            sequential,
         )
     }
 
-    fn from_instances(workspace: &'w Workspace, config: &Config, instances: Instances<'w>) -> Self {
-        let (verdicts, unused_groups, invalid_pins) = {
+    fn from_instances(workspace: &'w Workspace, config: &Config, instances: Instances<'w>, sequential: bool) -> Self {
+        let (verdicts, unused_groups, invalid_pins, summaries, owners, preferred) = {
             let groups = Groups::compile(workspace, config);
             let assignment = groups.assign(&instances);
-            let mut visitor = Visitor::new(&instances, &assignment);
-            for (index, group) in groups.groups().iter().enumerate() {
-                for (_, ids) in assignment.dependencies(index) {
-                    visitor.visit(&group.policy, ids);
-                }
+            let owners: Vec<Option<usize>> = instances.iter().map(|(id, _)| assignment.owner(id)).collect();
+            let preferred: Vec<Option<String>> = instances
+                .iter()
+                .map(|(id, _)| assignment.preferred(id).map(SemverRange::unwrap))
+                .collect();
+            let summaries = groups
+                .groups()
+                .iter()
+                .map(|group| GroupSummary {
+                    configured: group.configured,
+                    label: group.label.map(str::to_owned),
+                    policy: group.policy.clone(),
+                })
+                .collect();
+            // Each dependency of each group is visited on its own, in parallel unless the run is `sequential`; the
+            // verdicts are applied in the order a single pass would give them.
+            let visits: Vec<(&Policy, &[InstanceId])> = groups
+                .groups()
+                .iter()
+                .enumerate()
+                .flat_map(|(index, group)| assignment.dependencies(index).map(move |(_, ids)| (&group.policy, ids)))
+                .collect();
+            let marks: Vec<Vec<(InstanceId, Verdict)>> = map_ordered(&visits, sequential, |&(policy, ids)| {
+                let mut visitor = Visitor::new(&instances, &assignment);
+                visitor.visit(policy, ids);
+                visitor.into_marks()
+            });
+            let mut verdicts: Vec<Option<Verdict>> = (0..instances.len()).map(|_| None).collect();
+            for (id, verdict) in marks.into_iter().flatten() {
+                verdicts[id.index()] = Some(verdict);
             }
             let configured = |group: &Group<'_>| {
                 Some(ConfiguredGroup {
@@ -65,8 +119,11 @@ impl<'w> Analysis<'w> {
                 })
             };
             let is_invalid = |group: &Group<'_>| matches!(group.policy, Policy::InvalidPin);
-            // A banned group that matches nothing is the state it asks for, not a misconfiguration.
-            let reportable = |group: &Group<'_>| !is_invalid(group) && !matches!(group.policy, Policy::Banned);
+            // A banned group that matches nothing is the state it asks for, not a misconfiguration; and with a
+            // command-line filter, a group may own nothing only because the filter left its instances out.
+            let reportable = |group: &Group<'_>| {
+                !is_invalid(group) && !matches!(group.policy, Policy::Banned) && config.filter.is_empty()
+            };
             let unused = groups
                 .groups()
                 .iter()
@@ -80,13 +137,16 @@ impl<'w> Analysis<'w> {
                 .filter(|group| is_invalid(group))
                 .filter_map(configured)
                 .collect();
-            (visitor.into_verdicts(), unused, invalid)
+            (verdicts, unused, invalid, summaries, owners, preferred)
         };
         Self {
             instances,
             verdicts,
             unused_groups,
             invalid_pins,
+            groups: summaries,
+            owners,
+            preferred,
         }
     }
 }

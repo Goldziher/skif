@@ -14,7 +14,11 @@ Commands:
   config         Show the configuration files a root is built from, the merged result, and where each key was set
   explain-usage  Explain why the JavaScript analysis counts a file, or one export of it, as used
   migrate        Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file
+  list           List every dependency the version groups govern, by version group, with its specifiers and states
+  json           Print every dependency instance the version groups govern as one JSON object per line (NDJSON)
   format         Format every `package.json` as `[format]` describes (the `package-json-format` rule alone); never installs
+  mcp            Run a Model Context Protocol server on stdin and stdout, for AI agents
+  lsp            Run a Language Server Protocol server on stdin and stdout: diagnostics on open and save
   help           Print this message or the help of the given subcommand(s)
 
 Arguments:
@@ -50,6 +54,9 @@ Options:
       --fix-unsafe
           Apply safe and unsafe fixes; implies --fix
 
+      --dry-run
+          With --fix or --fix-unsafe: print the planned changes as a unified diff (JSON: the `fix` object with `changes`); no manifest is written and no install runs. Reports still go to stdout, --output and FORMAT=FILE
+
       --allow-remove-files
           Let fixes delete files (`unused-files`); without it they are skipped. Needs --fix or --fix-unsafe
 
@@ -69,6 +76,15 @@ Options:
 
       --fail-on-warnings
           Same as --max-warnings 0
+
+      --max-issues <N>
+          Exit 1 only when there are more than N errors (counted over all roots); warnings still follow --max-warnings
+
+      --max-show-issues <N>
+          Show at most N findings of each rule in human and json output (not with --fix); the summary still counts all of them, and the exit code is unchanged
+
+      --no-exit-code
+          Exit 0 when the run finds problems; exit 2 when skif could not run is kept
 
       --no-prompt
           Never ask which alternative fix to apply; the diagnostic stays unfixed unless --select decides
@@ -103,11 +119,82 @@ Options:
       --production
           Only analyse production code in JavaScript analysis
 
+      --no-gitignore
+          Also analyse the source files that `.gitignore` files hide (the git index is not used to list files then)
+
+      --include-entry-exports
+          Report unused exports of entry files too, overriding `[js] include-entry-exports`
+
+  -t, --tsconfig <FILE>
+          The TypeScript configuration of the root package, relative to the workspace root, used instead of its `tsconfig.json` (overrides `[js] tsconfig`)
+          
+          [alias: --tsConfig]
+
+      --use-tsconfig-files
+          Take the project files of each package from its `tsconfig.json` (`files`, `include`, `exclude`) instead of the `project` globs
+
+      --strict
+          knip's strict mode: --production, and each workspace package uses only the dependencies its own manifest lists, not those of a containing package or the root
+
       --color <COLOR>
           When to colour human output
           
           [default: auto]
           [possible values: auto, always, never]
+
+      --watch
+          Lint again whenever a file below the root changes, until interrupted
+
+      --trace-dependency <NAME>
+          Instead of linting, print where this dependency is listed, every import of it and the packages that count it as used
+
+      --debug
+          Print what the run loaded (roots, configuration files, packages) and the phase timings to stderr
+
+      --performance
+          Print the time each phase of the run took to stderr, as `SKIF_TIMINGS=1` does
+
+      --duration
+          Print the wall time of the run to stderr
+
+      --memory
+          Print the peak memory (resident set size) of the run to stderr; Linux only
+
+  -W, --workspace <NAME|DIR>
+          Report only the findings of these workspace packages, by name or directory relative to the root (globs, `!` to exclude). The analysis still covers every package. Repeatable
+
+      --include <TYPE|RULE>
+          Report only these knip issue types (`files`, `dependencies`, `exports`, ...) or skif rule ids; a rule that is off (by default or in the configuration) is turned on. Comma separated, repeatable
+
+      --exclude <TYPE|RULE>
+          Do not report these knip issue types or skif rule ids. Comma separated, repeatable
+
+      --dependencies
+          Shortcut for `--include` of knip's dependency issue types
+
+      --exports
+          Shortcut for `--include` of knip's export issue types
+
+      --files
+          Shortcut for `--include files`
+
+      --cycles
+          Shortcut for `--include cycles`
+
+      --tags <-TAG>
+          Do not report exports tagged with these `JSDoc` tags, written `-TAG` as in knip. Comma separated, repeatable
+
+      --dependency <NAME>
+          Only the dependencies whose name matches this name or glob (`react`, `@types/**`, `!eslint`), in the version-group and semver-group rules only. Repeatable. syncpack's `--dependencies`
+
+      --dependency-types <TYPES>
+          Only these dependency types (`prod,dev`, `peer`, `!local`, a custom type), in the version-group and semver-group rules only; also their default scope for this run. Comma separated
+
+      --specifier-types <TYPES>
+          Only instances with these specifier types (`exact,range`, `!workspace-protocol`), in the version-group and semver-group rules only. Comma separated
+
+      --source <GLOB>
+          Only instances declared in files matching this glob, relative to the root (`packages/app/package.json`), in the version-group and semver-group rules only. Repeatable
 
   -h, --help
           Print help (see a summary with '-h')

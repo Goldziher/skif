@@ -12,6 +12,7 @@ mod catalog;
 mod families;
 mod fields;
 mod groups;
+mod inspect;
 pub(crate) mod instances;
 mod report;
 mod specifiers;
@@ -24,6 +25,7 @@ use skif_lint::{
     Emitter, EnabledRules, LintContext, OptionsError, ProviderError, RuleProvider, RulesProvider, reject_options,
 };
 
+pub use inspect::{GroupRef, InstanceStatus, StatusType, inspect};
 pub use state::{BANNED_DEPENDENCY, INVALID_LOCAL_VERSION, POLICY_CONFLICT, SEMVER_RANGE_MISMATCH, VERSION_MISMATCH};
 
 /// Identifies the policy provider in errors.
@@ -70,8 +72,8 @@ impl RuleProvider for PolicyProvider {
                 .map_or_else(std::collections::BTreeSet::new, |usages| {
                     catalog::owned_dependencies(usages, cx.workspace, &cx.config.catalog)
                 });
-            let analysis = analysis::Analysis::run_with(cx.workspace, cx.config, &owned);
-            report::emit(&analysis, cx.config_file(), out);
+            let analysis = analysis::Analysis::run_with(cx.workspace, cx.config, &owned, cx.sequential);
+            report::emit(&analysis, cx.config_file(), out, cx.sequential);
         }
         Ok(())
     }

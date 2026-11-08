@@ -45,17 +45,25 @@ pub fn emit_error(error: &CliError, format: Format) {
 
 /// Like [`emit_error`], with `extra` top-level members in the JSON document (the `fix` object of a completed fix).
 pub fn emit_error_with(error: &CliError, format: Format, extra: Map<String, serde_json::Value>) {
-    if format == Format::Json {
-        let mut info = ErrorInfo::new(error.kind.as_str(), &error.message);
-        if let Some(path) = &error.path {
-            info = info.at(path, error.line, error.column);
-        }
-        let mut buffer = Vec::new();
-        if render_json_error_info_with(&info, extra, &mut buffer).is_ok() && write_stdout(&buffer).is_ok() {
-            return;
-        }
+    if format == Format::Json
+        && let Some(buffer) = error_document(error, extra)
+        && write_stdout(buffer.as_bytes()).is_ok()
+    {
+        return;
     }
     stderr_line(&format!("error: {}", escape_multiline(&error.to_string())));
+}
+
+/// The JSON `error` document for `error`, with `extra` top-level members; `None` when an `extra` member collides with
+/// a reserved one.
+pub fn error_document(error: &CliError, extra: Map<String, serde_json::Value>) -> Option<String> {
+    let mut info = ErrorInfo::new(error.kind.as_str(), &error.message);
+    if let Some(path) = &error.path {
+        info = info.at(path, error.line, error.column);
+    }
+    let mut buffer = Vec::new();
+    render_json_error_info_with(&info, extra, &mut buffer).ok()?;
+    String::from_utf8(buffer).ok()
 }
 
 /// Files whose text a code frame or a UTF-16 column conversion may need: every file a diagnostic or related
@@ -101,6 +109,7 @@ pub struct RootView<'a> {
     pub fix: Option<&'a FixRun>,
 }
 
+/// Renders the report into memory, for a file or for one of several outputs of a run (ADR 0054).
 pub fn render(
     report: &Report,
     roots: &[RootView<'_>],
@@ -108,6 +117,42 @@ pub fn render(
     fs: &dyn FileSystem,
     fixes: &[RootFix<'_>],
 ) -> Result<Vec<u8>, CliError> {
+    let options = render_options(report, rendering, fs)?;
+    let mut buffer = Vec::new();
+    write_report(report, roots, rendering, &options, fixes, &mut buffer).map_err(|error| cannot_render(&error))?;
+    Ok(buffer)
+}
+
+/// Renders the report straight to stdout, for a run whose only output is stdout.
+///
+/// A report with tens of thousands of diagnostics runs to tens of megabytes, and holding it in memory first was a
+/// visible part of the run. The price is that a renderer error after the first bytes went out (an `extra` JSON member
+/// that shadows a reserved key) leaves a partial report on stdout, followed by the error; a buffered [`render`] fails
+/// before anything is written. A reader that went away is not a failure, as in [`write_stdout`].
+pub fn render_to_stdout(
+    report: &Report,
+    roots: &[RootView<'_>],
+    rendering: &Rendering<'_>,
+    fs: &dyn FileSystem,
+    fixes: &[RootFix<'_>],
+) -> Result<(), CliError> {
+    let options = render_options(report, rendering, fs)?;
+    let mut out = io::BufWriter::with_capacity(64 * 1024, io::stdout().lock());
+    match write_report(report, roots, rendering, &options, fixes, &mut out).and_then(|()| out.flush()) {
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        // The renderers' own failure (an `extra` member that shadows a reserved key); every other one is stdout's.
+        Err(error) if error.kind() == io::ErrorKind::InvalidInput => Err(cannot_render(&error)),
+        Err(error) => Err(CliError::new(Kind::Io, format!("cannot write to stdout: {error}"))),
+        Ok(()) => Ok(()),
+    }
+}
+
+fn cannot_render(error: &io::Error) -> CliError {
+    CliError::new(Kind::Io, format!("cannot render the report: {error}"))
+}
+
+/// The render options of `rendering`: sources for code frames, SARIF rules, the CODEOWNERS file.
+fn render_options(report: &Report, rendering: &Rendering<'_>, fs: &dyn FileSystem) -> Result<RenderOptions, CliError> {
     let root = rendering.root;
     let mut options = RenderOptions::default()
         .with_color(rendering.color)
@@ -129,10 +174,7 @@ pub fn render(
     if rendering.format == Format::Codeowners {
         options = options.with_codeowners(read_codeowners(rendering.repo_root.as_deref().unwrap_or(root), fs)?);
     }
-    let mut buffer = Vec::new();
-    write_report(report, roots, rendering, &options, fixes, &mut buffer)
-        .map_err(|error| CliError::new(Kind::Io, format!("cannot render the report: {error}")))?;
-    Ok(buffer)
+    Ok(options)
 }
 
 /// The CODEOWNERS file of the repository at `top`, from the first of the locations GitHub and GitLab search.
@@ -161,7 +203,7 @@ fn write_human_roots(
     roots: &[RootView<'_>],
     rendering: &Rendering<'_>,
     options: &RenderOptions,
-    out: &mut Vec<u8>,
+    out: &mut dyn Write,
 ) -> io::Result<()> {
     for view in roots {
         if rendering.multi {
@@ -184,7 +226,7 @@ fn write_report(
     rendering: &Rendering<'_>,
     options: &RenderOptions,
     fixes: &[RootFix<'_>],
-    out: &mut Vec<u8>,
+    out: &mut dyn Write,
 ) -> io::Result<()> {
     match rendering.format {
         Format::Human => {

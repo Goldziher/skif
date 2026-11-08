@@ -114,7 +114,7 @@ fn syncpack_yaml_with_custom_types_and_groups() {
 
     assert_eq!(class(&migration, "customTypes.engines"), NoteClass::Exact);
     assert_eq!(class(&migration, "customTypes.optional"), NoteClass::Exact);
-    assert_eq!(class(&migration, "customTypes.localish"), NoteClass::Unsupported);
+    assert_eq!(class(&migration, "customTypes.localish"), NoteClass::Exact);
     assert_eq!(
         class(&migration, "versionGroups[5]"),
         NoteClass::Exact,
@@ -132,8 +132,20 @@ fn syncpack_yaml_with_custom_types_and_groups() {
         class(&migration, "scripts.lint:versions: --dependencies"),
         NoteClass::Human
     );
+    assert!(
+        note(&migration, "scripts.lint:versions: --dependencies")
+            .suggestion
+            .as_deref()
+            .is_some_and(|suggestion| suggestion.contains("`--dependency`")),
+        "syncpack's --dependencies is skif's --dependency"
+    );
     assert!(migration.needs_human());
-    assert_eq!(migration.config.version_groups.len(), 7);
+    assert_eq!(migration.config.version_groups.len(), 8);
+    assert_eq!(
+        migration.config.version_groups[7].policy,
+        skif_config::VersionPolicy::SemverRangeOnly,
+        "semverRangeOnly keeps its range check"
+    );
     assert_eq!(migration.config.semver_groups.len(), 3);
 }
 
@@ -549,7 +561,7 @@ fn a_catalog_policy_group_does_not_widen_to_every_dependency() {
 #[test]
 fn a_group_that_only_covers_a_type_skif_cannot_read_is_not_written() {
     let config = r#"{
-      "customTypes": { "odd": { "path": "name", "namePath": "x", "strategy": "name~version" } },
+      "customTypes": { "odd": { "path": "x", "strategy": "version", "source": ["other.json"] } },
       "versionGroups": [{ "dependencyTypes": ["odd"], "isBanned": true }]
     }"#;
     let migration = syncpack(config, Profile::Full);
@@ -648,6 +660,49 @@ fn knip_production_leaves_out_dev_dependencies_and_the_catalog() {
     assert_eq!(rules["unused-dependencies"].as_str(), Some("error"));
     assert_eq!(parsed["js"]["production"].as_bool(), Some(true));
     assert_eq!(class(&migration, "scripts.k: --production"), NoteClass::Exact);
+}
+
+#[test]
+fn knip_tsconfig_flags_are_written_to_js() {
+    let migration = knip(None, &[("k", "knip --tsConfig tsconfig.app.json --use-tsconfig-files")]);
+    let parsed = table(&migration);
+    assert_eq!(parsed["js"]["tsconfig"].as_str(), Some("tsconfig.app.json"));
+    assert_eq!(parsed["js"]["use-tsconfig-files"].as_bool(), Some(true));
+    assert_eq!(class(&migration, "scripts.k: --tsConfig"), NoteClass::Exact);
+    assert_eq!(class(&migration, "scripts.k: --use-tsconfig-files"), NoteClass::Exact);
+    let short = knip(None, &[("k", "knip -t config/tsconfig.json")]);
+    assert_eq!(table(&short)["js"]["tsconfig"].as_str(), Some("config/tsconfig.json"));
+}
+
+#[test]
+fn knip_scripts_with_different_tsconfigs_are_noted() {
+    let migration = knip(
+        None,
+        &[
+            ("a", "knip --tsConfig tsconfig.a.json"),
+            ("b", "knip -t tsconfig.b.json"),
+        ],
+    );
+    assert_eq!(table(&migration)["js"]["tsconfig"].as_str(), Some("tsconfig.b.json"));
+    assert_eq!(
+        class(&migration, "scripts.a, scripts.b: --tsConfig"),
+        NoteClass::Approximate
+    );
+    let same = knip(
+        None,
+        &[
+            ("a", "knip --tsConfig tsconfig.a.json"),
+            ("b", "knip -t tsconfig.a.json"),
+        ],
+    );
+    assert!(
+        !same
+            .notes
+            .iter()
+            .any(|note| note.path == "scripts.a, scripts.b: --tsConfig"),
+        "{:#?}",
+        same.notes
+    );
 }
 
 #[test]

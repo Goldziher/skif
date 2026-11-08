@@ -3,9 +3,10 @@
 use std::path::Path;
 
 use indexmap::IndexMap;
-use skif_config::{JsWorkspace, Override, PluginConfig};
+use skif_config::{JsWorkspace, Override, PluginConfig, PluginOptions};
 use skif_js_plugins::{PluginContext, PluginOutput, resolve_plugins};
 
+use crate::config_check::relative_tsconfig;
 use crate::config_modules::ConfigModules;
 use crate::input::{
     BuildDir, IncompleteCause, IncompleteEntries, InputRequest, InputSource, PathAlias, WorkspaceInputs,
@@ -21,6 +22,8 @@ pub struct PluginSource {
     workspace_keys: WorkspaceKeys,
     /// The `[[overrides]]` that set `js.plugins`, applied to the packages they select.
     scoped: Vec<Override>,
+    /// `[js] tsconfig`, which the `typescript` plugin of the root package also reads.
+    root_tsconfig: Option<String>,
 }
 
 impl PluginSource {
@@ -32,7 +35,16 @@ impl PluginSource {
             workspaces: IndexMap::new(),
             workspace_keys: WorkspaceKeys::default(),
             scoped: Vec::new(),
+            root_tsconfig: None,
         }
+    }
+
+    /// Also has the `typescript` plugin of the root package read `path` (`[js] tsconfig`, relative to the workspace
+    /// root), besides the config files it looks for by default.
+    #[must_use]
+    pub fn with_root_tsconfig(mut self, path: Option<&str>) -> Self {
+        self.root_tsconfig = path.and_then(relative_tsconfig);
+        self
     }
 
     /// Also applies the `plugins` of the `[js.workspaces]` tables in `workspaces` to the packages their keys select
@@ -69,6 +81,14 @@ impl PluginSource {
                 plugins.insert(plugin.clone(), merged);
             }
         }
+        if key == "."
+            && let Some(path) = &self.root_tsconfig
+        {
+            let current = plugins.get(TYPESCRIPT);
+            if let Some(read) = with_config_file(current, path) {
+                plugins.insert(TYPESCRIPT.to_owned(), read);
+            }
+        }
         for scoped in self
             .scoped
             .iter()
@@ -81,6 +101,30 @@ impl PluginSource {
         }
         plugins
     }
+}
+
+const TYPESCRIPT: &str = "typescript";
+
+/// The `typescript` plugin setting `current` with `path` added to the config files it reads: to its own `config`
+/// globs, or to the plugin's defaults. `None` when the plugin is switched off or already reads `path`.
+fn with_config_file(current: Option<&PluginConfig>, path: &str) -> Option<PluginConfig> {
+    let mut options = match current {
+        Some(PluginConfig::Enabled(false)) => return None,
+        Some(PluginConfig::Options(options)) if options.enabled == Some(false) => return None,
+        Some(PluginConfig::Options(options)) => options.clone(),
+        Some(PluginConfig::Enabled(true)) => PluginOptions::new().with_enabled(true),
+        _ => PluginOptions::new(),
+    };
+    if options.config.is_empty() {
+        options.config = skif_js_plugins::registry::plugin(TYPESCRIPT)
+            .map(|plugin| plugin.spec().config.iter().map(|glob| (*glob).to_owned()).collect())
+            .unwrap_or_default();
+    }
+    if options.config.iter().any(|glob| glob == path) {
+        return None;
+    }
+    options.config.push(path.to_owned());
+    Some(PluginConfig::Options(options))
 }
 
 /// `incoming` over `inherited`: a switch keeps the options, a table replaces them and keeps an inherited switch it
@@ -237,5 +281,35 @@ impl InputSource for PluginSource {
                 all.extend(inputs(output));
                 all
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use skif_config::{PluginConfig, PluginOptions};
+
+    use super::with_config_file;
+
+    #[test]
+    fn the_root_tsconfig_is_added_to_the_typescript_config_files() {
+        let Some(PluginConfig::Options(options)) = with_config_file(None, "config/tsconfig.app.json") else {
+            panic!("expected options");
+        };
+        assert_eq!(options.enabled, None);
+        assert!(options.config.iter().any(|glob| glob == "tsconfig.json"));
+        assert_eq!(
+            options.config.last().map(String::as_str),
+            Some("config/tsconfig.app.json")
+        );
+
+        let custom = PluginConfig::Options(PluginOptions::new().with_config(["base.json"]));
+        let Some(PluginConfig::Options(options)) = with_config_file(Some(&custom), "app.json") else {
+            panic!("expected options");
+        };
+        assert_eq!(options.config, ["base.json", "app.json"]);
+
+        assert_eq!(with_config_file(Some(&PluginConfig::Enabled(false)), "app.json"), None);
+        let reads = PluginConfig::Options(PluginOptions::new().with_config(["app.json"]));
+        assert_eq!(with_config_file(Some(&reads), "app.json"), None);
     }
 }
