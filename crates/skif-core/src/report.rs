@@ -327,6 +327,11 @@ mod tests {
         let paths = [
             "", "/a", "a", "a-b", "a.b", "a/b", "a/b/c", "a/bc", "ab", "b", "a/b-c", "a/b/-",
         ];
+        if cfg!(windows) {
+            // `\` is a separator too, so every path takes the `Path` order there.
+            assert!(paths.iter().all(|path| !is_plain(Path::new(path))));
+            return;
+        }
         for a in paths {
             for b in paths {
                 let (a, b) = (Path::new(a), Path::new(b));
