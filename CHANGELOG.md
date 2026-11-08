@@ -94,6 +94,9 @@ All notable changes to this project are documented here. The format follows
 - `declare module "x"` in a file with top-level `import` or `export` augments `x` instead of declaring it, so it no
   longer hides unlisted imports of `x` across the workspace; only declarations in script files do
   ([#24](https://github.com/Goldziher/skif/issues/24)).
+- A `/*` that no `*/` follows, such as one in JSX text (`<code>dist/*</code>`) or a regular expression, no longer
+  makes an `.mdx` `export` paragraph swallow the rest of the document, or a `.tsrx` file hide the imports after it
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
 
 Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/19)):
 
