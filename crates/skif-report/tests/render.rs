@@ -340,6 +340,33 @@ fn codeclimate_fingerprints_are_unique_and_ignore_the_line() {
 }
 
 #[test]
+fn codeclimate_fingerprints_do_not_shift_across_different_dependencies() {
+    // Same rule, path and message, different dependency: each has its own fingerprint, and removing one does not
+    // change the other's.
+    let on = |dependency: &str| {
+        let mut diagnostic = diag("unused-dependency", Severity::Warning, "a/package.json", None, "m");
+        diagnostic.dependency = Some(dependency.to_owned());
+        diagnostic
+    };
+    let fingerprints = |report: &Report| -> Vec<String> {
+        let value: serde_json::Value =
+            serde_json::from_str(&run(report, Format::Codeclimate, &options(false))).unwrap();
+        value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|issue| issue["fingerprint"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let both = fingerprints(&Report::new(vec![on("left-pad"), on("lodash")], 1));
+    assert_ne!(both[0], both[1]);
+    for dependency in ["left-pad", "lodash"] {
+        let alone = fingerprints(&Report::new(vec![on(dependency)], 1));
+        assert!(both.contains(&alone[0]), "{dependency}: {alone:?} not in {both:?}");
+    }
+}
+
+#[test]
 fn compact_rich() {
     insta::assert_snapshot!(run(&rich(), Format::Compact, &options(false)));
 }
