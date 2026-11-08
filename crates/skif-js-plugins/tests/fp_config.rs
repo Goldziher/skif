@@ -33,6 +33,7 @@ fn run(files: &[(&str, &str)], dependencies: &[&str], scripts: &[(&str, &str)]) 
         scripts: &scripts,
         fs: &fs,
         plugins: &plugins,
+        modules: None,
     };
     resolve_plugins(&ctx)
 }
