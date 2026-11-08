@@ -77,7 +77,13 @@ impl<'w> Analysis<'w> {
         )
     }
 
-    fn from_instances(workspace: &'w Workspace, config: &Config, instances: Instances<'w>, sequential: bool) -> Self {
+    /// Runs the version groups over `instances`. With `sequential` everything runs on the calling thread.
+    pub(crate) fn from_instances(
+        workspace: &'w Workspace,
+        config: &Config,
+        instances: Instances<'w>,
+        sequential: bool,
+    ) -> Self {
         let (verdicts, unused_groups, invalid_pins, summaries, owners, preferred) = {
             let groups = Groups::compile(workspace, config);
             let assignment = groups.assign(&instances);
