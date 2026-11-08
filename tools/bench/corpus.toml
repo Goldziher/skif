@@ -12,6 +12,7 @@
 #   recursive        true when skif must run with --recursive here (nested roots that are not workspace members)
 #   knip-unread      path prefixes knip does not read here; one-sided findings below them are a known deviation
 #   entry            entry files of the root workspace neither tool finds (globs); both get them besides their defaults
+#   bench-knip-args  extra knip arguments when `skif-bench run` times it here, so it reads the files skif reads
 #   notes            why the repository is in the corpus and what to expect from it
 
 [tools]
@@ -57,7 +58,9 @@ rev = "fc517df18fb59a33b39d383c6766690bc427ac06"
 package-manager = "npm"
 suites = ["bench", "parity"]
 knip-unread = ["docs/", "mock-globals/", "mock-registry/", "smoke-tests/", "workspaces/"]
-notes = "npm workspaces. A deny-all root .gitignore re-includes these directories one by one; knip reads none of their files."
+# The timed knip run reads the workspaces too, as skif does; parity keeps knip's default and the knip-unread deviation.
+bench-knip-args = ["--no-gitignore"]
+notes = "npm workspaces. A deny-all root .gitignore re-includes these directories one by one; knip reads none of their files unless run with --no-gitignore."
 
 [[repo]]
 name = "angular"

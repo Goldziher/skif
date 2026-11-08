@@ -86,10 +86,48 @@ impl Tool {
 
 #[derive(Debug, Deserialize)]
 struct HyperfineExport {
-    results: Vec<HyperfineResult>,
+    results: Vec<RawResult>,
+}
+
+/// One command of a hyperfine export, in the layout of hyperfine 1.x (times and exit codes at the top level, the
+/// `--command-name` in `command`) or 2.x (times under `summary.time_wall_clock`, exit codes per measurement, the
+/// `--command-name` in `name` when it differs from the command line).
+#[derive(Debug, Deserialize)]
+struct RawResult {
+    command: String,
+    name: Option<String>,
+    mean: Option<f64>,
+    stddev: Option<f64>,
+    median: Option<f64>,
+    min: Option<f64>,
+    max: Option<f64>,
+    #[serde(default)]
+    exit_codes: Vec<Option<i32>>,
+    summary: Option<RawSummary>,
+    #[serde(default)]
+    measurements: Vec<RawMeasurement>,
 }
 
 #[derive(Debug, Deserialize)]
+struct RawSummary {
+    time_wall_clock: RawStats,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawStats {
+    mean: f64,
+    stddev: Option<f64>,
+    median: f64,
+    min: f64,
+    max: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawMeasurement {
+    exit_code: Option<i32>,
+}
+
+#[derive(Debug)]
 struct HyperfineResult {
     command: String,
     mean: f64,
@@ -97,6 +135,42 @@ struct HyperfineResult {
     median: f64,
     min: f64,
     max: f64,
+    /// Runs that exited with a status above 1 or by a signal. The linters exit with 1 when they report findings;
+    /// knip exits with 2 when it fails or cannot load a configuration file, so its time may be a partial run.
+    error_runs: usize,
+}
+
+impl TryFrom<RawResult> for HyperfineResult {
+    type Error = anyhow::Error;
+
+    fn try_from(raw: RawResult) -> Result<Self> {
+        let codes: Vec<Option<i32>> = if raw.measurements.is_empty() {
+            raw.exit_codes
+        } else {
+            raw.measurements.iter().map(|m| m.exit_code).collect()
+        };
+        let error_runs = codes.iter().filter(|code| code.is_none_or(|code| code > 1)).count();
+        let stats = match (raw.summary, raw.mean, raw.median, raw.min, raw.max) {
+            (Some(summary), ..) => summary.time_wall_clock,
+            (None, Some(mean), Some(median), Some(min), Some(max)) => RawStats {
+                mean,
+                stddev: raw.stddev,
+                median,
+                min,
+                max,
+            },
+            _ => bail!("no times for {} in the hyperfine export", raw.command),
+        };
+        Ok(Self {
+            command: raw.name.unwrap_or(raw.command),
+            mean: stats.mean,
+            stddev: stats.stddev,
+            median: stats.median,
+            min: stats.min,
+            max: stats.max,
+            error_runs,
+        })
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -109,6 +183,8 @@ struct ToolResult {
     max_ms: f64,
     /// `mean / skif mean` for the matching skif row; above 1 means slower than skif.
     relative_to_skif: Option<f64>,
+    /// Measured runs that exited with an error (a status above 1, or a signal).
+    error_runs: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -164,13 +240,16 @@ fn skif_command(skif: &Path, extra: &[String], no_js: bool) -> String {
     parts.join(" ")
 }
 
-fn tool_command(tool: Tool, skif: &Path, extra: &[String]) -> String {
+fn tool_command(tool: Tool, skif: &Path, extra: &[String], knip_args: &[String]) -> String {
     match tool {
         Tool::Skif => skif_command(skif, extra, false),
         Tool::SkifManifest => skif_command(skif, extra, true),
         Tool::Sherif => "sherif .".to_owned(),
         Tool::Syncpack => "syncpack lint".to_owned(),
-        Tool::Knip => "knip --reporter json".to_owned(),
+        Tool::Knip => std::iter::once("knip --reporter json".to_owned())
+            .chain(knip_args.iter().map(|arg| quote(arg)))
+            .collect::<Vec<_>>()
+            .join(" "),
     }
 }
 
@@ -181,6 +260,8 @@ struct Target {
     files: Option<usize>,
     dir: PathBuf,
     tools: Vec<Tool>,
+    /// The corpus repository's `bench-knip-args`.
+    knip_args: Vec<String>,
 }
 
 fn hyperfine(options: &RunOptions, target: &Target, commands: &[(Tool, String)], export: &Path) -> Result<()> {
@@ -206,9 +287,13 @@ fn hyperfine(options: &RunOptions, target: &Target, commands: &[(Tool, String)],
 
 fn read_results(export: &Path) -> Result<Vec<HyperfineResult>> {
     let text = fs::read_to_string(export).with_context(|| format!("reading {}", export.display()))?;
-    Ok(serde_json::from_str::<HyperfineExport>(&text)
+    serde_json::from_str::<HyperfineExport>(&text)
         .with_context(|| format!("parsing {}", export.display()))?
-        .results)
+        .results
+        .into_iter()
+        .map(HyperfineResult::try_from)
+        .collect::<Result<_>>()
+        .with_context(|| format!("reading {}", export.display()))
 }
 
 fn tool_results(results: &[HyperfineResult]) -> Vec<ToolResult> {
@@ -231,6 +316,7 @@ fn tool_results(results: &[HyperfineResult]) -> Vec<ToolResult> {
                 min_ms: r.min * 1000.0,
                 max_ms: r.max * 1000.0,
                 relative_to_skif: reference.map(|skif| r.mean / skif),
+                error_runs: r.error_runs,
             }
         })
         .collect()
@@ -270,9 +356,16 @@ fn checks(targets: &[TargetResult]) -> Vec<TargetCheck> {
             && let (Some(skif), Some(knip)) = (find(Tool::Skif.label()), find(Tool::Knip.label()))
         {
             let speedup = knip.mean_ms / skif.mean_ms;
+            let errors = if knip.error_runs > 0 {
+                format!("; knip exited with an error in {} runs", knip.error_runs)
+            } else {
+                String::new()
+            };
             out.push(TargetCheck {
                 target: target.target.clone(),
-                description: format!("JS analysis >= {KNIP_SPEEDUP_TARGET}x faster than knip (measured {speedup:.1}x)"),
+                description: format!(
+                    "JS analysis >= {KNIP_SPEEDUP_TARGET}x faster than knip (measured {speedup:.1}x{errors})"
+                ),
                 passed: speedup >= KNIP_SPEEDUP_TARGET,
             });
         }
@@ -321,6 +414,13 @@ fn markdown(summary: &Summary) -> String {
             );
         }
         out.push('\n');
+        for r in target.results.iter().filter(|r| r.error_runs > 0) {
+            let _ = write!(
+                out,
+                "{} exited with an error in {} of {} runs, so its time may be that of a partial run.\n\n",
+                r.tool, r.error_runs, summary.runs
+            );
+        }
     }
     if !summary.adr_0001_checks.is_empty() {
         out.push_str("## ADR 0001 targets\n\n| Target | Check | Result |\n| --- | --- | --- |\n");
@@ -394,6 +494,7 @@ fn graph_target(options: &RunOptions) -> Result<Target> {
         files: Some(packages * per_package),
         dir: fs::canonicalize(&dir)?,
         tools: vec![Tool::Skif],
+        knip_args: Vec::new(),
     })
 }
 
@@ -410,7 +511,8 @@ pub fn run(options: &RunOptions) -> Result<()> {
             options.skif.display()
         )
     })?;
-    let raw = options.out.join("raw");
+    // hyperfine runs in each target's directory, so the export path it is given must not be relative.
+    let raw = std::path::absolute(options.out.join("raw")).context("resolving the output directory")?;
     fs::create_dir_all(&raw).with_context(|| format!("creating {}", raw.display()))?;
 
     let mut skipped = Vec::new();
@@ -441,6 +543,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
             files: None,
             dir: fs::canonicalize(&dir)?,
             tools,
+            knip_args: Vec::new(),
         });
     }
     if options.graph_files > 0 {
@@ -467,6 +570,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
                 files: None,
                 dir: fs::canonicalize(&dir)?,
                 tools,
+                knip_args: repo.bench_knip_args.clone(),
             });
         }
     }
@@ -476,7 +580,7 @@ pub fn run(options: &RunOptions) -> Result<()> {
         let commands: Vec<(Tool, String)> = target
             .tools
             .iter()
-            .map(|&tool| (tool, tool_command(tool, &skif, &options.skif_args)))
+            .map(|&tool| (tool, tool_command(tool, &skif, &options.skif_args, &target.knip_args)))
             .collect();
         let export = raw.join(format!("{index:02}.json"));
         hyperfine(options, target, &commands, &export)?;
@@ -531,6 +635,7 @@ mod tests {
             median: mean,
             min: mean,
             max: mean,
+            error_runs: 0,
         }
     }
 
@@ -546,6 +651,7 @@ mod tests {
             min_ms: 1.0,
             max_ms: 2.0,
             relative_to_skif: Some(1.0),
+            error_runs: 0,
         };
         let summary = |checks: Vec<TargetCheck>, skipped: Vec<String>| Summary {
             schema: SUMMARY_SCHEMA,
@@ -578,6 +684,58 @@ mod tests {
             assert!(!text.contains("\n\n\n"));
             assert!(text.lines().all(|line| line == line.trim_end()));
         }
+    }
+
+    #[test]
+    fn reads_the_exports_of_hyperfine_1_and_2() {
+        let v1 = r#"{"results": [{"command": "knip --reporter json", "mean": 0.5, "stddev": 0.01, "median": 0.4,
+            "min": 0.3, "max": 0.6, "exit_codes": [2, 1, 2]}]}"#;
+        let v2 = r#"{"results": [{"command": "knip --reporter json --no-gitignore", "name": "knip --reporter json",
+            "measurements": [{"exit_code": 1}, {"exit_code": null}, {"exit_code": 0}],
+            "summary": {"time_wall_clock": {"unit": "second", "count": 3, "mean": 0.5, "stddev": 0.01,
+            "median": 0.4, "min": 0.3, "max": 0.6}}},
+            {"command": "syncpack lint", "measurements": [{"exit_code": 1}],
+            "summary": {"time_wall_clock": {"mean": 0.1, "median": 0.1, "min": 0.1, "max": 0.1}}}]}"#;
+        let dir = std::env::temp_dir().join(format!("skif-bench-hyperfine-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let read = |name: &str, text: &str| {
+            let path = dir.join(name);
+            fs::write(&path, text).unwrap();
+            read_results(&path).unwrap()
+        };
+        let first = read("v1.json", v1);
+        let second = read("v2.json", v2);
+        fs::remove_dir_all(&dir).unwrap();
+        for result in [&first[0], &second[0]] {
+            assert_eq!(result.command, "knip --reporter json");
+            assert!((result.mean - 0.5).abs() < 1e-9 && (result.median - 0.4).abs() < 1e-9);
+        }
+        assert_eq!(first[0].error_runs, 2);
+        assert_eq!(second[0].error_runs, 1, "a run killed by a signal is an error");
+        assert_eq!(second[1].command, "syncpack lint");
+        assert_eq!(second[1].error_runs, 0);
+    }
+
+    #[test]
+    fn knip_gets_the_repository_arguments_and_its_errors_are_reported() {
+        let line = tool_command(Tool::Knip, Path::new("skif"), &[], &["--no-gitignore".to_owned()]);
+        assert_eq!(line, "knip --reporter json --no-gitignore");
+        let mut knip = result("knip --reporter json", 1.0);
+        knip.error_runs = 3;
+        let target = TargetResult {
+            target: "corpus: r (pnpm)".into(),
+            kind: "corpus",
+            packages: None,
+            files: None,
+            results: tool_results(&[result("skif", 0.1), knip]),
+        };
+        let found = checks(std::slice::from_ref(&target));
+        assert!(found[0].passed);
+        assert!(
+            found[0].description.contains("knip exited with an error in 3 runs"),
+            "{}",
+            found[0].description
+        );
     }
 
     #[test]
@@ -614,6 +772,7 @@ mod tests {
                 min_ms: mean_ms,
                 max_ms: mean_ms,
                 relative_to_skif: None,
+                error_runs: 0,
             }],
         };
         assert!(checks(&[target(10.0)])[0].passed);
@@ -635,6 +794,7 @@ mod tests {
                 min_ms: mean_ms,
                 max_ms: mean_ms,
                 relative_to_skif: None,
+                error_runs: 0,
             }],
         };
         assert!(checks(&[target(10_000, 900.0)])[0].passed);

@@ -811,6 +811,7 @@ mod tests {
             install_timeout_secs: None,
             install_command: Vec::new(),
             entry: Vec::new(),
+            bench_knip_args: Vec::new(),
         };
         let dir = Path::new("/nonexistent");
         assert_eq!(install_command(&repo("npm", true), dir).unwrap().1[0], "ci");
