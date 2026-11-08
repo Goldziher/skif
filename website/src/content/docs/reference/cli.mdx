@@ -173,6 +173,9 @@ when it moves to a pinned version, or to a later version of the same major in th
 Deleting a file is never part of `--fix-unsafe` alone: the fix of `unused-files` is skipped, with the reason
 `removes-files`, unless `--allow-remove-files` is given as well, as with knip. Every other unsafe fix, such as
 removing an unused export, enum member, namespace member, dependency or catalog entry, edits a file in place.
+Some of these findings have no fix because removing them could change behaviour: an enum member followed by a member
+without an initializer (which would be renumbered), a member another member mentions, and an
+`export default <expression>` whose expression may have side effects, such as a call.
 
 `--fix-type` narrows a fix run to some rules. A value is a rule id (`unused-exports`) or one of knip's issue types,
 which stands for the rules that report the same findings:
@@ -192,7 +195,7 @@ which stands for the rules that report the same findings:
 | `catalog` | `unused-catalog-entries` |
 
 The other knip issue types (`unlisted`, `binaries`, `unresolved`, `duplicates`, `catalogReferences`, `cycles`) are
-accepted and map to rules that have no fix. An unknown value exits `2` with a `usage` error. For example,
+accepted and map to rules that have no fix. An unknown value exits `2` with a `usage` error before anything is linted. For example,
 `skif --fix-unsafe --fix-type exports,types` removes unused exports and types and nothing else.
 
 skif's own process never opens a network connection and never resolves a version. The only network traffic comes
