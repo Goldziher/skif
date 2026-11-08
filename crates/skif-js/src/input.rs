@@ -7,6 +7,7 @@
 use std::path::PathBuf;
 
 use skif_core::FileSystem;
+pub use skif_core::{IncompleteCause, IncompleteEntries};
 use skif_workspace::{Package, Workspace};
 
 /// A module alias a tool configuration declares: imports of `find` (and `find/…`) point at `target`.
@@ -69,6 +70,8 @@ pub struct WorkspaceInputs {
     /// Whether a tool's entries could only be partly read (a computed `entry`), so unused files and dependencies of
     /// the package cannot be told apart from ones reached through the unknown entries.
     pub entries_incomplete: bool,
+    /// Why the entries are incomplete, when `entries_incomplete` is set and the source knows.
+    pub incomplete_reasons: Vec<IncompleteEntries>,
 }
 
 impl WorkspaceInputs {
@@ -90,6 +93,7 @@ impl WorkspaceInputs {
         self.module_dirs.extend(other.module_dirs);
         self.extensions.extend(other.extensions);
         self.entries_incomplete |= other.entries_incomplete;
+        self.incomplete_reasons.extend(other.incomplete_reasons);
     }
 }
 

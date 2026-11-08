@@ -1,0 +1,47 @@
+---
+source: crates/skif-js/tests/frameworks.rs
+expression: "lint_fixture(\"angular-resources\")"
+---
+[
+  {
+    "rule": "unused-dependencies",
+    "severity": "error",
+    "message": "`unused-dependency` is listed in `dependencies` but never used",
+    "help": "remove it, or add it to `ignore-dependencies` when a tool uses it without importing it",
+    "location": {
+      "path": "package.json",
+      "span": {
+        "start": 133,
+        "end": 161,
+        "start-line": 7,
+        "start-col": 5,
+        "end-line": 7,
+        "end-col": 33
+      }
+    },
+    "package": "angular-resources",
+    "dependency": "unused-dependency",
+    "fixes": [
+      {
+        "title": "Remove `unused-dependency` from `dependencies`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "json": {
+              "path": "package.json",
+              "pointer": [
+                {
+                  "key": "dependencies"
+                },
+                {
+                  "key": "unused-dependency"
+                }
+              ],
+              "action": "remove"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

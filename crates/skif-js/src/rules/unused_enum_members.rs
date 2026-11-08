@@ -11,7 +11,7 @@ pub static META: RuleMeta = RuleMeta::new(
     "unused-enum-members",
     Category::Js,
     Some(Severity::Warning),
-    Fixability::None,
+    Fixability::Unsafe,
     "A member of an exported enum is never read.",
 );
 

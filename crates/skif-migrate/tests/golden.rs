@@ -22,7 +22,7 @@ fn known_rules() -> Vec<RuleInfo> {
         .lines()
         .map(str::trim)
         .filter(|id| !id.is_empty())
-        .map(|id| RuleInfo::new(id, id != "circular-imports"))
+        .map(|id| RuleInfo::new(id, !["circular-imports", "package-json-format"].contains(&id)))
         .collect()
 }
 
@@ -167,11 +167,20 @@ fn knip_ts_with_workspaces_plugins_and_a_non_static_value() {
         migration
             .notes
             .iter()
-            .any(|note| note.path == "ignoreFiles" && note.class == NoteClass::Approximate),
-        "ignoreFiles widens to every rule"
+            .any(|note| note.path == "ignoreFiles" && note.class == NoteClass::Exact),
+        "ignoreFiles maps to ignore-files"
     );
-    assert_eq!(class(&migration, "tags[1]"), NoteClass::Unsupported);
-    assert_eq!(class(&migration, "compilers"), NoteClass::Unsupported);
+    assert!(
+        migration.notes.iter().any(|note| note.path == "tags"
+            && note.class == NoteClass::Approximate
+            && note.message.contains("only exports")),
+        "+public limits unused-exports to tagged exports, which knip would never report"
+    );
+    assert_eq!(class(&migration, "treatTagHintsAsErrors"), NoteClass::Approximate);
+    assert_eq!(class(&migration, "ignoreGlobalBinaries"), NoteClass::Unsupported);
+    assert_eq!(class(&migration, "cycles.allow"), NoteClass::Approximate);
+    assert_eq!(class(&migration, "cycles.dynamicImports"), NoteClass::Exact);
+    assert_eq!(class(&migration, "compilers.mdx"), NoteClass::Approximate);
     assert_eq!(
         class(&migration, "workspaces[\"packages/*\"].mystery"),
         NoteClass::Unsupported
@@ -593,6 +602,30 @@ fn knip_dependencies_include_the_catalog_types_and_the_dev_dependencies() {
 }
 
 #[test]
+fn knip_catalog_type_turns_on_the_unused_catalog_entries_report() {
+    let migration = knip(None, &[("k", "knip")]);
+    let parsed = table(&migration);
+    assert_eq!(parsed["rules"]["unused-catalog-entries"].as_str(), Some("error"));
+    assert_eq!(parsed["catalog"]["report-unused-entries"].as_bool(), Some(true));
+    assert!(migration.config.catalog.report_unused_entries);
+    assert_eq!(class(&migration, "catalog"), NoteClass::Exact);
+
+    for (config, scripts) in [
+        (Some(r#"{ "exclude": ["catalog"] }"#), [("k", "knip")]),
+        (Some(r#"{ "rules": { "catalog": "off" } }"#), [("k", "knip")]),
+        (None, [("k", "knip --production")]),
+        (None, [("k", "knip --include files")]),
+    ] {
+        let migration = knip(config, &scripts);
+        assert!(
+            table(&migration).get("catalog").is_none(),
+            "{config:?} {scripts:?}: {}",
+            migration.toml
+        );
+    }
+}
+
+#[test]
 fn knip_namespace_only_includes_add_the_defaults() {
     let migration = knip(None, &[("k", "knip --include nsExports")]);
     let rules = table(&migration)["rules"].clone();
@@ -902,4 +935,103 @@ fn merging_adds_new_tables_after_the_existing_ones() {
             "{existing}\n# Added by `skif migrate --merge` from sherif (profile: full).\n\n[lint]\nfail-on-warnings = true\n# skif migrate: sources = [\"sherif\"]\n"
         )
     );
+}
+
+#[test]
+fn syncpack_format_options_are_written_to_the_format_table() {
+    let mut input = ToolInput::new(Tool::Syncpack);
+    input.config = Some(Input::new(
+        ".syncpackrc.json",
+        r#"{
+  "sortFirst": ["name", "version"],
+  "sortAz": ["keywords"],
+  "sortExports": ["types", "default"],
+  "sortPackages": false,
+  "formatBugs": true,
+  "formatRepository": true,
+  "indent": "    "
+}"#,
+    ));
+    let migration = migrate(&[input], &options(Profile::Exact)).unwrap();
+    let parsed = table(&migration);
+    let format = parsed["format"].as_table().unwrap();
+    assert_eq!(format["sort-first"].as_array().unwrap().len(), 2);
+    assert_eq!(format["sort-az"].as_array().unwrap()[0].as_str(), Some("keywords"));
+    assert_eq!(format["sort-exports"].as_array().unwrap().len(), 2);
+    assert_eq!(format["sort-packages"].as_bool(), Some(false));
+    assert_eq!(format["format-bugs"].as_bool(), Some(true));
+    assert_eq!(format["format-repository"].as_bool(), Some(true));
+    assert_eq!(format["indent"].as_str(), Some("    "));
+    assert_eq!(parsed["rules"]["package-json-format"].as_str(), Some("error"));
+    assert_eq!(class(&migration, "sortFirst"), NoteClass::Exact);
+    assert_eq!(class(&migration, "sortAz"), NoteClass::Approximate);
+    assert_eq!(class(&migration, "indent"), NoteClass::Approximate);
+    assert_eq!(migration.config.format.indent.as_deref(), Some("    "));
+}
+
+#[test]
+fn a_syncpack_format_script_turns_the_format_rule_on() {
+    let mut input = ToolInput::new(Tool::Syncpack);
+    input.package_json = Some(Input::new(
+        "package.json",
+        r#"{"name":"root","private":true,"scripts":{"format:check":"syncpack format --check"}}"#,
+    ));
+    let migration = migrate(&[input], &options(Profile::Exact)).unwrap();
+    let parsed = table(&migration);
+    assert_eq!(parsed["rules"]["package-json-format"].as_str(), Some("error"));
+    assert!(parsed.get("format").is_none(), "syncpack's defaults are skif's");
+    assert_eq!(
+        class(&migration, "scripts.format:check: syncpack format"),
+        NoteClass::Exact
+    );
+
+    let mut plain = ToolInput::new(Tool::Syncpack);
+    plain.package_json = Some(Input::new(
+        "package.json",
+        r#"{"name":"root","private":true,"scripts":{"lint":"syncpack lint"}}"#,
+    ));
+    let migration = migrate(&[plain], &options(Profile::Exact)).unwrap();
+    assert!(
+        table(&migration)
+            .get("rules")
+            .and_then(|rules| rules.get("package-json-format"))
+            .is_none()
+    );
+}
+
+#[test]
+fn knip_built_in_compilers_map_to_skif_extractors() {
+    let migration = knip(
+        Some(r#"{ "compilers": { "mdx": true, ".styl": true, "vue": false, "hbs": true } }"#),
+        &[],
+    );
+    assert_eq!(class(&migration, "compilers.mdx"), NoteClass::Default);
+    assert!(
+        note(&migration, "compilers.mdx")
+            .suggestion
+            .as_deref()
+            .is_some_and(|hint| hint.contains("**/*.mdx"))
+    );
+    assert_eq!(class(&migration, "compilers[\".styl\"]"), NoteClass::Default);
+    assert_eq!(class(&migration, "compilers.vue"), NoteClass::Default);
+    assert_eq!(class(&migration, "compilers.hbs"), NoteClass::Unsupported);
+    let notes: Vec<String> = migration
+        .notes
+        .iter()
+        .filter(|note| note.path.starts_with("compilers"))
+        .map(|note| {
+            format!(
+                "{} {}: {} ({})",
+                note.class.letter(),
+                note.path,
+                note.message,
+                note.suggestion.as_deref().unwrap_or("-")
+            )
+        })
+        .collect();
+    insta::assert_snapshot!("knip-compilers", notes.join("\n"));
+
+    let all = knip(Some(r#"{ "compilers": true }"#), &[]);
+    assert_eq!(class(&all, "compilers"), NoteClass::Default);
+    assert!(!all.needs_human());
 }

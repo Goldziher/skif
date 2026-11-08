@@ -1,0 +1,82 @@
+---
+source: crates/skif-edit/tests/package_json_format.rs
+expression: "report(\"exports\")"
+---
+issues:
+  - the conditions of `exports` are not in the configured order
+--- before
+{
+  "name": "exports",
+  "exports": {
+    ".": {
+      "default": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.ts"
+    },
+    "./feature": {
+      "node": {
+        "default": "./dist/feature.node.js",
+        "import": "./dist/feature.node.mjs"
+      },
+      "browser": "./dist/feature.browser.js"
+    },
+    "./dev": {
+      "development": "./dist/dev.mjs",
+      "import": "./dist/prod.mjs",
+      "types": "./dist/dev.d.ts"
+    },
+    "./worker": {
+      "workerd": "./dist/worker.js",
+      "node": "./dist/node.js",
+      "default": "./dist/worker.js"
+    },
+    "./esm": {
+      "import": "./dist/esm.mjs",
+      "module": "./dist/esm.js"
+    },
+    "./platform": {
+      "browser": "./dist/browser.js",
+      "node": "./dist/node.js"
+    },
+    "./package.json": "./package.json"
+  }
+}
+--- after
+{
+  "name": "exports",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.cjs",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.js"
+    },
+    "./feature": {
+      "node": {
+        "import": "./dist/feature.node.mjs",
+        "default": "./dist/feature.node.js"
+      },
+      "browser": "./dist/feature.browser.js"
+    },
+    "./dev": {
+      "types": "./dist/dev.d.ts",
+      "development": "./dist/dev.mjs",
+      "import": "./dist/prod.mjs"
+    },
+    "./worker": {
+      "workerd": "./dist/worker.js",
+      "node": "./dist/node.js",
+      "default": "./dist/worker.js"
+    },
+    "./esm": {
+      "import": "./dist/esm.mjs",
+      "module": "./dist/esm.js"
+    },
+    "./platform": {
+      "browser": "./dist/browser.js",
+      "node": "./dist/node.js"
+    },
+    "./package.json": "./package.json"
+  }
+}
