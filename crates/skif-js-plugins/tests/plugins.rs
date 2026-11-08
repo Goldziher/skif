@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 201] = [
+const ADR_IDS: [&str; 205] = [
     "typescript",
     "eslint",
     "prettier",
@@ -216,6 +216,10 @@ const ADR_IDS: [&str; 201] = [
     "vite-plus",
     "openclaw",
     "typescript-content-mapper",
+    "lit",
+    "catalyst",
+    "fast",
+    "taskr",
 ];
 
 fn fs_with(files: &[(&str, &str)]) -> MemoryFs {
@@ -4738,4 +4742,54 @@ fn typescript_content_mapper_exec_is_a_script() {
     let plain = ("package.json", r#"{"name":"app","typescript":{"other":true}}"#);
     let results = resolve(&[plain], &[]);
     assert!(!results.iter().any(|(id, _)| *id == "typescript-content-mapper"));
+}
+
+#[test]
+fn custom_element_plugins_name_their_registering_library() {
+    for (id, dependency, module, decorator, base_class) in [
+        ("lit", "lit", "lit/decorators.js", "customElement", None),
+        ("lit", "lit-element", "lit-element", "customElement", None),
+        (
+            "lit",
+            "@lit/reactive-element",
+            "@lit/reactive-element/decorators/",
+            "customElement",
+            None,
+        ),
+        ("catalyst", "@github/catalyst", "@github/catalyst", "controller", None),
+        (
+            "fast",
+            "@microsoft/fast-element",
+            "@microsoft/fast-element",
+            "customElement",
+            Some("FASTElement"),
+        ),
+        ("stencil", "@stencil/core", "@stencil/core", "Component", None),
+    ] {
+        let results = resolve(&[], &[dependency]);
+        let library = output(&results, id)
+            .custom_elements
+            .unwrap_or_else(|| panic!("{id}: no custom element library"));
+        assert!(library.modules.contains(&module), "{id}: {library:?}");
+        assert_eq!(library.decorator, decorator, "{id}");
+        assert_eq!(library.base_class, base_class, "{id}");
+    }
+    let none = resolve(&[], &["react"]);
+    assert!(none.iter().all(|(_, out)| out.custom_elements.is_none()));
+}
+
+#[test]
+fn taskr_reads_the_taskfile_its_required_plugins_and_named_plugins() {
+    let manifest = (
+        "package.json",
+        r#"{"name":"next","taskr":{"requires":["./taskfile-ncc.js","./taskfile-swc.js","taskr-shared"]}}"#,
+    );
+    let results = resolve(&[manifest], &["taskr", "@taskr/clear", "taskr-babel", "react"]);
+    let out = output(&results, "taskr");
+    assert_entries(&out.entries, &["{T,t}askfile.js", "taskfile-ncc.js", "taskfile-swc.js"]);
+    assert_deps(out, &["@taskr/clear", "taskr-babel", "taskr-shared"]);
+    assert_absent(out, &["react"]);
+    assert!(out.provided_binaries.contains(&"taskr".to_string()));
+    let none = resolve(&[], &["react"]);
+    assert!(!none.iter().any(|(id, _)| *id == "taskr"));
 }

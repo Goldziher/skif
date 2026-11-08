@@ -1,0 +1,222 @@
+---
+source: crates/skif-js/tests/custom_elements.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "unused-exports",
+    "severity": "warning",
+    "message": "export `NotAController` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "packages/catalyst-app/src/hello-controller.ts",
+      "span": {
+        "start": 126,
+        "end": 140,
+        "start-line": 6,
+        "start-col": 14,
+        "end-line": 6,
+        "end-col": 28
+      }
+    },
+    "package": "catalyst-app",
+    "fixes": [
+      {
+        "title": "Remove the unused export `NotAController`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "packages/catalyst-app/src/hello-controller.ts",
+              "edit": {
+                "start": 113,
+                "end": 120,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-exports",
+    "severity": "warning",
+    "message": "export `NeverDefined` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "packages/fast-app/src/undefined-element.ts",
+      "span": {
+        "start": 69,
+        "end": 81,
+        "start-line": 3,
+        "start-col": 14,
+        "end-line": 3,
+        "end-col": 26
+      }
+    },
+    "package": "fast-app",
+    "fixes": [
+      {
+        "title": "Remove the unused export `NeverDefined`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "packages/fast-app/src/undefined-element.ts",
+              "edit": {
+                "start": 56,
+                "end": 63,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-exports",
+    "severity": "warning",
+    "message": "export `LocallyDecorated` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "packages/lit-app/src/local-decorator.ts",
+      "span": {
+        "start": 86,
+        "end": 102,
+        "start-line": 4,
+        "start-col": 14,
+        "end-line": 4,
+        "end-col": 30
+      }
+    },
+    "package": "lit-app",
+    "fixes": [
+      {
+        "title": "Remove the unused export `LocallyDecorated`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "packages/lit-app/src/local-decorator.ts",
+              "edit": {
+                "start": 73,
+                "end": 80,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-exports",
+    "severity": "warning",
+    "message": "export `Unregistered` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "packages/lit-app/src/unregistered.ts",
+      "span": {
+        "start": 95,
+        "end": 107,
+        "start-line": 5,
+        "start-col": 14,
+        "end-line": 5,
+        "end-col": 26
+      }
+    },
+    "package": "lit-app",
+    "fixes": [
+      {
+        "title": "Remove the unused export `Unregistered`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "packages/lit-app/src/unregistered.ts",
+              "edit": {
+                "start": 82,
+                "end": 89,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-exports",
+    "severity": "warning",
+    "message": "export `helper` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "packages/stencil-app/src/lib/my-button.ts",
+      "span": {
+        "start": 167,
+        "end": 173,
+        "start-line": 10,
+        "start-col": 14,
+        "end-line": 10,
+        "end-col": 20
+      }
+    },
+    "package": "stencil-app",
+    "fixes": [
+      {
+        "title": "Remove the unused export `helper`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "packages/stencil-app/src/lib/my-button.ts",
+              "edit": {
+                "start": 154,
+                "end": 161,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-types",
+    "severity": "warning",
+    "message": "type `UnregisteredState` is never imported by another module",
+    "help": "it is only used in this file; remove the `export` keyword",
+    "location": {
+      "path": "packages/lit-app/src/unregistered.ts",
+      "span": {
+        "start": 47,
+        "end": 64,
+        "start-line": 3,
+        "start-col": 13,
+        "end-line": 3,
+        "end-col": 30
+      }
+    },
+    "package": "lit-app",
+    "fixes": [
+      {
+        "title": "Remove the unused export `UnregisteredState`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "packages/lit-app/src/unregistered.ts",
+              "edit": {
+                "start": 35,
+                "end": 42,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

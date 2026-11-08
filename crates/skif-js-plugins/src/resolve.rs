@@ -300,6 +300,7 @@ fn run_plugin(
             production_entries: spec.production.iter().map(|s| (*s).to_string()).collect(),
             provided_binaries: spec.binaries.iter().map(|s| (*s).to_string()).collect(),
             ignore: spec.ignore.iter().map(|s| (*s).to_string()).collect(),
+            custom_elements: spec.custom_elements,
             ..PluginOutput::default()
         },
         queue: VecDeque::new(),
