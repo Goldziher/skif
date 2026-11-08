@@ -1178,7 +1178,8 @@ pub struct Format {
     /// Fields sorted alphabetically one level deep: an object by key, an array of strings by value. `a/b` names a
     /// nested field.
     pub sort_az: Vec<String>,
-    /// Keys that come first, in this order, in every object of `exports`; `default` is always last.
+    /// Keys that come first, in this order, in every object of `exports`; `default` is always last. The default moves
+    /// only `types` and `default`; a key that reorders other conditions makes the fix unsafe.
     pub sort_exports: Vec<String>,
     /// Sort the top-level keys `sort-first` does not name.
     pub sort_packages: bool,
@@ -1210,20 +1211,7 @@ impl Default for Format {
                 "resolutions",
                 "scripts",
             ]),
-            sort_exports: strings(&[
-                "types",
-                "node-addons",
-                "node",
-                "browser",
-                "module",
-                "import",
-                "require",
-                "svelte",
-                "development",
-                "production",
-                "script",
-                "default",
-            ]),
+            sort_exports: strings(&["types", "default"]),
             sort_packages: true,
             format_bugs: false,
             format_repository: false,

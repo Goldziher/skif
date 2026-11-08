@@ -157,16 +157,6 @@
         ],
         "sort-exports": [
           "types",
-          "node-addons",
-          "node",
-          "browser",
-          "module",
-          "import",
-          "require",
-          "svelte",
-          "development",
-          "production",
-          "script",
           "default"
         ],
         "sort-packages": true,
@@ -1253,19 +1243,9 @@
           "items": {
             "type": "string"
           },
-          "description": "Keys that come first, in this order, in every object of `exports`; `default` is always last.",
+          "description": "Keys that come first, in this order, in every object of `exports`; `default` is always last. The default moves\nonly `types` and `default`; a key that reorders other conditions makes the fix unsafe.",
           "default": [
             "types",
-            "node-addons",
-            "node",
-            "browser",
-            "module",
-            "import",
-            "require",
-            "svelte",
-            "development",
-            "production",
-            "script",
             "default"
           ]
         },

@@ -31,7 +31,7 @@ fn lint_args(args: &FormatArgs, rules: Vec<(String, Level)>) -> LintArgs {
         format: args.format,
         output: None,
         fix: !args.check,
-        fix_unsafe: false,
+        fix_unsafe: !args.check && args.allow_unsafe,
         select: None,
         no_install: true,
         max_warnings: None,
