@@ -366,6 +366,13 @@ count as used: the files of the ignored file's directory, of an ignored director
 index of a directory (`src/migrations/sqlite/index.ts` named as `./migrations/sqlite`), of the directory holding that
 directory and below it (`src/migrations/**`), within the importing package.
 
+A `require()` or `import()` of a template literal with a relative static prefix (`` import(`./reporters/${name}.js`) ``)
+reaches every file matching the prefix, `*` for each substitution, and the suffix, as `import.meta.glob` does, and their
+exports count as used; an output extension also matches the sources it is built from (`.js` matches `.ts` and `.tsx`).
+Paths built at runtime in other ways are not followed: a specifier held in a variable, a `fast-glob` or `glob` call
+listing files relative to `__dirname`, or a registry that loads `${name}/${name}.module.js` from a directory it computes.
+Add such files to `entry`.
+
 **`ignore-workspaces`** lists workspace directories (globs) the JavaScript analysis skips. Unlike `[workspace]
 ignore-packages`, the packages stay in the workspace, so manifest and policy rules still check them. The root is never
 skipped. Entries match directories, so `*` stops at `/`: `packages/*` skips `packages/a` but not `packages/a/nested`

@@ -3,14 +3,14 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use globset::GlobBuilder;
+use globset::{GlobBuilder, GlobSetBuilder};
 use skif_core::FileSystem;
 use skif_core::timing::Tally;
 use skif_js_syntax::{ImportKind, ModuleInfo, ParseOptions, is_stylesheet, parse_module, parse_stylesheet};
 use skif_workspace::{PackageId, map_ordered};
 
 use crate::discover::{Candidate, is_package_manifest, relative};
-use crate::resolve::{ModuleResolver, Resolved};
+use crate::resolve::{EXTENSION_ALIASES, ModuleResolver, Resolved};
 use crate::setup::Setup;
 use crate::source_scan::add_textual_imports;
 
@@ -213,7 +213,9 @@ fn normalize(path: &str) -> String {
     parts.join("/")
 }
 
-/// Files matched by an `import.meta.glob` pattern written in `importer`.
+/// Files matched by an `import.meta.glob` pattern written in `importer`, or by the glob a computed `import()` stands
+/// for. A pattern ending in an output extension also matches the sources it is compiled from, as a specifier does
+/// (`./reporters/*.js` matches `reporters/a.ts`).
 fn expand_glob(importer: &Path, pattern: &str, inputs: &Inputs<'_>) -> Vec<PathBuf> {
     if pattern.starts_with('!') {
         return Vec::new();
@@ -227,10 +229,20 @@ fn expand_glob(importer: &Path, pattern: &str, inputs: &Inputs<'_>) -> Vec<PathB
             .unwrap_or_default();
         normalize(&format!("{dir}/{pattern}"))
     };
-    let Ok(glob) = GlobBuilder::new(&joined).literal_separator(true).build() else {
+    let aliases = EXTENSION_ALIASES
+        .iter()
+        .filter_map(|(from, to)| Some((joined.strip_suffix(from)?, *to)))
+        .flat_map(|(stem, to)| to.iter().map(move |alias| format!("{stem}{alias}")));
+    let mut set = GlobSetBuilder::new();
+    for pattern in std::iter::once(joined.clone()).chain(aliases) {
+        let Ok(glob) = GlobBuilder::new(&pattern).literal_separator(true).build() else {
+            return Vec::new();
+        };
+        set.add(glob);
+    }
+    let Ok(matcher) = set.build() else {
         return Vec::new();
     };
-    let matcher = glob.compile_matcher();
     inputs
         .candidates
         .iter()

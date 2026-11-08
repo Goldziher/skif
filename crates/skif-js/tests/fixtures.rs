@@ -367,7 +367,12 @@ fn reexport_chains_and_member_tracking() {
 #[test]
 fn dynamic_imports_and_globs_keep_files_and_exports_alive() {
     let diagnostics = Run::new("reexports", "").lint();
-    for kept in ["src/lazy.ts", "src/plugins/one.ts", "src/plugins/two.ts"] {
+    for kept in [
+        "src/lazy.ts",
+        "src/plugins/one.ts",
+        "src/plugins/two.ts",
+        "src/reporters/audit.ts",
+    ] {
         assert!(
             !diagnostics.iter().any(|d| d.location.path == Path::new(kept)),
             "{kept} should be used: {diagnostics:#?}"

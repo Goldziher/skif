@@ -144,6 +144,8 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   build step) are reached and their exports count as used: those beside it, or for the ignored index of a directory,
   those of the directory holding it and below. n8n's migrations, listed only by a generated
   `migrations/sqlite/index.ts`, are no longer unused ([#23](https://github.com/Goldziher/skif/issues/23)).
+- A computed `import()` such as `` import(`./reporters/${name}.js`) `` also reaches the `.ts` and `.tsx` sources of the
+  `.js` files its glob names ([#23](https://github.com/Goldziher/skif/issues/23)).
 - Without an install, the peer dependencies and binaries of a workspace package are read from its manifest, so a
   package that lists peers for a workspace dependency (`@testing-library/jest-dom` for a shared vitest setup) is not
   told they are unused, and a script that runs a binary of a workspace package it depends on counts that dependency as
