@@ -23,6 +23,9 @@ All notable changes to this project are documented here. The format follows
   comments; a member whose removal would renumber a later enum member gets no fix; a catalog left empty is removed
   ([ADR 0052](adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md),
   [#37](https://github.com/Goldziher/skif/issues/37)).
+- `ConfigLoader::with_sequential` makes `add_package_files` probe the member directories on the calling thread, for a
+  host that runs with one thread; by default they are probed on the current rayon pool
+  ([#29](https://github.com/Goldziher/skif/issues/29)).
 
 ### Changed
 

@@ -163,13 +163,28 @@ impl ConfigCache {
 pub struct ConfigLoader<'a> {
     fs: &'a dyn FileSystem,
     cache: &'a ConfigCache,
+    /// Probe member directories on the calling thread instead of the current rayon pool.
+    sequential: bool,
 }
 
 impl<'a> ConfigLoader<'a> {
     /// A loader reading through `fs` and remembering what it reads in `cache`.
     #[must_use]
     pub const fn new(fs: &'a dyn FileSystem, cache: &'a ConfigCache) -> Self {
-        Self { fs, cache }
+        Self {
+            fs,
+            cache,
+            sequential: false,
+        }
+    }
+
+    /// With `sequential`, [`add_package_files`](Self::add_package_files) probes the member directories on the calling
+    /// thread and never touches rayon, so no pool is created: for a host that runs with one thread (`skif`'s
+    /// `RunOptions` with `threads` 1). Otherwise it probes them on the current rayon pool. The result is the same.
+    #[must_use]
+    pub const fn with_sequential(mut self, sequential: bool) -> Self {
+        self.sequential = sequential;
+        self
     }
 
     /// The configuration of `root` from the files of its chain, without CLI overrides.
@@ -235,8 +250,14 @@ impl<'a> ConfigLoader<'a> {
         let mut members: Vec<&PathBuf> = members.iter().collect();
         members.sort_by_key(|dir| (dir.components().count(), (*dir).clone()));
         // A workspace has a member directory per package and few of them hold a file, so the probing (two lookups
-        // per directory) runs in parallel and only the files found are read and applied, in order.
-        let found: Vec<Arc<[PathBuf]>> = members.par_iter().map(|dir| self.cache.configs(dir, self.fs)).collect();
+        // per directory) runs in parallel unless the loader is sequential, and only the files found are read and
+        // applied, in order.
+        let probe = |dir: &&PathBuf| self.cache.configs(dir, self.fs);
+        let found: Vec<Arc<[PathBuf]>> = if self.sequential {
+            members.iter().map(probe).collect()
+        } else {
+            members.par_iter().map(probe).collect()
+        };
         for (dir, configs) in members.into_iter().zip(found) {
             let path = match &*configs {
                 [] => continue,
