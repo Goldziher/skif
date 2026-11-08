@@ -1,6 +1,6 @@
 //! The command line, as specified by ADR 0016.
 
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use clap::{ColorChoice, Parser, Subcommand, ValueEnum};
 use skif::Level;
@@ -347,8 +347,8 @@ impl LintArgs {
     }
 
     /// Where each rendering goes, in the order given: `None` is stdout. Fails, as a usage error, when two
-    /// renderings would go to stdout, two to the same file, or `--output` is combined with several formats or with
-    /// `FORMAT=FILE`.
+    /// renderings would go to stdout, two to the same file (however it is spelled), a `FORMAT=FILE` names an
+    /// existing directory, or `--output` is combined with several formats or with `FORMAT=FILE`.
     pub fn targets(&self) -> Result<Vec<(Format, Option<PathBuf>)>, CliError> {
         if let Some(output) = &self.output {
             return match self.format.as_slice() {
@@ -371,8 +371,13 @@ impl LintArgs {
         }
         let mut files = std::collections::BTreeSet::new();
         for file in self.format.iter().filter_map(|spec| spec.file.as_ref()) {
-            let absolute = std::path::absolute(file).unwrap_or_else(|_| file.clone());
-            if !files.insert(absolute) {
+            if file.is_dir() {
+                return Err(CliError::new(
+                    Kind::Usage,
+                    format!("--format names {}, which is a directory, not a file", file.display()),
+                ));
+            }
+            if !files.insert(file_identity(file)) {
                 return Err(CliError::new(
                     Kind::Usage,
                     format!("--format names the file {} twice", file.display()),
@@ -385,6 +390,41 @@ impl LintArgs {
             .map(|spec| (spec.format, spec.file.clone()))
             .collect())
     }
+}
+
+/// A key that is equal for two spellings of the same output file: the path made absolute with `.` and `..` resolved
+/// lexically, and its parent directory canonicalised when it exists, so `a/../x`, `./x` and a symlinked parent all
+/// name `x`. The parent is resolved as the OS would first; the lexical form is the fallback for a parent that does
+/// not exist (yet).
+fn file_identity(file: &Path) -> PathBuf {
+    let absolute = std::path::absolute(file).unwrap_or_else(|_| file.to_path_buf());
+    let canonical_parent = |path: &Path| {
+        let name = path.file_name()?;
+        let parent = path.parent()?.canonicalize().ok()?;
+        Some(parent.join(name))
+    };
+    canonical_parent(&absolute).unwrap_or_else(|| {
+        let lexical = lexical_normal(&absolute);
+        canonical_parent(&lexical).unwrap_or(lexical)
+    })
+}
+
+/// `path` with `.` dropped and each `..` removing the component before it, without asking the file system.
+fn lexical_normal(path: &Path) -> PathBuf {
+    let mut normal = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                // `..` above the root is the root; above the start of a relative path it stays.
+                if !normal.pop() && !normal.has_root() {
+                    normal.push(component);
+                }
+            }
+            other => normal.push(other),
+        }
+    }
+    normal
 }
 
 /// One `--format` value: a format, and the file its rendering goes to instead of stdout.
