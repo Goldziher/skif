@@ -137,6 +137,9 @@ pub(crate) enum Resolved {
     Builtin,
     /// A scheme the analysis does not follow (`data:`, `https:`, `virtual:`).
     Ignored,
+    /// A missing module a `.gitignore` lists, so generated before the code runs. Generated code may import any
+    /// source file of `dir` (and, when `recursive`, of the directories below it), so those files count as reached.
+    Generated { dir: PathBuf, recursive: bool },
     /// Nothing could be found.
     Unresolved,
 }
@@ -824,13 +827,38 @@ impl ModuleResolver {
                     [PathBuf::from(sibling), candidate.join(format!("index.{code}"))]
                 })
             });
-        if self.is_generated(&candidate)
-            || aliased.is_some_and(|mut paths| paths.any(|path| self.is_generated(&path)))
-            || implied.is_some_and(|mut paths| paths.any(|path| self.is_generated(&path)))
-        {
-            Resolved::Ignored
+        let generated = std::iter::once(candidate.clone())
+            .chain(aliased.into_iter().flatten())
+            .chain(implied.into_iter().flatten())
+            .find(|path| self.is_generated(path));
+        match generated {
+            Some(_) if kind == Kind::Style => Resolved::Ignored,
+            Some(file) => self.generated_scope(&candidate, &file),
+            None => Resolved::Unresolved,
+        }
+    }
+
+    /// The source files a generated module may import, from the path a specifier names (`named`) and the ignored
+    /// `file` it stands for. A directory that is ignored as a whole holds the generated code: its files. The ignored
+    /// index of a directory (`migrations/sqlite/index.ts`, generated from the migrations beside and below it): the
+    /// directory holding that directory, and everything below. Any other ignored file: the files beside it.
+    fn generated_scope(&self, named: &Path, file: &Path) -> Resolved {
+        let Some(dir) = file.parent() else {
+            return Resolved::Ignored;
+        };
+        let ignored_dir = self.ignores.iter().any(|(base, ignore)| {
+            dir.starts_with(base) && dir != base && ignore.matched_path_or_any_parents(dir, true).is_ignore()
+        });
+        let (dir, recursive) = if ignored_dir {
+            (dir, true)
+        } else if dir == named {
+            (named.parent().unwrap_or(named), true)
         } else {
-            Resolved::Unresolved
+            (dir, false)
+        };
+        Resolved::Generated {
+            dir: dir.to_path_buf(),
+            recursive,
         }
     }
 
@@ -1536,9 +1564,22 @@ mod tests {
             ("src/a.ts", ""),
         ]);
         let importer = Path::new("/ws/src/a.ts");
-        assert_eq!(r.resolve(importer, "../generated/x").target, Resolved::Ignored);
-        assert_eq!(r.resolve(importer, "./schema.gen.js").target, Resolved::Ignored);
-        assert_eq!(r.resolve(importer, "./schema.gen.ts").target, Resolved::Ignored);
+        let generated = |dir: &str, recursive| Resolved::Generated {
+            dir: PathBuf::from(dir),
+            recursive,
+        };
+        assert_eq!(
+            r.resolve(importer, "../generated/x").target,
+            generated("/ws/generated", true)
+        );
+        assert_eq!(
+            r.resolve(importer, "./schema.gen.js").target,
+            generated("/ws/src", false)
+        );
+        assert_eq!(
+            r.resolve(importer, "./schema.gen.ts").target,
+            generated("/ws/src", false)
+        );
         assert_eq!(r.resolve(importer, "./schema.js").target, Resolved::Unresolved);
     }
 
@@ -1555,8 +1596,21 @@ src/schema.gen.ts
             ("src/a.ts", ""),
         ]);
         let importer = Path::new("/ws/src/a.ts");
-        assert_eq!(r.resolve(importer, "./migrations/sqlite").target, Resolved::Ignored);
-        assert_eq!(r.resolve(importer, "./schema.gen").target, Resolved::Ignored);
+        // The index generated from the migrations of `migrations/` may import any of them.
+        assert_eq!(
+            r.resolve(importer, "./migrations/sqlite").target,
+            Resolved::Generated {
+                dir: PathBuf::from("/ws/src/migrations"),
+                recursive: true
+            }
+        );
+        assert_eq!(
+            r.resolve(importer, "./schema.gen").target,
+            Resolved::Generated {
+                dir: PathBuf::from("/ws/src"),
+                recursive: false
+            }
+        );
         assert_eq!(
             r.resolve(importer, "./migrations/postgres").target,
             Resolved::Unresolved
@@ -2124,7 +2178,13 @@ src/schema.gen.ts
             inputs,
         );
         let importer = Path::new("/ws/src/main.ts");
-        assert_eq!(r.resolve(importer, "./consts/index").target, Resolved::Ignored);
+        assert_eq!(
+            r.resolve(importer, "./consts/index").target,
+            Resolved::Generated {
+                dir: PathBuf::from("/ws/src/consts"),
+                recursive: true
+            }
+        );
         assert_eq!(r.resolve(importer, "@gen/x").target, Resolved::Ignored);
         assert_eq!(r.resolve(importer, "./other/index").target, Resolved::Unresolved);
     }

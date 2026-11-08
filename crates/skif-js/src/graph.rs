@@ -35,7 +35,8 @@ impl ModuleId {
 pub enum Target {
     /// A module of the graph.
     Module(ModuleId),
-    /// The modules matched by an `import.meta.glob` pattern.
+    /// The modules matched by an `import.meta.glob` pattern, or that a generated module (a missing file a
+    /// `.gitignore` lists) may import.
     Modules(Vec<ModuleId>),
     /// A package that is not part of the graph, by name.
     External(String),
@@ -238,6 +239,31 @@ fn expand_glob(importer: &Path, pattern: &str, inputs: &Inputs<'_>) -> Vec<PathB
         .collect()
 }
 
+/// The source files a generated module in `dir` may import: those of the importer's package in `dir` (or below it,
+/// when `recursive`), except the importer. They are read in full, as for a glob, since what the generated code takes
+/// from them is not known.
+fn generated_sources(importer: &Path, dir: &Path, recursive: bool, inputs: &Inputs<'_>) -> Vec<PathBuf> {
+    let owner = inputs
+        .candidates
+        .iter()
+        .find(|candidate| candidate.abs == importer)
+        .map(|candidate| candidate.owner);
+    inputs
+        .candidates
+        .iter()
+        .filter(|candidate| {
+            candidate.abs != importer
+                && owner.is_none_or(|owner| candidate.owner == owner)
+                && if recursive {
+                    candidate.abs.starts_with(dir)
+                } else {
+                    candidate.abs.parent() == Some(dir)
+                }
+        })
+        .map(|candidate| candidate.abs.clone())
+        .collect()
+}
+
 static READ_TIME: Tally = Tally::new();
 static PARSE_TIME: Tally = Tally::new();
 static RESOLVE_TIME: Tally = Tally::new();
@@ -326,6 +352,9 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
                 Resolved::External(name) => RawTarget::External(name),
                 Resolved::Builtin => RawTarget::Builtin,
                 Resolved::Ignored => RawTarget::Ignored,
+                Resolved::Generated { dir, recursive } => {
+                    RawTarget::Files(generated_sources(path, &dir, recursive, inputs))
+                }
                 // Specifiers found by text scan may name directories or assets; they are followed when they resolve.
                 Resolved::Unresolved if index >= parsed_imports => RawTarget::Asset,
                 Resolved::Unresolved => RawTarget::Unresolved,

@@ -56,5 +56,28 @@ expression: diagnostics
       }
     },
     "package": "plain"
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`packages/db/src/orphan.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "packages/db/src/orphan.ts"
+    },
+    "package": "db",
+    "fixes": [
+      {
+        "title": "Delete `packages/db/src/orphan.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "packages/db/src/orphan.ts"
+            }
+          }
+        ]
+      }
+    ]
   }
 ]
