@@ -162,16 +162,19 @@ not answer for a package (the updates it found are still reported, and written w
 or the run could not start.
 
 **Network.** Linting, `--fix` and every other command never open a network connection. `skif update` requests
-`<registry>/<name>` (`@scope%2fname` for a scoped name; a name npm would not accept is not requested and is noted in the
-report) once per dependency name, with up to `[update] max-concurrent-requests` (default 12) at a time, a 10 second
+`<registry>/<name>` (`@scope%2fname` for a scoped name; a name npm would not accept, such as one over 214 characters
+or a yarn resolution path like `**/foo` read with `override-reading = "syncpack"`, is not requested and is noted in the
+report without changing the exit code) once per dependency name, with up to `[update] max-concurrent-requests` (default 12) at a time, a 10 second
 connect timeout and a 60 second limit per request. The registry is `npm_config_registry`, else `registry` in the
 project's `.npmrc`, else in the user's `.npmrc` (`NPM_CONFIG_USERCONFIG` or `~/.npmrc`), else
 `https://registry.npmjs.org/`; `@scope:registry` entries choose a registry per scope, and `@jsr/*` packages go to
 `https://npm.jsr.io/` unless `@jsr:registry` says otherwise. A `//host/path/:_authToken` entry (with `${VAR}` expanded
 from the environment) is sent as a bearer token to that registry only, and is never printed. In the project's `.npmrc`,
-which anyone who can change the repository controls, `${VAR}` in a token is expanded only for `registry.npmjs.org` or a
-host that the user's `.npmrc` or `npm_config_registry` also names; any other such token is ignored with a warning naming
-the host, so a changed `.npmrc` cannot send a CI secret elsewhere. A token sent to an `http://` registry draws a
+which anyone who can change the repository controls, `${VAR}` is expanded only in a token, and only for
+`registry.npmjs.org` or a host that the user's `.npmrc` or `npm_config_registry` also names, when that file does not set
+an `http://` registry for the host; any other such token, and any `registry`, `@scope:registry` or other line of it
+that contains `${`, is ignored with a warning naming the host or key, so a changed `.npmrc` cannot send a CI secret
+elsewhere, in a URL or over plain http. The user's `.npmrc` expands `${VAR}` everywhere. A token sent to an `http://` registry draws a
 warning, and a redirect never carries a token. Credentials, a query or a fragment written in a registry URL are dropped;
 `_auth`, usernames and passwords, client certificates and `strict-ssl` are not read. Certificates are checked against
 the operating system's trust store (`SSL_CERT_FILE` and `SSL_CERT_DIR` replace it), and `HTTPS_PROXY`, `ALL_PROXY` and

