@@ -282,6 +282,8 @@ pub(crate) struct ModuleResolver {
     workspace_name: Option<String>,
     /// The `.gitignore` files of the root and of the packages, with the directory each applies to.
     ignores: Vec<(PathBuf, Gitignore)>,
+    /// The directories of the root and of every package, deepest first.
+    package_dirs: Vec<PathBuf>,
     members: BTreeMap<String, Member>,
     scopes: Vec<AliasScope>,
     /// The position in `scopes` of the scope of each package directory.
@@ -707,6 +709,13 @@ impl ModuleResolver {
             .iter()
             .filter_map(|dir| read_gitignore(fs.as_ref(), dir))
             .collect();
+        let mut package_dirs = ignore_dirs;
+        package_dirs.sort_by(|a, b| {
+            b.components()
+                .count()
+                .cmp(&a.components().count())
+                .then_with(|| a.cmp(b))
+        });
         let tsconfigs = TsConfigs::new(
             Arc::clone(&fs),
             workspace.root.clone(),
@@ -723,6 +732,7 @@ impl ModuleResolver {
             style,
             workspace_name: bazel_workspace_name(fs.as_ref(), &workspace.root),
             ignores,
+            package_dirs,
             fs,
             root: workspace.root.clone(),
             members,
@@ -866,7 +876,7 @@ impl ModuleResolver {
             .find(|path| self.is_generated(path));
         match generated {
             Some(_) if kind == Kind::Style => Resolved::Ignored,
-            Some(file) => self.generated_scope(&candidate, &file),
+            Some(file) => self.generated_scope(importer, &candidate, &file),
             None => Resolved::Unresolved,
         }
     }
@@ -875,7 +885,11 @@ impl ModuleResolver {
     /// `file` it stands for. A directory that is ignored as a whole holds the generated code: its files. The ignored
     /// index of a directory (`migrations/sqlite/index.ts`, generated from the migrations beside and below it): the
     /// directory holding that directory, and everything below. Any other ignored file: the files beside it.
-    fn generated_scope(&self, named: &Path, file: &Path) -> Resolved {
+    ///
+    /// The files credited must lie strictly inside the importer's package and below its `src`: a scope that would be
+    /// the package directory or its `src` (an ignored `src/generated/index.ts`, a `src/schema.gen.ts`) would count most
+    /// of the package as reached and hide its unused files, so such a module is only not reported.
+    fn generated_scope(&self, importer: &Path, named: &Path, file: &Path) -> Resolved {
         let Some(dir) = file.parent() else {
             return Resolved::Ignored;
         };
@@ -889,6 +903,14 @@ impl ModuleResolver {
         } else {
             (dir, false)
         };
+        let package = self
+            .package_dirs
+            .iter()
+            .find(|package| importer.starts_with(package))
+            .map_or(self.root.as_path(), PathBuf::as_path);
+        if !dir.starts_with(package) || dir == package || dir == package.join("src") {
+            return Resolved::Ignored;
+        }
         Resolved::Generated {
             dir: dir.to_path_buf(),
             recursive,
@@ -1605,14 +1627,9 @@ mod tests {
             r.resolve(importer, "../generated/x").target,
             generated("/ws/generated", true)
         );
-        assert_eq!(
-            r.resolve(importer, "./schema.gen.js").target,
-            generated("/ws/src", false)
-        );
-        assert_eq!(
-            r.resolve(importer, "./schema.gen.ts").target,
-            generated("/ws/src", false)
-        );
+        // The files beside a generated module in `src` would be most of the package: none are credited.
+        assert_eq!(r.resolve(importer, "./schema.gen.js").target, Resolved::Ignored);
+        assert_eq!(r.resolve(importer, "./schema.gen.ts").target, Resolved::Ignored);
         assert_eq!(r.resolve(importer, "./schema.js").target, Resolved::Unresolved);
     }
 
@@ -1624,9 +1641,13 @@ mod tests {
                 ".gitignore",
                 "src/migrations/sqlite/index.ts
 src/schema.gen.ts
+src/api/client.gen.ts
+src/generated/index.ts
+generated/index.ts
 ",
             ),
             ("src/a.ts", ""),
+            ("main.ts", ""),
         ]);
         let importer = Path::new("/ws/src/a.ts");
         // The index generated from the migrations of `migrations/` may import any of them.
@@ -1638,12 +1659,20 @@ src/schema.gen.ts
             }
         );
         assert_eq!(
-            r.resolve(importer, "./schema.gen").target,
+            r.resolve(importer, "./api/client.gen").target,
             Resolved::Generated {
-                dir: PathBuf::from("/ws/src"),
+                dir: PathBuf::from("/ws/src/api"),
                 recursive: false
             }
         );
+        // A scope that would be the whole of `src` or of the package credits nothing.
+        assert_eq!(r.resolve(importer, "./schema.gen").target, Resolved::Ignored);
+        assert_eq!(r.resolve(importer, "./generated").target, Resolved::Ignored);
+        assert_eq!(
+            r.resolve(Path::new("/ws/main.ts"), "./generated").target,
+            Resolved::Ignored
+        );
+        assert_eq!(r.resolve(importer, "../generated").target, Resolved::Ignored);
         assert_eq!(
             r.resolve(importer, "./migrations/postgres").target,
             Resolved::Unresolved
