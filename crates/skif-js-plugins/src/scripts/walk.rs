@@ -6,7 +6,7 @@ use std::ops::Range;
 use super::args::{self, Parsed, Val};
 use super::tables::{self, Files, Runner, Wrapper};
 use super::tokenize::{Segment, Word, is_assignment_text, tokenize};
-use super::{BinaryUse, BinaryVia, DepRef, FileRef, ScriptContext, ScriptInfo, is_ignored_binary};
+use super::{BinaryUse, BinaryVia, DepRef, FileRef, FileTree, ScriptContext, ScriptInfo, is_ignored_binary};
 
 const MAX_DEPTH: usize = 32;
 
@@ -278,11 +278,11 @@ impl<'c> Walker<'c> {
     }
 
     fn file(&mut self, path: &str, span: Range<usize>) {
-        self.file_ref(path, span, false);
+        self.file_ref(path, span, None);
     }
 
-    /// A file, or with `tree` a path a test runner reads, where a directory means every file below it.
-    fn file_ref(&mut self, path: &str, span: Range<usize>, tree: bool) {
+    /// A file, or with `tree` a path a test runner reads, where a directory means the files the runner reads in it.
+    fn file_ref(&mut self, path: &str, span: Range<usize>, tree: Option<FileTree>) {
         if path.is_empty() || path.starts_with('-') || path.contains('$') {
             return;
         }
@@ -1022,10 +1022,11 @@ impl<'c> Walker<'c> {
                 }
             }
             Files::ScriptExt | Files::All => {
+                let tree = matches!(runner.files, Files::All).then(|| test_tree(&parsed));
                 for &i in &parsed.positionals {
                     let word = &rest[i];
-                    if matches!(runner.files, Files::All) {
-                        self.file_ref(&word.text, frame.span(&word.span), true);
+                    if let Some(tree) = &tree {
+                        self.file_ref(&word.text, frame.span(&word.span), Some(tree.clone()));
                     } else if tables::has_script_ext(&word.text) {
                         self.file(&word.text, frame.span(&word.span));
                     }
@@ -1056,6 +1057,27 @@ impl<'c> Walker<'c> {
                 );
             }
         }
+    }
+}
+
+/// How mocha reads a directory argument: only with `--recursive` below its direct children, and only files with an
+/// `--extension` value (comma-separated or repeated), `js`, `cjs` and `mjs` by default.
+fn test_tree(parsed: &Parsed) -> FileTree {
+    let mut extensions: Vec<String> = parsed
+        .values(&["extension"])
+        .flat_map(|value| value.text.split(','))
+        .map(|extension| extension.trim().trim_start_matches('.').to_owned())
+        .filter(|extension| !extension.is_empty())
+        .collect();
+    if extensions.is_empty() {
+        extensions = tables::TEST_TREE_EXTENSIONS
+            .iter()
+            .map(|&extension| extension.to_owned())
+            .collect();
+    }
+    FileTree {
+        recursive: parsed.has(&["recursive"]),
+        extensions,
     }
 }
 

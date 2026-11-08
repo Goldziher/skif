@@ -164,41 +164,80 @@ fn owned_by<'a>(owned: &'a [&'a Candidate], dir: &'a Path) -> impl Iterator<Item
 }
 
 /// The files the package's scripts run. A path inside a build output directory (`outDir` of a `tsconfig`) stands for
-/// its source below the matching `rootDir`, and a directory a test runner reads (`mocha build/compiled/test`) for
-/// every code file below it.
+/// its source below the matching `rootDir`, even when the build output is on disk, and a directory a test runner reads
+/// (`mocha build/compiled/test`) for the code files the runner reads in it.
 fn script_files(fs: &dyn FileSystem, package_setup: &PackageSetup, mine: &[&Candidate]) -> Vec<PathBuf> {
     let dir = &package_setup.dir;
     let mut found = Vec::new();
     for file in &package_setup.scripts.files {
         let path = join_normalized(dir, file);
-        if is_code_file(&path) && fs.is_file(&path) {
-            found.push(path);
-            continue;
-        }
-        let Some(rel) = relative(&path, dir) else {
-            continue;
-        };
-        let tree = package_setup.scripts.file_trees.contains(file);
-        let sources = source_paths(package_setup, &rel);
+        let rel = relative(&path, dir);
+        let sources = rel
+            .as_deref()
+            .map(|rel| source_paths(package_setup, rel))
+            .unwrap_or_default();
         let mapped = sources
             .iter()
             .filter_map(|source| map_to_source(fs, dir, source))
             .find(|source| is_code_file(source));
         if let Some(source) = mapped {
             found.push(source);
-        } else if tree {
-            let directories = if sources.is_empty() { vec![rel] } else { sources };
-            for directory in directories.iter().filter(|directory| !directory.is_empty()) {
-                let prefix = format!("{directory}/");
-                found.extend(
-                    owned_by(mine, dir)
-                        .filter(|(candidate, rel)| rel.starts_with(&prefix) && is_code_file(&candidate.abs))
-                        .map(|(candidate, _)| candidate.abs.clone()),
-                );
-            }
+            continue;
+        }
+        if is_code_file(&path) && fs.is_file(&path) {
+            found.push(path);
+            continue;
+        }
+        let (Some(rel), Some(tree)) = (rel, package_setup.scripts.file_trees.get(file)) else {
+            continue;
+        };
+        let built = !sources.is_empty();
+        let extensions = tree_extensions(&tree.extensions, built);
+        let directories = if built { sources } else { vec![rel] };
+        for directory in directories.iter().filter(|directory| !directory.is_empty()) {
+            let prefix = format!("{directory}/");
+            found.extend(
+                owned_by(mine, dir)
+                    .filter(|(candidate, rel)| {
+                        rel.strip_prefix(&prefix)
+                            .is_some_and(|rest| tree.recursive || !rest.contains('/'))
+                            && is_code_file(&candidate.abs)
+                            && has_extension(&candidate.abs, &extensions)
+                    })
+                    .map(|(candidate, _)| candidate.abs.clone()),
+            );
         }
     }
     found
+}
+
+/// The extensions a test runner reads from a directory. For a build output directory its source directory is read
+/// instead, so each output extension also stands for the TypeScript sources that compile to it.
+fn tree_extensions(extensions: &[String], built: bool) -> Vec<String> {
+    let mut all: Vec<String> = extensions
+        .iter()
+        .map(|extension| extension.to_ascii_lowercase())
+        .collect();
+    if built {
+        for extension in extensions {
+            let sources: &[&str] = match extension.to_ascii_lowercase().as_str() {
+                "js" => &["ts", "tsx"],
+                "jsx" => &["tsx"],
+                "mjs" => &["mts"],
+                "cjs" => &["cts"],
+                _ => &[],
+            };
+            all.extend(sources.iter().map(|&source| source.to_owned()));
+        }
+    }
+    all
+}
+
+/// Whether `path` ends in one of `extensions` (lowercase, without the dot).
+fn has_extension(path: &Path, extensions: &[String]) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extensions.contains(&extension.to_ascii_lowercase()))
 }
 
 /// The source file behind a published path: through the package's build directories first, then by the `dist` to

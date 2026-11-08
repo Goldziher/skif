@@ -1,8 +1,8 @@
 //! What the `scripts` of a package run.
 
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use serde_json::Value;
-use skif_js_plugins::scripts::{ScriptContext, is_ignored_binary, parse_script};
+use skif_js_plugins::scripts::{FileTree, ScriptContext, is_ignored_binary, parse_script};
 use skif_workspace::Package;
 
 /// A binary a script runs.
@@ -33,8 +33,8 @@ pub(crate) struct ScriptFacts {
     pub package_managers: Vec<String>,
     /// Files the scripts run, relative to the package directory.
     pub files: Vec<String>,
-    /// The subset of `files` a test runner reads, where a directory stands for every file below it.
-    pub file_trees: Vec<String>,
+    /// How a test runner reads the `files` it is given, where a directory stands for the files the runner reads in it.
+    pub file_trees: IndexMap<String, FileTree>,
     pub dependencies: Vec<String>,
 }
 
@@ -42,6 +42,21 @@ pub(crate) struct ScriptFacts {
 /// whose values are prose, not commands.
 fn is_comment_key(name: &str) -> bool {
     name.starts_with('#') || name.starts_with("//")
+}
+
+/// Records how a test runner reads `path`; when several scripts pass it, the widest reading wins: recursive if any
+/// is, and every extension any of them reads.
+fn merge_tree(trees: &mut IndexMap<String, FileTree>, path: &str, tree: FileTree) {
+    let Some(known) = trees.get_mut(path) else {
+        trees.insert(path.to_owned(), tree);
+        return;
+    };
+    known.recursive |= tree.recursive;
+    for extension in tree.extensions {
+        if !known.extensions.contains(&extension) {
+            known.extensions.push(extension);
+        }
+    }
 }
 
 pub(crate) fn analyze(package: &Package) -> ScriptFacts {
@@ -61,7 +76,7 @@ pub(crate) fn analyze(package: &Package) -> ScriptFacts {
     let mut forwarded = IndexSet::new();
     let mut package_managers = IndexSet::new();
     let mut files = IndexSet::new();
-    let mut file_trees = IndexSet::new();
+    let mut file_trees: IndexMap<String, FileTree> = IndexMap::new();
     let mut dependencies = IndexSet::new();
     for (name, body) in commands {
         let info = parse_script(body, &context.clone().with_current_script(name));
@@ -93,8 +108,8 @@ pub(crate) fn analyze(package: &Package) -> ScriptFacts {
         }
         package_managers.extend(info.package_managers);
         for file in info.files {
-            if file.tree {
-                file_trees.insert(file.path.clone());
+            if let Some(tree) = file.tree {
+                merge_tree(&mut file_trees, &file.path, tree);
             }
             files.insert(file.path);
         }
@@ -111,7 +126,7 @@ pub(crate) fn analyze(package: &Package) -> ScriptFacts {
         forwarded: forwarded.into_iter().collect(),
         package_managers: package_managers.into_iter().collect(),
         files: files.into_iter().collect(),
-        file_trees: file_trees.into_iter().collect(),
+        file_trees,
         dependencies: dependencies.into_iter().collect(),
     }
 }

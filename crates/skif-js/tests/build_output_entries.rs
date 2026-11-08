@@ -113,3 +113,108 @@ fn published_paths_map_through_an_inferred_root_dir() {
         "{diagnostics:#?}"
     );
 }
+
+/// A package that compiles `src` and `test` to `build` and runs mocha on the compiled test directory, with `extra`
+/// mocha flags before it.
+fn compiled_mocha(flags: &str) -> Vec<Diagnostic> {
+    let manifest = format!(
+        r#"{{"name":"lib","version":"1.0.0","private":true,"packageManager":"pnpm@9.0.0",
+        "main":"./build/src/index.js",
+        "scripts":{{"test":"tsc && mocha {flags} ./build/test"}},
+        "devDependencies":{{"mocha":"10.2.0","typescript":"5.6.0"}}}}"#
+    );
+    lint_files(&[
+        ("package.json", &manifest),
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"outDir":"build"},"include":["src","test"]}"#,
+        ),
+        ("src/index.ts", "export const value = 1;\n"),
+        (
+            "test/index.test.ts",
+            "import { value } from '../src/index';\nexport const checked = value;\n",
+        ),
+        ("test/helpers/unused.ts", "export const helper = 1;\n"),
+    ])
+}
+
+/// Without `--recursive` mocha reads only the files directly in a directory it is given.
+#[test]
+fn a_test_directory_without_recursive_reads_only_its_direct_children() {
+    let diagnostics = compiled_mocha("");
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["test/helpers/unused.ts: test/helpers/unused.ts"],
+        "{diagnostics:#?}"
+    );
+}
+
+/// With `--recursive` mocha reads every file below a directory it is given.
+#[test]
+fn a_test_directory_with_recursive_reads_every_file_below_it() {
+    let diagnostics = compiled_mocha("--recursive");
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+}
+
+/// A directory that is not build output is read with mocha's `--extension` values, `js`, `cjs` and `mjs` by default.
+#[test]
+fn a_source_test_directory_reads_the_given_extensions() {
+    let lint = |flags: &str| {
+        let manifest = format!(
+            r#"{{"name":"lib","version":"1.0.0","private":true,"packageManager":"pnpm@9.0.0",
+            "main":"./src/index.ts",
+            "scripts":{{"test":"mocha --require ts-node/register {flags} test"}},
+            "devDependencies":{{"mocha":"10.2.0","ts-node":"10.9.0","typescript":"5.6.0"}}}}"#
+        );
+        let diagnostics = lint_files(&[
+            ("package.json", &manifest),
+            ("src/index.ts", "export const value = 1;\n"),
+            (
+                "test/index.test.ts",
+                "import { value } from '../src/index';\nexport const checked = value;\n",
+            ),
+            ("test/helpers/unused.ts", "export const helper = 1;\n"),
+        ]);
+        found(&diagnostics, "unused-files")
+    };
+    assert_eq!(
+        lint(""),
+        [
+            "test/helpers/unused.ts: test/helpers/unused.ts",
+            "test/index.test.ts: test/index.test.ts"
+        ]
+    );
+    assert_eq!(
+        lint("--extension ts"),
+        ["test/helpers/unused.ts: test/helpers/unused.ts"]
+    );
+    assert_eq!(lint("--extension ts --recursive"), Vec::<String>::new());
+}
+
+/// A script that runs a build artefact stands for its source even when the (ignored) artefact is on disk.
+#[test]
+fn a_built_script_on_disk_does_not_shadow_its_source() {
+    let manifest = r#"{"name":"cli","version":"1.0.0","private":true,"packageManager":"pnpm@9.0.0",
+        "scripts":{"start":"node build/src/serve.js"},"devDependencies":{"typescript":"5.6.0"}}"#;
+    let diagnostics = lint_files(&[
+        ("package.json", manifest),
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"outDir":"build"},"include":["src","test"]}"#,
+        ),
+        ("src/serve.ts", "import { run } from './run';\nrun();\n"),
+        ("src/run.ts", "export const run = () => 1;\n"),
+        ("src/orphan.ts", "export const orphan = 1;\n"),
+        (".gitignore", "build\n"),
+        ("build/src/serve.js", "console.log(1);\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["src/orphan.ts: src/orphan.ts"],
+        "{diagnostics:#?}"
+    );
+}
