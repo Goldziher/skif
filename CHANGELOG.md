@@ -219,13 +219,17 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   a known string or array, and object pattern parameters with defaults (`({ pinCjs = [] } = {}) => …`). With an unknown
   test, two object branches give the keys both have, a key only one sets being unknown, instead of an unknown spread.
   An `if (test) return a;` before a function's last `return` is followed the same way, instead of being skipped for
-  the last `return`.
+  the last `return`. A `const` or `let` declared in a block does not replace a binding outside it, and a local or
+  top-level constant written by code that may or may not run is unknown after it instead of keeping its earlier value.
   A shared vitest config that adds `resolve` only when `pinCjs` is given no longer leaves its users' entry files
   unknown ([#23](https://github.com/Goldziher/skif/issues/23)).
 - The source files a generated module may import (a missing file a `.gitignore` lists, such as an index written by a
   build step) are reached and their exports count as used: those beside it, or for the ignored index of a directory,
-  those of the directory holding it and below. n8n's migrations, listed only by a generated
-  `migrations/sqlite/index.ts`, are no longer unused ([#23](https://github.com/Goldziher/skif/issues/23)).
+  those of the directory holding it and below, never the whole package or its `src`. n8n's migrations, listed only by a
+  generated `migrations/sqlite/index.ts`, are no longer unused ([#23](https://github.com/Goldziher/skif/issues/23)).
+- The vitest and jest plugins mark their entries incomplete when a key they read files from (`setupFiles`, `include`,
+  `testMatch`, `projects`) is unknown below the top level, instead of reading it as empty
+  ([#23](https://github.com/Goldziher/skif/issues/23)).
 - A computed `import()` such as `` import(`./reporters/${name}.js`) `` also reaches the `.ts` and `.tsx` sources of the
   `.js` files its glob names ([#23](https://github.com/Goldziher/skif/issues/23)).
 - Without an install, the peer dependencies and binaries of a workspace package are read from its manifest, so a
