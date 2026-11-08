@@ -253,19 +253,27 @@ pub fn prefixed<'a>(report: &'a Report, prefix: &Path) -> Cow<'a, Report> {
 
 /// All roots as one report: diagnostics and incomplete packages merged in the usual deterministic order, package
 /// counts summed.
-pub fn aggregate(reports: &[Cow<'_, Report>]) -> Report {
-    Report::new(
-        reports
-            .iter()
-            .flat_map(|report| report.diagnostics.iter().cloned())
-            .collect(),
-        reports.iter().map(|report| report.summary.packages).sum(),
-    )
-    .with_incomplete_packages(
-        reports
-            .iter()
-            .flat_map(|report| report.incomplete_packages.iter().cloned())
-            .collect(),
+///
+/// A single root's report is borrowed: [`Report::new`] already put it in that order, and copying thousands of
+/// diagnostics only to sort them again is a measurable part of a large run.
+pub fn aggregate<'a>(reports: &'a [Cow<'_, Report>]) -> Cow<'a, Report> {
+    if let [report] = reports {
+        return Cow::Borrowed(report);
+    }
+    Cow::Owned(
+        Report::new(
+            reports
+                .iter()
+                .flat_map(|report| report.diagnostics.iter().cloned())
+                .collect(),
+            reports.iter().map(|report| report.summary.packages).sum(),
+        )
+        .with_incomplete_packages(
+            reports
+                .iter()
+                .flat_map(|report| report.incomplete_packages.iter().cloned())
+                .collect(),
+        ),
     )
 }
 

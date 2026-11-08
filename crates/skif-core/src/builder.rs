@@ -83,12 +83,14 @@ impl DiagnosticBuilder {
 
     /// Adds a secondary location.
     pub fn related(mut self, related: Related) -> Self {
+        reserve_first(&mut self.inner.related);
         self.inner.related.push(related);
         self
     }
 
     /// Adds a fix.
     pub fn fix(mut self, fix: Fix) -> Self {
+        reserve_first(&mut self.inner.fixes);
         self.inner.fixes.push(fix);
         self
     }
@@ -97,6 +99,14 @@ impl DiagnosticBuilder {
     #[must_use]
     pub fn build(self) -> Diagnostic {
         self.inner
+    }
+}
+
+/// Room for exactly one element in an empty list: most diagnostics carry one related location and one fix, and the
+/// default first growth (four elements) multiplied the memory of a run with tens of thousands of diagnostics.
+fn reserve_first<T>(list: &mut Vec<T>) {
+    if list.capacity() == 0 {
+        list.reserve_exact(1);
     }
 }
 
