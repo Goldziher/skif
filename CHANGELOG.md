@@ -101,8 +101,8 @@ All notable changes to this project are documented here. The format follows
   (`<a>http://x</a>`, `/:\/\//`) no longer hides a closing bracket and makes an `export` paragraph swallow the rest of
   the document ([#38](https://github.com/Goldziher/skif/issues/38)).
 - Inline code in `.mdx` prose follows CommonMark more closely: a backslash-escaped backtick opens no code span, an
-  unpaired backtick does not pair with one past a blank line, and a template literal in a `{}` expression is not code,
-  so the components and members they would have hidden count as used
+  unpaired backtick does not pair with one past a blank line, a template literal in a `{}` expression is not code
+  (nor one nested in its `${}`), and a stray `{` in prose does not reach past its paragraph, so the components and members they would have hidden count as used
   ([#38](https://github.com/Goldziher/skif/issues/38)).
 - Stencil's styles per mode (`styleUrls: { ios: 'a.ios.css', md: ['a.md.css'] }`) are followed like a `styleUrls`
   array, so the packages those stylesheets import are no longer unused
