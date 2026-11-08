@@ -78,8 +78,10 @@ All notable changes to this project are documented here. The format follows
   `[update] minimum-release-age` (else pnpm's `minimumReleaseAge`, else one day; a version without a publish time is
   then not proposed) and `[[update-groups]]`, and reports each instance with syncpack's `DiffersToNpmRegistry` state.
   The library plans updates through a `Registry` trait the host implements (`skif::update`, feature `update`).
-  `skif migrate` translates syncpack's `updateGroups`, `minimumReleaseAge` and `maxConcurrentRequests`. `--interactive`
-  is not implemented.
+  `skif migrate` translates syncpack's `updateGroups`, `minimumReleaseAge` and `maxConcurrentRequests`.
+- `skif update --interactive`: syncpack's interactive update picker. A terminal list shows each dependency once per
+  current and target specifier, with the instances it moves, and only the chosen updates are written. It needs a
+  terminal on stdin and stdout and cannot be combined with `--check` ([#34](https://github.com/Goldziher/skif/issues/34)).
 - knip's run-time filters on the lint command ([#36](https://github.com/Goldziher/skif/issues/36)):
   - `--workspace <NAME|DIR>` (`-W`) reports only the findings of the selected workspace packages; findings of no
     package belong to the root.
