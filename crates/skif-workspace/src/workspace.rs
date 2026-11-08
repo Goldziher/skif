@@ -311,15 +311,6 @@ impl Workspace {
         } else {
             None
         };
-        let lerna_path = root.join(lerna::FILE);
-        let lerna = if has_root_manifest && fs.is_file(&lerna_path) {
-            let text = fs
-                .read_to_string(&lerna_path)
-                .map_err(|error| io_error(&lerna_path, error))?;
-            Some(lerna::parse(text)?)
-        } else {
-            None
-        };
 
         let (pnpm_workspace, pnpm_config) = if fs.is_file(&yaml_path) {
             let text = fs
@@ -340,6 +331,19 @@ impl Workspace {
             (None, None)
         };
 
+        let from_json = json_patterns(&root_package);
+        // `lerna.json` is the last resort: it is read only when nothing else declares members, and then an unreadable
+        // or invalid one declares nothing, as in root discovery, so a stale file never fails a workspace it does not
+        // define.
+        let others_declare = from_json.is_some()
+            || pnpm_config.as_ref().is_some_and(|parsed| parsed.packages.is_some())
+            || rush.is_some();
+        let lerna_path = root.join(lerna::FILE);
+        let lerna = (has_root_manifest && !others_declare)
+            .then(|| fs.read_to_string(&lerna_path).ok())
+            .flatten()
+            .and_then(|text| lerna::parse(lerna_path, text).ok());
+
         let package_manager = detect::detect(
             fs,
             &root,
@@ -354,7 +358,6 @@ impl Workspace {
         let yarn_classic = package_manager == Some(PackageManager::Yarn)
             && detect::is_yarn_classic(fs, &root, &root_package.manifest.value);
 
-        let from_json = json_patterns(&root_package);
         let from_yaml = |yaml: &YamlSource, packages: &[String]| {
             let spans = pnpm::pattern_spans(&yaml.source, &yaml.line_index);
             Declared {
