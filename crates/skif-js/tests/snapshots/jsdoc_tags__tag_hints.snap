@@ -1,0 +1,7 @@
+---
+source: crates/skif-js/tests/jsdoc_tags.rs
+expression: "report(&lint(&files,\n\"[js]\\nproduction = true\\n[rules]\\nunused-exports = { ignore-tags = [\\\"lintignore\\\"] }\\n\"))"
+---
+stale-js-config src/lib.ts: `Members.B` is used, so its `@lintignore` tag exempts nothing
+stale-js-config src/lib.ts: `internalUsed` is used, so its `@internal` tag exempts nothing
+stale-js-config src/lib.ts: `used` is used, so its `@lintignore` tag exempts nothing

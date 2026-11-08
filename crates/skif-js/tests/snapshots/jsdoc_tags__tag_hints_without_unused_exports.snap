@@ -1,0 +1,5 @@
+---
+source: crates/skif-js/tests/jsdoc_tags.rs
+expression: "report(&lint(&files,\n\"[js]\\nproduction = true\\n[rules]\\nunused-exports = { level = \\\"off\\\", ignore-tags = [\\\"lintignore\\\"] }\\n\"))"
+---
+

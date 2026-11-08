@@ -6,7 +6,8 @@
     "dependency": "lib",
     "detail": "DiffersToPin",
     "path": "packages/app/package.json",
-    "fixable": true
+    "fixable": true,
+    "safe": true
   },
   {
     "rule": "policy-conflict",

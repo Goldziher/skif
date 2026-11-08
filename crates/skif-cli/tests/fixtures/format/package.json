@@ -1,0 +1,6 @@
+{
+  "name": "format-root",
+  "packageManager": "pnpm@10.0.0",
+  "private": true,
+  "workspaces": ["packages/*"]
+}

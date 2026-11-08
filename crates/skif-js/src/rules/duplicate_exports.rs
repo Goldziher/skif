@@ -21,7 +21,7 @@ pub static META: RuleMeta = RuleMeta::new(
 /// another exported binding (`export const b = a` with `a` exported too).
 ///
 /// Entry modules are skipped (framework route files alias one handler as `GET` and `POST`). Export clauses
-/// (`export { h as GET }`) are deliberate aliases and never count.
+/// (`export { h as GET }`) and exports tagged `@alias` are deliberate aliases and never count.
 pub struct DuplicateExports;
 
 impl JsRule for DuplicateExports {
@@ -36,7 +36,10 @@ impl JsRule for DuplicateExports {
             }
             let mut by_binding: BTreeMap<&str, Vec<&skif_js_syntax::Export>> = BTreeMap::new();
             for export in &module.info.exports {
-                if matches!(export.kind, ExportKind::ReExport | ExportKind::StarReExport) || is_clause_alias(export) {
+                if matches!(export.kind, ExportKind::ReExport | ExportKind::StarReExport)
+                    || is_clause_alias(export)
+                    || export.tags.iter().any(|tag| tag == "alias")
+                {
                     continue;
                 }
                 if let Some(local) = export.alias_of.as_deref().or(export.local_name.as_deref()) {

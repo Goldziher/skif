@@ -1,0 +1,19 @@
+---
+source: crates/skif-edit/tests/package_json_format.rs
+expression: "report(\"crlf\")"
+---
+issues:
+  - the top-level keys are not in the configured order
+  - the layout differs from the configured indent
+--- before
+{\r\n
+    "version": "1.0.0",\r\n
+    "name": "crlf",\r\n
+    "license": "MIT"\r\n
+}\r\n
+--- after
+{\r\n
+  "name": "crlf",\r\n
+  "version": "1.0.0",\r\n
+  "license": "MIT"\r\n
+}\r\n

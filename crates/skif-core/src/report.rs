@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use serde::{Deserialize, Serialize};
 
 use crate::diagnostic::Diagnostic;
+use crate::incomplete::IncompletePackage;
 use crate::rule::Severity;
 
 /// Aggregate counts over a report.
@@ -35,6 +36,10 @@ pub struct Report {
     pub diagnostics: Vec<Diagnostic>,
     /// Counts over `diagnostics`.
     pub summary: Summary,
+    /// Packages whose entry files are not all known, so their files and dependencies were not judged unused; sorted
+    /// by directory.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub incomplete_packages: Vec<IncompletePackage>,
 }
 
 impl Report {
@@ -49,7 +54,19 @@ impl Report {
             },
             count,
         );
-        Self { diagnostics, summary }
+        Self {
+            diagnostics,
+            summary,
+            incomplete_packages: Vec::new(),
+        }
+    }
+
+    /// Sets the packages whose files and dependencies were not judged, sorted by directory then name.
+    #[must_use]
+    pub fn with_incomplete_packages(mut self, mut packages: Vec<IncompletePackage>) -> Self {
+        packages.sort_by(|a, b| a.dir.cmp(&b.dir).then_with(|| a.name.cmp(&b.name)));
+        self.incomplete_packages = packages;
+        self
     }
 }
 
@@ -205,5 +222,42 @@ mod tests {
             serde_json::to_value(summary).unwrap(),
             serde_json::json!({ "errors": 1, "warnings": 2, "infos": 3, "fixable": 4, "packages": 5 })
         );
+    }
+    #[test]
+    fn incomplete_packages_sort_by_directory_and_serialize_kebab_case() {
+        use crate::incomplete::{IncompleteCause, IncompleteEntries};
+
+        let reason = |cause, plugin: Option<&str>, file: Option<&str>| IncompleteEntries {
+            cause,
+            plugin: plugin.map(str::to_owned),
+            file: file.map(std::path::PathBuf::from),
+        };
+        let report = Report::new(Vec::new(), 2).with_incomplete_packages(vec![
+            IncompletePackage::new(
+                "web".into(),
+                "packages/web".into(),
+                vec![reason(
+                    IncompleteCause::UnknownSpread,
+                    Some("vite"),
+                    Some("packages/web/vite.config.ts"),
+                )],
+            ),
+            IncompletePackage::new(
+                "api".into(),
+                "packages/api".into(),
+                vec![reason(IncompleteCause::Unspecified, None, None)],
+            ),
+        ]);
+        assert_eq!(
+            serde_json::to_value(&report).unwrap()["incomplete-packages"],
+            serde_json::json!([
+                { "name": "api", "dir": "packages/api", "reasons": [{ "cause": "unspecified" }] },
+                { "name": "web", "dir": "packages/web", "reasons": [
+                    { "cause": "unknown-spread", "plugin": "vite", "file": "packages/web/vite.config.ts" }
+                ] },
+            ])
+        );
+        let empty = serde_json::to_value(Report::new(Vec::new(), 1)).unwrap();
+        assert!(empty.get("incomplete-packages").is_none());
     }
 }
