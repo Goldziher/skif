@@ -68,23 +68,23 @@ pub struct InstancesArgs {
 #[derive(Debug, Default, clap::Args)]
 pub struct FilterArgs {
     /// Only the dependencies whose name matches this name or glob (`react`, `@types/**`, `!eslint`), in the
-    /// version-group policies. Repeatable. syncpack's `--dependencies`.
+    /// version-group and semver-group rules only. Repeatable. syncpack's `--dependencies`.
     // Not `--dependencies`: that is knip's issue-type shortcut on the same command.
     #[arg(long = "dependency", value_name = "NAME")]
     pub dependencies: Vec<String>,
 
-    /// Only these dependency types (`prod,dev`, `peer`, `!local`, a custom type), in the version-group policies; also
-    /// their default scope for this run. Comma separated.
+    /// Only these dependency types (`prod,dev`, `peer`, `!local`, a custom type), in the version-group and
+    /// semver-group rules only; also their default scope for this run. Comma separated.
     #[arg(long, value_name = "TYPES", value_delimiter = ',')]
     pub dependency_types: Vec<String>,
 
     /// Only instances with these specifier types (`exact,range`, `!workspace-protocol`), in the version-group
-    /// policies. Comma separated.
+    /// and semver-group rules only. Comma separated.
     #[arg(long, value_name = "TYPES", value_delimiter = ',')]
     pub specifier_types: Vec<String>,
 
     /// Only instances declared in files matching this glob, relative to the root (`packages/app/package.json`), in
-    /// the version-group policies. Repeatable.
+    /// the version-group and semver-group rules only. Repeatable.
     #[arg(long, value_name = "GLOB")]
     pub source: Vec<String>,
 }
@@ -334,7 +334,7 @@ pub struct LintArgs {
     pub fix_unsafe: bool,
 
     /// With --fix or --fix-unsafe: print the planned changes as a unified diff (JSON: the `fix` object with
-    /// `changes`) and write nothing; no install runs.
+    /// `changes`); no manifest is written and no install runs. An --output report file is still written.
     #[arg(long)]
     pub dry_run: bool,
 

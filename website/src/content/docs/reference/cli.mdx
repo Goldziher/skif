@@ -57,8 +57,8 @@ another root. `--fix` plans, writes and installs per root.
 | `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires `--format`. |
 | `--fix` | Apply safe fixes, lint again, then run the package manager's install command. |
 | `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. |
-| `--dependency`, `--dependency-types`, `--specifier-types`, `--source` | Narrow the version-group policies to some instances (see [Filtering instances](#filtering-instances)). |
-| `--dry-run` | With `--fix` or `--fix-unsafe`: plan the fixes and print them as a unified diff, write nothing and run no install (see [Fixing](#fixing)). |
+| `--dependency`, `--dependency-types`, `--specifier-types`, `--source` | Narrow the version-group and semver-group rules, and only those, to some instances (see [Filtering instances](#filtering-instances)). |
+| `--dry-run` | With `--fix` or `--fix-unsafe`: plan the fixes and print them as a unified diff; no manifest is written and no install runs, while an `--output` report file is still written (see [Fixing](#fixing)). |
 | `--select <highest\|lowest>` | Which version a version alignment fix targets, overriding `[policy] prefer` for this run. |
 | `--no-install` | Do not run the package manager after fixing. |
 | `--no-prompt` | Never ask which alternative fix to apply; the diagnostic stays unfixed unless `--select` decides. |
@@ -180,7 +180,7 @@ packages/app/package.json` checks that package's instances against each other on
 | `--specifier-types <TYPES>` | These specifier types, comma separated (`exact`, `range`, `!workspace-protocol`; the values of `specifier-types` selectors). |
 | `--source <GLOB>` | Instances declared in files matching the glob, relative to the root (`packages/*/package.json`, `pnpm-workspace.yaml`). Repeatable. Unlike syncpack's `--source`, it does not change which packages make up the workspace. |
 
-The filters apply to the version-group and semver-group rules (`version-mismatch`, `banned-dependency`,
+The filters apply only to the version-group and semver-group rules (`version-mismatch`, `banned-dependency`,
 `semver-range-mismatch`, `policy-conflict`, `invalid-local-version`) and to the listing; the catalog, workspace
 protocol, family and manifest rules see the whole workspace. A configured group that the filters leave without
 instances is not reported as unused.
@@ -218,7 +218,8 @@ the error goes to stdout.
 4. Runs the detected package manager's `install` in the workspace root, unless `--no-install` was given, no file
    changed, or no package manager was detected. If the install fails the fixes stay written and the exit code is `2`.
 
-`--dry-run` stops after step 1: human output shows `Would fix ...` and a unified diff per file before the report of
+`--dry-run` stops after step 1, so no manifest is written and no install runs; the report is still rendered, to the
+`--output` file when one is given. Human output shows `Would fix ...` and a unified diff per file before the report of
 the unchanged tree, and `--format json` adds `"dry-run": true` and a `changes` array (`path`, `kind` `modify`,
 `create` or `delete`, and `diff`) to the `fix` object. The exit code is the one of the unchanged tree. A dry run is
 allowed in CI.

@@ -47,7 +47,7 @@ Options:
           Apply safe and unsafe fixes; implies --fix
 
       --dry-run
-          With --fix or --fix-unsafe: print the planned changes as a unified diff (JSON: the `fix` object with `changes`) and write nothing; no install runs
+          With --fix or --fix-unsafe: print the planned changes as a unified diff (JSON: the `fix` object with `changes`); no manifest is written and no install runs. An --output report file is still written
 
       --select <SELECT>
           Which version a version alignment fix targets, overriding `[policy] prefer` for this run
@@ -103,16 +103,16 @@ Options:
           [possible values: auto, always, never]
 
       --dependency <NAME>
-          Only the dependencies whose name matches this name or glob (`react`, `@types/**`, `!eslint`), in the version-group policies. Repeatable. syncpack's `--dependencies`
+          Only the dependencies whose name matches this name or glob (`react`, `@types/**`, `!eslint`), in the version-group and semver-group rules only. Repeatable. syncpack's `--dependencies`
 
       --dependency-types <TYPES>
-          Only these dependency types (`prod,dev`, `peer`, `!local`, a custom type), in the version-group policies; also their default scope for this run. Comma separated
+          Only these dependency types (`prod,dev`, `peer`, `!local`, a custom type), in the version-group and semver-group rules only; also their default scope for this run. Comma separated
 
       --specifier-types <TYPES>
-          Only instances with these specifier types (`exact,range`, `!workspace-protocol`), in the version-group policies. Comma separated
+          Only instances with these specifier types (`exact,range`, `!workspace-protocol`), in the version-group and semver-group rules only. Comma separated
 
       --source <GLOB>
-          Only instances declared in files matching this glob, relative to the root (`packages/app/package.json`), in the version-group policies. Repeatable
+          Only instances declared in files matching this glob, relative to the root (`packages/app/package.json`), in the version-group and semver-group rules only. Repeatable
 
   -h, --help
           Print help (see a summary with '-h')
