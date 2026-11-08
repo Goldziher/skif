@@ -4,9 +4,93 @@
 //! JavaScript parser accepts and which skif does not compile (ADR 0001). As knip's built-in `.tsrx` compiler does,
 //! only the `import` statements and `import("x")` calls are kept: every other byte becomes a space, line breaks stay,
 //! and the result is parsed as TypeScript with JSX so spans point into the original file.
+//!
+//! A light lexer finds them: `import` inside a comment, a string or a template literal is not an import. A quote that
+//! does not close on its line is not a string but template text (`<p>don't</p>`). Imports inside the `${}` of a
+//! template literal are not kept.
 
 const fn is_ident(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$' | b'#' | b'.')
+}
+
+/// The end of the comment that starts at `i` (past the line of a `//` comment, before its line break, or past the
+/// `*/` of a block comment), or `None` when no comment starts there. An unclosed block comment runs to the end.
+fn comment_end(bytes: &[u8], i: usize) -> Option<usize> {
+    if bytes.get(i) != Some(&b'/') {
+        return None;
+    }
+    match bytes.get(i + 1)? {
+        b'/' => Some(
+            bytes[i..]
+                .iter()
+                .position(|&b| b == b'\n')
+                .map_or(bytes.len(), |at| i + at),
+        ),
+        b'*' => Some(
+            bytes[i + 2..]
+                .windows(2)
+                .position(|pair| pair == b"*/")
+                .map_or(bytes.len(), |at| i + 2 + at + 2),
+        ),
+        _ => None,
+    }
+}
+
+/// The end of the `'` or `"` string that starts at `i`, past its closing quote, or `None` when the quote does not
+/// close on its line: then it is template text such as `<p>don't</p>`, not a string.
+fn string_end(bytes: &[u8], i: usize) -> Option<usize> {
+    let quote = bytes[i];
+    let mut j = i + 1;
+    while let Some(&b) = bytes.get(j) {
+        match b {
+            b'\\' => j += 2,
+            b'\n' => return None,
+            _ if b == quote => return Some(j + 1),
+            _ => j += 1,
+        }
+    }
+    None
+}
+
+/// The end of the template literal that starts at `i` (its opening backtick), past the closing backtick. `${}`
+/// expressions are skipped with their own strings, comments and nested templates. An unclosed template runs to the
+/// end.
+fn template_end(bytes: &[u8], i: usize) -> usize {
+    let mut j = i + 1;
+    while let Some(&b) = bytes.get(j) {
+        match b {
+            b'\\' => j += 2,
+            b'`' => return j + 1,
+            b'$' if bytes.get(j + 1) == Some(&b'{') => {
+                j += 2;
+                let mut depth = 1_usize;
+                while depth > 0 && j < bytes.len() {
+                    if let Some(end) = skipped_end(bytes, j) {
+                        j = end;
+                        continue;
+                    }
+                    match bytes[j] {
+                        b'{' => depth += 1,
+                        b'}' => depth -= 1,
+                        _ => {}
+                    }
+                    j += 1;
+                }
+            }
+            _ => j += 1,
+        }
+    }
+    bytes.len()
+}
+
+/// The end of the comment, string or template literal that starts at `i`, or `None` when none starts there.
+fn skipped_end(bytes: &[u8], i: usize) -> Option<usize> {
+    match bytes[i] {
+        b'/' => comment_end(bytes, i),
+        b'\'' | b'"' => string_end(bytes, i),
+        b'`' => Some(template_end(bytes, i)),
+        _ => None,
+    }
 }
 
 /// The end of the import that starts at `start` (the `i` of `import`): just past the closing quote of its specifier,
@@ -33,8 +117,13 @@ fn import_end(bytes: &[u8], start: usize) -> Option<usize> {
             return None;
         }
     } else {
-        // The bindings and `from` run up to the quote of the specifier; a statement or block ends before one.
+        // The bindings and `from` run up to the quote of the specifier; a statement or block ends before one. Comments
+        // between the bindings are skipped, so a quote inside one is not taken for the specifier.
         while !matches!(bytes.get(i)?, b'"' | b'\'') {
+            if let Some(end) = comment_end(bytes, i) {
+                i = end;
+                continue;
+            }
             if matches!(bytes[i], b';' | b'(' | b')' | b'=' | b'<') {
                 return None;
             }
@@ -71,18 +160,21 @@ pub(crate) fn extract(source: &str) -> String {
         .map(|&b| if b == b'\n' || b == b'\r' { b } else { b' ' })
         .collect();
     let mut i = 0;
-    while let Some(found) = source[i..].find("import") {
-        let start = i + found;
-        let preceded = start > 0 && is_ident(bytes[start - 1]);
-        match (!preceded).then(|| import_end(bytes, start)).flatten() {
+    while i < bytes.len() {
+        if let Some(end) = skipped_end(bytes, i) {
+            i = end;
+            continue;
+        }
+        let at_import = bytes[i..].starts_with(b"import") && (i == 0 || !is_ident(bytes[i - 1]));
+        match at_import.then(|| import_end(bytes, i)).flatten() {
             Some(end) => {
-                out[start..end].copy_from_slice(&bytes[start..end]);
+                out[i..end].copy_from_slice(&bytes[i..end]);
                 if out.get(end) == Some(&b' ') {
                     out[end] = b';';
                 }
                 i = end;
             }
-            None => i = start + "import".len(),
+            None => i += 1,
         }
     }
     // Only whole ASCII-delimited ranges are copied, the rest is ASCII, so the buffer is valid UTF-8.
@@ -115,6 +207,28 @@ mod tests {
             ]
         );
         assert_eq!(extract(source).len(), source.len());
+    }
+
+    #[test]
+    fn imports_in_comments_strings_and_templates_are_not_imports() {
+        let source = "// import a from 'commented'\n/* import b from 'block' */\nconst s = \"import c from 'string'\";\nconst t = `\nimport d from 'template'\n${'x'}`;\nimport e from './e';\n";
+        assert_eq!(kept(source), ["import e from './e'"]);
+        assert_eq!(extract(source).len(), source.len());
+    }
+
+    #[test]
+    fn a_comment_with_a_quote_inside_an_import_list_keeps_the_import() {
+        let source = "import {\n  a, // don't\n  /* b's */ b,\n} from './ab';\n";
+        assert_eq!(
+            kept(source),
+            ["import {", "a, // don't", "/* b's */ b,", "} from './ab'"]
+        );
+    }
+
+    #[test]
+    fn an_apostrophe_in_template_text_does_not_hide_the_next_import() {
+        let source = "component App() {\n  <p>don't</p>\n  const lazy = import('./lazy');\n}\n";
+        assert_eq!(kept(source), ["import('./lazy')"]);
     }
 
     #[test]
