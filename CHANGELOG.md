@@ -381,6 +381,12 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
 - The `test-file` deviation of the knip comparison says why skif has no finding there: most are apps and helpers below
   test directories that are outside skif's graph, not test entries ([#27](https://github.com/Goldziher/skif/issues/27)).
 - `mise run bench:publish` writes a `summary.md` that passes `format:check` ([#27](https://github.com/Goldziher/skif/issues/27)).
+- An `import.meta.glob` whose options read the matched files as text (`query: '?raw'`, `query: { raw: '' }`, legacy
+  `as: 'raw'`) and an import of a `?raw` specifier no longer keep the files in use: they are not loaded as modules.
+  Other queries (`?url`, `?inline`, `?worker`) and options that are not static still count as uses. n8n's components
+  matched only by `import.meta.glob('../../**/*.vue', { query: '?raw' })` in a test are now unused.
+  `skif-js-syntax` reports such a glob as `ImportKind::SourceGlob`. Part of
+  [#23](https://github.com/Goldziher/skif/issues/23).
 
 ## [0.1.1] - 2026-11-07
 

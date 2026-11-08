@@ -1,0 +1,98 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`src/components/Card.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "src/components/Card.ts"
+    },
+    "package": "raw-globs",
+    "fixes": [
+      {
+        "title": "Delete `src/components/Card.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "src/components/Card.ts"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`src/legacy/old.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "src/legacy/old.ts"
+    },
+    "package": "raw-globs",
+    "fixes": [
+      {
+        "title": "Delete `src/legacy/old.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "src/legacy/old.ts"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`src/objects/one.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "src/objects/one.ts"
+    },
+    "package": "raw-globs",
+    "fixes": [
+      {
+        "title": "Delete `src/objects/one.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "src/objects/one.ts"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`src/text/plain.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "src/text/plain.ts"
+    },
+    "package": "raw-globs",
+    "fixes": [
+      {
+        "title": "Delete `src/text/plain.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "src/text/plain.ts"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

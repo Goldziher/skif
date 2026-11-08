@@ -239,6 +239,24 @@ fn vite_root_locates_index_html_and_its_scripts() {
     insta::assert_json_snapshot!("vite_root", diagnostics);
 }
 
+/// n8n's `ui.store.registration.spec.ts`: a glob or specifier that reads a file's text (`?raw`, legacy `as: 'raw'`)
+/// does not load it as a module, so its matches stay unused; a plain glob and the queries that still load the module
+/// (`?inline`, `?url`, `raw=true`) keep theirs.
+#[test]
+fn raw_globs_do_not_keep_files_used() {
+    let diagnostics = Run::new("raw-globs", "").lint();
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "src/components/Card.ts: src/components/Card.ts",
+            "src/legacy/old.ts: src/legacy/old.ts",
+            "src/objects/one.ts: src/objects/one.ts",
+            "src/text/plain.ts: src/text/plain.ts",
+        ]
+    );
+    insta::assert_json_snapshot!("raw_globs", diagnostics);
+}
+
 #[test]
 fn n8n_nodes_and_credentials_are_entries() {
     let diagnostics = Run::new("n8n-nodes", "").lint();
