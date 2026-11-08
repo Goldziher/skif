@@ -89,17 +89,28 @@ fn list_rules(format: RulesFormat) -> Result<(), CliError> {
     let text = match format {
         RulesFormat::Human => rules_table(&metas),
         RulesFormat::Json => {
-            let mut text = serde_json::to_string_pretty(&json!({
-                "version": 1,
-                "skif": env!("CARGO_PKG_VERSION"),
-                "rules": metas,
-            }))
-            .map_err(|error| CliError::new(Kind::Io, error.to_string()))?;
+            let mut text = serde_json::to_string_pretty(&rules_json(&metas))
+                .map_err(|error| CliError::new(Kind::Io, error.to_string()))?;
             text.push('\n');
             text
         }
     };
     write_stdout(text.as_bytes())
+}
+
+fn rules_json(metas: &[&'static RuleMeta]) -> serde_json::Value {
+    json!({
+        "version": 1,
+        "skif": env!("CARGO_PKG_VERSION"),
+        "rules": metas,
+    })
+}
+
+/// The document `skif rules --format json` prints.
+pub fn rules_document() -> Result<serde_json::Value, CliError> {
+    let linter = Linter::new(&Config::default())?;
+    let metas: Vec<&'static RuleMeta> = linter.rules().collect();
+    Ok(rules_json(&metas))
 }
 
 pub fn rules(args: &RulesArgs) -> u8 {
