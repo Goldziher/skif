@@ -1,6 +1,6 @@
 //! Entry files: configured and default globs, what `package.json` publishes, and what scripts run.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use skif_core::FileSystem;
@@ -25,6 +25,11 @@ pub(crate) struct EntryFiles {
     /// or below their directory, no entry and no script, whose manifest only lists what code elsewhere installs it
     /// for.
     pub unknown: Vec<PackageId>,
+    /// The entry files something other than the configured and default `entry` globs makes entries: plugins, the
+    /// manifest, tool configuration files and scripts (with `include-entry-exports`, only plugin entry globs and the
+    /// manifest, whose exports are judged like a configured entry's). A configured entry naming one of them is
+    /// redundant (knip's `entry-redundant`).
+    pub provided: HashSet<PathBuf>,
 }
 
 /// The entry files of every package.
@@ -36,6 +41,7 @@ pub(crate) fn entry_files(
 ) -> EntryFiles {
     let mut entries = BTreeSet::new();
     let mut unknown = Vec::new();
+    let mut provided = HashSet::new();
     let mut by_owner: Vec<Vec<&Candidate>> = vec![Vec::new(); workspace.iter().count()];
     for candidate in candidates {
         if let Some(owned) = by_owner.get_mut(candidate.owner.index()) {
@@ -50,9 +56,14 @@ pub(crate) fn entry_files(
         let owned = || owned_by(mine, &package_setup.dir);
         // The entries of this package alone: another package may already have found the same files.
         let mut own = BTreeSet::new();
+        // What provides an entry besides the configured and default globs.
+        let mut from_tools = BTreeSet::new();
         for (candidate, rel) in owned() {
             if package_setup.entry.is_match(&rel) {
                 own.insert(candidate.abs.clone());
+                if package_setup.plugin_entry.is_match(&rel) {
+                    from_tools.insert(candidate.abs.clone());
+                }
             }
         }
         own.extend(nested_entries(workspace, setup, candidates, id, package_setup));
@@ -81,7 +92,7 @@ pub(crate) fn entry_files(
                         }
                     });
                 let globs = Globs::new(patterns);
-                own.extend(
+                from_tools.extend(
                     owned()
                         .filter(|(_, rel)| globs.is_match(rel))
                         .map(|(candidate, _)| candidate.abs.clone()),
@@ -90,7 +101,7 @@ pub(crate) fn entry_files(
                 && is_code_file(&path)
             {
                 mapped_any = true;
-                own.insert(path);
+                from_tools.insert(path);
             } else if should_have_source(&target) {
                 published_without_source = true;
             }
@@ -98,21 +109,26 @@ pub(crate) fn entry_files(
         for target in bin_targets(package.manifest.value()) {
             let sources = bin_stub_sources(fs, &package_setup.dir, &target);
             mapped_any |= !sources.is_empty();
-            own.extend(sources);
+            from_tools.extend(sources);
         }
+        own.extend(from_tools.iter().cloned());
+        provided.extend(from_tools);
         if published_without_source && !mapped_any {
             unknown.push(id);
         }
-        own.extend(
-            package_setup
-                .config_files
-                .iter()
-                .filter(|path| is_code_file(path) && fs.is_file(path))
-                .cloned(),
-        );
+        let mut tool_entries: Vec<PathBuf> = package_setup
+            .config_files
+            .iter()
+            .filter(|path| is_code_file(path) && fs.is_file(path))
+            .cloned()
+            .collect();
         if !setup.production {
-            own.extend(script_files(fs, package_setup, mine));
+            tool_entries.extend(script_files(fs, package_setup, mine));
         }
+        if !package_setup.include_entry_exports {
+            provided.extend(tool_entries.iter().cloned());
+        }
+        own.extend(tool_entries);
         let has_entries = !own.is_empty();
         entries.append(&mut own);
         if !has_entries
@@ -128,6 +144,7 @@ pub(crate) fn entry_files(
     EntryFiles {
         files: entries.into_iter().collect(),
         unknown,
+        provided,
     }
 }
 
@@ -285,7 +302,7 @@ fn has_extension(path: &Path, extensions: &[String]) -> bool {
 
 /// The source file behind a published path: through the package's build directories first, then by the `dist` to
 /// `src` convention.
-fn map_published(fs: &dyn FileSystem, package_setup: &PackageSetup, target: &str) -> Option<PathBuf> {
+pub(crate) fn map_published(fs: &dyn FileSystem, package_setup: &PackageSetup, target: &str) -> Option<PathBuf> {
     let dir = &package_setup.dir;
     relative(&join_normalized(dir, target), dir)
         .map(|rel| source_paths(package_setup, &rel))

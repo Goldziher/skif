@@ -127,6 +127,30 @@ fn is_ignored(matchers: &[Arc<Gitignore>], path: &Path, is_dir: bool) -> bool {
     false
 }
 
+/// Whether the ignore files (`.gitignore`, `.ignore`) from `root` down to the directory of `path` ignore `path` or
+/// one of its directories below `root`, as the walk of [`discover`] would. `path` is absolute and below `root`.
+pub(crate) fn is_ignored_path(fs: &dyn FileSystem, root: &Path, path: &Path) -> bool {
+    let Ok(rest) = path.strip_prefix(root) else {
+        return false;
+    };
+    let mut matchers: Vec<Arc<Gitignore>> = Vec::new();
+    let mut dir = root.to_path_buf();
+    let parts: Vec<_> = rest.components().collect();
+    for (index, part) in parts.iter().enumerate() {
+        if let Ok(entries) = fs.read_dir_shared(&dir)
+            && let Some(matcher) = ignore_file_matcher(fs, &dir, &entries, true)
+        {
+            matchers.push(Arc::new(matcher));
+        }
+        let next = dir.join(part);
+        if is_ignored(&matchers, &next, index + 1 < parts.len()) {
+            return true;
+        }
+        dir = next;
+    }
+    false
+}
+
 /// Whether a directory is skipped by name, unless it is a workspace package.
 fn skipped_by_name(name: &str) -> bool {
     SKIPPED_DIRS.contains(&name) || (name.starts_with('.') && !HIDDEN_DIRS.contains(&name))

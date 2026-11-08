@@ -222,6 +222,12 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
 - `skif migrate` no longer says skif has no tag hints or global binaries list: `treatTagHintsAsErrors` points at
   `stale-js-config`, and `ignoreGlobalBinaries: true` is noted as skif's default
   ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `stale-js-config` reports the rest of knip's configuration hints: redundant `entry` and `project` patterns
+  (`entry-redundant`, `project-redundant`), a top-level `entry` or `project` in a workspace with several packages
+  (`*-top-level`), `project` extensions skif does not analyse or component extensions it leaves out
+  (`project-extension-*`), published `package.json` paths that name no file (`package-entry`, build output and
+  gitignored paths excepted) and many unused files with knip's thresholds (`top-level-unconfigured`,
+  `workspace-unconfigured`) ([#43](https://github.com/Goldziher/skif/issues/43)).
 - `[js] ignore-global-binaries` (default `true`): with `false`, `unlisted-binaries` reports the system tools scripts
   run (`rm`, `curl`, `git`) that no dependency provides; `skif migrate` maps knip's `ignoreGlobalBinaries`
   ([#43](https://github.com/Goldziher/skif/issues/43)).
