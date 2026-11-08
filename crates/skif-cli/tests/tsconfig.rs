@@ -156,3 +156,60 @@ fn use_tsconfig_files_warns_about_an_empty_project() {
     let quiet = run(skif().args(["--format", "json"]).arg(dir.path()));
     assert!(!quiet.stderr.contains("selects no file"), "{}", quiet.stderr);
 }
+
+#[test]
+fn a_root_without_javascript_analysis_needs_no_tsconfig() {
+    let dir = fixture("tsconfig");
+    let (result, report) = lint(dir.path(), &["--no-js", "--tsconfig", "tsconfig.missing.json"]);
+    assert_ne!(result.code, 2, "{report:#}{}", result.stderr);
+
+    std::fs::write(
+        dir.path().join("skif.toml"),
+        "[js]\nenabled = false\ntsconfig = \"tsconfig.missing.json\"\n",
+    )
+    .unwrap();
+    let (result, report) = lint(dir.path(), &[]);
+    assert_ne!(result.code, 2, "{report:#}{}", result.stderr);
+}
+
+#[test]
+fn tsconfig_is_looked_for_only_in_roots_with_javascript_analysis() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["js-off", "js-on"] {
+        let root = dir.path().join(name);
+        std::fs::create_dir(&root).unwrap();
+        support::copy_fixture("tsconfig", &root);
+    }
+    std::fs::write(dir.path().join("js-off/skif.toml"), "[js]\nenabled = false\n").unwrap();
+    std::fs::remove_file(dir.path().join("js-on/tsconfig.app.json")).unwrap();
+    // Only the root without JavaScript analysis has the file, so the flag names nothing the run reads.
+    let (result, error) = lint(dir.path(), &["-r", "--tsconfig", "tsconfig.app.json"]);
+    assert_eq!(result.code, 2, "{error:#}");
+    let message = error["error"]["message"].as_str().unwrap();
+    assert!(message.contains("does not exist in"), "{error:#}");
+    assert!(message.contains("js-on") && !message.contains("js-off"), "{error:#}");
+}
+
+#[test]
+fn tsconfig_exists_as_the_analysis_reads_it() {
+    let dir = fixture("tsconfig");
+    let (result, error) = lint(dir.path(), &["--tsconfig", "./src/../tsconfig.missing.json"]);
+    assert_eq!(result.code, 2, "{error:#}");
+    assert_eq!(error["error"]["kind"], "config", "{error:#}");
+
+    std::fs::create_dir(dir.path().join("config")).unwrap();
+    std::fs::write(
+        dir.path().join("config/tsconfig.json"),
+        "{ \"compilerOptions\": { \"baseUrl\": \"..\", \"paths\": { \"~/*\": [\"./src/*\"] } }, \"include\": [\"../src\"] }\n",
+    )
+    .unwrap();
+    let (result, report) = lint(dir.path(), &["--tsconfig", "config\\tsconfig.json"]);
+    assert_ne!(result.code, 2, "{report:#}{}", result.stderr);
+    let unresolved = report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == "unresolved-imports")
+        .count();
+    assert_eq!(unresolved, 0, "{report:#}");
+}

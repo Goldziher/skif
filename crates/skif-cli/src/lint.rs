@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 use skif::render::RenderOptions;
 use skif::{
     CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IgnoreEntry, Linter, OsFs, Prefer, Report,
-    Selector, Target, Workspace,
+    Selector, Target, Workspace, relative_tsconfig,
 };
 use skif_core::timing;
 use skif_report::{escape_controls, render_json_with};
@@ -153,48 +153,42 @@ pub(crate) fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliErro
     Ok(())
 }
 
-/// Whether `path` is a plain relative path whose existence can be checked here. An absolute path or one with `..`
-/// is left to the configuration check, which rejects those that leave the workspace root.
-fn checkable(path: &str) -> bool {
-    let path = Path::new(path);
-    !path.is_absolute()
-        && path.components().all(|component| {
-            matches!(
-                component,
-                std::path::Component::Normal(_) | std::path::Component::CurDir
-            )
-        })
+/// Whether `path` names an existing file under `root`, read the way the JS analysis reads it ([`relative_tsconfig`]).
+/// `None` for an empty, absolute or escaping path: the configuration check rejects those, naming the setting.
+fn tsconfig_exists(root: &Path, path: &str) -> Option<bool> {
+    relative_tsconfig(path).map(|relative| root.join(relative).is_file())
 }
 
 /// Applies `--tsconfig` and checks that every root's TypeScript configuration exists.
 ///
 /// The flag names a file relative to each root; in a multi-root run it applies to the roots that have that file and
 /// the others keep their own `[js] tsconfig`. A `[js] tsconfig` must exist in the root whose configuration sets it.
+/// Roots without JavaScript analysis (`--no-js`, `[js] enabled = false`) read no tsconfig, so they are skipped.
 ///
 /// # Errors
-/// A configuration error naming the path when `--tsconfig` exists in no root, or a root's `[js] tsconfig` does not
-/// exist there.
+/// A configuration error naming the path when `--tsconfig` exists in no root that runs the JavaScript analysis, or
+/// a root's `[js] tsconfig` does not exist there.
 pub(crate) fn apply_tsconfig(args: &LintArgs, targets: &mut [Target]) -> Result<(), CliError> {
     if let Some(path) = &args.tsconfig {
         let mut found = false;
-        for target in targets.iter_mut() {
-            if !checkable(path) || target.root.join(path).is_file() {
+        let mut searched = Vec::new();
+        for target in targets.iter_mut().filter(|target| target.config.js.enabled) {
+            if tsconfig_exists(&target.root, path) != Some(false) {
                 target.config.js.tsconfig = Some(path.clone());
                 found = true;
             }
+            searched.push(target.root.display().to_string());
         }
-        if !found && !targets.is_empty() {
-            let roots: Vec<String> = targets.iter().map(|target| target.root.display().to_string()).collect();
+        if !found && !searched.is_empty() {
             return Err(CliError::new(
                 Kind::Config,
-                format!("--tsconfig: `{path}` does not exist in {}", roots.join(", ")),
+                format!("--tsconfig: `{path}` does not exist in {}", searched.join(", ")),
             ));
         }
     }
-    for target in targets.iter() {
+    for target in targets.iter().filter(|target| target.config.js.enabled) {
         if let Some(path) = &target.config.js.tsconfig
-            && checkable(path)
-            && !target.root.join(path).is_file()
+            && tsconfig_exists(&target.root, path) == Some(false)
         {
             return Err(CliError::new(
                 Kind::Config,

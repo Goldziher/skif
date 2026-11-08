@@ -26,7 +26,8 @@ fn glob_problem(pattern: &str) -> Option<String> {
 
 /// `[js] tsconfig` normalised to a `/`-separated path relative to the workspace root, or `None` when it is empty,
 /// absolute or leaves the root. Every reader of the setting goes through this, so they agree on which file it names.
-pub(crate) fn relative_tsconfig(path: &str) -> Option<String> {
+#[must_use]
+pub fn relative_tsconfig(path: &str) -> Option<String> {
     let path = path.trim();
     if path.is_empty() || path.starts_with(['/', '\\']) || std::path::Path::new(path).is_absolute() {
         return None;
