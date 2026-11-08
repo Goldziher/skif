@@ -841,6 +841,34 @@ fn mdx_inline_code_is_not_a_use() {
 }
 
 #[test]
+fn mdx_jsx_text_that_looks_like_a_comment_does_not_hide_the_prose() {
+    let mdx = "import * as ui from './ui';\nexport const Glob = () => <code>dist/*</code>\n\n# Build\n\n<ui.Button/>\n";
+    let info = parse("docs/build.mdx", mdx);
+    assert!(info.parse_diagnostics.is_empty(), "{:?}", info.parse_diagnostics);
+    assert_eq!(accessed(&info, "ui"), (vec!["Button".to_owned()], false));
+}
+
+#[test]
+fn mdx_a_url_in_jsx_text_does_not_hide_the_prose() {
+    let mdx = "import * as ui from './ui';\nexport const L = () => (<a>http://x</a>)\n\n# Links\n\n<ui.Button/>\n";
+    let info = parse("docs/links.mdx", mdx);
+    assert!(info.parse_diagnostics.is_empty(), "{:?}", info.parse_diagnostics);
+    assert_eq!(accessed(&info, "ui"), (vec!["Button".to_owned()], false));
+}
+
+#[test]
+fn mdx_a_template_literal_in_an_expression_is_not_inline_code() {
+    let mdx = "import * as ui from './ui';\n\n{ui.label(`x ${ui.count}`)}\n";
+    let info = parse("docs/count.mdx", mdx);
+    let (mut members, escapes) = accessed(&info, "ui");
+    members.sort();
+    assert_eq!(
+        (members, escapes),
+        (vec!["count".to_owned(), "label".to_owned()], false)
+    );
+}
+
+#[test]
 fn angular_component_resources_are_side_effect_imports() {
     let source = "import { Component as Ng } from '@angular/core';\nimport { Other } from './other';\n@Ng({ templateUrl: './a.html', styleUrl: 'a.scss', styleUrls: ['./b.css', `c.less`, ...more] })\nexport class A {}\n@Other({ styleUrls: ['./ignored.css'] })\nexport class B {}\n";
     let info = parse("a.component.ts", source);
@@ -852,6 +880,18 @@ fn angular_component_resources_are_side_effect_imports() {
     assert_eq!(resources, ["./a.html", "./a.scss", "./b.css", "./c.less"]);
     let style = info.imports.iter().find(|i| i.specifier == "./a.scss").unwrap();
     assert_eq!(slice(source, style.span.start, style.span.end), "'a.scss'");
+}
+
+#[test]
+fn stencil_mode_style_urls_are_side_effect_imports() {
+    let source = "import { Component, h } from '@stencil/core';\n@Component({ tag: 'my-a', styleUrls: { ios: 'a.ios.css', md: ['./a.md.css', 'b.md.css'], [mode]: 'x.css' }, assetsDirs: ['assets'] })\nexport class A {}\n";
+    let info = parse("my-a.tsx", source);
+    let resources: Vec<_> = specifiers(&info)
+        .into_iter()
+        .filter(|(_, kind)| *kind == ImportKind::SideEffect)
+        .map(|(specifier, _)| specifier)
+        .collect();
+    assert_eq!(resources, ["./a.ios.css", "./a.md.css", "./b.md.css", "./x.css"]);
 }
 
 #[test]

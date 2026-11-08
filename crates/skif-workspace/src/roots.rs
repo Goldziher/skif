@@ -15,9 +15,9 @@ use crate::detect;
 use crate::manifest::parse_value;
 use crate::pattern::{self, Expander, Pattern};
 use crate::pnpm;
-use crate::rush;
 #[cfg(test)]
 use crate::workspace::Workspace;
+use crate::{lerna, rush};
 
 const MANIFEST: &str = "package.json";
 const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
@@ -105,11 +105,25 @@ fn declares_patterns(workspaces: Option<&Value>) -> bool {
     }
 }
 
-/// Whether `dir` declares a workspace: it holds a `pnpm-workspace.yaml` or a `rush.json`, or its `package.json` has
-/// a `workspaces` key.
+/// The `packages` of the `lerna.json` in `dir`, when it has a `package.json` next to it and a `packages` list.
+fn lerna_packages(fs: &dyn FileSystem, dir: &Path) -> Option<Vec<String>> {
+    if !fs.is_file(&dir.join(MANIFEST)) {
+        return None;
+    }
+    let path = dir.join(lerna::FILE);
+    let text = fs.read_to_string(&path).ok()?;
+    let packages = lerna::parse(path, text).ok()?.packages?;
+    Some(packages.into_iter().map(|(_, glob, _)| glob).collect())
+}
+
+/// Whether `dir` declares a workspace: it holds a `pnpm-workspace.yaml` or a `rush.json`, its `package.json` has
+/// a `workspaces` key, or a `lerna.json` next to it lists `packages`.
 #[must_use]
 pub fn declares_workspace(fs: &dyn FileSystem, dir: &Path) -> bool {
-    fs.is_file(&dir.join(PNPM_WORKSPACE)) || fs.is_file(&dir.join(rush::FILE)) || manifest_declares_workspace(fs, dir)
+    fs.is_file(&dir.join(PNPM_WORKSPACE))
+        || fs.is_file(&dir.join(rush::FILE))
+        || manifest_declares_workspace(fs, dir)
+        || lerna_packages(fs, dir).is_some()
 }
 
 fn has_git(fs: &dyn FileSystem, dir: &Path) -> bool {
@@ -285,6 +299,7 @@ fn visit(fs: &dyn FileSystem, walk: &Walk<'_>, dir: PathBuf, depth: usize, ignor
     if names.contains(&PNPM_WORKSPACE)
         || names.contains(&rush::FILE)
         || (manifest && manifest_declares_workspace(fs, &dir))
+        || (manifest && names.contains(&lerna::FILE) && lerna_packages(fs, &dir).is_some())
     {
         found.workspaces.insert(dir.clone());
     }
@@ -319,7 +334,8 @@ fn visit(fs: &dyn FileSystem, walk: &Walk<'_>, dir: PathBuf, depth: usize, ignor
 }
 
 /// The patterns `root` declares, from the source `Workspace::discover` would choose: `pnpm-workspace.yaml` for a pnpm
-/// workspace, else the `workspaces` of `package.json`, then a leftover `pnpm-workspace.yaml`, then `rush.json`. A
+/// workspace, else the `workspaces` of `package.json`, then a leftover `pnpm-workspace.yaml`, then `rush.json`, then
+/// the `packages` of `lerna.json`. A
 /// stale `pnpm-workspace.yaml` in a Yarn or npm repository does not decide the members.
 fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
     let yaml_path = root.join(PNPM_WORKSPACE);
@@ -336,12 +352,25 @@ fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
         .read_to_string(&root.join(rush::FILE))
         .ok()
         .and_then(|text| rush::parse(text).ok());
+    let items = match manifest.as_ref().and_then(|manifest| manifest.get("workspaces")) {
+        Some(Value::Array(items)) => Some(items),
+        Some(Value::Object(object)) => object.get("packages").and_then(Value::as_array),
+        _ => None,
+    };
+    // As in `Workspace::discover`, `lerna.json` is read only when nothing else declares members.
+    let lerna_path = root.join(lerna::FILE);
+    let lerna = (manifest.is_some() && items.is_none() && from_yaml.is_none() && rush.is_none())
+        .then(|| fs.read_to_string(&lerna_path).ok())
+        .flatten()
+        .and_then(|text| lerna::parse(lerna_path, text).ok());
     let package_manager = detect::detect(
         fs,
         root,
         &Config::default(),
         manifest.as_ref().unwrap_or(&Value::Null),
-        rush.as_ref().and_then(|rush| rush.package_manager),
+        rush.as_ref()
+            .and_then(|rush| rush.package_manager)
+            .or_else(|| lerna.as_ref().and_then(|lerna| lerna.package_manager)),
         fs.is_file(&yaml_path),
     );
     if package_manager == Some(PackageManager::Pnpm)
@@ -349,11 +378,6 @@ fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
     {
         return patterns;
     }
-    let items = match manifest.as_ref().and_then(|manifest| manifest.get("workspaces")) {
-        Some(Value::Array(items)) => Some(items),
-        Some(Value::Object(object)) => object.get("packages").and_then(Value::as_array),
-        _ => None,
-    };
     if let Some(items) = items {
         return items
             .iter()
@@ -363,7 +387,12 @@ fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
     if let Some(patterns) = from_yaml {
         return patterns;
     }
-    rush.map(|parsed| parsed.projects.into_iter().map(|(_, folder, _)| folder).collect())
+    if let Some(parsed) = rush {
+        return parsed.projects.into_iter().map(|(_, folder, _)| folder).collect();
+    }
+    lerna
+        .and_then(|lerna| lerna.packages)
+        .map(|packages| packages.into_iter().map(|(_, glob, _)| glob).collect())
         .unwrap_or_default()
 }
 
@@ -885,6 +914,24 @@ mod tests {
             .with_file("/r/apps/a/package.json", r#"{"name": "a"}"#)
             .with_file("/r/libs/b/package.json", r#"{"name": "b"}"#)
             .with_file("/r/libs/b/sub/package.json", r#"{"name": "sub"}"#)
+    }
+
+    #[test]
+    fn a_lerna_json_with_packages_declares_a_workspace() {
+        let fs = MemoryFs::new()
+            .with_file("/r/package.json", r#"{"name": "root"}"#)
+            .with_file("/r/lerna.json", r#"{"packages": ["modules/*"]}"#)
+            .with_file("/r/modules/a/package.json", r#"{"name": "a"}"#);
+        assert_eq!(discover(&fs), ["ws:/r"]);
+        assert!(declares_workspace(&fs, Path::new("/r")));
+        assert_eq!(
+            declared_member_dirs(&fs, Path::new("/r")),
+            BTreeSet::from([PathBuf::from("/r/modules/a")])
+        );
+        let without_packages = MemoryFs::new()
+            .with_file("/r/package.json", r#"{"name": "root"}"#)
+            .with_file("/r/lerna.json", r#"{"useWorkspaces": true}"#);
+        assert!(!declares_workspace(&without_packages, Path::new("/r")));
     }
 
     #[test]

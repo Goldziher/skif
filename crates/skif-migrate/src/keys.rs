@@ -76,6 +76,7 @@ pub(crate) const CUSTOM_TYPES: &str = "custom-types";
 pub(crate) const CUSTOM_TYPE_NAME: &str = "name";
 pub(crate) const CUSTOM_TYPE_PATH: &str = "path";
 pub(crate) const CUSTOM_TYPE_STRATEGY: &str = "strategy";
+pub(crate) const CUSTOM_TYPE_NAME_PATH: &str = "name-path";
 
 /// A custom type strategy, spelled as skif spells it.
 pub(crate) fn strategy(syncpack: &str) -> Option<&'static str> {
@@ -83,6 +84,7 @@ pub(crate) fn strategy(syncpack: &str) -> Option<&'static str> {
         "name@version" => Some("name@version"),
         "version" => Some("version"),
         "versionsByName" => Some("versions-by-name"),
+        "name~version" => Some("name~version"),
         _ => None,
     }
 }
@@ -106,6 +108,7 @@ mod tests {
     #[test]
     fn strategies_use_the_skif_spelling() {
         assert_eq!(strategy("versionsByName"), Some("versions-by-name"));
-        assert_eq!(strategy("name~version"), None);
+        assert_eq!(strategy("name~version"), Some("name~version"));
+        assert_eq!(strategy("nameVersion"), None);
     }
 }

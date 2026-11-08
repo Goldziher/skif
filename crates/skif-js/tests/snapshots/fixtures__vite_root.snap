@@ -1,0 +1,29 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`src/orphan.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "src/orphan.ts"
+    },
+    "package": "factory-ui",
+    "fixes": [
+      {
+        "title": "Delete `src/orphan.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "src/orphan.ts"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

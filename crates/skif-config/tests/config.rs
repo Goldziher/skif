@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use skif_config::{
     Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, CustomStrategy, DEFAULT_DISCOVER_IGNORE,
     FIXTURE_DIRECTORIES, IgnoreEntry, IgnoreExportsUsedInFile, Level, PackageManager, PluginConfig, Prefer, RuleConfig,
-    Selector, SemverRange, VersionPolicy, discover, discover_with_fs,
+    Selector, SemverRange, UpdateTarget, VersionPolicy, discover, discover_with_fs,
 };
 use skif_core::{MemoryFs, Severity};
 
@@ -772,6 +772,7 @@ fn custom_types_are_parsed_and_selectable_in_dependency_types() {
         "[[custom-types]]\nname = \"node\"\npath = \"engines.node\"\nstrategy = \"version\"\n\n\
          [[custom-types]]\nname = \"manager\"\npath = \"packageManager\"\nstrategy = \"name@version\"\n\n\
          [[custom-types]]\nname = \"allowed\"\npath = \"pnpm.peerDependencyRules.allowedVersions\"\nstrategy = \"versions-by-name\"\n\n\
+         [[custom-types]]\nname = \"runtime\"\npath = \"volta.version\"\nname-path = \"volta.tool\"\nstrategy = \"name~version\"\n\n\
          [policy]\ndependency-types = [\"prod\", \"node\", \"local\", \"resolutions\"]\n\n\
          [[version-groups]]\ndependency-types = [\"manager\", \"!allowed\"]\npolicy = \"ignored\"\n",
     )
@@ -782,9 +783,11 @@ fn custom_types_are_parsed_and_selectable_in_dependency_types() {
         [
             CustomStrategy::Version,
             CustomStrategy::NameAtVersion,
-            CustomStrategy::VersionsByName
+            CustomStrategy::VersionsByName,
+            CustomStrategy::NameTildeVersion
         ]
     );
+    assert_eq!(config.custom_types[3].name_path.as_deref(), Some("volta.tool"));
     assert_eq!(
         config.custom_types[2].segments().collect::<Vec<_>>(),
         ["pnpm", "peerDependencyRules", "allowedVersions"]
@@ -817,6 +820,18 @@ fn invalid_custom_types_are_rejected() {
                 custom("name = \"x\"\npath = \"b\"\nstrategy = \"version\"")
             ),
             "defined twice",
+        ),
+        (
+            custom("name = \"x\"\npath = \"a\"\nstrategy = \"name~version\""),
+            "requires `name-path`",
+        ),
+        (
+            custom("name = \"x\"\npath = \"a\"\nname-path = \"b\"\nstrategy = \"version\""),
+            "only valid with strategy `name~version`",
+        ),
+        (
+            custom("name = \"x\"\npath = \"a\"\nname-path = \"b.\"\nstrategy = \"name~version\""),
+            "`name-path` must be a dotted path",
         ),
         (
             "[policy]\ndependency-types = [\"nodes\"]\n".to_owned(),
@@ -854,6 +869,52 @@ fn semver_groups_take_a_range_or_ignored_but_not_both() {
         assert!(error.to_string().contains(expected), "{toml}: {error}");
     }
     assert!(Config::from_toml_str("[[semver-groups]]\nrange = \"^\"\nignored = false\n").is_ok());
+}
+
+#[test]
+fn update_groups_take_a_target_or_ignored_but_not_both() {
+    let config = Config::from_toml_str(
+        "[update]\nminimum-release-age = 0\n[[update-groups]]\ndependencies = [\"react\"]\ntarget = \"minor\"\n[[update-groups]]\ndependencies = [\"@types/*\"]\nignored = true\n",
+    )
+    .unwrap();
+    assert_eq!(config.update.minimum_release_age, Some(0));
+    assert_eq!(config.update.max_concurrent_requests, 12);
+    assert_eq!(config.update_groups[0].target, Some(UpdateTarget::Minor));
+    assert!(config.update_groups[1].ignored);
+    assert_eq!(
+        Config::from_toml_str(&config.to_toml_string().unwrap()).unwrap(),
+        config
+    );
+    for (toml, expected) in [
+        ("[[update-groups]]\n", "set `target`"),
+        (
+            "[[update-groups]]\ntarget = \"patch\"\nignored = true\n",
+            "mutually exclusive",
+        ),
+        ("[[update-groups]]\ntarget = \"major\"\n", "unknown variant"),
+        ("[update]\nmax-concurrent-requests = 0\n", "at least 1"),
+        (
+            "[[update-groups]]\nspecifier-types = [\"exakt\"]\ntarget = \"patch\"\n",
+            "update-groups[0]: unknown specifier type",
+        ),
+    ] {
+        let error = Config::from_toml_str(toml).unwrap_err();
+        assert!(error.to_string().contains(expected), "{toml}: {error}");
+    }
+}
+
+#[test]
+fn the_stricter_update_target_wins() {
+    use UpdateTarget::{Latest, Minor, Patch};
+    for (a, b, expected) in [
+        (Latest, Latest, Latest),
+        (Latest, Minor, Minor),
+        (Minor, Latest, Minor),
+        (Minor, Patch, Patch),
+        (Patch, Latest, Patch),
+    ] {
+        assert_eq!(a.stricter(b), expected, "{a:?} {b:?}");
+    }
 }
 
 #[test]

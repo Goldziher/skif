@@ -1,6 +1,6 @@
 //! The analysis the rules read: module graph, export usage and dependency usage.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -17,7 +17,7 @@ use crate::entries::entry_files;
 use crate::fixture::in_fixture_directory;
 use crate::git_index::{IndexCache, Listing, indexed_fs};
 use crate::globs::Globs;
-use crate::graph::{self, Inputs, Module, ModuleGraph};
+use crate::graph::{self, Inputs, Module, ModuleGraph, Target};
 use crate::input::InputSource;
 use crate::resolve::ModuleResolver;
 use crate::setup::{Setup, WorkspaceKeys};
@@ -384,17 +384,25 @@ impl<'a> JsAnalysis<'a> {
         sources: &[Arc<dyn InputSource>],
         sequential: bool,
     ) -> Self {
-        Self::build_cached(workspace, config, fs, sources, sequential, &IndexCache::default())
+        Self::build_cached(
+            workspace,
+            config,
+            fs,
+            sources,
+            sequential,
+            (&IndexCache::default(), &[]),
+        )
     }
 
-    /// Like [`build`](Self::build), reading the git index through `cache` so that the roots of one run share it.
+    /// Like [`build`](Self::build), reading the git index through `cache` so that the roots of one run share it, with
+    /// `extra_entries` (relative to the workspace root) that other roots of the run import as entries.
     pub(crate) fn build_cached(
         workspace: &'a Workspace,
         config: &Config,
         fs: &Arc<dyn FileSystem>,
         sources: &[Arc<dyn InputSource>],
         sequential: bool,
-        cache: &IndexCache,
+        (cache, extra_entries): (&IndexCache, &[PathBuf]),
     ) -> Self {
         let phase = |name: &str| format!("js {name} {}", workspace.root.display());
         let indexed = timing::phase(phase("git index"), || overlay(fs, workspace, config, cache));
@@ -413,7 +421,7 @@ impl<'a> JsAnalysis<'a> {
         }
         let links = take_file_links(fs.as_ref(), &workspace.root, &mut candidates);
         let found = timing::phase(phase("entries"), || {
-            entry_files(fs.as_ref(), workspace, &setup, &candidates)
+            entry_files(fs.as_ref(), workspace, &setup, &candidates, extra_entries)
         });
         setup.mark_entries_incomplete(&found.unknown);
         let entries = found.files;
@@ -556,6 +564,29 @@ impl<'a> JsAnalysis<'a> {
     #[must_use]
     pub fn entries_incomplete(&self, id: PackageId) -> bool {
         self.setup.package(id).is_some_and(|package| package.entries_incomplete)
+    }
+
+    /// The files of other projects ([`Module::foreign`], such as a nested root) that a module of this workspace
+    /// imports, relative to the workspace root, sorted. Only the files its own code reaches directly: what those
+    /// import is for the owning project to follow, so that a multi-root run makes these, and only these, its entries.
+    #[must_use]
+    pub fn other_project_files(&self) -> Vec<PathBuf> {
+        let mut files = BTreeSet::new();
+        for module in self.graph.modules().iter().filter(|module| !module.foreign) {
+            for import in &module.imports {
+                let targets = match &import.target {
+                    Target::Module(id) => std::slice::from_ref(id),
+                    Target::Modules(ids) => ids.as_slice(),
+                    _ => &[],
+                };
+                for target in targets.iter().map(|id| self.graph.module(*id)) {
+                    if target.foreign {
+                        files.insert(target.path.clone());
+                    }
+                }
+            }
+        }
+        files.into_iter().collect()
     }
 
     /// The analysed packages whose entry files are not all known, with every reason; reason files are relative to

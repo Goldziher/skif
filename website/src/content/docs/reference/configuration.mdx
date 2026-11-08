@@ -38,6 +38,8 @@ file. Print the schema with `skif schema`.
 | `[catalog]` | Catalog enforcement |
 | `[workspace-protocol]` | `workspace:` protocol policy |
 | `[[dependency-families]]` | Packages that must share a version |
+| `[update]` | `minimum-release-age`, `max-concurrent-requests` for `skif update` |
+| `[[update-groups]]` | How far `skif update` may move each dependency group |
 | `[js]` | JavaScript analysis |
 | `root`, `extends`, `reset` | How files combine |
 | `[[overrides]]` | Rule levels, severity caps, suppressions and JS inputs for selected packages or files |
@@ -153,7 +155,7 @@ themselves workspace packages.
 | --- | --- |
 | `label` | Optional name shown in diagnostics. |
 | `dependencies`, `packages`, `dependency-types`, `specifier-types` | Selectors. |
-| `policy` | `preferred-semver` (default), `pinned`, `banned`, `ignored`, `same-range`, `same-minor` or `snapped-to`. |
+| `policy` | `preferred-semver` (default), `pinned`, `banned`, `ignored`, `same-range`, `same-minor`, `snapped-to` or `semver-range-only` (syncpack's `semverRangeOnly`: versions may differ, and only the range the `[[semver-groups]]` require is checked and fixed). |
 | `pin` | Required by `pinned`. |
 | `snap-to` | Required by `snapped-to`: packages whose version the group follows. |
 | `prefer` | With `preferred-semver`, overrides `[policy] prefer`. |
@@ -196,19 +198,26 @@ are aligned, pinned, banned and ranged like dependencies, and fixed in place (sy
 [[custom-types]]
 name = "node"                # the token for dependency-types; the dependency name with strategy "version"
 path = "engines.node"        # dotted path of keys in package.json
-strategy = "version"         # version | name@version | versions-by-name
+strategy = "version"         # version | name@version | versions-by-name | name~version
 
 [[custom-types]]
 name = "package-manager"
 path = "packageManager"      # "pnpm@9.15.0": the dependency is pnpm
 strategy = "name@version"
 
+[[custom-types]]
+name = "runtime"
+path = "volta.toolVersion"   # the version
+name-path = "volta.tool"     # the dependency name, read from another field
+strategy = "name~version"
+
 [policy]
-dependency-types = ["prod", "dev", "node", "package-manager"]
+dependency-types = ["prod", "dev", "node", "package-manager", "runtime"]
 ```
 
-`versions-by-name` reads an object of `name: version`. A name must not be one of the built-in types. The `name~version`
-strategy and `source` of syncpack are not supported.
+`versions-by-name` reads an object of `name: version`. `name~version` reads the version at `path` and the dependency
+name at `name-path`, which only this strategy takes; a fix rewrites the version. A name must not be one of the
+built-in types. syncpack's `source` (a custom type read from another file) is not supported.
 
 ### `[catalog]`
 
@@ -253,6 +262,39 @@ packages = ["@babel/*"]
 name = "react"
 enabled = false              # disable a built-in family of the same name
 ```
+
+### `[update]`
+
+Read only by `skif update`, the one command that asks a package registry ([CLI](../cli/#updating)); linting never
+does.
+
+```toml
+[update]
+minimum-release-age = 1440   # minutes a version must have been published before it is proposed; 0 turns it off
+max-concurrent-requests = 12 # registry requests at once, at least 1
+```
+
+Without `minimum-release-age`, pnpm's `minimumReleaseAge` from `pnpm-workspace.yaml` applies, else one day, as in
+syncpack. While a minimum release age applies, a version the registry gives no publish time for is not proposed, and
+the report notes it when it would have been the target.
+
+### `[[update-groups]]`
+
+```toml
+[[update-groups]]
+label = "React moves within its major"
+dependencies = ["react", "react-dom"]
+target = "minor"             # latest | minor | patch
+
+[[update-groups]]
+dependencies = ["@types/node"]
+ignored = true               # skif update leaves these alone
+```
+
+The first matching group decides (syncpack's `updateGroups`); a group sets exactly one of `target` and
+`ignored = true`, and its `target` combines with `--target` so the stricter wins. The selectors are those of
+`[[semver-groups]]`. A catalog entry belongs to no package and has no dependency type, so only groups without
+`packages` and `dependency-types` apply to it.
 
 ### `[format]`
 
@@ -495,6 +537,13 @@ analysed root that a script of a `package.json` above it runs (up to the git rep
 `node build/npm/postinstall.ts` in the outer project keeps `build/npm/postinstall.ts` used in the nested root at
 `build` (except in production mode, where scripts give no entries).
 
+In a multi-root run (`skif -r`) the files of a nested root that an enclosing root of the same run imports are entries
+of the nested root: `import { x } from "../build/lib/x"` in the outer `src` keeps `build/lib/x.ts`, and what it
+imports, used in the root at `build`. Only the files the enclosing root's own code imports become entries, so an
+unused export of a file they import is still reported. A nested root is therefore linted after the roots that enclose
+it. A root linted on its own (`skif build`) cannot know what an outer root it was not given imports, so there such a
+file is still reported unused; lint from the top with `-r`, or add it to `entry`.
+
 A package with no source file at or below its directory, no entry and no script, such as a `remote/package.json` that
 only lists what code elsewhere in the repository installs it for, has no code skif could check its dependencies
 against, so they are not judged, as for a package whose entry files skif cannot determine.
@@ -518,7 +567,9 @@ docs, Astro pages, Storybook stories) or an import reaches them, and reported as
 
 The `templateUrl`, `styleUrl` and `styleUrls` of an Angular or Stencil `@Component({ … })` (the decorator imported
 from `@angular/core` or `@stencil/core`) are imports of the component file, relative to it with or without `./`, so
-the stylesheets are followed and the packages they import count as used. Vue auto-imports are followed through the
+the stylesheets are followed and the packages they import count as used. This includes Stencil's styles per mode
+(`styleUrls: { ios: 'a.ios.css', md: ['a.md.css'] }`); its `assetsDirs` are directories copied as they are, not
+modules, and are not followed. Vue auto-imports are followed through the
 declaration files `unplugin-vue-components` and `unplugin-auto-import` generate (`components.d.ts`,
 `auto-imports.d.ts`): they are entries like every `.d.ts` file, so each registered component and composable counts as
 used, whether or not a template names it. A generated file that `.gitignore` excludes is not read, and the
@@ -551,7 +602,10 @@ members. A file that another loads with `new URL("./x", import.meta.url)` is use
 inside a string does not count) stays reachable, and a listed package it names is used, but mocking a package that no
 `package.json` lists is not an unlisted import; a `{ virtual: true }` mock is ignored. In an n8n node package the files
 listed in `package.json` `n8n.nodes` and `n8n.credentials` are entries; a `dist/nodes/A.node.js` there maps to
-`nodes/A.node.ts`, since such packages compile without a `rootDir`.
+`nodes/A.node.ts`, since such packages compile without a `rootDir`. The `vite` and `vitest` plugins honour Vite's
+`root` (relative to the config file): `root: "src"` makes the scripts of `src/index.html` entries, and a `/`-rooted
+script `src` or `build.rollupOptions.input` HTML file starts at `src`; a `root` that is not a static string leaves the
+package's entries incomplete.
 
 The table holds 106 built-in plugins:
 
@@ -615,7 +669,7 @@ reset = ["version-groups"]
   order. A file reached twice applies once. A cycle, a missing file or more than 16 nested files is an error naming
   the file.
 - `reset` discards what was inherited for the listed keys before this file applies. Allowed values:
-  `version-groups`, `semver-groups`, `custom-types`, `ignore`, `dependency-families`, `overrides`.
+  `version-groups`, `semver-groups`, `update-groups`, `custom-types`, `ignore`, `dependency-families`, `overrides`.
 
 ### Merge rules
 
@@ -628,7 +682,7 @@ reset = ["version-groups"]
 | `[rules]` | Per rule: a level keeps the inherited options; a table of options replaces the options and keeps the level |
 | `[js.plugins]` | Per plugin: `true` or `false` keeps the options; a table replaces them |
 | `[[ignore]]`, `[[overrides]]` | Append |
-| `[[version-groups]]`, `[[semver-groups]]` | The nearer file's entries come first, so with first match wins the project beats the org |
+| `[[version-groups]]`, `[[semver-groups]]`, `[[update-groups]]` | The nearer file's entries come first, so with first match wins the project beats the org |
 | `[[dependency-families]]`, `[[custom-types]]` | Replace the entry of the same `name`, append the others |
 
 ### `[[overrides]]`
