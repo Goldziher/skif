@@ -11,6 +11,27 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `skif list` and `skif json` show every dependency instance the version groups and the catalog govern, with its
+  version group, specifier and state, as syncpack's `list` and `json` do; `json` prints one object per line with
+  syncpack's `statusCode` names ([#35](https://github.com/Goldziher/skif/issues/35)).
+- `--dry-run` with `--fix` or `--fix-unsafe` prints the planned changes as a unified diff, writes no manifest and runs
+  no install (reports to `--output` or `FORMAT=FILE` files are still written); with `--format json` the `fix` object
+  carries the plan's `changes` and their diffs ([#35](https://github.com/Goldziher/skif/issues/35)).
+- `--dependency`, `--dependency-types`, `--specifier-types` and `--source` narrow the version-group and semver-group
+  rules (and only those) of a lint run, `skif list` and `skif json` to the instances they select, as syncpack's
+  filters do; `--dependency` is syncpack's `--dependencies`, renamed because knip's `--dependencies` shortcut belongs
+  to the same command ([#35](https://github.com/Goldziher/skif/issues/35)).
+- The `semver-range-only` version-group policy: versions may differ and only the range the semver groups require is
+  checked and fixed. `skif migrate` writes it for syncpack's `semverRangeOnly`, which it used to turn into `ignored`,
+  dropping the range check ([#35](https://github.com/Goldziher/skif/issues/35)).
+- The `name~version` custom type strategy reads the dependency name from `name-path` and the version from `path`;
+  `skif migrate` translates syncpack's `name~version` custom types ([#35](https://github.com/Goldziher/skif/issues/35)).
+- The `packages` of `lerna.json` declare the workspace members when nothing else does, and its `npmClient` names the
+  package manager, as syncpack reads them; the file is read only then, and an invalid one declares nothing
+  ([#35](https://github.com/Goldziher/skif/issues/35)).
+- [ADR 0057](adrs/0057-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md) records these
+  additions and what of syncpack stays out: per-group and per-state severity, `dependencyGroups`, a scoped `catalog`
+  policy, custom type `source`, catalog entries as instances, `.x` ranges and `--log-levels`.
 - knip's run-time filters on the lint command ([#36](https://github.com/Goldziher/skif/issues/36)):
   - `--workspace <NAME|DIR>` (`-W`) reports only the findings of the selected workspace packages; findings of no
     package belong to the root.
@@ -131,6 +152,19 @@ All notable changes to this project are documented here. The format follows
 - `declare module "x"` in a file with top-level `import` or `export` augments `x` instead of declaring it, so it no
   longer hides unlisted imports of `x` across the workspace; only declarations in script files do
   ([#24](https://github.com/Goldziher/skif/issues/24)).
+- A `/*` that no `*/` follows, such as one in JSX text (`<code>dist/*</code>`) or a regular expression, no longer
+  makes an `.mdx` `export` paragraph swallow the rest of the document, or a `.tsrx` file hide the imports after it
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
+- The `.mdx` ESM scan tells JSX text and regular expressions from code, so `//` or `/*` in them
+  (`<a>http://x</a>`, `/:\/\//`) no longer hides a closing bracket and makes an `export` paragraph swallow the rest of
+  the document ([#38](https://github.com/Goldziher/skif/issues/38)).
+- Inline code in `.mdx` prose follows CommonMark more closely: a backslash-escaped backtick opens no code span, an
+  unpaired backtick does not pair with one past a blank line, a template literal in a `{}` expression is not code
+  (nor one nested in its `${}`), and a stray `{` in prose does not reach past its paragraph, so the components and members they would have hidden count as used
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
+- Stencil's styles per mode (`styleUrls: { ios: 'a.ios.css', md: ['a.md.css'] }`) are followed like a `styleUrls`
+  array, so the packages those stylesheets import are no longer unused
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
 
 Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/19)):
 
@@ -180,6 +214,17 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   value, it spreads in an unknown base config, its entry keys are computed, or `package.json` publishes build output
   with no source behind it). The JSON report's `incomplete` lists the configs
   ([#23](https://github.com/Goldziher/skif/issues/23)).
+- A tool config that imports a base config from another file of the project or from a workspace package (a vite
+  config merging `@scope/vitest-config` with `mergeConfig`, an ESLint config listing a shared flat config) evaluates
+  that module statically instead of treating the value as unknown, so the package's entry files are known and its dead
+  files are reported. `mergeConfig` keeps a key unknown when either side of it is, and ESLint's `defineConfig` and
+  `tseslint.config` list all their arguments. In every config function, not only an imported one, a parameter the
+  call does not pass takes its default (`(options = {}) => …` called without arguments sees `{}`) instead of being
+  unknown ([#23](https://github.com/Goldziher/skif/issues/23)).
+- Without an install, the peer dependencies and binaries of a workspace package are read from its manifest, so a
+  package that lists peers for a workspace dependency (`@testing-library/jest-dom` for a shared vitest setup) is not
+  told they are unused, and a script that runs a binary of a workspace package it depends on counts that dependency as
+  used ([#23](https://github.com/Goldziher/skif/issues/23)).
 - The JSON report lists under `incomplete-packages` the packages whose unused files and dependencies were not checked
   because their entry files are not all known, with each reason (plugin, config file, cause); human output names them
   in a note before the summary. `Report` carries them as `incomplete_packages`. `skif-bench parity` counts knip-only

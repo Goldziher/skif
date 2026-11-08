@@ -96,6 +96,7 @@ fn version_group(table: &toml::Table) -> Result<Value, String> {
         "ignored" => group.insert("isIgnored".to_owned(), json!(true)),
         "same-range" => group.insert("policy".to_owned(), json!("sameRange")),
         "same-minor" => group.insert("policy".to_owned(), json!("sameMinor")),
+        "semver-range-only" => group.insert("policy".to_owned(), json!("semverRangeOnly")),
         "pinned" => group.insert(
             "pinVersion".to_owned(),
             json_of(table.get("pin").ok_or("pinned group without `pin`")?)?,
@@ -749,6 +750,10 @@ policy = "banned"
 dependencies = ["a"]
 policy = "same-minor"
 
+[[version-groups]]
+dependencies = ["b"]
+policy = "semver-range-only"
+
 [[semver-groups]]
 dependency-types = ["dev"]
 range = "~"
@@ -763,6 +768,7 @@ range = "~"
                     { "dependencies": ["react"], "pinVersion": "18.3.1" },
                     { "packages": ["lib"], "dependencies": ["left-pad"], "isBanned": true },
                     { "dependencies": ["a"], "policy": "sameMinor" },
+                    { "dependencies": ["b"], "policy": "semverRangeOnly" },
                     { "dependencies": ["**"], "preferVersion": "lowestSemver" },
                 ],
                 "semverGroups": [{ "dependencyTypes": ["dev"], "range": "~" }],

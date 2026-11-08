@@ -472,6 +472,20 @@ impl DependencyUsage {
 
     fn read_manifests(&mut self, workspace: &Workspace, fs: &dyn FileSystem, sequential: bool) {
         let locked = lockfile::read(fs, &workspace.root);
+        // A workspace package is linked into `node_modules` on install; without an install its own manifest says the
+        // same.
+        let linked: HashMap<String, Arc<Installed>> = workspace
+            .all_packages()
+            .filter_map(|package| {
+                let name = package.name.clone()?;
+                let manifest = package.manifest.value();
+                let installed = Installed {
+                    bins: bins_of(manifest, &name),
+                    peers: peers_of(manifest),
+                };
+                Some((name, Arc::new(installed)))
+            })
+            .collect();
         let members: Vec<(PackageId, &Package)> = workspace.iter().collect();
         for &(id, package) in &members {
             for entry in &package.dependencies {
@@ -488,6 +502,7 @@ impl DependencyUsage {
                 .iter()
                 .filter_map(|name| {
                     let found = read_installed(fs, &dir, &workspace.root, name, &mut cache)
+                        .or_else(|| linked.get(name).cloned())
                         .or_else(|| locked.get(name).cloned())?;
                     Some((name.clone(), found))
                 })

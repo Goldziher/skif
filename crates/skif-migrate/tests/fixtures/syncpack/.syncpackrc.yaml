@@ -35,6 +35,9 @@ versionGroups:
   - label: Engines in sync
     dependencyTypes: [engines]
     preferVersion: lowestSemver
+  - label: Ranges only for plugins
+    dependencies: ["eslint-plugin-*"]
+    policy: semverRangeOnly
 semverGroups:
   - label: Exact in prod
     dependencyTypes: [prod]

@@ -1,0 +1,14 @@
+{
+  "name": "@fx/vitest-config",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./frontend": {
+      "types": "./dist/frontend.d.ts",
+      "import": "./dist/frontend.js"
+    }
+  },
+  "peerDependencies": {
+    "vitest": "^3.0.0"
+  }
+}

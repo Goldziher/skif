@@ -1,0 +1,6 @@
+[[version-groups]]
+dependencies = ["react"]
+policy = "semver-range-only"
+
+[[semver-groups]]
+range = "^"

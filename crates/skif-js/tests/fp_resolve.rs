@@ -189,6 +189,34 @@ fn peers_come_from_bun_and_yarn_lockfiles_too() {
     }
 }
 
+#[test]
+fn peers_of_a_workspace_package_count_without_an_install() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+        ),
+        (
+            "packages/testing/package.json",
+            r#"{"name":"@fx/testing","version":"1.0.0","main":"index.ts","peerDependencies":{"@testing-library/dom":"^10.0.0"}}"#,
+        ),
+        ("packages/testing/index.ts", "export const render = () => null;\n"),
+        (
+            "packages/app/package.json",
+            r#"{"name":"app","private":true,"main":"src/index.ts","devDependencies":{"@fx/testing":"workspace:*","@testing-library/dom":"10.0.0"}}"#,
+        ),
+        (
+            "packages/app/src/index.ts",
+            "import { render } from '@fx/testing';\nrender();\n",
+        ),
+    ]);
+    assert_eq!(
+        names(&diagnostics, "unused-dev-dependencies"),
+        Vec::<String>::new(),
+        "{diagnostics:#?}"
+    );
+}
+
 const TOOLS: &str = r#"{"name":"app","private":true,"packageManager":"pnpm@10.0.0","scripts":{"e2e":"npx playwright test","start":"webpack serve --mode development","ui":"vitest --ui","cov":"vitest run --coverage","deploy":"node node_modules/@google/clasp deploy","filtered":"pnpm --filter web build","fetch":"npx cowsay hi","each":"pnpm -r --filter web exec vite"},"dependencies":{"@google/clasp":"1.0.0","playwright":"1.0.0"},"devDependencies":{"@vitest/coverage-v8":"3.0.0","@vitest/ui":"3.0.0","pnpm":"10.0.0","vitest":"3.0.0","webpack":"5.0.0","webpack-cli":"5.0.0","webpack-dev-server":"5.0.0"}}"#;
 
 #[test]
