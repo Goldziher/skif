@@ -29,6 +29,9 @@ All notable changes to this project are documented here. The format follows
   - `--trace-dependency <NAME>` prints where a dependency is listed, imported and used.
   - `--debug`, `--performance`, `--duration` and `--memory` print what was loaded, phase timings, wall time and peak
     memory to stderr.
+- `skif-bench deadcode` (`mise run bench:deadcode`) measures dead-code precision and recall of skif and the pinned
+  knip against a generated workspace with seeded dead code, live code behind the patterns that caused false findings,
+  and an answer key ([#26](https://github.com/Goldziher/skif/issues/26)).
 - An `unplugin-icons` plugin: with that dependency, `~icons/*` imports and the `@iconify-json/*` and `@iconify/json`
   collections are virtual, as in knip. The table holds 106 plugins
   ([#18](https://github.com/Goldziher/skif/issues/18)).

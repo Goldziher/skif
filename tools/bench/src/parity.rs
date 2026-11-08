@@ -357,7 +357,7 @@ fn classify_file(path: &str, include_test_files: bool) -> Option<&'static str> {
 
 /// The knip report in its stdout, which may carry banners or log lines around the JSON (dotenv, console output of
 /// config files). Tries every `{` that starts a line or a string key, and accepts the first object that is a report.
-fn parse_knip_report(stdout: &[u8]) -> Result<Value, String> {
+pub fn parse_knip_report(stdout: &[u8]) -> Result<Value, String> {
     let text = String::from_utf8_lossy(stdout);
     if text.trim().is_empty() {
         return Err("stdout is empty".to_owned());
@@ -559,7 +559,7 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
 
 /// An empty knip configuration, so the repository's own settings (ignores, `files: off`, ignored workspaces) do not
 /// hide findings. Returns its absolute path.
-fn empty_knip_config(scratch: &Path) -> Result<PathBuf> {
+pub fn empty_knip_config(scratch: &Path) -> Result<PathBuf> {
     fs::create_dir_all(scratch).with_context(|| format!("creating {}", scratch.display()))?;
     let path = fs::canonicalize(scratch)?.join("knip-empty.json");
     fs::write(&path, "{}\n").with_context(|| format!("writing {}", path.display()))?;
