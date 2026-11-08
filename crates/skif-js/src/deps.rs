@@ -28,6 +28,38 @@ enum Listed {
 /// Packages that are used by tooling rather than imports and never reported as unused.
 const ALWAYS_USED: &[&str] = &["typescript", "knip", "skif"];
 
+/// The packages that compile a file type skif extracts imports from without running a compiler (ADR 0001): a file
+/// of that type in the graph uses those of them its package lists, the way knip's built-in compilers mark them.
+const COMPILER_DEPENDENCIES: &[(&str, &[&str])] = &[
+    (
+        "mdx",
+        &[
+            "@mdx-js/esbuild",
+            "@mdx-js/loader",
+            "@mdx-js/mdx",
+            "@mdx-js/node-loader",
+            "@mdx-js/preact",
+            "@mdx-js/react",
+            "@mdx-js/rollup",
+            "@mdx-js/vue",
+            "remark-mdx",
+        ],
+    ),
+    ("styl", &["stylus"]),
+    (
+        "tsrx",
+        &[
+            "@tsrx/core",
+            "@tsrx/react",
+            "@tsrx/preact",
+            "@tsrx/vue",
+            "@tsrx/solid",
+            "@tsrx/ripple",
+        ],
+    ),
+    ("stylus", &["stylus"]),
+];
+
 /// Packages whose `@types` twin does not need the package itself.
 const UNPAIRED_TYPES: &[&str] = &["node", "bun", "jest"];
 
@@ -348,15 +380,19 @@ fn jsx_import_source(
 }
 
 /// The workspace members that have a name, with their absolute directory.
-fn member_dirs(workspace: &Workspace) -> Vec<(String, PathBuf)> {
+pub(crate) fn member_dirs(workspace: &Workspace) -> Vec<(String, PathBuf)> {
     workspace
         .all_packages()
         .filter_map(|package| Some((package.name.clone()?, workspace.root.join(&package.dir))))
         .collect()
 }
 
-/// For every package, the packages whose directory contains it, innermost first, and the root last.
-fn package_ancestors(workspace: &Workspace) -> Vec<Vec<PackageId>> {
+/// For every package, the packages whose directory contains it, innermost first, and the root last. With `isolate`
+/// (`--strict`) none: each package uses only what its own manifest lists.
+fn package_ancestors(workspace: &Workspace, isolate: bool) -> Vec<Vec<PackageId>> {
+    if isolate {
+        return vec![Vec::new(); workspace.package_ids().count()];
+    }
     let root = workspace.iter().find(|(_, package)| package.is_root).map(|(id, _)| id);
     let mut all = vec![Vec::new(); workspace.package_ids().count()];
     for (id, package) in workspace.iter() {
@@ -417,7 +453,7 @@ impl DependencyUsage {
             listed: vec![HashSet::new(); count],
             known_bins: vec![HashSet::new(); count],
             other_jsx_runtime: vec![false; count],
-            ancestors: package_ancestors(workspace),
+            ancestors: package_ancestors(workspace, setup.isolate_workspaces),
             hosts: vec![HashMap::new(); count],
             bins: vec![HashMap::new(); count],
             members: workspace.all_packages().filter_map(|p| p.name.clone()).collect(),
@@ -425,8 +461,8 @@ impl DependencyUsage {
         };
         usage.read_manifests(workspace, fs, sequential);
         let tsconfigs = TsconfigMemo::new(fs);
-        usage.collect_ambient_types(workspace, &tsconfigs);
-        usage.collect_jsx_runtimes(workspace, &tsconfigs);
+        usage.collect_ambient_types(workspace, setup, &tsconfigs);
+        usage.collect_jsx_runtimes(workspace, setup, &tsconfigs);
         usage.collect_ancestor_bins(workspace, fs);
         usage.collect_member_bins(workspace);
         usage.collect_imports(workspace, setup, graph);
@@ -476,15 +512,10 @@ impl DependencyUsage {
     /// TypeScript includes every visible `@types/*` package unless `compilerOptions.types` narrows them, so the
     /// globals-only ones a package (and the root, which hoists them) lists are used when the package has a
     /// `tsconfig.json` that does not narrow them.
-    fn collect_ambient_types(&mut self, workspace: &Workspace, tsconfigs: &TsconfigMemo<'_>) {
+    fn collect_ambient_types(&mut self, workspace: &Workspace, setup: &Setup, tsconfigs: &TsconfigMemo<'_>) {
         let members = member_dirs(workspace);
         for (id, package) in workspace.iter() {
-            if !includes_all_types(
-                tsconfigs,
-                &members,
-                &workspace.root.join(&package.dir).join("tsconfig.json"),
-                0,
-            ) {
+            if !includes_all_types(tsconfigs, &members, &setup.tsconfig_of(workspace, package), 0) {
                 continue;
             }
             for scope in [id, PackageId::ROOT] {
@@ -500,10 +531,10 @@ impl DependencyUsage {
         }
     }
 
-    fn collect_jsx_runtimes(&mut self, workspace: &Workspace, tsconfigs: &TsconfigMemo<'_>) {
+    fn collect_jsx_runtimes(&mut self, workspace: &Workspace, setup: &Setup, tsconfigs: &TsconfigMemo<'_>) {
         let members = member_dirs(workspace);
         for (id, package) in workspace.iter() {
-            let config = workspace.root.join(&package.dir).join("tsconfig.json");
+            let config = setup.tsconfig_of(workspace, package);
             self.other_jsx_runtime[id.index()] = jsx_import_source(tsconfigs, &members, &config, 0)
                 .is_some_and(|source| package_name(&source).is_some_and(|name| name != "react"));
         }
@@ -570,12 +601,21 @@ impl DependencyUsage {
 
     fn collect_imports(&mut self, workspace: &Workspace, setup: &Setup, graph: &ModuleGraph) {
         for module in graph.modules() {
-            if setup.package(module.owner).is_none() {
+            // A file of another project uses that project's dependencies, not those of the package that reaches it.
+            if module.foreign || setup.package(module.owner).is_none() {
                 continue;
             }
             for resolved in &module.imports {
                 if let Some(name) = &resolved.package {
                     let kind = module.info.imports.get(resolved.import).map(|import| import.kind);
+                    if kind == Some(ImportKind::Mock) {
+                        // A test that mocks a package does not need it installed: a listed package is used, an
+                        // unlisted one is not an unlisted import.
+                        if let Some(found) = self.find_listed(module.owner, name) {
+                            self.reference(found, name);
+                        }
+                        continue;
+                    }
                     let type_only = resolved.type_only && kind != Some(ImportKind::ExportFrom);
                     let span = module.info.imports.get(resolved.import).map(|import| import.span);
                     self.handle_import(workspace, module.owner, name, type_only, module.id, span);
@@ -585,9 +625,24 @@ impl DependencyUsage {
                     self.reference_listed(module.owner, &import.specifier);
                 }
             }
+            let extension = module
+                .abs
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(str::to_ascii_lowercase);
+            if let Some((_, compilers)) = COMPILER_DEPENDENCIES
+                .iter()
+                .find(|(wanted, _)| extension.as_deref() == Some(*wanted))
+            {
+                for compiler in *compilers {
+                    if let Some(found) = self.find_listed(module.owner, compiler) {
+                        self.reference(found, compiler);
+                    }
+                }
+            }
             // `declare module 'pkg'` augments the package, which has to be installed for that to compile. It stays
             // out of `imports`: declaring a module the project does not list is not an unlisted import.
-            for name in &module.info.ambient_modules {
+            for name in module.info.ambient_modules.iter().chain(&module.info.augmented_modules) {
                 self.reference_listed(module.owner, name);
             }
             if let Some(source) = module.info.jsx_import_source.as_deref().and_then(package_name) {

@@ -45,6 +45,8 @@ pub(crate) const JS_IGNORE_EXPORTS_USED_IN_FILE: &str = "ignore-exports-used-in-
 pub(crate) const JS_IGNORE_MEMBERS: &str = "ignore-members";
 pub(crate) const JS_PRODUCTION: &str = "production";
 pub(crate) const JS_INCLUDE_ENTRY_EXPORTS: &str = "include-entry-exports";
+pub(crate) const JS_TSCONFIG: &str = "tsconfig";
+pub(crate) const JS_USE_TSCONFIG_FILES: &str = "use-tsconfig-files";
 
 // `[js.workspaces."<dir>"]`; the root is `"."`.
 pub(crate) const WS_PATHS: &str = "paths";
@@ -54,6 +56,13 @@ pub(crate) const WS_PLUGINS: &str = "plugins";
 
 /// The root workspace key.
 pub(crate) const ROOT_WORKSPACE: &str = ".";
+
+// `[catalog]`
+pub(crate) const CATALOG: &str = "catalog";
+pub(crate) const CATALOG_REPORT_UNUSED_ENTRIES: &str = "report-unused-entries";
+
+/// The rule that `[catalog] report-unused-entries` gates (knip's `catalog` issue type).
+pub(crate) const RULE_UNUSED_CATALOG_ENTRIES: &str = "unused-catalog-entries";
 
 /// `[policy]` key choosing how the override sections are read.
 pub(crate) const POLICY_OVERRIDE_READING: &str = "override-reading";

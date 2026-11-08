@@ -4,9 +4,11 @@ use std::path::Path;
 
 use skif_core::{Diagnostic, Fix, FixSafety, Location, Related, diagnostic};
 use skif_lint::Emitter;
+use skif_specifier::Specifier;
 
 use super::analysis::{Analysis, ConfiguredGroup};
 use super::instances::{Instance, InstanceId};
+use super::specifiers::is_compatible_upgrade;
 use super::state::{State, Verdict};
 
 /// Emits one diagnostic per non-valid instance, then one per unused group and one per unusable pin; the latter two
@@ -129,21 +131,43 @@ fn related_of(analysis: &Analysis<'_>, id: InstanceId, verdict: &Verdict) -> Opt
 
 /// The fix of a fixable state: the entry is removed when banned, and set to the chosen specifier otherwise.
 ///
-/// The specifier is written as the group chose it, never re-rendered. Changing what gets installed is unsafe.
+/// The specifier is written as the group chose it, never re-rendered. Its safety follows ADR 0051.
 fn fix_of(instance: &Instance<'_>, verdict: &Verdict) -> Option<Fix> {
     if !verdict.state.is_fixable() {
         return None;
     }
-    let (title, op) = if verdict.state == State::IsBanned {
-        (format!("Remove `{}`", instance.name), instance.remove()?)
-    } else {
-        let target = verdict.target.as_ref()?.get_raw();
+    let (title, op, safety) = if verdict.state == State::IsBanned {
         (
-            format!("Set `{}` to `{target}`", instance.name),
-            instance.set_specifier(target)?,
+            format!("Remove `{}`", instance.name),
+            instance.remove()?,
+            FixSafety::Unsafe,
+        )
+    } else {
+        let target = verdict.target.as_ref()?;
+        (
+            format!("Set `{}` to `{}`", instance.name, target.get_raw()),
+            instance.set_specifier(target.get_raw())?,
+            alignment_safety(instance, verdict.state, target),
         )
     };
-    Some(Fix::new(title, FixSafety::Unsafe, vec![op]))
+    Some(Fix::new(title, safety, vec![op]))
+}
+
+/// How safe rewriting `instance` to `target` is (ADR 0051).
+///
+/// Whatever chose the target (a pin, the highest or lowest version in use, a snap target, the workspace package),
+/// moving to it is safe only as a compatible upgrade that keeps the specifier's shape: a pin can name another major,
+/// a lower version or another range as easily as the workspace can. Range changes and the fixes of policy conflicts
+/// change what a configuration asked for, and stay unsafe.
+fn alignment_safety(instance: &Instance<'_>, state: State, target: &Specifier) -> FixSafety {
+    let safe = match state {
+        State::DiffersToPin
+        | State::DiffersToHighestOrLowestSemver
+        | State::DiffersToSnapTarget
+        | State::DiffersToLocal => is_compatible_upgrade(&instance.specifier, target),
+        _ => false,
+    };
+    if safe { FixSafety::Safe } else { FixSafety::Unsafe }
 }
 
 /// A finding about a configured version group, located in the configuration file.
@@ -160,4 +184,121 @@ fn group_diagnostic(state: State, config_file: &Path, group: &ConfiguredGroup, w
     .help(help)
     .detail(state.name())
     .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::{config, lint, root};
+
+    type Row = (String, String, FixSafety);
+
+    fn manifest(name: &str, react: &str) -> String {
+        format!(r#"{{"name":"{name}","version":"1.0.0","private":true,"dependencies":{{"react":"{react}"}}}}"#)
+    }
+
+    /// The package, state and fix safety of each `version-mismatch` in the workspace `files`, by package.
+    fn rows(files: &[(String, String)], toml: &str) -> Vec<Row> {
+        let borrowed: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str()))
+            .collect();
+        let mut rows: Vec<Row> = lint("version-mismatch", &borrowed, &config(toml))
+            .into_iter()
+            .map(|diagnostic| {
+                (
+                    diagnostic.package.clone().unwrap_or_default(),
+                    diagnostic.detail.clone().unwrap_or_default(),
+                    diagnostic.fixes[0].safety,
+                )
+            })
+            .collect();
+        rows.sort_by(|left, right| (&left.0, &left.1).cmp(&(&right.0, &right.1)));
+        rows
+    }
+
+    /// [`rows`] for a workspace whose `app`, `lib` and `tool` packages depend on `react` at the given specifiers.
+    fn safety(config_toml: &str, app: &str, lib: &str, tool: &str) -> Vec<Row> {
+        let files = [
+            ("package.json".to_owned(), root("")),
+            ("packages/app/package.json".to_owned(), manifest("app", app)),
+            ("packages/lib/package.json".to_owned(), manifest("lib", lib)),
+            ("packages/tool/package.json".to_owned(), manifest("tool", tool)),
+        ];
+        rows(&files, config_toml)
+    }
+
+    fn row(package: &str, state: &str, safety: FixSafety) -> Row {
+        (package.to_owned(), state.to_owned(), safety)
+    }
+
+    #[test]
+    fn a_pin_is_safe_only_as_a_compatible_upgrade() {
+        let pinned = |pin: &str| {
+            format!("[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"pinned\"\npin = \"{pin}\"\n")
+        };
+        // A later patch is safe; a cross-major move and a downgrade are not.
+        assert_eq!(
+            safety(&pinned("18.3.1"), "18.3.0", "17.0.2", "18.3.2"),
+            [
+                row("app", "DiffersToPin", FixSafety::Safe),
+                row("lib", "DiffersToPin", FixSafety::Unsafe),
+                row("tool", "DiffersToPin", FixSafety::Unsafe),
+            ]
+        );
+        // A change of range and a move away from a prerelease are not safe either.
+        assert_eq!(
+            safety(&pinned("^18.3.1"), "18.3.1", "^18.2.0", "^18.3.1-rc.0"),
+            [
+                row("app", "DiffersToPin", FixSafety::Unsafe),
+                row("lib", "DiffersToPin", FixSafety::Safe),
+                row("tool", "DiffersToPin", FixSafety::Unsafe),
+            ]
+        );
+        // Nor is a move to a prerelease.
+        assert_eq!(
+            safety(&pinned("^19.0.0-rc.1"), "^19.0.0-rc.0", "^19.0.0-rc.1", "^19.0.0-rc.1"),
+            [row("app", "DiffersToPin", FixSafety::Unsafe)]
+        );
+    }
+
+    #[test]
+    fn a_snap_target_is_safe_only_as_a_compatible_upgrade() {
+        let toml = "[[version-groups]]\ndependencies = [\"react\"]\npolicy = \"snapped-to\"\nsnap-to = [\"app\"]\n";
+        assert_eq!(
+            safety(toml, "^18.3.1", "^18.2.0", "^19.0.0"),
+            [
+                row("lib", "DiffersToSnapTarget", FixSafety::Safe),
+                row("tool", "DiffersToSnapTarget", FixSafety::Unsafe),
+            ]
+        );
+    }
+
+    #[test]
+    fn prefer_lowest_never_downgrades_on_its_own() {
+        assert_eq!(
+            safety("[policy]\nprefer = \"lowest\"\n", "^18.2.0", "^18.3.1", "^18.2.0"),
+            [row("lib", "DiffersToHighestOrLowestSemver", FixSafety::Unsafe)]
+        );
+    }
+
+    #[test]
+    fn the_workspace_package_version_is_safe_only_as_a_compatible_upgrade() {
+        let files = [
+            ("package.json".to_owned(), root("")),
+            (
+                "packages/react/package.json".to_owned(),
+                r#"{"name":"react","version":"18.3.1","private":true}"#.to_owned(),
+            ),
+            ("packages/app/package.json".to_owned(), manifest("app", "18.3.0")),
+            ("packages/tool/package.json".to_owned(), manifest("tool", "17.0.2")),
+        ];
+        assert_eq!(
+            rows(&files, ""),
+            [
+                row("app", "DiffersToLocal", FixSafety::Safe),
+                row("tool", "DiffersToLocal", FixSafety::Unsafe),
+            ]
+        );
+    }
 }

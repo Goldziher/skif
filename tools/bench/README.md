@@ -128,6 +128,13 @@ in their own column and section, with the reason, and `--check` ignores them. `-
 two as differences (not usable with a baseline, nor is `--repo-knip-config`). See
 [ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md).
 
+**Not judged by skif.** skif lists under `incomplete-packages` in its JSON report the packages whose entry files it
+cannot all know (a tool config it cannot read), and does not report their unused files and dependencies. A finding only
+knip reports in `files`, `dependencies` or `devDependencies` whose package (the deepest directory above it with a
+`package.json`) is one of those is counted as `not-judged-by-skif`: in its own column of `parity.md`, apart from the
+agreement counts and the other known deviations, and ignored by `--check`. `parity.json` lists the directories per
+repository under `not_judged_packages`. See [ADR 0053](../../adrs/0053-incomplete-packages-in-the-json-report.md).
+
 ## Policy diff against syncpack
 
 `skif-bench syncpack-diff` compares skif's policy rules (`version-mismatch`, `semver-range-mismatch`,

@@ -1,0 +1,20 @@
+[
+  {
+    "rule": "unused-catalog-entries",
+    "severity": "warning",
+    "package": null,
+    "dependency": "left-pad",
+    "detail": null,
+    "path": ".yarnrc.yml",
+    "fixable": true
+  },
+  {
+    "rule": "unused-catalog-entries",
+    "severity": "warning",
+    "package": null,
+    "dependency": "lodash",
+    "detail": null,
+    "path": ".yarnrc.yml",
+    "fixable": true
+  }
+]

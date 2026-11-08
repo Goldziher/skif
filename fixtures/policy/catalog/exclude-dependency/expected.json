@@ -6,7 +6,8 @@
     "dependency": "lodash",
     "detail": "NotUsingCatalog",
     "path": "packages/app/package.json",
-    "fixable": true
+    "fixable": true,
+    "safe": true
   },
   {
     "rule": "catalog-not-used",
@@ -15,6 +16,7 @@
     "dependency": "lodash",
     "detail": "NotUsingCatalog",
     "path": "packages/lib/package.json",
-    "fixable": true
+    "fixable": true,
+    "safe": true
   }
 ]

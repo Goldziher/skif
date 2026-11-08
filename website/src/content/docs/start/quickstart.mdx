@@ -60,6 +60,9 @@ import { Steps } from '@astrojs/starlight/components';
 skif --format json                              # one JSON document on stdout
 skif --format sarif --output skif.sarif         # code scanning
 skif --format github                            # workflow annotations
+skif --format codeclimate --output gl-code-quality.json  # GitLab Code Quality
+skif --format markdown                          # a pull request comment
+skif --format compact                           # one line per finding
 ```
 
 ## Next
