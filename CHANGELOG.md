@@ -130,10 +130,13 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   config merging `@scope/vitest-config` with `mergeConfig`, an ESLint config listing a shared flat config) evaluates
   that module statically instead of treating the value as unknown, so the package's entry files are known and its dead
   files are reported. `mergeConfig` keeps a key unknown when either side of it is, and ESLint's `defineConfig` and
-  `tseslint.config` list all their arguments ([#23](https://github.com/Goldziher/skif/issues/23)).
-- Without an install, the peer dependencies of a workspace package are read from its manifest, so a package that lists
-  them for a workspace dependency (`@testing-library/jest-dom` for a shared vitest setup) is not told they are unused
-  ([#23](https://github.com/Goldziher/skif/issues/23)).
+  `tseslint.config` list all their arguments. In every config function, not only an imported one, a parameter the
+  call does not pass takes its default (`(options = {}) => …` called without arguments sees `{}`) instead of being
+  unknown ([#23](https://github.com/Goldziher/skif/issues/23)).
+- Without an install, the peer dependencies and binaries of a workspace package are read from its manifest, so a
+  package that lists peers for a workspace dependency (`@testing-library/jest-dom` for a shared vitest setup) is not
+  told they are unused, and a script that runs a binary of a workspace package it depends on counts that dependency as
+  used ([#23](https://github.com/Goldziher/skif/issues/23)).
 - The JSON report lists under `incomplete-packages` the packages whose unused files and dependencies were not checked
   because their entry files are not all known, with each reason (plugin, config file, cause); human output names them
   in a note before the summary. `Report` carries them as `incomplete_packages`. `skif-bench parity` counts knip-only
