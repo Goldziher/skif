@@ -260,3 +260,101 @@ fn eslint_flat_config_combinators_list_all_their_arguments() {
         ])
     );
 }
+
+/// Two modules whose exports refer to each other give the same values whichever the config reads first.
+#[test]
+fn a_cycle_between_imports_does_not_depend_on_the_order_of_evaluation() {
+    let modules = [
+        (
+            "/ws/app/a.ts",
+            "import { b } from './b';\nexport const a = { name: 'a', other: b };",
+        ),
+        (
+            "/ws/app/b.ts",
+            "import { a } from './a';\nexport const b = { name: 'b', other: a };",
+        ),
+    ];
+    let mut a_first = modules.to_vec();
+    a_first.push((
+        "/ws/app/config.ts",
+        "import { a } from './a';\nimport { b } from './b';\nexport default { a, b };",
+    ));
+    let mut b_first = modules.to_vec();
+    b_first.push((
+        "/ws/app/config.ts",
+        "import { a } from './a';\nimport { b } from './b';\nexport default { b, a };",
+    ));
+    let a_first = eval(&files(&a_first));
+    let b_first = eval(&files(&b_first));
+    for key in ["a", "b"] {
+        assert_eq!(a_first.get(key), b_first.get(key), "{key}");
+    }
+    assert_eq!(
+        a_first.get("a").unwrap(),
+        &obj(vec![
+            ("name", s("a")),
+            ("other", obj(vec![("name", s("b")), ("other", ConfigValue::Unknown)])),
+        ])
+    );
+}
+
+/// A chain of `count` modules, the config first, each exporting `{ name, next }` of the module after it.
+fn chain(count: usize) -> Files {
+    let sources: Vec<(String, &'static str)> = (1..count)
+        .map(|index| {
+            let source = if index + 1 < count {
+                format!(
+                    "import {{ v as next }} from './m{}';\nexport const v = {{ name: 'm{index}', next }};",
+                    index + 1
+                )
+            } else {
+                format!("export const v = {{ name: 'm{index}' }};")
+            };
+            (format!("/ws/app/m{index}.ts"), &*Box::leak(source.into_boxed_str()))
+        })
+        .collect();
+    let mut entries: Vec<(&str, &'static str)> =
+        sources.iter().map(|(path, source)| (path.as_str(), *source)).collect();
+    entries.push(("/ws/app/config.ts", "import { v } from './m1';\nexport default v;"));
+    files(&entries)
+}
+
+/// The modules of a chain whose values are known, following `next` until it is unknown or absent.
+fn known_depth(value: &ConfigValue) -> (usize, Option<&ConfigValue>) {
+    let mut depth = 0;
+    let mut current = value;
+    while let ConfigValue::Object(_) = current {
+        depth += 1;
+        match current.get("next") {
+            Some(next) => current = next,
+            None => return (depth, None),
+        }
+    }
+    (depth, Some(current))
+}
+
+#[test]
+fn a_chain_of_imports_reaches_eight_modules() {
+    // The config and seven imported modules: all known.
+    assert_eq!(known_depth(&eval(&chain(8))), (7, None));
+    // The ninth module of a chain is unknown.
+    assert_eq!(known_depth(&eval(&chain(9))), (7, Some(&ConfigValue::Unknown)));
+}
+
+#[test]
+fn many_calls_of_one_imported_helper_count_as_one_module() {
+    let calls: Vec<String> = (0..100).map(|index| format!("make('{index}')")).collect();
+    let config = format!(
+        "import {{ make }} from './make';\nexport default [{}];",
+        calls.join(", ")
+    );
+    let loader = files(&[
+        ("/ws/app/config.ts", Box::leak(config.into_boxed_str())),
+        ("/ws/app/make.ts", "export const make = (name) => ({ name });"),
+    ]);
+    let value = eval(&loader);
+    let items = value.as_array().unwrap();
+    assert_eq!(items.len(), 100);
+    assert_eq!(items[99], obj(vec![("name", s("99"))]));
+    assert!(!value.has_unknown());
+}

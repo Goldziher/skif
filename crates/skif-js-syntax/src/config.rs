@@ -32,11 +32,16 @@ const MAX_CONST_NODES: usize = 10_000;
 /// past this.
 const MAX_CALLS: usize = 256;
 
-/// How many imported modules may be evaluated inside one another; a longer chain of imports is unknown.
+/// How many modules, the config file included, may be evaluated inside one another; an import past the eighth module
+/// of a chain is unknown.
 const MAX_IMPORT_DEPTH: usize = 8;
 
-/// How many imported modules one config may evaluate in all, so a config that reaches many modules stays cheap.
+/// How many distinct modules one config may load, so a config that reaches many modules stays cheap.
 const MAX_MODULE_LOADS: usize = 64;
+
+/// How many imported exports one config may evaluate in all, calls with arguments included, so imported functions
+/// that call one another many times stay cheap.
+const MAX_MODULE_EVALUATIONS: usize = 1024;
 
 /// Packages whose default export or named exports list files by glob.
 const GLOB_PACKAGES: &[&str] = &["glob", "fast-glob", "globby", "tinyglobby"];
@@ -194,9 +199,9 @@ pub fn extract_config_object(source: &str, path: &Path) -> Option<ConfigValue> {
 
 /// Like [`extract_config_object`], and follows the imports `loader` finds: a value imported from another module (a
 /// default or named export, a namespace member, a `require`d `module.exports`) is evaluated statically in that module,
-/// and a call of an imported function with the arguments given. Modules import one another at most eight deep, an
-/// export whose value depends on itself through imports is [`ConfigValue::Unknown`] there, and one config evaluates at
-/// most 64 imported exports.
+/// and a call of an imported function with the arguments given. A chain of imports reaches at most eight modules, the
+/// config file included, an export whose value depends on itself through imports is [`ConfigValue::Unknown`] there,
+/// and one config loads at most 64 distinct modules and evaluates at most 1024 imported exports and calls.
 /// Paths an imported module computes from its own location (`__dirname`, `import.meta.url`) come back relative to the
 /// directory of the config file at `path`.
 #[must_use]
@@ -205,7 +210,9 @@ pub fn extract_config_object_with(source: &str, path: &Path, loader: &dyn Module
         loader,
         root: path.parent().map(Path::to_path_buf).unwrap_or_default(),
         active: RefCell::new(vec![(path.to_path_buf(), Imported::Default)]),
-        loads: Cell::new(0),
+        loads: RefCell::new(HashSet::new()),
+        evaluations: Cell::new(0),
+        cuts: Cell::new(0),
         values: RefCell::new(HashMap::new()),
         loaded: RefCell::new(HashMap::new()),
     };
@@ -396,9 +403,15 @@ struct Modules<'l> {
     /// The exports being evaluated, outermost (the config file's default export) first. One that depends on itself
     /// is unknown; other exports of the same module are not, as ES modules may import each other.
     active: RefCell<Vec<(PathBuf, Imported)>>,
-    /// How many modules have been evaluated so far.
-    loads: Cell<usize>,
-    /// The value of every export evaluated without arguments so far, by module and export.
+    /// The modules evaluated so far.
+    loads: RefCell<HashSet<PathBuf>>,
+    /// How many exports have been evaluated so far, calls with arguments included.
+    evaluations: Cell<usize>,
+    /// How many times an evaluation was cut short (a cycle, the depth limit, a budget) and gave
+    /// [`ConfigValue::Unknown`]. A value computed while this grew depends on what else was being evaluated at the
+    /// time, so it is not cached.
+    cuts: Cell<usize>,
+    /// The value of every export evaluated without arguments so far, by module and export, computed without a cut.
     values: RefCell<HashMap<(PathBuf, Imported), Option<ConfigValue>>>,
     /// What the loader returned for each importing directory and specifier.
     loaded: RefCell<HashMap<(PathBuf, String), Option<LoadedModule>>>,
@@ -440,20 +453,31 @@ impl Modules<'_> {
         {
             return known.clone();
         }
-        {
-            let active = self.active.borrow();
-            if active.contains(&key) || active.len() > MAX_IMPORT_DEPTH || self.loads.get() >= MAX_MODULE_LOADS {
-                return Some(ConfigValue::Unknown);
-            }
+        if self.cut(&key) {
+            self.cuts.set(self.cuts.get() + 1);
+            return Some(ConfigValue::Unknown);
         }
-        self.loads.set(self.loads.get() + 1);
+        self.loads.borrow_mut().insert(path.clone());
+        self.evaluations.set(self.evaluations.get() + 1);
+        let cuts = self.cuts.get();
         self.active.borrow_mut().push(key.clone());
         let value = self.evaluate_module(&path, &source, imported, args);
         self.active.borrow_mut().pop();
-        if args.is_none() {
+        if args.is_none() && self.cuts.get() == cuts {
             self.values.borrow_mut().insert(key, value.clone());
         }
         value
+    }
+
+    /// Whether evaluating the export `key` would depend on itself, nest past [`MAX_IMPORT_DEPTH`] modules or exceed a
+    /// budget.
+    fn cut(&self, key: &(PathBuf, Imported)) -> bool {
+        let active = self.active.borrow();
+        let loads = self.loads.borrow();
+        active.contains(key)
+            || active.len() >= MAX_IMPORT_DEPTH
+            || (!loads.contains(&key.0) && loads.len() >= MAX_MODULE_LOADS)
+            || self.evaluations.get() >= MAX_MODULE_EVALUATIONS
     }
 
     fn evaluate_module(
@@ -1016,6 +1040,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         // The value does not depend on where it is referenced from: evaluate it outside any function's bindings and
         // from a fresh depth budget.
         let saved = std::mem::take(&mut *self.frames.borrow_mut());
+        let cuts = self.modules.map(|modules| modules.cuts.get());
         let value = self.expr(init, 0);
         *self.frames.borrow_mut() = saved;
         self.chain.borrow_mut().pop();
@@ -1024,7 +1049,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         } else {
             value
         };
-        self.evaluated.borrow_mut().insert(name.to_owned(), value.clone());
+        // A value an import cycle or budget cut short depends on the order of evaluation; it is computed again.
+        if self.modules.map(|modules| modules.cuts.get()) == cuts {
+            self.evaluated.borrow_mut().insert(name.to_owned(), value.clone());
+        }
         value
     }
 
