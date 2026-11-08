@@ -1226,7 +1226,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Fields sorted alphabetically one level deep: an object by key, an array of strings by value. `a/b` names a\nnested field.",
+          "description": "Fields sorted alphabetically one level deep: an object by key, an array of strings by value. `a/b` names a\nnested field. For fields whose order means nothing: an array with a `!`-prefixed entry keeps its order.",
           "default": [
             "bin",
             "contributors",

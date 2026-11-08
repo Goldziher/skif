@@ -21,6 +21,8 @@ pub struct FormatOptions {
     /// Top-level keys that come first, in this order.
     pub sort_first: Vec<String>,
     /// Fields sorted one level deep: an object by key, an array of strings by value. `a/b` addresses a nested field.
+    /// Meant for fields whose order means nothing: an array with a `!` entry is a glob list where a later negation
+    /// overrides an earlier match (`files`, `workspaces`), so it is left as it is.
     pub sort_az: Vec<String>,
     /// Keys that come first, in this order, in every object of `exports`; `default` is always last. Moving a key
     /// other than `types` and `default` changes which condition matches first, so it makes the change unsafe.
@@ -701,7 +703,8 @@ fn sort_exports(node: &mut Node, order: &[String], change: &mut ExportsChange) {
     }
 }
 
-/// Sorts an object by key or an array of strings by value, one level deep, in byte order.
+/// Sorts an object by key or an array of strings by value, one level deep, in byte order; an array holding a `!` entry
+/// keeps its order.
 fn sort_az(node: &mut Node) -> bool {
     match node {
         Node::Object(object) => {
@@ -714,6 +717,10 @@ fn sort_az(node: &mut Node) -> bool {
             let Some(values) = array.items.iter().map(string_value).collect::<Option<Vec<&str>>>() else {
                 return false;
             };
+            // A negated glob only excludes what the patterns before it matched: the order is meaningful.
+            if values.iter().any(|value| value.starts_with('!')) {
+                return false;
+            }
             let mut order: Vec<usize> = (0..values.len()).collect();
             order.sort_by(|a, b| values[*a].cmp(values[*b]));
             if order.iter().enumerate().all(|(position, index)| position == *index) {
@@ -897,6 +904,15 @@ mod tests {
         );
         assert_eq!(formatted.output, r#"{"bin":{"a":"2","z":"1"},"keywords":["a","b"]}"#);
         assert_eq!(defaults(r#"{"keywords":["b",1,"a"]}"#).issues, []);
+    }
+
+    #[test]
+    fn sort_az_leaves_an_array_with_negated_globs() {
+        let options = FormatOptions::default().with_sort_az(vec!["files".to_owned()]);
+        let source = r#"{"files":["dist","!dist/**/*.test.js","dist/keep.test.js"]}"#;
+        assert_eq!(format(source, &options).issues, []);
+        let plain = format(r#"{"files":["src","dist"]}"#, &options);
+        assert_eq!(plain.output, r#"{"files":["dist","src"]}"#);
     }
 
     #[test]
