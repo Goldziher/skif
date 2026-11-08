@@ -119,7 +119,9 @@ of an open document carries the document's version, so the editor refuses it if 
 A message larger than 64 MiB, or one whose header the server cannot read, ends the session: skif prints the reason
 to stderr and exits with code 1, and the editor can restart it.
 
-There is no skif editor extension. Any editor that can start a language server for JSON files can run it, for
+There is no skif editor extension
+([ADR 0067](https://github.com/Goldziher/skif/blob/main/adrs/0067-no-editor-extension.md)). Any editor that can start
+a language server for JSON files can run it; VS Code needs a generic language-server client extension for that. For
 example Neovim:
 
 ```lua
