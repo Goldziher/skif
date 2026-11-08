@@ -519,6 +519,13 @@ impl<'a> JsAnalysis<'a> {
         self.setup.production
     }
 
+    /// Whether knip's strict mode (`skif --strict`) is on: each package uses only its own manifest, required peer
+    /// dependencies count as production dependencies and type-only imports use no package.
+    #[must_use]
+    pub fn strict(&self) -> bool {
+        self.setup.isolate_workspaces
+    }
+
     /// Whether dependency `name` of package `id` is on an `ignore-dependencies` list.
     #[must_use]
     pub fn ignores_dependency(&self, id: PackageId, name: &str) -> bool {

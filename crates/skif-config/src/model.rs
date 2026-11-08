@@ -1713,8 +1713,10 @@ pub struct Js {
     pub ignore_members: Vec<String>,
     /// Analyse production code only.
     pub production: bool,
-    /// Each workspace package uses only the dependencies its own manifest lists: an import is not satisfied by a
-    /// containing package or the root. Set by `skif --strict`; not a configuration key, so a file never sets it.
+    /// knip's strict mode. Each workspace package uses only the dependencies its own manifest lists: an import is
+    /// not satisfied by a containing package or the root. Production code must import from `dependencies` or
+    /// `peerDependencies`, type-only imports use no package, and required peer dependencies are checked like
+    /// `dependencies`. Set by `skif --strict`; not a configuration key, so a file never sets it.
     #[serde(skip)]
     #[cfg_attr(feature = "schema", schemars(skip))]
     pub isolate_workspaces: bool,
