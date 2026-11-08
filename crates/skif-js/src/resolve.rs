@@ -270,6 +270,8 @@ pub(crate) struct ModuleResolver {
     nearest_paths: Memo<PathBuf, Option<Arc<TsPaths>>>,
     /// The `tsconfig.json` and `jsconfig.json` files read so far.
     tsconfigs: TsConfigs,
+    /// Whether the nearest `package.json` declares `imports`, by the directory of the importer.
+    declared_imports: Memo<PathBuf, bool>,
 }
 
 /// Which language a specifier is written in.
@@ -551,6 +553,7 @@ impl ModuleResolver {
             style_module_dir_probes: ModuleDirProbes::new(),
             nearest_paths: Memo::new(),
             tsconfigs,
+            declared_imports: Memo::new(),
         }
     }
 
@@ -588,9 +591,48 @@ impl ModuleResolver {
             .any(|(dir, ignore)| path.starts_with(dir) && ignore.matched_path_or_any_parents(path, false).is_ignore())
     }
 
-    /// What a relative specifier that names nothing is: unknown when it points at an ignored path (also through the
-    /// source extensions its extension stands for) or, in a script, at a JSON or foreign file, unresolved otherwise.
+    /// Whether the nearest `package.json` above `importer` declares `imports`, the only place a `#` specifier can be
+    /// resolved from. An unreadable manifest counts as declaring them.
+    fn declares_imports(&self, importer: &Path) -> bool {
+        let Some(directory) = importer.parent() else {
+            return false;
+        };
+        self.declared_imports.get_or_compute(directory.to_path_buf(), || {
+            for dir in directory.ancestors().take_while(|dir| dir.starts_with(&self.root)) {
+                if let Some(member) = self.members.values().find(|member| member.dir == dir) {
+                    return member.manifest.get("imports").is_some();
+                }
+                if let Ok(text) = self.fs.read_to_string(&dir.join("package.json")) {
+                    return serde_json::from_str::<Value>(&text)
+                        .map_or(true, |manifest| manifest.get("imports").is_some());
+                }
+            }
+            false
+        })
+    }
+
+    /// Whether a `paths` pattern of the nearest `tsconfig.json` or `jsconfig.json` maps `specifier`, whether or not
+    /// its targets exist.
+    fn ts_paths_map(&self, importer: &Path, specifier: &str) -> bool {
+        let Some(directory) = importer.parent() else {
+            return false;
+        };
+        self.nearest_paths
+            .get_or_compute(directory.to_path_buf(), || {
+                self.tsconfigs.nearest(directory).map(Arc::new)
+            })
+            .is_some_and(|config| config.maps(specifier))
+    }
+
+    /// What a specifier that names nothing is. A relative one is unknown when it points at an ignored path (also
+    /// through the source extensions its extension stands for, or, without a code extension, the files and directory
+    /// index it can name) or, in a script, at a JSON or foreign file. A `#` specifier is unknown when its package
+    /// declares no `imports` and no `paths` pattern maps it: a tool, not Node.js, resolves it. (A configured alias
+    /// that maps it never gets here.) Anything else is unresolved.
     fn missing(&self, kind: Kind, importer: &Path, specifier: &str) -> Resolved {
+        if specifier.starts_with('#') && !self.declares_imports(importer) && !self.ts_paths_map(importer, specifier) {
+            return Resolved::Ignored;
+        }
         if !specifier.starts_with('.') {
             return Resolved::Unresolved;
         }
@@ -618,7 +660,21 @@ impl ModuleResolver {
                     .map(move |alias| join_normalized(dir, &format!("{stem}{alias}"))),
             )
         });
-        if self.is_generated(&candidate) || aliased.is_some_and(|mut paths| paths.any(|path| self.is_generated(&path)))
+        // An extensionless specifier names a file by one of the code extensions, or the index file of a directory:
+        // `./migrations/sqlite` is generated when `migrations/sqlite/index.ts` is ignored.
+        let implied = extension
+            .as_deref()
+            .is_none_or(|extension| !CODE_EXTENSIONS.contains(&&extension[1..]))
+            .then(|| {
+                CODE_EXTENSIONS.iter().flat_map(|code| {
+                    let mut sibling = candidate.as_os_str().to_owned();
+                    sibling.push(format!(".{code}"));
+                    [PathBuf::from(sibling), candidate.join(format!("index.{code}"))]
+                })
+            });
+        if self.is_generated(&candidate)
+            || aliased.is_some_and(|mut paths| paths.any(|path| self.is_generated(&path)))
+            || implied.is_some_and(|mut paths| paths.any(|path| self.is_generated(&path)))
         {
             Resolved::Ignored
         } else {
@@ -1328,6 +1384,27 @@ mod tests {
     }
 
     #[test]
+    fn missing_extensionless_files_and_directories_ignored_by_git_are_not_unresolved() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            (
+                ".gitignore",
+                "src/migrations/sqlite/index.ts
+src/schema.gen.ts
+",
+            ),
+            ("src/a.ts", ""),
+        ]);
+        let importer = Path::new("/ws/src/a.ts");
+        assert_eq!(r.resolve(importer, "./migrations/sqlite").target, Resolved::Ignored);
+        assert_eq!(r.resolve(importer, "./schema.gen").target, Resolved::Ignored);
+        assert_eq!(
+            r.resolve(importer, "./migrations/postgres").target,
+            Resolved::Unresolved
+        );
+    }
+
+    #[test]
     fn windows_separators_join_like_posix_ones() {
         let base = Path::new("/ws/pkg");
         assert_eq!(
@@ -1384,6 +1461,54 @@ mod tests {
             Resolved::File(PathBuf::from("/ws/packages/a/bazel-out/bin/src/ui/generated.ts"))
         );
         assert_eq!(r.resolve(importer, "./absent").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn hash_specifiers_are_unresolved_only_where_the_package_declares_imports() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            (
+                "packages/a/package.json",
+                r##"{"name":"@x/a","imports":{"#x":"./src/x.js"}}"##,
+            ),
+            ("packages/a/src/a.ts", ""),
+            ("packages/b/package.json", r#"{"name":"@x/b"}"#),
+            ("packages/b/src/b.ts", ""),
+            (
+                "packages/b/templates/t/package.json",
+                r##"{"imports":{"#t":"./t.js"}}"##,
+            ),
+            ("packages/b/templates/t/index.ts", ""),
+        ]);
+        let a = Path::new("/ws/packages/a/src/a.ts");
+        let b = Path::new("/ws/packages/b/src/b.ts");
+        let template = Path::new("/ws/packages/b/templates/t/index.ts");
+        assert_eq!(r.resolve(a, "#missing").target, Resolved::Unresolved);
+        assert_eq!(r.resolve(b, "#missing").target, Resolved::Ignored);
+        assert_eq!(r.resolve(template, "#missing").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn hash_specifiers_mapped_by_tsconfig_paths_or_an_alias_stay_unresolved_without_imports() {
+        let inputs = WorkspaceInputs {
+            aliases: vec![alias("#aliased", Some("src/aliased"))],
+            ..WorkspaceInputs::default()
+        };
+        let r = resolver_with(
+            &[
+                ("package.json", r#"{"name":"root","private":true}"#),
+                (
+                    "tsconfig.json",
+                    r##"{"compilerOptions":{"paths":{"#gen/*":["./src/gen/*"]}}}"##,
+                ),
+                ("src/a.ts", ""),
+            ],
+            inputs,
+        );
+        let importer = Path::new("/ws/src/a.ts");
+        assert_eq!(r.resolve(importer, "#gen/missing").target, Resolved::Unresolved);
+        assert_eq!(r.resolve(importer, "#aliased/missing").target, Resolved::Unresolved);
+        assert_eq!(r.resolve(importer, "#unmapped").target, Resolved::Ignored);
     }
 
     #[test]

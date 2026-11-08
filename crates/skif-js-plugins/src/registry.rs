@@ -10,10 +10,10 @@ use crate::plugins::{
     release_it, remark, remix, rolldown, rollup, rsbuild, rslib, rspack, sanity, semantic_release, sentry,
     simple_git_hooks, size_limit, storybook, stryker, stylelint, svelte, sveltekit, svgo, svgr, swc, syncpack,
     tailwind, tanstack_router, tap, ts_node, tsd, tsdown, tsup, tsx, turbo, typedoc, typescript, unbuild, unocss,
-    vercel, vike, vite, vitepress, vitest, webdriver_io, webpack, wrangler, yarn,
+    unplugin_icons, vercel, vike, vite, vitepress, vitest, webdriver_io, webpack, wrangler, yarn,
 };
 
-static PLUGINS: [&dyn Plugin; 105] = [
+static PLUGINS: [&dyn Plugin; 106] = [
     &typescript::Typescript,
     &eslint::Eslint,
     &prettier::Prettier,
@@ -116,6 +116,7 @@ static PLUGINS: [&dyn Plugin; 105] = [
     &typedoc::Typedoc,
     &unbuild::Unbuild,
     &unocss::Unocss,
+    &unplugin_icons::UnpluginIcons,
     &vercel::Vercel,
     &vike::Vike,
     &webdriver_io::WebdriverIo,

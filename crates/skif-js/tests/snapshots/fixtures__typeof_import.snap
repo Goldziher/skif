@@ -1,0 +1,168 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "unused-enum-members",
+    "severity": "warning",
+    "message": "enum member `Color.Blue` is never used",
+    "help": "remove the member, or tag it `@public`",
+    "location": {
+      "path": "src/enums.ts",
+      "span": {
+        "start": 29,
+        "end": 33,
+        "start-line": 3,
+        "start-col": 3,
+        "end-line": 3,
+        "end-col": 7
+      }
+    },
+    "package": "typeof-import"
+  },
+  {
+    "rule": "unused-exports",
+    "severity": "warning",
+    "message": "export `other` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "src/enums.ts",
+      "span": {
+        "start": 89,
+        "end": 94,
+        "start-line": 9,
+        "start-col": 14,
+        "end-line": 9,
+        "end-col": 19
+      }
+    },
+    "package": "typeof-import",
+    "fixes": [
+      {
+        "title": "Remove the unused export `other`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/enums.ts",
+              "edit": {
+                "start": 76,
+                "end": 83,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-exports",
+    "severity": "warning",
+    "message": "export `a` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "src/mocked.ts",
+      "span": {
+        "start": 13,
+        "end": 14,
+        "start-line": 1,
+        "start-col": 14,
+        "end-line": 1,
+        "end-col": 15
+      }
+    },
+    "package": "typeof-import",
+    "fixes": [
+      {
+        "title": "Remove the unused export `a`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/mocked.ts",
+              "edit": {
+                "start": 0,
+                "end": 7,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-exports",
+    "severity": "warning",
+    "message": "export `b` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "src/mocked.ts",
+      "span": {
+        "start": 33,
+        "end": 34,
+        "start-line": 2,
+        "start-col": 14,
+        "end-line": 2,
+        "end-col": 15
+      }
+    },
+    "package": "typeof-import",
+    "fixes": [
+      {
+        "title": "Remove the unused export `b`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/mocked.ts",
+              "edit": {
+                "start": 20,
+                "end": 27,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-namespace-exports",
+    "severity": "warning",
+    "message": "export `AI_ASSISTANT_SDK_DIR` is never read through a namespace import",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "src/constants.ts",
+      "span": {
+        "start": 41,
+        "end": 61,
+        "start-line": 2,
+        "start-col": 14,
+        "end-line": 2,
+        "end-col": 34
+      }
+    },
+    "package": "typeof-import",
+    "fixes": [
+      {
+        "title": "Remove the unused export `AI_ASSISTANT_SDK_DIR`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/constants.ts",
+              "edit": {
+                "start": 28,
+                "end": 35,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+]
