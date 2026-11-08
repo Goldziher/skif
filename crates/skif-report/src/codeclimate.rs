@@ -55,8 +55,10 @@ fn fnv1a_128(parts: &[&str]) -> String {
 /// Renders a Code Climate JSON array, one issue per diagnostic, for GitLab Code Quality (`artifacts:reports:codequality`).
 ///
 /// `check_name` is the rule ID and `severity` maps error to `major`, warning to `minor` and info to `info`. The
-/// `fingerprint` hashes the rule, path, package, dependency, specifier and message, not the line, so an issue keeps its identity when code above
-/// it moves; identical diagnostics in one file are told apart by their order. Paths are relative to the repository
+/// `fingerprint` hashes the rule, path, package, dependency, specifier and message text, not the line, so an issue
+/// keeps its identity when code above it moves; diagnostics identical in all of those are told apart by their order.
+/// Because the message text is part of it, a release that rewords a rule's message gives its issues new
+/// fingerprints, and GitLab shows them as fixed and newly introduced. Paths are relative to the repository
 /// top-level when [`RenderOptions::with_repo_root`] is set, as GitLab expects. A diagnostic without a span points
 /// at line 1.
 ///
@@ -64,25 +66,29 @@ fn fnv1a_128(parts: &[&str]) -> String {
 ///
 /// Returns any error produced by writing to `out`.
 pub fn render_codeclimate(report: &Report, options: &RenderOptions, out: &mut dyn Write) -> io::Result<()> {
-    let mut seen: BTreeMap<(&str, String, &str), usize> = BTreeMap::new();
+    let mut seen: BTreeMap<[String; 6], usize> = BTreeMap::new();
     let issues: Vec<Issue<'_>> = report
         .diagnostics
         .iter()
         .map(|diagnostic| {
             let path = options.repo_path(&diagnostic.location.path);
             let rule = diagnostic.rule.as_str();
-            let occurrence = seen
-                .entry((rule, path.clone(), diagnostic.message.as_str()))
-                .or_insert(0);
-            let fingerprint = fnv1a_128(&[
+            // The occurrence counter is keyed on exactly the parts that are hashed, so it only tells apart
+            // diagnostics that would otherwise share a fingerprint.
+            let identity = [
                 rule,
                 &path,
                 diagnostic.package.as_deref().unwrap_or_default(),
                 diagnostic.dependency.as_deref().unwrap_or_default(),
                 diagnostic.specifier.as_deref().unwrap_or_default(),
                 &diagnostic.message,
-                &occurrence.to_string(),
-            ]);
+            ]
+            .map(str::to_owned);
+            let occurrence = seen.entry(identity.clone()).or_insert(0);
+            let mut parts: Vec<&str> = identity.iter().map(String::as_str).collect();
+            let index = occurrence.to_string();
+            parts.push(&index);
+            let fingerprint = fnv1a_128(&parts);
             *occurrence += 1;
             Issue {
                 description: &diagnostic.message,
