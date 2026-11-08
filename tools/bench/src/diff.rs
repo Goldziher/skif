@@ -57,6 +57,15 @@ pub struct Entry {
     /// `categories` and the drift check ignores them.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub known_deviations: Known,
+    /// Configuration files the comparison tool could not load while it still produced a report (knip's `Error loading`
+    /// lines). A count, since the file names belong to the compared repository; the drift check ignores it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub tool_errors: usize,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde passes the field by reference.
+const fn is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 impl Entry {
@@ -67,6 +76,7 @@ impl Entry {
             categories: BTreeMap::new(),
             cases: None,
             known_deviations: Known::new(),
+            tool_errors: 0,
         }
     }
 
@@ -77,12 +87,19 @@ impl Entry {
             categories,
             cases: None,
             known_deviations: Known::new(),
+            tool_errors: 0,
         }
     }
 
     #[must_use]
     pub fn with_known(mut self, known: Known) -> Self {
         self.known_deviations = known;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_tool_errors(mut self, count: usize) -> Self {
+        self.tool_errors = count;
         self
     }
 }

@@ -133,20 +133,23 @@ type and pattern: [`tools/bench`](tools/bench/README.md#dead-code-precision-and-
 ### Agreement with knip
 
 Real repositories have no answer key for dead code, so this measures agreement, not correctness: findings skif and
-knip share on 14 pinned repositories. A low score means the tools differ, and either one could be right. Reading the disagreements found
+knip share on 9 pinned repositories (create-t3-turbo, vue-core, tanstack-query, jest, babel, cal-com, mastra, vscode
+and npm-cli; the other compared repositories await a baseline refresh). A low score means the tools differ, and either
+one could be right. Findings in files skif deliberately leaves out (fixtures, tests, non-code files), in packages it
+does not judge and in packages where knip could not load a config are counted apart. Reading the disagreements found
 false findings on both sides, and skif's are fixed in the current source
 ([ADR 0049](adrs/0049-js-corrections-from-adjudicating-knip-disagreements.md)).
 
 | Finding | Shared | Of skif's findings | Of knip's findings |
 | --- | ---: | ---: | ---: |
-| Unused files | 27,193 | 92% | 73% |
-| Unused exports | 9,997 | 96% | 86% |
-| Unused types | 5,011 | 90% | 87% |
-| Unlisted dependencies | 959 | 91% | 34% |
-| Unused dev dependencies | 917 | 86% | 76% |
-| Unused dependencies | 467 | 84% | 66% |
-| Unresolved imports | 69 | 34% | 56% |
-| Unlisted binaries | 32 | 89% | 21% |
+| Unused exports | 4,691 | 98% | 94% |
+| Unused files | 2,263 | 98% | 75% |
+| Unused types | 2,247 | 96% | 93% |
+| Unlisted dependencies | 973 | 98% | 36% |
+| Unused dev dependencies | 687 | 87% | 97% |
+| Unused dependencies | 229 | 60% | 78% |
+| Unresolved imports | 54 | 76% | 61% |
+| Unlisted binaries | 26 | 96% | 27% |
 
 Method, caveats and every run: [`tools/bench`](tools/bench/README.md).
 
