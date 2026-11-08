@@ -951,7 +951,7 @@ fn fix_unsafe_deletes_files_only_with_allow_remove_files() {
     assert!(
         result
             .stdout
-            .contains("skipped [unused-files] `packages/app/src/orphan.ts` is not reachable from any entry file (removes-files: needs --allow-remove-files)"),
+            .contains("skipped [unused-files] `packages/app/src/orphan.ts` is not reachable from any entry file (removes-files: re-run with --allow-remove-files)"),
         "{}",
         result.stdout
     );
