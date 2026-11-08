@@ -121,7 +121,8 @@ Every construct that was not copied one to one has a note with the file, the key
 | `source` | dropped when it lists the workspace patterns (D); otherwise H |
 | `sortFirst`, `sortAz`, `sortExports`, `sortPackages`, `formatBugs`, `formatRepository`, `indent` | `[format]` `sort-first`, `sort-az`, `sort-exports`, `sort-packages`, `format-bugs`, `format-repository`, `indent`, and `package-json-format = "error"`. skif sorts in byte order where syncpack uses a collator (A), by default moves only `types` first and `default` last among `exports` conditions, since reordering the others changes resolution; a configured `sortExports` naming others becomes an unsafe fix (A), collapses `bugs` and `repository` only when nothing is lost (A), and with `indent` also checks the layout (A). `unsorted-dependencies` stays on when `sortAz` names a dependency map |
 | a script running `syncpack format` | `package-json-format = "error"`; run `skif format` or `skif format --check` in its place |
-| `updateGroups`, `minimumReleaseAge`, `maxConcurrentRequests` | dropped: skif never queries a registry |
+| `updateGroups[]` with `target` or `isIgnored` | `[[update-groups]]` with `target` or `ignored = true`, and the same selectors; a group with both, neither, or another target is not written (H) |
+| `minimumReleaseAge`, `maxConcurrentRequests` | `[update] minimum-release-age`, `max-concurrent-requests` |
 | the override sections (`pnpmOverrides`, `overrides`, `resolutions`) | `[policy] override-reading = "syncpack"`: an override key is its own dependency, so `parent@4>child` is not compared with `child`; nested objects and `pnpm.overrides` of a `package.json` are not read, as in syncpack 15 (`pnpmOverrides` is the `overrides` of `pnpm-workspace.yaml`). Without it skif would compare them with the dependency they replace |
 | `--dependency-types` | `[policy] dependency-types` |
 
@@ -130,7 +131,8 @@ Without `--dependency-types`, `[policy] dependency-types` is set to the scope sy
 of it), because skif's own default is narrower. `--dependencies` and
 `--specifier-types` narrowed the old run; a `skif.toml` cannot, so they are reported. To narrow a skif run the same
 way, pass `--dependency` (syncpack's `--dependencies`; skif's `--dependencies` is knip's issue-type shortcut) and
-`--specifier-types` on the command line. `syncpack update` has no equivalent.
+`--specifier-types` on the command line. `syncpack update` is `skif update` with the same
+`--check`, `--target` and `--dependencies` (A: `--interactive` has no equivalent).
 
 ## knip
 

@@ -8,10 +8,10 @@
 //! The catalog, workspace-protocol and dependency-family rules run as a separate provider, [`catalog_provider`].
 
 mod analysis;
-mod catalog;
+pub(crate) mod catalog;
 mod families;
 mod fields;
-mod groups;
+pub(crate) mod groups;
 mod inspect;
 pub(crate) mod instances;
 mod report;

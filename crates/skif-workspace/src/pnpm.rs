@@ -21,6 +21,8 @@ pub struct YamlSource {
     pub line_index: Arc<LineIndex>,
     /// The `overrides:` entries as written: dependency selector and replacement.
     pub overrides: Vec<(String, String)>,
+    /// pnpm's `minimumReleaseAge`, in minutes, when it is a non-negative integer.
+    pub minimum_release_age: Option<u64>,
 }
 
 impl YamlSource {
@@ -99,6 +101,7 @@ pub(crate) struct PnpmWorkspace {
     pub packages: Option<Vec<String>>,
     pub catalogs: Catalogs,
     pub overrides: Vec<(String, String)>,
+    pub minimum_release_age: Option<u64>,
 }
 
 pub(crate) fn parse(path: &Path, source: &str) -> Result<PnpmWorkspace, WorkspaceError> {
@@ -138,10 +141,12 @@ pub(crate) fn parse(path: &Path, source: &str) -> Result<PnpmWorkspace, Workspac
                 .collect()
         })
         .unwrap_or_default();
+    let minimum_release_age = document.get("minimumReleaseAge").and_then(Value::as_u64);
     Ok(PnpmWorkspace {
         packages,
         catalogs,
         overrides,
+        minimum_release_age,
     })
 }
 
@@ -242,6 +247,7 @@ mod tests {
             source: Arc::from(text),
             line_index: Arc::new(LineIndex::new(text)),
             overrides: Vec::new(),
+            minimum_release_age: None,
         }
     }
 
@@ -294,5 +300,15 @@ mod tests {
         assert_eq!(slice(text, source.override_span("lodash")), Some("lodash: 4.17.20"));
         let catalog_only = yaml("catalog:\n  lodash: 4.17.21\n");
         assert_eq!(catalog_only.override_span("lodash"), None);
+    }
+
+    #[test]
+    fn minimum_release_age_is_read_when_it_is_a_whole_number_of_minutes() {
+        let read = |text: &str| parse(Path::new("pnpm-workspace.yaml"), text).map(|parsed| parsed.minimum_release_age);
+        assert_eq!(read("minimumReleaseAge: 2880\n").ok(), Some(Some(2880)));
+        assert_eq!(read("minimumReleaseAge: 0\n").ok(), Some(Some(0)));
+        assert_eq!(read("minimumReleaseAge: soon\n").ok(), Some(None));
+        assert_eq!(read("minimumReleaseAge: -5\n").ok(), Some(None));
+        assert_eq!(read("packages: []\n").ok(), Some(None));
     }
 }

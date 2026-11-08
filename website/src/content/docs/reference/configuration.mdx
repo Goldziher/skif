@@ -38,6 +38,8 @@ file. Print the schema with `skif schema`.
 | `[catalog]` | Catalog enforcement |
 | `[workspace-protocol]` | `workspace:` protocol policy |
 | `[[dependency-families]]` | Packages that must share a version |
+| `[update]` | `minimum-release-age`, `max-concurrent-requests` for `skif update` |
+| `[[update-groups]]` | How far `skif update` may move each dependency group |
 | `[js]` | JavaScript analysis |
 | `root`, `extends`, `reset` | How files combine |
 | `[[overrides]]` | Rule levels, severity caps, suppressions and JS inputs for selected packages or files |
@@ -260,6 +262,39 @@ packages = ["@babel/*"]
 name = "react"
 enabled = false              # disable a built-in family of the same name
 ```
+
+### `[update]`
+
+Read only by `skif update`, the one command that asks a package registry ([CLI](../cli/#updating)); linting never
+does.
+
+```toml
+[update]
+minimum-release-age = 1440   # minutes a version must have been published before it is proposed; 0 turns it off
+max-concurrent-requests = 12 # registry requests at once, at least 1
+```
+
+Without `minimum-release-age`, pnpm's `minimumReleaseAge` from `pnpm-workspace.yaml` applies, else one day, as in
+syncpack. While a minimum release age applies, a version the registry gives no publish time for is not proposed, and
+the report notes it when it would have been the target.
+
+### `[[update-groups]]`
+
+```toml
+[[update-groups]]
+label = "React moves within its major"
+dependencies = ["react", "react-dom"]
+target = "minor"             # latest | minor | patch
+
+[[update-groups]]
+dependencies = ["@types/node"]
+ignored = true               # skif update leaves these alone
+```
+
+The first matching group decides (syncpack's `updateGroups`); a group sets exactly one of `target` and
+`ignored = true`, and its `target` combines with `--target` so the stricter wins. The selectors are those of
+`[[semver-groups]]`. A catalog entry belongs to no package and has no dependency type, so only groups without
+`packages` and `dependency-types` apply to it.
 
 ### `[format]`
 
@@ -596,7 +631,7 @@ reset = ["version-groups"]
   order. A file reached twice applies once. A cycle, a missing file or more than 16 nested files is an error naming
   the file.
 - `reset` discards what was inherited for the listed keys before this file applies. Allowed values:
-  `version-groups`, `semver-groups`, `custom-types`, `ignore`, `dependency-families`, `overrides`.
+  `version-groups`, `semver-groups`, `update-groups`, `custom-types`, `ignore`, `dependency-families`, `overrides`.
 
 ### Merge rules
 
@@ -609,7 +644,7 @@ reset = ["version-groups"]
 | `[rules]` | Per rule: a level keeps the inherited options; a table of options replaces the options and keeps the level |
 | `[js.plugins]` | Per plugin: `true` or `false` keeps the options; a table replaces them |
 | `[[ignore]]`, `[[overrides]]` | Append |
-| `[[version-groups]]`, `[[semver-groups]]` | The nearer file's entries come first, so with first match wins the project beats the org |
+| `[[version-groups]]`, `[[semver-groups]]`, `[[update-groups]]` | The nearer file's entries come first, so with first match wins the project beats the org |
 | `[[dependency-families]]`, `[[custom-types]]` | Replace the entry of the same `name`, append the others |
 
 ### `[[overrides]]`

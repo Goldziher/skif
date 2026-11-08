@@ -12,11 +12,13 @@ const ORDER: &[&str] = &[
     "lint",
     "policy",
     "catalog",
+    "update",
     "js",
     "rules",
     "ignore",
     "version-groups",
     "semver-groups",
+    "update-groups",
     "custom-types",
     "overrides",
 ];
@@ -26,6 +28,7 @@ const ORDER: &[&str] = &[
 pub(crate) enum Val {
     Str(String),
     Bool(bool),
+    Int(u64),
     List(Vec<Val>),
     Inline(Vec<(String, Val)>),
 }
@@ -47,6 +50,7 @@ impl Val {
         match self {
             Self::Str(text) => quote(text),
             Self::Bool(value) => value.to_string(),
+            Self::Int(value) => value.to_string(),
             Self::List(items) => {
                 let items: Vec<String> = items.iter().map(Self::render).collect();
                 format!("[{}]", items.join(", "))

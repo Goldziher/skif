@@ -324,6 +324,7 @@ impl Workspace {
                     source: text,
                     line_index,
                     overrides: parsed.overrides.clone(),
+                    minimum_release_age: parsed.minimum_release_age,
                 }),
                 Some(parsed),
             )
@@ -434,6 +435,7 @@ impl Workspace {
                 line_index: Arc::new(LineIndex::new(&text)),
                 source: text,
                 overrides: Vec::new(),
+                minimum_release_age: None,
             });
             (source, catalogs)
         } else {
