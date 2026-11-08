@@ -16,7 +16,7 @@ All notable changes to this project are documented here. The format follows
   `typeof import("./m").E.B` only member `B` of `E` ([#25](https://github.com/Goldziher/skif/issues/25)).
 - `unresolved-imports` no longer reports `./dir` when a `.gitignore` lists `dir/index.ts` (or an extensionless
   `./file` when it lists `file.ts`), nor a `#` specifier of a package whose nearest `package.json` declares no
-  `imports` ([#18](https://github.com/Goldziher/skif/issues/18)).
+  `imports`, unless a `tsconfig` `paths` pattern or a configured alias maps it ([#18](https://github.com/Goldziher/skif/issues/18)).
 
 ### Added
 
