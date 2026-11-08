@@ -9,7 +9,7 @@
 //! catalog rules.
 //! Semver groups are independent of version groups: the first matching one decides the range an instance should use.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use skif_config::{
@@ -216,8 +216,9 @@ impl<'c> Groups<'c> {
     pub(crate) fn assign<'i>(&self, instances: &'i Instances<'_>) -> Assignment<'i> {
         let mut preferred = Vec::with_capacity(instances.len());
         let mut owners = Vec::with_capacity(instances.len());
-        let mut dependencies: Vec<BTreeMap<Dependency<'i>, Vec<InstanceId>>> =
-            self.groups.iter().map(|_| BTreeMap::new()).collect();
+        // Hash maps while every instance is looked up, ordered by dependency once at the end.
+        let mut dependencies: Vec<HashMap<Dependency<'i>, Vec<InstanceId>>> =
+            self.groups.iter().map(|_| HashMap::new()).collect();
         for (id, instance) in instances.iter() {
             let owner = match self.claim(instance) {
                 Some(owner) => owner,
@@ -230,7 +231,7 @@ impl<'c> Groups<'c> {
             };
             owners.push(Some(owner));
             dependencies[owner]
-                .entry((instance.name.as_str(), instance.alias_target()))
+                .entry((&*instance.name, instance.alias_target()))
                 .or_default()
                 .push(id);
             preferred.push(self.preferred_range(instance));
@@ -238,7 +239,10 @@ impl<'c> Groups<'c> {
         Assignment {
             preferred,
             owners,
-            dependencies,
+            dependencies: dependencies
+                .into_iter()
+                .map(|dependencies| dependencies.into_iter().collect())
+                .collect(),
         }
     }
 
@@ -375,7 +379,7 @@ mod tests {
                 let kind = instance.kind().map_or("version", DependencyKind::token);
                 (
                     format!("{}:{kind}", instance.package.display_name()),
-                    instance.name.clone(),
+                    instance.name.to_string(),
                     owner(id),
                 )
             })
@@ -466,7 +470,12 @@ mod tests {
         let assignment = Groups::compile(&workspace, &config).assign(&instances);
         let ranges: Vec<(String, Option<String>)> = instances
             .iter()
-            .map(|(id, instance)| (instance.name.clone(), assignment.preferred(id).map(SemverRange::unwrap)))
+            .map(|(id, instance)| {
+                (
+                    instance.name.to_string(),
+                    assignment.preferred(id).map(SemverRange::unwrap),
+                )
+            })
             .collect();
         let range_of = |name: &str| ranges.iter().find(|(n, _)| n == name).and_then(|(_, r)| r.clone());
         assert_eq!(range_of("react").as_deref(), Some("~"));

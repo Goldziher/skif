@@ -81,10 +81,23 @@ fn release(specifier: &Specifier) -> Option<(u64, u64, u64)> {
     if number.contains(['-', '+']) {
         return None;
     }
-    let mut parts = number.split('.').map(str::parse::<u64>);
-    let mut next = || parts.next().transpose().ok().map(Option::unwrap_or_default);
+    let mut parts = number.split('.').map(digits);
+    let mut next = || parts.next().unwrap_or(Some(0));
     let release = (next()?, next()?, next()?);
     parts.next().is_none().then_some(release)
+}
+
+/// `part` as a decimal number, as `str::parse::<u64>` reads one without a sign (`release` has rejected `+` and `-`):
+/// `None` when it is empty, holds another character or overflows. A hand-written loop: the generic parser was most of
+/// the time spent rating the fixes of a large workspace.
+fn digits(part: &str) -> Option<u64> {
+    if part.is_empty() {
+        return None;
+    }
+    part.bytes().try_fold(0_u64, |value, byte| {
+        let digit = byte.checked_sub(b'0').filter(|digit| *digit <= 9)?;
+        value.checked_mul(10)?.checked_add(u64::from(digit))
+    })
 }
 
 /// The major version `specifier` names, for telling release lines apart.
@@ -179,6 +192,27 @@ mod tests {
         ];
         for (from, to, expected) in cases {
             assert_eq!(safe(from, to), expected, "{from} -> {to}");
+        }
+    }
+
+    #[test]
+    fn digits_read_a_number_as_the_standard_parser_does() {
+        let parts = [
+            "0",
+            "7",
+            "007",
+            "18",
+            "",
+            "1x",
+            "x",
+            " 1",
+            "18446744073709551615",
+            "18446744073709551616",
+            "99999999999999999999",
+            "\u{663}",
+        ];
+        for part in parts {
+            assert_eq!(digits(part), part.parse::<u64>().ok(), "{part}");
         }
     }
 

@@ -229,7 +229,7 @@ fn finding_on<'d>(reported: &[&'d Diagnostic], instance: &Instance<'_>) -> Optio
     reported
         .iter()
         .copied()
-        .filter(|diagnostic| diagnostic.dependency.as_deref() == Some(instance.name.as_str()))
+        .filter(|diagnostic| diagnostic.dependency.as_deref() == Some(&*instance.name))
         .filter(|diagnostic| within(&diagnostic.location, &location))
         .min_by_key(|diagnostic| std::cmp::Reverse(diagnostic.severity))
 }
@@ -260,7 +260,7 @@ fn base_status(
         ),
     };
     InstanceStatus {
-        dependency: instance.name.clone(),
+        dependency: instance.name.to_string(),
         dependency_type: instance.ty().token().to_owned(),
         property: instance.ty().label().to_owned(),
         package: instance.package.display_name().to_owned(),

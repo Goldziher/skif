@@ -1,7 +1,7 @@
 //! Helpers shared by the manifest rules: locations, fix operations and package selection.
 
 use serde_json::{Map, Value};
-use skif_core::{DependencyKind, FixOp, InsertPosition, JsonAction, Location, PathSeg};
+use skif_core::{DependencyKind, FixOp, InsertPosition, JsonAction, Location, PathSeg, Span};
 use skif_workspace::{DependencyEntry, Package, Workspace};
 
 pub fn key(name: &str) -> PathSeg {
@@ -43,15 +43,21 @@ pub fn document_location(package: &Package) -> Location {
 }
 
 /// A dependency entry from its key through its value.
+///
+/// The spans of the key and the value already hold the line and column of both ends, so nothing is looked up again:
+/// the policy rules ask for this location twice per finding, tens of thousands of times on a large workspace.
 pub fn entry_location(package: &Package, entry: &DependencyEntry) -> Location {
+    let (key, value) = (entry.key_span, entry.value_span);
     Location::new(
         package.manifest.path.clone(),
-        Some(
-            package
-                .manifest
-                .line_index()
-                .span(entry.key_span.start, entry.value_span.end),
-        ),
+        Some(Span::new(
+            key.start,
+            value.end,
+            key.start_line,
+            key.start_col,
+            value.end_line,
+            value.end_col,
+        )),
     )
 }
 

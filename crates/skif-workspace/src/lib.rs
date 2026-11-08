@@ -32,7 +32,7 @@ pub use detect::package_manager_from_manifest;
 pub use error::WorkspaceError;
 pub use manifest::{DependencyEntry, FieldSpans, Manifest};
 pub use package::{Package, PackageId};
-pub use parallel::map_ordered;
+pub use parallel::{join, map_ordered};
 pub use pnpm::YamlSource;
 pub use roots::{
     Candidates, DiscoverOptions, RootKind, claim_roots, declared_member_dirs, declares_workspace, repository_root,

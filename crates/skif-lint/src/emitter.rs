@@ -63,9 +63,38 @@ impl<'a> Emitter<'a> {
 
     /// Appends the diagnostics, incomplete packages and files of other projects collected by `other`.
     pub fn merge(&mut self, other: Self) {
-        self.diagnostics.extend(other.diagnostics);
+        if self.diagnostics.is_empty() {
+            self.diagnostics = other.diagnostics;
+        } else {
+            self.diagnostics.extend(other.diagnostics);
+        }
         self.incomplete_packages.extend(other.incomplete_packages);
         self.other_project_files.extend(other.other_project_files);
+    }
+
+    /// Merges `parts` in order, with the same result as calling [`merge`](Self::merge) for each.
+    ///
+    /// The diagnostics of the largest part stay where they are and the others are moved around them. On a large
+    /// workspace one provider can hold tens of thousands of diagnostics, and copying them into a fresh buffer touched
+    /// megabytes of new memory for nothing.
+    pub fn merge_all(&mut self, mut parts: Vec<Self>) {
+        let Some(largest) = (0..parts.len()).max_by_key(|&index| parts[index].diagnostics.len()) else {
+            return;
+        };
+        if parts[largest].diagnostics.len() > self.diagnostics.len() {
+            let total = self.diagnostics.len() + parts.iter().map(|part| part.diagnostics.len()).sum::<usize>();
+            let mut merged = std::mem::take(&mut parts[largest].diagnostics);
+            merged.reserve_exact(total - merged.len());
+            let mut front = std::mem::take(&mut self.diagnostics);
+            for part in &mut parts[..largest] {
+                front.append(&mut part.diagnostics);
+            }
+            merged.splice(0..0, front);
+            self.diagnostics = merged;
+        }
+        for part in parts {
+            self.merge(part);
+        }
     }
 
     /// Whether the host asked the run to stop.
@@ -76,17 +105,34 @@ impl<'a> Emitter<'a> {
 
     /// Reports a diagnostic; it is kept only if its rule is enabled and it is not suppressed.
     pub fn emit(&mut self, mut diagnostic: Diagnostic) {
-        let applicable = self.scopes.applicable(&diagnostic);
-        let Some(severity) = self.scopes.severity(self.enabled, &diagnostic, &applicable) else {
-            return;
+        if self.admit(&mut diagnostic) {
+            self.diagnostics.push(diagnostic);
+        }
+    }
+
+    /// Reports `diagnostics` in order, as [`emit`](Self::emit) does one by one.
+    ///
+    /// The vector is kept as the emitter's own when nothing was emitted before, so a rule that builds many
+    /// diagnostics at once hands them over without copying them.
+    pub fn emit_all(&mut self, mut diagnostics: Vec<Diagnostic>) {
+        diagnostics.retain_mut(|diagnostic| self.admit(diagnostic));
+        if self.diagnostics.is_empty() {
+            self.diagnostics = diagnostics;
+        } else {
+            self.diagnostics.append(&mut diagnostics);
+        }
+    }
+
+    /// Applies the effective severity to `diagnostic` and says whether it is kept: its rule is enabled and it is not
+    /// suppressed.
+    fn admit(&self, diagnostic: &mut Diagnostic) -> bool {
+        let applicable = self.scopes.applicable(diagnostic);
+        let Some(severity) = self.scopes.severity(self.enabled, diagnostic, &applicable) else {
+            return false;
         };
         diagnostic.severity = severity;
         diagnostic.default_severity = None;
-        if self.suppressions.suppresses(&diagnostic) || self.suppressions.suppressed_in_scope(&diagnostic, &applicable)
-        {
-            return;
-        }
-        self.diagnostics.push(diagnostic);
+        !(self.suppressions.suppresses(diagnostic) || self.suppressions.suppressed_in_scope(diagnostic, &applicable))
     }
 
     /// Number of diagnostics kept so far.

@@ -208,9 +208,7 @@ fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) 
         })?;
         Ok(part)
     });
-    for part in parts {
-        root.merge(part?);
-    }
+    root.merge_all(parts.into_iter().collect::<Result<_, _>>()?);
     if root.is_cancelled() {
         return Err(LintError::Cancelled);
     }

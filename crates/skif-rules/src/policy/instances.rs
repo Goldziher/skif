@@ -7,7 +7,8 @@
 //! The model is shared: the version-group analysis in this module tree and the catalog rules build on the same
 //! [`Instances`], so a manifest is walked once per run.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::borrow::Cow;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use skif_config::{CustomType, DependencyType, InstanceFilter, OverrideReading};
@@ -68,8 +69,9 @@ pub(crate) struct Instance<'w> {
     /// Where the version is declared: a dependency section, the package's own version, an override section or a
     /// custom type.
     pub(crate) ty: DependencyType,
-    /// The dependency name; for an own version, the package name.
-    pub(crate) name: String,
+    /// The dependency name; for an own version, the package name. Borrowed from the manifest except for the versions
+    /// of override sections and custom types.
+    pub(crate) name: Cow<'w, str>,
     pub(crate) specifier: Arc<Specifier>,
     /// Whether `name` is itself a package of the workspace (what `$LOCAL` selects).
     pub(crate) is_local: bool,
@@ -90,7 +92,7 @@ impl<'w> Instance<'w> {
             package,
             origin: Origin::Dependency(entry),
             ty: DependencyType::Section(entry.kind),
-            name: entry.name.clone(),
+            name: Cow::Borrowed(&entry.name),
             specifier: Arc::clone(&entry.parsed),
             is_local,
             catalog_owned,
@@ -107,7 +109,7 @@ impl<'w> Instance<'w> {
             ty: found.ty,
             is_local,
             specifier: Specifier::new(&found.version),
-            name: found.name,
+            name: Cow::Owned(found.name),
             catalog_owned: false,
         }
     }
@@ -218,7 +220,7 @@ impl<'w> Instances<'w> {
                     package,
                     origin: Origin::OwnVersion,
                     ty: DependencyType::Local,
-                    name: name.clone(),
+                    name: Cow::Borrowed(name),
                     specifier: Specifier::new(version),
                     is_local: true,
                     catalog_owned: false,
@@ -248,19 +250,34 @@ impl<'w> Instances<'w> {
         if !filter.is_empty() {
             items.retain(|item| passes(filter, item));
         }
-        let mut by_name: BTreeMap<String, Vec<InstanceId>> = BTreeMap::new();
+        // A hash map while every instance is looked up, ordered by name once at the end; the name is copied once per
+        // dependency, not once per instance.
+        let mut ids_by_name: HashMap<&str, Vec<InstanceId>> = HashMap::new();
         for (index, item) in items.iter().enumerate() {
-            // The name is copied once per dependency, not once per instance.
-            if let Some(ids) = by_name.get_mut(item.name.as_str()) {
-                ids.push(InstanceId(index));
-            } else {
-                by_name.insert(item.name.clone(), vec![InstanceId(index)]);
-            }
+            ids_by_name.entry(&*item.name).or_default().push(InstanceId(index));
         }
+        let by_name: BTreeMap<String, Vec<InstanceId>> = ids_by_name
+            .into_iter()
+            .map(|(name, ids)| (name.to_owned(), ids))
+            .collect();
         Self {
             workspace,
             items,
             by_name,
+        }
+    }
+
+    /// Flags the instances [`collect_with`](Self::collect_with) would have flagged
+    /// [`catalog_owned`](Instance::catalog_owned) had it been given `owned`, for a collection made before `owned` was
+    /// known: the entries of dependency sections that the catalog rules report.
+    pub(crate) fn mark_catalog_owned(&mut self, owned: &BTreeSet<&str>) {
+        if owned.is_empty() {
+            return;
+        }
+        for item in &mut self.items {
+            if let Origin::Dependency(entry) = item.origin {
+                item.catalog_owned = owned.contains(entry.name.as_str()) && owned_by_catalog(entry);
+            }
         }
     }
 
@@ -309,7 +326,6 @@ impl<'w> Instances<'w> {
     }
 
     /// Dependency names in byte order, each with its instances in collection order.
-    #[allow(dead_code, reason = "the catalog rules walk dependencies by name")]
     pub(crate) fn names(&self) -> impl Iterator<Item = (&str, &[InstanceId])> {
         self.by_name.iter().map(|(name, ids)| (name.as_str(), ids.as_slice()))
     }
@@ -456,7 +472,7 @@ mod tests {
             .map(|instance| {
                 (
                     instance.ty().token().to_owned(),
-                    instance.name.clone(),
+                    instance.name.to_string(),
                     instance.raw().to_owned(),
                 )
             })
@@ -494,7 +510,7 @@ mod tests {
             let instances = Instances::collect(&workspace, &config, true);
             field_instances(&instances)
                 .into_iter()
-                .map(|instance| (instance.ty().token().to_owned(), instance.name.clone()))
+                .map(|instance| (instance.ty().token().to_owned(), instance.name.to_string()))
                 .collect::<Vec<_>>()
         };
         let pair = |ty: &str, name: &str| (ty.to_owned(), name.to_owned());
