@@ -509,11 +509,13 @@ The table holds 106 built-in plugins:
 
 `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`, `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`, `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack`, `node`, `expo-router`, `tanstack-router`, `ava`, `biome`, `c8`, `dotenv`, `electron-vite`, `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`, `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`, `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun`, `unplugin-icons` and `webdriver-io`.
 
-A JavaScript or TypeScript config is evaluated statically. A value it imports from another file of the project, or
-from a workspace package (through its `exports` or `main`, mapped back to the source file), is evaluated in that
-module too: a base config merged with `mergeConfig`, spread into an object, or listed in an ESLint `defineConfig`. A
-value imported from an installed package stays unknown, and an imported value that depends on itself through imports
-is unknown there.
+A JavaScript or TypeScript config is evaluated statically. A value it imports from another file of the project, or from
+a workspace package (through its `exports` or `main`, mapped back to the source file), is evaluated in that module too:
+a base config merged with `mergeConfig`, spread into an object, or listed in an ESLint `defineConfig`. A value imported
+from an installed package stays unknown, and an imported value that depends on itself through imports is unknown there.
+A conditional (`cond ? a : b`, `&&`, `||`, `??`) whose test is known takes its branch, so a key spread in only when
+`pinCjs.length` is truthy is left out when `pinCjs` defaults to `[]`; with an unknown test, a key only one branch sets
+is unknown and the other keys stay known.
 
 Plugins read configs and sources statically and never run a tool, so some of knip's plugin behaviour has no
 counterpart. These differences are deliberate:

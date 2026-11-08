@@ -312,3 +312,86 @@ fn a_merge_of_unknown_operands_leaves_only_the_marker() {
         &ConfigValue::Object(vec![("...".to_owned(), ConfigValue::Unknown)])
     );
 }
+
+#[test]
+fn a_conditional_with_a_known_test_takes_its_branch() {
+    let value = extract(
+        "vite.config.ts",
+        "const pins = [];\nconst on = 'yes';\n\
+         export default { ...(pins.length ? { resolve: {} } : {}), a: on ? 'x' : 'y', b: !pins.length ? 1 : 2, \
+         c: 'ab'.length, d: [1, ...unknown].length };",
+    );
+    assert_eq!(
+        value,
+        ConfigValue::Object(vec![
+            ("a".to_owned(), s("x")),
+            ("b".to_owned(), ConfigValue::Number(1.0)),
+            ("c".to_owned(), ConfigValue::Number(2.0)),
+            ("d".to_owned(), ConfigValue::Unknown),
+        ])
+    );
+}
+
+#[test]
+fn logical_operators_on_known_values() {
+    let value = extract(
+        "vite.config.ts",
+        "const none = null;\nconst list = ['a'];\n\
+         export default { a: none ?? 'd', b: list ?? 'd', c: '' || 'e', d: list && 'f', e: 0 && 'g', \
+         f: env() ?? 'h', g: env() || 'i' };",
+    );
+    let pairs = [
+        ("a", s("d")),
+        ("b", strings(&["a"])),
+        ("c", s("e")),
+        ("d", s("f")),
+        ("e", ConfigValue::Number(0.0)),
+        ("f", ConfigValue::Unknown),
+        ("g", ConfigValue::Unknown),
+    ];
+    for (key, expected) in pairs {
+        assert_eq!(get(&value, &[key]), &expected, "{key}");
+    }
+}
+
+#[test]
+fn destructured_parameters_take_their_defaults() {
+    let value = extract(
+        "vite.config.ts",
+        "const pinCjs = ['outer'];\n\
+         const create = (options = {}, { pinCjs = [], mode = 'dev', ...rest } = {}) => ({ \
+         test: options, mode, rest, ...(pinCjs.length ? { resolve: { alias: pinCjs } } : {}) });\n\
+         export default [create(), create({ a: 1 }, { pinCjs: ['zod'] }), create(undefined, unknown())];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(
+        configs[0],
+        ConfigValue::Object(vec![
+            ("test".to_owned(), ConfigValue::Object(vec![])),
+            ("mode".to_owned(), s("dev")),
+            ("rest".to_owned(), ConfigValue::Unknown),
+        ])
+    );
+    assert_eq!(get(&configs[1], &["resolve", "alias"]), &strings(&["zod"]));
+    assert_eq!(get(&configs[1], &["mode"]), &s("dev"));
+    // An unknown argument leaves its names unknown, not bound to the outer `pinCjs`.
+    assert_eq!(get(&configs[2], &["mode"]), &ConfigValue::Unknown);
+    assert_eq!(configs[2].get("resolve"), Some(&ConfigValue::Unknown));
+}
+
+#[test]
+fn a_conditional_with_an_unknown_test_keeps_what_both_branches_share() {
+    let value = extract(
+        "vitest.config.ts",
+        "export default { build: { outDir: 'dist' }, \
+         ...(process.env.CI ? { test: { include: ['a'], environment: 'node' } } : { test: { environment: 'node' } }), \
+         ...(process.env.X ? { a: 1 } : unknown()) };",
+    );
+    assert_eq!(get(&value, &["build", "outDir"]), &s("dist"));
+    assert_eq!(get(&value, &["test", "environment"]), &s("node"));
+    // A key only one branch has may be present or not.
+    assert_eq!(get(&value, &["test", "include"]), &ConfigValue::Unknown);
+    assert!(value.get("test").unwrap().get("include").is_some());
+    // A branch that is not an object leaves the spread unknown.
+    assert!(value.get("...").is_some());
+}

@@ -133,6 +133,11 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   `tseslint.config` list all their arguments. In every config function, not only an imported one, a parameter the
   call does not pass takes its default (`(options = {}) => …` called without arguments sees `{}`) instead of being
   unknown ([#23](https://github.com/Goldziher/skif/issues/23)).
+- Config evaluation follows conditionals: `cond ? a : b`, `&&`, `||` and `??` whose test is known, `!x` and `.length` of
+  a known string or array, and object pattern parameters with defaults (`({ pinCjs = [] } = {}) => …`). With an unknown
+  test, two object branches give the keys both have, a key only one sets being unknown, instead of an unknown spread.
+  A shared vitest config that adds `resolve` only when `pinCjs` is given no longer leaves its users' entry files
+  unknown ([#23](https://github.com/Goldziher/skif/issues/23)).
 - Without an install, the peer dependencies and binaries of a workspace package are read from its manifest, so a
   package that lists peers for a workspace dependency (`@testing-library/jest-dom` for a shared vitest setup) is not
   told they are unused, and a script that runs a binary of a workspace package it depends on counts that dependency as
