@@ -19,13 +19,15 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 
 - `.mdx` files are followed: their top-level `import` and `export` statements are analysed and the components their
-  prose names count as uses, so the components, packages and `@mdx-js/*` compilers of a docs site are no longer
-  unused ([#38](https://github.com/Goldziher/skif/issues/38)).
+  prose names count as uses (code in backticks does not), so the components, packages and `@mdx-js/*` compilers of a
+  docs site are no longer unused. An apostrophe in JSX text or a multi-line template literal does not make an `export`
+  paragraph swallow the rest of the document ([#38](https://github.com/Goldziher/skif/issues/38)).
 - The `templateUrl`, `styleUrl` and `styleUrls` of an Angular or Stencil `@Component` are followed, so the packages
   its stylesheets import are no longer unused ([#38](https://github.com/Goldziher/skif/issues/38)).
 - Stylus files (`.styl`, `.stylus`, `<style lang="stylus">`) are followed through `@import` and `@require`, and the
-  imports of `.tsrx` files are read, so the files and packages they use and the `stylus` and `@tsrx/*` compilers are no
-  longer unused ([#38](https://github.com/Goldziher/skif/issues/38)).
+  imports of `.tsrx` files are read (not those in comments, strings or template literals, and not re-exports), so the
+  files and packages they use and the `stylus` and `@tsrx/*` compilers are no longer unused
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
 
 ## [0.1.1] - 2026-11-07
 
