@@ -14,6 +14,9 @@ skif migrate [PATH] [--from sherif|syncpack|knip|auto,...] [--profile exact|full
 skif update [PATH] [--check | --interactive] [--target latest|minor|patch] [--dependencies <NAME>...] [--no-install] [--format human|json]
 skif list [PATH] [-r] [--show instances,statuses,hints,ignored,all,none] [FILTERS]
 skif json [PATH] [-r] [FILTERS]
+skif format [PATH] [-r] [--check | --unsafe]
+skif mcp
+skif lsp
 ```
 
 `skif [PATH]` lints the project containing `PATH` (default `.`). The root is resolved in this order:
@@ -66,10 +69,9 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `--format <FORMAT[=FILE]>` | Output format: `human`, `json`, `sarif`, `github`, `codeclimate`, `compact`, `markdown`, `disclosure` or `codeowners`. `FORMAT=FILE` writes that rendering to `FILE`. Repeatable, with at most one format on stdout (see [Several reports in one run](#several-reports-in-one-run)). Default `human`, or `human` plus GitHub annotations when `GITHUB_ACTIONS=true`. |
 | `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires exactly one `--format`, without `=FILE`. |
 | `--fix` | Apply safe fixes, lint again, then run the package manager's install command. |
-| `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. |
+| `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. Fixes that delete files still need `--allow-remove-files`. |
 | `--dependency`, `--dependency-types`, `--specifier-types`, `--source` | Narrow the version-group and semver-group rules, and only those, to some instances (see [Filtering instances](#filtering-instances)). |
 | `--dry-run` | With `--fix` or `--fix-unsafe`: plan the fixes and print them as a unified diff; no manifest is written and no install runs, while the reports are still rendered, to stdout, `--output` and every `FORMAT=FILE` (see [Fixing](#fixing)). |
-| `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. Fixes that delete files still need `--allow-remove-files`. |
 | `--allow-remove-files` | Let fixes delete files (`unused-files`); without it they are skipped and reported as `removes-files`. Needs `--fix` or `--fix-unsafe`. |
 | `--fix-type <TYPE>` | Only apply the fixes of these rules: rule ids or knip issue types (see [Fixing](#fixing)). Comma separated or repeatable; needs `--fix` or `--fix-unsafe`. |
 | `--select <highest\|lowest>` | Which version a version alignment fix targets, overriding `[policy] prefer` for this run. |
