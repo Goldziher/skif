@@ -23,6 +23,27 @@ All notable changes to this project are documented here. The format follows
   The library plans updates through a `Registry` trait the host implements (`skif::update`, feature `update`).
   `skif migrate` translates syncpack's `updateGroups`, `minimumReleaseAge` and `maxConcurrentRequests`. `--interactive`
   is not implemented.
+- knip's run-time filters on the lint command ([#36](https://github.com/Goldziher/skif/issues/36)):
+  - `--workspace <NAME|DIR>` (`-W`) reports only the findings of the selected workspace packages; findings of no
+    package belong to the root.
+  - `--strict` is `--production` with each workspace package limited to the dependencies its own manifest lists.
+  - `--include` and `--exclude` take knip issue types or skif rule ids, with the shortcuts `--dependencies`,
+    `--exports`, `--files` and `--cycles`; `--include` turns on a rule that is off; `--tags -TAG` leaves out tagged
+    exports.
+  - `--max-issues <N>`, `--max-show-issues <N>` (human and JSON output, not with `--fix`), `--no-exit-code` and
+    `--include-entry-exports`.
+  - `--no-gitignore` analyses the files `.gitignore` hides.
+  - `--tsconfig <FILE>` (also `--tsConfig`, `-t`) and `[js] tsconfig` name the root package's TypeScript
+    configuration in place of its `tsconfig.json`; `--use-tsconfig-files` and `[js] use-tsconfig-files` take each
+    package's project files from its `tsconfig.json` (`files`, and `include` minus `exclude`). A `tsconfig` path must
+    exist and stay inside the root wherever JavaScript analysis runs. `skif migrate` maps knip's `--tsConfig` and
+    `--use-tsconfig-files`, and notes scripts that pass different `--tsConfig` values.
+  - `--trace-dependency <NAME>` prints where a dependency is listed, imported and used.
+  - `--debug`, `--performance`, `--duration` and `--memory` print what was loaded, phase timings, wall time and peak
+    memory to stderr.
+- `skif-bench deadcode` (`mise run bench:deadcode`) measures dead-code precision and recall of skif and the pinned
+  knip against a generated workspace with seeded dead code, live code behind the patterns that caused false findings,
+  and an answer key ([#26](https://github.com/Goldziher/skif/issues/26)).
 - An `unplugin-icons` plugin: with that dependency, `~icons/*` imports and the `@iconify-json/*` and `@iconify/json`
   collections are virtual, as in knip. The table holds 106 plugins
   ([#18](https://github.com/Goldziher/skif/issues/18)).
@@ -46,6 +67,9 @@ All notable changes to this project are documented here. The format follows
 - `skif lsp`, a minimal language server on stdio that publishes skif's diagnostics when a file is opened or saved
   ([ADR 0056](adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
   [#44](https://github.com/Goldziher/skif/issues/44)).
+- `ConfigLoader::with_sequential` makes `add_package_files` probe the member directories on the calling thread, for a
+  host that runs with one thread; by default they are probed on the current rayon pool
+  ([#29](https://github.com/Goldziher/skif/issues/29)).
 
 ### Changed
 
@@ -78,6 +102,19 @@ All notable changes to this project are documented here. The format follows
   `svelte`, `astro`, the stylesheet languages, `tsrx`) as the built-in extractors, instead of reporting it as
   unsupported; a custom compiler function for one of them is an approximation, since it never runs
   ([#38](https://github.com/Goldziher/skif/issues/38)).
+- `skif-bench run --install` installs the corpus before timing knip, which otherwise fails to load create-t3-turbo's
+  tool configurations; `mise run bench:publish` passes it ([#27](https://github.com/Goldziher/skif/issues/27)).
+- `corpus.toml` takes a per-repository `entry` list that the knip comparison gives both tools; vscode lists the entry
+  points its bundler names, so the 1,030 workbench files both tools reported as unused are no longer counted as
+  agreement ([#27](https://github.com/Goldziher/skif/issues/27)).
+- The knip comparison runs skif recursively on `vercel-examples`, `mastra` and `next-js`, whose examples, templates
+  and test apps are nested roots knip reads from the root ([#27](https://github.com/Goldziher/skif/issues/27)).
+- Manifest checks are faster on large workspaces: about 2.5 times faster on a generated 2,000-package workspace with
+  tens of thousands of findings, and twice as fast at 500 packages. Package configuration files are probed in
+  parallel, the version-group analysis and its findings run in parallel, the JSON report is written without the
+  generic serializer and streamed to stdout when stdout is the only output, and the `skif` binary no longer frees its
+  results one by one before exiting (the npm package, which runs in a long-lived Node process, still does). The
+  output is unchanged ([#29](https://github.com/Goldziher/skif/issues/29)).
 
 ### Fixed
 
@@ -206,6 +243,12 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   imports of `.tsrx` files are read (not those in comments, strings or template literals, and not re-exports), so the
   files and packages they use and the `stylus` and `@tsrx/*` compilers are no longer unused
   ([#38](https://github.com/Goldziher/skif/issues/38)).
+- The knip comparison installs `rules-js` with the pnpm its `MODULE.bazel` pins (pnpm 9 rejected the lockfile), a
+  failed install is reported with its error line instead of the first npm warning, and the corpus notes say why
+  `rushstack` cannot be compared with knip ([#27](https://github.com/Goldziher/skif/issues/27)).
+- The `test-file` deviation of the knip comparison says why skif has no finding there: most are apps and helpers below
+  test directories that are outside skif's graph, not test entries ([#27](https://github.com/Goldziher/skif/issues/27)).
+- `mise run bench:publish` writes a `summary.md` that passes `format:check` ([#27](https://github.com/Goldziher/skif/issues/27)).
 
 ## [0.1.1] - 2026-11-07
 

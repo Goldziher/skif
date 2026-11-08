@@ -61,7 +61,7 @@ run = "cargo run --release --locked -p skif-bench -- corpus fetch --suite bench"
 description = "Run the benchmark, write tools/bench/results/summary.{json,md} and refresh the numbers table in tools/bench/README.md"
 run = [
   "cargo build --release --locked -p skif-cli",
-  "cargo run --release --locked -p skif-bench -- run --skif target/release/skif --out tools/bench/results --no-enforce",
+  "cargo run --release --locked -p skif-bench -- run --skif target/release/skif --out tools/bench/results --no-enforce --install",
   "node tools/bench/refresh-numbers.mjs",
 ]
 
@@ -77,6 +77,13 @@ description = "Compare skif's policy findings with the pinned syncpack on the po
 run = [
   "cargo build --release --locked -p skif-cli",
   "cargo run --release --locked -p skif-bench -- syncpack-diff --skif target/release/skif",
+]
+
+[tasks."bench:deadcode"]
+description = "Dead-code precision and recall of skif (and the pinned knip with --knip) against a generated answer key: mise run bench:deadcode -- [--packages 5] [--seed 1] [--knip] [--json]"
+run = [
+  "cargo build --release --locked -p skif-cli",
+  "cargo run --release --locked -p skif-bench -- deadcode --skif target/release/skif",
 ]
 
 [tasks."corpus:fetch"]

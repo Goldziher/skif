@@ -667,7 +667,13 @@ pub fn plan_updates(
 ) -> UpdateReport {
     let usages = UsageIndex::build(workspace, config);
     let owned = owned_dependencies(&usages, workspace, &config.catalog);
-    let instances = Instances::collect_with(workspace, &owned, &config.custom_types, config.policy.override_reading);
+    let instances = Instances::collect_with(
+        workspace,
+        &owned,
+        &config.custom_types,
+        config.policy.override_reading,
+        false,
+    );
     let mut candidates = Vec::new();
     instance_candidates(workspace, config, options, &instances, &mut candidates);
     let local: BTreeSet<&str> = workspace

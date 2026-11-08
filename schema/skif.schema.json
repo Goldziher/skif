@@ -145,6 +145,7 @@
         "ignore-members": [],
         "production": false,
         "include-entry-exports": false,
+        "use-tsconfig-files": false,
         "include-fixtures": false,
         "discovery": "auto",
         "cycles": {
@@ -1056,6 +1057,18 @@
         "include-entry-exports": {
           "type": "boolean",
           "description": "Report unused exports of entry files too.",
+          "default": false
+        },
+        "tsconfig": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The TypeScript configuration of the root package, relative to the workspace root and inside it, used instead\nof `tsconfig.json` for its path aliases and compiler options (knip's `--tsConfig`). Other packages keep their\nown `tsconfig.json`."
+        },
+        "use-tsconfig-files": {
+          "type": "boolean",
+          "description": "The project files of a package with a TypeScript configuration are the files its `files` names and those its\n`include` selects minus its `exclude`, instead of the `project` globs (knip's `--use-tsconfig-files`).",
           "default": false
         },
         "include-fixtures": {
