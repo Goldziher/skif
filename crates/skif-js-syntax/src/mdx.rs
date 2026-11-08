@@ -405,7 +405,8 @@ pub(crate) fn extract(source: &str) -> Extracted {
 /// `markup` with its inline code spans (`` `<Card/>` ``, ``` `` a`b `` ```) blanked, so that code quoted in prose is
 /// not taken for a component or expression it uses. A span opens with a run of backticks and closes at the next run of
 /// the same length in its paragraph (spans do not cross paragraphs); a run that does not close, and a
-/// backslash-escaped backtick, are literal text. In a `{}` expression a backtick opens a template literal, not a span.
+/// backslash-escaped backtick, are literal text. In a `{}` expression a backtick opens a template literal, not a span;
+/// an expression's `{` does not reach past its paragraph either, so a stray `{` in prose does not hide later spans.
 /// Line breaks and the byte length are kept.
 pub(crate) fn blank_inline_code(markup: &str) -> String {
     let bytes = markup.as_bytes();
@@ -415,6 +416,7 @@ pub(crate) fn blank_inline_code(markup: &str) -> String {
     while i < bytes.len() {
         match bytes[i] {
             b'\\' => i += 1,
+            b'\n' if blank_line_follows(bytes, i) => depth = 0,
             b'{' => depth += 1,
             b'}' => depth = depth.saturating_sub(1),
             b'`' if depth > 0 => {
@@ -459,31 +461,52 @@ fn code_span_end(bytes: &[u8], from: usize, open: usize) -> Option<usize> {
                 }
                 j += run;
             }
-            b'\n'
-                if bytes[j + 1..]
-                    .iter()
-                    .find(|&&b| !matches!(b, b' ' | b'\t' | b'\r'))
-                    .is_some_and(|&b| b == b'\n') =>
-            {
-                return None;
-            }
+            b'\n' if blank_line_follows(bytes, j) => return None,
             _ => j += 1,
         }
     }
     None
 }
 
+/// Whether the line after the line break at `at` is blank, which ends the paragraph.
+fn blank_line_follows(bytes: &[u8], at: usize) -> bool {
+    bytes[at + 1..]
+        .iter()
+        .find(|&&b| !matches!(b, b' ' | b'\t' | b'\r'))
+        .is_some_and(|&b| b == b'\n')
+}
+
 /// The end of the template literal whose opening backtick is at `i`, past its closing backtick, or the end of `bytes`.
+/// A `${}` substitution holds code, so its braces, strings and nested template literals are followed; an explicit stack
+/// keeps deep nesting off the call stack.
 fn template_literal_end(bytes: &[u8], i: usize) -> usize {
+    // `None` is the text of a template literal, `Some(depth)` a substitution `depth` braces deep.
+    let mut frames: Vec<Option<usize>> = vec![None];
     let mut j = i + 1;
     while j < bytes.len() {
-        match bytes[j] {
-            b'\\' => j += 2,
-            b'`' => return j + 1,
-            _ => j += 1,
+        let Some(top) = frames.last_mut() else {
+            return j;
+        };
+        match (top, bytes[j]) {
+            (_, b'\\') => j += 1,
+            (None, b'`') | (Some(0), b'}') => {
+                frames.pop();
+            }
+            (None, b'$') if bytes.get(j + 1) == Some(&b'{') => {
+                frames.push(Some(0));
+                j += 1;
+            }
+            (Some(_), b'`') => frames.push(None),
+            (Some(_), quote @ (b'\'' | b'"')) => {
+                j += bytes[j + 1..].iter().take_while(|&&b| b != quote && b != b'\n').count() + 1;
+            }
+            (Some(depth), b'{') => *depth += 1,
+            (Some(depth), b'}') => *depth -= 1,
+            _ => {}
         }
+        j += 1;
     }
-    bytes.len()
+    if frames.is_empty() { j } else { bytes.len() }
 }
 
 #[cfg(test)]
@@ -635,6 +658,22 @@ mod tests {
     fn template_literals_in_expressions_are_not_inline_code() {
         let blanked = blank_inline_code("{ui.f(`x ${ui.y}`)} and `<B/>`\n");
         assert!(blanked.contains("${ui.y}") && !blanked.contains("<B/>"), "{blanked}");
+    }
+
+    #[test]
+    fn a_stray_brace_in_prose_ends_at_its_paragraph() {
+        let blanked = blank_inline_code("<A b=\"{\" />\n\nSee `<B/>` and <C/>\n");
+        assert!(!blanked.contains("<B/>") && blanked.contains("<C/>"), "{blanked}");
+        let blanked = blank_inline_code("A { here\r\n \t\r\nSee `<B/>`\r\n");
+        assert!(!blanked.contains("<B/>"), "{blanked}");
+    }
+
+    #[test]
+    fn template_literals_nest_in_substitutions() {
+        let blanked = blank_inline_code("{`${`{`}`} and `<B/>`\n");
+        assert!(!blanked.contains("<B/>"), "{blanked}");
+        let blanked = blank_inline_code("{`${f('`', \"}\")}`} and `<B/>`\n");
+        assert!(!blanked.contains("<B/>"), "{blanked}");
     }
 
     #[test]
