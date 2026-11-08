@@ -1,6 +1,6 @@
 use proptest::prelude::*;
 
-use super::{BinaryVia, ScriptContext, ScriptInfo, is_ignored_binary, parse_script};
+use super::{BinaryVia, FileTree, ScriptContext, ScriptInfo, is_ignored_binary, parse_script};
 
 type Scripts = &'static [(&'static str, &'static str)];
 type Names = &'static [&'static str];
@@ -365,6 +365,24 @@ fn table() {
         bins("bun check --no-script", &[]),
         bins("bun install", &[]),
         bins("bun run vite", &["vite:bun-run"]),
+        // `--cwd` runs in another package: its scripts and binaries are that package's, its files are below it.
+        bins("bun run --cwd packages/core fix-node-pty", &[]),
+        bins("bun --cwd=packages/core run fix-node-pty", &[]),
+        files(
+            "bun run --cwd packages/cli src/index.ts",
+            &[],
+            &["packages/cli/src/index.ts"],
+        ),
+        files("bun --cwd ../cli src/b.ts", &[], &["../cli/src/b.ts"]),
+        // `--prefix`, `--dir` and `-C` take a directory and aim pnpm at another package.
+        bins("pnpm --prefix client vite", &[]),
+        bins("pnpm -C client vite", &[]),
+        // Arithmetic is not a command.
+        bins("echo $((n+1))", &[]),
+        bins("sleep $((RANDOM % 5)) && tsc", &["tsc"]),
+        bins("((n++))", &[]),
+        bins("for ((i=0;i<3;i++)); do vite; done", &["vite"]),
+        bins("echo $( (cd a && vite) )", &["vite"]),
         bins("corepack pnpm exec vitest", &["vitest:pnpm-exec"]),
         bins("corepack enable", &[]),
         // Script references.
@@ -393,6 +411,16 @@ fn table() {
             &["build"],
         ),
         with_scripts("npm test", &[("test", "jest")], &["jest"], &[], &[], &["test"]),
+        // `--cwd` runs a script of the package there, not this package's script of the same name.
+        with_scripts(
+            "bun run --cwd packages/core build",
+            &[("build", "tsc")],
+            &[],
+            &[],
+            &[],
+            &[],
+        ),
+        with_scripts("bun --cwd=packages/core build", &[("build", "tsc")], &[], &[], &[], &[]),
         with_scripts("npm t", &[("test", "jest")], &["jest"], &[], &[], &["test"]),
         with_scripts("npm run missing", &[], &[], &[], &[], &["missing"]),
         with_scripts("npm start", &[], &[], &[], &[], &["start"]),
@@ -733,6 +761,32 @@ fn package_managers_are_recorded() {
     let info = parse("pnpm --filter web build && yarn lint && npm test && pnpm -r build");
     assert_eq!(info.package_managers, ["pnpm", "yarn", "npm"]);
     assert_eq!(parse("vitest").package_managers, [] as [std::string::String; 0]);
+}
+
+#[test]
+fn test_runner_arguments_are_file_trees() {
+    let info = parse("mocha --file ./build/test/setup.js --recursive --timeout 9000 ./build/test && node ./run.js");
+    let trees: Vec<(&str, Option<FileTree>)> = info.files.iter().map(|f| (f.path.as_str(), f.tree.clone())).collect();
+    let js = |recursive| FileTree {
+        recursive,
+        extensions: vec!["js".to_owned(), "cjs".to_owned(), "mjs".to_owned()],
+    };
+    assert_eq!(
+        trees,
+        [
+            ("./build/test/setup.js", None),
+            ("./build/test", Some(js(true))),
+            ("./run.js", None)
+        ]
+    );
+    assert_eq!(parse("mocha test").files[0].tree, Some(js(false)));
+    assert_eq!(
+        parse("mocha --extension ts --extension .tsx,mts test").files[0].tree,
+        Some(FileTree {
+            recursive: false,
+            extensions: vec!["ts".to_owned(), "tsx".to_owned(), "mts".to_owned()],
+        })
+    );
 }
 
 #[test]

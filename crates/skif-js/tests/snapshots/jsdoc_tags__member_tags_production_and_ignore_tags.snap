@@ -1,0 +1,6 @@
+---
+source: crates/skif-js/tests/jsdoc_tags.rs
+expression: "report(&lint(&files,\n\"[js]\\nproduction = true\\n[rules]\\nunused-exports = { ignore-tags = [\\\"lintignore\\\"] }\\n\"))"
+---
+unused-enum-members src/lib.ts: enum member `Color.Plain` is never used
+unused-namespace-members src/lib.ts: namespace member `Shapes.line` is never used

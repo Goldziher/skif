@@ -32,14 +32,23 @@ let report = Linter::with_fs(&config, Arc::new(fs.clone()))?.run(&workspace)?;
 | `js-analysis` | no | the oxc based JS and TypeScript analysis and the plugin table |
 | `fix` | no | `apply_fixes` and `FixPlan` |
 | `yaml-fix` | no | YAML edits for `pnpm-workspace.yaml` (implies `fix`) |
-| `report` | no | the human, JSON, SARIF and GitHub renderers, as `skif::render` |
+| `report` | no | the renderers (human, JSON, SARIF, GitHub, Code Climate, compact, Markdown, CODEOWNERS), as `skif::render` |
 | `schema` | no | `config_schema` |
+| `update` | no | `skif::update`: newer published versions through a registry the host supplies (implies `manifest` and `fix`) |
 
 `js-analysis` is off by default so a host that already embeds oxc keeps its own copy. No `oxc` or `rayon` type
 appears in a public signature; a host that lints often passes an `Executor` (a reusable thread pool) in
 `RunOptions`. The data model is part of the contract: `serde` (the derives of the data model), `serde_json` (fix
 values and manifest values), `toml` (rule options), `indexmap` (the ordered maps of `Config`) and `nodejs_semver` (parsed specifier ranges). A major release of
 any of them is a breaking release of `skif`.
+
+## Registry updates
+
+`skif::update` plans `skif update` without touching the network: the host implements the `Registry` trait (one
+`fetch(name)` returning a `Packument` of published versions, and optionally a concurrent `fetch_all`), passes the
+current time in `UpdateOptions`, and gets an `UpdateReport` back from `plan_updates`. `apply_updates` turns the report
+into a `FixPlan`, as `apply_fixes` does for fixes. `Packument::from_json` reads an npm registry document, so a host that
+does its own HTTP only has to fetch the text. The command line's HTTP client is not part of the library.
 
 ## Configuration from a host
 

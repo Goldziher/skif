@@ -1,0 +1,21 @@
+{
+  "private": true,
+  "version": "2.1.0",
+  "scripts": {
+    "test": "vitest",
+    "build": "tsc -b",
+    "lint": "skif"
+  },
+  "name": "@acme/web",
+  "keywords": ["web", "acme", "app"],
+  "devDependencies": {
+    "vitest": "^3.0.0",
+    "typescript": "^5.9.3"
+  },
+  "files": ["dist", "README.md"],
+  "description": "The web app",
+  "dependencies": { "react": "^19.0.0", "@acme/ui": "workspace:*" },
+  "engines": {
+    "node": ">=22"
+  }
+}

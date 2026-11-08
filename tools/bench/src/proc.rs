@@ -29,6 +29,29 @@ impl Captured {
             .unwrap_or("no output");
         line.chars().take(160).collect()
     }
+
+    /// The first line of stderr or stdout that reports an error, shortened, for a skip reason; the first non-empty
+    /// line of stderr when none does. Package managers print warnings first (`npm warn ...`) and some print the error
+    /// itself to stdout (`ERR_PNPM_...`). Only a line that starts like an error (`ERR`, `Error:`, `npm error`,
+    /// `npm ERR!`) or names an error code (` ERR_`) counts, so a progress line such as `0 errors` is not taken.
+    pub fn failure_summary(&self) -> String {
+        let stdout = String::from_utf8_lossy(&self.stdout);
+        let error = self
+            .stderr
+            .lines()
+            .chain(stdout.lines())
+            .find(|line| is_error_line(line));
+        error.map_or_else(|| self.stderr_summary(), |line| line.trim().chars().take(160).collect())
+    }
+}
+
+/// Whether a line of package manager output reports an error rather than mentioning the word.
+fn is_error_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    ["ERR", "Error:", "npm error", "npm ERR!"]
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix))
+        || line.contains(" ERR_")
 }
 
 /// Runs `command` to completion or until `timeout`, whichever is first, capturing stdout and stderr through files
@@ -101,6 +124,43 @@ mod tests {
         assert_eq!(got.stderr_summary(), "err");
         assert!(!got.timed_out);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn failure_summary_finds_the_error_behind_warnings() {
+        let captured = |stdout: &str, stderr: &str| Captured {
+            code: Some(1),
+            timed_out: false,
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.to_owned(),
+            elapsed: Duration::ZERO,
+        };
+        let pnpm = captured(
+            "Scope: all 15 workspace projects\n ERR_PNPM_LOCKFILE_CONFIG_MISMATCH  Cannot proceed\n",
+            "npm warn Unknown project config \"hoist\".\n",
+        );
+        assert_eq!(
+            pnpm.failure_summary(),
+            "ERR_PNPM_LOCKFILE_CONFIG_MISMATCH  Cannot proceed"
+        );
+        assert_eq!(captured("", "just this\n").failure_summary(), "just this");
+        assert_eq!(captured("", "warn x\nError: y\n").failure_summary(), "Error: y");
+        assert_eq!(
+            captured(
+                "Done: 0 errors, 2 warnings\n",
+                "Lockfile errors ignored\nnpm error code EUSAGE\n"
+            )
+            .failure_summary(),
+            "npm error code EUSAGE"
+        );
+        assert_eq!(
+            captured("Progress: resolved 10, 0 errors\n", "warn first\n").failure_summary(),
+            "warn first"
+        );
+        assert_eq!(
+            captured("", "pnpm: x ERR_PNPM_FETCH_404 missing\n").failure_summary(),
+            "pnpm: x ERR_PNPM_FETCH_404 missing"
+        );
     }
 
     #[test]

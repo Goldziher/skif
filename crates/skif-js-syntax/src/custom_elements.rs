@@ -1,4 +1,4 @@
-//! Custom element registrations (ADR 0053): classes the browser instantiates through a tag name.
+//! Custom element registrations (ADR 0062): classes the browser instantiates through a tag name.
 //!
 //! A class registered as a custom element is used even when no module imports it. This pass records how each
 //! exported class is registered, on [`Export::registrations`](crate::Export::registrations); which registrations

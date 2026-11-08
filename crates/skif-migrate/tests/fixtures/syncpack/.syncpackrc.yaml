@@ -35,6 +35,9 @@ versionGroups:
   - label: Engines in sync
     dependencyTypes: [engines]
     preferVersion: lowestSemver
+  - label: Ranges only for plugins
+    dependencies: ["eslint-plugin-*"]
+    policy: semverRangeOnly
 semverGroups:
   - label: Exact in prod
     dependencyTypes: [prod]
@@ -51,4 +54,13 @@ source:
   - package.json
   - packages/*/package.json
 sortAz: [dependencies, scripts]
-updateGroups: []
+updateGroups:
+  - dependencies: ["@types/**"]
+    isIgnored: true
+  - label: Hold React to minors
+    dependencies: [react, react-dom]
+    target: minor
+  - dependencies: [left-pad]
+    target: major
+minimumReleaseAge: 2880
+maxConcurrentRequests: 4

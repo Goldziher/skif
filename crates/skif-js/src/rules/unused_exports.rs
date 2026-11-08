@@ -34,12 +34,13 @@ impl JsRule for UnusedExports {
 /// The deletion that fixes each unused export, keyed by the export's address in the module.
 ///
 /// The deletions come from [`skif_js_syntax::ModuleInfo::removal_edits`], so they never overlap. Each one is
-/// attached to the first unused export it removes; the others it removes get no fix of their own. Exports whose
-/// removal would delete an expression (`export default <expression>`) get no fix.
+/// attached to the first unused export it removes; the others it removes get no fix of their own. The removal of
+/// `export default <expression>` deletes the expression with the statement, so its side effects go too; the fix is
+/// unsafe like every other and its title says so.
 fn fixes(module: &Module, unused: &[&Export]) -> HashMap<*const Export, (u32, u32)> {
     let wanted: HashSet<*const Export> = unused
         .iter()
-        .filter(|export| export.removal.is_some_and(|removal| !removal.default_expression))
+        .filter(|export| export.removal.is_some())
         .map(|export| std::ptr::from_ref::<Export>(export))
         .collect();
     let edits = module
@@ -49,9 +50,6 @@ fn fixes(module: &Module, unused: &[&Export]) -> HashMap<*const Export, (u32, u3
     let mut fixes = HashMap::new();
     for export in unused {
         let Some(removal) = export.removal else { continue };
-        if removal.default_expression {
-            continue;
-        }
         let overlapping = edits
             .iter()
             .position(|(start, end)| *start < removal.end && removal.start < *end);
@@ -67,7 +65,9 @@ fn fixes(module: &Module, unused: &[&Export]) -> HashMap<*const Export, (u32, u3
 
 fn removal_fix(module: &Module, export: &Export, range: (u32, u32)) -> Fix {
     let whole_statement = export.removal.is_some_and(|removal| removal.statement == range);
-    let title = if whole_statement {
+    let title = if export.removal.is_some_and(|removal| removal.default_expression) && whole_statement {
+        "Remove the `export default` statement with its expression".to_owned()
+    } else if whole_statement {
         "Remove the export statement".to_owned()
     } else {
         format!("Remove the unused export `{}`", export.name)

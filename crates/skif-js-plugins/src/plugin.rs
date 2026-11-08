@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use indexmap::IndexMap;
 use skif_config::PluginConfig;
 use skif_core::FileSystem;
-use skif_js_syntax::ConfigValue;
+use skif_js_syntax::{ConfigValue, ModuleLoader};
 
 /// The knip commit every plugin row was last checked against.
 pub const KNIP_COMMIT: &str = "da07b6e9887f9a1eb08545da29755b7f9d309bca";
@@ -37,7 +37,7 @@ pub enum Enabler {
     ManifestKey(&'static str),
 }
 
-/// A custom element library whose registrations mark a class as used (ADR 0053).
+/// A custom element library whose registrations mark a class as used (ADR 0062).
 ///
 /// A class decorated with `decorator` imported from one of `modules` is registered, and so is a class that extends
 /// `base_class` imported from one of them and calls `Class.define(…)`.
@@ -237,6 +237,9 @@ pub struct PluginContext<'a> {
     pub fs: &'a dyn FileSystem,
     /// `[js.plugins]` switches and overrides.
     pub plugins: &'a IndexMap<String, PluginConfig>,
+    /// Finds the modules a config file imports values from (a base config of the project or of a workspace package),
+    /// so they are evaluated too; `None` leaves imported values unknown.
+    pub modules: Option<&'a dyn ModuleLoader>,
 }
 
 impl PluginContext<'_> {
@@ -348,4 +351,31 @@ pub struct PluginOutput {
     /// computed pattern, a call of an unknown function): `entries` may be missing files. Rules that report files as
     /// unreachable from entries should be conservative for this workspace.
     pub entries_incomplete: bool,
+    /// Each config that made the entries incomplete, and why; not empty whenever `entries_incomplete` is set.
+    pub incomplete_reasons: Vec<IncompleteEntries>,
+}
+
+/// A config that made a plugin's entries incomplete; see [`PluginOutput::incomplete_reasons`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncompleteEntries {
+    /// The plugin that reads the config.
+    pub plugin: PluginId,
+    /// The config file, absolute.
+    pub file: PathBuf,
+    /// What could not be read.
+    pub cause: IncompleteCause,
+}
+
+/// Why a config leaves a plugin's entries incomplete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum IncompleteCause {
+    /// The config file does not parse.
+    Unparsable,
+    /// The config evaluates to a value that is not known statically, such as the result of an unknown function.
+    UnknownValue,
+    /// The config spreads or merges in a value that is not known statically, such as an imported base config.
+    UnknownSpread,
+    /// The keys the plugin reads entries from are computed in a way that cannot be evaluated statically.
+    ComputedEntries,
 }

@@ -7,6 +7,7 @@
 use std::path::PathBuf;
 
 use skif_core::FileSystem;
+pub use skif_core::{IncompleteCause, IncompleteEntries};
 use skif_workspace::{Package, Workspace};
 
 /// A module alias a tool configuration declares: imports of `find` (and `find/…`) point at `target`.
@@ -30,7 +31,7 @@ pub struct BuildDir {
 }
 
 /// A custom element library: a class it registers is used by the browser through its tag name, so it is no unused
-/// export (ADR 0053). `customElements.define('x-y', Class)` counts without one.
+/// export (ADR 0062). `customElements.define('x-y', Class)` counts without one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomElementLibrary {
     /// Specifiers the library is imported from; one that ends with `/` matches every specifier below it.
@@ -93,6 +94,8 @@ pub struct WorkspaceInputs {
     /// Whether a tool's entries could only be partly read (a computed `entry`), so unused files and dependencies of
     /// the package cannot be told apart from ones reached through the unknown entries.
     pub entries_incomplete: bool,
+    /// Why the entries are incomplete, when `entries_incomplete` is set and the source knows.
+    pub incomplete_reasons: Vec<IncompleteEntries>,
 }
 
 impl WorkspaceInputs {
@@ -115,6 +118,7 @@ impl WorkspaceInputs {
         self.extensions.extend(other.extensions);
         self.custom_elements.extend(other.custom_elements);
         self.entries_incomplete |= other.entries_incomplete;
+        self.incomplete_reasons.extend(other.incomplete_reasons);
     }
 }
 

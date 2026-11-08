@@ -1,0 +1,33 @@
+---
+source: crates/skif-cli/tests/filters.rs
+expression: "redact(&human.stdout, dir.path())"
+---
+packages/a/orphan.ts
+  warning[unused-files]: `packages/a/orphan.ts` is not reachable from any entry file
+   --> packages/a/orphan.ts
+    = package: @cli/a
+    = help: delete it, or add it to `entry` when a tool loads it
+    = fix (unsafe): Delete `packages/a/orphan.ts`
+
+packages/a/package.json
+  error[unused-dependencies]: `is-number` is listed in `dependencies` but never used
+   --> packages/a/package.json:6:5
+    |
+  6 |     "is-number": "7.0.0"
+    |     ^^^^^^^^^^^^^^^^^^^^
+    = package: @cli/a
+    = dependency: is-number
+    = help: remove it, or add it to `ignore-dependencies` when a tool uses it without importing it
+    = fix (unsafe): Remove `is-number` from `dependencies`
+
+packages/b/y.ts
+  warning[unused-exports]: export `z` is never imported by another module
+   --> packages/b/y.ts:5:14
+    |
+  5 | export const z = () => x;
+    |              ^
+    = package: @cli/b
+    = help: remove it, or tag it `@public` when it is part of a public API
+    = fix (unsafe): Remove the unused export `z`
+
+Found 2 errors, 2 warnings in 3 packages (4 fixable)

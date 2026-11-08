@@ -4,21 +4,44 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use skif_config::{Config, JsDiscovery};
-use skif_core::{FileSystem, timing};
-use skif_js_syntax::{Export, ExportKind, ParseOptions, parse_module};
+use skif_core::{FileSystem, IncompletePackage, Span, timing};
+use skif_js_syntax::{Export, ExportKind, Member, ParseOptions, parse_module};
 use skif_workspace::{PackageId, Workspace, map_ordered};
 
 use crate::deps::DependencyUsage;
-use crate::discover::{Candidate, discover, relative, take_file_links};
+use crate::discover::{Candidate, discover_with, relative, take_file_links};
 use crate::entries::entry_files;
+use crate::fixture::in_fixture_directory;
 use crate::git_index::{IndexCache, Listing, indexed_fs};
+use crate::globs::Globs;
 use crate::graph::{self, Inputs, Module, ModuleGraph};
 use crate::input::InputSource;
 use crate::resolve::ModuleResolver;
-use crate::setup::Setup;
+use crate::setup::{Setup, WorkspaceKeys};
 use crate::specifier::package_name;
 use crate::usage::ExportUsage;
+
+/// A `JSDoc` tag that exempts an export or member that is used anyway, so the tag does nothing (knip's tag hint).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnneededTag<'m> {
+    /// The export name, or `Export.member` for an enum or namespace member.
+    pub identifier: String,
+    /// Location of the tagged export or member.
+    pub span: Span,
+    /// The tag name, without `@`.
+    pub tag: &'m str,
+}
+
+/// A configured `entry`, `project` or `ignore` pattern that matches no file the analysis knows (knip's `entry-empty`,
+/// `project-empty` and `ignore` hints).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EmptyPattern {
+    /// The configuration key, such as `js.entry` or `js.workspaces."packages/a".project`.
+    pub key: String,
+    pub pattern: String,
+}
 
 /// A project file nothing reaches.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,11 +65,18 @@ pub struct JsAnalysis<'a> {
     /// Project files outside the graph.
     pub unused_files: Vec<UnusedFile>,
     ambient_modules: HashSet<String>,
+    /// The discovered source files outside the graph, relative to the workspace root with `/` separators, so
+    /// `explain-usage` can tell a file the analysis never looked at from one it left out.
+    pub(crate) outside_graph: HashSet<String>,
     pub(crate) setup: Setup,
     /// The ids of the rules that run in this pass; `None` when every rule is assumed to run.
     pub(crate) enabled_rules: Option<HashSet<String>>,
     /// The configuration file, relative to the workspace root, that configuration findings point at.
     pub(crate) config_path: Option<PathBuf>,
+    /// Configured `entry`, `project` and `ignore` patterns that match no file.
+    pub(crate) empty_patterns: Vec<EmptyPattern>,
+    /// `ignore-files` patterns that hide no file `unused-files` would report.
+    pub(crate) unused_ignore_files: Vec<EmptyPattern>,
 }
 
 /// Names declared with `declare module 'name'` by graph modules and by declaration files nothing imports.
@@ -82,6 +112,226 @@ fn collect_ambient_modules(
     names
 }
 
+/// Directories [`on_disk`] does not enter unless the pattern names them: installed packages and git internals are
+/// never what a project pattern means, and walking them would make the check as slow as a dependency install.
+const UNWALKED_DIRS: [&str; 2] = ["node_modules", ".git"];
+
+/// Whether a file on disk below `base`, gitignored or not and of any extension, matches `pattern` (relative to
+/// `base`).
+///
+/// It settles a pattern that matched none of the files the analysis knows before calling it empty: those are source
+/// files, so `ignore = ["dist/**"]` (gitignored), `ignore = ["**/*.json"]` and `entry = ["index.html"]` would
+/// otherwise be reported although they match files. Only such patterns reach it, so the walk is rare; it starts at
+/// the literal directory prefix of the pattern, does not follow symbolic links to directories and skips
+/// [`UNWALKED_DIRS`] unless the pattern names them.
+fn on_disk(fs: &dyn FileSystem, base: &Path, pattern: &str) -> bool {
+    let body = pattern.trim().trim_start_matches("./").trim_end_matches('!');
+    let globs = Globs::new([body]);
+    if globs.is_empty() {
+        return false;
+    }
+    let is_glob = |part: &str| part.contains(['*', '?', '[', '{']);
+    let parts: Vec<&str> = body.split('/').collect();
+    if !parts.iter().any(|part| is_glob(part)) {
+        return fs.is_file(&base.join(body));
+    }
+    let prefix: PathBuf = parts.iter().take_while(|part| !is_glob(part)).collect();
+    let mut stack = vec![base.join(prefix)];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs.read_dir_shared(&dir) else {
+            continue;
+        };
+        for entry in entries.iter() {
+            let Some(rel) = relative(&entry.path, base) else {
+                continue;
+            };
+            if entry.is_file && globs.matches_any(&rel) {
+                return true;
+            }
+            let unwalked = entry
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| UNWALKED_DIRS.contains(&name) && !parts.contains(&name));
+            if entry.is_dir && !entry.is_symlink && !unwalked {
+                stack.push(entry.path.clone());
+            }
+        }
+    }
+    false
+}
+
+/// `dir` of `package` as `[js.workspaces]` keys spell it: `.` for the root.
+fn key_dir(package: &skif_workspace::Package) -> String {
+    if package.is_root {
+        ".".to_owned()
+    } else {
+        package.dir.to_string_lossy().replace('\\', "/")
+    }
+}
+
+/// The configuration key a package's pattern of the list `name` is written under: the `[js.workspaces]` key as
+/// written (so a glob key such as `packages/*` is reported once, as the user wrote it), or the package directory for
+/// a pattern that comes from elsewhere (an override).
+fn workspace_key(config: &Config, keys: &WorkspaceKeys, package: &skif_workspace::Package, name: &str) -> String {
+    let dir = key_dir(package);
+    let written = keys
+        .key(&config.js.workspaces, &dir)
+        .map_or(dir.as_str(), String::as_str);
+    format!("js.workspaces.\"{written}\".{name}")
+}
+
+/// Patterns judged per package, keyed by where they are written: a pattern is empty only when it matches in none of
+/// the packages its key selects.
+#[derive(Default)]
+struct Judged {
+    matched: IndexMap<(String, String), bool>,
+}
+
+impl Judged {
+    /// Records `pattern` under `key`, calling `matches` only while no package has matched it yet.
+    fn judge(&mut self, key: String, pattern: &str, matches: impl FnOnce() -> bool) {
+        let slot = self.matched.entry((key, pattern.to_owned())).or_insert(false);
+        if !*slot {
+            *slot = matches();
+        }
+    }
+
+    fn empty(self) -> Vec<EmptyPattern> {
+        self.matched
+            .into_iter()
+            .filter(|(_, matched)| !matched)
+            .map(|((key, pattern), _)| EmptyPattern { key, pattern })
+            .collect()
+    }
+}
+
+/// The configured `entry`, `project` and `ignore` patterns that match no file: none of the files the analysis knows
+/// (the discovered source files and the modules of the graph) and no file on disk ([`on_disk`]). Negated patterns,
+/// patterns that leave the package (`../`) and the defaults are not judged. A known file only reaches a package's
+/// patterns when the package owns it, as for entries; a pattern of a glob `[js.workspaces]` key is empty when it
+/// matches in none of the packages the key selects.
+fn empty_patterns(
+    workspace: &Workspace,
+    config: &Config,
+    setup: &Setup,
+    candidates: &[Candidate],
+    graph: &ModuleGraph,
+    disk: &dyn FileSystem,
+) -> Vec<EmptyPattern> {
+    let files: Vec<(PackageId, &Path, String)> = candidates
+        .iter()
+        .map(|candidate| (candidate.owner, candidate.abs.as_path(), candidate.rel.clone()))
+        .chain(graph.modules().iter().map(|module| {
+            (
+                module.owner,
+                module.abs.as_path(),
+                module.path.to_string_lossy().replace('\\', "/"),
+            )
+        }))
+        .collect();
+    let judged = |pattern: &&String| {
+        let body = pattern.trim();
+        !body.is_empty() && !body.starts_with('!') && !body.starts_with("../")
+    };
+    let mut found = Judged::default();
+    for pattern in config.js.ignore.iter().filter(judged) {
+        found.judge("js.ignore".to_owned(), pattern, || {
+            let globs = Globs::new([pattern]);
+            files.iter().any(|(_, _, rel)| globs.matches_any(rel)) || on_disk(disk, &workspace.root, pattern)
+        });
+    }
+    let keys = WorkspaceKeys::new(&config.js.workspaces);
+    for (id, package) in workspace.iter() {
+        let Some(package_setup) = setup.package(id) else {
+            continue;
+        };
+        let owned: Vec<String> = files
+            .iter()
+            .filter(|(owner, _, _)| *owner == id)
+            .filter_map(|(_, abs, _)| relative(abs, &package_setup.dir))
+            .collect();
+        let user = &package_setup.user_patterns;
+        for (name, patterns, top_level) in [
+            ("entry", &user.entry, &config.js.entry),
+            ("project", &user.project, &config.js.project),
+            ("ignore", &user.ignore, &config.js.ignore),
+        ] {
+            for pattern in patterns.iter().filter(judged) {
+                let from_top_level = package.is_root && top_level.contains(pattern);
+                if from_top_level && name == "ignore" {
+                    continue;
+                }
+                let key = if from_top_level {
+                    format!("js.{name}")
+                } else {
+                    workspace_key(config, &keys, package, name)
+                };
+                found.judge(key, pattern, || {
+                    let globs = Globs::new([pattern]);
+                    owned.iter().any(|rel| globs.matches_any(rel)) || on_disk(disk, &package_setup.dir, pattern)
+                });
+            }
+        }
+    }
+    found.empty()
+}
+
+/// The `ignore-files` patterns that hide none of the files that would be reported unused (knip's `ignoreFiles` hint)
+/// and match no file on disk either ([`on_disk`]), so that a pattern for generated or non-source files is not
+/// reported. A pattern of a glob `[js.workspaces]` key is judged across the packages the key selects.
+fn unused_ignore_files(
+    workspace: &Workspace,
+    config: &Config,
+    setup: &Setup,
+    unreached: &[&Candidate],
+    disk: &dyn FileSystem,
+) -> Vec<EmptyPattern> {
+    let mut found = Judged::default();
+    let all_judged = workspace
+        .iter()
+        .all(|(id, _)| setup.package(id).is_none_or(|package| !package.entries_incomplete));
+    for pattern in config.js.ignore_files.iter().filter(|_| all_judged) {
+        let globs = Globs::new([pattern]);
+        if globs.is_empty() {
+            continue;
+        }
+        found.judge("js.ignore-files".to_owned(), pattern, || {
+            unreached.iter().any(|candidate| globs.matches_any(&candidate.rel))
+                || on_disk(disk, &workspace.root, pattern)
+        });
+    }
+    let keys = WorkspaceKeys::new(&config.js.workspaces);
+    let mut incomplete = HashSet::new();
+    for (id, package) in workspace.iter() {
+        let Some(package_setup) = setup.package(id) else {
+            continue;
+        };
+        let owned: Vec<String> = unreached
+            .iter()
+            .filter(|candidate| candidate.owner == id)
+            .filter_map(|candidate| relative(&candidate.abs, &package_setup.dir))
+            .collect();
+        for pattern in &package_setup.user_patterns.ignore_files {
+            let globs = Globs::new([pattern]);
+            if globs.is_empty() {
+                continue;
+            }
+            let key = workspace_key(config, &keys, package, "ignore-files");
+            if package_setup.entries_incomplete {
+                // Its unreached files are not known, so the pattern may hide one: it is not judged anywhere.
+                incomplete.insert((key, pattern.clone()));
+                continue;
+            }
+            found.judge(key, pattern, || {
+                owned.iter().any(|rel| globs.matches_any(rel)) || on_disk(disk, &package_setup.dir, pattern)
+            });
+        }
+    }
+    found.matched.retain(|judged, _| !incomplete.contains(judged));
+    found.empty()
+}
+
 /// `fs` with the files tracked by git listed from the git index, as `[js] discovery` says: `auto` checks the
 /// modification time of each directory against the index, `git` trusts the index alone and `walk` does not use it.
 /// `None` for `walk` and when the workspace is not in a git work tree with a usable index.
@@ -91,6 +341,10 @@ fn overlay(
     config: &Config,
     cache: &IndexCache,
 ) -> Option<Arc<dyn FileSystem>> {
+    // The git index lists no ignored file, so reading what `.gitignore` hides needs the walk.
+    if config.js.no_gitignore {
+        return None;
+    }
     let listing = match config.js.discovery {
         JsDiscovery::Walk => return None,
         JsDiscovery::Git => Listing::IndexOnly,
@@ -137,11 +391,15 @@ impl<'a> JsAnalysis<'a> {
         let phase = |name: &str| format!("js {name} {}", workspace.root.display());
         let indexed = timing::phase(phase("git index"), || overlay(fs, workspace, config, cache));
         let listed_from_index = indexed.is_some();
+        // The configuration hints look past the index, at gitignored files too.
+        let disk = Arc::clone(fs);
         let fs = indexed.as_ref().unwrap_or(fs);
         let mut setup = timing::phase(phase("setup (plugins, configs)"), || {
             Setup::new(workspace, config, fs, sources, sequential)
         });
-        let mut candidates = timing::phase(phase("discover"), || discover(fs.as_ref(), workspace, sequential));
+        let mut candidates = timing::phase(phase("discover"), || {
+            discover_with(fs.as_ref(), workspace, sequential, !config.js.no_gitignore)
+        });
         if !setup.js_ignored.is_empty() {
             candidates.retain(|candidate| !setup.js_ignored.contains(&candidate.owner));
         }
@@ -149,7 +407,7 @@ impl<'a> JsAnalysis<'a> {
         let found = timing::phase(phase("entries"), || {
             entry_files(fs.as_ref(), workspace, &setup, &candidates)
         });
-        setup.mark_entries_incomplete(&found.unmapped);
+        setup.mark_entries_incomplete(&found.unknown);
         let entries = found.files;
         let resolver = timing::phase(phase("resolver"), || {
             ModuleResolver::new(Arc::clone(fs), workspace, &setup)
@@ -181,7 +439,12 @@ impl<'a> JsAnalysis<'a> {
             .filter_map(|declared| package_name(declared))
             .collect();
         ambient_modules.extend(packages);
-        let unused_files = candidates
+        let outside_graph: HashSet<String> = candidates
+            .iter()
+            .filter(|candidate| graph.id_of(&candidate.abs).is_none())
+            .map(|candidate| candidate.rel.clone())
+            .collect();
+        let unreached: Vec<&Candidate> = candidates
             .iter()
             .filter(|candidate| graph.id_of(&candidate.abs).is_none())
             .filter(|candidate| !candidate.rel.ends_with(".d.ts"))
@@ -198,9 +461,22 @@ impl<'a> JsAnalysis<'a> {
                 package.project.is_match(&in_package)
                     && !package.ignore.matches_any(&in_package)
                     && !setup.global_ignore.matches_any(&candidate.rel)
+                    && (setup.include_fixtures || !in_fixture_directory(Path::new(&candidate.rel)))
             })
             // The index may still list a file deleted since it was written; one `stat` per unused file settles it.
             .filter(|candidate| !listed_from_index || fs.kind(&candidate.abs).is_file)
+            .collect();
+        let ignores_file = |candidate: &Candidate| {
+            setup.global_ignore_files.matches_any(&candidate.rel)
+                || setup.package(candidate.owner).is_some_and(|package| {
+                    relative(&candidate.abs, &package.dir).is_some_and(|rel| package.ignore_files.matches_any(&rel))
+                })
+        };
+        let empty_patterns = empty_patterns(workspace, config, &setup, &candidates, &graph, disk.as_ref());
+        let unused_ignore_files = unused_ignore_files(workspace, config, &setup, &unreached, disk.as_ref());
+        let unused_files = unreached
+            .iter()
+            .filter(|candidate| !ignores_file(candidate))
             .map(|candidate| UnusedFile {
                 path: PathBuf::from(&candidate.rel),
                 owner: candidate.owner,
@@ -213,9 +489,12 @@ impl<'a> JsAnalysis<'a> {
             dependencies,
             unused_files,
             ambient_modules,
+            outside_graph,
             setup,
             enabled_rules: None,
             config_path: None,
+            empty_patterns,
+            unused_ignore_files,
         }
     }
 
@@ -258,21 +537,58 @@ impl<'a> JsAnalysis<'a> {
         self.setup.package(id).is_some_and(|package| package.entries_incomplete)
     }
 
+    /// The analysed packages whose entry files are not all known, with every reason; reason files are relative to
+    /// the workspace root with `/` separators. In workspace order.
+    #[must_use]
+    pub fn incomplete_packages(&self) -> Vec<IncompletePackage> {
+        let root = &self.workspace.root;
+        self.workspace
+            .iter()
+            .filter_map(|(id, package)| {
+                let setup = self.setup.package(id).filter(|setup| setup.entries_incomplete)?;
+                let reasons = setup
+                    .incomplete_reasons
+                    .iter()
+                    .cloned()
+                    .map(|mut reason| {
+                        reason.file = reason
+                            .file
+                            .map(|path| relative(&path, root).map_or(path, PathBuf::from));
+                        reason
+                    })
+                    .collect();
+                Some(IncompletePackage::new(
+                    package.display_name().to_owned(),
+                    package.dir.clone(),
+                    reasons,
+                ))
+            })
+            .collect()
+    }
+
     /// Whether the package is excluded from analysis (`ignore-packages`).
     #[must_use]
     pub fn is_skipped(&self, id: PackageId) -> bool {
         self.setup.package(id).is_none()
     }
 
-    /// Whether a module's own issues are reported: it is a project file, not ignored, and not a public entry.
+    /// Whether a module's own issues are reported: it is a project file, not ignored, not a public entry, not in a
+    /// fixture directory unless `[js] include-fixtures` is set, and its package's entry files are fully known. In a
+    /// package whose entries are incomplete, a file no known entry reaches may still import the module, so none of its
+    /// exports can be judged unused.
     #[must_use]
     pub fn reports_exports_of(&self, module: &Module) -> bool {
-        module.in_project && !module.ignored && (!module.is_entry || self.setup.includes_entry_exports(module.owner))
+        module.in_project
+            && !module.ignored
+            && (!module.is_entry || self.setup.includes_entry_exports(module.owner))
+            && !self.entries_incomplete(module.owner)
+            && (self.setup.include_fixtures || !in_fixture_directory(&module.path))
     }
 
     /// Exports of `module` that no other module uses, values and types alike, in source order.
     ///
-    /// Exports tagged `@public`, `@beta` or `@alpha` (and `@internal` in production mode, and the `ignore-tags` of `unused-exports`) are not listed.
+    /// Exports tagged `@public`, `@beta`, `@alpha` or `@alias` (and `@internal` in production mode, and the
+    /// `ignore-tags` of `unused-exports`) are not listed, unless `include-tags` names the tag.
     #[must_use]
     pub fn unused_exports<'m>(&self, module: &'m Module) -> Vec<&'m Export> {
         if !self.reports_exports_of(module) {
@@ -314,10 +630,107 @@ impl<'a> JsAnalysis<'a> {
     }
 
     pub(crate) fn is_tagged_public(&self, export: &Export) -> bool {
-        export.tags.iter().any(|tag| match tag.as_str() {
-            "public" | "beta" | "alpha" => true,
-            "internal" => self.setup.production,
-            other => self.setup.ignore_tags.iter().any(|ignored| ignored == other),
+        self.exempts_tags(&export.tags)
+    }
+
+    /// Whether `JSDoc` tags `tags` (of an export, or of an enum or namespace member) keep it out of the report: an
+    /// always-exempting tag, an excluding tag ([`Self::excluding_tags`]), or, with `include-tags`, none of those.
+    pub(crate) fn exempts_tags(&self, tags: &[String]) -> bool {
+        self.always_exempt(tags) || self.excluding_tags(tags).next().is_some() || self.lacks_included_tag(tags)
+    }
+
+    /// Whether `tags` carries a tag that always exempts (`public`, `beta`, `alpha` or `alias`) and `include-tags` does
+    /// not name it. Naming such a tag in `include-tags` asks for exactly the exports that carry it, so it is judged
+    /// instead of silencing the report (knip keeps exempting it, which reports nothing).
+    fn always_exempt(&self, tags: &[String]) -> bool {
+        tags.iter()
+            .any(|tag| matches!(tag.as_str(), "public" | "beta" | "alpha" | "alias") && !self.includes_tag(tag))
+    }
+
+    /// The tags of `tags` that exempt by configuration: `internal` in production mode (unless `include-tags` names
+    /// it) and the `ignore-tags` names.
+    fn excluding_tags<'t>(&self, tags: &'t [String]) -> impl Iterator<Item = &'t str> {
+        tags.iter().map(String::as_str).filter(|tag| {
+            (*tag == "internal" && self.setup.production && !self.includes_tag(tag))
+                || self.setup.ignore_tags.iter().any(|ignored| ignored == tag)
         })
+    }
+
+    /// Whether `include-tags` names `tag`.
+    fn includes_tag(&self, tag: &str) -> bool {
+        self.setup.include_tags.iter().any(|included| included == tag)
+    }
+
+    /// Whether `include-tags` is set and `tags` carries none of its names.
+    fn lacks_included_tag(&self, tags: &[String]) -> bool {
+        !self.setup.include_tags.is_empty() && !tags.iter().any(|tag| self.includes_tag(tag))
+    }
+
+    /// The members of an enum or namespace export.
+    pub(crate) fn members_of(export: &Export) -> &[Member] {
+        match export.kind {
+            ExportKind::Enum => &export.enum_members,
+            ExportKind::Namespace => &export.namespace_members,
+            _ => &[],
+        }
+    }
+
+    /// Whether `member` of the used export `export` of `module` is used, or listed in `ignore-members`.
+    pub(crate) fn member_in_use(&self, module: &Module, export: &Export, member: &Member) -> bool {
+        self.ignores_member(module.owner, &member.name)
+            || export.members_read_in_file.contains(&member.name)
+            || self.exports.is_member_used(module.id, &export.name, &member.name)
+    }
+
+    /// Whether `export` of `module` is used: imported, in the signature of a used export, or referenced in its own
+    /// file when `ignore-exports-used-in-file` covers it.
+    fn export_in_use(&self, module: &Module, export: &Export) -> bool {
+        (export.referenced_in_file && self.setup.ignores_in_file_use(module.owner, export))
+            || self.exports.is_used(module.id, &export.name)
+            || self.in_used_signature(module, export, &mut HashSet::new())
+    }
+
+    /// Tags of the exports and members of `module` that exempt something used anyway, in source order.
+    ///
+    /// Only tags that exempt by configuration count (`internal` in production mode and `ignore-tags` names), as in
+    /// knip: `@public`, `@beta`, `@alpha` and `@alias` document an API and are never unneeded. A tag on an enum or
+    /// namespace export is needed while it hides an unused member.
+    #[must_use]
+    pub fn unneeded_tags<'m>(&self, module: &'m Module) -> Vec<UnneededTag<'m>> {
+        let mut found = Vec::new();
+        if !self.reports_exports_of(module) {
+            return found;
+        }
+        for export in &module.info.exports {
+            if self.always_exempt(&export.tags) || !self.export_in_use(module, export) {
+                continue;
+            }
+            let mut hides_member = false;
+            if self.exports.is_used(module.id, &export.name) {
+                for member in Self::members_of(export) {
+                    if self.always_exempt(&member.tags) {
+                        continue;
+                    }
+                    let mut excluding = self.excluding_tags(&member.tags).peekable();
+                    if self.member_in_use(module, export, member) {
+                        found.extend(excluding.map(|tag| UnneededTag {
+                            identifier: format!("{}.{}", export.name, member.name),
+                            span: member.span,
+                            tag,
+                        }));
+                    } else if excluding.peek().is_none() && !self.lacks_included_tag(&member.tags) {
+                        hides_member = true;
+                    }
+                }
+            }
+            if !hides_member {
+                found.extend(self.excluding_tags(&export.tags).map(|tag| UnneededTag {
+                    identifier: export.name.clone(),
+                    span: export.span,
+                    tag,
+                }));
+            }
+        }
+        found
     }
 }

@@ -12,10 +12,17 @@ use skif_js_syntax::{Export, ExportKind, Registration};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::ancestors;
+use crate::config_check::relative_tsconfig;
+use crate::deps::member_dirs;
 use crate::globs::{Globs, Names};
-use crate::input::{BuildDir, CustomElementLibrary, InputRequest, InputSource, PathAlias, WorkspaceInputs};
+use crate::input::{
+    BuildDir, CustomElementLibrary, IncompleteCause, IncompleteEntries, InputRequest, InputSource, PathAlias,
+    WorkspaceInputs,
+};
 use crate::listed::{self, Listed};
+use crate::resolve::join_normalized;
 use crate::scripts::{self, ScriptBinary, ScriptFacts};
+use crate::tsconfig_files;
 
 const EXTENSIONS: &str = "{js,mjs,cjs,jsx,ts,tsx,mts,cts}";
 
@@ -62,6 +69,7 @@ struct Configured {
     entry: Vec<String>,
     project: Vec<String>,
     ignore: Vec<String>,
+    ignore_files: Vec<String>,
     ignore_dependencies: Vec<String>,
     ignore_binaries: Vec<String>,
     ignore_unresolved: Vec<String>,
@@ -105,6 +113,7 @@ impl From<&JsWorkspace> for Configured {
             entry: workspace.entry.clone(),
             project: workspace.project.clone(),
             ignore: workspace.ignore.clone(),
+            ignore_files: workspace.ignore_files.clone(),
             ignore_dependencies: workspace.ignore_dependencies.clone(),
             ignore_binaries: workspace.ignore_binaries.clone(),
             ignore_unresolved: workspace.ignore_unresolved.clone(),
@@ -128,6 +137,7 @@ impl Configured {
         replace(&mut self.entry, root.entry);
         replace(&mut self.project, root.project);
         self.ignore.extend(root.ignore);
+        self.ignore_files.extend(root.ignore_files);
         self.ignore_dependencies.extend(root.ignore_dependencies);
         self.ignore_binaries.extend(root.ignore_binaries);
         self.ignore_unresolved.extend(root.ignore_unresolved);
@@ -229,13 +239,26 @@ impl WorkspaceKeys {
         workspaces: &'a IndexMap<String, JsWorkspace>,
         dir: &str,
     ) -> Option<&'a JsWorkspace> {
+        self.entry(workspaces, dir).map(|(_, workspace)| workspace)
+    }
+
+    /// The key, as written in `workspaces`, whose table stands for `dir`, as [`Self::table`] picks it.
+    pub(crate) fn key<'a>(&self, workspaces: &'a IndexMap<String, JsWorkspace>, dir: &str) -> Option<&'a String> {
+        self.entry(workspaces, dir).map(|(key, _)| key)
+    }
+
+    fn entry<'a>(
+        &self,
+        workspaces: &'a IndexMap<String, JsWorkspace>,
+        dir: &str,
+    ) -> Option<(&'a String, &'a JsWorkspace)> {
         let dir = if dir.is_empty() { "." } else { dir };
         let position = self
             .keys
             .iter()
             .position(|key| key.dir == dir)
             .or_else(|| self.keys.iter().position(|key| key.selects(dir)))?;
-        workspaces.get_index(position).map(|(_, workspace)| workspace)
+        workspaces.get_index(position)
     }
 
     /// The keys, as written in `workspaces`, that select none of `dirs`.
@@ -305,9 +328,13 @@ pub(crate) struct PackageSetup {
     /// The tool configuration of the package could not be fully read, so its entry files are not all known.
     /// Files and dependencies cannot be judged unused then.
     pub entries_incomplete: bool,
+    /// Why the entry files are incomplete; not empty when they are.
+    pub incomplete_reasons: Vec<IncompleteEntries>,
     pub project: Globs,
     /// Files whose issues are not reported, relative to the package directory.
     pub ignore: Globs,
+    /// Files never reported unused, relative to the package directory (`ignore-files` of the workspace).
+    pub ignore_files: Globs,
     /// Dependencies and binaries plugins say are never reported.
     pub ignore_dependencies: Names,
     pub ignore_binaries: Names,
@@ -316,6 +343,9 @@ pub(crate) struct PackageSetup {
     pub user_ignore_binaries: Listed,
     pub ignore_unresolved: Listed,
     pub ignore_members: Listed,
+    /// The `entry`, `project` and `ignore` patterns the configuration gives this package (no plugin or default
+    /// ones), for the configuration hints of `stale-js-config`.
+    pub user_patterns: UserPatterns,
     /// Whether unused exports of entry files are reported (`include-entry-exports`, workspace over top level).
     pub include_entry_exports: bool,
     /// Which exports used in their own file are not reported.
@@ -340,12 +370,27 @@ pub(crate) struct PackageSetup {
     pub custom_elements: Vec<CustomElementLibrary>,
 }
 
+/// The `entry`, `project` and `ignore` patterns a package is configured with, as written.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct UserPatterns {
+    pub entry: Vec<String>,
+    pub project: Vec<String>,
+    pub ignore: Vec<String>,
+    pub ignore_files: Vec<String>,
+}
+
 /// Settings for the whole workspace.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent switch of the analysis"
+)]
 pub(crate) struct Setup {
     /// Indexed by package; `None` for packages excluded with `ignore-packages`.
     pub packages: Vec<Option<PackageSetup>>,
     /// `[js] ignore`, relative to the workspace root.
     pub global_ignore: Globs,
+    /// `[js] ignore-files`, relative to the workspace root.
+    pub global_ignore_files: Globs,
     /// Root-level `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and `ignore-members` apply to every
     /// package.
     pub global_ignore_dependencies: Listed,
@@ -359,11 +404,30 @@ pub(crate) struct Setup {
     /// `[js.workspaces]` keys that select no package.
     pub unmatched_workspace_keys: Vec<String>,
     pub production: bool,
+    /// `[js] tsconfig`, absolute: the TypeScript configuration of the root package in place of its `tsconfig.json`.
+    pub root_tsconfig: Option<PathBuf>,
+    /// Each package uses only what its own manifest lists (`--strict`).
+    pub isolate_workspaces: bool,
     pub include_entry_exports: bool,
+    /// `[js] include-fixtures`: files in fixture directories are reported as unused like any other.
+    pub include_fixtures: bool,
     /// `[js] ignore-exports-used-in-file`.
     pub used_in_file: IgnoreExportsUsedInFile,
     /// `JSDoc` tags that exempt an export from `unused-exports` and `unused-types`.
     pub ignore_tags: Vec<String>,
+    /// `JSDoc` tags an export must carry to be reported at all; empty reports every export (knip's `+tag`).
+    pub include_tags: Vec<String>,
+    /// `[js.cycles]`.
+    pub cycles: skif_config::JsCycles,
+}
+
+/// The TypeScript configuration of the package in `dir`: `root_tsconfig` (`[js] tsconfig`) for the root package,
+/// `tsconfig.json` otherwise.
+pub(crate) fn tsconfig_path(root_tsconfig: Option<&Path>, dir: &Path, is_root: bool) -> PathBuf {
+    match root_tsconfig {
+        Some(config) if is_root => config.to_path_buf(),
+        _ => dir.join("tsconfig.json"),
+    }
 }
 
 /// `pattern`, written relative to the package directory `dir`, relative to the workspace root instead. `None` when it
@@ -449,6 +513,8 @@ fn is_shared_pattern(pattern: &str) -> bool {
 pub(crate) struct UnusedExportsOptions {
     /// `JSDoc` tags that exempt an export.
     pub ignore_tags: Vec<String>,
+    /// `JSDoc` tags that limit the report to the exports carrying one of them.
+    pub include_tags: Vec<String>,
 }
 
 impl Setup {
@@ -462,10 +528,12 @@ impl Setup {
         let js = &config.js;
         let production = js.production;
         let ancestor_dependencies = ancestors::external_dependencies(fs.as_ref(), &workspace.root);
-        let ignore_tags = config
+        let UnusedExportsOptions {
+            ignore_tags,
+            include_tags,
+        } = config
             .rule("unused-exports")
             .and_then(|rule| skif_lint::parse_options::<UnusedExportsOptions>(&rule.options).ok())
-            .map(|options| options.ignore_tags)
             .unwrap_or_default();
         let ignore_workspaces = Listed::directories(&js.ignore_workspaces, production);
         let workspace_keys = WorkspaceKeys::new(&js.workspaces);
@@ -490,6 +558,16 @@ impl Setup {
             .into_iter()
             .cloned()
             .collect();
+        let root_tsconfig = js
+            .tsconfig
+            .as_deref()
+            .and_then(relative_tsconfig)
+            .map(|path| join_normalized(&workspace.root, &path));
+        let named_members = if js.use_tsconfig_files {
+            member_dirs(workspace)
+        } else {
+            Vec::new()
+        };
         let members: Vec<(PackageId, &Package)> = workspace.iter().collect();
         let mut packages: Vec<Option<PackageSetup>> = map_ordered(&members, sequential, |&(id, package)| {
             if workspace.is_ignored(id) || js_ignored.contains(&id) {
@@ -538,20 +616,46 @@ impl Setup {
             }
             entry.extend(plugin.production_entry);
 
-            let mut project = listed::user_globs(&user.project, production, &default_project());
+            let tsconfig_project = js
+                .use_tsconfig_files
+                .then(|| {
+                    let config = tsconfig_path(root_tsconfig.as_deref(), &abs_dir, package.is_root);
+                    tsconfig_files::project_globs(fs.as_ref(), &named_members, &config, &abs_dir)
+                })
+                .flatten();
+            let from_tsconfig = tsconfig_project.is_some();
+            let (mut project, mut named_files) = match tsconfig_project {
+                Some(selected) => (selected.patterns, selected.files),
+                None => (
+                    listed::user_globs(&user.project, production, &default_project()),
+                    Vec::new(),
+                ),
+            };
             if production {
-                project.extend(listed::production_exclusions(&plugin.project));
-                project.extend(listed::non_production_entries(&user.entry));
-                project.extend(
+                let mut exclusions = listed::production_exclusions(&plugin.project);
+                exclusions.extend(listed::non_production_entries(&user.entry));
+                exclusions.extend(
                     test_files()
                         .into_iter()
                         .chain(test_directories())
                         .map(|glob| format!("!{glob}")),
                 );
-            } else {
+                // Production mode leaves out tests and the like even when a `tsconfig` names them in `files`.
+                if !named_files.is_empty() {
+                    named_files.extend(exclusions.iter().cloned());
+                }
+                project.extend(exclusions);
+            } else if !from_tsconfig {
+                // knip adds no plugin project globs to the files a `tsconfig` selects either.
                 project.extend(plugin.project);
             }
 
+            let user_patterns = UserPatterns {
+                entry: user.entry.clone(),
+                project: user.project.clone(),
+                ignore: user.ignore.clone(),
+                ignore_files: user.ignore_files.clone(),
+            };
             let mut ignore = user.ignore;
             ignore.extend(plugin.ignore);
             let mut ignore_dependencies = plugin.ignore_dependencies;
@@ -577,14 +681,25 @@ impl Setup {
                 external_entry,
                 shared_entry: Globs::new(shared_entry),
                 entries_incomplete: plugin.entries_incomplete,
-                project: Globs::new(project),
+                incomplete_reasons: if plugin.entries_incomplete && plugin.incomplete_reasons.is_empty() {
+                    vec![IncompleteEntries {
+                        cause: IncompleteCause::Unspecified,
+                        plugin: None,
+                        file: None,
+                    }]
+                } else {
+                    plugin.incomplete_reasons
+                },
+                project: Globs::new(project).or(Globs::new(named_files)),
                 ignore: Globs::new(ignore),
+                ignore_files: Globs::new(&user.ignore_files),
                 ignore_dependencies: Names::new(ignore_dependencies),
                 ignore_binaries: Names::new(ignore_binaries),
                 user_ignore_dependencies: Listed::new(&user.ignore_dependencies, production),
                 user_ignore_binaries: Listed::new(&user.ignore_binaries, production),
                 ignore_unresolved: Listed::new(&user.ignore_unresolved, production),
                 ignore_members: Listed::new(&user.ignore_members, production),
+                user_patterns,
                 include_entry_exports: user.include_entry_exports.unwrap_or(js.include_entry_exports),
                 used_in_file: user
                     .ignore_exports_used_in_file
@@ -605,6 +720,7 @@ impl Setup {
         Self {
             packages,
             global_ignore: Globs::new(&js.ignore),
+            global_ignore_files: Globs::new(&js.ignore_files),
             global_ignore_dependencies: Listed::new(&js.ignore_dependencies, production),
             global_ignore_binaries: Listed::new(&js.ignore_binaries, production),
             global_ignore_unresolved: Listed::new(&js.ignore_unresolved, production),
@@ -613,10 +729,24 @@ impl Setup {
             js_ignored,
             unmatched_workspace_keys,
             production,
+            root_tsconfig,
+            isolate_workspaces: js.isolate_workspaces,
             include_entry_exports: js.include_entry_exports,
+            include_fixtures: js.include_fixtures,
             used_in_file: js.ignore_exports_used_in_file.clone(),
             ignore_tags,
+            include_tags,
+            cycles: js.cycles.clone(),
         }
+    }
+
+    /// The TypeScript configuration of `package`: `[js] tsconfig` for the root, `tsconfig.json` otherwise.
+    pub(crate) fn tsconfig_of(&self, workspace: &Workspace, package: &Package) -> PathBuf {
+        tsconfig_path(
+            self.root_tsconfig.as_deref(),
+            &workspace.root.join(&package.dir),
+            package.is_root,
+        )
     }
 
     pub(crate) fn package(&self, id: PackageId) -> Option<&PackageSetup> {
@@ -628,6 +758,11 @@ impl Setup {
         for id in ids {
             if let Some(Some(package)) = self.packages.get_mut(id.index()) {
                 package.entries_incomplete = true;
+                package.incomplete_reasons.push(IncompleteEntries {
+                    cause: IncompleteCause::UnmappedPublished,
+                    plugin: None,
+                    file: Some(package.dir.join("package.json")),
+                });
             }
         }
     }
@@ -682,7 +817,7 @@ impl Setup {
         ignores_in_file_use(setting, export)
     }
 
-    /// Whether `export` of a module of package `id` is a registered custom element (ADR 0053):
+    /// Whether `export` of a module of package `id` is a registered custom element (ADR 0062):
     /// `customElements.define` always counts, a decorator or base class only when it comes from the library of a
     /// plugin enabled for the package.
     pub(crate) fn is_registered(&self, id: PackageId, export: &Export) -> bool {
