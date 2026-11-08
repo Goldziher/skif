@@ -363,8 +363,13 @@ pub(crate) fn values_of(value: &ConfigValue) -> Vec<&ConfigValue> {
 
 /// The scripts an HTML file loads, as production entries.
 pub(crate) fn html_entries(cx: &PluginContext<'_>, base: &str, file: &str) -> Vec<PluginInput> {
-    let html_path = join_rel(base, file);
-    let Ok(html) = cx.fs.read_to_string(&cx.dir.join(&html_path)) else {
+    html_entries_at(cx, base, &join_rel(base, file))
+}
+
+/// The scripts the HTML file at `html_path` (relative to the workspace) loads, with `/`-rooted sources resolved
+/// against `base`, the directory the server serves from (Vite's `root`).
+pub(crate) fn html_entries_at(cx: &PluginContext<'_>, base: &str, html_path: &str) -> Vec<PluginInput> {
+    let Ok(html) = cx.fs.read_to_string(&cx.dir.join(html_path)) else {
         return Vec::new();
     };
     let html_dir = html_path.rsplit_once('/').map_or("", |(dir, _)| dir);

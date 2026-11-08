@@ -34,7 +34,8 @@ hidden directories, directories excluded by a `.gitignore` or `.ignore` and dire
 searched. A root that cannot be loaded is reported in the `errors` array of the JSON document and does not stop the
 others; the exit code is then `2`. A search stopped by the depth limit lists the directories it did not enter in the
 `truncated` array. `root-package-manager-field` is not reported for a standalone package below
-another root. `--fix` plans, writes and installs per root.
+another root. `--fix` plans, writes and installs per root. A root nested in another root of the run is linted after
+the roots that enclose it, and the files of it that they import are its entries.
 
 `-r` is `--recursive`, not sherif's `--ignore-rule`. When the `PATH` given with `-r` does not exist and is the name
 of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2` with a usage error that names the

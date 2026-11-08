@@ -1,7 +1,7 @@
 //! Resolving what to lint (one workspace, or every root below a directory) and linting the roots in parallel.
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
 use rayon::prelude::*;
@@ -168,36 +168,115 @@ pub struct RootRun {
     pub linter: usize,
     pub workspace: Workspace,
     pub report: Report,
+    /// The files of this root that enclosing roots of the run import, relative to the root; a re-lint after fixing
+    /// passes them again.
+    pub extra_entries: Vec<PathBuf>,
 }
 
-pub fn lint_loaded(linter: &Linter, workspace: &Workspace, config_path: Option<&Path>) -> Result<Report, CliError> {
-    let mut options = RunOptions::default();
+pub fn lint_loaded(
+    linter: &Linter,
+    workspace: &Workspace,
+    config_path: Option<&Path>,
+    extra_entries: &[PathBuf],
+) -> Result<Report, CliError> {
+    let mut options = RunOptions::default().with_extra_entries(extra_entries);
     if let Some(path) = config_path {
         options = options.with_config_path(path);
     }
     Ok(linter.run_with(workspace, &options)?)
 }
 
-/// Lints every target in parallel; the result keeps the targets' (path) order and the first failure in that order
-/// wins, so the outcome does not depend on scheduling.
+/// How many other roots of the run enclose each root: a root nested in no other is at depth 0.
+fn nesting_depths(targets: &[Target]) -> Vec<usize> {
+    targets
+        .iter()
+        .map(|target| {
+            targets
+                .iter()
+                .filter(|other| other.root != target.root && target.root.starts_with(&other.root))
+                .count()
+        })
+        .collect()
+}
+
+/// The innermost root of `targets` that holds the absolute file `file`, by index.
+fn owning_root(targets: &[Target], file: &Path) -> Option<usize> {
+    targets
+        .iter()
+        .enumerate()
+        .filter(|(_, target)| file.starts_with(&target.root))
+        .max_by_key(|(_, target)| target.root.components().count())
+        .map(|(index, _)| index)
+}
+
+/// Hands the files of other projects that the report of root `from` lists to the innermost root holding each, as
+/// paths relative to that root; only roots nested deeper than `from`, which are linted later, take them.
+fn route_other_project_files(
+    targets: &[Target],
+    depths: &[usize],
+    from: usize,
+    report: &Report,
+    extra: &mut [BTreeSet<PathBuf>],
+) {
+    for file in &report.other_project_files {
+        let abs = targets[from].root.join(file);
+        let Some(owner) = owning_root(targets, &abs).filter(|owner| depths[*owner] > depths[from]) else {
+            continue;
+        };
+        if let Ok(rel) = abs.strip_prefix(&targets[owner].root) {
+            extra[owner].insert(rel.to_path_buf());
+        }
+    }
+}
+
+/// Lints every target, in parallel, and keeps the targets' (path) order; the first failure in that order wins, so the
+/// outcome does not depend on scheduling.
+///
+/// Roots nested in other roots of the run are linted after them, in waves by nesting depth (all roots of one depth in
+/// parallel): a file of a nested root that only an enclosing root imports (`build/lib/x.ts` of a `build` project,
+/// imported from the outer `src`) is then an entry of the nested root instead of an unused file. Each report lists
+/// the files of other projects its code imports; each goes to the innermost root that holds it. A run without nested
+/// roots is a single wave, as before.
 pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Result<Vec<RootRun>, CliError> {
-    let reports: Vec<Result<Report, CliError>> = targets
-        .par_iter()
-        .zip(&linters.of_target)
-        .map(|(target, &linter)| lint_loaded(linters.get(linter), &target.workspace, target.config_path().as_deref()))
-        .collect();
+    let depths = nesting_depths(&targets);
+    let mut extra: Vec<BTreeSet<PathBuf>> = vec![BTreeSet::new(); targets.len()];
+    let mut reports: Vec<Option<Result<Report, CliError>>> = (0..targets.len()).map(|_| None).collect();
+    for depth in 0..=depths.iter().copied().max().unwrap_or(0) {
+        let wave: Vec<usize> = (0..targets.len()).filter(|index| depths[*index] == depth).collect();
+        let linted: Vec<(usize, Result<Report, CliError>)> = wave
+            .par_iter()
+            .map(|&index| {
+                let target = &targets[index];
+                let entries: Vec<PathBuf> = extra[index].iter().cloned().collect();
+                let linter = linters.get(linters.of_target[index]);
+                (
+                    index,
+                    lint_loaded(linter, &target.workspace, target.config_path().as_deref(), &entries),
+                )
+            })
+            .collect();
+        for (index, report) in linted {
+            if let Ok(report) = &report {
+                route_other_project_files(&targets, &depths, index, report, &mut extra);
+            }
+            reports[index] = Some(report);
+        }
+    }
     targets
         .into_iter()
         .zip(reports)
+        .zip(extra)
         .zip(&linters.of_target)
-        .map(|((target, report), &linter)| {
+        .map(|(((target, report), extra_entries), &linter)| {
+            let report = report.unwrap_or_else(|| Err(CliError::new(Kind::Internal, "a root was not linted")))?;
             Ok(RootRun {
                 prefix: prefix_of(base, &target.root),
                 config_path: target.config_path(),
                 config: target.config,
                 linter,
                 workspace: target.workspace,
-                report: report?,
+                report,
+                extra_entries: extra_entries.into_iter().collect(),
             })
         })
         .collect()

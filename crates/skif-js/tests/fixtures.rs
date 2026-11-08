@@ -230,6 +230,15 @@ fn ignored_member_reached_from_the_root_snapshot() {
     insta::assert_json_snapshot!("ignored_member", Run::new("ignored-member", "").lint());
 }
 
+/// mastra's `factory-ui`: `vite.config.ts` sets `root: "src"`, so Vite serves `src/index.html`, whose `/boot.tsx` is
+/// `src/boot.tsx`. Only `src/orphan.ts` is unused.
+#[test]
+fn vite_root_locates_index_html_and_its_scripts() {
+    let diagnostics = Run::new("vite-root", "").lint_with_plugins();
+    assert_eq!(found(&diagnostics, "unused-files"), ["src/orphan.ts: src/orphan.ts"]);
+    insta::assert_json_snapshot!("vite_root", diagnostics);
+}
+
 #[test]
 fn n8n_nodes_and_credentials_are_entries() {
     let diagnostics = Run::new("n8n-nodes", "").lint();
