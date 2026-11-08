@@ -259,4 +259,4 @@ blake3 = "d598f5d4ca6dc074a9505bbf9e28c238813f728a674a1473848c85693799698a"
 [adrs."adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md"]
 number = 52
 status = "accepted"
-blake3 = "36654ba9a18b66c4cca1e9363696f25f9f624a752c80bf85754871ebd4c0f3a2"
+blake3 = "4623a3c4a19a47a47f620744a371775ee2b4a29735214a15daad88564acebb5c"
