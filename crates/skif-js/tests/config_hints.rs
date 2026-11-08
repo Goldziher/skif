@@ -110,7 +110,7 @@ fn published_paths_that_name_no_file() {
         (
             "package.json",
             r#"{"name":"app","main":"index.js","types":"./types.d.ts","bin":{"app":"./cli.js"},
-               "exports":{".":"./index.js","./gen":"./generated/x.js","./built":"./dist/x.js","./src":"./src/*.js","./lib":"./lib/x.js"},
+               "exports":{".":"./index.js","./gen":"./generated/x.js","./built":"./dist/x.js","./style.css":"./dist/style.css","./wasm":"./build/x.wasm","./src":"./src/*.js","./lib":"./lib/x.js"},
                "dependencies":{"other":"1"},"module":"other/esm.js"}"#,
         ),
         (".gitignore", "generated/\n"),

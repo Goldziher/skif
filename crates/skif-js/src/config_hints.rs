@@ -14,7 +14,7 @@ use skif_workspace::{PackageId, Workspace};
 use crate::analysis::{on_disk, workspace_key};
 use crate::discover::{Candidate, is_ignored_path};
 use crate::entries::map_published;
-use crate::manifest_paths::{should_have_source, source_patterns};
+use crate::manifest_paths::{is_out_dir, should_have_source, source_patterns};
 use crate::resolve::{is_code_file, join_normalized};
 use crate::setup::{Setup, WorkspaceKeys};
 use crate::specifier::package_name;
@@ -332,9 +332,9 @@ fn package_entries(inputs: &HintInputs<'_>) -> Vec<ConfigHint> {
             if rel.starts_with("../") || rel.starts_with('/') {
                 continue;
             }
-            // Build output (`dist/index.js`) is missing until the package is built, and the `.gitignore` that hides it
-            // may lie above the analysed root, so it is never called missing.
-            if should_have_source(rel) {
+            // Build output (`dist/index.js`, `dist/style.css`) is missing until the package is built, and the
+            // `.gitignore` that hides it may lie above the analysed root, so it is never called missing.
+            if should_have_source(rel) || rel.split_once('/').is_some_and(|(first, _)| is_out_dir(first)) {
                 continue;
             }
             if !inputs.config.js.no_gitignore && is_ignored_path(inputs.disk, &inputs.workspace.root, &dir.join(rel)) {
