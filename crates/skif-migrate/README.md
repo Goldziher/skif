@@ -2,7 +2,7 @@
 
 One-shot translation of sherif, syncpack and knip configuration into a `skif.toml`. It is the library behind `skif migrate`.
 
-- `migrate(&[ToolInput], &Options) -> Migration`: pure; the caller reads the files and passes their text.
+- `migrate(&[ToolInput], &Options) -> Result<Migration, MigrateError>`: pure; the caller reads the files and passes their text.
 - JavaScript and TypeScript configs (`knip.ts`, `.syncpackrc.js`, ...) are read statically through `skif-js-syntax`; a value that
   is only known at run time becomes a note that needs a human. Nothing is executed.
 - The generated text is parsed back with `skif_config::Config::from_toml_str` before it is returned.

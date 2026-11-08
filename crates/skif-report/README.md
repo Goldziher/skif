@@ -34,6 +34,7 @@ render(report, Format::Json, &RenderOptions::default(), &mut out)?;
       "related": [ { "message": "...", "location": { "path": "..." } } ],
       "package": "web",
       "dependency": "react",
+      "specifier": "^18.2.0",
       "detail": "...",
       "fixes": [ { "title": "...", "safety": "safe" } ]
     }
@@ -41,11 +42,15 @@ render(report, Format::Json, &RenderOptions::default(), &mut out)?;
 }
 ```
 
-`skif`, `help`, `span`, `package`, `dependency` and `detail` are omitted when absent; `related` and
+`skif`, `help`, `span`, `package`, `dependency`, `specifier` and `detail` are omitted when absent; `related` and
 `fixes` are always arrays. Paths are relative with `/` separators. Adding a field is not a breaking
 change; removing or renaming one, or changing its type or meaning, bumps `version`. Failures are
 reported as `{"version": 1, "error": {"kind": "...", "message": "...", "path": "...", "line": 1, "column": 1}}`;
 `kind` and `message` are always present and `path`, `line` and `column` only when the failure has a location.
+
+`incomplete-packages`, omitted when empty, lists the packages whose entry files are not all known, so their unused
+files and dependencies were not fully checked: one `{ "name", "dir", "reasons" }` object per package, sorted by `dir`,
+each reason a `{ "cause", "plugin", "file" }` object whose `plugin` and `file` appear when known.
 
 A run over several roots (`skif -r`) adds two top-level members through `render_json_with`, which takes them as
 extra fields: `roots`, an array with one `{ "path", "packages", "summary" }` object per root (`packages` lists the
