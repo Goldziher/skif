@@ -1,0 +1,10 @@
+---
+source: crates/skif-cli/tests/filters.rs
+expression: "redact(&debug.join(\"\\n\"), dir.path())"
+---
+skif debug: root .
+skif debug:   configuration: defaults (no file)
+skif debug:   package manager: npm
+skif debug:   package cli-filters (.)
+skif debug:   package @cli/a (packages/a)
+skif debug:   package @cli/b (packages/b)

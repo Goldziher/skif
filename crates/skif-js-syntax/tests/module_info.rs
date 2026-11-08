@@ -136,6 +136,14 @@ fn import_forms() {
             names: vec![],
         },
         Case {
+            name: "import meta resolve",
+            path: "a.mjs",
+            source: "const url = import.meta.resolve('x');",
+            specifier: "x",
+            kind: ImportKind::Require,
+            names: vec![],
+        },
+        Case {
             name: "import equals require",
             path: "a.ts",
             source: "import fs = require('fs');",
@@ -329,6 +337,155 @@ fn enum_and_namespace_members() {
     let n = &info.exports[1];
     let members: Vec<_> = n.namespace_members.iter().map(|m| m.name.as_str()).collect();
     assert_eq!(members, ["x", "f"]);
+}
+
+/// What deleting each member's removal range leaves of `source`, per member name; `None` for a member without one.
+fn member_removals(source: &str, members: &[skif_js_syntax::Member]) -> Vec<(String, Option<String>)> {
+    members
+        .iter()
+        .map(|member| {
+            let left = member
+                .removal
+                .map(|(start, end)| format!("{}{}", &source[..start as usize], &source[end as usize..]));
+            (member.name.clone(), left)
+        })
+        .collect()
+}
+
+#[test]
+fn member_removal_ranges_keep_the_layout() {
+    let source = "export enum E {\n  A = 1,\n  B = A + 1,\n  C\n}\nexport enum F { X, Y }\nexport namespace N {\n  export const x = 1;\n  export const y = x, z = 2;\n}\n";
+    let info = parse("a.ts", source);
+    let enum_e = member_removals(source, &info.exports[0].enum_members);
+    assert_eq!(enum_e[0], ("A".to_owned(), None), "B mentions A");
+    assert_eq!(enum_e[1], ("B".to_owned(), None), "C would be renumbered");
+    assert_eq!(
+        enum_e[2].1.as_deref(),
+        Some(
+            "export enum E {\n  A = 1,\n  B = A + 1,\n}\nexport enum F { X, Y }\nexport namespace N {\n  export const x = 1;\n  export const y = x, z = 2;\n}\n"
+        )
+    );
+    let enum_f = member_removals(source, &info.exports[1].enum_members);
+    assert_eq!(enum_f[0], ("X".to_owned(), None), "Y would be renumbered");
+    assert!(
+        enum_f[1].1.as_deref().unwrap().contains("export enum F { X, }"),
+        "{enum_f:?}"
+    );
+    let namespace = member_removals(source, &info.exports[2].namespace_members);
+    let names: Vec<(&str, bool)> = namespace
+        .iter()
+        .map(|(name, left)| (name.as_str(), left.is_some()))
+        .collect();
+    assert_eq!(
+        names,
+        [("x", false), ("y", false), ("z", false)],
+        "x is read by y; y and z share a statement"
+    );
+    let source = "export namespace N {\n  export const a = 1;\n  export function b() {}\n}\n";
+    let info = parse("b.ts", source);
+    let namespace = member_removals(source, &info.exports[0].namespace_members);
+    assert_eq!(
+        namespace[0].1.as_deref(),
+        Some("export namespace N {\n  export function b() {}\n}\n")
+    );
+    assert_eq!(
+        namespace[1].1.as_deref(),
+        Some("export namespace N {\n  export const a = 1;\n}\n")
+    );
+}
+
+#[test]
+fn enum_member_removal_never_renumbers_a_later_member() {
+    let source = "export enum Color { Red, Green, Blue }\nexport enum Level { Low = 1, Mid, High = 10 }\nexport enum Name { A = \"a\", B = \"b\" }\nexport enum Flag { On = 1, Off = 0 }\n";
+    let info = parse("a.ts", source);
+    let fixable = |index: usize| -> Vec<(String, bool)> {
+        info.exports[index]
+            .enum_members
+            .iter()
+            .map(|member| (member.name.clone(), member.removal.is_some()))
+            .collect()
+    };
+    let pairs = |names: &[(&str, bool)]| -> Vec<(String, bool)> {
+        names.iter().map(|(name, fix)| ((*name).to_owned(), *fix)).collect()
+    };
+    assert_eq!(fixable(0), pairs(&[("Red", false), ("Green", false), ("Blue", true)]));
+    assert_eq!(fixable(1), pairs(&[("Low", false), ("Mid", true), ("High", true)]));
+    assert_eq!(fixable(2), pairs(&[("A", true), ("B", true)]));
+    assert_eq!(fixable(3), pairs(&[("On", true), ("Off", true)]));
+}
+
+#[test]
+fn member_removal_takes_the_comments_of_the_member() {
+    let source = "export enum E {\n  A = 1,\n  /**\n   * Docs of B.\n   */\n  B = 2,\n  // note on C\n  C = 3, // trailing\n  D = 4,\n}\n";
+    let info = parse("a.ts", source);
+    let left = member_removals(source, &info.exports[0].enum_members);
+    assert_eq!(
+        left[1].1.as_deref(),
+        Some("export enum E {\n  A = 1,\n  // note on C\n  C = 3, // trailing\n  D = 4,\n}\n")
+    );
+    assert_eq!(
+        left[2].1.as_deref(),
+        Some("export enum E {\n  A = 1,\n  /**\n   * Docs of B.\n   */\n  B = 2,\n  D = 4,\n}\n")
+    );
+
+    let source = "export namespace N {\n  /** First. */\n  export const a = 1; // trailing\n\n  // Second.\n  export const b = 2;\n}\n";
+    let info = parse("b.ts", source);
+    let left = member_removals(source, &info.exports[0].namespace_members);
+    assert_eq!(
+        left[0].1.as_deref(),
+        Some("export namespace N {\n\n  // Second.\n  export const b = 2;\n}\n")
+    );
+    assert_eq!(
+        left[1].1.as_deref(),
+        Some("export namespace N {\n  /** First. */\n  export const a = 1; // trailing\n\n}\n")
+    );
+
+    let source = "export enum F { X = 1, /** y */ Y = 2, Z = 3 /* z */ }\n";
+    let info = parse("c.ts", source);
+    let fixable: Vec<bool> = info.exports[0]
+        .enum_members
+        .iter()
+        .map(|member| member.removal.is_some())
+        .collect();
+    assert_eq!(
+        fixable,
+        [true, false, false],
+        "a comment next to a member on a shared line keeps it"
+    );
+}
+
+#[test]
+fn default_expression_removal_keeps_side_effects() {
+    let removable = |source: &str| parse("a.ts", source).exports[0].removal.is_some();
+    for source in [
+        "export default 42;\n",
+        "export default -1;\n",
+        "export default `plain`;\n",
+        "export default value;\n",
+        "export default () => {};\n",
+        "export default function () {}\n",
+        "export default class { method() {} static x = 1; }\n",
+        "export default [1, \"a\", , { b: [c], d() {} }];\n",
+        "export default ({ a: 1 } as const);\n",
+    ] {
+        assert!(removable(source), "{source}");
+    }
+    for source in [
+        "export default registerPlugin();\n",
+        "export default new Thing();\n",
+        "export default a.b;\n",
+        "export default `x${y}`;\n",
+        "export default [...items];\n",
+        "export default { ...rest };\n",
+        "export default { [key()]: 1 };\n",
+        "export default { a: setup() };\n",
+        "export default class extends mixin(Base) {}\n",
+        "export default class { static { init(); } }\n",
+        "export default class { static x = init(); }\n",
+        "export default (x = 1);\n",
+    ] {
+        assert!(!removable(source), "{source}");
+    }
 }
 
 #[test]
@@ -633,7 +790,7 @@ fn component_blocks_report_their_diagnostics_with_original_offsets() {
 
 #[test]
 fn unsupported_extensions() {
-    for path in ["a.json", "a.mdx", "a", "a.css"] {
+    for path in ["a.json", "a", "a.css"] {
         let err = parse_module(Path::new(path), "", &ParseOptions::default()).unwrap_err();
         assert!(matches!(err, SyntaxError::Unsupported { .. }), "{path}");
     }
@@ -657,6 +814,105 @@ fn single_file_components_map_spans_back() {
     let svelte = "<script>\n  import x from './x.js';\n</script>\n<p>{x}</p>";
     assert_eq!(parse("A.svelte", svelte).imports[0].specifier, "./x.js");
     assert_eq!(parse("B.vue", "<template/>").imports, [] as [skif_js_syntax::Import; 0]);
+}
+
+#[test]
+fn mdx_yields_its_top_level_esm_with_original_offsets() {
+    let mdx = "---\ntitle: Intro\n---\nimport { Card } from '@site/components';\nimport * as ui from './ui';\n\n# Intro\n\n```js\nimport fenced from 'not-a-dependency';\n```\n\n<Card><ui.Button/></Card>\n\nexport const meta = { draft: true };\n";
+    let info = parse("docs/intro.mdx", mdx);
+    let specifiers: Vec<_> = info.imports.iter().map(|i| i.specifier.as_str()).collect();
+    assert_eq!(specifiers, ["@site/components", "./ui"]);
+    let card = &info.imports[0];
+    assert_eq!(
+        slice(mdx, card.span.start, card.span.end),
+        "import { Card } from '@site/components';"
+    );
+    assert_eq!(info.imports[0].span.start_line, 4);
+    assert_eq!(info.exports[0].name, "meta");
+    assert!(info.parse_diagnostics.is_empty(), "{:?}", info.parse_diagnostics);
+    assert_eq!(accessed(&info, "ui"), (vec!["Button".to_owned()], false));
+}
+
+#[test]
+fn mdx_inline_code_is_not_a_use() {
+    let mdx = "import * as ui from './ui';\n\nWrite `<ui.Card/>` or ``{ui.format(x)}`` to get <ui.Button/>.\n";
+    let info = parse("docs/usage.mdx", mdx);
+    assert_eq!(accessed(&info, "ui"), (vec!["Button".to_owned()], false));
+}
+
+#[test]
+fn mdx_jsx_text_that_looks_like_a_comment_does_not_hide_the_prose() {
+    let mdx = "import * as ui from './ui';\nexport const Glob = () => <code>dist/*</code>\n\n# Build\n\n<ui.Button/>\n";
+    let info = parse("docs/build.mdx", mdx);
+    assert!(info.parse_diagnostics.is_empty(), "{:?}", info.parse_diagnostics);
+    assert_eq!(accessed(&info, "ui"), (vec!["Button".to_owned()], false));
+}
+
+#[test]
+fn mdx_a_url_in_jsx_text_does_not_hide_the_prose() {
+    let mdx = "import * as ui from './ui';\nexport const L = () => (<a>http://x</a>)\n\n# Links\n\n<ui.Button/>\n";
+    let info = parse("docs/links.mdx", mdx);
+    assert!(info.parse_diagnostics.is_empty(), "{:?}", info.parse_diagnostics);
+    assert_eq!(accessed(&info, "ui"), (vec!["Button".to_owned()], false));
+}
+
+#[test]
+fn mdx_a_template_literal_in_an_expression_is_not_inline_code() {
+    let mdx = "import * as ui from './ui';\n\n{ui.label(`x ${ui.count}`)}\n";
+    let info = parse("docs/count.mdx", mdx);
+    let (mut members, escapes) = accessed(&info, "ui");
+    members.sort();
+    assert_eq!(
+        (members, escapes),
+        (vec!["count".to_owned(), "label".to_owned()], false)
+    );
+}
+
+#[test]
+fn angular_component_resources_are_side_effect_imports() {
+    let source = "import { Component as Ng } from '@angular/core';\nimport { Other } from './other';\n@Ng({ templateUrl: './a.html', styleUrl: 'a.scss', styleUrls: ['./b.css', `c.less`, ...more] })\nexport class A {}\n@Other({ styleUrls: ['./ignored.css'] })\nexport class B {}\n";
+    let info = parse("a.component.ts", source);
+    let resources: Vec<_> = specifiers(&info)
+        .into_iter()
+        .filter(|(_, kind)| *kind == ImportKind::SideEffect)
+        .map(|(specifier, _)| specifier)
+        .collect();
+    assert_eq!(resources, ["./a.html", "./a.scss", "./b.css", "./c.less"]);
+    let style = info.imports.iter().find(|i| i.specifier == "./a.scss").unwrap();
+    assert_eq!(slice(source, style.span.start, style.span.end), "'a.scss'");
+}
+
+#[test]
+fn stencil_mode_style_urls_are_side_effect_imports() {
+    let source = "import { Component, h } from '@stencil/core';\n@Component({ tag: 'my-a', styleUrls: { ios: 'a.ios.css', md: ['./a.md.css', 'b.md.css'], [mode]: 'x.css' }, assetsDirs: ['assets'] })\nexport class A {}\n";
+    let info = parse("my-a.tsx", source);
+    let resources: Vec<_> = specifiers(&info)
+        .into_iter()
+        .filter(|(_, kind)| *kind == ImportKind::SideEffect)
+        .map(|(specifier, _)| specifier)
+        .collect();
+    assert_eq!(resources, ["./a.ios.css", "./a.md.css", "./b.md.css", "./x.css"]);
+}
+
+#[test]
+fn tsrx_yields_its_imports_only() {
+    let source = "import * as ui from './ui';\nimport { useState } from '@tsrx/react';\n\nexport component App() {\n  <ui.Button />\n}\n";
+    let info = parse("App.tsrx", source);
+    assert_eq!(
+        specifiers(&info),
+        [("./ui", ImportKind::Static), ("@tsrx/react", ImportKind::Static)]
+    );
+    assert_eq!(info.imports[1].span.start_line, 2);
+    assert_eq!(info.exports.len(), 0);
+    // The template is not read, so a namespace counts as used as a whole.
+    assert_eq!(accessed(&info, "ui"), (Vec::new(), true));
+}
+
+#[test]
+fn stylus_style_blocks_are_imports() {
+    let vue = "<template/>\n<style lang=\"stylus\">\n@require 'nib'\n@import './theme'\n</style>\n";
+    let found: Vec<_> = parse("A.vue", vue).imports.into_iter().map(|i| i.specifier).collect();
+    assert_eq!(found, ["nib", "./theme"]);
 }
 
 #[test]
@@ -704,7 +960,37 @@ fn import_types_are_type_only_imports() {
     assert_eq!(info.imports[0].names[0].kind, ImportedKind::Named("T".into()));
     assert!(info.imports[0].names[0].is_type);
     assert_eq!(info.imports[1].names[0].kind, ImportedKind::Namespace);
-    assert!(info.imports[1].names[0].escapes);
+    assert!(
+        !info.imports[1].names[0].escapes,
+        "a bare `typeof import` reads no export"
+    );
+}
+
+#[test]
+fn qualified_import_types_name_one_export_and_the_member_read() {
+    let info = parse(
+        "a.ts",
+        "type A = typeof import('./m').A;
+type B = typeof import('./m').E.B;
+type C = import('./m').N.C.D;
+",
+    );
+    let names: Vec<_> = info
+        .imports
+        .iter()
+        .map(|import| {
+            let name = &import.names[0];
+            (name.kind.clone(), name.accessed_members.clone(), name.escapes)
+        })
+        .collect();
+    assert_eq!(
+        names,
+        [
+            (ImportedKind::Named("A".into()), vec![], true),
+            (ImportedKind::Named("E".into()), vec!["B".to_owned()], false),
+            (ImportedKind::Named("N".into()), vec!["C".to_owned()], false),
+        ]
+    );
 }
 
 #[test]
@@ -722,6 +1008,32 @@ fn jsdoc_imports_are_type_only_imports() {
     let names: Vec<_> = info.imports[0].names.iter().map(|n| n.local.as_deref()).collect();
     assert_eq!(names, [Some("A"), Some("C")]);
     assert_eq!(info.imports[1].names[0].kind, ImportedKind::Named("Thing".into()));
+}
+
+#[test]
+fn bare_jsdoc_import_types_read_no_export() {
+    let info = parse("a.js", "/** @type {import('./m')} */\nconst m = load();\n");
+    let name = &info.imports[0].names[0];
+    assert_eq!(name.kind, ImportedKind::Namespace);
+    assert!(
+        !name.escapes,
+        "a bare `import('./m')` type reads no export, as in TypeScript"
+    );
+}
+
+#[test]
+fn an_indexed_typeof_import_reads_the_export_it_names() {
+    // unplugin-auto-import writes `const useCounter: typeof import('./counter')['useCounter']`.
+    let info = parse(
+        "auto-imports.d.ts",
+        "declare global {\n  const useCounter: typeof import('./counter')['useCounter']\n  const all: typeof import('./all')\n}\nexport {}\n",
+    );
+    let named = &info.imports[0].names[0];
+    assert_eq!(named.kind, ImportedKind::Named("useCounter".to_owned()));
+    assert!(named.escapes, "the indexed export is used as a whole");
+    let bare = &info.imports[1].names[0];
+    assert_eq!(bare.kind, ImportedKind::Namespace);
+    assert!(!bare.escapes);
 }
 
 #[test]

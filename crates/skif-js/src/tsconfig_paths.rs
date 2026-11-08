@@ -138,6 +138,8 @@ pub(crate) struct TsConfigs {
     root: PathBuf,
     /// Workspace members by name, with their absolute directory, for `extends` that names a package.
     members: Vec<(String, PathBuf)>,
+    /// `[js] tsconfig`: read at the workspace root in place of `tsconfig.json`.
+    root_config: Option<PathBuf>,
     /// Parsed configs by file and the directory `${configDir}` stands for.
     loaded: RwLock<HashMap<ConfigKey, Option<Arc<Options>>>>,
 }
@@ -148,8 +150,24 @@ impl TsConfigs {
             fs,
             root,
             members,
+            root_config: None,
             loaded: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Reads `config` at the workspace root in place of its `tsconfig.json`.
+    pub(crate) fn with_root_config(mut self, config: Option<PathBuf>) -> Self {
+        self.root_config = config;
+        self
+    }
+
+    /// The configs looked for in `dir`, in order of preference.
+    fn candidates(&self, dir: &Path) -> Vec<PathBuf> {
+        let tsconfig = match &self.root_config {
+            Some(config) if dir == self.root => config.clone(),
+            _ => dir.join("tsconfig.json"),
+        };
+        vec![tsconfig, dir.join("jsconfig.json")]
     }
 
     fn load(&self, file: &Path, config_dir: &Path, depth: usize) -> Option<Arc<Options>> {
@@ -228,12 +246,11 @@ impl TsConfigs {
         dir.ancestors()
             .take_while(|ancestor| ancestor.starts_with(&self.root))
             .find_map(|ancestor| {
-                ["tsconfig.json", "jsconfig.json"].iter().find_map(|name| {
-                    let file = ancestor.join(name);
+                self.candidates(ancestor).into_iter().find_map(|file| {
                     if !self.fs.is_file(&file) {
                         return None;
                     }
-                    let options = self.load(&file, ancestor, 0)?;
+                    let options = self.load(&file, file.parent()?, 0)?;
                     if options.base_url.is_none() && options.paths.is_none() && options.root_dirs.is_empty() {
                         return None;
                     }
@@ -310,6 +327,14 @@ impl TsPaths {
                 .map(|base_url| join_normalized(base_url, specifier)),
         );
         candidates
+    }
+
+    /// Whether a `paths` pattern matches `specifier`; `baseUrl`, which every bare specifier falls back to, does not
+    /// count.
+    pub(crate) fn maps(&self, specifier: &str) -> bool {
+        self.paths
+            .iter()
+            .any(|(pattern, _)| match_pattern(pattern, specifier).is_some())
     }
 }
 

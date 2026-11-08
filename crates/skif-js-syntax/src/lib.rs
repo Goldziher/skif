@@ -6,8 +6,10 @@
 //!
 //! Supported inputs are `.js .mjs .cjs .jsx .ts .mts .cts .tsx` and `.d.ts` files, plus the `<script>` blocks (and
 //! Astro frontmatter), the `<style>` imports and the markup identifiers of `.vue`, `.svelte` and `.astro` files:
-//! component tags and the expressions of the template count as uses of the imports they name. Stylesheets go
-//! through [`parse_stylesheet`]. Other extensions, including `.mdx`, yield [`SyntaxError::Unsupported`].
+//! component tags and the expressions of the template count as uses of the imports they name. `.mdx` files yield the
+//! facts of their top-level `import` and `export` statements, and the components their markup names count as uses.
+//! `.tsrx` files yield their imports only, since their templates are no JavaScript. Stylesheets go through
+//! [`parse_stylesheet`]. Other extensions yield [`SyntaxError::Unsupported`].
 
 #![warn(missing_docs)]
 
@@ -17,6 +19,7 @@ mod config;
 mod error;
 mod finder;
 mod jsdoc;
+mod mdx;
 mod members;
 mod model;
 mod semantic;
@@ -24,6 +27,7 @@ mod sfc;
 mod signature_refs;
 mod style;
 mod template;
+mod tsrx;
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -35,8 +39,8 @@ use oxc_span::SourceType;
 use skif_core::LineIndex;
 
 pub use config::{
-    ConfigValue, ImportedCall, TEMPLATE_SUBSTITUTION, extract_config_object, extract_constructor_options,
-    extract_imported_calls, extract_property_values,
+    ConfigValue, ImportedCall, ModuleLoader, TEMPLATE_SUBSTITUTION, extract_config_object, extract_config_object_with,
+    extract_constructor_options, extract_imported_calls, extract_property_values,
 };
 pub use error::SyntaxError;
 pub use model::{
@@ -63,7 +67,8 @@ pub fn parse_module(path: &Path, source: &str, options: &ParseOptions) -> Result
         .to_ascii_lowercase();
     match extension.as_str() {
         "vue" | "svelte" | "astro" => parse_component(&extension, source, &lines, *options),
-        "mdx" => Err(unsupported(&extension)),
+        "mdx" => Ok(parse_mdx(source, &lines, *options)),
+        "tsrx" => Ok(parse_tsrx(source, &lines, *options)),
         _ => {
             let source_type = source_type_for(path).ok_or_else(|| unsupported(&extension))?;
             Ok(parse_block(source, 0, source_type, &lines, *options, None))
@@ -137,7 +142,7 @@ fn parse_block(
         ..ModuleInfo::default()
     };
     let collected = collect::collect(&ctx, &ret.program, &mut info);
-    finder::Finder::new(&ctx, &mut info).visit_program(&ret.program);
+    finder::Finder::new(&ctx, &mut info, &ret.program).visit_program(&ret.program);
     info.imports.sort_by_key(|i| i.span.start);
     if options.member_accesses {
         let excluded: HashSet<(u32, u32)> = collected.reexport_spans.iter().copied().collect();
@@ -225,6 +230,33 @@ fn parse_component(
         members::credit(&mut info, &uses);
     }
     Ok(info)
+}
+
+/// Parses a `.mdx` file: its top-level ESM as JavaScript with JSX, and the identifiers its markup uses.
+fn parse_mdx(source: &str, lines: &LineIndex, options: ParseOptions) -> ModuleInfo {
+    let extracted = mdx::extract(source);
+    let source_type = SourceType::jsx();
+    let mut info = parse_block(&extracted.esm, 0, source_type, lines, options, None);
+    if options.member_accesses {
+        let mut markup = members::Uses::new();
+        for (start, end) in extracted.markup {
+            // Code quoted in prose (`<Card/>`) is not a use; fenced code is already outside the markup.
+            let text = mdx::blank_inline_code(&source[start..end]);
+            template::scan(&text, template::Flavor::Astro, &mut markup);
+        }
+        members::credit(&mut info, &markup);
+    }
+    info
+}
+
+/// Parses a `.tsrx` file: its `import` statements and `import()` calls as TypeScript. Its templates are not read,
+/// so every imported binding counts as used as a whole.
+fn parse_tsrx(source: &str, lines: &LineIndex, options: ParseOptions) -> ModuleInfo {
+    let mut info = parse_block(&tsrx::extract(source), 0, SourceType::tsx(), lines, options, None);
+    for name in info.imports.iter_mut().flat_map(|import| &mut import.names) {
+        name.escapes = true;
+    }
+    info
 }
 
 /// Adds the imports of `<style>` blocks and of `src="…"` attributes of `<script>` and `<style>` tags.

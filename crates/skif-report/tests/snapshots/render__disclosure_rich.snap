@@ -1,0 +1,34 @@
+---
+source: crates/skif-report/tests/render.rs
+expression: "run(&rich(), Format::Disclosure, &options(false))"
+---
+# skif report
+
+1 error, 1 warning and 1 info in 3 packages.
+
+<details>
+<summary>sorted-keys (1)</summary>
+
+| Location | Severity | Message |
+| :-- | :-- | :-- |
+| package.json | info | keys are not sorted |
+
+</details>
+
+<details>
+<summary>unused-dependency (1)</summary>
+
+| Location | Severity | Message |
+| :-- | :-- | :-- |
+| packages/web/package.json:5:5 | warning | lodash is never imported 日本語 |
+
+</details>
+
+<details>
+<summary>version-mismatch (1)</summary>
+
+| Location | Severity | Message |
+| :-- | :-- | :-- |
+| packages/web/package.json:4:14 | error | réact is declared with 2 different versions |
+
+</details>

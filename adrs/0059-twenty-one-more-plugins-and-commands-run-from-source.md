@@ -9,7 +9,7 @@ amends: ["0036", "0049"]
 
 ## Context and Problem Statement
 
-The plugin table holds 105 plugins ([ADR 0036](0036-thirty-nine-more-knip-plugins-by-real-world-usage.md), [ADR 0049](0049-js-corrections-from-adjudicating-knip-disagreements.md)). Issue #39 lists the knip plugins of widely used tools that are still missing (`vue`, `mdx`, `next-mdx`, `parcel`, `electron-forge`, the unplugin family, `serverless-framework` and others), three that read commands from source files instead of configs (`execa`, `zx`, `nano-spawn`), and deeper reading for shared plugins: Starlight component overrides, Azure Pipelines script steps and Sapper.
+The plugin table holds 106 plugins ([ADR 0036](0036-thirty-nine-more-knip-plugins-by-real-world-usage.md), [ADR 0049](0049-js-corrections-from-adjudicating-knip-disagreements.md) and `unplugin-icons`). Issue #39 lists the knip plugins of widely used tools that are still missing (`vue`, `mdx`, `next-mdx`, `parcel`, `electron-forge`, the unplugin family, `serverless-framework` and others), three that read commands from source files instead of configs (`execa`, `zx`, `nano-spawn`), and deeper reading for shared plugins: Starlight component overrides, Azure Pipelines script steps and Sapper.
 
 Several of these cannot be a table row and a config resolver alone. `next-mdx` and `starlight` find their options in a call inside the config (`createMDX({ options })`, `starlight({ components })`), which the static extraction of the exported value does not see; `pino`, `execa`, `zx` and `nano-spawn` read calls in ordinary source files; `lit` and the unplugin compilers change how source files are compiled or which exports count as used.
 
@@ -32,7 +32,7 @@ Which plugins are added, how are calls in source read without running code, and 
 
 Chosen option: "Add the plugins that fit the plugin model, with one shared extraction of calls of imported functions", because it covers the listed tools except two with one small addition to `skif-js-syntax`.
 
-The added plugins are `vue`, `mdx`, `next-mdx`, `pre-commit`, `parcel`, `electron-forge`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `github-action`, `pino`, `next-intl`, `dependency-cruiser`, `commitizen`, `serverless-framework`, `starlight`, `execa`, `zx`, `nano-spawn`, `azure-pipelines` and `sapper`. The table holds 126 plugins.
+The added plugins are `vue`, `mdx`, `next-mdx`, `pre-commit`, `parcel`, `electron-forge`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `github-action`, `pino`, `next-intl`, `dependency-cruiser`, `commitizen`, `serverless-framework`, `starlight`, `execa`, `zx`, `nano-spawn`, `azure-pipelines` and `sapper`. The table holds 127 plugins.
 
 `skif-js-syntax` gains `extract_imported_calls`: every call and tagged template in a file whose function is imported from given modules (`import`, `import * as`, or a top-level `require`), with its arguments evaluated by the static evaluator of [ADR 0010](0010-js-analysis-on-oxc.md) and a tagged template's raw text with its substitutions replaced by a placeholder. `next-mdx` and `starlight` apply it to the config source; `pino`, `execa`, `zx` and `nano-spawn` apply it, from `resolve_workspace`, to the source files that mention the library, as `aws-cdk` reads `new NodejsFunction(…)`. A command found this way is a script, parsed by the script parser like a `package.json` script.
 
@@ -68,7 +68,7 @@ Playwright reporters named in the config were already dependencies, so that item
 
 ### Confirmation
 
-* `crates/skif-js-plugins/tests/plugins.rs` lists the 126 ids in `ADR_IDS` and has a fixture test for each new plugin; `scripts/tests.rs` covers `glob -c`.
+* `crates/skif-js-plugins/tests/plugins.rs` lists the 127 ids in `ADR_IDS` and has a fixture test for each new plugin; `scripts/tests.rs` covers `glob -c`.
 * `crates/skif-js-syntax/tests/imported_calls.rs` covers named, default, member and required imports, globals and tagged templates.
 * `scripts/check-plugin-list.sh` fails when the plugin lists or counts in the README files and the website differ from the code.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.

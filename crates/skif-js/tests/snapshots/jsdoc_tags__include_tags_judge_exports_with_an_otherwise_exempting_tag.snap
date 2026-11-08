@@ -1,0 +1,5 @@
+---
+source: crates/skif-js/tests/jsdoc_tags.rs
+expression: "report(&lint(&files,\n\"[rules]\\nunused-exports = { include-tags = [\\\"public\\\"] }\\n\"))"
+---
+unused-exports src/lib.ts: export `documented` is never imported by another module

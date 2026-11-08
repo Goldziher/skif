@@ -2,14 +2,14 @@
 status: accepted
 date: 2026-11-07
 decision-makers: ["Na'aman Hirschfeld"]
-amends: ["0050"]
+amends: ["0059"]
 ---
 
 # Thirty-Five More Plugins: Frameworks, Task Runners and Options Written Anywhere in a Config
 
 ## Context and Problem Statement
 
-The plugin table holds 126 plugins ([ADR 0050](0050-twenty-one-more-plugins-and-commands-run-from-source.md)). Issue #40 lists the next tier of knip plugins: frameworks and app platforms (`tauri`, `capacitor`, `convex`, `sst`, `payload`, `qwik`, `quasar`, `wxt`, `stencil`, `eleventy`), test and code generation tools (`cucumber`, `rstest`, `playwright-ct`, `relay`, `orval`, `openapi-ts`, `buf`), linters and release tools (`xo`, `textlint`, `danger`, `changelogen`) and task runners and CI (`taskfile`, `mise`, `moonrepo`, `wireit`, `travis`, `nano-staged`), plus smaller ones.
+The plugin table holds 127 plugins ([ADR 0059](0059-twenty-one-more-plugins-and-commands-run-from-source.md)). Issue #40 lists the next tier of knip plugins: frameworks and app platforms (`tauri`, `capacitor`, `convex`, `sst`, `payload`, `qwik`, `quasar`, `wxt`, `stencil`, `eleventy`), test and code generation tools (`cucumber`, `rstest`, `playwright-ct`, `relay`, `orval`, `openapi-ts`, `buf`), linters and release tools (`xo`, `textlint`, `danger`, `changelogen`) and task runners and CI (`taskfile`, `mise`, `moonrepo`, `wireit`, `travis`, `nano-staged`), plus smaller ones.
 
 Several of these read options that are not part of what the config exports: SST handlers sit inside `run()` and in the modules it imports, Stencil exports `config` by name, Quasar wraps its config in `configure(…)`, and orval nests `path` deep inside each target. knip reads them with `collectPropertyValues`, which visits every object literal of the file.
 
@@ -19,7 +19,7 @@ Which plugins are added, how are options written anywhere in a file read without
 
 * A plugin follows knip 6.44.1's enablers, config files, entry and production patterns and config-to-dependency resolution ([ADR 0036](0036-thirty-nine-more-knip-plugins-by-real-world-usage.md))
 * Configs and sources are read statically and never executed ([ADR 0010](0010-js-analysis-on-oxc.md))
-* A mechanism shared by several plugins is better than a parser per plugin ([ADR 0050](0050-twenty-one-more-plugins-and-commands-run-from-source.md))
+* A mechanism shared by several plugins is better than a parser per plugin ([ADR 0059](0059-twenty-one-more-plugins-and-commands-run-from-source.md))
 * Every plugin has a fixture test, and the plugin lists in the documentation are checked against the code
 
 ## Considered Options
@@ -32,9 +32,9 @@ Which plugins are added, how are options written anywhere in a file read without
 
 Chosen option: "Add the plugins, with one shared extraction of the values of a property wherever it is written", because it mirrors the knip helper those plugins use and needs no change to the static evaluator.
 
-The added plugins are `tauri`, `capacitor`, `convex`, `payload`, `wxt`, `hardhat`, `temporal`, `react-email`, `openapi-ts`, `danger`, `changelogen`, `purgecss`, `fumadocs`, `nuxtjs-i18n`, `playwright-ct`, `sst`, `qwik`, `quasar`, `stencil`, `eleventy`, `cucumber`, `relay`, `orval`, `vite-plugin-pwa`, `xo`, `textlint`, `rstest`, `sveltejs-package`, `taskfile`, `mise`, `moonrepo`, `wireit`, `travis`, `buf` and `nano-staged`. The table holds 161 plugins.
+The added plugins are `tauri`, `capacitor`, `convex`, `payload`, `wxt`, `hardhat`, `temporal`, `react-email`, `openapi-ts`, `danger`, `changelogen`, `purgecss`, `fumadocs`, `nuxtjs-i18n`, `playwright-ct`, `sst`, `qwik`, `quasar`, `stencil`, `eleventy`, `cucumber`, `relay`, `orval`, `vite-plugin-pwa`, `xo`, `textlint`, `rstest`, `sveltejs-package`, `taskfile`, `mise`, `moonrepo`, `wireit`, `travis`, `buf` and `nano-staged`. The table holds 162 plugins.
 
-`skif-js-syntax` gains `extract_property_values`: the statically evaluated value of every property with a given key in every object literal of a file, in source order, as knip's `collectPropertyValues`. `sst`, `quasar`, `stencil`, `orval` and `vite-plugin-pwa` (for `nuxt.config.*`) use it; `payload`, `qwik` and `vite-plugin-pwa` (for `vite.config.*`) use `extract_imported_calls` of [ADR 0050](0050-twenty-one-more-plugins-and-commands-run-from-source.md).
+`skif-js-syntax` gains `extract_property_values`: the statically evaluated value of every property with a given key in every object literal of a file, in source order, as knip's `collectPropertyValues`. `sst`, `quasar`, `stencil`, `orval` and `vite-plugin-pwa` (for `nuxt.config.*`) use it; `payload`, `qwik` and `vite-plugin-pwa` (for `vite.config.*`) use `extract_imported_calls` of [ADR 0059](0059-twenty-one-more-plugins-and-commands-run-from-source.md).
 
 Two driver changes support them:
 
@@ -43,7 +43,7 @@ Two driver changes support them:
 
 Not added:
 
-* `starlight` was added by [ADR 0050](0050-twenty-one-more-plugins-and-commands-run-from-source.md).
+* `starlight` was added by [ADR 0059](0059-twenty-one-more-plugins-and-commands-run-from-source.md).
 * `unplugin-vue-i18n` has an enabler and nothing else in knip: no config, entry or resolver, so a row would change nothing.
 
 Where skif differs from knip:
@@ -68,7 +68,7 @@ Where skif differs from knip:
 
 ### Confirmation
 
-* `crates/skif-js-plugins/tests/plugins.rs` lists the 161 ids in `ADR_IDS` and has a fixture test for each new plugin.
+* `crates/skif-js-plugins/tests/plugins.rs` lists the 162 ids in `ADR_IDS` and has a fixture test for each new plugin.
 * `crates/skif-js-syntax/tests/property_values.rs` covers nested properties, arrays, quoted keys, methods and unparsable files.
 * `scripts/check-plugin-list.sh` fails when the plugin lists or counts in the README files and the website differ from the code.
 * `adrlint lint adrs`, `adrlint format --check adrs` and `adrlint lock --check` pass.

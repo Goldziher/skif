@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use skif_config::{Config, ConfigError};
-use skif_core::{Diagnostic, Report};
+use skif_core::{Diagnostic, IncompletePackage, Report};
 use skif_workspace::{Workspace, map_ordered};
 
 use crate::context::{LintContext, SharedCache};
@@ -124,12 +124,12 @@ pub fn run(
     config: &Config,
     options: &RunOptions<'_>,
 ) -> Result<Report, LintError> {
-    let diagnostics = run_unsorted(registry, workspace, config, options)?;
+    let (diagnostics, incomplete_packages) = collect(registry, workspace, config, options)?;
     let root_stand_in = usize::from(!workspace.has_root_manifest());
-    Ok(Report::new(
-        diagnostics,
-        workspace.all_packages().count() - root_stand_in,
-    ))
+    Ok(
+        Report::new(diagnostics, workspace.all_packages().count() - root_stand_in)
+            .with_incomplete_packages(incomplete_packages),
+    )
 }
 
 /// Runs every enabled rule and returns the diagnostics in merge order, before [`Report`] sorting: providers in
@@ -145,6 +145,19 @@ pub fn run_unsorted(
     config: &Config,
     options: &RunOptions<'_>,
 ) -> Result<Vec<Diagnostic>, LintError> {
+    collect(registry, workspace, config, options).map(|(diagnostics, _)| diagnostics)
+}
+
+/// The diagnostics in merge order and the packages the providers could not judge.
+type Collected = (Vec<Diagnostic>, Vec<IncompletePackage>);
+
+/// Runs every enabled rule and returns the diagnostics and the incomplete packages the providers recorded.
+fn collect(
+    registry: &Registry,
+    workspace: &Workspace,
+    config: &Config,
+    options: &RunOptions<'_>,
+) -> Result<Collected, LintError> {
     registry.validate_config(config)?;
     let enabled = registry.enabled(config);
     let shared = SharedCache::default();
@@ -165,7 +178,7 @@ pub fn run_unsorted(
 
 /// Runs the providers concurrently (rule work inside a provider is parallel too) and merges their diagnostics in
 /// registration order, so the result does not depend on scheduling. The first failure in registration order wins.
-fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) -> Result<Vec<Diagnostic>, LintError> {
+fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) -> Result<Collected, LintError> {
     let mut root = Emitter::new(cx).with_cancel(options.cancel);
     let base = &root;
     let parts = map_ordered(&registry.providers, cx.sequential, |provider| {
@@ -188,5 +201,5 @@ fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) 
     if root.is_cancelled() {
         return Err(LintError::Cancelled);
     }
-    Ok(root.into_diagnostics())
+    Ok(root.into_parts())
 }

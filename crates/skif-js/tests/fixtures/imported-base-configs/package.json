@@ -1,0 +1,9 @@
+{
+  "name": "fx-root",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "devDependencies": {
+    "vite": "^7.0.0",
+    "vitest": "^3.0.0"
+  }
+}

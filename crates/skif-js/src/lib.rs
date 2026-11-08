@@ -21,10 +21,12 @@
 mod analysis;
 mod ancestors;
 mod config_check;
+mod config_modules;
 mod deps;
 mod discover;
 mod entries;
 mod explain;
+mod fixture;
 mod git_index;
 mod globs;
 mod graph;
@@ -40,14 +42,17 @@ mod scripts;
 mod setup;
 mod source_scan;
 mod specifier;
+mod trace;
+mod tsconfig_files;
 mod tsconfig_paths;
 mod usage;
 
 pub use analysis::{JsAnalysis, UnusedFile, discovery_file_system};
+pub use config_check::relative_tsconfig;
 pub use deps::{DependencyUsage, UnlistedBinary, UnlistedImport};
 pub use explain::{Absence, EntryReason, ExportReport, ExportUser, Importer, ReExport, UsageReport, Verdict};
 pub use graph::{Module, ModuleGraph, ModuleId, ResolvedImport, Target};
-pub use input::{BuildDir, InputRequest, InputSource, PathAlias, WorkspaceInputs};
+pub use input::{BuildDir, IncompleteCause, IncompleteEntries, InputRequest, InputSource, PathAlias, WorkspaceInputs};
 pub use plugin_source::PluginSource;
 pub use provider::{JsProvider, PROVIDER_ID};
 pub use rules::{
@@ -56,6 +61,8 @@ pub use rules::{
     UnusedNamespaceExports, UnusedNamespaceMembers, UnusedNamespaceTypes, UnusedOptionalPeerDependencies, UnusedTypes,
     rules,
 };
+pub use trace::{DependencyImport, DependencyListing, DependencyTrace};
+pub use tsconfig_files::empty_tsconfig_projects;
 pub use usage::{ExportUsage, MemberUse};
 
 const _: () = {

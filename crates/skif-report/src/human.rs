@@ -20,7 +20,7 @@ pub fn render_human(report: &Report, options: &RenderOptions, out: &mut dyn Writ
     let mut files: BTreeMap<String, Vec<&Diagnostic>> = BTreeMap::new();
     for diagnostic in &report.diagnostics {
         files
-            .entry(options.display_path(&diagnostic.location.path))
+            .entry(options.display_path(&diagnostic.location.path).into_owned())
             .or_default()
             .push(diagnostic);
     }
@@ -36,6 +36,20 @@ pub fn render_human(report: &Report, options: &RenderOptions, out: &mut dyn Writ
             write_diagnostic(out, paint, options, &path, diagnostic)?;
         }
         writeln!(out)?;
+    }
+    if !report.incomplete_packages.is_empty() {
+        let names: Vec<String> = report
+            .incomplete_packages
+            .iter()
+            .map(|package| escape_controls(&package.name).into_owned())
+            .collect();
+        let line = format!(
+            "note: unused files and dependencies were not checked in {} ({}): their entry files are not all known; \
+             `skif explain-usage <file>` says why",
+            plural(names.len(), "package"),
+            names.join(", ")
+        );
+        writeln!(out, "{}", paint.dim(&line))?;
     }
     writeln!(out, "{}", summary_line(paint, &report.summary))
 }
