@@ -1,0 +1,101 @@
+---
+source: crates/skif-js/tests/graph_fixes.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "unused-exports",
+    "severity": "warning",
+    "message": "export `unusedHelper` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "packages/control/src/util.ts",
+      "span": {
+        "start": 100,
+        "end": 112,
+        "start-line": 5,
+        "start-col": 14,
+        "end-line": 5,
+        "end-col": 26
+      }
+    },
+    "package": "@fx/control",
+    "fixes": [
+      {
+        "title": "Remove the unused export `unusedHelper`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "packages/control/src/util.ts",
+              "edit": {
+                "start": 87,
+                "end": 94,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`packages/control/src/orphan.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "packages/control/src/orphan.ts"
+    },
+    "package": "@fx/control",
+    "fixes": [
+      {
+        "title": "Delete `packages/control/src/orphan.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "packages/control/src/orphan.ts"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-types",
+    "severity": "warning",
+    "message": "type `HelperOptions` is never imported by another module",
+    "help": "remove it, or tag it `@public` when it is part of a public API",
+    "location": {
+      "path": "packages/control/src/util.ts",
+      "span": {
+        "start": 12,
+        "end": 25,
+        "start-line": 1,
+        "start-col": 13,
+        "end-line": 1,
+        "end-col": 26
+      }
+    },
+    "package": "@fx/control",
+    "fixes": [
+      {
+        "title": "Remove the unused export `HelperOptions`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "packages/control/src/util.ts",
+              "edit": {
+                "start": 0,
+                "end": 7,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

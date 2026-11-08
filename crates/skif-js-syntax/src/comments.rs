@@ -249,9 +249,11 @@ fn jsdoc_import_types(flat: &str) -> Vec<(String, Vec<ImportedName>)> {
             .and_then(|tail| tail.strip_prefix('.'))
             .map(leading_ident)
             .filter(|name| !name.is_empty());
+        // A bare `import('m')` names the module's type without reading an export, as `typeof import('m')` does in
+        // TypeScript, so it credits none.
         let name = match qualifier {
             Some(name) => type_name(imported_kind(name.to_string()), None, false),
-            None => type_name(ImportedKind::Namespace, None, true),
+            None => type_name(ImportedKind::Namespace, None, false),
         };
         out.push((specifier.to_string(), vec![name]));
     }

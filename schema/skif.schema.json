@@ -122,6 +122,7 @@
         "entry": [],
         "project": [],
         "ignore": [],
+        "ignore-files": [],
         "ignore-dependencies": [],
         "ignore-binaries": [],
         "ignore-unresolved": [],
@@ -130,9 +131,43 @@
         "ignore-members": [],
         "production": false,
         "include-entry-exports": false,
+        "include-fixtures": false,
         "discovery": "auto",
+        "cycles": {
+          "allow": [],
+          "dynamic-imports": false
+        },
         "workspaces": {},
         "plugins": {}
+      }
+    },
+    "format": {
+      "$ref": "#/$defs/Format",
+      "description": "`[format]`: how `package-json-format` and `skif format` order and lay out `package.json` files.",
+      "default": {
+        "sort-first": [
+          "name",
+          "description",
+          "version",
+          "author"
+        ],
+        "sort-az": [
+          "bin",
+          "contributors",
+          "dependencies",
+          "devDependencies",
+          "keywords",
+          "peerDependencies",
+          "resolutions",
+          "scripts"
+        ],
+        "sort-exports": [
+          "types",
+          "default"
+        ],
+        "sort-packages": true,
+        "format-bugs": false,
+        "format-repository": false
       }
     },
     "overrides": {
@@ -837,6 +872,14 @@
           "description": "Globs of files that are not analysed.",
           "default": []
         },
+        "ignore-files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of files, relative to the workspace root, never reported by `unused-files`; other rules still analyse\nthem (knip's `ignoreFiles`).",
+          "default": []
+        },
         "ignore-dependencies": {
           "type": "array",
           "items": {
@@ -892,10 +935,23 @@
           "description": "Report unused exports of entry files too.",
           "default": false
         },
+        "include-fixtures": {
+          "type": "boolean",
+          "description": "Report files in `fixtures` and `__fixtures__` directories as unused, and their unused exports, types and\nmembers, like any other file. Off by default: those directories hold test data that tests load by path.",
+          "default": false
+        },
         "discovery": {
           "$ref": "#/$defs/JsDiscovery",
           "description": "How source files are found: `auto` lists them from the git index and re-lists from disk every directory\nmodified since the index was written, which gives the walk's result without walking every directory; `git`\ntrusts the index alone (faster, blind to untracked and deleted files); `walk` always walks. Both index modes\nfall back to the walk when the workspace is not in a git work tree with a usable SHA-1 index.",
           "default": "auto"
+        },
+        "cycles": {
+          "$ref": "#/$defs/JsCycles",
+          "description": "What `circular-imports` reports.",
+          "default": {
+            "allow": [],
+            "dynamic-imports": false
+          }
         },
         "workspaces": {
           "type": "object",
@@ -1024,6 +1080,29 @@
       ],
       "description": "`[js] discovery`"
     },
+    "JsCycles": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "Cycles that are not reported, each the list of its files relative to the workspace root. A cycle is allowed\nwhen its files are exactly the files of one entry, in any order.",
+          "default": []
+        },
+        "dynamic-imports": {
+          "type": "boolean",
+          "description": "Count dynamic `import()` as an edge of a cycle. Off by default: a dynamic import runs after the module graph\nis loaded, so it cannot cause an initialisation-order problem.",
+          "default": false
+        }
+      },
+      "description": "`[js.cycles]`: knip's `cycles` options of the `circular-imports` rule."
+    },
     "JsWorkspace": {
       "type": "object",
       "additionalProperties": false,
@@ -1050,6 +1129,14 @@
             "type": "string"
           },
           "description": "Globs of files that are not analysed.",
+          "default": []
+        },
+        "ignore-files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of files, relative to the workspace directory, never reported by `unused-files`.",
           "default": []
         },
         "ignore-dependencies": {
@@ -1174,6 +1261,76 @@
         }
       },
       "description": "Table form of a plugin entry."
+    },
+    "Format": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sort-first": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Top-level keys that come first, in this order.",
+          "default": [
+            "name",
+            "description",
+            "version",
+            "author"
+          ]
+        },
+        "sort-az": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Fields sorted alphabetically one level deep: an object by key, an array of strings by value. `a/b` names a\nnested field. For fields whose order means nothing: an array with a `!`-prefixed entry keeps its order.",
+          "default": [
+            "bin",
+            "contributors",
+            "dependencies",
+            "devDependencies",
+            "keywords",
+            "peerDependencies",
+            "resolutions",
+            "scripts"
+          ]
+        },
+        "sort-exports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Keys that come first, in this order, in every object of `exports`; `default` is always last. The default moves\nonly `types` and `default`; a key that reorders other conditions makes the fix unsafe.",
+          "default": [
+            "types",
+            "default"
+          ]
+        },
+        "sort-packages": {
+          "type": "boolean",
+          "description": "Sort the top-level keys `sort-first` does not name.",
+          "default": true
+        },
+        "format-bugs": {
+          "type": "boolean",
+          "description": "Write a `bugs` object that holds only `url` as that string.",
+          "default": false
+        },
+        "format-repository": {
+          "type": "boolean",
+          "description": "Write a `repository` object that holds only `url` and a `type` of `git` (or no `type`) as its shorthand.",
+          "default": false
+        },
+        "indent": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Check the layout against `JSON.stringify(manifest, null, indent)`: spaces or tabs, for example `\"  \"` or\n`\"\\t\"`. Unset keeps each file's layout."
+        }
+      },
+      "description": "`[format]`: what the `package-json-format` rule and `skif format` check, with syncpack's defaults (ADR 0055)."
     },
     "Override": {
       "type": "object",

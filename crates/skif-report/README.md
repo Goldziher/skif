@@ -1,6 +1,7 @@
 # skif-report
 
-Renderers that turn a `skif_core::Report` into human-readable, JSON, SARIF or GitHub annotation output.
+Renderers that turn a `skif_core::Report` into human-readable, JSON, SARIF, GitHub annotation, Code Climate,
+compact, Markdown or CODEOWNERS-grouped output.
 
 Renderers write to a `&mut dyn std::io::Write`, never touch the environment or the terminal, and take
 a `RenderOptions` that the caller (normally the CLI) fills in.
@@ -56,3 +57,13 @@ loaded, with one `{ "path", "kind", "message" }` object per failed root. The oth
 `Format::Sarif` writes a SARIF 2.1.0 log (one run, one result per diagnostic, with the rule metadata and
 the fix titles) for code-scanning upload. `Format::Github` writes one workflow command per diagnostic
 (`::error file=...,line=...,col=...::message`), which GitHub shows as annotations on the pull request.
+
+## Code Climate, compact, Markdown and CODEOWNERS
+
+`Format::Codeclimate` writes the Code Climate JSON array GitLab Code Quality reads (`description`, `check_name`,
+`fingerprint`, `severity`, `location.path`, `location.lines.begin`). `Format::Compact` writes one
+`path:line:col rule message` line per diagnostic. `Format::Markdown` writes a table per rule for a pull request
+comment, and `Format::Disclosure` folds each table in a `<details>` section. `Format::Codeowners` groups compact
+lines by owner: the caller reads the CODEOWNERS file and passes `CodeOwners::parse(text)` through
+`RenderOptions::with_codeowners`; matching follows the gitignore-like rules of GitHub and GitLab, last match wins,
+and GitLab section default owners apply to ownerless entries in their section.

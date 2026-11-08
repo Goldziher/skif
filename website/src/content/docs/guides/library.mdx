@@ -32,7 +32,7 @@ let report = Linter::with_fs(&config, Arc::new(fs.clone()))?.run(&workspace)?;
 | `js-analysis` | no | the oxc based JS and TypeScript analysis and the plugin table |
 | `fix` | no | `apply_fixes` and `FixPlan` |
 | `yaml-fix` | no | YAML edits for `pnpm-workspace.yaml` (implies `fix`) |
-| `report` | no | the human, JSON, SARIF and GitHub renderers, as `skif::render` |
+| `report` | no | the renderers (human, JSON, SARIF, GitHub, Code Climate, compact, Markdown, CODEOWNERS), as `skif::render` |
 | `schema` | no | `config_schema` |
 
 `js-analysis` is off by default so a host that already embeds oxc keeps its own copy. No `oxc` or `rayon` type

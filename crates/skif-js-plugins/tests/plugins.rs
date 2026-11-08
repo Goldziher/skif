@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 105] = [
+const ADR_IDS: [&str; 106] = [
     "typescript",
     "eslint",
     "prettier",
@@ -117,6 +117,7 @@ const ADR_IDS: [&str; 105] = [
     "typedoc",
     "unbuild",
     "unocss",
+    "unplugin-icons",
     "vercel",
     "vike",
     "webdriver-io",
@@ -1191,6 +1192,47 @@ fn tsconfig_paths_outdir_and_conditions() {
 }
 
 #[test]
+fn tsconfig_root_dir_is_inferred_from_include_and_files() {
+    let build_dirs = |tsconfig: &str| {
+        let results = resolve(&[("tsconfig.json", tsconfig)], &["typescript"]);
+        output(&results, "typescript")
+            .build_dirs
+            .iter()
+            .map(|dir| (dir.out_dir.clone(), dir.root_dir.clone()))
+            .collect::<Vec<_>>()
+    };
+    let pair = |out: &str, root: &str| vec![(out.to_owned(), root.to_owned())];
+    // `include` roots that share only the config directory.
+    assert_eq!(
+        build_dirs(r#"{"compilerOptions":{"outDir":"build/compiled"},"include":["sample","src","test"]}"#),
+        pair("build/compiled", "")
+    );
+    // The directory before the first wildcard, and declaration files left out.
+    assert_eq!(
+        build_dirs(
+            r#"{"compilerOptions":{"outDir":"./dist"},"include":["./src/**/*.ts","src/lib/*.tsx","types/*.d.ts"]}"#
+        ),
+        pair("dist", "src")
+    );
+    // A listed file stands for its directory.
+    assert_eq!(
+        build_dirs(r#"{"compilerOptions":{"outDir":"dist"},"files":["src/cli/main.ts","src/index.ts"]}"#),
+        pair("dist", "src")
+    );
+    // A pattern without a wildcard or a code extension is a directory, even with a dot in its name.
+    assert_eq!(
+        build_dirs(r#"{"compilerOptions":{"outDir":"dist"},"include":["packages/v1.2"]}"#),
+        pair("dist", "packages/v1.2")
+    );
+    // An explicit `rootDir` wins, and without `include` or `files` nothing is inferred.
+    assert_eq!(
+        build_dirs(r#"{"compilerOptions":{"outDir":"dist","rootDir":"lib"},"include":["src"]}"#),
+        pair("dist", "lib")
+    );
+    assert_eq!(build_dirs(r#"{"compilerOptions":{"outDir":"dist"}}"#), vec![]);
+}
+
+#[test]
 fn bundler_resolve_extensions_are_collected() {
     let webpack = resolve(
         &[(
@@ -1512,6 +1554,58 @@ fn prisma() {
     let config = r#"export default { schema: "prisma/main.prisma" };"#;
     let results = resolve(&[("prisma.config.ts", config)], &["@prisma/client"]);
     assert_entries(&output(&results, "prisma").entries, &["prisma/main.prisma"]);
+}
+
+#[test]
+fn prisma_reads_the_generator_providers_of_the_schema() {
+    let schema = r#"generator client {
+  provider = "prisma-client-js"
+}
+
+// generator old { provider = "commented-out" }
+generator kysely {
+  provider     = "prisma-kysely" // the Kysely types
+  output       = "../src/db"
+}
+
+generator zod {
+  provider = "zod-prisma-types"
+}
+
+generator erd {
+  provider = "npx prisma-erd-generator"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+"#;
+    let results = resolve(&[("prisma/schema.prisma", schema)], &["prisma"]);
+    let out = output(&results, "prisma");
+    assert_deps(out, &["prisma-kysely", "zod-prisma-types"]);
+    assert_absent(out, &["prisma-client-js", "postgresql", "commented-out", "npx"]);
+    let manifest = r#"{"name":"app","prisma":{"schema":"db/main.prisma"}}"#;
+    let results = resolve(
+        &[
+            ("package.json", manifest),
+            (
+                "db/main.prisma",
+                "generator g {\n  provider = \"prisma-dbml-generator\"\n}\n",
+            ),
+        ],
+        &["prisma"],
+    );
+    let out = output(&results, "prisma");
+    assert_deps(out, &["prisma-dbml-generator"]);
+    // A relative provider is a file next to the schema, a command provider a script whose files are entries.
+    let manifest = r#"{"name":"app","prisma":{"schema":"db/main.prisma"}}"#;
+    let schema = "generator custom {\n  provider = \"./generators/custom.js\"\n}\n\
+                  generator cmd {\n  provider = \"tsx scripts/gen.ts\"\n}\n";
+    let results = resolve(&[("package.json", manifest), ("db/main.prisma", schema)], &["prisma"]);
+    let out = output(&results, "prisma");
+    assert_entries(&out.entries, &["db/generators/custom.js", "scripts/gen.ts"]);
+    assert!(out.referenced_binaries.iter().any(|b| b == "tsx"), "{out:?}");
+    assert_absent(out, &["./generators/custom.js", "tsx scripts/gen.ts"]);
 }
 
 #[test]
@@ -2409,6 +2503,16 @@ fn bun_reads_preloads_from_bunfig() {
     let out = output(&results, "bun");
     assert_entries(&out.entries, &["test/setup.ts"]);
     assert_deps(out, &["happy-dom-setup"]);
+}
+
+#[test]
+fn unplugin_icons_declares_its_generated_icons_and_collections_virtual() {
+    let results = resolve(&[], &["unplugin-icons"]);
+    let out = output(&results, "unplugin-icons");
+    assert!(has_virtual(out, "~icons/*"));
+    assert!(has_virtual(out, "@iconify-json/*"));
+    assert!(has_virtual(out, "@iconify/json"));
+    assert!(!resolve(&[], &[]).iter().any(|(id, _)| *id == "unplugin-icons"));
 }
 
 #[test]

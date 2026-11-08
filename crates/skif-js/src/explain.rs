@@ -16,6 +16,7 @@ use crate::globs::Globs;
 use crate::graph::{Module, ModuleId, Target};
 use crate::input::IncompleteEntries;
 use crate::manifest_paths::{crossing_stars, manifest_targets, source_candidates, source_patterns};
+use crate::resolve::join_normalized;
 
 /// Re-export hops followed when explaining an export.
 const MAX_DEPTH: usize = 8;
@@ -75,7 +76,8 @@ pub enum Absence {
     OutsideProject,
     /// Matched by an `ignore` glob.
     Ignored,
-    /// Not a source file the analysis looks at: missing, ignored by Git, or of a type that is not analysed.
+    /// Not a source file the analysis looks at: missing, ignored by Git, of a type that is not analysed, or owned by
+    /// no package.
     NotDiscovered,
 }
 
@@ -124,6 +126,9 @@ pub enum Verdict {
     Used,
     /// Nothing uses it.
     Unused,
+    /// Nothing in the analysed graph uses it, but the entry files of its package are not fully known, so a file no
+    /// known entry reaches may use it; it is not reported.
+    NotJudged,
 }
 
 /// A re-export that forwards an export, with the explanation of the forwarded export.
@@ -166,6 +171,9 @@ pub struct ExportReport {
     pub in_used_signature: bool,
     /// The export is itself a re-export.
     pub is_re_export: bool,
+    /// The entry files of the package are not fully known, so its exports are not judged.
+    #[serde(skip_serializing_if = "is_false")]
+    pub entries_incomplete: bool,
     /// The same export was already explained higher up (a circular `export *`); not repeated.
     #[serde(skip_serializing_if = "is_false")]
     pub already_explained: bool,
@@ -299,6 +307,7 @@ const fn kind_label(kind: ImportKind) -> &'static str {
         ImportKind::Require => "require",
         ImportKind::ImportMetaGlob => "import-meta-glob",
         ImportKind::ExportFrom => "export-from",
+        ImportKind::Mock => "mock",
     }
 }
 
@@ -359,9 +368,16 @@ fn render_export(export: &ExportReport, depth: usize, out: &mut String) {
     if export.is_re_export {
         let _ = writeln!(out, "{pad}  itself a re-export of another module");
     }
+    if export.entries_incomplete {
+        let _ = writeln!(
+            out,
+            "{pad}  the entry files of its package are not fully known, so its exports are not judged"
+        );
+    }
     let verdict = match export.verdict {
         Verdict::Public => "public",
         Verdict::Used => "used by another module",
+        Verdict::NotJudged => "not judged: no known module uses it, but its package's entries are incomplete",
         _ => "not used by another module",
     };
     let _ = writeln!(out, "{pad}=> {verdict}");
@@ -387,7 +403,10 @@ fn reached(target: &Target) -> &[ModuleId] {
 
 /// Whether `import` uses export `export` of the module it points at, or the module as a whole.
 fn uses_export(import: &Import, export: &str) -> Option<String> {
-    if matches!(import.kind, ImportKind::ExportFrom | ImportKind::SideEffect) {
+    if matches!(
+        import.kind,
+        ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock
+    ) {
         return None;
     }
     if import.names.is_empty() {
@@ -496,7 +515,7 @@ impl JsAnalysis<'_> {
             if package.config_files.contains(&module.abs) {
                 return EntryReason::ConfigFile;
             }
-            if package.scripts.files.contains(&rel) {
+            if self.is_script_file(&module.abs) {
                 return EntryReason::Script;
             }
             if self.is_published(module, &package.dir, &rel) {
@@ -518,11 +537,30 @@ impl JsAnalysis<'_> {
         }
     }
 
-    /// Why `file` (relative to the workspace root), which is neither in the graph nor reported unused, is not
-    /// analysed. The checks follow the order of the `unused-files` filter.
+    /// Whether a script of any package runs `abs`. The paths scripts name are collapsed as the entry files are, so
+    /// `./scripts/a.ts` and `../../scripts/a.ts` from another package name the file.
+    fn is_script_file(&self, abs: &Path) -> bool {
+        self.workspace.iter().any(|(id, _)| {
+            self.setup.package(id).is_some_and(|package| {
+                package
+                    .scripts
+                    .files
+                    .iter()
+                    .any(|file| join_normalized(&package.dir, file) == abs)
+            })
+        })
+    }
+
+    /// Why `file` (relative to the workspace root, or absolute), which is neither in the graph nor reported unused,
+    /// is not analysed. The checks follow the `unused-files` filter, with what discovery, the project globs and the
+    /// ignores leave out ahead of incomplete entries: those only explain a source file the analysis would judge.
     fn absence_of(&self, file: &Path) -> (Absence, Vec<IncompleteEntries>) {
         let root = &self.workspace.root;
-        let abs = root.join(file);
+        let abs = if file.is_absolute() {
+            file.to_path_buf()
+        } else {
+            join_normalized(root, &slashed(file))
+        };
         let owner = self
             .workspace
             .iter()
@@ -530,11 +568,29 @@ impl JsAnalysis<'_> {
             .filter(|(_, dir)| abs.starts_with(dir))
             .max_by_key(|(_, dir)| dir.components().count())
             .map(|(id, _)| id);
-        let Some(package) = owner.and_then(|id| self.setup.package(id)) else {
+        let Some(owner) = owner else {
+            return (Absence::NotDiscovered, Vec::new());
+        };
+        let Some(package) = self.setup.package(owner) else {
             return (Absence::PackageExcluded, Vec::new());
         };
-        if slashed(file).ends_with(".d.ts") {
+        let Some(rel) = relative(&abs, root) else {
+            return (Absence::NotDiscovered, Vec::new());
+        };
+        if !self.outside_graph.contains(&rel) {
+            return (Absence::NotDiscovered, Vec::new());
+        }
+        if rel.ends_with(".d.ts") {
             return (Absence::DeclarationFile, Vec::new());
+        }
+        let Some(in_package) = relative(&abs, &package.dir) else {
+            return (Absence::OutsideProject, Vec::new());
+        };
+        if !package.project.is_match(&in_package) {
+            return (Absence::OutsideProject, Vec::new());
+        }
+        if package.ignore.matches_any(&in_package) || self.setup.global_ignore.matches_any(&rel) {
+            return (Absence::Ignored, Vec::new());
         }
         if package.entries_incomplete {
             let incomplete = package
@@ -549,15 +605,6 @@ impl JsAnalysis<'_> {
                 })
                 .collect();
             return (Absence::EntriesIncomplete, incomplete);
-        }
-        let Some(in_package) = relative(&abs, &package.dir) else {
-            return (Absence::OutsideProject, Vec::new());
-        };
-        if !package.project.is_match(&in_package) {
-            return (Absence::OutsideProject, Vec::new());
-        }
-        if package.ignore.matches_any(&in_package) || self.setup.global_ignore.matches_any(&slashed(file)) {
-            return (Absence::Ignored, Vec::new());
         }
         (Absence::NotDiscovered, Vec::new())
     }
@@ -656,6 +703,7 @@ impl JsAnalysis<'_> {
             re_exports: Vec::new(),
             in_used_signature: false,
             is_re_export: false,
+            entries_incomplete: false,
             already_explained: false,
         };
         let Some(export) = module.info.exports.iter().find(|export| export.name == name) else {
@@ -669,6 +717,7 @@ impl JsAnalysis<'_> {
         report.entry_public = module.is_entry && !self.setup.includes_entry_exports(module.owner);
         report.tagged_public = self.is_tagged_public(export);
         report.is_re_export = matches!(export.kind, ExportKind::ReExport | ExportKind::StarReExport);
+        report.entries_incomplete = self.entries_incomplete(module.owner);
         for importer_id in self.graph.imported_by(module.id) {
             let importer = self.graph.module(*importer_id);
             for resolved in &importer.imports {
@@ -697,6 +746,8 @@ impl JsAnalysis<'_> {
             Verdict::Public
         } else if used || report.in_used_signature {
             Verdict::Used
+        } else if report.entries_incomplete {
+            Verdict::NotJudged
         } else {
             Verdict::Unused
         };

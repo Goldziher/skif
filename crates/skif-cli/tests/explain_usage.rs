@@ -171,3 +171,25 @@ fn an_ignored_file_says_so() {
     assert_eq!(json.code, 2, "{}{}", json.stdout, json.stderr);
     assert_eq!(json.json()["report"]["absence"], "ignored");
 }
+
+#[test]
+fn an_export_in_a_package_with_incomplete_entries_is_not_judged() {
+    let dir = project();
+    // `dist/server.js` maps to no source file, so the package's real entries are unknown.
+    put(
+        dir.path(),
+        "package.json",
+        r#"{"name":"app","version":"1.0.0","private":true,"main":"./dist/server.js","devDependencies":{"vitest":"3.0.0"}}"#,
+    );
+    let json = run(skif()
+        .current_dir(dir.path())
+        .args(["explain-usage", "lib.ts#idle", "--format", "json"]));
+    assert_eq!(json.code, 0, "{}{}", json.stdout, json.stderr);
+    let document = json.json();
+    assert_eq!(document["report"]["export"]["verdict"], "not-judged", "{document}");
+    assert_eq!(document["report"]["export"]["entries-incomplete"], true, "{document}");
+
+    let human = run(skif().current_dir(dir.path()).args(["explain-usage", "lib.ts#idle"]));
+    assert_eq!(human.code, 0, "{}{}", human.stdout, human.stderr);
+    assert!(human.stdout.contains("=> not judged"), "{}", human.stdout);
+}

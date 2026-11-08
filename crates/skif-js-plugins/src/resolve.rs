@@ -93,8 +93,6 @@ fn parent_of(relative: &str) -> &str {
 
 struct Collector<'a, 'b> {
     ctx: &'a PluginContext<'b>,
-    /// The plugin being run.
-    plugin: PluginId,
     out: PluginOutput,
     queue: VecDeque<Queued>,
     /// Whether the module resolution options of a config inside another package stay with that package.
@@ -120,7 +118,8 @@ impl Collector<'_, '_> {
             })
     }
 
-    fn absorb(&mut self, inputs: Vec<PluginInput>, from: &Path, depth: u8) {
+    /// Takes in what `reader`, the plugin whose config `from` is, read from it.
+    fn absorb(&mut self, reader: PluginId, inputs: Vec<PluginInput>, from: &Path, depth: u8) {
         let foreign = self.belongs_to_other_package(from);
         for input in inputs {
             if foreign
@@ -173,7 +172,7 @@ impl Collector<'_, '_> {
                 PluginInput::ModuleDir(dir) => push_unique(&mut self.out.module_dirs, dir),
                 PluginInput::Extension(extension) => push_unique(&mut self.out.extensions, extension),
                 PluginInput::EntriesIncomplete => {
-                    self.mark_incomplete(self.plugin, from, IncompleteCause::ComputedEntries);
+                    self.mark_incomplete(reader, from, IncompleteCause::ComputedEntries);
                 }
             }
         }
@@ -280,7 +279,6 @@ fn run_plugin(
     };
     let mut collector = Collector {
         ctx,
-        plugin: spec.id,
         out: PluginOutput {
             entries: globs(&options.entry, spec.entry),
             project: globs(&options.project, spec.project),
@@ -330,15 +328,15 @@ fn run_plugin(
         if !collector.out.config_files.contains(&path) {
             collector.out.config_files.push(path.clone());
         }
-        collector.absorb(inputs, &path, 0);
+        collector.absorb(spec.id, inputs, &path, 0);
         drain(&mut collector, plugin, &mut visited);
     } else if !found_config {
         let inputs = plugin.resolve_without_config(ctx);
-        collector.absorb(inputs, &ctx.dir.join("package.json"), 0);
+        collector.absorb(spec.id, inputs, &ctx.dir.join("package.json"), 0);
         drain(&mut collector, plugin, &mut visited);
     }
     let inputs = plugin.resolve_workspace(ctx);
-    collector.absorb(inputs, &ctx.dir.join("package.json"), 0);
+    collector.absorb(spec.id, inputs, &ctx.dir.join("package.json"), 0);
     drain(&mut collector, plugin, &mut visited);
     collector.out
 }
@@ -436,7 +434,7 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             source: &source,
         };
         let inputs = reader.resolve_config(&ast, ctx);
-        collector.absorb(inputs, &path, depth);
+        collector.absorb(reader.spec().id, inputs, &path, depth);
     }
 }
 
@@ -471,5 +469,53 @@ fn unreadable(value: &ConfigValue) -> Option<IncompleteCause> {
             Some(IncompleteCause::UnknownSpread)
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use indexmap::IndexMap;
+    use skif_core::MemoryFs;
+
+    use super::*;
+
+    /// Computed entries in a linked config are charged to the plugin that reads that config, as an unreadable
+    /// linked config is.
+    #[test]
+    fn computed_entries_name_the_plugin_whose_config_it_is() {
+        let fs = MemoryFs::new();
+        let scripts = IndexMap::new();
+        let plugins = IndexMap::new();
+        let ctx = PluginContext {
+            dir: Path::new("/ws"),
+            is_root: true,
+            package_name: None,
+            dependencies: &[],
+            inherited_dependencies: &[],
+            scripts: &scripts,
+            fs: &fs,
+            plugins: &plugins,
+            modules: None,
+        };
+        let mut collector = Collector {
+            ctx: &ctx,
+            out: PluginOutput::default(),
+            queue: VecDeque::new(),
+            confine_to_package: false,
+        };
+        collector.absorb(
+            "vite",
+            vec![PluginInput::EntriesIncomplete],
+            Path::new("/ws/vite.config.ts"),
+            1,
+        );
+        let plugins: Vec<PluginId> = collector
+            .out
+            .incomplete_reasons
+            .iter()
+            .map(|reason| reason.plugin)
+            .collect();
+        assert_eq!(plugins, ["vite"]);
     }
 }

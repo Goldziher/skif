@@ -302,3 +302,140 @@ fn bundler_extensions_apply_to_the_package_that_declares_them() {
         "{diagnostics:#?}"
     );
 }
+
+#[test]
+fn a_script_path_that_leaves_its_package_is_the_file_it_names() {
+    let root = manifest(&format!(
+        r#""name":"root","version":"1.0.0","private":true,{PNPM},"devDependencies":{{"lodash":"4.17.21"}}"#
+    ));
+    let db = manifest(
+        r#""name":"db","version":"1.0.0","private":true,"scripts":{"seed":"tsx ../../scripts/seed.ts"},"devDependencies":{"tsx":"4.0.0"}"#,
+    );
+    let diagnostics = lint_files(
+        &[
+            ("package.json", &root),
+            ("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+            ("packages/db/package.json", &db),
+            ("scripts/seed.ts", "import { noop } from 'lodash';\nnoop();\n"),
+        ],
+        "",
+    );
+    assert_eq!(found(&diagnostics, "unused-files"), none(), "{diagnostics:#?}");
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none(), "{diagnostics:#?}");
+    assert_eq!(found(&diagnostics, "unused-dependencies"), none(), "{diagnostics:#?}");
+}
+
+#[test]
+fn a_url_into_node_modules_is_a_path_not_a_package() {
+    let package = manifest(&format!(
+        r#""name":"app","version":"1.0.0","private":true,{PNPM},"main":"src/index.js""#
+    ));
+    let diagnostics = lint_files(
+        &[
+            ("package.json", &package),
+            (
+                "src/index.js",
+                "export const tsx = new URL('../node_modules/.bin/tsx', import.meta.url);\n\
+                 export const later = new URL('./node_modules/later', import.meta.url);\n",
+            ),
+            ("node_modules/.bin/tsx", "#!/usr/bin/env node\n"),
+        ],
+        "",
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+}
+
+/// A package reached from `src/main.ts` only, where `src/role-selector.ts` imports exports of `src/store.ts` but no
+/// entry reaches it. `published` is the `main` of the manifest.
+fn incomplete_entries_workspace(published: &str) -> Vec<(&'static str, String)> {
+    let package = manifest(&format!(
+        r#""name":"web","version":"1.0.0","private":true,{PNPM},"main":"{published}","scripts":{{"start":"node src/main.ts"}}"#
+    ));
+    vec![
+        ("package.json", package),
+        (
+            "src/main.ts",
+            "import { createStore, Level, Paths } from './store';\nimport * as routes from './routes';\n\
+             const route: routes.Route = Paths.home;\ncreateStore(Level.Low, routes.list, route);\n"
+                .to_owned(),
+        ),
+        (
+            "src/store.ts",
+            "export enum InviteRole { Admin, Member }\nexport type Invite = { role: InviteRole };\n\
+             export enum Level { Low, High }\n\
+             export namespace Paths { export const home = '/'; export const admin = '/admin'; }\n\
+             export function createStore(...args: unknown[]) { return args; }\n"
+                .to_owned(),
+        ),
+        (
+            "src/routes.ts",
+            "export const list = '/list';\nexport const detail = '/detail';\n\
+             export type Route = string;\nexport type Params = { id: string };\n"
+                .to_owned(),
+        ),
+        (
+            "src/role-selector.ts",
+            "import { InviteRole, Level, Paths, type Invite } from './store';\nimport * as routes from './routes';\n\
+             export const pick = (invite: Invite, params: routes.Params) =>\n\
+             [invite.role === InviteRole.Admin, Level.High, Paths.admin, routes.detail, params];\n"
+                .to_owned(),
+        ),
+    ]
+}
+
+#[test]
+fn exports_and_types_are_not_judged_in_a_package_with_incomplete_entries() {
+    const RULES: [&str; 7] = [
+        "unused-files",
+        "unused-exports",
+        "unused-types",
+        "unused-enum-members",
+        "unused-namespace-members",
+        "unused-namespace-exports",
+        "unused-namespace-types",
+    ];
+    // With entries that are fully known, every rule reports what only `role-selector.ts` uses: the control that makes
+    // the assertions below mean something.
+    let diagnostics = lint_owned(&incomplete_entries_workspace("./src/main.ts"));
+    let expected = [
+        ("unused-files", "src/role-selector.ts: src/role-selector.ts"),
+        ("unused-exports", "src/store.ts: InviteRole"),
+        ("unused-types", "src/store.ts: Invite"),
+        ("unused-enum-members", "src/store.ts: Level.High"),
+        ("unused-namespace-members", "src/store.ts: Paths.admin"),
+        ("unused-namespace-exports", "src/routes.ts: detail"),
+        ("unused-namespace-types", "src/routes.ts: Params"),
+    ];
+    for (rule, finding) in expected {
+        assert_eq!(found(&diagnostics, rule), [finding], "{rule}: {diagnostics:#?}");
+    }
+    assert_eq!(expected.map(|(rule, _)| rule), RULES);
+
+    // `dist/server.js` maps to no source, so the package's real entries are unknown and `role-selector.ts` may be one.
+    let diagnostics = lint_owned(&incomplete_entries_workspace("./dist/server.js"));
+    for rule in RULES {
+        assert_eq!(found(&diagnostics, rule), none(), "{rule}: {diagnostics:#?}");
+    }
+}
+
+#[test]
+fn optional_dependencies_are_not_reported_as_unused() {
+    // Platform packages are loaded by a computed name (`import(`@lydell/node-pty-${platform}`)`), as in knip, which
+    // never reports `optionalDependencies`.
+    let package = manifest(&format!(
+        r#""name":"app","version":"1.0.0","private":true,{PNPM},"main":"index.js","dependencies":{{"left-pad":"1.3.0"}},"optionalDependencies":{{"@lydell/node-pty-linux-x64":"1.1.0","@lydell/node-pty-darwin-arm64":"1.1.0"}}"#
+    ));
+    let files = [
+        ("package.json", package.as_str()),
+        (
+            "index.js",
+            "const platform = `${process.platform}-${process.arch}`;\nexport default () => import(`@lydell/node-pty-${platform}`);\n",
+        ),
+    ];
+    let diagnostics = lint_files(&files, "");
+    assert_eq!(
+        found(&diagnostics, "unused-dependencies"),
+        vec!["package.json: left-pad".to_owned()],
+        "{diagnostics:#?}"
+    );
+}
