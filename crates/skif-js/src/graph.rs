@@ -329,6 +329,9 @@ struct Builder<'a> {
     package_dirs: Vec<(PathBuf, PackageId)>,
     modules: Vec<Module>,
     index: HashMap<PathBuf, ModuleId>,
+    /// Whether a directory holds a real `package.json`, by directory: the files of one directory share their
+    /// ancestors, so each is checked once.
+    project_dirs: HashMap<PathBuf, bool>,
 }
 
 impl<'a> Builder<'a> {
@@ -353,6 +356,7 @@ impl<'a> Builder<'a> {
             package_dirs,
             modules: Vec::new(),
             index: HashMap::new(),
+            project_dirs: HashMap::new(),
         }
     }
 
@@ -367,7 +371,7 @@ impl<'a> Builder<'a> {
     /// directory between the two holds a real `package.json`. Such a file is reached from this workspace (a script
     /// runs it, a file imports it) but belongs to that project, often a nested root of the same run, which judges it
     /// against its own manifest. Files below `node_modules` are installed code, not projects.
-    fn in_other_project(&self, abs: &Path, owner: PackageId) -> bool {
+    fn in_other_project(&mut self, abs: &Path, owner: PackageId) -> bool {
         let inputs = self.inputs;
         let base = self
             .package_dirs
@@ -384,9 +388,12 @@ impl<'a> Builder<'a> {
         {
             return false;
         }
-        between
-            .into_iter()
-            .any(|dir| inputs.fs.is_file(&dir.join("package.json")) && is_package_manifest(inputs.fs, dir))
+        between.into_iter().any(|dir| {
+            *self
+                .project_dirs
+                .entry(dir.to_path_buf())
+                .or_insert_with(|| inputs.fs.is_file(&dir.join("package.json")) && is_package_manifest(inputs.fs, dir))
+        })
     }
 
     /// The id of `abs`, creating an unparsed module on first sight. The flag is true for a new module.
