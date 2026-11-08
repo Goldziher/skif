@@ -30,12 +30,21 @@ const CLEAN: u8 = 0;
 const PROBLEMS: u8 = 1;
 const COULD_NOT_RUN: u8 = 2;
 
+/// What happens to the memory of a run when [`run`] returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Teardown {
+    /// Free it, as a host that keeps running must.
+    Free,
+    /// Leave it to the operating system: only for a process that exits next (the `skif` binary).
+    Leak,
+}
+
 /// Runs the lint command and returns the process exit code.
-pub fn run(args: &LintArgs, env: Env) -> u8 {
+pub fn run(args: &LintArgs, env: Env, teardown: Teardown) -> u8 {
     let trace = Trace::start(args);
     let result = match &args.trace_dependency {
         Some(name) => explain::trace_dependency(args, name).map(|()| CLEAN),
-        None => execute(args, env),
+        None => execute(args, env, teardown),
     };
     let code = match result {
         Ok(code) => code,
@@ -523,7 +532,7 @@ pub fn lint_root(path: &Path, overrides: &ConfigOverrides) -> Result<(PathBuf, R
         .iter()
         .map(|run| roots::prefixed(&run.report, &run.prefix))
         .collect();
-    let report = roots::aggregate(&reports);
+    let report = roots::aggregate(&reports).into_owned();
     Ok((base, report))
 }
 
@@ -569,7 +578,7 @@ fn roots_json(runs: &[RootRun], reports: &[Cow<'_, Report>]) -> Value {
     )
 }
 
-fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
+fn execute(args: &LintArgs, env: Env, teardown: Teardown) -> Result<u8, CliError> {
     let fs = CachedFs::new(OsFs);
     let targets_out = args.targets()?;
     if args.dry_run && !args.fixing() {
@@ -630,25 +639,28 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     let aggregate = roots::aggregate(&reports);
     let prefixes: Vec<&Path> = runs.iter().map(|run| run.prefix.as_path()).collect();
     let root_fixes = roots_fix(&prefixes, &fixes);
-    let (reports, shown) = match args.max_show_issues {
-        Some(max) => {
-            let (reports, hidden) = filter::truncate_shown(reports, max);
-            if hidden > 0 && args.format() == Format::Human {
-                stderr_line(&format!(
-                    "note: --max-show-issues {max} left {hidden} finding{} out of the list",
-                    if hidden == 1 { "" } else { "s" }
-                ));
-            }
-            let mut shown = roots::aggregate(&reports);
-            shown.summary = aggregate.summary;
-            (reports, Some(shown))
+    // `--max-show-issues` cuts a copy of the per-root reports (cheap: they are borrowed), so the full `aggregate`
+    // keeps borrowing the originals.
+    let cut: Option<Vec<Cow<'_, Report>>> = args.max_show_issues.map(|max| {
+        let (cut, hidden) = filter::truncate_shown(reports.clone(), max);
+        if hidden > 0 && args.format() == Format::Human {
+            stderr_line(&format!(
+                "note: --max-show-issues {max} left {hidden} finding{} out of the list",
+                if hidden == 1 { "" } else { "s" }
+            ));
         }
-        None => (reports, None),
-    };
+        cut
+    });
+    let shown = cut.as_ref().map(|cut| {
+        let mut shown = roots::aggregate(cut).into_owned();
+        shown.summary = aggregate.summary;
+        shown
+    });
+    let listed = cut.as_ref().unwrap_or(&reports);
 
     let views: Vec<RootView<'_>> = runs
         .iter()
-        .zip(&reports)
+        .zip(listed)
         .enumerate()
         .map(|(index, (run, report))| RootView {
             prefix: &run.prefix,
@@ -700,7 +712,20 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     if !install_failures.is_empty() || !root_errors.is_empty() {
         return Ok(COULD_NOT_RUN);
     }
-    Ok(run_exit_code(args, &runs, &aggregate))
+    let code = run_exit_code(args, &runs, &aggregate);
+    if teardown == Teardown::Leak {
+        // The process exits next: freeing every diagnostic, the workspace model and the file caches one allocation at
+        // a time is a measurable part of a large run, and the operating system reclaims the memory at once.
+        std::mem::forget(views);
+        std::mem::forget(aggregate);
+        std::mem::forget(shown);
+        std::mem::forget(cut);
+        std::mem::forget(reports);
+        std::mem::forget(runs);
+        std::mem::forget(linters);
+        std::mem::forget(fs);
+    }
+    Ok(code)
 }
 
 /// `--max-show-issues` shortens the list a person reads: human and JSON output only, and not when fixing, where
@@ -730,6 +755,8 @@ fn check_max_show_issues(args: &LintArgs, targets: &[(Format, Option<PathBuf>)])
 /// anything is written, so a failing one leaves every file untouched; a write that fails partway leaves the files
 /// written before it in place. `shown` is the report `--max-show-issues` cut short: the JSON rendering lists it, and
 /// the human rendering lists the (equally cut) `views` while its annotations come from the full `report`.
+/// written before it in place. A run with stdout as its only output streams the report instead (see
+/// [`output::render_to_stdout`]), so a renderer error there can leave a partial report on stdout.
 fn render_and_write(
     args: &LintArgs,
     env: Env,
@@ -747,6 +774,15 @@ fn render_and_write(
         });
     if needs_repo_root {
         rendering.repo_root = repo_root(rendering.root);
+    }
+    // A run whose only output is stdout streams it: nothing else is written, so there is no file to keep untouched.
+    if let [(format, None)] = targets {
+        rendering.format = *format;
+        rendering.color = color_enabled(args, env, *format, None);
+        let listed = shown.filter(|_| *format == Format::Json).unwrap_or(report);
+        return timing::phase("render", || {
+            output::render_to_stdout(listed, views, &rendering, fs, fixes)
+        });
     }
     let mut rendered = Vec::with_capacity(targets.len());
     for (format, file) in targets {

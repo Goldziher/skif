@@ -178,7 +178,7 @@ pub fn inspect(
     } else {
         BTreeSet::new()
     };
-    let analysis = Analysis::run_with(workspace, config, &catalog_deps);
+    let analysis = Analysis::run_with(workspace, config, &catalog_deps, false);
     let rules = policy_rules();
     let reported: Vec<&Diagnostic> = diagnostics
         .iter()
