@@ -282,8 +282,9 @@ empty list turns its step off. Sorting is by byte order, the order `unsorted-dep
 
 Without `indent`, formatting moves members with their own text and keeps every file's whitespace, and whitespace is
 never reported. With `indent` (spaces or tabs; `"\\t"` is read as a tab), a manifest must be laid out as
-`JSON.stringify(manifest, null, indent)` lays it out, with the file's own line ending and a final newline. Only
-`package.json` files are formatted.
+`JSON.stringify(manifest, null, indent)` lays it out, with the file's own line ending and a final newline. A manifest
+that is not strict JSON (comments, trailing commas, single-quoted strings) keeps its layout, because laying it out again
+would drop its comments or write invalid JSON. Only `package.json` files are formatted.
 
 ### `[js]`
 
