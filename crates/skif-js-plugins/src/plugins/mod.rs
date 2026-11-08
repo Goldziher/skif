@@ -96,6 +96,7 @@ pub mod typedoc;
 pub mod typescript;
 pub mod unbuild;
 pub mod unocss;
+pub mod unplugin_icons;
 pub mod vercel;
 pub mod vike;
 pub mod vite;

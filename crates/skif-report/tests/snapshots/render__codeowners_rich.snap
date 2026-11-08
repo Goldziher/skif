@@ -1,0 +1,14 @@
+---
+source: crates/skif-report/tests/render.rs
+expression: "run(&rich(), Format::Codeowners, &options(false).with_codeowners(codeowners))"
+---
+@org/design (2)
+packages/web/package.json:4:14 version-mismatch réact is declared with 2 different versions
+packages/web/package.json:5:5 unused-dependency lodash is never imported 日本語
+
+@org/web (2)
+packages/web/package.json:4:14 version-mismatch réact is declared with 2 different versions
+packages/web/package.json:5:5 unused-dependency lodash is never imported 日本語
+
+(unowned) (1)
+package.json sorted-keys keys are not sorted

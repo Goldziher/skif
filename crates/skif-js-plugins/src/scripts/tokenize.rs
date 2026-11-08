@@ -124,6 +124,11 @@ impl Lexer<'_> {
                     self.end_word();
                     self.i += 1;
                 }
+                '(' if self.cur.is_none() && self.at(self.i + 1) == Some('(') => {
+                    // `(( n++ ))` is an arithmetic command, not a subshell running `n++`.
+                    self.end_segment();
+                    self.i = (self.find_close(self.i + 1) + 1).min(n);
+                }
                 '\n' | ';' | '(' | ')' => {
                     self.end_segment();
                     self.i += 1;
@@ -269,7 +274,9 @@ impl Lexer<'_> {
             Some('(') => {
                 let close = self.find_close(self.i + 2);
                 let inner = self.pos(self.i + 2)..self.pos(close);
-                if inner.start < inner.end {
+                // `$(( n + 1 ))` is arithmetic expansion: its body is an expression, not a command.
+                let arithmetic = self.at(self.i + 2) == Some('(');
+                if inner.start < inner.end && !arithmetic {
                     self.tokens.substitutions.push(inner);
                 }
                 let end = (close + 1).min(n);

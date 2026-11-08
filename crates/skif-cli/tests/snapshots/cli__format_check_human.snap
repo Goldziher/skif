@@ -1,0 +1,15 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: "redact(&check.stdout, dir.path())"
+---
+packages/a/package.json
+  error[package-json-format]: `package.json` is not formatted
+   --> packages/a/package.json:1:1
+    |
+  1 | {
+    | ^
+    = package: @format/a
+    = help: the top-level keys are not in the configured order; the conditions of `exports` are not in the configured order; `keywords` is not sorted alphabetically; run `skif format`
+    = fix (safe): Format `package.json`
+
+Found 1 error in 2 packages (1 fixable)
