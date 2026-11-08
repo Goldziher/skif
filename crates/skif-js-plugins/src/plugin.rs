@@ -37,6 +37,20 @@ pub enum Enabler {
     ManifestKey(&'static str),
 }
 
+/// A custom element library whose registrations mark a class as used (ADR 0062).
+///
+/// A class decorated with `decorator` imported from one of `modules` is registered, and so is a class that extends
+/// `base_class` imported from one of them and calls `Class.define(…)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CustomElements {
+    /// Specifiers the library is imported from; one that ends with `/` matches every specifier below it.
+    pub modules: &'static [&'static str],
+    /// The name of the registering decorator as the library exports it (`customElement`).
+    pub decorator: &'static str,
+    /// The base class whose subclasses register with a static `define`, when the library has one (`FASTElement`).
+    pub base_class: Option<&'static str>,
+}
+
 /// The declarative row of a plugin.
 #[derive(Debug, Clone, Copy)]
 pub struct PluginSpec {
@@ -61,6 +75,8 @@ pub struct PluginSpec {
     pub binaries: &'static [&'static str],
     /// Globs of files the plugin generates or owns, which must not be reported as unused.
     pub ignore: &'static [&'static str],
+    /// The custom element library of the tool, whose registered classes are used without an import.
+    pub custom_elements: Option<CustomElements>,
     /// The knip commit the row was checked against.
     pub knip_commit: &'static str,
 }
@@ -78,6 +94,7 @@ impl PluginSpec {
         package_json_key: None,
         binaries: &[],
         ignore: &[],
+        custom_elements: None,
         knip_commit: KNIP_COMMIT,
     };
 }
@@ -328,6 +345,8 @@ pub struct PluginOutput {
     pub module_dirs: Vec<String>,
     /// File extensions (with the leading dot) imports may omit, from bundler `resolve.extensions`.
     pub extensions: Vec<String>,
+    /// The custom element library of the tool; see [`PluginSpec::custom_elements`].
+    pub custom_elements: Option<CustomElements>,
     /// A config computes entry points the plugin could not evaluate statically (`entry: await glob(…)` with a
     /// computed pattern, a call of an unknown function): `entries` may be missing files. Rules that report files as
     /// unreachable from entries should be conservative for this workspace.

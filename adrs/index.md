@@ -69,6 +69,7 @@ old one.
 | 0059 | [Twenty-One More Plugins: Widely Used Tools, Commands Run From Source and Imported Call Options](0059-twenty-one-more-plugins-and-commands-run-from-source.md) | accepted |
 | 0060 | [Thirty-Five More Plugins: Frameworks, Task Runners and Options Written Anywhere in a Config](0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md) | accepted |
 | 0061 | [Thirty-Nine More Plugins and Plugins Enabled by a package.json Key](0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md) | accepted |
+| 0062 | [Custom Element Registrations and the taskr Plugin](0062-custom-element-registrations-and-the-taskr-plugin.md) | accepted |
 
 ## Effective statements
 
@@ -171,3 +172,7 @@ the lines below stay as written; this table says which record governs.
 | [0049](0049-js-corrections-from-adjudicating-knip-disagreements.md), plugin count | the table holds 105 plugins | [0059](0059-twenty-one-more-plugins-and-commands-run-from-source.md): 21 plugins are added; with `unplugin-icons` the table holds 127 plugins |
 | [0059](0059-twenty-one-more-plugins-and-commands-run-from-source.md), plugin count | the table holds 127 plugins | [0060](0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md): 35 plugins are added; the table holds 162 plugins |
 | [0060](0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md), plugin count | the table holds 162 plugins | [0061](0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md): 39 plugins are added; the table holds 201 plugins |
+| [0061](0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md), plugin count | the table holds 201 plugins | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): `lit`, `catalyst`, `fast` and `taskr` are added; the table holds 205 plugins |
+| [0059](0059-twenty-one-more-plugins-and-commands-run-from-source.md), line 45 | `lit` is not added: plugins cannot mark exports as used | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): a plugin names a custom element library whose registrations mark exports as used; `lit` is added |
+| [0060](0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md), line 52 | `stencil` does not mark custom elements as used | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): `@Component` classes from `@stencil/core` are used; component style URLs are still not marked |
+| [0061](0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md), line 41 | `catalyst` and `fast` are not added: skif does not mark custom elements | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): both are added and mark the classes they register |

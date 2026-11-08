@@ -171,6 +171,9 @@ pub struct ExportReport {
     pub in_used_signature: bool,
     /// The export is itself a re-export.
     pub is_re_export: bool,
+    /// The class behind the export is registered as a custom element (ADR 0062), so the browser uses it.
+    #[serde(skip_serializing_if = "is_false")]
+    pub registered: bool,
     /// The entry files of the package are not fully known, so its exports are not judged.
     #[serde(skip_serializing_if = "is_false")]
     pub entries_incomplete: bool,
@@ -367,6 +370,9 @@ fn render_export(export: &ExportReport, depth: usize, out: &mut String) {
     }
     if export.is_re_export {
         let _ = writeln!(out, "{pad}  itself a re-export of another module");
+    }
+    if export.registered {
+        let _ = writeln!(out, "{pad}  registered as a custom element");
     }
     if export.entries_incomplete {
         let _ = writeln!(
@@ -703,6 +709,7 @@ impl JsAnalysis<'_> {
             re_exports: Vec::new(),
             in_used_signature: false,
             is_re_export: false,
+            registered: false,
             entries_incomplete: false,
             already_explained: false,
         };
@@ -740,7 +747,8 @@ impl JsAnalysis<'_> {
                 self.explain_reexports(importer, module, name, depth, walk, &mut report.re_exports);
             }
         }
-        let used = self.exports.is_used(module.id, name);
+        report.registered = self.setup.is_registered(module.owner, export);
+        let used = report.registered || self.exports.is_used(module.id, name);
         report.in_used_signature = !used && self.in_used_signature(module, export, &mut HashSet::new());
         report.verdict = if report.entry_public || report.tagged_public {
             Verdict::Public

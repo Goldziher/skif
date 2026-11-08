@@ -305,3 +305,8 @@ blake3 = "0cb392b3b02feee860abe41c6449f9198858fc4fde52269db4e2b6a05c897b12"
 number = 61
 status = "accepted"
 blake3 = "fb801baf95421900cb4935f773fa5b57cc8e4889d649eebb18f41a413d92f519"
+
+[adrs."adrs/0062-custom-element-registrations-and-the-taskr-plugin.md"]
+number = 62
+status = "accepted"
+blake3 = "50377c6b09beefe17d71d5d8fbfaa55e911b965c91ebe6b50b50596ed04a499f"
