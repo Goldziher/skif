@@ -593,6 +593,30 @@ fn knip_dependencies_include_the_catalog_types_and_the_dev_dependencies() {
 }
 
 #[test]
+fn knip_catalog_type_turns_on_the_unused_catalog_entries_report() {
+    let migration = knip(None, &[("k", "knip")]);
+    let parsed = table(&migration);
+    assert_eq!(parsed["rules"]["unused-catalog-entries"].as_str(), Some("error"));
+    assert_eq!(parsed["catalog"]["report-unused-entries"].as_bool(), Some(true));
+    assert!(migration.config.catalog.report_unused_entries);
+    assert_eq!(class(&migration, "catalog"), NoteClass::Exact);
+
+    for (config, scripts) in [
+        (Some(r#"{ "exclude": ["catalog"] }"#), [("k", "knip")]),
+        (Some(r#"{ "rules": { "catalog": "off" } }"#), [("k", "knip")]),
+        (None, [("k", "knip --production")]),
+        (None, [("k", "knip --include files")]),
+    ] {
+        let migration = knip(config, &scripts);
+        assert!(
+            table(&migration).get("catalog").is_none(),
+            "{config:?} {scripts:?}: {}",
+            migration.toml
+        );
+    }
+}
+
+#[test]
 fn knip_namespace_only_includes_add_the_defaults() {
     let migration = knip(None, &[("k", "knip --include nsExports")]);
     let rules = table(&migration)["rules"].clone();
