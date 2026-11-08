@@ -100,6 +100,11 @@ for target in &discovery.targets {
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+A root can lie inside another (a standalone `build/package.json` below the repository root). A file of the inner
+root that only the outer root imports is unused as far as the inner root alone can tell. `skif -r` therefore lints
+the enclosing roots first and passes the files their reports list in `Report::other_project_files` (relative to the
+enclosing root), made relative to the inner root, to `RunOptions::with_extra_entries` of the inner root's run.
+
 A `Linter` built with `Linter::with_fs` remembers directory listings, existence checks and small configuration
 files read through the file system for one run and starts every `run_with` from an empty cache, so a host that edits
 files between runs sees the edits. `discover_targets`, `find_target` and `find_workspace_root` do the same for

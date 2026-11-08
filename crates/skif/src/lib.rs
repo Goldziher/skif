@@ -65,6 +65,10 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
+//! A root nested in another cannot see what the outer root imports from it. A host that wants those files counted
+//! lints the enclosing roots first and passes the files their reports list in [`Report::other_project_files`],
+//! made relative to the nested root, to [`RunOptions::with_extra_entries`] of the nested root's run, as `skif -r` does.
+//!
 //! # Features
 //!
 //! | Feature | Default | Brings in |
