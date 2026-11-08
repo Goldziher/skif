@@ -184,6 +184,18 @@ All notable changes to this project are documented here. The format follows
   agreement ([#27](https://github.com/Goldziher/skif/issues/27)).
 - The knip comparison runs skif recursively on `vercel-examples`, `mastra` and `next-js`, whose examples, templates
   and test apps are nested roots knip reads from the root ([#27](https://github.com/Goldziher/skif/issues/27)).
+- The knip comparison counts knip-only exports, types, namespace exports and types, and enum and namespace members in
+  a package skif lists under `incomplete-packages` as `not-judged-by-skif`, as it did for files and dependencies:
+  skif does not report them there either
+  ([ADR 0068](adrs/0068-what-the-knip-comparison-sets-apart.md), [#27](https://github.com/Goldziher/skif/issues/27)).
+- The knip comparison records the configuration files knip could not load (`ERROR: Error loading`, exit 2) in
+  `parity.json`, their number in the baseline and `parity.md`, and counts knip-only findings in their packages as the
+  `knip-config-error` deviation instead of as differences; create-t3-turbo and vue-core have such files
+  ([ADR 0068](adrs/0068-what-the-knip-comparison-sets-apart.md), [#27](https://github.com/Goldziher/skif/issues/27)).
+- The `fixture-file` deviation of the knip comparison covers only `fixtures` and `__fixtures__`, the directories skif
+  does not report; knip-only files below `fixture`, `testdata`, `test_root`, `__testfixtures__` or `*-fixtures`, which
+  skif judges, count as differences unless they are test files
+  ([ADR 0068](adrs/0068-what-the-knip-comparison-sets-apart.md), [#27](https://github.com/Goldziher/skif/issues/27)).
 - Manifest checks are faster on large workspaces: about 2.5 times faster on a generated 2,000-package workspace with
   tens of thousands of findings, and twice as fast at 500 packages. Package configuration files are probed in
   parallel, the version-group analysis and its findings run in parallel, the JSON report is written without the
