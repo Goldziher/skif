@@ -40,7 +40,7 @@ impl Plugin for Vue {
     }
 }
 
-/// Whether a command of `script` is `vue-cli-service … lint`.
+/// Whether a command of `script` is `vue-cli-service lint …`: `lint` is its first positional argument, the command.
 fn runs_lint(script: &str) -> bool {
     let words: Vec<&str> = script.split_whitespace().collect();
     words.iter().enumerate().any(|(index, word)| {
@@ -48,7 +48,8 @@ fn runs_lint(script: &str) -> bool {
             && words[index + 1..]
                 .iter()
                 .take_while(|word| !matches!(**word, "&&" | "||" | ";" | "|" | "&"))
-                .any(|word| *word == "lint")
+                .find(|word| !word.starts_with('-'))
+                == Some(&"lint")
     })
 }
 

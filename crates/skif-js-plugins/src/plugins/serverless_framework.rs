@@ -79,8 +79,11 @@ fn values_or_self(value: &ConfigValue) -> Vec<&ConfigValue> {
 }
 
 /// The production entry of a `handler` (`src/handler.main`): the module before the last `.`, with a source extension
-/// when it has none.
+/// when it has none. A handler holding a variable (`${self:custom.dir}/x.main`) or a pattern is not a path and is skipped.
 fn handler_entry(handler: &str, config: &ConfigAst<'_>) -> Option<PluginInput> {
+    if handler.contains(['$', '`', '*', '{', '}']) {
+        return None;
+    }
     let (file, _) = handler.rsplit_once('.')?;
     let has_extension = file
         .rsplit_once('.')
