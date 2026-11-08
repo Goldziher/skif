@@ -10,6 +10,11 @@ export enum Color {
 export namespace Space {
   export const used = 1;
 }
+
+export enum Size {
+  Small,
+  Large,
+}
 --- packages/app/src/defaults.ts
 export const name = "app";
 
