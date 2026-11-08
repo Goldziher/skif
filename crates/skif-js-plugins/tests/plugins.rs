@@ -2862,13 +2862,18 @@ fn serverless_framework_handlers_plugins_and_file_variables() {
         &[
             (
                 "serverless.yml",
-                "service: api\nplugins:\n  - serverless-offline\n  - ./plugins/local.js\ncustom:\n  esbuild:\n    inject: [./shims.js]\nfunctions:\n  hello:\n    handler: src/hello.main\n  typed:\n    handler: src/typed.ts.handler\n  more: ${file(./functions.yml):extra}\n",
+                "service: api\nplugins:\n  - serverless-offline\n  - ./plugins/local.js\ncustom:\n  esbuild:\n    inject: [./shims.js]\nfunctions:\n  hello:\n    handler: src/hello.main\n  typed:\n    handler: src/typed.ts.handler\n  more: ${file(./functions.yml):extra}\n  dynamic:\n    handler: ${self:custom.dir}/dynamic.main\n  glob:\n    handler: src/dynamic/*.main\n",
             ),
             ("functions.yml", "extra:\n  handler: src/extra.run\n"),
         ],
         &["serverless"],
     );
     let out = output(&results, "serverless-framework");
+    assert!(
+        !out.production_entries.iter().any(|e| e.contains("dynamic")),
+        "{:?}",
+        out.production_entries
+    );
     assert_deps(out, &["serverless-offline", "esbuild"]);
     assert_entries(
         &out.production_entries,
@@ -2908,6 +2913,10 @@ fn vue_reads_configure_webpack_and_the_lint_script() {
     assert_deps(out, &["markdown-loader", "@vue/cli-plugin-eslint"]);
     let results = resolve_with_scripts(&[], &["vue"], &[("build", "vue-cli-service build && eslint lint")]);
     assert_absent(output(&results, "vue"), &["@vue/cli-plugin-eslint"]);
+    let results = resolve_with_scripts(&[], &["vue"], &[("build", "vue-cli-service build --skip lint")]);
+    assert_absent(output(&results, "vue"), &["@vue/cli-plugin-eslint"]);
+    let results = resolve_with_scripts(&[], &["vue"], &[("lint", "vue-cli-service --fix lint")]);
+    assert_deps(output(&results, "vue"), &["@vue/cli-plugin-eslint"]);
 }
 
 #[test]
@@ -3051,6 +3060,61 @@ fn execa_zx_and_nano_spawn_commands_are_scripts() {
         "{:?}",
         binaries("nano-spawn")
     );
+}
+
+#[test]
+fn execa_default_import_and_zx_globals_are_read() {
+    let files = [
+        (
+            "scripts/legacy.js",
+            r#"import execa from "execa";
+            await execa("prettier", ["--write", "."]);
+            await execa.command("tsc --build");
+            execa.sync("vitest", ["run"]);"#,
+        ),
+        (
+            "scripts/globals.mjs",
+            "import 'zx/globals';\nawait $`wrangler deploy`;\n",
+        ),
+        ("scripts/npx.mjs", "#!/usr/bin/env -S npx zx\nawait $`turbo build`;\n"),
+    ];
+    let results = resolve(&files, &["execa", "zx"]);
+    let binaries = |id: &str| output(&results, id).referenced_binaries.clone();
+    for binary in ["prettier", "tsc", "vitest"] {
+        assert!(
+            binaries("execa").contains(&binary.to_owned()),
+            "{:?}",
+            binaries("execa")
+        );
+    }
+    for binary in ["wrangler", "turbo"] {
+        assert!(binaries("zx").contains(&binary.to_owned()), "{:?}", binaries("zx"));
+    }
+}
+
+#[test]
+fn execa_and_nano_spawn_skip_calls_with_an_unsafe_argument() {
+    let files = [
+        (
+            "scripts/release.ts",
+            r#"import { execa } from "execa";
+            await execa("node", ["scripts/build.js", "$(rm -rf /)"]);"#,
+        ),
+        (
+            "scripts/check.js",
+            r#"import spawn from "nano-spawn"; await spawn("eslint", ["src", "a && b"]);"#,
+        ),
+    ];
+    let results = resolve(&files, &["execa", "nano-spawn"]);
+    for id in ["execa", "nano-spawn"] {
+        let out = output(&results, id);
+        assert!(
+            out.referenced_binaries.is_empty(),
+            "{id}: {:?}",
+            out.referenced_binaries
+        );
+        assert!(out.entries.is_empty(), "{id}: {:?}", out.entries);
+    }
 }
 
 #[test]
