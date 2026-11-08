@@ -119,11 +119,11 @@ expression: diagnostics
     "location": {
       "path": "packages/lit-app/src/unregistered.ts",
       "span": {
-        "start": 48,
-        "end": 60,
-        "start-line": 3,
+        "start": 95,
+        "end": 107,
+        "start-line": 5,
         "start-col": 14,
-        "end-line": 3,
+        "end-line": 5,
         "end-col": 26
       }
     },
@@ -137,8 +137,8 @@ expression: diagnostics
             "text": {
               "path": "packages/lit-app/src/unregistered.ts",
               "edit": {
-                "start": 35,
-                "end": 42,
+                "start": 82,
+                "end": 89,
                 "replacement": ""
               }
             }
@@ -175,6 +175,42 @@ expression: diagnostics
               "edit": {
                 "start": 154,
                 "end": 161,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-types",
+    "severity": "warning",
+    "message": "type `UnregisteredState` is never imported by another module",
+    "help": "it is only used in this file; remove the `export` keyword",
+    "location": {
+      "path": "packages/lit-app/src/unregistered.ts",
+      "span": {
+        "start": 47,
+        "end": 64,
+        "start-line": 3,
+        "start-col": 13,
+        "end-line": 3,
+        "end-col": 30
+      }
+    },
+    "package": "lit-app",
+    "fixes": [
+      {
+        "title": "Remove the unused export `UnregisteredState`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "packages/lit-app/src/unregistered.ts",
+              "edit": {
+                "start": 35,
+                "end": 42,
                 "replacement": ""
               }
             }

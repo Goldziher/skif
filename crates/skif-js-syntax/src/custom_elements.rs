@@ -11,6 +11,7 @@ use oxc_ast::ast::{
     Statement, StaticBlock, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
+use oxc_semantic::{Scoping, SemanticBuilder, SymbolId};
 
 use crate::model::{Export, ExportKind, ImportKind, ImportedKind, ModuleInfo, Registration};
 
@@ -51,17 +52,50 @@ pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
     let base_classes = top_level_classes(program, &bindings, &mut found);
     let mut calls = Calls::default();
     calls.visit_program(program);
-    for call in calls.defines {
-        let registry = match &call.object {
-            DefineObject::Registry(name) => name == "customElements" || calls.registries.contains(name),
-            DefineObject::MemberRegistry => true,
+    // A registry variable is matched by name in the first pass. When a `define` goes through one, the calls are
+    // collected again with scopes resolved, so a `define` on another binding of the same name does not count. Most
+    // files have no registry variable and skip the semantic analysis.
+    let semantic;
+    if calls
+        .defines
+        .iter()
+        .any(|call| calls.is_registry_variable(&call.object))
+    {
+        semantic = SemanticBuilder::new().build(program).semantic;
+        calls = Calls {
+            scoping: Some(semantic.scoping()),
+            ..Calls::default()
         };
-        if registry && let Some(class) = call.class {
-            found.add(Target::Local(class), Registration::Define);
-        } else if let DefineObject::Registry(name) = call.object
-            && let Some(registration) = base_classes.get(&name)
-        {
-            found.add(Target::Local(name), registration.clone());
+        calls.visit_program(program);
+    }
+    for call in &calls.defines {
+        match &call.object {
+            // `window.customElements.define('x-a', A)`.
+            DefineObject::MemberRegistry => {
+                if let Some(class) = &call.class {
+                    found.add(Target::Local(class.clone()), Registration::Define);
+                }
+            }
+            // `customElements.define('x-a', A)`, or the same through a variable holding a registry.
+            DefineObject::Registry { name, symbol } if calls.is_registry(name, *symbol) => {
+                if let Some(class) = &call.class {
+                    found.add(Target::Local(class.clone()), Registration::Define);
+                }
+            }
+            // `A.define({ … })`: `A` extends an imported base class.
+            DefineObject::Registry { name, .. } if base_classes.contains_key(name) => {
+                found.add(Target::Local(name.clone()), base_classes[name].clone());
+            }
+            // `FASTElement.define(A, { … })`: the static form on the imported base class, with the class first.
+            DefineObject::Registry { name, .. } => {
+                if let (Some(class), Some(Binding::Named(module, imported))) = (&call.first, bindings.get(name)) {
+                    let registration = Registration::BaseClassDefine {
+                        module: module.clone(),
+                        name: imported.clone(),
+                    };
+                    found.add(Target::Local(class.clone()), registration);
+                }
+            }
         }
     }
     for (target, registrations) in found.0 {
@@ -198,8 +232,9 @@ fn base_class_registration(expression: &Expression<'_>, bindings: &HashMap<Strin
 
 /// The object of a `.define(…)` call.
 enum DefineObject {
-    /// An identifier: `customElements`, a registry variable, or a class (`Element.define()`).
-    Registry(String),
+    /// An identifier: `customElements`, a registry variable, or a class (`Element.define()`), with the symbol it
+    /// resolves to once scopes are resolved (`None` for a global or before resolution).
+    Registry { name: String, symbol: Option<SymbolId> },
     /// `<anything>.customElements`, such as `window.customElements`.
     MemberRegistry,
 }
@@ -210,27 +245,55 @@ struct DefineCall {
     /// The class passed as the second argument of a registry's `define`, when it is an identifier or `this` in a
     /// static block.
     class: Option<String>,
+    /// The first argument of a `define`, when it is an identifier: the class of `FASTElement.define(A, { … })`.
+    first: Option<String>,
 }
 
 /// Collects the `define` calls and the variables that hold a custom element registry.
 #[derive(Default)]
-struct Calls {
+struct Calls<'s> {
+    /// The resolved scopes of the program, in the second pass.
+    scoping: Option<&'s Scoping>,
     defines: Vec<DefineCall>,
+    /// The names of the variables that hold a registry.
     registries: HashSet<String>,
+    /// The symbols of those variables, in the second pass.
+    registry_symbols: HashSet<SymbolId>,
     /// Names of the enclosing classes (`None` for an anonymous one).
     classes: Vec<Option<String>>,
     /// The class whose static block encloses the current node, innermost last.
     static_blocks: Vec<Option<String>>,
 }
 
-impl Calls {
+impl Calls<'_> {
+    /// Whether `object` names a variable that holds a registry, by name.
+    fn is_registry_variable(&self, object: &DefineObject) -> bool {
+        matches!(object, DefineObject::Registry { name, .. } if self.registries.contains(name))
+    }
+
+    /// Whether the identifier `name`, resolved to `symbol` in the second pass, is a registry: the global
+    /// `customElements` or a variable holding one.
+    fn is_registry(&self, name: &str, symbol: Option<SymbolId>) -> bool {
+        match (self.scoping, symbol) {
+            (Some(_), Some(symbol)) => self.registry_symbols.contains(&symbol),
+            (Some(_), None) => name == "customElements",
+            (None, _) => name == "customElements" || self.registries.contains(name),
+        }
+    }
+
     fn define_call(&self, call: &CallExpression<'_>) -> Option<DefineCall> {
         let Expression::StaticMemberExpression(callee) = &call.callee else {
             return None;
         };
         let method = callee.property.name.as_str();
         let object = match &callee.object {
-            Expression::Identifier(id) => DefineObject::Registry(id.name.as_str().to_owned()),
+            Expression::Identifier(id) => DefineObject::Registry {
+                name: id.name.as_str().to_owned(),
+                symbol: self
+                    .scoping
+                    .zip(id.reference_id.get())
+                    .and_then(|(scoping, reference)| scoping.get_reference(reference).symbol_id()),
+            },
             Expression::StaticMemberExpression(member) if member.property.name == "customElements" => {
                 if method != "define" {
                     return None;
@@ -247,11 +310,15 @@ impl Calls {
             Some(Argument::ThisExpression(_)) if method == "define" => self.static_blocks.last().cloned().flatten(),
             _ => None,
         };
-        Some(DefineCall { object, class })
+        let first = match call.arguments.first() {
+            Some(Argument::Identifier(id)) if method == "define" => Some(id.name.as_str().to_owned()),
+            _ => None,
+        };
+        Some(DefineCall { object, class, first })
     }
 }
 
-impl<'a> Visit<'a> for Calls {
+impl<'a> Visit<'a> for Calls<'_> {
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
         if let BindingPattern::BindingIdentifier(id) = &it.id
             && let Some(init) = &it.init
@@ -266,6 +333,7 @@ impl<'a> Visit<'a> for Calls {
             };
             if is_registry {
                 self.registries.insert(id.name.as_str().to_owned());
+                self.registry_symbols.extend(id.symbol_id.get());
             }
         }
         walk::walk_variable_declarator(self, it);

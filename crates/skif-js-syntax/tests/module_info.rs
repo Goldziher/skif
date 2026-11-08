@@ -996,6 +996,36 @@ fn custom_element_registrations_are_recorded_on_the_export() {
             vec![base("@microsoft/fast-element", "FASTElement")],
         ),
         (
+            "static define on the imported base class",
+            "import { FASTElement } from '@microsoft/fast-element';\nexport class A extends FASTElement {}\nFASTElement.define(A, { name: 'x-a' });",
+            "A",
+            vec![base("@microsoft/fast-element", "FASTElement")],
+        ),
+        (
+            "static define on an object that is not imported",
+            "export class A extends HTMLElement {}\nOther.define(A, { name: 'x-a' });",
+            "A",
+            vec![],
+        ),
+        (
+            "member registry variable in a nested scope",
+            "const r = window.customElements;\nexport class A extends HTMLElement {}\nfunction f() { r.define('x-a', A); }",
+            "A",
+            vec![Registration::Define],
+        ),
+        (
+            "registry variable shadowed by a parameter",
+            "const r = customElements;\nexport class A extends HTMLElement {}\nfunction f(r) { r.define('x-a', A); }",
+            "A",
+            vec![],
+        ),
+        (
+            "registry variable of another scope",
+            "function f() { const r = customElements; }\nexport class A extends HTMLElement {}\nr.define('x-a', A);",
+            "A",
+            vec![],
+        ),
+        (
             "base class never defined",
             "import { FASTElement } from '@microsoft/fast-element';\nexport class A extends FASTElement {}",
             "A",
