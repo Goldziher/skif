@@ -51,12 +51,13 @@ gives no reason stay `Package`, since publishing may expose any file.
 | --- | --- |
 | `next` | `{,src/}{app,pages}/**` and `{,src/}{instrumentation,instrumentation-client,middleware,proxy}.*`, since an unknown `pageExtensions` changes which router files are routes |
 | `vite` | `{,src/}{index,main}.*`, the conventional build input a shared base may set; `Package` when the config computes `root`, `build.rollupOptions.input` or `build.lib.entry` itself or is unknown as a whole |
-| `vitest` | test files, test and fixture directories, files named after `setup` or `teardown`, and `*.{test,spec,bench,e2e,integration}*`; `Package` when the config computes `root` itself |
-| `playwright` | the same test conventions |
+| `vitest` | test files, test and fixture directories, files named after `setup` or `teardown`, and `*.{test,spec,bench,e2e,integration}*`; `Package` when the config computes `root`, `test.include`, `test.setupFiles` or `test.globalSetup` itself (also in an inline project) or is unknown as a whole |
+| `playwright` | the same test conventions; `Package` when the config is unknown as a whole |
 
 A config's own computed key is told from one a spread may replace by evaluating the key with the unknown spreads
-removed. A computed value carries no static prefix in the evaluated config, so computed entry keys of a test runner use
-the convention scope and those of `vite` are `Package`.
+removed. A spread or merged base is shared between packages, so it can only name files where the tool looks by
+convention; a key the config computes itself, or a config unknown as a whole (a factory called with the package's own
+options, such as `include: ['src/**/*.check.ts']`), may name any file of the package, so both are `Package`.
 
 **Scoped files are entries.** The project files of the package that match the scope are entry files of the module
 graph, so the files they import are not reported either; every other file of the package is judged by `unused-files`

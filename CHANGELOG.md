@@ -180,9 +180,9 @@ All notable changes to this project are documented here. The format follows
   configuration could make entries stay unjudged (the `next` router directories, Vite's `index` or `main` module, and
   the tests, test directories and setup modules of `vitest` and `playwright`), and they count as entries. Every other
   file is judged, so dead files such as cal-com's `lib/cropImage.ts` and n8n's `useParentScroll.ts` are reported. An
-  unparsable config, a config that computes its own entry keys, unmapped published output, a plugin without a scope
-  and a computed `import()` in the package keep the whole package unjudged. Unused dependencies and exports of such a
-  package are still not judged. `explain-usage` tells the narrowed scope from the package-wide case (the `entry`
+  unparsable config, a config that computes its own entry keys or is unknown as a whole (except `next`), unmapped
+  published output, a plugin without a scope and a computed `import()` in the package keep the whole package
+  unjudged. Unused dependencies and exports of such a package are still not judged. `explain-usage` tells the narrowed scope from the package-wide case (the `entry`
   `incomplete-scope`, `incomplete-scope` and `widened-by`), and the human note says the packages were not fully
   checked ([ADR 0064](adrs/0064-narrowed-scope-for-incomplete-entries.md),
   [#23](https://github.com/Goldziher/skif/issues/23)).
