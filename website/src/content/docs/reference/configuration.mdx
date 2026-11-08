@@ -633,7 +633,10 @@ is unknown and the other keys stay known. The same holds for `if (test) return a
 a known test takes its branch, and with an unknown test the value is what both returns share, never the last one alone.
 A local assigned or changed in code that may or may not run (a branch with an unknown test, a loop, `cond && (x = 1)`),
 and a top-level constant changed after its declaration (`if (process.env.A) config.plugins.push(…)`), is unknown or
-partly unknown afterwards rather than keeping its earlier value. A key a plugin reads files from that is unknown below
+partly unknown afterwards rather than keeping its earlier value; a branch with an unknown test that changes a local
+leaves it what both branches have in common. An object changed through another name for it (`const a = cfg`,
+`{ test: t }`, `{ ...base }`, a function given `cfg`), by a function that writes what it captures, by `delete` or
+inside an expression is partly unknown wherever it is read. A key a plugin reads files from that is unknown below
 the top level, such as vitest's `setupFiles: isPostgres ? [...] : []` or a `test` object an unknown spread may replace,
 leaves the plugin's entries incomplete instead of being read as empty.
 

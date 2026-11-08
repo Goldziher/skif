@@ -484,3 +484,99 @@ fn a_return_in_an_else_branch_is_not_read_after_the_code_that_follows() {
     assert_eq!(get(&configs[1], &["mode"]), &ConfigValue::Unknown);
     assert_eq!(get(&configs[2], &["mode"]), &s("prod"));
 }
+
+/// Whether `value` is an object that says it may hold more than the keys it lists.
+fn open(value: &ConfigValue) -> bool {
+    value.get("...").is_some()
+}
+
+#[test]
+fn a_change_through_an_alias_a_call_or_a_closure_reaches_the_original() {
+    let value = extract(
+        "vite.config.ts",
+        "const alias = () => { const cfg = { a: 1 }; const a = cfg; if (env) a.x = 1; return cfg; };\n\
+         const nested = () => { const t = { include: ['a'] }; const cfg = { test: t }; t.include.push('b'); return cfg; };\n\
+         const closure = () => { const cfg = { a: 1 }; const f = () => { cfg.a = 2; }; f(); return cfg; };\n\
+         const callback = () => { const paths = {}; dirs.forEach((d) => { paths[d] = d; }); let m = 'a'; [1].forEach(() => { m = 'b'; }); return { paths, m }; };\n\
+         const helper = () => { const cfg = { a: 1 }; configure(cfg); return cfg; };\n\
+         const local = () => { const cfg = { a: 1 }; const set = (c) => { c.a = 2; return c; }; const r = set(cfg); return cfg; };\n\
+         const top = { a: 1 }; const view = top; view.a = 2;\n\
+         const captured = { a: 1 }; function change() { captured.a = 2; } change();\n\
+         export default [alias(), nested(), closure(), callback(), helper(), local(), top, captured];",
+    );
+    let configs = value.as_array().unwrap();
+    for (index, config) in configs.iter().enumerate() {
+        if index != 3 {
+            assert!(open(config), "{index}: {config:?}");
+        }
+    }
+    assert!(open(get(&configs[3], &["paths"])));
+    assert_eq!(get(&configs[3], &["m"]), &ConfigValue::Unknown);
+}
+
+#[test]
+fn a_write_inside_an_expression_or_a_delete_is_not_lost() {
+    let value = extract(
+        "vite.config.ts",
+        "const list = ['a']; const n = list.push('b');\n\
+         const make = () => {\n\
+           const cfg = { a: 1 }; delete cfg.a;\n\
+           let m = 'a'; const x = env && (m = 'b');\n\
+           let d = 'a'; ({ d } = options);\n\
+           const items = ['a', 'b']; items.length = 0;\n\
+           return { cfg, m, d, n: items.length };\n\
+         };\n\
+         export default [{ list }, make()];",
+    );
+    let configs = value.as_array().unwrap();
+    assert_eq!(
+        get(&configs[0], &["list"]),
+        &ConfigValue::Array(vec![s("a"), ConfigValue::Unknown])
+    );
+    assert!(open(get(&configs[1], &["cfg"])));
+    for key in ["m", "d", "n"] {
+        assert_eq!(get(&configs[1], &[key]), &ConfigValue::Unknown, "{key}");
+    }
+}
+
+#[test]
+fn a_later_change_of_module_exports_is_not_lost() {
+    let value = extract(
+        "jest.config.js",
+        "module.exports = { testMatch: ['a'] };\nmodule.exports.testMatch = ['b'];",
+    );
+    assert!(open(&value));
+}
+
+#[test]
+fn a_branch_with_an_unknown_test_leaves_what_it_does_not_change_known() {
+    let value = extract(
+        "jest.config.js",
+        "module.exports = async () => {\n\
+           const config = { testMatch: ['**/*.spec.js'] };\n\
+           const plugins = ['a'];\n\
+           if (process.env.CI) { config.reporters = ['jest-junit']; plugins.push('b'); }\n\
+           return { ...config, plugins };\n\
+         };",
+    );
+    assert!(!open(&value));
+    assert_eq!(get(&value, &["testMatch"]), &strings(&["**/*.spec.js"]));
+    assert_eq!(get(&value, &["reporters"]), &ConfigValue::Unknown);
+    assert_eq!(
+        get(&value, &["plugins"]),
+        &ConfigValue::Array(vec![s("a"), ConfigValue::Unknown])
+    );
+}
+
+#[test]
+fn a_function_in_a_config_does_not_share_what_its_parameters_take() {
+    let value = extract(
+        "next.config.js",
+        "const nextConfig = {\n\
+           transpilePackages: ['ui'],\n\
+           webpack: (config) => { config.resolve.alias = {}; return config; },\n\
+         };\nmodule.exports = nextConfig;",
+    );
+    assert!(!open(&value));
+    assert_eq!(get(&value, &["transpilePackages"]), &strings(&["ui"]));
+}

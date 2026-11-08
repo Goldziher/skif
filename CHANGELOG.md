@@ -245,6 +245,10 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   An `if (test) return a;` before a function's last `return` is followed the same way, instead of being skipped for
   the last `return`. A `const` or `let` declared in a block does not replace a binding outside it, and a local or
   top-level constant written by code that may or may not run is unknown after it instead of keeping its earlier value.
+  An object changed through another name for it (`const a = cfg`, `{ test: t }`, a function given `cfg`), by a function
+  that writes what it captures (a `forEach` callback), by `delete`, inside an expression, or as `module.exports` after
+  the assignment is partly unknown too. An `if` with an unknown test and no `return` leaves a local what both branches
+  have in common, so `if (CI) config.reporters = […]` leaves only `reporters` unknown.
   A shared vitest config that adds `resolve` only when `pinCjs` is given no longer leaves its users' entry files
   unknown ([#23](https://github.com/Goldziher/skif/issues/23)).
 - The source files a generated module may import (a missing file a `.gitignore` lists, such as an index written by a
