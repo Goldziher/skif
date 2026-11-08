@@ -10,8 +10,8 @@ use skif_js_syntax::ConfigValue;
 use crate::config_load::{from_json, load_config_with};
 use crate::files::find_files;
 use crate::plugin::{
-    BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, PathAlias, Plugin, PluginContext,
-    PluginId, PluginInput, PluginOutput, PluginSpec,
+    BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, IncompleteScope, PathAlias, Plugin,
+    PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
 };
 use crate::registry;
 use crate::script_config::{config_flags, config_paths, flag_values};
@@ -133,8 +133,15 @@ impl Collector<'_, '_> {
             })
     }
 
-    /// Takes in what `reader`, the plugin whose config `from` is, read from it.
-    fn absorb(&mut self, reader: PluginId, inputs: Vec<PluginInput>, from: &Path, depth: u8) {
+    /// Takes in what `reader`, the plugin whose config `from` is, read from it. `config` is the config read, which
+    /// bounds the entries a [`PluginInput::EntriesIncomplete`] hides; without it they may lie anywhere.
+    fn absorb(
+        &mut self,
+        reader: PluginId,
+        inputs: Vec<PluginInput>,
+        (from, config): (&Path, Option<&ConfigAst<'_>>),
+        depth: u8,
+    ) {
         let foreign = self.belongs_to_other_package(from);
         for input in inputs {
             if foreign
@@ -187,19 +194,23 @@ impl Collector<'_, '_> {
                 PluginInput::ModuleDir(dir) => push_unique(&mut self.out.module_dirs, dir),
                 PluginInput::Extension(extension) => push_unique(&mut self.out.extensions, extension),
                 PluginInput::EntriesIncomplete => {
-                    self.mark_incomplete(reader, from, IncompleteCause::ComputedEntries);
+                    let cause = IncompleteCause::ComputedEntries;
+                    let scope = config.map_or(IncompleteScope::Package, |config| scope_of(reader, cause, config));
+                    self.mark_incomplete(reader, from, cause, scope);
                 }
             }
         }
     }
 
-    /// Marks the entries incomplete because `plugin` could not fully read the config `file`.
-    fn mark_incomplete(&mut self, plugin: PluginId, file: &Path, cause: IncompleteCause) {
+    /// Marks the entries incomplete because `plugin` could not fully read the config `file`; the entries it hides
+    /// lie in `scope`.
+    fn mark_incomplete(&mut self, plugin: PluginId, file: &Path, cause: IncompleteCause, scope: IncompleteScope) {
         self.out.entries_incomplete = true;
         let reason = IncompleteEntries {
             plugin,
             file: file.to_path_buf(),
             cause,
+            scope,
         };
         if !self.out.incomplete_reasons.contains(&reason) {
             self.out.incomplete_reasons.push(reason);
@@ -344,15 +355,15 @@ fn run_plugin(
         if !collector.out.config_files.contains(&path) {
             collector.out.config_files.push(path.clone());
         }
-        collector.absorb(spec.id, inputs, &path, 0);
+        collector.absorb(spec.id, inputs, (&path, Some(&ast)), 0);
         drain(&mut collector, plugin, &mut visited);
     } else if !found_config {
         let inputs = plugin.resolve_without_config(ctx);
-        collector.absorb(spec.id, inputs, &ctx.dir.join("package.json"), 0);
+        collector.absorb(spec.id, inputs, (&ctx.dir.join("package.json"), None), 0);
         drain(&mut collector, plugin, &mut visited);
     }
     let inputs = plugin.resolve_workspace(ctx);
-    collector.absorb(spec.id, inputs, &ctx.dir.join("package.json"), 0);
+    collector.absorb(spec.id, inputs, (&ctx.dir.join("package.json"), None), 0);
     drain(&mut collector, plugin, &mut visited);
     collector.out
 }
@@ -440,25 +451,34 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             None if !reader.reads_config() => ConfigValue::Null,
             None => {
                 if is_structured(&path) && !source.trim().is_empty() {
-                    collector.mark_incomplete(reader.spec().id, &path, IncompleteCause::Unparsable);
+                    let cause = IncompleteCause::Unparsable;
+                    collector.mark_incomplete(reader.spec().id, &path, cause, IncompleteScope::Package);
                 }
                 continue;
             }
         };
-        if reader.reads_config()
-            && let Some(cause) = unreadable(&value)
-        {
-            collector.mark_incomplete(reader.spec().id, &path, cause);
-        }
         let ast = ConfigAst {
             path: &path,
             base: parent_of(&relative),
             value: &value,
             source: &source,
         };
+        if reader.reads_config()
+            && let Some(cause) = unreadable(&value)
+        {
+            let scope = reader.incomplete_scope(cause, &ast);
+            collector.mark_incomplete(reader.spec().id, &path, cause, scope);
+        }
         let inputs = reader.resolve_config(&ast, ctx);
-        collector.absorb(reader.spec().id, inputs, &path, depth);
+        collector.absorb(reader.spec().id, inputs, (&path, Some(&ast)), depth);
     }
+}
+
+/// Where the entries hidden by `config`, which plugin `reader` reads, can lie; anywhere when the plugin is unknown.
+fn scope_of(reader: PluginId, cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
+    registry::plugin(reader).map_or(IncompleteScope::Package, |plugin| {
+        plugin.incomplete_scope(cause, config)
+    })
 }
 
 /// Whether `path` is a JavaScript, TypeScript, JSON, YAML or TOML file, whose content a plugin is expected to read.
@@ -530,7 +550,7 @@ mod tests {
         collector.absorb(
             "vite",
             vec![PluginInput::EntriesIncomplete],
-            Path::new("/ws/vite.config.ts"),
+            (Path::new("/ws/vite.config.ts"), None),
             1,
         );
         let plugins: Vec<PluginId> = collector

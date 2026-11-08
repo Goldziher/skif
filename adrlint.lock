@@ -315,3 +315,8 @@ blake3 = "50377c6b09beefe17d71d5d8fbfaa55e911b965c91ebe6b50b50596ed04a499f"
 number = 63
 status = "accepted"
 blake3 = "e7aaf26eda074d0d5cc9bc3ca09ad4373e72d7f9b21e5dcc50d0b09bf2270187"
+
+[adrs."adrs/0064-narrowed-scope-for-incomplete-entries.md"]
+number = 64
+status = "accepted"
+blake3 = "972735f614049b82e59cce5035f6fa6529980ff30fac37b8681b4f754ec8c94b"

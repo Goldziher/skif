@@ -9,6 +9,7 @@ use std::path::Path;
 
 use serde::Serialize;
 use skif_js_syntax::{ExportKind, Import, ImportKind, ImportedKind, ImportedName};
+use skif_workspace::PackageId;
 
 use crate::analysis::JsAnalysis;
 use crate::discover::relative;
@@ -17,6 +18,7 @@ use crate::graph::{Module, ModuleId, Target};
 use crate::input::IncompleteEntries;
 use crate::manifest_paths::{crossing_stars, manifest_targets, source_candidates, source_patterns};
 use crate::resolve::join_normalized;
+use crate::setup::PackageSetup;
 
 /// Re-export hops followed when explaining an export.
 const MAX_DEPTH: usize = 8;
@@ -38,6 +40,9 @@ pub enum EntryReason {
     Published,
     /// Matched by an entry glob of another package that points outside that package.
     ExternalEntryGlob,
+    /// In the narrowed scope of a package whose entries are incomplete: a config the analysis cannot fully read may
+    /// make it an entry, so it is treated as one (ADR 0064).
+    IncompleteScope,
     /// The module is an entry, but none of the known rules accounts for it.
     Unknown,
 }
@@ -54,6 +59,9 @@ impl EntryReason {
                 "published by package.json (main, module, types, bin, exports, n8n nodes and credentials)"
             }
             Self::ExternalEntryGlob => "matches an entry glob of another package that points outside it",
+            Self::IncompleteScope => {
+                "may be an entry of a configuration that is not fully known, so it is treated as one (narrowed scope)"
+            }
             Self::Unknown => "unknown: no entry rule of the analysis accounts for it",
         }
     }
@@ -70,7 +78,8 @@ pub enum Absence {
     PackageExcluded,
     /// A declaration file (`.d.ts`), which is never reported as unused.
     DeclarationFile,
-    /// The entry files of its package are not fully known; [`UsageReport::incomplete`] says why.
+    /// The entry files of its package are not fully known and may be anywhere in it, so none of its files is judged
+    /// (package-wide); [`UsageReport::incomplete`] says why.
     EntriesIncomplete,
     /// Outside the project globs of its package.
     OutsideProject,
@@ -198,6 +207,17 @@ pub struct UsageReport {
     /// root.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub incomplete: Vec<IncompleteEntries>,
+    /// When the entry files of its package are not fully known but can only be files matching these globs (relative
+    /// to the package directory): the narrowed scope of ADR 0064. Files in it are treated as entries and every other
+    /// file is judged; [`UsageReport::incomplete`] then lists the reasons too. Empty when the package's entries are
+    /// known, or unknown package-wide.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub incomplete_scope: Vec<String>,
+    /// When the package's configs gave a narrowed scope but a module of the package imports a computed path, which
+    /// may load any of its files: that module and the 1-based line, as `file:line` relative to the workspace root.
+    /// The package is then unjudged package-wide.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub widened_by: Option<String>,
     /// Which rule makes it an entry file, when it is one.
     pub entry: Option<EntryReason>,
     /// Every import of the module.
@@ -214,6 +234,15 @@ impl UsageReport {
         match absence {
             Absence::UnusedFile => {
                 let _ = writeln!(out, "  no entry file reaches it: reported by `unused-files`");
+                if !self.incomplete_scope.is_empty() {
+                    let _ = writeln!(
+                        out,
+                        "  the entry files of its package are not fully known, but the unknown ones can only match {} \
+                         (narrowed scope); this file does not, so it is judged",
+                        self.incomplete_scope.join(", ")
+                    );
+                    self.render_incomplete(out);
+                }
             }
             Absence::PackageExcluded => {
                 let _ = writeln!(out, "  not analysed: its package is excluded from the run");
@@ -228,17 +257,16 @@ impl UsageReport {
                 let _ = writeln!(
                     out,
                     "  not in the module graph, and not reported as unused: the entry files of its package are \
-                     not fully known"
+                     not fully known and may be anywhere in it (package-wide)"
                 );
-                for incomplete in &self.incomplete {
-                    let source = match (&incomplete.plugin, &incomplete.file) {
-                        (Some(plugin), Some(file)) => format!("{plugin} reads {}: ", slashed(file)),
-                        (None, Some(file)) => format!("{}: ", slashed(file)),
-                        (Some(plugin), None) => format!("{plugin}: "),
-                        (None, None) => String::new(),
-                    };
-                    let _ = writeln!(out, "  {source}{}", incomplete.cause.describe());
+                if let Some(at) = &self.widened_by {
+                    let _ = writeln!(
+                        out,
+                        "  {at} imports a computed path, which may load any file of the package, so the narrowed \
+                         scope of its configs is not used"
+                    );
                 }
+                self.render_incomplete(out);
             }
             Absence::OutsideProject => {
                 let _ = writeln!(out, "  not analysed: outside the project globs of its package");
@@ -255,6 +283,19 @@ impl UsageReport {
         }
     }
 
+    /// One line per reason the entry files of the package are incomplete.
+    fn render_incomplete(&self, out: &mut String) {
+        for incomplete in &self.incomplete {
+            let source = match (&incomplete.plugin, &incomplete.file) {
+                (Some(plugin), Some(file)) => format!("{plugin} reads {}: ", slashed(file)),
+                (None, Some(file)) => format!("{}: ", slashed(file)),
+                (Some(plugin), None) => format!("{plugin}: "),
+                (None, None) => String::new(),
+            };
+            let _ = writeln!(out, "  {source}{}", incomplete.cause.describe());
+        }
+    }
+
     /// The report as text for a terminal.
     #[must_use]
     pub fn render(&self) -> String {
@@ -266,6 +307,14 @@ impl UsageReport {
         }
         if let Some(entry) = self.entry {
             let _ = writeln!(out, "  entry file: {}", entry.describe());
+            if entry == EntryReason::IncompleteScope {
+                let _ = writeln!(
+                    out,
+                    "  the narrowed scope of its package: {}",
+                    self.incomplete_scope.join(", ")
+                );
+                self.render_incomplete(&mut out);
+            }
         }
         if self.imported_by.is_empty() {
             let _ = writeln!(out, "  imported by no module");
@@ -454,17 +503,24 @@ impl JsAnalysis<'_> {
             .iter()
             .find(|module| module.path == file || module.abs == file)
         else {
-            let unused = self.unused_files.iter().any(|unused| unused.path == file);
-            let (absence, incomplete) = if unused {
-                (Absence::UnusedFile, Vec::new())
+            let unused = self.unused_files.iter().find(|unused| unused.path == file);
+            let (absence, incomplete, incomplete_scope) = if let Some(unused) = unused {
+                let (incomplete, scope) = self.narrowed_scope(unused.owner);
+                (Absence::UnusedFile, incomplete, scope)
             } else {
-                self.absence_of(file)
+                let (absence, incomplete) = self.absence_of(file);
+                (absence, incomplete, Vec::new())
             };
+            let widened_by = (absence == Absence::EntriesIncomplete)
+                .then(|| self.widened_by(file))
+                .flatten();
             return UsageReport {
                 file: slashed(file),
                 in_graph: false,
                 absence: Some(absence),
                 incomplete,
+                incomplete_scope,
+                widened_by,
                 entry: None,
                 imported_by: Vec::new(),
                 chain_from_entry: None,
@@ -478,12 +534,20 @@ impl JsAnalysis<'_> {
         let chain = self
             .chain_to_entry(module.id)
             .map(|chain| chain.iter().map(|id| slashed(&self.graph.module(*id).path)).collect());
+        let entry = module.is_entry.then(|| self.entry_reason(module));
+        let (incomplete, incomplete_scope) = if entry == Some(EntryReason::IncompleteScope) {
+            self.narrowed_scope(module.owner)
+        } else {
+            (Vec::new(), Vec::new())
+        };
         UsageReport {
             file: slashed(&module.path),
             in_graph: true,
             absence: None,
-            incomplete: Vec::new(),
-            entry: module.is_entry.then(|| self.entry_reason(module)),
+            incomplete,
+            incomplete_scope,
+            widened_by: None,
+            entry,
             imported_by: self.importers(module, &walk),
             chain_from_entry: chain,
             export: export.map(|name| self.explain_export(module, name, 0, &mut walk)),
@@ -526,6 +590,9 @@ impl JsAnalysis<'_> {
             }
             if self.is_published(module, &package.dir, &rel) {
                 return EntryReason::Published;
+            }
+            if package.in_incomplete_scope(&rel) {
+                return EntryReason::IncompleteScope;
             }
         }
         let path = slashed(&module.path);
@@ -598,21 +665,55 @@ impl JsAnalysis<'_> {
         if package.ignore.matches_any(&in_package) || self.setup.global_ignore.matches_any(&rel) {
             return (Absence::Ignored, Vec::new());
         }
-        if package.entries_incomplete {
-            let incomplete = package
-                .incomplete_reasons
-                .iter()
-                .cloned()
-                .map(|mut reason| {
-                    reason.file = reason
-                        .file
-                        .map(|path| relative(&path, root).map_or(path, std::path::PathBuf::from));
-                    reason
-                })
-                .collect();
-            return (Absence::EntriesIncomplete, incomplete);
+        if package.unjudged_package_wide() {
+            return (Absence::EntriesIncomplete, self.incomplete_reasons(package));
         }
         (Absence::NotDiscovered, Vec::new())
+    }
+
+    /// Where the package owning `file` imports a computed path that made its narrowed scope unusable, as `file:line`.
+    fn widened_by(&self, file: &Path) -> Option<String> {
+        let root = &self.workspace.root;
+        let abs = if file.is_absolute() {
+            file.to_path_buf()
+        } else {
+            join_normalized(root, &slashed(file))
+        };
+        self.workspace
+            .iter()
+            .filter(|(_, package)| abs.starts_with(root.join(&package.dir)))
+            .max_by_key(|(_, package)| root.join(&package.dir).components().count())
+            .and_then(|(id, _)| self.setup.package(id))
+            .and_then(|package| package.widened_by.as_ref())
+            .map(|(path, line)| format!("{}:{line}", slashed(path)))
+    }
+
+    /// Why the entries of `package` are incomplete, with files relative to the workspace root.
+    fn incomplete_reasons(&self, package: &PackageSetup) -> Vec<IncompleteEntries> {
+        let root = &self.workspace.root;
+        package
+            .incomplete_reasons
+            .iter()
+            .cloned()
+            .map(|mut reason| {
+                reason.file = reason
+                    .file
+                    .map(|path| relative(&path, root).map_or(path, std::path::PathBuf::from));
+                reason
+            })
+            .collect()
+    }
+
+    /// The reasons and the narrowed scope of package `owner`, when its entries are incomplete within a scope; empty
+    /// otherwise.
+    fn narrowed_scope(&self, owner: PackageId) -> (Vec<IncompleteEntries>, Vec<String>) {
+        match self.setup.package(owner) {
+            Some(package) if package.entries_incomplete => package.incomplete_scope.as_ref().map_or_else(
+                || (Vec::new(), Vec::new()),
+                |scope| (self.incomplete_reasons(package), scope.patterns.clone()),
+            ),
+            _ => (Vec::new(), Vec::new()),
+        }
     }
 
     /// Whether the manifest of the owning package publishes `module` (`rel` is relative to the package directory).

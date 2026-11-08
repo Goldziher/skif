@@ -1,7 +1,9 @@
 //! Next.js: the file-system router entry points and a custom `pageExtensions`.
 
-use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::strings;
+use crate::plugin::{
+    ConfigAst, Enabler, IncompleteCause, IncompleteScope, Plugin, PluginContext, PluginInput, PluginSpec,
+};
+use crate::support::{convention_scope, strings};
 
 /// The `next` plugin.
 pub struct Next;
@@ -70,6 +72,19 @@ impl Plugin for Next {
 
     fn resolve_without_config(&self, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         framework_dependencies()
+    }
+
+    /// Next.js takes its entries from the file-system router; a config it cannot read can change which files there
+    /// are routes (`pageExtensions`), not add entries elsewhere.
+    fn incomplete_scope(&self, _cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
+        convention_scope(
+            &SPEC,
+            config,
+            &[
+                "{,src/}{app,pages}/**",
+                "{,src/}{instrumentation,instrumentation-client,middleware,proxy}.*",
+            ],
+        )
     }
 }
 

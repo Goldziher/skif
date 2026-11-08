@@ -44,7 +44,7 @@ pub fn render_human(report: &Report, options: &RenderOptions, out: &mut dyn Writ
             .map(|package| escape_controls(&package.name).into_owned())
             .collect();
         let line = format!(
-            "note: unused files and dependencies were not checked in {} ({}): their entry files are not all known; \
+            "note: unused files and dependencies were not fully checked in {} ({}): their entry files are not all known; \
              `skif explain-usage <file>` says why",
             plural(names.len(), "package"),
             names.join(", ")

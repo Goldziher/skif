@@ -155,10 +155,10 @@ fn human_notes_incomplete_packages() {
     let lines: Vec<&str> = rendered.lines().rev().take(2).collect();
     assert!(lines[0].starts_with("Found "), "{rendered}");
     assert!(
-        lines[1].starts_with("note: unused files and dependencies were not checked in 2 packages (root, web)"),
+        lines[1].starts_with("note: unused files and dependencies were not fully checked in 2 packages (root, web)"),
         "{rendered}"
     );
-    assert!(!run(&rich(), Format::Human, &options(false)).contains("were not checked"));
+    assert!(!run(&rich(), Format::Human, &options(false)).contains("were not fully checked"));
 }
 
 #[test]
