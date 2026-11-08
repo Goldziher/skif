@@ -456,8 +456,8 @@ The rest of knip's configuration hints are part of `stale-js-config` too:
   neither itself nor a source file behind it. Paths a `.gitignore` hides, paths in a build output directory (`dist`,
   `build`, `lib`, ..., whatever the extension; knip reports these unless gitignored) and paths into a listed dependency are not judged. It points
   at the field in `package.json`.
-- `top-level-unconfigured` and `workspace-unconfigured`: more than 20 unused files that are more than a fifth of the
-  files analysed suggest missing entries, with knip's thresholds. A single-package workspace gets one hint; otherwise
+- `top-level-unconfigured` and `workspace-unconfigured`: more than 20 unused files that are more than a fifth as many
+  as the files the analysis reached suggest missing entries, with knip's thresholds. A single-package workspace gets one hint; otherwise
   each package with more than one unused file gets one, largest first.
 
 **`ignore-global-binaries`** (default `true`, top level only) keeps `unlisted-binaries` quiet about the system and

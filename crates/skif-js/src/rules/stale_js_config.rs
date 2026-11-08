@@ -10,7 +10,7 @@ use crate::config_hints::{ConfigHint, HintKind};
 /// knip's thresholds for its `top-level-unconfigured` and `workspace-unconfigured` hints: more than this many unused
 /// files...
 const UNCONFIGURED_MIN_FILES: usize = 20;
-/// ...making up more than this share of the files the run looked at.
+/// ...that are more than this share of the files the analysis reached (knip's unused files over its processed ones).
 const UNCONFIGURED_MIN_RATIO: f64 = 0.2;
 
 /// Metadata of `stale-js-config`.
@@ -157,15 +157,17 @@ impl StaleJsConfig {
     }
 
     /// knip's `top-level-unconfigured` and `workspace-unconfigured`: when more than [`UNCONFIGURED_MIN_FILES`] files
-    /// are unused and they are more than [`UNCONFIGURED_MIN_RATIO`] of the files looked at, entries are likely missing.
+    /// are unused and they are more than [`UNCONFIGURED_MIN_RATIO`] of the files the analysis reached, entries are
+    /// likely missing.
     fn report_unconfigured(analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
         let unused = analysis.unused_files.len();
-        let looked_at = analysis.graph.modules().len() + unused;
+        let reached = analysis.graph.modules().len();
+        let looked_at = reached + unused;
         #[allow(clippy::cast_precision_loss, reason = "file counts are far below 2^52")]
-        let ratio = if looked_at == 0 {
+        let ratio = if reached == 0 {
             0.0
         } else {
-            unused as f64 / looked_at as f64
+            unused as f64 / reached as f64
         };
         if unused <= UNCONFIGURED_MIN_FILES || ratio <= UNCONFIGURED_MIN_RATIO {
             return;
