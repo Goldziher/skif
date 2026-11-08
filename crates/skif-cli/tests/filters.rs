@@ -251,3 +251,102 @@ fn no_gitignore_analyses_ignored_files() {
     let ignored = run(skif().args(["--format", "json", "--no-gitignore"]).arg(dir.path())).json();
     assert!(findings(&ignored).contains(&orphan), "{ignored:#}");
 }
+
+#[test]
+fn findings_of_no_package_belong_to_the_root() {
+    // `unmatched-workspace-patterns` reports `missing/*` in the root manifest, with no package, and fixes it there.
+    let root = ("unmatched-workspace-patterns".to_owned(), "package.json".to_owned());
+    for (workspace, selected) in [("@cli/b", false), (".", true)] {
+        let dir = fixture("filters-root");
+        let report = run(skif()
+            .args(["--format", "json", "--workspace", workspace])
+            .arg(dir.path()))
+        .json();
+        assert_eq!(
+            findings(&report).contains(&root),
+            selected,
+            "-W {workspace}: {report:#}"
+        );
+
+        let fixed = run(skif()
+            .args([
+                "--fix-unsafe",
+                "--no-install",
+                "--no-prompt",
+                "--format",
+                "json",
+                "--workspace",
+                workspace,
+            ])
+            .arg(dir.path()));
+        assert_eq!(fixed.code, 0, "{}{}", fixed.stdout, fixed.stderr);
+        let manifest = std::fs::read_to_string(dir.path().join("package.json")).unwrap();
+        assert_eq!(!manifest.contains("missing/*"), selected, "-W {workspace}: {manifest}");
+    }
+}
+
+#[test]
+fn include_turns_on_a_rule_the_configuration_turned_off() {
+    let dir = fixture("filters");
+    std::fs::write(dir.path().join("skif.toml"), "[rules]\nunused-files = \"off\"\n").unwrap();
+    let lint = |args: &[&str]| run(skif().args(["--format", "json"]).args(args).arg(dir.path())).json();
+    assert!(!rules(&lint(&[])).contains("unused-files"));
+    let included = lint(&["--include", "files"]);
+    assert_eq!(rules(&included), set(&["unused-files"]));
+    // Back at its default severity, not raised to `error`.
+    assert_eq!(included["diagnostics"][0]["severity"], "warning", "{included:#}");
+    assert_eq!(
+        rules(&lint(&["--include", "files", "--rule", "unused-files=off"])),
+        set(&[])
+    );
+}
+
+#[test]
+fn tags_need_ignore_tags_to_be_a_list() {
+    let dir = fixture("filters");
+    std::fs::write(
+        dir.path().join("skif.toml"),
+        "[rules]\nunused-exports = { level = \"warn\", ignore-tags = \"custom\" }\n",
+    )
+    .unwrap();
+    let result = run(skif().args(["--format", "json", "--tags=-other"]).arg(dir.path()));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    let error = result.json();
+    assert!(
+        error["error"]["message"].as_str().unwrap().contains("ignore-tags"),
+        "{error:#}"
+    );
+}
+
+#[test]
+fn max_show_issues_is_for_reading_only() {
+    for args in [
+        &["--format", "sarif", "--max-show-issues", "1"][..],
+        &["--format", "github", "--max-show-issues", "1"],
+        &["--fix", "--max-show-issues", "1"],
+    ] {
+        let dir = fixture("filters");
+        let result = run(skif().args(args).arg(dir.path()));
+        assert_eq!(result.code, 2, "{args:?}: {}{}", result.stdout, result.stderr);
+        assert!(
+            result.stderr.contains("--max-show-issues"),
+            "{args:?}: {}",
+            result.stderr
+        );
+    }
+}
+
+#[test]
+fn trace_dependency_conflicts_with_the_report_filters() {
+    for filter in [
+        "--workspace=@cli/a",
+        "--include=files",
+        "--exclude=files",
+        "--files",
+        "--dependencies",
+    ] {
+        let (result, error) = lint_json(&["--trace-dependency", "left-pad", filter]);
+        assert_eq!(result.code, 2, "{filter}");
+        assert_eq!(error["error"]["kind"], "usage", "{filter}: {error:#}");
+    }
+}

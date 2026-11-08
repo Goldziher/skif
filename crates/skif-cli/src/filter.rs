@@ -25,8 +25,9 @@ pub struct Filter {
     include: Option<BTreeSet<String>>,
     /// `--exclude` as rule ids.
     exclude: BTreeSet<String>,
-    /// The included rules the run turns on: those off by default that no flag turned off.
-    enable: BTreeSet<String>,
+    /// The included rules the run turns on where they are off, with whether each is on by default: every included
+    /// rule that no flag turned off.
+    enable: BTreeMap<String, bool>,
     /// `--tags` without the leading `-`: tags whose exports are not reported.
     ignore_tags: Vec<String>,
 }
@@ -109,16 +110,20 @@ fn package_dir(package: &Package) -> String {
     }
 }
 
-/// The package a diagnostic belongs to: the one it names, else the innermost package whose directory holds its file.
-fn owner<'w>(workspace: &'w Workspace, diagnostic: &Diagnostic) -> Option<&'w Package> {
+/// The package a diagnostic belongs to: the one it names, else the innermost package whose directory holds its file,
+/// else the root. A finding of no package (the root manifest, `pnpm-workspace.yaml`, a catalog) belongs to the root,
+/// so `--workspace` reports and fixes it only when it selects the root, and `-W @scope/pkg --fix` leaves root files
+/// alone.
+fn owner<'w>(workspace: &'w Workspace, diagnostic: &Diagnostic) -> &'w Package {
     if let Some(package) = diagnostic.package_id.and_then(|id| workspace.package(id)) {
-        return Some(package);
+        return package;
     }
     let path: &Path = &diagnostic.location.path;
     workspace
         .all_packages()
         .filter(|package| path.starts_with(&package.dir))
         .max_by_key(|package| package.dir.components().count())
+        .unwrap_or_else(|| workspace.root_package())
 }
 
 impl Filter {
@@ -150,7 +155,8 @@ impl Filter {
         for value in &args.exclude {
             filter.exclude.extend(rule_ids("--exclude", value, &known)?);
         }
-        // A rule a flag turned off stays off; `--include` turns on only the rules that are off by default.
+        // A rule a flag turned off stays off; `--include` turns on the others, whether the default or the
+        // configuration turned them off.
         let turned_off = |id: &str| {
             args.ignore_rule.iter().any(|rule| rule == id)
                 || args
@@ -160,8 +166,8 @@ impl Filter {
         };
         filter.enable = include
             .iter()
-            .filter(|id| known.get(id.as_str()) == Some(&false) && !turned_off(id))
-            .cloned()
+            .filter(|id| !turned_off(id))
+            .filter_map(|id| known.get(id.as_str()).map(|on| (id.clone(), *on)))
             .collect();
         if !include.is_empty() {
             filter.include = Some(include);
@@ -171,11 +177,20 @@ impl Filter {
 
     /// Applies the flags that change what the rules check to the configuration of one root: `--include` turns on the
     /// rules it names that are off, and `--tags` adds to the `ignore-tags` of `unused-exports`.
-    pub fn configure(&self, config: &mut Config) {
-        for id in &self.enable {
+    ///
+    /// A rule that is on by default and turned off by the configuration goes back to its default severity; one that
+    /// is off by default runs at `error`.
+    ///
+    /// # Errors
+    /// A configuration error when `--tags` is given and the configuration sets `ignore-tags` to something other than
+    /// a list.
+    pub fn configure(&self, config: &mut Config) -> Result<(), CliError> {
+        for (id, on_by_default) in &self.enable {
             let rule = config.rules.entry(id.clone()).or_default();
-            if rule.severity.is_none_or(|level| level == Level::Off) {
-                rule.severity = Some(Level::Error);
+            match rule.severity {
+                Some(Level::Off) if *on_by_default => rule.severity = None,
+                Some(Level::Off) | None if !on_by_default => rule.severity = Some(Level::Error),
+                _ => {}
             }
         }
         if !self.ignore_tags.is_empty() {
@@ -184,10 +199,15 @@ impl Filter {
                 .options
                 .entry("ignore-tags")
                 .or_insert_with(|| toml::Value::Array(Vec::new()));
-            if let toml::Value::Array(list) = tags {
-                list.extend(self.ignore_tags.iter().cloned().map(toml::Value::String));
-            }
+            let toml::Value::Array(list) = tags else {
+                return Err(CliError::new(
+                    Kind::Config,
+                    "--tags: the `ignore-tags` option of `unused-exports` must be a list of tags to add to",
+                ));
+            };
+            list.extend(self.ignore_tags.iter().cloned().map(toml::Value::String));
         }
+        Ok(())
     }
 
     /// Whether the rule flags report `rule`.
@@ -218,7 +238,7 @@ impl Filter {
             .diagnostics
             .into_iter()
             .filter(|diagnostic| self.reports_rule(diagnostic.rule.as_str()))
-            .filter(|diagnostic| owner(workspace, diagnostic).is_none_or(|package| self.selects(package)))
+            .filter(|diagnostic| self.selects(owner(workspace, diagnostic)))
             .collect();
         Report::new(diagnostics, packages)
     }
