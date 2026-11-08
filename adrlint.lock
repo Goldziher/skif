@@ -259,4 +259,4 @@ blake3 = "985bf7ec82b064cda87b9f842c9de52531a7ed34ffe174f430bc8a03431ed14c"
 [adrs."adrs/0052-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md"]
 number = 52
 status = "accepted"
-blake3 = "9482dc47d7bff3a8dcbe60c437cdac50e97ba77ed2a6ab1b96a8717798fda45d"
+blake3 = "869517f747d2d03828e2df98e7ae789c71f96c87ceb35aae857e83dbfe38b2e7"

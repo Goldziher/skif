@@ -98,6 +98,15 @@ pub(crate) fn flag_values(script: &str, binaries: &[&str], flags: &[&str]) -> Ve
     out
 }
 
+/// `word` as one word of a command line: quoted when it holds whitespace, so joining words keeps it whole.
+pub(crate) fn quote_word(word: &str) -> String {
+    if word.contains(char::is_whitespace) {
+        format!("'{word}'")
+    } else {
+        word.to_owned()
+    }
+}
+
 /// The command after `--` of every command of `script` that runs one of `binaries` with `subcommand` as its first
 /// word (`varlock run -- node app.js`), its words joined again.
 pub(crate) fn commands_after_separator(script: &str, binaries: &[&str], subcommand: &str) -> Vec<String> {
@@ -111,16 +120,7 @@ pub(crate) fn commands_after_separator(script: &str, binaries: &[&str], subcomma
             continue;
         }
         if let Some(separator) = args.iter().position(|word| word == "--") {
-            let rest: Vec<String> = args[separator + 1..]
-                .iter()
-                .map(|word| {
-                    if word.contains(char::is_whitespace) {
-                        format!("'{word}'")
-                    } else {
-                        word.clone()
-                    }
-                })
-                .collect();
+            let rest: Vec<String> = args[separator + 1..].iter().map(|word| quote_word(word)).collect();
             if !rest.is_empty() {
                 out.push(rest.join(" "));
             }

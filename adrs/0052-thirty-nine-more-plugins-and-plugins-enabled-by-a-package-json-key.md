@@ -44,8 +44,9 @@ Not added:
 Where skif differs from knip:
 
 * `marko` does not compile `.marko` files and does not read the tag libraries of installed packages; it credits the `marko` package when a `.marko` file exists, as knip's compiler does through the `import "marko"` it adds to every template.
-* `varlock` does not read `~/` paths, does not skip git-ignored `.env` files and does not report an `@import` of a missing file; it reads `--path` in scripts whatever the `--env` flag.
-* `railway` reads the `service(…)` calls of `.railway/railway.ts`, but a `source` written as a call (`github("acme/app")`, `image("postgres")`) is not known statically and counts as local, and only `package.json#repository` names the local repository, not the git remotes.
+* `varlock` does not read `~/` paths, does not skip git-ignored `.env` files and does not report an `@import` of a missing file; it reads `--path` in scripts whatever the `--env` flag. A `@plugin` package keeps its name without an `@version`, and a relative `@plugin` or `@import` outside the workspace is not followed.
+* `railway` reads the `service(…)` calls of `.railway/railway.ts`, but a `source` written as a call (`github("acme/app")`, `image("postgres")`) is not known statically and counts as local, and only `package.json#repository` names the local repository, not the git remotes. A bare `owner/name` is GitHub shorthand even when it contains "github"; only a `github.com` host or a `github:` prefix is cut off. A `rootDirectory` is relative to the repository root, with a leading `/` cut off; one with `..` drops the service's commands.
+* `mcp` quotes a server argument holding whitespace when it joins the command, as the command after `varlock run --` is joined.
 * `openclaw` makes the files of its `assetScripts` entries, not production entries.
 * `solidjs-vite-plugin`, `filesystem-routing`, `vite-plugin-pages`, `vite-plugin-vue-layouts-next` and `flue` keep their conventional production entries when a config is read, as the other plugins of the table do; knip replaces them.
 * `mdxlint` keeps a scoped plugin name as it is, where knip prefixes it with `remark-`.

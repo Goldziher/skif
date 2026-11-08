@@ -440,8 +440,10 @@ counterpart. These differences are deliberate:
   `unplugin-vue-markdown` is no plugin: skif compiles no Markdown.
 - `varlock` reads the `@plugin` and `@import` decorators in the root comments of the `.env` files under
   `package.json#varlock.loadPath` and those a script passes with `--path`, but not `~/` paths, and does not skip
-  git-ignored files. `railway` counts a service whose `source` is a call (`image("postgres")`) as local, and knows
-  the local repository from `package.json#repository` only, not from the git remotes.
+  git-ignored files; a `@plugin` version (`@varlock/1password-plugin@1.2.0`) is cut off. `railway` counts a service
+  whose `source` is a call (`image("postgres")`) as local, and knows the local repository from
+  `package.json#repository` only, not from the git remotes. A service `rootDirectory` is read from the repository
+  root (`/apps/api` is `apps/api`); one with `..` drops the service's commands.
 - `openclaw` and `typescript-content-mapper` are enabled by their `package.json` key. The files of OpenClaw
   `assetScripts` are entries, not production entries. `mdxlint` keeps a scoped plugin name as written.
 - `solidjs-vite-plugin`, `filesystem-routing`, `vite-plugin-pages`, `vite-plugin-vue-layouts-next` and `flue` keep

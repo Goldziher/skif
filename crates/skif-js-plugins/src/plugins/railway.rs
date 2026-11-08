@@ -23,27 +23,35 @@ fn text<'v>(value: Option<&'v ConfigValue>, key: &str) -> Option<&'v str> {
     value?.get(key).and_then(ConfigValue::as_str)
 }
 
-/// `owner/name` of a GitHub repository URL or shorthand, lowercased.
+/// `owner/name` of a GitHub repository URL or shorthand, lowercased. Only a `github.com` host or a `github:` prefix is
+/// cut off: a bare `owner/name` is the shorthand, even when it contains "github" (`acme/github-tools`).
 fn github_repository(value: &str) -> Option<String> {
     let value = value.trim();
     let value = value.strip_prefix("git+").unwrap_or(value);
     let value = value.trim_end_matches('/');
     let value = value.strip_suffix(".git").unwrap_or(value);
     let lower = value.to_ascii_lowercase();
-    let rest = match lower.rfind("github.com").or_else(|| lower.rfind("github")) {
-        Some(at) => {
-            let after = &lower[at..];
-            let after = after
-                .strip_prefix("github.com")
-                .or_else(|| after.strip_prefix("github"))?;
-            after.strip_prefix(['/', ':'])?.to_owned()
-        }
-        None => lower,
+    let rest = if let Some(at) = lower.rfind("github.com") {
+        let host_start = at == 0 || lower[..at].ends_with(['/', '@', '.']);
+        let after = lower[at + "github.com".len()..].strip_prefix(['/', ':']);
+        after.filter(|_| host_start)?.to_owned()
+    } else if let Some(shorthand) = lower.strip_prefix("github:") {
+        shorthand.to_owned()
+    } else {
+        lower
     };
     let mut parts = rest.split('/');
     let (owner, name) = (parts.next()?, parts.next()?);
     (parts.next().is_none() && !owner.is_empty() && !name.is_empty() && !owner.contains(':'))
         .then(|| format!("{owner}/{name}"))
+}
+
+/// The directory a service's commands run in, relative to the workspace. Railway writes it from the repository root,
+/// often with a leading `/` (`/apps/api`), which is cut off; a directory with `..` is not followed and drops the
+/// service's commands.
+fn root_directory(dir: &str) -> Option<&str> {
+    let dir = dir.trim().trim_start_matches('/');
+    (!dir.split(['/', '\\']).any(|part| part == "..")).then_some(dir)
 }
 
 impl Plugin for Railway {
@@ -98,6 +106,9 @@ impl Plugin for Railway {
                 .or_else(|| text(Some(service), "root"))
                 .or_else(|| text(Some(service), "rootDirectory"))
                 .unwrap_or_default();
+            let Some(dir) = root_directory(dir) else {
+                continue;
+            };
             let build = service.get("build");
             let commands = [
                 build,
@@ -116,7 +127,7 @@ impl Plugin for Railway {
 
 #[cfg(test)]
 mod tests {
-    use super::github_repository;
+    use super::{github_repository, root_directory};
 
     #[test]
     fn github_repositories_are_normalized() {
@@ -130,5 +141,19 @@ mod tests {
             assert_eq!(github_repository(value).as_deref(), Some("acme/app"), "{value}");
         }
         assert_eq!(github_repository("https://gitlab.com/a/b/c"), None);
+        assert_eq!(
+            github_repository("acme/github-tools").as_deref(),
+            Some("acme/github-tools")
+        );
+        assert_eq!(github_repository("https://notgithub.com/a/b"), None);
+    }
+
+    #[test]
+    fn root_directories_stay_inside_the_repository() {
+        assert_eq!(root_directory("/apps/api"), Some("apps/api"));
+        assert_eq!(root_directory("apps/web"), Some("apps/web"));
+        assert_eq!(root_directory("/"), Some(""));
+        assert_eq!(root_directory("../other"), None);
+        assert_eq!(root_directory("apps/../../x"), None);
     }
 }
