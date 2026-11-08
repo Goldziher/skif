@@ -149,7 +149,7 @@ Exit `0` when the file was produced (also when notes need a human, unless `--str
 | `github` | GitHub Actions workflow-command annotations. |
 | `codeclimate` | A Code Climate JSON array for GitLab Code Quality: one issue per diagnostic with `description`, `check_name` (the rule), `fingerprint`, `severity` and `location` (`path`, `lines.begin`). Errors are `major`, warnings `minor` and infos `info`. The fingerprint is a hash of the rule, path, package, dependency, specifier and message (not the line), so an issue keeps its identity when code above it moves. Paths are relative to the repository top-level. |
 | `compact` | One line per diagnostic, `path:line:col rule message` (`path rule message` without a position), and nothing else. |
-| `markdown` | A heading, a summary line and a table per rule (location, severity, message), for pull request comments. Repository text is escaped so it cannot break the table. |
+| `markdown` | A heading, a summary line and a table per rule (location, severity, message), for pull request comments. Repository text is escaped so it cannot break the table, and `@` (as in `@types/node`), `://` and `www.` are broken with an empty HTML comment so they do not become mentions or links. |
 | `disclosure` | Like `markdown`, with each rule's table folded in a `<details>` section. |
 | `codeowners` | `compact` lines grouped under each owner from the repository's CODEOWNERS file (`.github/CODEOWNERS`, `CODEOWNERS` or `docs/CODEOWNERS`, the first that exists at the repository top-level). The last matching pattern wins; a diagnostic with several owners is listed under each, and diagnostics no pattern covers are under `(unowned)`. Exit `2` when there is no CODEOWNERS file. |
 
