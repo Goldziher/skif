@@ -849,6 +849,14 @@ fn mdx_jsx_text_that_looks_like_a_comment_does_not_hide_the_prose() {
 }
 
 #[test]
+fn mdx_a_url_in_jsx_text_does_not_hide_the_prose() {
+    let mdx = "import * as ui from './ui';\nexport const L = () => (<a>http://x</a>)\n\n# Links\n\n<ui.Button/>\n";
+    let info = parse("docs/links.mdx", mdx);
+    assert!(info.parse_diagnostics.is_empty(), "{:?}", info.parse_diagnostics);
+    assert_eq!(accessed(&info, "ui"), (vec!["Button".to_owned()], false));
+}
+
+#[test]
 fn angular_component_resources_are_side_effect_imports() {
     let source = "import { Component as Ng } from '@angular/core';\nimport { Other } from './other';\n@Ng({ templateUrl: './a.html', styleUrl: 'a.scss', styleUrls: ['./b.css', `c.less`, ...more] })\nexport class A {}\n@Other({ styleUrls: ['./ignored.css'] })\nexport class B {}\n";
     let info = parse("a.component.ts", source);
