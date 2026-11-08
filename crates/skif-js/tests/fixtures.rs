@@ -250,6 +250,21 @@ fn n8n_nodes_and_credentials_are_entries() {
 }
 
 #[test]
+fn imported_base_configs_are_followed() {
+    let diagnostics = Run::new("imported-base-configs", "").lint_with_plugins();
+    // The base configs of a workspace package and of a relative module are read, so the packages using them are
+    // judged and their dead files reported. The config that imports itself back stays unknown, and its package is not.
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "packages/app/src/orphan.ts: packages/app/src/orphan.ts",
+            "packages/web/src/dead.ts: packages/web/src/dead.ts",
+        ]
+    );
+    insta::assert_json_snapshot!("imported_base_configs", diagnostics);
+}
+
+#[test]
 fn monorepo_dependencies() {
     let diagnostics = Run::new("monorepo", "").lint();
     assert_eq!(

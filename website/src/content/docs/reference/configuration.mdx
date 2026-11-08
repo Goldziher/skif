@@ -153,7 +153,7 @@ themselves workspace packages.
 | --- | --- |
 | `label` | Optional name shown in diagnostics. |
 | `dependencies`, `packages`, `dependency-types`, `specifier-types` | Selectors. |
-| `policy` | `preferred-semver` (default), `pinned`, `banned`, `ignored`, `same-range`, `same-minor` or `snapped-to`. |
+| `policy` | `preferred-semver` (default), `pinned`, `banned`, `ignored`, `same-range`, `same-minor`, `snapped-to` or `semver-range-only` (syncpack's `semverRangeOnly`: versions may differ, and only the range the `[[semver-groups]]` require is checked and fixed). |
 | `pin` | Required by `pinned`. |
 | `snap-to` | Required by `snapped-to`: packages whose version the group follows. |
 | `prefer` | With `preferred-semver`, overrides `[policy] prefer`. |
@@ -196,19 +196,26 @@ are aligned, pinned, banned and ranged like dependencies, and fixed in place (sy
 [[custom-types]]
 name = "node"                # the token for dependency-types; the dependency name with strategy "version"
 path = "engines.node"        # dotted path of keys in package.json
-strategy = "version"         # version | name@version | versions-by-name
+strategy = "version"         # version | name@version | versions-by-name | name~version
 
 [[custom-types]]
 name = "package-manager"
 path = "packageManager"      # "pnpm@9.15.0": the dependency is pnpm
 strategy = "name@version"
 
+[[custom-types]]
+name = "runtime"
+path = "volta.toolVersion"   # the version
+name-path = "volta.tool"     # the dependency name, read from another field
+strategy = "name~version"
+
 [policy]
-dependency-types = ["prod", "dev", "node", "package-manager"]
+dependency-types = ["prod", "dev", "node", "package-manager", "runtime"]
 ```
 
-`versions-by-name` reads an object of `name: version`. A name must not be one of the built-in types. The `name~version`
-strategy and `source` of syncpack are not supported.
+`versions-by-name` reads an object of `name: version`. `name~version` reads the version at `path` and the dependency
+name at `name-path`, which only this strategy takes; a fix rewrites the version. A name must not be one of the
+built-in types. syncpack's `source` (a custom type read from another file) is not supported.
 
 ### `[catalog]`
 
@@ -497,7 +504,9 @@ docs, Astro pages, Storybook stories) or an import reaches them, and reported as
 
 The `templateUrl`, `styleUrl` and `styleUrls` of an Angular or Stencil `@Component({ … })` (the decorator imported
 from `@angular/core` or `@stencil/core`) are imports of the component file, relative to it with or without `./`, so
-the stylesheets are followed and the packages they import count as used. Vue auto-imports are followed through the
+the stylesheets are followed and the packages they import count as used. This includes Stencil's styles per mode
+(`styleUrls: { ios: 'a.ios.css', md: ['a.md.css'] }`); its `assetsDirs` are directories copied as they are, not
+modules, and are not followed. Vue auto-imports are followed through the
 declaration files `unplugin-vue-components` and `unplugin-auto-import` generate (`components.d.ts`,
 `auto-imports.d.ts`): they are entries like every `.d.ts` file, so each registered component and composable counts as
 used, whether or not a template names it. A generated file that `.gitignore` excludes is not read, and the
@@ -538,6 +547,12 @@ package's entries incomplete.
 The table holds 106 built-in plugins:
 
 `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`, `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`, `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack`, `node`, `expo-router`, `tanstack-router`, `ava`, `biome`, `c8`, `dotenv`, `electron-vite`, `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`, `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`, `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun`, `unplugin-icons` and `webdriver-io`.
+
+A JavaScript or TypeScript config is evaluated statically. A value it imports from another file of the project, or
+from a workspace package (through its `exports` or `main`, mapped back to the source file), is evaluated in that
+module too: a base config merged with `mergeConfig`, spread into an object, or listed in an ESLint `defineConfig`. A
+value imported from an installed package stays unknown, and an imported value that depends on itself through imports
+is unknown there.
 
 Plugins read configs and sources statically and never run a tool, so some of knip's plugin behaviour has no
 counterpart. These differences are deliberate:

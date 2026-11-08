@@ -64,6 +64,7 @@ old one.
 | 0054 | [Several Reports in One Run: A Repeatable `--format FORMAT=FILE`](0054-several-reports-in-one-run.md) | accepted |
 | 0055 | [`package.json` Formatting: The `package-json-format` Rule and `skif format`](0055-package-json-formatting-the-package-json-format-rule-and-skif-format.md) | accepted |
 | 0056 | [Editor and Agent Integration: an MCP Server, Watch Mode and a Language Server in the CLI](0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md) | accepted |
+| 0057 | [The Rest of syncpack's Surface: `list` and `json`, Dry-Run Fixes, Instance Filters, `semver-range-only`, `name~version` and `lerna.json`](0057-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md) | accepted |
 
 ## Effective statements
 
@@ -159,3 +160,4 @@ the lines below stay as written; this table says which record governs.
 | [0012](0012-reporting.md), title and renderer table | four renderers, one selected by `--format` | [0054](0054-several-reports-in-one-run.md): nine renderers, and one run may render several, each to stdout or its own file |
 | [0001](0001-mission-and-scope.md), out of scope, "Formatting `package.json`" | key order outside dependency maps, indentation and whitespace belong to a formatter | [0055](0055-package-json-formatting-the-package-json-format-rule-and-skif-format.md): the opt-in rule `package-json-format` and `skif format [--check]` order, sort and collapse `package.json` fields as syncpack's `format` does, and check the layout when `[format] indent` is set; other files are still not formatted |
 | [0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md), JSON mode | with `--format json`, stdout holds exactly one JSON document | [0056](0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md): with `--watch`, one document per run; `--watch` conflicts with `--fix` |
+| [0037](0037-override-sections-custom-types-and-ignored-semver-groups.md), "Custom types" and "Deferred" | the `name~version` strategy and `semverRangeOnly` are not supported | [0057](0057-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md): `name~version` with `name-path` and the `semver-range-only` policy are supported; `source` stays unsupported |

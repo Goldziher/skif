@@ -1,0 +1,32 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: "redact(&human.stdout, dir.path())"
+---
+Would fix 1 issue(s) in 1 file(s).
+  would fix packages/b/package.json
+
+--- a/packages/b/package.json
++++ b/packages/b/package.json
+@@ -2,6 +2,6 @@
+   "name": "@cli/b",
+   "version": "0.0.0",
+   "dependencies": {
+-    "is-number": "6.0.0"
++    "is-number": "7.0.0"
+   }
+ }
+
+packages/b/package.json
+  error[version-mismatch]: `is-number@6.0.0` in `dependencies` of @cli/b differs from the version the workspace aligns on
+   --> packages/b/package.json:5:5
+    |
+  5 |     "is-number": "6.0.0"
+    |     ^^^^^^^^^^^^^^^^^^^^
+    = package: @cli/b
+    = dependency: is-number
+    = detail: DiffersToHighestOrLowestSemver
+    = help: use `7.0.0`
+    = note: `is-number@7.0.0` in @cli/a holds the version this should align with (packages/a/package.json:5:5)
+    = fix (unsafe): Set `is-number` to `7.0.0`
+
+Found 1 error in 3 packages (1 fixable)
