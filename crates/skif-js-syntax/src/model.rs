@@ -194,7 +194,7 @@ pub struct Export {
 #[serde(rename_all = "kebab-case")]
 pub enum Registration {
     /// `customElements.define('x-y', Class)`, also through `window.customElements`, a variable holding the registry
-    /// or a `new CustomElementRegistry()`, and `this` in a static block of the class.
+    /// (resolved by scope) or a `new CustomElementRegistry()`, and `this` in a static block of the class.
     Define,
     /// A decorator of a top-level class, `@name(…)`, `@name` or `@ns.name(…)`, whose binding is imported from
     /// `module`.
@@ -205,7 +205,8 @@ pub enum Registration {
         name: String,
     },
     /// A top-level class extends `name` imported from `module` (directly or as an argument of a mixin call,
-    /// `extends Mixin(Base)`), and `Class.define(…)` or `Class.defineAsync(…)` is called.
+    /// `extends Mixin(Base)`), and `Class.define(…)` or `Class.defineAsync(…)` is called; or `name.define(Class, …)`, the
+    /// static form on the imported class, is called with the class first.
     BaseClassDefine {
         /// The specifier the base class is imported from.
         module: String,

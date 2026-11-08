@@ -451,8 +451,9 @@ counterpart. These differences are deliberate:
   (also through `window.customElements`, a variable holding the registry, or `this` in a static block), and so does
   the registering decorator of an enabled plugin's library on a top-level class: `lit`'s `@customElement`,
   `stencil`'s `@Component`, `catalyst`'s `@controller` and `fast`'s `@customElement`, or a `FASTElement` subclass
-  that calls `Class.define()`. A decorator counts only when it is imported from that library; a shadowed
-  `customElements` binding is not detected.
+  that calls `Class.define()` or is passed to `FASTElement.define(Class, …)`. A decorator counts only when it is
+  imported from that library. A variable holding the registry is resolved by scope; a local binding named
+  `customElements` that does not hold the registry is not detected.
 - `taskr` has no knip counterpart: `taskfile.js` and the local plugins of `package.json#taskr.requires` are entries,
   and `@taskr/*` and `taskr-*` dependencies count as used, as taskr loads them by name.
 

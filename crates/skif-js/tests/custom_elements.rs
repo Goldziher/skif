@@ -108,3 +108,17 @@ fn a_decorator_counts_only_while_its_plugin_is_enabled() {
         "customElements.define needs no plugin: {unused:#?}"
     );
 }
+
+#[test]
+fn a_type_in_the_signature_of_a_registered_element_is_used() {
+    let diagnostics = lint("");
+    let unused = found(&diagnostics, "unused-types");
+    assert!(
+        !unused.contains(&"packages/lit-app/src/defined.ts: DefinedState".to_owned()),
+        "{unused:#?}"
+    );
+    assert!(
+        unused.contains(&"packages/lit-app/src/unregistered.ts: UnregisteredState".to_owned()),
+        "the signature of an unregistered element does not count: {unused:#?}"
+    );
+}

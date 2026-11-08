@@ -36,9 +36,9 @@ Chosen option: "Record registrations in the module facts, and let the enabled pl
 
 `skif-js-syntax` records on each `Export` the `registrations` of the class behind it:
 
-* `Define`: the class is the second argument of `customElements.define(…)`, also called through `<x>.customElements` (`window.customElements`), through a variable initialised with `customElements`, `<x>.customElements` or `new CustomElementRegistry()`, or with `this` inside a static block of the class.
+* `Define`: the class is the second argument of `customElements.define(…)`, also called through `<x>.customElements` (`window.customElements`), through a variable initialised with `customElements`, `<x>.customElements` or `new CustomElementRegistry()`, or with `this` inside a static block of the class. A registry variable is resolved by scope (oxc semantic analysis, run only for a file that calls `define` on one), so a parameter or another variable of the same name does not count.
 * `Decorator { module, name }`: a top-level class carries `@name`, `@name(…)` or `@ns.name(…)` whose binding is a static import of `module`.
-* `BaseClassDefine { module, name }`: a top-level class extends `name` imported from `module`, directly or as an argument of a mixin call (`extends Mixin(Base)`), and `Class.define(…)` or `Class.defineAsync(…)` is called.
+* `BaseClassDefine { module, name }`: a top-level class extends `name` imported from `module`, directly or as an argument of a mixin call (`extends Mixin(Base)`), and `Class.define(…)` or `Class.defineAsync(…)` is called; or the static form on the imported class itself is called with the class as its first argument (`FASTElement.define(Class, { … })`), which registers `Class` whatever it extends.
 
 A registration of a local class applies to every export whose local binding is that class (`export { Foo as Bar }`); a decorated `export default class` applies to `default` as well.
 
