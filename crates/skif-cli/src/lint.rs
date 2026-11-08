@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 use skif::render::RenderOptions;
 use skif::{
     CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IgnoreEntry, Linter, OsFs, Prefer, Report,
-    Selector, Workspace,
+    Selector, Target, Workspace,
 };
 use skif_core::timing;
 use skif_report::{escape_controls, render_json_with};
@@ -133,9 +133,6 @@ pub(crate) fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliErro
     if args.no_gitignore {
         config.js.no_gitignore = true;
     }
-    if let Some(path) = &args.tsconfig {
-        config.js.tsconfig = Some(path.clone());
-    }
     if args.use_tsconfig_files {
         config.js.use_tsconfig_files = true;
     }
@@ -154,6 +151,72 @@ pub(crate) fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliErro
         };
     }
     Ok(())
+}
+
+/// Whether `path` is a plain relative path whose existence can be checked here. An absolute path or one with `..`
+/// is left to the configuration check, which rejects those that leave the workspace root.
+fn checkable(path: &str) -> bool {
+    let path = Path::new(path);
+    !path.is_absolute()
+        && path.components().all(|component| {
+            matches!(
+                component,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        })
+}
+
+/// Applies `--tsconfig` and checks that every root's TypeScript configuration exists.
+///
+/// The flag names a file relative to each root; in a multi-root run it applies to the roots that have that file and
+/// the others keep their own `[js] tsconfig`. A `[js] tsconfig` must exist in the root whose configuration sets it.
+///
+/// # Errors
+/// A configuration error naming the path when `--tsconfig` exists in no root, or a root's `[js] tsconfig` does not
+/// exist there.
+pub(crate) fn apply_tsconfig(args: &LintArgs, targets: &mut [Target]) -> Result<(), CliError> {
+    if let Some(path) = &args.tsconfig {
+        let mut found = false;
+        for target in targets.iter_mut() {
+            if !checkable(path) || target.root.join(path).is_file() {
+                target.config.js.tsconfig = Some(path.clone());
+                found = true;
+            }
+        }
+        if !found && !targets.is_empty() {
+            let roots: Vec<String> = targets.iter().map(|target| target.root.display().to_string()).collect();
+            return Err(CliError::new(
+                Kind::Config,
+                format!("--tsconfig: `{path}` does not exist in {}", roots.join(", ")),
+            ));
+        }
+    }
+    for target in targets.iter() {
+        if let Some(path) = &target.config.js.tsconfig
+            && checkable(path)
+            && !target.root.join(path).is_file()
+        {
+            return Err(CliError::new(
+                Kind::Config,
+                format!("[js] tsconfig: `{path}` does not exist in {}", target.root.display()),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Warns on stderr about the packages whose TypeScript configuration selects none of their files under
+/// `--use-tsconfig-files`, since nothing of them can then be reported unused.
+fn warn_empty_tsconfig_projects(targets: &[Target], fs: &dyn FileSystem) {
+    for target in targets {
+        for config in skif::empty_tsconfig_projects(&target.workspace, &target.config, fs) {
+            stderr_line(&format!(
+                "warning: {}: selects no file of its package (`files`, `include`), so --use-tsconfig-files leaves \
+                 that package without project files",
+                escape_controls(&target.root.join(config).display().to_string())
+            ));
+        }
+    }
 }
 
 fn lint_once(
@@ -454,6 +517,8 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         adjust(args, &mut target.config)?;
         filter.configure(&mut target.config)?;
     }
+    apply_tsconfig(args, &mut targets)?;
+    warn_empty_tsconfig_projects(&targets, &fs);
     let linters = Linters::build(&targets)?;
     let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
     filter.apply_runs(&mut runs)?;

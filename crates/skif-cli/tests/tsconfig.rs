@@ -59,3 +59,100 @@ fn use_tsconfig_files_limits_the_project_to_the_tsconfig_files() {
         ["unused-files packages/a/lib/unused.ts", "unused-files src/orphan.ts"]
     );
 }
+
+/// The JSON document of a run over `path`.
+fn lint(path: &std::path::Path, args: &[&str]) -> (support::Run, Value) {
+    let result = run(skif().args(["--format", "json"]).args(args).arg(path));
+    let report = result.json();
+    (result, report)
+}
+
+#[test]
+fn a_tsconfig_that_does_not_exist_is_a_configuration_error() {
+    let dir = fixture("tsconfig");
+    let (result, error) = lint(dir.path(), &["--tsconfig", "tsconfig.missing.json"]);
+    assert_eq!(result.code, 2);
+    assert_eq!(error["error"]["kind"], "config", "{error:#}");
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("`tsconfig.missing.json` does not exist"),
+        "{error:#}"
+    );
+
+    std::fs::write(
+        dir.path().join("skif.toml"),
+        "[js]\ntsconfig = \"tsconfig.missing.json\"\n",
+    )
+    .unwrap();
+    let (result, error) = lint(dir.path(), &[]);
+    assert_eq!(result.code, 2);
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("[js] tsconfig: `tsconfig.missing.json`"),
+        "{error:#}"
+    );
+}
+
+#[test]
+fn a_tsconfig_outside_the_workspace_root_is_rejected() {
+    for path in ["../tsconfig.json", "/etc/tsconfig.json"] {
+        let dir = fixture("tsconfig");
+        let (result, error) = lint(dir.path(), &["--tsconfig", path]);
+        assert_eq!(result.code, 2, "{path}");
+        assert_eq!(error["error"]["kind"], "config", "{path}: {error:#}");
+        assert!(
+            error["error"]["message"].as_str().unwrap().contains("js.tsconfig"),
+            "{path}: {error:#}"
+        );
+    }
+}
+
+#[test]
+fn tsconfig_applies_to_the_roots_that_have_it() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["with", "without"] {
+        let root = dir.path().join(name);
+        std::fs::create_dir(&root).unwrap();
+        support::copy_fixture("tsconfig", &root);
+    }
+    std::fs::remove_file(dir.path().join("without/tsconfig.app.json")).unwrap();
+    let (result, report) = lint(dir.path(), &["-r", "--tsconfig", "tsconfig.app.json"]);
+    assert_ne!(result.code, 2, "{report:#}{}", result.stderr);
+    let unresolved: Vec<&str> = report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == "unresolved-imports")
+        .map(|diagnostic| diagnostic["location"]["path"].as_str().unwrap())
+        .collect();
+    // Only the root without the file keeps its default configuration, where `~/greet` does not resolve.
+    assert_eq!(unresolved, ["without/src/index.ts"], "{report:#}");
+
+    let (result, error) = lint(dir.path(), &["-r", "--tsconfig", "tsconfig.nowhere.json"]);
+    assert_eq!(result.code, 2);
+    assert_eq!(error["error"]["kind"], "config", "{error:#}");
+}
+
+#[test]
+fn use_tsconfig_files_warns_about_an_empty_project() {
+    let dir = fixture("tsconfig");
+    std::fs::write(dir.path().join("packages/a/tsconfig.json"), "{ \"files\": [] }\n").unwrap();
+    let result = run(skif()
+        .args(["--format", "json", "--use-tsconfig-files"])
+        .arg(dir.path()));
+    assert!(
+        result
+            .stderr
+            .contains("packages/a/tsconfig.json: selects no file of its package"),
+        "{}",
+        result.stderr
+    );
+    // stdout keeps exactly the report.
+    let _ = result.json();
+    let quiet = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert!(!quiet.stderr.contains("selects no file"), "{}", quiet.stderr);
+}
