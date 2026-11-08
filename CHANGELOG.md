@@ -28,6 +28,14 @@ All notable changes to this project are documented here. The format follows
 - A relative import of a package directory (`..`, `../../automation`) whose `main` or `exports` point at build output
   that was never built resolves to the source file behind it, as an alias to such a directory already did, instead of
   being reported by `unresolved-imports` ([#17](https://github.com/Goldziher/skif/issues/17)).
+- `unlisted-dependencies` no longer reports packages that a test only mocks (`vi.mock("x")`, `jest.mock("x")`),
+  and mock calls are read from the syntax tree, so module names inside strings and template literals are no longer
+  imports; `{ virtual: true }` mocks are ignored ([#16](https://github.com/Goldziher/skif/issues/16)).
+- Imports inside `declare module "x" { ... }` bodies now count as uses of the packages they name, so those
+  packages are no longer reported as unused ([#20](https://github.com/Goldziher/skif/issues/20)).
+- `declare module "x"` in a file with top-level `import` or `export` augments `x` instead of declaring it, so it no
+  longer hides unlisted imports of `x` across the workspace; only declarations in script files do
+  ([#24](https://github.com/Goldziher/skif/issues/24)).
 
 ## [0.1.1] - 2026-11-07
 
