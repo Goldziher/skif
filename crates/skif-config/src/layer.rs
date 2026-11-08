@@ -17,7 +17,7 @@ use crate::provenance::join_key;
 const OVERRIDE_KEYS: [&str; 6] = ["packages", "files", "max-level", "rules", "ignore", "js"];
 
 /// Top-level keys that cannot appear in an override.
-const ROOT_SCOPED: [&str; 14] = [
+const ROOT_SCOPED: [&str; 16] = [
     "root",
     "extends",
     "reset",
@@ -30,13 +30,16 @@ const ROOT_SCOPED: [&str; 14] = [
     "catalog",
     "workspace-protocol",
     "dependency-families",
+    "update",
+    "update-groups",
     "format",
     "overrides",
 ];
 
 /// `[js]` keys that cannot appear in an override.
-pub(crate) const ROOT_SCOPED_JS: [&str; 11] = [
+pub(crate) const ROOT_SCOPED_JS: [&str; 12] = [
     "enabled",
+    "ignore-global-binaries",
     "cycles",
     "production",
     "include-entry-exports",

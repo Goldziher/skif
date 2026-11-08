@@ -231,6 +231,23 @@ fn the_nearer_file_s_groups_come_first() {
 }
 
 #[test]
+fn the_nearer_file_s_update_groups_come_first_and_update_merges_by_key() {
+    let config = two(
+        "[update]\nminimum-release-age = 60\nmax-concurrent-requests = 4\n[[update-groups]]\nlabel = \"org\"\nignored = true\n",
+        "[update]\nminimum-release-age = 0\n[[update-groups]]\nlabel = \"p\"\ntarget = \"patch\"\n",
+    )
+    .config;
+    let labels: Vec<_> = config
+        .update_groups
+        .iter()
+        .map(|g| g.label.as_deref().unwrap())
+        .collect();
+    assert_eq!(labels, ["p", "org"]);
+    assert_eq!(config.update.minimum_release_age, Some(0));
+    assert_eq!(config.update.max_concurrent_requests, 4);
+}
+
+#[test]
 fn families_merge_by_name() {
     let config = two(
         "[[dependency-families]]\nname = \"react\"\npackages = [\"react\", \"react-dom\"]\n[[dependency-families]]\nname = \"babel\"\npackages = [\"@babel/*\"]\n",

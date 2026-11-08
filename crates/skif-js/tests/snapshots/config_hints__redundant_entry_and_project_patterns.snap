@@ -1,0 +1,7 @@
+---
+source: crates/skif-js/tests/config_hints.rs
+expression: hints(&diagnostics)
+---
+package.json: `./scripts/gen.ts` in `js.workspaces."packages/a".entry` is already an entry of a plugin, `package.json` or a script
+package.json: `src/index.ts` in `js.workspaces."packages/a".entry` is already an entry of a plugin, `package.json` or a script
+package.json: `src/index.ts` in `js.workspaces."packages/a".project` is an entry file, which is always part of the project

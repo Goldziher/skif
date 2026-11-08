@@ -32,10 +32,24 @@ All notable changes to this project are documented here. The format follows
 - [ADR 0057](adrs/0057-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md) records these
   additions and what of syncpack stays out: per-group and per-state severity, `dependencyGroups`, a scoped `catalog`
   policy, custom type `source`, catalog entries as instances, `.x` ranges and `--log-levels`.
+- `skif update [--check] [--target latest|minor|patch] [--dependencies <NAME>]`: newer published versions from the npm
+  registry, written format-preserving or, with `--check`, reported with exit `1`, as syncpack's `update`
+  ([#34](https://github.com/Goldziher/skif/issues/34),
+  [ADR 0058](adrs/0058-registry-updates-an-opt-in-skif-update-command.md)). It is the only command that uses the
+  network; linting never does. It reads the registry and tokens of `.npmrc` (the project's `.npmrc` expands an
+  environment variable only in a token, which is then only sent over https to `registry.npmjs.org` or a host the user's
+  own configuration names; a registry URL there that reads one is ignored), honours
+  `[update] minimum-release-age` (else pnpm's `minimumReleaseAge`, else one day; a version without a publish time is
+  then not proposed) and `[[update-groups]]`, and reports each instance with syncpack's `DiffersToNpmRegistry` state.
+  The library plans updates through a `Registry` trait the host implements (`skif::update`, feature `update`).
+  `skif migrate` translates syncpack's `updateGroups`, `minimumReleaseAge` and `maxConcurrentRequests`. `--interactive`
+  is not implemented.
 - knip's run-time filters on the lint command ([#36](https://github.com/Goldziher/skif/issues/36)):
   - `--workspace <NAME|DIR>` (`-W`) reports only the findings of the selected workspace packages; findings of no
     package belong to the root.
   - `--strict` is `--production` with each workspace package limited to the dependencies its own manifest lists.
+    As in knip, production code must import from `dependencies` or `peerDependencies`, type-only imports use no
+    package, and `unused-dependencies` also reports required peer dependencies nothing imports.
   - `--include` and `--exclude` take knip issue types or skif rule ids, with the shortcuts `--dependencies`,
     `--exports`, `--files` and `--cycles`; `--include` turns on a rule that is off; `--tags -TAG` leaves out tagged
     exports.
@@ -173,6 +187,16 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   the outer root's dependencies. The nested root judges the file against its own manifest in its own run.
 - A file that a script of a `package.json` above a nested root runs (`node build/npm/postinstall.ts`) is an entry
   of that root, so it and what it imports are no longer reported as unused files.
+- In a multi-root run (`skif -r`) a file of a nested root that an enclosing root imports (`build/lib/x.ts`, imported
+  from the outer `src`) is an entry of the nested root, so it and what it imports are no longer reported as unused
+  files. Nested roots are linted after the roots that enclose them; a root linted on its own still cannot see what an
+  outer root imports.
+- The `vite` and `vitest` plugins honour Vite's `root`: with `root: "src"` the scripts of `src/index.html` are entries
+  and `/`-rooted script sources and HTML inputs start at `src`. A `root` that is not a static string leaves the
+  package's entries incomplete.
+- After `skif -r --fix` the lint of the fixed tree judges each root as the first lint did: a standalone package below
+  another root is again not asked for a `packageManager`, and a member that is a workspace of its own is again left
+  to its own root instead of being linted twice.
 - A package with no source file, no entry and no script no longer reports every dependency it lists as unused: there
   is no code to judge them against.
 - `stale-js-config` no longer stays silent about every `ignore-dependencies` list when one package has entry files
@@ -271,7 +295,16 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
 - An export tagged `@alias` is no longer reported by `unused-exports`, `unused-types` or `duplicate-exports`, as in
   knip ([#43](https://github.com/Goldziher/skif/issues/43)).
 - `skif migrate` no longer says skif has no tag hints or global binaries list: `treatTagHintsAsErrors` points at
-  `stale-js-config`, and `ignoreGlobalBinaries: true` is noted as what skif always does
+  `stale-js-config`, and `ignoreGlobalBinaries: true` is noted as skif's default
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `stale-js-config` reports the rest of knip's configuration hints: redundant `entry` and `project` patterns
+  (`entry-redundant`, `project-redundant`), a top-level `entry` or `project` in a workspace with several packages
+  (`*-top-level`), `project` extensions skif does not analyse or component extensions it leaves out
+  (`project-extension-*`), published `package.json` paths that name no file (`package-entry`, build output and
+  gitignored paths excepted) and many unused files with knip's thresholds (`top-level-unconfigured`,
+  `workspace-unconfigured`) ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `[js] ignore-global-binaries` (default `true`): with `false`, `unlisted-binaries` reports the system tools scripts
+  run (`rm`, `curl`, `git`) that no dependency provides; `skif migrate` maps knip's `ignoreGlobalBinaries`
   ([#43](https://github.com/Goldziher/skif/issues/43)).
 - An enum or namespace member tagged `@internal` (with `production`), `@beta`, `@alpha`, `@alias` or an `ignore-tags`
   name is no longer reported by `unused-enum-members` or `unused-namespace-members`; only `@public` was honoured

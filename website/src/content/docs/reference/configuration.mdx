@@ -38,6 +38,8 @@ file. Print the schema with `skif schema`.
 | `[catalog]` | Catalog enforcement |
 | `[workspace-protocol]` | `workspace:` protocol policy |
 | `[[dependency-families]]` | Packages that must share a version |
+| `[update]` | `minimum-release-age`, `max-concurrent-requests` for `skif update` |
+| `[[update-groups]]` | How far `skif update` may move each dependency group |
 | `[js]` | JavaScript analysis |
 | `root`, `extends`, `reset` | How files combine |
 | `[[overrides]]` | Rule levels, severity caps, suppressions and JS inputs for selected packages or files |
@@ -261,6 +263,39 @@ name = "react"
 enabled = false              # disable a built-in family of the same name
 ```
 
+### `[update]`
+
+Read only by `skif update`, the one command that asks a package registry ([CLI](../cli/#updating)); linting never
+does.
+
+```toml
+[update]
+minimum-release-age = 1440   # minutes a version must have been published before it is proposed; 0 turns it off
+max-concurrent-requests = 12 # registry requests at once, at least 1
+```
+
+Without `minimum-release-age`, pnpm's `minimumReleaseAge` from `pnpm-workspace.yaml` applies, else one day, as in
+syncpack. While a minimum release age applies, a version the registry gives no publish time for is not proposed, and
+the report notes it when it would have been the target.
+
+### `[[update-groups]]`
+
+```toml
+[[update-groups]]
+label = "React moves within its major"
+dependencies = ["react", "react-dom"]
+target = "minor"             # latest | minor | patch
+
+[[update-groups]]
+dependencies = ["@types/node"]
+ignored = true               # skif update leaves these alone
+```
+
+The first matching group decides (syncpack's `updateGroups`); a group sets exactly one of `target` and
+`ignored = true`, and its `target` combines with `--target` so the stricter wins. The selectors are those of
+`[[semver-groups]]`. A catalog entry belongs to no package and has no dependency type, so only groups without
+`packages` and `dependency-types` apply to it.
+
 ### `[format]`
 
 What the [`package-json-format`](../../rules/manifest/#package-json-format) rule and `skif format` check. The rule is
@@ -307,6 +342,7 @@ ignore = ["**/*.generated.ts"]
 ignore-files = ["scripts/one-off/**"]
 ignore-dependencies = ["@types/node", "/^@org\\/.+$/"]
 ignore-binaries = ["docker"]
+ignore-global-binaries = true
 ignore-unresolved = ["#internal/*", "/^virtual:/"]
 ignore-workspaces = ["tools/*"]
 ignore-members = ["/^_/"]
@@ -457,6 +493,33 @@ reports knip's tag hints: an `ignore-tags` tag, or `@internal` with `production`
 anyway (while `unused-exports` runs). A tag on an enum or namespace that hides an unused member is needed and not
 reported.
 
+The rest of knip's configuration hints are part of `stale-js-config` too:
+
+- `entry-redundant`: an `entry` pattern that is a plain path to a file a plugin, the manifest (`main`, `exports`,
+  `bin`, ...), a tool configuration or a script already makes an entry. With `include-entry-exports`, only plugin entry
+  globs and the manifest count, since a configured entry has its exports judged.
+- `project-redundant`: a `project` pattern that is a plain path to an entry file, which is always in the project. Not
+  judged with `use-tsconfig-files`.
+- `entry-top-level` and `project-top-level`: the top-level `entry` or `project` in a workspace with several packages,
+  where they apply to the root package only; move them to the `[js.workspaces]` table they are meant for.
+- `project-extension-unregistered`: a `project` pattern selecting an extension skif does not analyse (`*.json`).
+  `project-extension-excluded`: `project` patterns that name extensions but not `.vue`, `.svelte` or `.astro` while the
+  package has such files, which then leave the project. knip ties both to its compilers; skif reads those component
+  files without one, so the second is judged by the files present instead.
+- `package-entry`: a path in `main`, `module`, `browser`, `bin`, `types`, `typings` or `exports` that names no file,
+  neither itself nor a source file behind it. Paths a `.gitignore` hides, paths in a build output directory (`dist`,
+  `build`, `lib`, ..., whatever the extension; knip reports these unless gitignored) and paths into a listed dependency are not judged. It points
+  at the field in `package.json`.
+- `top-level-unconfigured` and `workspace-unconfigured`: more than 20 unused files that are more than a fifth as many
+  as the files the analysis reached suggest missing entries, with knip's thresholds. A single-package workspace gets one hint; otherwise
+  each package with more than one unused file gets one, largest first.
+
+**`ignore-global-binaries`** (default `true`, top level only) keeps `unlisted-binaries` quiet about the system and
+platform tools scripts run (`rm`, `curl`, `git`, `docker`), which are installed globally, like knip's
+`ignoreGlobalBinaries`. Set it to `false` to report each one that no dependency provides, unless `ignore-binaries`
+lists it. Shell builtins (`cd`, `echo`, `export`), shells, pass-through commands (`env`, `sudo`, `xargs`), the package
+managers and `node` are never reported.
+
 `discovery` chooses how source files are found. `auto` (the default) lists the files from the git index when the
 analysed root is in a git work tree and checks each directory with one `stat` instead of walking it: a directory
 modified at or after the time the index was written (equal counts as modified) is listed from disk, so new untracked
@@ -485,6 +548,13 @@ its own manifest when it is analysed as a root of its own. In the other directio
 analysed root that a script of a `package.json` above it runs (up to the git repository root) is an entry, so
 `node build/npm/postinstall.ts` in the outer project keeps `build/npm/postinstall.ts` used in the nested root at
 `build` (except in production mode, where scripts give no entries).
+
+In a multi-root run (`skif -r`) the files of a nested root that an enclosing root of the same run imports are entries
+of the nested root: `import { x } from "../build/lib/x"` in the outer `src` keeps `build/lib/x.ts`, and what it
+imports, used in the root at `build`. Only the files the enclosing root's own code imports become entries, so an
+unused export of a file they import is still reported. A nested root is therefore linted after the roots that enclose
+it. A root linted on its own (`skif build`) cannot know what an outer root it was not given imports, so there such a
+file is still reported unused; lint from the top with `-r`, or add it to `entry`.
 
 A package with no source file at or below its directory, no entry and no script, such as a `remote/package.json` that
 only lists what code elsewhere in the repository installs it for, has no code skif could check its dependencies
@@ -544,7 +614,10 @@ members. A file that another loads with `new URL("./x", import.meta.url)` is use
 inside a string does not count) stays reachable, and a listed package it names is used, but mocking a package that no
 `package.json` lists is not an unlisted import; a `{ virtual: true }` mock is ignored. In an n8n node package the files
 listed in `package.json` `n8n.nodes` and `n8n.credentials` are entries; a `dist/nodes/A.node.js` there maps to
-`nodes/A.node.ts`, since such packages compile without a `rootDir`.
+`nodes/A.node.ts`, since such packages compile without a `rootDir`. The `vite` and `vitest` plugins honour Vite's
+`root` (relative to the config file): `root: "src"` makes the scripts of `src/index.html` entries, and a `/`-rooted
+script `src` or `build.rollupOptions.input` HTML file starts at `src`; a `root` that is not a static string leaves the
+package's entries incomplete.
 
 The table holds 106 built-in plugins:
 
@@ -616,7 +689,7 @@ reset = ["version-groups"]
   order. A file reached twice applies once. A cycle, a missing file or more than 16 nested files is an error naming
   the file.
 - `reset` discards what was inherited for the listed keys before this file applies. Allowed values:
-  `version-groups`, `semver-groups`, `custom-types`, `ignore`, `dependency-families`, `overrides`.
+  `version-groups`, `semver-groups`, `update-groups`, `custom-types`, `ignore`, `dependency-families`, `overrides`.
 
 ### Merge rules
 
@@ -629,7 +702,7 @@ reset = ["version-groups"]
 | `[rules]` | Per rule: a level keeps the inherited options; a table of options replaces the options and keeps the level |
 | `[js.plugins]` | Per plugin: `true` or `false` keeps the options; a table replaces them |
 | `[[ignore]]`, `[[overrides]]` | Append |
-| `[[version-groups]]`, `[[semver-groups]]` | The nearer file's entries come first, so with first match wins the project beats the org |
+| `[[version-groups]]`, `[[semver-groups]]`, `[[update-groups]]` | The nearer file's entries come first, so with first match wins the project beats the org |
 | `[[dependency-families]]`, `[[custom-types]]` | Replace the entry of the same `name`, append the others |
 
 ### `[[overrides]]`

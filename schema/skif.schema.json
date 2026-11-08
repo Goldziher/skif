@@ -114,6 +114,20 @@
       "description": "`[[dependency-families]]`: packages that must share a version.",
       "default": []
     },
+    "update": {
+      "$ref": "#/$defs/Update",
+      "description": "`[update]`: how `skif update` reads the package registry. Linting never reads it.",
+      "default": {
+        "max-concurrent-requests": 12
+      }
+    },
+    "update-groups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/UpdateGroup"
+      },
+      "description": "`[[update-groups]]`: how far `skif update` may move the dependencies it matches, first match wins."
+    },
     "js": {
       "$ref": "#/$defs/Js",
       "description": "`[js]`: the JavaScript and TypeScript analysis.",
@@ -125,6 +139,7 @@
         "ignore-files": [],
         "ignore-dependencies": [],
         "ignore-binaries": [],
+        "ignore-global-binaries": true,
         "ignore-unresolved": [],
         "ignore-workspaces": [],
         "ignore-exports-used-in-file": false,
@@ -214,6 +229,11 @@
           "type": "string",
           "const": "overrides",
           "description": "Discard the inherited `overrides`."
+        },
+        {
+          "type": "string",
+          "const": "update-groups",
+          "description": "Discard the inherited `update-groups`."
         }
       ],
       "description": "The inherited lists that `reset` can discard."
@@ -857,6 +877,110 @@
       ],
       "description": "One `[[dependency-families]]` entry: packages that must share a version."
     },
+    "Update": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minimum-release-age": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Minutes a version must have been published before `skif update` proposes it; `0` turns the delay off. Unset,\nthe `minimumReleaseAge` of `pnpm-workspace.yaml` applies, else one day (1440), as in syncpack."
+        },
+        "max-concurrent-requests": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "How many registry requests run at once.",
+          "default": 12
+        }
+      },
+      "description": "`[update]`: how `skif update` reads the package registry (ADR 0058). Linting never reads it."
+    },
+    "UpdateGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A name for the group."
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Dependency names the group covers; empty covers every dependency.",
+          "default": []
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Package names the group covers; empty covers every package. A group that names packages does not cover catalog\nentries, which belong to no package.",
+          "default": []
+        },
+        "dependency-types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Dependency types the group covers; empty covers the types `[policy] dependency-types` governs. A group that\nnames types does not cover catalog entries.",
+          "default": []
+        },
+        "specifier-types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Specifier types the group covers, optionally negated with `!`; empty covers every type.",
+          "default": []
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UpdateTarget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The furthest the matched dependencies may move; combined with `--target`, the stricter wins. Required unless\n`ignored` is set."
+        },
+        "ignored": {
+          "type": "boolean",
+          "description": "`skif update` never changes the matched dependencies. Exclusive with `target`."
+        }
+      },
+      "description": "One `[[update-groups]]` entry; first match wins. Set `target` to cap how far `skif update` moves the matched\ndependencies, or `ignored = true` to leave them alone (syncpack's `updateGroups`)."
+    },
+    "UpdateTarget": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "latest",
+          "description": "The highest published version, across majors."
+        },
+        {
+          "type": "string",
+          "const": "minor",
+          "description": "The highest version with the same major."
+        },
+        {
+          "type": "string",
+          "const": "patch",
+          "description": "The highest version with the same major and minor."
+        }
+      ],
+      "description": "How far `skif update` may move a version: syncpack's `--target` and an update group's `target`."
+    },
     "Js": {
       "type": "object",
       "additionalProperties": false,
@@ -913,6 +1037,11 @@
           },
           "description": "Binaries never reported as unlisted.",
           "default": []
+        },
+        "ignore-global-binaries": {
+          "type": "boolean",
+          "description": "Never report the system and shell tools scripts run (`rm`, `curl`, `git`, `docker`) as unlisted binaries,\nsince they are installed globally rather than from npm (knip's `ignoreGlobalBinaries`). On by default; turn it\noff to have `unlisted-binaries` report them unless a dependency provides them.",
+          "default": true
         },
         "ignore-unresolved": {
           "type": "array",

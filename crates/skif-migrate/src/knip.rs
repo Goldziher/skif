@@ -647,20 +647,33 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
         }
         "ignoreExportsUsedInFile" => ignore_exports_used_in_file(state, src, target, path, item),
         "ignoreIssues" => ignore_issues(state, src, target, path, item),
-        "ignoreGlobalBinaries" => match boolean(state, src, path, item) {
-            Some(true) => state.note(
+        "ignoreGlobalBinaries" => match (boolean(state, src, path, item), target) {
+            (Some(true), _) => state.note(
                 src,
                 NoteClass::Exact,
                 path,
-                "skif always ignores the binaries that are assumed to be installed globally, as knip does by default",
+                "skif ignores the binaries that are assumed to be installed globally by default, as knip does",
             ),
-            Some(false) => state.note(
+            (Some(false), Target::Root) => {
+                table(&mut state.doc, &js).set(keys::JS_IGNORE_GLOBAL_BINARIES, Val::Bool(false));
+                state.note(
+                    src,
+                    NoteClass::Exact,
+                    path,
+                    format!(
+                        "written to {} {}",
+                        Target::describe(&js),
+                        keys::JS_IGNORE_GLOBAL_BINARIES
+                    ),
+                );
+            }
+            (Some(false), Target::Dir(_)) => state.note(
                 src,
                 NoteClass::Unsupported,
                 path,
-                "skif always ignores the binaries that are assumed to be installed globally; it cannot report them",
+                "skif sets `ignore-global-binaries` for the whole run only, at the top level of `[js]`",
             ),
-            None => {}
+            (None, _) => {}
         },
         "compilers" => compilers(state, src, path, item),
         "asyncCompilers" | "preprocessor" | "preprocessorOptions" => state.note_with(
@@ -911,7 +924,7 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, plan: &
             NoteClass::Unsupported,
             flag_path("--strict"),
             "knip's strict mode also reports only direct dependencies and checks no other workspace",
-            "skif only has the production half of it, which is written to [js] production",
+            "the configuration only has the production half of it, which is written to [js] production; run `skif --strict` for the rest",
         );
     }
     if invocation.has("include-entry-exports", None) {
