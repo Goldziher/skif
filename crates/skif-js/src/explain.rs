@@ -309,6 +309,7 @@ const fn kind_label(kind: ImportKind) -> &'static str {
         ImportKind::Dynamic => "dynamic",
         ImportKind::Require => "require",
         ImportKind::ImportMetaGlob => "import-meta-glob",
+        ImportKind::SourceGlob => "source-glob",
         ImportKind::ExportFrom => "export-from",
         ImportKind::Mock => "mock",
     }

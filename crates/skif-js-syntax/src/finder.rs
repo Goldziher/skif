@@ -14,7 +14,7 @@ use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 
 use crate::collect::{Ctx, collect_import, imported_kind};
-use crate::model::{Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, ModuleInfo};
+use crate::model::{Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, ModuleInfo, is_source_query};
 
 pub(crate) struct Finder<'c, 's> {
     ctx: &'c Ctx<'s>,
@@ -651,7 +651,8 @@ impl Finder<'_, '_> {
                         None => self.info.unresolved_dynamic.push(span),
                     }
                 } else if is_import_meta(&m.object) && (property == "glob" || property == "globEager") {
-                    self.glob(first, span);
+                    let options = it.arguments.get(1).and_then(Argument::as_expression);
+                    self.glob(first, options, span);
                 } else if is_mock_call(m)
                     && !is_virtual_mock(it)
                     && let Some(specifier) = first.and_then(static_string).filter(|s| !s.is_empty())
@@ -683,7 +684,7 @@ impl Finder<'_, '_> {
         }
     }
 
-    fn glob(&mut self, first: Option<&Expression<'_>>, span: skif_core::Span) {
+    fn glob(&mut self, first: Option<&Expression<'_>>, options: Option<&Expression<'_>>, span: skif_core::Span) {
         let patterns: Option<Vec<String>> = match first.map(Expression::get_inner_expression) {
             Some(Expression::ArrayExpression(a)) => a
                 .elements
@@ -693,12 +694,17 @@ impl Finder<'_, '_> {
             Some(other) => static_string(other).map(|s| vec![s]),
             None => None,
         };
+        let kind = if glob_reads_source(options) {
+            ImportKind::SourceGlob
+        } else {
+            ImportKind::ImportMetaGlob
+        };
         match patterns {
             Some(patterns) => {
                 for specifier in patterns {
                     self.info.imports.push(Import {
                         specifier,
-                        kind: ImportKind::ImportMetaGlob,
+                        kind,
                         names: escaping_namespace(),
                         span,
                     });
@@ -707,6 +713,57 @@ impl Finder<'_, '_> {
             None => self.info.unresolved_dynamic.push(span),
         }
     }
+}
+
+/// Whether the options of an `import.meta.glob` read the matched files as text: the query Vite builds from them
+/// (`query` as a string or an object, or the legacy `as`) passes [`is_source_query`]. Options that are not a static
+/// object answer `false`, so the matches stay modules.
+fn glob_reads_source(options: Option<&Expression<'_>>) -> bool {
+    let Some(Expression::ObjectExpression(options)) = options.map(Expression::get_inner_expression) else {
+        return false;
+    };
+    let mut query = None;
+    for property in &options.properties {
+        let ObjectPropertyKind::ObjectProperty(property) = property else {
+            return false;
+        };
+        let Some(key) = property.key.static_name() else {
+            return false;
+        };
+        if key == "query" || key == "as" {
+            match static_query(&property.value) {
+                Some(value) => query = Some(value),
+                None => return false,
+            }
+        }
+    }
+    query.is_some_and(|query| is_source_query(&query))
+}
+
+/// The query string Vite builds from a static glob `query` option: a string as written, an object as
+/// `key=value` parameters, and a key alone when its value is the empty string.
+fn static_query(value: &Expression<'_>) -> Option<String> {
+    let Expression::ObjectExpression(object) = value.get_inner_expression() else {
+        return static_string(value);
+    };
+    let mut parameters = Vec::new();
+    for property in &object.properties {
+        let ObjectPropertyKind::ObjectProperty(property) = property else {
+            return None;
+        };
+        let key = crate::js_string(property.key.static_name()?.as_js_str());
+        let value = match property.value.get_inner_expression() {
+            Expression::BooleanLiteral(b) => b.value.to_string(),
+            Expression::NumericLiteral(n) => n.value.to_string(),
+            other => static_string(other)?,
+        };
+        if value.is_empty() {
+            parameters.push(key);
+        } else {
+            parameters.push(format!("{key}={value}"));
+        }
+    }
+    Some(parameters.join("&"))
 }
 
 /// TypeScript's test for a module file: a top-level `import`, `export` or `import x = require(…)`. In a script,
