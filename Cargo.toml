@@ -40,6 +40,9 @@ proptest = "1.12.0"
 rayon = "1.12.0"
 regex = "1.13.1"
 rustc-hash = "2.1.3"
+rustls-native-certs = "0.8.5"
+# The crypto provider ureq's rustls uses in `skif update` (ADR 0058); ring, not aws-lc, so no C toolchain is needed.
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 schemars = { version = "1.2.3", features = ["indexmap2"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = "2.1.1"
@@ -60,12 +63,15 @@ skif-report = { path = "crates/skif-report", version = "=0.1.1" }
 skif-rules = { path = "crates/skif-rules", version = "=0.1.1" }
 skif-specifier = { path = "crates/skif-specifier", version = "=0.1.1" }
 skif-workspace = { path = "crates/skif-workspace", version = "=0.1.1" }
+similar = "2.7.0"
 strsim = "0.11.1"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 toml = { version = "1.2.1", features = ["preserve_order"] }
 toml_edit = "0.25.19"
 unicode-width = "0.2.3"
+# `skif update` only (ADR 0058): blocking HTTP with rustls on ring and gzip; roots from the OS store.
+ureq = { version = "3.5.1", default-features = false, features = ["rustls-no-provider", "gzip"] }
 which = "8.0.6"
 yaml_serde = "0.10"
 yamlpatch = "1.32"

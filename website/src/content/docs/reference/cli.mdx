@@ -11,6 +11,9 @@ skif init [PATH]
 skif config [PATH] [-r] (--show | --explain <KEY> [--package <NAME>]) [--format human|json]
 skif explain-usage <FILE[#EXPORT]> [PATH]
 skif migrate [PATH] [--from sherif|syncpack|knip|auto,...] [--profile exact|full] [--merge | --force] [--dry-run]
+skif update [PATH] [--check] [--target latest|minor|patch] [--dependencies <NAME>...] [--no-install] [--format human|json]
+skif list [PATH] [-r] [--show instances,statuses,hints,ignored,all,none] [FILTERS]
+skif json [PATH] [-r] [FILTERS]
 ```
 
 `skif [PATH]` lints the project containing `PATH` (default `.`). The root is resolved in this order:
@@ -47,6 +50,9 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `skif config [PATH]` | Show how the configuration of the root at `PATH` was built (see below). |
 | `skif explain-usage <FILE[#EXPORT]> [PATH]` | Explain why the JavaScript analysis counts a file, or one export of it, as used (see below). |
 | `skif migrate [PATH]` | Translate the configuration of sherif, syncpack and knip into a `skif.toml` (see below). |
+| `skif update [PATH]` | Update dependencies to newer published versions from the npm registry, or with `--check` only report them (see below). The only command that uses the network. |
+| `skif list [PATH]` | List every dependency the version groups and the catalog govern, by version group, with its specifiers and states (see below). |
+| `skif json [PATH]` | Print every dependency instance the version groups and the catalog govern as one JSON object per line (see below). |
 | `skif format [PATH]` | Format every `package.json` as `[format]` describes, or check it with `--check` (see below). |
 | `skif mcp` | Run a Model Context Protocol server on stdin and stdout, with the tools `lint`, `explain_usage` and `list_rules`. See [editors and agents](../../guides/editors-and-agents/). |
 | `skif lsp` | Run a Language Server Protocol server on stdin and stdout that publishes diagnostics when a file is opened or saved. See [editors and agents](../../guides/editors-and-agents/#language-server). |
@@ -59,6 +65,9 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `--format <FORMAT[=FILE]>` | Output format: `human`, `json`, `sarif`, `github`, `codeclimate`, `compact`, `markdown`, `disclosure` or `codeowners`. `FORMAT=FILE` writes that rendering to `FILE`. Repeatable, with at most one format on stdout (see [Several reports in one run](#several-reports-in-one-run)). Default `human`, or `human` plus GitHub annotations when `GITHUB_ACTIONS=true`. |
 | `--output <FILE>` | Write the rendering to `FILE` instead of stdout. Requires exactly one `--format`, without `=FILE`. |
 | `--fix` | Apply safe fixes, lint again, then run the package manager's install command. |
+| `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. |
+| `--dependency`, `--dependency-types`, `--specifier-types`, `--source` | Narrow the version-group and semver-group rules, and only those, to some instances (see [Filtering instances](#filtering-instances)). |
+| `--dry-run` | With `--fix` or `--fix-unsafe`: plan the fixes and print them as a unified diff; no manifest is written and no install runs, while the reports are still rendered, to stdout, `--output` and every `FORMAT=FILE` (see [Fixing](#fixing)). |
 | `--fix-unsafe` | Apply safe and unsafe fixes; implies `--fix`. Fixes that delete files still need `--allow-remove-files`. |
 | `--allow-remove-files` | Let fixes delete files (`unused-files`); without it they are skipped and reported as `removes-files`. Needs `--fix` or `--fix-unsafe`. |
 | `--fix-type <TYPE>` | Only apply the fixes of these rules: rule ids or knip issue types (see [Fixing](#fixing)). Comma separated or repeatable; needs `--fix` or `--fix-unsafe`. |
@@ -167,6 +176,101 @@ the old tools stays where it is. The [migration guide](../../guides/migrating/) 
 Exit `0` when the file was produced (also when notes need a human, unless `--strict`), `1` with `--strict` and such notes,
 `2` when a configuration cannot be read or the output cannot be written.
 
+## Updating
+
+`skif update [PATH]` asks the npm registry which newer versions exist for the dependencies of the workspace at `PATH`
+(default `.`) and writes them, keeping each file's formatting; `skif update --check` writes nothing and exits `1` when
+an update is available. It is syncpack's `update`: an instance moves when its version group prefers the highest version
+(the default), it is not a workspace package, no sibling in its group uses `catalog:`, and it is written as an exact
+version, a range over one version (`^1.2.3`, `~1.2.3`, `>=1.2.3`), a bare major or minor, or `latest`. Catalog entries
+of `pnpm-workspace.yaml`, the root `package.json` (bun) and `.yarnrc.yml` move the same way. A prerelease only moves to
+a newer prerelease of the same channel, deprecated versions are skipped, and the range style is kept unless a
+`[[semver-groups]]` entry asks for another. Peer and optional dependencies, the override sections and custom types
+move only when `[policy] dependency-types` covers them. `[update]` and `[[update-groups]]` in
+[the configuration](../configuration/#update) set the minimum release age and what each dependency may move to.
+
+| Flag | Meaning |
+| --- | --- |
+| `--check` | Write nothing; exit `1` when an update is available. Allowed in CI. |
+| `--target <latest\|minor\|patch>` | How far a version may move: the highest version, the highest with the same major, or the highest with the same major and minor. Default `latest`. An `[[update-groups]]` entry can only narrow it. |
+| `--dependencies <NAME>` | Only these dependencies, by name or glob. Repeatable. Other dependencies are not looked up. |
+| `--no-install` | Do not run the package manager after writing. |
+| `--config <FILE>`, `--no-config` | As for linting. |
+| `--format <human\|json>` | `json` prints one document with `version`, `skif`, `check`, `target`, `minimumReleaseAge`, `queried`, `updates` (each with `path`, `line`, `column`, `package`, `dependency`, `place`, `current`, `target` and `state`, which is syncpack's `DiffersToNpmRegistry`), `failures` (`dependency`, `message`), `notes` (`dependency`, `message`: what was left out, such as a version without a publish time) and, after writing, `changed` and `install`. |
+
+Without `--check`, `skif update` writes every update atomically per file and then runs the package manager's install,
+as `--fix` does. It is refused with exit `2` when `CI` is truthy; `--check` is the CI form. Exit `0` when there was
+nothing to update or everything was written, `1` with `--check` and updates available, and `2` when the registry could
+not answer for a package (the updates it found are still reported, and written without `--check`), the install failed,
+or the run could not start.
+
+**Network.** Linting, `--fix` and every other command never open a network connection. `skif update` requests
+`<registry>/<name>` (`@scope%2fname` for a scoped name; a name npm would not accept, such as one over 214 characters
+or a yarn resolution path like `**/foo` read with `override-reading = "syncpack"`, is not requested and is noted in the
+report without changing the exit code) once per dependency name, with up to `[update] max-concurrent-requests` (default 12) at a time, a 10 second
+connect timeout and a 60 second limit per request. The registry is `npm_config_registry`, else `registry` in the
+project's `.npmrc`, else in the user's `.npmrc` (`NPM_CONFIG_USERCONFIG` or `~/.npmrc`), else
+`https://registry.npmjs.org/`; `@scope:registry` entries choose a registry per scope, and `@jsr/*` packages go to
+`https://npm.jsr.io/` unless `@jsr:registry` says otherwise. A `//host/path/:_authToken` entry (with `${VAR}` expanded
+from the environment) is sent as a bearer token to that registry only, and is never printed. In the project's `.npmrc`,
+which anyone who can change the repository controls, `${VAR}` is expanded only in a token, and only for
+`registry.npmjs.org` or a host that the user's `.npmrc` or `npm_config_registry` also names, when that file does not set
+an `http://` registry for the host; any other such token, and any `registry`, `@scope:registry` or other line of it
+that contains `${`, is ignored with a warning naming the host or key, so a changed `.npmrc` cannot send a CI secret
+elsewhere, in a URL or over plain http. The user's `.npmrc` expands `${VAR}` everywhere. A token sent to an `http://` registry draws a
+warning, and a redirect never carries a token. Credentials, a query or a fragment written in a registry URL are dropped;
+`_auth`, usernames and passwords, client certificates and `strict-ssl` are not read. Certificates are checked against
+the operating system's trust store (`SSL_CERT_FILE` and `SSL_CERT_DIR` replace it), and `HTTPS_PROXY`, `ALL_PROXY` and
+`NO_PROXY` are honoured. `--interactive` has no equivalent yet: pick dependencies with `--dependencies` instead.
+
+## Listing instances
+
+`skif list [PATH]` and `skif json [PATH]` show every dependency instance the version groups and the catalog govern,
+valid or not, as syncpack's `list` and `json` do. The root is resolved as for linting, `-r` covers every root below
+`PATH`, and `--config` and `--no-config` work as for linting. Instances are ordered by version group (the configured
+groups in order, then the default group, then the catalog), then dependency name, then where they are declared.
+Instances outside the default scope (`[policy] dependency-types`) that no group names are not listed.
+
+The state of an instance is the one a lint run gives it: the syncpack state name of the
+[version and catalog policies](../configuration/#version-groups), including the valid states (`IsHighestOrLowestSemver`,
+`IsIdenticalToPin`, `IsLocalAndValid`, `IsCatalog`, `IsIgnored`, ...). skif's own names are `UnusedGroup`,
+`InvalidPin`, `DiffersToOtherCatalog` and `IsIdenticalToCatalog` (a plain version the catalog rules leave alone).
+An instance a rule reports carries that rule and its severity; a state whose rule is off, or which an `[[ignore]]`
+entry silences, has none. Workspace-protocol and dependency-family findings are left to the lint run.
+
+`skif list` prints one line per dependency under a heading per version group: the worst severity (`ok` when every
+instance is valid, `-` when a state is not reported), the name and the distinct specifiers. `--show` takes a comma
+separated list: `instances` adds a line per instance, `statuses` the state names, `hints` marks dependencies that
+are workspace packages, `ignored` lists the dependencies of `ignored` groups, `all` and `none` set everything.
+The default is `hints,statuses`.
+
+`skif json` prints one object per instance with `dependency`, `dependencyType` (`prod`, `dev`, `peer`, `optional`,
+`local`, `resolutions`, `overrides`, `pnpm-overrides` or a custom type), `property`, `package` (the file, relative
+to the root), `packageName`, `versionGroup` (syncpack's name: `HighestSemver`, `LowestSemver`, `Pinned`, `Banned`,
+`Ignored`, `SameRange`, `SameMinor`, `SnappedTo` or `Catalog`), `versionGroupIndex`, `versionGroupLabel`,
+`preferredSemverRange`, `statusCode`, `statusType` (`Valid`, `Fixable`, `Unfixable`, `Conflict` or `Suspect`),
+`rule`, `severity`, `isLocal`, `actual` and `expected` (each `{ "raw", "type" }`, `expected` `null` when unknown).
+
+Both exit `1` when an instance is reported at `error` severity, `0` otherwise, and `2` when skif could not run.
+
+## Filtering instances
+
+`skif`, `skif list` and `skif json` take syncpack's instance filters. An instance that does not pass is left out
+before it is assigned to a version group, so it is neither reported nor aligned with: `--source
+packages/app/package.json` checks that package's instances against each other only, as syncpack does.
+
+| Flag | Keeps |
+| --- | --- |
+| `--dependency <NAME>` | Dependencies whose name matches the name or glob (`react`, `@types/**`, `!eslint`, `$LOCAL`). Repeatable. syncpack calls it `--dependencies`; skif keeps that name for knip's issue-type shortcut. |
+| `--dependency-types <TYPES>` | These dependency types, comma separated (`prod,dev`, `!local`, a `[[custom-types]]` name). The list also replaces `[policy] dependency-types` as the scope of the default group for the run, so `--dependency-types peer` checks peer ranges. |
+| `--specifier-types <TYPES>` | These specifier types, comma separated (`exact`, `range`, `!workspace-protocol`; the values of `specifier-types` selectors). |
+| `--source <GLOB>` | Instances declared in files matching the glob, relative to the root (`packages/*/package.json`, `pnpm-workspace.yaml`). Repeatable. Unlike syncpack's `--source`, it does not change which packages make up the workspace. |
+
+The filters apply only to the version-group and semver-group rules (`version-mismatch`, `banned-dependency`,
+`semver-range-mismatch`, `policy-conflict`, `invalid-local-version`) and to the listing; the catalog, workspace
+protocol, family and manifest rules see the whole workspace. A configured group that the filters leave without
+instances is not reported as unused.
+
 ## Formatting `package.json`
 
 `skif format [PATH]` lints with the [`package-json-format`](../../rules/manifest/#package-json-format) rule alone, at
@@ -193,7 +297,7 @@ formatting in every lint instead, set `package-json-format = "error"` in `[rules
 | --- | --- |
 | `0` | Clean. Warnings within `--max-warnings` are allowed, and `info` never counts. |
 | `1` | Problems remain. |
-| `2` | skif could not run: invalid or ambiguous configuration, no `package.json` found at or below `PATH`, bad flags, a refused `--fix`, or a failed install step. |
+| `2` | skif could not run: invalid or ambiguous configuration, no `package.json` found at or below `PATH`, bad flags, a refused `--fix` or `skif update`, a failed install step, or a package the registry could not answer for in `skif update`. |
 
 ## Output formats
 
@@ -257,6 +361,12 @@ prerelease or a change of range needs `--fix-unsafe`, also when a pin asks for i
 4. Runs the detected package manager's `install` in the workspace root, unless `--no-install` was given, no file
    changed, or no package manager was detected. If the install fails the fixes stay written and the exit code is `2`.
 
+`--dry-run` stops after step 1, so no manifest is written and no install runs; every report is still rendered, to
+stdout, the `--output` file or each `FORMAT=FILE`, as without `--dry-run`. Human output shows `Would fix ...` and a
+unified diff per file before the report of the unchanged tree, and `--format json` adds `"dry-run": true` and a
+`changes` array (`path`, `kind` `modify`, `create` or `delete`, and `diff`) to the `fix` object. The exit code is the
+one of the unchanged tree. A dry run is allowed in CI.
+
 Deleting a file is never part of `--fix-unsafe` alone: the fix of `unused-files` is skipped, with the reason
 `removes-files`, unless `--allow-remove-files` is given as well, as with knip. Every other unsafe fix, such as
 removing an unused export, enum member, namespace member, dependency or catalog entry, edits a file in place.
@@ -285,8 +395,9 @@ The other knip issue types (`unlisted`, `binaries`, `unresolved`, `duplicates`, 
 accepted and map to rules that have no fix. An unknown value exits `2` with a `usage` error before anything is linted. For example,
 `skif --fix-unsafe --fix-type exports,types` removes unused exports and types and nothing else.
 
-skif's own process never opens a network connection and never resolves a version. The only network traffic comes
-from your package manager during the install step.
+A lint or fix run never opens a network connection and never resolves a version. The only network traffic comes from
+your package manager during the install step; `skif update` is the one command that asks a registry itself (see
+[Updating](#updating)).
 
 ## CI behaviour
 
