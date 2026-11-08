@@ -4,7 +4,7 @@ expression: json.stdout
 ---
 {
   "version": 1,
-  "skif": "0.1.1",
+  "skif": "0.2.0",
   "rules": [
     {
       "id": "empty-dependencies",

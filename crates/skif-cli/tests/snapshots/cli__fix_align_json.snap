@@ -4,7 +4,7 @@ expression: "redact(&result.stdout, dir.path())"
 ---
 {
   "version": 1,
-  "skif": "0.1.1",
+  "skif": "0.2.0",
   "summary": {
     "errors": 4,
     "warnings": 0,
