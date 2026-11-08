@@ -180,7 +180,7 @@ fn knip_ts_with_workspaces_plugins_and_a_non_static_value() {
     assert_eq!(class(&migration, "ignoreGlobalBinaries"), NoteClass::Unsupported);
     assert_eq!(class(&migration, "cycles.allow"), NoteClass::Approximate);
     assert_eq!(class(&migration, "cycles.dynamicImports"), NoteClass::Exact);
-    assert_eq!(class(&migration, "compilers"), NoteClass::Unsupported);
+    assert_eq!(class(&migration, "compilers.mdx"), NoteClass::Approximate);
     assert_eq!(
         class(&migration, "workspaces[\"packages/*\"].mystery"),
         NoteClass::Unsupported
@@ -997,4 +997,41 @@ fn a_syncpack_format_script_turns_the_format_rule_on() {
             .and_then(|rules| rules.get("package-json-format"))
             .is_none()
     );
+}
+
+#[test]
+fn knip_built_in_compilers_map_to_skif_extractors() {
+    let migration = knip(
+        Some(r#"{ "compilers": { "mdx": true, ".styl": true, "vue": false, "hbs": true } }"#),
+        &[],
+    );
+    assert_eq!(class(&migration, "compilers.mdx"), NoteClass::Default);
+    assert!(
+        note(&migration, "compilers.mdx")
+            .suggestion
+            .as_deref()
+            .is_some_and(|hint| hint.contains("**/*.mdx"))
+    );
+    assert_eq!(class(&migration, "compilers[\".styl\"]"), NoteClass::Default);
+    assert_eq!(class(&migration, "compilers.vue"), NoteClass::Default);
+    assert_eq!(class(&migration, "compilers.hbs"), NoteClass::Unsupported);
+    let notes: Vec<String> = migration
+        .notes
+        .iter()
+        .filter(|note| note.path.starts_with("compilers"))
+        .map(|note| {
+            format!(
+                "{} {}: {} ({})",
+                note.class.letter(),
+                note.path,
+                note.message,
+                note.suggestion.as_deref().unwrap_or("-")
+            )
+        })
+        .collect();
+    insta::assert_snapshot!("knip-compilers", notes.join("\n"));
+
+    let all = knip(Some(r#"{ "compilers": true }"#), &[]);
+    assert_eq!(class(&all, "compilers"), NoteClass::Default);
+    assert!(!all.needs_human());
 }

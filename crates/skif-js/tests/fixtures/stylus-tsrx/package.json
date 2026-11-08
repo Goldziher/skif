@@ -1,0 +1,11 @@
+{
+  "name": "stylus-tsrx",
+  "private": true,
+  "dependencies": {
+    "@tsrx/core": "0.1.0",
+    "@tsrx/react": "0.1.0",
+    "nib": "1.2.0",
+    "stylus": "0.64.0",
+    "unused-dependency": "1.0.0"
+  }
+}

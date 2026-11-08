@@ -1,14 +1,14 @@
 //! Nested module references: `require`, dynamic `import()`, `import.meta.glob`, `import x = require()`, test-runner
-//! mocks, `CommonJS` exports and JSX.
+//! mocks, `CommonJS` exports, JSX and the template and stylesheet files of an Angular or Stencil `@Component`.
 
 use std::collections::{HashMap, HashSet};
 
 use oxc_ast::ast::{
-    Argument, AssignmentExpression, AssignmentOperator, AssignmentTarget, BindingPattern, CallExpression,
-    ComputedMemberExpression, Expression, FormalParameters, IdentifierReference, ImportExpression, JSXElement,
-    JSXFragment, ObjectPropertyKind, Program, Statement, StaticMemberExpression, TSAsExpression,
-    TSExternalModuleDeclaration, TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier, TSModuleReference,
-    TSType, TSTypeQueryExprName, VariableDeclarator,
+    Argument, ArrayExpressionElement, AssignmentExpression, AssignmentOperator, AssignmentTarget, BindingPattern,
+    CallExpression, ComputedMemberExpression, Decorator, Expression, FormalParameters, IdentifierReference,
+    ImportExpression, JSXElement, JSXFragment, ObjectPropertyKind, Program, Statement, StaticMemberExpression,
+    TSAsExpression, TSExternalModuleDeclaration, TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier,
+    TSIndexedAccessType, TSLiteral, TSModuleReference, TSType, TSTypeQueryExprName, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
@@ -23,8 +23,12 @@ pub(crate) struct Finder<'c, 's> {
     pending: HashMap<u32, Vec<ImportedName>>,
     /// Start offsets of `typeof import("x")` types that only type the result of the `require("x")` they follow.
     redundant_types: HashSet<u32>,
+    /// The export a `typeof import("x")["A"]` reads, by the start offset of its import type.
+    indexed_types: HashMap<u32, String>,
     /// The file has top-level `import` or `export`, so its `declare module` blocks augment rather than declare.
     module_file: bool,
+    /// Local names of the `Component` decorator imported from `@angular/core` or `@stencil/core`.
+    component_decorators: HashSet<String>,
 }
 
 impl Finder<'_, '_> {
@@ -66,13 +70,39 @@ impl Finder<'_, '_> {
 impl<'c, 's> Finder<'c, 's> {
     pub(crate) fn new(ctx: &'c Ctx<'s>, info: &'c mut ModuleInfo, program: &Program<'_>) -> Self {
         Self {
-            ctx,
-            info,
             pending: HashMap::new(),
             redundant_types: HashSet::new(),
+            indexed_types: HashMap::new(),
             module_file: is_module_file(program),
+            component_decorators: component_decorator_names(info),
+            ctx,
+            info,
         }
     }
+}
+
+/// The local names the `Component` decorator of Angular or Stencil is imported under.
+fn component_decorator_names(info: &ModuleInfo) -> HashSet<String> {
+    info.imports
+        .iter()
+        .filter(|import| matches!(import.specifier.as_str(), "@angular/core" | "@stencil/core"))
+        .flat_map(|import| &import.names)
+        .filter(|name| name.kind == ImportedKind::Named("Component".to_owned()))
+        .filter_map(|name| name.local.clone())
+        .collect()
+}
+
+/// A component resource URL as a specifier: it is relative to the component file even without `./`.
+fn component_resource(url: &str) -> Option<String> {
+    let url = url.trim();
+    if url.is_empty() || url.contains("://") || url.starts_with("data:") {
+        return None;
+    }
+    Some(if url.starts_with('.') || url.starts_with('/') {
+        url.to_owned()
+    } else {
+        format!("./{url}")
+    })
 }
 
 fn name(kind: ImportedKind, local: Option<&str>, escapes: bool) -> ImportedName {
@@ -254,7 +284,64 @@ fn qualifier_parts<'q>(qualifier: &'q TSImportTypeQualifier<'_>) -> (&'q str, Op
     }
 }
 
+impl Finder<'_, '_> {
+    /// Records `templateUrl`, `styleUrl` and `styleUrls` of an Angular or Stencil `@Component({ … })` as
+    /// side-effect imports, so the stylesheets are followed and their packages count as used.
+    fn component_resources(&mut self, decorator: &Decorator<'_>) {
+        let Expression::CallExpression(call) = &decorator.expression else {
+            return;
+        };
+        let Expression::Identifier(callee) = &call.callee else {
+            return;
+        };
+        if !self.component_decorators.contains(callee.name.as_str()) {
+            return;
+        }
+        let Some(Argument::ObjectExpression(options)) = call.arguments.first() else {
+            return;
+        };
+        let mut found = Vec::new();
+        for property in &options.properties {
+            let ObjectPropertyKind::ObjectProperty(property) = property else {
+                continue;
+            };
+            let Some(key) = property.key.static_name() else {
+                continue;
+            };
+            match crate::js_string(key.as_js_str()).as_str() {
+                "templateUrl" | "styleUrl" => found.push(&property.value),
+                "styleUrls" => {
+                    if let Expression::ArrayExpression(array) = property.value.get_inner_expression() {
+                        found.extend(array.elements.iter().filter_map(|element| match element {
+                            ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_) => None,
+                            element => element.as_expression(),
+                        }));
+                    }
+                }
+                _ => {}
+            }
+        }
+        for value in found {
+            if let Some(specifier) = static_string(value).as_deref().and_then(component_resource) {
+                self.info.imports.push(Import {
+                    specifier,
+                    kind: ImportKind::SideEffect,
+                    names: Vec::new(),
+                    span: self.ctx.span(value.span()),
+                });
+            }
+        }
+    }
+}
+
 impl<'a> Visit<'a> for Finder<'_, '_> {
+    fn visit_decorator(&mut self, it: &Decorator<'a>) {
+        if !self.component_decorators.is_empty() {
+            self.component_resources(it);
+        }
+        walk::walk_decorator(self, it);
+    }
+
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
         if let Some(init) = &it.init
             && let Some(start) = module_call_start(init)
@@ -348,6 +435,26 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
         walk::walk_ts_as_expression(self, it);
     }
 
+    fn visit_ts_indexed_access_type(&mut self, it: &TSIndexedAccessType<'a>) {
+        let import: Option<&TSImportType<'a>> = match &it.object_type {
+            TSType::TSImportType(import) => Some(import),
+            TSType::TSTypeQuery(query) => match &query.expr_name {
+                TSTypeQueryExprName::TSImportType(import) => Some(import),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(import) = import
+            && import.qualifier.is_none()
+            && let TSType::TSLiteralType(literal) = &it.index_type
+            && let TSLiteral::StringLiteral(export) = &literal.literal
+        {
+            self.indexed_types
+                .insert(import.span.start, crate::js_string(export.value));
+        }
+        walk::walk_ts_indexed_access_type(self, it);
+    }
+
     fn visit_ts_import_type(&mut self, it: &TSImportType<'a>) {
         if self.redundant_types.contains(&it.span.start) {
             walk::walk_ts_import_type(self, it);
@@ -363,7 +470,11 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
                 bound.accessed_members.extend(member.map(str::to_string));
                 bound
             }
-            None => name(ImportedKind::Namespace, None, false),
+            None => match self.indexed_types.get(&it.span.start) {
+                // `typeof import("x")["A"]`, as unplugin-auto-import generates, reads export `A` as a whole.
+                Some(export) => name(imported_kind(export.clone()), None, true),
+                None => name(ImportedKind::Namespace, None, false),
+            },
         };
         bound.is_type = true;
         self.info.imports.push(Import {

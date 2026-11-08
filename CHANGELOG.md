@@ -51,6 +51,10 @@ All notable changes to this project are documented here. The format follows
   keeps the source file of a workspace package per specifier, and no longer reads and parses a `tsconfig.json` that
   cannot be loaded (its `extends` names a package that is not installed) again for every importer below it
   ([#30](https://github.com/Goldziher/skif/issues/30)).
+- `skif migrate` accepts knip's `compilers: true` and `true` for an extension skif reads itself (`mdx`, `vue`,
+  `svelte`, `astro`, the stylesheet languages, `tsrx`) as the built-in extractors, instead of reporting it as
+  unsupported; a custom compiler function for one of them is an approximation, since it never runs
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
 
 ### Fixed
 
@@ -94,7 +98,7 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   of such a package is spared.
 - A bare `typeof import("./m")`, or a bare JSDoc `@type {import("./m")}`, no longer marks every export of `./m`
   used: it names the module's type without reading an export, as in knip. `typeof import("./m").A` uses `A`, and
-  `typeof import("./m").E.B` only member `B` of `E` ([#25](https://github.com/Goldziher/skif/issues/25)).
+  `typeof import("./m").E.B` only member `B` of `E`; the indexed `typeof import("./m")["A"]` that unplugin-auto-import generates uses `A` ([#25](https://github.com/Goldziher/skif/issues/25)).
 - `unresolved-imports` no longer reports `./dir` when a `.gitignore` lists `dir/index.ts` (or an extensionless
   `./file` when it lists `file.ts`), nor a `#` specifier of a package whose nearest `package.json` declares no
   `imports`, unless a `tsconfig` `paths` pattern or a configured alias maps it ([#18](https://github.com/Goldziher/skif/issues/18)).
@@ -169,6 +173,16 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   unsafe fix. Comments, negated globs and non-git repositories are kept. `skif migrate` writes syncpack's format
   options to it ([ADR 0055](adrs/0055-package-json-formatting-the-package-json-format-rule-and-skif-format.md),
   [#33](https://github.com/Goldziher/skif/issues/33)).
+- `.mdx` files are followed: their top-level `import` and `export` statements are analysed and the components their
+  prose names count as uses (code in backticks does not), so the components, packages and `@mdx-js/*` compilers of a
+  docs site are no longer unused. An apostrophe in JSX text or a multi-line template literal does not make an `export`
+  paragraph swallow the rest of the document ([#38](https://github.com/Goldziher/skif/issues/38)).
+- The `templateUrl`, `styleUrl` and `styleUrls` of an Angular or Stencil `@Component` are followed, so the packages
+  its stylesheets import are no longer unused ([#38](https://github.com/Goldziher/skif/issues/38)).
+- Stylus files (`.styl`, `.stylus`, `<style lang="stylus">`) are followed through `@import` and `@require`, and the
+  imports of `.tsrx` files are read (not those in comments, strings or template literals, and not re-exports), so the
+  files and packages they use and the `stylus` and `@tsrx/*` compilers are no longer unused
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
 
 ## [0.1.1] - 2026-11-07
 

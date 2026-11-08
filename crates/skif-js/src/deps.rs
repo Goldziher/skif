@@ -28,6 +28,38 @@ enum Listed {
 /// Packages that are used by tooling rather than imports and never reported as unused.
 const ALWAYS_USED: &[&str] = &["typescript", "knip", "skif"];
 
+/// The packages that compile a file type skif extracts imports from without running a compiler (ADR 0001): a file
+/// of that type in the graph uses those of them its package lists, the way knip's built-in compilers mark them.
+const COMPILER_DEPENDENCIES: &[(&str, &[&str])] = &[
+    (
+        "mdx",
+        &[
+            "@mdx-js/esbuild",
+            "@mdx-js/loader",
+            "@mdx-js/mdx",
+            "@mdx-js/node-loader",
+            "@mdx-js/preact",
+            "@mdx-js/react",
+            "@mdx-js/rollup",
+            "@mdx-js/vue",
+            "remark-mdx",
+        ],
+    ),
+    ("styl", &["stylus"]),
+    (
+        "tsrx",
+        &[
+            "@tsrx/core",
+            "@tsrx/react",
+            "@tsrx/preact",
+            "@tsrx/vue",
+            "@tsrx/solid",
+            "@tsrx/ripple",
+        ],
+    ),
+    ("stylus", &["stylus"]),
+];
+
 /// Packages whose `@types` twin does not need the package itself.
 const UNPAIRED_TYPES: &[&str] = &["node", "bun", "jest"];
 
@@ -592,6 +624,21 @@ impl DependencyUsage {
                     // A path alias can stand in for a package the manifest lists: the alias serves development,
                     // the listed dependency is what consumers install.
                     self.reference_listed(module.owner, &import.specifier);
+                }
+            }
+            let extension = module
+                .abs
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(str::to_ascii_lowercase);
+            if let Some((_, compilers)) = COMPILER_DEPENDENCIES
+                .iter()
+                .find(|(wanted, _)| extension.as_deref() == Some(*wanted))
+            {
+                for compiler in *compilers {
+                    if let Some(found) = self.find_listed(module.owner, compiler) {
+                        self.reference(found, compiler);
+                    }
                 }
             }
             // `declare module 'pkg'` augments the package, which has to be installed for that to compile. It stays

@@ -636,12 +636,13 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
             ),
             None => {}
         },
-        "compilers" | "asyncCompilers" | "preprocessor" | "preprocessorOptions" => state.note_with(
+        "compilers" => compilers(state, src, path, item),
+        "asyncCompilers" | "preprocessor" | "preprocessorOptions" => state.note_with(
             src,
             NoteClass::Unsupported,
             path,
             "compilers and preprocessors are functions, which skif never runs",
-            "skif reads Vue, Svelte, Astro and CSS files itself; other file types need a plugin or an entry pattern",
+            BUILT_IN_EXTRACTORS_HINT,
         ),
         other if registry::plugin(other).is_some() => {
             let value = plugin_value(state, src, path, item);
@@ -660,6 +661,88 @@ fn workspace_key(state: &mut State<'_>, src: &Src, target: &Target, key: &str, p
             path,
             format!("`{other}` is not a knip option, and skif has no plugin of that name"),
         ),
+    }
+}
+
+/// The extensions whose imports skif extracts itself, without running a compiler (ADR 0001).
+const BUILT_IN_EXTRACTORS: &[&str] = &[
+    "astro", "css", "less", "mdx", "pcss", "sass", "scss", "styl", "stylus", "svelte", "tsrx", "vue",
+];
+
+const BUILT_IN_EXTRACTORS_HINT: &str = "skif reads Vue, Svelte, Astro, MDX, TSRX, CSS, Sass, Less and Stylus files itself; \
+                                         other file types need a plugin or an entry pattern";
+
+/// Extensions whose files are outside skif's default `project`: knip reports unused ones once a compiler reads them.
+const OUTSIDE_DEFAULT_PROJECT: &[&str] = &["mdx", "tsrx"];
+
+/// `compilers`: `true` for an extension (or for all of them) asks knip for its built-in compiler, which skif's own
+/// extractor stands in for. A function is a custom compiler, which skif never runs.
+fn compilers(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue) {
+    if matches!(value, ConfigValue::Bool(true)) {
+        state.note(
+            src,
+            NoteClass::Default,
+            path,
+            "skif extracts the imports of Vue, Svelte, Astro, MDX, TSRX and stylesheet files itself, without a compiler",
+        );
+        return;
+    }
+    for (extension, compiler) in entries(state, src, path, value) {
+        // `.styl` is written as a quoted key, so it is not joined into `compilers..styl`.
+        let at = if extension
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')
+        {
+            join(path, extension)
+        } else {
+            format!("{path}[\"{extension}\"]")
+        };
+        let name = extension.trim_start_matches('.').to_ascii_lowercase();
+        let built_in = BUILT_IN_EXTRACTORS.contains(&name.as_str());
+        match compiler {
+            ConfigValue::Bool(true) if built_in && OUTSIDE_DEFAULT_PROJECT.contains(&name.as_str()) => state.note_with(
+                src,
+                NoteClass::Default,
+                at,
+                format!("skif reads `.{name}` files with its built-in extractor"),
+                format!("add `**/*.{name}` to `project` to report unused `.{name}` files, as knip does"),
+            ),
+            ConfigValue::Bool(true) if built_in => state.note(
+                src,
+                NoteClass::Default,
+                at,
+                format!("skif reads `.{name}` files with its built-in extractor"),
+            ),
+            ConfigValue::Bool(true) => state.note_with(
+                src,
+                NoteClass::Unsupported,
+                at,
+                format!("neither knip nor skif has a built-in compiler for `.{name}` files"),
+                BUILT_IN_EXTRACTORS_HINT,
+            ),
+            ConfigValue::Bool(false) => state.note(
+                src,
+                NoteClass::Default,
+                at,
+                "knip ignores `false`, and skif's built-in extractors are always on",
+            ),
+            _ if built_in => state.note_with(
+                src,
+                NoteClass::Approximate,
+                at,
+                "custom compilers are functions, which skif never runs",
+                format!(
+                    "skif reads `.{name}` files with its built-in extractor; check that it finds what this compiler did"
+                ),
+            ),
+            _ => state.note_with(
+                src,
+                NoteClass::Unsupported,
+                at,
+                "custom compilers are functions, which skif never runs",
+                BUILT_IN_EXTRACTORS_HINT,
+            ),
+        }
     }
 }
 
