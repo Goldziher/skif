@@ -198,7 +198,6 @@ fn below<'a>(candidates: &'a [Candidate], root: &Path, dir: &Path) -> &'a [Candi
     &candidates[start..start + run]
 }
 
-/// The candidates of one package, with their path relative to the package directory `dir`.
 /// The project files of an incomplete package in the narrowed scope of its configs (ADR 0064). They are entries, so
 /// what they import is not reported either.
 fn scope_entries<'a>(owned: impl Iterator<Item = (&'a Candidate, String)>, package: &PackageSetup) -> Vec<PathBuf> {
@@ -211,6 +210,7 @@ fn scope_entries<'a>(owned: impl Iterator<Item = (&'a Candidate, String)>, packa
         .collect()
 }
 
+/// The candidates of one package, with their path relative to the package directory `dir`.
 fn owned_by<'a>(owned: &'a [&'a Candidate], dir: &'a Path) -> impl Iterator<Item = (&'a Candidate, String)> + 'a {
     owned
         .iter()
