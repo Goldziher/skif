@@ -24,6 +24,178 @@ All notable changes to this project are documented here. The format follows
   - `--trace-dependency <NAME>` prints where a dependency is listed, imported and used.
   - `--debug`, `--performance`, `--duration` and `--memory` print what was loaded, phase timings, wall time and peak
     memory to stderr.
+- An `unplugin-icons` plugin: with that dependency, `~icons/*` imports and the `@iconify-json/*` and `@iconify/json`
+  collections are virtual, as in knip. The table holds 106 plugins
+  ([#18](https://github.com/Goldziher/skif/issues/18)).
+- `--allow-remove-files` lets a fix run delete files, and `--fix-type` limits it to some rules, given as rule ids or
+  knip issue types (`dependencies`, `exports`, `types`, `enumMembers`, `files`, `catalog`, ...), as knip's flags do
+  ([ADR 0052](adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md),
+  [#37](https://github.com/Goldziher/skif/issues/37)).
+- Unsafe fixes for `unused-enum-members`, `unused-namespace-members` and `unused-catalog-entries`, and for
+  `unused-exports` on `export default <expression>` when the expression has no side effects. A member goes with its
+  comments; a member whose removal would renumber a later enum member gets no fix; a catalog left empty is removed
+  ([ADR 0052](adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md),
+  [#37](https://github.com/Goldziher/skif/issues/37)).
+
+### Changed
+
+- `--fix-unsafe` no longer deletes files: the `unused-files` fix is skipped as `removes-files` unless
+  `--allow-remove-files` is given. In the library, `FixSelection::remove_files` is off by default and such a fix is
+  skipped with `SkipReason::RemovesFiles`
+  ([ADR 0052](adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md),
+  [#37](https://github.com/Goldziher/skif/issues/37)).
+- Files in `fixtures` and `__fixtures__` directories are no longer reported by `unused-files`, and their exports,
+  types and members are no longer reported by `unused-exports`, `unused-types`, the namespace rules and
+  `unused-enum-members`. `[js] include-fixtures = true` reports them like any other file
+  ([ADR 0050](adrs/0050-fixture-directories-in-the-js-analysis.md),
+  [#28](https://github.com/Goldziher/skif/issues/28)).
+- `--fix` aligns versions when the target is explicit (a `pinned` group's version, the version the workspace aligns
+  on, an existing catalog entry) and the move stays within what the specifier already promises, in the same shape: an
+  exact version or a `^` range within its major (`left-pad` `1.0.0` to `1.3.0`), a `~` range within its minor.
+  Moves across a major, downgrades, prereleases and range changes still need `--fix-unsafe`, also when a pin asks
+  for them
+  ([ADR 0051](adrs/0051-safe-version-alignment-fixes.md), [#31](https://github.com/Goldziher/skif/issues/31)).
+- **Breaking** for consumers of `explain-usage --format json`: the `absence` value `not-analysed` is gone, replaced
+  by `package-excluded`, `declaration-file`, `entries-incomplete`, `outside-project`, `ignored` and `not-discovered`
+  ([#23](https://github.com/Goldziher/skif/issues/23)).
+- Module resolution takes about half the thread time it did on large monorepos (n8n, cal-com), and a full run
+  15 to 20% less wall time, with identical output. The file system cache hashes the bytes of a path instead of its
+  components and finds a name in a cached listing by its name; the resolver looks up the scopes of an importer once,
+  keeps the source file of a workspace package per specifier, and no longer reads and parses a `tsconfig.json` that
+  cannot be loaded (its `extends` names a package that is not installed) again for every importer below it
+  ([#30](https://github.com/Goldziher/skif/issues/30)).
+- `skif migrate` accepts knip's `compilers: true` and `true` for an extension skif reads itself (`mdx`, `vue`,
+  `svelte`, `astro`, the stylesheet languages, `tsrx`) as the built-in extractors, instead of reporting it as
+  unsupported; a custom compiler function for one of them is an approximation, since it never runs
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
+
+### Fixed
+
+- `unused-namespace-members` counts a member read by its bare name inside the namespace body, as a value or as a
+  type, unless a parameter or local of the same name shadows it; the declarations of a merged namespace share their
+  members ([#15](https://github.com/Goldziher/skif/issues/15)).
+- `unused-dependencies` no longer reports `optionalDependencies`, as knip does not: they are mostly platform packages
+  loaded by a computed name ([#21](https://github.com/Goldziher/skif/issues/21)).
+- `skif migrate` writes `[catalog] report-unused-entries = true` when knip's `catalog` issue type stays enabled, so
+  `unused-catalog-entries` keeps reporting what knip reported ([#32](https://github.com/Goldziher/skif/issues/32)).
+- `skif -r <rule>` with a sherif or skif rule name, where sherif's `-r` is `--ignore-rule`, now fails with a usage error
+  that names `--ignore-rule` and `--rule` for that rule, instead of a missing-path error
+  ([#45](https://github.com/Goldziher/skif/issues/45)).
+- `unused-exports`, `unused-types`, the namespace export rules and the member rules no longer report exports of a
+  package whose entry files are incomplete, as `unused-files` and `unused-dependencies` already did: a file no known
+  entry reaches may import them. `explain-usage` gives such an export the verdict `not-judged`
+  ([#12](https://github.com/Goldziher/skif/issues/12)).
+- A relative import of a package directory (`..`, `../../automation`) whose `main` or `exports` point at build output
+  that was never built resolves to the source file behind it, as an alias to such a directory already did, instead of
+  being reported by `unresolved-imports` ([#17](https://github.com/Goldziher/skif/issues/17)).
+- `unlisted-dependencies` no longer reports packages that a test only mocks (`vi.mock("x")`, `jest.mock("x")`),
+  and mock calls are read from the syntax tree, so module names inside strings and template literals are no longer
+  imports; `{ virtual: true }` mocks are ignored ([#16](https://github.com/Goldziher/skif/issues/16)).
+- Imports inside `declare module "x" { ... }` bodies now count as uses of the packages they name, so those
+  packages are no longer reported as unused ([#20](https://github.com/Goldziher/skif/issues/20)).
+- `declare module "x"` in a file with top-level `import` or `export` augments `x` instead of declaring it, so it no
+  longer hides unlisted imports of `x` across the workspace; only declarations in script files do
+  ([#24](https://github.com/Goldziher/skif/issues/24)).
+
+Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/19)):
+
+- A file of a nested project (a directory with its own `package.json`, such as a nested root) that the outer root
+  reaches is not reported in the outer root: its imports are no longer unlisted there and no longer count as uses of
+  the outer root's dependencies. The nested root judges the file against its own manifest in its own run.
+- A file that a script of a `package.json` above a nested root runs (`node build/npm/postinstall.ts`) is an entry
+  of that root, so it and what it imports are no longer reported as unused files.
+- A package with no source file, no entry and no script no longer reports every dependency it lists as unused: there
+  is no code to judge them against.
+- `stale-js-config` no longer stays silent about every `ignore-dependencies` list when one package has entry files
+  skif cannot determine: the lists are judged over the other packages, and only a global entry matching a dependency
+  of such a package is spared.
+- A bare `typeof import("./m")`, or a bare JSDoc `@type {import("./m")}`, no longer marks every export of `./m`
+  used: it names the module's type without reading an export, as in knip. `typeof import("./m").A` uses `A`, and
+  `typeof import("./m").E.B` only member `B` of `E`; the indexed `typeof import("./m")["A"]` that unplugin-auto-import generates uses `A` ([#25](https://github.com/Goldziher/skif/issues/25)).
+- `unresolved-imports` no longer reports `./dir` when a `.gitignore` lists `dir/index.ts` (or an extensionless
+  `./file` when it lists `file.ts`), nor a `#` specifier of a package whose nearest `package.json` declares no
+  `imports`, unless a `tsconfig` `paths` pattern or a configured alias maps it ([#18](https://github.com/Goldziher/skif/issues/18)).
+- The `provider` of a Prisma schema's `generator` block (`prisma-kysely`, `zod-prisma-types`) counts as used
+  ([#22](https://github.com/Goldziher/skif/issues/22)).
+- `import.meta.resolve("x")` counts as a use of `x`, like `require.resolve`
+  ([#22](https://github.com/Goldziher/skif/issues/22)).
+- A file a script runs through a path that leaves its package (`tsx ../../scripts/seed.ts`) is the file it names and
+  belongs to the package it lies in, and `explain-usage` gives such a file, or one named `./scripts/a.ts`, as run by a
+  script ([#22](https://github.com/Goldziher/skif/issues/22)).
+- The script parser reads `$((n+1))` and `((n++))` as arithmetic, not as commands; `bun --cwd <dir>` and
+  `pnpm --prefix <dir>` (like `--dir` and `-C`) run in another package, so the scripts and binaries they name are that
+  package's ([#22](https://github.com/Goldziher/skif/issues/22)).
+- `new URL("../node_modules/.bin/tsx", import.meta.url)` and `new URL("./node_modules/later", import.meta.url)` name
+  installed files, not modules, so they no longer report `.bin` or `later` as unlisted
+  ([#22](https://github.com/Goldziher/skif/issues/22)).
+- A `tsconfig` with `outDir` and no `rootDir` maps its build output back to source through the common directory of
+  its `include` and `files`, and script arguments inside an `outDir` map to their sources, ahead of build output on
+  disk: `mocha --recursive ./build/compiled/test` makes every test file below `test/` an entry (without
+  `--recursive` only those directly in it, with mocha's `--extension` values), so compiled test suites are no longer
+  reported as unused files with unused dev dependencies ([#13](https://github.com/Goldziher/skif/issues/13)).
+- `explain-usage` says why a file outside the module graph is not reported: the package is excluded, a declaration
+  file, ignored, outside the project globs, not discovered, or in a package whose entry files are not fully known. For
+  the last it names every tool config that could not be read and why (it does not parse, it evaluates to an unknown
+  value, it spreads in an unknown base config, its entry keys are computed, or `package.json` publishes build output
+  with no source behind it). The JSON report's `incomplete` lists the configs
+  ([#23](https://github.com/Goldziher/skif/issues/23)).
+- The JSON report lists under `incomplete-packages` the packages whose unused files and dependencies were not checked
+  because their entry files are not all known, with each reason (plugin, config file, cause); human output names them
+  in a note before the summary. `Report` carries them as `incomplete_packages`. `skif-bench parity` counts knip-only
+  files and dependencies in those packages as `not-judged-by-skif`, apart from agreement and the other deviations
+  ([#27](https://github.com/Goldziher/skif/issues/27)).
+- The files an n8n node package lists in `package.json` `n8n.nodes` and `n8n.credentials` are entries, mapped from
+  `dist` back to their sources, so node and credential files are not reported unused
+  ([#23](https://github.com/Goldziher/skif/issues/23)).
+- `--format codeclimate` (GitLab Code Quality JSON with stable fingerprints), `compact` (one
+  `path:line:col rule message` line per finding), `markdown` and `disclosure` (a table per rule for pull request
+  comments, folded in `<details>` sections for `disclosure`) and `codeowners` (findings grouped by the owners in the
+  repository's CODEOWNERS file, last matching pattern wins, GitLab section default owners apply). The renderers are
+  in `skif-report` and `skif::render` ([#42](https://github.com/Goldziher/skif/issues/42)).
+- `--format` is repeatable and takes `FORMAT=FILE`, so one run writes several reports, each to its own file, with at
+  most one format on stdout. Files are written only after every rendering succeeds, though a write that fails
+  partway can leave earlier files written; `--output` stays the single-format form ([ADR 0054](adrs/0054-several-reports-in-one-run.md),
+  [#42](https://github.com/Goldziher/skif/issues/42)).
+- The `include-tags` option of `unused-exports` reports only exports and members carrying one of its tags, like knip's
+  `--tags +name`; `skif migrate` translates `+tag` to it. A tag it names is judged even when it would exempt, so
+  `include-tags = ["public"]` reports unused `@public` exports (knip reports none). `stale-js-config` reports knip's tag hints: an
+  `ignore-tags` tag, or `@internal` in production mode, on an export or member that is used anyway
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `stale-js-config` reports `entry`, `project` and `ignore` patterns that match no file, known to the analysis or on
+  disk (gitignored and non-source files count), like knip's `entry-empty`, `project-empty` and `ignore` configuration
+  hints; a pattern of a glob `[js.workspaces]` key is reported once, under the key as written, when it matches in none
+  of its packages ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `[js.cycles]` with `allow` (cycles not reported; an empty cycle or path is a configuration error) and
+  `dynamic-imports` (count `import()` in `circular-imports`), translated by `skif migrate` from knip's `cycles`
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `[js] ignore-files`, top level and per workspace: files `unused-files` never reports, which other rules still analyse.
+  `skif migrate` writes knip's `ignoreFiles` there instead of widening it to `ignore`, and `stale-js-config` reports an
+  entry that hides nothing ([#43](https://github.com/Goldziher/skif/issues/43)).
+- An export tagged `@alias` is no longer reported by `unused-exports`, `unused-types` or `duplicate-exports`, as in
+  knip ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `skif migrate` no longer says skif has no tag hints or global binaries list: `treatTagHintsAsErrors` points at
+  `stale-js-config`, and `ignoreGlobalBinaries: true` is noted as what skif always does
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
+- An enum or namespace member tagged `@internal` (with `production`), `@beta`, `@alpha`, `@alias` or an `ignore-tags`
+  name is no longer reported by `unused-enum-members` or `unused-namespace-members`; only `@public` was honoured
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `package.json` formatting with syncpack's `format` semantics: the `package-json-format` rule (off by default),
+  `skif format`, `skif format --check` and `skif format --unsafe`, and a `[format]` table with `sort-first`, `sort-az`,
+  `sort-exports`, `sort-packages`, `format-bugs`, `format-repository` and `indent`. By default only `types` moves first
+  and `default` last among `exports` conditions, since the others decide resolution; a longer `sort-exports` gives an
+  unsafe fix. Comments, negated globs and non-git repositories are kept. `skif migrate` writes syncpack's format
+  options to it ([ADR 0055](adrs/0055-package-json-formatting-the-package-json-format-rule-and-skif-format.md),
+  [#33](https://github.com/Goldziher/skif/issues/33)).
+- `.mdx` files are followed: their top-level `import` and `export` statements are analysed and the components their
+  prose names count as uses (code in backticks does not), so the components, packages and `@mdx-js/*` compilers of a
+  docs site are no longer unused. An apostrophe in JSX text or a multi-line template literal does not make an `export`
+  paragraph swallow the rest of the document ([#38](https://github.com/Goldziher/skif/issues/38)).
+- The `templateUrl`, `styleUrl` and `styleUrls` of an Angular or Stencil `@Component` are followed, so the packages
+  its stylesheets import are no longer unused ([#38](https://github.com/Goldziher/skif/issues/38)).
+- Stylus files (`.styl`, `.stylus`, `<style lang="stylus">`) are followed through `@import` and `@require`, and the
+  imports of `.tsrx` files are read (not those in comments, strings or template literals, and not re-exports), so the
+  files and packages they use and the `stylus` and `@tsrx/*` compilers are no longer unused
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
 
 ## [0.1.1] - 2026-11-07
 

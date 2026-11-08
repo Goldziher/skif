@@ -1,0 +1,25 @@
+---
+source: crates/skif-edit/tests/package_json_format.rs
+expression: "report(\"mixed-newlines\")"
+---
+issues:
+  - the top-level keys are not in the configured order
+  - `keywords` is not sorted alphabetically
+--- before
+{\r\n
+  "version": "1.0.0",
+  "name": "mixed",\r\n
+  "keywords": [
+    "b",\r\n
+    "a"
+  ]\r\n
+}
+--- after
+{\r\n
+  "name": "mixed",
+  "version": "1.0.0",\r\n
+  "keywords": [
+    "a",\r\n
+    "b"
+  ]\r\n
+}

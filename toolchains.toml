@@ -216,3 +216,4 @@ format = "Rust is formatted by rustfmt before poly formats the rest of the tree.
 "fixtures/policy/workspace-protocol/link-path-rejected-by-default/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "fixtures/policy/workspace-protocol/version-mismatch-and-protocol-both-reported/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
 "fixtures/policy/workspace-protocol/workspace-protocol-valid/workspace/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"
+"crates/skif-cli/tests/fixtures/format/package.json" = "fixture package.json: the pinned packageManager is test input, not a toolchain declaration"

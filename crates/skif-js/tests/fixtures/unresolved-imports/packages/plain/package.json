@@ -1,0 +1,5 @@
+{
+  "name": "plain",
+  "private": true,
+  "main": "src/index.ts"
+}

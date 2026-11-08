@@ -28,6 +28,38 @@ enum Listed {
 /// Packages that are used by tooling rather than imports and never reported as unused.
 const ALWAYS_USED: &[&str] = &["typescript", "knip", "skif"];
 
+/// The packages that compile a file type skif extracts imports from without running a compiler (ADR 0001): a file
+/// of that type in the graph uses those of them its package lists, the way knip's built-in compilers mark them.
+const COMPILER_DEPENDENCIES: &[(&str, &[&str])] = &[
+    (
+        "mdx",
+        &[
+            "@mdx-js/esbuild",
+            "@mdx-js/loader",
+            "@mdx-js/mdx",
+            "@mdx-js/node-loader",
+            "@mdx-js/preact",
+            "@mdx-js/react",
+            "@mdx-js/rollup",
+            "@mdx-js/vue",
+            "remark-mdx",
+        ],
+    ),
+    ("styl", &["stylus"]),
+    (
+        "tsrx",
+        &[
+            "@tsrx/core",
+            "@tsrx/react",
+            "@tsrx/preact",
+            "@tsrx/vue",
+            "@tsrx/solid",
+            "@tsrx/ripple",
+        ],
+    ),
+    ("stylus", &["stylus"]),
+];
+
 /// Packages whose `@types` twin does not need the package itself.
 const UNPAIRED_TYPES: &[&str] = &["node", "bun", "jest"];
 
@@ -574,12 +606,21 @@ impl DependencyUsage {
 
     fn collect_imports(&mut self, workspace: &Workspace, setup: &Setup, graph: &ModuleGraph) {
         for module in graph.modules() {
-            if setup.package(module.owner).is_none() {
+            // A file of another project uses that project's dependencies, not those of the package that reaches it.
+            if module.foreign || setup.package(module.owner).is_none() {
                 continue;
             }
             for resolved in &module.imports {
                 if let Some(name) = &resolved.package {
                     let kind = module.info.imports.get(resolved.import).map(|import| import.kind);
+                    if kind == Some(ImportKind::Mock) {
+                        // A test that mocks a package does not need it installed: a listed package is used, an
+                        // unlisted one is not an unlisted import.
+                        if let Some(found) = self.find_listed(module.owner, name) {
+                            self.reference(found, name);
+                        }
+                        continue;
+                    }
                     let type_only = resolved.type_only && kind != Some(ImportKind::ExportFrom);
                     let span = module.info.imports.get(resolved.import).map(|import| import.span);
                     self.handle_import(workspace, module.owner, name, type_only, module.id, span);
@@ -589,9 +630,24 @@ impl DependencyUsage {
                     self.reference_listed(module.owner, &import.specifier);
                 }
             }
+            let extension = module
+                .abs
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(str::to_ascii_lowercase);
+            if let Some((_, compilers)) = COMPILER_DEPENDENCIES
+                .iter()
+                .find(|(wanted, _)| extension.as_deref() == Some(*wanted))
+            {
+                for compiler in *compilers {
+                    if let Some(found) = self.find_listed(module.owner, compiler) {
+                        self.reference(found, compiler);
+                    }
+                }
+            }
             // `declare module 'pkg'` augments the package, which has to be installed for that to compile. It stays
             // out of `imports`: declaring a module the project does not list is not an unlisted import.
-            for name in &module.info.ambient_modules {
+            for name in module.info.ambient_modules.iter().chain(&module.info.augmented_modules) {
                 self.reference_listed(module.owner, name);
             }
             if let Some(source) = module.info.jsx_import_source.as_deref().and_then(package_name) {
