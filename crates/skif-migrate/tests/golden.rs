@@ -630,6 +630,37 @@ fn knip_tsconfig_flags_are_written_to_js() {
 }
 
 #[test]
+fn knip_scripts_with_different_tsconfigs_are_noted() {
+    let migration = knip(
+        None,
+        &[
+            ("a", "knip --tsConfig tsconfig.a.json"),
+            ("b", "knip -t tsconfig.b.json"),
+        ],
+    );
+    assert_eq!(table(&migration)["js"]["tsconfig"].as_str(), Some("tsconfig.b.json"));
+    assert_eq!(
+        class(&migration, "scripts.a, scripts.b: --tsConfig"),
+        NoteClass::Approximate
+    );
+    let same = knip(
+        None,
+        &[
+            ("a", "knip --tsConfig tsconfig.a.json"),
+            ("b", "knip -t tsconfig.a.json"),
+        ],
+    );
+    assert!(
+        !same
+            .notes
+            .iter()
+            .any(|note| note.path == "scripts.a, scripts.b: --tsConfig"),
+        "{:#?}",
+        same.notes
+    );
+}
+
+#[test]
 fn knip_flags_override_the_configuration_lists() {
     let migration = knip(Some(r#"{ "exclude": ["files"] }"#), &[("k", "knip --include files")]);
     assert_eq!(table(&migration)["rules"]["unused-files"].as_str(), Some("error"));
