@@ -31,7 +31,9 @@ pub struct FormatOptions {
     pub format_bugs: bool,
     /// Collapse a `repository` object holding only `url` and a `type` of `git` (or no `type`) to the URL string.
     pub format_repository: bool,
-    /// When set, the file must be laid out as `JSON.stringify(value, null, indent)` lays it out.
+    /// When set, the file must be laid out as `JSON.stringify(value, null, indent)` lays it out. A file that is not
+    /// strict JSON (comments, trailing commas, single quotes) keeps its layout, since re-rendering it would drop the
+    /// comments or write invalid JSON.
     pub indent: Option<String>,
 }
 
@@ -228,14 +230,14 @@ pub fn format_package_json(source: &str, options: &FormatOptions) -> Result<Form
     }
     let kept = doc.render_kept();
     let output = match &options.indent {
-        Some(indent) => {
+        Some(indent) if is_strict_json(source) => {
             let canonical = doc.render_canonical(indent, newline(source));
             if canonical != kept {
                 issues.push(FormatIssue::Layout);
             }
             canonical
         }
-        None => kept,
+        _ => kept,
     };
     Ok(Formatted { issues, output })
 }
@@ -268,6 +270,11 @@ pub fn minimal_edit(before: &str, after: &str) -> Option<TextEdit> {
         u32::try_from(end).ok()?,
         &after[start..b.len() - tail],
     ))
+}
+
+/// Whether `source` is plain JSON, the input the canonical layout can render without losing anything.
+fn is_strict_json(source: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(source.strip_prefix(BOM).unwrap_or(source)).is_ok()
 }
 
 fn newline(source: &str) -> &'static str {
@@ -900,6 +907,29 @@ mod tests {
             format("{\n  \"name\": \"a\"\n}\n", &options).issues,
             [],
             "an indented file is formatted"
+        );
+    }
+
+    #[test]
+    fn indent_keeps_the_layout_of_a_file_that_is_not_strict_json() {
+        let options = FormatOptions::default().with_indent(Some("  ".to_owned()));
+        for source in [
+            "{\n    // the package\n    \"name\": \"a\"\n}\n",
+            "{\n    \"name\": \"a\" /* the package */\n}\n",
+            "{\n    \"name\": \"a\",\n}\n",
+            "{\n    'name': 'a'\n}\n",
+            "{\n    \"n\": 0x1F\n}\n",
+            "// header\n{\n    \"name\": \"a\"\n}\n",
+        ] {
+            let formatted = format(source, &options);
+            assert_eq!(formatted.issues, [], "{source}");
+            assert_eq!(formatted.output, source);
+        }
+        let reordered = format("{\n    \"version\": \"1\",\n    \"name\": \"a\",\n}\n", &options);
+        assert_eq!(reordered.issues, [FormatIssue::KeyOrder], "the other steps still run");
+        assert_eq!(
+            reordered.output,
+            "{\n    \"name\": \"a\",\n    \"version\": \"1\",\n}\n"
         );
     }
 
