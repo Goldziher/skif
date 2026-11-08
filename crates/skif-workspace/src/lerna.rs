@@ -1,8 +1,9 @@
 //! `lerna.json`: the workspace declaration of a Lerna monorepo that does not use package-manager workspaces.
 //!
 //! `packages` lists the member globs, as the `workspaces` of `package.json` do, and `npmClient` names the package
-//! manager. syncpack reads the same file when nothing else declares the packages; skif reads it last, after
-//! `package.json`, `pnpm-workspace.yaml` and `rush.json`.
+//! manager. syncpack reads the same file when nothing else declares the packages; skif reads it last, and only
+//! when none of `package.json`, `pnpm-workspace.yaml` and `rush.json` does; an unreadable or invalid file then
+//! declares nothing.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -27,12 +28,12 @@ pub(crate) struct Lerna {
     pub package_manager: Option<PackageManager>,
 }
 
-/// Parses `source`, the contents of `lerna.json`.
+/// Parses `source`, the contents of the `lerna.json` at `path`.
 ///
 /// # Errors
-/// [`WorkspaceError::InvalidManifest`] when the file is not valid JSON or not an object.
-pub(crate) fn parse(source: Arc<str>) -> Result<Lerna, WorkspaceError> {
-    let (manifest, _) = Manifest::parse(PathBuf::from(FILE), source)?;
+/// [`WorkspaceError::InvalidManifest`] naming `path` when the file is not valid JSON or not an object.
+pub(crate) fn parse(path: PathBuf, source: Arc<str>) -> Result<Lerna, WorkspaceError> {
+    let (manifest, _) = Manifest::parse(path, source)?;
     let packages = manifest.value.get("packages").and_then(Value::as_array).map(|items| {
         items
             .iter()
@@ -64,9 +65,10 @@ mod tests {
 
     #[test]
     fn packages_and_client_are_read() {
-        let lerna = parse(Arc::from(
-            r#"{"version": "independent", "npmClient": "yarn", "packages": ["packages/*", 3, "tools/**"]}"#,
-        ))
+        let lerna = parse(
+            PathBuf::from(FILE),
+            Arc::from(r#"{"version": "independent", "npmClient": "yarn", "packages": ["packages/*", 3, "tools/**"]}"#),
+        )
         .unwrap();
         let globs: Vec<(usize, &str)> = lerna
             .packages
@@ -81,13 +83,19 @@ mod tests {
 
     #[test]
     fn a_file_without_packages_declares_nothing() {
-        let lerna = parse(Arc::from(r#"{"version": "1.0.0", "useWorkspaces": true}"#)).unwrap();
+        let lerna = parse(
+            PathBuf::from(FILE),
+            Arc::from(r#"{"version": "1.0.0", "useWorkspaces": true}"#),
+        )
+        .unwrap();
         assert!(lerna.packages.is_none());
         assert_eq!(lerna.package_manager, None);
     }
 
     #[test]
-    fn invalid_json_is_an_error() {
-        assert!(parse(Arc::from("{\"packages\": [")).is_err());
+    fn invalid_json_is_an_error_naming_the_path() {
+        let path = PathBuf::from("/repo").join(FILE);
+        let error = parse(path.clone(), Arc::from("{\"packages\": [")).err().unwrap();
+        assert!(matches!(error, WorkspaceError::InvalidManifest { path: named, .. } if named == path));
     }
 }

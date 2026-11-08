@@ -1324,3 +1324,27 @@ fn lerna_json_declares_the_members_and_the_package_manager_when_nothing_else_doe
     assert_eq!(workspace.facts.source, WorkspaceSource::PackageJsonWorkspaces);
     assert_eq!(dirs(&workspace), ["other/c"]);
 }
+
+#[test]
+fn lerna_json_is_not_read_when_something_else_declares_the_members() {
+    let files = [
+        ("package.json", r#"{"name":"root","private":true}"#),
+        ("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+        ("lerna.json", "{\"packages\": ["),
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+    ];
+    let workspace = discover(&files, &Config::default()).unwrap();
+    assert_eq!(workspace.facts.source, WorkspaceSource::PnpmWorkspaceYaml);
+    assert_eq!(dirs(&workspace), ["packages/a"]);
+}
+
+#[test]
+fn an_invalid_lerna_json_declares_nothing() {
+    let files = [
+        ("package.json", r#"{"name":"root","private":true}"#),
+        ("lerna.json", "{\"packages\": ["),
+        ("packages/a/package.json", r#"{"name":"a"}"#),
+    ];
+    let workspace = discover(&files, &Config::default()).unwrap();
+    assert_eq!(workspace.facts.source, WorkspaceSource::SinglePackage);
+}

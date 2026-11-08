@@ -110,8 +110,9 @@ fn lerna_packages(fs: &dyn FileSystem, dir: &Path) -> Option<Vec<String>> {
     if !fs.is_file(&dir.join(MANIFEST)) {
         return None;
     }
-    let text = fs.read_to_string(&dir.join(lerna::FILE)).ok()?;
-    let packages = lerna::parse(text).ok()?.packages?;
+    let path = dir.join(lerna::FILE);
+    let text = fs.read_to_string(&path).ok()?;
+    let packages = lerna::parse(path, text).ok()?.packages?;
     Some(packages.into_iter().map(|(_, glob, _)| glob).collect())
 }
 
@@ -351,10 +352,17 @@ fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
         .read_to_string(&root.join(rush::FILE))
         .ok()
         .and_then(|text| rush::parse(text).ok());
-    let lerna = fs
-        .read_to_string(&root.join(lerna::FILE))
-        .ok()
-        .and_then(|text| lerna::parse(text).ok());
+    let items = match manifest.as_ref().and_then(|manifest| manifest.get("workspaces")) {
+        Some(Value::Array(items)) => Some(items),
+        Some(Value::Object(object)) => object.get("packages").and_then(Value::as_array),
+        _ => None,
+    };
+    // As in `Workspace::discover`, `lerna.json` is read only when nothing else declares members.
+    let lerna_path = root.join(lerna::FILE);
+    let lerna = (manifest.is_some() && items.is_none() && from_yaml.is_none() && rush.is_none())
+        .then(|| fs.read_to_string(&lerna_path).ok())
+        .flatten()
+        .and_then(|text| lerna::parse(lerna_path, text).ok());
     let package_manager = detect::detect(
         fs,
         root,
@@ -370,11 +378,6 @@ fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
     {
         return patterns;
     }
-    let items = match manifest.as_ref().and_then(|manifest| manifest.get("workspaces")) {
-        Some(Value::Array(items)) => Some(items),
-        Some(Value::Object(object)) => object.get("packages").and_then(Value::as_array),
-        _ => None,
-    };
     if let Some(items) = items {
         return items
             .iter()
@@ -387,7 +390,10 @@ fn declared_patterns(fs: &dyn FileSystem, root: &Path) -> Vec<String> {
     if let Some(parsed) = rush {
         return parsed.projects.into_iter().map(|(_, folder, _)| folder).collect();
     }
-    lerna_packages(fs, root).unwrap_or_default()
+    lerna
+        .and_then(|lerna| lerna.packages)
+        .map(|packages| packages.into_iter().map(|(_, glob, _)| glob).collect())
+        .unwrap_or_default()
 }
 
 /// The absolute directories the patterns declared at `root` select (negations applied), read straight from
