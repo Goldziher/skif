@@ -406,7 +406,19 @@ directory with neither an index file nor a `package.json` is reported where knip
 it (`dist` to `src`), and is not reported when there is none. A relative import of a missing file that a `.gitignore`
 of the root or of a package lists (also as `./dir` for an ignored `dir/index.ts`, or without its extension) is taken
 for generated and not reported, and a `#` specifier is reported only when the nearest `package.json` declares
-`imports`.
+`imports`. Since the generated module may import any source file beside it, those files are reached and their exports
+count as used: the files of the ignored file's directory, of an ignored directory and below it, or, for the ignored
+index of a directory (`src/migrations/sqlite/index.ts` named as `./migrations/sqlite`), of the directory holding that
+directory and below it (`src/migrations/**`), within the importing package. When those files would be the package
+directory or its `src` (an ignored `src/schema.gen.ts`, or `src/generated/index.ts` named as `./generated`), none are
+credited, since that would hide most of the package's unused files.
+
+A `require()` or `import()` of a template literal with a relative static prefix (`` import(`./reporters/${name}.js`) ``)
+reaches every file matching the prefix, `*` for each substitution, and the suffix, as `import.meta.glob` does, and their
+exports count as used; an output extension also matches the sources it is built from (`.js` matches `.ts` and `.tsx`).
+Paths built at runtime in other ways are not followed: a specifier held in a variable, a `fast-glob` or `glob` call
+listing files relative to `__dirname`, or a registry that loads `${name}/${name}.module.js` from a directory it computes.
+Add such files to `entry`.
 
 **`ignore-workspaces`** lists workspace directories (globs) the JavaScript analysis skips. Unlike `[workspace]
 ignore-packages`, the packages stay in the workspace, so manifest and policy rules still check them. The root is never
@@ -611,11 +623,22 @@ The table holds 205 built-in plugins:
 
 `typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`, `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`, `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack`, `node`, `expo-router`, `tanstack-router`, `ava`, `biome`, `c8`, `dotenv`, `electron-vite`, `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`, `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`, `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun`, `unplugin-icons`, `webdriver-io`, `pre-commit`, `parcel`, `next-intl`, `dependency-cruiser`, `commitizen`, `electron-forge`, `serverless-framework`, `github-action`, `vue`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `mdx`, `next-mdx`, `starlight`, `pino`, `execa`, `zx`, `nano-spawn`, `azure-pipelines`, `sapper`, `tauri`, `capacitor`, `convex`, `payload`, `wxt`, `hardhat`, `temporal`, `react-email`, `openapi-ts`, `danger`, `changelogen`, `purgecss`, `fumadocs`, `nuxtjs-i18n`, `playwright-ct`, `sst`, `qwik`, `quasar`, `stencil`, `eleventy`, `cucumber`, `relay`, `orval`, `vite-plugin-pwa`, `xo`, `textlint`, `rstest`, `sveltejs-package`, `taskfile`, `mise`, `moonrepo`, `wireit`, `travis`, `buf`, `nano-staged`, `astro-db`, `astro-og-canvas`, `bumpp`, `changelogithub`, `create-typescript-app`, `eve`, `expressive-code`, `kysely-codegen`, `lockfile-lint`, `lost-pixel`, `node-modules-inspector`, `vercel-og`, `vite-pwa-assets-generator`, `astro-markdoc`, `borp`, `ladle`, `linthtml`, `lunaria`, `marko`, `mcp`, `mdxlint`, `npm-package-json-lint`, `osls`, `playwright-test`, `raycast`, `react-cosmos`, `tsrs`, `varlock`, `yorkie`, `filesystem-routing`, `flue`, `laravel-vite-plugin`, `railway`, `solidjs-vite-plugin`, `vite-plugin-pages`, `vite-plugin-vue-layouts-next`, `vite-plus`, `openclaw`, `typescript-content-mapper`, `lit`, `catalyst`, `fast` and `taskr`.
 
-A JavaScript or TypeScript config is evaluated statically. A value it imports from another file of the project, or
-from a workspace package (through its `exports` or `main`, mapped back to the source file), is evaluated in that
-module too: a base config merged with `mergeConfig`, spread into an object, or listed in an ESLint `defineConfig`. A
-value imported from an installed package stays unknown, and an imported value that depends on itself through imports
-is unknown there.
+A JavaScript or TypeScript config is evaluated statically. A value it imports from another file of the project, or from
+a workspace package (through its `exports` or `main`, mapped back to the source file), is evaluated in that module too:
+a base config merged with `mergeConfig`, spread into an object, or listed in an ESLint `defineConfig`. A value imported
+from an installed package stays unknown, and an imported value that depends on itself through imports is unknown there.
+A conditional (`cond ? a : b`, `&&`, `||`, `??`) whose test is known takes its branch, so a key spread in only when
+`pinCjs.length` is truthy is left out when `pinCjs` defaults to `[]`; with an unknown test, a key only one branch sets
+is unknown and the other keys stay known. The same holds for `if (test) return a;` before a function's last `return`:
+a known test takes its branch, and with an unknown test the value is what both returns share, never the last one alone.
+A local assigned or changed in code that may or may not run (a branch with an unknown test, a loop, `cond && (x = 1)`),
+and a top-level constant changed after its declaration (`if (process.env.A) config.plugins.push(…)`), is unknown or
+partly unknown afterwards rather than keeping its earlier value; a branch with an unknown test that changes a local
+leaves it what both branches have in common. An object changed through another name for it (`const a = cfg`,
+`{ test: t }`, `{ ...base }`, a function given `cfg`), by a function that writes what it captures, by `delete` or
+inside an expression is partly unknown wherever it is read. A key a plugin reads files from that is unknown below
+the top level, such as vitest's `setupFiles: isPostgres ? [...] : []` or a `test` object an unknown spread may replace,
+leaves the plugin's entries incomplete instead of being read as empty.
 
 Plugins read configs and sources statically and never run a tool, so some of knip's plugin behaviour has no
 counterpart. These differences are deliberate:

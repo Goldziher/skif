@@ -284,6 +284,27 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   `tseslint.config` list all their arguments. In every config function, not only an imported one, a parameter the
   call does not pass takes its default (`(options = {}) => …` called without arguments sees `{}`) instead of being
   unknown ([#23](https://github.com/Goldziher/skif/issues/23)).
+- Config evaluation follows conditionals: `cond ? a : b`, `&&`, `||` and `??` whose test is known, `!x` and `.length` of
+  a known string or array, and object pattern parameters with defaults (`({ pinCjs = [] } = {}) => …`). With an unknown
+  test, two object branches give the keys both have, a key only one sets being unknown, instead of an unknown spread.
+  An `if (test) return a;` before a function's last `return` is followed the same way, instead of being skipped for
+  the last `return`. A `const` or `let` declared in a block does not replace a binding outside it, and a local or
+  top-level constant written by code that may or may not run is unknown after it instead of keeping its earlier value.
+  An object changed through another name for it (`const a = cfg`, `{ test: t }`, a function given `cfg`), by a function
+  that writes what it captures (a `forEach` callback), by `delete`, inside an expression, or as `module.exports` after
+  the assignment is partly unknown too. An `if` with an unknown test and no `return` leaves a local what both branches
+  have in common, so `if (CI) config.reporters = […]` leaves only `reporters` unknown.
+  A shared vitest config that adds `resolve` only when `pinCjs` is given no longer leaves its users' entry files
+  unknown ([#23](https://github.com/Goldziher/skif/issues/23)).
+- The source files a generated module may import (a missing file a `.gitignore` lists, such as an index written by a
+  build step) are reached and their exports count as used: those beside it, or for the ignored index of a directory,
+  those of the directory holding it and below, never the whole package or its `src`. n8n's migrations, listed only by a
+  generated `migrations/sqlite/index.ts`, are no longer unused ([#23](https://github.com/Goldziher/skif/issues/23)).
+- The vitest and jest plugins mark their entries incomplete when a key they read files from (`setupFiles`, `include`,
+  `testMatch`, `projects`) is unknown below the top level, instead of reading it as empty
+  ([#23](https://github.com/Goldziher/skif/issues/23)).
+- A computed `import()` such as `` import(`./reporters/${name}.js`) `` also reaches the `.ts` and `.tsx` sources of the
+  `.js` files its glob names ([#23](https://github.com/Goldziher/skif/issues/23)).
 - Without an install, the peer dependencies and binaries of a workspace package are read from its manifest, so a
   package that lists peers for a workspace dependency (`@testing-library/jest-dom` for a shared vitest setup) is not
   told they are unused, and a script that runs a binary of a workspace package it depends on counts that dependency as

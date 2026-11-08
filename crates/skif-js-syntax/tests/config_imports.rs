@@ -358,3 +358,43 @@ fn many_calls_of_one_imported_helper_count_as_one_module() {
     assert_eq!(items[99], obj(vec![("name", s("99"))]));
     assert!(!value.has_unknown());
 }
+
+/// The shape of a shared vitest config that adds a key only when an option is given, with destructured defaults.
+#[test]
+fn a_conditional_spread_with_a_destructured_default_is_known() {
+    let loader = files(&[
+        (
+            "/ws/app/config.ts",
+            "import { createVitestConfig, vitestConfig } from '@fx/base';\n\
+             export default [vitestConfig, createVitestConfig({}, { pinCjs: ['zod'] })];",
+        ),
+        (
+            "/ws/base/index.ts",
+            "import { defineConfig } from 'vitest/config';\n\
+             const retry = (env = process.env) => (Number(env.RETRY) > 0 ? { retry: Number(env.RETRY) } : {});\n\
+             export const createVitestConfig = (options = {}, { pinCjs = [] } = {}) =>\n\
+               defineConfig({\n\
+                 test: { globals: true, ...retry(), ...options },\n\
+                 ...(pinCjs.length ? { resolve: { alias: aliases(pinCjs) } } : {}),\n\
+               });\n\
+             export const vitestConfig = createVitestConfig();",
+        ),
+    ]);
+    let value = eval(&loader);
+    let configs = value.as_array().unwrap();
+    assert_eq!(
+        configs[0],
+        obj(vec![(
+            "test",
+            obj(vec![
+                ("globals", ConfigValue::Bool(true)),
+                ("retry", ConfigValue::Unknown)
+            ])
+        )])
+    );
+    assert_eq!(
+        configs[1].get("resolve"),
+        Some(&obj(vec![("alias", ConfigValue::Unknown)]))
+    );
+    assert!(configs[1].get("...").is_none());
+}
