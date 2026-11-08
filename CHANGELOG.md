@@ -23,6 +23,17 @@ All notable changes to this project are documented here. The format follows
   comments; a member whose removal would renumber a later enum member gets no fix; a catalog left empty is removed
   ([ADR 0052](adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md),
   [#37](https://github.com/Goldziher/skif/issues/37)).
+- `skif mcp`, a Model Context Protocol server on stdio for AI agents, with the tools `lint`, `explain_usage` and
+  `list_rules`, which return the documents of `--format json`
+  ([ADR 0056](adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
+- `--watch` lints again whenever a file below the root changes, after 100 milliseconds of quiet; it polls, so it
+  needs no native file events, and ignores the reports it writes (`--output`, `--format FORMAT=FILE`)
+  ([ADR 0056](adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
+- `skif lsp`, a minimal language server on stdio that publishes skif's diagnostics when a file is opened or saved
+  ([ADR 0056](adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
 
 ### Changed
 

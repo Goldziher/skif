@@ -63,6 +63,7 @@ old one.
 | 0053 | [Incomplete Packages in the JSON Report: Naming What skif Did Not Judge, and a Harness Category for It](0053-incomplete-packages-in-the-json-report.md) | accepted |
 | 0054 | [Several Reports in One Run: A Repeatable `--format FORMAT=FILE`](0054-several-reports-in-one-run.md) | accepted |
 | 0055 | [`package.json` Formatting: The `package-json-format` Rule and `skif format`](0055-package-json-formatting-the-package-json-format-rule-and-skif-format.md) | accepted |
+| 0056 | [Editor and Agent Integration: an MCP Server, Watch Mode and a Language Server in the CLI](0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md) | accepted |
 
 ## Effective statements
 
@@ -157,3 +158,4 @@ the lines below stay as written; this table says which record governs.
 | [0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md), flag table and JSON mode | one `--format` and one `--output`; JSON mode is on when the format is `json` | [0054](0054-several-reports-in-one-run.md): `--format FORMAT[=FILE]` is repeatable with at most one format on stdout, `--output` needs exactly one `--format`, files are written only after every rendering succeeds, and the stdout format (else the first one) decides JSON mode and colour |
 | [0012](0012-reporting.md), title and renderer table | four renderers, one selected by `--format` | [0054](0054-several-reports-in-one-run.md): nine renderers, and one run may render several, each to stdout or its own file |
 | [0001](0001-mission-and-scope.md), out of scope, "Formatting `package.json`" | key order outside dependency maps, indentation and whitespace belong to a formatter | [0055](0055-package-json-formatting-the-package-json-format-rule-and-skif-format.md): the opt-in rule `package-json-format` and `skif format [--check]` order, sort and collapse `package.json` fields as syncpack's `format` does, and check the layout when `[format] indent` is set; other files are still not formatted |
+| [0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md), JSON mode | with `--format json`, stdout holds exactly one JSON document | [0056](0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md): with `--watch`, one document per run; `--watch` conflicts with `--fix` |

@@ -39,6 +39,10 @@ pub enum Command {
     Migrate(MigrateArgs),
     /// Format every `package.json` as `[format]` describes (the `package-json-format` rule alone); never installs.
     Format(FormatArgs),
+    /// Run a Model Context Protocol server on stdin and stdout, for AI agents.
+    Mcp,
+    /// Run a Language Server Protocol server on stdin and stdout: diagnostics on open and save.
+    Lsp,
 }
 
 #[derive(Debug, clap::Args)]
@@ -379,6 +383,10 @@ pub struct LintArgs {
     /// When to colour human output.
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     pub color: ColorChoice,
+
+    /// Lint again whenever a file below the root changes, until interrupted.
+    #[arg(long, conflicts_with_all = ["fix", "fix_unsafe"])]
+    pub watch: bool,
 }
 
 impl LintArgs {
@@ -440,6 +448,17 @@ impl LintArgs {
             .iter()
             .map(|spec| (spec.format, spec.file.clone()))
             .collect())
+    }
+
+    /// The files the run itself writes (`--output` and every `FORMAT=FILE` target), each spelled as
+    /// [`file_identity`] resolves it, so `--watch` can leave them out of its scan instead of reacting to its own
+    /// writes.
+    pub fn written_files(&self) -> std::collections::BTreeSet<PathBuf> {
+        self.output
+            .iter()
+            .chain(self.format.iter().filter_map(|spec| spec.file.as_ref()))
+            .map(|file| file_identity(file))
+            .collect()
     }
 }
 
@@ -602,6 +621,39 @@ mod tests {
         );
         assert!(FormatSpec::parse("json=").is_err());
         assert!(FormatSpec::parse("yaml=x").is_err());
+    }
+
+    #[test]
+    fn written_files_name_the_output_and_every_format_file_canonically() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let sarif = dir.path().join("sub").join("..").join("a.sarif");
+        let parse = |flags: Vec<String>| {
+            Cli::try_parse_from(std::iter::once("skif".to_owned()).chain(flags))
+                .unwrap()
+                .lint
+        };
+        let several = parse(vec![
+            "--format".to_owned(),
+            "json".to_owned(),
+            "--format".to_owned(),
+            format!("sarif={}", sarif.display()),
+        ]);
+        assert_eq!(
+            several.written_files(),
+            std::collections::BTreeSet::from([root.join("a.sarif")])
+        );
+        let output = parse(vec![
+            "--format".to_owned(),
+            "json".to_owned(),
+            "--output".to_owned(),
+            root.join("r.json").display().to_string(),
+        ]);
+        assert_eq!(
+            output.written_files(),
+            std::collections::BTreeSet::from([root.join("r.json")])
+        );
+        assert!(parse(Vec::new()).written_files().is_empty());
     }
 
     #[test]
