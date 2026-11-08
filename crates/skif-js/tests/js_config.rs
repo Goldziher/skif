@@ -413,6 +413,14 @@ fn invalid_js_configuration_is_rejected_when_the_configuration_is_checked() {
         .unwrap_err()
         .to_string();
     assert!(glob.contains("js.workspaces.\"a\".entry[0]"), "{glob}");
+    let cycles = validate("[js.cycles]\nallow = [[\"src/a.ts\"], []]\n")
+        .unwrap_err()
+        .to_string();
+    assert!(cycles.contains("js.cycles.allow[1]"), "{cycles}");
+    let cycle_path = validate("[js.cycles]\nallow = [[\"src/a.ts\", \" \"]]\n")
+        .unwrap_err()
+        .to_string();
+    assert!(cycle_path.contains("js.cycles.allow[0]"), "{cycle_path}");
     let plugin = validate("[js.workspaces.\"a\".plugins]\nvitset = true\n")
         .unwrap_err()
         .to_string();

@@ -20,8 +20,9 @@ All notable changes to this project are documented here. The format follows
   disk (gitignored and non-source files count), like knip's `entry-empty`, `project-empty` and `ignore` configuration
   hints; a pattern of a glob `[js.workspaces]` key is reported once, under the key as written, when it matches in none
   of its packages ([#43](https://github.com/Goldziher/skif/issues/43)).
-- `[js.cycles]` with `allow` (cycles not reported) and `dynamic-imports` (count `import()` in `circular-imports`),
-  translated by `skif migrate` from knip's `cycles` ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `[js.cycles]` with `allow` (cycles not reported; an empty cycle or path is a configuration error) and
+  `dynamic-imports` (count `import()` in `circular-imports`), translated by `skif migrate` from knip's `cycles`
+  ([#43](https://github.com/Goldziher/skif/issues/43)).
 - `[js] ignore-files`, top level and per workspace: files `unused-files` never reports, which other rules still analyse.
   `skif migrate` writes knip's `ignoreFiles` there instead of widening it to `ignore`, and `stale-js-config` reports an
   entry that hides nothing ([#43](https://github.com/Goldziher/skif/issues/43)).
