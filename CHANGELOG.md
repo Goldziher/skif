@@ -12,11 +12,14 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - knip's run-time filters on the lint command ([#36](https://github.com/Goldziher/skif/issues/36)):
-  - `--workspace <NAME|DIR>` (`-W`) reports only the findings of the selected workspace packages.
+  - `--workspace <NAME|DIR>` (`-W`) reports only the findings of the selected workspace packages; findings of no
+    package belong to the root.
   - `--strict` is `--production` with each workspace package limited to the dependencies its own manifest lists.
   - `--include` and `--exclude` take knip issue types or skif rule ids, with the shortcuts `--dependencies`,
-    `--exports`, `--files` and `--cycles`; `--tags -TAG` leaves out tagged exports.
-  - `--max-issues <N>`, `--max-show-issues <N>`, `--no-exit-code` and `--include-entry-exports`.
+    `--exports`, `--files` and `--cycles`; `--include` turns on a rule that is off; `--tags -TAG` leaves out tagged
+    exports.
+  - `--max-issues <N>`, `--max-show-issues <N>` (human and JSON output, not with `--fix`), `--no-exit-code` and
+    `--include-entry-exports`.
   - `--no-gitignore` analyses the files `.gitignore` hides.
   - `--tsconfig <FILE>` (also `--tsConfig`, `-t`) and `[js] tsconfig` name the root package's TypeScript
     configuration in place of its `tsconfig.json`; `--use-tsconfig-files` and `[js] use-tsconfig-files` take each

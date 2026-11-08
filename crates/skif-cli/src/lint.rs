@@ -433,6 +433,8 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     if args.fixing() && env.ci {
         return Err(CliError::ci_refusal());
     }
+    let (format, annotations) = rendering_format(args, env);
+    check_max_show_issues(args, format)?;
     let start = canonical(&args.path)?;
     let Resolved {
         base,
@@ -450,7 +452,7 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     let filter = Filter::new(args)?;
     for target in &mut targets {
         adjust(args, &mut target.config)?;
-        filter.configure(&mut target.config);
+        filter.configure(&mut target.config)?;
     }
     let linters = Linters::build(&targets)?;
     let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
@@ -501,7 +503,6 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
             fix: fixes.get(index),
         })
         .collect();
-    let (format, annotations) = rendering_format(args, env);
     let rendering = Rendering {
         format,
         annotations,
@@ -517,7 +518,8 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
     };
     let rendered = timing::phase("render", || {
         output::render(
-            shown.as_ref().unwrap_or(&aggregate),
+            // Human output lists each root's (truncated) report; the full aggregate feeds only its annotations.
+            shown.as_ref().filter(|_| format == Format::Json).unwrap_or(&aggregate),
             &views,
             &rendering,
             &fs,
@@ -550,6 +552,24 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         return Ok(COULD_NOT_RUN);
     }
     Ok(run_exit_code(args, &runs, &aggregate))
+}
+
+/// `--max-show-issues` shortens the list a person reads: human and JSON output only, and not when fixing, where
+/// the list says what is left after the fix. SARIF and GitHub annotations feed code scanning and checks, which must
+/// never miss a finding silently; for the same reason the annotations human output adds under GitHub Actions are
+/// rendered from every finding.
+fn check_max_show_issues(args: &LintArgs, format: Format) -> Result<(), CliError> {
+    if args.max_show_issues.is_none() {
+        return Ok(());
+    }
+    let reason = if args.fixing() {
+        "cannot be combined with --fix or --fix-unsafe"
+    } else if matches!(format, Format::Sarif | Format::Github) {
+        "applies to human and json output only; sarif and github output always list every finding"
+    } else {
+        return Ok(());
+    };
+    Err(CliError::new(Kind::Usage, format!("--max-show-issues {reason}")))
 }
 
 fn roots_fix<'a>(prefixes: &[&'a Path], fixes: &'a [FixRun]) -> Vec<RootFix<'a>> {
