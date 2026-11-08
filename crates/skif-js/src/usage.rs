@@ -213,8 +213,10 @@ impl ExportUsage {
                         ImportedKind::Named(export) => {
                             queue.push_back(Task::Name(target, export.clone(), access, Via::Named));
                         }
+                        // A namespace without a local binding that does not escape (a bare `typeof import("x")`)
+                        // reads no member, so it credits nothing.
                         ImportedKind::Namespace => {
-                            if name.escapes || name.local.is_none() {
+                            if name.escapes {
                                 queue.push_back(Task::All(target));
                             } else {
                                 queue.extend(name.accessed_members.iter().map(|member| {

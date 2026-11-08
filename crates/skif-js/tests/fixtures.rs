@@ -145,6 +145,18 @@ fn reexports_snapshot() {
 }
 
 #[test]
+fn typeof_import_snapshot() {
+    let diagnostics = Run::new("typeof-import", "").lint();
+    insta::assert_json_snapshot!("typeof_import", diagnostics);
+}
+
+#[test]
+fn unresolved_imports_snapshot() {
+    let diagnostics = Run::new("unresolved-imports", "").lint_with_plugins();
+    insta::assert_json_snapshot!("unresolved_imports", diagnostics);
+}
+
+#[test]
 fn cycles_snapshot() {
     let diagnostics = Run::new("cycles", "").lint();
     insta::assert_json_snapshot!("cycles", diagnostics);

@@ -14,7 +14,7 @@ use skif_js_plugins::{PluginContext, PluginId, PluginOutput, resolve_plugins};
 
 const DIR: &str = "/ws";
 
-const ADR_IDS: [&str; 105] = [
+const ADR_IDS: [&str; 106] = [
     "typescript",
     "eslint",
     "prettier",
@@ -117,6 +117,7 @@ const ADR_IDS: [&str; 105] = [
     "typedoc",
     "unbuild",
     "unocss",
+    "unplugin-icons",
     "vercel",
     "vike",
     "webdriver-io",
@@ -2407,6 +2408,16 @@ fn bun_reads_preloads_from_bunfig() {
     let out = output(&results, "bun");
     assert_entries(&out.entries, &["test/setup.ts"]);
     assert_deps(out, &["happy-dom-setup"]);
+}
+
+#[test]
+fn unplugin_icons_declares_its_generated_icons_and_collections_virtual() {
+    let results = resolve(&[], &["unplugin-icons"]);
+    let out = output(&results, "unplugin-icons");
+    assert!(has_virtual(out, "~icons/*"));
+    assert!(has_virtual(out, "@iconify-json/*"));
+    assert!(has_virtual(out, "@iconify/json"));
+    assert!(!resolve(&[], &[]).iter().any(|(id, _)| *id == "unplugin-icons"));
 }
 
 #[test]

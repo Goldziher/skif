@@ -8,7 +8,7 @@
 skif lints manifests, enforces version and catalog policies, and finds unused dependencies and dead code,
 with one config file and one report. It never runs your project's code.
 
-npm · pnpm · yarn · bun · **41 rules** · **105 plugins** · format-preserving fixes
+npm · pnpm · yarn · bun · **41 rules** · **106 plugins** · format-preserving fixes
 
 [![crates.io](https://img.shields.io/crates/v/skif?style=flat-square)](https://crates.io/crates/skif)
 [![npm](https://img.shields.io/npm/v/skif-cli?style=flat-square)](https://www.npmjs.com/package/skif-cli)

@@ -320,7 +320,7 @@ fn unresolvable_aliases_are_unresolved_imports_unless_they_look_like_packages() 
             ),
             (
                 "tsconfig.json",
-                r#"{"extends":"./.generated/tsconfig.json","compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/lib/*"],"@gone/*":["nowhere/*"]}}}"#,
+                r##"{"extends":"./.generated/tsconfig.json","compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/lib/*"],"@gone/*":["nowhere/*"],"#internal/*":["src/internal/*"]}}}"##,
             ),
             (
                 "src/index.ts",

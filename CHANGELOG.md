@@ -9,6 +9,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- An `unplugin-icons` plugin: with that dependency, `~icons/*` imports and the `@iconify-json/*` and `@iconify/json`
+  collections are virtual, as in knip. The table holds 106 plugins
+  ([#18](https://github.com/Goldziher/skif/issues/18)).
+
 ### Changed
 
 - Files in `fixtures` and `__fixtures__` directories are no longer reported by `unused-files`, and their exports,
@@ -63,6 +69,12 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
 - `stale-js-config` no longer stays silent about every `ignore-dependencies` list when one package has entry files
   skif cannot determine: the lists are judged over the other packages, and only a global entry matching a dependency
   of such a package is spared.
+- A bare `typeof import("./m")`, or a bare JSDoc `@type {import("./m")}`, no longer marks every export of `./m`
+  used: it names the module's type without reading an export, as in knip. `typeof import("./m").A` uses `A`, and
+  `typeof import("./m").E.B` only member `B` of `E` ([#25](https://github.com/Goldziher/skif/issues/25)).
+- `unresolved-imports` no longer reports `./dir` when a `.gitignore` lists `dir/index.ts` (or an extensionless
+  `./file` when it lists `file.ts`), nor a `#` specifier of a package whose nearest `package.json` declares no
+  `imports`, unless a `tsconfig` `paths` pattern or a configured alias maps it ([#18](https://github.com/Goldziher/skif/issues/18)).
 
 ## [0.1.1] - 2026-11-07
 
