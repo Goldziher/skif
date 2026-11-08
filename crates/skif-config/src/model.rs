@@ -67,6 +67,69 @@ pub struct Config {
     #[serde(skip)]
     #[cfg_attr(feature = "schema", schemars(skip))]
     pub cli_levels: IndexMap<String, Level>,
+    /// The instances the version-group policies see, narrowed on the command line (`--dependency`,
+    /// `--dependency-types`, `--specifier-types`, `--source`). Never read from a file.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub filter: InstanceFilter,
+}
+
+/// Narrows the dependency instances the version-group policies see, as syncpack's command-line filters do: an
+/// instance that does not pass is left out before it is assigned to a group, so it is neither reported nor aligned
+/// with. Empty selects everything.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct InstanceFilter {
+    /// Dependency names or globs.
+    pub dependencies: Selector,
+    /// Dependency types; a non-empty list also replaces `[policy] dependency-types` as the scope of the default
+    /// group, so `["peer"]` governs peer dependencies.
+    pub dependency_types: DependencyTypes,
+    /// Specifier types (`exact`, `range`, ...), optionally negated with `!`.
+    pub specifier_types: Vec<String>,
+    /// Globs of the files the instances are declared in, relative to the workspace root (`packages/*/package.json`).
+    pub sources: Selector,
+}
+
+impl InstanceFilter {
+    /// Builds a filter from command-line values.
+    ///
+    /// # Errors
+    /// [`ConfigError::Invalid`] for a glob that does not compile, an empty dependency type or an unknown specifier
+    /// type.
+    pub fn new(
+        dependencies: &[String],
+        dependency_types: &[String],
+        specifier_types: &[String],
+        sources: &[String],
+    ) -> Result<Self, ConfigError> {
+        if let Some(message) = unknown_specifier_type(specifier_types) {
+            return Err(ConfigError::invalid(None, format!("--specifier-types: {message}")));
+        }
+        Ok(Self {
+            dependencies: Selector::new(dependencies.iter().cloned())?,
+            dependency_types: DependencyTypes::new(dependency_types)?,
+            specifier_types: specifier_types.to_vec(),
+            sources: Selector::new(sources.iter().cloned())?,
+        })
+    }
+
+    /// Whether the filter selects everything.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.dependencies.is_empty()
+            && self.dependency_types.is_empty()
+            && self.specifier_types.is_empty()
+            && self.sources.is_empty()
+    }
+
+    /// The first custom type the filter names that `config` does not define.
+    #[must_use]
+    pub fn unknown_custom_type<'a>(&'a self, config: &Config) -> Option<&'a str> {
+        self.dependency_types
+            .custom_names()
+            .find(|name| config.custom_types.iter().all(|custom| custom.name != *name))
+    }
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -732,6 +795,8 @@ pub enum VersionPolicy {
     /// Versions must match the highest or lowest one in use.
     #[default]
     PreferredSemver,
+    /// Versions may differ; only the range the semver groups require is checked (syncpack's `semverRangeOnly`).
+    SemverRangeOnly,
 }
 
 /// One `[[version-groups]]` entry; first match wins. Selectors accept `!` negation and `$LOCAL`.
@@ -1011,6 +1076,10 @@ pub enum CustomStrategy {
     /// The value is an object of `name: version` (`pnpm.peerDependencyRules.allowedVersions`).
     #[serde(rename = "versions-by-name", alias = "versionsByName")]
     VersionsByName,
+    /// The value is a version string and the dependency name is the string at `name-path` (how syncpack reads a
+    /// package's own `name` and `version`).
+    #[serde(rename = "name~version")]
+    NameTildeVersion,
 }
 
 /// One `[[custom-types]]` entry: a field of `package.json` that holds versions. Name it in a `dependency-types` list to
@@ -1028,6 +1097,9 @@ pub struct CustomType {
     pub path: String,
     /// How the value at `path` holds versions.
     pub strategy: CustomStrategy,
+    /// With the `name~version` strategy: dotted path of the field that holds the dependency name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_path: Option<String>,
 }
 
 impl CustomType {
@@ -1038,7 +1110,20 @@ impl CustomType {
             name: name.into(),
             path: path.into(),
             strategy,
+            name_path: None,
         }
+    }
+
+    /// Sets the field that holds the dependency name, for the `name~version` strategy.
+    #[must_use]
+    pub fn with_name_path(mut self, name_path: impl Into<String>) -> Self {
+        self.name_path = Some(name_path.into());
+        self
+    }
+
+    /// The `name-path` split into its keys; empty when there is none.
+    pub fn name_segments(&self) -> impl Iterator<Item = &str> {
+        self.name_path.iter().flat_map(|path| path.split('.'))
     }
 
     /// The `path` split into its keys.
@@ -1061,6 +1146,15 @@ impl CustomType {
                 "`path` \"{}\" must be a dotted path of non-empty keys",
                 self.path
             ));
+        }
+        let takes_name_path = self.strategy == CustomStrategy::NameTildeVersion;
+        match (takes_name_path, self.name_path.is_some()) {
+            (true, false) => return Some("strategy `name~version` requires `name-path`".to_owned()),
+            (false, true) => return Some("`name-path` is only valid with strategy `name~version`".to_owned()),
+            _ => {}
+        }
+        if self.name_segments().any(str::is_empty) {
+            return Some("`name-path` must be a dotted path of non-empty keys".to_owned());
         }
         None
     }
