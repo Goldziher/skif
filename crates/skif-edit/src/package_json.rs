@@ -346,9 +346,21 @@ impl Object {
         Some(node)
     }
 
+    /// Whether a comment sits between the members or between a key and its value.
+    fn has_comments(&self) -> bool {
+        has_comments(&self.gaps)
+            || self
+                .members
+                .iter()
+                .any(|member| member.head[member.key_text.len()..].contains('/'))
+    }
+
     /// Reorders the members to `order`, a permutation of their indices; `true` when the order changed.
+    ///
+    /// An object with a comment between its members is left as it is: the gaps stay in place while the members move,
+    /// so a comment would end up beside another member.
     fn reorder(&mut self, order: &[usize]) -> bool {
-        if order.iter().enumerate().all(|(position, index)| position == *index) {
+        if order.iter().enumerate().all(|(position, index)| position == *index) || has_comments(&self.gaps) {
             return false;
         }
         let mut taken: Vec<Option<Member>> = self.members.drain(..).map(Some).collect();
@@ -362,6 +374,11 @@ struct Doc {
     prefix: String,
     root: Node,
     suffix: String,
+}
+
+/// Whether one of `gaps` holds a comment. A gap is whitespace, commas and comments, so any `/` starts a comment.
+fn has_comments(gaps: &[String]) -> bool {
+    gaps.iter().any(|gap| gap.contains('/'))
 }
 
 fn parse_error(message: impl Into<String>) -> EditPlanError {
@@ -584,6 +601,9 @@ fn collapse_bugs(root: &mut Object) -> bool {
     let [member] = bugs.members.as_slice() else {
         return false;
     };
+    if bugs.has_comments() {
+        return false;
+    }
     if member.key != "url" || string_value(&member.value).is_none() {
         return false;
     }
@@ -599,6 +619,9 @@ fn collapse_repository(root: &mut Object) -> bool {
     let Node::Object(repository) = &*node else {
         return false;
     };
+    if repository.has_comments() {
+        return false;
+    }
     if repository
         .members
         .iter()
@@ -686,6 +709,7 @@ fn sort_az(node: &mut Node) -> bool {
             order.sort_by(|a, b| object.members[*a].key.cmp(&object.members[*b].key));
             object.reorder(&order)
         }
+        Node::Array(array) if has_comments(&array.gaps) => false,
         Node::Array(array) => {
             let Some(values) = array.items.iter().map(string_value).collect::<Option<Vec<&str>>>() else {
                 return false;
@@ -931,6 +955,32 @@ mod tests {
             reordered.output,
             "{\n    \"name\": \"a\",\n    \"version\": \"1\",\n}\n"
         );
+    }
+
+    #[test]
+    fn an_object_or_array_with_a_comment_between_members_is_not_reordered() {
+        let source = "{\n  \"version\": \"1.0.0\",\n  // the package name\n  \"name\": \"a\",\n  \"scripts\": {\"b\": \"1\", \"a\": \"2\"},\n  \"keywords\": [\"b\", /* first */ \"a\"]\n}\n";
+        let formatted = defaults(source);
+        assert_eq!(formatted.issues, [FormatIssue::SortAz("scripts".to_owned())]);
+        assert_eq!(
+            formatted.output,
+            "{\n  \"version\": \"1.0.0\",\n  // the package name\n  \"name\": \"a\",\n  \"scripts\": {\"a\": \"2\", \"b\": \"1\"},\n  \"keywords\": [\"b\", /* first */ \"a\"]\n}\n"
+        );
+        assert_idempotent(source, &FormatOptions::default());
+        let exports = r#"{"exports":{"default":"./a.js", // fallback
+"types":"./a.d.ts"}}"#;
+        assert_eq!(defaults(exports).issues, []);
+    }
+
+    #[test]
+    fn a_shorthand_with_a_comment_inside_is_not_collapsed() {
+        let options = FormatOptions::default()
+            .with_format_bugs(true)
+            .with_format_repository(true);
+        let bugs = r#"{"bugs":{/* tracker */ "url":"https://x"}}"#;
+        assert_eq!(format(bugs, &options).issues, []);
+        let repository = r#"{"repository":{"type":"git", "url": /* mirror */ "https://github.com/o/r"}}"#;
+        assert_eq!(format(repository, &options).issues, []);
     }
 
     #[test]

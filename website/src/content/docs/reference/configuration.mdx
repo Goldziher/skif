@@ -281,7 +281,8 @@ a `bugs` with an `email`, or a `repository` with a `directory` or a `type` other
 empty list turns its step off. Sorting is by byte order, the order `unsorted-dependencies` uses.
 
 Without `indent`, formatting moves members with their own text and keeps every file's whitespace, and whitespace is
-never reported. With `indent` (spaces or tabs; `"\\t"` is read as a tab), a manifest must be laid out as
+never reported. An object or array with a comment between its members is not reordered, and a `bugs` or `repository`
+with a comment inside is not collapsed, so a comment never ends up beside another member or disappears. With `indent` (spaces or tabs; `"\\t"` is read as a tab), a manifest must be laid out as
 `JSON.stringify(manifest, null, indent)` lays it out, with the file's own line ending and a final newline. A manifest
 that is not strict JSON (comments, trailing commas, single-quoted strings) keeps its layout, because laying it out again
 would drop its comments or write invalid JSON. Only `package.json` files are formatted.
