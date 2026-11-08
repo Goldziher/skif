@@ -8,14 +8,11 @@ pub static META: RuleMeta = RuleMeta::new(
     "types-in-dependencies",
     Category::Manifest,
     Some(Severity::Error),
-    Fixability::Safe,
+    Fixability::Unsafe,
     "A private package lists `@types/*` packages in `dependencies`; type packages belong in `devDependencies`.",
 );
 
 /// Reports `@types/*` entries in the `dependencies` of private member packages.
-///
-/// Moving them to `devDependencies` is a safe fix (ADR 0051): a private package is never installed as a dependency
-/// of another, type packages hold no runtime code, and the versions stay as written.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TypesInDependencies;
 
@@ -63,7 +60,7 @@ impl Rule for TypesInDependencies {
             if let Some(ops) = move_to_dev_dependencies(package, &names) {
                 builder = builder.fix(Fix::new(
                     "Move the `@types/*` packages to `devDependencies`".to_owned(),
-                    FixSafety::Safe,
+                    FixSafety::Unsafe,
                     ops,
                 ));
             }
@@ -183,12 +180,12 @@ mod tests {
     }
 
     #[test]
-    fn the_fix_is_safe_because_a_private_package_is_never_installed_as_a_dependency() {
+    fn the_fix_is_unsafe_because_it_changes_what_gets_installed() {
         let root_json = root("");
         let member = r#"{"name":"a","private":true,"dependencies":{"@types/node":"1"}}"#;
         let files = files_with(&root_json, member);
         let diagnostics = lint(META.id, &files, &config(""));
-        assert_eq!(diagnostics[0].fixes[0].safety, FixSafety::Safe);
+        assert_eq!(diagnostics[0].fixes[0].safety, FixSafety::Unsafe);
     }
 
     #[test]
