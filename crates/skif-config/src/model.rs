@@ -1185,7 +1185,7 @@ pub struct Format {
     pub sort_packages: bool,
     /// Write a `bugs` object that holds only `url` as that string.
     pub format_bugs: bool,
-    /// Write a `repository` object that holds only `url` and `type` as its shorthand.
+    /// Write a `repository` object that holds only `url` and a `type` of `git` (or no `type`) as its shorthand.
     pub format_repository: bool,
     /// Check the layout against `JSON.stringify(manifest, null, indent)`: spaces or tabs, for example `"  "` or
     /// `"\t"`. Unset keeps each file's layout.
