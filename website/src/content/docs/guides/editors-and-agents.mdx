@@ -67,6 +67,9 @@ of every file of that project, with the rule ID as the code and `skif` as the so
 gets an empty list. It lints the files as saved on disk, so findings update on save, not while typing. It offers no
 code actions yet: apply fixes with `skif --fix`.
 
+A message larger than 64 MiB, or one whose header the server cannot read, ends the session: skif prints the reason
+to stderr and exits with code 1, and the editor can restart it.
+
 There is no skif editor extension. Any editor that can start a language server for JSON files can run it, for
 example Neovim:
 

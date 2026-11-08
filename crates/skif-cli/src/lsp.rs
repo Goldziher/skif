@@ -2,6 +2,10 @@
 //!
 //! On open and save of a document it lints the root containing the file, as saved on disk, and publishes the
 //! diagnostics of every file of that root. Code actions and unsaved buffers are not supported.
+//!
+//! A malformed frame (no `Content-Length`, one that is not a number or exceeds [`MAX_BODY`], a header line longer
+//! than [`MAX_HEADER_LINE`], or input ending inside a message) cannot be skipped, since the next message's start is
+//! unknown: the server writes the reason to stderr and exits with code 1.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -18,13 +22,20 @@ use crate::output::stderr_line;
 const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
 const METHOD_NOT_FOUND: i64 = -32601;
+/// The LSP error for a request that arrives before `initialize`.
+const SERVER_NOT_INITIALIZED: i64 = -32002;
+/// The largest message body accepted; a larger `Content-Length` is refused before anything is allocated.
+const MAX_BODY: usize = 64 * 1024 * 1024;
+/// The longest header line accepted, so a client that never sends a newline cannot make the server buffer forever.
+const MAX_HEADER_LINE: u64 = 8 * 1024;
 
 /// Serves stdin and stdout until `exit`; returns 0 when `shutdown` came first, 1 otherwise, as the protocol asks.
+/// On a malformed frame or an I/O error it reports the reason on stderr and returns 1: the server exits.
 pub fn run() -> u8 {
     match serve(io::stdin().lock(), io::stdout().lock()) {
         Ok(code) => code,
         Err(error) => {
-            stderr_line(&format!("error: skif lsp: {error}"));
+            stderr_line(&format!("error: skif lsp: {error}; exiting"));
             1
         }
     }
@@ -51,13 +62,21 @@ pub fn serve(mut input: impl BufRead, mut output: impl Write) -> io::Result<u8> 
     Ok(u8::from(!server.shut_down))
 }
 
-/// The body of the next message, or `None` at the end of the input.
+/// The body of the next message, or `None` at the end of the input. A header line is read through a bounded
+/// `take`, and the body is allocated only once its length is known to be at most [`MAX_BODY`].
 fn read_message(input: &mut impl BufRead) -> io::Result<Option<Vec<u8>>> {
     let mut length = None;
     let mut seen_header = false;
     loop {
         let mut line = String::new();
-        if input.read_line(&mut line)? == 0 {
+        let read = io::Read::take(&mut *input, MAX_HEADER_LINE).read_line(&mut line)?;
+        if read as u64 == MAX_HEADER_LINE && !line.ends_with('\n') {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("a header line longer than {MAX_HEADER_LINE} bytes"),
+            ));
+        }
+        if read == 0 {
             return if seen_header {
                 Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
@@ -86,6 +105,12 @@ fn read_message(input: &mut impl BufRead) -> io::Result<Option<Vec<u8>>> {
     }
     let length =
         length.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "a message without Content-Length"))?;
+    if length > MAX_BODY {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Content-Length {length} exceeds the limit of {MAX_BODY} bytes"),
+        ));
+    }
     let mut body = vec![0; length];
     input.read_exact(&mut body)?;
     Ok(Some(body))
@@ -109,6 +134,9 @@ enum Step {
 
 #[derive(Default)]
 struct Server {
+    /// Whether `initialize` has been answered; until then requests get [`SERVER_NOT_INITIALIZED`] and
+    /// notifications other than `exit` are dropped, as the protocol asks.
+    initialized: bool,
     shut_down: bool,
     /// For each root, the documents that last received a non-empty list, so a fixed file is cleared.
     published: BTreeMap<PathBuf, BTreeSet<String>>,
@@ -120,6 +148,12 @@ impl Server {
         let id = message.get("id");
         match (method, id) {
             (Some("exit"), _) => Step::Exit,
+            (Some(method), Some(id)) if !self.initialized && method != "initialize" => Step::Reply(vec![error_reply(
+                id,
+                SERVER_NOT_INITIALIZED,
+                "the server is not initialized",
+            )]),
+            (Some(_), None) if !self.initialized => Step::Reply(Vec::new()),
             (Some(method), Some(id)) => Step::Reply(vec![self.request(method, id)]),
             (Some("textDocument/didOpen" | "textDocument/didSave"), None) => {
                 let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str);
@@ -135,13 +169,16 @@ impl Server {
             return error_reply(id, INVALID_REQUEST, "the server is shut down");
         }
         let result = match method {
-            "initialize" => json!({
+            "initialize" => {
+                self.initialized = true;
+                json!({
                 "capabilities": {
                     "positionEncoding": "utf-16",
                     "textDocumentSync": { "openClose": true, "change": 0, "save": { "includeText": false } },
                 },
                 "serverInfo": { "name": "skif", "version": env!("CARGO_PKG_VERSION") },
-            }),
+                })
+            }
             "shutdown" => {
                 self.shut_down = true;
                 Value::Null
@@ -369,6 +406,48 @@ mod tests {
         );
         assert_eq!(replies[1]["error"]["code"], METHOD_NOT_FOUND);
         assert_eq!(replies[2], json!({ "jsonrpc": "2.0", "id": 3, "result": null }));
+    }
+
+    #[test]
+    fn a_content_length_above_the_cap_is_invalid_data_without_allocating() {
+        let input = format!("Content-Length: {}\r\n\r\n{{}}", MAX_BODY + 1);
+        let error = read_message(&mut input.as_bytes()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{error}");
+        // A length near `usize::MAX` is refused the same way, not attempted.
+        let input = format!("Content-Length: {}\r\n\r\n", usize::MAX);
+        let error = read_message(&mut input.as_bytes()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{error}");
+    }
+
+    #[test]
+    fn a_header_line_without_a_newline_is_cut_off() {
+        let input = vec![b'a'; usize::try_from(MAX_HEADER_LINE).unwrap() * 4];
+        let error = read_message(&mut input.as_slice()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{error}");
+    }
+
+    #[test]
+    fn requests_before_initialize_are_refused() {
+        let mut input = Vec::new();
+        for message in [
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "textDocument/hover", "params": {} }),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
+            json!({ "jsonrpc": "2.0", "id": 3, "method": "initialize", "params": { "capabilities": {} } }),
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        ] {
+            input.extend(frame(&message));
+        }
+        let mut output = Vec::new();
+        assert_eq!(serve(input.as_slice(), &mut output).unwrap(), 1);
+        let mut reader = output.as_slice();
+        let mut replies = Vec::new();
+        while let Some(body) = read_message(&mut reader).unwrap() {
+            replies.push(serde_json::from_slice::<Value>(&body).unwrap());
+        }
+        assert_eq!(replies.len(), 3);
+        assert_eq!(replies[0]["error"]["code"], SERVER_NOT_INITIALIZED);
+        assert_eq!(replies[1]["error"]["code"], SERVER_NOT_INITIALIZED);
+        assert!(replies[2]["result"]["capabilities"].is_object(), "{}", replies[2]);
     }
 
     #[test]
