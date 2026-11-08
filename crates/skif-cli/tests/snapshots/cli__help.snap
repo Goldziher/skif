@@ -129,7 +129,7 @@ Options:
           Take the project files of each package from its `tsconfig.json` (`files`, `include`, `exclude`) instead of the `project` globs
 
       --strict
-          knip's strict mode: --production, and each workspace package uses only the dependencies its own manifest lists, not those of a containing package or the root
+          knip's strict mode: --production, and each workspace package uses only the dependencies its own manifest lists, not those of a containing package or the root. Production code must import from `dependencies` or `peerDependencies`, type-only imports use no package, and unused required peer dependencies are reported
 
       --color <COLOR>
           When to colour human output

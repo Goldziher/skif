@@ -1,0 +1,25 @@
+{
+  "name": "@strict/lib",
+  "version": "0.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "runtime-dep": "1.0.0",
+    "type-dep": "1.0.0"
+  },
+  "devDependencies": {
+    "declared-types": "1.0.0",
+    "dev-runtime": "1.0.0",
+    "dev-types": "1.0.0",
+    "optional-peer": "1.0.0"
+  },
+  "peerDependencies": {
+    "optional-peer": "^1.0.0",
+    "unused-peer": "^1.0.0",
+    "used-peer": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "optional-peer": {
+      "optional": true
+    }
+  }
+}
