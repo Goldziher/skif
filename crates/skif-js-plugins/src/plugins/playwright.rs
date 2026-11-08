@@ -8,7 +8,7 @@ use crate::support::{entry_glob, join_rel, module_input, name_of, objects, strin
 /// The `playwright` plugin.
 pub struct Playwright;
 
-const TEST_FILES: &str = "**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}";
+pub(crate) const TEST_FILES: &str = "**/*.{spec,test}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}";
 
 static SPEC: PluginSpec = PluginSpec {
     id: "playwright",

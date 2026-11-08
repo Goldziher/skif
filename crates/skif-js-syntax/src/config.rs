@@ -9,8 +9,8 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget, BinaryOperator,
     BindingPattern, CallExpression, Declaration, ExportDefaultDeclarationKind, Expression, Function,
-    ImportDeclarationSpecifier, ImportOrExportKind, NewExpression, ObjectPropertyKind, Program, Statement,
-    StaticMemberExpression, TaggedTemplateExpression, TemplateLiteral, UnaryOperator, VariableDeclaration,
+    ImportDeclarationSpecifier, ImportOrExportKind, NewExpression, ObjectProperty, ObjectPropertyKind, Program,
+    Statement, StaticMemberExpression, TaggedTemplateExpression, TemplateLiteral, UnaryOperator, VariableDeclaration,
     VariableDeclarationKind,
 };
 use oxc_ast_visit::{Visit, walk};
@@ -847,6 +847,40 @@ pub fn extract_constructor_options(source: &str, path: &Path, constructor: &str,
     finder.found
 }
 
+/// Statically evaluates the value of every property named `key` of every object literal in `source`, however deeply
+/// nested and wherever it appears (`handler: "src/api.handler"` inside a function body), in source order. Values are
+/// evaluated as in [`extract_config_object`], with paths relative to the directory of `path`. Methods are left out.
+/// Returns nothing when the file does not parse.
+#[must_use]
+pub fn extract_property_values(source: &str, path: &Path, key: &str) -> Vec<ConfigValue> {
+    let Ok(source_type) = SourceType::from_path(path) else {
+        return Vec::new();
+    };
+    let allocator = Allocator::default();
+    let ret = Parser::new(&allocator, source, source_type)
+        .with_options(OxcParseOptions {
+            preserve_parens: false,
+            ..OxcParseOptions::default()
+        })
+        .parse();
+    if ret.diagnostics.errors().next().is_some() {
+        return Vec::new();
+    }
+    let program = &ret.program;
+    let top = top_level(program);
+    let bindings = module_bindings(program);
+    let mut finder = PropertyFinder {
+        top: &top,
+        bindings: &bindings,
+        file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+        key,
+        evaluated: HashMap::new(),
+        found: Vec::new(),
+    };
+    finder.visit_program(program);
+    finder.found
+}
+
 /// A call, or a tagged template, of a function a module exports; see [`extract_imported_calls`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImportedCall {
@@ -1105,6 +1139,47 @@ impl<'a> Visit<'a> for OptionFinder<'_, '_, 'a> {
             }
         }
         walk::walk_new_expression(self, it);
+    }
+}
+
+struct PropertyFinder<'t, 'p, 'a> {
+    top: &'t TopLevel<'p, 'a>,
+    bindings: &'t ModuleBindings,
+    file: &'t str,
+    key: &'t str,
+    /// The top-level constants evaluated so far, carried from one property to the next so each is evaluated once.
+    evaluated: HashMap<String, ConfigValue>,
+    found: Vec<ConfigValue>,
+}
+
+impl<'a> Visit<'a> for PropertyFinder<'_, '_, 'a> {
+    fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
+        if !it.method
+            && it
+                .key
+                .static_name()
+                .is_some_and(|name| crate::js_string(name.as_js_str()) == self.key)
+        {
+            let eval = Evaluator {
+                consts: &self.top.consts,
+                functions: &self.top.functions,
+                bindings: self.bindings,
+                file: self.file,
+                dir: ".",
+                path: Path::new(self.file),
+                imports: &HashMap::new(),
+                modules: None,
+                evaluated: RefCell::new(std::mem::take(&mut self.evaluated)),
+                chain: RefCell::new(Vec::new()),
+                frames: RefCell::new(Vec::new()),
+                calls: Cell::new(0),
+                config_setter: RefCell::new(None),
+                captured: RefCell::new(None),
+            };
+            self.found.push(eval.expr(&it.value, 0));
+            self.evaluated = eval.evaluated.into_inner();
+        }
+        walk::walk_object_property(self, it);
     }
 }
 

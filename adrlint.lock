@@ -295,3 +295,8 @@ blake3 = "e97707820681ea433e2160f7d41e412e41982df6ad4f4c2a57c9e23a41fa6202"
 number = 59
 status = "accepted"
 blake3 = "fd004fe4eab75a530c28afe42554774ed8e7d774249c149920bb1c65e3bed89f"
+
+[adrs."adrs/0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md"]
+number = 60
+status = "accepted"
+blake3 = "0cb392b3b02feee860abe41c6449f9198858fc4fde52269db4e2b6a05c897b12"
