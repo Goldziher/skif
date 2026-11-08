@@ -1,0 +1,205 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: "redact(&result.stdout, dir.path())"
+---
+{
+  "version": 1,
+  "skif": "0.1.1",
+  "summary": {
+    "errors": 4,
+    "warnings": 0,
+    "infos": 0,
+    "fixable": 4,
+    "packages": 3
+  },
+  "diagnostics": [
+    {
+      "rule": "types-in-dependencies",
+      "severity": "error",
+      "message": "private package has `@types/node` in `dependencies`",
+      "help": "move `@types/*` packages to `devDependencies`; a private package is never installed as a dependency",
+      "location": {
+        "path": "packages/a/package.json",
+        "span": {
+          "start": 87,
+          "end": 110,
+          "start-line": 6,
+          "start-col": 5,
+          "end-line": 6,
+          "end-col": 28
+        }
+      },
+      "related": [],
+      "package": "@cli/a",
+      "dependency": "@types/node",
+      "specifier": "22.0.0",
+      "fixes": [
+        {
+          "title": "Move the `@types/*` packages to `devDependencies`",
+          "safety": "unsafe"
+        }
+      ]
+    },
+    {
+      "rule": "version-mismatch",
+      "severity": "error",
+      "message": "`is-number@6.0.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
+      "help": "use `7.0.0`",
+      "location": {
+        "path": "packages/a/package.json",
+        "span": {
+          "start": 138,
+          "end": 158,
+          "start-line": 8,
+          "start-col": 5,
+          "end-line": 8,
+          "end-col": 25
+        }
+      },
+      "related": [
+        {
+          "message": "`is-number@7.0.0` in @cli/b holds the version this should align with",
+          "location": {
+            "path": "packages/b/package.json",
+            "span": {
+              "start": 68,
+              "end": 88,
+              "start-line": 5,
+              "start-col": 5,
+              "end-line": 5,
+              "end-col": 25
+            }
+          }
+        }
+      ],
+      "package": "@cli/a",
+      "dependency": "is-number",
+      "specifier": "6.0.0",
+      "detail": "DiffersToHighestOrLowestSemver",
+      "fixes": [
+        {
+          "title": "Set `is-number` to `7.0.0`",
+          "safety": "unsafe"
+        }
+      ]
+    },
+    {
+      "rule": "version-mismatch",
+      "severity": "error",
+      "message": "`ms@^2.1.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
+      "help": "use `2.1.3`",
+      "location": {
+        "path": "packages/a/package.json",
+        "span": {
+          "start": 189,
+          "end": 203,
+          "start-line": 10,
+          "start-col": 5,
+          "end-line": 10,
+          "end-col": 19
+        }
+      },
+      "related": [
+        {
+          "message": "`ms@2.1.3` in @cli/b holds the version this should align with",
+          "location": {
+            "path": "packages/b/package.json",
+            "span": {
+              "start": 119,
+              "end": 132,
+              "start-line": 7,
+              "start-col": 5,
+              "end-line": 7,
+              "end-col": 18
+            }
+          }
+        }
+      ],
+      "package": "@cli/a",
+      "dependency": "ms",
+      "specifier": "^2.1.0",
+      "detail": "DiffersToHighestOrLowestSemver",
+      "fixes": [
+        {
+          "title": "Set `ms` to `2.1.3`",
+          "safety": "unsafe"
+        }
+      ]
+    },
+    {
+      "rule": "version-mismatch",
+      "severity": "error",
+      "message": "`react@18.3.1` in `dependencies` of @cli/a differs from the pinned version",
+      "help": "use `19.0.0`",
+      "location": {
+        "path": "packages/a/package.json",
+        "span": {
+          "start": 209,
+          "end": 226,
+          "start-line": 11,
+          "start-col": 5,
+          "end-line": 11,
+          "end-col": 22
+        }
+      },
+      "related": [],
+      "package": "@cli/a",
+      "dependency": "react",
+      "specifier": "18.3.1",
+      "detail": "DiffersToPin",
+      "fixes": [
+        {
+          "title": "Set `react` to `19.0.0`",
+          "safety": "unsafe"
+        }
+      ]
+    }
+  ],
+  "fix": {
+    "applied": [
+      {
+        "rule": "version-mismatch",
+        "message": "`chalk@5.3.0` in `dependencies` of @cli/a differs from the pinned version",
+        "title": "Set `chalk` to `5.3.1`"
+      },
+      {
+        "rule": "version-mismatch",
+        "message": "`left-pad@1.0.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
+        "title": "Set `left-pad` to `1.3.0`"
+      }
+    ],
+    "skipped": [
+      {
+        "rule": "types-in-dependencies",
+        "message": "private package has `@types/node` in `dependencies`",
+        "reason": "safety",
+        "detail": "needs --fix-unsafe"
+      },
+      {
+        "rule": "version-mismatch",
+        "message": "`is-number@6.0.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
+        "reason": "safety",
+        "detail": "needs --fix-unsafe"
+      },
+      {
+        "rule": "version-mismatch",
+        "message": "`ms@^2.1.0` in `dependencies` of @cli/a differs from the version the workspace aligns on",
+        "reason": "safety",
+        "detail": "needs --fix-unsafe"
+      },
+      {
+        "rule": "version-mismatch",
+        "message": "`react@18.3.1` in `dependencies` of @cli/a differs from the pinned version",
+        "reason": "safety",
+        "detail": "needs --fix-unsafe"
+      }
+    ],
+    "changed": [
+      "packages/a/package.json"
+    ],
+    "install": {
+      "status": "skipped",
+      "reason": "--no-install was given"
+    }
+  }
+}

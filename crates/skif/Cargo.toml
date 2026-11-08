@@ -29,7 +29,7 @@ js-analysis = ["dep:skif-js"]
 fix = ["dep:skif-edit"]
 # YAML edits for `pnpm-workspace.yaml`.
 yaml-fix = ["fix", "skif-edit/yaml"]
-# Human, JSON, SARIF and GitHub renderers, re-exported as `skif::render`.
+# Human, JSON, SARIF, GitHub, Code Climate, compact, Markdown and CODEOWNERS renderers, re-exported as `skif::render`.
 report = ["dep:skif-report"]
 # JSON Schema of `skif.toml`, as `skif::config_schema`.
 schema = ["skif-config/schema"]

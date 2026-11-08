@@ -1,0 +1,6 @@
+---
+source: crates/skif-js/tests/jsdoc_tags.rs
+expression: "report(&lint(&files,\n\"[rules]\\nunused-exports = { include-tags = [\\\"custom\\\"] }\\n\"))"
+---
+unused-enum-members src/lib.ts: enum member `Color.Green` is never used
+unused-exports src/lib.ts: export `tagged` is never imported by another module

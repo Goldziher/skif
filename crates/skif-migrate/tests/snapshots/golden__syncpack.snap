@@ -12,6 +12,9 @@ expression: migration.toml
 dependency-types = ["prod", "dev"]
 override-reading = "syncpack"
 
+[rules]
+package-json-format = "error"
+
 # syncpack versionGroups[0]: Pin react
 [[version-groups]]
 label = "Pin react"
@@ -98,3 +101,6 @@ name = "localish"
 path = "version"
 strategy = "name~version"
 name-path = "name"
+
+[format]
+sort-az = ["dependencies", "scripts"]
