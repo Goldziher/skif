@@ -3,9 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use skif_config::{
-    Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, CustomStrategy, IgnoreEntry,
-    IgnoreExportsUsedInFile, Level, PackageManager, PluginConfig, Prefer, RuleConfig, Selector, SemverRange,
-    VersionPolicy, discover, discover_with_fs,
+    Catalog, CatalogMode, Config, ConfigBuilder, ConfigError, ConfigOverrides, CustomStrategy, DEFAULT_DISCOVER_IGNORE,
+    FIXTURE_DIRECTORIES, IgnoreEntry, IgnoreExportsUsedInFile, Level, PackageManager, PluginConfig, Prefer, RuleConfig,
+    Selector, SemverRange, UpdateTarget, VersionPolicy, discover, discover_with_fs,
 };
 use skif_core::{MemoryFs, Severity};
 
@@ -313,7 +313,7 @@ fn full_fixture_sections() {
     assert!(!config.dependency_families[1].enabled);
 
     let js = &config.js;
-    assert!(js.enabled && js.production && js.include_entry_exports);
+    assert!(js.enabled && js.production && js.include_entry_exports && js.include_fixtures);
     assert_eq!(js.entry, ["src/index.ts"]);
     assert_eq!(js.project, ["src/**/*.ts"]);
     assert_eq!(js.ignore, ["**/generated/**"]);
@@ -342,11 +342,19 @@ fn full_fixture_round_trips() {
 fn defaults_are_sensible() {
     let config = Config::default();
     assert_eq!(Config::from_toml_str("").unwrap(), config);
-    assert!(config.js.enabled && !config.js.production);
+    assert!(config.js.enabled && !config.js.production && !config.js.include_fixtures);
     assert_eq!(config.catalog.mode, CatalogMode::Off);
     assert_eq!(config.catalog.min_packages, 2);
     assert_eq!(config.policy.prefer, Prefer::Highest);
     assert!(!config.lint.fail_on_warnings && config.rules.is_empty());
+}
+
+#[test]
+fn root_discovery_skips_the_fixture_directories_the_js_analysis_knows() {
+    assert_eq!(
+        DEFAULT_DISCOVER_IGNORE[..FIXTURE_DIRECTORIES.len()],
+        FIXTURE_DIRECTORIES
+    );
 }
 
 #[test]
@@ -659,6 +667,8 @@ ignore-unresolved = ["#internal/*"]
 ignore-workspaces = ["tools/*"]
 ignore-members = ["/^_/"]
 ignore-exports-used-in-file = { type = true, enum = true }
+tsconfig = "tsconfig.app.json"
+use-tsconfig-files = true
 
 [js.workspaces."."]
 include-entry-exports = true
@@ -678,6 +688,8 @@ vite = { config = ["vite.web.config.ts"] }
     assert_eq!(js.ignore_unresolved, ["#internal/*"]);
     assert_eq!(js.ignore_workspaces, ["tools/*"]);
     assert_eq!(js.ignore_members, ["/^_/"]);
+    assert_eq!(js.tsconfig.as_deref(), Some("tsconfig.app.json"));
+    assert!(js.use_tsconfig_files);
     let IgnoreExportsUsedInFile::Kinds(kinds) = &js.ignore_exports_used_in_file else {
         panic!("expected a table of kinds");
     };
@@ -699,6 +711,7 @@ vite = { config = ["vite.web.config.ts"] }
 fn js_defaults_ignore_nothing_new() {
     let js = Config::default().js;
     assert!(js.ignore_unresolved.is_empty() && js.ignore_workspaces.is_empty() && js.ignore_members.is_empty());
+    assert!(js.tsconfig.is_none() && !js.use_tsconfig_files);
     assert_eq!(js.ignore_exports_used_in_file, IgnoreExportsUsedInFile::All(false));
 }
 
@@ -746,6 +759,7 @@ fn root_only_js_keys_are_rejected_in_an_override() {
         "ignore-workspaces = [\"a\"]",
         "ignore-members = [\"a\"]",
         "ignore-exports-used-in-file = true",
+        "include-fixtures = true",
     ] {
         let source = format!("[[overrides]]\npackages = [\"a\"]\n[overrides.js]\n{key}\n");
         assert!(Config::from_toml_str(&source).is_err(), "{key}");
@@ -758,6 +772,7 @@ fn custom_types_are_parsed_and_selectable_in_dependency_types() {
         "[[custom-types]]\nname = \"node\"\npath = \"engines.node\"\nstrategy = \"version\"\n\n\
          [[custom-types]]\nname = \"manager\"\npath = \"packageManager\"\nstrategy = \"name@version\"\n\n\
          [[custom-types]]\nname = \"allowed\"\npath = \"pnpm.peerDependencyRules.allowedVersions\"\nstrategy = \"versions-by-name\"\n\n\
+         [[custom-types]]\nname = \"runtime\"\npath = \"volta.version\"\nname-path = \"volta.tool\"\nstrategy = \"name~version\"\n\n\
          [policy]\ndependency-types = [\"prod\", \"node\", \"local\", \"resolutions\"]\n\n\
          [[version-groups]]\ndependency-types = [\"manager\", \"!allowed\"]\npolicy = \"ignored\"\n",
     )
@@ -768,9 +783,11 @@ fn custom_types_are_parsed_and_selectable_in_dependency_types() {
         [
             CustomStrategy::Version,
             CustomStrategy::NameAtVersion,
-            CustomStrategy::VersionsByName
+            CustomStrategy::VersionsByName,
+            CustomStrategy::NameTildeVersion
         ]
     );
+    assert_eq!(config.custom_types[3].name_path.as_deref(), Some("volta.tool"));
     assert_eq!(
         config.custom_types[2].segments().collect::<Vec<_>>(),
         ["pnpm", "peerDependencyRules", "allowedVersions"]
@@ -803,6 +820,18 @@ fn invalid_custom_types_are_rejected() {
                 custom("name = \"x\"\npath = \"b\"\nstrategy = \"version\"")
             ),
             "defined twice",
+        ),
+        (
+            custom("name = \"x\"\npath = \"a\"\nstrategy = \"name~version\""),
+            "requires `name-path`",
+        ),
+        (
+            custom("name = \"x\"\npath = \"a\"\nname-path = \"b\"\nstrategy = \"version\""),
+            "only valid with strategy `name~version`",
+        ),
+        (
+            custom("name = \"x\"\npath = \"a\"\nname-path = \"b.\"\nstrategy = \"name~version\""),
+            "`name-path` must be a dotted path",
         ),
         (
             "[policy]\ndependency-types = [\"nodes\"]\n".to_owned(),
@@ -840,6 +869,52 @@ fn semver_groups_take_a_range_or_ignored_but_not_both() {
         assert!(error.to_string().contains(expected), "{toml}: {error}");
     }
     assert!(Config::from_toml_str("[[semver-groups]]\nrange = \"^\"\nignored = false\n").is_ok());
+}
+
+#[test]
+fn update_groups_take_a_target_or_ignored_but_not_both() {
+    let config = Config::from_toml_str(
+        "[update]\nminimum-release-age = 0\n[[update-groups]]\ndependencies = [\"react\"]\ntarget = \"minor\"\n[[update-groups]]\ndependencies = [\"@types/*\"]\nignored = true\n",
+    )
+    .unwrap();
+    assert_eq!(config.update.minimum_release_age, Some(0));
+    assert_eq!(config.update.max_concurrent_requests, 12);
+    assert_eq!(config.update_groups[0].target, Some(UpdateTarget::Minor));
+    assert!(config.update_groups[1].ignored);
+    assert_eq!(
+        Config::from_toml_str(&config.to_toml_string().unwrap()).unwrap(),
+        config
+    );
+    for (toml, expected) in [
+        ("[[update-groups]]\n", "set `target`"),
+        (
+            "[[update-groups]]\ntarget = \"patch\"\nignored = true\n",
+            "mutually exclusive",
+        ),
+        ("[[update-groups]]\ntarget = \"major\"\n", "unknown variant"),
+        ("[update]\nmax-concurrent-requests = 0\n", "at least 1"),
+        (
+            "[[update-groups]]\nspecifier-types = [\"exakt\"]\ntarget = \"patch\"\n",
+            "update-groups[0]: unknown specifier type",
+        ),
+    ] {
+        let error = Config::from_toml_str(toml).unwrap_err();
+        assert!(error.to_string().contains(expected), "{toml}: {error}");
+    }
+}
+
+#[test]
+fn the_stricter_update_target_wins() {
+    use UpdateTarget::{Latest, Minor, Patch};
+    for (a, b, expected) in [
+        (Latest, Latest, Latest),
+        (Latest, Minor, Minor),
+        (Minor, Latest, Minor),
+        (Minor, Patch, Patch),
+        (Patch, Latest, Patch),
+    ] {
+        assert_eq!(a.stricter(b), expected, "{a:?} {b:?}");
+    }
 }
 
 #[test]

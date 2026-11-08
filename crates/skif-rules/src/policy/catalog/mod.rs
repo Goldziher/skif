@@ -2,21 +2,21 @@
 //! `unresolved-catalog-references` and `unused-catalog-entries` (ADR 0009, ADR 0048).
 //!
 //! Catalogs come from `pnpm-workspace.yaml`, the root `package.json`, bun's `workspaces` object and Yarn's
-//! `.yarnrc.yml` ([`skif_workspace::Catalogs`]), each read only for the package manager that uses it. Fixes are unsafe: they change which version is installed.
+//! `.yarnrc.yml` ([`skif_workspace::Catalogs`]), each read only for the package manager that uses it. A fix that moves an instance onto an existing entry holding its
+//! own specifier, or a compatible upgrade of it, is safe; every other fix is unsafe (ADR 0051).
 
 mod analysis;
 mod mismatch;
 mod missing_entry;
-mod names;
+pub(crate) mod names;
 mod not_used;
 mod references;
 pub(crate) mod support;
-mod target;
+pub(crate) mod target;
 mod unresolved_references;
 mod unused_entries;
 mod version_divergence;
 
-#[cfg(test)]
 pub(crate) use analysis::UsageIndex;
 pub(crate) use analysis::{is_catalogable, owned_dependencies, usages};
 pub use mismatch::CatalogMismatch;

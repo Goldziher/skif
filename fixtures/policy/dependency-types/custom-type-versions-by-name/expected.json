@@ -6,6 +6,7 @@
     "dependency": "react",
     "detail": "DiffersToHighestOrLowestSemver",
     "path": "package.json",
-    "fixable": true
+    "fixable": true,
+    "safe": true
   }
 ]

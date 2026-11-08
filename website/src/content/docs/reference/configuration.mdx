@@ -38,6 +38,8 @@ file. Print the schema with `skif schema`.
 | `[catalog]` | Catalog enforcement |
 | `[workspace-protocol]` | `workspace:` protocol policy |
 | `[[dependency-families]]` | Packages that must share a version |
+| `[update]` | `minimum-release-age`, `max-concurrent-requests` for `skif update` |
+| `[[update-groups]]` | How far `skif update` may move each dependency group |
 | `[js]` | JavaScript analysis |
 | `root`, `extends`, `reset` | How files combine |
 | `[[overrides]]` | Rule levels, severity caps, suppressions and JS inputs for selected packages or files |
@@ -81,7 +83,8 @@ Rules with options:
 | Rule | Option | Values |
 | --- | --- | --- |
 | `member-toolchain-fields` | `mode` | `forbid` (default) reports every `packageManager` or `engines` field a private member declares; `match-root` allows a field equal to the root's. |
-| `unused-exports`, `unused-types` | `ignore-tags` | JSDoc tag names, without the `@` (a list of strings), that exempt an export. It is read from `unused-exports` and applies to `unused-types` as well. `public`, `beta` and `alpha` always exempt. |
+| `unused-exports`, `unused-types` | `ignore-tags` | JSDoc tag names, without the `@` (a list of strings), that exempt an export. It is read from `unused-exports` and applies to `unused-types` as well. `public`, `beta`, `alpha` and `alias` always exempt, and `alias` also keeps an export out of `duplicate-exports`. |
+| `unused-exports`, `unused-types` | `include-tags` | JSDoc tag names; when set, only exports carrying one of them are reported, and only such enum and namespace members (knip's `--tags +name`). A tag named here is judged even when it would exempt (`public`, `beta`, `alpha`, `alias`, `internal` in production mode), so `include-tags = ["public"]` reports the unused `@public` exports; knip reports none of them. |
 
 An unknown option is an error that names the rule.
 
@@ -152,7 +155,7 @@ themselves workspace packages.
 | --- | --- |
 | `label` | Optional name shown in diagnostics. |
 | `dependencies`, `packages`, `dependency-types`, `specifier-types` | Selectors. |
-| `policy` | `preferred-semver` (default), `pinned`, `banned`, `ignored`, `same-range`, `same-minor` or `snapped-to`. |
+| `policy` | `preferred-semver` (default), `pinned`, `banned`, `ignored`, `same-range`, `same-minor`, `snapped-to` or `semver-range-only` (syncpack's `semverRangeOnly`: versions may differ, and only the range the `[[semver-groups]]` require is checked and fixed). |
 | `pin` | Required by `pinned`. |
 | `snap-to` | Required by `snapped-to`: packages whose version the group follows. |
 | `prefer` | With `preferred-semver`, overrides `[policy] prefer`. |
@@ -195,19 +198,26 @@ are aligned, pinned, banned and ranged like dependencies, and fixed in place (sy
 [[custom-types]]
 name = "node"                # the token for dependency-types; the dependency name with strategy "version"
 path = "engines.node"        # dotted path of keys in package.json
-strategy = "version"         # version | name@version | versions-by-name
+strategy = "version"         # version | name@version | versions-by-name | name~version
 
 [[custom-types]]
 name = "package-manager"
 path = "packageManager"      # "pnpm@9.15.0": the dependency is pnpm
 strategy = "name@version"
 
+[[custom-types]]
+name = "runtime"
+path = "volta.toolVersion"   # the version
+name-path = "volta.tool"     # the dependency name, read from another field
+strategy = "name~version"
+
 [policy]
-dependency-types = ["prod", "dev", "node", "package-manager"]
+dependency-types = ["prod", "dev", "node", "package-manager", "runtime"]
 ```
 
-`versions-by-name` reads an object of `name: version`. A name must not be one of the built-in types. The `name~version`
-strategy and `source` of syncpack are not supported.
+`versions-by-name` reads an object of `name: version`. `name~version` reads the version at `path` and the dependency
+name at `name-path`, which only this strategy takes; a fix rewrites the version. A name must not be one of the
+built-in types. syncpack's `source` (a custom type read from another file) is not supported.
 
 ### `[catalog]`
 
@@ -253,6 +263,74 @@ name = "react"
 enabled = false              # disable a built-in family of the same name
 ```
 
+### `[update]`
+
+Read only by `skif update`, the one command that asks a package registry ([CLI](../cli/#updating)); linting never
+does.
+
+```toml
+[update]
+minimum-release-age = 1440   # minutes a version must have been published before it is proposed; 0 turns it off
+max-concurrent-requests = 12 # registry requests at once, at least 1
+```
+
+Without `minimum-release-age`, pnpm's `minimumReleaseAge` from `pnpm-workspace.yaml` applies, else one day, as in
+syncpack. While a minimum release age applies, a version the registry gives no publish time for is not proposed, and
+the report notes it when it would have been the target.
+
+### `[[update-groups]]`
+
+```toml
+[[update-groups]]
+label = "React moves within its major"
+dependencies = ["react", "react-dom"]
+target = "minor"             # latest | minor | patch
+
+[[update-groups]]
+dependencies = ["@types/node"]
+ignored = true               # skif update leaves these alone
+```
+
+The first matching group decides (syncpack's `updateGroups`); a group sets exactly one of `target` and
+`ignored = true`, and its `target` combines with `--target` so the stricter wins. The selectors are those of
+`[[semver-groups]]`. A catalog entry belongs to no package and has no dependency type, so only groups without
+`packages` and `dependency-types` apply to it.
+
+### `[format]`
+
+What the [`package-json-format`](../../rules/manifest/#package-json-format) rule and `skif format` check. The rule is
+off by default; the table is root-scoped and cannot appear in `[[overrides]]`. The defaults are syncpack's, except
+`sort-exports`.
+
+```toml
+[format]
+sort-first = ["name", "description", "version", "author"]   # top-level keys that come first, in this order
+sort-packages = true          # the remaining top-level keys in byte order; false keeps their order
+sort-az = ["bin", "contributors", "dependencies", "devDependencies", "keywords", "peerDependencies", "resolutions", "scripts"]
+sort-exports = ["types", "default"]   # types first, default last, every other condition where it is
+format-bugs = false           # { "url": "..." } becomes "..."
+format-repository = false     # { "type": "git", "url": "git+https://github.com/o/r.git" } becomes "o/r.git"
+# indent = "  "               # unset: keep each file's layout
+```
+
+`sort-az` sorts each named field one level deep: an object by key, an array of strings by value; `a/b` names a nested
+field. It is for fields whose order means nothing: an array with a `!`-prefixed entry, such as `files` with a negated
+glob, keeps its order, because a negation only excludes what the patterns before it matched. `sort-exports` orders the keys of every object in `exports` (the others keep their order) and always puts
+`default` last. Node and bundlers take the first condition that matches, so only `types` first and `default` last
+cannot change how an import resolves; that is the default, and its fix is safe. A list that reorders other conditions,
+such as syncpack's default `["types", "node-addons", "node", "browser", "module", "import", "require", "svelte",
+"development", "production", "script", "default"]`, is applied with an unsafe fix (`skif format --unsafe`,
+`skif --fix-unsafe`). `format-bugs` and `format-repository` collapse only an object the shorthand holds completely:
+a `bugs` with an `email`, or a `repository` with a `directory` or a `type` other than `git` (`svn`, `hg`), stays. An
+empty list turns its step off. Sorting is by byte order, the order `unsorted-dependencies` uses.
+
+Without `indent`, formatting moves members with their own text and keeps every file's whitespace, and whitespace is
+never reported. An object or array with a comment between its members is not reordered, and a `bugs` or `repository`
+with a comment inside is not collapsed, so a comment never ends up beside another member or disappears. With `indent` (spaces or tabs; `"\\t"` is read as a tab), a manifest must be laid out as
+`JSON.stringify(manifest, null, indent)` lays it out, with the file's own line ending and a final newline. A manifest
+that is not strict JSON (comments, trailing commas, single-quoted strings) keeps its layout, because laying it out again
+would drop its comments or write invalid JSON. Only `package.json` files are formatted.
+
 ### `[js]`
 
 ```toml
@@ -261,6 +339,7 @@ enabled = true
 entry = ["src/index.ts", "src/server.ts!"]
 project = ["src/**/*.ts"]
 ignore = ["**/*.generated.ts"]
+ignore-files = ["scripts/one-off/**"]
 ignore-dependencies = ["@types/node", "/^@org\\/.+$/"]
 ignore-binaries = ["docker"]
 ignore-unresolved = ["#internal/*", "/^virtual:/"]
@@ -269,7 +348,14 @@ ignore-members = ["/^_/"]
 ignore-exports-used-in-file = { type = true, interface = true }
 production = false
 include-entry-exports = false
+tsconfig = "tsconfig.app.json"
+use-tsconfig-files = false
+include-fixtures = false
 discovery = "auto"
+
+[js.cycles]
+allow = [["src/a.ts", "src/b.ts"]]
+dynamic-imports = false
 
 [js.workspaces."."]
 ignore-dependencies = ["rimraf"]
@@ -291,7 +377,7 @@ jest = { enabled = true, config = ["jest.config.cjs"] }
 `enabled` defaults to `true`, so a plain `skif` run checks everything; the git hooks pass `--no-js`. Per-workspace
 tables, keyed by directory (a glob such as `packages/*` works, an exact key wins over a glob, and `"."` is the root
 workspace; `*` stops at `/`, so `packages/*` does not select `packages/a/nested`, and when several glob keys select a
-directory the first in file order wins), take `entry`, `project`, `ignore`, `ignore-dependencies`, `ignore-binaries`,
+directory the first in file order wins), take `entry`, `project`, `ignore`, `ignore-files`, `ignore-dependencies`, `ignore-binaries`,
 `ignore-unresolved`, `ignore-members`, `ignore-exports-used-in-file`, `include-entry-exports`, `paths` and `plugins`. A plugin entry is
 `true`, `false` or a table with `enabled`, `config`, `entry` and `project`; the plugin names are checked, and a
 misspelt one is a configuration error with the closest name suggested. The `"."` table adds to the top-level ignore
@@ -314,7 +400,12 @@ reported with the compiler's message. A pattern that does not compile is a confi
 per workspace. `ignore-dependencies` also silences `unresolved-imports` for a matching specifier, because plugins
 declare virtual modules through it; use `ignore-unresolved` for your own. Two small differences from knip remain:
 an unresolved import is located at the start of its statement, not at the specifier, and `import "./dir"` of a
-directory with neither an index file nor a `package.json` is reported where knip is silent.
+directory with neither an index file nor a `package.json` is reported where knip is silent. A directory with a
+`package.json` whose `main` or `exports` point at build output that does not exist resolves to the source file behind
+it (`dist` to `src`), and is not reported when there is none. A relative import of a missing file that a `.gitignore`
+of the root or of a package lists (also as `./dir` for an ignored `dir/index.ts`, or without its extension) is taken
+for generated and not reported, and a `#` specifier is reported only when the nearest `package.json` declares
+`imports`.
 
 **`ignore-workspaces`** lists workspace directories (globs) the JavaScript analysis skips. Unlike `[workspace]
 ignore-packages`, the packages stay in the workspace, so manifest and policy rules still check them. The root is never
@@ -326,20 +417,68 @@ only the patterns ending in `!` count and the others are excluded; when none end
 entries that do not end in `!` are also removed from the project, so a file only they reach (`scripts/*.ts` next to
 `src/index.ts!`) is not reported as unused, and the files that tools add to the project are removed as well.
 
+**Incomplete entries.** When skif cannot know all the entry files of a package (a tool configuration it cannot read
+statically, or a published `main`, `exports` or `bin` that maps to no source file), a file no known entry reaches may
+still be one. Nothing in that package is then reported unused: `unused-files`, `unused-dependencies`,
+`unused-dev-dependencies`, `unused-exports`, `unused-types`, the namespace export rules and the member rules skip it,
+and `explain-usage` gives its exports the verdict `not-judged`.
+
 **`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
 workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.
+
+**`tsconfig`** names the TypeScript configuration of the root package, relative to the workspace root, which is read
+in place of its `tsconfig.json`: its `paths`, `baseUrl` and `rootDirs` resolve the imports of the root package's
+files (and of directories below the root that have no config of their own), its `compilerOptions` decide which
+`@types` packages and JSX runtime count as used, and the `typescript` plugin reads it too. Other packages keep their
+own `tsconfig.json`. The path must stay inside the workspace root (no absolute path, no `..` above it), and the
+command line refuses a path that names no file in the root whose configuration sets it. This is knip's `--tsConfig`,
+which `skif --tsconfig` overrides. It can only be set at the top level.
+
+**`use-tsconfig-files`** takes the project files of each package that has a `tsconfig.json` (for the root, the
+`tsconfig` above) from it, as knip's `--use-tsconfig-files` does: the files its `files` and `include` select (every
+file when it sets neither), followed through `extends` and through the `references` that lie below it. As in
+TypeScript, `exclude` and `compilerOptions.outDir` filter only what `include` selects, never the files `files` names.
+These replace the `project` globs and the globs plugins add; entry files are unchanged, and production mode still
+leaves test files out. Patterns that leave the package directory are ignored, and the `exclude` of a referenced config
+applies to what the `include` of all of them selects. Packages without a `tsconfig.json` keep their `project` globs.
+The command line warns on stderr about a `tsconfig` that selects no file of its package, which leaves that package
+without project files.
 
 **`ignore-exports-used-in-file`** is `true`, or a table of the kinds `variable`, `function`, `class`, `enum`,
 `namespace`, `type` and `interface`: an export that the same file references is then not reported. skif does not tell
 type aliases from interfaces, so `type` and `interface` are the same switch. `member` is accepted; members read in
 their own file always count as used. **`ignore-members`** lists enum and namespace member names never reported by
-`unused-enum-members` and `unused-namespace-members`. **`include-entry-exports`** may be set per workspace.
+`unused-enum-members` and `unused-namespace-members`. A member is also exempt when its own JSDoc carries a tag that
+exempts an export (`@public`, `@beta`, `@alpha`, `@alias`, `@internal` with `production`, or an `ignore-tags` name).
+**`include-entry-exports`** may be set per workspace.
+
+**`ignore-files`** lists globs of files that `unused-files` never reports, at the top level (relative to the workspace
+root) and per workspace (relative to its directory), like knip's `ignoreFiles`. Unlike `ignore`, every other rule still
+analyses them.
+
+**`[js.cycles]`** configures `circular-imports` (off by default), like knip's `cycles`. `allow` lists cycles that are
+not reported, each as the list of its files relative to the workspace root (`./` is optional): skif reports a cycle as
+the set of modules that import each other, so an entry allows the cycle whose files are exactly its files, in any
+order; an empty entry or an empty path is a configuration error. `dynamic-imports = true` counts `import()` as an
+edge; by default only static value imports do, and type-only imports never do.
 
 **`stale-js-config`** (a warning) reports `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
-`ignore-workspaces` entries that matched nothing in the run, and `[js.workspaces]` keys that select no package, like
-knip's configuration hints. `[rules] stale-js-config = "error"` is knip's `--treat-config-hints-as-errors` (`skif migrate` writes `warn` unless `--strict-hints` is given). An
-`ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off, and the
-dependency lists are not judged when a package has entry files skif cannot determine.
+`ignore-workspaces` entries that matched nothing in the run, `[js.workspaces]` keys that select no package, and `entry`,
+`project` and `ignore` patterns (top level and per workspace) that match no file, like knip's configuration hints
+(`entry-empty`, `project-empty` and stale `ignore`). A pattern is reported only when it matches neither a file the
+analysis knows nor any file on disk, gitignored or not and of any extension, so `ignore = ["dist/**"]`, `ignore =
+["**/*.json"]` and `entry = ["index.html"]` are not reported while such files exist; the disk check skips `node_modules`
+and `.git` unless the pattern names them. A pattern of a workspace glob key such as `packages/*` is reported once, under
+the key as written, when it matches in none of the packages the key selects. Negated patterns and patterns that leave
+the package (`../`) are not judged. An `ignore-files` pattern is reported when it hides no file `unused-files` would
+report and matches no file on disk (while that rule runs). `[rules] stale-js-config = "error"` is knip's
+`--treat-config-hints-as-errors` (`skif migrate` writes `warn` unless `--strict-hints` is given). An
+`ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off. The
+`ignore-dependencies` list of a package whose entry files skif cannot determine is not judged; the global list is judged
+over the other packages, and an entry that matches a dependency such a package lists is never called stale. It also
+reports knip's tag hints: an `ignore-tags` tag, or `@internal` with `production`, on an export or member that is used
+anyway (while `unused-exports` runs). A tag on an enum or namespace that hides an unused member is needed and not
+reported.
 
 `discovery` chooses how source files are found. `auto` (the default) lists the files from the git index when the
 analysed root is in a git work tree and checks each directory with one `stat` instead of walking it: a directory
@@ -359,6 +498,21 @@ A dependency counts as listed when the package's own `package.json`, the `packag
 it, or any `package.json` above the analysed root up to the git repository root lists it; the same manifests enable
 plugins.
 
+A directory below a package with a `package.json` of its own that is not an analysed workspace member (one excluded
+with `ignore-packages` included) is a separate project, often a root of its own in a recursive run (a `build` or
+`scripts` folder with its own lockfile); a `package.json` holding only `type`, `sideEffects` or `imports` is a
+marker for the files below it and makes no project. The files of a separate project are not
+the analysed root's: when a script or an import of the root reaches one, that file is not reported in the root, and
+its imports are neither unlisted there nor uses of the root's dependencies. The nested project judges the file against
+its own manifest when it is analysed as a root of its own. In the other direction, a file of the
+analysed root that a script of a `package.json` above it runs (up to the git repository root) is an entry, so
+`node build/npm/postinstall.ts` in the outer project keeps `build/npm/postinstall.ts` used in the nested root at
+`build` (except in production mode, where scripts give no entries).
+
+A package with no source file at or below its directory, no entry and no script, such as a `remote/package.json` that
+only lists what code elsewhere in the repository installs it for, has no code skif could check its dependencies
+against, so they are not judged, as for a package whose entry files skif cannot determine.
+
 The default `project` globs include `.vue`, `.svelte` and `.astro` files. Their `<script>` blocks (`<script setup>`,
 `<script context="module">`, any `lang="ts"` or `lang="tsx"`) and the Astro frontmatter are analysed as modules, with
 diagnostics located in the original file. The markup is scanned for identifiers, not compiled: component tags
@@ -368,20 +522,62 @@ a use of that member. `<style>` blocks and `src` attributes of `<script>` and `<
 name, so a template variable that shadows an import hides it from the unused check, and nothing in a template is
 type-checked. Imports of one script block count as used when another block reads them.
 
+`.mdx` files are read without an MDX compiler: their top-level `import` and `export` statements (at the first column,
+outside frontmatter and fenced code, as MDX delimits them) are analysed as JavaScript with JSX, and the prose is
+scanned for the components and expressions it uses, as in a component template. Imports written in code samples,
+inline code and frontmatter are not imports, and a component in a code sample or inline code (`` `<Card/>` ``) is not a
+use. A reached `.mdx` file uses the `@mdx-js/*` and `remark-mdx` packages its
+package lists. `.mdx` files are not in the default `project` globs: they are followed when an entry glob (Docusaurus
+docs, Astro pages, Storybook stories) or an import reaches them, and reported as unused only when `project` names them.
+
+The `templateUrl`, `styleUrl` and `styleUrls` of an Angular or Stencil `@Component({ … })` (the decorator imported
+from `@angular/core` or `@stencil/core`) are imports of the component file, relative to it with or without `./`, so
+the stylesheets are followed and the packages they import count as used. This includes Stencil's styles per mode
+(`styleUrls: { ios: 'a.ios.css', md: ['a.md.css'] }`); its `assetsDirs` are directories copied as they are, not
+modules, and are not followed. Vue auto-imports are followed through the
+declaration files `unplugin-vue-components` and `unplugin-auto-import` generate (`components.d.ts`,
+`auto-imports.d.ts`): they are entries like every `.d.ts` file, so each registered component and composable counts as
+used, whether or not a template names it. A generated file that `.gitignore` excludes is not read, and the
+components it registers then look unused.
+
+Stylesheets that code imports are followed: `@import`, `@use`, `@forward` and the Tailwind at-rules of `.css`,
+`.scss`, `.sass`, `.less` and `.pcss` files, and `@import` and `@require` of Stylus (`.styl`, `.stylus`, and
+`<style lang="stylus">` blocks), where a bare name is looked up next to the file before it is taken as a package and a
+glob (`@import "mixins/*"`) is skipped. A reached Stylus file uses the `stylus` package. `.tsrx` files (`@tsrx/core`)
+are not TypeScript a parser accepts, so only their `import` statements and `import()` calls are read: the packages and
+files they name are used, every imported binding counts as used as a whole, and their exports are not known, so a
+re-export (`export { x } from './y'`) is not followed and `./y` is not reached through it. A reached `.tsrx` file uses
+the `@tsrx/*` packages its package lists. Like `.mdx`, `.tsrx` files are not in the default `project`.
+
 Test files are entries when a test-runner plugin is enabled (Jest, Vitest, Mocha, Playwright, Cypress and the like),
 with the patterns of that plugin; a project without a runner reports unused test files like any other, as knip does.
 Add other test files to `entry`. Directories named `fixtures` or `__fixtures__` hold test data: their imports are not checked for unresolved or
-unlisted packages. Other directories of test data (`api-fixtures`, `__testfixtures__`) and other test file names
-(`*_spec.*`) go on `ignore` and `entry`. In a package whose `exports` contain a wildcard (`"./*": "./src/*.ts"`) the
+unlisted packages, and their files are not reported by `unused-files` nor their exports by `unused-exports`,
+`unused-types`, the namespace rules and `unused-enum-members`. **`include-fixtures = true`** reports those files and
+exports like any other. A fixture file is still read when an entry reaches it, but one that nothing reaches is not, so a
+dependency only an unreached fixture imports stays unused. Other directories of test data (`api-fixtures`,
+`__testfixtures__`) and other test file names (`*_spec.*`) go on `ignore` and `entry`. In a package whose `exports` contain a wildcard (`"./*": "./src/*.ts"`) the
 `*` matches across directories, as in Node.js, so every file it matches is an entry; the catch-all `"./*"` and the `main`, `bin` and `types` fields are not widened. In an enum or a namespace, a
 member read in its own file (`E.A`, `E["A"]`, `const { A } = E`) counts as used; using the whole enum there
 (`Object.values(E)`, `E[key]`, a spread, passing it as a value) or mentioning its type (`x: E`, `typeof E`) credits no
-member, as in knip. A file that another loads with `new URL("./x", import.meta.url)` is used as a
-whole.
+member, as in knip. Inside a namespace, a member read by its bare name (`findVisible()`, `token: ProgressToken`) counts
+as used, unless a parameter or local of the same name shadows it; the declarations of a merged namespace share their
+members. A file that another loads with `new URL("./x", import.meta.url)` is used as a whole. A module that a test mocks
+(`vi.mock("x")`, `jest.mock("x")`, `jest.requireActual("x")` and the like, read from the syntax tree, so a call written
+inside a string does not count) stays reachable, and a listed package it names is used, but mocking a package that no
+`package.json` lists is not an unlisted import; a `{ virtual: true }` mock is ignored. In an n8n node package the files
+listed in `package.json` `n8n.nodes` and `n8n.credentials` are entries; a `dist/nodes/A.node.js` there maps to
+`nodes/A.node.ts`, since such packages compile without a `rootDir`.
 
-The table holds 200 built-in plugins:
+The table holds 201 built-in plugins:
 
-`typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`, `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`, `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack`, `node`, `expo-router`, `tanstack-router`, `ava`, `biome`, `c8`, `dotenv`, `electron-vite`, `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`, `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`, `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun`, `webdriver-io`, `pre-commit`, `parcel`, `next-intl`, `dependency-cruiser`, `commitizen`, `electron-forge`, `serverless-framework`, `github-action`, `vue`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `mdx`, `next-mdx`, `starlight`, `pino`, `execa`, `zx`, `nano-spawn`, `azure-pipelines`, `sapper`, `tauri`, `capacitor`, `convex`, `payload`, `wxt`, `hardhat`, `temporal`, `react-email`, `openapi-ts`, `danger`, `changelogen`, `purgecss`, `fumadocs`, `nuxtjs-i18n`, `playwright-ct`, `sst`, `qwik`, `quasar`, `stencil`, `eleventy`, `cucumber`, `relay`, `orval`, `vite-plugin-pwa`, `xo`, `textlint`, `rstest`, `sveltejs-package`, `taskfile`, `mise`, `moonrepo`, `wireit`, `travis`, `buf`, `nano-staged`, `astro-db`, `astro-og-canvas`, `bumpp`, `changelogithub`, `create-typescript-app`, `eve`, `expressive-code`, `kysely-codegen`, `lockfile-lint`, `lost-pixel`, `node-modules-inspector`, `vercel-og`, `vite-pwa-assets-generator`, `astro-markdoc`, `borp`, `ladle`, `linthtml`, `lunaria`, `marko`, `mcp`, `mdxlint`, `npm-package-json-lint`, `osls`, `playwright-test`, `raycast`, `react-cosmos`, `tsrs`, `varlock`, `yorkie`, `filesystem-routing`, `flue`, `laravel-vite-plugin`, `railway`, `solidjs-vite-plugin`, `vite-plugin-pages`, `vite-plugin-vue-layouts-next`, `vite-plus`, `openclaw` and `typescript-content-mapper`.
+`typescript`, `eslint`, `prettier`, `vite`, `vitest`, `jest`, `next`, `storybook`, `playwright`, `tailwind`, `postcss`, `babel`, `webpack`, `rspack`, `rollup`, `tsup`, `turbo`, `husky`, `lint-staged`, `commitlint`, `changesets`, `github-actions`, `mastra`, `aws-cdk`, `browser-extension`, `tsdown`, `oxlint`, `angular`, `karma`, `esbuild`, `svelte`, `nuxt`, `astro`, `drizzle`, `ts-node`, `tsx`, `nx`, `cypress`, `mocha`, `sveltekit`, `prisma`, `graphql-codegen`, `docusaurus`, `vitepress`, `wrangler`, `expo`, `react-native`, `metro`, `release-it`, `semantic-release`, `lefthook`, `simple-git-hooks`, `stylelint`, `markdownlint`, `cspell`, `nodemon`, `pm2`, `pnpm`, `yarn`, `syncpack`, `node`, `expo-router`, `tanstack-router`, `ava`, `biome`, `c8`, `dotenv`, `electron-vite`, `gatsby`, `i18next-parser`, `jasmine`, `knex`, `lingui`, `msw`, `nest`, `netlify`, `nitro`, `nyc`, `oclif`, `panda-css`, `plop`, `preconstruct`, `react-router`, `remark`, `remix`, `rolldown`, `rsbuild`, `rslib`, `sanity`, `sentry`, `size-limit`, `stryker`, `svgo`, `svgr`, `swc`, `tsd`, `typedoc`, `unbuild`, `unocss`, `vercel`, `vike`, `tap`, `oxfmt`, `bun`, `unplugin-icons`, `webdriver-io`, `pre-commit`, `parcel`, `next-intl`, `dependency-cruiser`, `commitizen`, `electron-forge`, `serverless-framework`, `github-action`, `vue`, `unplugin-auto-import`, `unplugin-vue-components`, `unplugin-vue-router`, `mdx`, `next-mdx`, `starlight`, `pino`, `execa`, `zx`, `nano-spawn`, `azure-pipelines`, `sapper`, `tauri`, `capacitor`, `convex`, `payload`, `wxt`, `hardhat`, `temporal`, `react-email`, `openapi-ts`, `danger`, `changelogen`, `purgecss`, `fumadocs`, `nuxtjs-i18n`, `playwright-ct`, `sst`, `qwik`, `quasar`, `stencil`, `eleventy`, `cucumber`, `relay`, `orval`, `vite-plugin-pwa`, `xo`, `textlint`, `rstest`, `sveltejs-package`, `taskfile`, `mise`, `moonrepo`, `wireit`, `travis`, `buf`, `nano-staged`, `astro-db`, `astro-og-canvas`, `bumpp`, `changelogithub`, `create-typescript-app`, `eve`, `expressive-code`, `kysely-codegen`, `lockfile-lint`, `lost-pixel`, `node-modules-inspector`, `vercel-og`, `vite-pwa-assets-generator`, `astro-markdoc`, `borp`, `ladle`, `linthtml`, `lunaria`, `marko`, `mcp`, `mdxlint`, `npm-package-json-lint`, `osls`, `playwright-test`, `raycast`, `react-cosmos`, `tsrs`, `varlock`, `yorkie`, `filesystem-routing`, `flue`, `laravel-vite-plugin`, `railway`, `solidjs-vite-plugin`, `vite-plugin-pages`, `vite-plugin-vue-layouts-next`, `vite-plus`, `openclaw` and `typescript-content-mapper`.
+
+A JavaScript or TypeScript config is evaluated statically. A value it imports from another file of the project, or
+from a workspace package (through its `exports` or `main`, mapped back to the source file), is evaluated in that
+module too: a base config merged with `mergeConfig`, spread into an object, or listed in an ESLint `defineConfig`. A
+value imported from an installed package stays unknown, and an imported value that depends on itself through imports
+is unknown there.
 
 Plugins read configs and sources statically and never run a tool, so some of knip's plugin behaviour has no
 counterpart. These differences are deliberate:
@@ -448,6 +644,15 @@ counterpart. These differences are deliberate:
   `assetScripts` are entries, not production entries. `mdxlint` keeps a scoped plugin name as written.
 - `solidjs-vite-plugin`, `filesystem-routing`, `vite-plugin-pages`, `vite-plugin-vue-layouts-next` and `flue` keep
   their conventional production entries when they read a config, as every plugin does; knip replaces them.
+- A `tsconfig` with `outDir` maps build output back to source through its `rootDir`. Without one, skif takes the
+  longest common directory of the `include` patterns (each up to its first wildcard) and the `files`, not counting
+  declaration files; TypeScript computes it from the files it compiles. A config with neither keeps the `dist` to
+  `src` convention. A file a script runs inside an `outDir` (`node build/src/cli.js`) is its source file, even when
+  the build output is on disk, and a directory mocha is given (`mocha build/compiled/test`) stands for the code files
+  directly in its source directory, or every one below it with `--recursive`. Only files with an `--extension` value
+  (`js`, `cjs` and `mjs` by default) count, and in a source directory behind an `outDir` also the TypeScript sources
+  that compile to them. An `include` entry without a wildcard is a file only when it ends in a code or `.json`
+  extension (`packages/v1.2` is a directory).
 
 ## Layered configuration
 
@@ -471,7 +676,7 @@ reset = ["version-groups"]
   order. A file reached twice applies once. A cycle, a missing file or more than 16 nested files is an error naming
   the file.
 - `reset` discards what was inherited for the listed keys before this file applies. Allowed values:
-  `version-groups`, `semver-groups`, `custom-types`, `ignore`, `dependency-families`, `overrides`.
+  `version-groups`, `semver-groups`, `update-groups`, `custom-types`, `ignore`, `dependency-families`, `overrides`.
 
 ### Merge rules
 
@@ -484,7 +689,7 @@ reset = ["version-groups"]
 | `[rules]` | Per rule: a level keeps the inherited options; a table of options replaces the options and keeps the level |
 | `[js.plugins]` | Per plugin: `true` or `false` keeps the options; a table replaces them |
 | `[[ignore]]`, `[[overrides]]` | Append |
-| `[[version-groups]]`, `[[semver-groups]]` | The nearer file's entries come first, so with first match wins the project beats the org |
+| `[[version-groups]]`, `[[semver-groups]]`, `[[update-groups]]` | The nearer file's entries come first, so with first match wins the project beats the org |
 | `[[dependency-families]]`, `[[custom-types]]` | Replace the entry of the same `name`, append the others |
 
 ### `[[overrides]]`

@@ -846,3 +846,571 @@ fn lint_to_json_classifies_its_errors() {
     assert_eq!(broken.kind, skif_cli::Kind::Config);
     assert!(broken.path.is_some_and(|path| path.ends_with("skif.toml")));
 }
+
+#[test]
+fn list_shows_every_instance_by_version_group_and_exits_one_on_errors() {
+    let dir = fixture("mismatch");
+    let result = run(skif().args(["list", "--show", "all"]).arg(dir.path()));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    insta::assert_snapshot!("list_human", redact(&result.stdout, dir.path()));
+
+    let ok = run(skif()
+        .args(["list", "--show", "none", "--config"])
+        .arg(dir.path().join("skif.toml"))
+        .arg(dir.path().join("packages").join("a")));
+    assert_eq!(ok.code, 1, "a member path lists its workspace: {}", ok.stdout);
+}
+
+#[test]
+fn json_prints_one_instance_per_line_with_syncpack_status_codes() {
+    let dir = fixture("mismatch");
+    let result = run(skif().arg("json").arg(dir.path()));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    let lines: Vec<Value> = result
+        .stdout
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let is_number: Vec<(&str, &str, &str)> = lines
+        .iter()
+        .filter(|line| line["dependency"] == "is-number")
+        .map(|line| {
+            (
+                line["package"].as_str().unwrap(),
+                line["statusCode"].as_str().unwrap(),
+                line["statusType"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        is_number,
+        [
+            ("packages/a/package.json", "IsHighestOrLowestSemver", "Valid"),
+            ("packages/b/package.json", "DiffersToHighestOrLowestSemver", "Fixable"),
+        ]
+    );
+    insta::assert_snapshot!("json_instances", redact(&result.stdout, dir.path()));
+
+    fs::write(
+        dir.path().join("skif.toml"),
+        "[js]\nenabled = false\n\n[rules]\nversion-mismatch = \"warn\"\n",
+    )
+    .unwrap();
+    let warned = run(skif().arg("json").arg(dir.path()));
+    assert_eq!(warned.code, 0, "warnings alone do not fail: {}", warned.stdout);
+    assert!(warned.stdout.contains(r#""severity":"warning""#), "{}", warned.stdout);
+}
+
+#[test]
+fn dry_run_shows_the_fix_plan_and_writes_nothing() {
+    let dir = fixture("mismatch");
+    let before = tree(dir.path());
+    let human = run(skif()
+        .args(["--fix-unsafe", "--no-prompt", "--dry-run"])
+        .arg(dir.path()));
+    assert_eq!(human.code, 1, "the report is of the unchanged tree: {}", human.stderr);
+    assert_eq!(tree(dir.path()), before);
+    insta::assert_snapshot!("fix_dry_run_human", redact(&human.stdout, dir.path()));
+
+    let json = run(skif()
+        .args(["--fix-unsafe", "--dry-run", "--format", "json"])
+        .env("CI", "true")
+        .arg(dir.path()));
+    assert_eq!(json.code, 1, "a dry run is not refused in CI: {}", json.stdout);
+    assert_eq!(tree(dir.path()), before);
+    let fix = &json.json()["fix"];
+    assert_eq!(fix["dry-run"], true);
+    assert_eq!(fix["install"]["reason"], "--dry-run was given");
+    insta::assert_snapshot!("fix_dry_run_json", serde_json::to_string_pretty(fix).unwrap());
+
+    let out = tempfile::tempdir().unwrap();
+    let report = out.path().join("report.json");
+    let several = run(skif()
+        .args([
+            "--fix-unsafe",
+            "--no-prompt",
+            "--dry-run",
+            "--format",
+            "human",
+            "--format",
+        ])
+        .arg(format!("json={}", report.display()))
+        .arg(dir.path()));
+    assert_eq!(several.code, 1, "{}", several.stderr);
+    assert_eq!(tree(dir.path()), before, "no manifest is written with several formats");
+    assert_eq!(several.stdout, human.stdout, "stdout holds the human rendering");
+    let written: Value = serde_json::from_str(&fs::read_to_string(&report).unwrap()).unwrap();
+    assert_eq!(written["fix"]["dry-run"], true, "each FORMAT=FILE report is written");
+
+    let alone = run(skif().args(["--dry-run", "--format", "json"]).arg(dir.path()));
+    assert_eq!(alone.code, 2);
+    assert_eq!(alone.json()["error"]["kind"], "usage");
+}
+
+#[test]
+fn instance_filters_narrow_the_version_group_policies() {
+    let dir = fixture("mismatch");
+    fs::write(
+        dir.path().join("skif.toml"),
+        "[js]\nenabled = false\n\n[[version-groups]]\ndependencies = [\"left-pad\"]\npolicy = \"pinned\"\npin = \"1.3.0\"\n",
+    )
+    .unwrap();
+    let all = run(skif().args(["--format", "json"]).arg(dir.path()));
+    assert_eq!(
+        rule_ids(&all.json()),
+        BTreeSet::from(["policy-conflict".to_owned(), "version-mismatch".to_owned()])
+    );
+
+    let named = run(skif()
+        .args(["--format", "json", "--dependency", "is-*"])
+        .arg(dir.path()));
+    assert_eq!(
+        rule_ids(&named.json()),
+        BTreeSet::from(["version-mismatch".to_owned()]),
+        "a group the filter empties is not reported as unused"
+    );
+
+    let one_file = run(skif()
+        .args(["--format", "json", "--source", "packages/b/package.json"])
+        .arg(dir.path()));
+    assert_eq!(one_file.code, 0, "nothing is left to align with: {}", one_file.stdout);
+
+    let listed = run(skif()
+        .args(["json", "--specifier-types", "exact", "--dependency-types", "prod"])
+        .arg(dir.path()));
+    let dependencies: BTreeSet<String> = listed
+        .stdout
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<Value>(line).unwrap()["dependency"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(dependencies, BTreeSet::from(["is-number".to_owned()]));
+
+    let unknown = run(skif()
+        .args(["--format", "json", "--dependency-types", "engines"])
+        .arg(dir.path()));
+    assert_eq!(unknown.code, 2);
+    assert_eq!(unknown.json()["error"]["kind"], "usage");
+}
+
+#[test]
+fn format_writes_an_unsafe_exports_reorder_only_with_unsafe() {
+    let dir = fixture("format");
+    let manifest = dir.path().join("packages").join("a").join("package.json");
+    fs::write(
+        &manifest,
+        r#"{"name":"@format/a","exports":{"import":"./a.mjs","module":"./a.esm.js"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("skif.toml"),
+        "[format]\nsort-exports = [\"types\", \"module\", \"import\", \"default\"]\n",
+    )
+    .unwrap();
+    let before = tree(dir.path());
+
+    let safe = run(skif().args(["format"]).arg(dir.path()));
+    assert_eq!(safe.code, 1, "{}{}", safe.stdout, safe.stderr);
+    assert_eq!(
+        tree(dir.path()),
+        before,
+        "an unsafe change was written without --unsafe"
+    );
+
+    let refused = run(skif().args(["format", "--check", "--unsafe"]).arg(dir.path()));
+    assert_eq!(refused.code, 2, "{}{}", refused.stdout, refused.stderr);
+
+    let applied = run(skif().args(["format", "--unsafe"]).arg(dir.path()));
+    assert_eq!(applied.code, 0, "{}{}", applied.stdout, applied.stderr);
+    assert_eq!(
+        fs::read_to_string(&manifest).unwrap(),
+        r#"{"name":"@format/a","exports":{"module":"./a.esm.js","import":"./a.mjs"}}"#
+    );
+}
+
+#[test]
+fn format_check_exits_one_and_format_writes_the_fix() {
+    let dir = fixture("format");
+    let manifest = dir.path().join("packages").join("a").join("package.json");
+    let before = tree(dir.path());
+
+    let check = run(skif().args(["format", "--check"]).arg(dir.path()));
+    assert_eq!(check.code, 1, "{}{}", check.stdout, check.stderr);
+    assert_eq!(tree(dir.path()), before, "--check wrote a file");
+    insta::assert_snapshot!("format_check_human", redact(&check.stdout, dir.path()));
+
+    let refused = run(skif().args(["format"]).arg(dir.path()).env("CI", "true"));
+    assert_eq!(refused.code, 2, "{}{}", refused.stdout, refused.stderr);
+    assert_eq!(tree(dir.path()), before, "a refused run wrote a file");
+
+    let lint = run(skif().args(["--format", "json", "--no-js"]).arg(dir.path()));
+    assert!(
+        !rule_ids(&lint.json()).contains("package-json-format"),
+        "the rule is off in a plain lint"
+    );
+
+    let format = run(skif().args(["format"]).arg(dir.path()));
+    assert_eq!(format.code, 0, "{}{}", format.stdout, format.stderr);
+    let formatted = fs::read_to_string(&manifest).unwrap();
+    insta::assert_snapshot!("format_fixed_manifest", formatted);
+
+    let again = run(skif().args(["format", "--check", "--format", "json"]).arg(dir.path()));
+    assert_eq!(again.code, 0, "{}{}", again.stdout, again.stderr);
+    assert_eq!(again.json()["summary"]["errors"], 0);
+    let twice = run(skif().args(["format"]).arg(dir.path()));
+    assert_eq!(twice.code, 0);
+    assert_eq!(
+        fs::read_to_string(&manifest).unwrap(),
+        formatted,
+        "formatting twice changed the file"
+    );
+}
+
+#[test]
+fn codeclimate_is_a_json_array_for_gitlab_and_can_go_to_output() {
+    let dir = fixture("dirty");
+    let stdout = run(skif().args(["--format", "codeclimate"]).arg(dir.path()));
+    assert_eq!(stdout.code, 1);
+    let issues = stdout.json();
+    let issues = issues.as_array().unwrap();
+    assert_ne!(issues.len(), 0);
+    for issue in issues {
+        assert!(issue["check_name"].is_string(), "{issue}");
+        assert_eq!(issue["fingerprint"].as_str().unwrap().len(), 32, "{issue}");
+        assert!(
+            ["info", "minor", "major"].contains(&issue["severity"].as_str().unwrap()),
+            "{issue}"
+        );
+        assert!(issue["location"]["lines"]["begin"].as_u64().unwrap() >= 1, "{issue}");
+    }
+
+    let out = tempfile::tempdir().unwrap();
+    let target = out.path().join("gl-code-quality.json");
+    let written = run(skif()
+        .args(["--format", "codeclimate", "--output"])
+        .arg(&target)
+        .arg(dir.path()));
+    assert_eq!(written.code, 1);
+    assert!(written.stdout.is_empty(), "{}", written.stdout);
+    let from_file: Value = serde_json::from_str(&fs::read_to_string(&target).unwrap()).unwrap();
+    assert_eq!(&from_file, &Value::Array(issues.clone()));
+}
+
+#[test]
+fn compact_prints_one_line_per_diagnostic() {
+    let dir = fixture("dirty");
+    let compact = run(skif().args(["--format", "compact"]).arg(dir.path()));
+    assert_eq!(compact.code, 1);
+    let json = run(skif().args(["--format", "json"]).arg(dir.path())).json();
+    let diagnostics = json["diagnostics"].as_array().unwrap();
+    assert_eq!(compact.stdout.lines().count(), diagnostics.len(), "{}", compact.stdout);
+    for (line, diagnostic) in compact.stdout.lines().zip(diagnostics) {
+        let path = diagnostic["location"]["path"].as_str().unwrap();
+        let rule = diagnostic["rule"].as_str().unwrap();
+        assert!(line.starts_with(path), "{line}");
+        assert!(line.contains(&format!(" {rule} ")), "{line}");
+    }
+}
+
+#[test]
+fn markdown_and_disclosure_group_by_rule() {
+    let dir = fixture("dirty");
+    let markdown = run(skif().args(["--format", "markdown"]).arg(dir.path()));
+    assert_eq!(markdown.code, 1);
+    assert!(markdown.stdout.starts_with("# skif report\n"), "{}", markdown.stdout);
+    assert!(
+        markdown.stdout.contains("| Location | Severity | Message |"),
+        "{}",
+        markdown.stdout
+    );
+    let disclosure = run(skif().args(["--format", "disclosure"]).arg(dir.path()));
+    assert_eq!(disclosure.code, 1);
+    assert_eq!(
+        disclosure.stdout.matches("<details>").count(),
+        markdown.stdout.matches("\n## ").count(),
+        "{}",
+        disclosure.stdout
+    );
+}
+
+#[test]
+fn codeowners_groups_by_the_repository_codeowners_file() {
+    let dir = fixture("dirty");
+    fs::create_dir(dir.path().join(".git")).unwrap();
+    fs::create_dir(dir.path().join(".github")).unwrap();
+    fs::write(dir.path().join("CODEOWNERS"), "* @ignored\n").unwrap();
+    fs::write(
+        dir.path().join(".github/CODEOWNERS"),
+        "# owners\n* @org/core\n/package.json @org/root\n",
+    )
+    .unwrap();
+    let result = run(skif().args(["--format", "codeowners"]).arg(dir.path()));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    let headings: Vec<&str> = result
+        .stdout
+        .lines()
+        .filter(|line| line.starts_with('@') || line.starts_with('('))
+        .collect();
+    assert!(!headings.is_empty(), "{}", result.stdout);
+    assert!(
+        headings
+            .iter()
+            .all(|line| line.starts_with("@org/core (") || line.starts_with("@org/root (")),
+        "{}",
+        result.stdout
+    );
+}
+
+#[test]
+fn codeowners_without_a_codeowners_file_exits_two() {
+    let dir = fixture("dirty");
+    let result = run(skif().args(["--format", "codeowners"]).arg(dir.path()));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert!(result.stdout.is_empty(), "{}", result.stdout);
+    assert!(result.stderr.contains("CODEOWNERS"), "{}", result.stderr);
+}
+
+#[test]
+fn json_names_the_packages_whose_files_and_dependencies_were_not_judged() {
+    let dir = tempfile::tempdir().unwrap();
+    let put = |relative: &str, content: &str| {
+        let path = dir.path().join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    };
+    fs::create_dir_all(dir.path().join(".git")).unwrap();
+    put(
+        "package.json",
+        r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+    );
+    put(
+        "packages/web/package.json",
+        r#"{"name":"web","version":"1.0.0","private":true,"main":"index.ts","devDependencies":{"vite":"6.0.0"}}"#,
+    );
+    put("packages/web/index.ts", "export const main = 1;\n");
+    put("packages/web/orphan.ts", "export const lonely = 1;\n");
+    put(
+        "packages/web/vite.config.ts",
+        "import base from './vite.base';\nexport default { ...base };\n",
+    );
+    put(
+        "packages/api/package.json",
+        r#"{"name":"api","version":"1.0.0","private":true,"main":"index.ts"}"#,
+    );
+    put("packages/api/index.ts", "export const api = 1;\n");
+    put("packages/api/orphan.ts", "export const lonely = 1;\n");
+
+    let json = run(skif().args(["--format", "json"]).arg(dir.path()));
+    let document = json.json();
+    assert_eq!(
+        document["incomplete-packages"],
+        serde_json::json!([{
+            "name": "web",
+            "dir": "packages/web",
+            "reasons": [
+                { "cause": "unknown-spread", "plugin": "vite", "file": "packages/web/vite.config.ts" },
+                { "cause": "computed-entries", "plugin": "vite", "file": "packages/web/vite.config.ts" },
+            ],
+        }]),
+        "{}",
+        json.stdout
+    );
+    let unused_files: Vec<&str> = document["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == "unused-files")
+        .filter_map(|diagnostic| diagnostic["location"]["path"].as_str())
+        .collect();
+    assert_eq!(unused_files, ["packages/api/orphan.ts"]);
+
+    let human = run(skif().arg(dir.path()));
+    assert!(
+        human
+            .stdout
+            .contains("note: unused files and dependencies were not checked in 1 package (web)"),
+        "{}",
+        human.stdout
+    );
+}
+
+fn dependency_versions(dir: &Path, member: &str, section: &str) -> Value {
+    let text = fs::read_to_string(dir.join("packages").join(member).join("package.json")).unwrap();
+    serde_json::from_str::<Value>(&text).unwrap()[section].clone()
+}
+
+/// ADR 0051: `--fix` aligns a version within its semver window, whether the workspace or a pin chose it, and leaves
+/// the cross-major move (also to a pin), the change of range and the move of type packages to `--fix-unsafe`.
+#[test]
+fn fix_applies_compatible_version_alignments_and_leaves_the_rest() {
+    let dir = fixture("align");
+    let result = run(skif()
+        .args(["--fix", "--no-install", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+
+    let a = dependency_versions(dir.path(), "a", "dependencies");
+    let b = dependency_versions(dir.path(), "b", "dependencies");
+    assert_eq!(
+        (&a["left-pad"], &b["left-pad"]),
+        (&Value::from("1.3.0"), &Value::from("1.3.0"))
+    );
+    assert_eq!(a["chalk"], "5.3.1", "a patch pin is applied");
+    assert_eq!(a["react"], "18.3.1", "a cross-major pin is left to --fix-unsafe");
+    assert_eq!(
+        (&a["is-number"], &b["is-number"]),
+        (&Value::from("6.0.0"), &Value::from("7.0.0"))
+    );
+    assert_eq!((&a["ms"], &b["ms"]), (&Value::from("^2.1.0"), &Value::from("2.1.3")));
+    assert_eq!(a["@types/node"], "22.0.0", "type packages stay in dependencies");
+
+    let report = result.json();
+    let diagnostics = report["diagnostics"].as_array().unwrap();
+    assert!(
+        diagnostics
+            .iter()
+            .flat_map(|diagnostic| diagnostic["fixes"].as_array().into_iter().flatten())
+            .all(|fix| fix["safety"] != "safe"),
+        "a safe fix survived --fix: {report}"
+    );
+    insta::assert_snapshot!("fix_align_json", redact(&result.stdout, dir.path()));
+}
+
+/// The files of `dir` that differ from the `autofix` fixture, with their new contents (`<deleted>` when gone), as
+/// one text for a snapshot.
+fn autofix_changes(dir: &Path) -> String {
+    let before = tree(fixture("autofix").path());
+    let after = tree(dir);
+    let mut text = String::new();
+    for path in changed(&before, &after) {
+        let contents = after.get(&path).map_or("<deleted>\n", String::as_str);
+        let shown = path.display().to_string().replace('\\', "/");
+        text.push_str("--- ");
+        text.push_str(&shown);
+        text.push('\n');
+        text.push_str(contents);
+    }
+    text
+}
+
+fn skipped_reasons(report: &Value) -> Vec<(String, String)> {
+    report["fix"]["skipped"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|skipped| {
+            (
+                skipped["rule"].as_str().unwrap().to_owned(),
+                skipped["reason"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// Issue #37: `--fix-unsafe` removes enum and namespace members, `export default <expression>` and catalog entries in
+/// place, but deletes no file without `--allow-remove-files`.
+#[test]
+fn fix_unsafe_deletes_files_only_with_allow_remove_files() {
+    let dir = fixture("autofix");
+    let result = run(skif()
+        .args(["--fix-unsafe", "--no-install", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let report = result.json();
+    assert!(dir.path().join("packages/app/src/orphan.ts").is_file());
+    assert_eq!(
+        skipped_reasons(&report),
+        [("unused-files".to_owned(), "removes-files".to_owned())]
+    );
+    // `Size.Small` would renumber `Size.Large`, and `export default registerPlugin(...)` has a side effect: both stay
+    // reported without a fix.
+    let unfixable = ["unused-enum-members", "unused-exports"].map(str::to_owned);
+    assert_eq!(
+        rule_ids(&report),
+        BTreeSet::from_iter(unfixable.iter().cloned().chain(["unused-files".to_owned()]))
+    );
+    insta::assert_snapshot!("autofix_fix_unsafe", autofix_changes(dir.path()));
+
+    let human = fixture("autofix");
+    let result = run(skif().args(["--fix-unsafe", "--no-install"]).arg(human.path()));
+    assert!(
+        result
+            .stdout
+            .contains("skipped [unused-files] `packages/app/src/orphan.ts` is not reachable from any entry file (removes-files: re-run with --allow-remove-files)"),
+        "{}",
+        result.stdout
+    );
+
+    let allowed = fixture("autofix");
+    let result = run(skif()
+        .args([
+            "--fix-unsafe",
+            "--allow-remove-files",
+            "--no-install",
+            "--format",
+            "json",
+        ])
+        .arg(allowed.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    assert!(!allowed.path().join("packages/app/src/orphan.ts").exists());
+    assert_eq!(rule_ids(&result.json()), BTreeSet::from(unfixable));
+}
+
+/// `--fix-type` takes knip issue types and rule ids, comma separated or repeated.
+#[test]
+fn fix_type_limits_the_fixes_to_some_rules() {
+    let dir = fixture("autofix");
+    let result = run(skif()
+        .args(["--fix-unsafe", "--no-install", "--fix-type", "enumMembers,catalog"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    insta::assert_snapshot!("autofix_fix_type", autofix_changes(dir.path()));
+
+    let dir = fixture("autofix");
+    let result = run(skif()
+        .args(["--fix-unsafe", "--no-install", "--allow-remove-files"])
+        .args(["--fix-type", "files", "--fix-type", "unused-namespace-members"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let changes = autofix_changes(dir.path());
+    assert!(
+        changes.contains("--- packages/app/src/orphan.ts\n<deleted>"),
+        "{changes}"
+    );
+    assert!(!changes.contains("pnpm-workspace.yaml"), "{changes}");
+    assert!(changes.contains("  Green,"), "{changes}");
+    assert!(!changes.contains("unused()"), "{changes}");
+}
+
+#[test]
+fn fix_type_and_allow_remove_files_are_usage_errors_without_fix() {
+    let dir = fixture("autofix");
+    let unknown = run(skif()
+        .args(["--fix-unsafe", "--fix-type", "nonsense", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(unknown.code, 2);
+    let document = unknown.json();
+    assert_eq!(document["error"]["kind"], "usage");
+    assert!(
+        document["error"]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("unknown --fix-type `nonsense`"),
+        "{document}"
+    );
+    assert_eq!(
+        changed(&tree(fixture("autofix").path()), &tree(dir.path())),
+        Vec::<PathBuf>::new()
+    );
+
+    for flags in [["--allow-remove-files", ""], ["--fix-type", "files"]] {
+        let flags: Vec<&str> = flags.into_iter().filter(|flag| !flag.is_empty()).collect();
+        let result = run(skif().args(&flags).args(["--format", "json"]).arg(dir.path()));
+        assert_eq!(result.code, 2, "{flags:?}: {}", result.stdout);
+        assert_eq!(result.json()["error"]["kind"], "usage", "{flags:?}");
+    }
+}
