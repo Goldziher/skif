@@ -47,6 +47,8 @@ schemars = { version = "1.2.3", features = ["indexmap2"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = "2.1.1"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+# The module cache key (ADR 0066); already in the tree through phf_shared.
+siphasher = "1.0.4"
 
 skif = { path = "crates/skif", version = "=0.1.1" }
 skif-bench = { path = "tools/bench" }

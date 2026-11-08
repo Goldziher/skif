@@ -23,6 +23,7 @@ oxc_semantic.workspace = true
 oxc_span.workspace = true
 oxc_str.workspace = true
 serde.workspace = true
+siphasher.workspace = true
 skif-core.workspace = true
 thiserror.workspace = true
 
