@@ -11,10 +11,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- `package.json` formatting with syncpack's `format` semantics: the `package-json-format` rule (off by default, safe
-  fix), `skif format` and `skif format --check`, and a `[format]` table with `sort-first`, `sort-az`, `sort-exports`,
-  `sort-packages`, `format-bugs`, `format-repository` and `indent`. `skif migrate` writes syncpack's format options to
-  it ([ADR 0050](adrs/0050-package-json-formatting-the-package-json-format-rule-and-skif-format.md),
+- `package.json` formatting with syncpack's `format` semantics: the `package-json-format` rule (off by default),
+  `skif format`, `skif format --check` and `skif format --unsafe`, and a `[format]` table with `sort-first`, `sort-az`,
+  `sort-exports`, `sort-packages`, `format-bugs`, `format-repository` and `indent`. By default only `types` moves first
+  and `default` last among `exports` conditions, since the others decide resolution; a longer `sort-exports` gives an
+  unsafe fix. Comments, negated globs and non-git repositories are kept. `skif migrate` writes syncpack's format
+  options to it ([ADR 0050](adrs/0050-package-json-formatting-the-package-json-format-rule-and-skif-format.md),
   [#33](https://github.com/Goldziher/skif/issues/33)).
 
 ## [0.1.1] - 2026-11-07
