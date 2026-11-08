@@ -121,11 +121,17 @@ pub(crate) fn add_entry(
 }
 
 /// Removes the entry of `dependency` from `catalog` in `file`.
+///
+/// In the root `package.json` the removal widens to the whole catalog when `removable` holds every entry the catalog
+/// declares, and to the `catalogs` object when that holds for each of its catalogs, so the last fix leaves no `{}`
+/// behind. Every entry of such a catalog carries the same widened operation, which the planner applies once. The
+/// YAML files need no widening: the YAML editor already drops a mapping its last key leaves empty.
 pub(crate) fn remove_entry(
     workspace: &Workspace,
     file: &CatalogFile,
     catalog: &CatalogName,
     dependency: &str,
+    removable: &dyn Fn(&CatalogName, &str) -> bool,
 ) -> FixOp {
     match file {
         CatalogFile::Yaml(path) => {
@@ -139,11 +145,43 @@ pub(crate) fn remove_entry(
             FixOp::yaml(path.clone(), entry_route, YamlAction::Remove)
         }
         CatalogFile::RootJson(path) => {
+            let root = workspace.root_package().manifest.value();
             let mut pointer = json_pointer(workspace, catalog);
-            pointer.push(key(dependency));
+            let all_go = |pointer: &[PathSeg], catalog: &CatalogName| {
+                value_at(root, pointer)
+                    .and_then(Value::as_object)
+                    .is_some_and(|entries| entries.keys().all(|name| removable(catalog, name)))
+            };
+            if !all_go(&pointer, catalog) {
+                pointer.push(key(dependency));
+            } else if let Some((_, parent)) = pointer.split_last()
+                && parent.last() == Some(&key("catalogs"))
+                && value_at(root, parent).and_then(Value::as_object).is_some_and(|named| {
+                    named.keys().all(|name| {
+                        let sibling = if name == "default" {
+                            CatalogName::Default
+                        } else {
+                            CatalogName::Named(name.clone())
+                        };
+                        let mut at = parent.to_vec();
+                        at.push(key(name));
+                        all_go(&at, &sibling)
+                    })
+                })
+            {
+                pointer.pop();
+            }
             FixOp::json(path.clone(), pointer, JsonAction::Remove)
         }
     }
+}
+
+/// The node at `pointer` (object keys only) in `value`.
+fn value_at<'v>(value: &'v Value, pointer: &[PathSeg]) -> Option<&'v Value> {
+    pointer.iter().try_fold(value, |node, seg| match seg {
+        PathSeg::Key(name) => node.get(name),
+        _ => None,
+    })
 }
 
 /// Creates the default catalog in `file` holding all of `entries`.
