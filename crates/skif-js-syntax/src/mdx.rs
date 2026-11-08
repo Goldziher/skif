@@ -233,6 +233,50 @@ pub(crate) fn extract(source: &str) -> Extracted {
     Extracted { esm, markup }
 }
 
+/// `markup` with its inline code spans (`` `<Card/>` ``, ``` `` a`b `` ```) blanked, so that code quoted in prose is
+/// not taken for a component or expression it uses. A span opens with a run of backticks and closes at the next run of
+/// the same length; a run that never closes is literal text. Line breaks and the byte length are kept.
+pub(crate) fn blank_inline_code(markup: &str) -> String {
+    let bytes = markup.as_bytes();
+    let mut out = bytes.to_vec();
+    let run_at = |at: usize| bytes[at..].iter().take_while(|&&b| b == b'`').count();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'`' {
+            i += 1;
+            continue;
+        }
+        let open = run_at(i);
+        let mut j = i + open;
+        let mut close = None;
+        while j < bytes.len() {
+            if bytes[j] == b'`' {
+                let run = run_at(j);
+                if run == open {
+                    close = Some(j + run);
+                    break;
+                }
+                j += run;
+            } else {
+                j += 1;
+            }
+        }
+        match close {
+            Some(end) => {
+                for byte in &mut out[i..end] {
+                    if !matches!(*byte, b'\n' | b'\r') {
+                        *byte = b' ';
+                    }
+                }
+                i = end;
+            }
+            None => i += open,
+        }
+    }
+    // Whole spans between ASCII backticks are blanked, so the buffer is valid UTF-8.
+    String::from_utf8(out).unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -302,6 +346,15 @@ mod tests {
             .map(|&(start, end)| &source[start..end])
             .collect();
         assert_eq!(markup, ["\n<A/>\n", "{c}\n"]);
+    }
+
+    #[test]
+    fn inline_code_is_blanked() {
+        let markup = "Use `<Card/>` or ``a ` <B/>`` but <C/>, and a lone ` <D/>\n";
+        let blanked = blank_inline_code(markup);
+        assert_eq!(blanked.len(), markup.len());
+        assert!(!blanked.contains("Card") && !blanked.contains("<B/>"), "{blanked}");
+        assert!(blanked.contains("<C/>") && blanked.contains("<D/>"), "{blanked}");
     }
 
     #[test]
