@@ -14,6 +14,8 @@ use skif_specifier::{Specifier, SpecifierCache};
 
 use crate::error::WorkspaceError;
 
+mod fast;
+
 const BOM: char = '\u{feff}';
 
 /// Pointers up to this many segments long are recorded in the span table.
@@ -212,6 +214,95 @@ fn keep_last_duplicates(entries: &mut Vec<DependencyEntry>, from: usize) {
     });
 }
 
+/// Collects the dependency entries of a manifest while its top-level members are read, in file order.
+struct Collector<'c> {
+    bom: usize,
+    line_index: &'c LineIndex,
+    cache: &'c SpecifierCache,
+    entries: Vec<DependencyEntry>,
+    seen: Vec<DependencyKind>,
+}
+
+impl<'c> Collector<'c> {
+    fn new(bom: usize, line_index: &'c LineIndex, cache: &'c SpecifierCache) -> Self {
+        Self {
+            bom,
+            line_index,
+            cache,
+            entries: Vec::new(),
+            seen: Vec::new(),
+        }
+    }
+
+    /// A top-level member named as the section `kind`, whatever its value. A section written twice: the last
+    /// occurrence replaces the first as a whole, as it does in the value.
+    fn section(&mut self, kind: DependencyKind) {
+        if self.seen.contains(&kind) {
+            self.entries.retain(|entry| entry.kind != kind);
+        } else {
+            self.seen.push(kind);
+        }
+    }
+
+    /// A member of the section `kind` whose value is the string `specifier`; `key` and `value` are the ranges of the
+    /// two strings, quotes included, in the text after a BOM.
+    fn entry(&mut self, kind: DependencyKind, name: &str, key: Range, specifier: &str, value: Range) {
+        self.entries.push(DependencyEntry {
+            kind,
+            name: name.to_owned(),
+            specifier: specifier.to_owned(),
+            parsed: self.cache.get_or_parse(specifier),
+            key_span: shift(key, self.bom, self.line_index),
+            value_span: shift(value, self.bom, self.line_index),
+        });
+    }
+
+    /// The entries from `start` on are those of one section object: with duplicate keys the last one wins.
+    fn end_section(&mut self, start: usize) {
+        keep_last_duplicates(&mut self.entries, start);
+    }
+}
+
+/// The value of a manifest read with `jsonc-parser`, which tolerates comments, trailing commas and the other
+/// leniencies of JSONC and names the position of an error, and its dependency entries handed to `collector`.
+fn read(path: &Path, source: &str, collector: &mut Collector<'_>) -> Result<Value, WorkspaceError> {
+    let line_index = collector.line_index;
+    let (root, bom) = parse_ast(source).map_err(|(offset, message)| invalid(path, line_index, offset, message))?;
+    let ast::Value::Object(object) = &root else {
+        return Err(invalid(
+            path,
+            line_index,
+            root.range().start + bom,
+            "expected the manifest to be a JSON object".to_owned(),
+        ));
+    };
+    for section in &object.properties {
+        let Some(kind) = DependencyKind::from_field(prop_name(&section.name)) else {
+            continue;
+        };
+        collector.section(kind);
+        let ast::Value::Object(dependencies) = &section.value else {
+            continue;
+        };
+        let start = collector.entries.len();
+        // Exactly the room the section needs: a workspace keeps every package's entries for the whole run.
+        collector.entries.reserve_exact(dependencies.properties.len());
+        for dependency in &dependencies.properties {
+            if let ast::Value::StringLit(specifier) = &dependency.value {
+                collector.entry(
+                    kind,
+                    prop_name(&dependency.name),
+                    dependency.name.range(),
+                    &specifier.value,
+                    specifier.range,
+                );
+            }
+        }
+        collector.end_section(start);
+    }
+    Ok(to_json(&root))
+}
+
 impl Manifest {
     /// Parses a manifest and collects its dependency entries in file order. A name declared twice in one section is
     /// collected once, with the value of its last declaration.
@@ -236,51 +327,18 @@ impl Manifest {
         cache: &SpecifierCache,
     ) -> Result<(Self, Vec<DependencyEntry>), WorkspaceError> {
         let line_index = Arc::new(LineIndex::new(&source));
-        let (root, bom) =
-            parse_ast(&source).map_err(|(offset, message)| invalid(&path, &line_index, offset, message))?;
-        let ast::Value::Object(object) = &root else {
-            return Err(invalid(
-                &path,
-                &line_index,
-                root.range().start + bom,
-                "expected the manifest to be a JSON object".to_owned(),
-            ));
+        let bom = bom_len(&source);
+        let mut collector = Collector::new(bom, &line_index, cache);
+        let value = if let Some(value) = fast::parse(&source[bom..], &mut collector) {
+            // Exactly the room the entries need: a workspace keeps every package's entries for the whole run.
+            collector.entries.shrink_to_fit();
+            value
+        } else {
+            collector = Collector::new(bom, &line_index, cache);
+            read(&path, &source, &mut collector)?
         };
-
-        let mut entries = Vec::new();
-        let mut seen = Vec::new();
-        for section in &object.properties {
-            let Some(kind) = DependencyKind::from_field(prop_name(&section.name)) else {
-                continue;
-            };
-            // A section written twice: the last occurrence replaces the first as a whole, as it does in the value.
-            if seen.contains(&kind) {
-                entries.retain(|entry: &DependencyEntry| entry.kind != kind);
-            } else {
-                seen.push(kind);
-            }
-            let ast::Value::Object(dependencies) = &section.value else {
-                continue;
-            };
-            let section_start = entries.len();
-            // Exactly the room the section needs: a workspace keeps every package's entries for the whole run.
-            entries.reserve_exact(dependencies.properties.len());
-            for dependency in &dependencies.properties {
-                if let ast::Value::StringLit(specifier) = &dependency.value {
-                    entries.push(DependencyEntry {
-                        kind,
-                        name: prop_name(&dependency.name).to_owned(),
-                        specifier: specifier.value.to_string(),
-                        parsed: cache.get_or_parse(&specifier.value),
-                        key_span: shift(dependency.name.range(), bom, &line_index),
-                        value_span: shift(specifier.range, bom, &line_index),
-                    });
-                }
-            }
-            keep_last_duplicates(&mut entries, section_start);
-        }
-
-        let value = Arc::new(to_json(&root));
+        let entries = collector.entries;
+        let value = Arc::new(value);
         Ok((
             Self {
                 path,
@@ -352,5 +410,124 @@ impl Manifest {
             .get_or_init(|| span_table(&self.source, &self.line_index))
             .get(pointer)
             .copied()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    type Parsed = (Value, Vec<DependencyEntry>);
+
+    /// The value and entries of `source` read by the strict reader, when it takes the text.
+    fn strict(source: &str) -> Option<Parsed> {
+        let line_index = LineIndex::new(source);
+        let cache = SpecifierCache::new();
+        let bom = bom_len(source);
+        let mut collector = Collector::new(bom, &line_index, &cache);
+        let value = fast::parse(&source[bom..], &mut collector)?;
+        Some((value, collector.entries))
+    }
+
+    /// The value and entries of `source` read by `jsonc-parser`, or the error message.
+    fn lenient(source: &str) -> Result<Parsed, String> {
+        let line_index = LineIndex::new(source);
+        let cache = SpecifierCache::new();
+        let mut collector = Collector::new(bom_len(source), &line_index, &cache);
+        let value = read(Path::new("package.json"), source, &mut collector).map_err(|error| error.to_string())?;
+        Ok((value, collector.entries))
+    }
+
+    /// Every `package.json` below `dir`.
+    fn manifests(dir: &Path, found: &mut Vec<PathBuf>) {
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        entries.sort();
+        for path in entries {
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name != "node_modules") {
+                    manifests(&path, found);
+                }
+            } else if path.file_name().is_some_and(|name| name == "package.json") {
+                found.push(path);
+            }
+        }
+    }
+
+    #[test]
+    fn the_strict_reader_agrees_with_jsonc_parser() {
+        let crafted = [
+            "{}",
+            "\u{feff}{\"name\":\"a\"}",
+            " \t\r\n{ \"name\" : \"a\" , \"version\":\"1.0.0\" }\n",
+            r#"{"dependencies":{"a":"^1.0.0","b":"2","a":"3"}}"#,
+            r#"{"dependencies":{"a":"1"},"devDependencies":{"b":"2"},"dependencies":{"c":"3"}}"#,
+            r#"{"dependencies":"oops","dependencies":{"c":"3"}}"#,
+            r#"{"dependencies":{"c":"3"},"dependencies":[]}"#,
+            r#"{"dependencies":{"a":1,"b":null,"c":{"d":"e"},"f":["g"],"h":"npm:x@1"}}"#,
+            r#"{"peerDependencies":{"a":"*"},"optionalDependencies":{},"overrides":{"a":"1"}}"#,
+            r#"{"n":[0,-0,1.5,-2e10,3E+2,4e-2,1e400,12345678901234567890,true,false,null,[],[[]],{}]}"#,
+            "{\"name\":\"é ünïcode ✓\",\"x\":\"\u{7f}\"}",
+            r#"{"a":{"b":{"c":{"d":[1,{"e":"f"}]}}},"a":2}"#,
+        ];
+        let mut sources: Vec<String> = crafted.iter().map(|&text| text.to_owned()).collect();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut files = Vec::new();
+        for dir in ["fixtures", "crates"] {
+            manifests(&root.join(dir), &mut files);
+        }
+        assert!(files.len() > 50, "{} manifests", files.len());
+        sources.extend(files.iter().map(|path| std::fs::read_to_string(path).unwrap()));
+        let mut taken = 0;
+        for source in &sources {
+            if let Some(parsed) = strict(source) {
+                taken += 1;
+                assert_eq!(Ok(parsed), lenient(source), "{source}");
+            }
+        }
+        // The strict reader is not vacuous: it takes the crafted documents and most real manifests.
+        assert!(taken > sources.len() / 2, "{taken} of {}", sources.len());
+        for text in crafted {
+            assert!(strict(text).is_some(), "{text}");
+        }
+    }
+
+    #[test]
+    fn the_strict_reader_leaves_jsonc_and_errors_to_jsonc_parser() {
+        let lenient_only = [
+            "",
+            "   ",
+            "[]",
+            "\"a\"",
+            "{} {}",
+            r#"{"a":1,}"#,
+            r#"{"a":[1,]}"#,
+            "{\"a\":1 // comment\n}",
+            "{/* c */\"a\":1}",
+            "{a:1}",
+            "{'a':1}",
+            r#"{"a":"\"quoted\""}"#,
+            r#"{"a\n":1}"#,
+            "{\"a\":\"tab\there\"}",
+            r#"{"a":01}"#,
+            r#"{"a":1.}"#,
+            r#"{"a":.5}"#,
+            r#"{"a":+1}"#,
+            r#"{"a":0x1F}"#,
+            r#"{"a":truex}"#,
+            r#"{"a":tru}"#,
+            r#"{"a":1"#,
+            r#"{"a""#,
+            "{\"a\":\u{a0}1}",
+        ];
+        for text in lenient_only {
+            assert!(strict(text).is_none(), "{text}");
+        }
+        let deep = format!("{{\"a\":{}1{}}}", "[".repeat(100), "]".repeat(100));
+        assert!(strict(&deep).is_none());
+        assert!(lenient(&deep).is_ok());
     }
 }
