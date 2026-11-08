@@ -128,6 +128,10 @@ All notable changes to this project are documented here. The format follows
 - `skif lsp`, a minimal language server on stdio that publishes skif's diagnostics when a file is opened or saved
   ([ADR 0056](adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
   [#44](https://github.com/Goldziher/skif/issues/44)).
+- `skif lsp` answers `textDocument/codeAction`: each fix of a diagnostic under the cursor is a quick fix (an unsafe
+  one is labelled `(unsafe)`), and `source.fixAll.skif` applies every safe fix of the file. The edits come from the
+  same fix plan as `skif --fix --dry-run`; fixes that create or delete files, and fixes of a file with unsaved
+  changes, are not offered ([#44](https://github.com/Goldziher/skif/issues/44)).
 - `ConfigLoader::with_sequential` makes `add_package_files` probe the member directories on the calling thread, for a
   host that runs with one thread; by default they are probed on the current rayon pool
   ([#29](https://github.com/Goldziher/skif/issues/29)).
@@ -184,7 +188,7 @@ All notable changes to this project are documented here. The format follows
   published output, a plugin without a scope and a computed `import()` in the package keep the whole package
   unjudged. Unused dependencies and exports of such a package are still not judged. `explain-usage` tells the narrowed scope from the package-wide case (the `entry`
   `incomplete-scope`, `incomplete-scope` and `widened-by`), and the human note says the packages were not fully
-  checked ([ADR 0064](adrs/0064-narrowed-scope-for-incomplete-entries.md),
+  checked ([ADR 0065](adrs/0065-narrowed-scope-for-incomplete-entries.md),
   [#23](https://github.com/Goldziher/skif/issues/23)).
 
 ### Fixed
@@ -394,6 +398,12 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
 - The `test-file` deviation of the knip comparison says why skif has no finding there: most are apps and helpers below
   test directories that are outside skif's graph, not test entries ([#27](https://github.com/Goldziher/skif/issues/27)).
 - `mise run bench:publish` writes a `summary.md` that passes `format:check` ([#27](https://github.com/Goldziher/skif/issues/27)).
+- An `import.meta.glob` whose options read the matched files as text (`query: '?raw'`, `query: { raw: '' }`, legacy
+  `as: 'raw'`) and an import of a `?raw` specifier no longer keep the files in use: they are not loaded as modules.
+  Other queries (`?url`, `?inline`, `?worker`) and options that are not static still count as uses. n8n's components
+  matched only by `import.meta.glob('../../**/*.vue', { query: '?raw' })` in a test are now unused.
+  `skif-js-syntax` reports such a glob as `ImportKind::SourceGlob`. Part of
+  [#23](https://github.com/Goldziher/skif/issues/23).
 
 ## [0.1.1] - 2026-11-07
 

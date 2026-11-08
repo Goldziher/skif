@@ -1,7 +1,9 @@
 //! `skif lsp`: a minimal Language Server Protocol server over stdio (ADR 0056).
 //!
 //! On open and save of a document it lints the root containing the file, as saved on disk, and publishes the
-//! diagnostics of every file of that root. Code actions and unsaved buffers are not supported.
+//! diagnostics of every file of that root. It keeps the last lint of each root to answer `textDocument/codeAction`
+//! with the fixes of those diagnostics ([`actions`]). Unsaved buffers are not linted: a change only marks the
+//! document as modified, which withholds code actions that edit it until it is saved.
 //!
 //! A malformed frame (no `Content-Length`, one that is not a number or exceeds [`MAX_BODY`], a header line longer
 //! than [`MAX_HEADER_LINE`], or input ending inside a message) cannot be skipped, since the next message's start is
@@ -18,10 +20,16 @@ use skif_core::LineIndex;
 
 use crate::lint::lint_root;
 use crate::output::stderr_line;
+use crate::roots::RootRun;
+
+mod actions;
 
 const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
 const METHOD_NOT_FOUND: i64 = -32601;
+const INVALID_PARAMS: i64 = -32602;
+/// `TextDocumentSyncKind.Incremental`: the smallest change notifications, which only mark a document as modified.
+const SYNC_INCREMENTAL: u8 = 2;
 /// The LSP error for a request that arrives before `initialize`.
 const SERVER_NOT_INITIALIZED: i64 = -32002;
 /// The largest message body accepted; a larger `Content-Length` is refused before anything is allocated.
@@ -140,6 +148,11 @@ struct Server {
     shut_down: bool,
     /// For each root, the documents that last received a non-empty list, so a fixed file is cleared.
     published: BTreeMap<PathBuf, BTreeSet<String>>,
+    /// For each root, the runs of its last lint, whose workspaces and reports code actions are planned from.
+    runs: BTreeMap<PathBuf, Vec<RootRun>>,
+    /// The open documents with changes not yet saved, as canonical paths; fixes that edit them are not offered,
+    /// since the edits are positions in the file as saved.
+    dirty: BTreeSet<PathBuf>,
 }
 
 impl Server {
@@ -154,17 +167,33 @@ impl Server {
                 "the server is not initialized",
             )]),
             (Some(_), None) if !self.initialized => Step::Reply(Vec::new()),
-            (Some(method), Some(id)) => Step::Reply(vec![self.request(method, id)]),
+            (Some(method), Some(id)) => Step::Reply(vec![self.request(method, id, message)]),
             (Some("textDocument/didOpen" | "textDocument/didSave"), None) => {
                 let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str);
+                // An opened or saved document matches the file on disk, which is what the server lints.
+                if let Some(file) = uri.and_then(local_file) {
+                    self.dirty.remove(&file);
+                }
                 Step::Reply(uri.map(|uri| self.publish(uri)).unwrap_or_default())
+            }
+            (Some("textDocument/didChange"), None) => {
+                if let Some(file) = document_file(message) {
+                    self.dirty.insert(file);
+                }
+                Step::Reply(Vec::new())
+            }
+            (Some("textDocument/didClose"), None) => {
+                if let Some(file) = document_file(message) {
+                    self.dirty.remove(&file);
+                }
+                Step::Reply(Vec::new())
             }
             // Other notifications, and responses to requests this server never sends.
             _ => Step::Reply(Vec::new()),
         }
     }
 
-    fn request(&mut self, method: &str, id: &Value) -> Value {
+    fn request(&mut self, method: &str, id: &Value, message: &Value) -> Value {
         if self.shut_down {
             return error_reply(id, INVALID_REQUEST, "the server is shut down");
         }
@@ -174,7 +203,12 @@ impl Server {
                 json!({
                 "capabilities": {
                     "positionEncoding": "utf-16",
-                    "textDocumentSync": { "openClose": true, "change": 0, "save": { "includeText": false } },
+                    "textDocumentSync": {
+                        "openClose": true,
+                        "change": SYNC_INCREMENTAL,
+                        "save": { "includeText": false },
+                    },
+                    "codeActionProvider": { "codeActionKinds": [actions::QUICK_FIX_KIND, actions::FIX_ALL_KIND] },
                 },
                 "serverInfo": { "name": "skif", "version": env!("CARGO_PKG_VERSION") },
                 })
@@ -183,6 +217,16 @@ impl Server {
                 self.shut_down = true;
                 Value::Null
             }
+            "textDocument/codeAction" => match self.code_actions(message.get("params").unwrap_or(&Value::Null)) {
+                Some(actions) => Value::Array(actions),
+                None => {
+                    return error_reply(
+                        id,
+                        INVALID_PARAMS,
+                        "invalid params: expected a document URI and a range",
+                    );
+                }
+            },
             other => return error_reply(id, METHOD_NOT_FOUND, &format!("method not found: {other}")),
         };
         json!({ "jsonrpc": "2.0", "id": id, "result": result })
@@ -197,7 +241,7 @@ impl Server {
         let Some(dir) = file.parent().filter(|_| file.is_file()) else {
             return Vec::new();
         };
-        let (base, report) = match lint_root(dir, &ConfigOverrides::default()) {
+        let (base, report, runs) = match lint_root(dir, &ConfigOverrides::default()) {
             Ok(linted) => linted,
             Err(error) => {
                 return vec![json!({
@@ -227,11 +271,38 @@ impl Server {
             notifications.push(publish_diagnostics(&uri, &items));
             current.insert(uri);
         }
+        self.runs.insert(base.clone(), runs);
         let previous = self.published.insert(base, current.clone()).unwrap_or_default();
         for uri in previous.difference(&current) {
             notifications.push(publish_diagnostics(uri, &[]));
         }
         notifications
+    }
+}
+
+impl Server {
+    /// The code actions for the `CodeActionParams` `params`, or `None` when they name no document or range. A
+    /// document that is not a local file, or that no lint has covered yet, has none.
+    fn code_actions(&self, params: &Value) -> Option<Vec<Value>> {
+        let uri = params.pointer("/textDocument/uri")?.as_str()?;
+        let range = params.get("range").filter(|range| range.is_object())?;
+        let only = params
+            .pointer("/context/only")
+            .and_then(Value::as_array)
+            .map(|kinds| kinds.iter().filter_map(Value::as_str).map(str::to_owned).collect());
+        let Some(file) = local_file(uri) else {
+            return Some(Vec::new());
+        };
+        let request = actions::Request {
+            file: &file,
+            range: (
+                actions::position_of(&range["start"]),
+                actions::position_of(&range["end"]),
+            ),
+            only,
+            dirty: &self.dirty,
+        };
+        Some(actions::code_actions(&request, &self.runs))
     }
 }
 
@@ -278,6 +349,18 @@ fn lsp_diagnostic(diagnostic: &Diagnostic, index: &LineIndex, text: &str) -> Val
         "source": "skif",
         "message": message,
     })
+}
+
+/// The canonical path of the document of a `textDocument` notification, when it is a local file.
+fn document_file(message: &Value) -> Option<PathBuf> {
+    local_file(message.pointer("/params/textDocument/uri")?.as_str()?)
+}
+
+/// The path of a `file` URI, canonical when the file exists, so it compares equal to the paths of a lint, whose
+/// root is canonical, however the client spells the URI.
+fn local_file(uri: &str) -> Option<PathBuf> {
+    let path = uri_to_path(uri)?;
+    Some(std::fs::canonicalize(&path).unwrap_or(path))
 }
 
 /// The bytes a `file` URI keeps as they are: unreserved characters, the path separator and the drive colon.

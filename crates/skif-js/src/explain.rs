@@ -41,7 +41,7 @@ pub enum EntryReason {
     /// Matched by an entry glob of another package that points outside that package.
     ExternalEntryGlob,
     /// In the narrowed scope of a package whose entries are incomplete: a config the analysis cannot fully read may
-    /// make it an entry, so it is treated as one (ADR 0064).
+    /// make it an entry, so it is treated as one (ADR 0065).
     IncompleteScope,
     /// The module is an entry, but none of the known rules accounts for it.
     Unknown,
@@ -208,7 +208,7 @@ pub struct UsageReport {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub incomplete: Vec<IncompleteEntries>,
     /// When the entry files of its package are not fully known but can only be files matching these globs (relative
-    /// to the package directory): the narrowed scope of ADR 0064. Files in it are treated as entries and every other
+    /// to the package directory): the narrowed scope of ADR 0065. Files in it are treated as entries and every other
     /// file is judged; [`UsageReport::incomplete`] then lists the reasons too. Empty when the package's entries are
     /// known, or unknown package-wide.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -358,6 +358,7 @@ const fn kind_label(kind: ImportKind) -> &'static str {
         ImportKind::Dynamic => "dynamic",
         ImportKind::Require => "require",
         ImportKind::ImportMetaGlob => "import-meta-glob",
+        ImportKind::SourceGlob => "source-glob",
         ImportKind::ExportFrom => "export-from",
         ImportKind::Mock => "mock",
     }

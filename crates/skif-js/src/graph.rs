@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use globset::{GlobBuilder, GlobSetBuilder};
 use skif_core::FileSystem;
 use skif_core::timing::Tally;
-use skif_js_syntax::{ImportKind, ModuleInfo, ParseOptions, is_stylesheet, parse_module, parse_stylesheet};
+use skif_js_syntax::{
+    ImportKind, ModuleInfo, ParseOptions, is_source_query, is_stylesheet, parse_module, parse_stylesheet,
+};
 use skif_workspace::{PackageId, map_ordered};
 
 use crate::discover::{Candidate, is_package_manifest, relative};
@@ -334,6 +336,15 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
         .map(|(index, import)| {
             let type_only = import.kind == ImportKind::TypeOnly
                 || (!import.names.is_empty() && import.names.iter().all(|name| name.is_type));
+            // A glob that reads the text of its files (`query: '?raw'`) does not load them as modules.
+            if import.kind == ImportKind::SourceGlob {
+                return RawImport {
+                    import: index,
+                    target: RawTarget::Asset,
+                    package: None,
+                    type_only,
+                };
+            }
             if import.kind == ImportKind::ImportMetaGlob {
                 return RawImport {
                     import: index,
@@ -358,7 +369,13 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
                     found
                 }
             });
+            // A `?raw` specifier reads the file's text too: its package still counts as used, the file does not.
+            let reads_source = import
+                .specifier
+                .split_once('?')
+                .is_some_and(|(_, query)| is_source_query(query));
             let target = match outcome.target {
+                Resolved::File(_) if reads_source => RawTarget::Asset,
                 Resolved::File(file) => RawTarget::File(file),
                 Resolved::Asset => RawTarget::Asset,
                 Resolved::External(name) => RawTarget::External(name),

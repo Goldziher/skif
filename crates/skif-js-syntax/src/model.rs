@@ -22,6 +22,9 @@ pub enum ImportKind {
     /// One pattern of `import.meta.glob(...)`, or the glob of a computed relative `require` or `import()`
     /// (`./commands/${name}`): a glob, not a module specifier.
     ImportMetaGlob,
+    /// One pattern of an `import.meta.glob(...)` whose options read the matched files as text (`query: '?raw'`,
+    /// legacy `as: 'raw'`): the files are not loaded as modules, so the glob keeps none of them in use.
+    SourceGlob,
     /// `export … from "x"`; the matching [`Export`] is recorded too.
     ExportFrom,
     /// `vi.mock("x")`, `jest.mock("x")` and the other test-runner calls that name a module: the test loads or
@@ -408,6 +411,18 @@ pub fn coalesce_ranges(ranges: impl IntoIterator<Item = (u32, u32)>) -> Vec<(u32
         }
     }
     out
+}
+
+/// Whether a query (`?raw`, `raw&inline`, with or without its `?`) makes Vite load a file's text instead of the
+/// module, by Vite's own test: a `raw` parameter with no value. `?url` is not one: it names the file to load it some
+/// other way (a worklet, a worker), so the file still counts as used.
+#[must_use]
+pub fn is_source_query(query: &str) -> bool {
+    query
+        .strip_prefix('?')
+        .unwrap_or(query)
+        .split('&')
+        .any(|parameter| parameter == "raw")
 }
 
 /// Options for [`crate::parse_module`].

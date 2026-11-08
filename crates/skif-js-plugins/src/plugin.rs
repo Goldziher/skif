@@ -298,7 +298,7 @@ pub trait Plugin: Send + Sync {
     }
 
     /// Where the entries that `config` hides for `cause` can plausibly lie, so that only those files are not judged
-    /// unused (ADR 0064). Called for an unknown or partly unknown value ([`IncompleteCause::UnknownValue`],
+    /// unused (ADR 0065). Called for an unknown or partly unknown value ([`IncompleteCause::UnknownValue`],
     /// [`IncompleteCause::UnknownSpread`]) and for computed entry keys ([`IncompleteCause::ComputedEntries`]); a
     /// config that does not parse is always [`IncompleteScope::Package`].
     ///

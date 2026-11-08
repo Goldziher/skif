@@ -198,7 +198,7 @@ fn below<'a>(candidates: &'a [Candidate], root: &Path, dir: &Path) -> &'a [Candi
     &candidates[start..start + run]
 }
 
-/// The project files of an incomplete package in the narrowed scope of its configs (ADR 0064). They are entries, so
+/// The project files of an incomplete package in the narrowed scope of its configs (ADR 0065). They are entries, so
 /// what they import is not reported either.
 fn scope_entries<'a>(owned: impl Iterator<Item = (&'a Candidate, String)>, package: &PackageSetup) -> Vec<PathBuf> {
     if package.incomplete_scope.is_none() {
