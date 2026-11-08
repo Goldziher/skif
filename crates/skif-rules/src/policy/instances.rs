@@ -267,6 +267,20 @@ impl<'w> Instances<'w> {
         }
     }
 
+    /// Flags the instances [`collect_with`](Self::collect_with) would have flagged
+    /// [`catalog_owned`](Instance::catalog_owned) had it been given `owned`, for a collection made before `owned` was
+    /// known: the entries of dependency sections that the catalog rules report.
+    pub(crate) fn mark_catalog_owned(&mut self, owned: &BTreeSet<&str>) {
+        if owned.is_empty() {
+            return;
+        }
+        for item in &mut self.items {
+            if let Origin::Dependency(entry) = item.origin {
+                item.catalog_owned = owned.contains(entry.name.as_str()) && owned_by_catalog(entry);
+            }
+        }
+    }
+
     /// [`collect_with`](Self::collect_with) for the dependencies the catalog rules own under `config`, or none.
     #[cfg(test)]
     pub(crate) fn collect(workspace: &'w Workspace, config: &skif_config::Config, catalog_owns: bool) -> Self {
