@@ -14,8 +14,19 @@ const PROJECT_FLAGS: &[&str] = &["-p", "--project"];
 /// The config flags of the tool `id`.
 pub(crate) fn config_flags(id: &str) -> Vec<&'static str> {
     let mut flags = CONFIG_FLAGS.to_vec();
-    if id == "typescript" {
+    if id == "typescript" || id == "tsrs" {
         flags.extend(PROJECT_FLAGS);
+    }
+    // `buf generate --template buf.gen.yaml`.
+    if id == "buf" {
+        flags.push("--template");
+    }
+    // `kysely-codegen --config-file x.ts`, `railway up --file x.ts`.
+    if id == "kysely-codegen" {
+        flags.push("--config-file");
+    }
+    if id == "railway" {
+        flags.push("--file");
     }
     flags
 }
@@ -87,6 +98,37 @@ pub(crate) fn flag_values(script: &str, binaries: &[&str], flags: &[&str]) -> Ve
     out
 }
 
+/// `word` as one word of a command line: quoted when it holds whitespace, so joining words keeps it whole.
+pub(crate) fn quote_word(word: &str) -> String {
+    if word.contains(char::is_whitespace) {
+        format!("'{word}'")
+    } else {
+        word.to_owned()
+    }
+}
+
+/// The command after `--` of every command of `script` that runs one of `binaries` with `subcommand` as its first
+/// word (`varlock run -- node app.js`), its words joined again.
+pub(crate) fn commands_after_separator(script: &str, binaries: &[&str], subcommand: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for command in commands(script) {
+        let Some(position) = command.iter().position(|word| binaries.contains(&binary_name(word))) else {
+            continue;
+        };
+        let args = &command[position + 1..];
+        if args.first().map(String::as_str) != Some(subcommand) {
+            continue;
+        }
+        if let Some(separator) = args.iter().position(|word| word == "--") {
+            let rest: Vec<String> = args[separator + 1..].iter().map(|word| quote_word(word)).collect();
+            if !rest.is_empty() {
+                out.push(rest.join(" "));
+            }
+        }
+    }
+    out
+}
+
 /// The positional words of every command of `script` that runs one of `binaries`, one list per command, in order.
 ///
 /// Flags are skipped as `minimist` reads them: a flag takes the next word as its value unless it has an inline `=value`,
@@ -120,13 +162,15 @@ pub(crate) fn positionals(script: &str, binaries: &[&str], boolean_flags: &[&str
     found
 }
 
-/// A config path or directory from a script, relative to the workspace; `None` when it is computed, absolute or
-/// outside the workspace.
+/// A config path or directory from a script, relative to the workspace; `None` when it is computed, absolute,
+/// home-relative or outside the workspace. A backslash counts as a separator, so `..\x` and `C:\x` are outside too.
 pub(crate) fn workspace_path(value: &str) -> Option<String> {
-    if value.is_empty() || value.starts_with('/') || value.contains(['$', '`', '(', '*']) {
+    let value = value.replace('\\', "/");
+    let has_drive = value.as_bytes().get(1) == Some(&b':');
+    if value.is_empty() || value.starts_with(['/', '~']) || has_drive || value.contains(['$', '`', '(', '*']) {
         return None;
     }
-    let path = join_rel("", value);
+    let path = join_rel("", &value);
     (!path.is_empty() && path != ".." && !path.starts_with("../")).then_some(path)
 }
 
@@ -195,9 +239,30 @@ mod tests {
     }
 
     #[test]
+    fn commands_after_the_separator_of_a_subcommand() {
+        let script = "varlock run -- node 'my app.js' && varlock load -- x && other run -- y";
+        assert_eq!(
+            commands_after_separator(script, &["varlock"], "run"),
+            ["node 'my app.js'"]
+        );
+    }
+
+    #[test]
     fn computed_and_outside_paths_are_dropped() {
         assert_eq!(workspace_path("./ui/.storybook/"), Some("ui/.storybook".to_owned()));
-        for value in ["$DIR/x", "../x", "/abs/x", "", ".", "a/*.ts"] {
+        for value in [
+            "$DIR/x",
+            "../x",
+            "a/../../x",
+            "/abs/x",
+            "~/x",
+            "..\\x",
+            "C:\\x",
+            "C:/x",
+            "",
+            ".",
+            "a/*.ts",
+        ] {
             assert_eq!(workspace_path(value), None, "{value}");
         }
     }

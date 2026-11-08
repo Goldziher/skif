@@ -189,6 +189,40 @@ pub struct Export {
     /// `export const b = a`: the identifier the exported constant is initialised with.
     #[serde(default)]
     pub alias_of: Option<String>,
+    /// How the class behind the export is registered as a custom element, in source order. A registered element is
+    /// used by the browser through its tag name, not through an import.
+    #[serde(default)]
+    pub registrations: Vec<Registration>,
+}
+
+/// How a class is registered as a custom element (ADR 0062).
+///
+/// [`Registration::Define`] is unambiguous on its own. The other two only name the binding the registration goes
+/// through; whether that binding registers anything depends on the library it comes from, which the caller decides
+/// (`lit/decorators.js` registers with `customElement`, `@stencil/core` with `Component`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Registration {
+    /// `customElements.define('x-y', Class)`, also through `window.customElements`, a variable holding the registry
+    /// (resolved by scope) or a `new CustomElementRegistry()`, and `this` in a static block of the class.
+    Define,
+    /// A decorator of a top-level class, `@name(…)`, `@name` or `@ns.name(…)`, whose binding is imported from
+    /// `module`.
+    Decorator {
+        /// The specifier the decorator is imported from.
+        module: String,
+        /// The imported name (the member name for a namespace import).
+        name: String,
+    },
+    /// A top-level class extends `name` imported from `module` (directly or as an argument of a mixin call,
+    /// `extends Mixin(Base)`), and `Class.define(…)` or `Class.defineAsync(…)` is called; or `name.define(Class, …)`, the
+    /// static form on the imported class, is called with the class first.
+    BaseClassDefine {
+        /// The specifier the base class is imported from.
+        module: String,
+        /// The imported name of the base class.
+        name: String,
+    },
 }
 
 /// A syntax problem reported by the parser. The analysis of the file continues on the parser's recovered program.

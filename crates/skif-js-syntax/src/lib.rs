@@ -16,6 +16,7 @@
 mod collect;
 mod comments;
 mod config;
+mod custom_elements;
 mod error;
 mod finder;
 mod jsdoc;
@@ -40,12 +41,13 @@ use oxc_span::SourceType;
 use skif_core::LineIndex;
 
 pub use config::{
-    ConfigValue, ModuleLoader, extract_config_object, extract_config_object_with, extract_constructor_options,
+    ConfigValue, ImportedCall, ModuleLoader, TEMPLATE_SUBSTITUTION, extract_config_object, extract_config_object_with,
+    extract_constructor_options, extract_imported_calls, extract_property_values,
 };
 pub use error::SyntaxError;
 pub use model::{
     Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, ModuleInfo, ParseIssue, ParseOptions,
-    Removal, RemovalKind, coalesce_ranges,
+    Registration, Removal, RemovalKind, coalesce_ranges,
 };
 pub use style::{is_stylesheet, parse_stylesheet};
 
@@ -162,6 +164,7 @@ fn parse_block(
         .iter()
         .map(|d| d.directive.as_str().to_string())
         .collect();
+    custom_elements::mark(&ret.program, &mut info);
     comments::collect(&ctx, &ret.program, &mut info);
     info
 }

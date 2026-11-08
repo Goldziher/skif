@@ -595,6 +595,28 @@ fn a_readable_config_leaves_the_entries_complete() {
 }
 
 #[test]
+fn a_broken_config_of_a_plugin_reading_the_source_leaves_the_entries_complete() {
+    let cases = [
+        (
+            "sst",
+            "sst",
+            "sst.config.ts",
+            "export default $config({ async run() { new sst.aws.Function(\"A\", {",
+        ),
+        (
+            "stencil",
+            "@stencil/core",
+            "stencil.config.ts",
+            "export const config = { namespace: 'x', outputTargets: [ ;",
+        ),
+    ];
+    for (plugin, dependency, file, source) in cases {
+        let results = run(&[(file, source)], &[dependency], &[]);
+        assert!(!output(&results, plugin).entries_incomplete, "{plugin}: {source}");
+    }
+}
+
+#[test]
 fn merge_config_keeps_the_known_part_and_is_incomplete_for_the_imported_one() {
     let source = "import viteConfig from './vite.config';\n\
                   export default mergeConfig(viteConfig, defineConfig({ test: { setupFiles: ['./config/setup.ts'] } }));";

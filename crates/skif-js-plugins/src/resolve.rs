@@ -33,7 +33,8 @@ pub fn resolve_plugins(ctx: &PluginContext<'_>) -> Vec<(PluginId, PluginOutput)>
         .filter_map(|&plugin| {
             let spec = plugin.spec();
             let setting = ctx.plugins.get(spec.id);
-            is_enabled(spec, setting, ctx).then(|| (spec.id, run_plugin(plugin, setting, ctx, manifest.as_ref())))
+            is_enabled(spec, setting, ctx, manifest.as_ref())
+                .then(|| (spec.id, run_plugin(plugin, setting, ctx, manifest.as_ref())))
         })
         .collect()
 }
@@ -44,20 +45,29 @@ fn read_manifest(ctx: &PluginContext<'_>) -> Option<ConfigValue> {
     Some(from_json(&value))
 }
 
-fn is_enabled(spec: &PluginSpec, setting: Option<&PluginConfig>, ctx: &PluginContext<'_>) -> bool {
+fn is_enabled(
+    spec: &PluginSpec,
+    setting: Option<&PluginConfig>,
+    ctx: &PluginContext<'_>,
+    manifest: Option<&ConfigValue>,
+) -> bool {
     let forced = match setting {
         Some(PluginConfig::Enabled(enabled)) => Some(*enabled),
         Some(PluginConfig::Options(options)) => options.enabled,
         _ => None,
     };
-    forced.unwrap_or_else(|| detected(spec, ctx))
+    forced.unwrap_or_else(|| detected(spec, ctx, manifest))
 }
 
-fn detected(spec: &PluginSpec, ctx: &PluginContext<'_>) -> bool {
-    (ctx.is_root || !spec.root_only) && spec.enablers.iter().any(|enabler| enabler_matches(enabler, ctx))
+fn detected(spec: &PluginSpec, ctx: &PluginContext<'_>, manifest: Option<&ConfigValue>) -> bool {
+    (ctx.is_root || !spec.root_only)
+        && spec
+            .enablers
+            .iter()
+            .any(|enabler| enabler_matches(enabler, ctx, manifest))
 }
 
-fn enabler_matches(enabler: &Enabler, ctx: &PluginContext<'_>) -> bool {
+fn enabler_matches(enabler: &Enabler, ctx: &PluginContext<'_>, manifest: Option<&ConfigValue>) -> bool {
     match *enabler {
         Enabler::Always => true,
         Enabler::Dependency(name) => ctx.has_dependency_in_ancestors(name),
@@ -70,6 +80,11 @@ fn enabler_matches(enabler: &Enabler, ctx: &PluginContext<'_>) -> bool {
         Enabler::ManifestNameContains(text) => ctx.package_name.is_some_and(|n| n.contains(text)),
         Enabler::File(glob) => !find_files(ctx.fs, ctx.dir, &[glob.to_string()]).is_empty(),
         Enabler::Script(text) => ctx.scripts.values().any(|script| script.contains(text)),
+        Enabler::ManifestKey(key) => manifest.is_some_and(|manifest| {
+            key.split('.')
+                .try_fold(manifest, |value, part| value.get(part))
+                .is_some()
+        }),
     }
 }
 
@@ -285,10 +300,11 @@ fn run_plugin(
             production_entries: spec.production.iter().map(|s| (*s).to_string()).collect(),
             provided_binaries: spec.binaries.iter().map(|s| (*s).to_string()).collect(),
             ignore: spec.ignore.iter().map(|s| (*s).to_string()).collect(),
+            custom_elements: spec.custom_elements,
             ..PluginOutput::default()
         },
         queue: VecDeque::new(),
-        confine_to_package: spec.id == "typescript",
+        confine_to_package: matches!(spec.id, "typescript" | "tsrs"),
     };
     for production in spec.production {
         push_unique(&mut collector.out.entries, (*production).to_string());
@@ -315,7 +331,7 @@ fn run_plugin(
     let found_config = !collector.out.config_files.is_empty();
 
     if let (Some(key), Some(manifest)) = (spec.package_json_key, manifest)
-        && let Some(value) = manifest.get(key)
+        && let Some(value) = key.split('.').try_fold(manifest, |value, part| value.get(part))
     {
         let path = ctx.dir.join("package.json");
         let ast = ConfigAst {
@@ -356,8 +372,9 @@ fn scripted_configs(spec: &PluginSpec, ctx: &PluginContext<'_>) -> ScriptedConfi
         return found;
     }
     let prefix = spec.config.first().and_then(|pattern| split_last_segment(pattern).0);
+    // `config_paths` yields only paths inside the package (relative, without `..`), so probing one stays inside it.
     for path in config_paths(ctx.scripts, spec.binaries, &config_flags(spec.id)) {
-        if looks_like_file(&path) {
+        if looks_like_file(&path) || ctx.fs.is_file(&ctx.dir.join(&path)) {
             found.config.push(path);
             continue;
         }
@@ -416,11 +433,17 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             continue;
         };
         collector.out.config_files.push(path.clone());
-        let Some(value) = load_config_with(&path, &source, ctx.modules) else {
-            if reader.reads_config() && is_structured(&path) && !source.trim().is_empty() {
-                collector.mark_incomplete(reader.spec().id, &path, IncompleteCause::Unparsable);
+        // A plugin that reads the source rather than the exported value (`export const config` of Stencil) still
+        // sees a file whose export is not understood.
+        let value = match load_config_with(&path, &source, ctx.modules) {
+            Some(value) => value,
+            None if !reader.reads_config() => ConfigValue::Null,
+            None => {
+                if is_structured(&path) && !source.trim().is_empty() {
+                    collector.mark_incomplete(reader.spec().id, &path, IncompleteCause::Unparsable);
+                }
+                continue;
             }
-            continue;
         };
         if reader.reads_config()
             && let Some(cause) = unreadable(&value)

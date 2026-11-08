@@ -662,6 +662,7 @@ impl<'a> JsAnalysis<'a> {
             .filter(|export| !self.is_tagged_public(export))
             .filter(|export| !(export.referenced_in_file && self.setup.ignores_in_file_use(module.owner, export)))
             .filter(|export| !self.exports.is_used(module.id, &export.name))
+            .filter(|export| !self.setup.is_registered(module.owner, export))
             .filter(|export| !self.in_used_signature(module, export, &mut HashSet::new()))
             .collect()
     }
@@ -669,7 +670,12 @@ impl<'a> JsAnalysis<'a> {
     /// Whether `export` appears in the signature of another export of its module that is itself used.
     pub(crate) fn in_used_signature(&self, module: &Module, export: &Export, visited: &mut HashSet<String>) -> bool {
         export.referenced_in.iter().any(|name| {
-            if self.exports.is_used(module.id, name) {
+            let registered = module
+                .info
+                .exports
+                .iter()
+                .any(|container| container.name == *name && self.setup.is_registered(module.owner, container));
+            if registered || self.exports.is_used(module.id, name) {
                 return true;
             }
             visited.insert(name.clone())

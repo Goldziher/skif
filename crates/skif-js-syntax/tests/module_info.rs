@@ -5,7 +5,8 @@
 use std::path::Path;
 
 use skif_js_syntax::{
-    ExportKind, ImportKind, ImportedKind, ModuleInfo, ParseOptions, RemovalKind, SyntaxError, parse_module,
+    ExportKind, ImportKind, ImportedKind, ModuleInfo, ParseOptions, Registration, RemovalKind, SyntaxError,
+    parse_module,
 };
 
 fn parse(path: &str, source: &str) -> ModuleInfo {
@@ -1227,4 +1228,141 @@ fn commonjs_named_exports_are_exports() {
     assert_eq!(names("module.exports = function () {};"), Vec::<String>::new());
     assert_eq!(names("const exports2 = {}; exports2.a = 1;"), Vec::<String>::new());
     assert_eq!(names("exports.x += 1;"), Vec::<String>::new());
+}
+
+#[test]
+fn custom_element_registrations_are_recorded_on_the_export() {
+    let decorator = |module: &str, name: &str| Registration::Decorator {
+        module: module.into(),
+        name: name.into(),
+    };
+    let base = |module: &str, name: &str| Registration::BaseClassDefine {
+        module: module.into(),
+        name: name.into(),
+    };
+    let cases: Vec<(&str, &str, &str, Vec<Registration>)> = vec![
+        (
+            "customElements.define",
+            "export class A extends HTMLElement {}\ncustomElements.define('x-a', A);",
+            "A",
+            vec![Registration::Define],
+        ),
+        (
+            "window.customElements.define",
+            "export class A extends HTMLElement {}\nwindow.customElements.define('x-a', A);",
+            "A",
+            vec![Registration::Define],
+        ),
+        (
+            "registry variable",
+            "const r = new CustomElementRegistry();\nexport class A extends HTMLElement {}\nr.define('x-a', A);",
+            "A",
+            vec![Registration::Define],
+        ),
+        (
+            "this in a static block",
+            "export class A extends HTMLElement { static { customElements.define('x-a', this); } }",
+            "A",
+            vec![Registration::Define],
+        ),
+        (
+            "aliased export",
+            "class A extends HTMLElement {}\ncustomElements.define('x-a', A);\nexport { A as B };",
+            "B",
+            vec![Registration::Define],
+        ),
+        (
+            "decorator call",
+            "import { customElement } from 'lit/decorators.js';\n@customElement('x-a') export class A {}",
+            "A",
+            vec![decorator("lit/decorators.js", "customElement")],
+        ),
+        (
+            "renamed bare decorator",
+            "import { controller as c } from '@github/catalyst';\n@c export class A {}",
+            "A",
+            vec![decorator("@github/catalyst", "controller")],
+        ),
+        (
+            "namespace decorator",
+            "import * as s from '@stencil/core';\n@s.Component({ tag: 'x-a' }) export default class A {}",
+            "default",
+            vec![decorator("@stencil/core", "Component")],
+        ),
+        (
+            "anonymous default class",
+            "import { customElement } from 'lit/decorators.js';\n@customElement('x-a') export default class {}",
+            "default",
+            vec![decorator("lit/decorators.js", "customElement")],
+        ),
+        (
+            "base class define",
+            "import { FASTElement } from '@microsoft/fast-element';\nexport class A extends FASTElement {}\nA.define({ name: 'x-a' });",
+            "A",
+            vec![base("@microsoft/fast-element", "FASTElement")],
+        ),
+        (
+            "mixin base class defineAsync",
+            "import { FASTElement as F } from '@microsoft/fast-element';\nexport class A extends Mixin(F) {}\nA.defineAsync({ name: 'x-a' });",
+            "A",
+            vec![base("@microsoft/fast-element", "FASTElement")],
+        ),
+        (
+            "static define on the imported base class",
+            "import { FASTElement } from '@microsoft/fast-element';\nexport class A extends FASTElement {}\nFASTElement.define(A, { name: 'x-a' });",
+            "A",
+            vec![base("@microsoft/fast-element", "FASTElement")],
+        ),
+        (
+            "static define on an object that is not imported",
+            "export class A extends HTMLElement {}\nOther.define(A, { name: 'x-a' });",
+            "A",
+            vec![],
+        ),
+        (
+            "member registry variable in a nested scope",
+            "const r = window.customElements;\nexport class A extends HTMLElement {}\nfunction f() { r.define('x-a', A); }",
+            "A",
+            vec![Registration::Define],
+        ),
+        (
+            "registry variable shadowed by a parameter",
+            "const r = customElements;\nexport class A extends HTMLElement {}\nfunction f(r) { r.define('x-a', A); }",
+            "A",
+            vec![],
+        ),
+        (
+            "registry variable of another scope",
+            "function f() { const r = customElements; }\nexport class A extends HTMLElement {}\nr.define('x-a', A);",
+            "A",
+            vec![],
+        ),
+        (
+            "base class never defined",
+            "import { FASTElement } from '@microsoft/fast-element';\nexport class A extends FASTElement {}",
+            "A",
+            vec![],
+        ),
+        (
+            "local decorator",
+            "function customElement(t) { return (c) => c; }\n@customElement('x-a') export class A {}",
+            "A",
+            vec![],
+        ),
+        (
+            "define of another object",
+            "export class A {}\nregistry.define('x-a', A);",
+            "A",
+            vec![],
+        ),
+    ];
+    for (name, source, export, expected) in cases {
+        let info = parse("a.ts", source);
+        let found = info
+            .exports
+            .iter()
+            .find(|e| e.name == export)
+            .unwrap_or_else(|| panic!("{name}: no export {export}"));
+        assert_eq!(found.registrations, expected, "{name}");
+    }
 }

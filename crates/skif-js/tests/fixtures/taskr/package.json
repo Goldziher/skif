@@ -1,0 +1,5 @@
+{
+  "name": "taskr-root",
+  "private": true,
+  "workspaces": ["app"]
+}
