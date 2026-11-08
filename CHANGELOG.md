@@ -28,6 +28,9 @@ All notable changes to this project are documented here. The format follows
   Moves across a major, downgrades, prereleases and range changes still need `--fix-unsafe`, also when a pin asks
   for them
   ([ADR 0051](adrs/0051-safe-version-alignment-fixes.md), [#31](https://github.com/Goldziher/skif/issues/31)).
+- **Breaking** for consumers of `explain-usage --format json`: the `absence` value `not-analysed` is gone, replaced
+  by `package-excluded`, `declaration-file`, `entries-incomplete`, `outside-project`, `ignored` and `not-discovered`
+  ([#23](https://github.com/Goldziher/skif/issues/23)).
 
 ### Fixed
 
@@ -93,6 +96,15 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   disk: `mocha --recursive ./build/compiled/test` makes every test file below `test/` an entry (without
   `--recursive` only those directly in it, with mocha's `--extension` values), so compiled test suites are no longer
   reported as unused files with unused dev dependencies ([#13](https://github.com/Goldziher/skif/issues/13)).
+- `explain-usage` says why a file outside the module graph is not reported: the package is excluded, a declaration
+  file, ignored, outside the project globs, not discovered, or in a package whose entry files are not fully known. For
+  the last it names every tool config that could not be read and why (it does not parse, it evaluates to an unknown
+  value, it spreads in an unknown base config, its entry keys are computed, or `package.json` publishes build output
+  with no source behind it). The JSON report's `incomplete` lists the configs
+  ([#23](https://github.com/Goldziher/skif/issues/23)).
+- The files an n8n node package lists in `package.json` `n8n.nodes` and `n8n.credentials` are entries, mapped from
+  `dist` back to their sources, so node and credential files are not reported unused
+  ([#23](https://github.com/Goldziher/skif/issues/23)).
 
 ## [0.1.1] - 2026-11-07
 

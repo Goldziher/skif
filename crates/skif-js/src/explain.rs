@@ -14,6 +14,7 @@ use crate::analysis::JsAnalysis;
 use crate::discover::relative;
 use crate::globs::Globs;
 use crate::graph::{Module, ModuleId, Target};
+use crate::input::IncompleteEntries;
 use crate::manifest_paths::{crossing_stars, manifest_targets, source_candidates, source_patterns};
 use crate::resolve::join_normalized;
 
@@ -33,7 +34,7 @@ pub enum EntryReason {
     ConfigFile,
     /// Run by a script of `package.json`.
     Script,
-    /// Published by `package.json` (`main`, `module`, `types`, `bin`, `exports`).
+    /// Published by `package.json` (`main`, `module`, `types`, `bin`, `exports`, n8n `nodes` and `credentials`).
     Published,
     /// Matched by an entry glob of another package that points outside that package.
     ExternalEntryGlob,
@@ -49,7 +50,9 @@ impl EntryReason {
             }
             Self::ConfigFile => "a configuration file of a tool",
             Self::Script => "run by a script of package.json",
-            Self::Published => "published by package.json (main, module, types, bin, exports)",
+            Self::Published => {
+                "published by package.json (main, module, types, bin, exports, n8n nodes and credentials)"
+            }
             Self::ExternalEntryGlob => "matches an entry glob of another package that points outside it",
             Self::Unknown => "unknown: no entry rule of the analysis accounts for it",
         }
@@ -63,9 +66,19 @@ impl EntryReason {
 pub enum Absence {
     /// No entry file reaches it; `unused-files` reports it.
     UnusedFile,
-    /// Ignored, outside the project globs, a declaration file, in a package excluded from the run, or in a package whose
-    /// entry files are not fully known.
-    NotAnalysed,
+    /// Its package is excluded from the run (`ignore-packages`, or `[js]` turned off for it).
+    PackageExcluded,
+    /// A declaration file (`.d.ts`), which is never reported as unused.
+    DeclarationFile,
+    /// The entry files of its package are not fully known; [`UsageReport::incomplete`] says why.
+    EntriesIncomplete,
+    /// Outside the project globs of its package.
+    OutsideProject,
+    /// Matched by an `ignore` glob.
+    Ignored,
+    /// Not a source file the analysis looks at: missing, ignored by Git, of a type that is not analysed, or owned by
+    /// no package.
+    NotDiscovered,
 }
 
 /// One import of a module.
@@ -177,6 +190,11 @@ pub struct UsageReport {
     pub in_graph: bool,
     /// Why it is not, when it is not.
     pub absence: Option<Absence>,
+    /// Why the entry files of its package are not fully known, when the absence is
+    /// [`EntriesIncomplete`](Absence::EntriesIncomplete): every unreadable config, with files relative to the workspace
+    /// root.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub incomplete: Vec<IncompleteEntries>,
     /// Which rule makes it an entry file, when it is one.
     pub entry: Option<EntryReason>,
     /// Every import of the module.
@@ -188,25 +206,59 @@ pub struct UsageReport {
 }
 
 impl UsageReport {
+    /// Why the file is not in the module graph, as text.
+    fn render_absence(&self, absence: Absence, out: &mut String) {
+        match absence {
+            Absence::UnusedFile => {
+                let _ = writeln!(out, "  no entry file reaches it: reported by `unused-files`");
+            }
+            Absence::PackageExcluded => {
+                let _ = writeln!(out, "  not analysed: its package is excluded from the run");
+            }
+            Absence::DeclarationFile => {
+                let _ = writeln!(
+                    out,
+                    "  not in the module graph: a declaration file is never reported as unused"
+                );
+            }
+            Absence::EntriesIncomplete => {
+                let _ = writeln!(
+                    out,
+                    "  not in the module graph, and not reported as unused: the entry files of its package are \
+                     not fully known"
+                );
+                for incomplete in &self.incomplete {
+                    let source = match (&incomplete.plugin, &incomplete.file) {
+                        (Some(plugin), Some(file)) => format!("{plugin} reads {}: ", slashed(file)),
+                        (None, Some(file)) => format!("{}: ", slashed(file)),
+                        (Some(plugin), None) => format!("{plugin}: "),
+                        (None, None) => String::new(),
+                    };
+                    let _ = writeln!(out, "  {source}{}", incomplete.cause.describe());
+                }
+            }
+            Absence::OutsideProject => {
+                let _ = writeln!(out, "  not analysed: outside the project globs of its package");
+            }
+            Absence::Ignored => {
+                let _ = writeln!(out, "  not analysed: matched by an `ignore` glob");
+            }
+            Absence::NotDiscovered => {
+                let _ = writeln!(
+                    out,
+                    "  not analysed: missing, ignored by Git, or not a source file the analysis looks at"
+                );
+            }
+        }
+    }
+
     /// The report as text for a terminal.
     #[must_use]
     pub fn render(&self) -> String {
         let mut out = String::new();
         let _ = writeln!(out, "{}", self.file);
         if let Some(absence) = self.absence {
-            match absence {
-                Absence::UnusedFile => {
-                    let _ = writeln!(out, "  no entry file reaches it: reported by `unused-files`");
-                }
-                Absence::NotAnalysed => {
-                    let _ = writeln!(
-                        out,
-                        "  not in the module graph, and not reported as unused: it is ignored, outside the project \
-                         globs, a declaration file, in a package excluded from the run, or in a package whose entry \
-                         files are not fully known"
-                    );
-                }
-            }
+            self.render_absence(absence, &mut out);
             return out;
         }
         if let Some(entry) = self.entry {
@@ -397,14 +449,16 @@ impl JsAnalysis<'_> {
             .find(|module| module.path == file || module.abs == file)
         else {
             let unused = self.unused_files.iter().any(|unused| unused.path == file);
+            let (absence, incomplete) = if unused {
+                (Absence::UnusedFile, Vec::new())
+            } else {
+                self.absence_of(file)
+            };
             return UsageReport {
                 file: slashed(file),
                 in_graph: false,
-                absence: Some(if unused {
-                    Absence::UnusedFile
-                } else {
-                    Absence::NotAnalysed
-                }),
+                absence: Some(absence),
+                incomplete,
                 entry: None,
                 imported_by: Vec::new(),
                 chain_from_entry: None,
@@ -422,6 +476,7 @@ impl JsAnalysis<'_> {
             file: slashed(&module.path),
             in_graph: true,
             absence: None,
+            incomplete: Vec::new(),
             entry: module.is_entry.then(|| self.entry_reason(module)),
             imported_by: self.importers(module, &walk),
             chain_from_entry: chain,
@@ -494,6 +549,64 @@ impl JsAnalysis<'_> {
                     .any(|file| join_normalized(&package.dir, file) == abs)
             })
         })
+    }
+
+    /// Why `file` (relative to the workspace root, or absolute), which is neither in the graph nor reported unused,
+    /// is not analysed. The checks follow the `unused-files` filter, with what discovery, the project globs and the
+    /// ignores leave out ahead of incomplete entries: those only explain a source file the analysis would judge.
+    fn absence_of(&self, file: &Path) -> (Absence, Vec<IncompleteEntries>) {
+        let root = &self.workspace.root;
+        let abs = if file.is_absolute() {
+            file.to_path_buf()
+        } else {
+            join_normalized(root, &slashed(file))
+        };
+        let owner = self
+            .workspace
+            .iter()
+            .map(|(id, package)| (id, root.join(&package.dir)))
+            .filter(|(_, dir)| abs.starts_with(dir))
+            .max_by_key(|(_, dir)| dir.components().count())
+            .map(|(id, _)| id);
+        let Some(owner) = owner else {
+            return (Absence::NotDiscovered, Vec::new());
+        };
+        let Some(package) = self.setup.package(owner) else {
+            return (Absence::PackageExcluded, Vec::new());
+        };
+        let Some(rel) = relative(&abs, root) else {
+            return (Absence::NotDiscovered, Vec::new());
+        };
+        if !self.outside_graph.contains(&rel) {
+            return (Absence::NotDiscovered, Vec::new());
+        }
+        if rel.ends_with(".d.ts") {
+            return (Absence::DeclarationFile, Vec::new());
+        }
+        let Some(in_package) = relative(&abs, &package.dir) else {
+            return (Absence::OutsideProject, Vec::new());
+        };
+        if !package.project.is_match(&in_package) {
+            return (Absence::OutsideProject, Vec::new());
+        }
+        if package.ignore.matches_any(&in_package) || self.setup.global_ignore.matches_any(&rel) {
+            return (Absence::Ignored, Vec::new());
+        }
+        if package.entries_incomplete {
+            let incomplete = package
+                .incomplete_reasons
+                .iter()
+                .cloned()
+                .map(|mut reason| {
+                    reason.file = reason
+                        .file
+                        .map(|path| relative(&path, root).map_or(path, std::path::PathBuf::from));
+                    reason
+                })
+                .collect();
+            return (Absence::EntriesIncomplete, incomplete);
+        }
+        (Absence::NotDiscovered, Vec::new())
     }
 
     /// Whether the manifest of the owning package publishes `module` (`rel` is relative to the package directory).

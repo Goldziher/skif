@@ -231,6 +231,16 @@ fn ignored_member_reached_from_the_root_snapshot() {
 }
 
 #[test]
+fn n8n_nodes_and_credentials_are_entries() {
+    let diagnostics = Run::new("n8n-nodes", "").lint();
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        ["nodes/Example/Orphan.ts: nodes/Example/Orphan.ts"]
+    );
+    insta::assert_json_snapshot!("n8n_nodes", diagnostics);
+}
+
+#[test]
 fn monorepo_dependencies() {
     let diagnostics = Run::new("monorepo", "").lint();
     assert_eq!(
