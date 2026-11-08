@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use skif::update::{FetchError, Packument, Registry};
 use ureq::Agent;
+use ureq::config::RedirectAuthHeaders;
 use ureq::tls::{Certificate, RootCerts, TlsConfig, TlsProvider};
 
 use crate::npmrc::{Npmrc, package_url};
@@ -41,6 +42,9 @@ impl HttpRegistry {
             .timeout_connect(Some(Duration::from_secs(10)))
             .timeout_global(Some(Duration::from_secs(60)))
             .http_status_as_error(false)
+            // A redirect never carries the token to another host: ureq's default today, stated so an upgrade cannot
+            // change it.
+            .redirect_auth_headers(RedirectAuthHeaders::Never)
             .user_agent(concat!("skif/", env!("CARGO_PKG_VERSION")))
             .build()
             .into();

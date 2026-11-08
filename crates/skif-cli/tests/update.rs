@@ -89,6 +89,34 @@ fn registry() -> (String, Seen) {
     (url, seen)
 }
 
+/// Answers every request with a 302 to the same path under `target`, until the test process ends; returns its base URL.
+fn redirector(target: &str) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    let target = target.trim_end_matches('/').to_owned();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut request_line = String::new();
+            if reader.read_line(&mut request_line).is_err() {
+                continue;
+            }
+            let path = request_line.split_whitespace().nth(1).unwrap_or_default().to_owned();
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+            let _ = write!(
+                stream,
+                "HTTP/1.1 302 Found\r\nLocation: {target}{path}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+        }
+    });
+    url
+}
+
 const APP: &str = "{\n    \"name\": \"app\",\n    \"version\": \"1.0.0\",\n    \"dependencies\": {\n        \"react\": \"^18.2.0\",\n        \"@acme/ui\": \"1.0.0\"\n    }\n}\n";
 
 fn workspace(npmrc: &str, app: &str) -> TempDir {
@@ -246,5 +274,29 @@ fn writing_is_refused_when_ci_is_truthy_but_check_runs() {
         check.stdout.starts_with("No updates: 0 packages checked"),
         "{}",
         check.stdout
+    );
+}
+
+#[test]
+fn a_redirect_to_another_host_does_not_carry_the_token() {
+    let (url, seen) = registry();
+    let first = redirector(&url);
+    let dir = workspace(
+        &format!("//127.0.0.1:{}/:_authToken=t0ken-value\n", url_port(&first)),
+        APP,
+    );
+    let result = run(update(dir.path())
+        .env("npm_config_registry", &first)
+        .args(["--check", "--format", "json"]));
+    assert_eq!(
+        result.code, 1,
+        "the redirect is followed: {}{}",
+        result.stdout, result.stderr
+    );
+    let requests = seen.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2, "{requests:?}");
+    assert!(
+        requests.iter().all(|(_, authorization)| authorization.is_none()),
+        "the second port is another origin: {requests:?}"
     );
 }
