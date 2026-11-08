@@ -111,6 +111,8 @@ pub(crate) enum Policy {
     /// The names of the packages whose declaration is the target.
     SnappedTo(Vec<String>),
     PreferredSemver(Prefer),
+    /// Versions may differ; only the semver groups' ranges are checked.
+    SemverRangeOnly,
 }
 
 /// A compiled `[[version-groups]]` entry, or the catch-all after them.
@@ -142,7 +144,12 @@ pub(crate) struct Groups<'c> {
 
 impl<'c> Groups<'c> {
     pub(crate) fn compile(workspace: &Workspace, config: &'c Config) -> Self {
-        let scope = &config.policy.dependency_types;
+        // A command-line `--dependency-types` names what the run is about, so it is also the default scope.
+        let scope = if config.filter.dependency_types.is_empty() {
+            &config.policy.dependency_types
+        } else {
+            &config.filter.dependency_types
+        };
         let mut groups: Vec<Group<'c>> = config
             .version_groups
             .iter()
@@ -208,6 +215,7 @@ impl<'c> Groups<'c> {
     /// Assigns every instance to its owning version group and its preferred semver range.
     pub(crate) fn assign<'i>(&self, instances: &'i Instances<'_>) -> Assignment<'i> {
         let mut preferred = Vec::with_capacity(instances.len());
+        let mut owners = Vec::with_capacity(instances.len());
         let mut dependencies: Vec<BTreeMap<Dependency<'i>, Vec<InstanceId>>> =
             self.groups.iter().map(|_| BTreeMap::new()).collect();
         for (id, instance) in instances.iter() {
@@ -216,9 +224,11 @@ impl<'c> Groups<'c> {
                 None if self.governs_by_default(instance) => self.groups.len() - 1,
                 None => {
                     preferred.push(None);
+                    owners.push(None);
                     continue;
                 }
             };
+            owners.push(Some(owner));
             dependencies[owner]
                 .entry((instance.name.as_str(), instance.alias_target()))
                 .or_default()
@@ -227,6 +237,7 @@ impl<'c> Groups<'c> {
         }
         Assignment {
             preferred,
+            owners,
             dependencies,
         }
     }
@@ -256,6 +267,8 @@ impl<'c> Groups<'c> {
 #[derive(Debug)]
 pub(crate) struct Assignment<'i> {
     preferred: Vec<Option<SemverRange>>,
+    /// The index of the version group that owns each instance; `None` for an instance no group governs.
+    owners: Vec<Option<usize>>,
     dependencies: Vec<BTreeMap<Dependency<'i>, Vec<InstanceId>>>,
 }
 
@@ -267,6 +280,11 @@ impl<'i> Assignment<'i> {
     /// The semver range `id` must use, when a semver group applies and the specifier can carry it.
     pub(crate) fn preferred(&self, id: InstanceId) -> Option<&SemverRange> {
         self.preferred[id.index()].as_ref()
+    }
+
+    /// The index of the version group that owns `id`, the catch-all last; `None` when no group governs it.
+    pub(crate) fn owner(&self, id: InstanceId) -> Option<usize> {
+        self.owners[id.index()]
     }
 
     /// The instances `group` owns, by dependency name in byte order.
@@ -290,6 +308,7 @@ fn policy_of(group: &VersionGroup, default: Prefer) -> Policy {
         VersionPolicy::SameMinor => Policy::SameMinor,
         VersionPolicy::SnappedTo => Policy::SnappedTo(group.snap_to.clone()),
         VersionPolicy::PreferredSemver => Policy::PreferredSemver(group.prefer.unwrap_or(default)),
+        VersionPolicy::SemverRangeOnly => Policy::SemverRangeOnly,
         // `Ignored`, and any policy this build does not know: leave the group alone.
         _ => Policy::Ignored,
     }

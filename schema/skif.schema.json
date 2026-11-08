@@ -602,6 +602,11 @@
           "type": "string",
           "const": "preferred-semver",
           "description": "Versions must match the highest or lowest one in use."
+        },
+        {
+          "type": "string",
+          "const": "semver-range-only",
+          "description": "Versions may differ; only the range the semver groups require is checked (syncpack's `semverRangeOnly`)."
         }
       ],
       "description": "The policy of a version group."
@@ -727,6 +732,13 @@
         "strategy": {
           "$ref": "#/$defs/CustomStrategy",
           "description": "How the value at `path` holds versions."
+        },
+        "name-path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "With the `name~version` strategy: dotted path of the field that holds the dependency name."
         }
       },
       "required": [
@@ -752,6 +764,11 @@
           "type": "string",
           "const": "versions-by-name",
           "description": "The value is an object of `name: version` (`pnpm.peerDependencyRules.allowedVersions`)."
+        },
+        {
+          "type": "string",
+          "const": "name~version",
+          "description": "The value is a version string and the dependency name is the string at `name-path` (how syncpack reads a\npackage's own `name` and `version`)."
         }
       ],
       "description": "How a [`CustomType`] reads versions from its `path`."
@@ -880,7 +897,7 @@
           "default": 12
         }
       },
-      "description": "`[update]`: how `skif update` reads the package registry (ADR 0057). Linting never reads it."
+      "description": "`[update]`: how `skif update` reads the package registry (ADR 0058). Linting never reads it."
     },
     "UpdateGroup": {
       "type": "object",

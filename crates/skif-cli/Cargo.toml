@@ -50,6 +50,7 @@ rustls.workspace = true
 rustls-native-certs.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+similar.workspace = true
 skif = { workspace = true, features = ["manifest", "js-analysis", "fix", "yaml-fix", "report", "schema", "update"] }
 skif-core.workspace = true
 skif-migrate.workspace = true

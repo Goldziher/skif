@@ -20,6 +20,7 @@ mod filter;
 mod fix;
 mod format;
 mod install;
+mod instances;
 mod lint;
 mod lsp;
 mod mcp;
@@ -71,6 +72,8 @@ fn run_with(args: impl IntoIterator<Item = OsString>, teardown: Teardown) -> u8 
         Some(Command::ExplainUsage(args)) => explain::run(&args),
         Some(Command::Migrate(args)) => migrate::run(&args),
         Some(Command::Update(args)) => update::run(&args, Env::detect()),
+        Some(Command::List(args)) => instances::list(&args),
+        Some(Command::Json(args)) => instances::json(&args),
         Some(Command::Format(args)) => format::run(&args, Env::detect(), teardown),
         Some(Command::Mcp) => mcp::run(),
         Some(Command::Lsp) => lsp::run(),

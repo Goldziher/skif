@@ -328,13 +328,14 @@ fn custom_types(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValu
         let type_path = join(path, name);
         let mut strategy = None;
         let mut location = None;
+        let mut name_path = None;
         let mut external = false;
         for (key, item) in entries(state, src, &type_path, definition) {
             let key_path = join(&type_path, key);
             match key {
                 "strategy" => strategy = string(state, src, &key_path, item),
                 "path" => location = string(state, src, &key_path, item),
-                "namePath" => {}
+                "namePath" => name_path = string(state, src, &key_path, item),
                 "source" => external = true,
                 other => state.note(
                     src,
@@ -350,7 +351,7 @@ fn custom_types(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValu
             &type_path,
             name,
             strategy.as_deref(),
-            location.as_deref(),
+            (location.as_deref(), name_path.as_deref()),
             external,
         );
         types.custom.push((name.to_owned(), kind));
@@ -363,7 +364,7 @@ fn custom_type(
     path: &str,
     name: &str,
     strategy: Option<&str>,
-    location: Option<&str>,
+    (location, name_path): (Option<&str>, Option<&str>),
     external: bool,
 ) -> CustomKind {
     if external {
@@ -387,6 +388,15 @@ fn custom_type(
             "skif has the dependency type `optional`; the custom type is not needed",
         );
         return CustomKind::Optional;
+    }
+    if strategy == "name~version" && name_path.is_none() {
+        state.note(
+            src,
+            NoteClass::Human,
+            path,
+            "the strategy `name~version` needs a `namePath`",
+        );
+        return CustomKind::Unsupported;
     }
     let Some(target) = keys::strategy(strategy) else {
         state.note(
@@ -416,6 +426,9 @@ fn custom_type(
     element.set(keys::CUSTOM_TYPE_NAME, Val::str(written.clone()));
     element.set(keys::CUSTOM_TYPE_PATH, Val::str(location));
     element.set(keys::CUSTOM_TYPE_STRATEGY, Val::str(target));
+    if let (Some(name_path), "name~version") = (name_path, strategy) {
+        element.set(keys::CUSTOM_TYPE_NAME_PATH, Val::str(name_path));
+    }
     state.note(src, NoteClass::Exact, path, "written to [[custom-types]]");
     CustomKind::Custom(written)
 }
@@ -647,6 +660,7 @@ enum Policy {
     SameMinor,
     Snapped(Vec<String>),
     Catalog,
+    SemverRangeOnly,
 }
 
 #[derive(Default)]
@@ -749,6 +763,7 @@ fn version_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigVal
             element.set("policy", Val::str("snapped-to"));
             element.set("snap-to", Val::strs(packages));
         }
+        Policy::SemverRangeOnly => element.set("policy", Val::str("semver-range-only")),
         Policy::Catalog => {}
     }
     state.note(src, NoteClass::Exact, path, "written to [[version-groups]]");
@@ -811,16 +826,7 @@ fn group_policy(
         Some("banned") => Some(Policy::Banned),
         Some("ignored") => Some(Policy::Ignored),
         Some("catalog") => Some(Policy::Catalog),
-        Some("semverRangeOnly") => {
-            state.note_with(
-                src,
-                NoteClass::Unsupported,
-                policy_path,
-                "skif cannot check ranges while letting versions differ; the group was written with policy = \"ignored\"",
-                "the semver groups still apply to these dependencies",
-            );
-            Some(Policy::Ignored)
-        }
+        Some("semverRangeOnly") => Some(Policy::SemverRangeOnly),
         Some(other) => {
             state.note(
                 src,
@@ -1098,17 +1104,18 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, workspa
     if !sources.is_empty() {
         compare_source(state, src, &format!("{path}: --source"), &sources, workspace_patterns);
     }
-    for (flag, what) in [
-        ("dependencies", "dependency names"),
-        ("specifier-types", "specifier types"),
+    // skif's flag for syncpack's `--dependencies` is `--dependency`: `--dependencies` is knip's shortcut there.
+    for (flag, skif_flag, what) in [
+        ("dependencies", "dependency", "dependency names"),
+        ("specifier-types", "specifier-types", "specifier types"),
     ] {
         if invocation.has(flag, None) {
             state.note_with(
                 src,
                 NoteClass::Human,
                 format!("{path}: --{flag}"),
-                format!("limited the run to some {what}; skif checks every one"),
-                "silence the rest with [[ignore]] if the narrowing was intended",
+                format!("limited the run to some {what}; a skif.toml cannot, so skif checks every one"),
+                format!("pass `--{skif_flag}` to skif for the same narrowing, or silence the rest with [[ignore]]"),
             );
         }
     }

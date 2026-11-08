@@ -137,6 +137,9 @@ pub use skif_js::{
     Absence, DependencyImport, DependencyListing, DependencyTrace, EntryReason, ExportReport, ExportUser, Importer,
     ReExport, UsageReport, Verdict, empty_tsconfig_projects, relative_tsconfig,
 };
+/// The state of one dependency instance, from [`Linter::instances`].
+#[cfg(feature = "manifest")]
+pub use skif_rules::policy::{GroupRef, InstanceStatus, StatusType};
 pub use targets::{
     Discovery, RootFailure, Target, UnappliedConfig, UnappliedReason, discover_all, discover_targets, find_target,
     load_target, unapplied_config_files, unapplied_config_files_all,
@@ -151,10 +154,10 @@ pub use skif_config::Workspace as WorkspaceConfig;
 pub use skif_config::{
     Assignment, CONFIG_FILE_NAMES, Catalog, CatalogMode, Ceiling, Config, ConfigBuilder, ConfigCache, ConfigError,
     ConfigLoader, ConfigOverrides, ConfigSource, DependencyFamily, DependencyTypes, ExportKinds, IgnoreEntry,
-    IgnoreExportsUsedInFile, Js, JsWorkspace, Level, Lint, Op, Origins, Override, OverrideScope, PackageJs,
-    PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey, ResolvedConfig, RuleConfig, RuleOptions,
-    Selector, SemverGroup, SemverRange, SourceKind, UpdateGroup, UpdateTarget, VersionGroup, VersionPolicy,
-    WorkspaceProtocol, join_key,
+    IgnoreExportsUsedInFile, InstanceFilter, Js, JsWorkspace, Level, Lint, Op, Origins, Override, OverrideScope,
+    PackageJs, PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey, ResolvedConfig, RuleConfig,
+    RuleOptions, Selector, SemverGroup, SemverRange, SourceKind, UpdateGroup, UpdateTarget, VersionGroup,
+    VersionPolicy, WorkspaceProtocol, join_key,
 };
 /// `[[custom-types]]` and the places a version can be declared.
 pub use skif_config::{CustomStrategy, CustomType, DependencyType};

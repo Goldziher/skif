@@ -6,7 +6,7 @@ workspace protocol, dependency families and the policy conflicts between them
 tests in `crates/skif-rules/tests` (`policy_conformance.rs` and `policy_catalog_conformance.rs`) walk them, run the
 policy rules and compare the result with `expected.json`.
 
-There are 188 cases in 16 groups. Each case is a minimal monorepo plus the `skif.toml` under
+There are 192 cases in 17 groups. Each case is a minimal monorepo plus the `skif.toml` under
 test and the diagnostics skif must report for it, so a failing case points at one behaviour.
 
 ## Attribution
@@ -33,7 +33,7 @@ fixtures/policy/
 ```
 
 Groups: `version-mismatch`, `pinned`, `banned`, `ignored`, `same-range`, `same-minor`, `snapped-to`,
-`semver-groups`, `catalog`, `workspace-protocol`, `dependency-families`, `policy-conflict`,
+`semver-groups`, `semver-range-only`, `catalog`, `workspace-protocol`, `dependency-families`, `policy-conflict`,
 `selectors`, `invalid-local-version`, `dependency-types`, `catalog-groups`.
 
 | Group | Cases |
@@ -42,7 +42,7 @@ Groups: `version-mismatch`, `pinned`, `banned`, `ignored`, `same-range`, `same-m
 | `catalog` | 32 |
 | `catalog-groups` | 6 |
 | `dependency-families` | 11 |
-| `dependency-types` | 12 |
+| `dependency-types` | 13 |
 | `ignored` | 6 |
 | `invalid-local-version` | 8 |
 | `pinned` | 6 |
@@ -51,6 +51,7 @@ Groups: `version-mismatch`, `pinned`, `banned`, `ignored`, `same-range`, `same-m
 | `same-range` | 8 |
 | `selectors` | 14 |
 | `semver-groups` | 14 |
+| `semver-range-only` | 3 |
 | `snapped-to` | 6 |
 | `version-mismatch` | 27 |
 | `workspace-protocol` | 8 |
@@ -181,9 +182,11 @@ syncpack.
   (`catalog/off-catalog-mismatch`); with a mode set, plain instances are `NotUsingCatalog`.
 * `DiffersToHighestOrLowestSemverMinor` is not covered: skif's `prefer` is valid only on
   `preferred-semver` groups, so a same-minor group cannot name a direction.
-* `semverRangeOnly` version groups do not exist in skif. A semver group with `ignored = true` covers syncpack's `isIgnored`
-  and `isDisabled` (`semver-groups/ignored-group-exempts-dependency`).
-* `DiffersToNpmRegistry` is reported by `skif update`, never by a lint rule (ADR 0057); no case here, the
+* `semverRangeOnly` is the `semver-range-only` policy: versions may differ and only the semver groups' range is
+  checked (group `semver-range-only`); `skif update` does not move its instances. A semver
+  group with `ignored = true` covers syncpack's `isIgnored` and `isDisabled`
+  (`semver-groups/ignored-group-exempts-dependency`).
+* `DiffersToNpmRegistry` is reported by `skif update`, never by a lint rule (ADR 0058); no case here, the
   update planner has its own tests.
 * Severity is per rule: syncpack's Conflict class (error) and Suspect class (warning) share
   `policy-conflict` and therefore one severity (see "ADR gaps").
@@ -278,7 +281,7 @@ States in the ADR 0009 table. Valid states produce no diagnostic and are listed 
 | Valid | `IsCatalog` | none | `catalog/ambiguous-dependency-in-two-catalogs`, `catalog/catalog-definition-semver-group`, `catalog/catalog-references-valid`, `catalog/off-catalog-mismatch` (+2 more) |
 | Valid | `IsCatalogDefinition` | none | `catalog/bun-top-level-catalog`, `catalog/bun-workspaces-catalog`, `catalog/catalog-references-valid`, `catalog/min-packages-not-met` (+4 more) |
 | Valid | `IsIgnored` | none | `ignored/ignored-dependency-skips-mismatch`, `ignored/ignored-dependency-type`, `ignored/ignored-instances-do-not-influence-highest`, `ignored/ignored-wins-over-semver-group` (+7 more) |
-| Valid | `IsLocalAndValid` | none | `invalid-local-version/prerelease-package-version-valid`, `policy-conflict/match-conflicts-with-local`, `policy-conflict/mismatch-conflicts-with-local`, `selectors/not-local-selector` (+5 more) |
+| Valid | `IsLocalAndValid` | none | `invalid-local-version/prerelease-package-version-valid`, `policy-conflict/match-conflicts-with-local`, `policy-conflict/mismatch-conflicts-with-local`, `selectors/not-local-selector` (+6 more) |
 | Valid | `IsIdenticalToLocal` | none | `invalid-local-version/prerelease-package-version-valid`, `semver-groups/not-local-selector`, `version-mismatch/local-package-identical-valid`, `version-mismatch/local-package-wins-over-higher` (+1 more) |
 | Valid | `SatisfiesLocal` | none | `semver-groups/workspace-protocol-skips-range-check`, `version-mismatch/workspace-protocol-satisfies-local`, `workspace-protocol/external-dependencies-not-checked`, `workspace-protocol/link-path-allowed` (+2 more) |
 | Valid | `IsHighestOrLowestSemver` | none | `catalog/exclude-dependency`, `policy-conflict/match-conflicts-with-highest`, `policy-conflict/mismatch-conflicts-with-highest`, `semver-groups/package-selector-aligns-only-members` (+4 more) |
@@ -286,7 +289,7 @@ States in the ADR 0009 table. Valid states produce no diagnostic and are listed 
 | Valid | `IsNonSemverButIdentical` | none | `same-minor/non-semver-identical-valid`, `version-mismatch/unsupported-specifiers-identical` |
 | Valid | `IsIdenticalToPin` | none | `pinned/range-pin`, `pinned/replaces-anything-different`, `pinned/same-number-different-range-no-semver-group`, `pinned/workspace-protocol-pin-valid` (+3 more) |
 | Valid | `SatisfiesSameRangeGroup` | none | `same-range/caret-and-tilde-overlap`, `same-range/exact-inside-range`, `same-range/overlap-and-semver-group-match`, `same-range/overlap-but-semver-group-mismatch` (+1 more) |
-| Valid | `MatchesSemverGroup` | none | unreachable: only emitted by syncpack's semverRangeOnly group, which skif does not have |
+| Valid | `MatchesSemverGroup` | none | `semver-range-only/non-semver-specifiers-are-left-alone`, `semver-range-only/range-checked-versions-may-differ`, `semver-range-only/versions-differ-without-a-semver-group` |
 | Valid | `SatisfiesSameMinorGroup` | none | `policy-conflict/same-minor-overrides-unsafe-caret`, `same-minor/same-minor-different-patches-valid` |
 | Valid | `IsIdenticalToSnapTarget` | none | `policy-conflict/match-conflicts-with-snap-target`, `policy-conflict/mismatch-conflicts-with-snap-target`, `policy-conflict/refuse-to-snap-local`, `snapped-to/compatible-semver-group-satisfies-target` (+5 more) |
 | Valid | `SatisfiesSnapTarget` | none | `snapped-to/compatible-semver-group-satisfies-target` |
@@ -296,7 +299,7 @@ States in the ADR 0009 table. Valid states produce no diagnostic and are listed 
 | Fixable | `DiffersToLocal` | `version-mismatch` | `selectors/not-local-selector`, `version-mismatch/link-specifier-wrong-directory`, `version-mismatch/local-package-wins-over-higher`, `version-mismatch/local-package-wins-range-differs` (+1 more) |
 | Fixable | `DiffersToSnapTarget` | `version-mismatch` | `policy-conflict/refuse-to-snap-local`, `snapped-to/fix-applies-semver-group-range`, `snapped-to/snaps-to-target-package`, `snapped-to/target-is-lower-than-others` |
 | Fixable | `DiffersToPin` | `version-mismatch` | `pinned/pin-leaves-other-dependencies-to-catch-all`, `pinned/pin-scoped-to-package`, `pinned/range-pin`, `pinned/replaces-anything-different` (+3 more) |
-| Fixable | `SemverRangeMismatch` | `semver-range-mismatch` | `catalog/catalog-definition-semver-group`, `same-range/overlap-but-semver-group-mismatch`, `semver-groups/caret-for-all-dependencies`, `semver-groups/dependency-type-selector` (+11 more) |
+| Fixable | `SemverRangeMismatch` | `semver-range-mismatch` | `catalog/catalog-definition-semver-group`, `same-range/overlap-but-semver-group-mismatch`, `semver-groups/caret-for-all-dependencies`, `semver-groups/dependency-type-selector` (+12 more) |
 | Fixable | `PinOverridesSemverRange` | `policy-conflict` | `policy-conflict/pin-overrides-semver-range` |
 | Fixable | `PinOverridesSemverRangeMismatch` | `policy-conflict` | `policy-conflict/pin-overrides-semver-range-mismatch` |
 | Fixable | `SameMinorOverridesSemverRange` | `policy-conflict` | `policy-conflict/same-minor-overrides-caret-semver-group`, `policy-conflict/same-minor-overrides-unsafe-caret` |
@@ -304,7 +307,7 @@ States in the ADR 0009 table. Valid states produce no diagnostic and are listed 
 | Fixable | `DiffersToCatalog` | `catalog-mismatch` | `catalog/off-catalog-mismatch` |
 | Fixable | `NotUsingCatalog` | `catalog-not-used` | `catalog/bun-top-level-catalog`, `catalog/bun-workspaces-catalog`, `catalog/enforce-not-using-catalog`, `catalog/exclude-dependency` (+3 more) |
 | Fixable | `MissingFromCatalog` | `catalog-missing-entry` | `catalog/bun-missing-entry-creates-catalog`, `catalog/missing-entry-identical-non-semver`, `catalog/missing-entry-no-catalog-pnpm`, `catalog/missing-entry-single-catalog` |
-| Fixable | `DiffersToNpmRegistry` | none: `skif update` (ADR 0057) | `skif update` tests (ADR 0057) |
+| Fixable | `DiffersToNpmRegistry` | none: `skif update` (ADR 0058) | `skif update` tests (ADR 0058) |
 | Unfixable | `NonSemverMismatch` | `version-mismatch` | `same-minor/non-semver-differing-unfixable`, `version-mismatch/unsupported-specifiers-differ` |
 | Unfixable | `SameRangeMismatch` | `version-mismatch` | `same-range/different-exact-versions`, `same-range/one-disjoint-range-flags-all`, `same-range/tilde-different-minors` |
 | Unfixable | `SameMinorMismatch` | `version-mismatch` | `same-minor/minor-mismatch-unfixable` |
