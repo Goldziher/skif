@@ -799,7 +799,7 @@ fn file_identity(file: &Path) -> PathBuf {
     let absolute = std::path::absolute(file).unwrap_or_else(|_| file.to_path_buf());
     let canonical_parent = |path: &Path| {
         let name = path.file_name()?;
-        let parent = path.parent()?.canonicalize().ok()?;
+        let parent = crate::lint::simplified(path.parent()?.canonicalize().ok()?);
         Some(parent.join(name))
     };
     canonical_parent(&absolute).unwrap_or_else(|| {
@@ -961,7 +961,7 @@ mod tests {
     #[test]
     fn written_files_name_the_output_and_every_format_file_canonically() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = crate::lint::canonical(dir.path()).unwrap();
         let sarif = dir.path().join("sub").join("..").join("a.sarif");
         let parse = |flags: Vec<String>| {
             Cli::try_parse_from(std::iter::once("skif".to_owned()).chain(flags))

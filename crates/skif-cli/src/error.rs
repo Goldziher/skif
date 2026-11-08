@@ -76,7 +76,7 @@ impl fmt::Display for CliError {
 }
 
 /// Native separators rewritten to `/` on Windows, so messages and snapshots read the same on every platform.
-fn slashes(text: String) -> String {
+pub(crate) fn slashes(text: String) -> String {
     if cfg!(windows) { text.replace('\\', "/") } else { text }
 }
 
