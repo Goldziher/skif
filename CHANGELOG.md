@@ -97,6 +97,9 @@ All notable changes to this project are documented here. The format follows
 - A `/*` that no `*/` follows, such as one in JSX text (`<code>dist/*</code>`) or a regular expression, no longer
   makes an `.mdx` `export` paragraph swallow the rest of the document, or a `.tsrx` file hide the imports after it
   ([#38](https://github.com/Goldziher/skif/issues/38)).
+- The `.mdx` ESM scan tells JSX text and regular expressions from code, so `//` or `/*` in them
+  (`<a>http://x</a>`, `/:\/\//`) no longer hides a closing bracket and makes an `export` paragraph swallow the rest of
+  the document ([#38](https://github.com/Goldziher/skif/issues/38)).
 
 Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/19)):
 

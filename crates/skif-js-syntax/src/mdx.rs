@@ -79,16 +79,48 @@ fn starts_esm(line: &str) -> bool {
     })
 }
 
-/// The lexical state of an ESM paragraph between lines: its open bracket depth, and the template literals and block
-/// comment it is inside of. A blank line ends the paragraph only at depth zero outside both, so
-/// `export const meta = {` and a multi-line template literal may span blank lines.
-#[derive(Default)]
+/// What the scan of an ESM paragraph is inside of.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Frame {
+    /// A `(`, `[` or `{` of code, and the `${` of a template literal or the `{` of a JSX attribute or child.
+    Bracket,
+    /// The text of a template literal.
+    Template,
+    /// A JSX tag between its `<` and `>`; `closing` for `</a>`.
+    Tag { closing: bool },
+    /// The children of a JSX element: text, in which quotes, slashes and backticks mean nothing.
+    Children,
+}
+
+/// The words after which an expression starts, so that `return <p/>` opens JSX.
+const EXPRESSION_KEYWORDS: [&str; 15] = [
+    "await",
+    "case",
+    "default",
+    "delete",
+    "do",
+    "else",
+    "in",
+    "instanceof",
+    "new",
+    "of",
+    "return",
+    "throw",
+    "typeof",
+    "void",
+    "yield",
+];
+
+/// The lexical state of an ESM paragraph between lines: the brackets, template literals and JSX elements and the block
+/// comment it is inside of. A blank line ends the paragraph only outside all of them, so `export const meta = {`, a
+/// multi-line template literal or JSX element may span blank lines. JSX text is told from code by where a `<` stands,
+/// so `<a>http://x</a>` and `<p>don't</p>` hold no comment and no string.
 struct Scan<'a> {
-    depth: i32,
-    /// For each template literal that is open, the depth its `${}` expressions return to; the last is innermost.
-    templates: Vec<i32>,
-    /// Whether the scan is in a template literal's text (not in one of its `${}` expressions).
-    in_template: bool,
+    /// What the scan is inside of, innermost last; empty at the top level of the paragraph.
+    frames: Vec<Frame>,
+    /// Whether an expression may start here in the code, so a `<` opens JSX and a `/` a regular expression, rather
+    /// than comparing or dividing.
+    expression_start: bool,
     in_block_comment: bool,
     /// The source offset of the `/*` that opened the block comment the scan is in.
     comment_start: usize,
@@ -96,75 +128,196 @@ struct Scan<'a> {
     not_comments: &'a [usize],
 }
 
-impl Scan<'_> {
-    fn is_open(&self) -> bool {
-        self.depth > 0 || self.in_template || self.in_block_comment
+impl<'a> Scan<'a> {
+    const fn new(not_comments: &'a [usize]) -> Self {
+        Self {
+            frames: Vec::new(),
+            expression_start: true,
+            in_block_comment: false,
+            comment_start: 0,
+            not_comments,
+        }
     }
 
-    /// Scans one line, which starts at `offset` in the source, skipping strings, template literals and comments. A `'`
-    /// or `"` that does not close on its line is JSX text such as `<p>don't</p>`, not a string, and is skipped alone.
+    fn is_open(&self) -> bool {
+        !self.frames.is_empty() || self.in_block_comment
+    }
+
+    /// Scans one line, which starts at `offset` in the source.
     fn line(&mut self, text: &str, offset: usize) {
         let bytes = text.as_bytes();
         let mut i = 0;
         while i < bytes.len() {
-            if self.in_block_comment {
+            i = if self.in_block_comment {
                 match bytes[i..].windows(2).position(|pair| pair == b"*/") {
                     Some(at) => {
                         self.in_block_comment = false;
-                        i += at + 2;
+                        i + at + 2
                     }
                     None => return,
                 }
-                continue;
-            }
-            if self.in_template {
-                match bytes[i] {
-                    b'\\' => i += 1,
-                    b'`' => {
-                        self.in_template = false;
-                        self.templates.pop();
-                    }
-                    b'$' if bytes.get(i + 1) == Some(&b'{') => {
-                        self.in_template = false;
-                        self.depth += 1;
-                        i += 1;
-                    }
-                    _ => {}
+            } else {
+                match self.frames.last().copied() {
+                    Some(Frame::Template) => self.template(bytes, i),
+                    Some(Frame::Tag { closing }) => self.tag(bytes, i, offset, closing),
+                    Some(Frame::Children) => self.children(bytes, i),
+                    Some(Frame::Bracket) | None => match self.code(bytes, i, offset) {
+                        Some(next) => next,
+                        None => return,
+                    },
                 }
-                i += 1;
-                continue;
-            }
-            match bytes[i] {
-                quote @ (b'"' | b'\'') => {
-                    let mut j = i + 1;
-                    while j < bytes.len() && bytes[j] != quote {
-                        j += if bytes[j] == b'\\' { 2 } else { 1 };
-                    }
-                    if j < bytes.len() {
-                        i = j;
-                    }
-                }
-                b'`' => {
-                    self.templates.push(self.depth);
-                    self.in_template = true;
-                }
-                b'/' if bytes.get(i + 1) == Some(&b'/') => return,
-                b'/' if bytes.get(i + 1) == Some(&b'*') && !self.not_comments.contains(&(offset + i)) => {
-                    self.in_block_comment = true;
-                    self.comment_start = offset + i;
-                    i += 1;
-                }
-                b'(' | b'[' | b'{' => self.depth += 1,
-                b'}' if self.templates.last() == Some(&(self.depth - 1)) => {
-                    self.depth -= 1;
-                    self.in_template = true;
-                }
-                b')' | b']' | b'}' => self.depth -= 1,
-                _ => {}
-            }
-            i += 1;
+            };
         }
     }
+
+    /// Opens a block comment at `i` unless the paragraph scan ruled that `/*` out; returns whether it did.
+    fn block_comment(&mut self, bytes: &[u8], i: usize, offset: usize) -> bool {
+        let opens = bytes.get(i + 1) == Some(&b'*') && !self.not_comments.contains(&(offset + i));
+        if opens {
+            self.in_block_comment = true;
+            self.comment_start = offset + i;
+        }
+        opens
+    }
+
+    /// Scans the code at `i` and returns where the scan goes on, or `None` at a `//` comment, which ends the line. A
+    /// `'` or `"` that does not close on its line is skipped alone, as JSX text the scan did not recognise.
+    fn code(&mut self, bytes: &[u8], i: usize, offset: usize) -> Option<usize> {
+        let byte = bytes[i];
+        if is_ident(byte) {
+            let end = i + bytes[i..].iter().take_while(|&&b| is_ident(b)).count();
+            let member = i > 0 && bytes[i - 1] == b'.';
+            self.expression_start = !member && EXPRESSION_KEYWORDS.iter().any(|word| word.as_bytes() == &bytes[i..end]);
+            return Some(end);
+        }
+        if byte.is_ascii_whitespace() {
+            return Some(i + 1);
+        }
+        let mut next = i + 1;
+        let mut expression_start = true;
+        match byte {
+            b'"' | b'\'' => {
+                next = string_end(bytes, i).unwrap_or(next);
+                expression_start = false;
+            }
+            b'`' => self.frames.push(Frame::Template),
+            b'/' if bytes.get(i + 1) == Some(&b'/') => return None,
+            b'/' if self.block_comment(bytes, i, offset) => return Some(i + 2),
+            b'/' if self.expression_start && bytes.get(i + 1) != Some(&b'*') => {
+                if let Some(end) = regex_end(bytes, i) {
+                    next = end;
+                    expression_start = false;
+                }
+            }
+            b'(' | b'[' | b'{' => self.frames.push(Frame::Bracket),
+            b')' | b']' | b'}' => {
+                if self.frames.last() == Some(&Frame::Bracket) {
+                    self.frames.pop();
+                }
+                expression_start = false;
+            }
+            b'<' if self.expression_start && bytes.get(i + 1).is_some_and(|&b| b == b'>' || is_ident(b)) => {
+                self.frames.push(Frame::Tag { closing: false });
+            }
+            _ if !byte.is_ascii() => expression_start = false,
+            _ => {}
+        }
+        self.expression_start = expression_start;
+        Some(next)
+    }
+
+    fn template(&mut self, bytes: &[u8], i: usize) -> usize {
+        match bytes[i] {
+            b'\\' => return i + 2,
+            b'`' => {
+                self.frames.pop();
+                self.expression_start = false;
+            }
+            b'$' if bytes.get(i + 1) == Some(&b'{') => {
+                self.frames.push(Frame::Bracket);
+                self.expression_start = true;
+                return i + 2;
+            }
+            _ => {}
+        }
+        i + 1
+    }
+
+    fn tag(&mut self, bytes: &[u8], i: usize, offset: usize, closing: bool) -> usize {
+        match bytes[i] {
+            b'"' | b'\'' => return string_end(bytes, i).unwrap_or(i + 1),
+            b'{' => {
+                self.frames.push(Frame::Bracket);
+                self.expression_start = true;
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'>') => {
+                self.frames.pop();
+                self.expression_start = false;
+                return i + 2;
+            }
+            b'/' if self.block_comment(bytes, i, offset) => return i + 2,
+            b'>' => {
+                self.frames.pop();
+                if !closing {
+                    self.frames.push(Frame::Children);
+                } else if self.frames.last() == Some(&Frame::Children) {
+                    self.frames.pop();
+                }
+                self.expression_start = false;
+            }
+            _ => {}
+        }
+        i + 1
+    }
+
+    fn children(&mut self, bytes: &[u8], i: usize) -> usize {
+        match bytes[i] {
+            b'{' => {
+                self.frames.push(Frame::Bracket);
+                self.expression_start = true;
+            }
+            b'<' if bytes.get(i + 1) == Some(&b'/') => {
+                self.frames.push(Frame::Tag { closing: true });
+                return i + 2;
+            }
+            b'<' => self.frames.push(Frame::Tag { closing: false }),
+            _ => {}
+        }
+        i + 1
+    }
+}
+
+const fn is_ident(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$')
+}
+
+/// The end of the `'` or `"` string that starts at `i`, past its closing quote, or `None` when it does not close on
+/// its line.
+fn string_end(bytes: &[u8], i: usize) -> Option<usize> {
+    let quote = bytes[i];
+    let mut j = i + 1;
+    while j < bytes.len() && bytes[j] != quote {
+        j += if bytes[j] == b'\\' { 2 } else { 1 };
+    }
+    (j < bytes.len()).then_some(j + 1)
+}
+
+/// The end of the regular expression literal that starts at `i`, past its closing `/`, or `None` when it does not
+/// close on its line: then the `/` divides.
+fn regex_end(bytes: &[u8], i: usize) -> Option<usize> {
+    let mut class = false;
+    let mut j = i + 1;
+    while let Some(&b) = bytes.get(j) {
+        match b {
+            b'\\' => j += 1,
+            b'[' => class = true,
+            b']' => class = false,
+            b'/' if !class => return Some(j + 1),
+            _ => {}
+        }
+        j += 1;
+    }
+    None
 }
 
 /// The end of a YAML frontmatter block at the very start of `source`, if there is one.
@@ -190,10 +343,7 @@ fn frontmatter_end(all: &[Line], source: &str) -> Option<usize> {
 fn esm_paragraph_end(source: &str, all: &[Line], first: usize) -> usize {
     let mut not_comments = Vec::new();
     'scan: loop {
-        let mut scan = Scan {
-            not_comments: &not_comments,
-            ..Scan::default()
-        };
+        let mut scan = Scan::new(&not_comments);
         let mut index = first;
         while index < all.len() {
             let line = &source[all[index].start..all[index].end];
@@ -370,12 +520,39 @@ mod tests {
         assert_eq!(kept(source), ["export const X = () => <code>dist/*</code>"]);
         let source = "export const re = (/\\/*/)\n\n# Title\n\n<Card/>\n";
         assert_eq!(kept(source), ["export const re = (/\\/*/)"]);
+        let source = "export const n = 1 /* not closed\n\n# Title\n";
+        assert_eq!(kept(source), ["export const n = 1 /* not closed"]);
     }
 
     #[test]
     fn a_block_comment_that_closes_later_spans_blank_lines() {
         let source = "export const a = 1 /* x\n\ny */\nexport const b = 2\n\n<B/>\n";
         assert_eq!(kept(source), ["export const a = 1 /* x", "y */", "export const b = 2"]);
+    }
+
+    #[test]
+    fn jsx_text_and_regular_expressions_hold_no_comment() {
+        let source = "export const L = () => (<a>http://x</a>)\n\n# Title\n\n<Card/>\n";
+        assert_eq!(kept(source), ["export const L = () => (<a>http://x</a>)"]);
+        let source = "export const G = () => (<code>dist/*</code>)\n\n# Paths\n\nUse `src/*/index.js`.\n";
+        assert_eq!(kept(source), ["export const G = () => (<code>dist/*</code>)"]);
+        let source = "export const isUrl = (s) => (/:\\/\\//).test(s)\n\n# Title\n";
+        assert_eq!(kept(source), ["export const isUrl = (s) => (/:\\/\\//).test(s)"]);
+    }
+
+    #[test]
+    fn a_jsx_element_spans_blank_lines() {
+        let source = "export function Note() {\n  return <p a=\"{\" b={1 < 2}>\n\n    don't <b>stop</b> {`${x}`}\n  </p>\n}\n\n<Note/>\n";
+        assert_eq!(
+            kept(source),
+            [
+                "export function Note() {",
+                "  return <p a=\"{\" b={1 < 2}>",
+                "    don't <b>stop</b> {`${x}`}",
+                "  </p>",
+                "}"
+            ]
+        );
     }
 
     #[test]
