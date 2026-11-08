@@ -38,6 +38,16 @@ inputs:
     description: Exit non-zero when skif reports any warning (adds `--fail-on-warnings`).
     required: false
     default: "false"
+  from-sherif:
+    description: >-
+      Migration aid, off by default. "true": when no skif.toml or .skif.toml is found and the root
+      package.json has a `sherif` key or a script that runs sherif, translate those settings with
+      `skif migrate --from sherif --profile full` into a temporary file and lint with it (`--config`), so a
+      job that replaced sherif keeps its flags until skif.toml is committed. Not done for a skif subcommand
+      or when `args` has `--config` or `--no-config`. The skif binary itself never reads sherif
+      configuration (ADR 0039).
+    required: false
+    default: "false"
   install-only:
     description: Install skif and put it on PATH, but do not run it.
     required: false
@@ -111,4 +121,5 @@ runs:
         ARGS: ${{ inputs.args }}
         WORKING_DIRECTORY: ${{ inputs.working-directory }}
         FAIL_ON_WARNINGS: ${{ inputs.fail-on-warnings }}
+        FROM_SHERIF: ${{ inputs.from-sherif }}
       run: bash "$ACTION_PATH/scripts/gh-action-run.sh"
