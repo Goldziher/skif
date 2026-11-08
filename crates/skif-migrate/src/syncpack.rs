@@ -1078,7 +1078,7 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, workspa
             src,
             NoteClass::Approximate,
             format!("{path}: syncpack update"),
-            "run `skif update` instead: it takes `--check`, `--target` and `--dependencies`; `--interactive` has no equivalent",
+            "run `skif update` instead: it takes `--check`, `--target`, `--dependencies` and `--interactive`",
         );
         return;
     }
