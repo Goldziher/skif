@@ -39,7 +39,8 @@ use oxc_span::SourceType;
 use skif_core::LineIndex;
 
 pub use config::{
-    ConfigValue, ModuleLoader, extract_config_object, extract_config_object_with, extract_constructor_options,
+    ConfigValue, ImportedCall, ModuleLoader, TEMPLATE_SUBSTITUTION, extract_config_object, extract_config_object_with,
+    extract_constructor_options, extract_imported_calls,
 };
 pub use error::SyntaxError;
 pub use model::{

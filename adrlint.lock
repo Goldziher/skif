@@ -290,3 +290,8 @@ blake3 = "2b7fd1e6af3bda80c60b52a133120872846fd41d0c45a08a5682aa99a3f360b4"
 number = 58
 status = "accepted"
 blake3 = "e97707820681ea433e2160f7d41e412e41982df6ad4f4c2a57c9e23a41fa6202"
+
+[adrs."adrs/0059-twenty-one-more-plugins-and-commands-run-from-source.md"]
+number = 59
+status = "accepted"
+blake3 = "fd004fe4eab75a530c28afe42554774ed8e7d774249c149920bb1c65e3bed89f"

@@ -600,6 +600,8 @@ pub(super) enum Files {
     ScriptExt,
     /// Every positional argument, where a directory stands for the files the test runner reads in it.
     All,
+    /// No positional argument names a file (`glob -c "cmd" "src/**/*.ts"` takes patterns).
+    None,
 }
 
 /// The extensions mocha reads from a directory without `--extension`.
@@ -855,6 +857,16 @@ pub(super) static RUNNERS: &[Runner] = &[
         exec_flags: &[],
         subcommands: &[],
         files: Files::ScriptExt,
+    },
+    // `glob -c <command> <pattern>…` runs the command once with the matching files; the patterns are not files.
+    Runner {
+        names: &["glob"],
+        value_flags: &["p", "default", "i", "ignore", "max-depth", "platform", "cwd", "root"],
+        dep_flags: &[],
+        file_flags: &[],
+        exec_flags: &["c", "cmd"],
+        subcommands: &[],
+        files: Files::None,
     },
 ];
 
