@@ -115,27 +115,25 @@ const EXPRESSION_KEYWORDS: [&str; 15] = [
 /// comment it is inside of. A blank line ends the paragraph only outside all of them, so `export const meta = {`, a
 /// multi-line template literal or JSX element may span blank lines. JSX text is told from code by where a `<` stands,
 /// so `<a>http://x</a>` and `<p>don't</p>` hold no comment and no string.
-struct Scan<'a> {
+struct Scan {
     /// What the scan is inside of, innermost last; empty at the top level of the paragraph.
     frames: Vec<Frame>,
     /// Whether an expression may start here in the code, so a `<` opens JSX and a `/` a regular expression, rather
     /// than comparing or dividing.
     expression_start: bool,
     in_block_comment: bool,
-    /// The source offset of the `/*` that opened the block comment the scan is in.
-    comment_start: usize,
-    /// Source offsets of `/*` that do not open a comment (see [`esm_paragraph_end`]).
-    not_comments: &'a [usize],
+    /// The source offset of the last `*/` in the file: a `/*` opens a comment only before it (see
+    /// [`esm_paragraph_end`]).
+    last_close: Option<usize>,
 }
 
-impl<'a> Scan<'a> {
-    const fn new(not_comments: &'a [usize]) -> Self {
+impl Scan {
+    const fn new(last_close: Option<usize>) -> Self {
         Self {
             frames: Vec::new(),
             expression_start: true,
             in_block_comment: false,
-            comment_start: 0,
-            not_comments,
+            last_close,
         }
     }
 
@@ -170,13 +168,10 @@ impl<'a> Scan<'a> {
         }
     }
 
-    /// Opens a block comment at `i` unless the paragraph scan ruled that `/*` out; returns whether it did.
+    /// Opens a block comment at `i` when a `*/` follows it somewhere in the file; returns whether it did.
     fn block_comment(&mut self, bytes: &[u8], i: usize, offset: usize) -> bool {
-        let opens = bytes.get(i + 1) == Some(&b'*') && !self.not_comments.contains(&(offset + i));
-        if opens {
-            self.in_block_comment = true;
-            self.comment_start = offset + i;
-        }
+        let opens = bytes.get(i + 1) == Some(&b'*') && self.last_close.is_some_and(|close| close >= offset + i + 2);
+        self.in_block_comment |= opens;
         opens
     }
 
@@ -338,30 +333,21 @@ fn frontmatter_end(all: &[Line], source: &str) -> Option<usize> {
 /// MDX parses the paragraph with acorn at each blank line and goes on past it when the code is incomplete, which
 /// includes an unterminated comment: a block comment may span blank lines. A `/*` with no `*/` anywhere after it
 /// cannot be one, since MDX rejects the document then; it is JSX text (`<code>dist/*</code>`) or a regular
-/// expression (`/\/*/`) the scan does not tell apart. Such a `/*` is not a comment, and the paragraph is scanned again
-/// without it, so a blank line ends it as MDX does.
+/// expression (`/\/*/`) the scan does not tell apart. Such a `/*` is not a comment, so a blank line ends the
+/// paragraph as MDX does. Whether a `*/` follows is one comparison with the last `*/` of the file, which keeps the scan
+/// linear.
 fn esm_paragraph_end(source: &str, all: &[Line], first: usize) -> usize {
-    let mut not_comments = Vec::new();
-    'scan: loop {
-        let mut scan = Scan::new(&not_comments);
-        let mut index = first;
-        while index < all.len() {
-            let line = &source[all[index].start..all[index].end];
-            if line.trim().is_empty() {
-                if !scan.is_open() {
-                    return index;
-                }
-                if scan.in_block_comment && !source[all[index].start..].contains("*/") {
-                    let start = scan.comment_start;
-                    not_comments.push(start);
-                    continue 'scan;
-                }
-            }
-            scan.line(line, all[index].start);
-            index += 1;
+    let mut scan = Scan::new(source.rfind("*/"));
+    let mut index = first;
+    while index < all.len() {
+        let line = &source[all[index].start..all[index].end];
+        if line.trim().is_empty() && !scan.is_open() {
+            return index;
         }
-        return index;
+        scan.line(line, all[index].start);
+        index += 1;
     }
+    index
 }
 
 /// Splits `source` into ESM, skipped and markup lines.
@@ -562,6 +548,18 @@ mod tests {
         assert_eq!(kept(source), ["export const re = (/\\/*/)"]);
         let source = "export const n = 1 /* not closed\n\n# Title\n";
         assert_eq!(kept(source), ["export const n = 1 /* not closed"]);
+    }
+
+    #[test]
+    fn unclosed_comment_openers_are_scanned_in_linear_time() {
+        let repeats = 20_000;
+        let source = format!("export const a = 1 /* x\n\n{}<A/>\n", "/* x\n\n".repeat(repeats));
+        assert_eq!(kept(&source), ["export const a = 1 /* x"]);
+        let source = format!("export const a = 1\n{}\n<A/>\n", "/* x\n".repeat(repeats));
+        assert_eq!(kept(&source).len(), repeats + 1);
+        let source = format!("export const a = 1 /* x\n{}*/\n\n<A/>\n", "\ny\n".repeat(repeats));
+        let kept = kept(&source);
+        assert_eq!((kept.len(), kept.last().map(String::as_str)), (repeats + 2, Some("*/")));
     }
 
     #[test]
