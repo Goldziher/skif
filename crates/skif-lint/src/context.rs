@@ -1,6 +1,6 @@
 use std::any::{Any, TypeId};
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use skif_config::Config;
@@ -52,6 +52,9 @@ pub struct LintContext<'a> {
     pub config_path: Option<&'a Path>,
     /// Providers run their work on the calling thread and must not use rayon.
     pub sequential: bool,
+    /// Files, relative to the workspace root, that other roots of a multi-root run import; the JS analysis makes
+    /// those it owns entries. Empty for a run of one root.
+    pub extra_entries: &'a [PathBuf],
     shared: &'a SharedCache,
 }
 
@@ -70,8 +73,14 @@ impl<'a> LintContext<'a> {
             enabled,
             config_path,
             sequential,
+            extra_entries: &[],
             shared,
         }
+    }
+
+    pub(crate) const fn with_extra_entries(mut self, extra_entries: &'a [PathBuf]) -> Self {
+        self.extra_entries = extra_entries;
+        self
     }
 
     /// A value of type `T` computed at most once per run: the first caller runs `init`, later and concurrent callers

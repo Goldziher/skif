@@ -8,7 +8,9 @@ use super::tables::{self, Files, Runner, Wrapper};
 use super::tokenize::{Segment, Word, is_assignment_text, tokenize};
 use crate::support::join_rel;
 
-use super::{BinaryUse, BinaryVia, DepRef, FileRef, FileTree, ScriptContext, ScriptInfo, is_ignored_binary};
+use super::{
+    BinaryUse, BinaryVia, DepRef, FileRef, FileTree, ScriptContext, ScriptInfo, is_ignored_binary, is_shell_builtin,
+};
 
 const MAX_DEPTH: usize = 32;
 
@@ -279,6 +281,18 @@ impl<'c> Walker<'c> {
         });
     }
 
+    /// A system binary assumed to be installed globally, kept apart from [`Self::bin`] so that nothing takes it for a
+    /// dependency's binary unless the caller asks for it.
+    fn global_bin(&mut self, name: &str, span: Range<usize>, st: St) {
+        self.info.global_binaries.push(BinaryUse {
+            name: name.to_owned(),
+            span,
+            via: st.via,
+            filtered: st.filtered,
+            workspaces: Vec::new(),
+        });
+    }
+
     fn file(&mut self, path: &str, span: Range<usize>) {
         self.file_ref(path, span, None);
     }
@@ -502,7 +516,8 @@ impl<'c> Walker<'c> {
                     .any(|a| a.text.starts_with("-v") || a.text.starts_with("-V")) => {}
             n if tables::passthrough(n).is_some() => self.passthrough(n, args, frame, st),
             n if tables::SHELLS.contains(&n) => self.shell(args, frame, st),
-            n if is_ignored_binary(n) => {}
+            n if is_shell_builtin(n) => {}
+            n if is_ignored_binary(n) => self.global_bin(n, span, st),
             n => {
                 self.bin(n, span, st);
                 self.flag_dependencies(n, args, frame);
