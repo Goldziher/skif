@@ -161,6 +161,38 @@ fn a_file_in_a_package_with_unreadable_configs_names_each_config() {
     );
 }
 
+/// A test config that spreads an unknown base narrows what it hides to tests and setup modules (ADR 0064): a setup
+/// module is an entry of the narrowed scope, and a file outside the scope is judged.
+#[test]
+fn a_narrowed_scope_is_told_from_the_package_wide_case() {
+    let dir = project();
+    put(
+        dir.path(),
+        "vitest.config.ts",
+        "import base from './vitest.base';\nexport default { ...base };\n",
+    );
+    put(dir.path(), "test/db-setup.ts", "export const seed = 1;\n");
+    let setup = run(skif()
+        .current_dir(dir.path())
+        .args(["explain-usage", "test/db-setup.ts"]));
+    assert_eq!(setup.code, 0, "{}{}", setup.stdout, setup.stderr);
+    insta::assert_snapshot!("explain_usage_narrowed_scope_entry", redact(&setup.stdout, dir.path()));
+
+    let orphan = run(skif()
+        .current_dir(dir.path())
+        .args(["explain-usage", "orphan.ts", "--format", "json"]));
+    assert_eq!(orphan.code, 2, "{}{}", orphan.stdout, orphan.stderr);
+    let report = &orphan.json()["report"];
+    assert_eq!(report["absence"], "unused-file", "{report}");
+    assert_eq!(report["incomplete"][0]["cause"], "unknown-spread", "{report}");
+    assert!(
+        report["incomplete-scope"]
+            .as_array()
+            .is_some_and(|globs| !globs.is_empty()),
+        "{report}"
+    );
+}
+
 #[test]
 fn an_ignored_file_says_so() {
     let dir = project();

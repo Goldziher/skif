@@ -2,8 +2,11 @@
 
 use skif_js_syntax::ConfigValue;
 
-use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{entry_glob, join_rel, module_input, name_of, objects, strings};
+use crate::plugin::{
+    ConfigAst, Enabler, IncompleteCause, IncompleteScope, Plugin, PluginContext, PluginInput, PluginSpec,
+};
+use crate::plugins::vitest::TEST_CONVENTIONS;
+use crate::support::{convention_scope, entry_glob, join_rel, module_input, name_of, objects, strings};
 
 /// The `playwright` plugin.
 pub struct Playwright;
@@ -60,6 +63,11 @@ impl Plugin for Playwright {
             }
         }
         out
+    }
+
+    /// A Playwright config names test files, test directories and setup and teardown modules, nothing else.
+    fn incomplete_scope(&self, _cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
+        convention_scope(&SPEC, config, TEST_CONVENTIONS)
     }
 }
 

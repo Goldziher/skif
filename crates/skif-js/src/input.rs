@@ -96,6 +96,39 @@ pub struct WorkspaceInputs {
     pub entries_incomplete: bool,
     /// Why the entries are incomplete, when `entries_incomplete` is set and the source knows.
     pub incomplete_reasons: Vec<IncompleteEntries>,
+    /// Where the entries the source could not read can lie, when `entries_incomplete` is set: only files there are
+    /// left unjudged by `unused-files` (ADR 0064).
+    pub incomplete_scope: IncompleteScope,
+}
+
+/// Where the unknown entries of a package can lie; see [`WorkspaceInputs::incomplete_scope`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum IncompleteScope {
+    /// Anywhere: no file of the package is judged unused.
+    #[default]
+    Package,
+    /// Only files matching these globs, relative to the package directory, may be unknown entries; they are treated
+    /// as entries and every other file is judged as usual.
+    Within(Vec<String>),
+}
+
+impl IncompleteScope {
+    /// The scope covering both `self` and `other`: the whole package when either is.
+    #[must_use]
+    pub fn union(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Within(mut globs), Self::Within(more)) => {
+                for glob in more {
+                    if !globs.contains(&glob) {
+                        globs.push(glob);
+                    }
+                }
+                Self::Within(globs)
+            }
+            _ => Self::Package,
+        }
+    }
 }
 
 impl WorkspaceInputs {
@@ -117,6 +150,13 @@ impl WorkspaceInputs {
         self.module_dirs.extend(other.module_dirs);
         self.extensions.extend(other.extensions);
         self.custom_elements.extend(other.custom_elements);
+        if other.entries_incomplete {
+            self.incomplete_scope = if self.entries_incomplete {
+                std::mem::take(&mut self.incomplete_scope).union(other.incomplete_scope)
+            } else {
+                other.incomplete_scope
+            };
+        }
         self.entries_incomplete |= other.entries_incomplete;
         self.incomplete_reasons.extend(other.incomplete_reasons);
     }

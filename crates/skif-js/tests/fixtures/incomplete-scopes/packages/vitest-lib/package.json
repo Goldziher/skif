@@ -1,0 +1,9 @@
+{
+  "name": "@fx/vitest-lib",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  }
+}

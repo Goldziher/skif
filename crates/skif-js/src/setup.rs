@@ -15,9 +15,10 @@ use crate::ancestors;
 use crate::config_check::relative_tsconfig;
 use crate::deps::member_dirs;
 use crate::globs::{Globs, Names};
+use crate::graph::ModuleGraph;
 use crate::input::{
-    BuildDir, CustomElementLibrary, IncompleteCause, IncompleteEntries, InputRequest, InputSource, PathAlias,
-    WorkspaceInputs,
+    BuildDir, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope, InputRequest, InputSource,
+    PathAlias, WorkspaceInputs,
 };
 use crate::listed::{self, Listed};
 use crate::resolve::join_normalized;
@@ -332,6 +333,14 @@ pub(crate) struct PackageSetup {
     pub entries_incomplete: bool,
     /// Why the entry files are incomplete; not empty when they are.
     pub incomplete_reasons: Vec<IncompleteEntries>,
+    /// When the entry files are incomplete, the globs (relative to the package directory) of the only files that may
+    /// be unknown entries; `None` when they may be anywhere. The matching project files are treated as entries and
+    /// every other file is judged unused as usual (ADR 0064).
+    pub incomplete_scope: Option<IncompleteScopeGlobs>,
+    /// The module (relative to the workspace root) and 1-based line of a computed `import()` or `require()` in the
+    /// package, which may load any of its files: the narrowed scope a config gave then leaves the package unjudged
+    /// as a whole (see [`Self::unjudged_package_wide`]).
+    pub widened_by: Option<(PathBuf, u32)>,
     pub project: Globs,
     /// Files whose issues are not reported, relative to the package directory.
     pub ignore: Globs,
@@ -370,6 +379,31 @@ pub(crate) struct PackageSetup {
     pub extensions: Vec<String>,
     /// Custom element libraries of the enabled plugins, whose registered classes are used.
     pub custom_elements: Vec<CustomElementLibrary>,
+}
+
+/// The narrowed scope of an incomplete package; see [`PackageSetup::incomplete_scope`].
+pub(crate) struct IncompleteScopeGlobs {
+    /// The globs as the input sources gave them, for `explain-usage`.
+    pub patterns: Vec<String>,
+    pub globs: Globs,
+}
+
+impl PackageSetup {
+    /// Whether `rel` (relative to the package directory) may be an entry that a config of the package hides, so it
+    /// is treated as an entry; never when the hidden entries may be anywhere.
+    pub(crate) fn in_incomplete_scope(&self, rel: &str) -> bool {
+        self.entries_incomplete
+            && self
+                .incomplete_scope
+                .as_ref()
+                .is_some_and(|scope| scope.globs.is_match(rel))
+    }
+
+    /// Whether no file of the package can be judged unused: its entries are incomplete and may be anywhere, or a
+    /// computed load may reach any of its files.
+    pub(crate) fn unjudged_package_wide(&self) -> bool {
+        self.entries_incomplete && (self.incomplete_scope.is_none() || self.widened_by.is_some())
+    }
 }
 
 /// The `entry`, `project` and `ignore` patterns a package is configured with, as written.
@@ -690,6 +724,14 @@ impl Setup {
                 shared_entry: Globs::new(shared_entry),
                 plugin_entry: Globs::new(plugin_entry),
                 entries_incomplete: plugin.entries_incomplete,
+                incomplete_scope: match &plugin.incomplete_scope {
+                    IncompleteScope::Within(patterns) if plugin.entries_incomplete => Some(IncompleteScopeGlobs {
+                        globs: Globs::new(patterns),
+                        patterns: patterns.clone(),
+                    }),
+                    _ => None,
+                },
+                widened_by: None,
                 incomplete_reasons: if plugin.entries_incomplete && plugin.incomplete_reasons.is_empty() {
                     vec![IncompleteEntries {
                         cause: IncompleteCause::Unspecified,
@@ -763,11 +805,33 @@ impl Setup {
         self.packages.get(id.index()).and_then(Option::as_ref)
     }
 
+    /// Records, for each incomplete package with a narrowed scope, the first module that loads a module by a computed
+    /// path: the scope bounds what its configs may hide, but such a load may reach any file of the package, so none
+    /// can be judged unused. The files of the scope stay entries.
+    pub(crate) fn widen_incomplete_scopes(&mut self, graph: &ModuleGraph) {
+        for module in graph
+            .modules()
+            .iter()
+            .filter(|module| module.in_project && !module.foreign)
+        {
+            let Some(span) = module.info.unresolved_dynamic.first() else {
+                continue;
+            };
+            if let Some(Some(package)) = self.packages.get_mut(module.owner.index())
+                && package.incomplete_scope.is_some()
+                && package.widened_by.is_none()
+            {
+                package.widened_by = Some((module.path.clone(), span.start_line));
+            }
+        }
+    }
+
     /// Marks the packages whose published entry points could not be mapped to source files.
     pub(crate) fn mark_entries_incomplete(&mut self, ids: &[PackageId]) {
         for id in ids {
             if let Some(Some(package)) = self.packages.get_mut(id.index()) {
                 package.entries_incomplete = true;
+                package.incomplete_scope = None;
                 package.incomplete_reasons.push(IncompleteEntries {
                     cause: IncompleteCause::UnmappedPublished,
                     plugin: None,

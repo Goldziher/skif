@@ -148,12 +148,17 @@ A file that is not part of the module graph exits `2` with the reason; in JSON m
 same `report`, whose `absence` is one of `unused-file` (reported by `unused-files`), `package-excluded`,
 `declaration-file`, `ignored`, `outside-project`, `not-discovered` (missing, ignored by Git, not a source file, or owned
 by no package) and `entries-incomplete`, which is only given for a source file that discovery, the project globs and the
-ignores leave in. For `entries-incomplete` the files of the package are not judged unused because its entry files are
-not fully known, and `incomplete` lists each cause with its `plugin` and `file`: `unparsable-config`, `unknown-config`
+ignores leave in. For `entries-incomplete` no file of the package is judged unused because its entry files are not
+fully known and may be anywhere in it, and `incomplete` lists each cause with its `plugin` and `file`: `unparsable-config`, `unknown-config`
 (the config evaluates to a value that cannot be known statically), `unknown-spread` (it spreads or merges in an unknown
 value, such as a base config imported from an installed package), `computed-entries` (the keys the tool reads entries
 from are computed), `unmapped-published` (`package.json` publishes build output with no source behind it) or
-`unspecified`. It also exits `2` when the root cannot be loaded or the file lies outside the workspace.
+`unspecified`. `widened-by` (`file:line`) names the computed `import()` or `require()` that made the package
+unjudged as a whole although its configs narrowed what they hide. When the configs narrow it (see
+[incomplete entries](../configuration/)), a file in the narrowed scope is in the graph with the `entry`
+`incomplete-scope`, and an unused file outside it has the absence `unused-file` with the scope's globs in
+`incomplete-scope` and the causes in `incomplete`. It also exits `2` when the root cannot be loaded or the file lies
+outside the workspace.
 
 ## Migrating
 
@@ -305,8 +310,8 @@ formatting in every lint instead, set `package-json-format = "error"` in `[rules
 
 | Format | Output |
 | --- | --- |
-| `human` | Diagnostics grouped by file, optionally coloured, with a summary. Colour is on only when stdout is a TTY, `NO_COLOR` is unset and the format is `human`. A note before the summary names the packages whose unused files and dependencies were not checked. |
-| `json` | One versioned document with `version`, `summary` and `diagnostics`; a multi-root run adds a `roots` array with each root's `path`, `packages` and `summary`. Each diagnostic has rule, severity, message, location with line and column span, related locations and fix titles. `incomplete-packages` (omitted when empty) lists the packages whose unused files and dependencies were not checked, see below. |
+| `human` | Diagnostics grouped by file, optionally coloured, with a summary. Colour is on only when stdout is a TTY, `NO_COLOR` is unset and the format is `human`. A note before the summary names the packages whose unused files and dependencies were not fully checked. |
+| `json` | One versioned document with `version`, `summary` and `diagnostics`; a multi-root run adds a `roots` array with each root's `path`, `packages` and `summary`. Each diagnostic has rule, severity, message, location with line and column span, related locations and fix titles. `incomplete-packages` (omitted when empty) lists the packages whose unused files and dependencies were not fully checked, see below. |
 | `sarif` | SARIF 2.1.0 for code scanning. |
 | `github` | GitHub Actions workflow-command annotations. |
 | `codeclimate` | A Code Climate JSON array for GitLab Code Quality: one issue per diagnostic with `description`, `check_name` (the rule), `fingerprint`, `severity` and `location` (`path`, `lines.begin`). Errors are `major`, warnings `minor` and infos `info`. The fingerprint is a hash of the rule, path, package, dependency, specifier and message text (not the line), so an issue keeps its identity when code above it moves; a release that rewords a message changes the fingerprints of its issues. Paths are relative to the repository top-level. |
@@ -316,7 +321,8 @@ formatting in every lint instead, set `package-json-format = "error"` in `[rules
 | `codeowners` | `compact` lines grouped under each owner from the repository's CODEOWNERS file (`.github/CODEOWNERS`, `CODEOWNERS` or `docs/CODEOWNERS`, the first that exists at the repository top-level). The last matching pattern wins, and an entry without owners in a GitLab section takes the section's default owners (`[Section] @owner`); a diagnostic with several owners is listed under each, and diagnostics no pattern covers are under `(unowned)`. Exit `2` (a `config` error) when there is no CODEOWNERS file. |
 
 When a package's entry files are not all known (a tool config skif cannot read, or published build output with no
-source behind it), skif does not report its unused files or dependencies. The JSON report names each such package in
+source behind it), skif does not report its unused dependencies, and reports its unused files only outside what the
+unreadable config could make entries (see [incomplete entries](../configuration/)). The JSON report names each such package in
 `incomplete-packages`, sorted by directory: its `name`, its `dir` (`.` for the root package) and its `reasons`, each a
 `cause` with the `plugin` and `file` when known, using the causes `skif explain-usage` reports. Paths are relative to
 the run's base. The field is additive, so `version` stays `1`.

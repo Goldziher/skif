@@ -71,6 +71,7 @@ old one.
 | 0061 | [Thirty-Nine More Plugins and Plugins Enabled by a package.json Key](0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md) | accepted |
 | 0062 | [Custom Element Registrations and the taskr Plugin](0062-custom-element-registrations-and-the-taskr-plugin.md) | accepted |
 | 0063 | [`skif update --interactive`: A Terminal Picker on the Update Report](0063-skif-update-interactive-a-terminal-picker-on-the-update-report.md) | accepted |
+| 0064 | [Narrowed Scope for Incomplete Entries: Only What an Unreadable Config Could Make an Entry Stays Unjudged](0064-narrowed-scope-for-incomplete-entries.md) | accepted |
 
 ## Effective statements
 
@@ -178,3 +179,6 @@ the lines below stay as written; this table says which record governs.
 | [0060](0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md), line 52 | `stencil` does not mark custom elements as used | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): `@Component` classes from `@stencil/core` are used; component style URLs are still not marked |
 | [0061](0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md), line 41 | `catalyst` and `fast` are not added: skif does not mark custom elements | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): both are added and mark the classes they register |
 | [0058](0058-registry-updates-an-opt-in-skif-update-command.md), line 86 | `--interactive` is deferred | [0063](0063-skif-update-interactive-a-terminal-picker-on-the-update-report.md): implemented in the CLI on a filtered copy of the update report; it needs a terminal, conflicts with `--check`, and Esc writes nothing |
+| [0035](0035-js-evaluation-parity-unreadable-configs-unresolved-specifiers-and-test-entries.md), line 39 | a package whose config cannot be read has no unused-file and unused-dependency findings at all | [0064](0064-narrowed-scope-for-incomplete-entries.md): its unused dependencies are still not reported; `unused-files` skips only the files the config could make entries (a plugin's narrowed scope), unless the config does not parse, the plugin gives no scope or the package loads a module by a computed path |
+| [0053](0053-incomplete-packages-in-the-json-report.md), line 14 | skif reports none of the files of an incomplete package as unused | [0064](0064-narrowed-scope-for-incomplete-entries.md): only the files in the narrowed scope of its configs are not judged when every reason has one; a package in `incomplete-packages` may have unused files reported |
+| [0053](0053-incomplete-packages-in-the-json-report.md), line 67 | the human note says unused files and dependencies "were not checked" | [0064](0064-narrowed-scope-for-incomplete-entries.md): it says they "were not fully checked" |

@@ -453,6 +453,7 @@ impl<'a> JsAnalysis<'a> {
             graph::build(&inputs, &entries)
         });
         graph::report_timings(&workspace.root);
+        setup.widen_incomplete_scopes(&graph);
         let exports = timing::phase(phase("exports"), || {
             ExportUsage::compute_by(&graph, |owner| setup.includes_entry_exports(owner))
         });
@@ -480,13 +481,14 @@ impl<'a> JsAnalysis<'a> {
                 let Some(package) = setup.package(candidate.owner) else {
                     return false;
                 };
-                if package.entries_incomplete {
+                if package.unjudged_package_wide() {
                     return false;
                 }
                 let Some(in_package) = relative(&candidate.abs, &package.dir) else {
                     return false;
                 };
                 package.project.is_match(&in_package)
+                    && !package.in_incomplete_scope(&in_package)
                     && !package.ignore.matches_any(&in_package)
                     && !setup.global_ignore.matches_any(&candidate.rel)
                     && (setup.include_fixtures || !in_fixture_directory(Path::new(&candidate.rel)))

@@ -2,12 +2,22 @@
 
 use skif_js_syntax::ConfigValue;
 
-use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
+use crate::plugin::{
+    ConfigAst, Enabler, IncompleteCause, IncompleteScope, Plugin, PluginContext, PluginInput, PluginSpec,
+};
 use crate::plugins::vite;
 use crate::support::{
-    alias_inputs, entry_glob, entry_strings, get_in, module_input, name_of, objects, package_name, project_files,
-    shallow_key_unknown, strings,
+    alias_inputs, convention_scope, entry_glob, entry_strings, get_in, module_input, name_of, objects,
+    own_path_unknown, package_name, project_files, shallow_key_unknown, strings,
 };
+
+/// Where test runners find what a config names besides the test files of [`SPEC`]: test and fixture directories, and
+/// setup and teardown modules. Shared with the Playwright plugin.
+pub(crate) const TEST_CONVENTIONS: &[&str] = &[
+    "**/{test,tests,__tests__,__mocks__,__fixtures__,e2e,spec,specs,fixtures,mocks,testing,test-utils}/**",
+    "**/*{setup,Setup,teardown,Teardown}*.{ext}",
+    "**/*.{test,spec,bench,e2e,integration}*.{ext}",
+];
 
 /// The `vitest` plugin.
 pub struct Vitest;
@@ -52,6 +62,15 @@ impl Plugin for Vitest {
         let mut out = vite::html_and_build_inputs(config, cx);
         collect(config.value, config, cx, &mut out, 0);
         out
+    }
+
+    /// What a test config hides is tests: test files, test directories and setup modules. A `root` the config
+    /// computes itself moves the `index.html` entries, which may name any file.
+    fn incomplete_scope(&self, _cause: IncompleteCause, config: &ConfigAst<'_>) -> IncompleteScope {
+        if matches!(config.value, ConfigValue::Object(_)) && own_path_unknown(config.value, &["root"]) {
+            return IncompleteScope::Package;
+        }
+        convention_scope(&SPEC, config, TEST_CONVENTIONS)
     }
 }
 
