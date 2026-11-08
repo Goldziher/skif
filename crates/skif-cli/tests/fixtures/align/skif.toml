@@ -1,0 +1,12 @@
+[js]
+enabled = false
+
+[[version-groups]]
+dependencies = ["chalk"]
+policy = "pinned"
+pin = "5.3.1"
+
+[[version-groups]]
+dependencies = ["react"]
+policy = "pinned"
+pin = "19.0.0"

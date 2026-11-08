@@ -325,4 +325,31 @@ pub struct PluginOutput {
     /// computed pattern, a call of an unknown function): `entries` may be missing files. Rules that report files as
     /// unreachable from entries should be conservative for this workspace.
     pub entries_incomplete: bool,
+    /// Each config that made the entries incomplete, and why; not empty whenever `entries_incomplete` is set.
+    pub incomplete_reasons: Vec<IncompleteEntries>,
+}
+
+/// A config that made a plugin's entries incomplete; see [`PluginOutput::incomplete_reasons`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncompleteEntries {
+    /// The plugin that reads the config.
+    pub plugin: PluginId,
+    /// The config file, absolute.
+    pub file: PathBuf,
+    /// What could not be read.
+    pub cause: IncompleteCause,
+}
+
+/// Why a config leaves a plugin's entries incomplete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum IncompleteCause {
+    /// The config file does not parse.
+    Unparsable,
+    /// The config evaluates to a value that is not known statically, such as the result of an unknown function.
+    UnknownValue,
+    /// The config spreads or merges in a value that is not known statically, such as an imported base config.
+    UnknownSpread,
+    /// The keys the plugin reads entries from are computed in a way that cannot be evaluated statically.
+    ComputedEntries,
 }

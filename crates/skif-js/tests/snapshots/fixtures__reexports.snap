@@ -53,7 +53,25 @@ expression: diagnostics
         "end-col": 8
       }
     },
-    "package": "reexports"
+    "package": "reexports",
+    "fixes": [
+      {
+        "title": "Remove the enum member `Green`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/color.ts",
+              "edit": {
+                "start": 27,
+                "end": 36,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
   },
   {
     "rule": "unused-exports",
