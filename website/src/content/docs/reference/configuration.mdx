@@ -355,10 +355,14 @@ imports never do.
 
 **`stale-js-config`** (a warning) reports `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
 `ignore-workspaces` entries that matched nothing in the run, `[js.workspaces]` keys that select no package, and
-`entry`, `project` and `ignore` patterns (top level and per workspace) that match no source file, like knip's
-configuration hints (`entry-empty`, `project-empty` and stale `ignore`). A pattern of a workspace glob key is judged
-per package it selects. Negated patterns and patterns that leave the package (`../`) are not judged. An `ignore-files`
-pattern is reported when it hides no file `unused-files` would report (while that rule runs). `[rules] stale-js-config = "error"` is knip's `--treat-config-hints-as-errors` (`skif migrate` writes `warn` unless `--strict-hints` is given). An
+`entry`, `project` and `ignore` patterns (top level and per workspace) that match no file, like knip's
+configuration hints (`entry-empty`, `project-empty` and stale `ignore`). A pattern is reported only when it matches
+neither a file the analysis knows nor any file on disk, gitignored or not and of any extension, so `ignore =
+["dist/**"]`, `ignore = ["**/*.json"]` and `entry = ["index.html"]` are not reported while such files exist; the disk
+check skips `node_modules` and `.git` unless the pattern names them. A pattern of a workspace glob key such as
+`packages/*` is reported once, under the key as written, when it matches in none of the packages the key selects.
+Negated patterns and patterns that leave the package (`../`) are not judged. An `ignore-files` pattern is reported
+when it hides no file `unused-files` would report and matches no file on disk (while that rule runs). `[rules] stale-js-config = "error"` is knip's `--treat-config-hints-as-errors` (`skif migrate` writes `warn` unless `--strict-hints` is given). An
 `ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off, and the
 dependency lists are not judged when a package has entry files skif cannot determine. It also reports knip's tag
 hints: an `ignore-tags` tag, or `@internal` with `production`, on an export or member that is used anyway (while
