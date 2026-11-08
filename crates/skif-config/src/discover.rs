@@ -492,7 +492,30 @@ fn checked_root(root: &Path) -> Result<PathBuf, ConfigError> {
 
 /// `path` without `.` components and with `..` resolved lexically; a symlink is not followed, so a cycle through one
 /// is only caught by the depth limit.
+///
+/// A path already spelled that way, as the member directories a workspace lists are, is copied as it is: rebuilding
+/// it a component at a time was a visible part of probing thousands of them.
 fn normalize(path: &Path) -> PathBuf {
+    if is_normal(path) {
+        return path.to_path_buf();
+    }
+    rebuild(path)
+}
+
+/// Whether [`rebuild`] would spell `path` byte for byte as it is: on a platform whose only separator is `/`, a path
+/// without an empty (`a//b`, `a/`), `.` or `..` component.
+fn is_normal(path: &Path) -> bool {
+    !cfg!(windows)
+        && path
+            .as_os_str()
+            .as_encoded_bytes()
+            .split(|&byte| byte == b'/')
+            .enumerate()
+            .all(|(index, part)| (index == 0 || !part.is_empty()) && part != b"." && part != b"..")
+}
+
+/// [`normalize`] a component at a time.
+fn rebuild(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {
         match component {
@@ -508,4 +531,31 @@ fn normalize(path: &Path) -> PathBuf {
         }
     }
     normalized
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_normal_path_is_kept_as_written() {
+        for path in ["/repo/packages/a", "/repo", "repo/a", "a", ""] {
+            let path = Path::new(path);
+            assert!(is_normal(path), "{path:?}");
+            assert_eq!(normalize(path).as_os_str(), rebuild(path).as_os_str(), "{path:?}");
+        }
+        for path in [
+            "/",
+            "/repo//a",
+            "/repo/a/",
+            "/repo/./a",
+            "/repo/a/..",
+            "./a",
+            "../a",
+            "a/.",
+        ] {
+            assert!(!is_normal(Path::new(path)), "{path}");
+        }
+    }
 }
