@@ -1,4 +1,4 @@
-//! End-to-end test of `skif lsp`, the language server of ADR 0056, over a scripted stdin.
+//! End-to-end test of `skif lsp`, the language server of ADR 0056 and ADR 0066, over a scripted stdin.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -44,9 +44,7 @@ fn opening_a_manifest_publishes_the_root_diagnostics() {
     let input = framed(&[
         json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "processId": null, "rootUri": null, "capabilities": {} } }),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
-        json!({ "jsonrpc": "2.0", "method": "textDocument/didOpen", "params": { "textDocument": {
-            "uri": file_uri(&manifest), "languageId": "json", "version": 1, "text": ""
-        } } }),
+        did_open(&manifest, 1, &std::fs::read_to_string(&manifest).unwrap()),
         json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
         json!({ "jsonrpc": "2.0", "method": "exit" }),
     ]);
@@ -55,6 +53,8 @@ fn opening_a_manifest_publishes_the_root_diagnostics() {
     let messages = unframed(&result.stdout);
 
     assert_eq!(messages[0]["id"], 1);
+    // Full document sync: every change carries the whole text.
+    assert_eq!(messages[0]["result"]["capabilities"]["textDocumentSync"]["change"], 1);
     assert_eq!(
         messages[0]["result"]["capabilities"]["textDocumentSync"]["save"]["includeText"],
         false
@@ -103,15 +103,34 @@ fn a_malformed_frame_is_reported_on_stderr_and_the_server_exits() {
     assert!(result.stderr.contains("exiting"), "{}", result.stderr);
 }
 
-/// The `initialize`, `initialized` and `didOpen` messages of a session on `file`.
-fn opened(file: &std::path::Path) -> Vec<Value> {
+/// A `didOpen` of `file` with `text` at `version`.
+fn did_open(file: &std::path::Path, version: i64, text: &str) -> Value {
+    json!({ "jsonrpc": "2.0", "method": "textDocument/didOpen", "params": { "textDocument": {
+        "uri": file_uri(file), "languageId": "json", "version": version, "text": text
+    } } })
+}
+
+/// A full-sync `didChange` of `file` to `text` at `version`.
+fn did_change(file: &std::path::Path, version: i64, text: &str) -> Value {
+    json!({ "jsonrpc": "2.0", "method": "textDocument/didChange", "params": {
+        "textDocument": { "uri": file_uri(file), "version": version },
+        "contentChanges": [{ "text": text }]
+    } })
+}
+
+/// The `initialize` and `initialized` messages, with the client's `capabilities`.
+fn initialized(capabilities: &Value) -> Vec<Value> {
     vec![
-        json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "processId": null, "rootUri": null, "capabilities": {} } }),
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "processId": null, "rootUri": null, "capabilities": capabilities } }),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
-        json!({ "jsonrpc": "2.0", "method": "textDocument/didOpen", "params": { "textDocument": {
-            "uri": file_uri(file), "languageId": "json", "version": 1, "text": ""
-        } } }),
     ]
+}
+
+/// The `initialize`, `initialized` and `didOpen` messages of a session on `file`, opened as saved.
+fn opened(file: &std::path::Path) -> Vec<Value> {
+    let mut messages = initialized(&json!({}));
+    messages.push(did_open(file, 1, &std::fs::read_to_string(file).unwrap()));
+    messages
 }
 
 /// A `textDocument/codeAction` request for `file` at the 0-based `line` and `character`, with `context.only`.
@@ -227,24 +246,187 @@ fn an_unsafe_fix_is_labelled_and_left_out_of_fix_all() {
     assert_eq!(apply(&before, edits), before.replace("6.0.0", "7.0.0"));
 }
 
+/// The diagnostics of the last `publishDiagnostics` for `file` among `messages`.
+fn last_published<'a>(messages: &'a [Value], file: &std::path::Path) -> &'a Value {
+    let uri = file_uri(file);
+    &messages
+        .iter()
+        .rev()
+        .find(|message| message["method"] == "textDocument/publishDiagnostics" && message["params"]["uri"] == uri)
+        .unwrap_or_else(|| panic!("nothing published for {uri}: {messages:#?}"))["params"]["diagnostics"]
+}
+
 #[test]
-fn a_document_with_unsaved_changes_gets_no_fixes_until_it_is_saved() {
+fn an_unsaved_change_is_linted_before_shutdown_is_answered() {
+    let dir = fixture("dirty");
+    let root = dir.path().canonicalize().unwrap();
+    let manifest = root.join("packages").join("b").join("package.json");
+    let saved = std::fs::read_to_string(&manifest).unwrap();
+    let typed = saved.replace("  }\n}", "  },\n  \"devDependencies\": {}\n}");
+    assert_ne!(typed, saved);
+    let mut messages = initialized(&json!({}));
+    messages.push(did_open(&manifest, 1, &saved));
+    messages.push(did_change(&manifest, 2, &typed));
+    messages.push(json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }));
+    messages.push(json!({ "jsonrpc": "2.0", "method": "exit" }));
+    let result = run(skif().arg("lsp").write_stdin(framed(&messages)));
+    assert_eq!(result.code, 0, "{}", result.stderr);
+    let messages = unframed(&result.stdout);
+
+    // The lint of the change publishes before the answer to `shutdown`, the last message.
+    assert_eq!(messages.last().unwrap()["id"], 2);
+    let diagnostics = last_published(&messages, &manifest).as_array().unwrap();
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    assert_eq!(diagnostics[0]["code"], "empty-dependencies");
+    // `"devDependencies": {}` on line 7 of the buffer; the saved file has six lines.
+    assert_eq!(
+        diagnostics[0]["range"],
+        json!({ "start": { "line": 6, "character": 2 }, "end": { "line": 6, "character": 23 } })
+    );
+    // The server never writes: the file is as saved.
+    assert_eq!(std::fs::read_to_string(&manifest).unwrap(), saved);
+}
+
+#[test]
+fn a_fix_for_an_unsaved_buffer_edits_the_buffer_until_the_buffer_changes() {
     let dir = fixture("dirty");
     let root = dir.path().canonicalize().unwrap();
     let manifest = root.join("packages").join("a").join("package.json");
-    let uri = file_uri(&manifest);
-    let mut messages = opened(&manifest);
-    messages.push(json!({ "jsonrpc": "2.0", "method": "textDocument/didChange", "params": {
-        "textDocument": { "uri": uri, "version": 2 },
-        "contentChanges": [{ "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 0 } }, "text": " " }]
-    } }));
-    messages.push(code_action(2, &manifest, (6, 5), None));
-    messages.push(
-        json!({ "jsonrpc": "2.0", "method": "textDocument/didSave", "params": { "textDocument": { "uri": uri } } }),
-    );
-    messages.push(code_action(3, &manifest, (6, 5), None));
+    let saved = std::fs::read_to_string(&manifest).unwrap();
+    // One line more than the saved file, so `"devDependencies": {}` moves to line 8 (0-based 7).
+    let buffer = saved.replace("  \"version\"", "  \"description\": \"unsaved\",\n  \"version\"");
+    let mut messages = initialized(&json!({}));
+    messages.push(did_open(&manifest, 1, &buffer));
+    messages.push(code_action(2, &manifest, (7, 5), Some(&["quickfix"])));
+    // A further change with no lint in between: the plan's positions may be stale, so nothing is offered.
+    messages.push(did_change(&manifest, 2, &format!("{buffer}\n")));
+    messages.push(code_action(3, &manifest, (7, 5), Some(&["quickfix"])));
     let results = session(messages);
 
-    assert_eq!(results[&2], json!([]));
-    assert_eq!(results[&3].as_array().unwrap().len(), 2, "{:#?}", results[&3]);
+    let actions = results[&2].as_array().unwrap();
+    assert_eq!(actions.len(), 1, "{actions:#?}");
+    let edits = actions[0]["edit"]["changes"][file_uri(&manifest)].as_array().unwrap();
+    assert_eq!(
+        apply(&buffer, edits),
+        "{\n  \"name\": \"@cli/a\",\n  \"description\": \"unsaved\",\n  \"version\": \"0.0.0\",\n  \"dependencies\": {\n    \"is-number\": \"7.0.0\"\n  }\n}\n"
+    );
+    assert_eq!(results[&3], json!([]));
+    assert_eq!(std::fs::read_to_string(&manifest).unwrap(), saved);
+}
+
+#[test]
+fn with_document_changes_an_edit_carries_the_document_version() {
+    let dir = fixture("dirty");
+    let root = dir.path().canonicalize().unwrap();
+    let manifest = root.join("packages").join("a").join("package.json");
+    let saved = std::fs::read_to_string(&manifest).unwrap();
+    let mut messages = initialized(&json!({ "workspace": { "workspaceEdit": { "documentChanges": true } } }));
+    messages.push(did_open(&manifest, 7, &saved));
+    messages.push(code_action(2, &manifest, (6, 5), None));
+    let results = session(messages);
+
+    let actions = results[&2].as_array().unwrap();
+    assert_eq!(actions.len(), 2, "{actions:#?}");
+    for action in actions {
+        let changes = action["edit"]["documentChanges"].as_array().unwrap();
+        assert_eq!(changes.len(), 1, "{action:#?}");
+        assert_eq!(
+            changes[0]["textDocument"],
+            json!({ "uri": file_uri(&manifest), "version": 7 })
+        );
+        assert!(action["edit"].get("changes").is_none(), "{action:#?}");
+        let after = apply(&saved, changes[0]["edits"].as_array().unwrap());
+        assert!(!after.contains("devDependencies"), "{after}");
+    }
+}
+
+/// Reads one framed message from the server's stdout.
+fn read_frame(reader: &mut impl std::io::BufRead) -> Value {
+    let mut length = 0;
+    loop {
+        let mut line = String::new();
+        assert_ne!(reader.read_line(&mut line).unwrap(), 0, "the server closed its output");
+        let line = line.trim_end();
+        if line.is_empty() {
+            break;
+        }
+        if let Some(value) = line.strip_prefix("Content-Length: ") {
+            length = value.parse().unwrap();
+        }
+    }
+    let mut body = vec![0; length];
+    reader.read_exact(&mut body).unwrap();
+    serde_json::from_slice(&body).unwrap()
+}
+
+#[test]
+fn a_burst_of_changes_is_linted_once_the_root_is_quiet() {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+
+    let dir = fixture("dirty");
+    let root = dir.path().canonicalize().unwrap();
+    let manifest = root.join("packages").join("b").join("package.json");
+    let saved = std::fs::read_to_string(&manifest).unwrap();
+    let typed = saved.replace("  }\n}", "  },\n  \"devDependencies\": {}\n}");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_skif"))
+        .arg("lsp")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut messages = initialized(&json!({}));
+    messages.push(did_open(&manifest, 1, &saved));
+    // A burst: three changes, the last of which introduces the problem.
+    messages.push(did_change(&manifest, 2, &saved.replace("0.0.0", "0.0.1")));
+    messages.push(did_change(&manifest, 3, &saved));
+    messages.push(did_change(&manifest, 4, &typed));
+    stdin.write_all(&framed(&messages)).unwrap();
+    stdin.flush().unwrap();
+    // Without a request or the end of the input, only the debounce timer can lint the change: wait for it.
+    // Every lint of the root publishes the problems of `packages/a`, before those of `packages/b`.
+    let uri = file_uri(&manifest);
+    let other = file_uri(&root.join("packages").join("a").join("package.json"));
+    let mut lints = 0;
+    loop {
+        let message = read_frame(&mut stdout);
+        if message["method"] != "textDocument/publishDiagnostics" {
+            continue;
+        }
+        if message["params"]["uri"] == other {
+            lints += 1;
+        }
+        if message["params"]["uri"] == uri {
+            assert_eq!(
+                message["params"]["diagnostics"][0]["code"], "empty-dependencies",
+                "{message:#?}"
+            );
+            break;
+        }
+    }
+    // The lint of the open and one lint for the whole burst.
+    assert_eq!(lints, 2);
+    stdin
+        .write_all(&framed(&[
+            code_action(2, &manifest, (6, 5), Some(&["quickfix"])),
+            json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown" }),
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        ]))
+        .unwrap();
+    drop(stdin);
+    let mut actions = Value::Null;
+    loop {
+        let message = read_frame(&mut stdout);
+        if message["id"] == 2 {
+            actions = message["result"].clone();
+        }
+        if message["id"] == 3 {
+            break;
+        }
+    }
+    assert!(child.wait().unwrap().success());
+    let edits = actions[0]["edit"]["changes"][&uri].as_array().unwrap();
+    assert_eq!(apply(&typed, edits), saved);
 }
