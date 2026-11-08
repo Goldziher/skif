@@ -104,6 +104,9 @@ All notable changes to this project are documented here. The format follows
   unpaired backtick does not pair with one past a blank line, and a template literal in a `{}` expression is not code,
   so the components and members they would have hidden count as used
   ([#38](https://github.com/Goldziher/skif/issues/38)).
+- Stencil's styles per mode (`styleUrls: { ios: 'a.ios.css', md: ['a.md.css'] }`) are followed like a `styleUrls`
+  array, so the packages those stylesheets import are no longer unused
+  ([#38](https://github.com/Goldziher/skif/issues/38)).
 
 Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/19)):
 
