@@ -11,6 +11,27 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `skif list` and `skif json` show every dependency instance the version groups and the catalog govern, with its
+  version group, specifier and state, as syncpack's `list` and `json` do; `json` prints one object per line with
+  syncpack's `statusCode` names ([#35](https://github.com/Goldziher/skif/issues/35)).
+- `--dry-run` with `--fix` or `--fix-unsafe` prints the planned changes as a unified diff, writes no manifest and runs
+  no install (reports to `--output` or `FORMAT=FILE` files are still written); with `--format json` the `fix` object
+  carries the plan's `changes` and their diffs ([#35](https://github.com/Goldziher/skif/issues/35)).
+- `--dependency`, `--dependency-types`, `--specifier-types` and `--source` narrow the version-group and semver-group
+  rules (and only those) of a lint run, `skif list` and `skif json` to the instances they select, as syncpack's
+  filters do; `--dependency` is syncpack's `--dependencies`, renamed because knip's `--dependencies` shortcut belongs
+  to the same command ([#35](https://github.com/Goldziher/skif/issues/35)).
+- The `semver-range-only` version-group policy: versions may differ and only the range the semver groups require is
+  checked and fixed. `skif migrate` writes it for syncpack's `semverRangeOnly`, which it used to turn into `ignored`,
+  dropping the range check ([#35](https://github.com/Goldziher/skif/issues/35)).
+- The `name~version` custom type strategy reads the dependency name from `name-path` and the version from `path`;
+  `skif migrate` translates syncpack's `name~version` custom types ([#35](https://github.com/Goldziher/skif/issues/35)).
+- The `packages` of `lerna.json` declare the workspace members when nothing else does, and its `npmClient` names the
+  package manager, as syncpack reads them; the file is read only then, and an invalid one declares nothing
+  ([#35](https://github.com/Goldziher/skif/issues/35)).
+- [ADR 0057](adrs/0057-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md) records these
+  additions and what of syncpack stays out: per-group and per-state severity, `dependencyGroups`, a scoped `catalog`
+  policy, custom type `source`, catalog entries as instances, `.x` ranges and `--log-levels`.
 - knip's run-time filters on the lint command ([#36](https://github.com/Goldziher/skif/issues/36)):
   - `--workspace <NAME|DIR>` (`-W`) reports only the findings of the selected workspace packages; findings of no
     package belong to the root.

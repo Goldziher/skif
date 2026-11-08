@@ -1,0 +1,8 @@
+[[custom-types]]
+name = "runtime"
+path = "volta.toolVersion"
+name-path = "volta.tool"
+strategy = "name~version"
+
+[policy]
+dependency-types = ["prod", "dev", "runtime"]
