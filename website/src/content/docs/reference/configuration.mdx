@@ -360,8 +360,10 @@ A dependency counts as listed when the package's own `package.json`, the `packag
 it, or any `package.json` above the analysed root up to the git repository root lists it; the same manifests enable
 plugins.
 
-A directory below a package with a `package.json` of its own that is not a workspace member is a separate project,
-often a root of its own in a recursive run (a `build` or `scripts` folder with its own lockfile). Its files are not
+A directory below a package with a `package.json` of its own that is not an analysed workspace member (one excluded
+with `ignore-packages` included) is a separate project, often a root of its own in a recursive run (a `build` or
+`scripts` folder with its own lockfile); a `package.json` holding only `type`, `sideEffects` or `imports` is a
+marker for the files below it and makes no project. The files of a separate project are not
 the analysed root's: when a script or an import of the root reaches one, that file is not reported in the root, and
 its imports are neither unlisted there nor uses of the root's dependencies. The nested project judges the file against
 its own manifest when it is analysed as a root of its own. In the other direction, a file of the

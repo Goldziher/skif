@@ -109,6 +109,20 @@ impl Module {
     }
 }
 
+/// The directories strictly between the file `abs` and the package directory `base` that could hold a project of
+/// their own, innermost first. `None` when `abs` is not below `base` or lies below a `node_modules` directory, whose
+/// files are installed code, not projects.
+fn project_dir_candidates<'p>(abs: &'p Path, base: &Path) -> Option<Vec<&'p Path>> {
+    if !abs.starts_with(base) {
+        return None;
+    }
+    let between: Vec<&Path> = abs.ancestors().skip(1).take_while(|dir| *dir != base).collect();
+    let installed = between
+        .iter()
+        .any(|dir| dir.file_name().is_some_and(|name| name == "node_modules"));
+    (!installed).then_some(between)
+}
+
 /// Every module reachable from the entry files.
 #[derive(Debug, Clone, Default)]
 pub struct ModuleGraph {
@@ -378,16 +392,9 @@ impl<'a> Builder<'a> {
             .iter()
             .find(|(_, id)| *id == owner)
             .map_or(inputs.root, |(dir, _)| dir.as_path());
-        if !abs.starts_with(base) {
+        let Some(between) = project_dir_candidates(abs, base) else {
             return false;
-        }
-        let between: Vec<&Path> = abs.ancestors().skip(1).take_while(|dir| *dir != base).collect();
-        if between
-            .iter()
-            .any(|dir| dir.file_name().is_some_and(|name| name == "node_modules"))
-        {
-            return false;
-        }
+        };
         between.into_iter().any(|dir| {
             *self
                 .project_dirs
@@ -524,5 +531,29 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf]) -> ModuleGraph {
         modules: builder.modules,
         index: builder.index,
         imported_by: imported_by.into_iter().map(|set| set.into_iter().collect()).collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_directories_between_a_file_and_its_package_may_be_projects_unless_installed() {
+        let base = Path::new("/ws");
+        assert_eq!(
+            project_dir_candidates(Path::new("/ws/build/npm/postinstall.ts"), base),
+            Some(vec![Path::new("/ws/build/npm"), Path::new("/ws/build")])
+        );
+        assert_eq!(project_dir_candidates(Path::new("/ws/main.ts"), base), Some(Vec::new()));
+        assert_eq!(
+            project_dir_candidates(Path::new("/ws/node_modules/tool/cli.js"), base),
+            None
+        );
+        assert_eq!(
+            project_dir_candidates(Path::new("/ws/a/node_modules/@s/t/x.js"), base),
+            None
+        );
+        assert_eq!(project_dir_candidates(Path::new("/other/x.ts"), base), None);
     }
 }
