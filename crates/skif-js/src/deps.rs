@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use serde_json::Value;
-use skif_core::{FileSystem, Span};
+use skif_core::{DependencyKind, FileSystem, Span};
 use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
@@ -174,6 +174,27 @@ const BINARY_PACKAGES: &[(&str, &str)] = &[
     ("openapi-generator-cli", "@openapitools/openapi-generator-cli"),
     ("pm2-runtime", "pm2"),
 ];
+
+/// Where a package import is written, as [`DependencyUsage::handle_import`] judges it.
+struct ImportSite {
+    /// The package whose file imports it.
+    owner: PackageId,
+    module: ModuleId,
+    span: Option<Span>,
+    /// It brings in types only and is not a re-export, so an `@types` package can stand in for the package.
+    type_only: bool,
+    /// The importing file is a declaration file (`.d.ts`, `.d.mts`, `.d.cts`).
+    declaration: bool,
+}
+
+/// Whether `path` is a TypeScript declaration file.
+fn is_declaration_file(path: &Path) -> bool {
+    path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
+        [".d.ts", ".d.mts", ".d.cts"]
+            .iter()
+            .any(|suffix| name.ends_with(suffix))
+    })
+}
 
 /// An import of a package the manifest does not list.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -418,6 +439,12 @@ fn package_ancestors(workspace: &Workspace, isolate: bool) -> Vec<Vec<PackageId>
 pub struct DependencyUsage {
     referenced: Vec<HashSet<String>>,
     listed: Vec<HashSet<String>>,
+    /// For every package, the names its manifest lists in `dependencies` and `peerDependencies`: what production
+    /// code may import in strict mode.
+    production_listed: Vec<HashSet<String>>,
+    /// knip's strict mode (`skif --strict`): type-only imports use nothing, and production code uses only the
+    /// `dependencies` and `peerDependencies` of its own package.
+    strict: bool,
     /// For every package, the packages whose directory contains it, innermost first and the root last.
     ancestors: Vec<Vec<PackageId>>,
     /// For every package, the listed dependencies whose binaries are known: they are installed or in the lockfile.
@@ -451,6 +478,8 @@ impl DependencyUsage {
         let mut usage = Self {
             referenced: vec![HashSet::new(); count],
             listed: vec![HashSet::new(); count],
+            production_listed: vec![HashSet::new(); count],
+            strict: setup.isolate_workspaces,
             known_bins: vec![HashSet::new(); count],
             other_jsx_runtime: vec![false; count],
             ancestors: package_ancestors(workspace, setup.isolate_workspaces),
@@ -490,6 +519,12 @@ impl DependencyUsage {
         for &(id, package) in &members {
             for entry in &package.dependencies {
                 self.listed[id.index()].insert(entry.name.clone());
+                if matches!(
+                    entry.kind,
+                    DependencyKind::Dependencies | DependencyKind::PeerDependencies
+                ) {
+                    self.production_listed[id.index()].insert(entry.name.clone());
+                }
             }
         }
         // The installed manifests are looked up for every package on its own thread: each lookup walks up the
@@ -631,9 +666,21 @@ impl DependencyUsage {
                         }
                         continue;
                     }
+                    if self.strict && resolved.type_only {
+                        // knip's strict mode skips type-only imports of packages: they neither use a dependency
+                        // nor need one listed.
+                        continue;
+                    }
                     let type_only = resolved.type_only && kind != Some(ImportKind::ExportFrom);
                     let span = module.info.imports.get(resolved.import).map(|import| import.span);
-                    self.handle_import(workspace, module.owner, name, type_only, module.id, span);
+                    let site = ImportSite {
+                        owner: module.owner,
+                        module: module.id,
+                        span,
+                        type_only,
+                        declaration: is_declaration_file(&module.abs),
+                    };
+                    self.handle_import(workspace, name, &site);
                 } else if let Some(import) = module.info.imports.get(resolved.import) {
                     // A path alias can stand in for a package the manifest lists: the alias serves development,
                     // the listed dependency is what consumers install.
@@ -661,8 +708,14 @@ impl DependencyUsage {
                 self.reference_listed(module.owner, name);
             }
             if let Some(source) = module.info.jsx_import_source.as_deref().and_then(package_name) {
-                let span = module.info.jsx_import_source_span;
-                self.handle_import(workspace, module.owner, &source, false, module.id, span);
+                let site = ImportSite {
+                    owner: module.owner,
+                    module: module.id,
+                    span: module.info.jsx_import_source_span,
+                    type_only: false,
+                    declaration: is_declaration_file(&module.abs),
+                };
+                self.handle_import(workspace, &source, &site);
             } else if module.info.has_jsx
                 && !self.other_jsx_runtime[module.owner.index()]
                 && let Some(found) = self.find_listed(module.owner, "react")
@@ -673,15 +726,22 @@ impl DependencyUsage {
         }
     }
 
-    fn handle_import(
-        &mut self,
-        workspace: &Workspace,
-        owner: PackageId,
-        name: &str,
-        type_only: bool,
-        module: ModuleId,
-        span: Option<Span>,
-    ) {
+    /// Where an import of a package may be listed. In strict mode, production code (any file but a declaration file,
+    /// whose imports knip treats as type-only) may import only what its own package lists in `dependencies` or
+    /// `peerDependencies`, as in knip's `DependencyDeputy.isInDependencies`.
+    fn find_listed_for(&self, site: &ImportSite, name: &str) -> Option<Listed> {
+        if !self.strict || site.declaration {
+            return self.find_listed(site.owner, name);
+        }
+        if self.production_listed[site.owner.index()].contains(name) {
+            Some(Listed::Package(site.owner))
+        } else {
+            self.external_listed.contains(name).then_some(Listed::External)
+        }
+    }
+
+    fn handle_import(&mut self, workspace: &Workspace, name: &str, site: &ImportSite) {
+        let owner = site.owner;
         if RUNTIME_PACKAGES.contains(&name) {
             return;
         }
@@ -691,22 +751,25 @@ impl DependencyUsage {
         if package.name.as_deref() == Some(name) {
             return;
         }
-        let types = types_package(name).and_then(|types| self.find_listed(owner, &types).map(|found| (found, types)));
+        let types =
+            types_package(name).and_then(|types| self.find_listed_for(site, &types).map(|found| (found, types)));
         if let Some((found, types)) = &types {
             self.reference(*found, types);
         }
-        if let Some(found) = self.find_listed(owner, name) {
+        if let Some(found) = self.find_listed_for(site, name) {
             self.reference(found, name);
             return;
         }
-        if type_only && types.is_some() {
+        if site.type_only && types.is_some() {
             return;
         }
-        // A peer dependency of a listed package is provided by whoever installs that package.
+        // A peer dependency of a listed package is provided by whoever installs that package; strict mode, like
+        // knip's, does not count on that.
         let scopes = std::iter::once(owner).chain(self.ancestors[owner.index()].iter().copied());
-        if scopes
-            .into_iter()
-            .any(|scope| self.hosts[scope.index()].contains_key(name))
+        if !self.strict
+            && scopes
+                .into_iter()
+                .any(|scope| self.hosts[scope.index()].contains_key(name))
         {
             return;
         }
@@ -719,15 +782,15 @@ impl DependencyUsage {
         {
             return;
         }
-        if package.private && self.members.contains(name) {
+        if !self.strict && package.private && self.members.contains(name) {
             self.reference_in(owner, name);
             return;
         }
         self.unlisted.push(UnlistedImport {
             package: owner,
             name: name.to_owned(),
-            module,
-            span,
+            module: site.module,
+            span: site.span,
         });
     }
 

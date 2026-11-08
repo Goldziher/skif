@@ -108,6 +108,21 @@ fn strict_uses_only_each_packages_own_dependencies() {
     assert!(findings(&strict).is_superset(&findings(&production)));
 }
 
+#[test]
+fn strict_counts_required_peers_and_skips_type_only_imports() {
+    let dir = fixture("strict");
+    for mode in [None, Some("--production")] {
+        let result = run(skif().args(["--format", "json"]).args(mode).arg(dir.path()));
+        assert_eq!(result.code, 0, "{mode:?}: {}{}", result.stdout, result.stderr);
+    }
+    // `type-dep` is only imported for its types and `unused-peer` is a required peer nothing imports; `dev-runtime`
+    // is imported at run time but listed only in `devDependencies`. The type-only import of `dev-types`, the import
+    // in `types.d.ts` and the optional peer are not reported.
+    let strict = run(skif().args(["--color", "never", "--strict"]).arg(dir.path()));
+    assert_eq!(strict.code, 1, "{}{}", strict.stdout, strict.stderr);
+    insta::assert_snapshot!("strict_human", redact(&strict.stdout, dir.path()));
+}
+
 fn rules(report: &Value) -> BTreeSet<String> {
     findings(report).into_iter().map(|(rule, _)| rule).collect()
 }
