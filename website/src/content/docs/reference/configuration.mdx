@@ -347,8 +347,9 @@ their own file always count as used. **`ignore-members`** lists enum and namespa
 **`stale-js-config`** (a warning) reports `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
 `ignore-workspaces` entries that matched nothing in the run, and `[js.workspaces]` keys that select no package, like
 knip's configuration hints. `[rules] stale-js-config = "error"` is knip's `--treat-config-hints-as-errors` (`skif migrate` writes `warn` unless `--strict-hints` is given). An
-`ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off, and the
-dependency lists are not judged when a package has entry files skif cannot determine.
+`ignore-dependencies` or `ignore-unresolved` entry is not judged when a rule that consults it is off. The
+`ignore-dependencies` list of a package whose entry files skif cannot determine is not judged; the global list is
+judged over the other packages, and an entry that matches a dependency such a package lists is never called stale.
 
 `discovery` chooses how source files are found. `auto` (the default) lists the files from the git index when the
 analysed root is in a git work tree and checks each directory with one `stat` instead of walking it: a directory
@@ -367,6 +368,21 @@ reported. The `.gitignore` rules, hidden directories and `[js] ignore` apply to 
 A dependency counts as listed when the package's own `package.json`, the `package.json` of a package that contains
 it, or any `package.json` above the analysed root up to the git repository root lists it; the same manifests enable
 plugins.
+
+A directory below a package with a `package.json` of its own that is not an analysed workspace member (one excluded
+with `ignore-packages` included) is a separate project, often a root of its own in a recursive run (a `build` or
+`scripts` folder with its own lockfile); a `package.json` holding only `type`, `sideEffects` or `imports` is a
+marker for the files below it and makes no project. The files of a separate project are not
+the analysed root's: when a script or an import of the root reaches one, that file is not reported in the root, and
+its imports are neither unlisted there nor uses of the root's dependencies. The nested project judges the file against
+its own manifest when it is analysed as a root of its own. In the other direction, a file of the
+analysed root that a script of a `package.json` above it runs (up to the git repository root) is an entry, so
+`node build/npm/postinstall.ts` in the outer project keeps `build/npm/postinstall.ts` used in the nested root at
+`build` (except in production mode, where scripts give no entries).
+
+A package with no source file at or below its directory, no entry and no script, such as a `remote/package.json` that
+only lists what code elsewhere in the repository installs it for, has no code skif could check its dependencies
+against, so they are not judged, as for a package whose entry files skif cannot determine.
 
 The default `project` globs include `.vue`, `.svelte` and `.astro` files. Their `<script>` blocks (`<script setup>`,
 `<script context="module">`, any `lang="ts"` or `lang="tsx"`) and the Astro frontmatter are analysed as modules, with

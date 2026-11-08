@@ -85,7 +85,7 @@ const MARKER_FIELDS: &[&str] = &["type", "sideEffects", "imports"];
 
 /// Whether `dir/package.json` is a real package: a manifest holding only marker fields such as `{"type":"module"}`
 /// is not. An unreadable or invalid manifest counts as a package.
-fn is_package_manifest(fs: &dyn FileSystem, dir: &Path) -> bool {
+pub(crate) fn is_package_manifest(fs: &dyn FileSystem, dir: &Path) -> bool {
     let Ok(text) = fs.read_to_string(&dir.join("package.json")) else {
         return true;
     };

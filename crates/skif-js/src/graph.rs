@@ -9,7 +9,7 @@ use skif_core::timing::Tally;
 use skif_js_syntax::{ImportKind, ModuleInfo, ParseOptions, is_stylesheet, parse_module, parse_stylesheet};
 use skif_workspace::{PackageId, map_ordered};
 
-use crate::discover::{Candidate, relative};
+use crate::discover::{Candidate, is_package_manifest, relative};
 use crate::resolve::{ModuleResolver, Resolved};
 use crate::setup::Setup;
 use crate::source_scan::add_textual_imports;
@@ -64,6 +64,7 @@ pub struct ResolvedImport {
 
 /// A parsed file of the graph.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools, reason = "independent facts about one file")]
 pub struct Module {
     /// Position in the graph.
     pub id: ModuleId,
@@ -75,8 +76,12 @@ pub struct Module {
     pub owner: PackageId,
     /// Matches the project globs of its package.
     pub in_project: bool,
-    /// Matches an `ignore` glob: issues in this file are not reported.
+    /// Matches an `ignore` glob, or is [`Module::foreign`]: issues in this file are not reported.
     pub ignored: bool,
+    /// Belongs to another project: a directory between it and its package holds a `package.json` of its own, such as
+    /// a nested root. That project judges the file against its own manifest, so its imports use no dependency of
+    /// `owner` either.
+    pub foreign: bool,
     /// Is an entry file; its exports are public.
     pub is_entry: bool,
     /// What the file declares and references.
@@ -102,6 +107,20 @@ impl Module {
             }
         })
     }
+}
+
+/// The directories strictly between the file `abs` and the package directory `base` that could hold a project of
+/// their own, innermost first. `None` when `abs` is not below `base` or lies below a `node_modules` directory, whose
+/// files are installed code, not projects.
+fn project_dir_candidates<'p>(abs: &'p Path, base: &Path) -> Option<Vec<&'p Path>> {
+    if !abs.starts_with(base) {
+        return None;
+    }
+    let between: Vec<&Path> = abs.ancestors().skip(1).take_while(|dir| *dir != base).collect();
+    let installed = between
+        .iter()
+        .any(|dir| dir.file_name().is_some_and(|name| name == "node_modules"));
+    (!installed).then_some(between)
 }
 
 /// Every module reachable from the entry files.
@@ -324,6 +343,9 @@ struct Builder<'a> {
     package_dirs: Vec<(PathBuf, PackageId)>,
     modules: Vec<Module>,
     index: HashMap<PathBuf, ModuleId>,
+    /// Whether a directory holds a real `package.json`, by directory: the files of one directory share their
+    /// ancestors, so each is checked once.
+    project_dirs: HashMap<PathBuf, bool>,
 }
 
 impl<'a> Builder<'a> {
@@ -348,6 +370,7 @@ impl<'a> Builder<'a> {
             package_dirs,
             modules: Vec::new(),
             index: HashMap::new(),
+            project_dirs: HashMap::new(),
         }
     }
 
@@ -356,6 +379,28 @@ impl<'a> Builder<'a> {
             .iter()
             .find(|(dir, _)| abs.starts_with(dir))
             .map_or(PackageId::ROOT, |(_, id)| *id)
+    }
+
+    /// Whether `abs`, a file that is no candidate, lies in a project of its own below the package `owner`: a
+    /// directory between the two holds a real `package.json`. Such a file is reached from this workspace (a script
+    /// runs it, a file imports it) but belongs to that project, often a nested root of the same run, which judges it
+    /// against its own manifest. Files below `node_modules` are installed code, not projects.
+    fn in_other_project(&mut self, abs: &Path, owner: PackageId) -> bool {
+        let inputs = self.inputs;
+        let base = self
+            .package_dirs
+            .iter()
+            .find(|(_, id)| *id == owner)
+            .map_or(inputs.root, |(dir, _)| dir.as_path());
+        let Some(between) = project_dir_candidates(abs, base) else {
+            return false;
+        };
+        between.into_iter().any(|dir| {
+            *self
+                .project_dirs
+                .entry(dir.to_path_buf())
+                .or_insert_with(|| inputs.fs.is_file(&dir.join("package.json")) && is_package_manifest(inputs.fs, dir))
+        })
     }
 
     /// The id of `abs`, creating an unparsed module on first sight. The flag is true for a new module.
@@ -374,7 +419,9 @@ impl<'a> Builder<'a> {
         let rel = relative(abs, inputs.root).unwrap_or_else(|| abs.to_string_lossy().into_owned());
         let setup = inputs.setup.package(owner);
         let package_rel = setup.and_then(|setup| relative(abs, &setup.dir));
-        let ignored = inputs.setup.global_ignore.matches_any(&rel)
+        let foreign = candidate.is_none() && self.in_other_project(abs, owner);
+        let ignored = foreign
+            || inputs.setup.global_ignore.matches_any(&rel)
             || setup
                 .zip(package_rel.as_deref())
                 .is_some_and(|(setup, rel)| setup.ignore.matches_any(rel));
@@ -389,6 +436,7 @@ impl<'a> Builder<'a> {
             owner,
             in_project,
             ignored,
+            foreign,
             is_entry: false,
             info: ModuleInfo::default(),
             parse_error: None,
@@ -483,5 +531,29 @@ pub(crate) fn build(inputs: &Inputs<'_>, entries: &[PathBuf]) -> ModuleGraph {
         modules: builder.modules,
         index: builder.index,
         imported_by: imported_by.into_iter().map(|set| set.into_iter().collect()).collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_directories_between_a_file_and_its_package_may_be_projects_unless_installed() {
+        let base = Path::new("/ws");
+        assert_eq!(
+            project_dir_candidates(Path::new("/ws/build/npm/postinstall.ts"), base),
+            Some(vec![Path::new("/ws/build/npm"), Path::new("/ws/build")])
+        );
+        assert_eq!(project_dir_candidates(Path::new("/ws/main.ts"), base), Some(Vec::new()));
+        assert_eq!(
+            project_dir_candidates(Path::new("/ws/node_modules/tool/cli.js"), base),
+            None
+        );
+        assert_eq!(
+            project_dir_candidates(Path::new("/ws/a/node_modules/@s/t/x.js"), base),
+            None
+        );
+        assert_eq!(project_dir_candidates(Path::new("/other/x.ts"), base), None);
     }
 }

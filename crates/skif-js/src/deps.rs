@@ -570,7 +570,8 @@ impl DependencyUsage {
 
     fn collect_imports(&mut self, workspace: &Workspace, setup: &Setup, graph: &ModuleGraph) {
         for module in graph.modules() {
-            if setup.package(module.owner).is_none() {
+            // A file of another project uses that project's dependencies, not those of the package that reaches it.
+            if module.foreign || setup.package(module.owner).is_none() {
                 continue;
             }
             for resolved in &module.imports {

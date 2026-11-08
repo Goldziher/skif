@@ -51,6 +51,19 @@ All notable changes to this project are documented here. The format follows
   longer hides unlisted imports of `x` across the workspace; only declarations in script files do
   ([#24](https://github.com/Goldziher/skif/issues/24)).
 
+Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/19)):
+
+- A file of a nested project (a directory with its own `package.json`, such as a nested root) that the outer root
+  reaches is not reported in the outer root: its imports are no longer unlisted there and no longer count as uses of
+  the outer root's dependencies. The nested root judges the file against its own manifest in its own run.
+- A file that a script of a `package.json` above a nested root runs (`node build/npm/postinstall.ts`) is an entry
+  of that root, so it and what it imports are no longer reported as unused files.
+- A package with no source file, no entry and no script no longer reports every dependency it lists as unused: there
+  is no code to judge them against.
+- `stale-js-config` no longer stays silent about every `ignore-dependencies` list when one package has entry files
+  skif cannot determine: the lists are judged over the other packages, and only a global entry matching a dependency
+  of such a package is spared.
+
 ## [0.1.1] - 2026-11-07
 
 ### Changed
