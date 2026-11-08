@@ -29,7 +29,9 @@ const DEPENDENCY_RULES: [&str; 5] = [
 /// It is the counterpart of knip's configuration hints. Raise it with `[rules] stale-js-config = "error"` to fail the
 /// run on them. It runs after every other `js` rule, because an entry is stale only when no rule used it, and it is
 /// silent about a list whose consumers did not all run (a disabled rule) or could not judge (a package whose entry
-/// files are not fully known).
+/// files are not fully known). The global `ignore-dependencies` is judged over the packages whose dependencies were
+/// judged: an entry is stale when it matched nothing there and matches no dependency that a package with unknown entry
+/// files lists, since such a dependency was never checked and the entry may be what keeps it quiet.
 pub struct StaleJsConfig;
 
 impl StaleJsConfig {
@@ -73,11 +75,15 @@ impl JsRule for StaleJsConfig {
                 .is_none_or(|enabled| ids.iter().all(|id| enabled.contains(*id)))
         };
         let judged = |id: PackageId| !analysis.is_skipped(id) && !analysis.entries_incomplete(id);
-        let dependencies_ran = ran(&DEPENDENCY_RULES)
-            && analysis
-                .workspace
-                .iter()
-                .all(|(id, _)| analysis.is_skipped(id) || !analysis.entries_incomplete(id));
+        let dependencies_ran = ran(&DEPENDENCY_RULES);
+        // The dependencies of a package whose entry files are unknown were not checked, so an entry matching one of
+        // them may be needed.
+        let unchecked_dependencies = analysis
+            .workspace
+            .iter()
+            .filter(|(id, _)| !analysis.is_skipped(*id) && analysis.entries_incomplete(*id))
+            .flat_map(|(_, package)| package.dependencies.iter().map(|entry| entry.name.as_str()))
+            .collect::<Vec<_>>();
         let unresolved_ran = ran(&["unresolved-imports"]);
         let binaries_ran = ran(&["unlisted-binaries"]);
 
@@ -85,7 +91,9 @@ impl JsRule for StaleJsConfig {
         if dependencies_ran {
             keyed.push((
                 "js.ignore-dependencies".to_owned(),
-                setup.global_ignore_dependencies.unmatched(),
+                setup
+                    .global_ignore_dependencies
+                    .unmatched_except(&unchecked_dependencies),
             ));
         }
         if binaries_ran {
