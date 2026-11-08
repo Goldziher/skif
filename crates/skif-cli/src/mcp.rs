@@ -2,6 +2,10 @@
 //!
 //! One JSON-RPC 2.0 message per line in each direction. The tools return the same documents the commands print
 //! with `--format json`; a tool that cannot run returns the `error` document with `isError`, as the protocol asks.
+//!
+//! Messages are handled one at a time, in order: a `tools/call` blocks the server until its lint finishes, the
+//! next message waits for it, and `notifications/cancelled` cannot stop a call already running. A line longer than
+//! [`MAX_LINE`] is refused with `-32600` without being buffered, and the server goes on with the next line.
 
 use std::io::{self, BufRead, Write};
 use std::path::Path;
@@ -22,6 +26,8 @@ const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
 const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
+/// The longest message line accepted; a longer one is skipped up to its newline instead of being buffered.
+const MAX_LINE: usize = 64 * 1024 * 1024;
 
 const INSTRUCTIONS: &str = "skif lints JavaScript and TypeScript monorepos: workspace and manifest rules, version \
 policies and unused or unlisted dependencies, files and exports. Call `lint` with the project directory to get the \
@@ -44,13 +50,32 @@ pub fn run() -> u8 {
 ///
 /// # Errors
 /// An error reading `input` or writing `output`.
-pub fn serve(input: impl BufRead, mut output: impl Write) -> io::Result<()> {
-    for line in input.lines() {
-        let line = line?;
-        if line.trim().is_empty() {
-            continue;
+pub fn serve(input: impl BufRead, output: impl Write) -> io::Result<()> {
+    serve_limited(input, output, MAX_LINE)
+}
+
+/// [`serve`] with lines longer than `limit` bytes refused, so a test can exercise the cap with a small one.
+fn serve_limited(mut input: impl BufRead, mut output: impl Write, limit: usize) -> io::Result<()> {
+    loop {
+        let mut bytes = Vec::new();
+        let cap = u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1);
+        if io::Read::take(&mut input, cap).read_until(b'\n', &mut bytes)? == 0 {
+            return Ok(());
         }
-        let Some(reply) = handle_line(&line) else {
+        let reply = if bytes.len() > limit && bytes.last() != Some(&b'\n') {
+            skip_line(&mut input)?;
+            Some(error_reply(
+                &Value::Null,
+                RpcError(INVALID_REQUEST, format!("a message longer than {limit} bytes")),
+            ))
+        } else {
+            let line = String::from_utf8(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            handle_line(&line)
+        };
+        let Some(reply) = reply else {
             continue;
         };
         let mut bytes = serde_json::to_vec(&reply).map_err(io::Error::other)?;
@@ -60,7 +85,22 @@ pub fn serve(input: impl BufRead, mut output: impl Write) -> io::Result<()> {
             result => result?,
         }
     }
-    Ok(())
+}
+
+/// Discards `input` up to and including the next newline, or to its end, without buffering it.
+fn skip_line(input: &mut impl BufRead) -> io::Result<()> {
+    loop {
+        let buffer = input.fill_buf()?;
+        if buffer.is_empty() {
+            return Ok(());
+        }
+        if let Some(newline) = buffer.iter().position(|&byte| byte == b'\n') {
+            input.consume(newline + 1);
+            return Ok(());
+        }
+        let length = buffer.len();
+        input.consume(length);
+    }
 }
 
 /// A JSON-RPC error: code and message.
@@ -97,6 +137,17 @@ fn handle_line(line: &str) -> Option<Value> {
         ));
     };
     let id = message.get("id").cloned();
+    let response = message.contains_key("result") || message.contains_key("error");
+    if !response
+        && id
+            .as_ref()
+            .is_some_and(|id| !(id.is_string() || id.is_number() || id.is_null()))
+    {
+        return Some(error_reply(
+            &Value::Null,
+            RpcError(INVALID_REQUEST, "`id` must be a string, a number or null".to_owned()),
+        ));
+    }
     if message.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
         return Some(error_reply(
             id.as_ref().unwrap_or(&Value::Null),
@@ -107,7 +158,7 @@ fn handle_line(line: &str) -> Option<Value> {
         // A response to a request this server never sends, or a malformed message: a request without a method
         // still gets an answer.
         return match id {
-            Some(id) if !message.contains_key("result") && !message.contains_key("error") => Some(error_reply(
+            Some(id) if !response => Some(error_reply(
                 &id,
                 RpcError(INVALID_REQUEST, "a request needs a `method`".to_owned()),
             )),
@@ -405,6 +456,41 @@ mod tests {
                 (json!(3), INVALID_REQUEST),
             ]
         );
+    }
+
+    #[test]
+    fn an_id_that_is_not_a_string_number_or_null_is_an_invalid_request() {
+        let replies = exchange(&[
+            json!({ "jsonrpc": "2.0", "id": { "a": 1 }, "method": "ping" }),
+            json!({ "jsonrpc": "2.0", "id": [1], "method": "ping" }),
+            json!({ "jsonrpc": "2.0", "id": true, "method": "ping" }),
+            json!({ "jsonrpc": "2.0", "id": "x", "method": "ping" }),
+        ]);
+        let error = json!({ "jsonrpc": "2.0", "id": null, "error": {
+            "code": INVALID_REQUEST, "message": "`id` must be a string, a number or null"
+        } });
+        assert_eq!(replies[..3], [error.clone(), error.clone(), error]);
+        assert_eq!(replies[3], json!({ "jsonrpc": "2.0", "id": "x", "result": {} }));
+    }
+
+    #[test]
+    fn a_line_above_the_cap_is_refused_and_the_next_line_is_served() {
+        let long = format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"pad\":\"{}\"}}",
+            "x".repeat(200)
+        );
+        let input = format!("{long}\n{}\n", json!({ "jsonrpc": "2.0", "id": 2, "method": "ping" }));
+        let mut output = Vec::new();
+        serve_limited(input.as_bytes(), &mut output, 64).unwrap();
+        let replies: Vec<Value> = String::from_utf8(output)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(replies.len(), 2, "{replies:?}");
+        assert_eq!(replies[0]["id"], Value::Null);
+        assert_eq!(replies[0]["error"]["code"], INVALID_REQUEST);
+        assert_eq!(replies[1], json!({ "jsonrpc": "2.0", "id": 2, "result": {} }));
     }
 
     #[test]
