@@ -1190,6 +1190,47 @@ fn tsconfig_paths_outdir_and_conditions() {
 }
 
 #[test]
+fn tsconfig_root_dir_is_inferred_from_include_and_files() {
+    let build_dirs = |tsconfig: &str| {
+        let results = resolve(&[("tsconfig.json", tsconfig)], &["typescript"]);
+        output(&results, "typescript")
+            .build_dirs
+            .iter()
+            .map(|dir| (dir.out_dir.clone(), dir.root_dir.clone()))
+            .collect::<Vec<_>>()
+    };
+    let pair = |out: &str, root: &str| vec![(out.to_owned(), root.to_owned())];
+    // `include` roots that share only the config directory.
+    assert_eq!(
+        build_dirs(r#"{"compilerOptions":{"outDir":"build/compiled"},"include":["sample","src","test"]}"#),
+        pair("build/compiled", "")
+    );
+    // The directory before the first wildcard, and declaration files left out.
+    assert_eq!(
+        build_dirs(
+            r#"{"compilerOptions":{"outDir":"./dist"},"include":["./src/**/*.ts","src/lib/*.tsx","types/*.d.ts"]}"#
+        ),
+        pair("dist", "src")
+    );
+    // A listed file stands for its directory.
+    assert_eq!(
+        build_dirs(r#"{"compilerOptions":{"outDir":"dist"},"files":["src/cli/main.ts","src/index.ts"]}"#),
+        pair("dist", "src")
+    );
+    // A pattern without a wildcard or a code extension is a directory, even with a dot in its name.
+    assert_eq!(
+        build_dirs(r#"{"compilerOptions":{"outDir":"dist"},"include":["packages/v1.2"]}"#),
+        pair("dist", "packages/v1.2")
+    );
+    // An explicit `rootDir` wins, and without `include` or `files` nothing is inferred.
+    assert_eq!(
+        build_dirs(r#"{"compilerOptions":{"outDir":"dist","rootDir":"lib"},"include":["src"]}"#),
+        pair("dist", "lib")
+    );
+    assert_eq!(build_dirs(r#"{"compilerOptions":{"outDir":"dist"}}"#), vec![]);
+}
+
+#[test]
 fn bundler_resolve_extensions_are_collected() {
     let webpack = resolve(
         &[(

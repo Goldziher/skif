@@ -88,6 +88,11 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
 - `new URL("../node_modules/.bin/tsx", import.meta.url)` and `new URL("./node_modules/later", import.meta.url)` name
   installed files, not modules, so they no longer report `.bin` or `later` as unlisted
   ([#22](https://github.com/Goldziher/skif/issues/22)).
+- A `tsconfig` with `outDir` and no `rootDir` maps its build output back to source through the common directory of
+  its `include` and `files`, and script arguments inside an `outDir` map to their sources, ahead of build output on
+  disk: `mocha --recursive ./build/compiled/test` makes every test file below `test/` an entry (without
+  `--recursive` only those directly in it, with mocha's `--extension` values), so compiled test suites are no longer
+  reported as unused files with unused dev dependencies ([#13](https://github.com/Goldziher/skif/issues/13)).
 
 ## [0.1.1] - 2026-11-07
 

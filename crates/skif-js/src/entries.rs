@@ -86,7 +86,7 @@ pub(crate) fn entry_files(
                         .filter(|(_, rel)| globs.is_match(rel))
                         .map(|(candidate, _)| candidate.abs.clone()),
                 );
-            } else if let Some(path) = map_to_source(fs, &package_setup.dir, &target)
+            } else if let Some(path) = map_published(fs, package_setup, &target)
                 && is_code_file(&path)
             {
                 mapped_any = true;
@@ -111,7 +111,7 @@ pub(crate) fn entry_files(
                 .cloned(),
         );
         if !setup.production {
-            own.extend(script_files(fs, package_setup));
+            own.extend(script_files(fs, package_setup, mine));
         }
         let has_entries = !own.is_empty();
         entries.append(&mut own);
@@ -206,15 +206,114 @@ fn is_empty_object(value: &serde_json::Value) -> bool {
     value.as_object().is_some_and(serde_json::Map::is_empty)
 }
 
-/// The files the package's scripts run. A path that leaves the package (`../../scripts/seed.ts`) is collapsed
-/// lexically, so it is the same file as the candidate it names and is owned by the package it lies in.
-fn script_files(fs: &dyn FileSystem, package_setup: &PackageSetup) -> Vec<PathBuf> {
-    package_setup
-        .scripts
-        .files
+/// The files the package's scripts run. A path inside a build output directory (`outDir` of a `tsconfig`) stands for
+/// its source below the matching `rootDir`, even when the build output is on disk, and a directory a test runner reads
+/// (`mocha build/compiled/test`) for the code files the runner reads in it.
+fn script_files(fs: &dyn FileSystem, package_setup: &PackageSetup, mine: &[&Candidate]) -> Vec<PathBuf> {
+    let dir = &package_setup.dir;
+    let mut found = Vec::new();
+    for file in &package_setup.scripts.files {
+        let path = join_normalized(dir, file);
+        let rel = relative(&path, dir);
+        let sources = rel
+            .as_deref()
+            .map(|rel| source_paths(package_setup, rel))
+            .unwrap_or_default();
+        let mapped = sources
+            .iter()
+            .filter_map(|source| map_to_source(fs, dir, source))
+            .find(|source| is_code_file(source));
+        if let Some(source) = mapped {
+            found.push(source);
+            continue;
+        }
+        if is_code_file(&path) && fs.is_file(&path) {
+            found.push(path);
+            continue;
+        }
+        let (Some(rel), Some(tree)) = (rel, package_setup.scripts.file_trees.get(file)) else {
+            continue;
+        };
+        let built = !sources.is_empty();
+        let extensions = tree_extensions(&tree.extensions, built);
+        let directories = if built { sources } else { vec![rel] };
+        for directory in directories.iter().filter(|directory| !directory.is_empty()) {
+            let prefix = format!("{directory}/");
+            found.extend(
+                owned_by(mine, dir)
+                    .filter(|(candidate, rel)| {
+                        rel.strip_prefix(&prefix)
+                            .is_some_and(|rest| tree.recursive || !rest.contains('/'))
+                            && is_code_file(&candidate.abs)
+                            && has_extension(&candidate.abs, &extensions)
+                    })
+                    .map(|(candidate, _)| candidate.abs.clone()),
+            );
+        }
+    }
+    found
+}
+
+/// The extensions a test runner reads from a directory. For a build output directory its source directory is read
+/// instead, so each output extension also stands for the TypeScript sources that compile to it.
+fn tree_extensions(extensions: &[String], built: bool) -> Vec<String> {
+    let mut all: Vec<String> = extensions
         .iter()
-        .map(|file| join_normalized(&package_setup.dir, file))
-        .filter(|path| is_code_file(path) && fs.is_file(path))
+        .map(|extension| extension.to_ascii_lowercase())
+        .collect();
+    if built {
+        for extension in extensions {
+            let sources: &[&str] = match extension.to_ascii_lowercase().as_str() {
+                "js" => &["ts", "tsx"],
+                "jsx" => &["tsx"],
+                "mjs" => &["mts"],
+                "cjs" => &["cts"],
+                _ => &[],
+            };
+            all.extend(sources.iter().map(|&source| source.to_owned()));
+        }
+    }
+    all
+}
+
+/// Whether `path` ends in one of `extensions` (lowercase, without the dot).
+fn has_extension(path: &Path, extensions: &[String]) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extensions.contains(&extension.to_ascii_lowercase()))
+}
+
+/// The source file behind a published path: through the package's build directories first, then by the `dist` to
+/// `src` convention.
+fn map_published(fs: &dyn FileSystem, package_setup: &PackageSetup, target: &str) -> Option<PathBuf> {
+    let dir = &package_setup.dir;
+    relative(&join_normalized(dir, target), dir)
+        .map(|rel| source_paths(package_setup, &rel))
+        .unwrap_or_default()
+        .iter()
+        .find_map(|source| map_to_source(fs, dir, source))
+        .or_else(|| map_to_source(fs, dir, target))
+}
+
+/// The source paths behind `rel`, a package-relative path inside the output directory of one of the package's build
+/// directories, in the order the build directories are declared.
+fn source_paths(package_setup: &PackageSetup, rel: &str) -> Vec<String> {
+    package_setup
+        .build_dirs
+        .iter()
+        .filter(|build| !build.out_dir.is_empty() && !build.root_dir.starts_with(".."))
+        .filter_map(|build| {
+            let rest = rel.strip_prefix(build.out_dir.as_str())?;
+            if !rest.is_empty() && !rest.starts_with('/') {
+                return None;
+            }
+            let rest = rest.trim_start_matches('/');
+            Some(match (build.root_dir.as_str(), rest) {
+                ("", rest) => rest.to_owned(),
+                (root, "") => root.to_owned(),
+                (root, rest) => format!("{root}/{rest}"),
+            })
+        })
         .collect()
 }
 

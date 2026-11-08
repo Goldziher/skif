@@ -439,6 +439,15 @@ counterpart. These differences are deliberate:
 - Command lines are read from `package.json` scripts: `jasmine` and `tsd` positional arguments, `stryker run <file>`,
   `typedoc --plugin` and `--theme`. A flag that skif does not know takes the next word as its value, as `minimist`
   does, and `c8` and `dotenv` follow the command they wrap.
+- A `tsconfig` with `outDir` maps build output back to source through its `rootDir`. Without one, skif takes the
+  longest common directory of the `include` patterns (each up to its first wildcard) and the `files`, not counting
+  declaration files; TypeScript computes it from the files it compiles. A config with neither keeps the `dist` to
+  `src` convention. A file a script runs inside an `outDir` (`node build/src/cli.js`) is its source file, even when
+  the build output is on disk, and a directory mocha is given (`mocha build/compiled/test`) stands for the code files
+  directly in its source directory, or every one below it with `--recursive`. Only files with an `--extension` value
+  (`js`, `cjs` and `mjs` by default) count, and in a source directory behind an `outDir` also the TypeScript sources
+  that compile to them. An `include` entry without a wildcard is a file only when it ends in a code or `.json`
+  extension (`packages/v1.2` is a directory).
 
 ## Layered configuration
 
