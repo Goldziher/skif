@@ -14,9 +14,23 @@ All notable changes to this project are documented here. The format follows
 - An `unplugin-icons` plugin: with that dependency, `~icons/*` imports and the `@iconify-json/*` and `@iconify/json`
   collections are virtual, as in knip. The table holds 106 plugins
   ([#18](https://github.com/Goldziher/skif/issues/18)).
+- `--allow-remove-files` lets a fix run delete files, and `--fix-type` limits it to some rules, given as rule ids or
+  knip issue types (`dependencies`, `exports`, `types`, `enumMembers`, `files`, `catalog`, ...), as knip's flags do
+  ([ADR 0052](adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md),
+  [#37](https://github.com/Goldziher/skif/issues/37)).
+- Unsafe fixes for `unused-enum-members`, `unused-namespace-members` and `unused-catalog-entries`, and for
+  `unused-exports` on `export default <expression>` when the expression has no side effects. A member goes with its
+  comments; a member whose removal would renumber a later enum member gets no fix; a catalog left empty is removed
+  ([ADR 0052](adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md),
+  [#37](https://github.com/Goldziher/skif/issues/37)).
 
 ### Changed
 
+- `--fix-unsafe` no longer deletes files: the `unused-files` fix is skipped as `removes-files` unless
+  `--allow-remove-files` is given. In the library, `FixSelection::remove_files` is off by default and such a fix is
+  skipped with `SkipReason::RemovesFiles`
+  ([ADR 0052](adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md),
+  [#37](https://github.com/Goldziher/skif/issues/37)).
 - Files in `fixtures` and `__fixtures__` directories are no longer reported by `unused-files`, and their exports,
   types and members are no longer reported by `unused-exports`, `unused-types`, the namespace rules and
   `unused-enum-members`. `[js] include-fixtures = true` reports them like any other file

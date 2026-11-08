@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use clap::{ColorChoice, Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, ColorChoice, Parser, Subcommand, ValueEnum};
 use skif::Level;
 
 /// Fast dependency linter for JavaScript and TypeScript monorepos.
@@ -226,6 +226,7 @@ pub enum Select {
     clippy::struct_excessive_bools,
     reason = "each bool is an independent command-line switch"
 )]
+#[command(group(ArgGroup::new("fixing").args(["fix", "fix_unsafe"]).multiple(true)))]
 pub struct LintArgs {
     /// A path inside a project; the workspace root is the nearest ancestor workspace that lists the project as a
     /// member, else the project itself. Without a `package.json` here or above, every project below is linted.
@@ -251,6 +252,15 @@ pub struct LintArgs {
     /// Apply safe and unsafe fixes; implies --fix.
     #[arg(long)]
     pub fix_unsafe: bool,
+
+    /// Let fixes delete files (`unused-files`); without it they are skipped. Needs --fix or --fix-unsafe.
+    #[arg(long, requires = "fixing")]
+    pub allow_remove_files: bool,
+
+    /// Only apply the fixes of these rules: rule ids or knip issue types (`dependencies`, `exports`, `types`,
+    /// `enumMembers`, `files`, `catalog`, ...). Comma separated or repeatable; needs --fix or --fix-unsafe.
+    #[arg(long, value_name = "TYPE", value_delimiter = ',', requires = "fixing")]
+    pub fix_type: Vec<String>,
 
     /// Which version a version alignment fix targets, overriding `[policy] prefer` for this run.
     #[arg(long, value_enum)]

@@ -19,7 +19,25 @@ expression: diagnostics
         "end-col": 7
       }
     },
-    "package": "typeof-import"
+    "package": "typeof-import",
+    "fixes": [
+      {
+        "title": "Remove the enum member `Blue`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "text": {
+              "path": "src/enums.ts",
+              "edit": {
+                "start": 27,
+                "end": 35,
+                "replacement": ""
+              }
+            }
+          }
+        ]
+      }
+    ]
   },
   {
     "rule": "unused-exports",

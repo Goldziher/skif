@@ -44,6 +44,12 @@ Options:
       --fix-unsafe
           Apply safe and unsafe fixes; implies --fix
 
+      --allow-remove-files
+          Let fixes delete files (`unused-files`); without it they are skipped. Needs --fix or --fix-unsafe
+
+      --fix-type <TYPE>
+          Only apply the fixes of these rules: rule ids or knip issue types (`dependencies`, `exports`, `types`, `enumMembers`, `files`, `catalog`, ...). Comma separated or repeatable; needs --fix or --fix-unsafe
+
       --select <SELECT>
           Which version a version alignment fix targets, overriding `[policy] prefer` for this run
           

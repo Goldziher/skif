@@ -299,9 +299,55 @@ pub fn package_json_mentions(tool: Tool, package_json: &str) -> bool {
     scripts::has_key(tool, &value) || !scripts::invocations(&value, tool).is_empty()
 }
 
+/// The skif rules whose fixes knip's `--fix-type <name>` stands for, or `None` when `name` is not a knip issue type.
+///
+/// Each knip issue type maps to the rules that report the same findings. `dependencies` also covers
+/// `devDependencies` and `optionalPeerDependencies`, because knip's dependency fixer removes all three.
+#[must_use]
+pub fn knip_fix_type_rules(name: &str) -> Option<Vec<&'static str>> {
+    let types = tables::knip_types();
+    let rules_of = |wanted: &str| {
+        types
+            .iter()
+            .find(|knip_type| knip_type.name == wanted)
+            .map(|knip_type| knip_type.rules.clone())
+    };
+    let mut rules = rules_of(name)?;
+    if name == "dependencies" {
+        for extra in ["devDependencies", "optionalPeerDependencies"] {
+            rules.extend(rules_of(extra).unwrap_or_default());
+        }
+    }
+    Some(rules)
+}
+
+/// Every knip issue type name, in the order of skif's table.
+#[must_use]
+pub fn knip_issue_types() -> Vec<&'static str> {
+    tables::knip_types()
+        .into_iter()
+        .map(|knip_type| knip_type.name)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn knip_fix_types_map_to_rules() {
+        assert_eq!(knip_fix_type_rules("enumMembers"), Some(vec!["unused-enum-members"]));
+        assert_eq!(
+            knip_fix_type_rules("dependencies"),
+            Some(vec![
+                "unused-dependencies",
+                "unused-dev-dependencies",
+                "unused-optional-peer-dependencies"
+            ])
+        );
+        assert_eq!(knip_fix_type_rules("unused-files"), None);
+        assert!(knip_issue_types().contains(&"catalog"));
+    }
 
     #[test]
     fn a_package_json_that_runs_the_tool_mentions_it() {
