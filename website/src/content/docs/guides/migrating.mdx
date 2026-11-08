@@ -145,6 +145,8 @@ way, pass `--dependency` (syncpack's `--dependencies`; skif's `--dependencies` i
 | `ignoreWorkspaces` | `[js] ignore-workspaces` |
 | `ignoreIssues` | `[[overrides]]` with `files` and the matching rules set to `off` |
 | `includeEntryExports` | `[js] include-entry-exports`, or per workspace |
+| `--tsConfig`, `-t` | `[js] tsconfig` (knip has no configuration key for it); scripts that pass different values get a note and the last one is written |
+| `--use-tsconfig-files` | `[js] use-tsconfig-files = true` |
 | `paths` | `[js.workspaces."<dir>"] paths`, with `"."` for the root |
 | `workspaces["<dir>"]` | `[js.workspaces."<dir>"]`; `workspaces["."]` is merged into `[js]` |
 | plugin keys (`vitest: true`, `"config.ts"`, `["a", "b"]`, `{ config, entry, project }`) | `[js.plugins]`, or `[js.workspaces."<dir>".plugins]` inside a workspace |
@@ -172,7 +174,7 @@ regular expression literal in a JavaScript or TypeScript config, are written as 
 regular expression matching a superset of that.
 
 Settings that knip scopes to one workspace stay in that workspace's table. `--workspace` narrowed the old run to some
-workspaces and has no equivalent.
+workspaces; it is not written to the configuration, and the script can pass the same `--workspace` to skif.
 
 ## Several tools
 

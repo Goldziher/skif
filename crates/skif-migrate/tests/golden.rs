@@ -663,6 +663,49 @@ fn knip_production_leaves_out_dev_dependencies_and_the_catalog() {
 }
 
 #[test]
+fn knip_tsconfig_flags_are_written_to_js() {
+    let migration = knip(None, &[("k", "knip --tsConfig tsconfig.app.json --use-tsconfig-files")]);
+    let parsed = table(&migration);
+    assert_eq!(parsed["js"]["tsconfig"].as_str(), Some("tsconfig.app.json"));
+    assert_eq!(parsed["js"]["use-tsconfig-files"].as_bool(), Some(true));
+    assert_eq!(class(&migration, "scripts.k: --tsConfig"), NoteClass::Exact);
+    assert_eq!(class(&migration, "scripts.k: --use-tsconfig-files"), NoteClass::Exact);
+    let short = knip(None, &[("k", "knip -t config/tsconfig.json")]);
+    assert_eq!(table(&short)["js"]["tsconfig"].as_str(), Some("config/tsconfig.json"));
+}
+
+#[test]
+fn knip_scripts_with_different_tsconfigs_are_noted() {
+    let migration = knip(
+        None,
+        &[
+            ("a", "knip --tsConfig tsconfig.a.json"),
+            ("b", "knip -t tsconfig.b.json"),
+        ],
+    );
+    assert_eq!(table(&migration)["js"]["tsconfig"].as_str(), Some("tsconfig.b.json"));
+    assert_eq!(
+        class(&migration, "scripts.a, scripts.b: --tsConfig"),
+        NoteClass::Approximate
+    );
+    let same = knip(
+        None,
+        &[
+            ("a", "knip --tsConfig tsconfig.a.json"),
+            ("b", "knip -t tsconfig.a.json"),
+        ],
+    );
+    assert!(
+        !same
+            .notes
+            .iter()
+            .any(|note| note.path == "scripts.a, scripts.b: --tsConfig"),
+        "{:#?}",
+        same.notes
+    );
+}
+
+#[test]
 fn knip_flags_override_the_configuration_lists() {
     let migration = knip(Some(r#"{ "exclude": ["files"] }"#), &[("k", "knip --include files")]);
     assert_eq!(table(&migration)["rules"]["unused-files"].as_str(), Some("error"));

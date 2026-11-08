@@ -667,6 +667,8 @@ ignore-unresolved = ["#internal/*"]
 ignore-workspaces = ["tools/*"]
 ignore-members = ["/^_/"]
 ignore-exports-used-in-file = { type = true, enum = true }
+tsconfig = "tsconfig.app.json"
+use-tsconfig-files = true
 
 [js.workspaces."."]
 include-entry-exports = true
@@ -686,6 +688,8 @@ vite = { config = ["vite.web.config.ts"] }
     assert_eq!(js.ignore_unresolved, ["#internal/*"]);
     assert_eq!(js.ignore_workspaces, ["tools/*"]);
     assert_eq!(js.ignore_members, ["/^_/"]);
+    assert_eq!(js.tsconfig.as_deref(), Some("tsconfig.app.json"));
+    assert!(js.use_tsconfig_files);
     let IgnoreExportsUsedInFile::Kinds(kinds) = &js.ignore_exports_used_in_file else {
         panic!("expected a table of kinds");
     };
@@ -707,6 +711,7 @@ vite = { config = ["vite.web.config.ts"] }
 fn js_defaults_ignore_nothing_new() {
     let js = Config::default().js;
     assert!(js.ignore_unresolved.is_empty() && js.ignore_workspaces.is_empty() && js.ignore_members.is_empty());
+    assert!(js.tsconfig.is_none() && !js.use_tsconfig_files);
     assert_eq!(js.ignore_exports_used_in_file, IgnoreExportsUsedInFile::All(false));
 }
 

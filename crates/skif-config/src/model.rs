@@ -1468,8 +1468,10 @@ pub struct JsCycles {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 #[non_exhaustive]
-// Each switch is a key of `[js]`.
-#[allow(clippy::struct_excessive_bools)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent switch of the analysis"
+)]
 pub struct Js {
     /// Run the JavaScript analysis.
     pub enabled: bool,
@@ -1497,8 +1499,26 @@ pub struct Js {
     pub ignore_members: Vec<String>,
     /// Analyse production code only.
     pub production: bool,
+    /// Each workspace package uses only the dependencies its own manifest lists: an import is not satisfied by a
+    /// containing package or the root. Set by `skif --strict`; not a configuration key, so a file never sets it.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub isolate_workspaces: bool,
+    /// Find source files that `.gitignore` files hide (the git index is not used then). Set by
+    /// `skif --no-gitignore`; not a configuration key.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub no_gitignore: bool,
     /// Report unused exports of entry files too.
     pub include_entry_exports: bool,
+    /// The TypeScript configuration of the root package, relative to the workspace root and inside it, used instead
+    /// of `tsconfig.json` for its path aliases and compiler options (knip's `--tsConfig`). Other packages keep their
+    /// own `tsconfig.json`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tsconfig: Option<String>,
+    /// The project files of a package with a TypeScript configuration are the files its `files` names and those its
+    /// `include` selects minus its `exclude`, instead of the `project` globs (knip's `--use-tsconfig-files`).
+    pub use_tsconfig_files: bool,
     /// Report files in `fixtures` and `__fixtures__` directories as unused, and their unused exports, types and
     /// members, like any other file. Off by default: those directories hold test data that tests load by path.
     pub include_fixtures: bool,
@@ -1564,6 +1584,28 @@ impl Js {
         self
     }
 
+    /// Makes each workspace package use only the dependencies its own manifest lists, as knip's `--strict` does.
+    #[must_use]
+    pub const fn with_isolate_workspaces(mut self, isolate: bool) -> Self {
+        self.isolate_workspaces = isolate;
+        self
+    }
+
+    /// Uses `path`, relative to the workspace root, as the TypeScript configuration of the root package.
+    #[must_use]
+    pub fn with_tsconfig(mut self, path: impl Into<String>) -> Self {
+        self.tsconfig = Some(path.into());
+        self
+    }
+
+    /// Takes the project files of each package with a TypeScript configuration from its `files`, `include` and
+    /// `exclude`.
+    #[must_use]
+    pub const fn with_use_tsconfig_files(mut self, enabled: bool) -> Self {
+        self.use_tsconfig_files = enabled;
+        self
+    }
+
     /// Switches a plugin on or off, or configures it.
     #[must_use]
     pub fn with_plugin(mut self, name: impl Into<String>, plugin: PluginConfig) -> Self {
@@ -1587,7 +1629,11 @@ impl Default for Js {
             ignore_exports_used_in_file: IgnoreExportsUsedInFile::default(),
             ignore_members: Vec::new(),
             production: false,
+            isolate_workspaces: false,
+            no_gitignore: false,
             include_entry_exports: false,
+            tsconfig: None,
+            use_tsconfig_files: false,
             include_fixtures: false,
             discovery: JsDiscovery::Auto,
             cycles: JsCycles::default(),
