@@ -390,7 +390,7 @@ expression: "serde_json::to_string_pretty(&report).unwrap()"
       "fixes": [
         {
           "title": "Move the `@types/*` packages to `devDependencies`",
-          "safety": "safe",
+          "safety": "unsafe",
           "ops": [
             {
               "json": {

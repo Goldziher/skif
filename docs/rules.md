@@ -34,7 +34,7 @@
 | [`root-package-dependencies`](#root-package-dependencies) | manifest | warning | unsafe |
 | [`root-package-manager-field`](#root-package-manager-field) | manifest | error | none |
 | [`root-package-private-field`](#root-package-private-field) | manifest | error | safe |
-| [`types-in-dependencies`](#types-in-dependencies) | manifest | error | safe |
+| [`types-in-dependencies`](#types-in-dependencies) | manifest | error | unsafe |
 | [`unsorted-dependencies`](#unsorted-dependencies) | manifest | error | safe |
 | [`banned-dependency`](#banned-dependency) | policy | error | unsafe |
 | [`invalid-local-version`](#invalid-local-version) | policy | error | none |
@@ -293,7 +293,7 @@ A private package lists `@types/*` packages in `dependencies`; type packages bel
 
 - Category: manifest
 - Default severity: error
-- Fixable: safe
+- Fixable: unsafe
 
 ## unsorted-dependencies
 

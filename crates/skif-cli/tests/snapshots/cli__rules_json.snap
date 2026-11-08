@@ -38,7 +38,7 @@ expression: json.stdout
       "id": "types-in-dependencies",
       "category": "manifest",
       "default": "error",
-      "fixable": "safe",
+      "fixable": "unsafe",
       "summary": "A private package lists `@types/*` packages in `dependencies`; type packages belong in `devDependencies`."
     },
     {
