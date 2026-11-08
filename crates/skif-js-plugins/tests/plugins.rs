@@ -4155,7 +4155,7 @@ fn mcp_server_commands_are_scripts() {
             ),
             (
                 ".codex/config.toml",
-                "[mcp_servers.docs]\ncommand = \"node\"\nargs = [\"scripts/docs-mcp.mjs\"]\n",
+                "[mcp_servers.docs]\ncommand = \"node\"\nargs = [\"scripts/docs-mcp.mjs\"]\n[mcp_servers.spaced]\ncommand = \"node\"\nargs = [\"scripts/my server.mjs\"]\n",
             ),
         ],
         &[],
@@ -4163,7 +4163,12 @@ fn mcp_server_commands_are_scripts() {
     let out = output(&results, "mcp");
     assert_entries(
         &out.entries,
-        &["./tools/mcp.js", "packages/svc/server.ts", "scripts/docs-mcp.mjs"],
+        &[
+            "./tools/mcp.js",
+            "packages/svc/server.ts",
+            "scripts/docs-mcp.mjs",
+            "scripts/my server.mjs",
+        ],
     );
     assert!(
         out.referenced_dependencies
@@ -4310,7 +4315,7 @@ fn varlock_decorators_of_env_files() {
             manifest,
             (
                 "env/.env.schema",
-                "# @plugin(@varlock/1password-plugin)\n# @plugin(./plugins/custom.ts)\n# @import(../shared/.env.shared)\n# ---\n\n# @sensitive\nAPI_KEY=\n",
+                "# @plugin(@varlock/1password-plugin@1.2.0)\n# @plugin(./plugins/custom.ts)\n# @plugin(../../outside.ts)\n# @import(../shared/.env.shared)\n# ---\n\n# @sensitive\nAPI_KEY=\n",
             ),
             ("shared/.env.shared", "# @plugin(varlock-plugin-shared)\n\nX=1\n"),
             ("config/.env.ci", "# @plugin(varlock-plugin-ci, enabled=false)\n\nY=1\n"),
@@ -4337,6 +4342,11 @@ fn varlock_decorators_of_env_files() {
     );
     assert_absent(out, &["varlock-plugin-ci", "varlock-plugin-default", "not-root"]);
     assert_entries(&out.production_entries, &["env/plugins/custom.ts"]);
+    assert!(
+        !out.production_entries.iter().any(|entry| entry.starts_with("..")),
+        "{:?}",
+        out.production_entries
+    );
     assert_entries(&out.entries, &["server.js"]);
     let defaults = resolve(&[(".env", "# @plugin(varlock-plugin-default)\n")], &["varlock"]);
     assert_deps(output(&defaults, "varlock"), &["varlock-plugin-default"]);
@@ -4427,7 +4437,9 @@ fn railway_service_commands() {
 service("api", { root: "services/api", build: "tsc -b", start: "node dist/server.js", deploy: { preDeployCommand: ["node migrate.js"] } });
 service("web", { source: { repo: "acme/app" }, start: "node web.js" });
 service("db", { source: { image: "postgres:16" }, start: "node never.js" });
-service("other", { source: { repo: "https://github.com/else/where" }, start: "node elsewhere.js" });"#,
+service("other", { source: { repo: "https://github.com/else/where" }, start: "node elsewhere.js" });
+service("worker", { root: "/services/worker", start: "node worker.js" });
+service("outside", { root: "../other", start: "node outside.js" });"#,
             ),
         ],
         &["railway"],
@@ -4435,9 +4447,14 @@ service("other", { source: { repo: "https://github.com/else/where" }, start: "no
     let out = output(&results, "railway");
     assert_entries(
         &out.entries,
-        &["services/api/dist/server.js", "services/api/migrate.js", "web.js"],
+        &[
+            "services/api/dist/server.js",
+            "services/api/migrate.js",
+            "web.js",
+            "services/worker/worker.js",
+        ],
     );
-    for absent in ["never.js", "elsewhere.js"] {
+    for absent in ["never.js", "elsewhere.js", "outside.js", "../other/outside.js"] {
         assert!(
             !out.entries.iter().any(|entry| entry == absent),
             "{absent}: {:?}",
