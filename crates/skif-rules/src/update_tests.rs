@@ -36,6 +36,10 @@ impl Fake {
         self
     }
 
+    fn packages_insert(&mut self, name: &str, packument: Packument) {
+        self.packages.insert(name.to_owned(), packument);
+    }
+
     fn asked(&self) -> Vec<String> {
         self.asked.lock().unwrap().clone()
     }
@@ -397,13 +401,90 @@ fn registry_times_parse_to_unix_seconds() {
     assert_eq!(unix_seconds("2026-01-01T00:00:00.000Z"), Some(NOW));
     assert_eq!(unix_seconds("2000-02-29T12:00:00.000Z"), Some(951_825_600));
     assert_eq!(unix_seconds("1969-12-31T23:59:59.000Z"), Some(-1));
+    assert_eq!(unix_seconds("2026-01-01T02:00:00+02:00"), Some(NOW));
+    assert_eq!(unix_seconds("2025-12-31T18:30:00.5-05:30"), Some(NOW));
+    assert_eq!(unix_seconds("2026-01-01T00:00:00+00:00"), Some(NOW));
     for bad in [
         "",
         "2020-01-01",
         "2020-13-01T00:00:00Z",
-        "2020-01-01T00:00:00+01:00",
         "2020-01-0xT00:00:00Z",
+        "2020-01-01T00:00:00",
+        "2020-01-01T00:00:00.Z",
+        "2020-01-01T00:00:00+0100",
+        "2020-01-01T00:00:00+24:00",
+        "2020-01-01T00:00:00+01:00Z",
     ] {
         assert_eq!(unix_seconds(bad), None, "{bad}");
     }
+}
+
+#[test]
+fn a_version_without_a_publish_time_is_not_proposed_while_a_release_age_applies() {
+    let mut registry = Fake::default();
+    registry.packages_insert(
+        "left-pad",
+        Packument::new(vec![
+            Published::new("1.0.0", Some(NOW - 900 * DAY)),
+            Published::new("1.1.0", Some(NOW - 400 * DAY)),
+            Published::new("1.2.0", None),
+        ]),
+    );
+    let files = [
+        ("package.json", ROOT),
+        (
+            "packages/a/package.json",
+            r#"{"name":"a","dependencies":{"left-pad":"1.0.0"}}"#,
+        ),
+        (
+            "packages/b/package.json",
+            r#"{"name":"b","dependencies":{"left-pad":"^1.0.0"}}"#,
+        ),
+    ];
+    let report = plan(&files, "", &registry, &UpdateOptions::new(NOW));
+    assert_eq!(
+        summary(&report),
+        [
+            row("packages/a/package.json", "left-pad", "1.0.0", "1.1.0"),
+            row("packages/b/package.json", "left-pad", "^1.0.0", "^1.1.0"),
+        ],
+        "1.2.0 cannot be shown to be a day old"
+    );
+    assert_eq!(
+        report.notes,
+        [Note::NoPublishTime {
+            dependency: "left-pad".to_owned(),
+            version: "1.2.0".to_owned(),
+        }],
+        "one note for both instances"
+    );
+    assert!(report.notes[0].to_string().contains("no publish time"));
+
+    let off = plan(
+        &files,
+        "[update]\nminimum-release-age = 0\n",
+        &registry,
+        &UpdateOptions::new(NOW),
+    );
+    assert_eq!(
+        off.updates[0].target, "1.2.0",
+        "without a release age the time does not matter"
+    );
+    assert_eq!(off.notes, []);
+
+    let mut older = Fake::default();
+    older.packages_insert(
+        "left-pad",
+        Packument::new(vec![
+            Published::new("1.0.0", None),
+            Published::new("1.1.0", Some(NOW - 400 * DAY)),
+        ]),
+    );
+    let report = plan(&files, "", &older, &UpdateOptions::new(NOW));
+    assert_eq!(report.updates.len(), 2);
+    assert_eq!(
+        report.notes,
+        [],
+        "a timeless version that would not be the target is not worth a note"
+    );
 }

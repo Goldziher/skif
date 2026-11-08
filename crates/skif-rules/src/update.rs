@@ -125,12 +125,13 @@ impl Packument {
     }
 }
 
-/// Seconds since the Unix epoch of an RFC 3339 UTC time as the npm registry writes it (`2024-01-15T10:30:00.000Z`);
-/// `None` for anything else. The calendar arithmetic is Howard Hinnant's `days_from_civil`.
+/// Seconds since the Unix epoch of an RFC 3339 time: `2024-01-15T10:30:00.000Z` as the npm registry writes it, or
+/// with a numeric offset (`+02:00`, `-05:30`) as other registries may; `None` for anything else. The calendar
+/// arithmetic is Howard Hinnant's `days_from_civil`.
 #[must_use]
 pub fn unix_seconds(text: &str) -> Option<i64> {
     let bytes = text.as_bytes();
-    if bytes.len() < 20 || !text.ends_with('Z') || bytes[4] != b'-' || bytes[7] != b'-' || bytes[10] != b'T' {
+    if bytes.len() < 20 || bytes[4] != b'-' || bytes[7] != b'-' || !matches!(bytes[10], b'T' | b't') {
         return None;
     }
     if bytes[13] != b':' || bytes[16] != b':' {
@@ -148,6 +149,27 @@ pub fn unix_seconds(text: &str) -> Option<i64> {
     if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || minute > 59 || second > 60 {
         return None;
     }
+    let mut zone = &text[19..];
+    if let Some(fraction) = zone.strip_prefix('.') {
+        let digits = fraction.bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 {
+            return None;
+        }
+        zone = &fraction[digits..];
+    }
+    let offset = match zone.as_bytes() {
+        [b'Z' | b'z'] => 0,
+        [sign @ (b'+' | b'-'), _, _, b':', _, _] => {
+            let at = text.len() - 5;
+            let (hours, minutes) = (number(at..at + 2)?, number(at + 3..at + 5)?);
+            if hours > 23 || minutes > 59 {
+                return None;
+            }
+            let offset = hours * 3_600 + minutes * 60;
+            if *sign == b'-' { -offset } else { offset }
+        }
+        _ => return None,
+    };
     let year = if month <= 2 { year - 1 } else { year };
     let era = year.div_euclid(400);
     let year_of_era = year - era * 400;
@@ -155,7 +177,7 @@ pub fn unix_seconds(text: &str) -> Option<i64> {
     let day_of_year = (153 * month_from_march + 2) / 5 + day - 1;
     let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     let days = era * 146_097 + day_of_era - 719_468;
-    Some(days * 86_400 + hour * 3_600 + minute * 60 + second)
+    Some(days * 86_400 + hour * 3_600 + minute * 60 + second - offset)
 }
 
 /// Why the registry could not say which versions of a package exist.
@@ -269,6 +291,41 @@ pub struct Failure {
     pub error: FetchError,
 }
 
+/// Something a run of [`plan_updates`] left out that is not a registry failure.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum Note {
+    /// The registry gives no usable publish time for `version`, which would otherwise be the target; with a minimum
+    /// release age it cannot be shown to be old enough, so it is not proposed.
+    NoPublishTime {
+        /// The dependency name.
+        dependency: String,
+        /// The version left out.
+        version: String,
+    },
+}
+
+impl Note {
+    /// The dependency the note is about.
+    #[must_use]
+    pub fn dependency(&self) -> &str {
+        match self {
+            Self::NoPublishTime { dependency, .. } => dependency,
+        }
+    }
+}
+
+impl fmt::Display for Note {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoPublishTime { version, .. } => write!(
+                f,
+                "{version} is not proposed: the registry gives no publish time to check the minimum release age against"
+            ),
+        }
+    }
+}
+
 /// The result of [`plan_updates`].
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[non_exhaustive]
@@ -277,6 +334,8 @@ pub struct UpdateReport {
     pub updates: Vec<Update>,
     /// The packages the registry could not answer for, by name.
     pub failures: Vec<Failure>,
+    /// What was left out for another reason, sorted.
+    pub notes: Vec<Note>,
     /// How many packages the registry was asked about.
     pub queried: usize,
     /// The minimum release age that applied, in minutes.
@@ -481,19 +540,50 @@ const fn reach(target: UpdateTarget) -> Reach {
     }
 }
 
-/// The versions that may be proposed, highest first: not deprecated, published before `cutoff` (when there is one
-/// and the registry says when), and valid semver.
-fn proposable(packument: &Packument, cutoff: Option<i64>) -> Vec<Arc<Specifier>> {
-    let mut versions: Vec<Arc<Specifier>> = packument
-        .versions
-        .iter()
-        .filter(|published| !published.deprecated)
-        .filter(|published| cutoff.is_none_or(|cutoff| published.published_at.is_none_or(|time| time <= cutoff)))
-        .map(|published| Specifier::new(&published.version))
-        .filter(|specifier| specifier.get_node_version().is_some())
-        .collect();
+/// The versions of a package that may be proposed, highest first.
+#[derive(Default)]
+struct Proposable {
+    /// Not deprecated, valid semver, and published before the cutoff when there is one.
+    eligible: Vec<Arc<Specifier>>,
+    /// As `eligible`, plus the versions without a usable publish time that the cutoff excludes: what would be
+    /// eligible if the registry said when they were published. Empty when no version was left out that way.
+    with_unknown_times: Vec<Arc<Specifier>>,
+}
+
+fn highest_first(versions: &mut [Arc<Specifier>]) {
     versions.sort_by_cached_key(|specifier| std::cmp::Reverse(specifier.get_node_version()));
-    versions
+}
+
+/// The versions that may be proposed. With a cutoff, a version the registry gives no publish time for is not
+/// eligible: it cannot be shown to be old enough.
+fn proposable(packument: &Packument, cutoff: Option<i64>) -> Proposable {
+    let mut eligible = Vec::new();
+    let mut unknown = Vec::new();
+    for published in packument.versions.iter().filter(|published| !published.deprecated) {
+        let specifier = Specifier::new(&published.version);
+        if specifier.get_node_version().is_none() {
+            continue;
+        }
+        match (cutoff, published.published_at) {
+            (None, _) => eligible.push(specifier),
+            (Some(cutoff), Some(time)) if time <= cutoff => eligible.push(specifier),
+            (Some(_), Some(_)) => {}
+            (Some(_), None) => unknown.push(specifier),
+        }
+    }
+    let with_unknown_times = if unknown.is_empty() {
+        Vec::new()
+    } else {
+        let mut all = eligible.clone();
+        all.append(&mut unknown);
+        highest_first(&mut all);
+        all
+    };
+    highest_first(&mut eligible);
+    Proposable {
+        eligible,
+        with_unknown_times,
+    }
 }
 
 /// The specifier `candidate` moves to, if any published version is eligible.
@@ -532,7 +622,8 @@ fn write_op(workspace: &Workspace, candidate: &Candidate<'_>, specifier: &str) -
 /// The registry is asked once for each distinct dependency name among the instances that may move, through
 /// [`Registry::fetch_all`]; a name it cannot answer for becomes a [`Failure`] and its instances are left out. Versions
 /// published less than [`minimum_release_age`] minutes before `options.now`, and deprecated versions, are never
-/// proposed.
+/// proposed. With a minimum release age, neither is a version the registry gives no publish time for; when such a
+/// version would have been the target, a [`Note`] says so.
 #[must_use]
 pub fn plan_updates(
     workspace: &Workspace,
@@ -562,7 +653,7 @@ pub fn plan_updates(
         let seconds = i64::try_from(age.saturating_mul(60)).unwrap_or(i64::MAX);
         options.now.saturating_sub(seconds)
     });
-    let mut known: BTreeMap<&str, Vec<Arc<Specifier>>> = BTreeMap::new();
+    let mut known: BTreeMap<&str, Proposable> = BTreeMap::new();
     let mut failures = Vec::new();
     let answers = registry.fetch_all(&names);
     for (index, &name) in names.iter().enumerate() {
@@ -581,11 +672,25 @@ pub fn plan_updates(
         }
     }
 
+    let mut notes = BTreeSet::new();
     let mut updates: Vec<Update> = candidates
         .iter()
         .filter_map(|candidate| {
             let versions = known.get(candidate.dependency.as_str())?;
-            let target = proposal(candidate, versions)?;
+            let target = proposal(candidate, &versions.eligible);
+            if !versions.with_unknown_times.is_empty() {
+                let unchecked = proposal(candidate, &versions.with_unknown_times);
+                if let Some(unchecked) = unchecked.filter(|unchecked| Some(unchecked) != target.as_ref()) {
+                    let version = Specifier::new(&unchecked)
+                        .get_node_version()
+                        .map_or(unchecked, |version| version.to_string());
+                    notes.insert(Note::NoPublishTime {
+                        dependency: candidate.dependency.clone(),
+                        version,
+                    });
+                }
+            }
+            let target = target?;
             let op = write_op(workspace, candidate, &target)?;
             Some(Update {
                 dependency: candidate.dependency.clone(),
@@ -614,6 +719,7 @@ pub fn plan_updates(
     UpdateReport {
         updates,
         failures,
+        notes: notes.into_iter().collect(),
         queried: names.len(),
         minimum_release_age: age,
     }

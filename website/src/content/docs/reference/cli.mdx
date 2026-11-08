@@ -153,7 +153,7 @@ move only when `[policy] dependency-types` covers them. `[update]` and `[[update
 | `--dependencies <NAME>` | Only these dependencies, by name or glob. Repeatable. Other dependencies are not looked up. |
 | `--no-install` | Do not run the package manager after writing. |
 | `--config <FILE>`, `--no-config` | As for linting. |
-| `--format <human\|json>` | `json` prints one document with `version`, `skif`, `check`, `target`, `minimumReleaseAge`, `queried`, `updates` (each with `path`, `line`, `column`, `package`, `dependency`, `place`, `current`, `target` and `state`, which is syncpack's `DiffersToNpmRegistry`), `failures` (`dependency`, `message`) and, after writing, `changed` and `install`. |
+| `--format <human\|json>` | `json` prints one document with `version`, `skif`, `check`, `target`, `minimumReleaseAge`, `queried`, `updates` (each with `path`, `line`, `column`, `package`, `dependency`, `place`, `current`, `target` and `state`, which is syncpack's `DiffersToNpmRegistry`), `failures` (`dependency`, `message`), `notes` (`dependency`, `message`: what was left out, such as a version without a publish time) and, after writing, `changed` and `install`. |
 
 Without `--check`, `skif update` writes every update atomically per file and then runs the package manager's install,
 as `--fix` does. It is refused with exit `2` when `CI` is truthy; `--check` is the CI form. Exit `0` when there was

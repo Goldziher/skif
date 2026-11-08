@@ -64,7 +64,7 @@ As syncpack 15.3.3, in skif's model:
 * Catalog entries of `pnpm-workspace.yaml`, the root `package.json` (bun) and `.yarnrc.yml`, written where they are declared.
 * Which sections count follows `[policy] dependency-types`: peer and optional dependencies, the override sections and custom types move only when named. syncpack updates every type by default; skif keeps one scope for all policies.
 
-The new version is the highest published one that is not deprecated, is older than the minimum release age, has the same release channel as the current one, and is an eligible update under the effective target (syncpack's `is_eligible_update_for` and `has_same_release_channel_as`, already vendored in `skif-specifier`). It keeps the current range style unless a `[[semver-groups]]` entry asks for another.
+The new version is the highest published one that is not deprecated, is older than the minimum release age (while one applies, a version the registry gives no publish time for is not eligible, and the report notes it when it would have been the target; times are RFC 3339, `Z` or a numeric offset), has the same release channel as the current one, and is an eligible update under the effective target (syncpack's `is_eligible_update_for` and `has_same_release_channel_as`, already vendored in `skif-specifier`). It keeps the current range style unless a `[[semver-groups]]` entry asks for another.
 
 ### Configuration
 
@@ -75,7 +75,7 @@ The new version is the highest published one that is not deprecated, is older th
 
 ### `--check`, writing and exit codes
 
-`skif update --check` writes nothing and exits `1` when an update is available, `0` when none is, `2` when a package could not be checked. Without `--check`, every update is written atomically per file, then the package manager's install runs as after `--fix` ([ADR 0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md)) unless `--no-install`; writing is refused with exit `2` (`ci-refusal`) when `CI` is truthy, as `--fix` is. `--format json` prints one document with each update's path, position, package, dependency, place, current and target specifier and `state: "DiffersToNpmRegistry"`, plus the failures.
+`skif update --check` writes nothing and exits `1` when an update is available, `0` when none is, `2` when a package could not be checked. Without `--check`, every update is written atomically per file, then the package manager's install runs as after `--fix` ([ADR 0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md)) unless `--no-install`; writing is refused with exit `2` (`ci-refusal`) when `CI` is truthy, as `--fix` is. `--format json` prints one document with each update's path, position, package, dependency, place, current and target specifier and `state: "DiffersToNpmRegistry"`, plus the failures and the notes.
 
 ### `DiffersToNpmRegistry`
 
@@ -97,7 +97,7 @@ Deferred. A terminal picker is a CLI feature on top of the report, as ADR 0003 p
 
 ### Confirmation
 
-* `crates/skif-rules/src/update_tests.rs` covers targets, update groups, the release age and its pnpm fallback, semver groups, catalog entries, local packages, `catalog:` siblings, failures and one request per name, with a fake registry.
+* `crates/skif-rules/src/update_tests.rs` covers targets, update groups, the release age, its pnpm fallback and versions without a publish time, semver groups, catalog entries, local packages, `catalog:` siblings, failures and one request per name, with a fake registry.
 * `crates/skif/tests/update.rs` plans and applies updates through the facade on an in-memory file system.
 * `crates/skif-cli/tests/update.rs` runs the binary against a registry on 127.0.0.1: `--check` exits `1` and writes nothing, the token is sent and never printed, writing keeps the formatting, a 404 and an unreachable registry exit `2`, writing is refused in CI.
 * The CLI reference test fails when a flag of `skif update` is missing from `reference/cli.mdx`.

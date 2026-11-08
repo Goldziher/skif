@@ -190,6 +190,7 @@ fn check_lists_the_updates_exits_one_and_writes_nothing() {
     );
     assert_eq!(report["updates"][0]["state"], "DiffersToNpmRegistry");
     assert_eq!(report["failures"], serde_json::json!([]));
+    assert_eq!(report["notes"], serde_json::json!([]));
     let mut requests = seen.lock().unwrap().clone();
     requests.sort();
     assert_eq!(

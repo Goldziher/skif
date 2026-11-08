@@ -157,6 +157,11 @@ fn json_document(args: &UpdateArgs, report: &UpdateReport, written: Option<&Writ
         .iter()
         .map(|failure| json!({"dependency": failure.dependency, "message": failure.error.to_string()}))
         .collect();
+    let notes: Vec<Value> = report
+        .notes
+        .iter()
+        .map(|note| json!({"dependency": note.dependency(), "message": note.to_string()}))
+        .collect();
     let mut document = json!({
         "version": 1,
         "skif": env!("CARGO_PKG_VERSION"),
@@ -166,6 +171,7 @@ fn json_document(args: &UpdateArgs, report: &UpdateReport, written: Option<&Writ
         "queried": report.queried,
         "updates": updates,
         "failures": failures,
+        "notes": notes,
     });
     if let (Some(written), Some(object)) = (written, document.as_object_mut()) {
         object.insert("changed".to_owned(), json!(written.files));
@@ -244,6 +250,12 @@ fn write_human(
                 escape(&failure.dependency),
                 escape(&failure.error.to_string())
             )?;
+        }
+    }
+    if !report.notes.is_empty() {
+        writeln!(out, "Left out:")?;
+        for note in &report.notes {
+            writeln!(out, "  {}: {}", escape(note.dependency()), escape(&note.to_string()))?;
         }
     }
     if let Some(written) = written {
