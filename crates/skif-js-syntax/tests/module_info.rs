@@ -677,6 +677,13 @@ fn mdx_yields_its_top_level_esm_with_original_offsets() {
 }
 
 #[test]
+fn mdx_inline_code_is_not_a_use() {
+    let mdx = "import * as ui from './ui';\n\nWrite `<ui.Card/>` or ``{ui.format(x)}`` to get <ui.Button/>.\n";
+    let info = parse("docs/usage.mdx", mdx);
+    assert_eq!(accessed(&info, "ui"), (vec!["Button".to_owned()], false));
+}
+
+#[test]
 fn angular_component_resources_are_side_effect_imports() {
     let source = "import { Component as Ng } from '@angular/core';\nimport { Other } from './other';\n@Ng({ templateUrl: './a.html', styleUrl: 'a.scss', styleUrls: ['./b.css', `c.less`, ...more] })\nexport class A {}\n@Other({ styleUrls: ['./ignored.css'] })\nexport class B {}\n";
     let info = parse("a.component.ts", source);

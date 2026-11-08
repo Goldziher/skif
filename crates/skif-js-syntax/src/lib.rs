@@ -237,7 +237,9 @@ fn parse_mdx(source: &str, lines: &LineIndex, options: ParseOptions) -> ModuleIn
     if options.member_accesses {
         let mut markup = members::Uses::new();
         for (start, end) in extracted.markup {
-            template::scan(&source[start..end], template::Flavor::Astro, &mut markup);
+            // Code quoted in prose (`<Card/>`) is not a use; fenced code is already outside the markup.
+            let text = mdx::blank_inline_code(&source[start..end]);
+            template::scan(&text, template::Flavor::Astro, &mut markup);
         }
         members::credit(&mut info, &markup);
     }
