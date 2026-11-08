@@ -53,6 +53,15 @@ pub fn fixture(name: &str) -> TempDir {
     dir
 }
 
+/// Copies `tests/fixtures/<name>` into the existing directory `to`.
+pub fn copy_fixture(name: &str, to: &Path) {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join(name);
+    copy_dir(&source, to);
+}
+
 fn copy_dir(from: &Path, to: &Path) {
     for entry in fs::read_dir(from).unwrap() {
         let entry = entry.unwrap();

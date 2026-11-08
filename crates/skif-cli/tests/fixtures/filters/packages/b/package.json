@@ -1,0 +1,9 @@
+{
+  "name": "@cli/b",
+  "version": "0.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@cli/a": "0.0.0",
+    "is-even": "1.0.0"
+  }
+}

@@ -2303,6 +2303,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
+ "skif",
  "toml",
 ]
 
@@ -2337,6 +2338,7 @@ dependencies = [
  "globset",
  "ignore",
  "indexmap",
+ "rayon",
  "schemars",
  "serde",
  "serde_json",

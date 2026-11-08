@@ -5,11 +5,13 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::corpus;
+use crate::parity;
 use crate::proc::find_on_path;
 use crate::sources;
 use skif_bench::generate::{self, Options, PackageManager};
@@ -26,6 +28,8 @@ const GRAPH_TARGET_MS: f64 = 2000.0;
 const SUMMARY_SCHEMA: u32 = 1;
 const GENERATED_SEED: u64 = 1;
 const GENERATED_MISMATCH_RATE: f64 = 0.05;
+/// How long an install of a corpus repository may take, unless the corpus manifest sets its own.
+const INSTALL_TIMEOUT: Duration = Duration::from_mins(30);
 
 pub struct RunOptions {
     pub skif: PathBuf,
@@ -45,6 +49,8 @@ pub struct RunOptions {
     pub graph_packages: usize,
     /// Return an error when an ADR 0001 check fails.
     pub enforce: bool,
+    /// Install the dependencies of the corpus repositories before timing knip, as `parity --install` does.
+    pub install: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,8 +333,11 @@ fn markdown(summary: &Summary) -> String {
                 if check.passed { "pass" } else { "FAIL" }
             );
         }
-        out.push('\n');
     }
+    // Every section above ends in a blank line; the file ends in exactly one newline, as `poly fmt` writes it.
+    let end = out.trim_end().len();
+    out.truncate(end);
+    out.push('\n');
     out
 }
 
@@ -442,6 +451,15 @@ pub fn run(options: &RunOptions) -> Result<()> {
         for (repo, dir) in repos {
             let mut tools = vec![Tool::Skif, Tool::SkifManifest];
             tools.extend(comparison.iter().copied());
+            // knip loads the configurations of the repository's tools, which import its own packages: without an
+            // install it fails on them and the time is that of a partial run.
+            if options.install && tools.contains(&Tool::Knip) {
+                let scratch = options.generated_dir.join("install").join(&repo.name);
+                if let Some(reason) = parity::install(&repo, &fs::canonicalize(&dir)?, &scratch, INSTALL_TIMEOUT)? {
+                    eprintln!("bench: {} not installed ({reason}), knip is not timed there", repo.name);
+                    tools.retain(|tool| *tool != Tool::Knip);
+                }
+            }
             targets.push(Target {
                 name: format!("corpus: {} ({})", repo.name, repo.package_manager),
                 kind: "corpus",
@@ -513,6 +531,52 @@ mod tests {
             median: mean,
             min: mean,
             max: mean,
+        }
+    }
+
+    /// `poly fmt --check` (rumdl) accepts the published `summary.md` as written: one blank line between blocks, no
+    /// trailing whitespace, exactly one final newline.
+    #[test]
+    fn summary_markdown_is_formatted() {
+        let row = |tool: &str| ToolResult {
+            tool: tool.into(),
+            mean_ms: 12.34,
+            stddev_ms: None,
+            median_ms: 150.0,
+            min_ms: 1.0,
+            max_ms: 2.0,
+            relative_to_skif: Some(1.0),
+        };
+        let summary = |checks: Vec<TargetCheck>, skipped: Vec<String>| Summary {
+            schema: SUMMARY_SCHEMA,
+            skif: "skif 0.0.0".into(),
+            host: "linux x86_64".into(),
+            hyperfine: "hyperfine 1.20.0".into(),
+            warmup: 1,
+            runs: 2,
+            skipped_tools: skipped,
+            targets: vec![TargetResult {
+                target: "t".into(),
+                kind: "generated",
+                packages: Some(1),
+                files: None,
+                results: vec![row("skif --no-js"), row("sherif")],
+            }],
+            adr_0001_checks: checks,
+        };
+        let check = TargetCheck {
+            target: "t".into(),
+            description: "d".into(),
+            passed: true,
+        };
+        for text in [
+            markdown(&summary(vec![check], Vec::new())),
+            markdown(&summary(Vec::new(), vec!["knip".into()])),
+        ] {
+            assert!(text.ends_with(" |\n"), "{text:?}");
+            assert!(!text.ends_with("\n\n"));
+            assert!(!text.contains("\n\n\n"));
+            assert!(text.lines().all(|line| line == line.trim_end()));
         }
     }
 

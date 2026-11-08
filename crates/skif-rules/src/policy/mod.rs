@@ -70,8 +70,8 @@ impl RuleProvider for PolicyProvider {
                 .map_or_else(std::collections::BTreeSet::new, |usages| {
                     catalog::owned_dependencies(usages, cx.workspace, &cx.config.catalog)
                 });
-            let analysis = analysis::Analysis::run_with(cx.workspace, cx.config, &owned);
-            report::emit(&analysis, cx.config_file(), out);
+            let analysis = analysis::Analysis::run_with(cx.workspace, cx.config, &owned, cx.sequential);
+            report::emit(&analysis, cx.config_file(), out, cx.sequential);
         }
         Ok(())
     }

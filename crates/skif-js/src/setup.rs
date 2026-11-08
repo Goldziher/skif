@@ -12,12 +12,16 @@ use skif_js_syntax::{Export, ExportKind};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::ancestors;
+use crate::config_check::relative_tsconfig;
+use crate::deps::member_dirs;
 use crate::globs::{Globs, Names};
 use crate::input::{
     BuildDir, IncompleteCause, IncompleteEntries, InputRequest, InputSource, PathAlias, WorkspaceInputs,
 };
 use crate::listed::{self, Listed};
+use crate::resolve::join_normalized;
 use crate::scripts::{self, ScriptBinary, ScriptFacts};
+use crate::tsconfig_files;
 
 const EXTENSIONS: &str = "{js,mjs,cjs,jsx,ts,tsx,mts,cts}";
 
@@ -373,6 +377,10 @@ pub(crate) struct UserPatterns {
 }
 
 /// Settings for the whole workspace.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent switch of the analysis"
+)]
 pub(crate) struct Setup {
     /// Indexed by package; `None` for packages excluded with `ignore-packages`.
     pub packages: Vec<Option<PackageSetup>>,
@@ -393,6 +401,10 @@ pub(crate) struct Setup {
     /// `[js.workspaces]` keys that select no package.
     pub unmatched_workspace_keys: Vec<String>,
     pub production: bool,
+    /// `[js] tsconfig`, absolute: the TypeScript configuration of the root package in place of its `tsconfig.json`.
+    pub root_tsconfig: Option<PathBuf>,
+    /// Each package uses only what its own manifest lists (`--strict`).
+    pub isolate_workspaces: bool,
     pub include_entry_exports: bool,
     /// `[js] include-fixtures`: files in fixture directories are reported as unused like any other.
     pub include_fixtures: bool,
@@ -404,6 +416,15 @@ pub(crate) struct Setup {
     pub include_tags: Vec<String>,
     /// `[js.cycles]`.
     pub cycles: skif_config::JsCycles,
+}
+
+/// The TypeScript configuration of the package in `dir`: `root_tsconfig` (`[js] tsconfig`) for the root package,
+/// `tsconfig.json` otherwise.
+pub(crate) fn tsconfig_path(root_tsconfig: Option<&Path>, dir: &Path, is_root: bool) -> PathBuf {
+    match root_tsconfig {
+        Some(config) if is_root => config.to_path_buf(),
+        _ => dir.join("tsconfig.json"),
+    }
 }
 
 /// `pattern`, written relative to the package directory `dir`, relative to the workspace root instead. `None` when it
@@ -534,6 +555,16 @@ impl Setup {
             .into_iter()
             .cloned()
             .collect();
+        let root_tsconfig = js
+            .tsconfig
+            .as_deref()
+            .and_then(relative_tsconfig)
+            .map(|path| join_normalized(&workspace.root, &path));
+        let named_members = if js.use_tsconfig_files {
+            member_dirs(workspace)
+        } else {
+            Vec::new()
+        };
         let members: Vec<(PackageId, &Package)> = workspace.iter().collect();
         let mut packages: Vec<Option<PackageSetup>> = map_ordered(&members, sequential, |&(id, package)| {
             if workspace.is_ignored(id) || js_ignored.contains(&id) {
@@ -582,17 +613,37 @@ impl Setup {
             }
             entry.extend(plugin.production_entry);
 
-            let mut project = listed::user_globs(&user.project, production, &default_project());
+            let tsconfig_project = js
+                .use_tsconfig_files
+                .then(|| {
+                    let config = tsconfig_path(root_tsconfig.as_deref(), &abs_dir, package.is_root);
+                    tsconfig_files::project_globs(fs.as_ref(), &named_members, &config, &abs_dir)
+                })
+                .flatten();
+            let from_tsconfig = tsconfig_project.is_some();
+            let (mut project, mut named_files) = match tsconfig_project {
+                Some(selected) => (selected.patterns, selected.files),
+                None => (
+                    listed::user_globs(&user.project, production, &default_project()),
+                    Vec::new(),
+                ),
+            };
             if production {
-                project.extend(listed::production_exclusions(&plugin.project));
-                project.extend(listed::non_production_entries(&user.entry));
-                project.extend(
+                let mut exclusions = listed::production_exclusions(&plugin.project);
+                exclusions.extend(listed::non_production_entries(&user.entry));
+                exclusions.extend(
                     test_files()
                         .into_iter()
                         .chain(test_directories())
                         .map(|glob| format!("!{glob}")),
                 );
-            } else {
+                // Production mode leaves out tests and the like even when a `tsconfig` names them in `files`.
+                if !named_files.is_empty() {
+                    named_files.extend(exclusions.iter().cloned());
+                }
+                project.extend(exclusions);
+            } else if !from_tsconfig {
+                // knip adds no plugin project globs to the files a `tsconfig` selects either.
                 project.extend(plugin.project);
             }
 
@@ -636,7 +687,7 @@ impl Setup {
                 } else {
                     plugin.incomplete_reasons
                 },
-                project: Globs::new(project),
+                project: Globs::new(project).or(Globs::new(named_files)),
                 ignore: Globs::new(ignore),
                 ignore_files: Globs::new(&user.ignore_files),
                 ignore_dependencies: Names::new(ignore_dependencies),
@@ -674,6 +725,8 @@ impl Setup {
             js_ignored,
             unmatched_workspace_keys,
             production,
+            root_tsconfig,
+            isolate_workspaces: js.isolate_workspaces,
             include_entry_exports: js.include_entry_exports,
             include_fixtures: js.include_fixtures,
             used_in_file: js.ignore_exports_used_in_file.clone(),
@@ -681,6 +734,15 @@ impl Setup {
             include_tags,
             cycles: js.cycles.clone(),
         }
+    }
+
+    /// The TypeScript configuration of `package`: `[js] tsconfig` for the root, `tsconfig.json` otherwise.
+    pub(crate) fn tsconfig_of(&self, workspace: &Workspace, package: &Package) -> PathBuf {
+        tsconfig_path(
+            self.root_tsconfig.as_deref(),
+            &workspace.root.join(&package.dir),
+            package.is_root,
+        )
     }
 
     pub(crate) fn package(&self, id: PackageId) -> Option<&PackageSetup> {

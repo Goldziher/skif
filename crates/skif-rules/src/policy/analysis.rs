@@ -3,10 +3,10 @@
 use std::collections::BTreeSet;
 
 use skif_config::Config;
-use skif_workspace::Workspace;
+use skif_workspace::{Workspace, map_ordered};
 
 use super::groups::{Group, Groups, Policy};
-use super::instances::Instances;
+use super::instances::{InstanceId, Instances};
 use super::state::Verdict;
 use super::visit::Visitor;
 
@@ -35,28 +35,51 @@ impl<'w> Analysis<'w> {
     #[cfg(test)]
     pub(crate) fn run(workspace: &'w Workspace, config: &Config, catalog_owns: bool) -> Self {
         let instances = Instances::collect(workspace, config, catalog_owns);
-        Self::from_instances(workspace, config, instances)
+        Self::from_instances(workspace, config, instances, true)
     }
 
     /// Runs the version groups; the dependencies in `owned` are left to the catalog rules (see
-    /// [`Instances::collect_with`]).
-    pub(crate) fn run_with(workspace: &'w Workspace, config: &Config, owned: &BTreeSet<&str>) -> Self {
+    /// [`Instances::collect_with`]). With `sequential` everything runs on the calling thread.
+    pub(crate) fn run_with(
+        workspace: &'w Workspace,
+        config: &Config,
+        owned: &BTreeSet<&str>,
+        sequential: bool,
+    ) -> Self {
         Self::from_instances(
             workspace,
             config,
-            Instances::collect_with(workspace, owned, &config.custom_types, config.policy.override_reading),
+            Instances::collect_with(
+                workspace,
+                owned,
+                &config.custom_types,
+                config.policy.override_reading,
+                sequential,
+            ),
+            sequential,
         )
     }
 
-    fn from_instances(workspace: &'w Workspace, config: &Config, instances: Instances<'w>) -> Self {
+    fn from_instances(workspace: &'w Workspace, config: &Config, instances: Instances<'w>, sequential: bool) -> Self {
         let (verdicts, unused_groups, invalid_pins) = {
             let groups = Groups::compile(workspace, config);
             let assignment = groups.assign(&instances);
-            let mut visitor = Visitor::new(&instances, &assignment);
-            for (index, group) in groups.groups().iter().enumerate() {
-                for (_, ids) in assignment.dependencies(index) {
-                    visitor.visit(&group.policy, ids);
-                }
+            // Each dependency of each group is visited on its own, in parallel unless the run is `sequential`; the
+            // verdicts are applied in the order a single pass would give them.
+            let visits: Vec<(&Policy, &[InstanceId])> = groups
+                .groups()
+                .iter()
+                .enumerate()
+                .flat_map(|(index, group)| assignment.dependencies(index).map(move |(_, ids)| (&group.policy, ids)))
+                .collect();
+            let marks: Vec<Vec<(InstanceId, Verdict)>> = map_ordered(&visits, sequential, |&(policy, ids)| {
+                let mut visitor = Visitor::new(&instances, &assignment);
+                visitor.visit(policy, ids);
+                visitor.into_marks()
+            });
+            let mut verdicts: Vec<Option<Verdict>> = (0..instances.len()).map(|_| None).collect();
+            for (id, verdict) in marks.into_iter().flatten() {
+                verdicts[id.index()] = Some(verdict);
             }
             let configured = |group: &Group<'_>| {
                 Some(ConfiguredGroup {
@@ -80,7 +103,7 @@ impl<'w> Analysis<'w> {
                 .filter(|group| is_invalid(group))
                 .filter_map(configured)
                 .collect();
-            (visitor.into_verdicts(), unused, invalid)
+            (verdicts, unused, invalid)
         };
         Self {
             instances,
