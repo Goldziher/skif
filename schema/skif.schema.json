@@ -1261,7 +1261,7 @@
         },
         "format-repository": {
           "type": "boolean",
-          "description": "Write a `repository` object that holds only `url` and `type` as its shorthand.",
+          "description": "Write a `repository` object that holds only `url` and a `type` of `git` (or no `type`) as its shorthand.",
           "default": false
         },
         "indent": {

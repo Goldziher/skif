@@ -276,9 +276,9 @@ field. `sort-exports` orders the keys of every object in `exports` (the others k
 cannot change how an import resolves; that is the default, and its fix is safe. A list that reorders other conditions,
 such as syncpack's default `["types", "node-addons", "node", "browser", "module", "import", "require", "svelte",
 "development", "production", "script", "default"]`, is applied with an unsafe fix (`skif format --unsafe`,
-`skif --fix-unsafe`). `format-bugs` and `format-repository` collapse only an object the shorthand holds completely: a `bugs`
-with an `email`, or a `repository` with a `directory`, stays. An empty list turns its step off. Sorting is by byte
-order, the order `unsorted-dependencies` uses.
+`skif --fix-unsafe`). `format-bugs` and `format-repository` collapse only an object the shorthand holds completely:
+a `bugs` with an `email`, or a `repository` with a `directory` or a `type` other than `git` (`svn`, `hg`), stays. An
+empty list turns its step off. Sorting is by byte order, the order `unsorted-dependencies` uses.
 
 Without `indent`, formatting moves members with their own text and keeps every file's whitespace, and whitespace is
 never reported. With `indent` (spaces or tabs; `"\\t"` is read as a tab), a manifest must be laid out as

@@ -29,7 +29,7 @@ pub struct FormatOptions {
     pub sort_packages: bool,
     /// Collapse a `bugs` object holding only `url` to that string.
     pub format_bugs: bool,
-    /// Collapse a `repository` object holding only `url` and `type` to the URL string.
+    /// Collapse a `repository` object holding only `url` and a `type` of `git` (or no `type`) to the URL string.
     pub format_repository: bool,
     /// When set, the file must be laid out as `JSON.stringify(value, null, indent)` lays it out.
     pub indent: Option<String>,
@@ -599,6 +599,12 @@ fn collapse_repository(root: &mut Object) -> bool {
     {
         return false;
     }
+    // The shorthand means a git repository: an `svn` or `hg` one would lose its type.
+    if let Some(kind) = repository.get("type")
+        && string_value(kind) != Some("git")
+    {
+        return false;
+    }
     let Some(url_node) = repository.get("url") else {
         return false;
     };
@@ -781,6 +787,14 @@ mod tests {
         let directory = r#"{"repository":{"type":"git","url":"https://github.com/o/r","directory":"packages/a"}}"#;
         assert_eq!(format(directory, &options).issues, []);
         assert_eq!(format(r#"{"repository":{"type":"git"}}"#, &options).issues, []);
+        let untyped = format(r#"{"repository":{"url":"https://github.com/o/r"}}"#, &options);
+        assert_eq!(untyped.output, r#"{"repository":"o/r"}"#);
+        for other in ["svn", "hg", ""] {
+            let source = format!(r#"{{"repository":{{"type":"{other}","url":"https://github.com/o/r"}}}}"#);
+            assert_eq!(format(&source, &options).issues, [], "type {other:?}");
+        }
+        let not_a_string = r#"{"repository":{"type":1,"url":"https://github.com/o/r"}}"#;
+        assert_eq!(format(not_a_string, &options).issues, []);
     }
 
     #[test]
