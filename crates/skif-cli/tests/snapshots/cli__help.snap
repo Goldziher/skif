@@ -30,10 +30,15 @@ Options:
           Output format [default: human, or human plus GitHub annotations when `GITHUB_ACTIONS=true`]
 
           Possible values:
-          - human:  Grouped, optionally coloured text
-          - json:   One JSON document on stdout
-          - sarif:  SARIF 2.1.0 for code scanning
-          - github: GitHub Actions workflow-command annotations
+          - human:       Grouped, optionally coloured text
+          - json:        One JSON document on stdout
+          - sarif:       SARIF 2.1.0 for code scanning
+          - github:      GitHub Actions workflow-command annotations
+          - codeclimate: Code Climate JSON for GitLab Code Quality
+          - compact:     One `path:line:col rule message` line per diagnostic
+          - markdown:    Markdown tables per rule, for pull request comments
+          - disclosure:  Markdown tables per rule, each in a collapsed `<details>` section
+          - codeowners:  Compact lines grouped by owner, from the repository's CODEOWNERS file
 
       --output <FILE>
           Write the rendering to this file instead of stdout
