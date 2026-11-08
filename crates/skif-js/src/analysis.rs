@@ -12,6 +12,7 @@ use skif_workspace::{PackageId, Workspace, map_ordered};
 use crate::deps::DependencyUsage;
 use crate::discover::{Candidate, discover, relative, take_file_links};
 use crate::entries::entry_files;
+use crate::fixture::in_fixture_directory;
 use crate::git_index::{IndexCache, Listing, indexed_fs};
 use crate::graph::{self, Inputs, Module, ModuleGraph};
 use crate::input::InputSource;
@@ -198,6 +199,7 @@ impl<'a> JsAnalysis<'a> {
                 package.project.is_match(&in_package)
                     && !package.ignore.matches_any(&in_package)
                     && !setup.global_ignore.matches_any(&candidate.rel)
+                    && (setup.include_fixtures || !in_fixture_directory(Path::new(&candidate.rel)))
             })
             // The index may still list a file deleted since it was written; one `stat` per unused file settles it.
             .filter(|candidate| !listed_from_index || fs.kind(&candidate.abs).is_file)
@@ -264,15 +266,17 @@ impl<'a> JsAnalysis<'a> {
         self.setup.package(id).is_none()
     }
 
-    /// Whether a module's own issues are reported: it is a project file, not ignored, not a public entry, and its
-    /// package's entry files are fully known. In a package whose entries are incomplete, a file no known entry reaches
-    /// may still import the module, so none of its exports can be judged unused.
+    /// Whether a module's own issues are reported: it is a project file, not ignored, not a public entry, not in a
+    /// fixture directory unless `[js] include-fixtures` is set, and its package's entry files are fully known. In a
+    /// package whose entries are incomplete, a file no known entry reaches may still import the module, so none of its
+    /// exports can be judged unused.
     #[must_use]
     pub fn reports_exports_of(&self, module: &Module) -> bool {
         module.in_project
             && !module.ignored
             && (!module.is_entry || self.setup.includes_entry_exports(module.owner))
             && !self.entries_incomplete(module.owner)
+            && (self.setup.include_fixtures || !in_fixture_directory(&module.path))
     }
 
     /// Exports of `module` that no other module uses, values and types alike, in source order.

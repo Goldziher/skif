@@ -79,7 +79,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 4] = [
     },
     Deviation {
         id: FIXTURE_FILE,
-        reason: "skif skips fixture directories (ADR 0023); knip reports their files as unused",
+        reason: "skif does not report files below `fixtures` or `__fixtures__` as unused unless `[js] include-fixtures` is set (ADR 0050); knip reports them, and the harness counts other fixture-like directories (`fixture`, `testdata`, `*-fixtures`) here too",
     },
     Deviation {
         id: KNIP_UNREAD,
