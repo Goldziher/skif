@@ -203,6 +203,17 @@ fn check_lists_the_updates_exits_one_and_writes_nothing() {
         ]
     );
     assert!(!result.stdout.contains("t0ken-value") && !result.stderr.contains("t0ken-value"));
+    assert_eq!(
+        result
+            .stderr
+            .matches(&format!(
+                "warning: sending the registry token for {url} over plain http"
+            ))
+            .count(),
+        1,
+        "once per registry: {}",
+        result.stderr
+    );
 }
 
 fn url_port(url: &str) -> &str {
