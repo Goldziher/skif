@@ -10,6 +10,7 @@ use skif_core::{FileSystem, IncompletePackage, Span, timing};
 use skif_js_syntax::{Export, ExportKind, Member, ParseOptions, parse_module};
 use skif_workspace::{PackageId, Workspace, map_ordered};
 
+use crate::config_hints::{ConfigHint, HintInputs, config_hints};
 use crate::deps::DependencyUsage;
 use crate::discover::{Candidate, discover_with, relative, take_file_links};
 use crate::entries::entry_files;
@@ -77,6 +78,8 @@ pub struct JsAnalysis<'a> {
     pub(crate) empty_patterns: Vec<EmptyPattern>,
     /// `ignore-files` patterns that hide no file `unused-files` would report.
     pub(crate) unused_ignore_files: Vec<EmptyPattern>,
+    /// The other configuration hints: redundant and top-level patterns, `project` extensions, missing package entries.
+    pub(crate) config_hints: Vec<ConfigHint>,
 }
 
 /// Names declared with `declare module 'name'` by graph modules and by declaration files nothing imports.
@@ -124,7 +127,7 @@ const UNWALKED_DIRS: [&str; 2] = ["node_modules", ".git"];
 /// otherwise be reported although they match files. Only such patterns reach it, so the walk is rare; it starts at
 /// the literal directory prefix of the pattern, does not follow symbolic links to directories and skips
 /// [`UNWALKED_DIRS`] unless the pattern names them.
-fn on_disk(fs: &dyn FileSystem, base: &Path, pattern: &str) -> bool {
+pub(crate) fn on_disk(fs: &dyn FileSystem, base: &Path, pattern: &str) -> bool {
     let body = pattern.trim().trim_start_matches("./").trim_end_matches('!');
     let globs = Globs::new([body]);
     if globs.is_empty() {
@@ -173,7 +176,12 @@ fn key_dir(package: &skif_workspace::Package) -> String {
 /// The configuration key a package's pattern of the list `name` is written under: the `[js.workspaces]` key as
 /// written (so a glob key such as `packages/*` is reported once, as the user wrote it), or the package directory for
 /// a pattern that comes from elsewhere (an override).
-fn workspace_key(config: &Config, keys: &WorkspaceKeys, package: &skif_workspace::Package, name: &str) -> String {
+pub(crate) fn workspace_key(
+    config: &Config,
+    keys: &WorkspaceKeys,
+    package: &skif_workspace::Package,
+    name: &str,
+) -> String {
     let dir = key_dir(package);
     let written = keys
         .key(&config.js.workspaces, &dir)
@@ -417,6 +425,18 @@ impl<'a> JsAnalysis<'a> {
         });
         setup.mark_entries_incomplete(&found.unknown);
         let entries = found.files;
+        let config_hints = {
+            let entry_set: HashSet<PathBuf> = entries.iter().cloned().collect();
+            config_hints(&HintInputs {
+                workspace,
+                config,
+                setup: &setup,
+                candidates: &candidates,
+                entries: &entry_set,
+                provided: &found.provided,
+                disk: disk.as_ref(),
+            })
+        };
         let resolver = timing::phase(phase("resolver"), || {
             ModuleResolver::new(Arc::clone(fs), workspace, &setup)
         });
@@ -503,6 +523,7 @@ impl<'a> JsAnalysis<'a> {
             config_path: None,
             empty_patterns,
             unused_ignore_files,
+            config_hints,
         }
     }
 

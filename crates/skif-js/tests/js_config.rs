@@ -1,5 +1,6 @@
 //! `[js]` configuration parity with knip: regular expression entries, `ignore-unresolved`, `ignore-workspaces`,
-//! per-workspace keys, the production marker, `ignore-members`, `ignore-exports-used-in-file` and `stale-js-config`.
+//! per-workspace keys, the production marker, `ignore-members`, `ignore-exports-used-in-file`, `stale-js-config` and
+//! `ignore-global-binaries`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -562,4 +563,24 @@ fn ignore_files_hides_files_from_unused_files_only() {
             "`src/gone.ts` in `js.workspaces.\"packages/b\".ignore-files` matched nothing",
         ]
     );
+}
+
+#[test]
+fn ignore_global_binaries_false_reports_system_binaries() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","scripts":{"clean":"rm -rf out && cd out && echo done","fetch":"curl -o x y && git pull","x":"npx jq ."},"devDependencies":{"rimraf":"1"}}"#,
+        ),
+        ("index.ts", "export {};\n"),
+    ];
+    assert_eq!(found(&lint(&files, ""), "unlisted-binaries"), Vec::<String>::new());
+    let reported = found(
+        &lint(
+            &files,
+            "[js]\nignore-global-binaries = false\nignore-binaries = [\"git\"]\n",
+        ),
+        "unlisted-binaries",
+    );
+    insta::assert_snapshot!(reported.join("\n"));
 }
