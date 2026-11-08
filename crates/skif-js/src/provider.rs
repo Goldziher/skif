@@ -110,12 +110,15 @@ impl RuleProvider for JsProvider {
             &self.fs,
             &self.sources,
             cx.sequential,
-            &self.indexes,
+            (&self.indexes, cx.extra_entries),
         );
         analysis.enabled_rules = Some(active.iter().map(|rule| rule.meta().id.to_owned()).collect());
         analysis.config_path = cx.config_path.map(std::path::Path::to_path_buf);
         for package in analysis.incomplete_packages() {
             out.report_incomplete_package(package);
+        }
+        for file in analysis.other_project_files() {
+            out.report_other_project_file(file);
         }
         let (last, concurrent): (Vec<&dyn JsRule>, Vec<&dyn JsRule>) =
             active.iter().copied().partition(|rule| rule.runs_last());
