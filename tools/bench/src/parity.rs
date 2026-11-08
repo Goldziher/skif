@@ -63,27 +63,39 @@ pub const TEST_FILE: &str = "test-file";
 pub const FIXTURE_FILE: &str = "fixture-file";
 pub const KNIP_UNREAD: &str = "knip-unread";
 pub const NOT_JUDGED: &str = "not-judged-by-skif";
+pub const KNIP_CONFIG_ERROR: &str = "knip-config-error";
 
-/// The categories skif does not judge in a package whose entry files are not all known (ADR 0053).
-const NOT_JUDGED_CATEGORIES: [&str; 3] = ["files", "dependencies", "devDependencies"];
+/// The categories skif does not judge in a package whose entry files are not all known: files and dependencies
+/// (ADR 0053), and exports, types and members, which skif stopped reporting there with #48 (ADR 0068).
+const NOT_JUDGED_CATEGORIES: [&str; 9] = [
+    "files",
+    "dependencies",
+    "devDependencies",
+    "exports",
+    "types",
+    "nsExports",
+    "nsTypes",
+    "enumMembers",
+    "namespaceMembers",
+];
 
 /// Categories that name the same thing, `<file>|<export>`, and differ only in how the tools label it: knip counts a
 /// `const enum` as a type and files an export under `nsExports` when any importer uses a namespace, skif when all do.
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 5] = [
+pub const KNIP_DEVIATIONS: [Deviation; 6] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
     },
     Deviation {
         id: TEST_FILE,
-        reason: "knip reports these test files and files below test directories as unused and skif does not: a test-runner plugin makes test files entries, and most other files below test directories are apps and helpers that skif leaves out of its graph, in a nested project (read only with --recursive) or in a package whose entry files it cannot fully read, where it reports no file as unused",
+        reason: "knip reports these test files and files below test directories as unused and skif does not: a test-runner plugin makes test files entries, and most other files below test directories are not tests but apps and helpers of a test suite (next-js has thousands) that skif does not report, because no test entry reaches them while they sit in a nested project skif analyses on its own, or the narrowed scope of an unreadable test config makes them entries (ADR 0065)",
     },
     Deviation {
         id: FIXTURE_FILE,
-        reason: "skif does not report files below `fixtures` or `__fixtures__` as unused unless `[js] include-fixtures` is set (ADR 0050); knip reports them, and the harness counts other fixture-like directories (`fixture`, `testdata`, `*-fixtures`) here too",
+        reason: "skif does not report files below a `fixtures` or `__fixtures__` directory as unused unless `[js] include-fixtures` is set (ADR 0050); knip reports them. Other names of test data (`fixture`, `testdata`, `*-fixtures`) are judged like any other directory by skif and are not counted here",
     },
     Deviation {
         id: KNIP_UNREAD,
@@ -91,7 +103,11 @@ pub const KNIP_DEVIATIONS: [Deviation; 5] = [
     },
     Deviation {
         id: NOT_JUDGED,
-        reason: "skif lists the package under `incomplete-packages`: a tool config it cannot read leaves its entry files unknown, so it does not judge the package's files and dependencies",
+        reason: "skif lists the package under `incomplete-packages`: a tool config it cannot read leaves its entry files unknown, so it does not judge the package's dependencies, exports, types and members, nor the files the config could make entries (the whole package unless the config's scope is narrowed, ADR 0065, which its JSON does not say)",
+    },
+    Deviation {
+        id: KNIP_CONFIG_ERROR,
+        reason: "knip could not load a configuration file of the package (it prints `ERROR: Error loading <file>` and exits with 2), so it ran without the entry files that configuration names; the errors are listed in `parity.json` under `knip_errors`",
     },
 ];
 
@@ -101,7 +117,8 @@ const CODE_EXTENSIONS: [&str; 11] = [
 ];
 
 const TEST_DIRECTORIES: [&str; 6] = ["test", "tests", "__tests__", "e2e", "cypress", "__mocks__"];
-const FIXTURE_DIRECTORIES: [&str; 5] = ["fixtures", "__fixtures__", "fixture", "test_root", "testdata"];
+/// The directories skif's JS analysis treats as fixtures (`skif_config::FIXTURE_DIRECTORIES`, ADR 0050).
+const FIXTURE_DIRECTORIES: [&str; 2] = ["fixtures", "__fixtures__"];
 
 /// The default entry files of a workspace, the same in knip and skif. A configured `entry` replaces them in both, so a
 /// corpus-level `entry` is given with these in front.
@@ -337,9 +354,9 @@ fn not_judged(category: &str, key: &str, dirs: &BTreeSet<String>, is_package: &d
     !dirs.is_empty() && NOT_JUDGED_CATEGORIES.contains(&category) && dirs.contains(&owner_dir(key, is_package))
 }
 
-/// Whether a knip-reported unused file is a known deviation: outside skif's project set (not code), a fixture, a test
-/// file or any code file below a test directory (such as the apps of an end-to-end suite). Fixtures and tests only
-/// count when `include_test_files` is off.
+/// Whether a knip-reported unused file is a known deviation: outside skif's project set (not code), in a directory
+/// skif treats as fixtures, a test file or any code file below a test directory (such as the apps of an end-to-end
+/// suite). Fixtures and tests only count when `include_test_files` is off.
 fn classify_file(path: &str, include_test_files: bool) -> Option<&'static str> {
     let normalized = path.replace('\\', "/");
     let (directories, name) = normalized.rsplit_once('/').unwrap_or(("", normalized.as_str()));
@@ -352,8 +369,7 @@ fn classify_file(path: &str, include_test_files: bool) -> Option<&'static str> {
     if include_test_files {
         return None;
     }
-    let mut parts = directories.split('/');
-    if parts.any(|p| FIXTURE_DIRECTORIES.contains(&p) || p == "__testfixtures__" || p.ends_with("-fixtures")) {
+    if directories.split('/').any(|p| FIXTURE_DIRECTORIES.contains(&p)) {
         return Some(FIXTURE_FILE);
     }
     let in_test_directory = directories.split('/').any(|p| TEST_DIRECTORIES.contains(&p));
@@ -398,6 +414,18 @@ pub fn parse_knip_report(stdout: &[u8]) -> Result<Value, String> {
         || format!("no knip report in the {} bytes of stdout", stdout.len()),
         |error| format!("no knip report in stdout; first parse error: {error}"),
     ))
+}
+
+/// The configuration files knip could not load, from its `ERROR: Error loading <file> (<cause>)` lines on stderr,
+/// relative to the checkout. knip goes on without them and still prints a report, then exits with 2.
+pub fn knip_config_errors(stderr: &str, root: &Path) -> BTreeSet<String> {
+    stderr
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("ERROR: Error loading "))
+        .filter_map(|rest| rest.split(" (").next())
+        .map(|file| normalize(file.trim(), root))
+        .filter(|file| !file.is_empty())
+        .collect()
 }
 
 fn total(keys: &Keys) -> usize {
@@ -546,20 +574,32 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
     let knip_found = knip_keys(&knip_doc, &root);
     align_export_labels(&mut skif_found, &knip_found);
     let unjudged = not_judged_dirs(&skif_doc);
+    let knip_errors = knip_config_errors(&knip_run.stderr, &root);
     let is_package = |dir: &str| root.join(dir).join("package.json").is_file();
+    let knip_failed_dirs: BTreeSet<String> = knip_errors.iter().map(|file| owner_dir(file, &is_package)).collect();
     let split = diff::split_known(&skif_found, &knip_found, &|side, category, key| {
         if repo.knip_unread.iter().any(|prefix| key.starts_with(prefix.as_str())) {
             return Some(KNIP_UNREAD);
         }
-        (side == Side::Tool && category == "files")
+        if side == Side::Skif {
+            return None;
+        }
+        (category == "files")
             .then(|| classify_file(key, options.include_test_files))
             .flatten()
-            .or_else(|| (side == Side::Tool && not_judged(category, key, &unjudged, &is_package)).then_some(NOT_JUDGED))
+            .or_else(|| not_judged(category, key, &unjudged, &is_package).then_some(NOT_JUDGED))
+            .or_else(|| {
+                knip_failed_dirs
+                    .contains(&owner_dir(key, &is_package))
+                    .then_some(KNIP_CONFIG_ERROR)
+            })
     });
     let (counts, samples) = diff::compare(&split.skif, &split.tool);
     let detail = json!({
         "status": COMPARED,
         "recursive": recursive,
+        "knip_exit": knip_run.code,
+        "knip_errors": knip_errors,
         "known_deviations": split.known,
         "known_samples": split.samples,
         "not_judged_packages": unjudged,
@@ -570,7 +610,9 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         "categories": category_detail(&counts, &samples),
     });
     Ok(Outcome {
-        entry: Entry::compared(counts).with_known(split.known),
+        entry: Entry::compared(counts)
+            .with_known(split.known)
+            .with_tool_errors(knip_errors.len()),
         detail,
     })
 }
@@ -646,9 +688,14 @@ fn markdown(tool: &str, installed: bool, entries: &BTreeMap<String, Entry>) -> S
                 .known_deviations
                 .get(NOT_JUDGED)
                 .map_or(0, |c| c.skif_only + c.tool_only);
+            let status = if entry.tool_errors == 0 {
+                "compared".to_owned()
+            } else {
+                format!("compared; {tool} could not load {} config files", entry.tool_errors)
+            };
             let _ = writeln!(
                 out,
-                "| {name} | compared | {} | {} | {} | {unjudged} | {} |",
+                "| {name} | {status} | {} | {} | {} | {unjudged} | {} |",
                 sum(|c| c.skif_only),
                 sum(|c| c.tool_only),
                 sum(|c| c.both),
@@ -949,8 +996,15 @@ mod tests {
         assert_eq!(classify_file("pkg/test/a.ts", false), Some(TEST_FILE));
         assert_eq!(classify_file("pkg/src/a.spec.ts", false), Some(TEST_FILE));
         assert_eq!(classify_file("pkg/src/a_spec.ts", false), Some(TEST_FILE));
-        assert_eq!(classify_file("pkg/x/colorize-fixtures/a.ts", false), Some(FIXTURE_FILE));
+        assert_eq!(classify_file("pkg/__fixtures__/a.ts", false), Some(FIXTURE_FILE));
         assert_eq!(classify_file("pkg/fixtures/test/a.ts", false), Some(FIXTURE_FILE));
+        assert_eq!(
+            classify_file("pkg/x/colorize-fixtures/a.ts", false),
+            None,
+            "skif judges other test-data names"
+        );
+        assert_eq!(classify_file("pkg/testdata/a.ts", false), None);
+        assert_eq!(classify_file("pkg/fixture/test/a.ts", false), Some(TEST_FILE));
         assert_eq!(classify_file("pkg/test/a.ts", true), None);
         assert_eq!(classify_file("pkg/fixtures/a.ts", true), None);
         assert_eq!(classify_file("pkg/src/a.ts", false), None);
@@ -1069,7 +1123,7 @@ mod tests {
             split.known[NOT_JUDGED],
             diff::KnownCounts {
                 skif_only: 0,
-                tool_only: 2
+                tool_only: 3
             }
         );
         let (counts, _) = diff::compare(&split.skif, &split.tool);
@@ -1077,11 +1131,60 @@ mod tests {
             counts["files"].tool_only, 2,
             "a nested complete package and another package stay one-sided"
         );
-        assert_eq!(
-            counts["exports"].tool_only, 1,
-            "skif judges the exports of an incomplete package"
+        assert!(
+            !counts.contains_key("exports"),
+            "skif does not judge the exports of an incomplete package (ADR 0068)"
         );
         assert!(!counts.contains_key("devDependencies"));
+    }
+
+    #[test]
+    fn not_judged_covers_exports_types_and_members_but_not_unlisted_or_duplicates() {
+        let dirs = BTreeSet::from(["packages/web".to_owned()]);
+        let is_package = |dir: &str| dir == "packages/web";
+        for category in [
+            "exports",
+            "types",
+            "nsExports",
+            "nsTypes",
+            "enumMembers",
+            "namespaceMembers",
+        ] {
+            assert!(
+                not_judged(category, "packages/web/src/a.ts|x", &dirs, &is_package),
+                "{category}"
+            );
+        }
+        for category in [
+            "unlisted",
+            "unresolved",
+            "binaries",
+            "duplicates",
+            "optionalPeerDependencies",
+        ] {
+            assert!(
+                !not_judged(category, "packages/web/src/a.ts|x", &dirs, &is_package),
+                "{category}"
+            );
+        }
+        assert!(!not_judged("exports", "packages/api/src/a.ts|x", &dirs, &is_package));
+    }
+
+    #[test]
+    fn reads_the_config_files_knip_could_not_load() {
+        let stderr = "❌ Invalid environment variables: [\n\
+            ERROR: Error loading /r/apps/expo/metro.config.js (Cannot find module 'metro-cache')\n\
+            ERROR: Please fix or visit https://knip.dev/reference/known-issues\n\
+            ERROR: Error loading packages/db/drizzle.config.ts (Missing POSTGRES_URL)\n";
+        let errors = knip_config_errors(stderr, Path::new("/r"));
+        assert_eq!(
+            errors,
+            BTreeSet::from([
+                "apps/expo/metro.config.js".to_owned(),
+                "packages/db/drizzle.config.ts".to_owned()
+            ])
+        );
+        assert!(knip_config_errors("ERROR: something else\n", Path::new("/r")).is_empty());
     }
 
     #[test]
@@ -1110,9 +1213,16 @@ mod tests {
                 },
             ),
         ]);
-        let entries = BTreeMap::from([("r".to_owned(), Entry::compared(counts).with_known(known))]);
+        let entries = BTreeMap::from([
+            ("r".to_owned(), Entry::compared(counts.clone()).with_known(known)),
+            ("s".to_owned(), Entry::compared(counts).with_tool_errors(2)),
+        ]);
         let table = markdown("knip", false, &entries);
         assert!(table.contains("| r | compared | 1 | 2 | 3 | 4 | 5 |"), "{table}");
+        assert!(
+            table.contains("| s | compared; knip could not load 2 config files | 1 | 2 | 3 | 0 | 0 |"),
+            "{table}"
+        );
         assert!(table.contains("`not-judged-by-skif`"), "{table}");
     }
 }

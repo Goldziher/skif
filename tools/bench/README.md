@@ -127,26 +127,42 @@ longer reported as unused on both sides. Enum and namespace
 members are keyed by the member name on both sides. knip's stdout may carry banners around its JSON; the first object
 that is a knip report is used.
 
+**knip errors.** knip prints `ERROR: Error loading <file>` when a tool configuration of the repository does not load
+(create-t3-turbo's `metro.config.js` requires an unlisted package; vue-core's `vite.config.ts` files read an undefined
+`__DEV__`), runs on without the entry files that configuration names, prints its report and exits with 2. The harness
+records those files in `parity.json` (`knip_errors`, with `knip_exit`), their number in the baseline (`tool_errors`)
+and in the status cell of `parity.md`, and counts a finding only knip reports in a package that holds such a file as
+the `knip-config-error` known deviation rather than as a difference.
+
 **Labels.** `exports`, `types`, `nsExports` and `nsTypes` key the same `<file>|<name>`, and the tools label some
 differently: knip calls a `const enum` a type and files an export under `nsExports` when any importer uses a namespace,
 skif when all do. A skif finding knip has under another of these labels counts as shared, under knip's label.
 
 **Known deviations.** Findings on one side below a path in a repository's `knip-unread` list are the `knip-unread`
 deviation: knip reads no files there, as npm's deny-all `.gitignore` hides its workspaces, so it reports every
-dependency there as unused and says nothing about the files. In `files`, a file only knip reports is not counted as a difference when it is outside skif's
-project set (`non-code-file`), in a fixture directory (`fixture-file`) or a test file or any file below a test
-directory (`test-file`); those are reported in their own column and section, with the reason, and `--check` ignores
-them. Most `test-file` findings are not tests but apps and helpers below test directories (next.js has thousands) that
-skif leaves out of its graph, because they are nested projects or their package's entry files are not fully known. `--include-test-files` counts the last
-two as differences (not usable with a baseline, nor is `--repo-knip-config`). See
-[ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md).
+dependency there as unused and says nothing about the files. In `files`, a file only knip reports is not counted as a
+difference when it is outside skif's project set (`non-code-file`), below a `fixtures` or `__fixtures__` directory,
+which skif does not report unless `[js] include-fixtures` is set (`fixture-file`; other test-data names such as
+`testdata` or `*-fixtures` are judged by skif and not counted here), or a test file or any file below a test directory
+(`test-file`); those are reported in their own column and section, with the reason, and `--check` ignores them. Most
+`test-file` findings are not tests but apps and helpers below test directories (next.js has thousands), which skif
+reads as nested projects with their own entries or as entries of the narrowed scope of an unreadable test config.
+`--include-test-files` counts `fixture-file` and `test-file` as differences (not usable with a baseline, nor is
+`--repo-knip-config`). See [ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md) and
+[ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md).
 
 **Not judged by skif.** skif lists under `incomplete-packages` in its JSON report the packages whose entry files it
-cannot all know (a tool config it cannot read), and does not report their unused files and dependencies. A finding only
-knip reports in `files`, `dependencies` or `devDependencies` whose package (the deepest directory above it with a
-`package.json`) is one of those is counted as `not-judged-by-skif`: in its own column of `parity.md`, apart from the
-agreement counts and the other known deviations, and ignored by `--check`. `parity.json` lists the directories per
-repository under `not_judged_packages`. See [ADR 0053](../../adrs/0053-incomplete-packages-in-the-json-report.md).
+cannot all know (a tool config it cannot read), and does not report their unused dependencies, exports, types and
+members, nor the files the config could make entries. A finding only knip reports in `files`, `dependencies`,
+`devDependencies`, `exports`, `types`, `nsExports`, `nsTypes`, `enumMembers` or `namespaceMembers` whose package (the
+deepest directory above it with a `package.json`) is one of those is counted as `not-judged-by-skif`: in its own
+column of `parity.md`, apart from the agreement counts and the other known deviations, and ignored by `--check`.
+`unlisted`, `unresolved`, `binaries` and `duplicates` are judged in every package and stay compared. For `files` the
+count is an upper bound: skif judges the files outside a narrowed scope
+([ADR 0065](../../adrs/0065-narrowed-scope-for-incomplete-entries.md)), but its JSON does not say which packages are
+narrowed. `parity.json` lists the directories per repository under `not_judged_packages`. See
+[ADR 0053](../../adrs/0053-incomplete-packages-in-the-json-report.md) and
+[ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md).
 
 ## Policy diff against syncpack
 
