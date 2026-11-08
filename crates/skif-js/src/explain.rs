@@ -15,6 +15,7 @@ use crate::discover::relative;
 use crate::globs::Globs;
 use crate::graph::{Module, ModuleId, Target};
 use crate::manifest_paths::{crossing_stars, manifest_targets, source_candidates, source_patterns};
+use crate::resolve::join_normalized;
 
 /// Re-export hops followed when explaining an export.
 const MAX_DEPTH: usize = 8;
@@ -459,7 +460,7 @@ impl JsAnalysis<'_> {
             if package.config_files.contains(&module.abs) {
                 return EntryReason::ConfigFile;
             }
-            if package.scripts.files.contains(&rel) {
+            if self.is_script_file(&module.abs) {
                 return EntryReason::Script;
             }
             if self.is_published(module, &package.dir, &rel) {
@@ -479,6 +480,20 @@ impl JsAnalysis<'_> {
         } else {
             EntryReason::Unknown
         }
+    }
+
+    /// Whether a script of any package runs `abs`. The paths scripts name are collapsed as the entry files are, so
+    /// `./scripts/a.ts` and `../../scripts/a.ts` from another package name the file.
+    fn is_script_file(&self, abs: &Path) -> bool {
+        self.workspace.iter().any(|(id, _)| {
+            self.setup.package(id).is_some_and(|package| {
+                package
+                    .scripts
+                    .files
+                    .iter()
+                    .any(|file| join_normalized(&package.dir, file) == abs)
+            })
+        })
     }
 
     /// Whether the manifest of the owning package publishes `module` (`rel` is relative to the package directory).

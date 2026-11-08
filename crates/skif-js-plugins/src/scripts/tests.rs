@@ -360,6 +360,24 @@ fn table() {
         bins("bun check --no-script", &[]),
         bins("bun install", &[]),
         bins("bun run vite", &["vite:bun-run"]),
+        // `--cwd` runs in another package: its scripts and binaries are that package's, its files are below it.
+        bins("bun run --cwd packages/core fix-node-pty", &[]),
+        bins("bun --cwd=packages/core run fix-node-pty", &[]),
+        files(
+            "bun run --cwd packages/cli src/index.ts",
+            &[],
+            &["packages/cli/src/index.ts"],
+        ),
+        files("bun --cwd ../cli src/b.ts", &[], &["../cli/src/b.ts"]),
+        // `--prefix`, `--dir` and `-C` take a directory and aim pnpm at another package.
+        bins("pnpm --prefix client vite", &[]),
+        bins("pnpm -C client vite", &[]),
+        // Arithmetic is not a command.
+        bins("echo $((n+1))", &[]),
+        bins("sleep $((RANDOM % 5)) && tsc", &["tsc"]),
+        bins("((n++))", &[]),
+        bins("for ((i=0;i<3;i++)); do vite; done", &["vite"]),
+        bins("echo $( (cd a && vite) )", &["vite"]),
         bins("corepack pnpm exec vitest", &["vitest:pnpm-exec"]),
         bins("corepack enable", &[]),
         // Script references.
@@ -388,6 +406,16 @@ fn table() {
             &["build"],
         ),
         with_scripts("npm test", &[("test", "jest")], &["jest"], &[], &[], &["test"]),
+        // `--cwd` runs a script of the package there, not this package's script of the same name.
+        with_scripts(
+            "bun run --cwd packages/core build",
+            &[("build", "tsc")],
+            &[],
+            &[],
+            &[],
+            &[],
+        ),
+        with_scripts("bun --cwd=packages/core build", &[("build", "tsc")], &[], &[], &[], &[]),
         with_scripts("npm t", &[("test", "jest")], &["jest"], &[], &[], &["test"]),
         with_scripts("npm run missing", &[], &[], &[], &[], &["missing"]),
         with_scripts("npm start", &[], &[], &[], &[], &["start"]),

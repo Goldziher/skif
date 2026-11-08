@@ -1514,6 +1514,58 @@ fn prisma() {
 }
 
 #[test]
+fn prisma_reads_the_generator_providers_of_the_schema() {
+    let schema = r#"generator client {
+  provider = "prisma-client-js"
+}
+
+// generator old { provider = "commented-out" }
+generator kysely {
+  provider     = "prisma-kysely" // the Kysely types
+  output       = "../src/db"
+}
+
+generator zod {
+  provider = "zod-prisma-types"
+}
+
+generator erd {
+  provider = "npx prisma-erd-generator"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+"#;
+    let results = resolve(&[("prisma/schema.prisma", schema)], &["prisma"]);
+    let out = output(&results, "prisma");
+    assert_deps(out, &["prisma-kysely", "zod-prisma-types"]);
+    assert_absent(out, &["prisma-client-js", "postgresql", "commented-out", "npx"]);
+    let manifest = r#"{"name":"app","prisma":{"schema":"db/main.prisma"}}"#;
+    let results = resolve(
+        &[
+            ("package.json", manifest),
+            (
+                "db/main.prisma",
+                "generator g {\n  provider = \"prisma-dbml-generator\"\n}\n",
+            ),
+        ],
+        &["prisma"],
+    );
+    let out = output(&results, "prisma");
+    assert_deps(out, &["prisma-dbml-generator"]);
+    // A relative provider is a file next to the schema, a command provider a script whose files are entries.
+    let manifest = r#"{"name":"app","prisma":{"schema":"db/main.prisma"}}"#;
+    let schema = "generator custom {\n  provider = \"./generators/custom.js\"\n}\n\
+                  generator cmd {\n  provider = \"tsx scripts/gen.ts\"\n}\n";
+    let results = resolve(&[("package.json", manifest), ("db/main.prisma", schema)], &["prisma"]);
+    let out = output(&results, "prisma");
+    assert_entries(&out.entries, &["db/generators/custom.js", "scripts/gen.ts"]);
+    assert!(out.referenced_binaries.iter().any(|b| b == "tsx"), "{out:?}");
+    assert_absent(out, &["./generators/custom.js", "tsx scripts/gen.ts"]);
+}
+
+#[test]
 fn graphql_codegen() {
     let config = r#"export default {
       generates: {
