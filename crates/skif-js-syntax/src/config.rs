@@ -8,9 +8,10 @@ use std::rc::Rc;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget, BinaryOperator,
-    BindingPattern, CallExpression, Declaration, ExportDefaultDeclarationKind, Expression, Function,
-    ImportDeclarationSpecifier, ImportOrExportKind, NewExpression, ObjectPropertyKind, Program, Statement,
-    StaticMemberExpression, TemplateLiteral, UnaryOperator, VariableDeclaration, VariableDeclarationKind,
+    BindingPattern, CallExpression, ConditionalExpression, Declaration, ExportDefaultDeclarationKind, Expression,
+    Function, ImportDeclarationSpecifier, ImportOrExportKind, LogicalExpression, LogicalOperator, NewExpression,
+    ObjectPropertyKind, Program, Statement, StaticMemberExpression, TemplateLiteral, UnaryOperator,
+    VariableDeclaration, VariableDeclarationKind,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
@@ -180,8 +181,13 @@ pub trait ModuleLoader {
 /// `path.join`, `path.dirname` and `fileURLToPath`, however `path` was imported), which evaluate to strings relative to
 /// the config file's directory (`"."`, `"./src"`, `"../shared"`).
 ///
+/// `a ? b : c` takes the branch a known test selects; with an unknown test it is what both branches share (for two
+/// objects, every key either has, unknown where they differ or only one has it). `a && b`, `a || b`, `a ?? b` and `!a`
+/// are followed when `a` is known, and `.length` of a known string or array is its length.
+///
 /// Functions are followed: a returned config function may declare local `const`/`let` bindings and local functions,
-/// assign members of a local object, and call top-level or local functions with known arguments; `await x` and
+/// assign members of a local object, and call top-level or local functions with known arguments, a parameter not passed
+/// taking its default and an object pattern parameter (`{ pinCjs = [] } = {}`) its properties or their defaults; `await x` and
 /// `Promise.resolve(x)` evaluate to `x`; `require.resolve('pkg')` evaluates to `'pkg'`, and the storybook idiom
 /// `dirname(require.resolve(join('pkg', 'package.json')))` to `'pkg'`. A call of a glob function (`glob`,
 /// `fast-glob`, `globby`, `tinyglobby`, however imported) evaluates to the array of its literal patterns, so a
@@ -1001,6 +1007,11 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                     _ => ConfigValue::Unknown,
                 }
             }
+            Expression::UnaryExpression(u) if u.operator == UnaryOperator::LogicalNot => {
+                truthiness(&self.expr(&u.argument, depth)).map_or(ConfigValue::Unknown, |t| ConfigValue::Bool(!t))
+            }
+            Expression::LogicalExpression(l) => self.logical(l, depth),
+            Expression::ConditionalExpression(c) => self.conditional(c, depth),
             Expression::AwaitExpression(a) => self.expr(&a.argument, depth),
             Expression::ArrayExpression(a) => self.array(&a.elements, depth),
             Expression::ObjectExpression(o) => self.object(&o.properties, depth),
@@ -1175,7 +1186,49 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             {
                 self.namespace_member(object.name.as_str(), property)
             }
+            (object, "length") => {
+                let length = match self.expr(object, depth) {
+                    ConfigValue::String(text) => Some(text.encode_utf16().count()),
+                    // An unknown element may stand for a spread of any length.
+                    ConfigValue::Array(items) if !items.contains(&ConfigValue::Unknown) => Some(items.len()),
+                    _ => None,
+                };
+                length
+                    .and_then(|length| u32::try_from(length).ok())
+                    .map_or(ConfigValue::Unknown, |length| ConfigValue::Number(f64::from(length)))
+            }
             _ => ConfigValue::Unknown,
+        }
+    }
+
+    /// `a && b`, `a || b` and `a ?? b`, when `a` decides which side is the value.
+    fn logical(&self, logical: &'p LogicalExpression<'a>, depth: u32) -> ConfigValue {
+        let left = self.expr(&logical.left, depth);
+        let left_is_value = match logical.operator {
+            LogicalOperator::And => truthiness(&left).map(|truthy| !truthy),
+            LogicalOperator::Or => truthiness(&left),
+            LogicalOperator::Coalesce => match left {
+                ConfigValue::Unknown => None,
+                ConfigValue::Null => Some(false),
+                _ => Some(true),
+            },
+        };
+        match left_is_value {
+            Some(true) => left,
+            Some(false) => self.expr(&logical.right, depth),
+            None => ConfigValue::Unknown,
+        }
+    }
+
+    /// `test ? a : b`: the branch a known test takes, or what both branches have in common when the test is unknown.
+    fn conditional(&self, conditional: &'p ConditionalExpression<'a>, depth: u32) -> ConfigValue {
+        match truthiness(&self.expr(&conditional.test, depth)) {
+            Some(true) => self.expr(&conditional.consequent, depth),
+            Some(false) => self.expr(&conditional.alternate, depth),
+            None => either(
+                &self.expr(&conditional.consequent, depth),
+                &self.expr(&conditional.alternate, depth),
+            ),
         }
     }
 
@@ -1464,23 +1517,24 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             Callable::Function(f) => &f.params,
             Callable::Arrow(f) => &f.params,
         };
-        let mut frame = Frame::new();
-        for (index, param) in params.items.iter().enumerate() {
-            if let BindingPattern::BindingIdentifier(id) = &param.pattern {
-                let value = match (args.get(index), &param.initializer) {
-                    (Some(value), _) => value.clone(),
-                    (None, Some(default)) => self.expr(default, depth),
-                    (None, None) => ConfigValue::Unknown,
-                };
-                frame.insert(id.name.as_str().to_owned(), Binding::Value(value));
-            }
-        }
         let saved = if isolate {
             std::mem::take(&mut *self.frames.borrow_mut())
         } else {
             Vec::new()
         };
-        self.frames.borrow_mut().push(frame);
+        // Parameters are bound in order inside the function, so a default sees the parameters before it.
+        self.frames.borrow_mut().push(Frame::new());
+        for (index, param) in params.items.iter().enumerate() {
+            let value = match (args.get(index), &param.initializer) {
+                (Some(value), _) => value.clone(),
+                (None, Some(default)) => self.expr(default, depth),
+                (None, None) => ConfigValue::Unknown,
+            };
+            self.bind_pattern(&param.pattern, value, depth);
+        }
+        if let Some(param) = &params.rest {
+            self.bind_pattern(&param.rest.argument, ConfigValue::Unknown, depth);
+        }
         let value = match callable {
             Callable::Arrow(f) => match f.get_expression() {
                 Some(body) => self.expr(body, depth),
@@ -1498,6 +1552,52 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             *self.frames.borrow_mut() = saved;
         }
         value
+    }
+
+    /// Binds the names `pattern` declares to the parts of `value` they take, in the innermost frame. A property of an
+    /// object pattern takes its key's value or, when the object has no such key, its default; a name that cannot be
+    /// known (an array pattern, a rest element, a key an unknown spread may provide) is bound to
+    /// [`ConfigValue::Unknown`], so it does not resolve to a binding of an outer scope.
+    fn bind_pattern(&self, pattern: &'p BindingPattern<'a>, value: ConfigValue, depth: u32) {
+        match pattern {
+            BindingPattern::BindingIdentifier(id) => self.bind(id.name.as_str(), value),
+            BindingPattern::AssignmentPattern(p) => self.bind_pattern(&p.left, value, depth),
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    let key = property.key.static_name().map(|key| crate::js_string(key.as_js_str()));
+                    let field = match (&value, key) {
+                        (ConfigValue::Object(_), Some(key)) => match value.get(&key) {
+                            Some(field) => Some(field.clone()),
+                            None if value.get("...").is_some() => Some(ConfigValue::Unknown),
+                            None => None,
+                        },
+                        _ => Some(ConfigValue::Unknown),
+                    };
+                    match (&property.value, field) {
+                        (BindingPattern::AssignmentPattern(p), None) => {
+                            let default = self.expr(&p.right, depth);
+                            self.bind_pattern(&p.left, default, depth);
+                        }
+                        (element, field) => self.bind_pattern(element, field.unwrap_or(ConfigValue::Unknown), depth),
+                    }
+                }
+                if let Some(rest) = &object.rest {
+                    self.bind_pattern(&rest.argument, ConfigValue::Unknown, depth);
+                }
+            }
+            BindingPattern::ArrayPattern(_) => {
+                for id in pattern.get_binding_identifiers() {
+                    self.bind(id.name.as_str(), ConfigValue::Unknown);
+                }
+            }
+        }
+    }
+
+    /// Binds `name` to `value` in the innermost frame.
+    fn bind(&self, name: &str, value: ConfigValue) {
+        if let Some(frame) = self.frames.borrow_mut().last_mut() {
+            frame.insert(name.to_owned(), Binding::Value(value));
+        }
     }
 
     /// Value returned by a function body: its single expression or the first `return <expr>`. Declarations before
@@ -1756,6 +1856,51 @@ fn merge_objects(base: &mut Vec<(String, ConfigValue)>, incoming: Vec<(String, C
             (_, _, value) => *slot = value,
         }
     }
+}
+
+/// Whether a value is truthy in JavaScript; `None` when it is unknown.
+fn truthiness(value: &ConfigValue) -> Option<bool> {
+    match value {
+        ConfigValue::Null => Some(false),
+        ConfigValue::Bool(b) => Some(*b),
+        ConfigValue::Number(n) => Some(*n != 0.0 && !n.is_nan()),
+        ConfigValue::String(s) => Some(!s.is_empty()),
+        ConfigValue::Array(_) | ConfigValue::Object(_) | ConfigValue::Regex(_) => Some(true),
+        ConfigValue::Unknown => None,
+    }
+}
+
+/// The value of an expression that is `a` or `b`, not knowing which: the value itself when both are equal; for two
+/// objects, an object with every key either has, whose value is what both have in common when both have the key and
+/// [`ConfigValue::Unknown`] when only one does (it may be present or not); anything else is unknown. No key appears
+/// that neither branch has, so other keys stay known, and a key that may differ is unknown wherever it is read.
+fn either(a: &ConfigValue, b: &ConfigValue) -> ConfigValue {
+    if a == b {
+        return a.clone();
+    }
+    let (ConfigValue::Object(left), ConfigValue::Object(right)) = (a, b) else {
+        return ConfigValue::Unknown;
+    };
+    let mut keys: Vec<&str> = Vec::new();
+    for (key, _) in left.iter().chain(right) {
+        if key != "..." && !keys.contains(&key.as_str()) {
+            keys.push(key);
+        }
+    }
+    let mut out: Vec<(String, ConfigValue)> = keys
+        .into_iter()
+        .map(|key| {
+            let value = match (a.get(key), b.get(key)) {
+                (Some(x), Some(y)) => either(x, y),
+                _ => ConfigValue::Unknown,
+            };
+            (key.to_owned(), value)
+        })
+        .collect();
+    if a.get("...").is_some() || b.get("...").is_some() {
+        out.push(("...".to_owned(), ConfigValue::Unknown));
+    }
+    ConfigValue::Object(out)
 }
 
 /// Appends a flat config, or the configs of a (nested) list of them, to `list`.
