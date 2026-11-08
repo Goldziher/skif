@@ -136,6 +136,8 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
 - Config evaluation follows conditionals: `cond ? a : b`, `&&`, `||` and `??` whose test is known, `!x` and `.length` of
   a known string or array, and object pattern parameters with defaults (`({ pinCjs = [] } = {}) => …`). With an unknown
   test, two object branches give the keys both have, a key only one sets being unknown, instead of an unknown spread.
+  An `if (test) return a;` before a function's last `return` is followed the same way, instead of being skipped for
+  the last `return`.
   A shared vitest config that adds `resolve` only when `pinCjs` is given no longer leaves its users' entry files
   unknown ([#23](https://github.com/Goldziher/skif/issues/23)).
 - Without an install, the peer dependencies and binaries of a workspace package are read from its manifest, so a
