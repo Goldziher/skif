@@ -86,3 +86,19 @@ fn opening_a_manifest_publishes_the_root_diagnostics() {
         &json!({ "jsonrpc": "2.0", "id": 2, "result": null })
     );
 }
+
+#[test]
+fn a_malformed_frame_is_reported_on_stderr_and_the_server_exits() {
+    let mut input =
+        framed(&[json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "capabilities": {} } })]);
+    input.extend(b"Content-Length: 99999999999\r\n\r\n");
+    let result = run(skif().arg("lsp").write_stdin(input));
+    assert_eq!(result.code, 1, "{}", result.stderr);
+    assert_eq!(unframed(&result.stdout).len(), 1, "{}", result.stdout);
+    assert!(
+        result.stderr.contains("Content-Length 99999999999 exceeds"),
+        "{}",
+        result.stderr
+    );
+    assert!(result.stderr.contains("exiting"), "{}", result.stderr);
+}

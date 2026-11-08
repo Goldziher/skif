@@ -100,7 +100,11 @@ license policy admits CC0-1.0.
 
 `skif lsp` is a minimal [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) server
 over stdio with `Content-Length` framing. It answers `initialize` with document sync limited to open and save (positions in UTF-16),
-and `shutdown`, and exits on `exit`. On `textDocument/didOpen` and `textDocument/didSave` of a file it lints the
+and `shutdown`, and exits on `exit`. A request before `initialize` is answered with `-32002` (server not
+initialized) and a notification before it is dropped, as the protocol asks. A frame the server cannot read past (no
+`Content-Length`, one above 64 MiB, a header line longer than 8 KiB, or input ending inside a message) leaves the
+start of the next message unknown, so the server writes the reason to stderr and exits with code 1; the length
+limit is checked before the body is allocated. On `textDocument/didOpen` and `textDocument/didSave` of a file it lints the
 root that contains the file and publishes `textDocument/publishDiagnostics` for every file that has findings,
 and an empty list for a file whose findings are gone. Diagnostics carry the rule ID as `code`, `skif` as `source`
 and the rule's help after the message. It lints what is on disk; unsaved buffers are not read, which is why
