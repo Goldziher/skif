@@ -2,12 +2,14 @@
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use globset::{GlobBuilder, GlobSetBuilder};
 use skif_core::FileSystem;
-use skif_core::timing::Tally;
+use skif_core::timing::{self, Tally};
 use skif_js_syntax::{
-    ImportKind, ModuleInfo, ParseOptions, is_source_query, is_stylesheet, parse_module, parse_stylesheet,
+    CachedModule, ImportKind, ModuleCache, ModuleInfo, ModuleKey, ParseOptions, is_source_query, is_stylesheet,
+    parse_cached,
 };
 use skif_workspace::{PackageId, map_ordered};
 
@@ -199,6 +201,8 @@ pub(crate) struct Inputs<'a> {
     pub setup: &'a Setup,
     /// Parse on the calling thread instead of the current rayon pool.
     pub sequential: bool,
+    /// The host's cache of parse results, if it gave one.
+    pub modules: Option<&'a dyn ModuleCache>,
 }
 
 fn normalize(path: &str) -> String {
@@ -281,12 +285,41 @@ fn generated_sources(importer: &Path, dir: &Path, recursive: bool, inputs: &Inpu
 static READ_TIME: Tally = Tally::new();
 static PARSE_TIME: Tally = Tally::new();
 static RESOLVE_TIME: Tally = Tally::new();
+static CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+static CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
 
-/// Prints the time `process` spent reading, parsing and resolving since the last report (`SKIF_TIMINGS`).
+/// Prints the time `process` spent reading, parsing and resolving since the last report (`SKIF_TIMINGS`), and how
+/// the module cache answered when there is one.
 pub(crate) fn report_timings(root: &Path) {
     READ_TIME.report(format_args!("js read {}", root.display()));
     PARSE_TIME.report(format_args!("js parse {}", root.display()));
     RESOLVE_TIME.report(format_args!("js resolve {}", root.display()));
+    let hits = CACHE_HITS.swap(0, Ordering::Relaxed);
+    let misses = CACHE_MISSES.swap(0, Ordering::Relaxed);
+    if hits + misses > 0 {
+        timing::note(format_args!(
+            "js module cache {}: {hits} hits, {misses} misses",
+            root.display()
+        ));
+    }
+}
+
+/// The host's [`ModuleCache`], counting its hits and misses for [`report_timings`].
+struct Counted<'a>(&'a dyn ModuleCache);
+
+impl ModuleCache for Counted<'_> {
+    fn get(&self, key: ModuleKey) -> Option<CachedModule> {
+        let found = self.0.get(key);
+        if timing::enabled() {
+            let counter = if found.is_some() { &CACHE_HITS } else { &CACHE_MISSES };
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
+        found
+    }
+
+    fn put(&self, key: ModuleKey, module: CachedModule) {
+        self.0.put(key, module);
+    }
 }
 
 fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
@@ -305,12 +338,14 @@ fn process(path: &Path, inputs: &Inputs<'_>) -> Parsed {
         .extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| matches!(extension, "vue" | "svelte" | "astro"));
+    let counted = inputs.modules.map(Counted);
     let parsed = PARSE_TIME.time(|| {
-        if style {
-            Ok(parse_stylesheet(path, &source))
-        } else {
-            parse_module(path, &source, &ParseOptions::default())
-        }
+        parse_cached(
+            counted.as_ref().map(|cache| cache as &dyn ModuleCache),
+            path,
+            &source,
+            &ParseOptions::default(),
+        )
     });
     let mut info = match parsed {
         Ok(info) => info,

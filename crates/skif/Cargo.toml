@@ -70,6 +70,10 @@ name = "js"
 required-features = ["js-analysis"]
 
 [[test]]
+name = "module_cache"
+required-features = ["js-analysis"]
+
+[[test]]
 name = "threads"
 required-features = ["js-analysis"]
 
