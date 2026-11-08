@@ -5,7 +5,49 @@ expression: nested_roots()
 [
   [
     "",
-    []
+    [
+      {
+        "rule": "unused-dependencies",
+        "severity": "error",
+        "message": "`kleur` is listed in `dependencies` but never used",
+        "help": "remove it, or add it to `ignore-dependencies` when a tool uses it without importing it",
+        "location": {
+          "path": "package.json",
+          "span": {
+            "start": 222,
+            "end": 238,
+            "start-line": 11,
+            "start-col": 5,
+            "end-line": 11,
+            "end-col": 21
+          }
+        },
+        "package": "outer",
+        "dependency": "kleur",
+        "fixes": [
+          {
+            "title": "Remove `kleur` from `dependencies`",
+            "safety": "unsafe",
+            "ops": [
+              {
+                "json": {
+                  "path": "package.json",
+                  "pointer": [
+                    {
+                      "key": "dependencies"
+                    },
+                    {
+                      "key": "kleur"
+                    }
+                  ],
+                  "action": "remove"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
   ],
   [
     "build",

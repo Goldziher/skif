@@ -169,6 +169,12 @@ fn a_file_of_a_nested_root_is_judged_by_its_own_manifest() {
 }
 
 #[test]
+fn a_file_of_a_nested_root_does_not_use_the_dependencies_of_the_outer_root() {
+    // Only `build/hygiene.ts`, a file of the nested root, imports `kleur`; the outer root lists it too.
+    assert_eq!(nested_root_findings("", "unused-dependencies"), ["package.json: kleur"]);
+}
+
+#[test]
 fn files_a_script_above_a_nested_root_runs_are_its_entries() {
     // `node build/npm/postinstall.ts` and `node build/hygiene.ts` in the outer manifest; nothing runs the orphan.
     assert_eq!(

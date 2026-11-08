@@ -8,6 +8,7 @@
     "hygiene": "node build/hygiene.ts"
   },
   "dependencies": {
+    "kleur": "4.1.5",
     "left-pad": "1.3.0"
   }
 }
