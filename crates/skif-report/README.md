@@ -65,4 +65,5 @@ the fix titles) for code-scanning upload. `Format::Github` writes one workflow c
 `path:line:col rule message` line per diagnostic. `Format::Markdown` writes a table per rule for a pull request
 comment, and `Format::Disclosure` folds each table in a `<details>` section. `Format::Codeowners` groups compact
 lines by owner: the caller reads the CODEOWNERS file and passes `CodeOwners::parse(text)` through
-`RenderOptions::with_codeowners`; matching follows the gitignore-like rules of GitHub and GitLab, last match wins.
+`RenderOptions::with_codeowners`; matching follows the gitignore-like rules of GitHub and GitLab, last match wins,
+and GitLab section default owners apply to ownerless entries in their section.
