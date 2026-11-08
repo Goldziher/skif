@@ -1,4 +1,4 @@
-//! `skif update`: newer published versions for the dependencies the version policies govern (ADR 0056).
+//! `skif update`: newer published versions for the dependencies the version policies govern (ADR 0057).
 //!
 //! The facade never opens a connection. The host implements [`Registry`] (the `skif` command line over HTTP, a test
 //! from memory), [`plan_updates`] asks it once per dependency name and returns an [`UpdateReport`], and

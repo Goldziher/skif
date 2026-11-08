@@ -50,6 +50,8 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `skif migrate [PATH]` | Translate the configuration of sherif, syncpack and knip into a `skif.toml` (see below). |
 | `skif update [PATH]` | Update dependencies to newer published versions from the npm registry, or with `--check` only report them (see below). The only command that uses the network. |
 | `skif format [PATH]` | Format every `package.json` as `[format]` describes, or check it with `--check` (see below). |
+| `skif mcp` | Run a Model Context Protocol server on stdin and stdout, with the tools `lint`, `explain_usage` and `list_rules`. See [editors and agents](../../guides/editors-and-agents/). |
+| `skif lsp` | Run a Language Server Protocol server on stdin and stdout that publishes diagnostics when a file is opened or saved. See [editors and agents](../../guides/editors-and-agents/#language-server). |
 
 ## Flags
 
@@ -78,6 +80,7 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `--no-js` | Skip JavaScript analysis. Overrides `[js] enabled`. |
 | `--production` | Only analyse production code in JavaScript analysis. Overrides `[js] production`. |
 | `--color <auto\|always\|never>` | When to colour human output. |
+| `--watch` | Lint again whenever a file below the root changes, until interrupted. Conflicts with `--fix` and `--fix-unsafe`. See [editors and agents](../../guides/editors-and-agents/#watch-mode). |
 
 Flags are the top layer of the [configuration precedence](../configuration/#precedence): defaults, then the file,
 then the command line. `--ignore-package` replaces the file's `[workspace] ignore-packages`; `--ignore-dependency` and

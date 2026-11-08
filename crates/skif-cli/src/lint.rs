@@ -31,11 +31,14 @@ const COULD_NOT_RUN: u8 = 2;
 pub fn run(args: &LintArgs, env: Env) -> u8 {
     match execute(args, env) {
         Ok(code) => code,
-        Err(error) => {
-            emit_error(&error, args.format());
-            COULD_NOT_RUN
-        }
+        Err(error) => run_failed(args, &error),
     }
+}
+
+/// Reports `error` in the format of the run and returns the exit code of a run that could not start.
+pub fn run_failed(args: &LintArgs, error: &CliError) -> u8 {
+    emit_error(error, args.format());
+    COULD_NOT_RUN
 }
 
 /// sherif's `-r` is `--ignore-rule`, skif's is `--recursive`, so `skif -r <rule>` reads the rule as the path. When the
@@ -103,7 +106,7 @@ fn repo_root(root: &Path) -> Option<PathBuf> {
         })
 }
 
-fn overrides(args: &LintArgs) -> ConfigOverrides {
+pub fn overrides(args: &LintArgs) -> ConfigOverrides {
     ConfigOverrides::default()
         .with_rules(args.rules.iter().cloned())
         .with_ignore_rules(args.ignore_rule.clone())
@@ -386,6 +389,22 @@ pub fn lint_to_json(path: &Path, overrides: &ConfigOverrides, recursive: bool) -
     render_json_with(&aggregate, &options, extra, &mut buffer)
         .map_err(|error| CliError::new(Kind::Io, format!("cannot render the report: {error}")))?;
     String::from_utf8(buffer).map_err(|error| CliError::new(Kind::Io, format!("the report is not UTF-8: {error}")))
+}
+
+/// Lints the root containing `path` and returns the directory the report's paths are relative to, with the report.
+/// Prints and writes nothing, like [`lint_to_json`].
+pub fn lint_root(path: &Path, overrides: &ConfigOverrides) -> Result<(PathBuf, Report), CliError> {
+    let fs = CachedFs::new(OsFs);
+    let start = canonical(path)?;
+    let Resolved { base, targets, .. } = roots::resolve(&start, false, &fs, overrides)?;
+    let linters = Linters::build(&targets)?;
+    let runs = roots::lint_targets(&base, targets, &linters)?;
+    let reports: Vec<Cow<'_, Report>> = runs
+        .iter()
+        .map(|run| roots::prefixed(&run.report, &run.prefix))
+        .collect();
+    let report = roots::aggregate(&reports);
+    Ok((base, report))
 }
 
 fn errors_json(failures: &[RootError]) -> Value {

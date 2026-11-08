@@ -183,7 +183,7 @@ syncpack.
   `preferred-semver` groups, so a same-minor group cannot name a direction.
 * `semverRangeOnly` version groups do not exist in skif. A semver group with `ignored = true` covers syncpack's `isIgnored`
   and `isDisabled` (`semver-groups/ignored-group-exempts-dependency`).
-* `DiffersToNpmRegistry` is reported by `skif update`, never by a lint rule (ADR 0056); no case here, the
+* `DiffersToNpmRegistry` is reported by `skif update`, never by a lint rule (ADR 0057); no case here, the
   update planner has its own tests.
 * Severity is per rule: syncpack's Conflict class (error) and Suspect class (warning) share
   `policy-conflict` and therefore one severity (see "ADR gaps").
@@ -304,7 +304,7 @@ States in the ADR 0009 table. Valid states produce no diagnostic and are listed 
 | Fixable | `DiffersToCatalog` | `catalog-mismatch` | `catalog/off-catalog-mismatch` |
 | Fixable | `NotUsingCatalog` | `catalog-not-used` | `catalog/bun-top-level-catalog`, `catalog/bun-workspaces-catalog`, `catalog/enforce-not-using-catalog`, `catalog/exclude-dependency` (+3 more) |
 | Fixable | `MissingFromCatalog` | `catalog-missing-entry` | `catalog/bun-missing-entry-creates-catalog`, `catalog/missing-entry-identical-non-semver`, `catalog/missing-entry-no-catalog-pnpm`, `catalog/missing-entry-single-catalog` |
-| Fixable | `DiffersToNpmRegistry` | none: `skif update` (ADR 0056) | `skif update` tests (ADR 0056) |
+| Fixable | `DiffersToNpmRegistry` | none: `skif update` (ADR 0057) | `skif update` tests (ADR 0057) |
 | Unfixable | `NonSemverMismatch` | `version-mismatch` | `same-minor/non-semver-differing-unfixable`, `version-mismatch/unsupported-specifiers-differ` |
 | Unfixable | `SameRangeMismatch` | `version-mismatch` | `same-range/different-exact-versions`, `same-range/one-disjoint-range-flags-all`, `same-range/tilde-different-minors` |
 | Unfixable | `SameMinorMismatch` | `version-mismatch` | `same-minor/minor-mismatch-unfixable` |

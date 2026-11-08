@@ -879,7 +879,7 @@
           "default": 12
         }
       },
-      "description": "`[update]`: how `skif update` reads the package registry (ADR 0056). Linting never reads it."
+      "description": "`[update]`: how `skif update` reads the package registry (ADR 0057). Linting never reads it."
     },
     "UpdateGroup": {
       "type": "object",

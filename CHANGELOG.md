@@ -14,7 +14,7 @@ All notable changes to this project are documented here. The format follows
 - `skif update [--check] [--target latest|minor|patch] [--dependencies <NAME>]`: newer published versions from the npm
   registry, written format-preserving or, with `--check`, reported with exit `1`, as syncpack's `update`
   ([#34](https://github.com/Goldziher/skif/issues/34),
-  [ADR 0056](adrs/0056-registry-updates-an-opt-in-skif-update-command.md)). It is the only command that uses the
+  [ADR 0057](adrs/0057-registry-updates-an-opt-in-skif-update-command.md)). It is the only command that uses the
   network; linting never does. It reads the registry and tokens of `.npmrc` (the project's `.npmrc` expands an
   environment variable only in a token, which is then only sent over https to `registry.npmjs.org` or a host the user's
   own configuration names; a registry URL there that reads one is ignored), honours
@@ -35,6 +35,17 @@ All notable changes to this project are documented here. The format follows
   comments; a member whose removal would renumber a later enum member gets no fix; a catalog left empty is removed
   ([ADR 0052](adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md),
   [#37](https://github.com/Goldziher/skif/issues/37)).
+- `skif mcp`, a Model Context Protocol server on stdio for AI agents, with the tools `lint`, `explain_usage` and
+  `list_rules`, which return the documents of `--format json`
+  ([ADR 0056](adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
+- `--watch` lints again whenever a file below the root changes, after 100 milliseconds of quiet; it polls, so it
+  needs no native file events, and ignores the reports it writes (`--output`, `--format FORMAT=FILE`)
+  ([ADR 0056](adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
+- `skif lsp`, a minimal language server on stdio that publishes skif's diagnostics when a file is opened or saved
+  ([ADR 0056](adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
 
 ### Changed
 
