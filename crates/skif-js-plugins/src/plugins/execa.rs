@@ -1,6 +1,7 @@
 //! execa: the commands a source file runs with `execa('tsx', ['build.ts'])`, `execaCommand('…')`, `execaNode(…)` and
-//! `` $`…` `` are scripts, parsed like the scripts of `package.json`. Only literal commands count: a computed argument is
-//! left out.
+//! `` $`…` `` are scripts, parsed like the scripts of `package.json`; so are the default export of execa 5 and earlier
+//! (`execa(…)`, `execa.sync(…)`, `execa.command(…)`, `execa.node(…)`). Only literal commands count: a computed argument
+//! is left out, and a call with a literal argument that is not a plain word is skipped.
 
 use skif_js_syntax::{ConfigValue, ImportedCall, extract_imported_calls};
 
@@ -48,15 +49,17 @@ fn execa_script(call: &ImportedCall) -> Option<String> {
         };
     }
     match export {
-        "execa" | "execaSync" | "$sync" => safe_command(&call.arguments),
-        "execaNode" => safe_command(&call.arguments).map(|command| format!("node {command}")),
-        "execaCommand" | "execaCommandSync" => call.arguments.first().and_then(ConfigValue::as_str).map(str::to_owned),
+        "execa" | "execaSync" | "$sync" | "default" | "sync" => safe_command(&call.arguments),
+        "execaNode" | "node" => safe_command(&call.arguments).map(|command| format!("node {command}")),
+        "execaCommand" | "execaCommandSync" | "command" | "commandSync" => {
+            call.arguments.first().and_then(ConfigValue::as_str).map(str::to_owned)
+        }
         _ => None,
     }
 }
 
-/// The command of a `(file, [arguments])` call: the file and the arguments that are plain literal words. `None` when the
-/// file is not one.
+/// The command of a `(file, [arguments])` call: the file and its literal arguments, a computed argument left out. `None`
+/// when the file or a literal argument is not a plain word: dropping it would change what the command means.
 pub(crate) fn safe_command(arguments: &[ConfigValue]) -> Option<String> {
     let is_safe = |word: &str| {
         !word.is_empty()
@@ -67,12 +70,12 @@ pub(crate) fn safe_command(arguments: &[ConfigValue]) -> Option<String> {
     let file = arguments.first()?.as_str().filter(|file| is_safe(file))?;
     let mut words = vec![file];
     if let Some(ConfigValue::Array(items)) = arguments.get(1) {
-        words.extend(
-            items
-                .iter()
-                .filter_map(ConfigValue::as_str)
-                .filter(|word| is_safe(word)),
-        );
+        for word in items.iter().filter_map(ConfigValue::as_str) {
+            if !is_safe(word) {
+                return None;
+            }
+            words.push(word);
+        }
     }
     Some(words.join(" "))
 }
