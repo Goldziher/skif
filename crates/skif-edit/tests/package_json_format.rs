@@ -16,7 +16,7 @@ fn options(case: &str) -> FormatOptions {
             .with_format_bugs(true)
             .with_format_repository(true),
         "indent-tab" => FormatOptions::default().with_indent(Some("\t".to_owned())),
-        "crlf" => FormatOptions::default().with_indent(Some("  ".to_owned())),
+        "crlf" | "mixed-newlines-indent" => FormatOptions::default().with_indent(Some("  ".to_owned())),
         _ => FormatOptions::default(),
     }
 }
@@ -76,6 +76,9 @@ case!(exports, "exports");
 case!(indent_tab, "indent-tab");
 case!(crlf, "crlf");
 case!(formatted, "formatted");
+case!(comments, "comments");
+case!(mixed_newlines, "mixed-newlines");
+case!(mixed_newlines_indent, "mixed-newlines-indent");
 
 fn value() -> impl Strategy<Value = Value> {
     let scalar = prop_oneof![
