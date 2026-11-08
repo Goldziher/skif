@@ -156,8 +156,9 @@ the error goes to stdout.
 ## Fixing
 
 `--fix` applies fixes marked `safe`; `--fix-unsafe` also applies `unsafe` ones. A version alignment is `safe`
-when it moves to a pinned version, or to a later version of the same major in the same shape (`left-pad` `1.0.0` to
-`1.3.0`); a move across a major, a downgrade or a change of range needs `--fix-unsafe` (see
+when it stays within what the specifier already promises, in the same shape: an exact version to a later patch
+(`left-pad` `1.3.0` to `1.3.2`), `~` within its minor, `^` within its major. A new minor of an exact version, a move
+across a major, a downgrade, a prerelease or a change of range needs `--fix-unsafe`, also when a pin asks for it (see
 [fix safety](../../rules/#fix-safety)). A fix run:
 
 1. Lints and builds the fix plan, selecting fixes by `--fix` or `--fix-unsafe` and `--select`.
