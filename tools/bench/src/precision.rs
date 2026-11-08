@@ -285,20 +285,8 @@ mod tests {
         skif_keys(&serde_json::to_value(&report).unwrap(), root)
     }
 
-    /// Known deviations of skif from the answer key, as `<category>:<key>` per package. Each one is a false finding
-    /// that [issue #26](https://github.com/Goldziher/skif/issues/26) measures; remove an entry when skif stops making it.
-    ///
-    /// - `src/typed.ts|settings`: the export is read only through `typeof import("./typed")["settings"]`. Since #25 a
-    ///   bare `typeof import("./m")` credits no export, and the indexed access that follows it is not read as a use
-    ///   of `settings`.
-    fn known_false_findings(packages: usize) -> Vec<String> {
-        (0..packages)
-            .map(|i| format!("exports:packages/p{i}/src/typed.ts|settings"))
-            .collect()
-    }
-
     #[test]
-    fn skif_finds_every_seeded_finding_and_only_the_known_false_ones() {
+    fn skif_finds_every_seeded_finding_and_nothing_else() {
         for seed in [1, 26] {
             let packages = 3;
             let generated = deadcode::build(&DeadCodeOptions { packages, seed }).unwrap();
@@ -309,10 +297,12 @@ mod tests {
                 "seed {seed}: missed {:?}",
                 score.total.false_negatives
             );
-            let mut false_findings = score.total.false_positives.clone();
-            false_findings.sort();
-            assert_eq!(false_findings, known_false_findings(packages), "seed {seed}");
-            assert_eq!(score.false_by_pattern.keys().collect::<Vec<_>>(), ["typeof-import"]);
+            assert_eq!(
+                score.total.precision(),
+                Some(1.0),
+                "seed {seed}: false findings {:?}",
+                score.total.false_positives
+            );
         }
     }
 
