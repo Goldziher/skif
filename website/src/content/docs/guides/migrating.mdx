@@ -95,10 +95,21 @@ Every construct that was not copied one to one has a note with the file, the key
 | `ignoreRule`, `-r` | `[rules] <id> = "off"`, with the rule ids renamed (`multiple-dependency-versions` is `version-mismatch`, `unordered-dependencies` is `unsorted-dependencies`, ...). A rule that another migrated tool still checks stays on and the report says so (H): a repository that ignores `multiple-dependency-versions` in sherif because syncpack owns it keeps syncpack's version groups |
 | `ignorePackage`, `-p` | `[workspace] ignore-packages` |
 | `ignoreDependency`, `-i` | `[[ignore]]` with `rules = ["version-mismatch"]`, the only rule sherif applied it to |
-| `ignoreDependency` as `name@version` | the same entry, noted as approximate: skif ignores the instance it reports, sherif ignored that version everywhere |
+| `ignoreDependency` as `name@version` | the same entry, noted as approximate (below) |
 | `failOnWarnings`, `--fail-on-warnings` | `[lint] fail-on-warnings` |
 | `select`, `-s` | `[policy] prefer` |
 | `fix`, `noInstall` | none; `skif --fix` and `--no-install` do the same |
+
+sherif's `-i name@version` leaves every instance at that version out of its comparison. skif has no ignore that does
+that: an `[[ignore]]` entry silences diagnostics, and version groups select dependencies by name, not by version. The
+closest equivalent is the `[[ignore]]` entry above, which silences each instance at that version. It differs when skif
+aligns on the ignored version: those instances still count when skif picks the version to align on, so with
+`prefer = "lowest"` (or when the ignored version is the highest) the other instances are reported against it, where
+sherif saw no mismatch. The report says so for each such entry. Where that matters, ignore the whole dependency
+(`-i react`) instead.
+
+The [GitHub Action](../integrations/#github-action) applies this translation on its own to a project that has no skif
+configuration yet, so a job that replaces sherif keeps its flags.
 
 ## syncpack
 
