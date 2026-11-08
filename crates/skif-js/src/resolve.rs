@@ -391,7 +391,7 @@ fn style_options(tsconfig: bool) -> ResolveOptions {
     let owned = |items: &[&str]| items.iter().map(|item| (*item).to_owned()).collect::<Vec<_>>();
     ResolveOptions {
         tsconfig: tsconfig.then_some(TsconfigDiscovery::Auto),
-        extensions: owned(&[".scss", ".sass", ".css", ".less", ".pcss", ".styl"]),
+        extensions: owned(&[".scss", ".sass", ".css", ".less", ".pcss", ".styl", ".stylus"]),
         condition_names: owned(&["style", "sass", "less", "import", "node", "default"]),
         main_fields: owned(&["style", "sass", "less", "main"]),
         symlinks: false,
