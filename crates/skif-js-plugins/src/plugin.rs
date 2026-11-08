@@ -296,6 +296,28 @@ pub trait Plugin: Send + Sync {
     fn resolve_without_config(&self, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         Vec::new()
     }
+
+    /// Where the entries that `config` hides for `cause` can plausibly lie, so that only those files are not judged
+    /// unused (ADR 0065). Called for an unknown or partly unknown value ([`IncompleteCause::UnknownValue`],
+    /// [`IncompleteCause::UnknownSpread`]) and for computed entry keys ([`IncompleteCause::ComputedEntries`]); a
+    /// config that does not parse is always [`IncompleteScope::Package`].
+    ///
+    /// The default is [`IncompleteScope::Package`]: a plugin that cannot bound what its config may name keeps the
+    /// whole package unjudged.
+    fn incomplete_scope(&self, _cause: IncompleteCause, _config: &ConfigAst<'_>) -> IncompleteScope {
+        IncompleteScope::Package
+    }
+}
+
+/// Where the unknown entries of an incomplete config can lie; see [`Plugin::incomplete_scope`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum IncompleteScope {
+    /// Anywhere in the package: no file of it is judged unused.
+    Package,
+    /// Only files matching these globs, relative to the workspace directory, may be unknown entries. Every other file
+    /// of the package is judged as usual.
+    Within(Vec<String>),
 }
 
 /// A package the plugin's configuration needs.
@@ -364,6 +386,8 @@ pub struct IncompleteEntries {
     pub file: PathBuf,
     /// What could not be read.
     pub cause: IncompleteCause,
+    /// Where the entries the config hides can lie.
+    pub scope: IncompleteScope,
 }
 
 /// Why a config leaves a plugin's entries incomplete.

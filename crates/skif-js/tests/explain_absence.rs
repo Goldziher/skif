@@ -21,11 +21,15 @@ const PACKAGE: (&str, &str) = (
     r#"{"name":"app","version":"1.0.0","private":true,"main":"index.ts"}"#,
 );
 
+fn memory(files: &[(&str, &str)]) -> MemoryFs {
+    files.iter().fold(MemoryFs::new(), |memory, (path, text)| {
+        memory.with_file(Path::new(ROOT).join(path), text)
+    })
+}
+
 /// The `explain-usage` report of `file` in a workspace of `files` with the `skif.toml` text `config`, as JSON.
 fn report(files: &[(&str, &str)], config: &str, file: &str) -> Value {
-    let memory = files.iter().fold(MemoryFs::new(), |memory, (path, text)| {
-        memory.with_file(Path::new(ROOT).join(path), text)
-    });
+    let memory = memory(files);
     let config = Config::from_toml_str(config).unwrap();
     let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
@@ -40,7 +44,8 @@ fn absence(files: &[(&str, &str)], config: &str, file: &str) -> Value {
     report["absence"].clone()
 }
 
-/// A package whose vite config spreads in an unknown base, so its entry files are not all known.
+/// A package whose vite config spreads in an unknown base and computes its library entry itself, so its entry files
+/// are not all known and may be any file.
 const INCOMPLETE: &[(&str, &str)] = &[
     (
         "package.json",
@@ -48,7 +53,7 @@ const INCOMPLETE: &[(&str, &str)] = &[
     ),
     (
         "vite.config.ts",
-        "import base from './vite.base';\nexport default { ...base };\n",
+        "import base from './vite.base';\nexport default { ...base, build: { lib: { entry: pick() } } };\n",
     ),
     ("index.ts", "export const main = 1;\n"),
     ("orphan.ts", "export const lonely = 1;\n"),
@@ -162,6 +167,93 @@ fn a_source_file_in_a_package_with_incomplete_entries_names_the_configs() {
             { "cause": "computed-entries", "plugin": "vite", "file": "vite.config.ts" },
         ])
     );
+}
+
+/// A package whose vite config only spreads in an unknown base: the base can at most name the conventional `index`
+/// or `main` module, so only that is treated as an entry and the rest is judged.
+const NARROWED: &[(&str, &str)] = &[
+    (
+        "package.json",
+        r#"{"name":"app","version":"1.0.0","private":true,"devDependencies":{"vite":"6.0.0"}}"#,
+    ),
+    (
+        "vite.config.ts",
+        "import base from './vite.base';\nexport default { ...base };\n",
+    ),
+    ("src/main.ts", "import './helper';\n"),
+    ("src/helper.ts", "export const helper = 1;\n"),
+    ("src/orphan.ts", "export const lonely = 1;\n"),
+];
+
+#[test]
+fn a_file_outside_the_narrowed_scope_is_judged_and_names_the_scope() {
+    let report = report(NARROWED, "", "src/orphan.ts");
+    assert_eq!(report["absence"], "unused-file", "{report}");
+    assert!(
+        report["incomplete-scope"].as_array().is_some_and(|globs| globs
+            .iter()
+            .any(|glob| glob == "{,src/}{index,main}.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte,astro,mdx}")),
+        "{report}"
+    );
+    assert_eq!(report["incomplete"][0]["cause"], "unknown-spread", "{report}");
+    let text = JsAnalysis::build(
+        &Workspace::discover_with_fs(Path::new(ROOT), &Config::default(), &memory(NARROWED)).unwrap(),
+        &Config::default(),
+        &(Arc::new(memory(NARROWED)) as Arc<dyn FileSystem>),
+        &[Arc::new(PluginSource::new(Config::default().js.plugins.clone())) as Arc<dyn InputSource>],
+        true,
+    )
+    .explain_usage(Path::new("src/orphan.ts"), None)
+    .render();
+    assert!(
+        text.contains("(narrowed scope); this file does not, so it is judged"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_file_in_the_narrowed_scope_is_an_entry() {
+    // A test config spreading an unknown base may name a setup module; it is treated as an entry.
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","private":true,"devDependencies":{"vitest":"3.0.0"}}"#,
+        ),
+        (
+            "vitest.config.ts",
+            "import base from './vitest.base';\nexport default { ...base };\n",
+        ),
+        ("src/index.ts", "export const main = 1;\n"),
+        ("test/db-setup.ts", "import '../src/helper';\n"),
+        ("src/helper.ts", "export const helper = 1;\n"),
+    ];
+    let setup = report(&files, "", "test/db-setup.ts");
+    assert_eq!(
+        (&setup["in-graph"], &setup["entry"]),
+        (&json!(true), &json!("incomplete-scope")),
+        "{setup}"
+    );
+    assert_eq!(setup["incomplete"][0]["plugin"], "vitest", "{setup}");
+    // What the scope's files import is reached through them.
+    let helper = report(&files, "", "src/helper.ts");
+    assert_eq!(
+        helper["chain-from-entry"],
+        json!(["test/db-setup.ts", "src/helper.ts"]),
+        "{helper}"
+    );
+}
+
+/// A computed `import()` may load any file of the package, so a narrowed scope is not used.
+#[test]
+fn a_computed_import_keeps_the_package_unjudged() {
+    let mut files = NARROWED.to_vec();
+    files[2] = (
+        "src/main.ts",
+        "import './helper';\nexport const load = (name: string) => import(name);\n",
+    );
+    let report = report(&files, "", "src/orphan.ts");
+    assert_eq!(report["absence"], "entries-incomplete", "{report}");
+    assert_eq!(report["widened-by"], "src/main.ts:2", "{report}");
 }
 
 /// Incomplete entries only explain a source file the analysis would otherwise judge.

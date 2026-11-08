@@ -432,9 +432,28 @@ entries that do not end in `!` are also removed from the project, so a file only
 
 **Incomplete entries.** When skif cannot know all the entry files of a package (a tool configuration it cannot read
 statically, or a published `main`, `exports` or `bin` that maps to no source file), a file no known entry reaches may
-still be one. Nothing in that package is then reported unused: `unused-files`, `unused-dependencies`,
-`unused-dev-dependencies`, `unused-exports`, `unused-types`, the namespace export rules and the member rules skip it,
-and `explain-usage` gives its exports the verdict `not-judged`.
+still be one. `unused-dependencies`, `unused-dev-dependencies`, `unused-exports`, `unused-types`, the namespace export
+rules and the member rules then skip the package, and `explain-usage` gives its exports the verdict `not-judged`.
+
+`unused-files` skips only the files the unreadable configuration could plausibly make entries, its narrowed scope. A
+config that is unknown, spreads or merges in an unknown base, or computes its entry keys can only add entries where its
+tool looks for them:
+
+| Plugin | Narrowed scope (relative to the package, besides the plugin's own entry globs) |
+| --- | --- |
+| `next` | `{,src/}{app,pages}/**` and `{,src/}{instrumentation,instrumentation-client,middleware,proxy}.*`: the router may take other extensions there |
+| `vite` | `{,src/}{index,main}.*`, the conventional build input a shared base config may set |
+| `vitest`, `playwright` | test files, test and fixture directories (`test`, `tests`, `__tests__`, `__mocks__`, `__fixtures__`, `e2e`, `spec`, `specs`, `fixtures`, `mocks`, `testing`, `test-utils`), files whose name contains `setup` or `teardown`, and files named `*.{test,spec,bench,e2e,integration}*` |
+
+The files in the scope are treated as entries, so what they import is not reported either; every other file of the
+package is judged as usual. The whole package stays unjudged when the configuration does not parse, when a `vite`
+config computes `root`, `build.rollupOptions.input` or `build.lib.entry` itself or is unknown as a whole, when a
+`vitest` config computes `root`, `test.include`, `test.setupFiles` or `test.globalSetup` itself or is unknown as a
+whole, when a `playwright` config is unknown as a whole, when the plugin gives no scope (any other plugin), when the
+published build output maps to no source file (publishing may expose any file), and when a module of the package
+imports a computed path (`import(name)`, `require(name)`), which may load any of its files. `explain-usage` says which applies: a file in the
+scope is an entry of kind `incomplete-scope`, a file outside it reported by `unused-files` names the scope, and a file
+of a package left unjudged as a whole is `entries-incomplete`.
 
 **`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
 workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.

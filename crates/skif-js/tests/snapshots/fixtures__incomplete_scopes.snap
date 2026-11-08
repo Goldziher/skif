@@ -1,0 +1,116 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "unparseable-files",
+    "severity": "warning",
+    "message": "`packages/unparsable/vite.config.ts` could not be parsed: Expected `}` but found `EOF`",
+    "help": "fix the syntax error, or add the file to `ignore`; its imports and exports are not analysed",
+    "location": {
+      "path": "packages/unparsable/vite.config.ts",
+      "span": {
+        "start": 17,
+        "end": 17,
+        "start-line": 2,
+        "start-col": 1,
+        "end-line": 2,
+        "end-col": 1
+      }
+    },
+    "package": "@fx/unparsable"
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`packages/e2e/src/dead.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "packages/e2e/src/dead.ts"
+    },
+    "package": "@fx/e2e",
+    "fixes": [
+      {
+        "title": "Delete `packages/e2e/src/dead.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "packages/e2e/src/dead.ts"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`packages/next-app/lib/cropImage.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "packages/next-app/lib/cropImage.ts"
+    },
+    "package": "@fx/next-app",
+    "fixes": [
+      {
+        "title": "Delete `packages/next-app/lib/cropImage.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "packages/next-app/lib/cropImage.ts"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`packages/vite-app/src/dead.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "packages/vite-app/src/dead.ts"
+    },
+    "package": "@fx/vite-app",
+    "fixes": [
+      {
+        "title": "Delete `packages/vite-app/src/dead.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "packages/vite-app/src/dead.ts"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`packages/vitest-lib/src/dead.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "packages/vitest-lib/src/dead.ts"
+    },
+    "package": "@fx/vitest-lib",
+    "fixes": [
+      {
+        "title": "Delete `packages/vitest-lib/src/dead.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "packages/vitest-lib/src/dead.ts"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

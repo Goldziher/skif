@@ -1195,7 +1195,7 @@ fn json_names_the_packages_whose_files_and_dependencies_were_not_judged() {
     put("packages/web/orphan.ts", "export const lonely = 1;\n");
     put(
         "packages/web/vite.config.ts",
-        "import base from './vite.base';\nexport default { ...base };\n",
+        "import base from './vite.base';\nexport default { ...base, build: { lib: { entry: pick() } } };\n",
     );
     put(
         "packages/api/package.json",
@@ -1232,7 +1232,7 @@ fn json_names_the_packages_whose_files_and_dependencies_were_not_judged() {
     assert!(
         human
             .stdout
-            .contains("note: unused files and dependencies were not checked in 1 package (web)"),
+            .contains("note: unused files and dependencies were not fully checked in 1 package (web)"),
         "{}",
         human.stdout
     );

@@ -180,9 +180,22 @@ All notable changes to this project are documented here. The format follows
   generic serializer and streamed to stdout when stdout is the only output, and the `skif` binary no longer frees its
   results one by one before exiting (the npm package, which runs in a long-lived Node process, still does). The
   output is unchanged ([#29](https://github.com/Goldziher/skif/issues/29)).
+- A tool configuration skif cannot fully read no longer hides every unused file of its package: only the files the
+  configuration could make entries stay unjudged (the `next` router directories, Vite's `index` or `main` module, and
+  the tests, test directories and setup modules of `vitest` and `playwright`), and they count as entries. Every other
+  file is judged, so dead files such as cal-com's `lib/cropImage.ts` and n8n's `useParentScroll.ts` are reported. An
+  unparsable config, a config that computes its own entry keys or is unknown as a whole (except `next`), unmapped
+  published output, a plugin without a scope and a computed `import()` in the package keep the whole package
+  unjudged. Unused dependencies and exports of such a package are still not judged. `explain-usage` tells the narrowed scope from the package-wide case (the `entry`
+  `incomplete-scope`, `incomplete-scope` and `widened-by`), and the human note says the packages were not fully
+  checked ([ADR 0065](adrs/0065-narrowed-scope-for-incomplete-entries.md),
+  [#23](https://github.com/Goldziher/skif/issues/23)).
 
 ### Fixed
 
+- The `stryker` plugin reads the runner config named by `vitest.configFile` or `jest.configFile` with that runner's
+  plugin, so `vitest.stryker.config.ts` is a config file instead of an unused file
+  ([#23](https://github.com/Goldziher/skif/issues/23)).
 - The GitHub Action's new `from-sherif` input (`true` or `false`, default `false`) is a migration aid: with `true`,
   a project that has no `skif.toml` yet is linted with the settings of its sherif configuration. The
   `sherif` key and the flags of a root script that runs sherif (`sherif -i react -r unordered-dependencies`) are

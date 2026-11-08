@@ -1,0 +1,11 @@
+---
+source: crates/skif-cli/tests/explain_usage.rs
+expression: "redact(&setup.stdout, dir.path())"
+---
+test/db-setup.ts
+  entry file: may be an entry of a configuration that is not fully known, so it is treated as one (narrowed scope)
+  the narrowed scope of its package: **/*.{bench,test,test-d,spec,spec-d}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}, **/__mocks__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}, **/{test,tests,__tests__,__mocks__,__fixtures__,e2e,spec,specs,fixtures,mocks,testing,test-utils}/**, **/*{setup,Setup,teardown,Teardown}*.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte,astro,mdx}, **/*.{test,spec,bench,e2e,integration}*.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte,astro,mdx}
+  vitest reads vitest.config.ts: the configuration spreads or merges in a value that is not known statically (an imported base config)
+  vitest reads vitest.config.ts: the keys the tool reads entry files from are computed
+  imported by no module
+  reached from an entry through: test/db-setup.ts

@@ -29,6 +29,29 @@ expression: diagnostics
   {
     "rule": "unused-files",
     "severity": "warning",
+    "message": "`packages/cyclic/src/hidden.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "packages/cyclic/src/hidden.ts"
+    },
+    "package": "@fx/cyclic",
+    "fixes": [
+      {
+        "title": "Delete `packages/cyclic/src/hidden.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "packages/cyclic/src/hidden.ts"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "rule": "unused-files",
+    "severity": "warning",
     "message": "`packages/web/src/dead.ts` is not reachable from any entry file",
     "help": "delete it, or add it to `entry` when a tool loads it",
     "location": {
