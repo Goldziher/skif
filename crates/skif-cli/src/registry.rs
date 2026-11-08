@@ -4,16 +4,19 @@
 //! override it), the proxy of `HTTPS_PROXY` / `ALL_PROXY` and `NO_PROXY`, gzip, a 10 second connect timeout and a 60
 //! second limit per request. Requests run on up to `[update] max-concurrent-requests` threads.
 
-use std::sync::Arc;
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use skif::update::{FetchError, Packument, Registry};
+use skif_report::escape_controls;
 use ureq::Agent;
 use ureq::config::RedirectAuthHeaders;
 use ureq::tls::{Certificate, RootCerts, TlsConfig, TlsProvider};
 
 use crate::npmrc::{Npmrc, package_url};
+use crate::output::stderr_line;
 
 /// The largest registry document read: the full documents of long-lived packages run to tens of megabytes, and a
 /// larger answer is refused rather than held in memory.
@@ -24,6 +27,8 @@ pub struct HttpRegistry {
     agent: Agent,
     npmrc: Npmrc,
     concurrency: usize,
+    /// The registries already warned about for sending a token over plain HTTP, so each is named once.
+    warned: Mutex<BTreeSet<String>>,
 }
 
 impl HttpRegistry {
@@ -53,6 +58,24 @@ impl HttpRegistry {
             agent,
             npmrc,
             concurrency: concurrency.max(1),
+            warned: Mutex::default(),
+        }
+    }
+
+    /// Warns once per registry that its token travels unencrypted.
+    fn warn_plain_http(&self, registry: &str) {
+        if !registry.starts_with("http://") {
+            return;
+        }
+        let first = self
+            .warned
+            .lock()
+            .map_or(true, |mut warned| warned.insert(registry.to_owned()));
+        if first {
+            stderr_line(&format!(
+                "warning: sending the registry token for {} over plain http, unencrypted",
+                escape_controls(registry)
+            ));
         }
     }
 }
@@ -64,6 +87,7 @@ impl Registry for HttpRegistry {
             package_url(&registry, name).ok_or_else(|| FetchError::Invalid("not a valid package name".to_owned()))?;
         let mut request = self.agent.get(&url).header("Accept", "application/json");
         if let Some(token) = self.npmrc.token_for(&registry) {
+            self.warn_plain_http(&registry);
             request = request.header("Authorization", &format!("Bearer {token}"));
         }
         // The URL holds no credential (see `npmrc`), so it may appear in a message.

@@ -34,9 +34,11 @@ pub struct Npmrc {
     tokens: BTreeMap<String, String>,
 }
 
-/// A registry URL with a trailing slash and without credentials in it.
+/// A registry URL with a trailing slash and without credentials, a query or a fragment in it: the package name is
+/// appended to it, so anything after the path would swallow the name.
 fn normalized(url: &str) -> Option<String> {
     let url = url.trim();
+    let url = url.split(['?', '#']).next().unwrap_or(url);
     let (scheme, rest) = url.split_once("://")?;
     if !matches!(scheme, "http" | "https") || rest.is_empty() {
         return None;
@@ -291,6 +293,11 @@ mod tests {
         let npmrc = Npmrc::parse("registry=https://user:pass@private.dev/npm/\n", &env);
         assert_eq!(npmrc.registry_for("x"), "https://private.dev/npm/");
         assert_eq!(normalized("ftp://x.dev"), None);
+        assert_eq!(
+            normalized("https://x.dev/npm?token=1#frag").as_deref(),
+            Some("https://x.dev/npm/")
+        );
+        assert_eq!(normalized("https://x.dev#/a").as_deref(), Some("https://x.dev/"));
         assert_eq!(normalized("https://"), None);
     }
 
