@@ -17,7 +17,8 @@ pub static META: RuleMeta = RuleMeta::new(
 /// Reports `dependencies` that nothing uses.
 ///
 /// `optionalDependencies` are not checked, as knip does not: they are mostly platform-specific packages that a
-/// loader resolves by a computed name, so no source names them.
+/// loader resolves by a computed name, so no source names them. In strict mode the required (not optional)
+/// `peerDependencies` are checked too, which knip's strict mode counts as production dependencies.
 pub struct UnusedDependencies;
 
 impl JsRule for UnusedDependencies {
@@ -26,6 +27,11 @@ impl JsRule for UnusedDependencies {
     }
 
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
-        report_unused_dependencies(&META, &[DependencyKind::Dependencies], analysis, out);
+        let kinds: &[DependencyKind] = if analysis.strict() {
+            &[DependencyKind::Dependencies, DependencyKind::PeerDependencies]
+        } else {
+            &[DependencyKind::Dependencies]
+        };
+        report_unused_dependencies(&META, kinds, analysis, out);
     }
 }

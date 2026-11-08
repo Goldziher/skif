@@ -16,7 +16,8 @@ pub static META: RuleMeta = RuleMeta::new(
     "A file imports a package that neither its `package.json` nor any `package.json` above it lists.",
 );
 
-/// Reports imports of packages the manifest does not list, once per file and package.
+/// Reports imports of packages the manifest does not list, once per file and package. In strict mode production code
+/// must import from `dependencies` or `peerDependencies`, so a package listed only elsewhere is reported too.
 pub struct UnlistedDependencies;
 
 impl JsRule for UnlistedDependencies {
@@ -41,20 +42,40 @@ impl JsRule for UnlistedDependencies {
             let Some(package) = analysis.workspace.package(unlisted.package) else {
                 continue;
             };
-            out.emit(
-                diagnostic(
-                    &META,
+            // Strict mode reports an import that the manifest lists only outside `dependencies` and
+            // `peerDependencies`, such as in `devDependencies`.
+            let listed_as = package
+                .dependencies
+                .iter()
+                .find(|entry| entry.name == unlisted.name)
+                .map(|entry| entry.kind.field());
+            let (message, help) = match listed_as {
+                Some(field) => (
+                    format!(
+                        "`{}` is imported by production code but listed only in `{field}`",
+                        unlisted.name
+                    ),
+                    format!(
+                        "move `{}` to the dependencies of `{}`",
+                        unlisted.name,
+                        package.display_name()
+                    ),
+                ),
+                None => (
                     format!("`{}` is imported but not listed in `package.json`", unlisted.name),
-                    module_location(module, unlisted.span),
-                )
-                .package(package.display_name())
-                .dependency(unlisted.name.clone())
-                .help(format!(
-                    "add `{}` to the dependencies of `{}`",
-                    unlisted.name,
-                    package.display_name()
-                ))
-                .build(),
+                    format!(
+                        "add `{}` to the dependencies of `{}`",
+                        unlisted.name,
+                        package.display_name()
+                    ),
+                ),
+            };
+            out.emit(
+                diagnostic(&META, message, module_location(module, unlisted.span))
+                    .package(package.display_name())
+                    .dependency(unlisted.name.clone())
+                    .help(help)
+                    .build(),
             );
         }
     }

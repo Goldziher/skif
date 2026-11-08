@@ -438,6 +438,59 @@ fn vite() {
 }
 
 #[test]
+fn vite_root_moves_index_html_and_rooted_paths() {
+    // mastra's factory-ui: `root: 'src'` serves `src/index.html`, whose `/main.tsx` is `src/main.tsx`.
+    let results = resolve(
+        &[
+            (
+                "vite.config.ts",
+                r#"export default defineConfig({
+                  root: "src",
+                  build: { rollupOptions: { input: { admin: "/admin.html", docs: "pages/docs.html" } } },
+                });"#,
+            ),
+            (
+                "src/index.html",
+                r#"<html><script type="module" src="/main.tsx"></script></html>"#,
+            ),
+            (
+                "src/admin.html",
+                r#"<html><script type="module" src="./admin.tsx"></script></html>"#,
+            ),
+            (
+                "pages/docs.html",
+                r#"<html><script type="module" src="/docs.tsx"></script></html>"#,
+            ),
+            (
+                "index.html",
+                r#"<html><script type="module" src="/outside.tsx"></script></html>"#,
+            ),
+        ],
+        &["vite"],
+    );
+    let out = output(&results, "vite");
+    assert_entries(
+        &out.production_entries,
+        &["src/main.tsx", "src/admin.tsx", "src/docs.tsx"],
+    );
+    assert!(
+        !out.production_entries.iter().any(|entry| entry.contains("outside")),
+        "{:?}",
+        out.production_entries
+    );
+    assert!(!out.entries_incomplete);
+
+    let results = resolve(
+        &[(
+            "vite.config.ts",
+            "export default defineConfig({ root: process.env.ROOT });",
+        )],
+        &["vite"],
+    );
+    assert!(output(&results, "vite").entries_incomplete);
+}
+
+#[test]
 fn vitest() {
     let results = resolve(
         &[(

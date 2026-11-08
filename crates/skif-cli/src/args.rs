@@ -547,7 +547,8 @@ pub struct LintArgs {
     pub use_tsconfig_files: bool,
 
     /// knip's strict mode: --production, and each workspace package uses only the dependencies its own manifest
-    /// lists, not those of a containing package or the root.
+    /// lists, not those of a containing package or the root. Production code must import from `dependencies` or
+    /// `peerDependencies`, type-only imports use no package, and unused required peer dependencies are reported.
     #[arg(long)]
     pub strict: bool,
 
