@@ -32,18 +32,22 @@ name on the [rules pages](../../rules/).
 
 ## Performance
 
-Medians of 10 runs on an Apple M4 Pro, on pinned public repositories with dependencies installed. The machine was still
-busy during the run, so treat the ratios as the result. `skif` is a full run; `skif --no-js` skips the JS analysis.
-knip's time is not a full analysis on two of these: it exits with an error on create-t3-turbo, and npm's `.gitignore`
-hides every workspace of npm-cli from it.
+Medians of 10 runs on a 4-vCPU Linux VM (Intel Xeon at 2.10 GHz) with no other work running, on pinned public
+repositories with dependencies installed, measured on 2026-11-08 after 0.1.1. Absolute times depend on the machine; the
+ratios are the result. `skif` is a full run; `skif --no-js` skips the JS analysis. knip completes its analysis on all
+five: on create-t3-turbo and vue-core it then exits with an error because some tool configurations do not load, and on
+npm-cli it runs with `--no-gitignore`, since npm's `.gitignore` otherwise hides every workspace from it.
 
 | Repository | skif | knip | skif --no-js | sherif | syncpack |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| create-t3-turbo | 22 ms | 824 ms | 4.6 ms | 32 ms | 46 ms |
-| vue-core | 37 ms | 1.3 s | 5.0 ms | 33 ms | 38 ms |
-| tanstack-query | 175 ms | 1.8 s | 17 ms | 41 ms | 109 ms |
-| babel | 420 ms | 3.9 s | 13 ms | 40 ms | 495 ms |
-| npm-cli | 82 ms | 315 ms | 6.5 ms | 35 ms | 89 ms |
+| create-t3-turbo | 35 ms | 2.1 s | 4.7 ms | 39 ms | 44 ms |
+| vue-core | 72 ms | 1.9 s | 4.7 ms | 38 ms | 50 ms |
+| tanstack-query | 415 ms | 5.4 s | 13 ms | 47 ms | 124 ms |
+| babel | 1.0 s | 8.5 s | 10 ms | 44 ms | 337 ms |
+| npm-cli | 124 ms | 1.1 s | 5.9 ms | 44 ms | 88 ms |
+
+On generated workspaces `skif --no-js` takes 6.4 ms, 34 ms and 137 ms at 50, 500 and 2,000 packages, against sherif's
+39 ms, 68 ms and 135 ms: level with sherif at 2,000 packages, where skif reports about 24,700 diagnostics and sherif 638.
 
 ## Accuracy
 

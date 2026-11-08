@@ -398,6 +398,17 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
 - The `test-file` deviation of the knip comparison says why skif has no finding there: most are apps and helpers below
   test directories that are outside skif's graph, not test entries ([#27](https://github.com/Goldziher/skif/issues/27)).
 - `mise run bench:publish` writes a `summary.md` that passes `format:check` ([#27](https://github.com/Goldziher/skif/issues/27)).
+- `skif-bench run --out` takes a relative directory, as `mise run bench:publish` passes it: hyperfine runs in each
+  target's directory and could not create its export there ([#27](https://github.com/Goldziher/skif/issues/27)).
+- `skif-bench run` reads the exports of hyperfine 2 as well as 1, and notes a tool that exits with an error (knip's
+  2 when a configuration file does not load) under its table and in the knip check
+  ([#27](https://github.com/Goldziher/skif/issues/27)).
+- The timed knip run on npm-cli reads the workspaces (`--no-gitignore`, from the new `bench-knip-args` of
+  `corpus.toml`), so it compares like for like with skif; npm's `.gitignore` hid them and knip analysed only the
+  root package ([#30](https://github.com/Goldziher/skif/issues/30)).
+- The published benchmark numbers are from a run on an idle machine, with knip timed on an installed corpus
+  ([#27](https://github.com/Goldziher/skif/issues/27), [#29](https://github.com/Goldziher/skif/issues/29),
+  [#30](https://github.com/Goldziher/skif/issues/30)).
 - An `import.meta.glob` whose options read the matched files as text (`query: '?raw'`, `query: { raw: '' }`, legacy
   `as: 'raw'`) and an import of a `?raw` specifier no longer keep the files in use: they are not loaded as modules.
   Other queries (`?url`, `?inline`, `?worker`) and options that are not static still count as uses. n8n's components

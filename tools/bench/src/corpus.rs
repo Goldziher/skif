@@ -59,6 +59,10 @@ pub struct Repo {
     /// only these reach are not reported as unused on both sides.
     #[serde(default)]
     pub entry: Vec<String>,
+    /// Extra arguments for knip when `skif-bench run` times it here, so that it reads the same files as skif (such as
+    /// `--no-gitignore` where a deny-all `.gitignore` hides the workspaces from knip). `parity` does not use them.
+    #[serde(default)]
+    pub bench_knip_args: Vec<String>,
 }
 
 const fn default_install() -> bool {
