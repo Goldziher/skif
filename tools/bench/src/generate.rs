@@ -437,7 +437,15 @@ pub fn build(options: &Options) -> Result<Generated> {
 /// # Errors
 /// Fails when a directory or file cannot be created.
 pub fn write(generated: &Generated, out: &Path) -> Result<()> {
-    for (relative, contents) in &generated.files {
+    write_files(&generated.files, out)
+}
+
+/// Writes `(relative path, contents)` pairs under `out`.
+///
+/// # Errors
+/// Fails when a directory or file cannot be created.
+pub fn write_files(files: &[(PathBuf, String)], out: &Path) -> Result<()> {
+    for (relative, contents) in files {
         let path = out.join(relative);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;

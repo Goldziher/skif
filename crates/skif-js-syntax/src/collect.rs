@@ -3,9 +3,9 @@
 use std::collections::HashMap;
 
 use oxc_ast::ast::{
-    BindingPattern, Declaration, ExportDefaultDeclarationKind, ExportSpecifier, ImportDeclarationSpecifier,
-    ImportOrExportKind, ModuleExportName, Program, Statement, StringLiteral, TSEnumMemberName,
-    TSNamespaceDeclarationBody,
+    ArrayExpressionElement, BindingPattern, Class, ClassElement, Declaration, ExportDefaultDeclarationKind,
+    ExportSpecifier, Expression, ImportDeclarationSpecifier, ImportOrExportKind, ModuleExportName, ObjectPropertyKind,
+    Program, Statement, StringLiteral, TSEnumMemberName, TSNamespaceDeclarationBody,
 };
 use oxc_span::Span as OxcSpan;
 use skif_core::{LineIndex, Span};
@@ -224,15 +224,29 @@ fn declared(ctx: &Ctx<'_>, decl: &Declaration<'_>) -> Vec<Declared> {
         }
         Declaration::TSEnumDeclaration(e) => {
             let mut d = Declared::simple(e.id.name.as_str(), e.id.span, ExportKind::Enum, false);
-            d.enum_members = e
-                .body
-                .members
+            let members = &e.body.members;
+            d.enum_members = members
                 .iter()
-                .filter_map(|m| {
-                    enum_member_name(&m.id).map(|name| Member {
-                        name,
-                        span: ctx.span(m.span),
-                        tags: ctx.tags_at(m.span.start),
+                .enumerate()
+                .filter_map(|(index, m)| {
+                    enum_member_name(&m.id).map(|name| {
+                        let mentioned = members.iter().any(|other| {
+                            other.span != m.span
+                                && mentions_word(&ctx.src[other.span.start as usize..other.span.end as usize], &name)
+                        });
+                        // A later member without an initializer takes its value from the one before it, so removing
+                        // this member would renumber it.
+                        let renumbers = members[index + 1..].iter().any(|later| later.initializer.is_none());
+                        Member {
+                            removal: if mentioned || renumbers {
+                                None
+                            } else {
+                                member_removal(ctx, m.span, true)
+                            },
+                            name,
+                            span: ctx.span(m.span),
+                            tags: ctx.tags_at(m.span.start),
+                        }
                     })
                 })
                 .collect();
@@ -254,9 +268,20 @@ fn namespace_members(ctx: &Ctx<'_>, body: &TSNamespaceDeclarationBody<'_>) -> Ve
         TSNamespaceDeclarationBody::TSModuleBlock(block) => {
             for stmt in &block.body {
                 if let Statement::ExportDeclaration(e) = stmt {
-                    let decl = &e.declaration;
-                    for d in declared(ctx, decl) {
+                    let declared = declared(ctx, &e.declaration);
+                    let alone = declared.len() == 1;
+                    for d in declared {
+                        // The rest of the namespace body, without this statement: a sibling that mentions the name
+                        // would break when the statement goes.
+                        let before = &ctx.src[block.span.start as usize..e.span.start as usize];
+                        let after = &ctx.src[e.span.end as usize..block.span.end as usize];
+                        let mentioned = mentions_word(before, &d.name) || mentions_word(after, &d.name);
                         out.push(Member {
+                            removal: if alone && !mentioned {
+                                member_removal(ctx, e.span, false)
+                            } else {
+                                None
+                            },
                             name: d.name,
                             span: ctx.span(d.name_span),
                             tags: ctx.tags_at(e.span.start),
@@ -270,10 +295,129 @@ fn namespace_members(ctx: &Ctx<'_>, body: &TSNamespaceDeclarationBody<'_>) -> Ve
                 name: inner.id.name.as_str().to_string(),
                 span: ctx.span(inner.id.span),
                 tags: Vec::new(),
+                removal: None,
             });
         }
     }
     out
+}
+
+/// Whether `text` holds `name` as a whole identifier, not inside a longer one.
+fn mentions_word(text: &str, name: &str) -> bool {
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    !name.is_empty()
+        && text.match_indices(name).any(|(at, _)| {
+            !text[..at].chars().next_back().is_some_and(is_ident)
+                && !text[at + name.len()..].chars().next().is_some_and(is_ident)
+        })
+}
+
+/// The range that deletes a member spanning `span` (absolute offsets). With `comma`, a comma right after it goes too.
+///
+/// A member alone on its line takes the whole line with its line break, so the remaining lines keep their layout,
+/// together with a comment after it on that line and the comment lines directly above it, which describe it. A member
+/// sharing its line loses only itself, its comma and the blanks after it; `None` when a comment sits right before or
+/// after it, which would be left describing a neighbour.
+fn member_removal(ctx: &Ctx<'_>, span: OxcSpan, comma: bool) -> Option<(u32, u32)> {
+    let src = ctx.src;
+    let bytes = src.as_bytes();
+    let blank = |b: u8| b == b' ' || b == b'\t';
+    let mut end = span.end as usize;
+    if comma {
+        let mut i = end;
+        while i < bytes.len() && blank(bytes[i]) {
+            i += 1;
+        }
+        if bytes.get(i) == Some(&b',') {
+            end = i + 1;
+        }
+    }
+    let mut after = end;
+    while after < bytes.len() && blank(bytes[after]) {
+        after += 1;
+    }
+    let mut line_start = span.start as usize;
+    while line_start > 0 && blank(bytes[line_start - 1]) {
+        line_start -= 1;
+    }
+    let starts_line = line_start == 0 || bytes[line_start - 1] == b'\n';
+    let line_end = |at: usize| {
+        if bytes[at..].starts_with(b"\r\n") {
+            Some(at + 2)
+        } else if bytes.get(at) == Some(&b'\n') {
+            Some(at + 1)
+        } else {
+            None
+        }
+    };
+    let (start, end) = match line_end(skip_line_comment(src, after)) {
+        Some(line_end) if starts_line => (comment_lines_above(src, line_start), line_end),
+        _ if src[..span.start as usize].trim_end().ends_with("*/")
+            || (starts_line && comment_lines_above(src, line_start) < line_start)
+            || trailing_comment(src, after) =>
+        {
+            return None;
+        }
+        _ => (span.start as usize, after),
+    };
+    Some((ctx.off(u32::try_from(start).ok()?), ctx.off(u32::try_from(end).ok()?)))
+}
+
+/// Whether the comment at `at` belongs to the member before it: a `//` comment, or a block comment that ends the
+/// line or the body rather than leading into the next member.
+fn trailing_comment(src: &str, at: usize) -> bool {
+    let rest = &src[at..];
+    if rest.starts_with("//") {
+        return true;
+    }
+    rest.strip_prefix("/*")
+        .and_then(|body| {
+            body.find("*/")
+                .map(|close| body[close + 2..].trim_start_matches([' ', '\t']))
+        })
+        .is_some_and(|next| next.is_empty() || next.starts_with(['\r', '\n', '}']))
+}
+
+/// `at` moved past a `//` comment, or a block comment closed on the same line, and the blanks after it.
+fn skip_line_comment(src: &str, at: usize) -> usize {
+    let rest = &src[at..];
+    let line = rest.find('\n').map_or(rest, |newline| &rest[..newline]);
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    if line.starts_with("//") {
+        return at + line.len();
+    }
+    if line.starts_with("/*")
+        && let Some(close) = line.find("*/")
+        && line[close + 2..].trim().is_empty()
+    {
+        return at + line.len();
+    }
+    at
+}
+
+/// The start of the run of comment lines (`//` lines and block comments that open at the start of a line) directly
+/// above the line starting at `line_start`, or `line_start` when there is none. A blank line ends the run.
+fn comment_lines_above(src: &str, line_start: usize) -> usize {
+    let mut start = line_start;
+    while start > 0 {
+        let before = &src[..start - 1];
+        let previous_start = before.rfind('\n').map_or(0, |newline| newline + 1);
+        let previous = before[previous_start..].trim();
+        if previous.starts_with("//") {
+            start = previous_start;
+            continue;
+        }
+        if !previous.ends_with("*/") {
+            break;
+        }
+        let Some(open) = before.rfind("/*") else { break };
+        let open_line = before[..open].rfind('\n').map_or(0, |newline| newline + 1);
+        if !before[open_line..open].trim().is_empty() {
+            break;
+        }
+        start = open_line;
+    }
+    start
 }
 
 /// Range of a statement extended over one trailing line break (absolute offsets).
@@ -529,7 +673,7 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
     }
 }
 
-fn collect_import(ctx: &Ctx<'_>, d: &oxc_ast::ast::ImportDeclaration<'_>, info: &mut ModuleInfo) {
+pub(crate) fn collect_import(ctx: &Ctx<'_>, d: &oxc_ast::ast::ImportDeclaration<'_>, info: &mut ModuleInfo) {
     let type_only = d.import_kind.is_type();
     let mut names = Vec::new();
     if let Some(specifiers) = &d.specifiers {
@@ -726,12 +870,78 @@ fn collect_default_export(
             false
         }
     };
+    let pure = match &e.declaration {
+        ExportDefaultDeclarationKind::FunctionDeclaration(_)
+        | ExportDefaultDeclarationKind::TSInterfaceDeclaration(_) => true,
+        ExportDefaultDeclarationKind::ClassDeclaration(c) => pure_class(c),
+        other => other.as_expression().is_some_and(pure_expression),
+    };
     export.removal = if keep_declaration {
         keyword_range(ctx, e.span, true).map(|range| removal(ctx, e.span, range, RemovalKind::ExportKeyword, 1))
-    } else {
+    } else if pure {
         let mut whole = whole_statement(ctx, e.span, 1);
         whole.default_expression = true;
         Some(whole)
+    } else {
+        None
     };
     info.exports.push(export);
+}
+
+/// Whether evaluating `expression` can have no effect beyond producing its value: literals, identifiers, functions,
+/// classes without evaluated members, and arrays and objects of such values. Deleting `export default <expression>`
+/// is only offered for these, so a call such as `export default registerPlugin()` keeps running.
+fn pure_expression(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::RegExpLiteral(_)
+        | Expression::Identifier(_)
+        | Expression::FunctionExpression(_)
+        | Expression::ArrowFunctionExpression(_) => true,
+        Expression::TemplateLiteral(t) => t.expressions.is_empty(),
+        Expression::UnaryExpression(u) => {
+            matches!(u.argument, Expression::NumericLiteral(_) | Expression::BigIntLiteral(_))
+        }
+        Expression::ClassExpression(c) => pure_class(c),
+        Expression::ArrayExpression(a) => a.elements.iter().all(|element| match element {
+            ArrayExpressionElement::SpreadElement(_) => false,
+            ArrayExpressionElement::Elision(_) => true,
+            element => element.as_expression().is_some_and(pure_expression),
+        }),
+        Expression::ObjectExpression(o) => o.properties.iter().all(|property| match property {
+            ObjectPropertyKind::ObjectProperty(p) => !p.computed && pure_expression(&p.value),
+            ObjectPropertyKind::SpreadProperty(_) => false,
+        }),
+        Expression::ParenthesizedExpression(p) => pure_expression(&p.expression),
+        Expression::TSAsExpression(t) => pure_expression(&t.expression),
+        Expression::TSSatisfiesExpression(t) => pure_expression(&t.expression),
+        Expression::TSNonNullExpression(t) => pure_expression(&t.expression),
+        Expression::TSTypeAssertion(t) => pure_expression(&t.expression),
+        _ => false,
+    }
+}
+
+/// Whether defining `class` runs no code of the module: no decorators, a plain superclass, no computed keys, no static
+/// blocks and no static field initialisers with effects.
+fn pure_class(class: &Class<'_>) -> bool {
+    class.decorators.is_empty()
+        && class
+            .heritage
+            .as_ref()
+            .is_none_or(|heritage| matches!(heritage.expression, Expression::Identifier(_)))
+        && class.body.body.iter().all(|element| match element {
+            ClassElement::StaticBlock(_) => false,
+            ClassElement::MethodDefinition(m) => m.decorators.is_empty() && !m.computed,
+            ClassElement::PropertyDefinition(p) => {
+                p.decorators.is_empty() && !p.computed && (!p.r#static || p.value.as_ref().is_none_or(pure_expression))
+            }
+            ClassElement::AccessorProperty(p) => {
+                p.decorators.is_empty() && !p.computed && (!p.r#static || p.value.as_ref().is_none_or(pure_expression))
+            }
+            ClassElement::TSIndexSignature(_) => true,
+        })
 }

@@ -1,0 +1,6 @@
+{
+  "name": "indent-tab",
+  "files": ["dist"],
+  "publishConfig": {"access": "public"},
+  "sideEffects": false
+}

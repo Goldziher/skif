@@ -37,7 +37,7 @@ impl Rule for CatalogMissingEntry {
                     &finding,
                     format!("`{name}` has no entry in {}", catalog.display()),
                     Some(format!("add the entry and use `{}`", catalog.reference())),
-                    Some(use_catalog_fix(finding.instance, catalog, catalog_ops)),
+                    Some(use_catalog_fix(cx.workspace, finding.instance, catalog, catalog_ops)),
                 ),
                 FindingKind::MissingFromCatalogAndNonSemverMismatch => emit(
                     out,

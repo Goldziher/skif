@@ -1,0 +1,4 @@
+description = "Without a semver group a semver-range-only group has nothing to check: different versions are valid, where the default group would report them."
+source = "syncpack:src/version_group/semver_range_only_test.rs::no_semver_group_marks_instance_as_matches_semver_group"
+tags = ["semver-range-only"]
+valid-states = ["MatchesSemverGroup"]

@@ -1,5 +1,5 @@
 //! FAST: a class decorated with `@customElement` from `@microsoft/fast-element`, or a subclass of `FASTElement` that
-//! calls its static `define(…)` or `defineAsync(…)`, is a registered custom element and so a used export (ADR 0053).
+//! calls its static `define(…)` or `defineAsync(…)`, is a registered custom element and so a used export (ADR 0062).
 
 use crate::plugin::{CustomElements, Enabler, Plugin, PluginSpec};
 

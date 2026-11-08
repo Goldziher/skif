@@ -37,21 +37,22 @@ type Outcome = Option<(State, Option<Arc<Specifier>>)>;
 pub(super) struct Visitor<'a, 'w> {
     instances: &'a Instances<'w>,
     assignment: &'a Assignment<'a>,
-    verdicts: Vec<Option<Verdict>>,
+    /// The verdicts given so far, in the order they were given; a later one for the same instance replaces it.
+    marks: Vec<(InstanceId, Verdict)>,
 }
 
 impl<'a, 'w> Visitor<'a, 'w> {
-    pub(super) fn new(instances: &'a Instances<'w>, assignment: &'a Assignment<'a>) -> Self {
+    pub(super) const fn new(instances: &'a Instances<'w>, assignment: &'a Assignment<'a>) -> Self {
         Self {
             instances,
             assignment,
-            verdicts: (0..instances.len()).map(|_| None).collect(),
+            marks: Vec::new(),
         }
     }
 
-    /// The verdict of every instance, `None` where the instance is valid.
-    pub(super) fn into_verdicts(self) -> Vec<Option<Verdict>> {
-        self.verdicts
+    /// The verdicts given, in order; apply them in order, a later one for an instance replacing an earlier one.
+    pub(super) fn into_marks(self) -> Vec<(InstanceId, Verdict)> {
+        self.marks
     }
 
     /// Applies `policy` to the instances `ids` of one dependency.
@@ -64,6 +65,20 @@ impl<'a, 'w> Visitor<'a, 'w> {
             Policy::SameMinor => self.same_minor(ids),
             Policy::SnappedTo(packages) => self.snapped_to(ids, packages),
             Policy::PreferredSemver(prefer) => self.preferred_semver(ids, *prefer),
+            Policy::SemverRangeOnly => self.semver_range_only(ids),
+        }
+    }
+
+    /// syncpack's `semverRangeOnly`: the versions may differ, and each instance only has to use the range its semver
+    /// group asks for. A package's own version has no range to check.
+    fn semver_range_only(&mut self, ids: &[InstanceId]) {
+        for id in self.members(ids) {
+            if self.is_own_version(id) || self.matches_preferred(id) || self.spec(id).get_node_version().is_none() {
+                continue;
+            }
+            if let Some(corrected) = self.with_preferred(id) {
+                self.mark(id, State::SemverRangeMismatch, Some(corrected));
+            }
         }
     }
 
@@ -76,7 +91,7 @@ impl<'a, 'w> Visitor<'a, 'w> {
     }
 
     fn mark(&mut self, id: InstanceId, state: State, target: Option<Arc<Specifier>>) {
-        self.verdicts[id.index()] = Some(Verdict { state, target });
+        self.marks.push((id, Verdict { state, target }));
     }
 
     fn mark_outcome(&mut self, id: InstanceId, outcome: Outcome) {
@@ -462,19 +477,38 @@ impl<'a, 'w> Visitor<'a, 'w> {
         let (floating, ranked): (Vec<InstanceId>, Vec<InstanceId>) =
             ids.iter().copied().partition(|&id| is_floating(self.spec(id)));
         let target = {
-            let candidates: Vec<Arc<Specifier>> = ranked
+            // Ranked by the lowest version each admits, so `^18` never outranks `^18.3.1`. The floor is worked out
+            // once per distinct specifier of the dependency, not once per comparison: the instances of one dependency
+            // repeat a few specifiers, and a specifier's text decides its floor (a `workspace:` one aside, which
+            // depends on what it resolves to).
+            let mut floors = Vec::new();
+            let mut floor_of = |specifier: &Arc<Specifier>| {
+                if matches!(**specifier, Specifier::WorkspaceProtocol(_)) {
+                    return floor_version(specifier);
+                }
+                let raw = specifier.get_raw();
+                if let Some((_, floor)) = floors.iter().find(|(known, _): &&(String, _)| known == raw) {
+                    return Clone::clone(floor);
+                }
+                let floor = floor_version(specifier);
+                floors.push((raw.to_owned(), floor.clone()));
+                floor
+            };
+            let candidates: Vec<_> = ranked
                 .iter()
                 .copied()
                 .filter(|&id| self.spec(id).get_node_version().is_some())
-                .map(|id| self.with_preferred(id).unwrap_or_else(|| Arc::clone(self.spec(id))))
+                .map(|id| {
+                    let specifier = self.with_preferred(id).unwrap_or_else(|| Arc::clone(self.spec(id)));
+                    (floor_of(&specifier), specifier)
+                })
                 .collect();
-            // Ranked by the lowest version each admits, so `^18` never outranks `^18.3.1`.
-            let order =
-                |a: &Arc<Specifier>, b: &Arc<Specifier>| floor_version(a).cmp(&floor_version(b)).then_with(|| a.cmp(b));
-            match prefer {
-                Prefer::Lowest => candidates.into_iter().min_by(order),
-                _ => candidates.into_iter().max_by(order),
-            }
+            let candidates = candidates.into_iter();
+            let chosen = match prefer {
+                Prefer::Lowest => candidates.min_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1))),
+                _ => candidates.max_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1))),
+            };
+            chosen.map(|(_, specifier)| specifier)
         };
         let Some(target) = target else {
             self.without_semver(ids);

@@ -246,22 +246,67 @@ number = 49
 status = "accepted"
 blake3 = "57ee9ff85eda7dc829451d63690e462fb1d7e1dbf3a9c19ce039ae63c232cd0e"
 
-[adrs."adrs/0050-twenty-one-more-plugins-and-commands-run-from-source.md"]
+[adrs."adrs/0050-fixture-directories-in-the-js-analysis.md"]
 number = 50
 status = "accepted"
-blake3 = "004941564e0649f25640fcc902fcbb44db943453204098a8b12c3dce39c781b1"
+blake3 = "906d58d5e421b233cfc31695083bd495b13900c023c7047a48fbd1b3783fd419"
 
-[adrs."adrs/0051-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md"]
+[adrs."adrs/0051-safe-version-alignment-fixes.md"]
 number = 51
 status = "accepted"
-blake3 = "985bf7ec82b064cda87b9f842c9de52531a7ed34ffe174f430bc8a03431ed14c"
+blake3 = "a23d3a7c6f40ed083d6c1b5407adfbafdebadbb157399cc0bed663f6948cf613"
 
-[adrs."adrs/0052-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md"]
+[adrs."adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md"]
 number = 52
 status = "accepted"
-blake3 = "869517f747d2d03828e2df98e7ae789c71f96c87ceb35aae857e83dbfe38b2e7"
+blake3 = "4623a3c4a19a47a47f620744a371775ee2b4a29735214a15daad88564acebb5c"
 
-[adrs."adrs/0053-custom-element-registrations-and-the-taskr-plugin.md"]
+[adrs."adrs/0053-incomplete-packages-in-the-json-report.md"]
 number = 53
 status = "accepted"
-blake3 = "a8065e0bb7a054c6bbc7228a3632c1bb554a5fef1aa5859d398c4e76fdb4980a"
+blake3 = "aedad73032cc91a8f5e8db47df271586d5a71682c93d68c79fe8710dd0595871"
+
+[adrs."adrs/0054-several-reports-in-one-run.md"]
+number = 54
+status = "accepted"
+blake3 = "2534213670b270563a225c8cdb19d18d344ce10bb8f42100c500def10fd4e678"
+
+[adrs."adrs/0055-package-json-formatting-the-package-json-format-rule-and-skif-format.md"]
+number = 55
+status = "accepted"
+blake3 = "bd6d672ea69058f32d0b091eaef6c13e382130430ea0e1c67765464d4a1f15c9"
+
+[adrs."adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md"]
+number = 56
+status = "accepted"
+blake3 = "72bbe9594fe781a6ae3012bcab83f53cd25281717f45c62f7852cd9d9d054983"
+
+[adrs."adrs/0057-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md"]
+number = 57
+status = "accepted"
+blake3 = "2b7fd1e6af3bda80c60b52a133120872846fd41d0c45a08a5682aa99a3f360b4"
+
+[adrs."adrs/0058-registry-updates-an-opt-in-skif-update-command.md"]
+number = 58
+status = "accepted"
+blake3 = "e97707820681ea433e2160f7d41e412e41982df6ad4f4c2a57c9e23a41fa6202"
+
+[adrs."adrs/0059-twenty-one-more-plugins-and-commands-run-from-source.md"]
+number = 59
+status = "accepted"
+blake3 = "fd004fe4eab75a530c28afe42554774ed8e7d774249c149920bb1c65e3bed89f"
+
+[adrs."adrs/0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md"]
+number = 60
+status = "accepted"
+blake3 = "0cb392b3b02feee860abe41c6449f9198858fc4fde52269db4e2b6a05c897b12"
+
+[adrs."adrs/0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md"]
+number = 61
+status = "accepted"
+blake3 = "fb801baf95421900cb4935f773fa5b57cc8e4889d649eebb18f41a413d92f519"
+
+[adrs."adrs/0062-custom-element-registrations-and-the-taskr-plugin.md"]
+number = 62
+status = "accepted"
+blake3 = "50377c6b09beefe17d71d5d8fbfaa55e911b965c91ebe6b50b50596ed04a499f"

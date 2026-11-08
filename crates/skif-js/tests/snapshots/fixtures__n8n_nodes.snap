@@ -1,0 +1,29 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "unused-files",
+    "severity": "warning",
+    "message": "`nodes/Example/Orphan.ts` is not reachable from any entry file",
+    "help": "delete it, or add it to `entry` when a tool loads it",
+    "location": {
+      "path": "nodes/Example/Orphan.ts"
+    },
+    "package": "n8n-nodes-example",
+    "fixes": [
+      {
+        "title": "Delete `nodes/Example/Orphan.ts`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "delete-file": {
+              "path": "nodes/Example/Orphan.ts"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

@@ -25,6 +25,7 @@ skip = [
   { crate = "hashbrown@0.16.1", reason = "transitive duplicate from oxc_resolver; waits for upstream to converge" },
   { crate = "convert_case@0.10.0", reason = "transitive duplicate via derive_more (crossterm, inquire) next to napi-derive; waits for upstream" },
   { crate = "syn@2.0.119", reason = "transitive duplicate of syn 3 pulled in by different proc-macro dependencies" },
+  { crate = "windows-sys@0.52.0", reason = "ring 0.17, the rustls crypto provider of `skif update`, is still on windows-sys 0.52" },
 ]
 
 [sources]

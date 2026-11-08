@@ -17,13 +17,16 @@ pub enum ImportKind {
     SideEffect,
     /// `import("x")` with a literal specifier.
     Dynamic,
-    /// `require("x")`, `require.resolve("x")` and `import x = require("x")`.
+    /// `require("x")`, `require.resolve("x")`, `import.meta.resolve("x")` and `import x = require("x")`.
     Require,
     /// One pattern of `import.meta.glob(...)`, or the glob of a computed relative `require` or `import()`
     /// (`./commands/${name}`): a glob, not a module specifier.
     ImportMetaGlob,
     /// `export … from "x"`; the matching [`Export`] is recorded too.
     ExportFrom,
+    /// `vi.mock("x")`, `jest.mock("x")` and the other test-runner calls that name a module: the test loads or
+    /// replaces the module, which keeps a local file reachable but is not an import of a dependency.
+    Mock,
 }
 
 /// Which export of the target module a binding refers to.
@@ -104,6 +107,11 @@ pub struct Member {
     pub span: Span,
     /// `JSDoc` tag names (without `@`) on the member.
     pub tags: Vec<String>,
+    /// The byte range (absolute, end exclusive) that deletes the member: its line when it stands alone on it, else
+    /// the member with its comma and the blanks after it. `None` when deleting it would break the file: another
+    /// member mentions its name, or one statement declares it with siblings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removal: Option<(u32, u32)>,
 }
 
 /// What a removal edit deletes.
@@ -137,8 +145,9 @@ pub struct Removal {
     /// Number of exports declared by that statement (including this one).
     pub siblings: u32,
     /// The statement is `export default <expression>` (or an anonymous default declaration) and
-    /// [`RemovalKind::Statement`] deletes the expression too, not only the export: side effects of the expression
-    /// disappear. Callers that want a conservative fix should skip or flag these.
+    /// [`RemovalKind::Statement`] deletes the expression too, not only the export. Only an expression whose evaluation
+    /// has no effect gets a removal (a literal, an identifier, a function, a class that runs no code, or an array or
+    /// object of those); callers that want a conservative fix can still skip or flag these.
     pub default_expression: bool,
 }
 
@@ -173,7 +182,8 @@ pub struct Export {
     /// Names of the other value exports of this file whose signature mentions this export's local binding.
     #[serde(default)]
     pub referenced_in: Vec<String>,
-    /// Members of an enum or namespace export read in this file by name (`E.A`, `E['A']`, `const { A } = E`); sorted.
+    /// Members of an enum or namespace export read in this file by name (`E.A`, `E['A']`, `const { A } = E`, or a
+    /// namespace member's bare name inside the namespace body); sorted.
     #[serde(default)]
     pub members_read_in_file: Vec<String>,
     /// `export const b = a`: the identifier the exported constant is initialised with.
@@ -185,7 +195,7 @@ pub struct Export {
     pub registrations: Vec<Registration>,
 }
 
-/// How a class is registered as a custom element (ADR 0053).
+/// How a class is registered as a custom element (ADR 0062).
 ///
 /// [`Registration::Define`] is unambiguous on its own. The other two only name the binding the registration goes
 /// through; whether that binding registers anything depends on the library it comes from, which the caller decides
@@ -250,9 +260,14 @@ pub struct ModuleInfo {
     pub directives: Vec<String>,
     /// `import()`, `require()` and `import.meta.glob()` calls whose argument is not static.
     pub unresolved_dynamic: Vec<Span>,
-    /// Names declared or augmented with `declare module 'name' { … }`.
+    /// Names declared with `declare module 'name' { … }` in a script (a file without top-level `import` or
+    /// `export`): the declaration is the module, for every file of the program.
     #[serde(default)]
     pub ambient_modules: Vec<String>,
+    /// Names augmented with `declare module 'name' { … }` in a module file: the block adds to a module that has to
+    /// exist already and declares nothing on its own.
+    #[serde(default)]
+    pub augmented_modules: Vec<String>,
     /// Syntax errors the parser recovered from; the other fields describe the recovered program. For component
     /// files, the issues of every script block.
     pub parse_diagnostics: Vec<ParseIssue>,
@@ -350,6 +365,7 @@ impl ModuleInfo {
         self.directives.extend(other.directives);
         self.unresolved_dynamic.extend(other.unresolved_dynamic);
         self.ambient_modules.extend(other.ambient_modules);
+        self.augmented_modules.extend(other.augmented_modules);
         self.parse_diagnostics.extend(other.parse_diagnostics);
         self.fatal |= other.fatal;
     }

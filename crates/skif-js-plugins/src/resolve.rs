@@ -7,11 +7,11 @@ use std::path::Path;
 use skif_config::{PluginConfig, PluginOptions};
 use skif_js_syntax::ConfigValue;
 
-use crate::config_load::{from_json, load_config};
+use crate::config_load::{from_json, load_config_with};
 use crate::files::find_files;
 use crate::plugin::{
-    BuildDir, ConfigAst, DepRef, Enabler, PathAlias, Plugin, PluginContext, PluginId, PluginInput, PluginOutput,
-    PluginSpec,
+    BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, PathAlias, Plugin, PluginContext,
+    PluginId, PluginInput, PluginOutput, PluginSpec,
 };
 use crate::registry;
 use crate::script_config::{config_flags, config_paths, flag_values};
@@ -133,7 +133,8 @@ impl Collector<'_, '_> {
             })
     }
 
-    fn absorb(&mut self, inputs: Vec<PluginInput>, from: &Path, depth: u8) {
+    /// Takes in what `reader`, the plugin whose config `from` is, read from it.
+    fn absorb(&mut self, reader: PluginId, inputs: Vec<PluginInput>, from: &Path, depth: u8) {
         let foreign = self.belongs_to_other_package(from);
         for input in inputs {
             if foreign
@@ -185,8 +186,23 @@ impl Collector<'_, '_> {
                 PluginInput::Condition(name) => push_unique(&mut self.out.conditions, name),
                 PluginInput::ModuleDir(dir) => push_unique(&mut self.out.module_dirs, dir),
                 PluginInput::Extension(extension) => push_unique(&mut self.out.extensions, extension),
-                PluginInput::EntriesIncomplete => self.out.entries_incomplete = true,
+                PluginInput::EntriesIncomplete => {
+                    self.mark_incomplete(reader, from, IncompleteCause::ComputedEntries);
+                }
             }
+        }
+    }
+
+    /// Marks the entries incomplete because `plugin` could not fully read the config `file`.
+    fn mark_incomplete(&mut self, plugin: PluginId, file: &Path, cause: IncompleteCause) {
+        self.out.entries_incomplete = true;
+        let reason = IncompleteEntries {
+            plugin,
+            file: file.to_path_buf(),
+            cause,
+        };
+        if !self.out.incomplete_reasons.contains(&reason) {
+            self.out.incomplete_reasons.push(reason);
         }
     }
 
@@ -328,15 +344,15 @@ fn run_plugin(
         if !collector.out.config_files.contains(&path) {
             collector.out.config_files.push(path.clone());
         }
-        collector.absorb(inputs, &path, 0);
+        collector.absorb(spec.id, inputs, &path, 0);
         drain(&mut collector, plugin, &mut visited);
     } else if !found_config {
         let inputs = plugin.resolve_without_config(ctx);
-        collector.absorb(inputs, &ctx.dir.join("package.json"), 0);
+        collector.absorb(spec.id, inputs, &ctx.dir.join("package.json"), 0);
         drain(&mut collector, plugin, &mut visited);
     }
     let inputs = plugin.resolve_workspace(ctx);
-    collector.absorb(inputs, &ctx.dir.join("package.json"), 0);
+    collector.absorb(spec.id, inputs, &ctx.dir.join("package.json"), 0);
     drain(&mut collector, plugin, &mut visited);
     collector.out
 }
@@ -419,18 +435,20 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
         collector.out.config_files.push(path.clone());
         // A plugin that reads the source rather than the exported value (`export const config` of Stencil) still
         // sees a file whose export is not understood.
-        let value = match load_config(&path, &source) {
+        let value = match load_config_with(&path, &source, ctx.modules) {
             Some(value) => value,
             None if !reader.reads_config() => ConfigValue::Null,
             None => {
                 if is_structured(&path) && !source.trim().is_empty() {
-                    collector.out.entries_incomplete = true;
+                    collector.mark_incomplete(reader.spec().id, &path, IncompleteCause::Unparsable);
                 }
                 continue;
             }
         };
-        if reader.reads_config() && is_unreadable(&value) {
-            collector.out.entries_incomplete = true;
+        if reader.reads_config()
+            && let Some(cause) = unreadable(&value)
+        {
+            collector.mark_incomplete(reader.spec().id, &path, cause);
         }
         let ast = ConfigAst {
             path: &path,
@@ -439,7 +457,7 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             source: &source,
         };
         let inputs = reader.resolve_config(&ast, ctx);
-        collector.absorb(inputs, &path, depth);
+        collector.absorb(reader.spec().id, inputs, &path, depth);
     }
 }
 
@@ -467,10 +485,60 @@ fn is_structured(path: &Path) -> bool {
 
 /// Whether a config evaluated to something unknown, or to an object with an unknown spread at the top level: what the
 /// plugin would have read from the unknown part is missing.
-fn is_unreadable(value: &ConfigValue) -> bool {
+fn unreadable(value: &ConfigValue) -> Option<IncompleteCause> {
     match value {
-        ConfigValue::Unknown => true,
-        ConfigValue::Object(entries) => entries.iter().any(|(key, _)| key == "..."),
-        _ => false,
+        ConfigValue::Unknown => Some(IncompleteCause::UnknownValue),
+        ConfigValue::Object(entries) if entries.iter().any(|(key, _)| key == "...") => {
+            Some(IncompleteCause::UnknownSpread)
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use indexmap::IndexMap;
+    use skif_core::MemoryFs;
+
+    use super::*;
+
+    /// Computed entries in a linked config are charged to the plugin that reads that config, as an unreadable
+    /// linked config is.
+    #[test]
+    fn computed_entries_name_the_plugin_whose_config_it_is() {
+        let fs = MemoryFs::new();
+        let scripts = IndexMap::new();
+        let plugins = IndexMap::new();
+        let ctx = PluginContext {
+            dir: Path::new("/ws"),
+            is_root: true,
+            package_name: None,
+            dependencies: &[],
+            inherited_dependencies: &[],
+            scripts: &scripts,
+            fs: &fs,
+            plugins: &plugins,
+            modules: None,
+        };
+        let mut collector = Collector {
+            ctx: &ctx,
+            out: PluginOutput::default(),
+            queue: VecDeque::new(),
+            confine_to_package: false,
+        };
+        collector.absorb(
+            "vite",
+            vec![PluginInput::EntriesIncomplete],
+            Path::new("/ws/vite.config.ts"),
+            1,
+        );
+        let plugins: Vec<PluginId> = collector
+            .out
+            .incomplete_reasons
+            .iter()
+            .map(|reason| reason.plugin)
+            .collect();
+        assert_eq!(plugins, ["vite"]);
     }
 }

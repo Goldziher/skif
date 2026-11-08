@@ -15,7 +15,7 @@ use skif_workspace::{DependencyEntry, Package, PackageId, Workspace};
 
 use super::super::groups::Groups;
 use super::super::instances::Instance as PolicyInstance;
-use super::super::specifiers::floor_version;
+use super::super::specifiers::{floor_version, is_compatible_upgrade};
 use super::names::{CatalogName, defined_catalogs, defining, referenced};
 use super::support::{active_packages, set_specifier, value_location};
 use super::target::{CatalogFile, add_entry, creatable_file, create_default_catalog, existing_file};
@@ -102,18 +102,25 @@ pub(crate) fn is_catalogable(specifier: &Specifier) -> bool {
 pub(crate) struct Claims<'c> {
     workspace: &'c Workspace,
     groups: Groups<'c>,
+    /// Whether some configured group has selectors; without one nothing is claimed.
+    selective: bool,
 }
 
 impl<'c> Claims<'c> {
     pub(crate) fn new(workspace: &'c Workspace, config: &'c Config) -> Self {
+        let groups = Groups::compile(workspace, config);
         Self {
             workspace,
-            groups: Groups::compile(workspace, config),
+            selective: groups.has_selectors(),
+            groups,
         }
     }
 
     /// Whether a configured version group claims `entry` of `package`.
     pub(crate) fn claims(&self, package: &Package, entry: &DependencyEntry) -> bool {
+        if !self.selective {
+            return false;
+        }
         let is_local = self.workspace.package_by_name(&entry.name).is_some();
         self.claims_instance(&PolicyInstance::of_entry(package, entry, is_local, false))
     }
@@ -456,11 +463,27 @@ pub(super) fn emit(
     out.emit(builder.build());
 }
 
-/// An unsafe fix that rewrites `instance` to `catalog`, after `catalog_ops`.
-pub(super) fn use_catalog_fix(instance: Instance<'_>, catalog: &CatalogName, catalog_ops: &[FixOp]) -> Fix {
+/// A fix that rewrites `instance` to `catalog`, after `catalog_ops`.
+///
+/// Moving to an entry the catalog already holds is safe when the entry is a plain version or `^`/`~` range that is
+/// the instance's own specifier or a compatible upgrade of the same shape (ADR 0051). A fix that also writes the
+/// entry (`catalog_ops` is not empty) chose that version itself and stays unsafe, as does every other move, also to
+/// an entry whose text equals a `workspace:`, `npm:`, git or `latest` specifier.
+pub(super) fn use_catalog_fix(
+    workspace: &Workspace,
+    instance: Instance<'_>,
+    catalog: &CatalogName,
+    catalog_ops: &[FixOp],
+) -> Fix {
+    let entry = workspace
+        .catalogs
+        .resolve(&instance.entry.name, &catalog.reference())
+        .map(Specifier::create);
+    let safe =
+        catalog_ops.is_empty() && entry.is_some_and(|entry| is_compatible_upgrade(&instance.entry.parsed, &entry));
     Fix::new(
         format!("Use `{}` for `{}`", catalog.reference(), instance.entry.name),
-        FixSafety::Unsafe,
+        if safe { FixSafety::Safe } else { FixSafety::Unsafe },
         use_catalog_ops(instance, catalog, catalog_ops),
     )
 }
@@ -468,7 +491,7 @@ pub(super) fn use_catalog_fix(instance: Instance<'_>, catalog: &CatalogName, cat
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{config, workspace};
+    use crate::testing::{config, lint, workspace};
 
     fn entry_versions(specifiers: &[&str]) -> Option<String> {
         let files: Vec<(String, String)> = specifiers
@@ -512,5 +535,45 @@ mod tests {
             Some("^18.3.1")
         );
         assert_eq!(entry_versions(&["^18", "^18"]).as_deref(), Some("^18"));
+    }
+
+    /// Only a plain version or `^`/`~` range may move to an entry of the same text on its own (ADR 0051): a tag or
+    /// an alias in the catalog says nothing about which version is installed.
+    #[test]
+    fn using_an_entry_of_the_same_text_is_safe_only_for_a_plain_version() {
+        const ROOT: &str = r#"{"name":"monorepo","version":"0.0.0","private":true,"packageManager":"pnpm@9.15.0"}"#;
+        const DEPENDENCIES: &str = r#""dependencies":{"foo":"npm:bar@^1.0.0","react":"latest","zod":"^3.23.8"}"#;
+        const YAML: &str =
+            "packages:\n  - \"packages/*\"\ncatalog:\n  foo: \"npm:bar@^1.0.0\"\n  react: latest\n  zod: \"^3.23.8\"\n";
+        let app = format!(r#"{{"name":"app","version":"1.0.0","private":true,{DEPENDENCIES}}}"#);
+        let lib = format!(r#"{{"name":"lib","version":"1.0.0","private":true,{DEPENDENCIES}}}"#);
+        let files = [
+            ("package.json", ROOT),
+            ("pnpm-workspace.yaml", YAML),
+            ("packages/app/package.json", app.as_str()),
+            ("packages/lib/package.json", lib.as_str()),
+        ];
+        let mut found: Vec<(String, FixSafety)> =
+            lint("catalog-not-used", &files, &config("[catalog]\nmode = \"enforce\"\n"))
+                .iter()
+                .map(|diagnostic| {
+                    (
+                        diagnostic.dependency.clone().unwrap_or_default(),
+                        diagnostic.fixes[0].safety,
+                    )
+                })
+                .collect();
+        found.sort_by(|left, right| left.0.cmp(&right.0));
+        assert_eq!(
+            found,
+            [
+                ("foo".to_owned(), FixSafety::Unsafe),
+                ("foo".to_owned(), FixSafety::Unsafe),
+                ("react".to_owned(), FixSafety::Unsafe),
+                ("react".to_owned(), FixSafety::Unsafe),
+                ("zod".to_owned(), FixSafety::Safe),
+                ("zod".to_owned(), FixSafety::Safe),
+            ]
+        );
     }
 }

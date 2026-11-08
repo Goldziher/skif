@@ -10,13 +10,14 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
-use skif_config::{CustomType, DependencyType, OverrideReading};
-use skif_core::{DependencyKind, FixOp, JsonAction, Location, PathSeg};
+use skif_config::{CustomType, DependencyType, InstanceFilter, OverrideReading};
+use skif_core::{DependencyKind, FixOp, JsonAction, Location, PathSeg, slash};
 use skif_specifier::Specifier;
-use skif_workspace::{DependencyEntry, Package, Workspace};
+use skif_workspace::{DependencyEntry, Package, Workspace, map_ordered};
 
 use super::catalog;
 use super::fields::{self, Field};
+use super::groups::identifier_matches;
 use super::specifiers::alias_target;
 use crate::manifest::support;
 
@@ -24,6 +25,15 @@ use crate::manifest::support;
 /// version in a section that can hold a catalog reference.
 fn owned_by_catalog(entry: &DependencyEntry) -> bool {
     entry.kind != DependencyKind::PeerDependencies && catalog::is_catalogable(&entry.parsed)
+}
+
+/// Whether `instance` passes the command-line filter (`--dependency`, syncpack's `--dependencies`, `--dependency-types`,
+/// `--specifier-types` and `--source`).
+fn passes(filter: &InstanceFilter, instance: &Instance<'_>) -> bool {
+    (filter.dependencies.is_empty() || filter.dependencies.matches(&instance.name, instance.is_local))
+        && (filter.dependency_types.is_empty() || filter.dependency_types.matches(instance.ty()))
+        && identifier_matches(&filter.specifier_types, instance.specifier.get_config_identifier())
+        && (filter.sources.is_empty() || filter.sources.matches(&slash(&instance.location().path), false))
 }
 
 /// Index of an [`Instance`] in its [`Instances`].
@@ -45,8 +55,9 @@ pub(crate) enum Origin<'w> {
     Dependency(&'w DependencyEntry),
     /// The `version` field of a workspace package.
     OwnVersion,
-    /// A version in an override section or a custom type, in `package.json` or `pnpm-workspace.yaml`.
-    Field(Field),
+    /// A version in an override section or a custom type, in `package.json` or `pnpm-workspace.yaml`. Boxed: such
+    /// versions are few, and every instance of a large workspace would otherwise carry room for one.
+    Field(Box<Field>),
 }
 
 /// One declared version of a dependency.
@@ -92,7 +103,7 @@ impl<'w> Instance<'w> {
     pub(crate) fn of_field(package: &'w Package, found: fields::Found, is_local: bool) -> Self {
         Self {
             package,
-            origin: Origin::Field(found.field),
+            origin: Origin::Field(Box::new(found.field)),
             ty: found.ty,
             is_local,
             specifier: Specifier::new(&found.version),
@@ -193,13 +204,15 @@ impl<'w> Instances<'w> {
         owned: &BTreeSet<&str>,
         custom: &[CustomType],
         reading: OverrideReading,
+        filter: &InstanceFilter,
+        sequential: bool,
     ) -> Self {
         let local_names: HashSet<&str> = workspace
             .all_packages()
             .filter_map(|package| package.name.as_deref())
             .collect();
-        let mut items = Vec::new();
-        for package in support::active_packages(workspace) {
+        let of_package = |package: &'w Package| {
+            let mut items = Vec::with_capacity(package.dependencies.len() + 1);
             if let (Some(name), Some(version)) = (&package.name, &package.version) {
                 items.push(Instance {
                     package,
@@ -223,10 +236,26 @@ impl<'w> Instances<'w> {
                 let is_local = local_names.contains(found.name.as_str());
                 items.push(Instance::of_field(package, found, is_local));
             }
+            items
+        };
+        // Packages are read in parallel (unless the run is `sequential`), and their instances kept in package order.
+        let packages: Vec<&'w Package> = support::active_packages(workspace).collect();
+        let per_package: Vec<Vec<Instance<'w>>> = map_ordered(&packages, sequential, |package| of_package(package));
+        let mut items = Vec::with_capacity(per_package.iter().map(Vec::len).sum());
+        for instances in per_package {
+            items.extend(instances);
+        }
+        if !filter.is_empty() {
+            items.retain(|item| passes(filter, item));
         }
         let mut by_name: BTreeMap<String, Vec<InstanceId>> = BTreeMap::new();
         for (index, item) in items.iter().enumerate() {
-            by_name.entry(item.name.clone()).or_default().push(InstanceId(index));
+            // The name is copied once per dependency, not once per instance.
+            if let Some(ids) = by_name.get_mut(item.name.as_str()) {
+                ids.push(InstanceId(index));
+            } else {
+                by_name.insert(item.name.clone(), vec![InstanceId(index)]);
+            }
         }
         Self {
             workspace,
@@ -244,7 +273,14 @@ impl<'w> Instances<'w> {
         } else {
             BTreeSet::new()
         };
-        Self::collect_with(workspace, &owned, &config.custom_types, config.policy.override_reading)
+        Self::collect_with(
+            workspace,
+            &owned,
+            &config.custom_types,
+            config.policy.override_reading,
+            &config.filter,
+            true,
+        )
     }
 
     /// The workspace the instances were read from.

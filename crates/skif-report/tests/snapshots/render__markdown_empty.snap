@@ -1,0 +1,7 @@
+---
+source: crates/skif-report/tests/render.rs
+expression: "run(&Report::new(Vec::new(), 2), Format::Markdown, &options(false))"
+---
+# skif report
+
+0 errors, 0 warnings and 0 infos in 2 packages.

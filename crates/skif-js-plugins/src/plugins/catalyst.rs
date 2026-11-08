@@ -1,5 +1,5 @@
 //! Catalyst: a class decorated with `@controller` from `@github/catalyst` is a registered custom element and so a
-//! used export (ADR 0053).
+//! used export (ADR 0062).
 
 use crate::plugin::{CustomElements, Enabler, Plugin, PluginSpec};
 

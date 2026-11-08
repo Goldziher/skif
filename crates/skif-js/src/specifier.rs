@@ -182,6 +182,16 @@ pub(crate) fn typed_package(types: &str) -> Option<String> {
 
 /// The package name found in a path below `node_modules`, using the last `node_modules` component.
 pub(crate) fn node_modules_package(path: &std::path::Path) -> Option<String> {
+    // Most resolved paths are sources: a byte scan rules them out without splitting the path into components.
+    const SEGMENT: &[u8] = b"node_modules";
+    if !path
+        .as_os_str()
+        .as_encoded_bytes()
+        .windows(SEGMENT.len())
+        .any(|window| window == SEGMENT)
+    {
+        return None;
+    }
     let components: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
     let position = components.iter().rposition(|c| c == "node_modules")?;
     let first = components.get(position + 1)?;

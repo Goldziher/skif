@@ -9,7 +9,7 @@ use crate::doc::Val;
 use crate::keys;
 use crate::notes::{NoteClass, Tool};
 use crate::scripts::{self, Invocation};
-use crate::state::{Src, State};
+use crate::state::{Level, Src, State};
 use crate::tables;
 use crate::value::{at, boolean, entries, join, read, string, string_list};
 use crate::{MigrateError, ToolInput};
@@ -42,8 +42,8 @@ const FORMAT_KEYS: &[&str] = &[
     "formatRepository",
 ];
 
-/// Keys of the registry commands.
-const REGISTRY_KEYS: &[&str] = &["updateGroups", "minimumReleaseAge", "maxConcurrentRequests"];
+/// `updateGroups[].target` values, which `[[update-groups]] target` takes as they are.
+const UPDATE_TARGETS: &[&str] = &["latest", "minor", "patch"];
 
 /// Keys syncpack 15 rejects.
 const RETIRED_KEYS: &[&str] = &[
@@ -129,6 +129,8 @@ struct Run {
     /// One entry per run of `syncpack lint` (or similar) in a script: the scope its `--dependency-types` gave, which
     /// replaces the default one, or `None` when it gave none.
     scopes: Vec<(String, Option<Vec<String>>)>,
+    /// A format key is set or a script runs `syncpack format`.
+    formats: bool,
 }
 
 pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), MigrateError> {
@@ -177,6 +179,12 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
     }
     emit_scope(state, &src, &run);
     override_reading(state, &src);
+    if run.formats {
+        for id in tables::syncpack_rules("format") {
+            state.keep(Tool::Syncpack, [id]);
+            state.set_level(id, Level::Error);
+        }
+    }
     Ok(())
 }
 
@@ -216,6 +224,9 @@ fn read_config(
             _ if key.starts_with("//") => {}
             "versionGroups" => version_groups(state, src, &path, item, run),
             "semverGroups" => semver_groups(state, src, &path, item, &run.types),
+            "updateGroups" => update_groups(state, src, &path, item, &run.types),
+            "minimumReleaseAge" => update_number(state, src, &path, item, "minimum-release-age", 0),
+            "maxConcurrentRequests" => update_number(state, src, &path, item, "max-concurrent-requests", 1),
             "dependencyGroups" => state.note_with(
                 src,
                 NoteClass::Unsupported,
@@ -240,13 +251,7 @@ fn read_config(
                 "syncpack's strict mode has no skif equivalent",
                 "see `skif rules` for the rules that decide what is reported",
             ),
-            _ if FORMAT_KEYS.contains(&key) => format_key(state, src, &path, key, item),
-            _ if REGISTRY_KEYS.contains(&key) => state.note(
-                src,
-                NoteClass::Approximate,
-                path,
-                "dropped: skif never queries a registry",
-            ),
+            _ if FORMAT_KEYS.contains(&key) => format_key(state, src, &path, key, item, run),
             _ if RETIRED_KEYS.contains(&key) => state.note(
                 src,
                 NoteClass::Human,
@@ -263,26 +268,59 @@ fn read_config(
     }
 }
 
-fn format_key(state: &mut State<'_>, src: &Src, path: &str, key: &str, item: &ConfigValue) {
-    if key == "sortAz" {
-        let names = string_list(state, src, path, item);
-        if names.iter().any(|name| DEPENDENCY_MAPS.contains(&name.as_str())) {
-            state.keep(Tool::Syncpack, tables::syncpack_rules("sort-az"));
-            state.note(
-                src,
-                NoteClass::Approximate,
-                path,
-                "dependency maps stay sorted: `unsorted-dependencies` is kept; other manifest formatting is not checked",
-            );
-            return;
+/// Writes a format key to `[format]`; `package-json-format` is turned on once the run is read (ADR 0055).
+fn format_key(state: &mut State<'_>, src: &Src, path: &str, key: &str, item: &ConfigValue, run: &mut Run) {
+    run.formats = true;
+    let (target, value) = match key {
+        "sortFirst" | "sortAz" | "sortExports" => {
+            let names = string_list(state, src, path, item);
+            if key == "sortAz" && names.iter().any(|name| DEPENDENCY_MAPS.contains(&name.as_str())) {
+                state.keep(Tool::Syncpack, tables::syncpack_rules("sort-az"));
+            }
+            let target = match key {
+                "sortFirst" => "sort-first",
+                "sortAz" => "sort-az",
+                _ => "sort-exports",
+            };
+            (target, Val::strs(names))
         }
-    }
-    state.note(
-        src,
-        NoteClass::Approximate,
-        path,
-        "dropped: it only affects `syncpack format`, and skif does not format manifests",
-    );
+        "sortPackages" | "formatBugs" | "formatRepository" => {
+            let Some(flag) = boolean(state, src, path, item) else {
+                return;
+            };
+            let target = match key {
+                "sortPackages" => "sort-packages",
+                "formatBugs" => "format-bugs",
+                _ => "format-repository",
+            };
+            (target, Val::Bool(flag))
+        }
+        _ => {
+            let Some(indent) = string(state, src, path, item) else {
+                return;
+            };
+            ("indent", Val::str(indent))
+        }
+    };
+    state.doc.table(&["format"]).set(target, value);
+    let (class, message) = match key {
+        "sortAz" | "sortPackages" => (
+            NoteClass::Approximate,
+            format!("written to [format] {target}; skif sorts in byte order where syncpack uses a collator"),
+        ),
+        "formatBugs" | "formatRepository" => (
+            NoteClass::Approximate,
+            format!("written to [format] {target}; skif collapses only an object the shorthand holds completely"),
+        ),
+        "indent" => (
+            NoteClass::Approximate,
+            "written to [format] indent; skif then checks the layout of every package.json, which syncpack never \
+             reports"
+                .to_owned(),
+        ),
+        _ => (NoteClass::Exact, format!("written to [format] {target}")),
+    };
+    state.note(src, class, path, message);
 }
 
 fn custom_types(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue, types: &mut Types) {
@@ -290,13 +328,14 @@ fn custom_types(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValu
         let type_path = join(path, name);
         let mut strategy = None;
         let mut location = None;
+        let mut name_path = None;
         let mut external = false;
         for (key, item) in entries(state, src, &type_path, definition) {
             let key_path = join(&type_path, key);
             match key {
                 "strategy" => strategy = string(state, src, &key_path, item),
                 "path" => location = string(state, src, &key_path, item),
-                "namePath" => {}
+                "namePath" => name_path = string(state, src, &key_path, item),
                 "source" => external = true,
                 other => state.note(
                     src,
@@ -312,7 +351,7 @@ fn custom_types(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValu
             &type_path,
             name,
             strategy.as_deref(),
-            location.as_deref(),
+            (location.as_deref(), name_path.as_deref()),
             external,
         );
         types.custom.push((name.to_owned(), kind));
@@ -325,7 +364,7 @@ fn custom_type(
     path: &str,
     name: &str,
     strategy: Option<&str>,
-    location: Option<&str>,
+    (location, name_path): (Option<&str>, Option<&str>),
     external: bool,
 ) -> CustomKind {
     if external {
@@ -349,6 +388,15 @@ fn custom_type(
             "skif has the dependency type `optional`; the custom type is not needed",
         );
         return CustomKind::Optional;
+    }
+    if strategy == "name~version" && name_path.is_none() {
+        state.note(
+            src,
+            NoteClass::Human,
+            path,
+            "the strategy `name~version` needs a `namePath`",
+        );
+        return CustomKind::Unsupported;
     }
     let Some(target) = keys::strategy(strategy) else {
         state.note(
@@ -378,6 +426,9 @@ fn custom_type(
     element.set(keys::CUSTOM_TYPE_NAME, Val::str(written.clone()));
     element.set(keys::CUSTOM_TYPE_PATH, Val::str(location));
     element.set(keys::CUSTOM_TYPE_STRATEGY, Val::str(target));
+    if let (Some(name_path), "name~version") = (name_path, strategy) {
+        element.set(keys::CUSTOM_TYPE_NAME_PATH, Val::str(name_path));
+    }
     state.note(src, NoteClass::Exact, path, "written to [[custom-types]]");
     CustomKind::Custom(written)
 }
@@ -609,6 +660,7 @@ enum Policy {
     SameMinor,
     Snapped(Vec<String>),
     Catalog,
+    SemverRangeOnly,
 }
 
 #[derive(Default)]
@@ -711,6 +763,7 @@ fn version_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigVal
             element.set("policy", Val::str("snapped-to"));
             element.set("snap-to", Val::strs(packages));
         }
+        Policy::SemverRangeOnly => element.set("policy", Val::str("semver-range-only")),
         Policy::Catalog => {}
     }
     state.note(src, NoteClass::Exact, path, "written to [[version-groups]]");
@@ -773,16 +826,7 @@ fn group_policy(
         Some("banned") => Some(Policy::Banned),
         Some("ignored") => Some(Policy::Ignored),
         Some("catalog") => Some(Policy::Catalog),
-        Some("semverRangeOnly") => {
-            state.note_with(
-                src,
-                NoteClass::Unsupported,
-                policy_path,
-                "skif cannot check ranges while letting versions differ; the group was written with policy = \"ignored\"",
-                "the semver groups still apply to these dependencies",
-            );
-            Some(Policy::Ignored)
-        }
+        Some("semverRangeOnly") => Some(Policy::SemverRangeOnly),
         Some(other) => {
             state.note(
                 src,
@@ -865,6 +909,112 @@ fn semver_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigValu
     state.note(src, NoteClass::Exact, path, "written to [[semver-groups]]");
 }
 
+/// `minimumReleaseAge` or `maxConcurrentRequests`: a whole number of at least `min`, written to `[update] key`.
+fn update_number(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue, key: &str, min: u64) {
+    let number = match value {
+        ConfigValue::Number(number)
+            if number.fract() == 0.0 && *number >= 0.0 && *number <= 9_007_199_254_740_991.0 =>
+        {
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a whole, non-negative number within the exact range of f64"
+            )]
+            let whole = *number as u64;
+            Some(whole).filter(|whole| *whole >= min)
+        }
+        _ => None,
+    };
+    let Some(number) = number else {
+        state.note(
+            src,
+            NoteClass::Human,
+            path,
+            format!("expected a whole number of at least {min}; `[update] {key}` was not written"),
+        );
+        return;
+    };
+    state.doc.table(&["update"]).set(key, Val::Int(number));
+    state.note(src, NoteClass::Exact, path, format!("written to [update] {key}"));
+}
+
+fn update_groups(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue, types: &Types) {
+    let Some(groups) = value.as_array() else {
+        state.note(src, NoteClass::Human, path, "expected an array of groups");
+        return;
+    };
+    if groups.is_empty() {
+        state.note(
+            src,
+            NoteClass::Default,
+            path,
+            "no update groups: `skif update` moves every dependency",
+        );
+    }
+    for (index, group) in groups.iter().enumerate() {
+        update_group(state, src, &at(path, index), group, types);
+    }
+}
+
+fn update_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigValue, types: &Types) {
+    let mut selectors = Selectors::default();
+    let mut target = None;
+    let mut ignored = false;
+    for (key, item) in entries(state, src, path, group) {
+        let key_path = join(path, key);
+        if selectors.read(state, src, key, &key_path, item) {
+            continue;
+        }
+        match key {
+            "target" => target = string(state, src, &key_path, item),
+            "isIgnored" => ignored |= boolean(state, src, &key_path, item).unwrap_or(false),
+            other => state.note(
+                src,
+                NoteClass::Unsupported,
+                key_path,
+                format!("`{other}` is not an update group option"),
+            ),
+        }
+    }
+    let Some(dependency_types) = selectors.types(state, src, path, types) else {
+        return;
+    };
+    let Some(specifiers) = selectors.specifiers(state, src, path) else {
+        return;
+    };
+    // syncpack rejects a group that sets both, or neither.
+    let target = match (ignored, target.as_deref()) {
+        (true, None) => None,
+        (false, Some(target)) if UPDATE_TARGETS.contains(&target) => Some(target.to_owned()),
+        (false, Some(other)) => {
+            state.note(
+                src,
+                NoteClass::Human,
+                join(path, "target"),
+                format!("`{other}` is not latest, minor or patch; the group was not written"),
+            );
+            return;
+        }
+        _ => {
+            state.note(
+                src,
+                NoteClass::Human,
+                path,
+                "an update group needs exactly one of `target` and `isIgnored: true`; it was not written",
+            );
+            return;
+        }
+    };
+    let comments = selectors.comment(path);
+    let element = state.doc.element(&["update-groups"], comments);
+    selectors.write(element, &dependency_types, &specifiers);
+    match target {
+        Some(target) => element.set("target", Val::str(target)),
+        None => element.set("ignored", Val::Bool(true)),
+    }
+    state.note(src, NoteClass::Exact, path, "written to [[update-groups]]");
+}
+
 fn normalize_source(pattern: &str) -> String {
     let trimmed = pattern.trim_start_matches("./").trim_end_matches('/');
     let trimmed = trimmed
@@ -913,12 +1063,22 @@ fn compare_source(state: &mut State<'_>, src: &Src, path: &str, sources: &[Strin
 
 fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, workspace_patterns: &[String], run: &mut Run) {
     let path = invocation.path();
-    if let Some(command @ ("update" | "format")) = invocation.subcommand() {
+    if invocation.subcommand() == Some("format") {
+        run.formats = true;
         state.note(
             src,
-            NoteClass::Unsupported,
-            format!("{path}: syncpack {command}"),
-            format!("skif does not {command}; it lints and, with --fix, aligns"),
+            NoteClass::Exact,
+            format!("{path}: syncpack format"),
+            "`package-json-format` is turned on; `skif format` writes and `skif format --check` checks",
+        );
+        return;
+    }
+    if invocation.subcommand() == Some("update") {
+        state.note(
+            src,
+            NoteClass::Approximate,
+            format!("{path}: syncpack update"),
+            "run `skif update` instead: it takes `--check`, `--target` and `--dependencies`; `--interactive` has no equivalent",
         );
         return;
     }
@@ -944,17 +1104,18 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, workspa
     if !sources.is_empty() {
         compare_source(state, src, &format!("{path}: --source"), &sources, workspace_patterns);
     }
-    for (flag, what) in [
-        ("dependencies", "dependency names"),
-        ("specifier-types", "specifier types"),
+    // skif's flag for syncpack's `--dependencies` is `--dependency`: `--dependencies` is knip's shortcut there.
+    for (flag, skif_flag, what) in [
+        ("dependencies", "dependency", "dependency names"),
+        ("specifier-types", "specifier-types", "specifier types"),
     ] {
         if invocation.has(flag, None) {
             state.note_with(
                 src,
                 NoteClass::Human,
                 format!("{path}: --{flag}"),
-                format!("limited the run to some {what}; skif checks every one"),
-                "silence the rest with [[ignore]] if the narrowing was intended",
+                format!("limited the run to some {what}; a skif.toml cannot, so skif checks every one"),
+                format!("pass `--{skif_flag}` to skif for the same narrowing, or silence the rest with [[ignore]]"),
             );
         }
     }

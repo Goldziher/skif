@@ -146,7 +146,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        features: ["", manifest, js-analysis, fix, yaml-fix, report, schema]
+        features: ["", manifest, js-analysis, fix, yaml-fix, report, schema, update]
     steps:
       - uses: actions/checkout@v7
       # ~keep No rust-toolchain.toml; this job installs the stable channel directly.
