@@ -361,7 +361,10 @@ directory with neither an index file nor a `package.json` is reported where knip
 it (`dist` to `src`), and is not reported when there is none. A relative import of a missing file that a `.gitignore`
 of the root or of a package lists (also as `./dir` for an ignored `dir/index.ts`, or without its extension) is taken
 for generated and not reported, and a `#` specifier is reported only when the nearest `package.json` declares
-`imports`.
+`imports`. Since the generated module may import any source file beside it, those files are reached and their exports
+count as used: the files of the ignored file's directory, of an ignored directory and below it, or, for the ignored
+index of a directory (`src/migrations/sqlite/index.ts` named as `./migrations/sqlite`), of the directory holding that
+directory and below it (`src/migrations/**`), within the importing package.
 
 **`ignore-workspaces`** lists workspace directories (globs) the JavaScript analysis skips. Unlike `[workspace]
 ignore-packages`, the packages stay in the workspace, so manifest and policy rules still check them. The root is never
