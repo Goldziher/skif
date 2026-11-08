@@ -336,6 +336,9 @@ fn frontmatter_end(all: &[Line], source: &str) -> Option<usize> {
 /// expression (`/\/*/`) the scan does not tell apart. Such a `/*` is not a comment, so a blank line ends the
 /// paragraph as MDX does. Whether a `*/` follows is one comparison with the last `*/` of the file, which keeps the scan
 /// linear.
+///
+/// MDX parses ESM with acorn, which has no TypeScript: TypeScript syntax is not supported here either. A generic arrow
+/// function such as `<T,>(x: T) => x` reads as an unclosed JSX element and keeps the paragraph open to the end.
 fn esm_paragraph_end(source: &str, all: &[Line], first: usize) -> usize {
     let mut scan = Scan::new(source.rfind("*/"));
     let mut index = first;
@@ -599,6 +602,19 @@ mod tests {
         assert_eq!(kept(source), ["export const G = () => (<code>dist/*</code>)"]);
         let source = "export const isUrl = (s) => (/:\\/\\//).test(s)\n\n# Title\n";
         assert_eq!(kept(source), ["export const isUrl = (s) => (/:\\/\\//).test(s)"]);
+    }
+
+    #[test]
+    fn comparisons_divisions_and_strings_are_not_jsx_or_regexes() {
+        for line in [
+            "export const lt = a < b",
+            "export const q = x / y / z",
+            "export const t = 1 < 2",
+            "export const close = '</div>'",
+        ] {
+            let source = format!("{line}\n\n# Title\n\n<Card/>\n");
+            assert_eq!(kept(&source), [line]);
+        }
     }
 
     #[test]
