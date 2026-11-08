@@ -3,8 +3,14 @@
 //! The watcher polls: it lists the files below the root with their size and modification time and compares the
 //! list with the previous one. A run starts once the tree has been quiet for [`QUIET`], so a checkout or a
 //! formatter that writes many files causes one run.
+//!
+//! Polling costs one walk of the tree, one `stat` per file, every interval; the interval grows to twice the scan's
+//! own duration, so on a large repository the watcher spends at most about a third of one core scanning.
+//!
+//! The reports the run writes (`--output`, `--format FORMAT=FILE`) are left out of the scan: each run rewrites them,
+//! and seeing that write would start the next run, forever.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -30,15 +36,20 @@ pub fn run(args: &LintArgs, env: Env) -> u8 {
         Ok(dir) => dir,
         Err(code) => return code,
     };
-    let clear = args.format() == Format::Human && env.stdout_tty && args.output.is_none();
-    let mut snapshot = scan(&dir);
+    let targets = match args.targets() {
+        Ok(targets) => targets,
+        Err(error) => return lint::run_failed(args, &error),
+    };
+    let clear = env.stdout_tty && targets.contains(&(Format::Human, None));
+    let written = args.written_files();
+    let mut snapshot = scan(&dir, &written);
     lint_round(args, env, clear, &dir);
     let mut debouncer = Debouncer::new(QUIET);
     let mut last_scan = Duration::ZERO;
     loop {
         std::thread::sleep(POLL.max(last_scan * 2));
         let started = Instant::now();
-        let next = scan(&dir);
+        let next = scan(&dir, &written);
         last_scan = started.elapsed();
         let changed = next != snapshot;
         snapshot = next;
@@ -84,9 +95,10 @@ fn watched_dir(args: &LintArgs) -> Result<PathBuf, u8> {
 /// What a scan saw of one file.
 type Stamp = (Option<SystemTime>, u64);
 
-/// Every file below `dir` with its modification time and size. `.gitignore` files are honoured, and the
-/// [`SKIPPED`] directories are never entered; a file that vanishes during the scan is left out.
-fn scan(dir: &Path) -> BTreeMap<PathBuf, Stamp> {
+/// Every file below `dir` with its modification time and size. `.gitignore` files are honoured, the [`SKIPPED`]
+/// directories are never entered, and the `written` files (canonical paths, as [`LintArgs::written_files`] gives
+/// them) are left out; so is a file that vanishes during the scan.
+fn scan(dir: &Path, written: &BTreeSet<PathBuf>) -> BTreeMap<PathBuf, Stamp> {
     let walker = ignore::WalkBuilder::new(dir)
         .hidden(false)
         .require_git(false)
@@ -98,7 +110,7 @@ fn scan(dir: &Path) -> BTreeMap<PathBuf, Stamp> {
         .build();
     walker
         .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
+        .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()) && !written.contains(entry.path()))
         .filter_map(|entry| {
             let metadata = entry.metadata().ok()?;
             Some((entry.into_path(), (metadata.modified().ok(), metadata.len())))
@@ -192,7 +204,7 @@ mod tests {
             fs::write(path, "x").unwrap();
         }
         fs::write(dir.path().join(".gitignore"), "dist/\n").unwrap();
-        let files: Vec<PathBuf> = scan(dir.path())
+        let files: Vec<PathBuf> = scan(dir.path(), &BTreeSet::new())
             .into_keys()
             .map(|path| path.strip_prefix(dir.path()).unwrap().to_path_buf())
             .collect();
@@ -207,11 +219,22 @@ mod tests {
     }
 
     #[test]
+    fn the_scan_leaves_out_the_files_the_run_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical(dir.path()).unwrap();
+        fs::write(root.join("package.json"), "{}").unwrap();
+        fs::write(root.join("report.sarif"), "{}").unwrap();
+        let written = BTreeSet::from([root.join("report.sarif")]);
+        let files: Vec<PathBuf> = scan(&root, &written).into_keys().collect();
+        assert_eq!(files, [root.join("package.json")]);
+    }
+
+    #[test]
     fn the_scan_sees_a_changed_size() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("package.json"), "{}").unwrap();
-        let before = scan(dir.path());
+        let before = scan(dir.path(), &BTreeSet::new());
         fs::write(dir.path().join("package.json"), "{ }").unwrap();
-        assert_ne!(scan(dir.path()), before);
+        assert_ne!(scan(dir.path(), &BTreeSet::new()), before);
     }
 }

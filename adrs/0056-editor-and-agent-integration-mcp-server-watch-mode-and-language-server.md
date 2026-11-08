@@ -75,9 +75,12 @@ polls: every 200 milliseconds, or twice as long as the last scan took when that 
 below the directory the report's paths are relative to, with their size and modification time, and compares the
 list with the previous one. `node_modules`, `.git` and `target` are never entered, and `.gitignore` files are
 honoured, so build output does not trigger a run. A run starts once the tree has been quiet for 100 milliseconds,
-so a checkout or a formatter that writes many files causes one run, not one per file.
+so a checkout or a formatter that writes many files causes one run, not one per file. The reports the run writes
+itself, the `--output` file and every `--format FORMAT=FILE` target of [ADR 0054](0054-several-reports-in-one-run.md), are left out of the
+scan, compared as canonical paths: each run rewrites them, and a watcher that saw those writes would lint again
+forever. Several `--format` specs work as in a single run.
 
-With `--format human` on a terminal the screen is cleared before each run. With `--format json` stdout holds one
+When human output goes to stdout on a terminal the screen is cleared before each run. With `--format json` stdout holds one
 JSON document per run, each on its own lines; this amends the "exactly one JSON document" statement of
 [ADR 0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md) for `--watch` only. `--watch` conflicts with `--fix` and `--fix-unsafe`, because a fix
 writes files the watcher would see and the install step would run on every save. Exit codes have no meaning while
@@ -89,7 +92,8 @@ the `deny.toml` allow-list does not contain, and it brings platform back ends (i
 `ReadDirectoryChangesW`) whose versions the `multiple-versions = "deny"` ban would have to accommodate. Polling
 needs no new dependency (it walks with `ignore`, already in the workspace), behaves the same on every platform,
 and works on network and container file systems where native events are missing. Its cost grows with the number
-of files; the interval stretches with the scan time to bound it. A later record can move to `notify` if the
+of files: one walk and one `stat` per file each interval. The interval stretches to twice the scan time, so the
+watcher spends at most about a third of one core scanning. A later record can move to `notify` if the
 license policy admits CC0-1.0.
 
 ### `skif lsp`
