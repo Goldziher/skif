@@ -27,8 +27,8 @@ file. Print the schema with `skif schema`.
 
 | Section | Holds |
 | --- | --- |
-| `[workspace]` | `ignore-packages`, `package-manager`, `discover-ignore` |
-| `[lint]` | `fail-on-warnings` |
+| `[workspace]` | `ignore-packages`, `extend-ignore-packages`, `package-manager`, `discover-ignore` |
+| `[lint]` | `fail-on-warnings`, `max-level` |
 | `[rules]` | Per-rule levels and options |
 | `[[ignore]]` | Suppressions |
 | `[policy]` | `prefer`, `dependency-types`, `override-reading` |
@@ -40,6 +40,7 @@ file. Print the schema with `skif schema`.
 | `[[dependency-families]]` | Packages that must share a version |
 | `[update]` | `minimum-release-age`, `max-concurrent-requests` for `skif update` |
 | `[[update-groups]]` | How far `skif update` may move each dependency group |
+| `[format]` | How `package-json-format` and `skif format` lay out `package.json` |
 | `[js]` | JavaScript analysis |
 | `root`, `extends`, `reset` | How files combine |
 | `[[overrides]]` | Rule levels, severity caps, suppressions and JS inputs for selected packages or files |
