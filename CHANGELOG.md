@@ -236,6 +236,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- On Windows, `skif lsp` finds the fixes of an open document and lints its unsaved changes, and `--watch` leaves out
+  the reports it writes: both resolved those files to `\\?\` verbatim paths, which never matched the paths of a lint.
+  The `--use-tsconfig-files` warning prints its path with `/` separators there.
 - The `stryker` plugin reads the runner config named by `vitest.configFile` or `jest.configFile` with that runner's
   plugin, so `vitest.stryker.config.ts` is a config file instead of an unused file
   ([#23](https://github.com/Goldziher/skif/issues/23)).

@@ -27,6 +27,17 @@ fn unframed(mut text: &str) -> Vec<Value> {
     messages
 }
 
+/// `path` resolved as an editor names it: canonical, without the `\\?\` prefix Windows gives a canonical drive path,
+/// so the URIs the test sends and expects are the ones a client would use.
+fn canonical(path: &std::path::Path) -> std::path::PathBuf {
+    let resolved = path.canonicalize().unwrap();
+    let text = resolved.to_string_lossy();
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => std::path::PathBuf::from(rest),
+        _ => resolved,
+    }
+}
+
 fn file_uri(path: &std::path::Path) -> String {
     let text = path.to_string_lossy().replace('\\', "/");
     if text.starts_with('/') {
@@ -39,7 +50,7 @@ fn file_uri(path: &std::path::Path) -> String {
 #[test]
 fn opening_a_manifest_publishes_the_root_diagnostics() {
     let dir = fixture("dirty");
-    let root = dir.path().canonicalize().unwrap();
+    let root = canonical(dir.path());
     let manifest = root.join("packages").join("a").join("package.json");
     let input = framed(&[
         json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "processId": null, "rootUri": null, "capabilities": {} } }),
@@ -186,7 +197,7 @@ fn apply(text: &str, edits: &[Value]) -> String {
 #[test]
 fn a_safe_fix_is_a_preferred_quick_fix_and_part_of_fix_all() {
     let dir = fixture("dirty");
-    let root = dir.path().canonicalize().unwrap();
+    let root = canonical(dir.path());
     let manifest = root.join("packages").join("a").join("package.json");
     let mut messages = opened(&manifest);
     // On `"devDependencies": {}` (line 7, column 3 1-based), then outside every diagnostic, then fix-all only.
@@ -230,7 +241,7 @@ fn a_safe_fix_is_a_preferred_quick_fix_and_part_of_fix_all() {
 #[test]
 fn an_unsafe_fix_is_labelled_and_left_out_of_fix_all() {
     let dir = fixture("mismatch");
-    let root = dir.path().canonicalize().unwrap();
+    let root = canonical(dir.path());
     let manifest = root.join("packages").join("b").join("package.json");
     let before = std::fs::read_to_string(&manifest).unwrap();
     let line = u64::try_from(before.lines().position(|line| line.contains("6.0.0")).unwrap()).unwrap();
@@ -259,7 +270,7 @@ fn last_published<'a>(messages: &'a [Value], file: &std::path::Path) -> &'a Valu
 #[test]
 fn an_unsaved_change_is_linted_before_shutdown_is_answered() {
     let dir = fixture("dirty");
-    let root = dir.path().canonicalize().unwrap();
+    let root = canonical(dir.path());
     let manifest = root.join("packages").join("b").join("package.json");
     let saved = std::fs::read_to_string(&manifest).unwrap();
     let typed = saved.replace("  }\n}", "  },\n  \"devDependencies\": {}\n}");
@@ -290,7 +301,7 @@ fn an_unsaved_change_is_linted_before_shutdown_is_answered() {
 #[test]
 fn a_fix_for_an_unsaved_buffer_edits_the_buffer_until_the_buffer_changes() {
     let dir = fixture("dirty");
-    let root = dir.path().canonicalize().unwrap();
+    let root = canonical(dir.path());
     let manifest = root.join("packages").join("a").join("package.json");
     let saved = std::fs::read_to_string(&manifest).unwrap();
     // One line more than the saved file, so `"devDependencies": {}` moves to line 8 (0-based 7).
@@ -317,7 +328,7 @@ fn a_fix_for_an_unsaved_buffer_edits_the_buffer_until_the_buffer_changes() {
 #[test]
 fn closing_a_document_with_unsaved_changes_lints_the_saved_file() {
     let dir = fixture("dirty");
-    let root = dir.path().canonicalize().unwrap();
+    let root = canonical(dir.path());
     let manifest = root.join("packages").join("a").join("package.json");
     let saved = std::fs::read_to_string(&manifest).unwrap();
     // One line more than the saved file, so `"devDependencies": {}` is on line 8 (0-based 7) of the buffer only.
@@ -352,7 +363,7 @@ fn closing_a_document_with_unsaved_changes_lints_the_saved_file() {
 #[test]
 fn with_document_changes_an_edit_carries_the_document_version() {
     let dir = fixture("dirty");
-    let root = dir.path().canonicalize().unwrap();
+    let root = canonical(dir.path());
     let manifest = root.join("packages").join("a").join("package.json");
     let saved = std::fs::read_to_string(&manifest).unwrap();
     let mut messages = initialized(&json!({ "workspace": { "workspaceEdit": { "documentChanges": true } } }));
@@ -400,7 +411,7 @@ fn a_burst_of_changes_is_linted_once_the_root_is_quiet() {
     use std::process::{Command, Stdio};
 
     let dir = fixture("dirty");
-    let root = dir.path().canonicalize().unwrap();
+    let root = canonical(dir.path());
     let manifest = root.join("packages").join("b").join("package.json");
     let saved = std::fs::read_to_string(&manifest).unwrap();
     let typed = saved.replace("  }\n}", "  },\n  \"devDependencies\": {}\n}");

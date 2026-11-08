@@ -570,7 +570,7 @@ fn document_file(message: &Value) -> Option<PathBuf> {
 /// root is canonical, however the client spells the URI.
 fn local_file(uri: &str) -> Option<PathBuf> {
     let path = uri_to_path(uri)?;
-    Some(std::fs::canonicalize(&path).unwrap_or(path))
+    Some(std::fs::canonicalize(&path).map_or(path, crate::lint::simplified))
 }
 
 /// The bytes a `file` URI keeps as they are: unreserved characters, the path separator and the drive colon.
