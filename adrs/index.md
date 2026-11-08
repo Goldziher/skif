@@ -74,6 +74,7 @@ old one.
 | 0064 | [Code Actions in the Language Server](0064-code-actions-in-the-language-server.md) | accepted |
 | 0065 | [Narrowed Scope for Incomplete Entries: Only What an Unreadable Config Could Make an Entry Stays Unjudged](0065-narrowed-scope-for-incomplete-entries.md) | accepted |
 | 0066 | [A Module Cache and Unsaved Buffers in the Language Server](0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md) | accepted |
+| 0067 | [No Editor Extension](0067-no-editor-extension.md) | accepted |
 
 ## Effective statements
 
@@ -190,3 +191,4 @@ the lines below stay as written; this table says which record governs.
 | [0056](0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md), line 82 | the report files are the only files the watch scan leaves out | [0066](0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md): a `--cache-location` below the watched directory is left out too |
 | [0056](0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md), lines 105, 113-114 and 135, and [0064](0064-code-actions-in-the-language-server.md), lines 56-58 | `didChange` is incremental and only marks a document dirty; the server lints what is on disk, not buffers | [0066](0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md): `didChange` is full sync; the server lints open documents through a `BufferFs` overlay, 250 milliseconds after the last change, and lints at once on open and save |
 | [0064](0064-code-actions-in-the-language-server.md), lines 53-54 and 66 | a plan that edits a document with unsaved changes is withheld | [0066](0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md): it is offered when the last lint read the document's current text and the base hashes match, as a versioned edit when the client supports `documentChanges` |
+| [0056](0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md), lines 119-120, [0064](0064-code-actions-in-the-language-server.md), line 60, and [0066](0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md), line 201 | a VS Code extension is a separate package, deferred or kept in a separate repository | [0067](0067-no-editor-extension.md): skif ships no editor extension; editors run `skif lsp` through their own language-server client |

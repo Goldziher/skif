@@ -20,8 +20,7 @@ All notable changes to this project are documented here. The format follows
 - `skif lsp` lints the editor's unsaved buffers: it takes the full text on every change, lints a project 250
   milliseconds after its last change, and offers fixes for unsaved documents at positions in the buffer, with the
   document version in `documentChanges` when the client supports it. Library hosts overlay buffers on a file system
-  with `BufferFs`. The VS Code extension, in a separate repository, remains for
-  [#44](https://github.com/Goldziher/skif/issues/44) ([ADR 0066](adrs/0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md)).
+  with `BufferFs` ([#44](https://github.com/Goldziher/skif/issues/44), [ADR 0066](adrs/0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md)).
 - `vue`, `mdx`, `next-mdx`, `pre-commit`, `parcel`, `electron-forge`, `unplugin-auto-import`,
   `unplugin-vue-components`, `unplugin-vue-router`, `github-action`, `pino`, `next-intl`, `dependency-cruiser`,
   `commitizen`, `serverless-framework`, `starlight`, `execa`, `zx`, `nano-spawn`, `azure-pipelines` and `sapper`
