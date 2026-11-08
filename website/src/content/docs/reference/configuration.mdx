@@ -314,7 +314,9 @@ reported with the compiler's message. A pattern that does not compile is a confi
 per workspace. `ignore-dependencies` also silences `unresolved-imports` for a matching specifier, because plugins
 declare virtual modules through it; use `ignore-unresolved` for your own. Two small differences from knip remain:
 an unresolved import is located at the start of its statement, not at the specifier, and `import "./dir"` of a
-directory with neither an index file nor a `package.json` is reported where knip is silent.
+directory with neither an index file nor a `package.json` is reported where knip is silent. A directory with a
+`package.json` whose `main` or `exports` point at build output that does not exist resolves to the source file behind
+it (`dist` to `src`), and is not reported when there is none.
 
 **`ignore-workspaces`** lists workspace directories (globs) the JavaScript analysis skips. Unlike `[workspace]
 ignore-packages`, the packages stay in the workspace, so manifest and policy rules still check them. The root is never
@@ -325,6 +327,12 @@ skipped. Entries match directories, so `*` stops at `/`: `packages/*` skips `pac
 only the patterns ending in `!` count and the others are excluded; when none ends in `!`, the defaults apply. The
 entries that do not end in `!` are also removed from the project, so a file only they reach (`scripts/*.ts` next to
 `src/index.ts!`) is not reported as unused, and the files that tools add to the project are removed as well.
+
+**Incomplete entries.** When skif cannot know all the entry files of a package (a tool configuration it cannot read
+statically, or a published `main`, `exports` or `bin` that maps to no source file), a file no known entry reaches may
+still be one. Nothing in that package is then reported unused: `unused-files`, `unused-dependencies`,
+`unused-dev-dependencies`, `unused-exports`, `unused-types`, the namespace export rules and the member rules skip it,
+and `explain-usage` gives its exports the verdict `not-judged`.
 
 **`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
 workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.

@@ -682,7 +682,9 @@ impl ModuleResolver {
             return outcome(self.classify(path), member_name);
         }
         if specifier.starts_with('.')
-            && let Some(found) = self.through_root_dirs(importer, specifier)
+            && let Some(found) = self
+                .through_root_dirs(importer, specifier)
+                .or_else(|| self.through_relative_package_directory(importer, specifier))
         {
             return outcome(found, None);
         }
@@ -960,6 +962,14 @@ impl ModuleResolver {
             None if rest.is_empty() => Some(Resolved::Ignored),
             None => None,
         }
+    }
+
+    /// A relative specifier that names a package directory (`..`, `../../automation`) whose `main` or `exports` point
+    /// at output that was never built: its source file by the usual output-to-source mapping, else a reference that is
+    /// known to exist.
+    fn through_relative_package_directory(&self, importer: &Path, specifier: &str) -> Option<Resolved> {
+        let directory = join_normalized(importer.parent()?, specifier);
+        self.through_package_directory(&directory, "")
     }
 
     /// The package in `dir` that is not a workspace member, with its manifest parsed once per directory.
@@ -1507,6 +1517,38 @@ mod tests {
             Resolved::External("@kit/nothing".to_owned())
         );
     }
+
+    #[test]
+    fn a_relative_package_directory_with_unbuilt_output_maps_to_source() {
+        let r = resolver(&[
+            ("package.json", ROOT),
+            (
+                "packages/cli/package.json",
+                r#"{"name":"cli","main":"./build/index.js","bin":{"cli":"./bin/cli.js"}}"#,
+            ),
+            ("packages/cli/bin/cli.js", ""),
+            ("packages/cli/src/index.ts", ""),
+            (
+                "test/automation/package.json",
+                r#"{"name":"automation","main":"out/index.js"}"#,
+            ),
+            ("test/automation/src/index.ts", ""),
+            ("test/smoke/src/main.ts", ""),
+            ("test/bare/package.json", r#"{"name":"bare","main":"out/index.js"}"#),
+        ]);
+        assert_eq!(
+            r.resolve(Path::new("/ws/packages/cli/bin/cli.js"), "..").target,
+            file("/ws/packages/cli/src/index.ts")
+        );
+        let smoke = Path::new("/ws/test/smoke/src/main.ts");
+        assert_eq!(
+            r.resolve(smoke, "../../automation").target,
+            file("/ws/test/automation/src/index.ts")
+        );
+        assert_eq!(r.resolve(smoke, "../../bare").target, Resolved::Ignored);
+        assert_eq!(r.resolve(smoke, "../../missing").target, Resolved::Unresolved);
+    }
+
     fn file(path: &str) -> Resolved {
         Resolved::File(PathBuf::from(path))
     }
