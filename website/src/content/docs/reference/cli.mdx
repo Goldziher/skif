@@ -98,8 +98,8 @@ file and line (and which names the import brings in), and shows the shortest cha
 `#EXPORT` it lists the modules that import that export by name or as a whole, follows re-exports (`export { x } from`,
 `export *`) into the modules that use them, and ends with a verdict (`public`, `used` or `unused`) computed from the
 same facts as the lines above it; an export of a package whose entry files are not fully known is `not-judged`
-instead of `unused`, because it is not reported. The command builds the whole JavaScript analysis, so it costs as much as the
-JavaScript part of a lint run.
+instead of `unused`, because it is not reported. The command builds the whole JavaScript analysis, so it costs as much
+as the JavaScript part of a lint run.
 
 | Flag | Meaning |
 | --- | --- |
