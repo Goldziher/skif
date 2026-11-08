@@ -14,6 +14,9 @@ Commands:
   config         Show the configuration files a root is built from, the merged result, and where each key was set
   explain-usage  Explain why the JavaScript analysis counts a file, or one export of it, as used
   migrate        Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file
+  update         Update dependencies to newer published versions from the npm registry; the only command that uses the network
+  list           List every dependency the version groups govern, by version group, with its specifiers and states
+  json           Print every dependency instance the version groups govern as one JSON object per line (NDJSON)
   format         Format every `package.json` as `[format]` describes (the `package-json-format` rule alone); never installs
   mcp            Run a Model Context Protocol server on stdin and stdout, for AI agents
   lsp            Run a Language Server Protocol server on stdin and stdout: diagnostics on open and save
@@ -51,6 +54,9 @@ Options:
 
       --fix-unsafe
           Apply safe and unsafe fixes; implies --fix
+
+      --dry-run
+          With --fix or --fix-unsafe: print the planned changes as a unified diff (JSON: the `fix` object with `changes`); no manifest is written and no install runs. Reports still go to stdout, --output and FORMAT=FILE
 
       --allow-remove-files
           Let fixes delete files (`unused-files`); without it they are skipped. Needs --fix or --fix-unsafe
@@ -178,6 +184,18 @@ Options:
 
       --tags <-TAG>
           Do not report exports tagged with these `JSDoc` tags, written `-TAG` as in knip. Comma separated, repeatable
+
+      --dependency <NAME>
+          Only the dependencies whose name matches this name or glob (`react`, `@types/**`, `!eslint`), in the version-group and semver-group rules only. Repeatable. syncpack's `--dependencies`
+
+      --dependency-types <TYPES>
+          Only these dependency types (`prod,dev`, `peer`, `!local`, a custom type), in the version-group and semver-group rules only; also their default scope for this run. Comma separated
+
+      --specifier-types <TYPES>
+          Only instances with these specifier types (`exact,range`, `!workspace-protocol`), in the version-group and semver-group rules only. Comma separated
+
+      --source <GLOB>
+          Only instances declared in files matching this glob, relative to the root (`packages/app/package.json`), in the version-group and semver-group rules only. Repeatable
 
   -h, --help
           Print help (see a summary with '-h')

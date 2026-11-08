@@ -1,0 +1,4 @@
+description = "A custom type with the name~version strategy reads the dependency name and the version from two fields; the fix rewrites the version only."
+source = "syncpack:src/rcfile.rs::compute_all_dependency_types"
+tags = ["dependency-types", "custom-types", "fix"]
+compare = "bytes"
