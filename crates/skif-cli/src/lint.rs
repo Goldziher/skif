@@ -27,9 +27,18 @@ const CLEAN: u8 = 0;
 const PROBLEMS: u8 = 1;
 const COULD_NOT_RUN: u8 = 2;
 
+/// What happens to the memory of a run when [`run`] returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Teardown {
+    /// Free it, as a host that keeps running must.
+    Free,
+    /// Leave it to the operating system: only for a process that exits next (the `skif` binary).
+    Leak,
+}
+
 /// Runs the lint command and returns the process exit code.
-pub fn run(args: &LintArgs, env: Env) -> u8 {
-    match execute(args, env) {
+pub fn run(args: &LintArgs, env: Env, teardown: Teardown) -> u8 {
+    match execute(args, env, teardown) {
         Ok(code) => code,
         Err(error) => {
             emit_error(&error, args.format());
@@ -430,7 +439,7 @@ fn roots_json(runs: &[RootRun], reports: &[Cow<'_, Report>]) -> Value {
     )
 }
 
-fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
+fn execute(args: &LintArgs, env: Env, teardown: Teardown) -> Result<u8, CliError> {
     let fs = CachedFs::new(OsFs);
     let targets_out = args.targets()?;
     if args.fixing() && env.ci {
@@ -532,14 +541,16 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         return Ok(COULD_NOT_RUN);
     }
     let code = run_exit_code(args, &runs, &aggregate);
-    // The process exits next: freeing every diagnostic, the workspace model and the file caches one allocation at a
-    // time is a measurable part of a large run, and the operating system reclaims the memory at once.
-    std::mem::forget(views);
-    std::mem::forget(aggregate);
-    std::mem::forget(reports);
-    std::mem::forget(runs);
-    std::mem::forget(linters);
-    std::mem::forget(fs);
+    if teardown == Teardown::Leak {
+        // The process exits next: freeing every diagnostic, the workspace model and the file caches one allocation at
+        // a time is a measurable part of a large run, and the operating system reclaims the memory at once.
+        std::mem::forget(views);
+        std::mem::forget(aggregate);
+        std::mem::forget(reports);
+        std::mem::forget(runs);
+        std::mem::forget(linters);
+        std::mem::forget(fs);
+    }
     Ok(code)
 }
 
