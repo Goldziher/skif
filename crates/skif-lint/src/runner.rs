@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -58,6 +58,7 @@ pub struct RunOptions<'a> {
     cancel: Option<&'a AtomicBool>,
     config_path: Option<&'a Path>,
     sequential: bool,
+    extra_entries: &'a [PathBuf],
 }
 
 impl<'a> RunOptions<'a> {
@@ -81,6 +82,14 @@ impl<'a> RunOptions<'a> {
     #[must_use]
     pub const fn with_config_path(mut self, config_path: &'a Path) -> Self {
         self.config_path = Some(config_path);
+        self
+    }
+
+    /// Files, relative to the workspace root, that other roots of the same run reach (they import them), for a
+    /// multi-root host: the JS analysis makes those of its own files entries. Empty by default.
+    #[must_use]
+    pub const fn with_extra_entries(mut self, extra_entries: &'a [PathBuf]) -> Self {
+        self.extra_entries = extra_entries;
         self
     }
 
@@ -124,11 +133,12 @@ pub fn run(
     config: &Config,
     options: &RunOptions<'_>,
 ) -> Result<Report, LintError> {
-    let (diagnostics, incomplete_packages) = collect(registry, workspace, config, options)?;
+    let (diagnostics, incomplete_packages, other_project_files) = collect(registry, workspace, config, options)?;
     let root_stand_in = usize::from(!workspace.has_root_manifest());
     Ok(
         Report::new(diagnostics, workspace.all_packages().count() - root_stand_in)
-            .with_incomplete_packages(incomplete_packages),
+            .with_incomplete_packages(incomplete_packages)
+            .with_other_project_files(other_project_files),
     )
 }
 
@@ -145,13 +155,15 @@ pub fn run_unsorted(
     config: &Config,
     options: &RunOptions<'_>,
 ) -> Result<Vec<Diagnostic>, LintError> {
-    collect(registry, workspace, config, options).map(|(diagnostics, _)| diagnostics)
+    collect(registry, workspace, config, options).map(|(diagnostics, _, _)| diagnostics)
 }
 
-/// The diagnostics in merge order and the packages the providers could not judge.
-type Collected = (Vec<Diagnostic>, Vec<IncompletePackage>);
+/// The diagnostics in merge order, the packages the providers could not judge and the files of other projects the
+/// analysed code imports.
+type Collected = (Vec<Diagnostic>, Vec<IncompletePackage>, Vec<PathBuf>);
 
-/// Runs every enabled rule and returns the diagnostics and the incomplete packages the providers recorded.
+/// Runs every enabled rule and returns the diagnostics, the incomplete packages and the files of other projects the
+/// providers recorded.
 fn collect(
     registry: &Registry,
     workspace: &Workspace,
@@ -168,7 +180,8 @@ fn collect(
         options.config_path,
         options.sequential,
         &shared,
-    );
+    )
+    .with_extra_entries(options.extra_entries);
     let job = || execute(registry, &cx, options);
     match options.executor {
         Some(executor) if !options.sequential => executor.install(job),
@@ -201,5 +214,7 @@ fn execute(registry: &Registry, cx: &LintContext<'_>, options: &RunOptions<'_>) 
     if root.is_cancelled() {
         return Err(LintError::Cancelled);
     }
-    Ok(root.into_parts())
+    let other_project_files = root.take_other_project_files();
+    let (diagnostics, incomplete_packages) = root.into_parts();
+    Ok((diagnostics, incomplete_packages, other_project_files))
 }

@@ -1,6 +1,6 @@
 //! The analysis the rules read: module graph, export usage and dependency usage.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -10,13 +10,14 @@ use skif_core::{FileSystem, IncompletePackage, Span, timing};
 use skif_js_syntax::{Export, ExportKind, Member, ParseOptions, parse_module};
 use skif_workspace::{PackageId, Workspace, map_ordered};
 
+use crate::config_hints::{ConfigHint, HintInputs, config_hints};
 use crate::deps::DependencyUsage;
 use crate::discover::{Candidate, discover_with, relative, take_file_links};
 use crate::entries::entry_files;
 use crate::fixture::in_fixture_directory;
 use crate::git_index::{IndexCache, Listing, indexed_fs};
 use crate::globs::Globs;
-use crate::graph::{self, Inputs, Module, ModuleGraph};
+use crate::graph::{self, Inputs, Module, ModuleGraph, Target};
 use crate::input::InputSource;
 use crate::resolve::ModuleResolver;
 use crate::setup::{Setup, WorkspaceKeys};
@@ -77,6 +78,8 @@ pub struct JsAnalysis<'a> {
     pub(crate) empty_patterns: Vec<EmptyPattern>,
     /// `ignore-files` patterns that hide no file `unused-files` would report.
     pub(crate) unused_ignore_files: Vec<EmptyPattern>,
+    /// The other configuration hints: redundant and top-level patterns, `project` extensions, missing package entries.
+    pub(crate) config_hints: Vec<ConfigHint>,
 }
 
 /// Names declared with `declare module 'name'` by graph modules and by declaration files nothing imports.
@@ -124,7 +127,7 @@ const UNWALKED_DIRS: [&str; 2] = ["node_modules", ".git"];
 /// otherwise be reported although they match files. Only such patterns reach it, so the walk is rare; it starts at
 /// the literal directory prefix of the pattern, does not follow symbolic links to directories and skips
 /// [`UNWALKED_DIRS`] unless the pattern names them.
-fn on_disk(fs: &dyn FileSystem, base: &Path, pattern: &str) -> bool {
+pub(crate) fn on_disk(fs: &dyn FileSystem, base: &Path, pattern: &str) -> bool {
     let body = pattern.trim().trim_start_matches("./").trim_end_matches('!');
     let globs = Globs::new([body]);
     if globs.is_empty() {
@@ -173,7 +176,12 @@ fn key_dir(package: &skif_workspace::Package) -> String {
 /// The configuration key a package's pattern of the list `name` is written under: the `[js.workspaces]` key as
 /// written (so a glob key such as `packages/*` is reported once, as the user wrote it), or the package directory for
 /// a pattern that comes from elsewhere (an override).
-fn workspace_key(config: &Config, keys: &WorkspaceKeys, package: &skif_workspace::Package, name: &str) -> String {
+pub(crate) fn workspace_key(
+    config: &Config,
+    keys: &WorkspaceKeys,
+    package: &skif_workspace::Package,
+    name: &str,
+) -> String {
     let dir = key_dir(package);
     let written = keys
         .key(&config.js.workspaces, &dir)
@@ -376,17 +384,25 @@ impl<'a> JsAnalysis<'a> {
         sources: &[Arc<dyn InputSource>],
         sequential: bool,
     ) -> Self {
-        Self::build_cached(workspace, config, fs, sources, sequential, &IndexCache::default())
+        Self::build_cached(
+            workspace,
+            config,
+            fs,
+            sources,
+            sequential,
+            (&IndexCache::default(), &[]),
+        )
     }
 
-    /// Like [`build`](Self::build), reading the git index through `cache` so that the roots of one run share it.
+    /// Like [`build`](Self::build), reading the git index through `cache` so that the roots of one run share it, with
+    /// `extra_entries` (relative to the workspace root) that other roots of the run import as entries.
     pub(crate) fn build_cached(
         workspace: &'a Workspace,
         config: &Config,
         fs: &Arc<dyn FileSystem>,
         sources: &[Arc<dyn InputSource>],
         sequential: bool,
-        cache: &IndexCache,
+        (cache, extra_entries): (&IndexCache, &[PathBuf]),
     ) -> Self {
         let phase = |name: &str| format!("js {name} {}", workspace.root.display());
         let indexed = timing::phase(phase("git index"), || overlay(fs, workspace, config, cache));
@@ -405,10 +421,22 @@ impl<'a> JsAnalysis<'a> {
         }
         let links = take_file_links(fs.as_ref(), &workspace.root, &mut candidates);
         let found = timing::phase(phase("entries"), || {
-            entry_files(fs.as_ref(), workspace, &setup, &candidates)
+            entry_files(fs.as_ref(), workspace, &setup, &candidates, extra_entries)
         });
         setup.mark_entries_incomplete(&found.unknown);
         let entries = found.files;
+        let config_hints = {
+            let entry_set: HashSet<PathBuf> = entries.iter().cloned().collect();
+            config_hints(&HintInputs {
+                workspace,
+                config,
+                setup: &setup,
+                candidates: &candidates,
+                entries: &entry_set,
+                provided: &found.provided,
+                disk: disk.as_ref(),
+            })
+        };
         let resolver = timing::phase(phase("resolver"), || {
             ModuleResolver::new(Arc::clone(fs), workspace, &setup)
         });
@@ -495,6 +523,7 @@ impl<'a> JsAnalysis<'a> {
             config_path: None,
             empty_patterns,
             unused_ignore_files,
+            config_hints,
         }
     }
 
@@ -509,6 +538,13 @@ impl<'a> JsAnalysis<'a> {
     #[must_use]
     pub fn production(&self) -> bool {
         self.setup.production
+    }
+
+    /// Whether knip's strict mode (`skif --strict`) is on: each package uses only its own manifest, required peer
+    /// dependencies count as production dependencies and type-only imports use no package.
+    #[must_use]
+    pub fn strict(&self) -> bool {
+        self.setup.isolate_workspaces
     }
 
     /// Whether dependency `name` of package `id` is on an `ignore-dependencies` list.
@@ -535,6 +571,29 @@ impl<'a> JsAnalysis<'a> {
     #[must_use]
     pub fn entries_incomplete(&self, id: PackageId) -> bool {
         self.setup.package(id).is_some_and(|package| package.entries_incomplete)
+    }
+
+    /// The files of other projects ([`Module::foreign`], such as a nested root) that a module of this workspace
+    /// imports, relative to the workspace root, sorted. Only the files its own code reaches directly: what those
+    /// import is for the owning project to follow, so that a multi-root run makes these, and only these, its entries.
+    #[must_use]
+    pub fn other_project_files(&self) -> Vec<PathBuf> {
+        let mut files = BTreeSet::new();
+        for module in self.graph.modules().iter().filter(|module| !module.foreign) {
+            for import in &module.imports {
+                let targets = match &import.target {
+                    Target::Module(id) => std::slice::from_ref(id),
+                    Target::Modules(ids) => ids.as_slice(),
+                    _ => &[],
+                };
+                for target in targets.iter().map(|id| self.graph.module(*id)) {
+                    if target.foreign {
+                        files.insert(target.path.clone());
+                    }
+                }
+            }
+        }
+        files.into_iter().collect()
     }
 
     /// The analysed packages whose entry files are not all known, with every reason; reason files are relative to

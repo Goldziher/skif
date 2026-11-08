@@ -298,7 +298,7 @@ expression: json.stdout
       "category": "js",
       "default": "warning",
       "fixable": "none",
-      "summary": "A `[js]` ignore entry, workspace key, file pattern or ignore tag matched nothing in the run."
+      "summary": "A `[js]` setting matched nothing or is redundant, a published entry file is missing, or many files are unused."
     }
   ]
 }
