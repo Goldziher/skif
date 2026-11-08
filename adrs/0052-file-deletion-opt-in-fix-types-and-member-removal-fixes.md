@@ -37,9 +37,9 @@ Chosen option: "A separate opt-in for deletions in `FixSelection` and the CLI, `
 
 ### New unsafe fixes
 
-* `unused-enum-members` and `unused-namespace-members` delete the member: its line when it stands alone on it, else the member with its comma. A member whose name another member of the enum or namespace mentions, or a namespace member declared with siblings in one statement, has no fix.
-* `unused-catalog-entries` removes the entry from the file that declares the catalog, `pnpm-workspace.yaml`, `.yarnrc.yml` or the root `package.json`, through the format-preserving editors ([ADR 0008](0008-fix-and-edit-model.md)).
-* `unused-exports` removes `export default <expression>` with its expression; the title says so, because side effects of the expression go too.
+* `unused-enum-members` and `unused-namespace-members` delete the member: when it stands alone on its line, that line with the comment lines directly above it and a comment after it on the line; else the member with its comma. A member has no fix when another member of the enum or namespace mentions its name, when a later enum member has no initializer (TypeScript numbers it from the member before, so it would be renumbered), when it shares its line with an adjacent comment, or, in a namespace, when it is declared with siblings in one statement.
+* `unused-catalog-entries` removes the entry from the file that declares the catalog, `pnpm-workspace.yaml`, `.yarnrc.yml` or the root `package.json`, through the format-preserving editors ([ADR 0008](0008-fix-and-edit-model.md)). A catalog whose entries are all reported goes with them, and so does a `catalogs` key left empty: the YAML editor drops emptied mappings, and in `package.json` each of those entries' fixes removes the catalog object. An entry suppressed by `[[ignore]]` keeps its catalog.
+* `unused-exports` removes `export default <expression>` with its expression only when evaluating the expression has no effect: a literal, an identifier, a function, a class that runs no code, or an array or object of those. Any other expression, such as `registerPlugin()`, is reported without a fix.
 
 ### No formatter run
 
@@ -56,7 +56,7 @@ skif does not run a formatter after fixing. Detecting and spawning prettier, bio
 
 * `create_and_delete_become_changes_only_when_files_may_be_removed` in `crates/skif/tests/fix.rs` checks the default skip and the opt-in.
 * `fix_unsafe_deletes_files_only_with_allow_remove_files`, `fix_type_limits_the_fixes_to_some_rules` and `fix_type_and_allow_remove_files_are_usage_errors_without_fix` in `crates/skif-cli/tests/cli.rs` run the binary on the `autofix` fixture and snapshot the changed files.
-* `member_removal_ranges_keep_the_layout` in `crates/skif-js-syntax/tests/module_info.rs` checks the member ranges; the `unused-entries-reported` conformance case carries the expected fixed `pnpm-workspace.yaml`.
+* `member_removal_ranges_keep_the_layout`, `enum_member_removal_never_renumbers_a_later_member`, `member_removal_takes_the_comments_of_the_member` and `default_expression_removal_keeps_side_effects` in `crates/skif-js-syntax/tests/module_info.rs` check the removal ranges and where there is none; the `unused-entries-reported` and `unused-entries-all-removed-*` conformance cases carry the expected fixed catalog files.
 
 ## Pros and Cons of the Options
 

@@ -16,8 +16,10 @@ All notable changes to this project are documented here. The format follows
   ([ADR 0052](adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md),
   [#37](https://github.com/Goldziher/skif/issues/37)).
 - Unsafe fixes for `unused-enum-members`, `unused-namespace-members` and `unused-catalog-entries`, and for
-  `unused-exports` on `export default <expression>`, which is removed with its expression
-  ([#37](https://github.com/Goldziher/skif/issues/37)).
+  `unused-exports` on `export default <expression>` when the expression has no side effects. A member goes with its
+  comments; a member whose removal would renumber a later enum member gets no fix; a catalog left empty is removed
+  ([ADR 0052](adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md),
+  [#37](https://github.com/Goldziher/skif/issues/37)).
 
 ### Changed
 
