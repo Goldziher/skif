@@ -3,22 +3,43 @@
 //!
 //! The keys are inherited through `extends` and stay relative to the config that sets them, as in TypeScript. The
 //! configs a solution-style `tsconfig.json` (`"files": []` with `references`) references are followed when they lie
-//! below its directory, as knip does. The project globs of a package are one set, so the `exclude` of any of these
-//! configs applies to the files of all of them.
+//! below its directory, as knip does. As in TypeScript, `exclude` filters only what `include` selects, never the
+//! `files` listed by name. The `include` globs of a package are one set, so the `exclude` of any of these configs
+//! applies to what the `include` of all of them selects.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use skif_config::Config;
 use skif_core::FileSystem;
 use skif_js_syntax::ConfigValue;
+use skif_workspace::Workspace;
 
-use crate::deps::parse_tsconfig;
+use crate::config_check::relative_tsconfig;
+use crate::deps::{member_dirs, parse_tsconfig};
 use crate::discover::relative;
 use crate::resolve::join_normalized;
+use crate::setup::tsconfig_path;
 use crate::tsconfig_paths::resolve_extends;
 
 /// How many `extends` links are followed.
 const MAX_EXTENDS: usize = 8;
+
+/// The project of a package as its TypeScript configurations select it, relative to the package directory.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct TsconfigProject {
+    /// The `include` globs, then the `exclude` (and `outDir`) globs negated with `!`.
+    pub patterns: Vec<String>,
+    /// The `files` entries, which no `exclude` filters out.
+    pub files: Vec<String>,
+}
+
+impl TsconfigProject {
+    /// Whether the configurations select nothing in the package.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.files.is_empty() && self.patterns.iter().all(|pattern| pattern.starts_with('!'))
+    }
+}
 
 /// A list of patterns and the directory they are relative to.
 type Located = (PathBuf, Vec<String>);
@@ -123,7 +144,7 @@ fn collect(
     config: &Path,
     package_dir: &Path,
     visited: &mut BTreeSet<PathBuf>,
-    globs: &mut Vec<String>,
+    project: &mut TsconfigProject,
 ) -> bool {
     let Some(selected) = selection(fs, members, config, 0) else {
         return false;
@@ -133,7 +154,7 @@ fn collect(
     };
     let mut include: Vec<String> = Vec::new();
     if let Some((base, files)) = &selected.files {
-        include.extend(
+        project.files.extend(
             files
                 .iter()
                 .filter_map(|file| package_relative(base, file, package_dir)),
@@ -165,8 +186,10 @@ fn collect(
     {
         exclude.push(format!("{rel}/**"));
     }
-    globs.extend(include);
-    globs.extend(exclude.into_iter().map(|glob| format!("!{glob}")));
+    project.patterns.extend(include);
+    project
+        .patterns
+        .extend(exclude.into_iter().map(|glob| format!("!{glob}")));
     let parsed = parse_tsconfig(fs, config);
     let references: Vec<String> = parsed
         .as_ref()
@@ -184,24 +207,55 @@ fn collect(
             && target.starts_with(dir)
             && visited.insert(target.clone())
         {
-            collect(fs, members, &target, package_dir, visited, globs);
+            collect(fs, members, &target, package_dir, visited, project);
         }
     }
     true
 }
 
-/// The project globs, relative to `package_dir`, of the files the config at `config` selects, or `None` when there is
-/// no readable config there. Patterns that leave the package directory are dropped: the project globs of a package
-/// only judge the files it owns.
+/// The project, relative to `package_dir`, of the files the config at `config` selects, or `None` when there is no
+/// readable config there. Patterns that leave the package directory are dropped: the project globs of a package only
+/// judge the files it owns.
 pub(crate) fn project_globs(
     fs: &dyn FileSystem,
     members: &[(String, PathBuf)],
     config: &Path,
     package_dir: &Path,
-) -> Option<Vec<String>> {
-    let mut globs = Vec::new();
+) -> Option<TsconfigProject> {
+    let mut project = TsconfigProject::default();
     let mut visited = BTreeSet::from([config.to_path_buf()]);
-    collect(fs, members, config, package_dir, &mut visited, &mut globs).then_some(globs)
+    collect(fs, members, config, package_dir, &mut visited, &mut project).then_some(project)
+}
+
+/// With `[js] use-tsconfig-files`, the TypeScript configurations, relative to the workspace root, whose `files` and
+/// `include` select nothing inside their package, so that package has no project files and no file of it can be
+/// reported unused. Empty without the setting. A host shows these as warnings; the lint itself goes on.
+#[must_use]
+pub fn empty_tsconfig_projects(workspace: &Workspace, config: &Config, fs: &dyn FileSystem) -> Vec<PathBuf> {
+    if !config.js.enabled || !config.js.use_tsconfig_files {
+        return Vec::new();
+    }
+    let root_tsconfig = config
+        .js
+        .tsconfig
+        .as_deref()
+        .and_then(relative_tsconfig)
+        .map(|path| join_normalized(&workspace.root, &path));
+    let members = member_dirs(workspace);
+    workspace
+        .iter()
+        .filter(|(id, _)| !workspace.is_ignored(*id))
+        .filter_map(|(_, package)| {
+            let dir = workspace.root.join(&package.dir);
+            let config = tsconfig_path(root_tsconfig.as_deref(), &dir, package.is_root);
+            let project = project_globs(fs, &members, &config, &dir)?;
+            project.is_empty().then(|| {
+                config
+                    .strip_prefix(&workspace.root)
+                    .map_or(config.clone(), Path::to_path_buf)
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -210,14 +264,43 @@ mod tests {
 
     use skif_core::MemoryFs;
 
-    use super::project_globs;
+    use super::{TsconfigProject, project_globs};
 
-    fn globs(files: &[(&str, &str)], config: &str, package: &str) -> Option<Vec<String>> {
+    fn project(files: &[(&str, &str)], config: &str, package: &str) -> Option<TsconfigProject> {
         let mut fs = MemoryFs::new();
         for (path, text) in files {
             fs = fs.with_file(*path, *text);
         }
         project_globs(&fs, &[], Path::new(config), Path::new(package))
+    }
+
+    /// The `files` entries, then the other patterns.
+    fn globs(files: &[(&str, &str)], config: &str, package: &str) -> Option<Vec<String>> {
+        project(files, config, package).map(|found| found.files.into_iter().chain(found.patterns).collect())
+    }
+
+    #[test]
+    fn exclude_filters_only_what_include_selects() {
+        let found = project(
+            &[(
+                "/ws/tsconfig.json",
+                r#"{"files":["src/legacy/keep.ts"],"include":["src"],"exclude":["src/legacy"]}"#,
+            )],
+            "/ws/tsconfig.json",
+            "/ws",
+        )
+        .unwrap();
+        assert_eq!(found.files, ["src/legacy/keep.ts"]);
+        assert_eq!(found.patterns, ["src/**/*", "!src/legacy/**/*"]);
+        assert!(!found.is_empty());
+    }
+
+    #[test]
+    fn a_config_that_selects_nothing_in_the_package_is_empty() {
+        let empty = |text: &str| project(&[("/ws/app/tsconfig.json", text)], "/ws/app/tsconfig.json", "/ws/app");
+        assert!(empty(r#"{"files":[]}"#).unwrap().is_empty());
+        assert!(empty(r#"{"include":["../shared"]}"#).unwrap().is_empty());
+        assert!(!empty("{}").unwrap().is_empty());
     }
 
     #[test]

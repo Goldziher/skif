@@ -59,6 +59,7 @@ pub use rules::{
     rules,
 };
 pub use trace::{DependencyImport, DependencyListing, DependencyTrace};
+pub use tsconfig_files::empty_tsconfig_projects;
 pub use usage::{ExportUsage, MemberUse};
 
 const _: () = {
