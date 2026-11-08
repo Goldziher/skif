@@ -196,6 +196,11 @@ All notable changes to this project are documented here. The format follows
   does not report; knip-only files below `fixture`, `testdata`, `test_root`, `__testfixtures__` or `*-fixtures`, which
   skif judges, count as differences unless they are test files
   ([ADR 0068](adrs/0068-what-the-knip-comparison-sets-apart.md), [#27](https://github.com/Goldziher/skif/issues/27)).
+- The parity baseline is refreshed for create-t3-turbo, vue-core, tanstack-query, jest, babel, cal-com, mastra,
+  vscode, npm-cli and rushstack, and the README's agreement with knip is measured on the nine of them compared. The
+  old figures counted babel's fixture files, which skif no longer reports, as shared; n8n, angular, opencode,
+  rules-js, vercel-examples and next-js keep their earlier entries until a refresh
+  ([#27](https://github.com/Goldziher/skif/issues/27)).
 - The `test-file` deviation of the knip comparison no longer claims why skif has no finding there: next-js's thousands
   are app files of test fixtures below test directories, not test entries, and the harness sets them apart by path
   ([#27](https://github.com/Goldziher/skif/issues/27)).
