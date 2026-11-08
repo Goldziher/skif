@@ -38,13 +38,17 @@ pub struct Preview {
     pub diff: String,
 }
 
-/// The diff of every change in `plan`, reading the current contents of the files under `root` through `fs`. A file
-/// that cannot be read is diffed as empty: the plan read it a moment ago, so this only happens if it was removed since.
-pub fn preview(plan: &FixPlan, root: &Path, fs: &dyn FileSystem) -> Vec<Preview> {
+/// The diff of every change in `plan`, reading the current contents of the files under `root` through `fs`.
+///
+/// # Errors
+/// A [`CliError`] when a file the plan modifies or deletes cannot be read (diffing it as empty would show a
+/// modification as a creation), or when the plan holds a kind of change this version cannot show.
+pub fn preview(plan: &FixPlan, root: &Path, fs: &dyn FileSystem) -> Result<Vec<Preview>, CliError> {
     let current = |path: &Path| {
-        fs.read_to_string(&root.join(path))
+        let full = root.join(path);
+        fs.read_to_string(&full)
             .map(|text| text.to_string())
-            .unwrap_or_default()
+            .map_err(|error| CliError::io("cannot read", &full, &error))
     };
     plan.changes
         .iter()
@@ -61,26 +65,31 @@ pub fn preview(plan: &FixPlan, root: &Path, fs: &dyn FileSystem) -> Vec<Preview>
                 ),
                 FileChange::Delete { .. } => (
                     "delete",
-                    current(&path),
+                    current(&path)?,
                     String::new(),
                     format!("a/{shown}"),
                     "/dev/null".to_owned(),
                 ),
                 FileChange::Modify { new_contents, .. } => (
                     "modify",
-                    current(&path),
+                    current(&path)?,
                     new_contents.clone(),
                     format!("a/{shown}"),
                     format!("b/{shown}"),
                 ),
-                _ => ("modify", String::new(), String::new(), String::new(), String::new()),
+                _ => {
+                    return Err(CliError::new(
+                        Kind::Internal,
+                        format!("cannot preview the planned change to {shown}"),
+                    ));
+                }
             };
             let diff = TextDiff::from_lines(&old, &new)
                 .unified_diff()
                 .context_radius(3)
                 .header(&old_name, &new_name)
                 .to_string();
-            Preview { path, kind, diff }
+            Ok(Preview { path, kind, diff })
         })
         .collect()
 }
@@ -402,7 +411,7 @@ mod install_tests {
 #[allow(clippy::unwrap_used)]
 mod selection_tests {
     use clap::Parser;
-    use skif::{Category, Fix, Fixability, Location, RuleMeta, Severity, diagnostic};
+    use skif::{Category, Fix, Fixability, Location, MemoryFs, RuleMeta, Severity, diagnostic};
 
     use super::*;
     use crate::args::Cli;
@@ -488,5 +497,34 @@ mod selection_tests {
             alternatives: vec!["pin one".to_owned(), "pin two".to_owned()],
         };
         assert_eq!(skip_parts(&skipped), ("needs-choice", "pin one, pin two".to_owned()));
+    }
+
+    fn modify(path: &str, new_contents: &str) -> FixPlan {
+        let mut plan = FixPlan::default();
+        plan.changes.push(FileChange::Modify {
+            path: PathBuf::from(path),
+            edits: Vec::new(),
+            new_contents: new_contents.to_owned(),
+        });
+        plan
+    }
+
+    #[test]
+    fn a_modified_file_is_diffed_against_its_current_contents() {
+        let fs = MemoryFs::new().with_file("/ws/package.json", "{\"name\": \"a\"}\n");
+        let previews = preview(&modify("package.json", "{\"name\": \"b\"}\n"), Path::new("/ws"), &fs).unwrap();
+        assert_eq!(previews[0].kind, "modify");
+        assert!(previews[0].diff.contains("--- a/package.json"));
+        assert!(previews[0].diff.contains("-{\"name\": \"a\"}"));
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_fails_the_preview() {
+        let fs = MemoryFs::new();
+        let Err(error) = preview(&modify("package.json", "{}\n"), Path::new("/ws"), &fs) else {
+            panic!("a modify of a missing file was previewed");
+        };
+        assert_eq!(error.kind, Kind::Io);
+        assert_eq!(error.path.as_deref(), Some("/ws/package.json"));
     }
 }

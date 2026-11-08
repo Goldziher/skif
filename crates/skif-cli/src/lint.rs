@@ -329,7 +329,7 @@ fn plan_roots(args: &LintArgs, env: Env, runs: &[RootRun], fs: &CachedFs<OsFs>) 
         .map(|run| {
             let selection = fix::selection(args, env, &run.report, run.config.policy.prefer)?;
             let plan = skif::apply_fixes(&run.workspace, &run.report, &selection, fs)?;
-            let preview = fix::preview(&plan, &run.workspace.root, fs);
+            let preview = fix::preview(&plan, &run.workspace.root, fs)?;
             Ok(FixRun::dry_run(plan, preview))
         })
         .collect()
