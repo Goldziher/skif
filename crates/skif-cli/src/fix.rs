@@ -137,7 +137,7 @@ fn skip_parts(reason: &SkipReason) -> (&'static str, String) {
         SkipReason::NeedsChoice { alternatives } => ("needs-choice", alternatives.join(", ")),
         SkipReason::Conflict(message) => ("conflict", message.clone()),
         SkipReason::Failed(message) => ("failed", message.clone()),
-        SkipReason::RemovesFiles => ("removes-files", "needs --allow-remove-files".to_owned()),
+        SkipReason::RemovesFiles => ("removes-files", "re-run with --allow-remove-files".to_owned()),
         _ => ("skipped", String::new()),
     }
 }

@@ -1,6 +1,7 @@
 //! `skif [PATH]`: lint, optionally fix, report, and choose the exit code.
 
 use std::borrow::Cow;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use clap::ColorChoice;
@@ -234,18 +235,18 @@ enum Fixed {
 
 /// Fixes every root. All plans are made before the first file is written, so a failure while planning (a prompt, a
 /// conflicting edit) leaves every file alone. Writing and re-linting then go root by root; a failure there reports
-/// what was already written.
+/// what was already written. `only` holds the rules `--fix-type` names, if given.
 fn fix_roots(
     args: &LintArgs,
     env: Env,
     linters: &Linters,
     runs: Vec<RootRun>,
     fs: &CachedFs<OsFs>,
+    only: Option<&BTreeSet<String>>,
 ) -> Result<Fixed, CliError> {
-    let only = fix::fix_type_rules(&args.fix_type, linters.rules().into_iter().map(|meta| meta.id))?;
     let mut planned = Vec::with_capacity(runs.len());
     for run in runs {
-        let selection = fix::selection(args, env, &run.report, run.config.policy.prefer, only.as_ref())?;
+        let selection = fix::selection(args, env, &run.report, run.config.policy.prefer, only)?;
         let plan = skif::apply_fixes(&run.workspace, &run.report, &selection, fs)?;
         planned.push((run, plan));
     }
@@ -419,11 +420,13 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         adjust(args, &mut target.config)?;
     }
     let linters = Linters::build(&targets)?;
+    // An unknown `--fix-type` is a usage error before any root is linted.
+    let only = fix::fix_type_rules(&args.fix_type, linters.rules().into_iter().map(|meta| meta.id))?;
     let mut runs = timing::phase("lint roots", || roots::lint_targets(&base, targets, &linters))?;
 
     let mut fixes: Vec<FixRun> = Vec::new();
     if args.fixing() {
-        match fix_roots(args, env, &linters, runs, &fs)? {
+        match fix_roots(args, env, &linters, runs, &fs, only.as_ref())? {
             Fixed::All(fixed_runs, done) => {
                 runs = fixed_runs;
                 fixes = done;
