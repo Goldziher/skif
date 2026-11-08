@@ -20,7 +20,7 @@ direction.
 | `skif-rules` | Built-in manifest, workspace, policy and catalog rules. |
 | `skif-specifier` | npm dependency specifier parsing and comparison, vendored from syncpack. |
 | `skif-edit` | Format-preserving JSON and YAML edits used by autofixes. |
-| `skif-report` | Human, JSON, SARIF and GitHub renderers. |
+| `skif-report` | Human, JSON, SARIF, GitHub, Code Climate, compact, Markdown and CODEOWNERS renderers. |
 | `skif-js` | JavaScript and TypeScript module graph and dependency rules, built on oxc. |
 | `skif-js-syntax` | oxc-based module facts and static config extraction; never executes code. |
 | `skif-js-plugins` | `package.json` script parsing and the declarative plugin table. |
@@ -56,4 +56,4 @@ The full list is the [ADR index](https://github.com/Goldziher/skif/blob/main/adr
 4. The JS analysis (`skif-js`, with `skif-js-syntax` and `skif-js-plugins`) is one of those providers. It parses the
    sources, builds the module graph, applies the plugin table and emits the `js` rules.
 5. `skif-edit` turns fixes into a `FixPlan` of format-preserving edits; the CLI writes the plan.
-6. `skif-report` renders the report as human, JSON, SARIF or GitHub output.
+6. `skif-report` renders the report as human, JSON, SARIF, GitHub, Code Climate, compact, Markdown or CODEOWNERS output.

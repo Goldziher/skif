@@ -489,7 +489,10 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         annotations,
         color: color_enabled(args, env),
         root: &base,
-        repo_root: (matches!(format, Format::Github | Format::Sarif) || annotations)
+        repo_root: (matches!(
+            format,
+            Format::Github | Format::Sarif | Format::Codeclimate | Format::Codeowners
+        ) || annotations)
             .then(|| repo_root(&base))
             .flatten(),
         rules: linters.rules(),
@@ -501,7 +504,7 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         output::render(&aggregate, &views, &rendering, &fs, &root_fixes)
     })?;
     output::emit(&rendered, args.output.as_deref())?;
-    if !fixes.is_empty() && matches!(args.format(), Format::Sarif | Format::Github) {
+    if !fixes.is_empty() && !matches!(args.format(), Format::Human | Format::Json) {
         write_summary_to_stderr(&root_fixes);
     }
 

@@ -848,6 +848,110 @@ fn lint_to_json_classifies_its_errors() {
 }
 
 #[test]
+fn codeclimate_is_a_json_array_for_gitlab_and_can_go_to_output() {
+    let dir = fixture("dirty");
+    let stdout = run(skif().args(["--format", "codeclimate"]).arg(dir.path()));
+    assert_eq!(stdout.code, 1);
+    let issues = stdout.json();
+    let issues = issues.as_array().unwrap();
+    assert_ne!(issues.len(), 0);
+    for issue in issues {
+        assert!(issue["check_name"].is_string(), "{issue}");
+        assert_eq!(issue["fingerprint"].as_str().unwrap().len(), 32, "{issue}");
+        assert!(
+            ["info", "minor", "major"].contains(&issue["severity"].as_str().unwrap()),
+            "{issue}"
+        );
+        assert!(issue["location"]["lines"]["begin"].as_u64().unwrap() >= 1, "{issue}");
+    }
+
+    let out = tempfile::tempdir().unwrap();
+    let target = out.path().join("gl-code-quality.json");
+    let written = run(skif()
+        .args(["--format", "codeclimate", "--output"])
+        .arg(&target)
+        .arg(dir.path()));
+    assert_eq!(written.code, 1);
+    assert!(written.stdout.is_empty(), "{}", written.stdout);
+    let from_file: Value = serde_json::from_str(&fs::read_to_string(&target).unwrap()).unwrap();
+    assert_eq!(&from_file, &Value::Array(issues.clone()));
+}
+
+#[test]
+fn compact_prints_one_line_per_diagnostic() {
+    let dir = fixture("dirty");
+    let compact = run(skif().args(["--format", "compact"]).arg(dir.path()));
+    assert_eq!(compact.code, 1);
+    let json = run(skif().args(["--format", "json"]).arg(dir.path())).json();
+    let diagnostics = json["diagnostics"].as_array().unwrap();
+    assert_eq!(compact.stdout.lines().count(), diagnostics.len(), "{}", compact.stdout);
+    for (line, diagnostic) in compact.stdout.lines().zip(diagnostics) {
+        let path = diagnostic["location"]["path"].as_str().unwrap();
+        let rule = diagnostic["rule"].as_str().unwrap();
+        assert!(line.starts_with(path), "{line}");
+        assert!(line.contains(&format!(" {rule} ")), "{line}");
+    }
+}
+
+#[test]
+fn markdown_and_disclosure_group_by_rule() {
+    let dir = fixture("dirty");
+    let markdown = run(skif().args(["--format", "markdown"]).arg(dir.path()));
+    assert_eq!(markdown.code, 1);
+    assert!(markdown.stdout.starts_with("# skif report\n"), "{}", markdown.stdout);
+    assert!(
+        markdown.stdout.contains("| Location | Severity | Message |"),
+        "{}",
+        markdown.stdout
+    );
+    let disclosure = run(skif().args(["--format", "disclosure"]).arg(dir.path()));
+    assert_eq!(disclosure.code, 1);
+    assert_eq!(
+        disclosure.stdout.matches("<details>").count(),
+        markdown.stdout.matches("\n## ").count(),
+        "{}",
+        disclosure.stdout
+    );
+}
+
+#[test]
+fn codeowners_groups_by_the_repository_codeowners_file() {
+    let dir = fixture("dirty");
+    fs::create_dir(dir.path().join(".git")).unwrap();
+    fs::create_dir(dir.path().join(".github")).unwrap();
+    fs::write(dir.path().join("CODEOWNERS"), "* @ignored\n").unwrap();
+    fs::write(
+        dir.path().join(".github/CODEOWNERS"),
+        "# owners\n* @org/core\n/package.json @org/root\n",
+    )
+    .unwrap();
+    let result = run(skif().args(["--format", "codeowners"]).arg(dir.path()));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+    let headings: Vec<&str> = result
+        .stdout
+        .lines()
+        .filter(|line| line.starts_with('@') || line.starts_with('('))
+        .collect();
+    assert!(!headings.is_empty(), "{}", result.stdout);
+    assert!(
+        headings
+            .iter()
+            .all(|line| line.starts_with("@org/core (") || line.starts_with("@org/root (")),
+        "{}",
+        result.stdout
+    );
+}
+
+#[test]
+fn codeowners_without_a_codeowners_file_exits_two() {
+    let dir = fixture("dirty");
+    let result = run(skif().args(["--format", "codeowners"]).arg(dir.path()));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert!(result.stdout.is_empty(), "{}", result.stdout);
+    assert!(result.stderr.contains("CODEOWNERS"), "{}", result.stderr);
+}
+
+#[test]
 fn json_names_the_packages_whose_files_and_dependencies_were_not_judged() {
     let dir = tempfile::tempdir().unwrap();
     let put = |relative: &str, content: &str| {

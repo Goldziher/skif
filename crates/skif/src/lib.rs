@@ -73,7 +73,7 @@
 //! | `js-analysis` | no | the oxc based JS and TypeScript analysis and the plugin table (`Linter` adds it to the built-in rules) |
 //! | `fix` | no | `apply_fixes` and `FixPlan` |
 //! | `yaml-fix` | no | YAML edits for `pnpm-workspace.yaml` (implies `fix`) |
-//! | `report` | no | the human, JSON, SARIF and GitHub renderers, as `skif::render` |
+//! | `report` | no | the renderers (human, JSON, SARIF, GitHub, Code Climate, compact, Markdown, CODEOWNERS), as `skif::render` |
 //! | `schema` | no | `config_schema` |
 //!
 //! # Third-party types in the API
@@ -159,12 +159,14 @@ pub use skif_lint::{
 };
 pub use skif_workspace::{DiscoverOptions, Package, PackageId, RootKind, Workspace, WorkspaceError};
 
-/// The renderers of [`Report`]s: human, JSON, SARIF and GitHub annotations.
+/// The renderers of [`Report`]s: human, JSON, SARIF, GitHub annotations, Code Climate, compact, Markdown and
+/// CODEOWNERS groups.
 #[cfg(feature = "report")]
 pub mod render {
     pub use skif_report::{
-        ErrorInfo, Format, RenderOptions, SCHEMA_VERSION, render, render_github, render_human, render_json,
-        render_json_error, render_json_error_info, render_sarif,
+        CODEOWNERS_LOCATIONS, CodeOwners, ErrorInfo, Format, RenderOptions, SCHEMA_VERSION, render, render_codeclimate,
+        render_codeowners, render_compact, render_disclosure, render_github, render_human, render_json,
+        render_json_error, render_json_error_info, render_markdown, render_sarif,
     };
 }
 

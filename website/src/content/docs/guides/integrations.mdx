@@ -48,6 +48,27 @@ Code scanning with SARIF:
 
 When `GITHUB_ACTIONS=true` and no `--format` is given, skif prints the human report plus GitHub annotations.
 
+`--format markdown` (or `disclosure`, with each rule folded in a `<details>` section) renders a report to post as a
+pull request comment, and `--format codeowners` groups the findings by the owners in the repository's CODEOWNERS file.
+
+## GitLab CI
+
+`--format codeclimate` writes the Code Climate JSON that GitLab Code Quality reads, so findings appear in the merge
+request widget and diff:
+
+```yaml
+skif:
+  image: node:lts
+  script:
+    - npx skif-cli --format codeclimate --output gl-code-quality.json
+  artifacts:
+    when: always
+    reports:
+      codequality: gl-code-quality.json
+```
+
+Exit code `1` fails the job when errors remain; add `allow_failure: true` to report without blocking the pipeline.
+
 ## Git hooks
 
 skif belongs in a pre-commit hook: a mismatched version or an unsorted dependency map is cheapest to fix before
