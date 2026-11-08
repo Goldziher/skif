@@ -4,7 +4,9 @@ use std::io::{self, Write};
 
 use serde::Serialize;
 use serde_json::{Map, Value};
-use skif_core::{Diagnostic, Fix, FixSafety, Location, Related, Report, Severity, Span, Summary};
+use skif_core::{
+    Diagnostic, Fix, FixSafety, IncompleteCause, IncompletePackage, Location, Related, Report, Severity, Span, Summary,
+};
 
 use crate::options::RenderOptions;
 
@@ -12,7 +14,7 @@ use crate::options::RenderOptions;
 pub const SCHEMA_VERSION: u32 = 1;
 
 /// Top-level members the document owns; `extra` members may not reuse them.
-const RESERVED: [&str; 4] = ["version", "skif", "summary", "diagnostics"];
+const RESERVED: [&str; 5] = ["version", "skif", "summary", "diagnostics", "incomplete-packages"];
 
 /// Top-level members of an error document that `extra` members may not reuse.
 const RESERVED_ERROR: [&str; 3] = ["version", "skif", "error"];
@@ -36,8 +38,26 @@ struct Document<'a> {
     skif: &'a str,
     summary: JsonSummary,
     diagnostics: Vec<JsonDiagnostic<'a>>,
+    #[serde(rename = "incomplete-packages", skip_serializing_if = "Vec::is_empty")]
+    incomplete_packages: Vec<JsonIncompletePackage<'a>>,
     #[serde(flatten)]
     extra: Map<String, Value>,
+}
+
+#[derive(Serialize)]
+struct JsonIncompletePackage<'a> {
+    name: &'a str,
+    dir: String,
+    reasons: Vec<JsonIncompleteReason<'a>>,
+}
+
+#[derive(Serialize)]
+struct JsonIncompleteReason<'a> {
+    cause: IncompleteCause,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plugin: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -211,6 +231,28 @@ fn diagnostic<'a>(diagnostic: &'a Diagnostic, options: &RenderOptions) -> JsonDi
     }
 }
 
+/// A package directory as the report shows it: `.` for the workspace root.
+fn package_dir(dir: &std::path::Path, options: &RenderOptions) -> String {
+    let shown = options.display_path(dir);
+    if shown.is_empty() { ".".to_owned() } else { shown }
+}
+
+fn incomplete_package<'a>(package: &'a IncompletePackage, options: &RenderOptions) -> JsonIncompletePackage<'a> {
+    JsonIncompletePackage {
+        name: &package.name,
+        dir: package_dir(&package.dir, options),
+        reasons: package
+            .reasons
+            .iter()
+            .map(|reason| JsonIncompleteReason {
+                cause: reason.cause,
+                plugin: reason.plugin.as_deref(),
+                file: reason.file.as_deref().map(|file| options.display_path(file)),
+            })
+            .collect(),
+    }
+}
+
 const fn summary(summary: &Summary) -> JsonSummary {
     JsonSummary {
         errors: summary.errors,
@@ -240,8 +282,8 @@ pub fn render_json(report: &Report, options: &RenderOptions, out: &mut dyn Write
 ///
 /// # Errors
 ///
-/// Returns an [`io::ErrorKind::InvalidInput`] error when an `extra` member is named `version`, `skif`, `summary` or
-/// `diagnostics`, and any error produced by writing to `out`.
+/// Returns an [`io::ErrorKind::InvalidInput`] error when an `extra` member is named `version`, `skif`, `summary`,
+/// `diagnostics` or `incomplete-packages`, and any error produced by writing to `out`.
 pub fn render_json_with(
     report: &Report,
     options: &RenderOptions,
@@ -254,6 +296,11 @@ pub fn render_json_with(
         skif: options.tool_version.as_deref().unwrap_or(TOOL_VERSION),
         summary: summary(&report.summary),
         diagnostics: report.diagnostics.iter().map(|d| diagnostic(d, options)).collect(),
+        incomplete_packages: report
+            .incomplete_packages
+            .iter()
+            .map(|package| incomplete_package(package, options))
+            .collect(),
         extra,
     };
     write_document(&document, out)

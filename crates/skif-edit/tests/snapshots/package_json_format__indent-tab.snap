@@ -1,0 +1,24 @@
+---
+source: crates/skif-edit/tests/package_json_format.rs
+expression: "report(\"indent-tab\")"
+---
+issues:
+  - the layout differs from the configured indent
+--- before
+{
+  "name": "indent-tab",
+  "files": ["dist"],
+  "publishConfig": {"access": "public"},
+  "sideEffects": false
+}
+--- after
+{
+\t"name": "indent-tab",
+\t"files": [
+\t\t"dist"
+\t],
+\t"publishConfig": {
+\t\t"access": "public"
+\t},
+\t"sideEffects": false
+}

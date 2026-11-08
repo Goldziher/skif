@@ -1,0 +1,11 @@
+---
+source: crates/skif-js/tests/jsdoc_tags.rs
+expression: "report(&lint(&files, \"\"))"
+---
+unused-enum-members src/lib.ts: enum member `Color.Green` is never used
+unused-enum-members src/lib.ts: enum member `Color.Pink` is never used
+unused-enum-members src/lib.ts: enum member `Color.Plain` is never used
+unused-enum-members src/lib.ts: enum member `Ignored.B` is never used
+unused-namespace-members src/lib.ts: namespace member `Shapes.line` is never used
+unused-namespace-members src/lib.ts: namespace member `Shapes.square` is never used
+unused-namespace-members src/lib.ts: namespace member `Shapes.star` is never used

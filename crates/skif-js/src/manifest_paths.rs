@@ -211,8 +211,9 @@ pub(crate) struct ManifestTarget {
 }
 
 /// Every file path a manifest publishes: `main`, `module`, `types`, `bin`, the leaves of `exports` and the leaves of
-/// `imports`, whose conditions select between files only one environment loads. The catch-all `./*` export is not a
-/// target, and neither is an `imports` pattern: its files are reached by the specifiers that use it.
+/// `imports`, whose conditions select between files only one environment loads, and the node and credential files
+/// of an n8n node package (`n8n.nodes`, `n8n.credentials`), which n8n loads by path. The catch-all `./*` export is not
+/// a target, and neither is an `imports` pattern: its files are reached by the specifiers that use it.
 pub(crate) fn manifest_targets(manifest: &Value) -> Vec<ManifestTarget> {
     let mut paths = Vec::new();
     for field in ENTRY_FIELDS {
@@ -225,6 +226,23 @@ pub(crate) fn manifest_targets(manifest: &Value) -> Vec<ManifestTarget> {
     }
     if let Some(bin) = manifest.get("bin") {
         collect_strings(bin, &mut paths);
+    }
+    if let Some(n8n) = manifest.get("n8n") {
+        for key in ["nodes", "credentials"] {
+            let Some(Value::Array(files)) = n8n.get(key) else {
+                continue;
+            };
+            for file in files.iter().filter_map(Value::as_str).filter(|file| !file.is_empty()) {
+                // n8n node packages compile without a `rootDir`, so `dist/nodes/A.node.js` is built from
+                // `nodes/A.node.ts`, not from `src/nodes/A.node.ts`.
+                if let Some((first, rest)) = file.trim_start_matches("./").split_once('/')
+                    && is_out_dir(first)
+                {
+                    paths.push(rest.to_owned());
+                }
+                paths.push(file.to_owned());
+            }
+        }
     }
     let mut targets: Vec<ManifestTarget> = paths
         .into_iter()
@@ -447,9 +465,19 @@ mod tests {
             "main": "dist/index.js",
             "bin": { "tool": "bin/tool.js" },
             "exports": { ".": "./dist/index.js", "./a": { "import": "./dist/a.js" } },
+            "n8n": { "nodes": ["dist/nodes/A.node.js"], "credentials": ["dist/credentials/B.credentials.js"] },
         });
         let targets = manifest_targets(&manifest);
-        for expected in ["dist/index.js", "bin/tool.js", "./dist/index.js", "./dist/a.js"] {
+        for expected in [
+            "dist/index.js",
+            "bin/tool.js",
+            "./dist/index.js",
+            "./dist/a.js",
+            "dist/nodes/A.node.js",
+            "nodes/A.node.js",
+            "dist/credentials/B.credentials.js",
+            "credentials/B.credentials.js",
+        ] {
             assert!(targets.iter().any(|t| t.path == expected), "{expected}");
         }
         let from_exports: Vec<&str> = targets

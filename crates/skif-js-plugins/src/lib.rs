@@ -24,7 +24,7 @@ mod support;
 
 pub use config_load::load_config;
 pub use plugin::{
-    BuildDir, ConfigAst, DepRef, Enabler, KNIP_COMMIT, PathAlias, Plugin, PluginContext, PluginId, PluginInput,
-    PluginOutput, PluginSpec,
+    BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, KNIP_COMMIT, PathAlias, Plugin,
+    PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
 };
 pub use resolve::resolve_plugins;

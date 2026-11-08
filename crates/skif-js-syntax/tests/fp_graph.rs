@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use skif_js_syntax::{ImportedKind, ModuleInfo, ParseOptions, parse_module};
+use skif_js_syntax::{ImportKind, ImportedKind, ModuleInfo, ParseOptions, parse_module};
 
 fn parse(path: &str, source: &str) -> ModuleInfo {
     parse_module(Path::new(path), source, &ParseOptions::default()).expect("parses")
@@ -138,6 +138,53 @@ fn only_members_read_by_name_in_the_declaring_file_are_recorded() {
 }
 
 #[test]
+fn namespace_members_read_by_their_bare_name_inside_the_namespace_are_recorded() {
+    let info = parse(
+        "a.ts",
+        "export namespace Values {\n\
+           export function findVisible() { return 1; }\n\
+           export function show() { return findVisible(); }\n\
+           export const unread = 1;\n\
+         }\n\
+         export namespace Types {\n\
+           export type ProgressToken = string | number;\n\
+           export interface Progress { token: ProgressToken }\n\
+           export type Unread = string;\n\
+         }\n\
+         export namespace Shadowed {\n\
+           export const a = 1;\n\
+           export const b = 2;\n\
+           export const c = 3;\n\
+           export type T = string;\n\
+           export function f(a: number) { return a; }\n\
+           export function g() { const b = 1; return b; }\n\
+           export function h<T>(x: T): T { return x; }\n\
+           namespace Inner { export const c = 4; console.log(c); }\n\
+         }\n\
+         export namespace Outer {\n\
+           export const v = 1;\n\
+           namespace Inner { console.log(v); }\n\
+         }\n\
+         export namespace Merged { export const one = 1; export const p = 1; }\n\
+         export namespace Merged { export const two = one; const p = 2; console.log(p); }\n\
+         const unread = 2;\n\
+         console.log(unread);\n",
+    );
+    let read = |name: &str| {
+        info.exports
+            .iter()
+            .filter(|export| export.name == name)
+            .map(|export| export.members_read_in_file.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(read("Values"), [["findVisible"]]);
+    assert_eq!(read("Types"), [["ProgressToken"]]);
+    assert_eq!(read("Shadowed"), [Vec::<String>::new()]);
+    assert_eq!(read("Outer"), [["v"]]);
+    assert_eq!(read("Merged"), [["one"], ["one"]]);
+}
+
+#[test]
 fn a_constant_records_the_identifier_it_is_initialised_with() {
     let info = parse(
         "a.ts",
@@ -164,4 +211,45 @@ fn typeof_import_asserting_a_require_is_not_a_use_of_the_whole_module() {
     );
     assert_eq!(imported(&info, "./x"), ["used"]);
     assert_eq!(imported(&info, "./y"), ["*"]);
+}
+
+#[test]
+fn test_runner_mocks_are_mock_imports_and_strings_are_not() {
+    let info = parse(
+        "a.test.ts",
+        "vi.mock('./dep');\njest.requireActual<typeof import('x')>('pkg');\njest.mock('virtual', () => ({}), { virtual: true });\nconst code = `vi.mock('inv1')`;\nconst text = \"jest.mock('inv2')\";\n",
+    );
+    let mocks: Vec<&str> = info
+        .imports
+        .iter()
+        .filter(|import| import.kind == ImportKind::Mock)
+        .map(|import| import.specifier.as_str())
+        .collect();
+    assert_eq!(mocks, ["./dep", "pkg"]);
+}
+
+#[test]
+fn imports_inside_declare_module_bodies_are_imports() {
+    let info = parse(
+        "types.d.ts",
+        "declare module 'compiled/accept' {\n  import m from '@hapi/accept';\n  export = m;\n}\n",
+    );
+    assert_eq!(imported(&info, "@hapi/accept"), ["default"]);
+}
+
+#[test]
+fn declare_module_in_a_module_file_is_an_augmentation() {
+    let info = parse(
+        "next-auth.d.ts",
+        "import 'next-auth';\ndeclare module 'next-auth' { interface Session { id: string } }\n",
+    );
+    assert_eq!(info.ambient_modules, [] as [&str; 0]);
+    assert_eq!(info.augmented_modules, ["next-auth"]);
+    for source in [
+        "export {};\ndeclare module 'dayjs' {}\n",
+        "import x = require('y');\ndeclare module 'dayjs' {}\n",
+    ] {
+        let info = parse("types.d.ts", source);
+        assert_eq!(info.augmented_modules, ["dayjs"], "{source}");
+    }
 }
