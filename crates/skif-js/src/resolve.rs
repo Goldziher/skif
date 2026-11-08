@@ -1517,6 +1517,7 @@ mod tests {
             Resolved::External("@kit/nothing".to_owned())
         );
     }
+
     #[test]
     fn a_relative_package_directory_with_unbuilt_output_maps_to_source() {
         let r = resolver(&[
