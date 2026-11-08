@@ -213,3 +213,17 @@ fn tsconfig_exists_as_the_analysis_reads_it() {
         .count();
     assert_eq!(unresolved, 0, "{report:#}");
 }
+
+#[test]
+fn trace_dependency_rejects_a_tsconfig_outside_the_workspace_root() {
+    for path in ["../tsconfig.json", "/etc/tsconfig.json"] {
+        let dir = fixture("tsconfig");
+        let (result, error) = lint(dir.path(), &["--trace-dependency", "left-pad", "--tsconfig", path]);
+        assert_eq!(result.code, 2, "{path}: {error:#}");
+        assert_eq!(error["error"]["kind"], "config", "{path}: {error:#}");
+        assert!(
+            error["error"]["message"].as_str().unwrap().contains("js.tsconfig"),
+            "{path}: {error:#}"
+        );
+    }
+}
