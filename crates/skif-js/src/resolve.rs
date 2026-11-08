@@ -180,7 +180,7 @@ const FOREIGN_FILE_EXTENSIONS: &[&str] = &[
 ];
 
 /// The source extensions an import extension stands for.
-const EXTENSION_ALIASES: &[(&str, &[&str])] = &[
+pub(crate) const EXTENSION_ALIASES: &[(&str, &[&str])] = &[
     (".js", &[".ts", ".tsx", ".d.ts"]),
     (".jsx", &[".tsx"]),
     (".mjs", &[".mts", ".d.mts"]),
