@@ -128,6 +128,10 @@ All notable changes to this project are documented here. The format follows
 - `skif lsp`, a minimal language server on stdio that publishes skif's diagnostics when a file is opened or saved
   ([ADR 0056](adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
   [#44](https://github.com/Goldziher/skif/issues/44)).
+- `skif lsp` answers `textDocument/codeAction`: each fix of a diagnostic under the cursor is a quick fix (an unsafe
+  one is labelled `(unsafe)`), and `source.fixAll.skif` applies every safe fix of the file. The edits come from the
+  same fix plan as `skif --fix --dry-run`; fixes that create or delete files, and fixes of a file with unsaved
+  changes, are not offered ([#44](https://github.com/Goldziher/skif/issues/44)).
 - `ConfigLoader::with_sequential` makes `add_package_files` probe the member directories on the calling thread, for a
   host that runs with one thread; by default they are probed on the current rayon pool
   ([#29](https://github.com/Goldziher/skif/issues/29)).

@@ -71,6 +71,7 @@ old one.
 | 0061 | [Thirty-Nine More Plugins and Plugins Enabled by a package.json Key](0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md) | accepted |
 | 0062 | [Custom Element Registrations and the taskr Plugin](0062-custom-element-registrations-and-the-taskr-plugin.md) | accepted |
 | 0063 | [`skif update --interactive`: A Terminal Picker on the Update Report](0063-skif-update-interactive-a-terminal-picker-on-the-update-report.md) | accepted |
+| 0064 | [Code Actions in the Language Server](0064-code-actions-in-the-language-server.md) | accepted |
 
 ## Effective statements
 
@@ -178,3 +179,5 @@ the lines below stay as written; this table says which record governs.
 | [0060](0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md), line 52 | `stencil` does not mark custom elements as used | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): `@Component` classes from `@stencil/core` are used; component style URLs are still not marked |
 | [0061](0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md), line 41 | `catalyst` and `fast` are not added: skif does not mark custom elements | [0062](0062-custom-element-registrations-and-the-taskr-plugin.md): both are added and mark the classes they register |
 | [0058](0058-registry-updates-an-opt-in-skif-update-command.md), line 86 | `--interactive` is deferred | [0063](0063-skif-update-interactive-a-terminal-picker-on-the-update-report.md): implemented in the CLI on a filtered copy of the update report; it needs a terminal, conflicts with `--check`, and Esc writes nothing |
+| [0056](0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md), lines 105 and 114 | document sync is limited to open and save; `didChange` is not handled | [0064](0064-code-actions-in-the-language-server.md): `didChange` is incremental and only marks a document as having unsaved changes; buffers are still not linted |
+| [0056](0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md), line 114 | code actions from fixes are deferred | [0064](0064-code-actions-in-the-language-server.md): `textDocument/codeAction` offers a quick fix per fix alternative (unsafe ones labelled and never preferred) and `source.fixAll.skif` with the safe, prefer-aware fixes; plans that create or delete files or edit unsaved documents are withheld |
