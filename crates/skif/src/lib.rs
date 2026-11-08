@@ -126,11 +126,17 @@ pub use fix::{
     preferred_alternative,
 };
 #[cfg(feature = "js-analysis")]
-pub use js::explain_usage;
+pub use js::{explain_usage, trace_dependency};
 pub use linter::{Linter, RunOptions, builtin_providers};
 pub use root::{config_file, find_workspace_root, load_config, resolve_config};
 #[cfg(feature = "js-analysis")]
-pub use skif_js::{Absence, EntryReason, ExportReport, ExportUser, Importer, ReExport, UsageReport, Verdict};
+pub use skif_js::{
+    Absence, DependencyImport, DependencyListing, DependencyTrace, EntryReason, ExportReport, ExportUser, Importer,
+    ReExport, UsageReport, Verdict, empty_tsconfig_projects, relative_tsconfig,
+};
+/// The state of one dependency instance, from [`Linter::instances`].
+#[cfg(feature = "manifest")]
+pub use skif_rules::policy::{GroupRef, InstanceStatus, StatusType};
 pub use targets::{
     Discovery, RootFailure, Target, UnappliedConfig, UnappliedReason, discover_all, discover_targets, find_target,
     load_target, unapplied_config_files, unapplied_config_files_all,
@@ -143,9 +149,10 @@ pub use skif_config::Workspace as WorkspaceConfig;
 pub use skif_config::{
     Assignment, CONFIG_FILE_NAMES, Catalog, CatalogMode, Ceiling, Config, ConfigBuilder, ConfigCache, ConfigError,
     ConfigLoader, ConfigOverrides, ConfigSource, DependencyFamily, DependencyTypes, ExportKinds, IgnoreEntry,
-    IgnoreExportsUsedInFile, Js, JsWorkspace, Level, Lint, Op, Origins, Override, OverrideScope, PackageJs,
-    PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey, ResolvedConfig, RuleConfig, RuleOptions,
-    Selector, SemverGroup, SemverRange, SourceKind, VersionGroup, VersionPolicy, WorkspaceProtocol, join_key,
+    IgnoreExportsUsedInFile, InstanceFilter, Js, JsWorkspace, Level, Lint, Op, Origins, Override, OverrideScope,
+    PackageJs, PackageManager, PluginConfig, PluginOptions, Policy, Prefer, ResetKey, ResolvedConfig, RuleConfig,
+    RuleOptions, Selector, SemverGroup, SemverRange, SourceKind, VersionGroup, VersionPolicy, WorkspaceProtocol,
+    join_key,
 };
 /// `[[custom-types]]` and the places a version can be declared.
 pub use skif_config::{CustomStrategy, CustomType, DependencyType};
@@ -212,6 +219,7 @@ const _: () = {
     #[cfg(feature = "js-analysis")]
     {
         let _ = assert_send_sync::<UsageReport>;
+        let _ = assert_send_sync::<DependencyTrace>;
         let _ = assert_send_sync::<skif_js::JsProvider>;
     }
     #[cfg(feature = "fix")]

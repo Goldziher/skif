@@ -667,6 +667,8 @@ ignore-unresolved = ["#internal/*"]
 ignore-workspaces = ["tools/*"]
 ignore-members = ["/^_/"]
 ignore-exports-used-in-file = { type = true, enum = true }
+tsconfig = "tsconfig.app.json"
+use-tsconfig-files = true
 
 [js.workspaces."."]
 include-entry-exports = true
@@ -686,6 +688,8 @@ vite = { config = ["vite.web.config.ts"] }
     assert_eq!(js.ignore_unresolved, ["#internal/*"]);
     assert_eq!(js.ignore_workspaces, ["tools/*"]);
     assert_eq!(js.ignore_members, ["/^_/"]);
+    assert_eq!(js.tsconfig.as_deref(), Some("tsconfig.app.json"));
+    assert!(js.use_tsconfig_files);
     let IgnoreExportsUsedInFile::Kinds(kinds) = &js.ignore_exports_used_in_file else {
         panic!("expected a table of kinds");
     };
@@ -707,6 +711,7 @@ vite = { config = ["vite.web.config.ts"] }
 fn js_defaults_ignore_nothing_new() {
     let js = Config::default().js;
     assert!(js.ignore_unresolved.is_empty() && js.ignore_workspaces.is_empty() && js.ignore_members.is_empty());
+    assert!(js.tsconfig.is_none() && !js.use_tsconfig_files);
     assert_eq!(js.ignore_exports_used_in_file, IgnoreExportsUsedInFile::All(false));
 }
 
@@ -767,6 +772,7 @@ fn custom_types_are_parsed_and_selectable_in_dependency_types() {
         "[[custom-types]]\nname = \"node\"\npath = \"engines.node\"\nstrategy = \"version\"\n\n\
          [[custom-types]]\nname = \"manager\"\npath = \"packageManager\"\nstrategy = \"name@version\"\n\n\
          [[custom-types]]\nname = \"allowed\"\npath = \"pnpm.peerDependencyRules.allowedVersions\"\nstrategy = \"versions-by-name\"\n\n\
+         [[custom-types]]\nname = \"runtime\"\npath = \"volta.version\"\nname-path = \"volta.tool\"\nstrategy = \"name~version\"\n\n\
          [policy]\ndependency-types = [\"prod\", \"node\", \"local\", \"resolutions\"]\n\n\
          [[version-groups]]\ndependency-types = [\"manager\", \"!allowed\"]\npolicy = \"ignored\"\n",
     )
@@ -777,9 +783,11 @@ fn custom_types_are_parsed_and_selectable_in_dependency_types() {
         [
             CustomStrategy::Version,
             CustomStrategy::NameAtVersion,
-            CustomStrategy::VersionsByName
+            CustomStrategy::VersionsByName,
+            CustomStrategy::NameTildeVersion
         ]
     );
+    assert_eq!(config.custom_types[3].name_path.as_deref(), Some("volta.tool"));
     assert_eq!(
         config.custom_types[2].segments().collect::<Vec<_>>(),
         ["pnpm", "peerDependencyRules", "allowedVersions"]
@@ -812,6 +820,18 @@ fn invalid_custom_types_are_rejected() {
                 custom("name = \"x\"\npath = \"b\"\nstrategy = \"version\"")
             ),
             "defined twice",
+        ),
+        (
+            custom("name = \"x\"\npath = \"a\"\nstrategy = \"name~version\""),
+            "requires `name-path`",
+        ),
+        (
+            custom("name = \"x\"\npath = \"a\"\nname-path = \"b\"\nstrategy = \"version\""),
+            "only valid with strategy `name~version`",
+        ),
+        (
+            custom("name = \"x\"\npath = \"a\"\nname-path = \"b.\"\nstrategy = \"name~version\""),
+            "`name-path` must be a dotted path",
         ),
         (
             "[policy]\ndependency-types = [\"nodes\"]\n".to_owned(),

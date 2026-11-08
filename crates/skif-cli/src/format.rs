@@ -5,7 +5,7 @@ use skif::{Config, Level, Linter};
 use crate::args::{FormatArgs, FormatSpec, LintArgs};
 use crate::env::Env;
 use crate::error::CliError;
-use crate::lint;
+use crate::lint::{self, Teardown};
 use crate::output::emit_error;
 
 /// The rule `skif format` runs.
@@ -33,34 +33,23 @@ fn lint_args(args: &FormatArgs, rules: Vec<(String, Level)>) -> LintArgs {
             .map(|format| FormatSpec { format, file: None })
             .into_iter()
             .collect(),
-        output: None,
         fix: !args.check,
         fix_unsafe: !args.check && args.allow_unsafe,
-        allow_remove_files: false,
-        fix_type: Vec::new(),
-        select: None,
         no_install: true,
-        max_warnings: None,
-        fail_on_warnings: false,
         no_prompt: true,
         rules,
-        ignore_rule: Vec::new(),
-        ignore_package: Vec::new(),
-        ignore_dependency: Vec::new(),
-        ignore_rule_for_package: Vec::new(),
-        require_ignore_reasons: false,
         no_js: true,
         config: args.config.clone(),
         no_config: args.no_config,
-        production: false,
         color: args.color,
+        ..LintArgs::default()
     }
 }
 
 /// Runs `skif format` and returns the exit code: a lint's, so `--check` exits 1 when a manifest is not formatted.
-pub fn run(args: &FormatArgs, env: Env) -> u8 {
+pub fn run(args: &FormatArgs, env: Env, teardown: Teardown) -> u8 {
     match levels() {
-        Ok(rules) => lint::run(&lint_args(args, rules), env),
+        Ok(rules) => lint::run(&lint_args(args, rules), env, teardown),
         Err(error) => {
             emit_error(&error, args.format.unwrap_or_default());
             2

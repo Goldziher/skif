@@ -35,6 +35,29 @@ const SHORTCUTS: &[(&str, &[&str])] = &[
     ("cycles", &["cycles"]),
 ];
 
+/// The knip issue types the shortcut flag `--<flag>` (`dependencies`, `exports`, `files` or `cycles`) selects, as
+/// knip works them out: outside production mode `--dependencies` also selects `devDependencies` and
+/// `optionalPeerDependencies`. `None` for any other flag.
+#[must_use]
+pub fn knip_shortcut_types(flag: &str, production: bool) -> Option<Vec<&'static str>> {
+    let (_, types) = SHORTCUTS.iter().find(|(name, _)| *name == flag)?;
+    let mut types = types.to_vec();
+    if flag == "dependencies" && !production {
+        types.extend(["devDependencies", "optionalPeerDependencies"]);
+    }
+    Some(types)
+}
+
+/// The skif rules that report the findings of the knip issue type `name` (empty when skif has none), or `None` when
+/// `name` is not a knip issue type.
+#[must_use]
+pub fn knip_issue_type_rules(name: &str) -> Option<Vec<&'static str>> {
+    tables::knip_types()
+        .into_iter()
+        .find(|knip_type| knip_type.name == name)
+        .map(|knip_type| knip_type.rules)
+}
+
 /// Issue types that only add to the defaults when they are the only ones included.
 const ADD_ON: &[&str] = &["nsExports", "nsTypes"];
 
@@ -51,8 +74,6 @@ const INERT_FLAGS: &[&str] = &[
     "--reporter-options",
     "--directory",
     "-D",
-    "--tsConfig",
-    "-t",
     "--cache",
     "--cache-location",
     "--debug",
@@ -69,7 +90,6 @@ const INERT_FLAGS: &[&str] = &[
     "--trace-dependency",
     "--output-file",
     "--isolate-workspaces",
-    "--use-tsconfig-files",
     "--include-libs",
     "--format",
     "-F",
@@ -103,6 +123,9 @@ const HANDLED_FLAGS: &[&str] = &[
     "--no-gitignore",
     "--preprocessor",
     "--preprocessor-options",
+    "--tsConfig",
+    "-t",
+    "--use-tsconfig-files",
 ];
 
 /// Keys of the knip configuration that are not settings of one workspace, handled where they appear.
@@ -213,6 +236,9 @@ struct Plan {
     include_tags: Vec<String>,
     hints: Option<Level>,
     include_entry_exports: bool,
+    /// `--tsConfig` of a script.
+    tsconfig: Option<String>,
+    use_tsconfig_files: bool,
     runs: Vec<Run>,
     /// Where the issue type settings came from, for the note.
     origins: Vec<String>,
@@ -897,6 +923,24 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, plan: &
             "written to [js] include-entry-exports",
         );
     }
+    if let Some(path) = invocation.values("tsConfig", Some("t")).pop() {
+        plan.tsconfig = Some(path);
+        state.note(
+            src,
+            NoteClass::Exact,
+            flag_path("--tsConfig"),
+            "written to [js] tsconfig",
+        );
+    }
+    if invocation.has("use-tsconfig-files", None) {
+        plan.use_tsconfig_files = true;
+        state.note(
+            src,
+            NoteClass::Exact,
+            flag_path("--use-tsconfig-files"),
+            "written to [js] use-tsconfig-files",
+        );
+    }
     if invocation.has("treat-config-hints-as-errors", None) {
         plan.hints = Some(Level::Error);
         plan.origin(flag_path("--treat-config-hints-as-errors"));
@@ -913,10 +957,22 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, plan: &
     other_flags(state, src, invocation);
 }
 
-/// Flags that change what skif reports for the whole project but that only some scripts passed.
+/// Flags that change what skif reports for the whole project but that only some scripts passed, or passed with
+/// different values.
 fn note_differing_flags(state: &mut State<'_>, src: &Src, invocations: &[Invocation]) {
+    if let Some(scripts) = scripts::differing_values(invocations, "tsConfig", Some("t")) {
+        state.note_with(
+            src,
+            NoteClass::Approximate,
+            format!("{scripts}: --tsConfig"),
+            "these scripts do not all pass the same --tsConfig; skif has one [js] tsconfig for the project, so the \
+             last one is written and applies to all",
+            "check that every check should use it",
+        );
+    }
     for flag in [
         "include-entry-exports",
+        "use-tsconfig-files",
         "treat-config-hints-as-errors",
         "no-config-hints",
     ] {
@@ -946,19 +1002,19 @@ fn other_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation) {
             "--workspace",
             NoteClass::Human,
             "knip ran for some workspaces only; skif analyses every workspace of the root",
-            "run skif in the workspace directory to narrow it",
+            "pass the same `--workspace` to skif",
         ),
         (
             "--max-issues",
             NoteClass::Approximate,
             "knip tolerated this many issues",
-            "use `skif --max-warnings N` with the rules at `warn`",
+            "pass the same `--max-issues` to skif",
         ),
         (
             "--no-exit-code",
             NoteClass::Human,
             "knip always exited 0",
-            "skif exits 1 when it reports an error; lower the levels in [rules] or [lint] max-level",
+            "pass `--no-exit-code` to skif, or lower the levels in [rules]",
         ),
         (
             "--fix",
@@ -970,7 +1026,7 @@ fn other_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation) {
             "--no-gitignore",
             NoteClass::Human,
             "knip read files that .gitignore hides",
-            "skif always honours .gitignore",
+            "pass `--no-gitignore` to skif",
         ),
         (
             "--preprocessor",
@@ -1218,6 +1274,12 @@ fn js_settings(state: &mut State<'_>, src: &Src, plan: &Plan) {
     if plan.include_entry_exports {
         table(&mut state.doc, &js).set(keys::JS_INCLUDE_ENTRY_EXPORTS, Val::Bool(true));
     }
+    if let Some(path) = &plan.tsconfig {
+        table(&mut state.doc, &js).set(keys::JS_TSCONFIG, Val::str(path.as_str()));
+    }
+    if plan.use_tsconfig_files {
+        table(&mut state.doc, &js).set(keys::JS_USE_TSCONFIG_FILES, Val::Bool(true));
+    }
 }
 
 /// `[js] production` is one setting for the project: it is written when every run of knip used production mode, and
@@ -1256,5 +1318,22 @@ fn production(state: &mut State<'_>, src: &Src, plan: &Plan) {
             ),
             "set [js] production = true if every check should skip dev dependencies and test files",
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{knip_issue_type_rules, knip_shortcut_types};
+
+    #[test]
+    fn issue_types_and_shortcuts_name_rules() {
+        assert_eq!(knip_issue_type_rules("files"), Some(vec!["unused-files"]));
+        assert_eq!(knip_issue_type_rules("unused-files"), None);
+        assert_eq!(knip_shortcut_types("files", false), Some(vec!["files"]));
+        let dependencies = knip_shortcut_types("dependencies", false).unwrap();
+        assert!(dependencies.contains(&"devDependencies"));
+        let production = knip_shortcut_types("dependencies", true).unwrap();
+        assert!(!production.contains(&"devDependencies"));
+        assert_eq!(knip_shortcut_types("tags", false), None);
     }
 }

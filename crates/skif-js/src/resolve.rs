@@ -9,7 +9,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError, RwLock};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use oxc_resolver::{FileMetadata, ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery};
+use oxc_resolver::{
+    FileMetadata, ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery, TsconfigOptions, TsconfigReferences,
+};
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use serde_json::Value;
 use skif_core::{FileSystem, OsFs};
@@ -271,6 +273,8 @@ pub(crate) struct ModuleResolver {
     script: Resolvers,
     /// Script resolvers for the packages whose bundler config declares `resolve.extensions`, by package directory.
     script_with_extensions: HashMap<PathBuf, Resolvers>,
+    /// Script resolvers for the files of the root package when `[js] tsconfig` names its TypeScript configuration.
+    root_script: Option<Resolvers>,
     style: Resolvers,
     fs: Arc<dyn FileSystem>,
     root: PathBuf,
@@ -593,6 +597,28 @@ impl ModuleResolver {
                 (package.dir.clone(), resolvers)
             })
             .collect();
+        let root_script = setup
+            .root_tsconfig
+            .as_ref()
+            .filter(|config| fs.is_file(config))
+            .map(|config| {
+                let extensions = setup
+                    .packages
+                    .iter()
+                    .flatten()
+                    .find(|package| package.dir == workspace.root)
+                    .map_or(&[][..], |package| package.extensions.as_slice());
+                script.sharing_cache(|tsconfig| {
+                    let mut options = options(tsconfig, &conditions, extensions);
+                    if tsconfig {
+                        options.tsconfig = Some(TsconfigDiscovery::Manual(TsconfigOptions {
+                            config_file: config.clone(),
+                            references: TsconfigReferences::Auto,
+                        }));
+                    }
+                    options
+                })
+            });
         let style = script.sharing_cache(style_options);
         let members: BTreeMap<String, Member> = workspace
             .all_packages()
@@ -688,10 +714,12 @@ impl ModuleResolver {
                 .iter()
                 .map(|(name, member)| (name.clone(), member.dir.clone()))
                 .collect(),
-        );
+        )
+        .with_root_config(setup.root_tsconfig.clone());
         Self {
             script,
             script_with_extensions,
+            root_script,
             style,
             workspace_name: bazel_workspace_name(fs.as_ref(), &workspace.root),
             ignores,
@@ -725,12 +753,17 @@ impl ModuleResolver {
     /// The script resolvers for files below `within`: those with the `resolve.extensions` of the innermost package
     /// that holds it, when that package declares any.
     fn script_resolvers(&self, within: &Path) -> &Resolvers {
-        if self.script_with_extensions.is_empty() {
+        if self.script_with_extensions.is_empty() && self.root_script.is_none() {
             return &self.script;
         }
-        self.scopes_of(within)
-            .next()
-            .and_then(|(_, scope)| self.script_with_extensions.get(&scope.dir))
+        let innermost = self.scopes_of(within).next().map(|(_, scope)| &scope.dir);
+        if let (Some(root_script), Some(dir)) = (&self.root_script, innermost)
+            && *dir == self.root
+        {
+            return root_script;
+        }
+        innermost
+            .and_then(|dir| self.script_with_extensions.get(dir))
             .unwrap_or(&self.script)
     }
 

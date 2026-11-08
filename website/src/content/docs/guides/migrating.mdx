@@ -107,17 +107,16 @@ Every construct that was not copied one to one has a note with the file, the key
 | `versionGroups[]` with `label`, `dependencies`, `packages`, `dependencyTypes`, `specifierTypes` | `[[version-groups]]` with the same keys |
 | `isBanned`, `isIgnored`, `pinVersion`, `snapTo`, `preferVersion`, `policy: sameRange`, `policy: sameMinor` | `policy = "banned"`, `"ignored"`, `"pinned"` with `pin`, `"snapped-to"` with `snap-to`, `prefer`, `"same-range"`, `"same-minor"` |
 | `policy: catalog` | `[catalog] mode = "prefer"` when the group selects every dependency. A group with `dependencies`, `packages`, `dependencyTypes` or `specifierTypes` is not written (H): the catalog setting is global, so writing it would check every dependency |
-| `policy: semverRangeOnly` | written as `policy = "ignored"` (X): skif cannot check ranges while letting versions differ |
+| `policy: semverRangeOnly` | `policy = "semver-range-only"` |
 | `severity` | none (H): levels are set per rule |
 | `semverGroups[]` with `range` | `[[semver-groups]]` |
 | `semverGroups[]` with `isIgnored` or `isDisabled` | `[[semver-groups]]` with `ignored = true` |
 | `dependencyTypes` with `prod`, `dev`, `peer`, `local`, `resolutions`, `overrides`, `pnpmOverrides` and `!` negation | the same tokens (`pnpmOverrides` is `pnpm-overrides`) |
 | `dependencyTypes: ["**"]` | no `dependency-types` key: every type |
 | `specifierTypes` | `specifier-types` with the types skif knows; `hosted-git` is `git` (A), `**` is no filter, and a type skif does not know (`delete`) is dropped (A) or, when the group selects only such types, the group is not written (X) |
-| `customTypes` with `strategy` `name@version`, `version` or `versionsByName` | `[[custom-types]]` with `name`, `path` and `strategy` (`"name@version"`, `"version"`, `"versions-by-name"`) |
+| `customTypes` with `strategy` `name@version`, `version`, `versionsByName` or `name~version` | `[[custom-types]]` with `name`, `path` and `strategy` (`"name@version"`, `"version"`, `"versions-by-name"`, `"name~version"` with `name-path` from `namePath`) |
 | a custom type whose name is a built-in token (`dev`, `overrides`, ...) | `[[custom-types]]` under `<name>-custom` (A); groups that name the token select the built-in type |
 | a custom type for `optionalDependencies` | the native `optional` dependency type |
-| `name~version` custom types | none (X). A group that only covers them is not written, because without the selector it would match everything |
 | `dependencyGroups`, `strict`, `sourceMode` | none (X or H) |
 | `source` | dropped when it lists the workspace patterns (D); otherwise H |
 | `sortFirst`, `sortAz`, `sortExports`, `sortPackages`, `formatBugs`, `formatRepository`, `indent` | `[format]` `sort-first`, `sort-az`, `sort-exports`, `sort-packages`, `format-bugs`, `format-repository`, `indent`, and `package-json-format = "error"`. skif sorts in byte order where syncpack uses a collator (A), by default moves only `types` first and `default` last among `exports` conditions, since reordering the others changes resolution; a configured `sortExports` naming others becomes an unsafe fix (A), collapses `bugs` and `repository` only when nothing is lost (A), and with `indent` also checks the layout (A). `unsorted-dependencies` stays on when `sortAz` names a dependency map |
@@ -129,8 +128,9 @@ Every construct that was not copied one to one has a note with the file, the key
 Without `--dependency-types`, `[policy] dependency-types` is set to the scope syncpack lints by default (`prod`, `dev`,
 `peer`, `local`, `resolutions`, `overrides`, `pnpm-overrides` and your custom types; optional dependencies are not part
 of it), because skif's own default is narrower. `--dependencies` and
-`--specifier-types` narrowed the old run; skif checks every dependency, so they are reported. `syncpack update` has no
-equivalent.
+`--specifier-types` narrowed the old run; a `skif.toml` cannot, so they are reported. To narrow a skif run the same
+way, pass `--dependency` (syncpack's `--dependencies`; skif's `--dependencies` is knip's issue-type shortcut) and
+`--specifier-types` on the command line. `syncpack update` has no equivalent.
 
 ## knip
 
@@ -145,6 +145,8 @@ equivalent.
 | `ignoreWorkspaces` | `[js] ignore-workspaces` |
 | `ignoreIssues` | `[[overrides]]` with `files` and the matching rules set to `off` |
 | `includeEntryExports` | `[js] include-entry-exports`, or per workspace |
+| `--tsConfig`, `-t` | `[js] tsconfig` (knip has no configuration key for it); scripts that pass different values get a note and the last one is written |
+| `--use-tsconfig-files` | `[js] use-tsconfig-files = true` |
 | `paths` | `[js.workspaces."<dir>"] paths`, with `"."` for the root |
 | `workspaces["<dir>"]` | `[js.workspaces."<dir>"]`; `workspaces["."]` is merged into `[js]` |
 | plugin keys (`vitest: true`, `"config.ts"`, `["a", "b"]`, `{ config, entry, project }`) | `[js.plugins]`, or `[js.workspaces."<dir>".plugins]` inside a workspace |
@@ -172,7 +174,7 @@ regular expression literal in a JavaScript or TypeScript config, are written as 
 regular expression matching a superset of that.
 
 Settings that knip scopes to one workspace stay in that workspace's table. `--workspace` narrowed the old run to some
-workspaces and has no equivalent.
+workspaces; it is not written to the configuration, and the script can pass the same `--workspace` to skif.
 
 ## Several tools
 

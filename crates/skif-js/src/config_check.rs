@@ -24,6 +24,31 @@ fn glob_problem(pattern: &str) -> Option<String> {
         .find_map(|variant| Glob::new(variant).err().map(|err| err.kind().to_string()))
 }
 
+/// `[js] tsconfig` normalised to a `/`-separated path relative to the workspace root, or `None` when it is empty,
+/// absolute or leaves the root. Every reader of the setting goes through this, so they agree on which file it names.
+#[must_use]
+pub fn relative_tsconfig(path: &str) -> Option<String> {
+    let path = path.trim();
+    if path.is_empty() || path.starts_with(['/', '\\']) || std::path::Path::new(path).is_absolute() {
+        return None;
+    }
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in path.split(['/', '\\']) {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop()?;
+            }
+            other => segments.push(other),
+        }
+    }
+    // A Windows drive (`C:`) is absolute there and never a file name here.
+    if segments.is_empty() || segments[0].contains(':') {
+        return None;
+    }
+    Some(segments.join("/"))
+}
+
 fn globs(key: &str, patterns: &[String]) -> Problem {
     for (index, pattern) in patterns.iter().enumerate() {
         if let Some(message) = glob_problem(pattern) {
@@ -80,6 +105,13 @@ pub(crate) fn validate(config: &Config) -> Problem {
     names("js.ignore-members", &js.ignore_members)?;
     names("js.ignore-workspaces", &js.ignore_workspaces)?;
     plugin_globs("js.plugins", &js.plugins)?;
+    if let Some(path) = &js.tsconfig
+        && relative_tsconfig(path).is_none()
+    {
+        return invalid(format!(
+            "js.tsconfig: `{path}` is not a path relative to the workspace root that stays inside it"
+        ));
+    }
     for (index, cycle) in js.cycles.allow.iter().enumerate() {
         if cycle.is_empty() || cycle.iter().any(|file| file.trim().is_empty()) {
             return invalid(format!(
@@ -181,6 +213,33 @@ mod tests {
         );
         assert!(check("[js]\nignore-unresolved = [\"[bad\"]\n").contains("js.ignore-unresolved[0]"));
         assert!(check("[js]\nignore-workspaces = [\"a(\"]\n").contains("js.ignore-workspaces[0]"));
+    }
+
+    #[test]
+    fn tsconfig_paths_stay_inside_the_workspace_root() {
+        assert_eq!(
+            relative_tsconfig("./config/../tsconfig.app.json").as_deref(),
+            Some("tsconfig.app.json")
+        );
+        assert_eq!(
+            relative_tsconfig("config\\tsconfig.json").as_deref(),
+            Some("config/tsconfig.json")
+        );
+        for bad in [
+            "",
+            "  ",
+            ".",
+            "/abs/tsconfig.json",
+            "\\abs.json",
+            "C:/x.json",
+            "../tsconfig.json",
+            "a/../../b.json",
+        ] {
+            assert_eq!(relative_tsconfig(bad), None, "{bad}");
+        }
+        let message = check("[js]\ntsconfig = \"../tsconfig.json\"\n");
+        assert!(message.contains("js.tsconfig: `../tsconfig.json`"), "{message}");
+        assert!(check("[js]\ntsconfig = \"/etc/tsconfig.json\"\n").contains("js.tsconfig"));
     }
 
     #[test]

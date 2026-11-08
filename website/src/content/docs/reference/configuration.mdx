@@ -153,7 +153,7 @@ themselves workspace packages.
 | --- | --- |
 | `label` | Optional name shown in diagnostics. |
 | `dependencies`, `packages`, `dependency-types`, `specifier-types` | Selectors. |
-| `policy` | `preferred-semver` (default), `pinned`, `banned`, `ignored`, `same-range`, `same-minor` or `snapped-to`. |
+| `policy` | `preferred-semver` (default), `pinned`, `banned`, `ignored`, `same-range`, `same-minor`, `snapped-to` or `semver-range-only` (syncpack's `semverRangeOnly`: versions may differ, and only the range the `[[semver-groups]]` require is checked and fixed). |
 | `pin` | Required by `pinned`. |
 | `snap-to` | Required by `snapped-to`: packages whose version the group follows. |
 | `prefer` | With `preferred-semver`, overrides `[policy] prefer`. |
@@ -196,19 +196,26 @@ are aligned, pinned, banned and ranged like dependencies, and fixed in place (sy
 [[custom-types]]
 name = "node"                # the token for dependency-types; the dependency name with strategy "version"
 path = "engines.node"        # dotted path of keys in package.json
-strategy = "version"         # version | name@version | versions-by-name
+strategy = "version"         # version | name@version | versions-by-name | name~version
 
 [[custom-types]]
 name = "package-manager"
 path = "packageManager"      # "pnpm@9.15.0": the dependency is pnpm
 strategy = "name@version"
 
+[[custom-types]]
+name = "runtime"
+path = "volta.toolVersion"   # the version
+name-path = "volta.tool"     # the dependency name, read from another field
+strategy = "name~version"
+
 [policy]
-dependency-types = ["prod", "dev", "node", "package-manager"]
+dependency-types = ["prod", "dev", "node", "package-manager", "runtime"]
 ```
 
-`versions-by-name` reads an object of `name: version`. A name must not be one of the built-in types. The `name~version`
-strategy and `source` of syncpack are not supported.
+`versions-by-name` reads an object of `name: version`. `name~version` reads the version at `path` and the dependency
+name at `name-path`, which only this strategy takes; a fix rewrites the version. A name must not be one of the
+built-in types. syncpack's `source` (a custom type read from another file) is not supported.
 
 ### `[catalog]`
 
@@ -306,6 +313,8 @@ ignore-members = ["/^_/"]
 ignore-exports-used-in-file = { type = true, interface = true }
 production = false
 include-entry-exports = false
+tsconfig = "tsconfig.app.json"
+use-tsconfig-files = false
 include-fixtures = false
 discovery = "auto"
 
@@ -391,6 +400,24 @@ and `explain-usage` gives its exports the verdict `not-judged`.
 
 **`paths`** is a `tsconfig`-style map for one workspace, `{ "alias/*" = ["./target/*"] }`, targets relative to the
 workspace directory. Each target is tried as a module alias ahead of the aliases tools declare.
+
+**`tsconfig`** names the TypeScript configuration of the root package, relative to the workspace root, which is read
+in place of its `tsconfig.json`: its `paths`, `baseUrl` and `rootDirs` resolve the imports of the root package's
+files (and of directories below the root that have no config of their own), its `compilerOptions` decide which
+`@types` packages and JSX runtime count as used, and the `typescript` plugin reads it too. Other packages keep their
+own `tsconfig.json`. The path must stay inside the workspace root (no absolute path, no `..` above it), and the
+command line refuses a path that names no file in the root whose configuration sets it. This is knip's `--tsConfig`,
+which `skif --tsconfig` overrides. It can only be set at the top level.
+
+**`use-tsconfig-files`** takes the project files of each package that has a `tsconfig.json` (for the root, the
+`tsconfig` above) from it, as knip's `--use-tsconfig-files` does: the files its `files` and `include` select (every
+file when it sets neither), followed through `extends` and through the `references` that lie below it. As in
+TypeScript, `exclude` and `compilerOptions.outDir` filter only what `include` selects, never the files `files` names.
+These replace the `project` globs and the globs plugins add; entry files are unchanged, and production mode still
+leaves test files out. Patterns that leave the package directory are ignored, and the `exclude` of a referenced config
+applies to what the `include` of all of them selects. Packages without a `tsconfig.json` keep their `project` globs.
+The command line warns on stderr about a `tsconfig` that selects no file of its package, which leaves that package
+without project files.
 
 **`ignore-exports-used-in-file`** is `true`, or a table of the kinds `variable`, `function`, `class`, `enum`,
 `namespace`, `type` and `interface`: an export that the same file references is then not reported. skif does not tell
@@ -480,7 +507,9 @@ docs, Astro pages, Storybook stories) or an import reaches them, and reported as
 
 The `templateUrl`, `styleUrl` and `styleUrls` of an Angular or Stencil `@Component({ … })` (the decorator imported
 from `@angular/core` or `@stencil/core`) are imports of the component file, relative to it with or without `./`, so
-the stylesheets are followed and the packages they import count as used. Vue auto-imports are followed through the
+the stylesheets are followed and the packages they import count as used. This includes Stencil's styles per mode
+(`styleUrls: { ios: 'a.ios.css', md: ['a.md.css'] }`); its `assetsDirs` are directories copied as they are, not
+modules, and are not followed. Vue auto-imports are followed through the
 declaration files `unplugin-vue-components` and `unplugin-auto-import` generate (`components.d.ts`,
 `auto-imports.d.ts`): they are entries like every `.d.ts` file, so each registered component and composable counts as
 used, whether or not a template names it. A generated file that `.gitignore` excludes is not read, and the

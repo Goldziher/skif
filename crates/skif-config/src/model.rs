@@ -67,6 +67,69 @@ pub struct Config {
     #[serde(skip)]
     #[cfg_attr(feature = "schema", schemars(skip))]
     pub cli_levels: IndexMap<String, Level>,
+    /// The instances the version-group policies see, narrowed on the command line (`--dependency`,
+    /// `--dependency-types`, `--specifier-types`, `--source`). Never read from a file.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub filter: InstanceFilter,
+}
+
+/// Narrows the dependency instances the version-group policies see, as syncpack's command-line filters do: an
+/// instance that does not pass is left out before it is assigned to a group, so it is neither reported nor aligned
+/// with. Empty selects everything.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct InstanceFilter {
+    /// Dependency names or globs.
+    pub dependencies: Selector,
+    /// Dependency types; a non-empty list also replaces `[policy] dependency-types` as the scope of the default
+    /// group, so `["peer"]` governs peer dependencies.
+    pub dependency_types: DependencyTypes,
+    /// Specifier types (`exact`, `range`, ...), optionally negated with `!`.
+    pub specifier_types: Vec<String>,
+    /// Globs of the files the instances are declared in, relative to the workspace root (`packages/*/package.json`).
+    pub sources: Selector,
+}
+
+impl InstanceFilter {
+    /// Builds a filter from command-line values.
+    ///
+    /// # Errors
+    /// [`ConfigError::Invalid`] for a glob that does not compile, an empty dependency type or an unknown specifier
+    /// type.
+    pub fn new(
+        dependencies: &[String],
+        dependency_types: &[String],
+        specifier_types: &[String],
+        sources: &[String],
+    ) -> Result<Self, ConfigError> {
+        if let Some(message) = unknown_specifier_type(specifier_types) {
+            return Err(ConfigError::invalid(None, format!("--specifier-types: {message}")));
+        }
+        Ok(Self {
+            dependencies: Selector::new(dependencies.iter().cloned())?,
+            dependency_types: DependencyTypes::new(dependency_types)?,
+            specifier_types: specifier_types.to_vec(),
+            sources: Selector::new(sources.iter().cloned())?,
+        })
+    }
+
+    /// Whether the filter selects everything.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.dependencies.is_empty()
+            && self.dependency_types.is_empty()
+            && self.specifier_types.is_empty()
+            && self.sources.is_empty()
+    }
+
+    /// The first custom type the filter names that `config` does not define.
+    #[must_use]
+    pub fn unknown_custom_type<'a>(&'a self, config: &Config) -> Option<&'a str> {
+        self.dependency_types
+            .custom_names()
+            .find(|name| config.custom_types.iter().all(|custom| custom.name != *name))
+    }
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -732,6 +795,8 @@ pub enum VersionPolicy {
     /// Versions must match the highest or lowest one in use.
     #[default]
     PreferredSemver,
+    /// Versions may differ; only the range the semver groups require is checked (syncpack's `semverRangeOnly`).
+    SemverRangeOnly,
 }
 
 /// One `[[version-groups]]` entry; first match wins. Selectors accept `!` negation and `$LOCAL`.
@@ -1011,6 +1076,10 @@ pub enum CustomStrategy {
     /// The value is an object of `name: version` (`pnpm.peerDependencyRules.allowedVersions`).
     #[serde(rename = "versions-by-name", alias = "versionsByName")]
     VersionsByName,
+    /// The value is a version string and the dependency name is the string at `name-path` (how syncpack reads a
+    /// package's own `name` and `version`).
+    #[serde(rename = "name~version")]
+    NameTildeVersion,
 }
 
 /// One `[[custom-types]]` entry: a field of `package.json` that holds versions. Name it in a `dependency-types` list to
@@ -1028,6 +1097,9 @@ pub struct CustomType {
     pub path: String,
     /// How the value at `path` holds versions.
     pub strategy: CustomStrategy,
+    /// With the `name~version` strategy: dotted path of the field that holds the dependency name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_path: Option<String>,
 }
 
 impl CustomType {
@@ -1038,7 +1110,20 @@ impl CustomType {
             name: name.into(),
             path: path.into(),
             strategy,
+            name_path: None,
         }
+    }
+
+    /// Sets the field that holds the dependency name, for the `name~version` strategy.
+    #[must_use]
+    pub fn with_name_path(mut self, name_path: impl Into<String>) -> Self {
+        self.name_path = Some(name_path.into());
+        self
+    }
+
+    /// The `name-path` split into its keys; empty when there is none.
+    pub fn name_segments(&self) -> impl Iterator<Item = &str> {
+        self.name_path.iter().flat_map(|path| path.split('.'))
     }
 
     /// The `path` split into its keys.
@@ -1061,6 +1146,15 @@ impl CustomType {
                 "`path` \"{}\" must be a dotted path of non-empty keys",
                 self.path
             ));
+        }
+        let takes_name_path = self.strategy == CustomStrategy::NameTildeVersion;
+        match (takes_name_path, self.name_path.is_some()) {
+            (true, false) => return Some("strategy `name~version` requires `name-path`".to_owned()),
+            (false, true) => return Some("`name-path` is only valid with strategy `name~version`".to_owned()),
+            _ => {}
+        }
+        if self.name_segments().any(str::is_empty) {
+            return Some("`name-path` must be a dotted path of non-empty keys".to_owned());
         }
         None
     }
@@ -1374,8 +1468,10 @@ pub struct JsCycles {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case", deny_unknown_fields, default)]
 #[non_exhaustive]
-// Each switch is a key of `[js]`.
-#[allow(clippy::struct_excessive_bools)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent switch of the analysis"
+)]
 pub struct Js {
     /// Run the JavaScript analysis.
     pub enabled: bool,
@@ -1403,8 +1499,26 @@ pub struct Js {
     pub ignore_members: Vec<String>,
     /// Analyse production code only.
     pub production: bool,
+    /// Each workspace package uses only the dependencies its own manifest lists: an import is not satisfied by a
+    /// containing package or the root. Set by `skif --strict`; not a configuration key, so a file never sets it.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub isolate_workspaces: bool,
+    /// Find source files that `.gitignore` files hide (the git index is not used then). Set by
+    /// `skif --no-gitignore`; not a configuration key.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub no_gitignore: bool,
     /// Report unused exports of entry files too.
     pub include_entry_exports: bool,
+    /// The TypeScript configuration of the root package, relative to the workspace root and inside it, used instead
+    /// of `tsconfig.json` for its path aliases and compiler options (knip's `--tsConfig`). Other packages keep their
+    /// own `tsconfig.json`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tsconfig: Option<String>,
+    /// The project files of a package with a TypeScript configuration are the files its `files` names and those its
+    /// `include` selects minus its `exclude`, instead of the `project` globs (knip's `--use-tsconfig-files`).
+    pub use_tsconfig_files: bool,
     /// Report files in `fixtures` and `__fixtures__` directories as unused, and their unused exports, types and
     /// members, like any other file. Off by default: those directories hold test data that tests load by path.
     pub include_fixtures: bool,
@@ -1470,6 +1584,28 @@ impl Js {
         self
     }
 
+    /// Makes each workspace package use only the dependencies its own manifest lists, as knip's `--strict` does.
+    #[must_use]
+    pub const fn with_isolate_workspaces(mut self, isolate: bool) -> Self {
+        self.isolate_workspaces = isolate;
+        self
+    }
+
+    /// Uses `path`, relative to the workspace root, as the TypeScript configuration of the root package.
+    #[must_use]
+    pub fn with_tsconfig(mut self, path: impl Into<String>) -> Self {
+        self.tsconfig = Some(path.into());
+        self
+    }
+
+    /// Takes the project files of each package with a TypeScript configuration from its `files`, `include` and
+    /// `exclude`.
+    #[must_use]
+    pub const fn with_use_tsconfig_files(mut self, enabled: bool) -> Self {
+        self.use_tsconfig_files = enabled;
+        self
+    }
+
     /// Switches a plugin on or off, or configures it.
     #[must_use]
     pub fn with_plugin(mut self, name: impl Into<String>, plugin: PluginConfig) -> Self {
@@ -1493,7 +1629,11 @@ impl Default for Js {
             ignore_exports_used_in_file: IgnoreExportsUsedInFile::default(),
             ignore_members: Vec::new(),
             production: false,
+            isolate_workspaces: false,
+            no_gitignore: false,
             include_entry_exports: false,
+            tsconfig: None,
+            use_tsconfig_files: false,
             include_fixtures: false,
             discovery: JsDiscovery::Auto,
             cycles: JsCycles::default(),

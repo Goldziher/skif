@@ -11,7 +11,7 @@ use skif_js_syntax::{Export, ExportKind, Member, ParseOptions, parse_module};
 use skif_workspace::{PackageId, Workspace, map_ordered};
 
 use crate::deps::DependencyUsage;
-use crate::discover::{Candidate, discover, relative, take_file_links};
+use crate::discover::{Candidate, discover_with, relative, take_file_links};
 use crate::entries::entry_files;
 use crate::fixture::in_fixture_directory;
 use crate::git_index::{IndexCache, Listing, indexed_fs};
@@ -341,6 +341,10 @@ fn overlay(
     config: &Config,
     cache: &IndexCache,
 ) -> Option<Arc<dyn FileSystem>> {
+    // The git index lists no ignored file, so reading what `.gitignore` hides needs the walk.
+    if config.js.no_gitignore {
+        return None;
+    }
     let listing = match config.js.discovery {
         JsDiscovery::Walk => return None,
         JsDiscovery::Git => Listing::IndexOnly,
@@ -393,7 +397,9 @@ impl<'a> JsAnalysis<'a> {
         let mut setup = timing::phase(phase("setup (plugins, configs)"), || {
             Setup::new(workspace, config, fs, sources, sequential)
         });
-        let mut candidates = timing::phase(phase("discover"), || discover(fs.as_ref(), workspace, sequential));
+        let mut candidates = timing::phase(phase("discover"), || {
+            discover_with(fs.as_ref(), workspace, sequential, !config.js.no_gitignore)
+        });
         if !setup.js_ignored.is_empty() {
             candidates.retain(|candidate| !setup.js_ignored.contains(&candidate.owner));
         }

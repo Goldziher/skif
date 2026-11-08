@@ -1,0 +1,14 @@
+---
+source: crates/skif-cli/tests/cli.rs
+expression: "redact(&result.stdout, dir.path())"
+---
+default (HighestSemver)
+  ok      @cli/a 0.0.0 (workspace package) [IsLocalAndValid]
+    ok      0.0.0 in version of @cli/a (packages/a/package.json) [IsLocalAndValid]
+  ok      @cli/b 0.0.0 (workspace package) [IsLocalAndValid]
+    ok      0.0.0 in version of @cli/b (packages/b/package.json) [IsLocalAndValid]
+  ok      cli-mismatch 0.0.0 (workspace package) [IsLocalAndValid]
+    ok      0.0.0 in version of cli-mismatch (package.json) [IsLocalAndValid]
+  error   is-number 7.0.0, 6.0.0 [DiffersToHighestOrLowestSemver]
+    ok      7.0.0 in dependencies of @cli/a (packages/a/package.json) [IsHighestOrLowestSemver]
+    error   6.0.0 in dependencies of @cli/b (packages/b/package.json) [DiffersToHighestOrLowestSemver] -> 7.0.0
