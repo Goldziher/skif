@@ -1,5 +1,6 @@
-//! zx: the commands of `` $`…` `` in a zx script (a file starting with `#!/usr/bin/env zx`, where `$` is a global) or in a
-//! module that imports `$` from `zx` are scripts, parsed like the scripts of `package.json`.
+//! zx: the commands of `` $`…` `` in a zx script (a file whose shebang runs `zx`, such as `#!/usr/bin/env zx` or
+//! `#!/usr/bin/env -S npx zx`, or that imports `zx/globals`, where `$` is a global) or in a module that imports `$` from
+//! `zx` are scripts, parsed like the scripts of `package.json`.
 
 use skif_js_syntax::extract_imported_calls;
 
@@ -28,11 +29,7 @@ impl Plugin for Zx {
         let mut out = Vec::new();
         for (source, text) in sources_containing(cx, "$`") {
             let path = cx.dir.join(&source);
-            let globals: &[(&str, &str)] = if text.starts_with("#!/usr/bin/env zx") {
-                &[("$", "zx")]
-            } else {
-                &[]
-            };
+            let globals: &[(&str, &str)] = if has_globals(&text) { &[("$", "zx")] } else { &[] };
             for call in extract_imported_calls(&text, &path, &["zx"], globals) {
                 if call.export == "$" {
                     out.extend(call.template.map(PluginInput::Script));
@@ -41,4 +38,16 @@ impl Plugin for Zx {
         }
         out
     }
+}
+
+/// Whether `$` is a global in `text`: its shebang runs `zx`, or it imports `zx/globals`.
+fn has_globals(text: &str) -> bool {
+    let shebang = text.lines().next().filter(|line| line.starts_with("#!"));
+    shebang.is_some_and(|line| {
+        line.split_whitespace()
+            .any(|word| word == "zx" || word.ends_with("/zx"))
+    }) || text.lines().map(str::trim_start).any(|line| {
+        (line.starts_with("import") || line.contains("require("))
+            && (line.contains("'zx/globals'") || line.contains("\"zx/globals\""))
+    })
 }
