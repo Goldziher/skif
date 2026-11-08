@@ -591,48 +591,6 @@ fn select_decides_which_version_alignment_is_applied() {
     }
 }
 
-fn dependency_versions(dir: &Path, member: &str, section: &str) -> Value {
-    let text = fs::read_to_string(dir.join("packages").join(member).join("package.json")).unwrap();
-    serde_json::from_str::<Value>(&text).unwrap()[section].clone()
-}
-
-/// ADR 0051: `--fix` aligns a version within its semver window, whether the workspace or a pin chose it, and leaves
-/// the cross-major move (also to a pin), the change of range and the move of type packages to `--fix-unsafe`.
-#[test]
-fn fix_applies_compatible_version_alignments_and_leaves_the_rest() {
-    let dir = fixture("align");
-    let result = run(skif()
-        .args(["--fix", "--no-install", "--format", "json"])
-        .arg(dir.path()));
-    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
-
-    let a = dependency_versions(dir.path(), "a", "dependencies");
-    let b = dependency_versions(dir.path(), "b", "dependencies");
-    assert_eq!(
-        (&a["left-pad"], &b["left-pad"]),
-        (&Value::from("1.3.0"), &Value::from("1.3.0"))
-    );
-    assert_eq!(a["chalk"], "5.3.1", "a patch pin is applied");
-    assert_eq!(a["react"], "18.3.1", "a cross-major pin is left to --fix-unsafe");
-    assert_eq!(
-        (&a["is-number"], &b["is-number"]),
-        (&Value::from("6.0.0"), &Value::from("7.0.0"))
-    );
-    assert_eq!((&a["ms"], &b["ms"]), (&Value::from("^2.1.0"), &Value::from("2.1.3")));
-    assert_eq!(a["@types/node"], "22.0.0", "type packages stay in dependencies");
-
-    let report = result.json();
-    let diagnostics = report["diagnostics"].as_array().unwrap();
-    assert!(
-        diagnostics
-            .iter()
-            .flat_map(|diagnostic| diagnostic["fixes"].as_array().into_iter().flatten())
-            .all(|fix| fix["safety"] != "safe"),
-        "a safe fix survived --fix: {report}"
-    );
-    insta::assert_snapshot!("fix_align_json", redact(&result.stdout, dir.path()));
-}
-
 #[test]
 fn color_always_emits_escapes_and_never_does_not() {
     let dir = fixture("dirty");
@@ -887,6 +845,112 @@ fn lint_to_json_classifies_its_errors() {
     let broken = skif_cli::lint_to_json(dir.path(), &skif::ConfigOverrides::default(), false).unwrap_err();
     assert_eq!(broken.kind, skif_cli::Kind::Config);
     assert!(broken.path.is_some_and(|path| path.ends_with("skif.toml")));
+}
+
+#[test]
+fn json_names_the_packages_whose_files_and_dependencies_were_not_judged() {
+    let dir = tempfile::tempdir().unwrap();
+    let put = |relative: &str, content: &str| {
+        let path = dir.path().join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    };
+    fs::create_dir_all(dir.path().join(".git")).unwrap();
+    put(
+        "package.json",
+        r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+    );
+    put(
+        "packages/web/package.json",
+        r#"{"name":"web","version":"1.0.0","private":true,"main":"index.ts","devDependencies":{"vite":"6.0.0"}}"#,
+    );
+    put("packages/web/index.ts", "export const main = 1;\n");
+    put("packages/web/orphan.ts", "export const lonely = 1;\n");
+    put(
+        "packages/web/vite.config.ts",
+        "import base from './vite.base';\nexport default { ...base };\n",
+    );
+    put(
+        "packages/api/package.json",
+        r#"{"name":"api","version":"1.0.0","private":true,"main":"index.ts"}"#,
+    );
+    put("packages/api/index.ts", "export const api = 1;\n");
+    put("packages/api/orphan.ts", "export const lonely = 1;\n");
+
+    let json = run(skif().args(["--format", "json"]).arg(dir.path()));
+    let document = json.json();
+    assert_eq!(
+        document["incomplete-packages"],
+        serde_json::json!([{
+            "name": "web",
+            "dir": "packages/web",
+            "reasons": [
+                { "cause": "unknown-spread", "plugin": "vite", "file": "packages/web/vite.config.ts" },
+                { "cause": "computed-entries", "plugin": "vite", "file": "packages/web/vite.config.ts" },
+            ],
+        }]),
+        "{}",
+        json.stdout
+    );
+    let unused_files: Vec<&str> = document["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == "unused-files")
+        .filter_map(|diagnostic| diagnostic["location"]["path"].as_str())
+        .collect();
+    assert_eq!(unused_files, ["packages/api/orphan.ts"]);
+
+    let human = run(skif().arg(dir.path()));
+    assert!(
+        human
+            .stdout
+            .contains("note: unused files and dependencies were not checked in 1 package (web)"),
+        "{}",
+        human.stdout
+    );
+}
+
+fn dependency_versions(dir: &Path, member: &str, section: &str) -> Value {
+    let text = fs::read_to_string(dir.join("packages").join(member).join("package.json")).unwrap();
+    serde_json::from_str::<Value>(&text).unwrap()[section].clone()
+}
+
+/// ADR 0051: `--fix` aligns a version within its semver window, whether the workspace or a pin chose it, and leaves
+/// the cross-major move (also to a pin), the change of range and the move of type packages to `--fix-unsafe`.
+#[test]
+fn fix_applies_compatible_version_alignments_and_leaves_the_rest() {
+    let dir = fixture("align");
+    let result = run(skif()
+        .args(["--fix", "--no-install", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 1, "{}{}", result.stdout, result.stderr);
+
+    let a = dependency_versions(dir.path(), "a", "dependencies");
+    let b = dependency_versions(dir.path(), "b", "dependencies");
+    assert_eq!(
+        (&a["left-pad"], &b["left-pad"]),
+        (&Value::from("1.3.0"), &Value::from("1.3.0"))
+    );
+    assert_eq!(a["chalk"], "5.3.1", "a patch pin is applied");
+    assert_eq!(a["react"], "18.3.1", "a cross-major pin is left to --fix-unsafe");
+    assert_eq!(
+        (&a["is-number"], &b["is-number"]),
+        (&Value::from("6.0.0"), &Value::from("7.0.0"))
+    );
+    assert_eq!((&a["ms"], &b["ms"]), (&Value::from("^2.1.0"), &Value::from("2.1.3")));
+    assert_eq!(a["@types/node"], "22.0.0", "type packages stay in dependencies");
+
+    let report = result.json();
+    let diagnostics = report["diagnostics"].as_array().unwrap();
+    assert!(
+        diagnostics
+            .iter()
+            .flat_map(|diagnostic| diagnostic["fixes"].as_array().into_iter().flatten())
+            .all(|fix| fix["safety"] != "safe"),
+        "a safe fix survived --fix: {report}"
+    );
+    insta::assert_snapshot!("fix_align_json", redact(&result.stdout, dir.path()));
 }
 
 /// The files of `dir` that differ from the `autofix` fixture, with their new contents (`<deleted>` when gone), as

@@ -60,6 +60,7 @@ old one.
 | 0050 | [Fixture Directories in the JS Analysis: Not Unused by Default, `include-fixtures` to Report Them](0050-fixture-directories-in-the-js-analysis.md) | accepted |
 | 0051 | [Safe Version Alignment Fixes: What `--fix` Applies Once the Target Version Is Explicit](0051-safe-version-alignment-fixes.md) | accepted |
 | 0052 | [File Deletion Opt-In, Fix Types and Member Removal Fixes](0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md) | accepted |
+| 0053 | [Incomplete Packages in the JSON Report: Naming What skif Did Not Judge, and a Harness Category for It](0053-incomplete-packages-in-the-json-report.md) | accepted |
 
 ## Effective statements
 
@@ -149,3 +150,5 @@ the lines below stay as written; this table says which record governs.
 | [0008](0008-fix-and-edit-model.md), "Safety levels" | changing a version and replacing a specifier with `catalog:` are `Unsafe` | [0051](0051-safe-version-alignment-fixes.md): a version alignment to an explicit target (a pin, the version the workspace aligns on, an existing catalog entry) is `Safe` when it is a compatible upgrade of the same shape: never lower, no prerelease, within semver's compatibility window, and a `~` range within its minor |
 | [0009](0009-version-and-catalog-policies.md), states table | policy fixes are `Unsafe` | [0051](0051-safe-version-alignment-fixes.md): `DiffersToPin`, `DiffersToHighestOrLowestSemver`, `DiffersToSnapTarget`, `DiffersToLocal`, `NotUsingCatalog` and `DiffersToCatalog` are `Safe` when the move is a compatible upgrade of the same shape; every other policy fix stays `Unsafe` |
 | [0016](0016-cli-contract-flags-exit-codes-and-machine-readable-errors.md), flag table | `--fix-unsafe` applies `Safe` and `Unsafe` fixes | [0052](0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md): fixes that delete a file also need `--allow-remove-files`; `--fix-type` limits a fix run to rule ids or knip issue types |
+| [0012](0012-reporting.md), JSON contract | a report document carries `summary`, `diagnostics` and, with `--fix`, `fix` | [0053](0053-incomplete-packages-in-the-json-report.md): it also carries `incomplete-packages` when the JS analysis could not judge a package's files and dependencies |
+| [0030](0030-harness-known-deviations-and-comparison-scope.md), known deviations from knip | the knip deviations are `non-code-file`, `fixture-file`, `test-file` (and `knip-unread`, ADR 0049) | [0053](0053-incomplete-packages-in-the-json-report.md): knip-only files and dependencies in a package skif lists under `incomplete-packages` are `not-judged-by-skif`, counted in their own column |

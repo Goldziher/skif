@@ -260,3 +260,8 @@ blake3 = "a23d3a7c6f40ed083d6c1b5407adfbafdebadbb157399cc0bed663f6948cf613"
 number = 52
 status = "accepted"
 blake3 = "4623a3c4a19a47a47f620744a371775ee2b4a29735214a15daad88564acebb5c"
+
+[adrs."adrs/0053-incomplete-packages-in-the-json-report.md"]
+number = 53
+status = "accepted"
+blake3 = "aedad73032cc91a8f5e8db47df271586d5a71682c93d68c79fe8710dd0595871"
