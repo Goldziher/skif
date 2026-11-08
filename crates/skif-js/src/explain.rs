@@ -254,6 +254,7 @@ const fn kind_label(kind: ImportKind) -> &'static str {
         ImportKind::Require => "require",
         ImportKind::ImportMetaGlob => "import-meta-glob",
         ImportKind::ExportFrom => "export-from",
+        ImportKind::Mock => "mock",
     }
 }
 
@@ -349,7 +350,10 @@ fn reached(target: &Target) -> &[ModuleId] {
 
 /// Whether `import` uses export `export` of the module it points at, or the module as a whole.
 fn uses_export(import: &Import, export: &str) -> Option<String> {
-    if matches!(import.kind, ImportKind::ExportFrom | ImportKind::SideEffect) {
+    if matches!(
+        import.kind,
+        ImportKind::ExportFrom | ImportKind::SideEffect | ImportKind::Mock
+    ) {
         return None;
     }
     if import.names.is_empty() {

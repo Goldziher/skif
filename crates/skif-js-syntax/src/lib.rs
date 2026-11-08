@@ -134,7 +134,7 @@ fn parse_block(
         ..ModuleInfo::default()
     };
     let collected = collect::collect(&ctx, &ret.program, &mut info);
-    finder::Finder::new(&ctx, &mut info).visit_program(&ret.program);
+    finder::Finder::new(&ctx, &mut info, &ret.program).visit_program(&ret.program);
     info.imports.sort_by_key(|i| i.span.start);
     if options.member_accesses {
         let excluded: HashSet<(u32, u32)> = collected.reexport_spans.iter().copied().collect();

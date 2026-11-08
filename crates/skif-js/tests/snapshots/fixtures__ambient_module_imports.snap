@@ -1,0 +1,47 @@
+---
+source: crates/skif-js/tests/fixtures.rs
+expression: diagnostics
+---
+[
+  {
+    "rule": "unused-dev-dependencies",
+    "severity": "warning",
+    "message": "`left-pad` is listed in `devDependencies` but never used",
+    "help": "remove it, or add it to `ignore-dependencies` when a tool uses it without importing it",
+    "location": {
+      "path": "package.json",
+      "span": {
+        "start": 166,
+        "end": 185,
+        "start-line": 8,
+        "start-col": 5,
+        "end-line": 8,
+        "end-col": 24
+      }
+    },
+    "package": "ambient-module-imports",
+    "dependency": "left-pad",
+    "fixes": [
+      {
+        "title": "Remove `left-pad` from `devDependencies`",
+        "safety": "unsafe",
+        "ops": [
+          {
+            "json": {
+              "path": "package.json",
+              "pointer": [
+                {
+                  "key": "devDependencies"
+                },
+                {
+                  "key": "left-pad"
+                }
+              ],
+              "action": "remove"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]
