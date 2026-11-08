@@ -83,23 +83,27 @@ fn starts_esm(line: &str) -> bool {
 /// comment it is inside of. A blank line ends the paragraph only at depth zero outside both, so
 /// `export const meta = {` and a multi-line template literal may span blank lines.
 #[derive(Default)]
-struct Scan {
+struct Scan<'a> {
     depth: i32,
     /// For each template literal that is open, the depth its `${}` expressions return to; the last is innermost.
     templates: Vec<i32>,
     /// Whether the scan is in a template literal's text (not in one of its `${}` expressions).
     in_template: bool,
     in_block_comment: bool,
+    /// The source offset of the `/*` that opened the block comment the scan is in.
+    comment_start: usize,
+    /// Source offsets of `/*` that do not open a comment (see [`esm_paragraph_end`]).
+    not_comments: &'a [usize],
 }
 
-impl Scan {
+impl Scan<'_> {
     fn is_open(&self) -> bool {
         self.depth > 0 || self.in_template || self.in_block_comment
     }
 
-    /// Scans one line, skipping strings, template literals and comments. A `'` or `"` that does not close on its line
-    /// is JSX text such as `<p>don't</p>`, not a string, and is skipped alone.
-    fn line(&mut self, text: &str) {
+    /// Scans one line, which starts at `offset` in the source, skipping strings, template literals and comments. A `'`
+    /// or `"` that does not close on its line is JSX text such as `<p>don't</p>`, not a string, and is skipped alone.
+    fn line(&mut self, text: &str, offset: usize) {
         let bytes = text.as_bytes();
         let mut i = 0;
         while i < bytes.len() {
@@ -145,8 +149,9 @@ impl Scan {
                     self.in_template = true;
                 }
                 b'/' if bytes.get(i + 1) == Some(&b'/') => return,
-                b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                b'/' if bytes.get(i + 1) == Some(&b'*') && !self.not_comments.contains(&(offset + i)) => {
                     self.in_block_comment = true;
+                    self.comment_start = offset + i;
                     i += 1;
                 }
                 b'(' | b'[' | b'{' => self.depth += 1,
@@ -174,6 +179,41 @@ fn frontmatter_end(all: &[Line], source: &str) -> Option<usize> {
         .map(|index| index + 2)
 }
 
+/// The index of the line after the ESM paragraph that starts at line `first`: the first blank line outside brackets,
+/// template literals and block comments, or the end.
+///
+/// MDX parses the paragraph with acorn at each blank line and goes on past it when the code is incomplete, which
+/// includes an unterminated comment: a block comment may span blank lines. A `/*` with no `*/` anywhere after it
+/// cannot be one, since MDX rejects the document then; it is JSX text (`<code>dist/*</code>`) or a regular
+/// expression (`/\/*/`) the scan does not tell apart. Such a `/*` is not a comment, and the paragraph is scanned again
+/// without it, so a blank line ends it as MDX does.
+fn esm_paragraph_end(source: &str, all: &[Line], first: usize) -> usize {
+    let mut not_comments = Vec::new();
+    'scan: loop {
+        let mut scan = Scan {
+            not_comments: &not_comments,
+            ..Scan::default()
+        };
+        let mut index = first;
+        while index < all.len() {
+            let line = &source[all[index].start..all[index].end];
+            if line.trim().is_empty() {
+                if !scan.is_open() {
+                    return index;
+                }
+                if scan.in_block_comment && !source[all[index].start..].contains("*/") {
+                    let start = scan.comment_start;
+                    not_comments.push(start);
+                    continue 'scan;
+                }
+            }
+            scan.line(line, all[index].start);
+            index += 1;
+        }
+        return index;
+    }
+}
+
 /// Splits `source` into ESM, skipped and markup lines.
 pub(crate) fn extract(source: &str) -> Extracted {
     let all = lines(source);
@@ -197,16 +237,9 @@ pub(crate) fn extract(source: &str) -> Extracted {
                 }
             }
         } else if starts_esm(text) {
-            let mut scan = Scan::default();
-            while index < all.len() {
-                let line = &source[all[index].start..all[index].end];
-                if line.trim().is_empty() && !scan.is_open() {
-                    break;
-                }
-                regions[index] = Region::Esm;
-                scan.line(line);
-                index += 1;
-            }
+            let end = esm_paragraph_end(source, &all, index);
+            regions[index..end].fill(Region::Esm);
+            index = end;
         } else {
             index += 1;
         }
@@ -329,6 +362,20 @@ mod tests {
                 "import A from './a'"
             ]
         );
+    }
+
+    #[test]
+    fn a_comment_opener_that_never_closes_does_not_swallow_the_document() {
+        let source = "export const X = () => <code>dist/*</code>\n\n# Title\n\n<Card/>\n";
+        assert_eq!(kept(source), ["export const X = () => <code>dist/*</code>"]);
+        let source = "export const re = (/\\/*/)\n\n# Title\n\n<Card/>\n";
+        assert_eq!(kept(source), ["export const re = (/\\/*/)"]);
+    }
+
+    #[test]
+    fn a_block_comment_that_closes_later_spans_blank_lines() {
+        let source = "export const a = 1 /* x\n\ny */\nexport const b = 2\n\n<B/>\n";
+        assert_eq!(kept(source), ["export const a = 1 /* x", "y */", "export const b = 2"]);
     }
 
     #[test]
