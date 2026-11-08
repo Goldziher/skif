@@ -2151,6 +2151,7 @@ dependencies = [
  "globset",
  "ignore",
  "indexmap",
+ "rayon",
  "schemars",
  "serde",
  "serde_json",

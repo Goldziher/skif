@@ -83,7 +83,7 @@ fn write_table(diagnostics: &[&Diagnostic], options: &RenderOptions, out: &mut d
         let path = options.display_path(&diagnostic.location.path);
         let location = match diagnostic.location.span {
             Some(span) => format!("{path}:{}:{}", span.start_line, span.start_col),
-            None => path,
+            None => path.into_owned(),
         };
         writeln!(
             out,

@@ -63,7 +63,8 @@ fn lint_round(args: &LintArgs, env: Env, clear: bool, dir: &Path) {
     if clear {
         let _ = write_stdout(b"\x1b[2J\x1b[H");
     }
-    lint::run(args, env);
+    // The watcher keeps running between rounds, so every round frees what it built.
+    lint::run(args, env, lint::Teardown::Free);
     stderr_line(&format!(
         "skif: watching {} for changes; press Ctrl-C to stop",
         roots::display(dir)
