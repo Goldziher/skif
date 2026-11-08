@@ -58,8 +58,9 @@ All notable changes to this project are documented here. The format follows
 - Manifest checks are faster on large workspaces: about 2.5 times faster on a generated 2,000-package workspace with
   tens of thousands of findings, and twice as fast at 500 packages. Package configuration files are probed in
   parallel, the version-group analysis and its findings run in parallel, the JSON report is written without the
-  generic serializer and streamed to stdout when stdout is the only output, and the run no longer frees its results
-  one by one before exiting. The output is unchanged ([#29](https://github.com/Goldziher/skif/issues/29)).
+  generic serializer and streamed to stdout when stdout is the only output, and the `skif` binary no longer frees its
+  results one by one before exiting (the npm package, which runs in a long-lived Node process, still does). The
+  output is unchanged ([#29](https://github.com/Goldziher/skif/issues/29)).
 
 ### Fixed
 
