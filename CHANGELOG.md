@@ -191,6 +191,14 @@ All notable changes to this project are documented here. The format follows
   generic serializer and streamed to stdout when stdout is the only output, and the `skif` binary no longer frees its
   results one by one before exiting (the npm package, which runs in a long-lived Node process, still does). The
   output is unchanged ([#29](https://github.com/Goldziher/skif/issues/29)).
+- Manifest checks beat sherif at every size of the generated benchmark: at 2,000 packages `skif --no-js` takes about
+  101 ms where it took 122 to 126 ms, against sherif's 125 to 130 ms (1.3 times faster), and at 500 packages 27 ms
+  instead of 31 to 34 ms. A report is sorted on indices with each file path ranked once; the policy findings reach the
+  emitter, and the providers' diagnostics are merged, without copying the vectors (`Emitter::emit_all`,
+  `Emitter::merge_all`); the policy rules look instances up in hash maps, borrow dependency names, and collect their
+  instances while the catalog usage index is built (`skif_workspace::join`); the JSON report renders each file's path
+  once; and manifests written as strict JSON are read in one pass, without `jsonc-parser`'s syntax tree (any other
+  manifest is read as before). The output is unchanged ([#29](https://github.com/Goldziher/skif/issues/29)).
 - A tool configuration skif cannot fully read no longer hides every unused file of its package: only the files the
   configuration could make entries stay unjudged (the `next` router directories, Vite's `index` or `main` module, and
   the tests, test directories and setup modules of `vitest` and `playwright`), and they count as entries. Every other
