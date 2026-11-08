@@ -412,3 +412,32 @@ fn a_project_token_from_the_environment_is_not_sent_to_a_host_the_user_did_not_c
     );
     assert!(!result.stdout.contains("t0ken-value") && !result.stderr.contains("t0ken-value"));
 }
+
+#[test]
+fn interactive_is_refused_without_a_terminal_before_any_request() {
+    let (url, seen) = registry();
+    let dir = workspace(&format!("registry={url}\n"), APP);
+    let before = tree(dir.path());
+    // Under the test harness stdin and stdout are pipes, not a terminal.
+    let refused = run(update(dir.path()).args(["--interactive", "--format", "json"]));
+    assert_eq!(refused.code, 2, "{}{}", refused.stdout, refused.stderr);
+    let error = &refused.json()["error"];
+    assert_eq!(error["kind"], "usage");
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap()
+            .contains("--interactive needs a terminal"),
+        "{error}"
+    );
+    assert!(seen.lock().unwrap().is_empty(), "no registry request");
+    assert_eq!(tree(dir.path()), before);
+}
+
+#[test]
+fn interactive_and_check_conflict() {
+    let dir = workspace("", APP);
+    let result = run(update(dir.path()).args(["--interactive", "--check"]));
+    assert_eq!(result.code, 2, "{}{}", result.stdout, result.stderr);
+    assert!(result.stderr.contains("cannot be used with"), "{}", result.stderr);
+}
