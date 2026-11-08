@@ -48,15 +48,16 @@ pub(crate) fn entry_files(
         };
         let mine: &[&Candidate] = by_owner.get(id.index()).map_or(&[], Vec::as_slice);
         let owned = || owned_by(mine, &package_setup.dir);
-        let found_before = entries.len();
+        // The entries of this package alone: another package may already have found the same files.
+        let mut own = BTreeSet::new();
         for (candidate, rel) in owned() {
             if package_setup.entry.is_match(&rel) {
-                entries.insert(candidate.abs.clone());
+                own.insert(candidate.abs.clone());
             }
         }
-        entries.extend(nested_entries(workspace, setup, candidates, id, package_setup));
+        own.extend(nested_entries(workspace, setup, candidates, id, package_setup));
         if !package_setup.external_entry.is_empty() {
-            entries.extend(
+            own.extend(
                 candidates
                     .iter()
                     .filter(|candidate| candidate.owner != id && package_setup.external_entry.is_match(&candidate.rel))
@@ -80,7 +81,7 @@ pub(crate) fn entry_files(
                         }
                     });
                 let globs = Globs::new(patterns);
-                entries.extend(
+                own.extend(
                     owned()
                         .filter(|(_, rel)| globs.is_match(rel))
                         .map(|(candidate, _)| candidate.abs.clone()),
@@ -89,7 +90,7 @@ pub(crate) fn entry_files(
                 && is_code_file(&path)
             {
                 mapped_any = true;
-                entries.insert(path);
+                own.insert(path);
             } else if should_have_source(&target) {
                 published_without_source = true;
             }
@@ -97,12 +98,12 @@ pub(crate) fn entry_files(
         for target in bin_targets(package.manifest.value()) {
             let sources = bin_stub_sources(fs, &package_setup.dir, &target);
             mapped_any |= !sources.is_empty();
-            entries.extend(sources);
+            own.extend(sources);
         }
         if published_without_source && !mapped_any {
             unknown.push(id);
         }
-        entries.extend(
+        own.extend(
             package_setup
                 .config_files
                 .iter()
@@ -110,9 +111,11 @@ pub(crate) fn entry_files(
                 .cloned(),
         );
         if !setup.production {
-            entries.extend(script_files(fs, package_setup));
+            own.extend(script_files(fs, package_setup));
         }
-        if entries.len() == found_before
+        let has_entries = !own.is_empty();
+        entries.append(&mut own);
+        if !has_entries
             && package.manifest.value().get("scripts").is_none_or(is_empty_object)
             && below(candidates, &workspace.root, &package_setup.dir).is_empty()
         {

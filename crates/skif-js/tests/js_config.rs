@@ -173,6 +173,25 @@ fn ignore_workspaces_skips_the_analysis_of_matching_packages() {
     assert_eq!(paths(&ignored, "unused-dependencies"), ["packages/a/package.json"]);
 }
 
+#[test]
+fn a_package_whose_only_entry_is_already_an_entry_of_another_is_judged() {
+    // `packages/b` has no file of its own; its entry is the entry of `packages/a`, found first.
+    let files = vec![
+        MANIFEST,
+        ("packages/a/package.json", r#"{"name":"@x/a"}"#),
+        ("packages/a/src/index.ts", "export {};\n"),
+        (
+            "packages/b/package.json",
+            r#"{"name":"@x/b","dependencies":{"left":"1"}}"#,
+        ),
+    ];
+    let diagnostics = lint(
+        &files,
+        "[js.workspaces.\"packages/b\"]\nentry = [\"../a/src/index.ts\"]\n",
+    );
+    assert_eq!(paths(&diagnostics, "unused-dependencies"), ["packages/b/package.json"]);
+}
+
 fn nested_packages() -> Vec<(&'static str, &'static str)> {
     vec![
         (
