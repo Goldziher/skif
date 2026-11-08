@@ -11,6 +11,42 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `vue`, `mdx`, `next-mdx`, `pre-commit`, `parcel`, `electron-forge`, `unplugin-auto-import`,
+  `unplugin-vue-components`, `unplugin-vue-router`, `github-action`, `pino`, `next-intl`, `dependency-cruiser`,
+  `commitizen`, `serverless-framework`, `starlight`, `execa`, `zx`, `nano-spawn`, `azure-pipelines` and `sapper`
+  plugins ([ADR 0059](adrs/0059-twenty-one-more-plugins-and-commands-run-from-source.md),
+  [#39](https://github.com/Goldziher/skif/issues/39)). The table holds 127 plugins.
+- The command of `glob -c "<command>" <patterns>` in a script is parsed as a script
+  ([#39](https://github.com/Goldziher/skif/issues/39)).
+- A plugin's `package.json` key may be nested (`config.commitizen`, `config.forge`).
+- `tauri`, `capacitor`, `convex`, `sst`, `payload`, `qwik`, `quasar`, `wxt`, `stencil`, `eleventy`, `cucumber`,
+  `hardhat`, `temporal`, `relay`, `react-email`, `openapi-ts`, `orval`, `danger`, `xo`, `textlint`, `taskfile`, `mise`,
+  `moonrepo`, `wireit`, `travis`, `buf`, `vite-plugin-pwa`, `nuxtjs-i18n`, `rstest`, `sveltejs-package`,
+  `playwright-ct`, `fumadocs`, `purgecss`, `nano-staged` and `changelogen` plugins
+  ([ADR 0060](adrs/0060-thirty-five-more-plugins-frameworks-task-runners-and-options-written-anywhere.md),
+  [#40](https://github.com/Goldziher/skif/issues/40)). The table holds 162 plugins. `sst` also reads the handlers of
+  the modules `sst.config.ts` imports, such as `infra/*`.
+- `skif-js-syntax` extracts the values of a property wherever it is written in a file (`extract_property_values`).
+- `astro-db`, `astro-markdoc`, `astro-og-canvas`, `borp`, `bumpp`, `changelogithub`, `create-typescript-app`, `eve`,
+  `expressive-code`, `filesystem-routing`, `flue`, `kysely-codegen`, `ladle`, `laravel-vite-plugin`, `linthtml`,
+  `lockfile-lint`, `lost-pixel`, `lunaria`, `marko`, `mcp`, `mdxlint`, `node-modules-inspector`,
+  `npm-package-json-lint`, `openclaw`, `osls`, `playwright-test`, `railway`, `raycast`, `react-cosmos`,
+  `solidjs-vite-plugin`, `tsrs`, `typescript-content-mapper`, `varlock`, `vercel-og`, `vite-plugin-pages`,
+  `vite-plugin-vue-layouts-next`, `vite-plus`, `vite-pwa-assets-generator` and `yorkie` plugins
+  ([ADR 0061](adrs/0061-thirty-nine-more-plugins-and-plugins-enabled-by-a-package-json-key.md),
+  [#41](https://github.com/Goldziher/skif/issues/41)). The table holds 201 plugins. `mcp` reads the commands of the
+  servers in `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json` and `.codex/config.toml`, and `varlock` the
+  `@plugin` and `@import` decorators of `.env` files.
+- A plugin can be enabled by a key of the workspace's `package.json` (`Enabler::ManifestKey`).
+- An exported class registered as a custom element is no unused export: `customElements.define("x-y", Class)`
+  always counts, and the registering decorator or base class of an enabled plugin's library counts too
+  ([ADR 0062](adrs/0062-custom-element-registrations-and-the-taskr-plugin.md),
+  [#38](https://github.com/Goldziher/skif/issues/38)). `stencil` now marks `@Component` classes.
+- `lit`, `catalyst` and `fast` plugins, which mark the classes their decorators (`@customElement`, `@controller`) or
+  `FASTElement.define()` register ([#39](https://github.com/Goldziher/skif/issues/39),
+  [#41](https://github.com/Goldziher/skif/issues/41)), and a `taskr` plugin: `taskfile.js` and the local plugins of
+  `package.json#taskr.requires` are entries, and `@taskr/*` and `taskr-*` dependencies are used
+  ([#20](https://github.com/Goldziher/skif/issues/20)). The table holds 205 plugins.
 - `skif list` and `skif json` show every dependency instance the version groups and the catalog govern, with its
   version group, specifier and state, as syncpack's `list` and `json` do; `json` prints one object per line with
   syncpack's `statusCode` names ([#35](https://github.com/Goldziher/skif/issues/35)).
@@ -42,8 +78,10 @@ All notable changes to this project are documented here. The format follows
   `[update] minimum-release-age` (else pnpm's `minimumReleaseAge`, else one day; a version without a publish time is
   then not proposed) and `[[update-groups]]`, and reports each instance with syncpack's `DiffersToNpmRegistry` state.
   The library plans updates through a `Registry` trait the host implements (`skif::update`, feature `update`).
-  `skif migrate` translates syncpack's `updateGroups`, `minimumReleaseAge` and `maxConcurrentRequests`. `--interactive`
-  is not implemented.
+  `skif migrate` translates syncpack's `updateGroups`, `minimumReleaseAge` and `maxConcurrentRequests`.
+- `skif update --interactive`: syncpack's interactive update picker. A terminal list shows each dependency once per
+  current and target specifier, with the instances it moves, and only the chosen updates are written. It needs a
+  terminal on stdin and stdout and cannot be combined with `--check` ([#34](https://github.com/Goldziher/skif/issues/34)).
 - knip's run-time filters on the lint command ([#36](https://github.com/Goldziher/skif/issues/36)):
   - `--workspace <NAME|DIR>` (`-W`) reports only the findings of the selected workspace packages; findings of no
     package belong to the root.

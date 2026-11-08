@@ -1,0 +1,17 @@
+{
+  "name": "taskr-app",
+  "private": true,
+  "scripts": {
+    "build": "taskr build"
+  },
+  "devDependencies": {
+    "@taskr/clear": "^1.1.0",
+    "@vercel/ncc": "^0.38.0",
+    "left-over": "^1.0.0",
+    "node-notifier": "^10.0.0",
+    "taskr": "^1.1.0"
+  },
+  "taskr": {
+    "requires": ["./taskfile-ncc.js"]
+  }
+}

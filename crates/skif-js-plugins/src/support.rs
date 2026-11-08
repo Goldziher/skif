@@ -103,6 +103,21 @@ pub(crate) fn script_inputs(value: &ConfigValue) -> Vec<PluginInput> {
         .collect()
 }
 
+/// A script that runs in `dir`, a directory relative to the workspace: a script of the workspace itself when `dir` is
+/// its root, a [`PluginInput::ScriptAt`] otherwise. A directory that is computed, absolute or outside the workspace
+/// drops the script.
+pub(crate) fn script_in(dir: &str, script: String) -> Option<PluginInput> {
+    let dir = dir.trim();
+    if dir.starts_with('/') || dir.contains(['$', '`', '{']) {
+        return None;
+    }
+    let dir = join_rel("", dir);
+    if dir.is_empty() {
+        return Some(PluginInput::Script(script));
+    }
+    (dir != ".." && !dir.starts_with("../")).then_some(PluginInput::ScriptAt { dir, script })
+}
+
 /// The files, relative to the workspace, a `projects` string of a test runner names: a config file or a glob of them,
 /// or a directory (or glob of directories) holding a file called like one of `names` (a brace group of file names).
 /// `<rootDir>` stands for `base`. Negated strings name nothing.
@@ -614,6 +629,65 @@ pub(crate) fn production_entries<'a>(base: &str, patterns: impl IntoIterator<Ite
         .filter_map(|pattern| entry_glob(base, pattern))
         .map(PluginInput::ProductionEntry)
         .collect()
+}
+
+/// The JavaScript and TypeScript source files of the workspace whose text contains `needle`, as their path relative to
+/// the workspace and their text. Declaration files are left out.
+pub(crate) fn sources_containing(cx: &PluginContext<'_>, needle: &str) -> Vec<(String, std::sync::Arc<str>)> {
+    let patterns = ["**/*.{ts,mts,cts,tsx,js,mjs,cjs,jsx}".to_owned()];
+    crate::files::find_files(cx.fs, cx.dir, &patterns)
+        .into_iter()
+        .filter(|source| !source.ends_with(".d.ts") && !source.ends_with(".d.mts") && !source.ends_with(".d.cts"))
+        .filter_map(|source| {
+            let text = cx.fs.read_to_string(&cx.dir.join(&source)).ok()?;
+            text.contains(needle).then_some((source, text))
+        })
+        .collect()
+}
+
+/// The workspace's `package.json`, parsed; `None` when it is missing or not JSON.
+pub(crate) fn manifest(cx: &PluginContext<'_>) -> Option<ConfigValue> {
+    let path = cx.dir.join("package.json");
+    let source = cx.fs.read_to_string(&path).ok()?;
+    crate::config_load::load_config(&path, &source)
+}
+
+/// The directories the `key` option of the last call of a Vite plugin imported from one of `modules` lists in the
+/// config's source: a string, or an array of strings and `{ dir }` objects. `None` when no call sets it.
+pub(crate) fn vite_plugin_dirs(config: &ConfigAst<'_>, modules: &[&str], key: &str) -> Option<Vec<String>> {
+    let mut dirs = None;
+    for call in skif_js_syntax::extract_imported_calls(config.source, config.path, modules, &[]) {
+        let Some(value) = call.arguments.first().and_then(|options| options.get(key)) else {
+            continue;
+        };
+        let collected: Vec<String> = match value {
+            ConfigValue::String(dir) => vec![dir.clone()],
+            ConfigValue::Array(items) => items
+                .iter()
+                .filter_map(|item| item.as_str().or_else(|| item.get("dir").and_then(ConfigValue::as_str)))
+                .map(str::to_owned)
+                .collect(),
+            _ => Vec::new(),
+        };
+        if !collected.is_empty() {
+            dirs = Some(collected);
+        }
+    }
+    dirs
+}
+
+/// The `root` of a Vite config's exported value, relative to the workspace; the workspace itself by default.
+pub(crate) fn vite_root(config: &ConfigAst<'_>) -> String {
+    config
+        .value
+        .get("root")
+        .and_then(ConfigValue::as_str)
+        .map_or_else(String::new, |root| join_rel("", root))
+}
+
+/// The directory of a path relative to the workspace, `""` for a file at the top.
+pub(crate) fn parent_dir(relative: &str) -> &str {
+    relative.rsplit_once('/').map_or("", |(dir, _)| dir)
 }
 
 /// The end of the string literal that starts at `start` (the index of its closing quote).
