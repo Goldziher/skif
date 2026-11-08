@@ -75,27 +75,59 @@ fn generator_inputs(cx: &PluginContext<'_>, patterns: &[String]) -> Vec<PluginIn
     out
 }
 
-/// The literal `provider` of every `generator` block of a schema.
+/// The literal `provider` of every `generator` block of a schema, also of a block on one line
+/// (`generator x { provider = "y" }`).
 fn generator_providers(text: &str) -> Vec<&str> {
     let mut providers = Vec::new();
     let mut in_generator = false;
     for line in text.lines() {
-        let line = line.split("//").next().unwrap_or_default().trim();
-        if in_generator {
-            if line.starts_with('}') {
-                in_generator = false;
-            } else if let Some(value) = line.strip_prefix("provider").map(str::trim_start)
-                && let Some(value) = value.strip_prefix('=').map(str::trim_start)
-                && let Some(value) = value.strip_prefix('"')
-                && let Some((provider, _)) = value.split_once('"')
-            {
-                providers.push(provider.trim());
-            }
-        } else if line.starts_with("generator ") && line.ends_with('{') {
+        let line = &line[..find_unquoted(line, "//").unwrap_or(line.len())];
+        let mut field = line.trim();
+        if !in_generator {
+            let Some(open) = field
+                .strip_prefix("generator")
+                .filter(|rest| rest.starts_with(char::is_whitespace))
+                .and_then(|rest| rest.find('{').map(|at| &rest[at + 1..]))
+            else {
+                continue;
+            };
             in_generator = true;
+            field = open.trim();
+        }
+        if let Some(close) = find_unquoted(field, "}") {
+            field = field[..close].trim();
+            in_generator = false;
+        }
+        if let Some(value) = field.strip_prefix("provider").map(str::trim_start)
+            && let Some(value) = value.strip_prefix('=').map(str::trim_start)
+            && let Some(value) = value.strip_prefix('"')
+            && let Some((provider, _)) = value.split_once('"')
+        {
+            providers.push(provider.trim());
         }
     }
     providers
+}
+
+/// Where `needle` first occurs in `line` outside a double-quoted string.
+fn find_unquoted(line: &str, needle: &str) -> Option<usize> {
+    let mut quoted = false;
+    let mut escaped = false;
+    for (at, c) in line.char_indices() {
+        if quoted {
+            match c {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                '"' => quoted = false,
+                _ => {}
+            }
+        } else if c == '"' {
+            quoted = true;
+        } else if line[at..].starts_with(needle) {
+            return Some(at);
+        }
+    }
+    None
 }
 
 /// A provider as an input: a relative path is an entry next to the schema `dir`, a command is a script and a bare
@@ -111,4 +143,23 @@ fn provider_input(dir: &str, provider: &str) -> Option<PluginInput> {
         return Some(PluginInput::Entry(join_rel(dir, provider)));
     }
     package_name(provider).map(PluginInput::Dependency)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn providers_of_single_line_blocks_and_values_with_slashes() {
+        let schema = r#"generator one { provider = "single-line" }
+generator two {
+  provider = "node ./gen//index.js" // a comment
+  output   = "../out"
+}
+datasource db { provider = "postgresql" }
+// generator old { provider = "commented-out" }
+generator three { output = "x" }
+"#;
+        assert_eq!(generator_providers(schema), ["single-line", "node ./gen//index.js"]);
+    }
 }
