@@ -52,6 +52,8 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `skif list [PATH]` | List every dependency the version groups and the catalog govern, by version group, with its specifiers and states (see below). |
 | `skif json [PATH]` | Print every dependency instance the version groups and the catalog govern as one JSON object per line (see below). |
 | `skif format [PATH]` | Format every `package.json` as `[format]` describes, or check it with `--check` (see below). |
+| `skif mcp` | Run a Model Context Protocol server on stdin and stdout, with the tools `lint`, `explain_usage` and `list_rules`. See [editors and agents](../../guides/editors-and-agents/). |
+| `skif lsp` | Run a Language Server Protocol server on stdin and stdout that publishes diagnostics when a file is opened or saved. See [editors and agents](../../guides/editors-and-agents/#language-server). |
 
 ## Flags
 
@@ -72,6 +74,9 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `--no-prompt` | Never ask which alternative fix to apply; the diagnostic stays unfixed unless `--select` decides. |
 | `--max-warnings <N>` | Exit `1` when there are more than `N` warnings. |
 | `--fail-on-warnings` | Same as `--max-warnings 0`. Also set by `[lint] fail-on-warnings`. |
+| `--max-issues <N>` | Exit `1` only when there are more than `N` errors (default `0`), counted over all roots. Warnings still follow `--max-warnings`. |
+| `--max-show-issues <N>` | Show at most `N` findings of each rule, in report order over all roots. The summary still counts every finding and the exit code is unchanged; in human output a note on stderr says how many were left out. Human and `json` output only: when any `--format` is another format, or with `--fix`, it exits `2`; with several formats, each human and `json` rendering is shortened. The annotations human output adds under GitHub Actions still list every finding. |
+| `--no-exit-code` | Exit `0` when problems remain. A run that could not happen still exits `2`. |
 | `--rule <ID>=<off\|info\|warn\|error>` | Set a rule's level. Repeatable. |
 | `--ignore-rule <ID>` | Turn a rule off. Repeatable. |
 | `--ignore-package <NAME>` | Ignore a package by name or glob in every rule. Repeatable. The flags replace `[workspace] ignore-packages` from the configuration files instead of adding to it. |
@@ -82,7 +87,23 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `--no-config` | Read no configuration file: the defaults plus the other flags. |
 | `--no-js` | Skip JavaScript analysis. Overrides `[js] enabled`. |
 | `--production` | Only analyse production code in JavaScript analysis. Overrides `[js] production`. |
+| `--no-gitignore` | Also analyse the source files that `.gitignore` files hide; `.ignore` files and the directories skif always skips (`node_modules`, `dist`, ...) still apply. Files are then listed by walking the directories, not from the git index. The search for roots of a multi-root run still honours `.gitignore`. |
+| `--tsconfig <FILE>`, `--tsConfig`, `-t` | The TypeScript configuration of the root package, relative to the workspace root, used instead of its `tsconfig.json` for path aliases and compiler options. Overrides `[js] tsconfig`. Other packages keep their own `tsconfig.json`. With `-r` it applies to the roots that have the file and the others keep their own setting; a file that no root has, or a path that is absolute or leaves the root, exits `2`. Roots without JavaScript analysis (`--no-js`, `[js] enabled = false`) are skipped. |
+| `--use-tsconfig-files` | Take the project files of each package from its `tsconfig.json` (`files`, and `include` minus `exclude`) instead of the `project` globs. Same as `[js] use-tsconfig-files = true`. A `tsconfig` that selects no file of its package is reported on stderr. |
+| `--include-entry-exports` | Report unused exports of entry files too. Overrides `[js] include-entry-exports`, also where a `[js.workspaces]` table sets it. |
+| `--strict` | knip's strict mode: `--production`, and each workspace package uses only the dependencies its own `package.json` lists. An import is no longer satisfied by a containing package or the root, so it is reported as unlisted there, and a root dependency only members import is unused. |
+| `--include <TYPE\|RULE>` | Report only these rules. A value is a knip issue type (`files`, `dependencies`, `devDependencies`, `unlisted`, `binaries`, `unresolved`, `exports`, `types`, `nsExports`, `nsTypes`, `duplicates`, `enumMembers`, `namespaceMembers`, `catalog`, `catalogReferences`, `cycles`), which stands for the skif rules that report it, or a skif rule id. A rule that is off is turned on, unless `--ignore-rule` or `--rule ID=off` turns it off: at its default severity when the configuration turned it off, at `error` when it is off by default. Comma separated, repeatable. An unknown value exits `2`. |
+| `--exclude <TYPE\|RULE>` | Do not report these rules; values as for `--include`. Comma separated, repeatable. |
+| `--dependencies`, `--exports`, `--files`, `--cycles` | knip's shortcuts for `--include`: `--dependencies` is `dependencies`, `unlisted`, `binaries`, `unresolved`, `catalog`, `catalogReferences` and, without `--production`, `devDependencies` and `optionalPeerDependencies`; `--exports` is `exports`, `types`, `enumMembers`, `namespaceMembers` and `duplicates`. |
+| `--tags <-TAG>` | Do not report exports tagged `@TAG`; adds to the `ignore-tags` option of `unused-exports`. Comma separated, repeatable. knip's `+TAG` (only tagged exports) has no counterpart and exits `2`, as does an `ignore-tags` in the configuration that is not a list. |
 | `--color <auto\|always\|never>` | When to colour human output. |
+| `--watch` | Lint again whenever a file below the root changes, until interrupted. Conflicts with `--fix` and `--fix-unsafe`. See [editors and agents](../../guides/editors-and-agents/#watch-mode). |
+| `--trace-dependency <NAME>` | Instead of linting, print where the dependency is listed (manifest, section, specifier), every import of it in the module graph with the file and line, and the packages that count it as used, through imports, scripts, tool configuration or its `@types` twin. `--format json` prints one document with a `traces` array, one entry per root. Conflicts with `--fix`, with the report filters (`--workspace`, `--include`, `--exclude` and their shortcuts) and with `--tags`, `--max-show-issues`, `--rule` and `--ignore-rule`, which change only the report. |
+| `--debug` | Print to stderr what the run loaded: each root with its configuration files, package manager and packages, and the phase timings. |
+| `--performance` | Print the time each phase took to stderr, as `SKIF_TIMINGS=1` does. Work that runs on several threads is summed over them. |
+| `--duration` | Print the wall time of the run to stderr. |
+| `--memory` | Print the peak resident set size of the run to stderr. Linux only; elsewhere a line says it is not measured. |
+| `-W`, `--workspace <NAME\|DIR>` | Report only the findings of these workspace packages, by package name or directory relative to the root (`.` is the root). Globs and `!` exclusions work as in `[workspace] ignore-packages`. Repeatable. The analysis still covers every package, so the findings are those of a full run; `--fix` fixes only what is reported. A finding of no package (the root manifest, `pnpm-workspace.yaml`, a catalog) belongs to the root, so it is reported and fixed only when the root is selected (`-W .`). No matching package exits `2`. |
 
 Flags are the top layer of the [configuration precedence](../configuration/#precedence): defaults, then the file,
 then the command line. `--ignore-package` replaces the file's `[workspace] ignore-packages`; `--ignore-dependency` and

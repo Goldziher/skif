@@ -29,9 +29,27 @@ All notable changes to this project are documented here. The format follows
 - The `packages` of `lerna.json` declare the workspace members when nothing else does, and its `npmClient` names the
   package manager, as syncpack reads them; the file is read only then, and an invalid one declares nothing
   ([#35](https://github.com/Goldziher/skif/issues/35)).
-- [ADR 0056](adrs/0056-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md) records these
+- [ADR 0057](adrs/0057-syncpack-list-json-dry-run-filters-semver-range-only-name-version-and-lerna.md) records these
   additions and what of syncpack stays out: per-group and per-state severity, `dependencyGroups`, a scoped `catalog`
   policy, custom type `source`, catalog entries as instances, `.x` ranges and `--log-levels`.
+- knip's run-time filters on the lint command ([#36](https://github.com/Goldziher/skif/issues/36)):
+  - `--workspace <NAME|DIR>` (`-W`) reports only the findings of the selected workspace packages; findings of no
+    package belong to the root.
+  - `--strict` is `--production` with each workspace package limited to the dependencies its own manifest lists.
+  - `--include` and `--exclude` take knip issue types or skif rule ids, with the shortcuts `--dependencies`,
+    `--exports`, `--files` and `--cycles`; `--include` turns on a rule that is off; `--tags -TAG` leaves out tagged
+    exports.
+  - `--max-issues <N>`, `--max-show-issues <N>` (human and JSON output, not with `--fix`), `--no-exit-code` and
+    `--include-entry-exports`.
+  - `--no-gitignore` analyses the files `.gitignore` hides.
+  - `--tsconfig <FILE>` (also `--tsConfig`, `-t`) and `[js] tsconfig` name the root package's TypeScript
+    configuration in place of its `tsconfig.json`; `--use-tsconfig-files` and `[js] use-tsconfig-files` take each
+    package's project files from its `tsconfig.json` (`files`, and `include` minus `exclude`). A `tsconfig` path must
+    exist and stay inside the root wherever JavaScript analysis runs. `skif migrate` maps knip's `--tsConfig` and
+    `--use-tsconfig-files`, and notes scripts that pass different `--tsConfig` values.
+  - `--trace-dependency <NAME>` prints where a dependency is listed, imported and used.
+  - `--debug`, `--performance`, `--duration` and `--memory` print what was loaded, phase timings, wall time and peak
+    memory to stderr.
 - An `unplugin-icons` plugin: with that dependency, `~icons/*` imports and the `@iconify-json/*` and `@iconify/json`
   collections are virtual, as in knip. The table holds 106 plugins
   ([#18](https://github.com/Goldziher/skif/issues/18)).
@@ -44,6 +62,17 @@ All notable changes to this project are documented here. The format follows
   comments; a member whose removal would renumber a later enum member gets no fix; a catalog left empty is removed
   ([ADR 0052](adrs/0052-file-deletion-opt-in-fix-types-and-member-removal-fixes.md),
   [#37](https://github.com/Goldziher/skif/issues/37)).
+- `skif mcp`, a Model Context Protocol server on stdio for AI agents, with the tools `lint`, `explain_usage` and
+  `list_rules`, which return the documents of `--format json`
+  ([ADR 0056](adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
+- `--watch` lints again whenever a file below the root changes, after 100 milliseconds of quiet; it polls, so it
+  needs no native file events, and ignores the reports it writes (`--output`, `--format FORMAT=FILE`)
+  ([ADR 0056](adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
+- `skif lsp`, a minimal language server on stdio that publishes skif's diagnostics when a file is opened or saved
+  ([ADR 0056](adrs/0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md),
+  [#44](https://github.com/Goldziher/skif/issues/44)).
 
 ### Changed
 

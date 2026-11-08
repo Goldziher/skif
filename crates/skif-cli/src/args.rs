@@ -43,6 +43,10 @@ pub enum Command {
     Json(InstancesArgs),
     /// Format every `package.json` as `[format]` describes (the `package-json-format` rule alone); never installs.
     Format(FormatArgs),
+    /// Run a Model Context Protocol server on stdin and stdout, for AI agents.
+    Mcp,
+    /// Run a Language Server Protocol server on stdin and stdout: diagnostics on open and save.
+    Lsp,
 }
 
 /// What `skif list` and `skif json` read.
@@ -74,7 +78,7 @@ pub struct FilterArgs {
     /// Only the dependencies whose name matches this name or glob (`react`, `@types/**`, `!eslint`), in the
     /// version-group and semver-group rules only. Repeatable. syncpack's `--dependencies`.
     // Not `--dependencies`: that is knip's issue-type shortcut on the same command.
-    #[arg(long = "dependency", value_name = "NAME")]
+    #[arg(id = "dependency", long = "dependency", value_name = "NAME")]
     pub dependencies: Vec<String>,
 
     /// Only these dependency types (`prod,dev`, `peer`, `!local`, a custom type), in the version-group and
@@ -418,6 +422,19 @@ pub struct LintArgs {
     #[arg(long, conflicts_with = "max_warnings")]
     pub fail_on_warnings: bool,
 
+    /// Exit 1 only when there are more than N errors (counted over all roots); warnings still follow --max-warnings.
+    #[arg(long, value_name = "N")]
+    pub max_issues: Option<usize>,
+
+    /// Show at most N findings of each rule in human and json output (not with --fix); the summary still counts all
+    /// of them, and the exit code is unchanged.
+    #[arg(long, value_name = "N")]
+    pub max_show_issues: Option<usize>,
+
+    /// Exit 0 when the run finds problems; exit 2 when skif could not run is kept.
+    #[arg(long)]
+    pub no_exit_code: bool,
+
     /// Never ask which alternative fix to apply; the diagnostic stays unfixed unless --select decides.
     #[arg(long)]
     pub no_prompt: bool,
@@ -462,9 +479,98 @@ pub struct LintArgs {
     #[arg(long)]
     pub production: bool,
 
+    /// Also analyse the source files that `.gitignore` files hide (the git index is not used to list files then).
+    #[arg(long)]
+    pub no_gitignore: bool,
+
+    /// Report unused exports of entry files too, overriding `[js] include-entry-exports`.
+    #[arg(long)]
+    pub include_entry_exports: bool,
+
+    /// The TypeScript configuration of the root package, relative to the workspace root, used instead of its
+    /// `tsconfig.json` (overrides `[js] tsconfig`).
+    #[arg(short = 't', long = "tsconfig", visible_alias = "tsConfig", value_name = "FILE")]
+    pub tsconfig: Option<String>,
+
+    /// Take the project files of each package from its `tsconfig.json` (`files`, `include`, `exclude`) instead of the
+    /// `project` globs.
+    #[arg(long)]
+    pub use_tsconfig_files: bool,
+
+    /// knip's strict mode: --production, and each workspace package uses only the dependencies its own manifest
+    /// lists, not those of a containing package or the root.
+    #[arg(long)]
+    pub strict: bool,
+
     /// When to colour human output.
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     pub color: ColorChoice,
+
+    /// Lint again whenever a file below the root changes, until interrupted.
+    #[arg(long, conflicts_with_all = ["fix", "fix_unsafe"])]
+    pub watch: bool,
+
+    /// Instead of linting, print where this dependency is listed, every import of it and the packages that count it
+    /// as used.
+    #[arg(
+        long,
+        value_name = "NAME",
+        conflicts_with_all = [
+            "fix", "fix_unsafe", "workspace", "include", "exclude", "dependencies", "exports", "files", "cycles",
+            "tags", "max_show_issues", "rules", "ignore_rule",
+        ]
+    )]
+    pub trace_dependency: Option<String>,
+
+    /// Print what the run loaded (roots, configuration files, packages) and the phase timings to stderr.
+    #[arg(long)]
+    pub debug: bool,
+
+    /// Print the time each phase of the run took to stderr, as `SKIF_TIMINGS=1` does.
+    #[arg(long)]
+    pub performance: bool,
+
+    /// Print the wall time of the run to stderr.
+    #[arg(long)]
+    pub duration: bool,
+
+    /// Print the peak memory (resident set size) of the run to stderr; Linux only.
+    #[arg(long)]
+    pub memory: bool,
+
+    /// Report only the findings of these workspace packages, by name or directory relative to the root (globs, `!`
+    /// to exclude). The analysis still covers every package. Repeatable.
+    #[arg(short = 'W', long, value_name = "NAME|DIR")]
+    pub workspace: Vec<String>,
+
+    /// Report only these knip issue types (`files`, `dependencies`, `exports`, ...) or skif rule ids; a rule that is
+    /// off (by default or in the configuration) is turned on. Comma separated, repeatable.
+    #[arg(long, value_name = "TYPE|RULE", value_delimiter = ',')]
+    pub include: Vec<String>,
+
+    /// Do not report these knip issue types or skif rule ids. Comma separated, repeatable.
+    #[arg(long, value_name = "TYPE|RULE", value_delimiter = ',')]
+    pub exclude: Vec<String>,
+
+    /// Shortcut for `--include` of knip's dependency issue types.
+    #[arg(long)]
+    pub dependencies: bool,
+
+    /// Shortcut for `--include` of knip's export issue types.
+    #[arg(long)]
+    pub exports: bool,
+
+    /// Shortcut for `--include files`.
+    #[arg(long)]
+    pub files: bool,
+
+    /// Shortcut for `--include cycles`.
+    #[arg(long)]
+    pub cycles: bool,
+
+    /// Do not report exports tagged with these `JSDoc` tags, written `-TAG` as in knip. Comma separated, repeatable.
+    #[arg(long, value_name = "-TAG", value_delimiter = ',', allow_hyphen_values = true)]
+    pub tags: Vec<String>,
 
     #[command(flatten)]
     pub filter: FilterArgs,
@@ -489,6 +595,9 @@ impl Default for LintArgs {
             no_install: false,
             max_warnings: None,
             fail_on_warnings: false,
+            max_issues: None,
+            max_show_issues: None,
+            no_exit_code: false,
             no_prompt: false,
             rules: Vec::new(),
             ignore_rule: Vec::new(),
@@ -500,7 +609,26 @@ impl Default for LintArgs {
             config: None,
             no_config: false,
             production: false,
+            no_gitignore: false,
+            include_entry_exports: false,
+            tsconfig: None,
+            use_tsconfig_files: false,
+            strict: false,
             color: ColorChoice::Auto,
+            watch: false,
+            trace_dependency: None,
+            debug: false,
+            performance: false,
+            duration: false,
+            memory: false,
+            workspace: Vec::new(),
+            include: Vec::new(),
+            exclude: Vec::new(),
+            dependencies: false,
+            exports: false,
+            files: false,
+            cycles: false,
+            tags: Vec::new(),
             filter: FilterArgs::default(),
         }
     }
@@ -570,6 +698,17 @@ impl LintArgs {
             .iter()
             .map(|spec| (spec.format, spec.file.clone()))
             .collect())
+    }
+
+    /// The files the run itself writes (`--output` and every `FORMAT=FILE` target), each spelled as
+    /// [`file_identity`] resolves it, so `--watch` can leave them out of its scan instead of reacting to its own
+    /// writes.
+    pub fn written_files(&self) -> std::collections::BTreeSet<PathBuf> {
+        self.output
+            .iter()
+            .chain(self.format.iter().filter_map(|spec| spec.file.as_ref()))
+            .map(|file| file_identity(file))
+            .collect()
     }
 }
 
@@ -738,6 +877,39 @@ mod tests {
         );
         assert!(FormatSpec::parse("json=").is_err());
         assert!(FormatSpec::parse("yaml=x").is_err());
+    }
+
+    #[test]
+    fn written_files_name_the_output_and_every_format_file_canonically() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let sarif = dir.path().join("sub").join("..").join("a.sarif");
+        let parse = |flags: Vec<String>| {
+            Cli::try_parse_from(std::iter::once("skif".to_owned()).chain(flags))
+                .unwrap()
+                .lint
+        };
+        let several = parse(vec![
+            "--format".to_owned(),
+            "json".to_owned(),
+            "--format".to_owned(),
+            format!("sarif={}", sarif.display()),
+        ]);
+        assert_eq!(
+            several.written_files(),
+            std::collections::BTreeSet::from([root.join("a.sarif")])
+        );
+        let output = parse(vec![
+            "--format".to_owned(),
+            "json".to_owned(),
+            "--output".to_owned(),
+            root.join("r.json").display().to_string(),
+        ]);
+        assert_eq!(
+            output.written_files(),
+            std::collections::BTreeSet::from([root.join("r.json")])
+        );
+        assert!(parse(Vec::new()).written_files().is_empty());
     }
 
     #[test]

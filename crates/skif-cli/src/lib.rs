@@ -15,14 +15,19 @@ mod config_toml;
 mod env;
 mod error;
 mod explain;
+mod filter;
 mod fix;
 mod format;
 mod install;
 mod instances;
 mod lint;
+mod lsp;
+mod mcp;
 mod migrate;
 mod output;
 mod roots;
+mod trace;
+mod watch;
 mod write;
 
 use args::{Cli, Command, Format};
@@ -41,6 +46,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         Err(error) => return usage(&raw, &error),
     };
     match cli.command {
+        None if cli.lint.watch => watch::run(&cli.lint, Env::detect()),
         None => lint::run(&cli.lint, Env::detect()),
         Some(Command::Rules(args)) => commands::rules(&args),
         Some(Command::Schema) => commands::schema(),
@@ -51,6 +57,8 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
         Some(Command::List(args)) => instances::list(&args),
         Some(Command::Json(args)) => instances::json(&args),
         Some(Command::Format(args)) => format::run(&args, Env::detect()),
+        Some(Command::Mcp) => mcp::run(),
+        Some(Command::Lsp) => lsp::run(),
     }
 }
 

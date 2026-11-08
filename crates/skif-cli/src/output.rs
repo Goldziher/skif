@@ -45,17 +45,25 @@ pub fn emit_error(error: &CliError, format: Format) {
 
 /// Like [`emit_error`], with `extra` top-level members in the JSON document (the `fix` object of a completed fix).
 pub fn emit_error_with(error: &CliError, format: Format, extra: Map<String, serde_json::Value>) {
-    if format == Format::Json {
-        let mut info = ErrorInfo::new(error.kind.as_str(), &error.message);
-        if let Some(path) = &error.path {
-            info = info.at(path, error.line, error.column);
-        }
-        let mut buffer = Vec::new();
-        if render_json_error_info_with(&info, extra, &mut buffer).is_ok() && write_stdout(&buffer).is_ok() {
-            return;
-        }
+    if format == Format::Json
+        && let Some(buffer) = error_document(error, extra)
+        && write_stdout(buffer.as_bytes()).is_ok()
+    {
+        return;
     }
     stderr_line(&format!("error: {}", escape_multiline(&error.to_string())));
+}
+
+/// The JSON `error` document for `error`, with `extra` top-level members; `None` when an `extra` member collides with
+/// a reserved one.
+pub fn error_document(error: &CliError, extra: Map<String, serde_json::Value>) -> Option<String> {
+    let mut info = ErrorInfo::new(error.kind.as_str(), &error.message);
+    if let Some(path) = &error.path {
+        info = info.at(path, error.line, error.column);
+    }
+    let mut buffer = Vec::new();
+    render_json_error_info_with(&info, extra, &mut buffer).ok()?;
+    String::from_utf8(buffer).ok()
 }
 
 /// Files whose text a code frame or a UTF-16 column conversion may need: every file a diagnostic or related
