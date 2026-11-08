@@ -152,6 +152,12 @@ pub fn trace_dependency(args: &LintArgs, name: &str) -> Result<(), CliError> {
     let mut traces = Vec::with_capacity(targets.len());
     for target in &mut targets {
         lint::adjust(args, &mut target.config)?;
+    }
+    lint::apply_tsconfig(args, &mut targets)?;
+    // The configuration check a lint run makes, so a bad setting (an absolute or escaping tsconfig) is an error here
+    // too instead of being dropped by the analysis.
+    roots::Linters::build(&targets)?;
+    for target in &targets {
         let trace = skif::trace_dependency(&target.config, &fs, &target.workspace, name);
         let root = roots::display(target.root.strip_prefix(&base).unwrap_or(&target.root));
         traces.push((root, trace));

@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 use skif::render::RenderOptions;
 use skif::{
     CachedFs, Config, ConfigOverrides, DiscoverOptions, FileSystem, FixPlan, IgnoreEntry, Linter, OsFs, Prefer, Report,
-    Selector, Workspace,
+    Selector, Target, Workspace, relative_tsconfig,
 };
 use skif_core::timing;
 use skif_report::{escape_controls, render_json_with};
@@ -163,6 +163,9 @@ pub(crate) fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliErro
     if args.no_gitignore {
         config.js.no_gitignore = true;
     }
+    if args.use_tsconfig_files {
+        config.js.use_tsconfig_files = true;
+    }
     if args.include_entry_exports {
         config.js.include_entry_exports = true;
         for workspace in config.js.workspaces.values_mut() {
@@ -178,6 +181,66 @@ pub(crate) fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliErro
         };
     }
     Ok(())
+}
+
+/// Whether `path` names an existing file under `root`, read the way the JS analysis reads it ([`relative_tsconfig`]).
+/// `None` for an empty, absolute or escaping path: the configuration check rejects those, naming the setting.
+fn tsconfig_exists(root: &Path, path: &str) -> Option<bool> {
+    relative_tsconfig(path).map(|relative| root.join(relative).is_file())
+}
+
+/// Applies `--tsconfig` and checks that every root's TypeScript configuration exists.
+///
+/// The flag names a file relative to each root; in a multi-root run it applies to the roots that have that file and
+/// the others keep their own `[js] tsconfig`. A `[js] tsconfig` must exist in the root whose configuration sets it.
+/// Roots without JavaScript analysis (`--no-js`, `[js] enabled = false`) read no tsconfig, so they are skipped.
+///
+/// # Errors
+/// A configuration error naming the path when `--tsconfig` exists in no root that runs the JavaScript analysis, or
+/// a root's `[js] tsconfig` does not exist there.
+pub(crate) fn apply_tsconfig(args: &LintArgs, targets: &mut [Target]) -> Result<(), CliError> {
+    if let Some(path) = &args.tsconfig {
+        let mut found = false;
+        let mut searched = Vec::new();
+        for target in targets.iter_mut().filter(|target| target.config.js.enabled) {
+            if tsconfig_exists(&target.root, path) != Some(false) {
+                target.config.js.tsconfig = Some(path.clone());
+                found = true;
+            }
+            searched.push(target.root.display().to_string());
+        }
+        if !found && !searched.is_empty() {
+            return Err(CliError::new(
+                Kind::Config,
+                format!("--tsconfig: `{path}` does not exist in {}", searched.join(", ")),
+            ));
+        }
+    }
+    for target in targets.iter().filter(|target| target.config.js.enabled) {
+        if let Some(path) = &target.config.js.tsconfig
+            && tsconfig_exists(&target.root, path) == Some(false)
+        {
+            return Err(CliError::new(
+                Kind::Config,
+                format!("[js] tsconfig: `{path}` does not exist in {}", target.root.display()),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Warns on stderr about the packages whose TypeScript configuration selects none of their files under
+/// `--use-tsconfig-files`, since nothing of them can then be reported unused.
+fn warn_empty_tsconfig_projects(targets: &[Target], fs: &dyn FileSystem) {
+    for target in targets {
+        for config in skif::empty_tsconfig_projects(&target.workspace, &target.config, fs) {
+            stderr_line(&format!(
+                "warning: {}: selects no file of its package (`files`, `include`), so --use-tsconfig-files leaves \
+                 that package without project files",
+                escape_controls(&target.root.join(config).display().to_string())
+            ));
+        }
+    }
 }
 
 fn lint_once(
@@ -502,6 +565,8 @@ fn execute(args: &LintArgs, env: Env) -> Result<u8, CliError> {
         adjust(args, &mut target.config)?;
         filter.configure(&mut target.config)?;
     }
+    apply_tsconfig(args, &mut targets)?;
+    warn_empty_tsconfig_projects(&targets, &fs);
     let linters = Linters::build(&targets)?;
     // An unknown `--fix-type` is a usage error before any root is linted.
     let only = fix::fix_type_rules(&args.fix_type, linters.rules().into_iter().map(|meta| meta.id))?;

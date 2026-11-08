@@ -1417,6 +1417,14 @@ pub struct Js {
     pub no_gitignore: bool,
     /// Report unused exports of entry files too.
     pub include_entry_exports: bool,
+    /// The TypeScript configuration of the root package, relative to the workspace root and inside it, used instead
+    /// of `tsconfig.json` for its path aliases and compiler options (knip's `--tsConfig`). Other packages keep their
+    /// own `tsconfig.json`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tsconfig: Option<String>,
+    /// The project files of a package with a TypeScript configuration are the files its `files` names and those its
+    /// `include` selects minus its `exclude`, instead of the `project` globs (knip's `--use-tsconfig-files`).
+    pub use_tsconfig_files: bool,
     /// Report files in `fixtures` and `__fixtures__` directories as unused, and their unused exports, types and
     /// members, like any other file. Off by default: those directories hold test data that tests load by path.
     pub include_fixtures: bool,
@@ -1489,6 +1497,21 @@ impl Js {
         self
     }
 
+    /// Uses `path`, relative to the workspace root, as the TypeScript configuration of the root package.
+    #[must_use]
+    pub fn with_tsconfig(mut self, path: impl Into<String>) -> Self {
+        self.tsconfig = Some(path.into());
+        self
+    }
+
+    /// Takes the project files of each package with a TypeScript configuration from its `files`, `include` and
+    /// `exclude`.
+    #[must_use]
+    pub const fn with_use_tsconfig_files(mut self, enabled: bool) -> Self {
+        self.use_tsconfig_files = enabled;
+        self
+    }
+
     /// Switches a plugin on or off, or configures it.
     #[must_use]
     pub fn with_plugin(mut self, name: impl Into<String>, plugin: PluginConfig) -> Self {
@@ -1515,6 +1538,8 @@ impl Default for Js {
             isolate_workspaces: false,
             no_gitignore: false,
             include_entry_exports: false,
+            tsconfig: None,
+            use_tsconfig_files: false,
             include_fixtures: false,
             discovery: JsDiscovery::Auto,
             cycles: JsCycles::default(),

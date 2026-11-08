@@ -401,6 +401,16 @@ pub struct LintArgs {
     #[arg(long)]
     pub include_entry_exports: bool,
 
+    /// The TypeScript configuration of the root package, relative to the workspace root, used instead of its
+    /// `tsconfig.json` (overrides `[js] tsconfig`).
+    #[arg(short = 't', long = "tsconfig", visible_alias = "tsConfig", value_name = "FILE")]
+    pub tsconfig: Option<String>,
+
+    /// Take the project files of each package from its `tsconfig.json` (`files`, `include`, `exclude`) instead of the
+    /// `project` globs.
+    #[arg(long)]
+    pub use_tsconfig_files: bool,
+
     /// knip's strict mode: --production, and each workspace package uses only the dependencies its own manifest
     /// lists, not those of a containing package or the root.
     #[arg(long)]
