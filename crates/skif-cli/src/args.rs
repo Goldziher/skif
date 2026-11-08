@@ -37,12 +37,142 @@ pub enum Command {
     ExplainUsage(ExplainUsageArgs),
     /// Translate the configuration of sherif, syncpack and knip into a `skif.toml`; never deletes a file.
     Migrate(MigrateArgs),
+    /// Update dependencies to newer published versions from the npm registry; the only command that uses the network.
+    Update(UpdateArgs),
+    /// List every dependency the version groups govern, by version group, with its specifiers and states.
+    List(ListArgs),
+    /// Print every dependency instance the version groups govern as one JSON object per line (NDJSON).
+    Json(InstancesArgs),
     /// Format every `package.json` as `[format]` describes (the `package-json-format` rule alone); never installs.
     Format(FormatArgs),
     /// Run a Model Context Protocol server on stdin and stdout, for AI agents.
     Mcp,
     /// Run a Language Server Protocol server on stdin and stdout: diagnostics on open and save.
     Lsp,
+}
+
+/// How far `skif update` may move a version.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum Target {
+    /// The highest published version.
+    #[default]
+    Latest,
+    /// The highest version with the same major.
+    Minor,
+    /// The highest version with the same major and minor.
+    Patch,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct UpdateArgs {
+    /// A path inside a project, resolved to its workspace root as for linting.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+
+    /// Write nothing; exit 1 when an update is available.
+    #[arg(long)]
+    pub check: bool,
+
+    /// How far a version may move; an `[[update-groups]]` entry can narrow it further.
+    #[arg(long, value_enum, default_value_t = Target::Latest)]
+    pub target: Target,
+
+    /// Only these dependencies, by name or glob. Repeatable.
+    #[arg(long = "dependencies", value_name = "NAME")]
+    pub dependencies: Vec<String>,
+
+    /// Do not run the package manager after writing.
+    #[arg(long)]
+    pub no_install: bool,
+
+    /// Use this configuration file (and the files it extends) instead of discovering `skif.toml` files.
+    #[arg(long, value_name = "FILE", conflicts_with = "no_config")]
+    pub config: Option<PathBuf>,
+
+    /// Read no configuration file: the defaults plus the flags.
+    #[arg(long)]
+    pub no_config: bool,
+
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = RulesFormat::Human)]
+    pub format: RulesFormat,
+}
+
+/// What `skif list` and `skif json` read.
+#[derive(Debug, clap::Args)]
+pub struct InstancesArgs {
+    /// A path inside a project, resolved to its workspace root as for linting.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+
+    /// Cover every workspace and standalone package at or below PATH, each with its own configuration.
+    #[arg(short, long)]
+    pub recursive: bool,
+
+    /// Use this configuration file (and the files it extends) instead of discovering `skif.toml` files.
+    #[arg(long, value_name = "FILE", conflicts_with = "no_config")]
+    pub config: Option<PathBuf>,
+
+    /// Read no configuration file: the defaults plus the flags.
+    #[arg(long)]
+    pub no_config: bool,
+
+    #[command(flatten)]
+    pub filter: FilterArgs,
+}
+
+/// syncpack's instance filters: what the version-group policies see in this run.
+#[derive(Debug, Default, clap::Args)]
+pub struct FilterArgs {
+    /// Only the dependencies whose name matches this name or glob (`react`, `@types/**`, `!eslint`), in the
+    /// version-group and semver-group rules only. Repeatable. syncpack's `--dependencies`.
+    // Not `--dependencies`: that is knip's issue-type shortcut on the same command.
+    #[arg(id = "dependency", long = "dependency", value_name = "NAME")]
+    pub dependencies: Vec<String>,
+
+    /// Only these dependency types (`prod,dev`, `peer`, `!local`, a custom type), in the version-group and
+    /// semver-group rules only; also their default scope for this run. Comma separated.
+    #[arg(long, value_name = "TYPES", value_delimiter = ',')]
+    pub dependency_types: Vec<String>,
+
+    /// Only instances with these specifier types (`exact,range`, `!workspace-protocol`), in the version-group
+    /// and semver-group rules only. Comma separated.
+    #[arg(long, value_name = "TYPES", value_delimiter = ',')]
+    pub specifier_types: Vec<String>,
+
+    /// Only instances declared in files matching this glob, relative to the root (`packages/app/package.json`), in
+    /// the version-group and semver-group rules only. Repeatable.
+    #[arg(long, value_name = "GLOB")]
+    pub source: Vec<String>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ListArgs {
+    #[command(flatten)]
+    pub instances: InstancesArgs,
+
+    /// What to show, comma separated: `instances` (every instance of each dependency), `statuses` (the state names),
+    /// `hints` (mark dependencies that are workspace packages), `ignored` (the dependencies of `ignored` groups),
+    /// `all` or `none`.
+    #[arg(long, value_enum, value_delimiter = ',', default_value = "hints,statuses")]
+    pub show: Vec<Show>,
+}
+
+/// The details `skif list --show` turns on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Show {
+    /// Every instance of every dependency.
+    Instances,
+    /// The state of each dependency and instance.
+    Statuses,
+    /// A mark on dependencies that are packages of the workspace.
+    Hints,
+    /// The dependencies of `ignored` version groups.
+    Ignored,
+    /// Everything above.
+    All,
+    /// Nothing above.
+    None,
 }
 
 #[derive(Debug, clap::Args)]
@@ -311,6 +441,11 @@ pub struct LintArgs {
     #[arg(long)]
     pub fix_unsafe: bool,
 
+    /// With --fix or --fix-unsafe: print the planned changes as a unified diff (JSON: the `fix` object with
+    /// `changes`); no manifest is written and no install runs. Reports still go to stdout, --output and FORMAT=FILE.
+    #[arg(long)]
+    pub dry_run: bool,
+
     /// Let fixes delete files (`unused-files`); without it they are skipped. Needs --fix or --fix-unsafe.
     #[arg(long, requires = "fixing")]
     pub allow_remove_files: bool,
@@ -485,12 +620,78 @@ pub struct LintArgs {
     /// Do not report exports tagged with these `JSDoc` tags, written `-TAG` as in knip. Comma separated, repeatable.
     #[arg(long, value_name = "-TAG", value_delimiter = ',', allow_hyphen_values = true)]
     pub tags: Vec<String>,
+
+    #[command(flatten)]
+    pub filter: FilterArgs,
+}
+
+/// The arguments of a bare `skif`: every flag at its command-line default. A command that lints on its own behalf
+/// sets the fields it needs and takes the rest from here (`LintArgs { path, ..LintArgs::default() }`), so a flag
+/// added later does not break it.
+impl Default for LintArgs {
+    fn default() -> Self {
+        Self {
+            path: PathBuf::from("."),
+            recursive: false,
+            format: Vec::new(),
+            output: None,
+            fix: false,
+            fix_unsafe: false,
+            dry_run: false,
+            allow_remove_files: false,
+            fix_type: Vec::new(),
+            select: None,
+            no_install: false,
+            max_warnings: None,
+            fail_on_warnings: false,
+            max_issues: None,
+            max_show_issues: None,
+            no_exit_code: false,
+            no_prompt: false,
+            rules: Vec::new(),
+            ignore_rule: Vec::new(),
+            ignore_package: Vec::new(),
+            ignore_dependency: Vec::new(),
+            ignore_rule_for_package: Vec::new(),
+            require_ignore_reasons: false,
+            no_js: false,
+            config: None,
+            no_config: false,
+            production: false,
+            no_gitignore: false,
+            include_entry_exports: false,
+            tsconfig: None,
+            use_tsconfig_files: false,
+            strict: false,
+            color: ColorChoice::Auto,
+            watch: false,
+            trace_dependency: None,
+            debug: false,
+            performance: false,
+            duration: false,
+            memory: false,
+            workspace: Vec::new(),
+            include: Vec::new(),
+            exclude: Vec::new(),
+            dependencies: false,
+            exports: false,
+            files: false,
+            cycles: false,
+            tags: Vec::new(),
+            filter: FilterArgs::default(),
+        }
+    }
 }
 
 impl LintArgs {
     /// Whether any fixing flag was given.
     pub const fn fixing(&self) -> bool {
         self.fix || self.fix_unsafe
+    }
+
+    /// Whether fixes are planned and shown but not written.
+    pub const fn dry_run(&self) -> bool {
+        self.dry_run && self.fixing()
     }
 
     /// The format that decides the run's behaviour (JSON-mode errors, colour, prompts, where the fix summary goes):
@@ -681,6 +882,12 @@ fn parse_rule_package(value: &str) -> Result<(String, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_default_lint_args_are_those_of_a_bare_run() {
+        let parsed = Cli::try_parse_from(["skif"]).unwrap().lint;
+        assert_eq!(format!("{:?}", LintArgs::default()), format!("{parsed:?}"));
+    }
 
     #[test]
     fn rule_levels_parse() {

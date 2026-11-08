@@ -3,19 +3,29 @@
 
 use std::path::Path;
 
-use skif_js_syntax::{ConfigValue, extract_config_object};
+use skif_js_syntax::{ConfigValue, ModuleLoader, extract_config_object, extract_config_object_with};
 
 /// Parses `source`, choosing the format from the file name: JavaScript and TypeScript are evaluated statically
 /// (nothing is executed), JSON and JSONC, YAML and TOML are parsed. Values that cannot be known without running
 /// code come back as [`ConfigValue::Unknown`]. `None` when the file is not understood.
 #[must_use]
 pub fn load_config(path: &Path, source: &str) -> Option<ConfigValue> {
+    load_config_with(path, source, None)
+}
+
+/// Like [`load_config`], and a JavaScript or TypeScript config also evaluates the values it imports from the modules
+/// `modules` follows (a base config of the project or of a workspace package).
+#[must_use]
+pub fn load_config_with(path: &Path, source: &str, modules: Option<&dyn ModuleLoader>) -> Option<ConfigValue> {
     if path.parent().and_then(Path::file_name).is_some_and(|n| n == ".husky") {
         return Some(ConfigValue::String(source.to_string()));
     }
     let extension = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
     match extension.as_deref() {
-        Some("js" | "cjs" | "mjs" | "ts" | "cts" | "mts" | "jsx" | "tsx") => extract_config_object(source, path),
+        Some("js" | "cjs" | "mjs" | "ts" | "cts" | "mts" | "jsx" | "tsx") => match modules {
+            Some(modules) => extract_config_object_with(source, path, modules),
+            None => extract_config_object(source, path),
+        },
         Some("json" | "jsonc" | "json5") => json_like(source),
         Some("yml" | "yaml") => yaml(source),
         Some("toml") => toml(source),

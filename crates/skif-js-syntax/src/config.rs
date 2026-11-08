@@ -2,14 +2,16 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
+use std::rc::Rc;
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentOperator, AssignmentTarget, BinaryOperator,
     BindingPattern, CallExpression, Declaration, ExportDefaultDeclarationKind, Expression, Function,
-    ImportDeclarationSpecifier, NewExpression, ObjectPropertyKind, Program, Statement, StaticMemberExpression,
-    TaggedTemplateExpression, TemplateLiteral, UnaryOperator, VariableDeclaration, VariableDeclarationKind,
+    ImportDeclarationSpecifier, ImportOrExportKind, NewExpression, ObjectPropertyKind, Program, Statement,
+    StaticMemberExpression, TaggedTemplateExpression, TemplateLiteral, UnaryOperator, VariableDeclaration,
+    VariableDeclarationKind,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
@@ -30,6 +32,17 @@ const MAX_CONST_NODES: usize = 10_000;
 /// How many function calls one evaluation may make; a function that calls itself twice at every level is unknown
 /// past this.
 const MAX_CALLS: usize = 256;
+
+/// How many modules, the config file included, may be evaluated inside one another; an import past the eighth module
+/// of a chain is unknown.
+const MAX_IMPORT_DEPTH: usize = 8;
+
+/// How many distinct modules one config may load, so a config that reaches many modules stays cheap.
+const MAX_MODULE_LOADS: usize = 64;
+
+/// How many imported exports one config may evaluate in all, calls with arguments included, so imported functions
+/// that call one another many times stay cheap.
+const MAX_MODULE_EVALUATIONS: usize = 1024;
 
 /// Packages whose default export or named exports list files by glob.
 const GLOB_PACKAGES: &[&str] = &["glob", "fast-glob", "globby", "tinyglobby"];
@@ -147,6 +160,17 @@ impl ConfigValue {
     }
 }
 
+/// Finds the modules a config file imports, so their values can be evaluated statically too.
+///
+/// The evaluator asks for every module a config imports a value from (`import base from './base'`,
+/// `import { vitestConfig } from '@scope/vitest-config/frontend'`, `require('./base')`). An implementation returns the
+/// source of the modules worth following, typically files of the project itself and of its workspace packages, and
+/// `None` for anything else (an installed package, a builtin), whose values then stay [`ConfigValue::Unknown`].
+pub trait ModuleLoader {
+    /// The path and source of the module `specifier` names when imported from the file `from`.
+    fn load(&self, from: &Path, specifier: &str) -> Option<(PathBuf, String)>;
+}
+
 /// Statically evaluates what `source` exports: `export default …`, `module.exports = …` or `export = …`.
 ///
 /// Understood: object, array, string, number, boolean and `null` literals; template literals without expressions;
@@ -167,8 +191,36 @@ impl ConfigValue {
 /// config and a heuristic otherwise. The directory itself is `"."`, so `dirname(__dirname)` is `".."`. A URL with a
 /// scheme (`new URL(x, 'https://…')`, `fileURLToPath('file:///…')`) and `.href` are [`ConfigValue::Unknown`], as is
 /// everything else. Returns `None` when the file does not parse or exports nothing recognisable.
+///
+/// Imports are not followed; [`extract_config_object_with`] follows them.
 #[must_use]
 pub fn extract_config_object(source: &str, path: &Path) -> Option<ConfigValue> {
+    evaluate_config(source, path, None)
+}
+
+/// Like [`extract_config_object`], and follows the imports `loader` finds: a value imported from another module (a
+/// default or named export, a namespace member, a `require`d `module.exports`) is evaluated statically in that module,
+/// and a call of an imported function with the arguments given. A chain of imports reaches at most eight modules, the
+/// config file included, an export whose value depends on itself through imports is [`ConfigValue::Unknown`] there,
+/// and one config loads at most 64 distinct modules and evaluates at most 1024 imported exports and calls.
+/// Paths an imported module computes from its own location (`__dirname`, `import.meta.url`) come back relative to the
+/// directory of the config file at `path`.
+#[must_use]
+pub fn extract_config_object_with(source: &str, path: &Path, loader: &dyn ModuleLoader) -> Option<ConfigValue> {
+    let modules = Modules {
+        loader,
+        root: path.parent().map(Path::to_path_buf).unwrap_or_default(),
+        active: RefCell::new(vec![(path.to_path_buf(), Imported::Default)]),
+        loads: RefCell::new(HashSet::new()),
+        evaluations: Cell::new(0),
+        cuts: Cell::new(0),
+        values: RefCell::new(HashMap::new()),
+        loaded: RefCell::new(HashMap::new()),
+    };
+    evaluate_config(source, path, Some(&modules))
+}
+
+fn evaluate_config(source: &str, path: &Path, modules: Option<&Modules<'_>>) -> Option<ConfigValue> {
     let source_type = SourceType::from_path(path).ok()?;
     let allocator = Allocator::default();
     let ret = Parser::new(&allocator, source, source_type)
@@ -183,12 +235,17 @@ pub fn extract_config_object(source: &str, path: &Path) -> Option<ConfigValue> {
     let program = &ret.program;
     let top = top_level(program);
     let bindings = module_bindings(program);
+    let imports = import_bindings(program);
     let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
     let eval = Evaluator {
         consts: &top.consts,
         functions: &top.functions,
         bindings: &bindings,
         file,
+        dir: ".",
+        path,
+        imports: &imports,
+        modules,
         evaluated: RefCell::new(HashMap::new()),
         chain: RefCell::new(Vec::new()),
         frames: RefCell::new(Vec::new()),
@@ -208,6 +265,302 @@ pub fn extract_config_object(source: &str, path: &Path) -> Option<ConfigValue> {
     };
     let captured = eval.captured.borrow_mut().take();
     Some(captured.unwrap_or(value))
+}
+
+/// What an import binds: a module's default export, one named export, or the module namespace.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Imported {
+    Default,
+    Named(String),
+    Namespace,
+}
+
+impl Imported {
+    fn named(name: String) -> Self {
+        if name == "default" {
+            Self::Default
+        } else {
+            Self::Named(name)
+        }
+    }
+}
+
+/// A local name bound by an `import` declaration.
+struct ImportBinding {
+    specifier: String,
+    imported: Imported,
+}
+
+/// The value imports of a module by local name; type-only imports bind no value.
+fn import_bindings(program: &Program<'_>) -> HashMap<String, ImportBinding> {
+    let mut imports = HashMap::new();
+    for stmt in &program.body {
+        let Statement::ImportDeclaration(d) = stmt else {
+            continue;
+        };
+        if d.import_kind.is_type() {
+            continue;
+        }
+        let specifier = crate::js_string(d.source.value);
+        for item in d.specifiers.iter().flatten() {
+            let (local, imported) = match item {
+                ImportDeclarationSpecifier::ImportSpecifier(s) if s.import_kind == ImportOrExportKind::Value => (
+                    s.local.name.as_str(),
+                    Imported::named(crate::collect::module_export_name(&s.imported)),
+                ),
+                ImportDeclarationSpecifier::ImportSpecifier(_) => continue,
+                ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => (s.local.name.as_str(), Imported::Default),
+                ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => (s.local.name.as_str(), Imported::Namespace),
+            };
+            imports.insert(
+                local.to_owned(),
+                ImportBinding {
+                    specifier: specifier.clone(),
+                    imported,
+                },
+            );
+        }
+    }
+    imports
+}
+
+/// Where the value of an export comes from.
+enum ExportSource {
+    /// A binding of the module itself, by local name.
+    Local(String),
+    /// An export of another module (`export { a as b } from './x'`).
+    From(String, Imported),
+}
+
+/// The named exports of a module, and the modules it re-exports everything of (`export * from './x'`).
+fn export_table(program: &Program<'_>) -> (HashMap<String, ExportSource>, Vec<String>) {
+    let mut table = HashMap::new();
+    let mut stars = Vec::new();
+    for stmt in &program.body {
+        match stmt {
+            Statement::ExportDeclaration(e) => match &e.declaration {
+                Declaration::VariableDeclaration(v) => {
+                    for d in &v.declarations {
+                        if let BindingPattern::BindingIdentifier(id) = &d.id {
+                            let name = id.name.as_str().to_owned();
+                            table.insert(name.clone(), ExportSource::Local(name));
+                        }
+                    }
+                }
+                Declaration::FunctionDeclaration(f) => {
+                    if let Some(id) = &f.id {
+                        let name = id.name.as_str().to_owned();
+                        table.insert(name.clone(), ExportSource::Local(name));
+                    }
+                }
+                _ => {}
+            },
+            Statement::ExportNamedDeclaration(e) if !e.export_kind.is_type() => {
+                for s in e.specifiers.iter().filter(|s| !s.export_kind.is_type()) {
+                    table.insert(
+                        crate::collect::module_export_name(&s.exported),
+                        ExportSource::Local(crate::collect::module_export_name(&s.local)),
+                    );
+                }
+            }
+            Statement::ExportFromDeclaration(e) if !e.export_kind.is_type() => {
+                let from = crate::js_string(e.source.value);
+                for s in e.specifiers.iter().filter(|s| !s.export_kind.is_type()) {
+                    table.insert(
+                        crate::collect::module_export_name(&s.exported),
+                        ExportSource::From(
+                            from.clone(),
+                            Imported::named(crate::collect::module_export_name(&s.local)),
+                        ),
+                    );
+                }
+            }
+            Statement::ExportAllDeclaration(e) if !e.export_kind.is_type() => {
+                let from = crate::js_string(e.source.value);
+                match &e.exported {
+                    Some(name) => {
+                        table.insert(
+                            crate::collect::module_export_name(name),
+                            ExportSource::From(from, Imported::Namespace),
+                        );
+                    }
+                    None => stars.push(from),
+                }
+            }
+            _ => {}
+        }
+    }
+    (table, stars)
+}
+
+/// The path and source of a module the loader found.
+type LoadedModule = (PathBuf, Rc<str>);
+
+/// Follows the imports of a config and the modules it reaches.
+struct Modules<'l> {
+    loader: &'l dyn ModuleLoader,
+    /// The directory of the config file, which paths computed in imported modules are relative to.
+    root: PathBuf,
+    /// The exports being evaluated, outermost (the config file's default export) first. One that depends on itself
+    /// is unknown; other exports of the same module are not, as ES modules may import each other.
+    active: RefCell<Vec<(PathBuf, Imported)>>,
+    /// The modules evaluated so far.
+    loads: RefCell<HashSet<PathBuf>>,
+    /// How many exports have been evaluated so far, calls with arguments included.
+    evaluations: Cell<usize>,
+    /// How many times an evaluation was cut short (a cycle, the depth limit, a budget) and gave
+    /// [`ConfigValue::Unknown`]. A value computed while this grew depends on what else was being evaluated at the
+    /// time, so it is not cached.
+    cuts: Cell<usize>,
+    /// The value of every export evaluated without arguments so far, by module and export, computed without a cut.
+    values: RefCell<HashMap<(PathBuf, Imported), Option<ConfigValue>>>,
+    /// What the loader returned for each importing directory and specifier.
+    loaded: RefCell<HashMap<(PathBuf, String), Option<LoadedModule>>>,
+}
+
+impl Modules<'_> {
+    /// The module `specifier` names from `from`, asking the loader once per directory and specifier.
+    fn load(&self, from: &Path, specifier: &str) -> Option<LoadedModule> {
+        let key = (from.parent().unwrap_or(from).to_path_buf(), specifier.to_owned());
+        if let Some(known) = self.loaded.borrow().get(&key) {
+            return known.clone();
+        }
+        let module = self
+            .loader
+            .load(from, specifier)
+            .map(|(path, source)| (path, Rc::from(source)));
+        self.loaded.borrow_mut().insert(key, module.clone());
+        module
+    }
+
+    /// Whether the module `specifier` names from `from` is followed.
+    fn follows(&self, from: &Path, specifier: &str) -> bool {
+        self.load(from, specifier).is_some()
+    }
+
+    /// The value `imported` names in the module `specifier` resolves to from `from`, called with `args` when given.
+    /// `None` when the module is not followed or does not have the export.
+    fn evaluate(
+        &self,
+        from: &Path,
+        specifier: &str,
+        imported: &Imported,
+        args: Option<&[ConfigValue]>,
+    ) -> Option<ConfigValue> {
+        let (path, source) = self.load(from, specifier)?;
+        let key = (path.clone(), imported.clone());
+        if args.is_none()
+            && let Some(known) = self.values.borrow().get(&key)
+        {
+            return known.clone();
+        }
+        if self.cut(&key) {
+            self.cuts.set(self.cuts.get() + 1);
+            return Some(ConfigValue::Unknown);
+        }
+        self.loads.borrow_mut().insert(path.clone());
+        self.evaluations.set(self.evaluations.get() + 1);
+        let cuts = self.cuts.get();
+        self.active.borrow_mut().push(key.clone());
+        let value = self.evaluate_module(&path, &source, imported, args);
+        self.active.borrow_mut().pop();
+        if args.is_none() && self.cuts.get() == cuts {
+            self.values.borrow_mut().insert(key, value.clone());
+        }
+        value
+    }
+
+    /// Whether evaluating the export `key` would depend on itself, nest past [`MAX_IMPORT_DEPTH`] modules or exceed a
+    /// budget.
+    fn cut(&self, key: &(PathBuf, Imported)) -> bool {
+        let active = self.active.borrow();
+        let loads = self.loads.borrow();
+        active.contains(key)
+            || active.len() >= MAX_IMPORT_DEPTH
+            || (!loads.contains(&key.0) && loads.len() >= MAX_MODULE_LOADS)
+            || self.evaluations.get() >= MAX_MODULE_EVALUATIONS
+    }
+
+    fn evaluate_module(
+        &self,
+        path: &Path,
+        source: &str,
+        imported: &Imported,
+        args: Option<&[ConfigValue]>,
+    ) -> Option<ConfigValue> {
+        let source_type = SourceType::from_path(path).ok()?;
+        let allocator = Allocator::default();
+        let ret = Parser::new(&allocator, source, source_type)
+            .with_options(OxcParseOptions {
+                preserve_parens: false,
+                ..OxcParseOptions::default()
+            })
+            .parse();
+        if ret.diagnostics.errors().next().is_some() {
+            return Some(ConfigValue::Unknown);
+        }
+        let program = &ret.program;
+        let top = top_level(program);
+        let bindings = module_bindings(program);
+        let imports = import_bindings(program);
+        let dir = relative_dir(&self.root, path.parent().unwrap_or(path));
+        let eval = Evaluator {
+            consts: &top.consts,
+            functions: &top.functions,
+            bindings: &bindings,
+            file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+            dir: &dir,
+            path,
+            imports: &imports,
+            modules: Some(self),
+            evaluated: RefCell::new(HashMap::new()),
+            chain: RefCell::new(Vec::new()),
+            frames: RefCell::new(Vec::new()),
+            calls: Cell::new(0),
+            config_setter: RefCell::new(None),
+            captured: RefCell::new(None),
+        };
+        match imported {
+            Imported::Namespace => Some(ConfigValue::Unknown),
+            Imported::Default => Some(match exported(program)? {
+                Exported::Function(function) => eval.invoke(Callable::Function(function), args.unwrap_or(&[]), true, 0),
+                Exported::Expression(expr) => {
+                    match (args, Callable::of_expression(expr), expr.get_inner_expression()) {
+                        (None, _, _) => eval.expr(expr, 0),
+                        (Some(args), Some(callable), _) => eval.invoke(callable, args, true, 0),
+                        (Some(args), None, Expression::Identifier(id)) => eval.call_named(id.name.as_str(), args),
+                        (Some(_), None, _) => ConfigValue::Unknown,
+                    }
+                }
+            }),
+            Imported::Named(name) => {
+                let (table, stars) = export_table(program);
+                match table.get(name) {
+                    Some(ExportSource::Local(local)) => Some(match args {
+                        None => eval.identifier(local, 0),
+                        Some(args) => eval.call_named(local, args),
+                    }),
+                    Some(ExportSource::From(from, imported)) => self.evaluate(path, from, imported, args),
+                    None => stars.iter().find_map(|from| self.evaluate(path, from, imported, args)),
+                }
+            }
+        }
+    }
+}
+
+/// The directory `to` relative to the directory `from`, lexically: `"."`, `"./a"` or `"../b"`.
+fn relative_dir(from: &Path, to: &Path) -> String {
+    let from: Vec<Component<'_>> = from.components().collect();
+    let to: Vec<Component<'_>> = to.components().collect();
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let mut parts: Vec<String> = vec!["..".to_owned(); from.len() - common];
+    parts.extend(
+        to[common..]
+            .iter()
+            .map(|part| part.as_os_str().to_string_lossy().into_owned()),
+    );
+    let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
+    normalized(&parts)
 }
 
 /// Name of the first parameter of `callable`, when it is a plain identifier.
@@ -303,6 +656,11 @@ struct ModuleBindings {
     merge_names: HashSet<String>,
     /// Local `merge` and `mergeWith` imported from a package that does something else with them.
     foreign_merges: HashSet<String>,
+    /// Local names of the functions that combine `ESLint` flat configs into one list (`defineConfig` of
+    /// `eslint/config`).
+    flat_config_functions: HashSet<String>,
+    /// Local names of `typescript-eslint`, whose `config` combines flat configs.
+    flat_config_modules: HashSet<String>,
 }
 
 impl ModuleBindings {
@@ -332,6 +690,12 @@ impl ModuleBindings {
             }
             ("fs", Some("globSync")) | ("fs/promises", Some("glob")) => {
                 self.glob_names.insert(local);
+            }
+            ("eslint/config", Some("defineConfig")) | ("typescript-eslint", Some("config")) => {
+                self.flat_config_functions.insert(local);
+            }
+            ("typescript-eslint", None | Some("default")) => {
+                self.flat_config_modules.insert(local);
             }
             _ => {}
         }
@@ -545,10 +909,10 @@ pub fn extract_imported_calls(
 
 /// Local name to module and named export (`None` for the default export or the module object) of everything a
 /// program imports from `modules`, plus `globals`.
-type Imported = HashMap<String, (String, Option<String>)>;
+type ImportedFunctions = HashMap<String, (String, Option<String>)>;
 
-fn imported_functions(program: &Program<'_>, modules: &[&str], globals: &[(&str, &str)]) -> Imported {
-    let mut imported: Imported = globals
+fn imported_functions(program: &Program<'_>, modules: &[&str], globals: &[(&str, &str)]) -> ImportedFunctions {
+    let mut imported: ImportedFunctions = globals
         .iter()
         .map(|(name, module)| ((*name).to_owned(), ((*module).to_owned(), Some((*name).to_owned()))))
         .collect();
@@ -608,7 +972,7 @@ struct CallFinder<'t, 'p, 'a> {
     bindings: &'t ModuleBindings,
     file: &'t str,
     /// Local name to module and named export (`None` for the default export or the module object).
-    imported: &'t Imported,
+    imported: &'t ImportedFunctions,
     found: Vec<ImportedCall>,
 }
 
@@ -641,6 +1005,10 @@ impl<'a> Visit<'a> for CallFinder<'_, '_, 'a> {
                 functions: &self.top.functions,
                 bindings: self.bindings,
                 file: self.file,
+                dir: ".",
+                path: Path::new(self.file),
+                imports: &HashMap::new(),
+                modules: None,
                 evaluated: RefCell::new(HashMap::new()),
                 chain: RefCell::new(Vec::new()),
                 frames: RefCell::new(Vec::new()),
@@ -707,6 +1075,10 @@ impl<'a> Visit<'a> for OptionFinder<'_, '_, 'a> {
                 functions: &self.top.functions,
                 bindings: self.bindings,
                 file: self.file,
+                dir: ".",
+                path: Path::new(self.file),
+                imports: &HashMap::new(),
+                modules: None,
                 evaluated: RefCell::new(HashMap::new()),
                 chain: RefCell::new(Vec::new()),
                 frames: RefCell::new(Vec::new()),
@@ -783,8 +1155,16 @@ struct Evaluator<'c, 'p, 'a> {
     consts: &'c HashMap<String, &'p Expression<'a>>,
     functions: &'c HashMap<String, Callable<'p, 'a>>,
     bindings: &'c ModuleBindings,
-    /// File name of the config file, which `__filename` and `import.meta.url` name.
+    /// File name of the module, which `__filename` and `import.meta.url` name.
     file: &'c str,
+    /// The module's directory relative to the config file's directory: `"."` in the config file itself.
+    dir: &'c str,
+    /// Path of the module, which its imports are resolved from.
+    path: &'c Path,
+    /// The module's value imports by local name.
+    imports: &'c HashMap<String, ImportBinding>,
+    /// Follows imports; `None` when imports are not followed.
+    modules: Option<&'c Modules<'c>>,
     /// The value of every top-level constant evaluated so far.
     evaluated: RefCell<HashMap<String, ConfigValue>>,
     /// The constants being evaluated, outermost first; a constant that refers back to one of them is unknown.
@@ -851,7 +1231,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let Some(&init) = self.consts.get(name) else {
             return match self.functions.get(name) {
                 Some(callable) => self.invoke(*callable, &[], true, depth),
-                None => self.global(name),
+                None => self.import_value(name, None).unwrap_or_else(|| self.global(name)),
             };
         };
         if let Some(known) = self.evaluated.borrow().get(name) {
@@ -867,6 +1247,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         // The value does not depend on where it is referenced from: evaluate it outside any function's bindings and
         // from a fresh depth budget.
         let saved = std::mem::take(&mut *self.frames.borrow_mut());
+        let cuts = self.modules.map(|modules| modules.cuts.get());
         let value = self.expr(init, 0);
         *self.frames.borrow_mut() = saved;
         self.chain.borrow_mut().pop();
@@ -875,7 +1256,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         } else {
             value
         };
-        self.evaluated.borrow_mut().insert(name.to_owned(), value.clone());
+        // A value an import cycle or budget cut short depends on the order of evaluation; it is computed again.
+        if self.modules.map(|modules| modules.cuts.get()) == cuts {
+            self.evaluated.borrow_mut().insert(name.to_owned(), value.clone());
+        }
         value
     }
 
@@ -898,13 +1282,69 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         }
     }
 
-    /// The path of the config file's directory (`__dirname`) or of the file itself (`__filename`).
+    /// The path of the module's directory (`__dirname`) or of the module itself (`__filename`).
     fn global(&self, name: &str) -> ConfigValue {
         match name {
-            "__dirname" => ConfigValue::String(".".to_owned()),
-            "__filename" => ConfigValue::String(format!("./{}", self.file)),
+            "__dirname" => ConfigValue::String(normalized(&[self.dir])),
+            "__filename" => ConfigValue::String(self.file_path()),
             _ => ConfigValue::Unknown,
         }
+    }
+
+    /// The module's path relative to the config file's directory.
+    fn file_path(&self) -> String {
+        normalized(&[self.dir, self.file])
+    }
+
+    /// The value an imported name stands for, called with `args` when given. `None` when the name is not imported or
+    /// its module is not followed.
+    fn import_value(&self, name: &str, args: Option<&[ConfigValue]>) -> Option<ConfigValue> {
+        let binding = self.imports.get(name)?;
+        self.modules?
+            .evaluate(self.path, &binding.specifier, &binding.imported, args)
+    }
+
+    /// A call of an imported function whose module is followed; `None` otherwise, before evaluating any argument.
+    fn imported_call(&self, name: &str, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+        let binding = self.imports.get(name)?;
+        let modules = self.modules?;
+        if !modules.follows(self.path, &binding.specifier) {
+            return None;
+        }
+        let args = self.arguments(call, depth);
+        modules.evaluate(self.path, &binding.specifier, &binding.imported, Some(&args))
+    }
+
+    /// `ns.name` of a namespace import `ns`: the export `name` of its module.
+    fn namespace_member(&self, namespace: &str, name: &str) -> ConfigValue {
+        let (Some(binding), Some(modules)) = (self.imports.get(namespace), self.modules) else {
+            return ConfigValue::Unknown;
+        };
+        modules
+            .evaluate(self.path, &binding.specifier, &Imported::named(name.to_owned()), None)
+            .unwrap_or(ConfigValue::Unknown)
+    }
+
+    /// Calls the function `name` of this module, declared or imported, with `args`.
+    fn call_named(&self, name: &str, args: &[ConfigValue]) -> ConfigValue {
+        match self.functions.get(name) {
+            Some(callable) => self.invoke(*callable, args, true, 0),
+            None => self.import_value(name, Some(args)).unwrap_or(ConfigValue::Unknown),
+        }
+    }
+
+    /// `module.exports` of the module a `require('./x')` call loads. A package is followed only where its value is the
+    /// config (`module.exports = require('@scope/config')`); nested in a config a required package is a name.
+    fn required_value(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+        let modules = self.modules?;
+        if !matches!(call.callee.get_inner_expression(), Expression::Identifier(id) if id.name.as_str() == "require") {
+            return None;
+        }
+        let specifier = single_argument(call).and_then(static_string)?;
+        if depth >= 2 && !specifier.starts_with('.') {
+            return None;
+        }
+        modules.evaluate(self.path, &specifier, &Imported::Default, None)
     }
 
     fn template(&self, template: &'p TemplateLiteral<'a>, depth: u32) -> ConfigValue {
@@ -930,9 +1370,18 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     fn member(&self, member: &'p StaticMemberExpression<'a>, depth: u32) -> ConfigValue {
         let property = member.property.name.as_str();
         match (member.object.get_inner_expression(), property) {
-            (Expression::ImportMeta(_), "dirname") => ConfigValue::String(".".to_owned()),
-            (Expression::ImportMeta(_), "filename" | "url") => ConfigValue::String(format!("./{}", self.file)),
+            (Expression::ImportMeta(_), "dirname") => ConfigValue::String(normalized(&[self.dir])),
+            (Expression::ImportMeta(_), "filename" | "url") => ConfigValue::String(self.file_path()),
             (object @ Expression::NewExpression(_), "pathname") => self.expr(object, depth),
+            (Expression::Identifier(object), _)
+                if self
+                    .imports
+                    .get(object.name.as_str())
+                    .is_some_and(|b| b.imported == Imported::Namespace)
+                    && self.lookup(object.name.as_str()).is_none() =>
+            {
+                self.namespace_member(object.name.as_str(), property)
+            }
             _ => ConfigValue::Unknown,
         }
     }
@@ -1091,6 +1540,36 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         })
     }
 
+    /// `defineConfig(a, [b, c], ...d)` of `eslint/config` and `tseslint.config(…)`: the flat config list of all their
+    /// arguments, nested lists flattened.
+    fn flat_config_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
+        let combines = match call.callee.get_inner_expression() {
+            Expression::Identifier(id) => self.bindings.flat_config_functions.contains(id.name.as_str()),
+            Expression::StaticMemberExpression(member) => {
+                member.property.name.as_str() == "config"
+                    && matches!(
+                        member.object.get_inner_expression(),
+                        Expression::Identifier(object) if self.bindings.flat_config_modules.contains(object.name.as_str())
+                    )
+            }
+            _ => false,
+        };
+        if !combines {
+            return None;
+        }
+        let mut list = Vec::new();
+        for argument in &call.arguments {
+            let value = match argument {
+                Argument::SpreadElement(spread) => self.expr(&spread.argument, depth),
+                other => other
+                    .as_expression()
+                    .map_or(ConfigValue::Unknown, |e| self.expr(e, depth)),
+            };
+            flatten_into(value, &mut list);
+        }
+        Some(ConfigValue::Array(list))
+    }
+
     /// A call of a top-level function or of a function declared inside the function being evaluated.
     fn local_call(&self, call: &'p CallExpression<'a>, depth: u32) -> Option<ConfigValue> {
         let Expression::Identifier(id) = call.callee.get_inner_expression() else {
@@ -1100,7 +1579,10 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let (callable, isolate) = match self.lookup(name) {
             Some(Binding::Callable(callable)) => (callable, false),
             Some(Binding::Value(_)) => return None,
-            None => (*self.functions.get(name)?, true),
+            None => match self.functions.get(name) {
+                Some(callable) => (*callable, true),
+                None => return self.imported_call(name, call, depth),
+            },
         };
         Some(self.invoke(callable, &self.arguments(call, depth), isolate, depth))
     }
@@ -1154,11 +1636,14 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         if self.capture_set(call, depth) {
             return ConfigValue::Unknown;
         }
-        let special = required_package(call, depth)
+        let special = self
+            .required_value(call, depth)
+            .or_else(|| required_package(call, depth))
             .or_else(|| self.package_directory(call, depth))
             .or_else(|| self.path_call(call, depth))
             .or_else(|| self.resolve_call(call, depth))
             .or_else(|| self.glob_call(call, depth))
+            .or_else(|| self.flat_config_call(call, depth))
             .or_else(|| self.local_call(call, depth))
             .or_else(|| self.merge_call(call, depth));
         if let Some(value) = special {
@@ -1189,7 +1674,11 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let mut frame = Frame::new();
         for (index, param) in params.items.iter().enumerate() {
             if let BindingPattern::BindingIdentifier(id) = &param.pattern {
-                let value = args.get(index).cloned().unwrap_or(ConfigValue::Unknown);
+                let value = match (args.get(index), &param.initializer) {
+                    (Some(value), _) => value.clone(),
+                    (None, Some(default)) => self.expr(default, depth),
+                    (None, None) => ConfigValue::Unknown,
+                };
                 frame.insert(id.name.as_str().to_owned(), Binding::Value(value));
             }
         }
@@ -1458,8 +1947,33 @@ fn merge_objects(base: &mut Vec<(String, ConfigValue)>, incoming: Vec<(String, C
                 left.extend(right);
                 *slot = ConfigValue::Array(left);
             }
+            // A deep merge keeps what the known side has and whatever the unknown side may add to it.
+            (true, ConfigValue::Object(mut known), ConfigValue::Unknown)
+            | (true, ConfigValue::Unknown, ConfigValue::Object(mut known)) => {
+                if !known.iter().any(|(k, _)| k == "...") {
+                    known.push(("...".to_owned(), ConfigValue::Unknown));
+                }
+                *slot = ConfigValue::Object(known);
+            }
+            (true, ConfigValue::Array(mut known), ConfigValue::Unknown)
+            | (true, ConfigValue::Unknown, ConfigValue::Array(mut known)) => {
+                known.push(ConfigValue::Unknown);
+                *slot = ConfigValue::Array(known);
+            }
             (_, _, value) => *slot = value,
         }
+    }
+}
+
+/// Appends a flat config, or the configs of a (nested) list of them, to `list`.
+fn flatten_into(value: ConfigValue, list: &mut Vec<ConfigValue>) {
+    match value {
+        ConfigValue::Array(items) => {
+            for item in items {
+                flatten_into(item, list);
+            }
+        }
+        other => list.push(other),
     }
 }
 

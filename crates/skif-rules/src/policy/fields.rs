@@ -270,6 +270,33 @@ fn collect_custom(package: &Package, definition: &CustomType, found: &mut Vec<Fo
                 push(name, version, format!("{name}@"), base);
             }
         }
+        (CustomStrategy::NameTildeVersion, Value::String(version)) => {
+            let name = definition
+                .name_segments()
+                .try_fold(package.manifest.value(), |value, segment| value.get(segment))
+                .and_then(Value::as_str);
+            if let Some(name) = name.filter(|name| !name.is_empty()) {
+                // Located, like a dependency entry, where both the name and the version are: at the nearest member
+                // that holds both fields.
+                let shared = base
+                    .iter()
+                    .zip(definition.name_segments())
+                    .take_while(|(segment, name)| matches!(segment, PathSeg::Key(key) if key == name))
+                    .count();
+                let location = location_of(package, &base[..shared.min(base.len() - 1)]);
+                found.push(Found {
+                    ty: ty.clone(),
+                    name: name.to_owned(),
+                    version: version.to_owned(),
+                    field: Field {
+                        yaml: None,
+                        prefix: String::new(),
+                        location,
+                        pointer: base,
+                    },
+                });
+            }
+        }
         (CustomStrategy::VersionsByName, Value::Object(entries)) => {
             for (name, value) in entries {
                 if let Value::String(version) = value {

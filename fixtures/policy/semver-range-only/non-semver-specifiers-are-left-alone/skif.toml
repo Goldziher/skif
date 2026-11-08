@@ -1,0 +1,6 @@
+[[version-groups]]
+dependencies = ["lodash", "$LOCAL"]
+policy = "semver-range-only"
+
+[[semver-groups]]
+range = "~"
