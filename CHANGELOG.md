@@ -139,6 +139,10 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   the outer root's dependencies. The nested root judges the file against its own manifest in its own run.
 - A file that a script of a `package.json` above a nested root runs (`node build/npm/postinstall.ts`) is an entry
   of that root, so it and what it imports are no longer reported as unused files.
+- In a multi-root run (`skif -r`) a file of a nested root that an enclosing root imports (`build/lib/x.ts`, imported
+  from the outer `src`) is an entry of the nested root, so it and what it imports are no longer reported as unused
+  files. Nested roots are linted after the roots that enclose them; a root linted on its own still cannot see what an
+  outer root imports.
 - A package with no source file, no entry and no script no longer reports every dependency it lists as unused: there
   is no code to judge them against.
 - `stale-js-config` no longer stays silent about every `ignore-dependencies` list when one package has entry files
