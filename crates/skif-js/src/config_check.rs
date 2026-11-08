@@ -80,6 +80,13 @@ pub(crate) fn validate(config: &Config) -> Problem {
     names("js.ignore-members", &js.ignore_members)?;
     names("js.ignore-workspaces", &js.ignore_workspaces)?;
     plugin_globs("js.plugins", &js.plugins)?;
+    for (index, cycle) in js.cycles.allow.iter().enumerate() {
+        if cycle.is_empty() || cycle.iter().any(|file| file.trim().is_empty()) {
+            return invalid(format!(
+                "js.cycles.allow[{index}]: an allowed cycle needs at least one file and no empty path"
+            ));
+        }
+    }
     for (dir, workspace) in &js.workspaces {
         let key = format!("js.workspaces.\"{dir}\"");
         if let Some(message) = glob_problem(dir) {
