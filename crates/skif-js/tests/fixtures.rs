@@ -191,6 +191,28 @@ fn a_root_without_source_files_does_not_judge_its_dependencies() {
 }
 
 #[test]
+fn production_mode_takes_no_entries_from_scripts_above_a_nested_root() {
+    // Scripts give no entries in production mode, those of the outer manifest included.
+    let diagnostics = Run::at("nested-roots", "build", "[js]\nproduction = true").lint();
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "hygiene.ts: hygiene.ts",
+            "lib/orphan.ts: lib/orphan.ts",
+            "npm/helper.ts: npm/helper.ts",
+            "npm/postinstall.ts: npm/postinstall.ts"
+        ]
+    );
+}
+
+/// A member excluded with `ignore-packages` whose file the root imports: the file belongs to the member, a project of
+/// its own that the run does not analyse, so nothing in it is reported, neither in the member nor in the root.
+#[test]
+fn ignored_member_reached_from_the_root_snapshot() {
+    insta::assert_json_snapshot!("ignored_member", Run::new("ignored-member", "").lint());
+}
+
+#[test]
 fn monorepo_dependencies() {
     let diagnostics = Run::new("monorepo", "").lint();
     assert_eq!(
