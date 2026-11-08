@@ -427,10 +427,22 @@ fn stale_js_config_reports_entry_project_and_ignore_patterns_that_match_no_file(
     let mut files = two_packages("export {};\n");
     files.push(("index.ts", "export {};\n"));
     files.push(("packages/a/src/extra.ts", "export {};\n"));
+    // Files the analysis never reads: gitignored output, JSON and HTML. Patterns for them are not empty.
+    files.push((".gitignore", "dist\n"));
+    files.push(("dist/index.js", "export {};\n"));
+    files.push(("index.html", "<script type=\"module\" src=\"./index.ts\"></script>\n"));
     let diagnostics = lint(
         &files,
-        "[js]\nentry = [\"index.ts\", \"main.ts\", \"!skip.ts\"]\nproject = [\"**/*.ts\", \"lib/**\"]\nignore = [\"packages/a/src/extra.ts\", \"generated/**\"]\n\
+        "[js]\nentry = [\"index.ts\", \"main.ts\", \"!skip.ts\", \"index.html\"]\nproject = [\"**/*.ts\", \"lib/**\"]\n\
+         ignore = [\"packages/a/src/extra.ts\", \"generated/**\", \"dist/**\", \"**/*.json\"]\n\
+         ignore-files = [\"dist/**\", \"gone/**\"]\n\
          [js.workspaces.\"packages/*\"]\nentry = [\"src/index.ts\", \"src/cli.ts!\"]\nproject = [\"src/**/*.ts\"]\nignore = [\"src/extra.ts\", \"src/gone/**\"]\n",
+    );
+    // `dist` is gitignored, so only the walk of the disk finds its file.
+    assert!(
+        !paths(&diagnostics, "unused-files")
+            .iter()
+            .any(|path| path.starts_with("dist/"))
     );
     insta::assert_snapshot!(messages(&diagnostics).join("\n"));
 }

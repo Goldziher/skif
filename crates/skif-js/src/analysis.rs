@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use skif_config::{Config, JsDiscovery};
 use skif_core::{FileSystem, Span, timing};
 use skif_js_syntax::{Export, ExportKind, Member, ParseOptions, parse_module};
@@ -17,7 +18,7 @@ use crate::globs::Globs;
 use crate::graph::{self, Inputs, Module, ModuleGraph};
 use crate::input::InputSource;
 use crate::resolve::ModuleResolver;
-use crate::setup::Setup;
+use crate::setup::{Setup, WorkspaceKeys};
 use crate::specifier::package_name;
 use crate::usage::ExportUsage;
 
@@ -107,15 +108,112 @@ fn collect_ambient_modules(
     names
 }
 
-/// The configured `entry`, `project` and `ignore` patterns that match none of the files the analysis knows: the
-/// discovered source files and the modules of the graph. Negated patterns, patterns that leave the package (`../`) and
-/// the defaults are not judged. A file only reaches a package's patterns when the package owns it, as for entries.
+/// Directories [`on_disk`] does not enter unless the pattern names them: installed packages and git internals are
+/// never what a project pattern means, and walking them would make the check as slow as a dependency install.
+const UNWALKED_DIRS: [&str; 2] = ["node_modules", ".git"];
+
+/// Whether a file on disk below `base`, gitignored or not and of any extension, matches `pattern` (relative to
+/// `base`).
+///
+/// It settles a pattern that matched none of the files the analysis knows before calling it empty: those are source
+/// files, so `ignore = ["dist/**"]` (gitignored), `ignore = ["**/*.json"]` and `entry = ["index.html"]` would
+/// otherwise be reported although they match files. Only such patterns reach it, so the walk is rare; it starts at
+/// the literal directory prefix of the pattern, does not follow symbolic links to directories and skips
+/// [`UNWALKED_DIRS`] unless the pattern names them.
+fn on_disk(fs: &dyn FileSystem, base: &Path, pattern: &str) -> bool {
+    let body = pattern.trim().trim_start_matches("./").trim_end_matches('!');
+    let globs = Globs::new([body]);
+    if globs.is_empty() {
+        return false;
+    }
+    let is_glob = |part: &str| part.contains(['*', '?', '[', '{']);
+    let parts: Vec<&str> = body.split('/').collect();
+    if !parts.iter().any(|part| is_glob(part)) {
+        return fs.is_file(&base.join(body));
+    }
+    let prefix: PathBuf = parts.iter().take_while(|part| !is_glob(part)).collect();
+    let mut stack = vec![base.join(prefix)];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs.read_dir_shared(&dir) else {
+            continue;
+        };
+        for entry in entries.iter() {
+            let Some(rel) = relative(&entry.path, base) else {
+                continue;
+            };
+            if entry.is_file && globs.matches_any(&rel) {
+                return true;
+            }
+            let unwalked = entry
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| UNWALKED_DIRS.contains(&name) && !parts.contains(&name));
+            if entry.is_dir && !entry.is_symlink && !unwalked {
+                stack.push(entry.path.clone());
+            }
+        }
+    }
+    false
+}
+
+/// `dir` of `package` as `[js.workspaces]` keys spell it: `.` for the root.
+fn key_dir(package: &skif_workspace::Package) -> String {
+    if package.is_root {
+        ".".to_owned()
+    } else {
+        package.dir.to_string_lossy().replace('\\', "/")
+    }
+}
+
+/// The configuration key a package's pattern of the list `name` is written under: the `[js.workspaces]` key as
+/// written (so a glob key such as `packages/*` is reported once, as the user wrote it), or the package directory for
+/// a pattern that comes from elsewhere (an override).
+fn workspace_key(config: &Config, keys: &WorkspaceKeys, package: &skif_workspace::Package, name: &str) -> String {
+    let dir = key_dir(package);
+    let written = keys
+        .key(&config.js.workspaces, &dir)
+        .map_or(dir.as_str(), String::as_str);
+    format!("js.workspaces.\"{written}\".{name}")
+}
+
+/// Patterns judged per package, keyed by where they are written: a pattern is empty only when it matches in none of
+/// the packages its key selects.
+#[derive(Default)]
+struct Judged {
+    matched: IndexMap<(String, String), bool>,
+}
+
+impl Judged {
+    /// Records `pattern` under `key`, calling `matches` only while no package has matched it yet.
+    fn judge(&mut self, key: String, pattern: &str, matches: impl FnOnce() -> bool) {
+        let slot = self.matched.entry((key, pattern.to_owned())).or_insert(false);
+        if !*slot {
+            *slot = matches();
+        }
+    }
+
+    fn empty(self) -> Vec<EmptyPattern> {
+        self.matched
+            .into_iter()
+            .filter(|(_, matched)| !matched)
+            .map(|((key, pattern), _)| EmptyPattern { key, pattern })
+            .collect()
+    }
+}
+
+/// The configured `entry`, `project` and `ignore` patterns that match no file: none of the files the analysis knows
+/// (the discovered source files and the modules of the graph) and no file on disk ([`on_disk`]). Negated patterns,
+/// patterns that leave the package (`../`) and the defaults are not judged. A known file only reaches a package's
+/// patterns when the package owns it, as for entries; a pattern of a glob `[js.workspaces]` key is empty when it
+/// matches in none of the packages the key selects.
 fn empty_patterns(
     workspace: &Workspace,
     config: &Config,
     setup: &Setup,
     candidates: &[Candidate],
     graph: &ModuleGraph,
+    disk: &dyn FileSystem,
 ) -> Vec<EmptyPattern> {
     let files: Vec<(PackageId, &Path, String)> = candidates
         .iter()
@@ -132,16 +230,14 @@ fn empty_patterns(
         let body = pattern.trim();
         !body.is_empty() && !body.starts_with('!') && !body.starts_with("../")
     };
-    let mut found = Vec::new();
+    let mut found = Judged::default();
     for pattern in config.js.ignore.iter().filter(judged) {
-        let globs = Globs::new([pattern]);
-        if !files.iter().any(|(_, _, rel)| globs.matches_any(rel)) {
-            found.push(EmptyPattern {
-                key: "js.ignore".to_owned(),
-                pattern: pattern.clone(),
-            });
-        }
+        found.judge("js.ignore".to_owned(), pattern, || {
+            let globs = Globs::new([pattern]);
+            files.iter().any(|(_, _, rel)| globs.matches_any(rel)) || on_disk(disk, &workspace.root, pattern)
+        });
     }
+    let keys = WorkspaceKeys::new(&config.js.workspaces);
     for (id, package) in workspace.iter() {
         let Some(package_setup) = setup.package(id) else {
             continue;
@@ -151,11 +247,6 @@ fn empty_patterns(
             .filter(|(owner, _, _)| *owner == id)
             .filter_map(|(_, abs, _)| relative(abs, &package_setup.dir))
             .collect();
-        let dir = if package.is_root {
-            ".".to_owned()
-        } else {
-            package.dir.to_string_lossy().replace('\\', "/")
-        };
         let user = &package_setup.user_patterns;
         for (name, patterns, top_level) in [
             ("entry", &user.entry, &config.js.entry),
@@ -167,57 +258,50 @@ fn empty_patterns(
                 if from_top_level && name == "ignore" {
                     continue;
                 }
-                let globs = Globs::new([pattern]);
-                if owned.iter().any(|rel| globs.matches_any(rel)) {
-                    continue;
-                }
                 let key = if from_top_level {
                     format!("js.{name}")
                 } else {
-                    format!("js.workspaces.\"{dir}\".{name}")
+                    workspace_key(config, &keys, package, name)
                 };
-                found.push(EmptyPattern {
-                    key,
-                    pattern: pattern.clone(),
+                found.judge(key, pattern, || {
+                    let globs = Globs::new([pattern]);
+                    owned.iter().any(|rel| globs.matches_any(rel)) || on_disk(disk, &package_setup.dir, pattern)
                 });
             }
         }
     }
-    found.dedup();
-    found
+    found.empty()
 }
 
-/// The `ignore-files` patterns that hide none of the files that would be reported unused (knip's `ignoreFiles` hint).
+/// The `ignore-files` patterns that hide none of the files that would be reported unused (knip's `ignoreFiles` hint)
+/// and match no file on disk either ([`on_disk`]), so that a pattern for generated or non-source files is not
+/// reported. A pattern of a glob `[js.workspaces]` key is judged across the packages the key selects.
 fn unused_ignore_files(
     workspace: &Workspace,
     config: &Config,
     setup: &Setup,
     unreached: &[&Candidate],
+    disk: &dyn FileSystem,
 ) -> Vec<EmptyPattern> {
-    let mut found = Vec::new();
+    let mut found = Judged::default();
     let all_judged = workspace
         .iter()
         .all(|(id, _)| setup.package(id).is_none_or(|package| !package.entries_incomplete));
     for pattern in config.js.ignore_files.iter().filter(|_| all_judged) {
         let globs = Globs::new([pattern]);
-        if !globs.is_empty() && !unreached.iter().any(|candidate| globs.matches_any(&candidate.rel)) {
-            found.push(EmptyPattern {
-                key: "js.ignore-files".to_owned(),
-                pattern: pattern.clone(),
-            });
+        if globs.is_empty() {
+            continue;
         }
+        found.judge("js.ignore-files".to_owned(), pattern, || {
+            unreached.iter().any(|candidate| globs.matches_any(&candidate.rel))
+                || on_disk(disk, &workspace.root, pattern)
+        });
     }
+    let keys = WorkspaceKeys::new(&config.js.workspaces);
+    let mut incomplete = HashSet::new();
     for (id, package) in workspace.iter() {
         let Some(package_setup) = setup.package(id) else {
             continue;
-        };
-        if package_setup.entries_incomplete {
-            continue;
-        }
-        let dir = if package.is_root {
-            ".".to_owned()
-        } else {
-            package.dir.to_string_lossy().replace('\\', "/")
         };
         let owned: Vec<String> = unreached
             .iter()
@@ -226,15 +310,22 @@ fn unused_ignore_files(
             .collect();
         for pattern in &package_setup.user_patterns.ignore_files {
             let globs = Globs::new([pattern]);
-            if !globs.is_empty() && !owned.iter().any(|rel| globs.matches_any(rel)) {
-                found.push(EmptyPattern {
-                    key: format!("js.workspaces.\"{dir}\".ignore-files"),
-                    pattern: pattern.clone(),
-                });
+            if globs.is_empty() {
+                continue;
             }
+            let key = workspace_key(config, &keys, package, "ignore-files");
+            if package_setup.entries_incomplete {
+                // Its unreached files are not known, so the pattern may hide one: it is not judged anywhere.
+                incomplete.insert((key, pattern.clone()));
+                continue;
+            }
+            found.judge(key, pattern, || {
+                owned.iter().any(|rel| globs.matches_any(rel)) || on_disk(disk, &package_setup.dir, pattern)
+            });
         }
     }
-    found
+    found.matched.retain(|judged, _| !incomplete.contains(judged));
+    found.empty()
 }
 
 /// `fs` with the files tracked by git listed from the git index, as `[js] discovery` says: `auto` checks the
@@ -292,6 +383,8 @@ impl<'a> JsAnalysis<'a> {
         let phase = |name: &str| format!("js {name} {}", workspace.root.display());
         let indexed = timing::phase(phase("git index"), || overlay(fs, workspace, config, cache));
         let listed_from_index = indexed.is_some();
+        // The configuration hints look past the index, at gitignored files too.
+        let disk = Arc::clone(fs);
         let fs = indexed.as_ref().unwrap_or(fs);
         let mut setup = timing::phase(phase("setup (plugins, configs)"), || {
             Setup::new(workspace, config, fs, sources, sequential)
@@ -363,8 +456,8 @@ impl<'a> JsAnalysis<'a> {
                     relative(&candidate.abs, &package.dir).is_some_and(|rel| package.ignore_files.matches_any(&rel))
                 })
         };
-        let empty_patterns = empty_patterns(workspace, config, &setup, &candidates, &graph);
-        let unused_ignore_files = unused_ignore_files(workspace, config, &setup, &unreached);
+        let empty_patterns = empty_patterns(workspace, config, &setup, &candidates, &graph, disk.as_ref());
+        let unused_ignore_files = unused_ignore_files(workspace, config, &setup, &unreached, disk.as_ref());
         let unused_files = unreached
             .iter()
             .filter(|candidate| !ignores_file(candidate))

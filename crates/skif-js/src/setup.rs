@@ -232,13 +232,26 @@ impl WorkspaceKeys {
         workspaces: &'a IndexMap<String, JsWorkspace>,
         dir: &str,
     ) -> Option<&'a JsWorkspace> {
+        self.entry(workspaces, dir).map(|(_, workspace)| workspace)
+    }
+
+    /// The key, as written in `workspaces`, whose table stands for `dir`, as [`Self::table`] picks it.
+    pub(crate) fn key<'a>(&self, workspaces: &'a IndexMap<String, JsWorkspace>, dir: &str) -> Option<&'a String> {
+        self.entry(workspaces, dir).map(|(key, _)| key)
+    }
+
+    fn entry<'a>(
+        &self,
+        workspaces: &'a IndexMap<String, JsWorkspace>,
+        dir: &str,
+    ) -> Option<(&'a String, &'a JsWorkspace)> {
         let dir = if dir.is_empty() { "." } else { dir };
         let position = self
             .keys
             .iter()
             .position(|key| key.dir == dir)
             .or_else(|| self.keys.iter().position(|key| key.selects(dir)))?;
-        workspaces.get_index(position).map(|(_, workspace)| workspace)
+        workspaces.get_index(position)
     }
 
     /// The keys, as written in `workspaces`, that select none of `dirs`.

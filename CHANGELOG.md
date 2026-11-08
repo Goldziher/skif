@@ -16,8 +16,10 @@ All notable changes to this project are documented here. The format follows
   `include-tags = ["public"]` reports unused `@public` exports (knip reports none). `stale-js-config` reports knip's tag hints: an
   `ignore-tags` tag, or `@internal` in production mode, on an export or member that is used anyway
   ([#43](https://github.com/Goldziher/skif/issues/43)).
-- `stale-js-config` reports `entry`, `project` and `ignore` patterns that match no source file, like knip's
-  `entry-empty`, `project-empty` and `ignore` configuration hints ([#43](https://github.com/Goldziher/skif/issues/43)).
+- `stale-js-config` reports `entry`, `project` and `ignore` patterns that match no file, known to the analysis or on
+  disk (gitignored and non-source files count), like knip's `entry-empty`, `project-empty` and `ignore` configuration
+  hints; a pattern of a glob `[js.workspaces]` key is reported once, under the key as written, when it matches in none
+  of its packages ([#43](https://github.com/Goldziher/skif/issues/43)).
 - `[js.cycles]` with `allow` (cycles not reported) and `dynamic-imports` (count `import()` in `circular-imports`),
   translated by `skif migrate` from knip's `cycles` ([#43](https://github.com/Goldziher/skif/issues/43)).
 - `[js] ignore-files`, top level and per workspace: files `unused-files` never reports, which other rules still analyse.
