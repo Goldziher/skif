@@ -179,6 +179,9 @@ Repositories with nested roots ([#19](https://github.com/Goldziher/skif/issues/1
   outer root imports.
 - The `vite` and `vitest` plugins honour Vite's `root`: with `root: "src"` the scripts of `src/index.html` are entries
   and `/`-rooted script sources and HTML inputs start at `src`.
+- After `skif -r --fix` the lint of the fixed tree judges each root as the first lint did: a standalone package below
+  another root is again not asked for a `packageManager`, and a member that is a workspace of its own is again left
+  to its own root instead of being linted twice.
 - A package with no source file, no entry and no script no longer reports every dependency it lists as unused: there
   is no code to judge them against.
 - `stale-js-config` no longer stays silent about every `ignore-dependencies` list when one package has entry files

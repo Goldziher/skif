@@ -253,14 +253,25 @@ fn warn_empty_tsconfig_projects(targets: &[Target], fs: &dyn FileSystem) {
     }
 }
 
+/// Lints the root of `previous` again from disk. What root discovery decided about it (a standalone package nested
+/// below another root, members another root lints) is carried over, so the re-lint judges the root as the first
+/// lint did.
 fn lint_once(
     linter: &Linter,
-    root: &Path,
+    previous: &Workspace,
     (config, config_path, extra_entries): (&Config, Option<&Path>, &[PathBuf]),
     fs: &dyn FileSystem,
     filter: &Filter,
 ) -> Result<(Workspace, Report), CliError> {
-    let workspace = Workspace::discover_with_fs(root, config, fs)?;
+    let mut workspace = Workspace::discover_with_fs(&previous.root, config, fs)?;
+    workspace.set_nested(previous.is_nested());
+    let ignored: BTreeSet<PathBuf> = previous
+        .package_ids()
+        .filter(|id| previous.is_ignored(*id))
+        .filter_map(|id| previous.package(id))
+        .map(|package| previous.root.join(&package.dir))
+        .collect();
+    workspace.ignore_dirs(&ignored);
     let report = roots::lint_loaded(linter, &workspace, config_path, extra_entries)?;
     let report = filter.apply(&workspace, report);
     Ok((workspace, report))
@@ -351,9 +362,8 @@ fn write_and_relint(
     }
     // The written files are stale in the cache; the re-lint must read them from disk.
     fs.clear();
-    let root = workspace.root.clone();
     Ok(
-        match lint_once(linter, &root, (config, config_path, extra_entries), fs, filter) {
+        match lint_once(linter, &workspace, (config, config_path, extra_entries), fs, filter) {
             Ok((workspace, report)) => {
                 let changed: Vec<&Path> = plan.paths().collect();
                 let install = install_step(args, &changed, &workspace);
