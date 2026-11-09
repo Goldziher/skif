@@ -9,6 +9,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- A `[policy] dependency-types` list that does not select `local` (`["prod", "dev"]`, `["!local"]`) leaves the own
+  versions of workspace packages out, as `--dependency-types prod,dev` does in syncpack: a dependent is no longer
+  reported for differing from the `version` of the workspace package it names. Without a list nothing changes; add
+  `local` to a list to keep the comparison
+  ([ADR 0072](adrs/0072-a-policy-scope-without-local-leaves-the-own-versions-out.md)).
+
 ## [0.2.0] - 2026-11-08
 
 ### Added
