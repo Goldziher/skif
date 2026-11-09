@@ -31,10 +31,6 @@ struct Entry {
 
 impl Suppressions {
     pub fn new(workspace: &Workspace, config: &Config) -> Self {
-        let mut by_name: HashMap<String, Vec<PackageId>> = HashMap::new();
-        for (id, package) in workspace.iter() {
-            by_name.entry(package.display_name().to_owned()).or_default().push(id);
-        }
         let ignored = workspace.package_ids().map(|id| workspace.is_ignored(id)).collect();
         let entries = build_entries(workspace, &config.ignore);
         let scoped = config
@@ -43,7 +39,7 @@ impl Suppressions {
             .map(|scoped| build_entries(workspace, &scoped.ignore))
             .collect();
         Self {
-            by_name,
+            by_name: names(workspace),
             ignored,
             entries,
             scoped,
@@ -107,6 +103,45 @@ impl Suppressions {
         let candidates = [dependency, name].into_iter().chain(versioned);
         selector.matches_any(candidates, self.by_name.contains_key(name))
     }
+}
+
+/// The diagnostics each of `entries` matches, as indices into `diagnostics`, one list per entry in order: an entry
+/// with an empty list matches none of them.
+///
+/// Entries are judged as top-level `[[ignore]]` entries of `workspace` are during a run, by the same code, so a
+/// host that maintains a list of entries (`skif baseline prune`) keeps exactly the ones a run would use.
+/// `workspace.ignore-packages` and the entries of `[[overrides]]` play no part.
+#[must_use]
+pub fn ignore_matches(workspace: &Workspace, entries: &[IgnoreEntry], diagnostics: &[Diagnostic]) -> Vec<Vec<usize>> {
+    let suppressions = Suppressions {
+        by_name: names(workspace),
+        ignored: Vec::new(),
+        entries: build_entries(workspace, entries),
+        scoped: Vec::new(),
+    };
+    let versioned: Vec<OnceCell<Option<String>>> = diagnostics.iter().map(|_| OnceCell::new()).collect();
+    suppressions
+        .entries
+        .iter()
+        .map(|entry| {
+            diagnostics
+                .iter()
+                .zip(&versioned)
+                .enumerate()
+                .filter(|(_, (diagnostic, cell))| suppressions.entry_matches(entry, diagnostic, cell))
+                .map(|(index, _)| index)
+                .collect()
+        })
+        .collect()
+}
+
+/// Display name to the packages carrying it.
+fn names(workspace: &Workspace) -> HashMap<String, Vec<PackageId>> {
+    let mut by_name: HashMap<String, Vec<PackageId>> = HashMap::new();
+    for (id, package) in workspace.iter() {
+        by_name.entry(package.display_name().to_owned()).or_default().push(id);
+    }
+    by_name
 }
 
 fn build_entries(workspace: &Workspace, ignore: &[IgnoreEntry]) -> Vec<Entry> {
@@ -344,6 +379,46 @@ mod tests {
         let mut diagnostic = make(Some("something-else"), None);
         diagnostic.package_id = Some(id);
         assert!(suppressions.suppresses(&diagnostic));
+    }
+
+    #[test]
+    fn ignore_matches_lists_the_findings_of_each_entry() {
+        let config = Config::default();
+        let workspace = workspace(&config);
+        let entries = Config::from_toml_str(
+            "[[ignore]]\nrules = [\"demo\"]\npackages = [\"a\"]\ndependencies = [\"react@^18.0.0\"]\n\
+             [[ignore]]\nrules = [\"demo\"]\npackages = [\"b\"]\n\
+             [[ignore]]\nrules = [\"other\"]\n",
+        )
+        .unwrap()
+        .ignore;
+        let instance = |package: &str, specifier: &str| {
+            let mut diagnostic = make(Some(package), Some("react"));
+            diagnostic.specifier = Some(specifier.to_owned());
+            diagnostic
+        };
+        let diagnostics = [
+            instance("a", "^17.0.0"),
+            instance("a", "^18.0.0"),
+            instance("b", "^17.0.0"),
+            make(Some("b"), None),
+        ];
+        assert_eq!(
+            ignore_matches(&workspace, &entries, &diagnostics),
+            [vec![1], vec![2, 3], Vec::<usize>::new()]
+        );
+        assert_eq!(
+            ignore_matches(&workspace, &entries, &[]),
+            [Vec::<usize>::new(), Vec::new(), Vec::new()]
+        );
+    }
+
+    #[test]
+    fn ignore_matches_does_not_consult_ignored_packages() {
+        let config = Config::from_toml_str("[workspace]\nignore-packages = [\"a\"]\n").unwrap();
+        let entries = Config::from_toml_str("[[ignore]]\nrules = [\"demo\"]\n").unwrap().ignore;
+        let diagnostics = [make(Some("a"), None), make(Some("b"), None)];
+        assert_eq!(ignore_matches(&workspace(&config), &entries, &diagnostics), [vec![0, 1]]);
     }
 
     #[test]
