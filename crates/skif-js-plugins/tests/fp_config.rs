@@ -399,6 +399,37 @@ fn playwright_test_match_regular_expression() {
 }
 
 #[test]
+fn playwright_test_match_with_optional_characters_classes_and_lazy_stars() {
+    let results = run(
+        &[(
+            "playwright.config.js",
+            r"module.exports = { projects: [
+                { testDir: 'e2e', testMatch: /.*\.e2e\.tsx?/ },
+                { testDir: 'specs', testMatch: /.*\.(spec|test)\.[jt]sx?$/ },
+                { testDir: 'pw', testMatch: /.*?\.pw\.[^d]s$/ },
+            ] };",
+        )],
+        &["@playwright/test"],
+        &[],
+    );
+    let entries = &output(&results, "playwright").entries;
+    assert_entries(
+        entries,
+        &[
+            "e2e/**/*.e2e.ts{x,}*",
+            "specs/**/*.{spec,test}.[jt]s{x,}",
+            "pw/**/*.pw.[!d]s",
+        ],
+    );
+    for dir in ["e2e", "specs", "pw"] {
+        assert!(
+            !entries.contains(&format!("{dir}/**/*.{{js,jsx,ts,tsx,mjs,cjs,mts,cts}}")),
+            "{dir} fell back to every script: {entries:?}"
+        );
+    }
+}
+
+#[test]
 fn aws_cdk_lambda_entries_and_app_commands() {
     let stack = r"
 import * as path from 'path';
