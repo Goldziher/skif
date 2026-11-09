@@ -266,7 +266,13 @@ fn a_mock_of_an_import_expression_is_a_mock_import_only() {
     let imports: Vec<(&str, ImportKind, Option<&str>)> = info
         .imports
         .iter()
-        .map(|import| (import.specifier.as_str(), import.kind, import.call.map(MockCall::as_str)))
+        .map(|import| {
+            (
+                import.specifier.as_str(),
+                import.kind,
+                import.call.map(MockCall::as_str),
+            )
+        })
         .collect();
     assert_eq!(
         imports,
