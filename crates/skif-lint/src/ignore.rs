@@ -32,7 +32,7 @@ struct Entry {
 /// A list of entries with the entries each rule reaches.
 #[derive(Debug, Default)]
 struct Entries {
-    entries: Vec<Entry>,
+    list: Vec<Entry>,
     /// Rule id to the indices of the entries that name it, each index once.
     by_rule: HashMap<String, Vec<usize>>,
     /// The indices of the entries without rules, which every rule reaches.
@@ -50,7 +50,7 @@ impl Entries {
             for rule in rules {
                 list.by_rule.entry(rule.to_owned()).or_default().push(index);
             }
-            list.entries.push(Entry {
+            list.list.push(Entry {
                 packages: (!entry.packages.is_empty()).then(|| {
                     workspace
                         .iter()
@@ -70,7 +70,7 @@ impl Entries {
             .into_iter()
             .flatten()
             .chain(&self.any_rule)
-            .filter_map(move |index| self.entries.get(*index).map(|entry| (*index, entry)))
+            .filter_map(move |index| self.list.get(*index).map(|entry| (*index, entry)))
     }
 }
 
@@ -460,16 +460,20 @@ mod tests {
 
     #[test]
     fn thousands_of_entries_match_as_each_entry_alone_would() {
+        use std::fmt::Write as _;
+
         let config = Config::default();
         let workspace = workspace(&config);
-        let package = |index: usize| if index % 2 == 0 { "a" } else { "b" };
+        let package = |index: usize| if index.is_multiple_of(2) { "a" } else { "b" };
         let mut toml = String::new();
         for index in 0..3000 {
-            toml.push_str(&format!(
-                "[[ignore]]\nrules = [\"rule-{}\"]\npackages = [\"{}\"]\ndependencies = [\"dep-{index}\"]\n",
+            writeln!(
+                toml,
+                "[[ignore]]\nrules = [\"rule-{}\"]\npackages = [\"{}\"]\ndependencies = [\"dep-{index}\"]",
                 index % 50,
                 package(index)
-            ));
+            )
+            .unwrap();
         }
         toml.push_str("[[ignore]]\ndependencies = [\"dep-7\"]\n");
         toml.push_str("[[ignore]]\nrules = [\"rule-8\", \"rule-8\"]\npackages = [\"a\"]\n");
@@ -502,7 +506,7 @@ mod tests {
         };
         let each_alone: Vec<Vec<usize>> = entries
             .iter()
-            .zip(&suppressions.entries.entries)
+            .zip(&suppressions.entries.list)
             .map(|(written, entry)| {
                 diagnostics
                     .iter()
