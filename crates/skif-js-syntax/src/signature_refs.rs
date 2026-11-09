@@ -12,7 +12,7 @@ use oxc_ast::ast::{
 };
 use oxc_ast_visit::{Visit, walk};
 
-use crate::model::{ExportKind, ModuleInfo};
+use crate::model::{Export, ExportKind, ImportedKind, ModuleInfo};
 
 /// Type names mentioned in one declaration, optionally leaving out function bodies.
 struct TypeNames {
@@ -123,6 +123,26 @@ fn containers(declaration: &Declaration<'_>, out: &mut Vec<(String, HashSet<Stri
     }
 }
 
+/// The local binding of an import that brings in what `export { a } from "x"` re-exports: `a` of `import { a } from
+/// "x"` (same specifier, same name). A signature that mentions the binding mentions the re-export, as in knip, which
+/// matches the names in a signature against the exported names.
+fn reexported_binding(info: &ModuleInfo, export: &Export) -> Option<String> {
+    if export.kind != ExportKind::ReExport || export.local_name.is_some() {
+        return None;
+    }
+    let from = export.from.as_deref()?;
+    let wanted = match export.imported_name.as_deref()? {
+        "default" => ImportedKind::Default,
+        name => ImportedKind::Named(name.to_owned()),
+    };
+    info.imports
+        .iter()
+        .filter(|import| import.specifier == from)
+        .flat_map(|import| &import.names)
+        .filter(|name| name.kind == wanted)
+        .find_map(|name| name.local.clone())
+}
+
 /// Fills [`crate::model::Export::referenced_in`] for every export mentioned in the signature of another value export.
 pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
     let mut found: Vec<(String, HashSet<String>)> = Vec::new();
@@ -174,7 +194,8 @@ pub(crate) fn mark(program: &Program<'_>, info: &mut ModuleInfo) {
     let mut referenced_in: Vec<Vec<String>> = Vec::with_capacity(info.exports.len());
     for export in &info.exports {
         let mut containing = Vec::new();
-        if let Some(local) = export.local_name.as_deref() {
+        let binding = reexported_binding(info, export);
+        if let Some(local) = export.local_name.as_deref().or(binding.as_deref()) {
             for (container, names) in &mentions {
                 if *container != local && names.contains(local) {
                     containing.extend(exported_as.get(container).into_iter().flatten().cloned());
