@@ -743,6 +743,47 @@ fn entries_named_by_a_root_plugin_config_match_files_of_member_packages() {
 }
 
 #[test]
+fn an_optional_character_in_a_playwright_test_match_does_not_make_every_file_an_entry() {
+    let diagnostics = lint_files(
+        &[
+            (
+                "package.json",
+                r#"{"name":"root","private":true,"workspaces":["packages/store","packages/store/*"],"devDependencies":{"@playwright/test":"1"}}"#,
+            ),
+            (
+                "playwright.config.ts",
+                "export default { projects: [{ testDir: './packages/store/', testMatch: /.*\\.e2e\\.tsx?/ }] };\n",
+            ),
+            (
+                "packages/store/package.json",
+                r#"{"name":"store","private":true,"main":"index.ts"}"#,
+            ),
+            ("packages/store/index.ts", "export {};\n"),
+            (
+                "packages/store/checkout.e2e.tsx",
+                "import { pay } from './giphy/lib/pay';\nexport const run = pay;\n",
+            ),
+            (
+                "packages/store/giphy/package.json",
+                r#"{"name":"giphy","private":true,"main":"index.ts"}"#,
+            ),
+            ("packages/store/giphy/index.ts", "export {};\n"),
+            ("packages/store/giphy/lib/pay.ts", "export const pay = 1;\n"),
+            ("packages/store/giphy/components/index.ts", "export const card = 1;\n"),
+            ("packages/store/orphan.ts", "export const orphan = 1;\n"),
+        ],
+        "",
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        [
+            "packages/store/giphy/components/index.ts: packages/store/giphy/components/index.ts",
+            "packages/store/orphan.ts: packages/store/orphan.ts",
+        ]
+    );
+}
+
+#[test]
 fn a_package_may_import_what_the_package_that_contains_it_lists() {
     let diagnostics = lint_files(
         &[
