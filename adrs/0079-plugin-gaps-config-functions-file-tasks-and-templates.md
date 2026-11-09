@@ -74,7 +74,7 @@ of that name, whatever object it is called on.
 * `stencil` needs no change: the `styleUrl` and `styleUrls` of a `@Component` from `@stencil/core` are imports of the
   component since the stylesheets of Angular and Stencil components are followed, so the stylesheets are used.
 * `react-email` takes the major version of the installed `react-email` (`node_modules/react-email/package.json` in
-  the workspace or an ancestor), else the first number of the declared range as knip does, and credits
+  the package or an ancestor up to the workspace root), else the first number of the declared range as knip does, and credits
   `@react-email/ui` from 6 and `@react-email/preview-server` before; both only when neither is known.
 
 ### Consequences

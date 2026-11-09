@@ -1,6 +1,8 @@
 //! React Email: the templates under `emails/`, or the directory `email … --dir` names, are entries; the preview
 //! commands (`email dev`, `email build`, `email start`) use the preview server package.
 
+use std::path::Path;
+
 use skif_js_syntax::ConfigValue;
 
 use crate::config_load::load_config;
@@ -31,7 +33,8 @@ impl Plugin for ReactEmail {
     }
 
     /// The preview server is `@react-email/ui` from React Email 6 and `@react-email/preview-server` before. The major
-    /// version is the installed one (`node_modules/react-email/package.json` in the workspace or an ancestor), else
+    /// version is the installed one (`node_modules/react-email/package.json` in the package or an ancestor up to the
+    /// workspace root), else
     /// the first number of the range the manifest declares, as knip reads it; when neither is known, both count.
     fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let preview_servers: &[&str] = match major_version(cx) {
@@ -63,12 +66,7 @@ impl Plugin for ReactEmail {
 
 /// The major version of `react-email`: the installed package's, else the declared range's.
 fn major_version(cx: &PluginContext<'_>) -> Option<u64> {
-    let installed = cx.dir.ancestors().find_map(|dir| {
-        let path = dir.join("node_modules/react-email/package.json");
-        let source = cx.fs.read_to_string(&path).ok()?;
-        let version = load_config(&path, &source)?.get("version")?.as_str()?.to_owned();
-        Some(version)
-    });
+    let installed = installed_version(cx);
     let declared = || {
         let manifest = manifest(cx)?;
         ["dependencies", "devDependencies"].iter().find_map(|kind| {
@@ -80,6 +78,40 @@ fn major_version(cx: &PluginContext<'_>) -> Option<u64> {
         })
     };
     leading_number(&installed.or_else(declared)?)
+}
+
+/// The version of the `react-email` installed in the package or an ancestor directory, up to the workspace root: the
+/// package itself when it is the root, else the first ancestor that holds `.git`, `pnpm-workspace.yaml` or a
+/// `package.json` with `workspaces`. An installation above the workspace belongs to another project.
+fn installed_version(cx: &PluginContext<'_>) -> Option<String> {
+    for dir in cx.dir.ancestors() {
+        let path = dir.join("node_modules/react-email/package.json");
+        let version = cx.fs.read_to_string(&path).ok().and_then(|source| {
+            let version = load_config(&path, &source)?.get("version")?.as_str()?.to_owned();
+            Some(version)
+        });
+        if version.is_some() {
+            return version;
+        }
+        if (cx.is_root && dir == cx.dir) || is_workspace_root(cx, dir) {
+            return None;
+        }
+    }
+    None
+}
+
+/// Whether `dir` is the root of a repository or of a workspace.
+fn is_workspace_root(cx: &PluginContext<'_>, dir: &Path) -> bool {
+    let git = dir.join(".git");
+    if cx.fs.is_dir(&git) || cx.fs.is_file(&git) || cx.fs.is_file(&dir.join("pnpm-workspace.yaml")) {
+        return true;
+    }
+    let path = dir.join("package.json");
+    cx.fs
+        .read_to_string(&path)
+        .ok()
+        .and_then(|source| load_config(&path, &source))
+        .is_some_and(|manifest| manifest.get("workspaces").is_some())
 }
 
 /// The first run of digits in `version` (`6` in `^6.1.0`).

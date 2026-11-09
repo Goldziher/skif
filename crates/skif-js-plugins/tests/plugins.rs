@@ -3554,6 +3554,64 @@ fn react_email_preview_commands_and_dir() {
 }
 
 #[test]
+fn react_email_looks_for_the_installed_version_up_to_the_workspace_root() {
+    let resolve_in = |files: &[(&str, &str)], dir: &str, is_root: bool| {
+        let mut fs = MemoryFs::new();
+        for (path, content) in files {
+            fs.insert(*path, content);
+        }
+        let dependencies = vec!["react-email".to_owned()];
+        let scripts: IndexMap<String, String> = [("dev".to_owned(), "email dev".to_owned())].into_iter().collect();
+        let plugins = IndexMap::new();
+        let ctx = PluginContext {
+            dir: Path::new(dir),
+            is_root,
+            package_name: Some("web"),
+            dependencies: &dependencies,
+            inherited_dependencies: &[],
+            scripts: &scripts,
+            fs: &fs,
+            plugins: &plugins,
+            modules: None,
+        };
+        resolve_plugins(&ctx)
+    };
+    let declared = r#"{"name":"web","devDependencies":{"react-email":"^6.0.0"}}"#;
+    let outside = r#"{"name":"react-email","version":"5.2.1"}"#;
+    // An installation above the root package belongs to another project: the declared range decides.
+    let results = resolve_in(
+        &[
+            ("/ws/package.json", declared),
+            ("/node_modules/react-email/package.json", outside),
+        ],
+        "/ws",
+        true,
+    );
+    let out = output(&results, "react-email");
+    assert_deps(out, &["@react-email/ui"]);
+    assert_absent(out, &["@react-email/preview-server"]);
+    // A member package finds the installation at the workspace root, and nothing above it.
+    let files = [
+        ("/ws/pnpm-workspace.yaml", "packages: [packages/*]\n"),
+        ("/ws/packages/web/package.json", declared),
+        ("/ws/node_modules/react-email/package.json", outside),
+    ];
+    let results = resolve_in(&files, "/ws/packages/web", false);
+    let out = output(&results, "react-email");
+    assert_deps(out, &["@react-email/preview-server"]);
+    assert_absent(out, &["@react-email/ui"]);
+    let files = [
+        ("/ws/pnpm-workspace.yaml", "packages: [packages/*]\n"),
+        ("/ws/packages/web/package.json", declared),
+        ("/node_modules/react-email/package.json", outside),
+    ];
+    let results = resolve_in(&files, "/ws/packages/web", false);
+    let out = output(&results, "react-email");
+    assert_deps(out, &["@react-email/ui"]);
+    assert_absent(out, &["@react-email/preview-server"]);
+}
+
+#[test]
 fn playwright_ct_reads_its_config_like_playwright() {
     let results = resolve(
         &[(
