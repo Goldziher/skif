@@ -36,6 +36,8 @@ struct Options {
 
 /// The `baseUrl`, `paths` and `rootDirs` that apply to a directory.
 pub(crate) struct TsPaths {
+    /// The config file found at or above the directory.
+    config: PathBuf,
     base_url: Option<PathBuf>,
     paths_dir: PathBuf,
     paths: PathEntries,
@@ -259,6 +261,7 @@ impl TsConfigs {
                         .clone()
                         .unwrap_or_else(|| (ancestor.to_path_buf(), Vec::new()));
                     Some(TsPaths {
+                        config: file.clone(),
                         base_url: options.base_url.clone(),
                         paths_dir,
                         paths,
@@ -338,6 +341,79 @@ impl TsPaths {
     }
 }
 
+/// The `paths` patterns of the configs that apply to the workspace packages, indexed by their literal part, to name
+/// the config of another package that maps an import its own config does not.
+///
+/// A lookup costs one map probe per prefix of the specifier, however many packages and patterns there are. A
+/// wildcard pattern with no literal prefix (`*`, `*.svg`) matches every specifier and says nothing about where one
+/// resolves, so it is left out.
+pub(crate) struct ForeignPaths {
+    /// The config files, relative to the workspace root with `/` separators, sorted.
+    configs: Vec<String>,
+    /// Exact patterns: the positions in `configs` of the configs that declare each, ascending.
+    exact: HashMap<String, Vec<usize>>,
+    /// Wildcard patterns by the text before `*`: the text after it, the pattern and the position of the config, by
+    /// config.
+    wildcards: HashMap<String, Vec<(String, String, usize)>>,
+}
+
+impl ForeignPaths {
+    /// Indexes the `paths` of `configs`; a config found for several directories counts once.
+    pub(crate) fn new(root: &Path, configs: &[Arc<TsPaths>]) -> Self {
+        let mut by_file: Vec<(String, &TsPaths)> = configs
+            .iter()
+            .filter(|config| !config.paths.is_empty())
+            .map(|config| {
+                let rel = config.config.strip_prefix(root).unwrap_or(config.config.as_path());
+                (rel.to_string_lossy().replace('\\', "/"), &**config)
+            })
+            .collect();
+        by_file.sort_by(|a, b| a.0.cmp(&b.0));
+        by_file.dedup_by(|a, b| a.0 == b.0);
+        let mut exact: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut wildcards: HashMap<String, Vec<(String, String, usize)>> = HashMap::new();
+        for (position, (_, config)) in by_file.iter().enumerate() {
+            for (pattern, _) in &config.paths {
+                match pattern.split_once('*') {
+                    None => exact.entry(pattern.clone()).or_default().push(position),
+                    Some(("", _)) => {}
+                    Some((prefix, suffix)) => wildcards.entry(prefix.to_owned()).or_default().push((
+                        suffix.to_owned(),
+                        pattern.clone(),
+                        position,
+                    )),
+                }
+            }
+        }
+        Self {
+            configs: by_file.into_iter().map(|(file, _)| file).collect(),
+            exact,
+            wildcards,
+        }
+    }
+
+    /// The config, relative to the workspace root, and the pattern that map `specifier`, as TypeScript ranks
+    /// patterns: an exact pattern first, then the wildcard with the longest prefix. Among equally specific patterns
+    /// the first config by path wins.
+    pub(crate) fn lookup(&self, specifier: &str) -> Option<(&str, &str)> {
+        if let Some(position) = self.exact.get(specifier).and_then(|positions| positions.first()) {
+            return Some((self.configs[*position].as_str(), specifier));
+        }
+        (1..=specifier.len())
+            .rev()
+            .filter(|end| specifier.is_char_boundary(*end))
+            .find_map(|end| {
+                let (prefix, rest) = specifier.split_at(end);
+                self.wildcards
+                    .get(prefix)?
+                    .iter()
+                    .filter(|(suffix, _, _)| rest.ends_with(suffix.as_str()))
+                    .min_by_key(|(_, _, position)| *position)
+                    .map(|(_, pattern, position)| (self.configs[*position].as_str(), pattern.as_str()))
+            })
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -348,6 +424,7 @@ mod tests {
     #[test]
     fn wildcard_and_exact_patterns_rank_by_prefix() {
         let paths = TsPaths {
+            config: PathBuf::from("/ws/packages/tsconfig.json"),
             base_url: None,
             paths_dir: PathBuf::from("/ws/packages"),
             root_dirs: Vec::new(),
@@ -365,6 +442,50 @@ mod tests {
         );
         assert_eq!(paths.candidates("@s/ui"), [PathBuf::from("/ws/packages/ui/src")]);
         assert_eq!(paths.candidates("other"), Vec::<PathBuf>::new());
+    }
+
+    fn declaring(config: &str, patterns: &[&str]) -> Arc<TsPaths> {
+        Arc::new(TsPaths {
+            config: PathBuf::from(config),
+            base_url: None,
+            paths_dir: PathBuf::from("/ws"),
+            root_dirs: Vec::new(),
+            paths: patterns
+                .iter()
+                .map(|pattern| ((*pattern).to_owned(), vec!["./x/*".to_owned()]))
+                .collect(),
+        })
+    }
+
+    #[test]
+    fn foreign_paths_rank_exact_then_longest_prefix_then_config_path() {
+        let configs = [
+            declaring("/ws/packages/zeta/tsconfig.json", &["shared/*", "*", "*.svg"]),
+            declaring("/ws/packages/app/tsconfig.json", &["shared/*", "@ui/*/index"]),
+            declaring("/ws/packages/web/tsconfig.json", &["shared/deep/*", "exact"]),
+            // The same config found for another directory counts once.
+            declaring("/ws/packages/web/tsconfig.json", &["shared/deep/*", "exact"]),
+            declaring("/ws/packages/none/tsconfig.json", &[]),
+        ];
+        let foreign = ForeignPaths::new(Path::new("/ws"), &configs);
+        assert_eq!(foreign.configs.len(), 3);
+        assert_eq!(
+            foreign.lookup("shared/value"),
+            Some(("packages/app/tsconfig.json", "shared/*"))
+        );
+        assert_eq!(
+            foreign.lookup("shared/deep/x"),
+            Some(("packages/web/tsconfig.json", "shared/deep/*"))
+        );
+        assert_eq!(foreign.lookup("exact"), Some(("packages/web/tsconfig.json", "exact")));
+        assert_eq!(
+            foreign.lookup("@ui/button/index"),
+            Some(("packages/app/tsconfig.json", "@ui/*/index"))
+        );
+        assert_eq!(foreign.lookup("@ui/button"), None);
+        // Catch-all patterns match everything and are left out.
+        assert_eq!(foreign.lookup("left-pad"), None);
+        assert_eq!(foreign.lookup("icon.svg"), None);
     }
 
     #[test]
