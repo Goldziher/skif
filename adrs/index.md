@@ -76,6 +76,7 @@ old one.
 | 0066 | [A Module Cache and Unsaved Buffers in the Language Server](0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md) | accepted |
 | 0067 | [No Editor Extension](0067-no-editor-extension.md) | accepted |
 | 0068 | [What the knip Comparison Sets Apart: Exports skif Does Not Judge, Configs knip Cannot Load, and Fixture Names](0068-what-the-knip-comparison-sets-apart.md) | accepted |
+| 0078 | [Dependencies Nested Roots Use Count for the Enclosing Manifest](0078-dependencies-nested-roots-use-count-for-the-enclosing-manifest.md) | accepted |
 
 ## Effective statements
 

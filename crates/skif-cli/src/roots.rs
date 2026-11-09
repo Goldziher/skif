@@ -187,6 +187,43 @@ pub struct RootRun {
     /// The files of this root that enclosing roots of the run import, relative to the root; a re-lint after fixing
     /// passes them again.
     pub extra_entries: Vec<PathBuf>,
+    /// The dependencies of this root's manifests that nested roots of the run use, as the manifest path relative to
+    /// the root and the dependency name; a re-lint after fixing credits them again.
+    pub nested_uses: NestedUses,
+}
+
+/// Dependencies of a root's manifests that the code of roots nested in it uses: the manifest path relative to the
+/// root, and the dependency name.
+pub type NestedUses = BTreeSet<(PathBuf, String)>;
+
+/// The rules that a use by a nested root answers.
+const UNUSED_DEPENDENCY_RULES: [&str; 2] = ["unused-dependencies", "unused-dev-dependencies"];
+
+/// The report without the unused-dependency findings that `uses` answers: a nested root lists none of these
+/// dependencies itself and imports or runs them, so Node.js resolves them from this root's `node_modules`.
+pub fn credit_nested_uses(report: Report, uses: &NestedUses) -> Report {
+    if uses.is_empty() {
+        return report;
+    }
+    report.retain(|diagnostic| {
+        !(UNUSED_DEPENDENCY_RULES.contains(&diagnostic.rule.as_str())
+            && diagnostic.dependency.as_ref().is_some_and(|name| {
+                uses.contains(&(diagnostic.location.path.clone(), name.clone()))
+            }))
+    })
+}
+
+/// Hands the dependencies that the report of root `from` uses through manifests above it to the innermost root
+/// holding each manifest, as the manifest path relative to that root.
+fn route_ancestor_dependency_uses(targets: &[Target], from: usize, report: &Report, uses: &mut [NestedUses]) {
+    for (manifest_dir, name) in &report.ancestor_dependency_uses {
+        let Some(owner) = owning_root(targets, manifest_dir).filter(|owner| *owner != from) else {
+            continue;
+        };
+        if let Ok(rel) = manifest_dir.strip_prefix(&targets[owner].root) {
+            uses[owner].insert((rel.join("package.json"), name.clone()));
+        }
+    }
 }
 
 pub fn lint_loaded(
@@ -252,7 +289,8 @@ fn route_other_project_files(
 /// parallel): a file of a nested root that only an enclosing root imports (`build/lib/x.ts` of a `build` project,
 /// imported from the outer `src`) is then an entry of the nested root instead of an unused file. Each report lists
 /// the files of other projects its code imports; each goes to the innermost root that holds it. A run without nested
-/// roots is a single wave, as before.
+/// roots is a single wave, as before. Each report also lists the dependencies its code uses that only a manifest
+/// above its root lists; once every root is linted, the root that owns such a manifest no longer reports them unused.
 pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Result<Vec<RootRun>, CliError> {
     let depths = nesting_depths(&targets);
     let mut extra: Vec<BTreeSet<PathBuf>> = vec![BTreeSet::new(); targets.len()];
@@ -278,13 +316,21 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
             reports[index] = Some(report);
         }
     }
+    let mut nested_uses: Vec<NestedUses> = vec![NestedUses::new(); targets.len()];
+    for (index, report) in reports.iter().enumerate() {
+        if let Some(Ok(report)) = report {
+            route_ancestor_dependency_uses(&targets, index, report, &mut nested_uses);
+        }
+    }
     targets
         .into_iter()
         .zip(reports)
         .zip(extra)
+        .zip(nested_uses)
         .zip(&linters.of_target)
-        .map(|(((target, report), extra_entries), &linter)| {
+        .map(|((((target, report), extra_entries), nested_uses), &linter)| {
             let report = report.unwrap_or_else(|| Err(CliError::new(Kind::Internal, "a root was not linted")))?;
+            let report = credit_nested_uses(report, &nested_uses);
             Ok(RootRun {
                 prefix: prefix_of(base, &target.root),
                 config_path: target.config_path(),
@@ -293,6 +339,7 @@ pub fn lint_targets(base: &Path, targets: Vec<Target>, linters: &Linters) -> Res
                 workspace: target.workspace,
                 report,
                 extra_entries: extra_entries.into_iter().collect(),
+                nested_uses,
             })
         })
         .collect()

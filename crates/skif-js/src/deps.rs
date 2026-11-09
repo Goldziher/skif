@@ -1,6 +1,6 @@
 //! Which packages and binaries the code and scripts use, against what each manifest lists.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -22,7 +22,8 @@ use crate::tsconfig_paths::resolve_extends;
 enum Listed {
     /// In the manifest of this package (the importer or a package that contains it, or the root).
     Package(PackageId),
-    /// In a manifest above the workspace root, which skif does not judge.
+    /// In a manifest above the workspace root, which this run does not judge; the use is recorded for the root that
+    /// owns that manifest ([`DependencyUsage::ancestor_uses`]).
     External,
 }
 
@@ -453,14 +454,18 @@ pub struct DependencyUsage {
     /// For every package, whether its `tsconfig.json` sets a `jsxImportSource` other than `react`, so JSX files do not
     /// use React.
     other_jsx_runtime: Vec<bool>,
-    /// Names listed by the manifests above the workspace root.
-    external_listed: HashSet<String>,
+    /// Names listed by the manifests above the workspace root, each with the directory of the innermost manifest that
+    /// lists it: Node.js resolves it from there.
+    external_listed: HashMap<String, PathBuf>,
+    /// The names of `external_listed` that this workspace uses.
+    external_used: BTreeSet<String>,
     hosts: Vec<HashMap<String, Vec<String>>>,
     bins: Vec<HashMap<String, Vec<String>>>,
     member_bins: BTreeMap<String, Vec<String>>,
     members: HashSet<String>,
-    /// Binaries that `node_modules/.bin` directories of ancestor projects put on the `PATH`.
-    ancestor_bins: HashSet<String>,
+    /// Binaries that `node_modules/.bin` directories of ancestor projects put on the `PATH`, each with the dependencies
+    /// of those projects that provide it.
+    ancestor_bins: HashMap<String, Vec<String>>,
     /// Imports of packages that are not listed, in module order.
     pub unlisted: Vec<UnlistedImport>,
     /// Script binaries that nothing provides, in package order.
@@ -597,16 +602,24 @@ impl DependencyUsage {
         let mut cache = HashMap::new();
         for (dir, manifest) in external_manifests(fs, &workspace.root) {
             for name in listed_names(&manifest) {
-                self.external_listed.insert(name.to_owned());
-                self.ancestor_bins.insert(unscoped(name).to_owned());
-                self.ancestor_bins.extend(
+                self.external_listed
+                    .entry(name.to_owned())
+                    .or_insert_with(|| dir.clone());
+                let mut bins = vec![unscoped(name).to_owned()];
+                bins.extend(
                     BINARY_PACKAGES
                         .iter()
                         .filter(|(_, package)| *package == name)
                         .map(|(bin, _)| (*bin).to_owned()),
                 );
                 if let Some(installed) = read_installed(fs, &dir, &dir, name, &mut cache) {
-                    self.ancestor_bins.extend(installed.bins.iter().cloned());
+                    bins.extend(installed.bins.iter().cloned());
+                }
+                for bin in bins {
+                    let providers = self.ancestor_bins.entry(bin).or_default();
+                    if !providers.iter().any(|provider| provider == name) {
+                        providers.push(name.to_owned());
+                    }
                 }
             }
         }
@@ -628,12 +641,15 @@ impl DependencyUsage {
             .chain(self.ancestors[id.index()].iter().copied())
             .find(|scope| self.listed[scope.index()].contains(name))
             .map(Listed::Package)
-            .or_else(|| self.external_listed.contains(name).then_some(Listed::External))
+            .or_else(|| self.external_listed.contains_key(name).then_some(Listed::External))
     }
 
     fn reference(&mut self, listed: Listed, name: &str) {
-        if let Listed::Package(id) = listed {
-            self.reference_in(id, name);
+        match listed {
+            Listed::Package(id) => self.reference_in(id, name),
+            Listed::External => {
+                self.external_used.insert(name.to_owned());
+            }
         }
     }
 
@@ -741,7 +757,7 @@ impl DependencyUsage {
         if self.production_listed[site.owner.index()].contains(name) {
             Some(Listed::Package(site.owner))
         } else {
-            self.external_listed.contains(name).then_some(Listed::External)
+            self.external_listed.contains_key(name).then_some(Listed::External)
         }
     }
 
@@ -826,10 +842,14 @@ impl DependencyUsage {
                 &package_setup.scripts.global_binaries
             };
             for binary in package_setup.scripts.binaries.iter().chain(global_binaries) {
-                if !self.provide_binary(id, &binary.name)
-                    && !self.ancestor_bins.contains(&binary.name)
-                    && !setup.ignores_binary(id, &binary.name)
-                {
+                if self.provide_binary(id, &binary.name) {
+                    continue;
+                }
+                if let Some(providers) = self.ancestor_bins.get(&binary.name) {
+                    self.external_used.extend(providers.iter().cloned());
+                    continue;
+                }
+                if !setup.ignores_binary(id, &binary.name) {
                     self.unlisted_binaries.push(UnlistedBinary {
                         package: id,
                         name: binary.name.clone(),
@@ -929,5 +949,16 @@ impl DependencyUsage {
     #[must_use]
     pub fn is_listed(&self, id: PackageId, name: &str) -> bool {
         self.listed[id.index()].contains(name)
+    }
+
+    /// The dependencies this workspace uses that only a `package.json` above its root lists, each with the directory
+    /// of the innermost such manifest, by name: Node.js resolves them from that project's `node_modules`, so they are
+    /// used dependencies of that project, which cannot see this code.
+    #[must_use]
+    pub fn ancestor_uses(&self) -> Vec<(PathBuf, String)> {
+        self.external_used
+            .iter()
+            .filter_map(|name| Some((self.external_listed.get(name)?.clone(), name.clone())))
+            .collect()
     }
 }
