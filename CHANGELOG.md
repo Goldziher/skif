@@ -9,6 +9,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A spread of a conditional object literal in a config (`...(tmp && { cacheDir: tmp })`, `...(ci ? { … } : {})`) no
+  longer marks the package incomplete with `unknown-spread`, which kept `unused-dependencies` and the other package
+  rules from judging it. Every branch is read: the lists each branch sets (`include`, `setupFiles`, …) are credited,
+  and only a branch that is not known statically leaves the spread unknown
+  ([#108](https://github.com/Goldziher/skif/issues/108)).
+
 ## [0.2.0] - 2026-11-08
 
 ### Added
