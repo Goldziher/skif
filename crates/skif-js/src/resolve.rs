@@ -824,7 +824,9 @@ impl ModuleResolver {
             .filter(|dir| !self.ignores.iter().any(|(base, _)| base.as_path() == *dir))
             .any(|dir| {
                 self.dir_ignores
-                    .get_or_compute(dir, || read_gitignore(self.fs.as_ref(), dir).map(|(_, ignore)| Arc::new(ignore)))
+                    .get_or_compute(dir, || {
+                        read_gitignore(self.fs.as_ref(), dir).map(|(_, ignore)| Arc::new(ignore))
+                    })
                     .is_some_and(|ignore| ignore.matched_path_or_any_parents(path, false).is_ignore())
             })
     }
@@ -1685,7 +1687,11 @@ mod tests {
             assert_eq!(r.resolve(importer, specifier).target, Resolved::Ignored, "{specifier}");
         }
         for specifier in ["/content/where", "/src/missing.ts"] {
-            assert_eq!(r.resolve(importer, specifier).target, Resolved::Unresolved, "{specifier}");
+            assert_eq!(
+                r.resolve(importer, specifier).target,
+                Resolved::Unresolved,
+                "{specifier}"
+            );
         }
     }
 

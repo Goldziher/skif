@@ -3907,7 +3907,10 @@ fn vercel_json_commands_are_scripts() {
         out.referenced_binaries
     );
     let without = resolve(&[], &[]);
-    assert!(!without.iter().any(|(id, _)| *id == "vercel"), "no vercel.json, no plugin");
+    assert!(
+        !without.iter().any(|(id, _)| *id == "vercel"),
+        "no vercel.json, no plugin"
+    );
 }
 
 #[test]
