@@ -432,6 +432,18 @@ fn a_conditional_spread_credits_the_lists_of_every_branch() {
 }
 
 #[test]
+fn a_conditional_spread_credits_a_string_and_a_list_alike() {
+    let value = extract(
+        "vitest.config.ts",
+        "export default { ...(process.env.A ? { test: { setupFiles: './a.ts' } } \
+         : { test: { setupFiles: ['./b.ts'] } }) };",
+    );
+    // A string where another branch has a list is a list of one.
+    assert!(value.get("...").is_none(), "{value:?}");
+    assert_eq!(get(&value, &["test", "setupFiles"]), &strings(&["./a.ts", "./b.ts"]));
+}
+
+#[test]
 fn a_guarded_spread_keeps_what_its_object_does_not_replace() {
     let value = extract(
         "vitest.config.ts",
