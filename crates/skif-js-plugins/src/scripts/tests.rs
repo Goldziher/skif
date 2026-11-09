@@ -599,9 +599,34 @@ fn current_script_breaks_cycles() {
 #[test]
 fn ignored_binaries() {
     for name in [
-        "cd", "echo", "rm", "cp", "mkdir", "exit", "break", "continue", "test", "[", "true", "false", "git", "jq",
-        "gh", "kubectl", "deno", "taskkill", "taskkill.exe", "xcode-select", "sysctl", "service", "update-rc.d",
-        "c++", "signtool.exe", "powershell.exe", "osascript", "hg",
+        "cd",
+        "echo",
+        "rm",
+        "cp",
+        "mkdir",
+        "exit",
+        "break",
+        "continue",
+        "test",
+        "[",
+        "true",
+        "false",
+        "git",
+        "jq",
+        "gh",
+        "kubectl",
+        "deno",
+        "taskkill",
+        "taskkill.exe",
+        "xcode-select",
+        "sysctl",
+        "service",
+        "update-rc.d",
+        "c++",
+        "signtool.exe",
+        "powershell.exe",
+        "osascript",
+        "hg",
     ] {
         assert!(is_ignored_binary(name), "{name}");
     }
@@ -867,7 +892,10 @@ fn case_patterns_are_not_commands() {
     // On one line, nested, with `;&`, and a last item without `;;`.
     let script = "case $a in x) case $b in y) prettier ;; esac ;; z) rimraf dist ;& *) tsup\nesac";
     assert_eq!(binaries_of(&parse(script)), ["prettier", "rimraf", "tsup"]);
-    assert_eq!(binaries_of(&parse("case $? in 124|137) echo timeout ;; esac")), [] as [&str; 0]);
+    assert_eq!(
+        binaries_of(&parse("case $? in 124|137) echo timeout ;; esac")),
+        [] as [&str; 0]
+    );
 }
 
 #[test]

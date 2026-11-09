@@ -4853,7 +4853,10 @@ fn ci_and_hook_commands_judge_only_binaries_reached_through_a_package_manager_or
     );
     let files = [
         (".github/workflows/ci.yml", workflow),
-        ("lefthook.yml", "pre-commit:\n  commands:\n    lint:\n      run: actionlint && pnpm exec oxlint\n"),
+        (
+            "lefthook.yml",
+            "pre-commit:\n  commands:\n    lint:\n      run: actionlint && pnpm exec oxlint\n",
+        ),
         (".lintstagedrc.json", r#"{"*.rs": "rustfmt"}"#),
     ];
     let results = resolve(&files, &["lefthook", "lint-staged"]);
@@ -4891,7 +4894,9 @@ fn github_actions_steps_in_a_shell_that_is_not_posix_are_skipped() {
     let names: Vec<&str> = out.run_binaries.iter().map(|run| run.name.as_str()).collect();
     assert_eq!(names, ["bashtool", "jobtool"]);
     assert!(
-        !out.referenced_binaries.iter().any(|name| name == "Write-Host" || name == "wintool"),
+        !out.referenced_binaries
+            .iter()
+            .any(|name| name == "Write-Host" || name == "wintool"),
         "{:?}",
         out.referenced_binaries
     );

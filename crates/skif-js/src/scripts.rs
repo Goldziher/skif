@@ -84,7 +84,9 @@ fn commands(manifest: &Value) -> Vec<(&String, &str)> {
 pub(crate) fn script_context(manifest: &Value) -> ScriptContext {
     commands(manifest)
         .into_iter()
-        .fold(ScriptContext::new(), |context, (name, body)| context.with_script(name, body))
+        .fold(ScriptContext::new(), |context, (name, body)| {
+            context.with_script(name, body)
+        })
 }
 
 /// What the `scripts` of the parsed `package.json` `manifest` run.
