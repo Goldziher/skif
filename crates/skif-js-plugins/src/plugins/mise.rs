@@ -1,16 +1,18 @@
 //! mise: the `run` commands of the tasks of `mise.toml` and its other config files are scripts, run in the task's
 //! `dir` (or `task_config.dir`) relative to the config root.
 //!
-//! File tasks are read too: the files under `mise-tasks/`, `.mise-tasks/`, `mise/tasks/`, `.mise/tasks/` and
-//! `.config/mise/tasks/`, and under the directories `task_config.includes` names. A JavaScript or TypeScript file task
-//! is an entry; a shell one (no shebang, or `sh`, `bash`, `zsh`, `dash` or `ksh`) is a script, run in the workspace or
-//! in the directory of its `#MISE dir="…"` header. A task for another interpreter, and a file without a shebang whose
-//! extension is not a shell's, is not read.
+//! File tasks are read too: the files under the directories `task_config.includes` names or, when no config sets
+//! `includes`, under `mise-tasks/`, `.mise-tasks/`, `mise/tasks/`, `.mise/tasks/` and `.config/mise/tasks/`. A
+//! JavaScript or TypeScript file task is an entry, and the command its shebang runs it with
+//! (`#!/usr/bin/env -S npx tsx`) a script. A shell one (a shebang of `sh`, `bash`, `zsh`, `dash` or `ksh`, or without
+//! a shebang one of those extensions) is a script, run in the workspace or in the directory of its `#MISE dir="…"`
+//! header (`# [MISE]`, `//MISE` and `:: MISE` too). A task for another interpreter, and a file without a shebang whose
+//! extension is not a shell's (`README`, `NOTES.md`), is not read.
 
 use skif_js_syntax::ConfigValue;
 
+use crate::config_load::load_config;
 use crate::files::find_files;
-
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::support::{get_in, join_rel, parent_dir, script_in, strings};
 
@@ -79,9 +81,25 @@ impl Plugin for Mise {
     }
 
     fn resolve_workspace(&self, cx: &PluginContext<'_>) -> Vec<PluginInput> {
+        if sets_includes(cx) {
+            return Vec::new();
+        }
         let dirs = FILE_TASK_DIRS.map(str::to_owned);
         file_tasks(cx, &dirs)
     }
+}
+
+/// Whether a config sets `task_config.includes`, which replaces the default file task directories.
+fn sets_includes(cx: &PluginContext<'_>) -> bool {
+    let patterns: Vec<String> = SPEC.config.iter().map(|pattern| (*pattern).to_owned()).collect();
+    find_files(cx.fs, cx.dir, &patterns).into_iter().any(|file| {
+        let path = cx.dir.join(file);
+        cx.fs
+            .read_to_string(&path)
+            .ok()
+            .and_then(|source| load_config(&path, &source))
+            .is_some_and(|config| get_in(&config, &["task_config", "includes"]).is_some())
+    })
 }
 
 /// The directories mise looks for file tasks in by default, relative to the config root.
@@ -107,55 +125,71 @@ fn file_tasks(cx: &PluginContext<'_>, dirs: &[String]) -> Vec<PluginInput> {
     }
     find_files(cx.fs, cx.dir, &patterns)
         .into_iter()
-        .filter_map(|file| file_task(cx, file))
+        .flat_map(|file| file_task(cx, file))
         .collect()
 }
 
-/// What one file task contributes: an entry for a JavaScript or TypeScript module, a script for a shell script.
-fn file_task(cx: &PluginContext<'_>, file: String) -> Option<PluginInput> {
-    let is_source = file
+/// What one file task contributes: an entry for a JavaScript or TypeScript module, with the command its shebang runs
+/// it with, and a script for a shell script.
+fn file_task(cx: &PluginContext<'_>, file: String) -> Vec<PluginInput> {
+    let name = file.rsplit('/').next().unwrap_or(&file);
+    let extension = name
         .rsplit_once('.')
-        .is_some_and(|(_, extension)| SOURCE_EXTENSIONS.contains(&extension));
+        .filter(|(stem, _)| !stem.is_empty())
+        .map(|(_, extension)| extension);
+    let is_source = extension.is_some_and(|extension| SOURCE_EXTENSIONS.contains(&extension));
+    let named_as_shell = extension.is_some_and(|extension| SHELLS.contains(&extension));
+    let source = cx.fs.read_to_string(&cx.dir.join(&file)).ok();
+    let text = source.as_deref().unwrap_or_default();
+    let shebang = text.lines().next().and_then(|line| line.strip_prefix("#!"));
     if is_source {
-        return Some(PluginInput::Entry(file));
+        let runner = shebang
+            .map(shebang_words)
+            .filter(|words| !words.is_empty())
+            .map(|words| PluginInput::Script(format!("{} {file}", words.join(" "))));
+        let mut out = vec![PluginInput::Entry(file)];
+        out.extend(runner);
+        return out;
     }
-    let text = cx.fs.read_to_string(&cx.dir.join(&file)).ok()?;
-    let is_shell = if let Some(shebang) = text.lines().next().and_then(|line| line.strip_prefix("#!")) {
-        interpreter(shebang).is_some_and(|name| SHELLS.contains(&name))
-    } else {
-        // Without a shebang, only a file named as a shell script is one (`build`, `build.sh`), not `README.md`.
-        let name = file.rsplit('/').next().unwrap_or(&file);
-        name.rsplit_once('.')
-            .is_none_or(|(stem, extension)| stem.is_empty() || SHELLS.contains(&extension))
+    let is_shell = match shebang {
+        Some(shebang) => shebang_words(shebang).first().is_some_and(|name| SHELLS.contains(name)),
+        // Without a shebang, only a file named as a shell script is one (`build.sh`, not `build` or `README`).
+        None => named_as_shell,
     };
-    if !is_shell {
-        return None;
+    if source.is_none() || !is_shell {
+        return Vec::new();
     }
-    let dir = match header_dir(&text) {
-        Some(dir) => resolve_dir(dir, "")?,
-        None => String::new(),
+    let Some(dir) = header_dir(text).map_or_else(|| Some(String::new()), |dir| resolve_dir(dir, "")) else {
+        return Vec::new();
     };
-    script_in(&dir, text.to_string())
+    script_in(&dir, text.to_owned()).into_iter().collect()
 }
 
-/// The program a shebang line runs: its first word, or the word after `env` and its options.
-fn interpreter(shebang: &str) -> Option<&str> {
+/// The command a shebang line runs: its program and arguments, or the words after `env` and its options
+/// (`npx tsx` for `/usr/bin/env -S npx tsx`).
+fn shebang_words(shebang: &str) -> Vec<&str> {
     let mut words = shebang.split_whitespace();
-    let program = words.next()?.rsplit('/').next()?;
+    let Some(program) = words.next().and_then(|program| program.rsplit('/').next()) else {
+        return Vec::new();
+    };
     if program == "env" {
-        words.find(|word| !word.starts_with('-'))
+        words.skip_while(|word| word.starts_with('-')).collect()
     } else {
-        Some(program)
+        std::iter::once(program).chain(words).collect()
     }
 }
 
-/// The `dir` a file task's `#MISE dir="…"` (or `# [MISE] dir=…`) header sets.
+/// The `dir` a file task's header sets: `#MISE dir="…"`, with or without a space after the comment marker (`#`,
+/// `//` or `::`) and with `MISE` or `[MISE]`.
 fn header_dir(text: &str) -> Option<&str> {
     text.lines().find_map(|line| {
-        let header = line
-            .strip_prefix("#MISE")
-            .or_else(|| line.strip_prefix("# [MISE]"))
-            .or_else(|| line.strip_prefix("#[MISE]"))?;
+        let comment = ["//", "#", "::"]
+            .iter()
+            .find_map(|marker| line.strip_prefix(marker))?
+            .trim_start();
+        let header = comment
+            .strip_prefix("[MISE]")
+            .or_else(|| comment.strip_prefix("MISE"))?;
         let value = header
             .trim()
             .strip_prefix("dir")?
@@ -201,4 +235,26 @@ fn resolve_dir(dir: &str, root: &str) -> Option<String> {
         return None;
     }
     Some(join_rel(root, &expanded))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::header_dir;
+
+    #[test]
+    fn headers_take_any_comment_marker_and_spacing() {
+        for header in [
+            "#MISE dir=\"web\"",
+            "# MISE dir=\"web\"",
+            "# [MISE] dir=\"web\"",
+            "#[MISE] dir='web'",
+            "//MISE dir=web",
+            "// MISE dir=\"web\"",
+            "// [MISE] dir=\"web\"",
+            ":: MISE dir=\"web\"",
+        ] {
+            assert_eq!(header_dir(&format!("echo\n{header}\n")), Some("web"), "{header}");
+        }
+        assert_eq!(header_dir("#!/bin/sh\n# MISE description=\"x\"\n"), None);
+    }
 }

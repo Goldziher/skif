@@ -61,10 +61,11 @@ of that name, whatever object it is called on.
   stay and do not bring an excluded file back. Rstest's default exclusions are not added, as they would drop
   `node_modules`, `dist` and tool directories from every plugin's entries. `rs.mock()`, `rs.doMock()` and the other module calls of `rs`
   and `rstest` are mock imports like `vi.mock()`, so the parse cache schema is raised.
-* `mise` reads file tasks under `mise-tasks/`, `.mise-tasks/`, `mise/tasks/`, `.mise/tasks/`, `.config/mise/tasks/`
-  and `task_config.includes`: a JavaScript or TypeScript file is an entry, a shell script (no shebang with no other
-  extension, or `sh`, `bash`, `zsh`, `dash` or `ksh`) is a script run in its `#MISE dir` or the workspace, and a task
-  for another interpreter is not read.
+* `mise` reads file tasks under `task_config.includes` or, as mise does, under `mise-tasks/`, `.mise-tasks/`,
+  `mise/tasks/`, `.mise/tasks/` and `.config/mise/tasks/` when no config sets `includes`: a JavaScript or TypeScript
+  file is an entry and its shebang command a script, a shell script (a shebang of `sh`, `bash`, `zsh`, `dash` or
+  `ksh`, or without a shebang one of those extensions) is a script run in its `#MISE dir` or the workspace, and a task
+  for another interpreter or a file without a shebang and a shell extension (`README`) is not read.
 * `taskfile` replaces `{{.NAME}}` with the string the task's or the Taskfile's `vars` give it, `ROOT_DIR` with the
   workspace and `TASKFILE_DIR` with the Taskfile's directory, and any other template with a placeholder the script
   parser reads as an unknown word; an include that keeps a placeholder is skipped.

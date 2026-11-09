@@ -728,11 +728,12 @@ counterpart. These differences are deliberate:
   `@react-email/preview-server` before, by the installed version (`node_modules/react-email/package.json` in the
   package or an ancestor), else by the first number of the declared range; both when neither is known. `payload`
   keeps migrations and `payload-types.ts` from being reported through `ignore`.
-- `mise` reads file tasks under `mise-tasks/`, `.mise-tasks/`, `mise/tasks/`, `.mise/tasks/`, `.config/mise/tasks/`
-  and the directories of `task_config.includes`: a JavaScript or TypeScript file is an entry, and a shell script (no
-  shebang, or `sh`, `bash`, `zsh`, `dash` or `ksh`) is a script run in its `#MISE dir="…"` or the package; a task for
-  another interpreter, or a file without a shebang whose extension is not a shell's, is not read. knip reads no file
-  tasks.
+- `mise` reads file tasks under the directories of `task_config.includes` or, when no config sets `includes`, under
+  `mise-tasks/`, `.mise-tasks/`, `mise/tasks/`, `.mise/tasks/` and `.config/mise/tasks/`. A JavaScript or TypeScript
+  file is an entry, and the command of its shebang (`#!/usr/bin/env -S npx tsx`) a script; a shell script (a shebang
+  of `sh`, `bash`, `zsh`, `dash` or `ksh`, or without a shebang one of those extensions) is a script run in its
+  `#MISE dir="…"` (also `# [MISE]`, `//MISE`) or the package. A task for another interpreter, or a file without a
+  shebang whose extension is not a shell's (`README`), is not read. knip reads no file tasks.
 - `taskfile` expands `{{.NAME}}` from the task's and the Taskfile's `vars` (a string only), `{{.ROOT_DIR}}` and
   `{{.TASKFILE_DIR}}`; any other template (`{{.CLI_ARGS}}`, an `sh:` variable, a function) is a word that is not
   known, so the rest of the command is still read, and an include holding one is skipped.
