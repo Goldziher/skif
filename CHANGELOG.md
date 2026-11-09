@@ -15,6 +15,9 @@ All notable changes to this project are documented here. The format follows
   `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such
   as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
   ([#110](https://github.com/Goldziher/skif/issues/110)).
+- A Playwright `testMatch` regular expression with an optional character, such as `/.*\.e2e\.tsx?/`, names the
+  matching test files instead of every script below `testDir`, so the other files there are no longer entries and
+  their unused exports, types, members and duplicate exports are reported.
 
 ## [0.2.0] - 2026-11-08
 
