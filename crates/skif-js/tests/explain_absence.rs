@@ -243,6 +243,42 @@ fn a_file_in_the_narrowed_scope_is_an_entry() {
     );
 }
 
+/// The exports of a file outside the narrowed scope are judged: every file of the scope is an entry, so whatever an
+/// unknown entry imports is counted (ADR 0081). The exports of a file in the scope stay unjudged.
+#[test]
+fn an_export_outside_the_narrowed_scope_is_judged() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","private":true,"devDependencies":{"vitest":"3.0.0"}}"#,
+        ),
+        (
+            "vitest.config.ts",
+            "import base from './vitest.base';\nexport default { ...base };\n",
+        ),
+        ("src/index.ts", "export const main = 1;\n"),
+        ("test/db-setup.ts", "import '../src/helper';\nexport const fixture = 1;\n"),
+        ("src/helper.ts", "export const helper = 1;\n"),
+    ];
+    let explain = |file: &str, export: &str| -> Value {
+        let memory = memory(&files);
+        let config = Config::default();
+        let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+        let fs: Arc<dyn FileSystem> = Arc::new(memory);
+        let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(PluginSource::new(config.js.plugins.clone()))];
+        let report = JsAnalysis::build(&workspace, &config, &fs, &sources, true)
+            .explain_usage(Path::new(file), Some(export));
+        serde_json::to_value(report).unwrap()["export"].clone()
+    };
+    // A side-effect import uses no export.
+    let helper = explain("src/helper.ts", "helper");
+    assert_eq!(helper["verdict"], "unused", "{helper}");
+    assert_eq!(helper.get("entries-incomplete"), None, "{helper}");
+    let fixture = explain("test/db-setup.ts", "fixture");
+    assert_eq!(fixture["entries-incomplete"], true, "{fixture}");
+    assert_ne!(fixture["verdict"], "unused", "{fixture}");
+}
+
 /// A computed `import()` may load any file of the package, so a narrowed scope is not used.
 #[test]
 fn a_computed_import_keeps_the_package_unjudged() {

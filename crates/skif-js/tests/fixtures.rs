@@ -303,6 +303,31 @@ fn incomplete_configs_narrow_what_is_not_judged() {
     insta::assert_json_snapshot!("incomplete_scopes", diagnostics);
 }
 
+/// The `incomplete-judged` fixture: `narrowed` merges an unknown base into its Vitest config, so its unknown entries
+/// lie in the test scope, whose files are entries; `whole` has a Vitest config unknown as a whole. The exports, types
+/// and enum members outside the narrowed scope are judged (ADR 0081), those of the scope's setup module and of the
+/// package unjudged as a whole are not.
+#[test]
+fn exports_outside_a_narrowed_incomplete_scope_are_judged() {
+    let diagnostics = Run::new("incomplete-judged", "").lint_with_plugins();
+    assert_eq!(
+        found(&diagnostics, "unused-exports"),
+        [
+            "packages/narrowed/src/seed.ts: unusedSeed",
+            "packages/narrowed/src/util.ts: stale",
+        ]
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-types"),
+        ["packages/narrowed/src/util.ts: Stale"]
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-enum-members"),
+        ["packages/narrowed/src/util.ts: Color.Green"]
+    );
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+}
+
 #[test]
 fn monorepo_dependencies() {
     let diagnostics = Run::new("monorepo", "").lint();
