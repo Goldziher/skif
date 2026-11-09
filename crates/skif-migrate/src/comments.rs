@@ -258,12 +258,15 @@ mod tests {
             Comments::read(&jsonc).on_element("versionGroups", 0),
             Some("kept on the old major")
         );
-        let yaml = Input::new(".syncpackrc", "versionGroups:\n  # kept on the old major\n  - isIgnored: true\n");
+        let yaml = Input::new(
+            ".syncpackrc",
+            "versionGroups:\n  # kept on the old major\n  - isIgnored: true\n",
+        );
         assert_eq!(
             Comments::read(&yaml).on_element("versionGroups", 0),
             Some("kept on the old major")
         );
         let json = Input::new("package.json", "{ \"knip\": { \"ignore\": [\"a\"] } }");
-        assert!(Comments::read(&json).elements.is_empty());
+        assert_eq!(Comments::read(&json).elements, [] as [skif_js_syntax::ElementComment; 0]);
     }
 }

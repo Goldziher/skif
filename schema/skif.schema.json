@@ -328,6 +328,10 @@
             }
           ],
           "description": "Caps the severity of every diagnostic: a rule configured above this level reports at it."
+        },
+        "require-ignore-reasons": {
+          "type": "boolean",
+          "description": "Fail the run when a suppression has no `reason`: an `[[ignore]]` entry, also one of an override, or an entry of\na `[js]` ignore list. The same check as `--require-ignore-reasons`; either one turns it on."
         }
       },
       "description": "`[lint]`"
@@ -430,7 +434,7 @@
             "string",
             "null"
           ],
-          "description": "Why the suppression exists. `--require-ignore-reasons` fails a run on an entry without one."
+          "description": "Why the suppression exists. `--require-ignore-reasons` and `[lint] require-ignore-reasons` fail a run on an\nentry without one."
         }
       },
       "description": "One `[[ignore]]` suppression. An empty list does not narrow that dimension, but at least one list must be set:\nan entry without any filter is rejected as it would suppress everything."
@@ -1017,7 +1021,7 @@
         "ignore-files": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Globs of files, relative to the workspace root, never reported by `unused-files`; other rules still analyse\nthem (knip's `ignoreFiles`).",
           "default": []
@@ -1025,7 +1029,7 @@
         "ignore-dependencies": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Dependencies never reported as unused or unlisted.",
           "default": []
@@ -1033,7 +1037,7 @@
         "ignore-binaries": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Binaries never reported as unlisted.",
           "default": []
@@ -1046,7 +1050,7 @@
         "ignore-unresolved": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Import specifiers never reported as unresolved. Entries are exact specifiers, globs or regular expressions\n(`/^@org\\/.+$/`), see the `[js]` documentation.",
           "default": []
@@ -1054,7 +1058,7 @@
         "ignore-workspaces": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Workspace directories (globs) the JavaScript analysis skips. Manifest and policy rules still check them.",
           "default": []
@@ -1067,7 +1071,7 @@
         "ignore-members": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Enum and namespace member names (globs or regular expressions) never reported as unused.",
           "default": []
@@ -1138,26 +1142,60 @@
         "extend-ignore-dependencies": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Appended to `ignore-dependencies` instead of replacing it. Folded away when the configuration is resolved."
         },
         "extend-ignore-binaries": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Appended to `ignore-binaries` instead of replacing it. Folded away when the configuration is resolved."
         },
         "extend-ignore-unresolved": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Appended to `ignore-unresolved` instead of replacing it. Folded away when the configuration is resolved."
         }
       },
       "description": "`[js]`"
+    },
+    "IgnoreItem": {
+      "anyOf": [
+        {
+          "type": "string",
+          "description": "The name, glob or regular expression the list matches."
+        },
+        {
+          "$ref": "#/$defs/IgnoreItemTableSchema",
+          "description": "The entry with why it exists."
+        }
+      ],
+      "description": "Schema stand-in for an entry of a `[js]` ignore list: a bare string, or a table of `name` and `reason`.\nIt only describes the shape for the JSON Schema and is never constructed."
+    },
+    "IgnoreItemTableSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name, glob or regular expression the list matches, as the bare string form takes it."
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Why the entry exists. `--require-ignore-reasons` and `[lint] require-ignore-reasons` fail a run on an entry\nwithout one."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "description": "Table form of an ignore-list entry."
     },
     "IgnoreExportsUsedInFile": {
       "anyOf": [
@@ -1293,7 +1331,7 @@
         "ignore-files": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Globs of files, relative to the workspace directory, never reported by `unused-files`.",
           "default": []
@@ -1301,7 +1339,7 @@
         "ignore-dependencies": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Dependencies never reported as unused or unlisted.",
           "default": []
@@ -1309,7 +1347,7 @@
         "ignore-binaries": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Binaries never reported as unlisted.",
           "default": []
@@ -1317,7 +1355,7 @@
         "ignore-unresolved": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Import specifiers never reported as unresolved in this workspace.",
           "default": []
@@ -1343,7 +1381,7 @@
         "ignore-members": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Enum and namespace member names never reported as unused in this workspace.",
           "default": []
@@ -1581,7 +1619,7 @@
             "null"
           ],
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Replaces the ignored dependencies; an empty list clears what the package inherits."
         },
@@ -1591,7 +1629,7 @@
             "null"
           ],
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Replaces the ignored binaries; an empty list clears what the package inherits."
         },
@@ -1605,14 +1643,14 @@
         "extend-ignore-dependencies": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Appended to the ignored dependencies."
         },
         "extend-ignore-binaries": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Appended to the ignored binaries."
         },
@@ -1622,14 +1660,14 @@
             "null"
           ],
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Replaces the ignored unresolved specifiers; an empty list clears what the package inherits."
         },
         "extend-ignore-unresolved": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/IgnoreItem"
           },
           "description": "Appended to the ignored unresolved specifiers."
         },

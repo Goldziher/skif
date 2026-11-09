@@ -265,7 +265,8 @@ fn require_ignore_reasons_covers_the_js_ignore_lists_and_the_lint_key() {
     let by_key = lint(&[]);
     assert_eq!(by_key.code, 2, "{}", output(&by_key));
     assert!(
-        output(&by_key).contains("js.ignore-binaries[0] `docker`: no `reason`, which [lint] require-ignore-reasons requires"),
+        output(&by_key)
+            .contains("js.ignore-binaries[0] `docker`: no `reason`, which [lint] require-ignore-reasons requires"),
         "{}",
         output(&by_key)
     );
