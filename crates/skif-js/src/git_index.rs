@@ -462,7 +462,7 @@ impl TrackedTree {
 
 /// The work tree root and the git directory that belong to `root`: the closest ancestor with a `.git` directory, or
 /// a `.git` file pointing at one (linked work trees and submodules).
-fn locate(fs: &dyn FileSystem, root: &Path) -> Option<(PathBuf, PathBuf)> {
+pub(crate) fn locate(fs: &dyn FileSystem, root: &Path) -> Option<(PathBuf, PathBuf)> {
     for dir in root.ancestors() {
         let dot_git = dir.join(".git");
         let kind = fs.kind(&dot_git);
@@ -478,13 +478,17 @@ fn locate(fs: &dyn FileSystem, root: &Path) -> Option<(PathBuf, PathBuf)> {
     None
 }
 
+/// The directory of the repository `git_dir` belongs to that holds what its work trees share (`config`,
+/// `info/exclude`): a linked work tree names it in `commondir`, any other git directory is its own.
+pub(crate) fn common_dir(fs: &dyn FileSystem, git_dir: &Path) -> PathBuf {
+    fs.read_to_string(&git_dir.join("commondir"))
+        .ok()
+        .map_or_else(|| git_dir.to_path_buf(), |text| git_dir.join(text.trim()))
+}
+
 /// The configuration file of the repository `git_dir` belongs to; a linked work tree keeps it in the common directory.
 fn config_path(fs: &dyn FileSystem, git_dir: &Path) -> PathBuf {
-    let common = fs
-        .read_to_string(&git_dir.join("commondir"))
-        .ok()
-        .map(|text| git_dir.join(text.trim()));
-    common.as_deref().unwrap_or(git_dir).join("config")
+    common_dir(fs, git_dir).join("config")
 }
 
 /// `fs` with the files tracked below `root` served from the git index, or `None` when `root` is not in a git work

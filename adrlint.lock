@@ -340,3 +340,13 @@ blake3 = "1e878135fc7cac659ff0ead13bea57958afc069746e4cad4d91cfab3f2abc8da"
 number = 68
 status = "accepted"
 blake3 = "2926ac0821d6aaec6a5d092fcb93ae0544d62b343c130fdd264b0ce2126aaf40"
+
+[adrs."adrs/0069-a-published-path-into-nothing-is-reported-not-an-incomplete-entry.md"]
+number = 69
+status = "accepted"
+blake3 = "ed83230883a6ef48d711054621d12056541fd0dcaf19b53680ab8ba4b0953bdd"
+
+[adrs."adrs/0070-windows-npm-packages.md"]
+number = 70
+status = "accepted"
+blake3 = "dbb1278e439fe950386b766042e2c7d0ece4563a635a7764be1880e983bba778"
