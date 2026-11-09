@@ -118,6 +118,15 @@ pub(crate) fn script_in(dir: &str, script: String) -> Option<PluginInput> {
     (dir != ".." && !dir.starts_with("../")).then_some(PluginInput::ScriptAt { dir, script })
 }
 
+/// The path below the first `node_modules` directory of `path`: `@scope/pkg/cli.js` for
+/// `./node_modules/@scope/pkg/cli.js`. `None` for a path outside one.
+pub(crate) fn below_node_modules(path: &str) -> Option<&str> {
+    path.strip_prefix("node_modules/").or_else(|| {
+        let at = path.find("/node_modules/")?;
+        Some(&path[at + "/node_modules/".len()..])
+    })
+}
+
 /// The files, relative to the workspace, a `projects` string of a test runner names: a config file or a glob of them,
 /// or a directory (or glob of directories) holding a file called like one of `names` (a brace group of file names).
 /// `<rootDir>` stands for `base`. Negated strings name nothing.
@@ -825,6 +834,15 @@ mod tests {
         assert_eq!(regex_literal_prefix("~/lib/(.+)"), ("~/lib/".to_owned(), "(.+)"));
         assert_eq!(regex_literal_prefix("(a|b)"), (String::new(), "(a|b)"));
         assert_eq!(regex_literal_prefix("plain"), ("plain".to_owned(), ""));
+    }
+
+    #[test]
+    fn paths_below_node_modules_lose_the_prefix() {
+        assert_eq!(below_node_modules("node_modules/pkg/cli.js"), Some("pkg/cli.js"));
+        assert_eq!(below_node_modules("./node_modules/@scope/pkg"), Some("@scope/pkg"));
+        assert_eq!(below_node_modules("tools/node_modules/pkg"), Some("pkg"));
+        assert_eq!(below_node_modules("my_node_modules/pkg"), None);
+        assert_eq!(below_node_modules("src/pkg"), None);
     }
 
     #[test]
