@@ -1094,6 +1094,32 @@ fn test_environment_pragmas_are_imports_only_in_the_header() {
 }
 
 #[test]
+fn child_process_calls_are_commands() {
+    let source = "import { execSync, spawn as run } from 'node:child_process';\nimport * as cp from 'child_process';\n\
+                  execSync('sqlite3 db.sqlite .dump');\nrun('openssl', ['req', '-x509']);\n\
+                  cp.execFileSync('docker-compose', ['up', '-d']);\ncp.spawnSync('gopls', [flag]);\n\
+                  cp.exec(`git ${command}`);\ncp.spawn('sh', ['-c', 'a && b']);\ncp.fork('./worker.js');\n\
+                  execSync('sqlite3 db.sqlite .dump');\n";
+    let info = parse("a.ts", source);
+    assert_eq!(
+        info.commands,
+        [
+            "sqlite3 db.sqlite .dump",
+            "openssl req -x509",
+            "docker-compose up -d",
+            "gopls"
+        ]
+    );
+    let required = parse(
+        "b.cjs",
+        "const { execFileSync } = require('child_process');\nexecFileSync('xcopy', ['/E']);\n",
+    );
+    assert_eq!(required.commands, ["xcopy /E"]);
+    let other = parse("c.ts", "import { exec } from './exec';\nexec('not-a-command');\n");
+    assert!(other.commands.is_empty());
+}
+
+#[test]
 fn jsx_import_source_only_counts_in_leading_comments() {
     let leading = parse("a.jsx", "// @jsxImportSource preact\nexport const a = <b />;\n");
     assert_eq!(leading.jsx_import_source.as_deref(), Some("preact"));

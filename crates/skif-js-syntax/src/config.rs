@@ -987,7 +987,18 @@ pub fn extract_imported_calls(
     if ret.diagnostics.errors().next().is_some() {
         return Vec::new();
     }
-    let program = &ret.program;
+    let file = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+    imported_calls_in(&ret.program, file, modules, globals)
+}
+
+/// The calls and tagged templates in a parsed `program` whose function is imported from one of `modules`, as
+/// [`extract_imported_calls`] finds them; `file` is the file name `__filename` evaluates to.
+pub(crate) fn imported_calls_in(
+    program: &Program<'_>,
+    file: &str,
+    modules: &[&str],
+    globals: &[(&str, &str)],
+) -> Vec<ImportedCall> {
     let imported = imported_functions(program, modules, globals);
     if imported.is_empty() {
         return Vec::new();
@@ -997,12 +1008,36 @@ pub fn extract_imported_calls(
     let mut finder = CallFinder {
         top: &top,
         bindings: &bindings,
-        file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+        file,
         imported: &imported,
         found: Vec::new(),
     };
     finder.visit_program(program);
     finder.found
+}
+
+/// The command line of a `(file, [arguments])` call such as `spawn('eslint', ['.'])`: the file and its literal
+/// arguments, a computed argument left out. `None` when the file or a literal argument is not a plain word, because
+/// dropping it would change what the command means.
+#[must_use]
+pub fn literal_command(arguments: &[ConfigValue]) -> Option<String> {
+    let is_safe = |word: &str| {
+        !word.is_empty()
+            && word
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '.' | ',' | ':' | '/' | '=' | '+' | '~' | '-'))
+    };
+    let file = arguments.first()?.as_str().filter(|file| is_safe(file))?;
+    let mut words = vec![file];
+    if let Some(ConfigValue::Array(items)) = arguments.get(1) {
+        for word in items.iter().filter_map(ConfigValue::as_str) {
+            if !is_safe(word) {
+                return None;
+            }
+            words.push(word);
+        }
+    }
+    Some(words.join(" "))
 }
 
 /// Local name to module and named export (`None` for the default export or the module object) of everything a
