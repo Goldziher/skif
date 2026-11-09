@@ -122,6 +122,18 @@ All notable changes to this project are documented here. The format follows
   `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such
   as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
   ([#110](https://github.com/Goldziher/skif/issues/110)).
+- `const [{ a }, ns] = await Promise.all([import("./x"), import("./y")])` uses only what each element of the array
+  pattern reads: `a` of `./x` and the members read through `ns` of `./y`, instead of both modules as a whole, so
+  their other exports are reported. An import after a spread element or without an element at its position is
+  still used as a whole.
+- `vi.spyOn(ns, "a")`, `jest.spyOn(ns, "a")` and `spyOn(ns, "a")` read only member `a` of a namespace import
+  instead of using the whole module, so its other exports are reported (under `unused-namespace-exports` and
+  `unused-namespace-types` when nothing else imports the module).
+- `duplicate-exports` reports `export const b = a` when `a` is an exported constant initialised with another
+  binding (`export const a = base`); before, only an `a` exported under its own declaration counted.
+- `import { type A } from "./a"; export type { A } from "./a";` with `A` in the signature of a used export of the
+  same file no longer reports the re-export of `A` as unused: the signature mentions it through the import, as knip
+  counts it.
 
 ### Added
 

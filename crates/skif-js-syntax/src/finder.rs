@@ -4,11 +4,12 @@
 use std::collections::{HashMap, HashSet};
 
 use oxc_ast::ast::{
-    Argument, ArrayExpressionElement, AssignmentExpression, AssignmentOperator, AssignmentTarget, BindingPattern,
-    CallExpression, ComputedMemberExpression, Decorator, Expression, FormalParameters, IdentifierReference,
-    ImportExpression, JSXElement, JSXFragment, ObjectPropertyKind, Program, Statement, StaticMemberExpression,
-    TSAsExpression, TSExternalModuleDeclaration, TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier,
-    TSIndexedAccessType, TSLiteral, TSModuleReference, TSType, TSTypeQueryExprName, VariableDeclarator,
+    Argument, ArrayExpressionElement, ArrayPattern, AssignmentExpression, AssignmentOperator, AssignmentTarget,
+    BindingPattern, CallExpression, ComputedMemberExpression, Decorator, Expression, FormalParameters,
+    IdentifierReference, ImportExpression, JSXElement, JSXFragment, ObjectPropertyKind, Program, Statement,
+    StaticMemberExpression, TSAsExpression, TSExternalModuleDeclaration, TSImportEqualsDeclaration, TSImportType,
+    TSImportTypeQualifier, TSIndexedAccessType, TSLiteral, TSModuleReference, TSType, TSTypeQueryExprName,
+    VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
@@ -263,6 +264,42 @@ fn bindings_for_pattern(pattern: &BindingPattern<'_>) -> Vec<ImportedName> {
     }
 }
 
+/// The bindings `const [a, { b }] = await Promise.all([import("x"), import("y")])` takes from each `import()`, keyed
+/// by the start of the import: the element of the array pattern at the import's position, read like the pattern of
+/// `const a = await import("x")`. An import after a spread element, or without an element of the pattern at its
+/// position (a hole, a shorter pattern, a rest element), gets no entry and stays used as a whole.
+fn promise_all_bindings(init: &Expression<'_>, pattern: &ArrayPattern<'_>) -> Vec<(u32, Vec<ImportedName>)> {
+    let inner = match init.get_inner_expression() {
+        Expression::AwaitExpression(a) => a.argument.get_inner_expression(),
+        other => other,
+    };
+    let Expression::CallExpression(call) = inner else {
+        return Vec::new();
+    };
+    let Expression::StaticMemberExpression(callee) = call.callee.get_inner_expression() else {
+        return Vec::new();
+    };
+    if !is_ident(&callee.object, "Promise") || callee.property.name.as_str() != "all" {
+        return Vec::new();
+    }
+    let Some(Argument::ArrayExpression(array)) = call.arguments.first() else {
+        return Vec::new();
+    };
+    array
+        .elements
+        .iter()
+        .take_while(|element| !matches!(element, ArrayExpressionElement::SpreadElement(_)))
+        .zip(&pattern.elements)
+        .filter_map(|(element, binding)| {
+            let binding = binding.as_ref()?;
+            let Expression::ImportExpression(import) = element.as_expression()?.get_inner_expression() else {
+                return None;
+            };
+            Some((import.span.start, bindings_for_pattern(binding)))
+        })
+        .collect()
+}
+
 /// The export a qualified import type names and the member it reads of that export: `A` and `None` for
 /// `import("x").A`, `A` and `Some("B")` for `import("x").A.B` (and `.A.B.C`).
 fn qualifier_parts<'q>(qualifier: &'q TSImportTypeQualifier<'_>) -> (&'q str, Option<&'q str>) {
@@ -352,10 +389,12 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
     }
 
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
-        if let Some(init) = &it.init
-            && let Some(start) = module_call_start(init)
-        {
-            self.pending.insert(start, bindings_for_pattern(&it.id));
+        if let Some(init) = &it.init {
+            if let Some(start) = module_call_start(init) {
+                self.pending.insert(start, bindings_for_pattern(&it.id));
+            } else if let BindingPattern::ArrayPattern(pattern) = &it.id {
+                self.pending.extend(promise_all_bindings(init, pattern));
+            }
         }
         walk::walk_variable_declarator(self, it);
     }
