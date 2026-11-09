@@ -9,6 +9,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- An import that does not resolve for its package but matches a tsconfig `paths` pattern of another workspace package,
+  or of a root tsconfig the package does not follow, is still reported by `unlisted-dependencies`, now with the detail
+  `ForeignTsconfigPaths`, a message naming that config, a related location at it, and help that suggests the mapping
+  or an import by package name instead of a `package.json` entry. knip merges the `paths` of every workspace, so these
+  imports surface after switching from it ([#112](https://github.com/Goldziher/skif/issues/112)).
+
 ## [0.2.0] - 2026-11-08
 
 ### Added

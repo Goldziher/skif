@@ -24,7 +24,7 @@ use crate::specifier::{
     assumed_package, has_foreign_scheme, is_builtin, node_modules_package, node_modules_specifier_package,
     package_name, subpath,
 };
-use crate::tsconfig_paths::{TsConfigs, TsPaths};
+use crate::tsconfig_paths::{ForeignPaths, TsConfigs, TsPaths};
 
 /// Extensions that are parsed and followed.
 pub(crate) const CODE_EXTENSIONS: &[&str] = &[
@@ -813,13 +813,27 @@ impl ModuleResolver {
 
     /// Whether a `paths` pattern of the nearest `tsconfig.json` or `jsconfig.json` maps `specifier`, whether or not
     /// its targets exist.
-    fn ts_paths_map(&self, importer: &Path, specifier: &str) -> bool {
+    pub(crate) fn ts_paths_map(&self, importer: &Path, specifier: &str) -> bool {
         let Some(directory) = importer.parent() else {
             return false;
         };
         self.nearest_paths
             .get_or_compute(directory, || self.tsconfigs.nearest(directory).map(Arc::new))
             .is_some_and(|config| config.maps(specifier))
+    }
+
+    /// The `paths` patterns of the `tsconfig.json` or `jsconfig.json` that applies to the root and to each package,
+    /// read through the same per-directory cache as the resolution.
+    pub(crate) fn package_paths(&self) -> ForeignPaths {
+        let configs: Vec<Arc<TsPaths>> = self
+            .package_dirs
+            .iter()
+            .filter_map(|dir| {
+                self.nearest_paths
+                    .get_or_compute(dir.as_path(), || self.tsconfigs.nearest(dir).map(Arc::new))
+            })
+            .collect();
+        ForeignPaths::new(&self.root, &configs)
     }
 
     /// What a specifier that names nothing is. A relative one is unknown when it points at an ignored path (also

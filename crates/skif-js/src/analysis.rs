@@ -11,7 +11,7 @@ use skif_js_syntax::{Export, ExportKind, Member, ModuleCache, ParseOptions, pars
 use skif_workspace::{PackageId, Workspace, map_ordered};
 
 use crate::config_hints::{ConfigHint, HintInputs, config_hints};
-use crate::deps::DependencyUsage;
+use crate::deps::{DependencyUsage, ForeignMapping};
 use crate::discover::{Candidate, discover_with, relative, take_file_links};
 use crate::entries::entry_files;
 use crate::fixture::in_fixture_directory;
@@ -124,6 +124,28 @@ fn collect_ambient_modules(
     });
     names.extend(found.into_iter().flatten());
     names
+}
+
+/// Records on every unlisted import whose specifier the `paths` of another package's TypeScript configuration map, but
+/// not those of the configuration the importing file follows, which config and pattern map it. The patterns of all
+/// packages are indexed once, and only when an import is unlisted.
+fn mark_foreign_paths(resolver: &ModuleResolver, graph: &ModuleGraph, dependencies: &mut DependencyUsage) {
+    if dependencies.unlisted.is_empty() {
+        return;
+    }
+    let foreign = resolver.package_paths();
+    for unlisted in &mut dependencies.unlisted {
+        let importer = &graph.module(unlisted.module).abs;
+        if resolver.ts_paths_map(importer, &unlisted.specifier) {
+            continue;
+        }
+        unlisted.foreign_paths = foreign
+            .lookup(&unlisted.specifier)
+            .map(|(config, pattern)| ForeignMapping {
+                config: config.to_owned(),
+                pattern: pattern.to_owned(),
+            });
+    }
 }
 
 /// Directories [`on_disk`] does not enter unless the pattern names them: installed packages and git internals are
@@ -478,9 +500,10 @@ impl<'a> JsAnalysis<'a> {
         let exports = timing::phase(phase("exports"), || {
             ExportUsage::compute_by(&graph, |owner| setup.includes_entry_exports(owner))
         });
-        let dependencies = timing::phase(phase("dependencies"), || {
+        let mut dependencies = timing::phase(phase("dependencies"), || {
             DependencyUsage::compute(workspace, &setup, &graph, fs.as_ref(), sequential)
         });
+        mark_foreign_paths(&resolver, &graph, &mut dependencies);
 
         let mut ambient_modules = collect_ambient_modules(fs.as_ref(), &graph, &candidates, (sequential, modules));
         // `declare module 'pkg/sub'` also declares `pkg`: both spellings are looked up by name.
