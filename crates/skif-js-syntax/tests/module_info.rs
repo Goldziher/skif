@@ -1116,7 +1116,7 @@ fn child_process_calls_are_commands() {
     );
     assert_eq!(required.commands, ["xcopy /E"]);
     let other = parse("c.ts", "import { exec } from './exec';\nexec('not-a-command');\n");
-    assert!(other.commands.is_empty());
+    assert!(other.commands.is_empty(), "{:?}", other.commands);
 }
 
 #[test]

@@ -10,8 +10,8 @@ use skif_js_syntax::ConfigValue;
 use crate::config_load::{from_json, load_config_with};
 use crate::files::find_files;
 use crate::plugin::{
-    BinaryRef, BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, IncompleteScope, PathAlias, Plugin,
-    PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
+    BinaryRef, BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, IncompleteScope, PathAlias,
+    Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
 };
 use crate::registry;
 use crate::script_config::{config_flags, config_paths, flag_values};

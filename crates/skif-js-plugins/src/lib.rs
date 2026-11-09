@@ -24,8 +24,8 @@ mod support;
 
 pub use config_load::{load_config, load_config_with};
 pub use plugin::{
-    BinaryRef, BuildDir, ConfigAst, CustomElements, DepRef, Enabler, IncompleteCause, IncompleteEntries, IncompleteScope,
-    KNIP_COMMIT, PathAlias, Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
+    BinaryRef, BuildDir, ConfigAst, CustomElements, DepRef, Enabler, IncompleteCause, IncompleteEntries,
+    IncompleteScope, KNIP_COMMIT, PathAlias, Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
 };
 pub use resolve::resolve_plugins;
 pub use skif_js_syntax::ModuleLoader;
