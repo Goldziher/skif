@@ -558,6 +558,27 @@ fn a_rule_sherif_ignores_stays_on_while_syncpack_checks_it() {
 }
 
 #[test]
+fn sherif_writes_no_scope_when_it_ignores_its_version_check() {
+    for package_json in [
+        r#"{ "name": "demo", "sherif": { "ignoreRule": ["multiple-dependency-versions"] } }"#,
+        r#"{ "name": "demo", "scripts": { "lint": "sherif -r multiple-dependency-versions" } }"#,
+    ] {
+        let migration = migrate(&[sherif_input(package_json)], &options(Profile::Full)).unwrap();
+        let parsed = table(&migration);
+        assert!(parsed.get("policy").is_none(), "{}", migration.toml);
+        assert!(
+            !migration
+                .notes
+                .iter()
+                .any(|note| note.path == "multiple-dependency-versions"),
+            "{:#?}",
+            migration.notes
+        );
+        assert_eq!(parsed["rules"]["version-mismatch"].as_str(), Some("off"), "{}", migration.toml);
+    }
+}
+
+#[test]
 fn syncpack_double_star_and_override_sections() {
     let config = r#"{
       "versionGroups": [

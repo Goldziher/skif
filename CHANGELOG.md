@@ -21,7 +21,7 @@ All notable changes to this project are documented here. The format follows
 
 - `skif migrate` writes `[policy] dependency-types = ["prod", "dev"]` for sherif, so a migrated sherif project is not
   reported for a dependency that differs from a workspace package's own version, which sherif never compares; with
-  syncpack the list is the union of both scopes.
+  syncpack the list is the union of both scopes. A sherif that ignores `multiple-dependency-versions` writes no scope.
 - `skif migrate` drops the `./` prefix of sherif's `ignorePackage` paths, which never matched a package in skif.
 - `skif migrate` cuts each syncpack group's `dependencyTypes` to the `--dependency-types` of the lint script, and drops
   a group left with none, since syncpack never gave it an instance.
