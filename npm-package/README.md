@@ -74,9 +74,11 @@ covered by the registry's integrity hashes.
 | Linux arm64 (musl, Alpine) | `skif-linux-arm64-musl` |
 | Linux x64 (glibc) | `skif-linux-x64-gnu` |
 | Linux x64 (musl, Alpine) | `skif-linux-x64-musl` |
+| Windows arm64 | `skif-win32-arm64-msvc` |
+| Windows x64 | `skif-win32-x64-msvc` |
 
-Windows is not supported by this package. If no platform package is installed (for example because optional
-dependencies were disabled), importing `skif-cli` fails with an error naming the missing package.
+If no platform package is installed (for example because optional dependencies were disabled), importing
+`skif-cli` fails with an error naming the missing package.
 
 ## Links
 

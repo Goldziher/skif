@@ -32,6 +32,13 @@ All notable changes to this project are documented here. The format follows
   `scripts/check-doc-pins.sh` fails CI when one is not on the workspace version's release line
   ([#94](https://github.com/Goldziher/skif/issues/94)).
 
+### Added
+
+- Windows npm packages: `skif-win32-x64-msvc` and `skif-win32-arm64-msvc`, so `npx skif-cli`, `pnpm dlx skif-cli`
+  and `bunx -p skif-cli skif` run on Windows x64 and arm64. The release loads both addons on their own architecture
+  under Node.js 22, 24 and 26 and Bun before publishing ([ADR 0070](adrs/0070-windows-npm-packages.md),
+  [#93](https://github.com/Goldziher/skif/issues/93)).
+
 ## [0.2.0] - 2026-11-08
 
 ### Added
