@@ -344,8 +344,29 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
         scripts::note_unrecognised(state, &src, package, Tool::Knip);
         note_differing_flags(state, &src, &invocations);
     }
+    let multi_package = !input.workspace_patterns.is_empty()
+        || found
+            .as_ref()
+            .is_some_and(|(config, _, _)| config.get("workspaces").is_some());
+    if multi_package {
+        note_merged_tsconfig_paths(state, &src);
+    }
     apply(state, &src, &plan);
     Ok(())
+}
+
+/// knip resolves every import with the tsconfig `paths` of all workspaces together; skif resolves an import with the
+/// `paths` of the configuration its file follows. skif-migrate reads no tsconfig, so in a workspace of several
+/// packages the difference is noted whether or not their configs set `paths`.
+fn note_merged_tsconfig_paths(state: &mut State<'_>, src: &Src) {
+    state.note_with(
+        src,
+        NoteClass::Approximate,
+        "tsconfig paths",
+        "knip merges the tsconfig paths of all workspaces; skif does not, so an import that only another package's \
+         paths map is reported as unlisted-dependencies with detail ForeignTsconfigPaths",
+        "map the specifier in the tsconfig of the importing package, or import the module by the name of its package",
+    );
 }
 
 fn level(state: &mut State<'_>, src: &Src, path: &str, text: &str) -> Option<Level> {
