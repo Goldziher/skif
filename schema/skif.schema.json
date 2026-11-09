@@ -449,7 +449,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`); name `peer` or `optional` to include them.",
+          "description": "Dependency types the policy rules apply to. Empty means production and development dependencies (`dependencies` and `devDependencies`) and a package's own version; name `peer` or `optional` to include them. A list that does not select `local` leaves the own versions out, so no dependent is compared with the version of the workspace package it names.",
           "default": []
         },
         "override-reading": {
@@ -582,7 +582,7 @@
         {
           "type": "string",
           "const": "ignored",
-          "description": "The matched dependencies are not checked."
+          "description": "The matched dependencies are not checked: versions may differ and no semver group applies to them\n(`semver-range-only` keeps the semver groups)."
         },
         {
           "type": "string",
