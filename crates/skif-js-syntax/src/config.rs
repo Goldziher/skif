@@ -983,6 +983,39 @@ pub fn extract_property_calls(source: &str, path: &Path, key: &str, argument: &C
     finder.found
 }
 
+/// Statically evaluates the arguments of every call of a method named `method` in `source`, whatever object it is
+/// called on (`eleventyConfig.addPassthroughCopy("img")`), in source order: one list of arguments per call. Arguments
+/// are evaluated as in [`extract_config_object`], so a top-level constant is known and a local of the enclosing
+/// function is not. Returns nothing when the file does not parse.
+#[must_use]
+pub fn extract_method_calls(source: &str, path: &Path, method: &str) -> Vec<Vec<ConfigValue>> {
+    let Ok(source_type) = SourceType::from_path(path) else {
+        return Vec::new();
+    };
+    let allocator = Allocator::default();
+    let ret = Parser::new(&allocator, source, source_type)
+        .with_options(OxcParseOptions {
+            preserve_parens: false,
+            ..OxcParseOptions::default()
+        })
+        .parse();
+    if ret.diagnostics.errors().next().is_some() {
+        return Vec::new();
+    }
+    let program = &ret.program;
+    let top = top_level(program);
+    let bindings = module_bindings(program);
+    let mut finder = MethodCallFinder {
+        top: &top,
+        bindings: &bindings,
+        file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+        method,
+        found: Vec::new(),
+    };
+    finder.visit_program(program);
+    finder.found
+}
+
 /// A call, or a tagged template, of a function a module exports; see [`extract_imported_calls`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImportedCall {
@@ -1245,6 +1278,52 @@ impl<'a> Visit<'a> for OptionFinder<'_, '_, 'a> {
             }
         }
         walk::walk_new_expression(self, it);
+    }
+}
+
+struct MethodCallFinder<'t, 'p, 'a> {
+    top: &'t TopLevel<'p, 'a>,
+    bindings: &'t ModuleBindings,
+    file: &'t str,
+    method: &'t str,
+    found: Vec<Vec<ConfigValue>>,
+}
+
+impl<'a> Visit<'a> for MethodCallFinder<'_, '_, 'a> {
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if let Expression::StaticMemberExpression(member) = it.callee.get_inner_expression()
+            && member.property.name.as_str() == self.method
+        {
+            let eval = Evaluator {
+                consts: &self.top.consts,
+                changed: &self.top.changed,
+                unstable: &self.top.unstable,
+                functions: &self.top.functions,
+                bindings: self.bindings,
+                file: self.file,
+                dir: ".",
+                path: Path::new(self.file),
+                imports: &HashMap::new(),
+                modules: None,
+                evaluated: RefCell::new(HashMap::new()),
+                chain: RefCell::new(Vec::new()),
+                frames: RefCell::new(Vec::new()),
+                calls: Cell::new(0),
+                config_setter: RefCell::new(None),
+                captured: RefCell::new(None),
+            };
+            let arguments = it
+                .arguments
+                .iter()
+                .map(|argument| {
+                    argument
+                        .as_expression()
+                        .map_or(ConfigValue::Unknown, |e| eval.expr(e, 0))
+                })
+                .collect();
+            self.found.push(arguments);
+        }
+        walk::walk_call_expression(self, it);
     }
 }
 
