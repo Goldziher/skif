@@ -173,7 +173,10 @@ fn require_reasons(args: &LintArgs, config: &Config) -> Result<(), CliError> {
     match config.missing_ignore_reason() {
         Some(entry) => Err(CliError::new(
             Kind::Config,
-            format!("{entry}: no `reason`, which {required_by} requires"),
+            format!(
+                "{entry}: no `reason`, which {required_by} requires (the position is in the list merged from every \
+                 config file and its `extend-*` keys)"
+            ),
         )),
         None => Ok(()),
     }
