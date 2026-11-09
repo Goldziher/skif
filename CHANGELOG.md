@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The `vercel` plugin is enabled by a `vercel.json` too and parses its `buildCommand`, `devCommand`,
+  `installCommand` and `ignoreCommand` as scripts, so `"buildCommand": "pnpm turbo build"` keeps `turbo` used
+  ([#98](https://github.com/Goldziher/skif/issues/98)).
 - In a multi-root run (`skif -r`) a dependency that only a nested root imports or runs, and that the nested root
   does not list but a `package.json` above it does, is no longer reported unused in that outer manifest: Node.js
   resolves it from the outer `node_modules`. Reports carry these uses in `Report::ancestor_dependency_uses`, and
