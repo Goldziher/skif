@@ -651,6 +651,31 @@ fn stale_mocks_can_be_turned_off_without_bringing_the_mocks_back_as_unresolved_i
     );
 }
 
+/// With `stale-mocks` off, `stale-js-config` still judges the ignore lists: an `ignore-unresolved` entry that only
+/// silences a mock is used, and entries that match nothing are stale (#111).
+#[test]
+fn stale_js_config_judges_the_ignore_lists_with_stale_mocks_off() {
+    let diagnostics = Run::new(
+        "stale-mocks",
+        "[rules]\nstale-mocks = \"off\"\n[js]\nignore-unresolved = [\"./gone\", \"./never-written\"]\n\
+         ignore-dependencies = [\"nothing-here\"]",
+    )
+    .lint_with_plugins();
+    let mut stale: Vec<&str> = diagnostics
+        .iter()
+        .filter(|d| d.rule.as_str() == "stale-js-config")
+        .map(|d| d.message.as_str())
+        .collect();
+    stale.sort_unstable();
+    assert_eq!(
+        stale,
+        [
+            "`./never-written` in `js.ignore-unresolved` matched nothing",
+            "`nothing-here` in `js.ignore-dependencies` matched nothing",
+        ]
+    );
+}
+
 /// Imports inside `declare module` bodies use the packages they name (#20).
 #[test]
 fn ambient_module_imports_snapshot() {
