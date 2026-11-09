@@ -234,6 +234,78 @@ fn require_ignore_reasons_fails_only_on_entries_of_a_file_without_one() {
 }
 
 #[test]
+fn require_ignore_reasons_covers_the_js_ignore_lists_and_the_lint_key() {
+    let dir = fixture("dirty");
+    let toml = dir.path().join("skif.toml");
+    let output = |result: &support::Run| format!("{}{}", result.stdout, result.stderr);
+    let lint = |extra: &[&str]| run(skif().args(extra).arg(dir.path()));
+
+    std::fs::write(
+        &toml,
+        "[js.workspaces.\"packages/app\"]\nignore-dependencies = [{ name = \"left-pad\", reason = \"loaded by the bundler\" }, \"some-loader\"]\n",
+    )
+    .unwrap();
+    let flagged = lint(&["--require-ignore-reasons"]);
+    assert_eq!(flagged.code, 2, "{}", output(&flagged));
+    assert!(
+        output(&flagged).contains(
+            "js.workspaces.\"packages/app\".ignore-dependencies[1] `some-loader`: no `reason`, which --require-ignore-reasons requires"
+        ),
+        "{}",
+        output(&flagged)
+    );
+    let unflagged = lint(&[]);
+    assert_ne!(unflagged.code, 2, "{}", output(&unflagged));
+
+    std::fs::write(
+        &toml,
+        "[lint]\nrequire-ignore-reasons = true\n[js]\nignore-binaries = [\"docker\"]\n",
+    )
+    .unwrap();
+    let by_key = lint(&[]);
+    assert_eq!(by_key.code, 2, "{}", output(&by_key));
+    assert!(
+        output(&by_key)
+            .contains("js.ignore-binaries[0] `docker`: no `reason`, which [lint] require-ignore-reasons requires"),
+        "{}",
+        output(&by_key)
+    );
+
+    std::fs::write(
+        &toml,
+        "[lint]\nrequire-ignore-reasons = true\n[js]\nignore-binaries = [{ name = \"docker\", reason = \"installed on the CI image\" }]\n",
+    )
+    .unwrap();
+    let reasoned = lint(&["--require-ignore-reasons"]);
+    assert_ne!(reasoned.code, 2, "{}", output(&reasoned));
+}
+
+#[test]
+fn a_missing_reason_from_an_extend_key_is_named_in_the_merged_list() {
+    let dir = fixture("dirty");
+    std::fs::write(
+        dir.path().join("base.toml"),
+        "[js]\nignore-dependencies = [{ name = \"a\", reason = \"r\" }, { name = \"b\", reason = \"r\" }, { name = \"c\", reason = \"r\" }]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("skif.toml"),
+        "extends = [\"base.toml\"]\n[js]\nextend-ignore-dependencies = [\"left-pad\"]\n",
+    )
+    .unwrap();
+    let result = run(skif().arg("--require-ignore-reasons").arg(dir.path()));
+    let output = format!("{}{}", result.stdout, result.stderr);
+    assert_eq!(result.code, 2, "{output}");
+    assert!(
+        output.contains(
+            "js.ignore-dependencies[3] `left-pad`: no `reason`, which --require-ignore-reasons requires (the position is \
+             in the list merged from every config file and its `extend-*` keys)"
+        ),
+        "{output}"
+    );
+}
+
+#[test]
 fn rule_levels_and_ignores_change_the_outcome() {
     let dir = fixture("dirty");
     let ignored = run(skif()

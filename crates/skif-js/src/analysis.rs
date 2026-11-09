@@ -310,7 +310,8 @@ fn unused_ignore_files(
     let all_judged = workspace
         .iter()
         .all(|(id, _)| setup.package(id).is_none_or(|package| !package.entries_incomplete));
-    for pattern in config.js.ignore_files.iter().filter(|_| all_judged) {
+    let ignore_files = config.js.ignore_files.iter().filter(|_| all_judged);
+    for pattern in ignore_files.map(|item| item.name.as_str()) {
         let globs = Globs::new([pattern]);
         if globs.is_empty() {
             continue;
