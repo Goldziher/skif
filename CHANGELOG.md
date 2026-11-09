@@ -11,10 +11,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- **`stale-mocks` rule** (js, warning): reports a `vi.mock`, `vi.doMock`, `vi.unmock`, `vi.importActual`, `jest.mock`,
-  `jest.doMock`, `jest.requireActual` or other test-runner mock whose relative or aliased specifier names a module that
-  does not exist ("`` `vi.mock('./gone')` mocks a module that does not exist ``"). The specifier resolves as an import
-  does, so a query such as `?react` is dropped first; a package name that resolves to nothing is not reported.
+- **`stale-mocks` rule** (js, error): reports a `vi.mock`, `vi.doMock`, `vi.unmock`, `vi.importActual`, `jest.mock`,
+  `jest.doMock`, `jest.requireActual` or other test-runner call whose relative or aliased specifier names a module that
+  does not exist ("`` `vi.mock('./gone')` names a module that does not exist ``"), including Vitest's typed
+  `vi.mock(import('./gone'))`. The specifier resolves as an import does, so a query such as `?react` is dropped
+  first; a package name that resolves to nothing is not reported, nor is a `{ virtual: true }` mock.
   `ignore-unresolved` and `ignore-dependencies` silence it. knip does not read mock specifiers, so
   `skif migrate --profile exact` turns it off. There are 43 rules, 18 of them `js` rules
   ([ADR 0073](adrs/0073-stale-mocks-test-runner-mocks-of-missing-modules-under-their-own-rule.md),
@@ -22,10 +23,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- `unresolved-imports` no longer reports test-runner mocks; a mock of a missing module is a `stale-mocks` warning
-  instead of an `unresolved-imports` error ([#111](https://github.com/Goldziher/skif/issues/111)).
-- The module cache schema is raised: a mock import records its call (`Import::call` in `skif-js-syntax`), so a cache
-  written by an earlier build is discarded.
+- `unresolved-imports` no longer reports test-runner mocks; a mock of a missing module is a `stale-mocks` error
+  instead, with the same default severity, so it can be triaged, baselined or turned off apart from broken imports
+  ([#111](https://github.com/Goldziher/skif/issues/111)).
+- **Breaking** for library users of `skif-js-syntax`: `Import` has a new public field `call` (an `Option<MockCall>`,
+  the test-runner call of a mock import), so code that builds an `Import` with a struct literal must set it. The
+  module cache schema is raised with it, so a cache written by an earlier build is discarded.
 
 ## [0.2.0] - 2026-11-08
 
