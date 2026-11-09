@@ -1,6 +1,9 @@
-//! A small POSIX-ish tokenizer: quotes, escapes, separators, redirections and substitutions.
+//! A small POSIX-ish tokenizer: quotes, escapes, separators, redirections, substitutions, here-documents, `case`
+//! patterns and function definitions.
 
 use std::ops::Range;
+
+use super::tables::RESERVED_WORDS;
 
 /// One shell word with quotes and escapes resolved.
 #[derive(Debug, Clone)]
@@ -24,6 +27,8 @@ pub(super) struct Tokens {
     pub segments: Vec<Segment>,
     /// Byte ranges of the bodies of `$( )` and backtick substitutions.
     pub substitutions: Vec<Range<usize>>,
+    /// Names of the functions the text defines (`name() { … }`, `function name { … }`): calling one runs no binary.
+    pub functions: Vec<String>,
 }
 
 pub(super) fn is_assignment_text(text: &str) -> bool {
@@ -44,8 +49,21 @@ pub(super) fn tokenize(src: &str) -> Tokens {
         words: Vec::new(),
         cur: None,
         redirect: false,
+        heredoc_target: false,
+        heredocs: Vec::new(),
+        case_depth: 0,
+        case_pattern: false,
     }
     .run()
+}
+
+/// The words after the leading reserved words (`then`, `do`, `{`, …) of a command.
+fn after_reserved(words: &[Word]) -> &[Word] {
+    let lead = words
+        .iter()
+        .take_while(|word| !word.dynamic && RESERVED_WORDS.contains(&word.text.as_str()))
+        .count();
+    &words[lead..]
 }
 
 struct Lexer<'a> {
@@ -57,6 +75,14 @@ struct Lexer<'a> {
     cur: Option<Word>,
     /// The next completed word is a redirection target and is discarded.
     redirect: bool,
+    /// The redirection target pending in `redirect` is the delimiter of a here-document (`<<EOF`, `<<-'EOF'`).
+    heredoc_target: bool,
+    /// Delimiters of the here-documents whose bodies start after the current line, in order.
+    heredocs: Vec<String>,
+    /// How many `case … in` constructs are open.
+    case_depth: usize,
+    /// The next token starts the pattern list of a `case` item (`a|b)`), or the `esac` that closes the construct.
+    case_pattern: bool,
 }
 
 impl Lexer<'_> {
@@ -90,19 +116,50 @@ impl Lexer<'_> {
     }
 
     fn end_word(&mut self) {
-        if let Some(mut word) = self.cur.take() {
-            word.span.end = self.pos(self.i);
-            if self.redirect {
-                self.redirect = false;
-            } else {
-                self.words.push(word);
+        let Some(mut word) = self.cur.take() else {
+            return;
+        };
+        word.span.end = self.pos(self.i);
+        if self.redirect {
+            self.redirect = false;
+            if std::mem::take(&mut self.heredoc_target) {
+                self.heredocs.push(word.text);
             }
+            return;
         }
+        if word.text == "esac" && !word.dynamic && after_reserved(&self.words).is_empty() {
+            // The reserved word that closes a `case`; it runs nothing.
+            self.case_depth = self.case_depth.saturating_sub(1);
+            return;
+        }
+        self.words.push(word);
+        if self.is_case_header() {
+            // `case WORD in`: what follows is the pattern list of the first item, not a command.
+            self.end_segment();
+            self.case_depth += 1;
+            self.case_pattern = true;
+        }
+    }
+
+    /// The words so far are `case WORD in`, after any leading reserved words.
+    fn is_case_header(&self) -> bool {
+        matches!(
+            after_reserved(&self.words),
+            [case, _, keyword] if case.text == "case" && !case.dynamic && keyword.text == "in" && !keyword.dynamic
+        )
     }
 
     fn end_segment(&mut self) {
         self.end_word();
         self.redirect = false;
+        self.heredoc_target = false;
+        if let [keyword, name, ..] = after_reserved(&self.words)
+            && keyword.text == "function"
+            && !keyword.dynamic
+            && !name.dynamic
+        {
+            self.tokens.functions.push(name.text.clone());
+        }
         let mut words = std::mem::take(&mut self.words);
         let split = words.iter().take_while(|w| is_assignment_text(&w.text)).count();
         let rest = words.split_off(split);
@@ -117,6 +174,10 @@ impl Lexer<'_> {
     fn run(mut self) -> Tokens {
         let n = self.chars.len();
         while self.i < n {
+            if std::mem::take(&mut self.case_pattern) {
+                self.skip_case_pattern();
+                continue;
+            }
             let c = self.chars[self.i].1;
             match c {
                 '\\' => self.backslash(),
@@ -129,7 +190,35 @@ impl Lexer<'_> {
                     self.end_segment();
                     self.i = (self.find_close(self.i + 1) + 1).min(n);
                 }
-                '\n' | ';' | '(' | ')' => {
+                '(' => {
+                    self.end_word();
+                    if let Some((name, close)) = self.function_definition() {
+                        self.tokens.functions.push(name);
+                        self.words.clear();
+                        self.i = (close + 1).min(n);
+                    } else {
+                        self.end_segment();
+                        self.i += 1;
+                    }
+                }
+                '\n' => {
+                    self.end_segment();
+                    self.i += 1;
+                    self.skip_heredoc_bodies();
+                }
+                ';' => {
+                    self.end_segment();
+                    self.i += 1;
+                    // `;;`, `;&` and `;;&` end a `case` item; the next item starts with its patterns.
+                    if self.case_depth > 0 && matches!(self.at(self.i), Some(';' | '&')) {
+                        self.i += 1;
+                        if self.at(self.i) == Some('&') {
+                            self.i += 1;
+                        }
+                        self.case_pattern = true;
+                    }
+                }
+                ')' => {
                     self.end_segment();
                     self.i += 1;
                 }
@@ -174,6 +263,93 @@ impl Lexer<'_> {
         }
         self.end_segment();
         self.tokens
+    }
+
+    /// At a `(` with the words of the command read: `name ()` or `function name ()` defines the function `name`.
+    /// Returns the name and the index of the `)`.
+    fn function_definition(&self) -> Option<(String, usize)> {
+        let mut close = self.i + 1;
+        while matches!(self.at(close), Some(' ' | '\t')) {
+            close += 1;
+        }
+        if self.at(close) != Some(')') {
+            return None;
+        }
+        let words = match after_reserved(&self.words) {
+            [keyword, rest @ ..] if keyword.text == "function" && !keyword.dynamic => rest,
+            words => words,
+        };
+        match words {
+            [name] if !name.dynamic && !name.text.is_empty() => Some((name.text.clone(), close)),
+            _ => None,
+        }
+    }
+
+    /// After the end of a line that opened here-documents: skips their bodies, each up to the line that holds only
+    /// its delimiter (leading tabs of `<<-` and any indentation allowed). The body is input text, not commands.
+    fn skip_heredoc_bodies(&mut self) {
+        let src = self.src;
+        let n = self.chars.len();
+        for delimiter in std::mem::take(&mut self.heredocs) {
+            while self.i < n {
+                let start = self.pos(self.i);
+                while self.i < n && self.chars[self.i].1 != '\n' {
+                    self.i += 1;
+                }
+                let line = &src[start..self.pos(self.i)];
+                self.i = (self.i + 1).min(n);
+                if line.trim() == delimiter {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Skips the pattern list of a `case` item up to and including its `)`, or the `esac` that closes the construct.
+    /// A line that holds no `)` is read as commands after all.
+    fn skip_case_pattern(&mut self) {
+        let n = self.chars.len();
+        loop {
+            while self.at(self.i).is_some_and(char::is_whitespace) {
+                self.i += 1;
+            }
+            if self.at(self.i) != Some('#') {
+                break;
+            }
+            while self.i < n && self.chars[self.i].1 != '\n' {
+                self.i += 1;
+            }
+        }
+        let start = self.i;
+        let rest = &self.src[self.pos(start)..];
+        if rest.starts_with("esac")
+            && self
+                .at(start + 4)
+                .is_none_or(|c| c.is_whitespace() || matches!(c, ';' | '&' | '|' | ')'))
+        {
+            self.i = start + 4;
+            self.case_depth = self.case_depth.saturating_sub(1);
+            return;
+        }
+        while let Some(c) = self.at(self.i) {
+            match c {
+                ')' => {
+                    self.i += 1;
+                    return;
+                }
+                '\n' => break,
+                '\\' => self.i += 2,
+                '\'' | '"' => {
+                    self.i += 1;
+                    while self.at(self.i).is_some_and(|q| q != c) {
+                        self.i += 1;
+                    }
+                    self.i += 1;
+                }
+                _ => self.i += 1,
+            }
+        }
+        self.i = start;
     }
 
     fn backslash(&mut self) {
@@ -337,15 +513,23 @@ impl Lexer<'_> {
         }
         let c = self.chars[self.i].1;
         self.i += 1;
+        let mut heredoc = false;
         if self.at(self.i) == Some(c) {
             self.i += 1;
             if c == '<' && self.at(self.i) == Some('<') {
+                // `<<<` is a here-string: its word is the input.
                 self.i += 1;
+            } else if c == '<' {
+                heredoc = true;
+                if self.at(self.i) == Some('-') {
+                    self.i += 1;
+                }
             }
         }
         if matches!(self.at(self.i), Some('&' | '|')) {
             self.i += 1;
         }
         self.redirect = true;
+        self.heredoc_target = heredoc;
     }
 }
