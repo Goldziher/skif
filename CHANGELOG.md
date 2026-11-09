@@ -22,6 +22,9 @@ All notable changes to this project are documented here. The format follows
   pattern reads: `a` of `./x` and the members read through `ns` of `./y`, instead of both modules as a whole, so
   their other exports are reported. An import after a spread element or without an element at its position is
   still used as a whole.
+- `vi.spyOn(ns, "a")`, `jest.spyOn(ns, "a")` and `spyOn(ns, "a")` read only member `a` of a namespace import
+  instead of using the whole module, so its other exports are reported (under `unused-namespace-exports` and
+  `unused-namespace-types` when nothing else imports the module).
 
 ## [0.2.0] - 2026-11-08
 

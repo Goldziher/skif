@@ -1,6 +1,7 @@
 //! Cases where the corpus runs showed skif and knip disagreeing and skif was wrong: members read in their own file,
 //! types in destructured exports, `new URL` targets, `require` assertions, imports awaited together with
-//! `Promise.all`, fixture directories, wildcard `exports`, same-name pairs and duplicate exports.
+//! `Promise.all`, spies on a namespace member, fixture directories, wildcard `exports`, same-name pairs and duplicate
+//! exports.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -160,6 +161,20 @@ fn imports_awaited_together_use_only_what_their_bindings_read() {
         found(&diagnostics, "unused-namespace-exports"),
         ["spaced.ts: unusedSpaced"]
     );
+}
+
+#[test]
+fn a_spy_on_a_namespace_uses_only_the_member_it_spies_on() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "import * as utils from './utils';\nexport const stub = (vi: any) => vi.spyOn(utils, 'spied');\n",
+        ),
+        ("utils.ts", "export function spied() {}\nexport function unspied() {}\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-namespace-exports"), ["utils.ts: unspied"]);
+    assert_eq!(found(&diagnostics, "unused-exports"), none());
 }
 
 #[test]
