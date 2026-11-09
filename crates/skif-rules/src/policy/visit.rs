@@ -694,6 +694,31 @@ mod tests {
     }
 
     #[test]
+    fn a_policy_scope_that_does_not_select_local_leaves_the_own_versions_out() {
+        let app = manifest("app", "1.0.0", r#""lib":"1.0.0""#);
+        let lib = manifest("lib", "1.0.1", "");
+        let members = [("app", app.as_str()), ("lib", lib.as_str())];
+        let none = Vec::<(String, String, &'static str)>::new();
+        assert_eq!(states("", &members), [one("app", "lib", "DiffersToLocal")]);
+        assert_eq!(
+            states("[policy]\ndependency-types = [\"prod\", \"dev\"]\n", &members),
+            none
+        );
+        assert_eq!(states("[policy]\ndependency-types = [\"!local\"]\n", &members), none);
+        assert_eq!(
+            states(
+                "[policy]\ndependency-types = [\"prod\", \"dev\", \"local\"]\n",
+                &members
+            ),
+            [one("app", "lib", "DiffersToLocal")]
+        );
+        assert_eq!(
+            states("[policy]\ndependency-types = [\"!peer\"]\n", &members),
+            [one("app", "lib", "DiffersToLocal")]
+        );
+    }
+
+    #[test]
     fn ranges_the_local_version_satisfies_are_valid() {
         let cases = [
             ("^1.0.0", true),

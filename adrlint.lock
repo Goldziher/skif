@@ -355,3 +355,8 @@ blake3 = "dbb1278e439fe950386b766042e2c7d0ece4563a635a7764be1880e983bba778"
 number = 71
 status = "accepted"
 blake3 = "33557f4edc8cb573b09ff0710a1f0b37bba6149504bafd2403ee42fe0382a65c"
+
+[adrs."adrs/0072-a-policy-scope-without-local-leaves-the-own-versions-out.md"]
+number = 72
+status = "accepted"
+blake3 = "be3c661d0f5b7752708bb3fc149df73bf3411ad4ba24389431e4a005f2673685"

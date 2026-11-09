@@ -9,12 +9,13 @@ expression: migration.toml
 # skif migrate: sources = ["sherif"]
 
 [workspace]
-ignore-packages = ["@demo/legacy", "./apps/legacy"]
+ignore-packages = ["@demo/legacy", "apps/legacy"]
 
 [lint]
 fail-on-warnings = true
 
 [policy]
+dependency-types = ["prod", "dev"]
 prefer = "lowest"
 
 [rules]

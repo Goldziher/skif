@@ -16,6 +16,31 @@ All notable changes to this project are documented here. The format follows
   as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
   ([#110](https://github.com/Goldziher/skif/issues/110)).
 
+### Changed
+
+- A `[policy] dependency-types` list that does not select `local` (`["prod", "dev"]`, `["!local"]`) leaves the own
+  versions of workspace packages out, as `--dependency-types prod,dev` does in syncpack: a dependent is no longer
+  reported for differing from the `version` of the workspace package it names. Without a list nothing changes; add
+  `local` to a list to keep the comparison
+  ([ADR 0072](adrs/0072-a-policy-scope-without-local-leaves-the-own-versions-out.md)).
+
+### Fixed
+
+- `skif migrate` writes `[policy] dependency-types = ["prod", "dev"]` for sherif, so a migrated sherif project is not
+  reported for a dependency that differs from a workspace package's own version, which sherif never compares; with
+  syncpack the list is the union of both scopes. A sherif that ignores `multiple-dependency-versions` writes no scope.
+- `skif migrate` drops the `./` prefix of sherif's `ignorePackage` paths, which never matched a package in skif.
+- `skif migrate` cuts each syncpack group's `dependencyTypes` to the `--dependency-types` of the lint script, and drops
+  a group left with none, since syncpack never gave it an instance.
+- `skif migrate` unites syncpack scripts that lint different `--dependency-types`, `!` negations included, by what they
+  select (`!dev,!peer` and `!peer,!local` give `["!peer"]`); when no list selects what they select together, it writes
+  the default scope and leaves the groups' `dependencyTypes` as they are.
+- `skif migrate` no longer counts `"ci": "pnpm run knip"` next to a `knip` script as a second run of knip without
+  flags, reads `node ./node_modules/knip/bin/knip.js`, and takes `--production=false` as off.
+- `skif migrate` lets a syncpack `policy` win over `snapTo` as syncpack does, notes a `preferVersion` it drops under
+  `policy: sameMinor`, treats `dependencies` and `packages` of `["**"]` as selecting everything, and marks the
+  `policy: catalog` translation approximate, naming how `[catalog] mode = "prefer"` is weaker.
+
 ### Added
 
 - `skif baseline write|prune|check` maintains a suppression baseline for a repository that adopts skif with findings it

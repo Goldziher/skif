@@ -148,6 +148,19 @@ impl<'a> State<'a> {
         &mut self.settings[index].1
     }
 
+    /// Widens `[policy] dependency-types` to cover `tokens` as well: the list is written when no migrated tool wrote
+    /// one, and otherwise becomes the list that selects what either list selects, so each tool keeps the scope it
+    /// checked.
+    pub(crate) fn widen_scope(&mut self, tokens: Vec<String>) {
+        let policy = self.doc.table(&[keys::POLICY]);
+        let existing = policy.get(keys::POLICY_DEPENDENCY_TYPES).map(str_list);
+        let scope = match existing {
+            Some(existing) => united_scope(&existing, &tokens),
+            None => tokens,
+        };
+        policy.set(keys::POLICY_DEPENDENCY_TYPES, Val::strs(scope));
+    }
+
     /// Sets the level of `id` in `[rules]`. The first level written for a rule stays, except that `off` always wins.
     pub(crate) fn set_level(&mut self, id: &str, level: Level) {
         let setting = self.setting(id);
@@ -280,6 +293,90 @@ impl<'a> State<'a> {
     }
 }
 
+/// A `dependency-types` list as what it selects: `(true, types)` for the plain types it names (less those it also
+/// negates), `(false, types)` for a list of negations only, which selects every type but those.
+fn selection(list: &[String]) -> (bool, Vec<String>) {
+    let negated: Vec<&str> = list.iter().filter_map(|token| token.strip_prefix('!')).collect();
+    if list.iter().any(|token| !token.starts_with('!')) {
+        let plain = list
+            .iter()
+            .filter(|token| !token.starts_with('!') && !negated.contains(&token.as_str()))
+            .cloned()
+            .collect();
+        (true, plain)
+    } else {
+        (false, negated.into_iter().map(str::to_owned).collect())
+    }
+}
+
+/// The `dependency-types` list that selects what `a` or `b` selects. A negation-only list that would lose every
+/// negation selects everything, which no list but the empty default says; it then keeps its negations.
+pub(crate) fn united_scope(a: &[String], b: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    match (selection(a), selection(b)) {
+        ((true, first), (true, second)) => {
+            for token in first.into_iter().chain(second) {
+                if !out.contains(&token) {
+                    out.push(token);
+                }
+            }
+        }
+        ((true, plain), (false, excluded)) | ((false, excluded), (true, plain)) => {
+            let kept: Vec<&String> = excluded.iter().filter(|name| !plain.contains(*name)).collect();
+            let kept = if kept.is_empty() {
+                excluded.iter().collect()
+            } else {
+                kept
+            };
+            out.extend(kept.into_iter().map(|name| format!("!{name}")));
+        }
+        ((false, first), (false, second)) => {
+            let common: Vec<&String> = first.iter().filter(|name| second.contains(*name)).collect();
+            let kept = if common.is_empty() {
+                first.iter().collect()
+            } else {
+                common
+            };
+            out.extend(kept.into_iter().map(|name| format!("!{name}")));
+        }
+    }
+    out
+}
+
+/// The `dependency-types` list that selects what both `group` and `scope` select, or `None` when that is nothing.
+pub(crate) fn intersected_scope(group: &[String], scope: &[String]) -> Option<Vec<String>> {
+    let plain = |tokens: Vec<String>| (!tokens.is_empty()).then_some(tokens);
+    match (selection(group), selection(scope)) {
+        ((true, first), (true, second)) => plain(first.into_iter().filter(|name| second.contains(name)).collect()),
+        ((true, named), (false, excluded)) | ((false, excluded), (true, named)) => {
+            plain(named.into_iter().filter(|name| !excluded.contains(name)).collect())
+        }
+        ((false, first), (false, second)) => {
+            let mut excluded = first;
+            for name in second {
+                if !excluded.contains(&name) {
+                    excluded.push(name);
+                }
+            }
+            Some(excluded.into_iter().map(|name| format!("!{name}")).collect())
+        }
+    }
+}
+
+/// The strings of a list value; anything else holds none.
+pub(crate) fn str_list(value: &Val) -> Vec<String> {
+    match value {
+        Val::List(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                Val::Str(token) => Some(token.clone()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// The comment after a rule the `exact` profile turned off: a later `--merge` replaces such a value when the
 /// tool it migrates does check the rule.
 fn profile_marker(tools: &[Tool]) -> String {
@@ -307,4 +404,62 @@ fn banner(tools: &[Tool], profile: Profile) -> String {
 /// Parses `text` as a `skif.toml`.
 pub(crate) fn validate(text: &str) -> Result<Config, MigrateError> {
     Config::from_toml_str(text).map_err(|error| MigrateError::Invalid(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn list(tokens: &[&str]) -> Vec<String> {
+        tokens.iter().map(|token| (*token).to_owned()).collect()
+    }
+
+    #[test]
+    fn united_scopes_select_what_either_selects() {
+        let cases: [(&[&str], &[&str], &[&str]); 5] = [
+            (&["prod", "dev", "local"], &["prod", "dev"], &["prod", "dev", "local"]),
+            (&["peer"], &["prod", "dev"], &["peer", "prod", "dev"]),
+            (&["!dev", "!peer"], &["prod", "dev"], &["!peer"]),
+            (&["prod", "dev"], &["!local", "!peer"], &["!local", "!peer"]),
+            (&["!local", "!peer"], &["!peer", "!optional"], &["!peer"]),
+        ];
+        for (a, b, expected) in cases {
+            assert_eq!(united_scope(&list(a), &list(b)), list(expected), "{a:?} with {b:?}");
+        }
+    }
+
+    #[test]
+    fn intersected_scopes_select_what_both_select() {
+        type Case<'a> = (&'a [&'a str], &'a [&'a str], Option<&'a [&'a str]>);
+        let cases: [Case<'_>; 5] = [
+            (&["optional"], &["prod", "dev"], None),
+            (&["dev", "peer"], &["prod", "dev"], Some(&["dev"])),
+            (&["prod", "local"], &["!local"], Some(&["prod"])),
+            (&["!peer"], &["prod", "peer"], Some(&["prod"])),
+            (&["!peer"], &["!local"], Some(&["!peer", "!local"])),
+        ];
+        for (group, scope, expected) in cases {
+            assert_eq!(
+                intersected_scope(&list(group), &list(scope)),
+                expected.map(list),
+                "{group:?} within {scope:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn widening_writes_the_scope_when_none_was_written_and_unites_it_otherwise() {
+        let options = Options::default();
+        let mut state = State::new(&options);
+        state.widen_scope(list(&["prod", "dev"]));
+        assert_eq!(
+            state.doc.table(&[keys::POLICY]).get(keys::POLICY_DEPENDENCY_TYPES),
+            Some(&Val::strs(["prod", "dev"]))
+        );
+        state.widen_scope(list(&["prod", "dev", "peer", "local"]));
+        assert_eq!(
+            state.doc.table(&[keys::POLICY]).get(keys::POLICY_DEPENDENCY_TYPES),
+            Some(&Val::strs(["prod", "dev", "peer", "local"]))
+        );
+    }
 }
