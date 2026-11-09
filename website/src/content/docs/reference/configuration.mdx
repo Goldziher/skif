@@ -730,7 +730,7 @@ counterpart. These differences are deliberate:
   the other module calls of `rs` and `rstest` are mock imports, like `vi.mock()`.
 - `react-email` credits `@react-email/ui` for a preview command from React Email 6 and
   `@react-email/preview-server` before, by the installed version (`node_modules/react-email/package.json` in the
-  package or an ancestor), else by the first number of the declared range; both when neither is known. `payload`
+  package or an ancestor up to the workspace root), else by the first number of the declared range; both when neither is known. `payload`
   keeps migrations and `payload-types.ts` from being reported through `ignore`.
 - `mise` reads file tasks under the directories of `task_config.includes` or, when no config sets `includes`, under
   `mise-tasks/`, `.mise-tasks/`, `mise/tasks/`, `.mise/tasks/` and `.config/mise/tasks/`. A JavaScript or TypeScript
