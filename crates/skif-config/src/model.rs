@@ -809,7 +809,8 @@ pub enum VersionPolicy {
     Pinned,
     /// The matched dependencies must not be used.
     Banned,
-    /// The matched dependencies are not checked.
+    /// The matched dependencies are not checked: versions may differ and no semver group applies to them
+    /// (`semver-range-only` keeps the semver groups).
     Ignored,
     /// Every range must overlap every other range.
     SameRange,
