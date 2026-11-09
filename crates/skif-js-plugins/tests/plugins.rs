@@ -3884,6 +3884,33 @@ fn sveltejs_package_maps_output_to_library_sources() {
 }
 
 #[test]
+fn vercel_json_commands_are_scripts() {
+    // A project with a `vercel.json` and no `@vercel/config` dependency: the build runs `turbo` through pnpm.
+    let results = resolve(
+        &[(
+            "vercel.json",
+            r#"{"buildCommand": "pnpm turbo build", "devCommand": "next dev --port 3001", "outputDirectory": "dist"}"#,
+        )],
+        &[],
+    );
+    let out = output(&results, "vercel");
+    for binary in ["turbo", "next"] {
+        assert!(
+            out.referenced_binaries.contains(&binary.to_owned()),
+            "{binary}: {:?}",
+            out.referenced_binaries
+        );
+    }
+    assert!(
+        !out.referenced_binaries.iter().any(|binary| binary == "dist"),
+        "{:?}",
+        out.referenced_binaries
+    );
+    let without = resolve(&[], &[]);
+    assert!(!without.iter().any(|(id, _)| *id == "vercel"), "no vercel.json, no plugin");
+}
+
+#[test]
 fn taskfile_tasks_and_includes() {
     let results = resolve(
         &[
