@@ -6,12 +6,13 @@ use skif_core::{
     DependencyKind, Diagnostic, Fix, FixOp, FixSafety, JsonAction, Location, PathSeg, RuleMeta, Span, TextEdit,
     diagnostic,
 };
+use skif_js_syntax::{Import, ImportKind};
 use skif_lint::Emitter;
 use skif_workspace::{DependencyEntry, Package};
 
 use crate::analysis::JsAnalysis;
 use crate::fixture::in_fixture_directory;
-use crate::graph::Module;
+use crate::graph::{Module, Target};
 
 /// A position in a module.
 pub(super) fn module_location(module: &Module, span: Option<Span>) -> Location {
@@ -22,6 +23,30 @@ pub(super) fn module_location(module: &Module, span: Option<Span>) -> Location {
 /// [`crate::fixture::in_fixture_directory`]).
 pub(super) fn is_fixture(module: &Module) -> bool {
     in_fixture_directory(&module.path)
+}
+
+/// The imports that resolve to nothing in the modules whose issues are reported, each with its module, leaving out
+/// the specifiers an `ignore-unresolved` or `ignore-dependencies` entry matches. With `mocks`, only the test-runner
+/// mocks (`vi.mock`, `jest.requireActual`); without, every other import.
+pub(super) fn unresolved_imports<'g>(
+    analysis: &'g JsAnalysis<'_>,
+    mocks: bool,
+) -> impl Iterator<Item = (&'g Module, &'g Import)> {
+    analysis
+        .graph
+        .modules()
+        .iter()
+        .filter(move |module| !module.ignored && !is_fixture(module) && !analysis.is_skipped(module.owner))
+        .flat_map(move |module| {
+            module
+                .imports
+                .iter()
+                .filter(|resolved| resolved.target == Target::Unresolved)
+                .filter_map(move |resolved| module.info.imports.get(resolved.import))
+                .filter(move |import| (import.kind == ImportKind::Mock) == mocks)
+                .filter(move |import| !analysis.ignores_unresolved(module.owner, &import.specifier))
+                .map(move |import| (module, import))
+        })
 }
 
 /// A dependency entry of a manifest, from its key through its value.

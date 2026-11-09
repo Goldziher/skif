@@ -23,13 +23,17 @@ pub static META: RuleMeta = RuleMeta::new(
 );
 
 /// The rules that consult `ignore-dependencies`. An entry can only be called stale when all of them ran.
-const DEPENDENCY_RULES: [&str; 5] = [
+const DEPENDENCY_RULES: [&str; 6] = [
     "unused-dependencies",
     "unused-dev-dependencies",
     "unlisted-dependencies",
     "unused-optional-peer-dependencies",
     "unresolved-imports",
+    "stale-mocks",
 ];
+
+/// The rules that consult `ignore-unresolved`. An entry can only be called stale when all of them ran.
+const UNRESOLVED_RULES: [&str; 2] = ["unresolved-imports", "stale-mocks"];
 
 /// Reports configuration that does nothing: `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
 /// `ignore-workspaces` entries that matched nothing, `[js.workspaces]` keys that select no package, and `entry`,
@@ -245,7 +249,7 @@ fn keyed_ignore_lists<'a>(analysis: &'a JsAnalysis<'_>, ran: &dyn Fn(&[&str]) ->
         .filter(|(id, _)| !analysis.is_skipped(*id) && analysis.entries_incomplete(*id))
         .flat_map(|(_, package)| package.dependencies.iter().map(|entry| entry.name.as_str()))
         .collect::<Vec<_>>();
-    let unresolved_ran = ran(&["unresolved-imports"]);
+    let unresolved_ran = ran(&UNRESOLVED_RULES);
     let binaries_ran = ran(&["unlisted-binaries"]);
 
     let mut keyed: Vec<(String, Vec<&str>)> = Vec::new();
