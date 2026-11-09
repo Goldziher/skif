@@ -1606,7 +1606,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// The values a spread argument may have: one for an expression whose value is known or not decided by a
     /// condition, and one per branch for `test ? a : b`, `a && b`, `a || b` and `a ?? b` whose test is unknown
     /// (parenthesised or not). A left side that adds nothing when spread is [`ConfigValue::Null`]: the falsy `a` of
-    /// `a && b`, and a comparison or negation on the left of `||` or `??`.
+    /// `a && b`, and a comparison, negation or `void` on the left of `||` or `??`.
     fn possibilities(&self, expr: &'p Expression<'a>, depth: u32) -> Vec<ConfigValue> {
         if depth > MAX_DEPTH {
             return vec![ConfigValue::Unknown];
@@ -1616,10 +1616,11 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
                 let left = self.expr(&logical.left, depth);
                 let primitive = is_primitive(&logical.left);
                 let decided = match logical.operator {
-                    LogicalOperator::Coalesce if primitive => Some(true),
+                    LogicalOperator::Coalesce if primitive && !is_void(&logical.left) => Some(true),
                     operator => left_is_value(operator, &left),
                 };
-                // The left side as the value: a falsy `a` of `a && b`, a comparison and a negation add nothing.
+                // The left side as the value: a falsy `a` of `a && b`, a comparison, a negation and `void` add
+                // nothing.
                 let left = if primitive || logical.operator == LogicalOperator::And {
                     ConfigValue::Null
                 } else {
@@ -2642,7 +2643,8 @@ fn left_is_value(operator: LogicalOperator, left: &ConfigValue) -> Option<bool> 
     }
 }
 
-/// Whether `expr` is a comparison or a negation, whose value is `true` or `false` and so adds nothing when spread.
+/// Whether `expr` is a comparison, a negation or a `void`, whose value is `true`, `false` or `undefined` and so adds
+/// nothing when spread.
 fn is_primitive(expr: &Expression<'_>) -> bool {
     match expr.get_inner_expression() {
         Expression::BinaryExpression(binary) => {
@@ -2651,6 +2653,11 @@ fn is_primitive(expr: &Expression<'_>) -> bool {
         Expression::UnaryExpression(unary) => matches!(unary.operator, UnaryOperator::LogicalNot | UnaryOperator::Void),
         _ => false,
     }
+}
+
+/// Whether `expr` is a `void`, whose value is `undefined`.
+fn is_void(expr: &Expression<'_>) -> bool {
+    matches!(expr.get_inner_expression(), Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::Void)
 }
 
 /// The entries spreading `value` adds to an object: those of an object, none for `null`, a boolean, a number or an
