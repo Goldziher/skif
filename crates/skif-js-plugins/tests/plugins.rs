@@ -4872,3 +4872,27 @@ fn ci_and_hook_commands_judge_only_binaries_reached_through_a_package_manager_or
     let referenced = &output(&results, "github-actions").referenced_binaries;
     assert!(referenced.iter().any(|name| name == "shellcheck"), "{referenced:?}");
 }
+
+#[test]
+fn github_actions_steps_in_a_shell_that_is_not_posix_are_skipped() {
+    let workflow = concat!(
+        "name: ci\non: [push]\ndefaults:\n  run:\n    shell: pwsh\njobs:\n",
+        "  win:\n    runs-on: windows-latest\n    steps:\n",
+        "      - run: Write-Host hi; pnpm exec wintool\n",
+        "      - run: pnpm exec bashtool\n        shell: bash\n",
+        "  linux:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n",
+        "        shell: bash --noprofile --norc -eo pipefail {0}\n    steps:\n",
+        "      - run: pnpm exec jobtool\n",
+        "      - run: import os\n        shell: python\n",
+        "      - run: pnpm exec cmdtool\n        shell: cmd\n",
+    );
+    let results = resolve(&[(".github/workflows/ci.yml", workflow)], &[]);
+    let out = output(&results, "github-actions");
+    let names: Vec<&str> = out.run_binaries.iter().map(|run| run.name.as_str()).collect();
+    assert_eq!(names, ["bashtool", "jobtool"]);
+    assert!(
+        !out.referenced_binaries.iter().any(|name| name == "Write-Host" || name == "wintool"),
+        "{:?}",
+        out.referenced_binaries
+    );
+}
