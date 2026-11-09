@@ -196,6 +196,8 @@ pub(super) struct Walker<'c> {
     depth: usize,
     /// The workspaces the command being walked is aimed at (`yarn workspace web`, `pnpm --filter web`, `npm -w web`).
     workspaces: Vec<String>,
+    /// The functions the script defines; a command calling one runs no binary.
+    functions: HashSet<String>,
 }
 
 impl<'c> Walker<'c> {
@@ -207,6 +209,7 @@ impl<'c> Walker<'c> {
             expanded,
             depth: 0,
             workspaces: Vec::new(),
+            functions: HashSet::new(),
         }
     }
 
@@ -222,6 +225,7 @@ impl<'c> Walker<'c> {
         }
         self.depth += 1;
         let tokens = tokenize(text);
+        self.functions.extend(tokens.functions.iter().cloned());
         let frame = Frame { text, map };
         for segment in &tokens.segments {
             self.segment(segment, &frame, st);
@@ -455,6 +459,9 @@ impl<'c> Walker<'c> {
             }
             Target::Bin(name) => name,
         };
+        if self.functions.contains(name) {
+            return;
+        }
         match name {
             "node" | "nodejs" => self.node_args(args, frame, st, true),
             "npm" => {

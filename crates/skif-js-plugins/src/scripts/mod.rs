@@ -2,7 +2,8 @@
 //!
 //! The parser is a pure, never-panicking, best-effort interpreter of POSIX-style command lines. It
 //! understands quoting, separators (`&&`, `||`, `;`, `|`, `&`), subshells, command substitution,
-//! redirections, environment assignments and the argument conventions of the common package
+//! redirections, here-documents (whose bodies are input, not commands), `case` patterns, the functions a script
+//! defines (calling one runs no binary), environment assignments and the argument conventions of the common package
 //! managers (`npm`, `npx`, `pnpm`, `yarn`, `bun`), process wrappers (`cross-env`, `dotenv`, ...),
 //! task runners (`concurrently`, `npm-run-all`, `turbo`) and script runners (`node`, `tsx`,
 //! `ts-node`, ...). Nothing is executed and the file system is never consulted.
