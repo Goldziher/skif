@@ -396,8 +396,12 @@ impl ForeignPaths {
     /// patterns: an exact pattern first, then the wildcard with the longest prefix. Among equally specific patterns
     /// the first config by path wins.
     pub(crate) fn lookup(&self, specifier: &str) -> Option<(&str, &str)> {
-        if let Some(position) = self.exact.get(specifier).and_then(|positions| positions.first()) {
-            return Some((self.configs[*position].as_str(), specifier));
+        if let Some((pattern, position)) = self
+            .exact
+            .get_key_value(specifier)
+            .and_then(|(pattern, positions)| Some((pattern, positions.first()?)))
+        {
+            return Some((self.configs[*position].as_str(), pattern.as_str()));
         }
         (1..=specifier.len())
             .rev()

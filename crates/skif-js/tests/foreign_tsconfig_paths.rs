@@ -102,14 +102,20 @@ fn the_importers_own_paths_still_resolve() {
     ));
     let diagnostics = lint(&files);
     assert!(of_rule(&diagnostics, RULE).is_empty(), "{diagnostics:#?}");
-    assert!(of_rule(&diagnostics, "unresolved-imports").is_empty(), "{diagnostics:#?}");
+    assert!(
+        of_rule(&diagnostics, "unresolved-imports").is_empty(),
+        "{diagnostics:#?}"
+    );
 }
 
 #[test]
 fn an_import_no_tsconfig_maps_keeps_the_package_json_advice() {
     let mut files = repro();
     files.retain(|(path, _)| *path != "packages/lib/src/index.ts");
-    files.push(("packages/lib/src/index.ts", "import { x } from 'left-pad';\nexport const t = x;\n"));
+    files.push((
+        "packages/lib/src/index.ts",
+        "import { x } from 'left-pad';\nexport const t = x;\n",
+    ));
     let diagnostics = lint(&files);
     let unlisted = of_rule(&diagnostics, RULE);
     assert_eq!(unlisted.len(), 1, "{diagnostics:#?}");
@@ -139,7 +145,10 @@ fn a_catch_all_pattern_of_another_package_does_not_count() {
 fn the_most_specific_foreign_pattern_wins() {
     let mut files = repro();
     files.extend([
-        ("packages/web/package.json", r#"{"name":"web","version":"1.0.0","main":"src/index.ts"}"#),
+        (
+            "packages/web/package.json",
+            r#"{"name":"web","version":"1.0.0","main":"src/index.ts"}"#,
+        ),
         (
             "packages/web/tsconfig.json",
             r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "shared/value": ["../lib/src/value.ts"] } } }"#,
@@ -162,7 +171,10 @@ fn equally_specific_foreign_patterns_name_the_first_config_by_path() {
     let mut files = repro();
     // `zeta` sorts after `app`, whichever order the packages are discovered in.
     files.extend([
-        ("packages/zeta/package.json", r#"{"name":"zeta","version":"1.0.0","main":"src/index.ts"}"#),
+        (
+            "packages/zeta/package.json",
+            r#"{"name":"zeta","version":"1.0.0","main":"src/index.ts"}"#,
+        ),
         ("packages/zeta/tsconfig.json", APP_TSCONFIG),
         ("packages/zeta/src/index.ts", "export const zeta = 1;\n"),
     ]);

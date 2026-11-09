@@ -1,0 +1,34 @@
+---
+source: crates/skif-js/tests/foreign_tsconfig_paths.rs
+expression: "of_rule(&diagnostics, RULE)"
+---
+[
+  {
+    "rule": "unlisted-dependencies",
+    "severity": "error",
+    "message": "`shared/value` resolves only through the `paths` of `packages/app/tsconfig.json`; add the mapping to this package's tsconfig or import it by package name",
+    "help": "map `shared/*` in the tsconfig of `lib` as `packages/app/tsconfig.json` does, or import the module by the name of the package that exports it",
+    "location": {
+      "path": "packages/lib/src/index.ts",
+      "span": {
+        "start": 0,
+        "end": 33,
+        "start-line": 1,
+        "start-col": 1,
+        "end-line": 1,
+        "end-col": 34
+      }
+    },
+    "related": [
+      {
+        "message": "`shared/*` maps `shared/value` here",
+        "location": {
+          "path": "packages/app/tsconfig.json"
+        }
+      }
+    ],
+    "package": "lib",
+    "dependency": "shared",
+    "detail": "ForeignTsconfigPaths"
+  }
+]
