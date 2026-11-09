@@ -23,6 +23,7 @@ pub struct Emitter<'a> {
     diagnostics: Vec<Diagnostic>,
     incomplete_packages: Vec<IncompletePackage>,
     other_project_files: Vec<PathBuf>,
+    ancestor_dependency_uses: Vec<(PathBuf, String)>,
 }
 
 impl<'a> Emitter<'a> {
@@ -37,6 +38,7 @@ impl<'a> Emitter<'a> {
             diagnostics: Vec::new(),
             incomplete_packages: Vec::new(),
             other_project_files: Vec::new(),
+            ancestor_dependency_uses: Vec::new(),
         }
     }
 
@@ -58,10 +60,12 @@ impl<'a> Emitter<'a> {
             diagnostics: Vec::new(),
             incomplete_packages: Vec::new(),
             other_project_files: Vec::new(),
+            ancestor_dependency_uses: Vec::new(),
         }
     }
 
-    /// Appends the diagnostics, incomplete packages and files of other projects collected by `other`.
+    /// Appends the diagnostics, incomplete packages, files of other projects and ancestor dependency uses collected by
+    /// `other`.
     pub fn merge(&mut self, other: Self) {
         if self.diagnostics.is_empty() {
             self.diagnostics = other.diagnostics;
@@ -70,6 +74,7 @@ impl<'a> Emitter<'a> {
         }
         self.incomplete_packages.extend(other.incomplete_packages);
         self.other_project_files.extend(other.other_project_files);
+        self.ancestor_dependency_uses.extend(other.ancestor_dependency_uses);
     }
 
     /// Merges `parts` in order, with the same result as calling [`merge`](Self::merge) for each.
@@ -163,6 +168,19 @@ impl<'a> Emitter<'a> {
     #[must_use]
     pub fn take_other_project_files(&mut self) -> Vec<PathBuf> {
         std::mem::take(&mut self.other_project_files)
+    }
+
+    /// Records that the analysed code uses dependency `name` through the `package.json` in `manifest_dir`, a
+    /// directory above the workspace root, so a multi-root host can count it as used by the root that owns that
+    /// manifest.
+    pub fn report_ancestor_dependency_use(&mut self, manifest_dir: PathBuf, name: String) {
+        self.ancestor_dependency_uses.push((manifest_dir, name));
+    }
+
+    /// Takes the recorded ancestor dependency uses, in emission order.
+    #[must_use]
+    pub fn take_ancestor_dependency_uses(&mut self) -> Vec<(PathBuf, String)> {
+        std::mem::take(&mut self.ancestor_dependency_uses)
     }
 
     /// The kept diagnostics, in emission order.

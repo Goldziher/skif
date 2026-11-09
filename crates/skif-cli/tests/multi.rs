@@ -778,3 +778,74 @@ fn fixing_keeps_the_files_an_outer_root_imports() {
     let report = result.json();
     assert_eq!(js_findings(&report), Vec::<String>::new());
 }
+
+/// The unused-dependency findings of a report as `path: name`, sorted.
+fn unused_dependencies(report: &Value) -> Vec<String> {
+    let mut found: Vec<String> = report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| matches!(d["rule"].as_str(), Some("unused-dependencies" | "unused-dev-dependencies")))
+        .map(|d| {
+            format!(
+                "{}: {}",
+                d["location"]["path"].as_str().unwrap(),
+                d["dependency"].as_str().unwrap()
+            )
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+/// An outer root that lists `left-pad`, `gulp` and `spare`, and a nested root `build` that lists none of them but
+/// imports `left-pad` and runs `gulp`, which Node.js and the shell find in the outer root's `node_modules`.
+fn outer_with_nested_user() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join(".git")).unwrap();
+    put(
+        dir.path(),
+        "package.json",
+        r#"{"name": "outer", "version": "0.0.0", "private": true, "packageManager": "npm@11.6.2",
+            "dependencies": {"left-pad": "1.0.0"}, "devDependencies": {"gulp": "4.0.0", "spare": "1.0.0"}}"#,
+    );
+    put(dir.path(), "index.js", "console.log(1);\n");
+    put(
+        dir.path(),
+        "build/package.json",
+        r#"{"name": "build", "version": "0.0.0", "private": true, "main": "index.js", "scripts": {"build": "gulp"}}"#,
+    );
+    put(dir.path(), "build/index.js", "module.exports = require('left-pad');\n");
+    dir
+}
+
+#[test]
+fn a_dependency_only_a_nested_root_uses_is_used_by_the_outer_manifest() {
+    let dir = outer_with_nested_user();
+    let (_, report) = json(dir.path(), &["-r"]);
+    assert_eq!(root_paths(&report), [".", "build"]);
+    assert_eq!(unused_dependencies(&report), ["package.json: spare"], "{report}");
+
+    // Linted on its own, the outer root cannot see the code of the nested root.
+    let (_, alone) = json(dir.path(), &[]);
+    assert_eq!(
+        unused_dependencies(&alone),
+        ["package.json: gulp", "package.json: left-pad", "package.json: spare"],
+        "{alone}"
+    );
+}
+
+#[test]
+fn fixing_keeps_the_dependencies_a_nested_root_uses() {
+    let dir = outer_with_nested_user();
+    let result = run(skif()
+        .args(["-r", "--fix-unsafe", "--no-install", "--format", "json"])
+        .arg(dir.path()));
+    assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    let manifest = fs::read_to_string(dir.path().join("package.json")).unwrap();
+    assert!(
+        manifest.contains("left-pad") && manifest.contains("gulp") && !manifest.contains("spare"),
+        "{manifest}"
+    );
+    assert_eq!(unused_dependencies(&result.json()), Vec::<String>::new());
+}

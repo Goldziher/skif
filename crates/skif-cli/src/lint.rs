@@ -272,12 +272,12 @@ fn warn_empty_tsconfig_projects(targets: &[Target], fs: &dyn FileSystem) {
 }
 
 /// Lints the root of `previous` again from disk. What root discovery decided about it (a standalone package nested
-/// below another root, members another root lints) is carried over, so the re-lint judges the root as the first
-/// lint did.
+/// below another root, members another root lints) and what the other roots of the run told it (the files they
+/// import, the dependencies they use) is carried over, so the re-lint judges the root as the first lint did.
 fn lint_once(
     linter: &Linter,
     previous: &Workspace,
-    (config, config_path, extra_entries): (&Config, Option<&Path>, &[PathBuf]),
+    (config, config_path, extra_entries, nested_uses): RootInputs<'_>,
     fs: &dyn FileSystem,
     filter: &Filter,
 ) -> Result<(Workspace, Report), CliError> {
@@ -291,6 +291,7 @@ fn lint_once(
         .collect();
     workspace.ignore_dirs(&ignored);
     let report = roots::lint_loaded(linter, &workspace, config_path, extra_entries)?;
+    let report = roots::credit_nested_uses(report, nested_uses);
     let report = filter.apply(&workspace, report);
     Ok((workspace, report))
 }
@@ -357,10 +358,14 @@ fn run_exit_code(args: &LintArgs, runs: &[RootRun], aggregate: &Report) -> u8 {
 /// error that stopped it (the files are already changed by then, so the summary is still owed to the user).
 type Relint = Result<(Workspace, Report), CliError>;
 
+/// What linting one root again needs: its configuration, the configuration file, the files enclosing roots import
+/// and the dependencies nested roots use.
+type RootInputs<'a> = (&'a Config, Option<&'a Path>, &'a [PathBuf], &'a roots::NestedUses);
+
 fn write_and_relint(
     (args, filter): (&LintArgs, &Filter),
     linter: &Linter,
-    (config, config_path, extra_entries): (&Config, Option<&Path>, &[PathBuf]),
+    inputs: RootInputs<'_>,
     state: (Workspace, Report),
     plan: FixPlan,
     fs: &CachedFs<OsFs>,
@@ -381,7 +386,7 @@ fn write_and_relint(
     // The written files are stale in the cache; the re-lint must read them from disk.
     fs.clear();
     Ok(
-        match lint_once(linter, &workspace, (config, config_path, extra_entries), fs, filter) {
+        match lint_once(linter, &workspace, inputs, fs, filter) {
             Ok((workspace, report)) => {
                 let changed: Vec<&Path> = plan.paths().collect();
                 let install = install_step(args, &changed, &workspace);
@@ -434,11 +439,12 @@ fn fix_roots(
             workspace,
             report,
             extra_entries,
+            nested_uses,
         } = run;
         let written = write_and_relint(
             (args, filter),
             linters.get(linter),
-            (&config, config_path.as_deref(), &extra_entries),
+            (&config, config_path.as_deref(), &extra_entries, &nested_uses),
             (workspace, report),
             plan,
             fs,
@@ -466,6 +472,7 @@ fn fix_roots(
                 workspace,
                 report,
                 extra_entries,
+                nested_uses,
             }),
             Err(error) => {
                 let prefixes: Vec<&Path> = done

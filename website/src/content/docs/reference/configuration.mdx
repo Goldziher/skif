@@ -578,6 +578,13 @@ unused export of a file they import is still reported. A nested root is therefor
 it. A root linted on its own (`skif build`) cannot know what an outer root it was not given imports, so there such a
 file is still reported unused; lint from the top with `-r`, or add it to `entry`.
 
+The other way round, a nested root that imports or runs a dependency it does not list itself, but a `package.json`
+above it does, uses that dependency through the outer project's `node_modules`: Node.js resolves it from there. In a
+multi-root run the root that owns that manifest (the innermost one that lists the dependency) then does not report it
+in `unused-dependencies` or `unused-dev-dependencies`, so `gulp-rename` in the root `devDependencies` stays used when
+only `build/lib/gulp.ts` of a nested root at `build` imports it. The outer root linted on its own cannot see the
+nested root's code and still reports it.
+
 A package with no source file at or below its directory, no entry and no script, such as a `remote/package.json` that
 only lists what code elsewhere in the repository installs it for, has no code skif could check its dependencies
 against, so they are not judged, as for a package whose entry files skif cannot determine.

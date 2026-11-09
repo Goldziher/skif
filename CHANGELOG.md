@@ -11,6 +11,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- In a multi-root run (`skif -r`) a dependency that only a nested root imports or runs, and that the nested root
+  does not list but a `package.json` above it does, is no longer reported unused in that outer manifest: Node.js
+  resolves it from the outer `node_modules`. Reports carry these uses in `Report::ancestor_dependency_uses`, and
+  `Report::retain` drops diagnostics while keeping the summary right
+  ([#98](https://github.com/Goldziher/skif/issues/98), [ADR 0078](adrs/0078-dependencies-nested-roots-use-count-for-the-enclosing-manifest.md)).
 - `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`,
   `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such
   as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported

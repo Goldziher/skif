@@ -47,6 +47,12 @@ pub struct Report {
     /// (see `RunOptions::with_extra_entries` of the `skif` crate). Not rendered.
     #[serde(skip)]
     pub other_project_files: Vec<PathBuf>,
+    /// Dependencies that the analysed code uses through a `package.json` above the workspace root, which lists them
+    /// when this root does not (Node.js resolves them from that project's `node_modules`): the absolute directory of
+    /// that manifest and the dependency name, sorted. A multi-root host credits them to the root that owns the
+    /// manifest, which cannot see this code. Not rendered.
+    #[serde(skip)]
+    pub ancestor_dependency_uses: Vec<(PathBuf, String)>,
 }
 
 impl Report {
@@ -66,6 +72,7 @@ impl Report {
             summary,
             incomplete_packages: Vec::new(),
             other_project_files: Vec::new(),
+            ancestor_dependency_uses: Vec::new(),
         }
     }
 
@@ -83,6 +90,31 @@ impl Report {
         files.sort();
         files.dedup();
         self.other_project_files = files;
+        self
+    }
+
+    /// Sets the dependencies the analysed code uses through manifests above the workspace root, sorted and without
+    /// duplicates.
+    #[must_use]
+    pub fn with_ancestor_dependency_uses(mut self, mut uses: Vec<(PathBuf, String)>) -> Self {
+        uses.sort();
+        uses.dedup();
+        self.ancestor_dependency_uses = uses;
+        self
+    }
+
+    /// Keeps only the diagnostics `keep` accepts, in their order, and counts the summary again; the number of
+    /// packages and everything else stay.
+    #[must_use]
+    pub fn retain(mut self, keep: impl FnMut(&Diagnostic) -> bool) -> Self {
+        self.diagnostics.retain(keep);
+        self.summary = self.diagnostics.iter().fold(
+            Summary {
+                packages: self.summary.packages,
+                ..Summary::default()
+            },
+            count,
+        );
         self
     }
 }
@@ -369,6 +401,26 @@ mod tests {
                 ..Summary::default()
             }
         );
+    }
+
+    #[test]
+    fn retain_counts_the_summary_of_the_kept_diagnostics_again() {
+        let report = Report::new(input(), 3)
+            .with_other_project_files(vec![PathBuf::from("build/x.ts")])
+            .retain(|diagnostic| diagnostic.rule.as_str() != "b-rule");
+        let kept: Vec<&str> = report.diagnostics.iter().map(|d| d.rule.as_str()).collect();
+        assert_eq!(kept, ["a-rule", "c-rule", "a-rule"]);
+        assert_eq!(
+            report.summary,
+            Summary {
+                errors: 2,
+                warnings: 0,
+                infos: 1,
+                fixable: 0,
+                packages: 3
+            }
+        );
+        assert_eq!(report.other_project_files, [PathBuf::from("build/x.ts")]);
     }
 
     #[test]

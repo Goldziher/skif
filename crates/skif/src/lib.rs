@@ -72,6 +72,10 @@
 //! A root nested in another cannot see what the outer root imports from it. A host that wants those files counted
 //! lints the enclosing roots first and passes the files their reports list in [`Report::other_project_files`],
 //! made relative to the nested root, to [`RunOptions::with_extra_entries`] of the nested root's run, as `skif -r` does.
+//! The other way round, an outer root cannot see that a nested root imports or runs a dependency only the outer
+//! manifest lists, which Node.js resolves from the outer `node_modules`: the nested root's report lists those in
+//! [`Report::ancestor_dependency_uses`], and `skif -r` drops the outer root's unused-dependency findings for them
+//! (with [`Report::retain`]).
 //!
 //! # Features
 //!
