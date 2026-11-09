@@ -66,19 +66,31 @@ pub(crate) fn analyze(package: &Package) -> ScriptFacts {
     analyze_manifest(package.manifest.value())
 }
 
-/// What the `scripts` of the parsed `package.json` `manifest` run.
-pub(crate) fn analyze_manifest(manifest: &Value) -> ScriptFacts {
-    let Some(scripts) = manifest.get("scripts").and_then(Value::as_object) else {
-        return ScriptFacts::default();
-    };
-    let commands: Vec<(&String, &str)> = scripts
-        .iter()
+/// The `scripts` of the parsed `package.json` `manifest` that are commands, in order: comment keys and values that
+/// are not strings are left out.
+fn commands(manifest: &Value) -> Vec<(&String, &str)> {
+    manifest
+        .get("scripts")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
         .filter(|(name, _)| !is_comment_key(name))
         .filter_map(|(name, body)| Some((name, body.as_str()?)))
-        .collect();
-    let context = commands.iter().fold(ScriptContext::new(), |context, &(name, body)| {
-        context.with_script(name, body)
-    });
+        .collect()
+}
+
+/// The script parser's context for a command the package of `manifest` runs: its scripts, so that `pnpm build` or
+/// `npm run build` follows the package's `build` script instead of naming a binary `build`.
+pub(crate) fn script_context(manifest: &Value) -> ScriptContext {
+    commands(manifest)
+        .into_iter()
+        .fold(ScriptContext::new(), |context, (name, body)| context.with_script(name, body))
+}
+
+/// What the `scripts` of the parsed `package.json` `manifest` run.
+pub(crate) fn analyze_manifest(manifest: &Value) -> ScriptFacts {
+    let commands = commands(manifest);
+    let context = script_context(manifest);
     let mut collected = Collected::default();
     for (name, body) in commands {
         collected.add(name, parse_script(body, &context.clone().with_current_script(name)));
