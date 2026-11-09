@@ -121,6 +121,76 @@ fn published_paths_that_name_no_file() {
     insta::assert_snapshot!(hints(&lint(&files, "")));
 }
 
+/// A package whose `bin` names a file in no `bin` directory with no source behind it, and whose script runs the real
+/// code.
+const DANGLING_BIN: (&str, &str) = (
+    "package.json",
+    r#"{"name":"r2b","private":true,"bin":{"r2b":"bin/r2b.js"},"scripts":{"start":"node app/main.js"},
+       "dependencies":{"left-pad":"1.3.0"}}"#,
+);
+
+/// The same package publishing build output instead.
+const BUILT_MAIN: (&str, &str) = (
+    "package.json",
+    r#"{"name":"r2b","private":true,"main":"./dist/index.js","scripts":{"start":"node app/main.js"},
+       "dependencies":{"left-pad":"1.3.0"}}"#,
+);
+
+const APP_MAIN: (&str, &str) = ("app/main.js", "console.log('r2b');\n");
+
+const LEFT_PAD_UNUSED: &str = "package.json: `left-pad` is listed in `dependencies` but never used";
+
+/// A path into nothing is reported, contributes no entry and leaves the package judged from its other entries
+/// (ADR 0069).
+#[test]
+fn a_bin_path_into_nothing_is_reported_and_the_package_is_judged() {
+    let diagnostics = lint(&[DANGLING_BIN, APP_MAIN], "");
+    assert_eq!(
+        hints(&diagnostics),
+        "package.json: `bin/r2b.js` in `bin` of `package.json` names no file"
+    );
+    assert_eq!(found(&diagnostics, "unused-dependencies"), [LEFT_PAD_UNUSED]);
+}
+
+/// A bin path a `.gitignore` hides is build output not built yet: not reported, and the package stays unjudged.
+#[test]
+fn a_gitignored_bin_path_keeps_the_package_unjudged() {
+    let diagnostics = lint(&[DANGLING_BIN, APP_MAIN, (".gitignore", "bin/\n")], "");
+    assert_eq!(hints(&diagnostics), "");
+    assert_eq!(found(&diagnostics, "unused-dependencies"), Vec::<String>::new());
+}
+
+/// Build output is never a path into nothing: with its source present it maps, with neither the source nor the file
+/// present (built or not) the package stays unjudged, and so does a bin stub that loads output with no source behind
+/// it.
+#[test]
+fn build_output_is_never_a_path_into_nothing() {
+    let mapped = lint(&[BUILT_MAIN, APP_MAIN, ("src/index.ts", "export {};\n")], "");
+    assert_eq!(hints(&mapped), "");
+    assert_eq!(found(&mapped, "unused-dependencies"), [LEFT_PAD_UNUSED]);
+
+    let unbuilt = lint(&[BUILT_MAIN, APP_MAIN], "");
+    assert_eq!(hints(&unbuilt), "");
+    assert_eq!(found(&unbuilt, "unused-dependencies"), Vec::<String>::new());
+
+    let built = lint(&[BUILT_MAIN, APP_MAIN, ("dist/other.js", "module.exports = {};\n")], "");
+    assert_eq!(hints(&built), "");
+    assert_eq!(found(&built, "unused-dependencies"), Vec::<String>::new());
+
+    let stub = [
+        (
+            "package.json",
+            r#"{"name":"r2b","private":true,"bin":{"r2b":"bin/r2b"},"scripts":{"start":"node app/main.js"},
+               "dependencies":{"left-pad":"1.3.0"}}"#,
+        ),
+        ("bin/r2b", "#!/usr/bin/env node\nrequire('../dist/cli.js');\n"),
+        APP_MAIN,
+    ];
+    let stub = lint(&stub, "");
+    assert_eq!(hints(&stub), "");
+    assert_eq!(found(&stub, "unused-dependencies"), Vec::<String>::new());
+}
+
 fn orphans(dir: &str, count: usize) -> Vec<(String, String)> {
     (0..count)
         .map(|index| (format!("{dir}orphan{index}.ts"), "export {};\n".to_owned()))
