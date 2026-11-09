@@ -70,6 +70,7 @@ mapping is read from the sources of the tools (sherif 1.13, syncpack 15.3, knip 
 | `workspace-protocol`, `local-path-dependency`, `incompatible-peer-dependencies`, `member-toolchain-fields` | none of the three |
 | `unparseable-files` | none: knip skips a file it cannot parse without reporting it |
 | `stale-js-config` | none unless `treatConfigHintsAsErrors` is set: skif's configuration hints differ from knip's |
+| `stale-mocks` | none: knip does not read the specifiers of `vi.mock`, `jest.mock` and the like, so the `exact` profile turns it off |
 
 Migrated tools are combined: a rule is kept when any of them runs it. Without sherif, for example,
 `unmatched-workspace-patterns` is turned off.
