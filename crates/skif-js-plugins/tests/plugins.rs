@@ -3939,6 +3939,47 @@ fn sveltejs_package_maps_output_to_library_sources() {
 }
 
 #[test]
+fn rstest_exclude_removes_the_project_files_it_matches() {
+    let results = resolve(
+        &[
+            (
+                "rstest.config.ts",
+                r#"export default { projects: [
+                  { root: "app", include: ["src/**/*.test.ts", "!src/**/*.skip.test.ts"], exclude: ["src/legacy/**"] },
+                  { root: "web", exclude: { patterns: ["**/e2e/**"], override: false } },
+                ] };"#,
+            ),
+            ("app/src/a.test.ts", ""),
+            ("app/src/c.skip.test.ts", ""),
+            ("app/src/legacy/b.test.ts", ""),
+            ("app/src/__mocks__/m.ts", ""),
+            ("web/unit.spec.tsx", ""),
+            ("web/e2e/flow.spec.ts", ""),
+        ],
+        &["@rstest/core"],
+    );
+    let out = output(&results, "rstest");
+    let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
+    assert_eq!(
+        entries,
+        BTreeSet::from(["app/src/a.test.ts", "app/src/__mocks__/m.ts", "web/unit.spec.tsx"])
+    );
+    let defaults = [
+        "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        "**/__mocks__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+    ];
+    let config = (
+        "rstest.config.ts",
+        r#"export default { include: ["tests/**/*.check.ts"] };"#,
+    );
+    let results = resolve(&[config], &["@rstest/core"]);
+    let out = output(&results, "rstest");
+    assert_entries(&out.entries, &["tests/**/*.check.ts"]);
+    assert_entries(&out.entries, &defaults);
+    assert_entries(&output(&resolve(&[], &["@rstest/core"]), "rstest").entries, &defaults);
+}
+
+#[test]
 fn taskfile_tasks_and_includes() {
     let results = resolve(
         &[
