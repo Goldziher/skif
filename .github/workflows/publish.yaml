@@ -39,7 +39,7 @@ on:
         required: false
         type: string
       dry-run:
-        description: "Build the eight release targets and the six npm addons and verify the release assets, but publish nothing"
+        description: "Build the eight release targets and the eight npm addons and verify the release assets, but publish nothing"
         type: boolean
         default: false
 
@@ -69,6 +69,7 @@ jobs:
       dry_run: ${{ steps.version.outputs.dry_run }}
       prerelease: ${{ steps.version.outputs.prerelease }}
       release_complete: ${{ steps.release.outputs.release_complete }}
+      bun: ${{ steps.bun.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -118,6 +119,12 @@ jobs:
 
       - name: Verify version consistency
         run: scripts/check-versions.sh "${{ steps.version.outputs.version }}"
+
+      # The newest Bun 1.x (ADR 0027), resolved once on Linux so every Bun job of the run, including the Windows ones,
+      # tests the same release and Bun 2 does not silently enter the matrix.
+      - name: Resolve the newest Bun 1.x
+        id: bun
+        run: echo "version=$(scripts/e2e/resolve-pm-version.sh bun newest 1)" >> "$GITHUB_OUTPUT"
 
       # A real release is irreversible, so the tagged commit must be on main and have passed ci.yml. Dry runs
       # (pull requests, dispatch with dry-run) build from arbitrary branches and skip the gate.
@@ -620,6 +627,12 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-26
             smoke: true
+          # Both Windows addons build on the x64 runner, like the release binaries; the aarch64 one is cross-built
+          # and load_addon_windows runs it on an ARM64 runner.
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -660,8 +673,11 @@ jobs:
       - name: Build the addon
         working-directory: npm-package
         env:
-          # A musl cdylib must link the C runtime dynamically.
-          RUSTFLAGS: ${{ contains(matrix.target, 'musl') && '-C target-feature=-crt-static' || '' }}
+          # A musl cdylib must link the C runtime dynamically. The MSVC runtime is linked statically so the Windows
+          # addon loads without the VC++ redistributable, as skif.exe does.
+          RUSTFLAGS: >-
+            ${{ contains(matrix.target, 'musl') && '-C target-feature=-crt-static'
+            || contains(matrix.target, 'windows') && '-C target-feature=+crt-static' || '' }}
           # ring's assembly needs __ARM_ARCH, which the gcc of napi-rs's aarch64 glibc sysroot does not define.
           CFLAGS_aarch64_unknown_linux_gnu: -D__ARM_ARCH=8
         run: >-
@@ -748,12 +764,83 @@ jobs:
           -v "$PWD/npm-package":/addon:ro -v "$PWD/scripts/load-addon.mjs":/check/load-addon.mjs:ro
           node:22-alpine node /check/load-addon.mjs /addon
 
+  # Loads both Windows addons on their own architecture under every supported runtime before anything is published.
+  # The aarch64 addon is cross-built, so only an ARM64 runner proves it loads. mise.lock has no windows-arm64 entry,
+  # so the runtimes come from setup-node and setup-bun here.
+  load_addon_windows:
+    name: Load npm addon / ${{ matrix.platform.target }} (${{ matrix.runtime }})
+    needs: [meta, build_npm]
+    if: always() && needs.build_npm.result == 'success'
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+          - { target: aarch64-pc-windows-msvc, os: windows-11-arm }
+        # ADR 0027: every non-end-of-life Node line (22, 24 and 26) and the newest Bun 1.x.
+        runtime: [node-22, node-24, node-26, bun]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Download the generated loader
+        uses: actions/download-artifact@v8
+        with:
+          name: npm-loader
+          path: npm-package
+
+      - name: Download the addon
+        uses: actions/download-artifact@v8
+        with:
+          name: bindings-${{ matrix.platform.target }}
+          path: npm-package
+
+      - name: Select the Node.js line
+        id: node
+        if: ${{ matrix.runtime != 'bun' }}
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+        run: echo "major=${RUNTIME#node-}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        if: ${{ matrix.runtime != 'bun' }}
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ steps.node.outputs.major }}
+
+      - name: Setup Bun
+        if: ${{ matrix.runtime == 'bun' }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ needs.meta.outputs.bun }}
+
+      - name: Load the addon and run the skif bin
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          # node-22 runs node, bun runs bun.
+          runtime="${RUNTIME%%-*}"
+          "$runtime" --version
+          "$runtime" scripts/load-addon.mjs npm-package
+          # The bin is the entry npx and bunx run; it must resolve the win32 binding through the generated loader.
+          out="$("$runtime" npm-package/bin/skif.js --version)"
+          echo "$out"
+          grep -qF "$VERSION" <<<"$out" || { echo "::error::expected version ${VERSION}, got: ${out}"; exit 1; }
+
   publish_npm:
     name: Publish npm (skif-cli)
-    needs: [meta, build_npm, load_addon, checksums]
+    needs: [meta, build_npm, load_addon, load_addon_windows, checksums]
     if: >-
       always() && needs.meta.result == 'success' && needs.build_npm.result == 'success'
-      && needs.load_addon.result == 'success'
+      && needs.load_addon.result == 'success' && needs.load_addon_windows.result == 'success'
       && (needs.meta.outputs.dry_run == 'true'
           || needs.checksums.result == 'success'
           || needs.meta.outputs.release_complete == 'true')
@@ -812,7 +899,7 @@ jobs:
           pnpm exec napi prepublish -t npm --no-gh-release --skip-optional-publish
 
       # Every tarball is packed, and its contents asserted, in the dry run as well: the umbrella must ship the
-      # generated loader and bin, and the six platform packages must each carry their addon.
+      # generated loader and bin, and the eight platform packages must each carry their addon.
       - name: Pack the packages and check their contents
         env:
           VERSION: ${{ needs.meta.outputs.version }}
@@ -859,41 +946,56 @@ jobs:
           publish_one .
 
   verify_npm:
-    name: Verify npx skif-cli (${{ matrix.runtime }})
+    name: Verify npx skif-cli (${{ matrix.os }}, ${{ matrix.runtime }})
     needs: [meta, publish_npm]
     if: needs.meta.outputs.dry_run != 'true' && needs.publish_npm.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
+        # The Windows runners install the published win32-x64-msvc and win32-arm64-msvc packages through npm's .cmd
+        # shim and bunx, the path a Windows user takes.
+        os: [ubuntu-latest, windows-latest, windows-11-arm]
         # ADR 0027: every non-end-of-life Node line (22, 24 and 26) and the newest Bun 1.x.
         runtime: [node-22, node-24, node-26, bun]
+    defaults:
+      run:
+        shell: bash
     steps:
-      # setup-mise reads mise.toml and the Bun resolver is a script: both need the repository.
+      # setup-mise reads mise.toml: it needs the repository.
       - name: Checkout
         uses: actions/checkout@v7
         with:
           ref: ${{ needs.meta.outputs.tag }}
 
       - name: Setup Node.js
-        if: ${{ matrix.runtime != 'bun' }}
+        if: ${{ matrix.runtime != 'bun' && runner.os == 'Linux' }}
         uses: xberg-io/actions/setup-mise@v1
         with:
           config-ref: ${{ github.sha }}
           tools: node
 
-      - name: Resolve the newest Bun 1.x
-        id: bun
-        if: ${{ matrix.runtime == 'bun' }}
-        run: echo "version=$(scripts/e2e/resolve-pm-version.sh bun newest 1)" >> "$GITHUB_OUTPUT"
+      # mise.lock has no windows-arm64 entry, so Windows takes the Node line from setup-node.
+      - name: Select the Node.js line
+        id: node
+        if: ${{ matrix.runtime != 'bun' && runner.os == 'Windows' }}
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+        run: echo "major=${RUNTIME#node-}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js (Windows)
+        if: ${{ matrix.runtime != 'bun' && runner.os == 'Windows' }}
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ steps.node.outputs.major }}
 
       - name: Setup Bun
         if: ${{ matrix.runtime == 'bun' }}
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: ${{ steps.bun.outputs.version }}
+          bun-version: ${{ needs.meta.outputs.bun }}
 
       - name: Run the published package
         env:
@@ -904,8 +1006,14 @@ jobs:
           run_published() {
             case "$RUNTIME" in
             # Each Node line is selected by major so it tracks the newest release of that line; only 26 is the pinned
-            # tool, and the lock does not cover the others.
-            node-*) MISE_LOCKED=0 mise exec "node@${RUNTIME#node-}" -- npm exec --yes "skif-cli@${VERSION}" -- --version ;;
+            # tool, and the lock does not cover the others. On Windows setup-node already put that line on PATH.
+            node-*)
+              if [ "$RUNNER_OS" = "Windows" ]; then
+                npm exec --yes "skif-cli@${VERSION}" -- --version
+              else
+                MISE_LOCKED=0 mise exec "node@${RUNTIME#node-}" -- npm exec --yes "skif-cli@${VERSION}" -- --version
+              fi
+              ;;
             bun) bunx --bun -p "skif-cli@${VERSION}" skif --version ;;
             esac
           }
