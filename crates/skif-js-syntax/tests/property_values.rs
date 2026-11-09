@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use skif_js_syntax::{ConfigValue, extract_property_values};
+use skif_js_syntax::{ConfigValue, extract_property_calls, extract_property_values};
 
 fn s(v: &str) -> ConfigValue {
     ConfigValue::String(v.to_string())
@@ -40,4 +40,38 @@ fn quoted_keys_count_and_unparsable_files_yield_nothing() {
     let found = extract_property_values(r#"x({ "srcDir": "app" })"#, Path::new("a.js"), "srcDir");
     assert_eq!(found, [s("app")]);
     assert_eq!(extract_property_values("x({", Path::new("a.js"), "srcDir"), []);
+}
+
+fn object(entries: &[(&str, ConfigValue)]) -> ConfigValue {
+    ConfigValue::Object(entries.iter().map(|(k, v)| ((*k).to_string(), v.clone())).collect())
+}
+
+#[test]
+fn function_properties_are_called_with_the_argument() {
+    let source = r#"
+        module.exports = {
+          configureWebpack(config) { return { entry: "./src/method.ts" }; },
+          other: { configureWebpack: (config) => { config.entry = { admin: "./src/admin.ts" }; } },
+          third: { configureWebpack: (config) => config },
+          fourth: { configureWebpack: { entry: "./src/object.ts" } },
+        };
+    "#;
+    let argument = object(&[("mode", s("development")), ("devtool", s("source-map"))]);
+    let found = extract_property_calls(source, Path::new("vue.config.js"), "configureWebpack", &argument);
+    assert_eq!(
+        found,
+        [
+            object(&[("entry", s("./src/method.ts"))]),
+            object(&[
+                ("mode", s("development")),
+                ("devtool", s("source-map")),
+                ("entry", object(&[("admin", s("./src/admin.ts"))])),
+            ]),
+            argument.clone(),
+        ]
+    );
+    assert_eq!(
+        extract_property_calls("x({", Path::new("a.js"), "configureWebpack", &argument),
+        []
+    );
 }

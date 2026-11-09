@@ -938,6 +938,44 @@ pub fn extract_property_values(source: &str, path: &Path, key: &str) -> Vec<Conf
         bindings: &bindings,
         file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
         key,
+        call_with: None,
+        evaluated: HashMap::new(),
+        found: Vec::new(),
+    };
+    finder.visit_program(program);
+    finder.found
+}
+
+/// Statically calls every function that is the property `key` of an object literal in `source`, a method
+/// (`configureWebpack(config) { … }`) or a function or arrow value, with `argument` as its first parameter, in source
+/// order. Each result is the value the function returns or, when its body finishes without a `return`, what it leaves
+/// its first parameter as: a function that changes the object it is given (`config.entry = { … }`) yields the changed
+/// object. Calls are evaluated as in [`extract_config_object`]; a property that is not a function is left out.
+/// Returns nothing when the file does not parse.
+#[must_use]
+pub fn extract_property_calls(source: &str, path: &Path, key: &str, argument: &ConfigValue) -> Vec<ConfigValue> {
+    let Ok(source_type) = SourceType::from_path(path) else {
+        return Vec::new();
+    };
+    let allocator = Allocator::default();
+    let ret = Parser::new(&allocator, source, source_type)
+        .with_options(OxcParseOptions {
+            preserve_parens: false,
+            ..OxcParseOptions::default()
+        })
+        .parse();
+    if ret.diagnostics.errors().next().is_some() {
+        return Vec::new();
+    }
+    let program = &ret.program;
+    let top = top_level(program);
+    let bindings = module_bindings(program);
+    let mut finder = PropertyFinder {
+        top: &top,
+        bindings: &bindings,
+        file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+        key,
+        call_with: Some(argument),
         evaluated: HashMap::new(),
         found: Vec::new(),
     };
@@ -1215,6 +1253,9 @@ struct PropertyFinder<'t, 'p, 'a> {
     bindings: &'t ModuleBindings,
     file: &'t str,
     key: &'t str,
+    /// When set, the property is a function called with this argument (see [`extract_property_calls`]) rather than a
+    /// value.
+    call_with: Option<&'t ConfigValue>,
     /// The top-level constants evaluated so far, carried from one property to the next so each is evaluated once.
     evaluated: HashMap<String, ConfigValue>,
     found: Vec<ConfigValue>,
@@ -1222,7 +1263,12 @@ struct PropertyFinder<'t, 'p, 'a> {
 
 impl<'a> Visit<'a> for PropertyFinder<'_, '_, 'a> {
     fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
-        if !it.method
+        let callable = Callable::of_expression(&it.value);
+        let wanted = match self.call_with {
+            None => !it.method,
+            Some(_) => callable.is_some() && it.kind == oxc_ast::ast::PropertyKind::Init,
+        };
+        if wanted
             && it
                 .key
                 .static_name()
@@ -1246,7 +1292,11 @@ impl<'a> Visit<'a> for PropertyFinder<'_, '_, 'a> {
                 config_setter: RefCell::new(None),
                 captured: RefCell::new(None),
             };
-            self.found.push(eval.expr(&it.value, 0));
+            let value = match (self.call_with, callable) {
+                (Some(argument), Some(callable)) => eval.call_with(callable, argument.clone(), 0),
+                _ => eval.expr(&it.value, 0),
+            };
+            self.found.push(value);
             self.evaluated = eval.evaluated.into_inner();
         }
         walk::walk_object_property(self, it);
@@ -1938,6 +1988,36 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             *self.frames.borrow_mut() = saved;
         }
         value
+    }
+
+    /// Calls `callable` with `argument` as its first parameter: the value it returns or, when a block body finishes
+    /// without a `return`, the value it leaves that parameter with.
+    fn call_with(&self, callable: Callable<'p, 'a>, argument: ConfigValue, depth: u32) -> ConfigValue {
+        let statements = match callable {
+            Callable::Arrow(f) => f.get_function_body().map(|body| &body.statements),
+            Callable::Function(f) => f.body.as_ref().map(|body| &body.statements),
+        };
+        let (Some(name), Some(statements)) = (first_parameter(callable), statements) else {
+            return self.invoke(callable, &[argument], false, depth);
+        };
+        let params = match callable {
+            Callable::Function(f) => &f.params,
+            Callable::Arrow(f) => &f.params,
+        };
+        self.frames.borrow_mut().push(Frame::new());
+        self.bind(&name, argument);
+        for param in params.items.iter().skip(1) {
+            self.bind_pattern(&param.pattern, ConfigValue::Unknown, depth);
+        }
+        if let Some(param) = &params.rest {
+            self.bind_pattern(&param.rest.argument, ConfigValue::Unknown, depth);
+        }
+        let returned = self.run(statements, depth);
+        let frame = self.frames.borrow_mut().pop();
+        returned.unwrap_or_else(|| match frame.and_then(|mut frame| frame.remove(&name)) {
+            Some(Binding::Value(value)) => value,
+            _ => ConfigValue::Unknown,
+        })
     }
 
     /// Binds the names `pattern` declares to the parts of `value` they take, in the innermost frame. A property of an
