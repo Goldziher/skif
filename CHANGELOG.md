@@ -11,6 +11,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`,
+  `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such
+  as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
+  ([#110](https://github.com/Goldziher/skif/issues/110)).
 - A spread of a conditional object literal in a config (`...(tmp && { cacheDir: tmp })`, `...(ci ? { … } : {})`) no
   longer marks the package incomplete with `unknown-spread`, which kept `unused-dependencies` and the other package
   rules from judging it. Every branch is read: the lists each branch sets (`include`, `setupFiles`, …) are credited,
