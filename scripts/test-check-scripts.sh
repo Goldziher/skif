@@ -2,7 +2,7 @@
 # Tests the repository guards that decide what ships, each on a synthetic tree, so a pattern that drifts cannot make a
 # guard pass on nothing: every script gets a passing tree and the negative cases that must fail.
 #   check-pins, check-headers, check-rule-ids, check-plugin-list, check-dependency-tree, check-package-contents,
-#   check-schema, check-oxc-git-patch, npm-smoke.sh
+#   check-schema, check-oxc-git-patch, check-doc-pins, npm-smoke.sh
 #
 # Usage: scripts/test-check-scripts.sh
 # The literals checked below contain `$` on purpose; nothing is meant to expand.
@@ -296,6 +296,55 @@ expect "check-oxc-git-patch fails when a patch is not used" 1 env STUB_LS_REMOTE
   bash "${oxc}/scripts/check-oxc-git-patch.sh"
 expect_in_out "check-oxc-git-patch unused" "a patch was not used"
 cmp -s Cargo.lock "${oxc}/Cargo.lock" || fail "check-oxc-git-patch: Cargo.lock was not restored"
+
+# ---------------------------------------------------------------- check-doc-pins
+docpins="$(new_tree docpins)"
+cp -R "${repo}/scripts/lib" "${docpins}/scripts/"
+mkdir -p "${docpins}/website/src/content/docs/guides" "${docpins}/adrs"
+printf '[workspace.package]\nversion = "0.4.2"\n' >"${docpins}/Cargo.toml"
+# doc_pins_tree <action pin> <pre-commit rev> <poly revision>: writes one pin of each kind.
+doc_pins_tree() {
+  printf -- '- uses: Goldziher/skif@%s\n' "$1" >"${docpins}/README.md"
+  printf 'repos:\n  - repo: https://github.com/Goldziher/skif\n    rev: %s # use the latest release tag\n' "$2" \
+    >"${docpins}/website/src/content/docs/guides/hooks.mdx"
+  printf '[[hooks.sources]]\ngit = "https://github.com/Goldziher/skif.git"\nrevision = "%s"\n' "$3" \
+    >"${docpins}/website/src/content/docs/guides/poly.md"
+}
+doc_pins_tree v0.4 v0.4.0 v0.4.0
+# History may name any release, and a `rev:` that belongs to another repository is not a skif pin.
+printf -- '- uses: Goldziher/skif@v0.1\n' >"${docpins}/CHANGELOG.md"
+printf -- '- uses: Goldziher/skif@v0.1\n' >"${docpins}/adrs/0001-old.md"
+printf 'repos:\n  - repo: https://github.com/example/other\n    rev: v0.1.0\n' >"${docpins}/website/src/content/docs/guides/other.mdx"
+expect "check-doc-pins accepts pins on the workspace line" 0 run_in "$docpins" check-doc-pins.sh
+expect_in_out "check-doc-pins accepts" "Every documentation pin names the v0.4 line of 0.4.2"
+expect "check-doc-pins accepts an explicit version on the same line" 0 run_in "$docpins" check-doc-pins.sh 0.4.9
+expect "check-doc-pins rejects pins behind an explicit version" 1 run_in "$docpins" check-doc-pins.sh 0.5.0
+expect_in_out "check-doc-pins explicit version" "3 documentation pin(s) not on the release line of 0.5.0"
+
+doc_pins_tree v0.3 v0.4.0 v0.4.0
+expect "check-doc-pins rejects a stale Action pin" 1 run_in "$docpins" check-doc-pins.sh
+expect_in_out "check-doc-pins Action" "file=README.md,line=1::skif pin v0.3 is not on the 0.4.2 release line (v0.4)"
+doc_pins_tree v0 v0.4.0 v0.4.0
+expect "check-doc-pins rejects the bare v0 tag, which never moves" 1 run_in "$docpins" check-doc-pins.sh
+expect_in_out "check-doc-pins v0" "skif pin v0 is not on the 0.4.2 release line"
+doc_pins_tree v0.4 v0.3.1 v0.4.0
+expect "check-doc-pins rejects a stale pre-commit rev" 1 run_in "$docpins" check-doc-pins.sh
+expect_in_out "check-doc-pins rev" "file=website/src/content/docs/guides/hooks.mdx,line=3::skif pin v0.3.1"
+doc_pins_tree v0.4 v0.4.0 v0.3.0
+expect "check-doc-pins rejects a stale Poly revision" 1 run_in "$docpins" check-doc-pins.sh
+expect_in_out "check-doc-pins revision" "file=website/src/content/docs/guides/poly.md,line=3::skif pin v0.3.0"
+expect "check-doc-pins only lists the pins of a pre-release" 0 run_in "$docpins" check-doc-pins.sh 0.5.0-rc.1
+expect_in_out "check-doc-pins pre-release" "website/src/content/docs/guides/poly.md:3:v0.3.0"
+
+printf '[workspace.package]\nversion = "1.2.0"\n' >"${docpins}/Cargo.toml"
+doc_pins_tree v1 v1.0.0 v1.1.3
+expect "check-doc-pins compares a stable release by major" 0 run_in "$docpins" check-doc-pins.sh
+doc_pins_tree v0.9 v1.0.0 v1.1.3
+expect "check-doc-pins rejects a 0.x pin after 1.0.0" 1 run_in "$docpins" check-doc-pins.sh
+
+rm "${docpins}/README.md" "${docpins}/website/src/content/docs/guides/hooks.mdx" "${docpins}/website/src/content/docs/guides/poly.md"
+expect "check-doc-pins fails when no pin is found" 1 run_in "$docpins" check-doc-pins.sh
+expect_in_out "check-doc-pins no pins" "no skif version pins found"
 
 # ---------------------------------------------------------------- npm-smoke
 smoke="$(new_tree smoke)"
