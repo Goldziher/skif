@@ -405,9 +405,13 @@ an unresolved import is located at the start of its statement, not at the specif
 directory with neither an index file nor a `package.json` is reported where knip is silent. A directory with a
 `package.json` whose `main` or `exports` point at build output that does not exist resolves to the source file behind
 it (`dist` to `src`), and is not reported when there is none. A relative import of a missing file that a `.gitignore`
-of the root or of a package lists (also as `./dir` for an ignored `dir/index.ts`, or without its extension) is taken
-for generated and not reported, and a `#` specifier is reported only when the nearest `package.json` declares
-`imports`. Since the generated module may import any source file beside it, those files are reached and their exports
+lists (also as `./dir` for an ignored `dir/index.ts`, or without its extension) is taken for generated and not
+reported: the `.gitignore` of the root, of a package, or of any directory between the file and the git repository
+root, such as a `src/temp/.gitignore` that ignores its own contents or the `.gitignore` of a folder above a nested
+root. So is one that names an ignored path below another `rootDirs` directory of the nearest `tsconfig.json` that is
+not generated yet (`./+types/root` of a React Router route, from `.react-router/types`), a root-relative import of a
+JSON or other non-code file (`import logo from "/vite.svg"`, served from the bundler's public directory), and a `#`
+specifier unless the nearest `package.json` declares `imports`. Since the generated module may import any source file beside it, those files are reached and their exports
 count as used: the files of the ignored file's directory, of an ignored directory and below it, or, for the ignored
 index of a directory (`src/migrations/sqlite/index.ts` named as `./migrations/sqlite`), of the directory holding that
 directory and below it (`src/migrations/**`), within the importing package. When those files would be the package
