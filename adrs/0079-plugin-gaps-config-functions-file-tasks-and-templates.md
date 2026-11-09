@@ -54,7 +54,8 @@ of that name, whatever object it is called on.
   any file (`*.main`) is skipped.
 * `vue` calls a function `configureWebpack` with knip's base config (`mode`, empty `entry`, `resolve`, `plugins` and
   `module.rules`) and reads the result as a webpack config. A part the function changes in a way the evaluator does
-  not follow does not mark the entries incomplete: Vue CLI takes its entries from `pages` and `src/main`.
+  not follow does not mark the entries incomplete, as Vue CLI takes its entries from `pages` and `src/main`; an
+  `entry` it sets to an unknown value does.
 * `eleventy` reads `addPassthroughCopy` calls: a directory makes its JavaScript and TypeScript files production
   entries, a file or glob is one, and a path into `node_modules` names a package.
 * `rstest` applies `exclude` (a list or `{ patterns }`) and negated `include` patterns as `!` entries below the
