@@ -411,9 +411,7 @@ fn human_output_says_why_an_unnamed_root_finding_is_not_recorded() {
     let written = run(skif().args(["baseline", "write"]).arg(dir.path()));
     assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
     assert!(
-        written
-            .stderr
-            .contains("warning: not recorded: version-mismatch (")
+        written.stderr.contains("warning: not recorded: version-mismatch (")
             && written.stderr.contains("the root package has no name of its own"),
         "{}",
         written.stderr
@@ -464,9 +462,10 @@ fn packages_sharing_a_name_are_recorded_by_directory() {
 fn a_relative_file_resolves_from_the_working_directory() {
     let dir = fixture("mismatch");
     let member = dir.path().join("packages").join("a");
-    let written = run(skif()
-        .current_dir(&member)
-        .args(["baseline", "write", "--file", "../../debt.toml", "--format", "json"]));
+    let written =
+        run(skif()
+            .current_dir(&member)
+            .args(["baseline", "write", "--file", "../../debt.toml", "--format", "json"]));
     assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
     assert_eq!(written.json()["file"], "debt.toml");
     assert_eq!(written.json()["extended"], "skif.toml");
@@ -475,9 +474,10 @@ fn a_relative_file_resolves_from_the_working_directory() {
     let config = fs::read_to_string(dir.path().join("skif.toml")).unwrap();
     assert!(config.starts_with("extends = [\"debt.toml\"]\n"), "{config}");
 
-    let again = run(skif()
-        .current_dir(dir.path())
-        .args(["baseline", "write", "--file", "debt.toml", "--format", "json"]));
+    let again =
+        run(skif()
+            .current_dir(dir.path())
+            .args(["baseline", "write", "--file", "debt.toml", "--format", "json"]));
     assert_eq!(again.code, 0, "{}{}", again.stdout, again.stderr);
     assert_eq!(again.json()["extended"], Value::Null, "already extended");
     assert_eq!(again.json()["written"], false);

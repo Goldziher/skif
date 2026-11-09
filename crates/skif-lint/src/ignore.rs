@@ -489,7 +489,10 @@ mod tests {
         }
         assert_eq!(matches[3000], [7], "an entry without rules reaches every rule");
         let rule_8_in_a: Vec<usize> = (8..3000).step_by(50).collect();
-        assert_eq!(matches[3001], rule_8_in_a, "a rule named twice matches each finding once");
+        assert_eq!(
+            matches[3001], rule_8_in_a,
+            "a rule named twice matches each finding once"
+        );
 
         let suppressions = Suppressions {
             by_name: names(&workspace),
@@ -516,7 +519,10 @@ mod tests {
         assert!(diagnostics.iter().all(|diagnostic| suppressions.suppresses(diagnostic)));
         let mut unmatched = make(Some("b"), Some("dep-0"));
         unmatched.rule = RuleId::new("rule-0").unwrap();
-        assert!(!suppressions.suppresses(&unmatched), "dep-0 is recorded for package a only");
+        assert!(
+            !suppressions.suppresses(&unmatched),
+            "dep-0 is recorded for package a only"
+        );
     }
 
     #[test]
