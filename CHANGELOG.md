@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`,
+  `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such
+  as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
+  ([#110](https://github.com/Goldziher/skif/issues/110)).
+
 ## [0.2.0] - 2026-11-08
 
 ### Added
