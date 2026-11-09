@@ -659,16 +659,32 @@ impl<'a> JsAnalysis<'a> {
     }
 
     /// Whether a module's own issues are reported: it is a project file, not ignored, not a public entry, not in a
-    /// fixture directory unless `[js] include-fixtures` is set, and its package's entry files are fully known. In a
-    /// package whose entries are incomplete, a file no known entry reaches may still import the module, so none of its
-    /// exports can be judged unused.
+    /// fixture directory unless `[js] include-fixtures` is set, and no unknown entry of its package may use its
+    /// exports ([`Self::judges_exports_of`]).
     #[must_use]
     pub fn reports_exports_of(&self, module: &Module) -> bool {
         module.in_project
             && !module.ignored
             && (!module.is_entry || self.setup.includes_entry_exports(module.owner))
-            && !self.entries_incomplete(module.owner)
+            && self.judges_exports_of(module)
             && (self.setup.include_fixtures || !in_fixture_directory(&module.path))
+    }
+
+    /// Whether the exports of `module` can be judged although the entry files of its package may be incomplete
+    /// (ADR 0081). In a package whose entries are known, always. In a package unjudged as a whole, never: a file no
+    /// known entry reaches may be an entry and import the module. In a package whose incomplete entries lie in a
+    /// narrowed scope, every file of the scope is an entry of the graph already, so each import an unknown entry can
+    /// make is counted: only a module in the scope, which may itself be such an entry, is not judged.
+    #[must_use]
+    pub fn judges_exports_of(&self, module: &Module) -> bool {
+        let Some(package) = self.setup.package(module.owner) else {
+            return true;
+        };
+        if !package.entries_incomplete {
+            return true;
+        }
+        !package.unjudged_package_wide()
+            && relative(&module.abs, &package.dir).is_some_and(|rel| !package.in_incomplete_scope(&rel))
     }
 
     /// Exports of `module` that no other module uses, values and types alike, in source order.
