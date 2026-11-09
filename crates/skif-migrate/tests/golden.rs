@@ -1541,6 +1541,8 @@ fn a_syncpack_yaml_comment_above_a_group_is_written_above_it() {
             .contains("# syncpack versionGroups[1]\n[[version-groups]]\n"),
         "{}",
         migration.toml
+    );
+}
 
 const MERGED_PATHS: &str = "tsconfig paths";
 

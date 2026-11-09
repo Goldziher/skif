@@ -43,6 +43,7 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
                     kind: ImportKind::SideEffect,
                     names: Vec::new(),
                     span: ctx.span(OxcSpan::new(start, start + len)),
+                    call: None,
                 });
             }
         }

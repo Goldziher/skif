@@ -678,7 +678,7 @@ impl DependencyUsage {
     /// of it wants a `package.json` entry, whatever `paths` of another package also map it.
     pub(crate) fn known_package(&self, name: &str) -> bool {
         self.members.contains(name)
-            || self.external_listed.contains(name)
+            || self.external_listed.contains_key(name)
             || self.listed.iter().any(|listed| listed.contains(name))
     }
 
@@ -962,7 +962,7 @@ impl DependencyUsage {
     /// A binary that a command read from `file` (relative to the root) runs in package `id`: a use of the dependency
     /// that provides it, else an unlisted binary reported at the file.
     fn run_binary(&mut self, setup: &Setup, id: PackageId, name: &str, file: &Path) {
-        if self.provide_binary(id, name) || self.ancestor_bins.contains(name) || setup.ignores_binary(id, name) {
+        if self.provide_binary(id, name) || self.ancestor_bins.contains_key(name) || setup.ignores_binary(id, name) {
             return;
         }
         let binary = UnlistedBinary {
