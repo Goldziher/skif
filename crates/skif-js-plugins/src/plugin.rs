@@ -77,6 +77,11 @@ pub struct PluginSpec {
     pub ignore: &'static [&'static str],
     /// The custom element library of the tool, whose registered classes are used without an import.
     pub custom_elements: Option<CustomElements>,
+    /// The commands the tool runs (CI steps, Git hooks, task runner tasks) need not run a dependency's binary: one
+    /// they run by name may come from the machine, so only a binary reached through a package manager (`pnpm exec
+    /// x`, `yarn x`) or a `node_modules/.bin` path is judged by `unlisted-binaries`. Every binary still credits the
+    /// dependency that provides it. knip's `optionalBinaries`.
+    pub optional_binaries: bool,
     /// The knip commit the row was checked against.
     pub knip_commit: &'static str,
 }
@@ -95,6 +100,7 @@ impl PluginSpec {
         binaries: &[],
         ignore: &[],
         custom_elements: None,
+        optional_binaries: false,
         knip_commit: KNIP_COMMIT,
     };
 }

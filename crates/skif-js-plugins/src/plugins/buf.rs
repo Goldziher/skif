@@ -17,6 +17,7 @@ static SPEC: PluginSpec = PluginSpec {
     ],
     config: &["buf.gen.yaml"],
     binaries: &["buf"],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 

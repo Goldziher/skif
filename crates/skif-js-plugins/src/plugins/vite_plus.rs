@@ -12,6 +12,7 @@ static SPEC: PluginSpec = PluginSpec {
     id: "vite-plus",
     enablers: &[Enabler::Dependency("vite-plus")],
     config: &["vite.config.{js,mjs,ts,cjs,mts,cts}"],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 

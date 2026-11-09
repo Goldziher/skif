@@ -202,7 +202,8 @@ fn child_process_commands_run_binaries_of_the_file() {
     assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none());
 }
 
-/// The commands of a workflow, and of a source file that runs them with `execa`, run binaries of that file.
+/// The commands of a workflow, and of a source file that runs them with `execa`, run binaries of that file. A workflow
+/// step's binary named directly may come from the runner, so only one reached through a package manager is reported.
 #[test]
 fn binaries_that_workflows_and_execa_calls_run_are_reported_at_the_file() {
     let diagnostics = lint(&[
@@ -212,7 +213,7 @@ fn binaries_that_workflows_and_execa_calls_run_are_reported_at_the_file() {
         ),
         (
             ".github/workflows/ci.yml",
-            "name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: vitest run && release-tool publish\n      - run: npx playwright test\n",
+            "name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: vitest run && yarn release-tool publish && swiftlint\n      - run: npx playwright test\n",
         ),
         (
             "scripts/release.mjs",

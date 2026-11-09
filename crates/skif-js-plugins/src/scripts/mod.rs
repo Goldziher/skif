@@ -109,6 +109,9 @@ pub struct BinaryUse {
     pub span: Range<usize>,
     /// How the binary was reached.
     pub via: BinaryVia,
+    /// The command spells the binary as a `node_modules/.bin` path (`./node_modules/.bin/tsc`), so it has to be
+    /// installed as a dependency's binary rather than found on the `PATH`.
+    pub bin_path: bool,
     /// The command targets another workspace (`pnpm --filter web exec vitest`), so the binary
     /// belongs to that workspace's manifest rather than the current one.
     pub filtered: bool,

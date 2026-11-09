@@ -25,6 +25,7 @@ static SPEC: PluginSpec = PluginSpec {
         "!**/test?(s)/**/{helper,fixture}?(s)/**/*",
     ],
     binaries: &["ava"],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 

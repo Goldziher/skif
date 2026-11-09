@@ -271,11 +271,13 @@ impl<'c> Walker<'c> {
         }
     }
 
-    fn bin(&mut self, name: &str, span: Range<usize>, st: St) {
+    /// A binary the command runs; `bin_path` when the command spells it as a `node_modules/.bin` path.
+    fn bin(&mut self, name: &str, span: Range<usize>, st: St, bin_path: bool) {
         self.info.binaries.push(BinaryUse {
             name: name.to_owned(),
             span,
             via: st.via,
+            bin_path,
             filtered: st.filtered,
             workspaces: if st.filtered {
                 self.workspaces.clone()
@@ -292,6 +294,7 @@ impl<'c> Walker<'c> {
             name: name.to_owned(),
             span,
             via: st.via,
+            bin_path: false,
             filtered: st.filtered,
             workspaces: Vec::new(),
         });
@@ -462,6 +465,7 @@ impl<'c> Walker<'c> {
         if self.functions.contains(name) {
             return;
         }
+        let bin_path = name != first.text;
         match name {
             "node" | "nodejs" => self.node_args(args, frame, st, true),
             "npm" => {
@@ -506,15 +510,15 @@ impl<'c> Walker<'c> {
             ),
             "corepack" => self.corepack(args, frame, st),
             "concurrently" | "conc" => {
-                self.bin(name, span, st);
+                self.bin(name, span, st, bin_path);
                 self.concurrently(args, frame);
             }
             "npm-run-all" | "npm-run-all2" | "run-p" | "run-s" => {
-                self.bin(name, span, st);
+                self.bin(name, span, st, bin_path);
                 self.run_all(args, frame);
             }
             "turbo" => {
-                self.bin(name, span, st);
+                self.bin(name, span, st, bin_path);
                 self.turbo(args);
             }
             "command"
@@ -526,7 +530,7 @@ impl<'c> Walker<'c> {
             n if is_shell_builtin(n) => {}
             n if is_ignored_binary(n) => self.global_bin(n, span, st),
             n => {
-                self.bin(n, span, st);
+                self.bin(n, span, st, bin_path);
                 self.flag_dependencies(n, args, frame);
                 if let Some(wrapper) = tables::wrapper(n) {
                     self.wrapper(wrapper, args, frame, st);

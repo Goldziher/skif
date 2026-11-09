@@ -14,6 +14,7 @@ static SPEC: PluginSpec = PluginSpec {
     root_only: true,
     config: &["{T,t}askfile{,.dist}.{yml,yaml}"],
     binaries: &["task"],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 
