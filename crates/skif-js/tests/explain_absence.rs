@@ -314,3 +314,18 @@ fn published_build_output_without_a_source() {
     assert_eq!(report["absence"], "entries-incomplete", "{report}");
     assert_eq!(report["incomplete"][0]["cause"], "unmapped-published", "{report}");
 }
+
+/// A published path into nothing (no file, no source behind it, not build output) contributes no entry and leaves the
+/// package's entries known (ADR 0069).
+#[test]
+fn a_published_path_into_nothing_leaves_the_package_judged() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"r2b","private":true,"bin":{"r2b":"bin/r2b.js"},"scripts":{"start":"node app/main.js"}}"#,
+        ),
+        ("app/main.js", "console.log('r2b');\n"),
+        ("app/orphan.js", "export const lonely = 1;\n"),
+    ];
+    assert_eq!(absence(&files, "", "app/orphan.js"), "unused-file");
+}
