@@ -427,10 +427,10 @@ impl ForeignPaths {
     pub(crate) fn lookup(&self, specifier: &str, accept: impl Fn(&TsPaths, &str) -> bool) -> Option<(&str, &str)> {
         let found = |pattern: &str, position: usize| {
             let (file, config) = &self.configs[position];
-            accept(config, pattern).then_some(file.as_str())
+            accept(&**config, pattern).then_some(file.as_str())
         };
         if let Some((pattern, positions)) = self.exact.get_key_value(specifier)
-            && let Some(file) = positions.iter().find_map(|position| found(pattern, *position))
+            && let Some(file) = positions.iter().find_map(|position| found(pattern.as_str(), *position))
         {
             return Some((file, pattern.as_str()));
         }
@@ -443,7 +443,9 @@ impl ForeignPaths {
                     .get(prefix)?
                     .iter()
                     .filter(|(suffix, _, _)| rest.ends_with(suffix.as_str()))
-                    .filter_map(|(_, pattern, position)| Some((*position, found(pattern, *position)?, pattern)))
+                    .filter_map(|(_, pattern, position)| {
+                        Some((*position, found(pattern.as_str(), *position)?, pattern))
+                    })
                     .min_by_key(|(position, _, _)| *position)
                     .map(|(_, file, pattern)| (file, pattern.as_str()))
             })
