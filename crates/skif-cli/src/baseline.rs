@@ -167,11 +167,48 @@ fn literal(text: &str) -> String {
     escaped
 }
 
+/// Why a finding is left out of the baseline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unrecorded {
+    /// Neither a package nor a dependency: its entry would turn the rule off for the whole workspace.
+    WorkspaceWide,
+    /// In the root package, which has no name of its own: its directory is the root itself, so no package pattern
+    /// selects it alone, and an entry without one would cover every package.
+    UnnamedRoot,
+}
+
+impl Unrecorded {
+    /// The `cause` of the finding in the JSON document.
+    const fn cause(self) -> &'static str {
+        match self {
+            Self::WorkspaceWide => "workspace-wide",
+            Self::UnnamedRoot => "unnamed-root",
+        }
+    }
+
+    /// What the warning on stderr says after the finding.
+    const fn note(self) -> &'static str {
+        match self {
+            Self::WorkspaceWide => {
+                "an `[[ignore]]` entry without a package or dependency would turn the rule off for the whole workspace"
+            }
+            Self::UnnamedRoot => {
+                "the root package has no name of its own, so no `[[ignore]]` package pattern selects it alone and an \
+                 entry would cover every package; give the root package a unique `name` to record it"
+            }
+        }
+    }
+}
+
 /// The package pattern of a finding: the package's name, or its directory when another package has the same name;
-/// `None` for a root package without a name.
-fn package_pattern(workspace: &Workspace, diagnostic: &Diagnostic) -> Option<String> {
+/// `None` for a finding outside any package. A finding in a root package without a name of its own (none, or one
+/// another package shares) is [`Unrecorded::UnnamedRoot`]: the root's directory is empty, so neither selects it.
+fn package_pattern(workspace: &Workspace, diagnostic: &Diagnostic) -> Result<Option<String>, Unrecorded> {
     let Some(package) = diagnostic.package_id.and_then(|id| workspace.package(id)) else {
-        return diagnostic.package.as_deref().filter(|name| *name != ".").map(literal);
+        return match diagnostic.package.as_deref() {
+            Some(".") => Err(Unrecorded::UnnamedRoot),
+            name => Ok(name.map(literal)),
+        };
     };
     let shared = |name: &str| {
         workspace
@@ -181,10 +218,14 @@ fn package_pattern(workspace: &Workspace, diagnostic: &Diagnostic) -> Option<Str
             > 1
     };
     match package.name.as_deref().filter(|name| !name.is_empty()) {
-        Some(name) if !shared(name) => Some(literal(name)),
+        Some(name) if !shared(name) => Ok(Some(literal(name))),
         _ => {
             let dir = package.dir.to_string_lossy();
-            (!dir.is_empty()).then(|| literal(&dir))
+            if dir.is_empty() {
+                Err(Unrecorded::UnnamedRoot)
+            } else {
+                Ok(Some(literal(&dir)))
+            }
         }
     }
 }
@@ -206,21 +247,27 @@ fn selector(pattern: Option<String>) -> Result<Selector, CliError> {
     })
 }
 
-/// The entry that records `diagnostic`, or `None` when it has neither a package nor a dependency: an entry of its
-/// rule alone would turn the rule off for the whole workspace.
-fn entry_for(workspace: &Workspace, diagnostic: &Diagnostic, reason: &str) -> Result<Option<IgnoreEntry>, CliError> {
-    let package = package_pattern(workspace, diagnostic);
+/// The entry that records `diagnostic`, or why there is none: a finding with neither a package nor a dependency
+/// would need an entry of its rule alone, which turns the rule off for the whole workspace, and one in an unnamed
+/// root package an entry no package pattern narrows to it.
+fn entry_for(
+    workspace: &Workspace,
+    diagnostic: &Diagnostic,
+    reason: &str,
+) -> Result<Result<IgnoreEntry, Unrecorded>, CliError> {
+    let package = match package_pattern(workspace, diagnostic) {
+        Ok(package) => package,
+        Err(unrecorded) => return Ok(Err(unrecorded)),
+    };
     let dependency = dependency_pattern(diagnostic);
     if package.is_none() && dependency.is_none() {
-        return Ok(None);
+        return Ok(Err(Unrecorded::WorkspaceWide));
     }
-    Ok(Some(
-        IgnoreEntry::default()
-            .with_rules([diagnostic.rule.as_str().to_owned()])
-            .with_packages(selector(package)?)
-            .with_dependencies(selector(dependency)?)
-            .with_reason(reason),
-    ))
+    Ok(Ok(IgnoreEntry::default()
+        .with_rules([diagnostic.rule.as_str().to_owned()])
+        .with_packages(selector(package)?)
+        .with_dependencies(selector(dependency)?)
+        .with_reason(reason)))
 }
 
 fn quoted(text: &str) -> String {
@@ -385,12 +432,13 @@ fn is_recorded(diagnostic: &Diagnostic) -> bool {
     matches!(diagnostic.severity, Severity::Error | Severity::Warning)
 }
 
-fn unrecorded_json(diagnostic: &Diagnostic) -> Value {
+fn unrecorded_json((diagnostic, unrecorded): &(&Diagnostic, Unrecorded)) -> Value {
     json!({
         "rule": diagnostic.rule.as_str(),
         "package": diagnostic.package,
         "dependency": diagnostic.dependency,
         "message": diagnostic.message,
+        "cause": unrecorded.cause(),
     })
 }
 
@@ -409,14 +457,14 @@ fn write_baseline(args: &BaselineWriteArgs) -> Result<u8, CliError> {
         .flatten()
         .collect();
     let mut added: Vec<IgnoreEntry> = Vec::new();
-    let mut unrecorded: Vec<&Diagnostic> = Vec::new();
+    let mut unrecorded: Vec<(&Diagnostic, Unrecorded)> = Vec::new();
     for (index, diagnostic) in diagnostics.iter().enumerate() {
         if covered.contains(&index) || !is_recorded(diagnostic) {
             continue;
         }
         match entry_for(&workspace, diagnostic, &args.reason)? {
-            Some(entry) => added.push(entry),
-            None => unrecorded.push(diagnostic),
+            Ok(entry) => added.push(entry),
+            Err(cause) => unrecorded.push((diagnostic, cause)),
         }
     }
     let added = sorted_unique(added);
@@ -440,18 +488,18 @@ fn write_baseline(args: &BaselineWriteArgs) -> Result<u8, CliError> {
             members.insert("extended".to_owned(), json!(extended));
             members.insert(
                 "unrecorded".to_owned(),
-                Value::Array(unrecorded.iter().copied().map(unrecorded_json).collect()),
+                Value::Array(unrecorded.iter().map(unrecorded_json).collect()),
             );
             members.insert("written".to_owned(), json!(written));
             write_stdout(document(members)?.as_bytes())?;
         }
         RulesFormat::Human => {
-            for diagnostic in &unrecorded {
+            for (diagnostic, cause) in &unrecorded {
                 stderr_line(&format!(
-                    "warning: not recorded: {} ({}): an `[[ignore]]` entry without a package or dependency \
-                     would turn the rule off for the whole workspace",
+                    "warning: not recorded: {} ({}): {}",
                     diagnostic.rule.as_str(),
-                    diagnostic.message
+                    diagnostic.message,
+                    cause.note()
                 ));
             }
             let mut out = String::new();

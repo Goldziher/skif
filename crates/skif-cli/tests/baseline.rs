@@ -351,3 +351,71 @@ fn human_output_lists_the_entries() {
         "Recorded 1 new entry in skif.baseline.toml (1 in total)\n  + version-mismatch: package @cli/b, dependency is-number@6.0.0\nAdded skif.baseline.toml to `extends` in skif.toml\n"
     );
 }
+
+/// Removes the name of the fixture's root package and gives it `is-number@5.0.0`, a third version.
+fn unname_root(dir: &Path) {
+    fs::write(
+        dir.join("package.json"),
+        "{\n  \"version\": \"0.0.0\",\n  \"private\": true,\n  \"packageManager\": \"npm@11.0.0\",\n  \"workspaces\": [\n    \"packages/*\"\n  ],\n  \"devDependencies\": {\n    \"is-number\": \"5.0.0\"\n  }\n}\n",
+    )
+    .unwrap();
+}
+
+fn version_findings(document: &Value, key: &str) -> Vec<Value> {
+    document[key]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == "version-mismatch")
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn a_finding_in_an_unnamed_root_is_not_recorded() {
+    let dir = fixture("mismatch");
+    unname_root(dir.path());
+
+    let written = baseline(dir.path(), "write", &[]);
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    let document = written.json();
+    assert_eq!(
+        document["added"],
+        json!([entry("b", "6.0.0")]),
+        "no entry without a package for the root's is-number@5.0.0"
+    );
+    let unrecorded = version_findings(&document, "unrecorded");
+    assert_eq!(unrecorded.len(), 1, "{document}");
+    assert_eq!(unrecorded[0]["dependency"], "is-number");
+    assert_eq!(unrecorded[0]["cause"], "unnamed-root");
+
+    let after = lint(dir.path());
+    assert_eq!(after.code, 1, "the root's finding is still reported: {}", after.stdout);
+
+    set_is_number(dir.path(), "c", "5.0.0");
+    let later = lint(dir.path());
+    let packages: Vec<Value> = version_findings(&later.json(), "diagnostics")
+        .iter()
+        .map(|diagnostic| diagnostic["package"].clone())
+        .collect();
+    assert!(
+        packages.contains(&json!("@cli/c")),
+        "a package that adds the root's version is not silenced: {packages:?}"
+    );
+}
+
+#[test]
+fn human_output_says_why_an_unnamed_root_finding_is_not_recorded() {
+    let dir = fixture("mismatch");
+    unname_root(dir.path());
+    let written = run(skif().args(["baseline", "write"]).arg(dir.path()));
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    assert!(
+        written
+            .stderr
+            .contains("warning: not recorded: version-mismatch (")
+            && written.stderr.contains("the root package has no name of its own"),
+        "{}",
+        written.stderr
+    );
+}

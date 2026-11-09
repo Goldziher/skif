@@ -244,7 +244,8 @@ sherif's `ignoreDependency` to the variants still reported, and per-member `pinV
 `reason` to say why an entry stays; later runs of `write` and `prune` keep it, and `--require-ignore-reasons` accepts
 the entries. `check` compares entries by what they suppress, so a reworded reason never fails it. A finding that has
 no package or dependency (a finding about the workspace as a whole) is not recorded, since its entry would
-turn the rule off; fix it or set the rule's level instead. Entries are as narrow as `[[ignore]]` allows: an
+turn the rule off; fix it or set the rule's level instead. Neither is a finding in a root `package.json` without a
+`name`, since no `[[ignore]]` package pattern selects the root alone; give the root a unique `name` to record it. Entries are as narrow as `[[ignore]]` allows: an
 `unused-exports` entry covers every unused export of its package until it is pruned. See the
 [CLI reference](../../reference/cli/#baseline) for the flags.
 
