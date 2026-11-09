@@ -3,7 +3,7 @@ use skif_lint::Emitter;
 use skif_workspace::PackageId;
 
 use super::JsRule;
-use super::support::module_location;
+use super::support::{module_location, unresolved_imports};
 use crate::analysis::JsAnalysis;
 use crate::config_hints::{ConfigHint, HintKind};
 
@@ -23,17 +23,18 @@ pub static META: RuleMeta = RuleMeta::new(
 );
 
 /// The rules that consult `ignore-dependencies`. An entry can only be called stale when all of them ran.
-const DEPENDENCY_RULES: [&str; 6] = [
+/// `stale-mocks` consults it too, but is not needed: when it is off, [`StaleJsConfig`] reads the mocks itself.
+const DEPENDENCY_RULES: [&str; 5] = [
     "unused-dependencies",
     "unused-dev-dependencies",
     "unlisted-dependencies",
     "unused-optional-peer-dependencies",
     "unresolved-imports",
-    "stale-mocks",
 ];
 
 /// The rules that consult `ignore-unresolved`. An entry can only be called stale when all of them ran.
-const UNRESOLVED_RULES: [&str; 2] = ["unresolved-imports", "stale-mocks"];
+/// `stale-mocks` consults it too, but is not needed: when it is off, [`StaleJsConfig`] reads the mocks itself.
+const UNRESOLVED_RULES: [&str; 1] = ["unresolved-imports"];
 
 /// Reports configuration that does nothing: `ignore-dependencies`, `ignore-binaries`, `ignore-unresolved` and
 /// `ignore-workspaces` entries that matched nothing, `[js.workspaces]` keys that select no package, and `entry`,
@@ -316,6 +317,11 @@ impl JsRule for StaleJsConfig {
                 .as_ref()
                 .is_none_or(|enabled| ids.iter().all(|id| enabled.contains(*id)))
         };
+        // An ignore entry that only silences a mock is used whether or not `stale-mocks` runs: walking the mocks
+        // records the entries they match.
+        if !ran(&[super::stale_mocks::META.id]) {
+            for _mock in unresolved_imports(analysis, true) {}
+        }
         let keyed = keyed_ignore_lists(analysis, &ran);
         for (key, entries) in keyed {
             Self::report(analysis, out, &key, entries);
