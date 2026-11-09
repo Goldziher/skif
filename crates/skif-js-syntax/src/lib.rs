@@ -54,8 +54,8 @@ pub use config::{
 };
 pub use error::SyntaxError;
 pub use model::{
-    Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, ModuleInfo, ParseIssue, ParseOptions,
-    Registration, Removal, RemovalKind, coalesce_ranges, is_source_query,
+    Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, MockCall, ModuleInfo, ParseIssue,
+    ParseOptions, Registration, Removal, RemovalKind, coalesce_ranges, is_source_query,
 };
 pub use style::{is_stylesheet, parse_stylesheet};
 

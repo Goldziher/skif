@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use skif_js_syntax::{ImportKind, ImportedKind, ModuleInfo, ParseOptions, parse_module};
+use skif_js_syntax::{ImportKind, ImportedKind, MockCall, ModuleInfo, ParseOptions, parse_module};
 
 fn parse(path: &str, source: &str) -> ModuleInfo {
     parse_module(Path::new(path), source, &ParseOptions::default()).expect("parses")
@@ -239,7 +239,7 @@ fn mock_imports_record_the_call_as_written() {
     let calls: Vec<(&str, Option<&str>)> = info
         .imports
         .iter()
-        .map(|import| (import.specifier.as_str(), import.call.as_deref()))
+        .map(|import| (import.specifier.as_str(), import.call.map(MockCall::as_str)))
         .collect();
     assert_eq!(
         calls,
@@ -254,6 +254,42 @@ fn mock_imports_record_the_call_as_written() {
             ("./h", None),
         ]
     );
+}
+
+/// Vitest's typed form names the module through an `import()`, which is the mock's and not a dynamic import (#111).
+#[test]
+fn a_mock_of_an_import_expression_is_a_mock_import_only() {
+    let info = parse(
+        "a.test.ts",
+        "vi.mock(import('./gone'), () => ({}));\nvi.doMock(import('./also-gone'));\nimport('./lazy');\n",
+    );
+    let imports: Vec<(&str, ImportKind, Option<&str>)> = info
+        .imports
+        .iter()
+        .map(|import| (import.specifier.as_str(), import.kind, import.call.map(MockCall::as_str)))
+        .collect();
+    assert_eq!(
+        imports,
+        [
+            ("./gone", ImportKind::Mock, Some("vi.mock")),
+            ("./also-gone", ImportKind::Mock, Some("vi.doMock")),
+            ("./lazy", ImportKind::Dynamic, None),
+        ]
+    );
+}
+
+/// The parse cache stores a mock's call as it is written.
+#[test]
+fn a_mock_call_serializes_as_written() {
+    for call in MockCall::ALL {
+        let json = serde_json::to_string(&call).unwrap();
+        assert_eq!(json, format!("\"{}\"", call.as_str()));
+        assert_eq!(serde_json::from_str::<MockCall>(&json).unwrap(), call);
+        let (object, property) = call.as_str().split_once('.').unwrap();
+        assert_eq!(MockCall::find(object, property), Some(call));
+    }
+    assert_eq!(MockCall::find("vi", "fn"), None);
+    assert_eq!(MockCall::find("jest", "importActual"), None);
 }
 
 #[test]
