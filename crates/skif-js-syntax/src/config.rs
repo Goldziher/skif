@@ -190,8 +190,9 @@ pub trait ModuleLoader {
 /// An `if (test) return a;` before a function's last `return` is followed the same way: a known test takes its branch,
 /// and an unknown one makes the value what both returns share. A spread of a conditional with an unknown test
 /// (`...(tmp && { cacheDir: tmp })`, `...(ci ? { a } : {})`) adds every key a branch sets: a list gets the elements of
-/// every branch, a nested object merges the same way, and any other value the branches do not share is unknown; only a
-/// branch that is not an object (or `null`, a boolean or a number) leaves the spread unknown.
+/// every branch (a string counting as a list of one), a nested object merges the same way, and any other value the
+/// branches do not share is unknown; only a branch that is not an object (or `null`, a boolean or a number) leaves the
+/// spread unknown.
 ///
 /// Functions are followed: a returned config function may declare local `const`/`let` bindings and local functions,
 /// assign members of a local object, and call top-level or local functions with known arguments, a parameter not passed
@@ -2729,9 +2730,9 @@ fn any_entries(
 }
 
 /// The value of a key that holds one of `values`, `None` standing for a branch that leaves it out: the value itself
-/// when every branch sets it alike; for lists, the elements of all of them, so that every file or package a branch
-/// names is credited; for objects, each key any of them has, merged the same way; anything else is unknown, such as two
-/// different strings or a string only some branches set.
+/// when every branch sets it alike; for lists, the elements of all of them, a string counting as a list of one, so
+/// that every file or package a branch names is credited; for objects, each key any of them has, merged the same way;
+/// anything else is unknown, such as two different strings or a string only some branches set.
 fn any_of(values: &[Option<ConfigValue>]) -> ConfigValue {
     let present: Vec<&ConfigValue> = values.iter().flatten().collect();
     let Some(&first) = present.first() else {
@@ -2740,15 +2741,21 @@ fn any_of(values: &[Option<ConfigValue>]) -> ConfigValue {
     if present.len() == values.len() && present.iter().all(|value| *value == first) {
         return first.clone();
     }
-    if present.iter().all(|value| matches!(value, ConfigValue::Array(_))) {
+    let lists: Option<Vec<&[ConfigValue]>> = present
+        .iter()
+        .map(|&value| match value {
+            ConfigValue::Array(list) => Some(list.as_slice()),
+            ConfigValue::String(_) => Some(std::slice::from_ref(value)),
+            _ => None,
+        })
+        .collect();
+    if let Some(lists) = lists
+        && present.iter().any(|value| matches!(value, ConfigValue::Array(_)))
+    {
         let mut items: Vec<ConfigValue> = Vec::new();
-        for value in &present {
-            if let ConfigValue::Array(list) = value {
-                for item in list {
-                    if !items.contains(item) {
-                        items.push(item.clone());
-                    }
-                }
+        for item in lists.into_iter().flatten() {
+            if !items.contains(item) {
+                items.push(item.clone());
             }
         }
         return ConfigValue::Array(items);
