@@ -76,6 +76,7 @@ old one.
 | 0066 | [A Module Cache and Unsaved Buffers in the Language Server](0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md) | accepted |
 | 0067 | [No Editor Extension](0067-no-editor-extension.md) | accepted |
 | 0068 | [What the knip Comparison Sets Apart: Exports skif Does Not Judge, Configs knip Cannot Load, and Fixture Names](0068-what-the-knip-comparison-sets-apart.md) | accepted |
+| 0075 | [Imports Only Another Package's tsconfig `paths` Map: Unlisted, With a Detail, Not Resolved Through Merged Paths](0075-imports-only-another-packages-tsconfig-paths-map.md) | accepted |
 | 0074 | [Reasons on `[js]` Ignore Entries, a `[lint] require-ignore-reasons` Key, and Comments Carried Over by `skif migrate`](0074-reasons-on-js-ignore-entries.md) | accepted |
 | 0073 | [Stale Mocks: Test-Runner Mocks of Missing Modules Under Their Own Rule](0073-stale-mocks-test-runner-mocks-of-missing-modules-under-their-own-rule.md) | accepted |
 | 0072 | [A Policy Scope Without `local` Leaves the Own Versions Out](0072-a-policy-scope-without-local-leaves-the-own-versions-out.md) | accepted |

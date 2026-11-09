@@ -1541,5 +1541,48 @@ fn a_syncpack_yaml_comment_above_a_group_is_written_above_it() {
             .contains("# syncpack versionGroups[1]\n[[version-groups]]\n"),
         "{}",
         migration.toml
+
+const MERGED_PATHS: &str = "tsconfig paths";
+
+#[test]
+fn knip_in_a_workspace_notes_that_skif_does_not_merge_tsconfig_paths() {
+    let mut input = ToolInput::new(Tool::Knip);
+    input.config = Some(text("knip.json", r#"{ "entry": ["src/index.ts"] }"#));
+    input.workspace_patterns = vec!["packages/*".to_owned()];
+    let migration = migrate(&[input], &options(Profile::Full)).unwrap();
+    let merged = note(&migration, MERGED_PATHS);
+    assert_eq!(merged.class, NoteClass::Approximate);
+    assert_eq!(merged.tool, Tool::Knip);
+    assert_eq!(merged.file, "knip.json");
+    assert_eq!(
+        merged.message,
+        "knip merges the tsconfig paths of all workspaces; skif does not, so an import that only another package's \
+         paths map is reported as unlisted-dependencies with detail ForeignTsconfigPaths"
+    );
+    assert!(
+        merged
+            .suggestion
+            .as_deref()
+            .is_some_and(|suggestion| suggestion.contains("tsconfig of the importing package")),
+        "{merged:#?}"
+    );
+    assert!(!migration.needs_human(), "{:#?}", migration.notes);
+}
+
+#[test]
+fn knip_workspaces_in_the_config_alone_note_the_unmerged_tsconfig_paths() {
+    let mut input = ToolInput::new(Tool::Knip);
+    input.config = Some(read("knip", "knip.ts"));
+    let migration = migrate(&[input], &options(Profile::Full)).unwrap();
+    assert_eq!(class(&migration, MERGED_PATHS), NoteClass::Approximate);
+}
+
+#[test]
+fn knip_in_a_single_package_project_says_nothing_about_tsconfig_paths() {
+    let migration = knip(Some(r#"{ "entry": ["src/index.ts"] }"#), &[("knip", "knip")]);
+    assert!(
+        !migration.notes.iter().any(|note| note.path == MERGED_PATHS),
+        "{:#?}",
+        migration.notes
     );
 }

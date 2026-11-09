@@ -370,3 +370,8 @@ blake3 = "558b715ede45fe2cc182b73013f46be4647c5fec4cf926d5783be1fc42753019"
 number = 74
 status = "accepted"
 blake3 = "e5221c6df9a4f9d014d42e9d5ca5b613e76323b7137acd3e40b232b03f8a7e1a"
+
+[adrs."adrs/0075-imports-only-another-packages-tsconfig-paths-map.md"]
+number = 75
+status = "accepted"
+blake3 = "daa35a8e48c913e9edcfda5c2872efda2da9266207162c0d935ac07b6e8a2cb2"

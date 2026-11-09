@@ -10,7 +10,7 @@ use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::ancestors::{external_manifests, listed_names};
-use crate::graph::{ModuleGraph, ModuleId};
+use crate::graph::{ModuleGraph, ModuleId, Target};
 use crate::lockfile;
 use crate::scripts::ScriptBinary;
 use crate::setup::Setup;
@@ -177,9 +177,13 @@ const BINARY_PACKAGES: &[(&str, &str)] = &[
 ];
 
 /// Where a package import is written, as [`DependencyUsage::handle_import`] judges it.
-struct ImportSite {
+struct ImportSite<'s> {
     /// The package whose file imports it.
     owner: PackageId,
+    /// The specifier as written.
+    specifier: &'s str,
+    /// What the specifier resolved to; `None` for a `@jsxImportSource` pragma, which is not resolved.
+    target: Option<&'s Target>,
     module: ModuleId,
     span: Option<Span>,
     /// It brings in types only and is not a re-export, so an `@types` package can stand in for the package.
@@ -199,6 +203,7 @@ fn is_declaration_file(path: &Path) -> bool {
 
 /// An import of a package the manifest does not list.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct UnlistedImport {
     /// The package whose file imports it.
     pub package: PackageId,
@@ -208,6 +213,24 @@ pub struct UnlistedImport {
     pub module: ModuleId,
     /// Where the import is written: the import statement, or the `@jsxImportSource` pragma.
     pub span: Option<Span>,
+    /// The specifier as written, such as `name/subpath`.
+    pub specifier: String,
+    /// What the specifier resolved to: a module of the graph, a package by name (installed or not) or nothing. `None`
+    /// for a `@jsxImportSource` pragma, which is not resolved.
+    pub target: Option<Target>,
+    /// The `paths` pattern of another package's TypeScript configuration that maps the specifier, when the
+    /// configuration the importing file follows maps it not.
+    pub foreign_paths: Option<ForeignMapping>,
+}
+
+/// A `paths` pattern of a TypeScript configuration the importing file does not follow.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignMapping {
+    /// The configuration file that declares the pattern (the one found for a package, or a configuration it
+    /// extends), relative to the workspace root with `/` separators.
+    pub config: String,
+    /// The pattern, as written.
+    pub pattern: String,
 }
 
 /// A script binary that no dependency provides.
@@ -631,6 +654,14 @@ impl DependencyUsage {
             .or_else(|| self.external_listed.contains(name).then_some(Listed::External))
     }
 
+    /// Whether `name` is a workspace package or a manifest of the workspace, or above it, lists it: an unlisted import
+    /// of it wants a `package.json` entry, whatever `paths` of another package also map it.
+    pub(crate) fn known_package(&self, name: &str) -> bool {
+        self.members.contains(name)
+            || self.external_listed.contains(name)
+            || self.listed.iter().any(|listed| listed.contains(name))
+    }
+
     fn reference(&mut self, listed: Listed, name: &str) {
         if let Listed::Package(id) = listed {
             self.reference_in(id, name);
@@ -677,11 +708,13 @@ impl DependencyUsage {
                     // package stands in for the package.
                     let type_only =
                         (resolved.type_only && kind != Some(ImportKind::ExportFrom)) || (self.strict && declaration);
-                    let span = module.info.imports.get(resolved.import).map(|import| import.span);
+                    let import = module.info.imports.get(resolved.import);
                     let site = ImportSite {
                         owner: module.owner,
+                        specifier: import.map_or(name.as_str(), |import| import.specifier.as_str()),
+                        target: Some(&resolved.target),
                         module: module.id,
-                        span,
+                        span: import.map(|import| import.span),
                         type_only,
                         declaration,
                     };
@@ -712,9 +745,13 @@ impl DependencyUsage {
             for name in module.info.ambient_modules.iter().chain(&module.info.augmented_modules) {
                 self.reference_listed(module.owner, name);
             }
-            if let Some(source) = module.info.jsx_import_source.as_deref().and_then(package_name) {
+            if let Some(pragma) = module.info.jsx_import_source.as_deref()
+                && let Some(source) = package_name(pragma)
+            {
                 let site = ImportSite {
                     owner: module.owner,
+                    specifier: pragma,
+                    target: None,
                     module: module.id,
                     span: module.info.jsx_import_source_span,
                     type_only: false,
@@ -734,7 +771,7 @@ impl DependencyUsage {
     /// Where an import of a package may be listed. In strict mode, production code (any file but a declaration file,
     /// whose imports knip treats as type-only) may import only what its own package lists in `dependencies` or
     /// `peerDependencies`, as in knip's `DependencyDeputy.isInDependencies`.
-    fn find_listed_for(&self, site: &ImportSite, name: &str) -> Option<Listed> {
+    fn find_listed_for(&self, site: &ImportSite<'_>, name: &str) -> Option<Listed> {
         if !self.strict || site.declaration {
             return self.find_listed(site.owner, name);
         }
@@ -745,7 +782,7 @@ impl DependencyUsage {
         }
     }
 
-    fn handle_import(&mut self, workspace: &Workspace, name: &str, site: &ImportSite) {
+    fn handle_import(&mut self, workspace: &Workspace, name: &str, site: &ImportSite<'_>) {
         let owner = site.owner;
         if RUNTIME_PACKAGES.contains(&name) {
             return;
@@ -796,6 +833,9 @@ impl DependencyUsage {
             name: name.to_owned(),
             module: site.module,
             span: site.span,
+            specifier: site.specifier.to_owned(),
+            target: site.target.cloned(),
+            foreign_paths: None,
         });
     }
 

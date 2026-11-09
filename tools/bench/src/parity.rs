@@ -64,6 +64,11 @@ pub const FIXTURE_FILE: &str = "fixture-file";
 pub const KNIP_UNREAD: &str = "knip-unread";
 pub const NOT_JUDGED: &str = "not-judged-by-skif";
 pub const KNIP_CONFIG_ERROR: &str = "knip-config-error";
+pub const FOREIGN_TSCONFIG_PATHS: &str = "foreign-tsconfig-paths";
+
+/// The `detail` of an `unlisted-dependencies` finding whose import only another package's tsconfig `paths` map
+/// (ADR 0075).
+const FOREIGN_TSCONFIG_PATHS_DETAIL: &str = "ForeignTsconfigPaths";
 
 /// The categories skif does not judge in a package whose entry files are not all known: files and dependencies
 /// (ADR 0053), and exports, types and members, which skif stopped reporting there with #48 (ADR 0068).
@@ -84,7 +89,7 @@ const NOT_JUDGED_CATEGORIES: [&str; 9] = [
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 6] = [
+pub const KNIP_DEVIATIONS: [Deviation; 7] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -108,6 +113,10 @@ pub const KNIP_DEVIATIONS: [Deviation; 6] = [
     Deviation {
         id: KNIP_CONFIG_ERROR,
         reason: "knip could not load a configuration file of the package (it prints `ERROR: Error loading <file>` and exits with 2), so it ran without the entry files that configuration names; the errors are listed in `parity.json` under `knip_errors`",
+    },
+    Deviation {
+        id: FOREIGN_TSCONFIG_PATHS,
+        reason: "skif reports an import that only the tsconfig `paths` of another package map as `unlisted-dependencies` with the detail `ForeignTsconfigPaths`; knip merges the `paths` of all workspaces and resolves it (ADR 0075)",
     },
 ];
 
@@ -189,33 +198,55 @@ pub fn skif_keys(document: &Value, root: &Path) -> Keys {
         let Some((_, category)) = RULE_CATEGORIES.iter().find(|(id, _)| *id == rule) else {
             continue;
         };
-        let path = normalize(
-            diagnostic
-                .pointer("/location/path")
-                .and_then(Value::as_str)
-                .unwrap_or_default(),
-            root,
-        );
-        let message = diagnostic.get("message").and_then(Value::as_str).unwrap_or_default();
-        let names = backticked(message);
-        let key = match *category {
-            "files" => path,
-            "duplicates" => format!(
-                "{path}|{}",
-                joined_sorted(names.iter().skip(1).map(|n| (*n).to_owned()).collect())
-            ),
-            _ => {
-                let name = diagnostic
-                    .get("dependency")
-                    .and_then(Value::as_str)
-                    .or_else(|| names.first().copied())
-                    .unwrap_or_default();
-                format!("{path}|{}", member_name(category, name))
-            }
-        };
+        let key = skif_key(diagnostic, category, root);
         keys.entry((*category).to_owned()).or_default().insert(key);
     }
     keys
+}
+
+/// The key of a skif diagnostic in `category`: `<file>` for files, `<file>|<names>` for duplicates and `<file>|<name>`
+/// otherwise.
+fn skif_key(diagnostic: &Value, category: &str, root: &Path) -> String {
+    let path = normalize(
+        diagnostic
+            .pointer("/location/path")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        root,
+    );
+    let message = diagnostic.get("message").and_then(Value::as_str).unwrap_or_default();
+    let names = backticked(message);
+    match category {
+        "files" => path,
+        "duplicates" => format!(
+            "{path}|{}",
+            joined_sorted(names.iter().skip(1).map(|n| (*n).to_owned()).collect())
+        ),
+        _ => {
+            let name = diagnostic
+                .get("dependency")
+                .and_then(Value::as_str)
+                .or_else(|| names.first().copied())
+                .unwrap_or_default();
+            format!("{path}|{}", member_name(category, name))
+        }
+    }
+}
+
+/// The keys of the `unlisted-dependencies` findings with the detail `ForeignTsconfigPaths`: imports that only the
+/// tsconfig `paths` of another package map, which knip resolves through the merged `paths` of all workspaces.
+pub fn foreign_tsconfig_paths_keys(document: &Value, root: &Path) -> BTreeSet<String> {
+    document
+        .get("diagnostics")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|diagnostic| {
+            diagnostic.get("rule").and_then(Value::as_str) == Some("unlisted-dependencies")
+                && diagnostic.get("detail").and_then(Value::as_str) == Some(FOREIGN_TSCONFIG_PATHS_DETAIL)
+        })
+        .map(|diagnostic| skif_key(diagnostic, "unlisted", root))
+        .collect()
 }
 
 fn name_of(value: &Value) -> Option<String> {
@@ -352,6 +383,12 @@ fn owner_dir(key: &str, is_package: &dyn Fn(&str) -> bool) -> String {
 /// Whether a one-sided finding is in a category skif does not judge in the package that owns it.
 fn not_judged(category: &str, key: &str, dirs: &BTreeSet<String>, is_package: &dyn Fn(&str) -> bool) -> bool {
     !dirs.is_empty() && NOT_JUDGED_CATEGORIES.contains(&category) && dirs.contains(&owner_dir(key, is_package))
+}
+
+/// The known deviation a finding only skif reports belongs to: an unlisted import that only another package's tsconfig
+/// `paths` map (`foreign`, from [`foreign_tsconfig_paths_keys`]), which knip resolves through the merged `paths`.
+fn skif_only_deviation(category: &str, key: &str, foreign: &BTreeSet<String>) -> Option<&'static str> {
+    (category == "unlisted" && foreign.contains(key)).then_some(FOREIGN_TSCONFIG_PATHS)
 }
 
 /// Whether a knip-reported unused file is a known deviation: outside skif's project set (not code), in a directory
@@ -574,6 +611,7 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
     let knip_found = knip_keys(&knip_doc, &root);
     align_export_labels(&mut skif_found, &knip_found);
     let unjudged = not_judged_dirs(&skif_doc);
+    let foreign_paths = foreign_tsconfig_paths_keys(&skif_doc, &root);
     let knip_errors = knip_config_errors(&knip_run.stderr, &root);
     let is_package = |dir: &str| root.join(dir).join("package.json").is_file();
     let knip_failed_dirs: BTreeSet<String> = knip_errors.iter().map(|file| owner_dir(file, &is_package)).collect();
@@ -582,7 +620,7 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
             return Some(KNIP_UNREAD);
         }
         if side == Side::Skif {
-            return None;
+            return skif_only_deviation(category, key, &foreign_paths);
         }
         (category == "files")
             .then(|| classify_file(key, options.include_test_files))
@@ -1010,6 +1048,57 @@ mod tests {
         assert_eq!(classify_file("pkg/fixtures/a.ts", true), None);
         assert_eq!(classify_file("pkg/src/a.ts", false), None);
         assert_eq!(classify_file("pkg/src/latest.tsx", false), None);
+    }
+
+    #[test]
+    fn unlisted_imports_only_foreign_tsconfig_paths_map_split_off() {
+        let skif_doc = json!({ "diagnostics": [
+            { "rule": "unlisted-dependencies", "message": "`shared/value` resolves only through the `paths` of `packages/app/tsconfig.json`; add the mapping to this package's tsconfig or import it by package name",
+              "location": { "path": "/r/packages/lib/src/index.ts" }, "dependency": "shared", "detail": "ForeignTsconfigPaths" },
+            { "rule": "unlisted-dependencies", "message": "`left-pad` is imported but not listed in `package.json`",
+              "location": { "path": "/r/packages/lib/src/index.ts" }, "dependency": "left-pad" },
+            { "rule": "unused-files", "message": "`x.ts` is unused", "location": { "path": "/r/packages/lib/src/x.ts" },
+              "detail": "ForeignTsconfigPaths" },
+        ]});
+        let root = Path::new("/r");
+        let foreign = foreign_tsconfig_paths_keys(&skif_doc, root);
+        assert_eq!(
+            foreign.iter().map(String::as_str).collect::<Vec<_>>(),
+            ["packages/lib/src/index.ts|shared"]
+        );
+        let skif = skif_keys(&skif_doc, root);
+        let knip = Keys::from([(
+            "unlisted".to_owned(),
+            ["packages/lib/src/index.ts|shared"].map(str::to_owned).into(),
+        )]);
+        let split = diff::split_known(&skif, &Keys::new(), &|side, category, key| {
+            (side == Side::Skif)
+                .then(|| skif_only_deviation(category, key, &foreign))
+                .flatten()
+        });
+        let (counts, _) = diff::compare(&split.skif, &split.tool);
+        assert_eq!(
+            counts["unlisted"],
+            Counts {
+                skif_only: 1,
+                tool_only: 0,
+                both: 0
+            },
+            "the plain unlisted import stays a difference"
+        );
+        assert_eq!(split.known[FOREIGN_TSCONFIG_PATHS].skif_only, 1);
+        assert_eq!(split.known.len(), 1, "{:?}", split.known);
+        // A finding both tools report is agreement, never a deviation.
+        let both = diff::split_known(&skif, &knip, &|side, category, key| {
+            (side == Side::Skif)
+                .then(|| skif_only_deviation(category, key, &foreign))
+                .flatten()
+        });
+        assert!(both.known.is_empty(), "{:?}", both.known);
+        assert_eq!(
+            skif_only_deviation("files", "packages/lib/src/index.ts|shared", &foreign),
+            None
+        );
     }
 
     #[test]

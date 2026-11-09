@@ -9,6 +9,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `skif migrate --from knip` notes, in a workspace of several packages, that knip merges the tsconfig `paths` of all
+  workspaces and skif does not, so an import that only another package's `paths` map is reported as
+  `unlisted-dependencies` with the detail `ForeignTsconfigPaths`
+  ([ADR 0075](adrs/0075-imports-only-another-packages-tsconfig-paths-map.md),
+  [#112](https://github.com/Goldziher/skif/issues/112)).
+
+### Changed
+
+- An import that does not resolve for its package but matches a tsconfig `paths` pattern of another workspace package,
+  or of a root tsconfig the package does not follow, with a target that is a source file of the workspace, is still
+  reported by `unlisted-dependencies`, now with the detail `ForeignTsconfigPaths`, a message naming the config that
+  declares the pattern, a related location at it, and help that suggests the mapping or an import by package name
+  instead of a `package.json` entry. An import of a workspace package, of a package a manifest lists or of an installed
+  package keeps the `package.json` advice. knip merges the `paths` of every workspace, so these imports surface after
+  switching from it ([ADR 0075](adrs/0075-imports-only-another-packages-tsconfig-paths-map.md),
+  [#112](https://github.com/Goldziher/skif/issues/112)).
+- `skif-js`: `UnlistedImport` is `#[non_exhaustive]` and has the fields `specifier`, `target` (what the import resolved
+  to) and `foreign_paths` (a new `ForeignMapping`); code outside the crate can no longer build it or match it
+  exhaustively.
+
 ### Fixed
 
 - `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`,
