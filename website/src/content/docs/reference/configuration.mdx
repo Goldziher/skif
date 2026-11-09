@@ -718,9 +718,11 @@ counterpart. These differences are deliberate:
 - `eleventy` reads `addPassthroughCopy("img")` and `addPassthroughCopy({ "src/js": "js" })` calls: a directory makes
   its JavaScript and TypeScript files production entries, a file or glob is one, and a path into `node_modules` names
   a package. A path computed from a local of the config function is not known.
-- `rstest` applies `exclude` (a list or `{ patterns }`) and negated `include` patterns by listing the project's test
-  and mock files, as knip does. Its default test and mock globs are entries without a config and next to a config that
-  excludes nothing; a config that excludes files replaces them. `rs.mock("x")`, `rs.doMock()`, `rs.importActual()` and
+- `rstest` applies `exclude` (a list or `{ patterns }`) and negated `include` patterns as `!` entries below the
+  project's root, so its default test and mock globs do not bring an excluded file back. A `!` entry removes files from
+  all the package's entries, so a file one project excludes is no entry of another project with the same root either;
+  knip lists each project's files instead. Rstest's default exclusions (`node_modules`, `dist`, tool directories) are
+  not added. `rs.mock("x")`, `rs.doMock()`, `rs.importActual()` and
   the other module calls of `rs` and `rstest` are mock imports, like `vi.mock()`.
 - `react-email` credits `@react-email/ui` for a preview command from React Email 6 and
   `@react-email/preview-server` before, by the installed version (`node_modules/react-email/package.json` in the

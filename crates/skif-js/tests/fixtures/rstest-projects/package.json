@@ -1,0 +1,7 @@
+{
+  "name": "rstest-projects",
+  "private": true,
+  "devDependencies": {
+    "@rstest/core": "0.6.0"
+  }
+}
