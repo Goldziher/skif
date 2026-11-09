@@ -123,7 +123,14 @@ fn parse_entries(text: &str) -> Result<Vec<IgnoreEntry>, String> {
 /// Lints `target` with its configuration minus the entries of the baseline file, and returns the workspace and the
 /// findings.
 fn lint_without(mut target: Target, baseline: &[IgnoreEntry]) -> Result<(Workspace, Vec<Diagnostic>), CliError> {
-    target.config.ignore.retain(|entry| !baseline.contains(entry));
+    let recorded: BTreeSet<(Key, Option<&str>)> = baseline
+        .iter()
+        .map(|entry| (key(entry), entry.reason.as_deref()))
+        .collect();
+    target
+        .config
+        .ignore
+        .retain(|entry| !recorded.contains(&(key(entry), entry.reason.as_deref())));
     let root = target.root.clone();
     let linters = Linters::build(std::slice::from_ref(&target))?;
     let run = roots::lint_targets(&root, vec![target], &linters)?
@@ -133,20 +140,27 @@ fn lint_without(mut target: Target, baseline: &[IgnoreEntry]) -> Result<(Workspa
     Ok((run.workspace, run.report.diagnostics))
 }
 
-/// What an entry is compared by: everything but its reason.
-type Key<'a> = (&'a [String], &'a [String], &'a [String]);
+/// What an entry is compared by: its rules, packages and dependencies, each sorted and without repeats, since neither
+/// changes what the entry matches; not its reason.
+type Key = [Vec<String>; 3];
 
-fn key(entry: &IgnoreEntry) -> Key<'_> {
-    (
-        entry.rules.as_slice(),
-        entry.packages.patterns(),
-        entry.dependencies.patterns(),
-    )
+fn key(entry: &IgnoreEntry) -> Key {
+    let sorted = |values: &[String]| {
+        let mut values = values.to_vec();
+        values.sort_unstable();
+        values.dedup();
+        values
+    };
+    [
+        sorted(&entry.rules),
+        sorted(entry.packages.patterns()),
+        sorted(entry.dependencies.patterns()),
+    ]
 }
 
 /// `entries` sorted by their key, each key once: the first entry with it (an existing one before an added one) stays.
 fn sorted_unique(mut entries: Vec<IgnoreEntry>) -> Vec<IgnoreEntry> {
-    entries.sort_by(|left, right| key(left).cmp(&key(right)));
+    entries.sort_by_cached_key(key);
     entries.dedup_by(|later, earlier| key(later) == key(earlier));
     entries
 }
@@ -644,8 +658,8 @@ fn check_baseline(args: &BaselineCheckArgs) -> Result<u8, CliError> {
         ),
         None => Vec::new(),
     };
-    let old_keys: BTreeSet<Key<'_>> = old.iter().map(key).collect();
-    let current_keys: BTreeSet<Key<'_>> = current.iter().map(key).collect();
+    let old_keys: BTreeSet<Key> = old.iter().map(key).collect();
+    let current_keys: BTreeSet<Key> = current.iter().map(key).collect();
     let added: Vec<&IgnoreEntry> = current.iter().filter(|entry| !old_keys.contains(&key(entry))).collect();
     let removed: Vec<&IgnoreEntry> = old.iter().filter(|entry| !current_keys.contains(&key(entry))).collect();
 
@@ -701,6 +715,18 @@ mod tests {
         let selector = Selector::new([literal("x@*")]).unwrap();
         assert!(selector.matches("x@*", false));
         assert!(!selector.matches("x@1.0.0", false));
+    }
+
+    #[test]
+    fn entries_compare_by_their_patterns_in_any_order() {
+        let written = entry(&["b-rule", "a-rule"], &["y", "x"], &["d"], Some("edited"));
+        let reordered = entry(&["a-rule", "b-rule", "a-rule"], &["x", "y"], &["d"], None);
+        assert_eq!(key(&written), key(&reordered));
+        assert_ne!(
+            key(&written),
+            key(&entry(&["a-rule", "b-rule"], &["x"], &["d"], None))
+        );
+        assert_eq!(sorted_unique(vec![written.clone(), reordered]), [written]);
     }
 
     #[test]
