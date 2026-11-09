@@ -743,48 +743,6 @@ fn entries_named_by_a_root_plugin_config_match_files_of_member_packages() {
 }
 
 #[test]
-fn a_test_match_with_an_optional_character_leaves_the_other_files_of_the_test_directory_judged() {
-    let diagnostics = lint_files(
-        &[
-            (
-                "package.json",
-                r#"{"name":"root","private":true,"workspaces":["packages/*"],"devDependencies":{"@playwright/test":"1"}}"#,
-            ),
-            (
-                "playwright.config.ts",
-                "export default { projects: [{ testDir: './packages/store/', testMatch: /.*\\.e2e\\.tsx?/ }] };\n",
-            ),
-            (
-                "packages/store/package.json",
-                r#"{"name":"store","private":true,"main":"index.ts"}"#,
-            ),
-            (
-                "packages/store/index.ts",
-                "import meta, { used } from './meta';\nexport const value = [meta, used];\n",
-            ),
-            (
-                "packages/store/meta.ts",
-                "export const used = 1;\nexport const metadata = { name: 'store' };\nexport default metadata;\n",
-            ),
-            (
-                "packages/store/checkout.e2e.tsx",
-                "import { used } from './meta';\nexport const run = used;\n",
-            ),
-        ],
-        "",
-    );
-    assert_eq!(
-        found(&diagnostics, "unused-exports"),
-        ["packages/store/meta.ts: metadata"]
-    );
-    assert_eq!(
-        found(&diagnostics, "duplicate-exports"),
-        ["packages/store/meta.ts: metadata"]
-    );
-    assert_eq!(found(&diagnostics, "unused-files"), none());
-}
-
-#[test]
 fn a_package_may_import_what_the_package_that_contains_it_lists() {
     let diagnostics = lint_files(
         &[

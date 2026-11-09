@@ -107,39 +107,26 @@ fn match_patterns(value: &ConfigValue) -> Vec<String> {
 }
 
 /// A glob matching at least the files a regular expression of file-name fragments matches: `.*\.setup\.js` becomes
-/// `**/*.setup.js*` and `.*\.e2e\.tsx?` becomes `**/*.e2e.ts{x,}*`. `None` when the expression uses more than
-/// literals, `.*`, `?` after a literal character, anchors and alternation groups.
+/// `**/*.setup.js*`. `None` when the expression uses more than literals, `.*`, anchors and alternation groups.
 fn regex_glob(source: &str) -> Option<String> {
     let anchored_end = source.ends_with('$') && !source.ends_with("\\$");
     let body = source.strip_prefix('^').unwrap_or(source);
     let body = if anchored_end { body.strip_suffix('$')? } else { body };
     let mut glob = String::new();
     let mut depth = 0_u32;
-    // The literal character just written, which a following `?` makes optional.
-    let mut last_literal: Option<char> = None;
     let mut chars = body.chars().peekable();
     while let Some(c) = chars.next() {
-        let literal = match c {
+        match c {
             '\\' => {
                 let escaped = chars.next()?;
-                if escaped.is_ascii_alphanumeric() || matches!(escaped, '*' | '?' | '[' | ']' | '{' | '}' | ',') {
+                if escaped.is_ascii_alphanumeric() {
                     return None;
                 }
                 glob.push(escaped);
-                Some(escaped)
-            }
-            '?' => {
-                let optional = last_literal.take()?;
-                glob.pop();
-                glob.push('{');
-                glob.push(optional);
-                glob.push_str(",}");
-                None
             }
             '.' if chars.peek() == Some(&'*') => {
                 chars.next();
                 glob.push('*');
-                None
             }
             '(' => {
                 if chars.peek() == Some(&'?') {
@@ -150,24 +137,15 @@ fn regex_glob(source: &str) -> Option<String> {
                 }
                 depth += 1;
                 glob.push('{');
-                None
             }
             ')' => {
                 depth = depth.checked_sub(1)?;
                 glob.push('}');
-                None
             }
-            '|' if depth > 0 => {
-                glob.push(',');
-                None
-            }
-            c if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/') => {
-                glob.push(c);
-                Some(c)
-            }
+            '|' if depth > 0 => glob.push(','),
+            c if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/') => glob.push(c),
             _ => return None,
-        };
-        last_literal = literal;
+        }
     }
     if depth != 0 || glob.is_empty() {
         return None;
