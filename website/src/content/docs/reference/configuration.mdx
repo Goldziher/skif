@@ -694,10 +694,13 @@ counterpart. These differences are deliberate:
 - `unplugin-auto-import` and `unplugin-vue-components` make the declaration files they generate (`auto-imports.d.ts`,
   `components.d.ts`) entries, so the components and composables these import are used; knip compiles every `.vue`
   file against them instead, which also tells which of them a template uses.
-- `vue` reads an object `configureWebpack` as a webpack config and does not call a function one, and credits
+- `vue` reads `configureWebpack` as a webpack config. A function one is called statically with knip's base config
+  (`mode`, empty `entry`, `resolve`, `plugins` and `module.rules`): the object it returns, or the base config as it
+  leaves it (`config.entry = { … }`), is read; what it reads from its argument's members is not known. It credits
   `@vue/cli-plugin-eslint` when a script runs `vue-cli-service lint`.
-- `serverless-framework` reads `${file(./x.yml)}` and `${file(./x.yml):a.b}` variables, but no other variable kind; a
-  `handler` holding another variable or a glob is skipped.
+- `serverless-framework` reads `${file(./x.yml)}` and `${file(./x.yml):a.b}` variables. In a `handler`, a
+  `${self:a.b}` variable is the string at `a.b` of the config, and any other variable (`${opt:stage}`, `${env:DIR}`)
+  is a `*` wildcard, as its value is known only when the CLI runs; a handler that is a glob is an entry glob.
 - `github-action` leaves out the `dist/` and `build/` files an `action.yml` runs, as build output; knip also removes
   them from the project files.
 - `azure-pipelines` (the `script` and `bash` steps of `azure-pipelines.yml`, `.azure-pipelines/**` and the templates
@@ -705,14 +708,32 @@ counterpart. These differences are deliberate:
   is no plugin: the command of `glob -c "<command>" <patterns>` is read where the script parser meets it.
 - `sst`, `quasar`, `stencil` and `orval` read their options wherever the config writes them (a `handler` inside
   `run()`, Stencil's `export const config`), as knip does. `sst` also reads the handlers of the modules
-  `sst.config.ts` imports by relative path (`await import("./infra/api")`, `./infra/api.js` for `infra/api.ts`), and
-  cuts the export off a `.route()` handler; it does not read SST 2 stacks. `quasar` takes the first `sourceFiles`,
+  `sst.config.ts` imports by relative path (`await import("./infra/api")`, `./infra/api.js` for `infra/api.ts`), so
+  the SST 2 stacks of `app.stack(…)` too, and cuts the export off a `.route()` handler. It also reads the handler
+  shorthand of SST 2 constructs: the string values of `routes`, `subscribers`, `notifications` and `targets`, and a
+  `function`, `job` or `consumer` string. `quasar` takes the first `sourceFiles`,
   `boot` and `css` written anywhere.
-- `qwik` and `stencil` do not compile `.mdx` or Sass files, and `stencil` does not mark component style URLs as used.
-  `eleventy` does not read passthrough copies. `rstest` does not apply `exclude` and does not read `rs.mock()`.
-- `react-email` credits both `@react-email/ui` and `@react-email/preview-server` for a preview command, as the
-  installed major version is not known. `payload` keeps migrations and `payload-types.ts` from being reported
-  through `ignore`. `mise` does not read file tasks. `taskfile` skips commands holding a `{{…}}` template.
+- `qwik` and `stencil` do not compile `.mdx` or Sass files. `stencil`'s component style URLs are imports of the
+  component (see above), so the stylesheets are used.
+- `eleventy` reads `addPassthroughCopy("img")` and `addPassthroughCopy({ "src/js": "js" })` calls: a directory makes
+  its JavaScript and TypeScript files production entries, a file or glob is one, and a path into `node_modules` names
+  a package. A path computed from a local of the config function is not known.
+- `rstest` applies `exclude` (a list or `{ patterns }`) and negated `include` patterns by listing the project's test
+  and mock files, as knip does. Its default test and mock globs are entries without a config and next to a config that
+  excludes nothing; a config that excludes files replaces them. `rs.mock("x")`, `rs.doMock()`, `rs.importActual()` and
+  the other module calls of `rs` and `rstest` are mock imports, like `vi.mock()`.
+- `react-email` credits `@react-email/ui` for a preview command from React Email 6 and
+  `@react-email/preview-server` before, by the installed version (`node_modules/react-email/package.json` in the
+  package or an ancestor), else by the first number of the declared range; both when neither is known. `payload`
+  keeps migrations and `payload-types.ts` from being reported through `ignore`.
+- `mise` reads file tasks under `mise-tasks/`, `.mise-tasks/`, `mise/tasks/`, `.mise/tasks/`, `.config/mise/tasks/`
+  and the directories of `task_config.includes`: a JavaScript or TypeScript file is an entry, and a shell script (no
+  shebang, or `sh`, `bash`, `zsh`, `dash` or `ksh`) is a script run in its `#MISE dir="…"` or the package; a task for
+  another interpreter, or a file without a shebang whose extension is not a shell's, is not read. knip reads no file
+  tasks.
+- `taskfile` expands `{{.NAME}}` from the task's and the Taskfile's `vars` (a string only), `{{.ROOT_DIR}}` and
+  `{{.TASKFILE_DIR}}`; any other template (`{{.CLI_ARGS}}`, an `sh:` variable, a function) is a word that is not
+  known, so the rest of the command is still read, and an include holding one is skipped.
   `unplugin-vue-i18n` is no plugin: knip's has nothing to port.
 - `marko` does not compile `.marko` files or read the tag libraries of installed packages; it credits `marko` when
   a template exists. `unplugin-vue-markdown` is no plugin: skif compiles no Markdown.
