@@ -626,6 +626,72 @@ fn merge_config_keeps_the_known_part_and_is_incomplete_for_the_imported_one() {
     assert!(out.entries_incomplete);
 }
 
+/// A spread of a conditional object literal (`...(tmp && { cacheDir })`, `...(ci ? { … } : {})`) that sets no key
+/// the plugin reads entries from leaves the entries complete, as does a ternary on a key that names no file.
+#[test]
+fn a_conditional_spread_of_object_literals_is_complete() {
+    let sources = [
+        "import { defineConfig } from 'vitest/config';\n\
+         const tmp = process.env.TEST_TMPDIR;\n\
+         export default defineConfig({\n\
+           ...(tmp && { cacheDir: `${tmp}/vite` }),\n\
+           test: { include: ['**/*.test.ts'], reporters: process.env.CI ? ['default', 'junit'] : ['default'] },\n\
+         });",
+        "import { defineConfig } from 'vitest/config';\n\
+         const tmp = process.env.TEST_TMPDIR;\n\
+         export default defineConfig({\n\
+           ...(tmp ? { cacheDir: `${tmp}/vite` } : {}),\n\
+           test: { include: ['**/*.test.ts'], reporters: process.env.CI ? ['default', 'junit'] : ['default'] },\n\
+         });",
+    ];
+    for source in sources {
+        let results = run(&[("vitest.config.ts", source)], &["vitest"], &[]);
+        let out = output(&results, "vitest");
+        assert_eq!(out.incomplete_reasons, [], "{source}");
+        assert!(!out.entries_incomplete, "{source}");
+        assert_entries(&out.entries, &["**/*.test.ts"]);
+    }
+}
+
+/// The entry keys of every branch of a conditional spread are credited; a branch that is not known leaves the entries
+/// incomplete for an unknown spread.
+#[test]
+fn a_conditional_spread_credits_the_entries_of_every_branch() {
+    let source = "export default {\n\
+                    test: { include: ['src/**/*.test.ts'] },\n\
+                    ...(process.env.INTEGRATION\n\
+                      ? { test: { include: ['it/**/*.it.ts'], setupFiles: ['./it/setup.ts'] } }\n\
+                      : { test: { include: ['unit/**/*.test.ts'], globalSetup: ['./unit/global.ts'] } }),\n\
+                    ...(process.env.DB && { test: { setupFiles: ['./db/setup.ts'] } }),\n\
+                  };";
+    let results = run(&[("vitest.config.ts", source)], &["vitest"], &[]);
+    let out = output(&results, "vitest");
+    assert_eq!(out.incomplete_reasons, []);
+    assert_entries(
+        &out.entries,
+        &[
+            "it/**/*.it.ts",
+            "unit/**/*.test.ts",
+            "it/setup.ts",
+            "unit/global.ts",
+            "db/setup.ts",
+        ],
+    );
+
+    let unknown = "import base from './base';\n\
+                   export default { ...(process.env.CI ? base : { test: { include: ['a/**/*.test.ts'] } }) };";
+    let results = run(&[("vitest.config.ts", unknown)], &["vitest"], &[]);
+    let out = output(&results, "vitest");
+    assert!(out.entries_incomplete);
+    assert!(
+        out.incomplete_reasons
+            .iter()
+            .any(|reason| reason.cause == IncompleteCause::UnknownSpread),
+        "{:?}",
+        out.incomplete_reasons
+    );
+}
+
 #[test]
 fn regex_alias_finds_become_prefix_aliases_or_computed_ones() {
     let config = r"
