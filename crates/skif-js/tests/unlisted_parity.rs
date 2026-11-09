@@ -228,3 +228,25 @@ fn binaries_that_workflows_and_execa_calls_run_are_reported_at_the_file() {
         ]
     );
 }
+
+/// A source file that runs `pnpm <name>` or `npm run <name>` runs its package's script of that name: the script's
+/// binaries are judged, the script's name is no binary.
+#[test]
+fn child_process_commands_follow_the_scripts_of_their_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","main":"src/index.ts","scripts":{"download":"tsx scripts/download.ts","typecheck":"tsc --noEmit"},"devDependencies":{"tsx":"4.0.0"}}"#,
+        ),
+        (
+            "src/index.ts",
+            "import { execSync } from 'node:child_process';\n\
+             execSync('pnpm download');\nexecSync('npm run typecheck');\nexport const done = true;\n",
+        ),
+        ("scripts/download.ts", "export const download = 1;\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        ["package.json: tsc", "src/index.ts: tsc"]
+    );
+}

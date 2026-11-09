@@ -15,7 +15,7 @@ use crate::discover::relative;
 use crate::fixture::in_fixture_directory;
 use crate::graph::{ModuleGraph, ModuleId};
 use crate::lockfile;
-use crate::scripts::ScriptBinary;
+use crate::scripts::{ScriptBinary, script_context};
 use crate::setup::Setup;
 use crate::specifier::{RUNTIME_PACKAGES, package_name, typed_package, types_package};
 use crate::tsconfig_paths::resolve_extends;
@@ -715,7 +715,10 @@ impl DependencyUsage {
                 }
             }
             if !module.info.commands.is_empty() && !module.ignored && !in_fixture_directory(&module.path) {
-                self.collect_commands(setup, module.owner, &module.path, &module.info.commands);
+                let context = workspace
+                    .package(module.owner)
+                    .map_or_else(ScriptContext::new, |package| script_context(package.manifest.value()));
+                self.collect_commands(setup, module.owner, &module.path, &module.info.commands, &context);
             }
             // `declare module 'pkg'` augments the package, which has to be installed for that to compile. It stays
             // out of `imports`: declaring a module the project does not list is not an unlisted import.
@@ -863,12 +866,18 @@ impl DependencyUsage {
     }
 
     /// The binaries the `node:child_process` commands of the source file `file` (relative to the root) run, owned by
-    /// package `id`: a binary fetched on demand credits the dependency that provides it, any other is a use of one or
-    /// unlisted at the file.
-    fn collect_commands(&mut self, setup: &Setup, id: PackageId, file: &Path, commands: &[String]) {
-        let context = ScriptContext::new();
+    /// package `id` whose scripts `context` holds: a binary fetched on demand credits the dependency that provides it,
+    /// any other is a use of one or unlisted at the file.
+    fn collect_commands(
+        &mut self,
+        setup: &Setup,
+        id: PackageId,
+        file: &Path,
+        commands: &[String],
+        context: &ScriptContext,
+    ) {
         for command in commands {
-            let info = parse_script(command, &context);
+            let info = parse_script(command, context);
             for dependency in &info.dependencies {
                 if let Some(found) = self.find_listed(id, &dependency.name) {
                     self.reference(found, &dependency.name);
