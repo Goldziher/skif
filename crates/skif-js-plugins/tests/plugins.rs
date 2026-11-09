@@ -3130,6 +3130,19 @@ fn vue_reads_configure_webpack_and_the_lint_script() {
     let out = output(&results, "vue");
     assert_entries(&out.entries, &["src/admin.ts"]);
     assert_deps(out, &["markdown-loader", "@vue/cli-plugin-eslint"]);
+    let config = (
+        "vue.config.js",
+        r#"module.exports = { configureWebpack(config) { return { module: { rules: [{ test: /\.md$/, loader: "markdown-loader" }] } }; } };"#,
+    );
+    assert_deps(output(&resolve(&[config], &["vue"]), "vue"), &["markdown-loader"]);
+    let config = (
+        "vue.config.js",
+        r#"module.exports = { configureWebpack: (config) => { config.entry = { admin: "./src/admin.ts" }; config.plugins.push(new Plugin()); } };"#,
+    );
+    let results = resolve(&[config], &["vue"]);
+    let out = output(&results, "vue");
+    assert_entries(&out.entries, &["src/admin.ts"]);
+    assert!(!out.entries_incomplete);
     let results = resolve_with_scripts(&[], &["vue"], &[("build", "vue-cli-service build && eslint lint")]);
     assert_absent(output(&results, "vue"), &["@vue/cli-plugin-eslint"]);
     let results = resolve_with_scripts(&[], &["vue"], &[("build", "vue-cli-service build --skip lint")]);
