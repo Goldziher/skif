@@ -106,6 +106,28 @@ fn the_types_in_a_destructured_export_belong_to_it() {
 }
 
 #[test]
+fn a_re_export_of_a_binding_in_the_signature_of_a_used_export_is_used() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        ("index.ts", "import { Service } from './service';\nnew Service();\n"),
+        (
+            "options.ts",
+            "export interface Options { a: string }\nexport interface Other { b: string }\n",
+        ),
+        (
+            "service.ts",
+            "import type { Options } from './options';\nexport type { Options, Other } from './options';\n\
+             export class Service { run(options: Options): void {} }\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unused-types"),
+        ["options.ts: Other", "service.ts: Other"],
+        "`Options` names the parameter type of the used `Service`"
+    );
+}
+
+#[test]
 fn a_new_url_target_is_used_as_a_whole() {
     let diagnostics = lint_files(&[
         PACKAGE,
