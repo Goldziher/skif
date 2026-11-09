@@ -112,14 +112,18 @@ mod tests {
     #[test]
     fn captures_output_and_exit_code() {
         let dir = scratch("ok");
-        let got = capture(
-            Command::new("sh").args(["-c", "echo out; echo err >&2; exit 3"]),
-            &dir,
-            "t",
-            // Generous: the first `sh` a Windows runner starts (Git Bash) can take seconds.
-            Duration::from_secs(60),
-        )
-        .unwrap();
+        // Git Bash's `sh` on Windows runners sometimes reports exit code 256 instead of the script's own, so
+        // Windows runs the same script through `cmd`.
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "(echo out)& (echo err)1>&2& exit /b 3"]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", "echo out; echo err >&2; exit 3"]);
+            command
+        };
+        let got = capture(&mut command, &dir, "t", Duration::from_secs(60)).unwrap();
         assert_eq!(got.code, Some(3));
         assert_eq!(String::from_utf8_lossy(&got.stdout).trim(), "out");
         assert_eq!(got.stderr_summary(), "err");

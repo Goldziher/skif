@@ -1238,6 +1238,55 @@ fn json_names_the_packages_whose_files_and_dependencies_were_not_judged() {
     );
 }
 
+#[test]
+fn a_conditional_spread_in_a_vitest_config_leaves_the_package_judged() {
+    let dir = tempfile::tempdir().unwrap();
+    let put = |relative: &str, content: &str| {
+        let path = dir.path().join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    };
+    fs::create_dir_all(dir.path().join(".git")).unwrap();
+    put(
+        "package.json",
+        r#"{"name":"app","version":"1.0.0","private":true,"type":"module","dependencies":{"left-pad":"1.3.0"},"devDependencies":{"vitest":"3.2.4"}}"#,
+    );
+    put("src/add.ts", "export const add = (a: number, b: number) => a + b;\n");
+    put(
+        "src/add.test.ts",
+        "import { expect, test } from 'vitest';\nimport { add } from './add';\ntest('add', () => expect(add(1, 2)).toBe(3));\n",
+    );
+    put(
+        "vitest.config.ts",
+        "import { defineConfig } from 'vitest/config';\n\
+         const tmp = process.env.TEST_TMPDIR;\n\
+         export default defineConfig({\n\
+           ...(tmp && { cacheDir: `${tmp}/vite` }),\n\
+           test: {\n\
+             include: ['**/*.test.ts'],\n\
+             reporters: process.env.CI ? ['default', 'junit'] : ['default'],\n\
+           },\n\
+         });\n",
+    );
+
+    let json = run(skif().args(["--format", "json"]).arg(dir.path()));
+    let document = json.json();
+    assert!(document.get("incomplete-packages").is_none(), "{}", json.stdout);
+    let unused: Vec<&str> = document["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == "unused-dependencies")
+        .filter_map(|diagnostic| diagnostic["message"].as_str())
+        .collect();
+    assert_eq!(
+        unused,
+        ["`left-pad` is listed in `dependencies` but never used"],
+        "{}",
+        json.stdout
+    );
+}
+
 fn dependency_versions(dir: &Path, member: &str, section: &str) -> Value {
     let text = fs::read_to_string(dir.join("packages").join(member).join("package.json")).unwrap();
     serde_json::from_str::<Value>(&text).unwrap()[section].clone()
