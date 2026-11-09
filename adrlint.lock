@@ -390,3 +390,8 @@ blake3 = "7774fd0976ceed66731ac85519fa78e63ab64bf2dbd01209a76c17cd6bb9222e"
 number = 78
 status = "accepted"
 blake3 = "6471642cfc88d7ac22591def79698a697902e801a81a8e380673297c9254a90c"
+
+[adrs."adrs/0079-namespace-reads-through-spies-and-imports-awaited-together.md"]
+number = 79
+status = "accepted"
+blake3 = "22ae44d47fcc639dcfbec4b034a96ceb19c5ec5a7e2b9a46c6a8fa1495e85c96"
