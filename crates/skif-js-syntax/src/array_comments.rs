@@ -41,10 +41,14 @@ const DIRECTIVES: &[&str] = &[
 ];
 
 /// Whether the comment `text` (`block` for a `/* */` comment) is a tool directive rather than an explanation: one of
-/// [`DIRECTIVES`] followed by the end of the text, a space or a colon, or the block comment ESLint reads as rule
+/// [`DIRECTIVES`] followed by the end of the text, a space or a colon, or the block comment `ESLint` reads as rule
 /// configuration, `/* eslint <rule>: <setting> */`.
 fn is_directive(text: &str, block: bool) -> bool {
-    let whole_word = |rest: &str| rest.chars().next().is_none_or(|next| next.is_whitespace() || next == ':');
+    let whole_word = |rest: &str| {
+        rest.chars()
+            .next()
+            .is_none_or(|next| next.is_whitespace() || next == ':')
+    };
     DIRECTIVES
         .iter()
         .any(|directive| text.strip_prefix(directive).is_some_and(whole_word))
@@ -54,7 +58,10 @@ fn is_directive(text: &str, block: bool) -> bool {
 /// Whether `text` is `eslint` followed by a rule name and a colon, as in `eslint no-console: "off"` or
 /// `eslint @typescript-eslint/no-explicit-any: 0`.
 fn is_eslint_rule_config(text: &str) -> bool {
-    let Some(rest) = text.strip_prefix("eslint").filter(|rest| rest.starts_with(char::is_whitespace)) else {
+    let Some(rest) = text
+        .strip_prefix("eslint")
+        .filter(|rest| rest.starts_with(char::is_whitespace))
+    else {
         return false;
     };
     let Some((rule, _)) = rest.trim_start().split_once(':') else {
@@ -157,8 +164,8 @@ fn constants<'s, 'a>(program: &'s Program<'a>) -> HashMap<&'s str, &'s Expressio
         .iter()
         .filter_map(|statement| match statement {
             Statement::VariableDeclaration(declaration) => Some(&**declaration),
-            Statement::ExportNamedDeclaration(export) => match &export.declaration {
-                Some(Declaration::VariableDeclaration(declaration)) => Some(&**declaration),
+            Statement::ExportDeclaration(export) => match &export.declaration {
+                Declaration::VariableDeclaration(declaration) => Some(&**declaration),
                 _ => None,
             },
             _ => None,
@@ -254,7 +261,8 @@ impl Roots<'_, '_> {
                         other => static_string(other),
                     });
                 let comment = ElementComment::new(path.clone(), index, value, text);
-                self.out.push(if after_spread { comment.after_spread() } else { comment });
+                self.out
+                    .push(if after_spread { comment.after_spread() } else { comment });
             }
             if let Some(expression) = element.as_expression() {
                 path.push(PathSegment::Index(index));
@@ -420,7 +428,10 @@ mod tests {
                 (Some("@ts-rest/core"), "@ts-rest/core is pulled in by codegen"),
                 (Some("eslint-config-acme"), "eslint config resolves it"),
                 (Some("eslint-config-other"), "eslint config resolves this one too"),
-                (Some("eslint-formatter-x"), "eslint: the line form never configures a rule"),
+                (
+                    Some("eslint-formatter-x"),
+                    "eslint: the line form never configures a rule"
+                ),
                 (Some("oxlint-plugin-bar"), "oxlint-plugin-bar is loaded by name"),
                 (Some("c8"), "c8 is run by the coverage job"),
             ]
