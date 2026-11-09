@@ -57,7 +57,7 @@ reason = "baseline"
 ```
 
 * `rules` is the rule of the finding. `packages` is the package's name, or its directory relative to the root when
-  another package has the same name; it is left out for a root package without a name. `dependencies` is
+  another package has the same name. `dependencies` is
   `name@specifier` when the finding carries the specifier as written (every version rule does), so the entry silences
   that version and no other; otherwise the dependency name.
 * Characters that are glob syntax in a selector (`*?[]{}`) are written as one-character classes (`[*]`), so an entry
@@ -65,8 +65,10 @@ reason = "baseline"
 * `reason` is `baseline`, or the text of `--reason`. A reason edited by hand is kept by later writes.
 * Errors and warnings are recorded; `info` findings never fail a run and are left out. A finding with neither a
   package nor a dependency is not recorded either: an entry for it would turn its rule off for the whole workspace.
-  `write` lists such findings on stderr (and in `unrecorded` of the JSON document), and the lint run still reports
-  them.
+  Nor is a finding in a root package without a name of its own (it has none, or shares it with another package):
+  the root's directory is the root itself, so no package pattern selects the root alone, and an entry without one
+  would silence the same finding in every package added later. `write` lists such findings on stderr with the cause
+  (and in `unrecorded` of the JSON document), and the lint run still reports them; naming the root records them.
 * Entries are sorted by rules, packages and dependencies, and identical ones are written once. The file starts with a
   comment saying which commands maintain it. Comments added inside it are not kept.
 
@@ -111,7 +113,8 @@ missing current baseline file is an empty one.
 Each command takes `--format human|json`. The JSON document has `version`, `skif`, `command`, `file` (relative to the
 root), `entries` (how many the file holds), `added` and `removed` (entries as `rules`, `packages`, `dependencies`
 and `reason`); `write` adds `extended` (the configuration file whose `extends` gained the baseline, else `null`) and
-`unrecorded` (`rule`, `package`, `dependency`, `message`), `write` and `prune` add `written`, and `check` adds
+`unrecorded` (`rule`, `package`, `dependency`, `message` and `cause`, `workspace-wide` or `unnamed-root`), `write` and
+`prune` add `written`, and `check` adds
 `base`. `write` and `prune` exit `0` when they finished and `2` when they could not run; `check` exits `0` when the
 baseline gained no entry, `1` when it did and `2` when it could not run.
 

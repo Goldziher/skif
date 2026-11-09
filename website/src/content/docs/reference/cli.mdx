@@ -206,7 +206,8 @@ name) and the dependency. A finding that carries the specifier as written, as ev
 as `name@specifier`, so the entry silences only that version: a member moving to a third version, or a new member on
 another one, fails the run again. Glob characters in a name or specifier are written as one-character classes (`[*]`)
 so the entry matches literally. `info` findings are not recorded, and neither is a finding with neither a package nor
-a dependency, which an entry could only cover by turning its rule off; `write` lists those on stderr. Entries are
+a dependency, which an entry could only cover by turning its rule off, nor one in a root package without a name of its
+own, which no package pattern selects alone; `write` lists those on stderr with the cause. Entries are
 sorted, each written once, and the file holds nothing but `[[ignore]]` entries: the commands rewrite it whole, so a
 comment written inside it is not kept, while an edited `reason` is.
 
@@ -216,7 +217,7 @@ comment written inside it is not kept, while an edited `reason` is.
 | `--reason <TEXT>` | `write` only: the `reason` of the entries it adds. Default `baseline`. |
 | `--base <REF>` | `check` only: compare with the baseline file at this git revision (`origin/main`), read with `git show`. A file that did not exist at the revision is an empty baseline. A revision that is not a commit is a usage error. |
 | `--base-file <FILE>` | `check` only: compare with this file instead, for runs without git. One of `--base` and `--base-file` is required. |
-| `--format <human\|json>` | `json` prints one document with `version`, `skif`, `command`, `file` (relative to the root), `entries` (how many the file holds), `added` and `removed` (each entry with `rules`, `packages`, `dependencies` and `reason`); `write` adds `extended` (the configuration file whose `extends` gained the baseline, else `null`) and `unrecorded` (`rule`, `package`, `dependency`, `message`), `write` and `prune` add `written`, `check` adds `base`. |
+| `--format <human\|json>` | `json` prints one document with `version`, `skif`, `command`, `file` (relative to the root), `entries` (how many the file holds), `added` and `removed` (each entry with `rules`, `packages`, `dependencies` and `reason`); `write` adds `extended` (the configuration file whose `extends` gained the baseline, else `null`) and `unrecorded` (`rule`, `package`, `dependency`, `message`, and `cause`: `workspace-wide` or `unnamed-root`), `write` and `prune` add `written`, `check` adds `base`. |
 
 `write` and `prune` exit `0` when they finished and `2` when they could not run (a baseline file with other keys, a
 missing file for `prune`, an invalid configuration). `check` exits `0` when the baseline gained no entry, `1` when it
