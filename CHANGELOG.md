@@ -11,6 +11,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `unresolved-imports` no longer reports a missing file that the `.gitignore` of a directory other than the root or
+  a package lists (any directory up to the git repository root, so also one above a nested root), an import of an
+  ignored path below another `rootDirs` directory that is not generated yet (React Router's `./+types/root`), or a
+  root-relative import of a JSON or other non-code file such as `/vite.svg`
+  ([#99](https://github.com/Goldziher/skif/issues/99)).
 - The `vercel` plugin is enabled by a `vercel.json` too and parses its `buildCommand`, `devCommand`,
   `installCommand` and `ignoreCommand` as scripts, so `"buildCommand": "pnpm turbo build"` keeps `turbo` used
   ([#98](https://github.com/Goldziher/skif/issues/98)).
