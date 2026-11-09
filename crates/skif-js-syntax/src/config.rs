@@ -1012,6 +1012,9 @@ pub fn extract_imported_calls(
 /// program imports from `modules`, plus `globals`.
 type ImportedFunctions = HashMap<String, (String, Option<String>)>;
 
+/// The entries of one object literal, as a spread branch lists them.
+type Entries<'v> = &'v [(String, ConfigValue)];
+
 fn imported_functions(program: &Program<'_>, modules: &[&str], globals: &[(&str, &str)]) -> ImportedFunctions {
     let mut imported: ImportedFunctions = globals
         .iter()
@@ -2668,7 +2671,13 @@ fn entry_value(entries: &[(String, ConfigValue)], key: &str) -> Option<ConfigVal
         .iter()
         .rev()
         .find(|(name, _)| name == key || name == "...")
-        .map(|(name, value)| if name == "..." { ConfigValue::Unknown } else { value.clone() })
+        .map(|(name, value)| {
+            if name == "..." {
+                ConfigValue::Unknown
+            } else {
+                value.clone()
+            }
+        })
 }
 
 /// The entries a spread of one of `branches` adds after `before`; see [`any_entries`].
@@ -2737,7 +2746,7 @@ fn any_of(values: &[Option<ConfigValue>]) -> ConfigValue {
         }
         return ConfigValue::Array(items);
     }
-    let objects: Option<Vec<Option<&[(String, ConfigValue)]>>> = values
+    let objects: Option<Vec<Option<Entries<'_>>>> = values
         .iter()
         .map(|value| match value {
             None => Some(None),
@@ -2745,7 +2754,9 @@ fn any_of(values: &[Option<ConfigValue>]) -> ConfigValue {
             Some(_) => None,
         })
         .collect();
-    objects.map_or(ConfigValue::Unknown, |objects| ConfigValue::Object(any_entries(&objects, &[])))
+    objects.map_or(ConfigValue::Unknown, |objects| {
+        ConfigValue::Object(any_entries(&objects, &[]))
+    })
 }
 
 /// Whether a value is truthy in JavaScript; `None` when it is unknown.
