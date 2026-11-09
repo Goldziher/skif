@@ -3757,13 +3757,19 @@ fn stencil_global_files_tsconfig_and_setup() {
 #[test]
 fn eleventy_input_and_data_directories() {
     let results = resolve(
-        &[(
-            "eleventy.config.js",
-            r#"module.exports = function (eleventyConfig) {
+        &[
+            (
+                "eleventy.config.js",
+                r#"module.exports = function (eleventyConfig) {
               eleventyConfig.addPassthroughCopy("img");
+              eleventyConfig.addPassthroughCopy({ "site/js": "js", "static/*.mjs": "static" });
+              eleventyConfig.addPassthroughCopy("./node_modules/@fontsource/inter/index.css");
               return { dir: { input: "site", data: "data" }, templateFormats: ["md", "11ty.js"] };
             };"#,
-        )],
+            ),
+            ("img/logo.svg", "<svg/>"),
+            ("site/js/menu.js", ""),
+        ],
         &["@11ty/eleventy"],
     );
     let out = output(&results, "eleventy");
@@ -3773,8 +3779,12 @@ fn eleventy_input_and_data_directories() {
             "site/data/**/*.{js,cjs,mjs}",
             "site/**/*.{md,11ty.js}",
             "site/**/*.11tydata.{js,cjs,mjs}",
+            "img/**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}",
+            "site/js/**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}",
+            "static/*.mjs",
         ],
     );
+    assert_deps(out, &["@fontsource/inter"]);
 }
 
 #[test]
