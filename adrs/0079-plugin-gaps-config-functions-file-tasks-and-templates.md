@@ -55,10 +55,11 @@ of that name, whatever object it is called on.
   not follow does not mark the entries incomplete: Vue CLI takes its entries from `pages` and `src/main`.
 * `eleventy` reads `addPassthroughCopy` calls: a directory makes its JavaScript and TypeScript files production
   entries, a file or glob is one, and a path into `node_modules` names a package.
-* `rstest` applies `exclude` (a list or `{ patterns }`) and negated `include` patterns by listing the project's test
-  and mock files, as knip does. The default test and mock globs move from the row to the resolver: they are entries
-  without a config and next to a config that excludes nothing, and a config that excludes files replaces them, as
-  otherwise they would bring the excluded files back. `rs.mock()`, `rs.doMock()` and the other module calls of `rs`
+* `rstest` applies `exclude` (a list or `{ patterns }`) and negated `include` patterns as `!` entries below the
+  project's root. knip lists each project's files instead; a `!` entry needs no walk (no depth limit, no git-ignored
+  build output) and removes the files it matches from every entry of the package, so the default test and mock globs
+  stay and do not bring an excluded file back. Rstest's default exclusions are not added, as they would drop
+  `node_modules`, `dist` and tool directories from every plugin's entries. `rs.mock()`, `rs.doMock()` and the other module calls of `rs`
   and `rstest` are mock imports like `vi.mock()`, so the parse cache schema is raised.
 * `mise` reads file tasks under `mise-tasks/`, `.mise-tasks/`, `mise/tasks/`, `.mise/tasks/`, `.config/mise/tasks/`
   and `task_config.includes`: a JavaScript or TypeScript file is an entry, a shell script (no shebang with no other
@@ -80,8 +81,8 @@ of that name, whatever object it is called on.
 * Neutral, because a `*` for an unknown Serverless variable may match more files than the variable names; they are
   entries, so nothing is reported for them.
 * Bad, because a `configureWebpack` that reads its argument's members or a file task for another interpreter is
-  still not read, and `rstest` lists the files of an excluding project, so a new test file needs a new run, as with
-  every config read.
+  still not read, and an `rstest` exclusion applies to the whole package, so a file one project excludes is no entry
+  of another project with the same root that includes it.
 
 ### Confirmation
 

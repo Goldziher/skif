@@ -3966,7 +3966,7 @@ fn sveltejs_package_maps_output_to_library_sources() {
 }
 
 #[test]
-fn rstest_exclude_removes_the_project_files_it_matches() {
+fn rstest_exclude_and_negated_include_are_negated_entries() {
     let results = resolve(
         &[
             (
@@ -3977,11 +3977,7 @@ fn rstest_exclude_removes_the_project_files_it_matches() {
                 ] };"#,
             ),
             ("app/src/a.test.ts", ""),
-            ("app/src/c.skip.test.ts", ""),
             ("app/src/legacy/b.test.ts", ""),
-            ("app/src/__mocks__/m.ts", ""),
-            ("web/unit.spec.tsx", ""),
-            ("web/e2e/flow.spec.ts", ""),
         ],
         &["@rstest/core"],
     );
@@ -3989,7 +3985,17 @@ fn rstest_exclude_removes_the_project_files_it_matches() {
     let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
     assert_eq!(
         entries,
-        BTreeSet::from(["app/src/a.test.ts", "app/src/__mocks__/m.ts", "web/unit.spec.tsx"])
+        BTreeSet::from([
+            "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "**/__mocks__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "app/src/**/*.test.ts",
+            "!app/src/**/*.skip.test.ts",
+            "app/**/__mocks__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "!app/src/legacy/**",
+            "web/**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "web/**/__mocks__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "!web/**/e2e/**",
+        ])
     );
     let defaults = [
         "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",

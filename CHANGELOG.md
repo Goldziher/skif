@@ -20,8 +20,8 @@ All notable changes to this project are documented here. The format follows
     and takes a glob handler as an entry glob.
   - `vue` calls a function `configureWebpack` statically with a base config and reads its result.
   - `eleventy` reads `addPassthroughCopy` calls.
-  - `rstest` applies `exclude` and negated `include` patterns; a config that excludes files replaces the default test
-    globs. `rs.mock()` and the other `rs` and `rstest` module calls are mock imports.
+  - `rstest` applies `exclude` and negated `include` patterns as `!` entries, which the default test globs do not
+    override. `rs.mock()` and the other `rs` and `rstest` module calls are mock imports.
   - `mise` reads file tasks (`mise-tasks/`, `.mise/tasks/`, `.config/mise/tasks/`, `task_config.includes`, ...).
   - `taskfile` expands `{{.NAME}}` templates from `vars`, `ROOT_DIR` and `TASKFILE_DIR`, and reads the rest of a
     command around any other template.
