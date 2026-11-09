@@ -572,6 +572,19 @@ fn a_blank_ignore_reason_is_rejected_naming_its_position() {
     )
     .unwrap_err();
     assert!(error.to_string().contains("ignore[0]: `reason` is empty"), "{error}");
+    for (toml, expected) in [
+        (
+            "[js]\nignore-dependencies = [\"a\", { name = \"b\", reason = \" \" }]\n",
+            "js.ignore-dependencies[1]: `reason` is empty",
+        ),
+        (
+            "[js.workspaces.\"apps/web\"]\nignore-files = [{ name = \"x\", reason = \"\" }]\n",
+            "js.workspaces.\"apps/web\".ignore-files[0]: `reason` is empty",
+        ),
+    ] {
+        let error = Config::from_toml_str(toml).unwrap_err().to_string();
+        assert!(error.contains(expected), "{toml}: {error}");
+    }
 }
 
 #[test]
