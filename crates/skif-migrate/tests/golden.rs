@@ -574,7 +574,12 @@ fn sherif_writes_no_scope_when_it_ignores_its_version_check() {
             "{:#?}",
             migration.notes
         );
-        assert_eq!(parsed["rules"]["version-mismatch"].as_str(), Some("off"), "{}", migration.toml);
+        assert_eq!(
+            parsed["rules"]["version-mismatch"].as_str(),
+            Some("off"),
+            "{}",
+            migration.toml
+        );
     }
 }
 
