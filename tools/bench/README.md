@@ -153,6 +153,13 @@ harness sets them apart by path, without establishing why skif does not report e
 `--repo-knip-config`). See [ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md) and
 [ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md).
 
+**Foreign tsconfig paths.** knip resolves every import through the merged tsconfig `paths` of all workspaces; skif
+uses the `paths` of the configuration the importing file follows, and reports an import that only another package's
+`paths` map as `unlisted-dependencies` with the detail `ForeignTsconfigPaths`. A finding only skif reports in
+`unlisted` that carries this detail is the `foreign-tsconfig-paths` known deviation: counted in the known-deviations
+column and section, recorded in the baseline and ignored by `--check`. An `unlisted-dependencies` finding without the
+detail stays a difference. See [ADR 0075](../../adrs/0075-imports-only-another-packages-tsconfig-paths-map.md).
+
 **Not judged by skif.** skif lists under `incomplete-packages` in its JSON report the packages whose entry files it
 cannot all know (a tool config it cannot read), and does not report their unused dependencies, exports, types and
 members, nor the files the config could make entries. A finding only knip reports in `files`, `dependencies`,
