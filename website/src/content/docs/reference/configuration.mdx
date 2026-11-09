@@ -696,7 +696,8 @@ counterpart. These differences are deliberate:
   file against them instead, which also tells which of them a template uses.
 - `vue` reads `configureWebpack` as a webpack config. A function one is called statically with knip's base config
   (`mode`, empty `entry`, `resolve`, `plugins` and `module.rules`): the object it returns, or the base config as it
-  leaves it (`config.entry = { … }`), is read; what it reads from its argument's members is not known. It credits
+  leaves it (`config.entry = { … }`), is read; what it reads from its argument's members is not known, and an
+  `entry` it sets to an unknown value marks the entries incomplete. It credits
   `@vue/cli-plugin-eslint` when a script runs `vue-cli-service lint`.
 - `serverless-framework` reads `${file(./x.yml)}` and `${file(./x.yml):a.b}` variables. In a `handler`, a
   `${self:a.b}` variable is the string at `a.b` of the config, else its quoted fallback (`${opt:stage, 'dev'}`), and

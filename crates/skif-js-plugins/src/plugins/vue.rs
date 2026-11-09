@@ -35,11 +35,17 @@ impl Plugin for Vue {
                 .collect();
         }
         // What the function does not let be read (a plugin pushed onto the config) leaves the entries as they were:
-        // Vue CLI takes its entries from `pages` and `src/main`, not from the webpack config.
+        // Vue CLI takes its entries from `pages` and `src/main`, not from the webpack config. Only an `entry` the
+        // function sets to something unknown (`config.entry = entries()`) hides entries; a change the evaluator does
+        // not follow inside `entry` (`config.entry.app = x`) is not seen.
         extract_property_calls(config.source, config.path, "configureWebpack", &base_config())
             .iter()
-            .flat_map(|value| bundler_inputs(&ConfigAst { value, ..*config }, cx))
-            .filter(|input| *input != PluginInput::EntriesIncomplete)
+            .flat_map(|value| {
+                let sets_unknown_entry = value.get("entry").is_some_and(ConfigValue::has_unknown);
+                bundler_inputs(&ConfigAst { value, ..*config }, cx)
+                    .into_iter()
+                    .filter(move |input| sets_unknown_entry || *input != PluginInput::EntriesIncomplete)
+            })
             .collect()
     }
 

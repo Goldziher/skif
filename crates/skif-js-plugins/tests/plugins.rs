@@ -3152,6 +3152,11 @@ fn vue_reads_configure_webpack_and_the_lint_script() {
     let out = output(&results, "vue");
     assert_entries(&out.entries, &["src/admin.ts"]);
     assert!(!out.entries_incomplete);
+    let config = (
+        "vue.config.js",
+        r#"module.exports = { configureWebpack(config) { config.entry = computeEntries(); } };"#,
+    );
+    assert!(output(&resolve(&[config], &["vue"]), "vue").entries_incomplete);
     let results = resolve_with_scripts(&[], &["vue"], &[("build", "vue-cli-service build && eslint lint")]);
     assert_absent(output(&results, "vue"), &["@vue/cli-plugin-eslint"]);
     let results = resolve_with_scripts(&[], &["vue"], &[("build", "vue-cli-service build --skip lint")]);
