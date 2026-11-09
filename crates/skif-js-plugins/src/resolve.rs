@@ -450,11 +450,15 @@ fn drain(collector: &mut Collector<'_, '_>, plugin: &dyn Plugin, visited: &mut B
             Some(value) => value,
             None if !reader.reads_config() => ConfigValue::Null,
             None => {
-                if is_structured(&path) && !source.trim().is_empty() {
-                    let cause = IncompleteCause::Unparsable;
-                    collector.mark_incomplete(reader.spec().id, &path, cause, IncompleteScope::Package);
+                if let Some(value) = reader.read_script(&path, &source) {
+                    value
+                } else {
+                    if is_structured(&path) && !source.trim().is_empty() {
+                        let cause = IncompleteCause::Unparsable;
+                        collector.mark_incomplete(reader.spec().id, &path, cause, IncompleteScope::Package);
+                    }
+                    continue;
                 }
-                continue;
             }
         };
         let ast = ConfigAst {

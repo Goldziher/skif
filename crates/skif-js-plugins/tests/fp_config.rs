@@ -234,6 +234,50 @@ fn static_entries_are_complete() {
     }
 }
 
+/// An esbuild config is a script that runs builds and exports nothing: its `entryPoints` are read wherever it writes
+/// them, at the top level through a shared helper or inside a function (ADR 0081).
+#[test]
+fn esbuild_build_scripts_name_their_entry_points() {
+    let helper = "import * as path from 'node:path';\nimport { run } from '../build-common.mts';\n\
+                  const srcDir = path.join(import.meta.dirname, 'src');\n\
+                  run({ platform: 'node', entryPoints: { main: path.join(srcDir, 'main.ts') }, srcDir }, process.argv);\n";
+    let in_function = "const esbuild = require('esbuild');\nconst path = require('path');\n\
+                       async function build() {\n  const shared = { entryPoints: [path.join(__dirname, 'src/runtime/index.ts')] };\n\
+                       await esbuild.build({ ...shared, format: 'esm' });\n}\nbuild();\n";
+    for (file, source, entry) in [
+        ("esbuild.mts", helper, "src/main.ts"),
+        ("esbuild.config.js", in_function, "src/runtime/index.ts"),
+    ] {
+        let results = run(&[(file, source)], &["esbuild"], &[]);
+        let out = output(&results, "esbuild");
+        assert!(!out.entries_incomplete, "{file}: {:?}", out.incomplete_reasons);
+        assert_entries(&out.production_entries, &[entry]);
+    }
+
+    // Computed entry points leave the entries incomplete; a script that writes none stays unparsable.
+    let cases = [
+        (
+            "import { readdirSync } from 'node:fs';\nimport esbuild from 'esbuild';\n\
+             await esbuild.build({ entryPoints: readdirSync('src') });\n",
+            IncompleteCause::ComputedEntries,
+        ),
+        (
+            "import esbuild from 'esbuild';\nimport { options } from './options.mjs';\nawait esbuild.build(options);\n",
+            IncompleteCause::Unparsable,
+        ),
+    ];
+    for (source, cause) in cases {
+        let results = run(&[("esbuild.config.mjs", source)], &["esbuild"], &[]);
+        let out = output(&results, "esbuild");
+        assert!(out.entries_incomplete, "{source}");
+        assert!(
+            out.incomplete_reasons.iter().any(|reason| reason.cause == cause),
+            "{source}: {:?}",
+            out.incomplete_reasons
+        );
+    }
+}
+
 #[test]
 fn storybook_get_absolute_path_idiom_names_the_packages() {
     let main = r"
