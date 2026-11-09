@@ -730,6 +730,27 @@ fn imports_awaited_together_after_a_spread_are_used_as_a_whole() {
 }
 
 #[test]
+fn a_spy_on_a_namespace_member_reads_that_member() {
+    for source in [
+        "import * as ns from 'x'; vi.spyOn(ns, 'a').mockReturnValue(1);",
+        "import * as ns from 'x'; jest.spyOn(ns, 'a');",
+        "import * as ns from 'x'; spyOn(ns, `a`);",
+    ] {
+        let info = parse("a.test.ts", source);
+        let ns = &info.imports[0].names[0];
+        assert_eq!(ns.accessed_members, ["a"], "{source}");
+        assert!(!ns.escapes, "{source}");
+    }
+    for source in [
+        "import * as ns from 'x'; vi.spyOn(ns, name);",
+        "import * as ns from 'x'; other.spyOn(ns, 'a');",
+    ] {
+        let info = parse("a.test.ts", source);
+        assert!(info.imports[0].names[0].escapes, "{source}");
+    }
+}
+
+#[test]
 fn namespace_that_escapes_is_flagged() {
     for source in [
         "import * as ns from 'x'; use(ns);",
