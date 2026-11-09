@@ -434,8 +434,9 @@ entries that do not end in `!` are also removed from the project, so a file only
 **Incomplete entries.** When skif cannot know all the entry files of a package (a tool configuration it cannot read
 statically, or a published `main`, `exports` or `bin` that maps to no source file), a file no known entry reaches may
 still be one. A published path that names nothing at all (no file, no source behind it, not in a build output
-directory and not gitignored, such as a stale `bin/cli.js`) is not one of them: it is no entry, `stale-js-config`
-reports it (`package-entry`) and the package is judged from its other entries. `unused-dependencies`, `unused-dev-dependencies`, `unused-exports`, `unused-types`, the namespace export
+directory, not ignored by git and not in a `bin` directory a build step of the package may write, such as a stale
+`bin/cli.js`) is not one of them: it is no entry, `stale-js-config` reports it (`package-entry`) and the package is
+judged from its other entries. `unused-dependencies`, `unused-dev-dependencies`, `unused-exports`, `unused-types`, the namespace export
 rules and the member rules then skip the package, and `explain-usage` gives its exports the verdict `not-judged`.
 
 `unused-files` skips only the files the unreadable configuration could plausibly make entries, its narrowed scope. A
@@ -533,8 +534,15 @@ The rest of knip's configuration hints are part of `stale-js-config` too:
 - `package-entry`: a path in `main`, `module`, `browser`, `bin`, `types`, `typings` or `exports` that names no file,
   neither itself nor a source file behind it. Paths a `.gitignore` hides, paths in a build output directory (`dist`,
   `build`, `lib`, ..., whatever the extension; knip reports these unless gitignored) and paths into a listed dependency are not judged. It points
-  at the field in `package.json`. A `bin` path that names no file is reported too, and since it loads no code it does
-  not make the package's entries incomplete.
+  at the field in `package.json`. A path in a `bin` directory in any published field (`"bin": "bin/cli.js"`, but also
+  `"main": "bin/cli.js"`) that names no file is reported too, and since it loads no code it does not make the
+  package's entries incomplete; a root `"bin": "cli.js"` was always reported, and a path in `dist/...` still is not.
+  A `bin` path is not judged when a build step of the package may write it: a `build`, `build:*`, `prepack` or
+  `prepublishOnly` script, a script that runs a compiler or bundler (`tsc`, `tsup`, `tsdown`, `esbuild`, `rollup`,
+  `rolldown`, `webpack`, `rspack`, `rslib`, `unbuild`, `ncc`, `babel`, `swc`), a bundler configuration a plugin reads
+  (`tsup.config.ts`, `rollup.config.mjs`, ...), or a `tsconfig` `outDir` at or inside `bin`. Ignored paths count
+  with the ignore files from the root of the git work tree down, also above the analysed root, and
+  `.git/info/exclude`; the global excludes file (`core.excludesFile`) is not read.
 - `top-level-unconfigured` and `workspace-unconfigured`: more than 20 unused files that are more than a fifth as many
   as the files the analysis reached suggest missing entries, with knip's thresholds. A single-package workspace gets one hint; otherwise
   each package with more than one unused file gets one, largest first.

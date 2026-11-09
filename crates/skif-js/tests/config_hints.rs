@@ -21,11 +21,16 @@ const MONOREPO: (&str, &str) = (
 );
 
 fn lint(files: &[(&str, &str)], toml: &str) -> Vec<Diagnostic> {
+    lint_at(ROOT, ROOT, files, toml)
+}
+
+/// Lints the workspace at `root` of the `files`, whose paths are relative to `base`.
+fn lint_at(base: &str, root: &str, files: &[(&str, &str)], toml: &str) -> Vec<Diagnostic> {
     let memory = files.iter().fold(MemoryFs::new(), |memory, (path, text)| {
-        memory.with_file(Path::new(ROOT).join(path), text)
+        memory.with_file(Path::new(base).join(path), text)
     });
     let config = Config::from_toml_str(toml).unwrap();
-    let workspace = Workspace::discover_with_fs(Path::new(ROOT), &config, &memory).unwrap();
+    let workspace = Workspace::discover_with_fs(Path::new(root), &config, &memory).unwrap();
     let fs: Arc<dyn FileSystem> = Arc::new(memory);
     let source = PluginSource::new(config.js.plugins.clone())
         .with_workspaces(&config.js.workspaces)
@@ -139,7 +144,7 @@ fn published_paths_that_name_no_file() {
         (
             "package.json",
             r#"{"name":"app","main":"index.js","types":"./types.d.ts","bin":{"app":"./cli.js"},
-               "exports":{".":"./index.js","./gen":"./generated/x.js","./built":"./dist/x.js","./style.css":"./dist/style.css","./wasm":"./build/x.wasm","./src":"./src/*.js","./lib":"./lib/x.js"},
+               "exports":{".":"./index.js","./gen":"./generated/x.js","./built":"./dist/x.js","./style.css":"./dist/style.css","./wasm":"./build/x.wasm","./src":"./src/*.js","./lib":"./lib/x.js","./run":"./bin/run.js"},
                "dependencies":{"other":"1"},"module":"other/esm.js"}"#,
         ),
         (".gitignore", "generated/\n"),
@@ -187,6 +192,87 @@ fn a_gitignored_bin_path_keeps_the_package_unjudged() {
     let diagnostics = lint(&[DANGLING_BIN, APP_MAIN, (".gitignore", "bin/\n")], "");
     assert_eq!(hints(&diagnostics), "");
     assert_eq!(found(&diagnostics, "unused-dependencies"), Vec::<String>::new());
+}
+
+/// A bin path git ignores through the repository's `info/exclude` is build output not built yet.
+#[test]
+fn a_bin_path_excluded_by_the_repository_keeps_the_package_unjudged() {
+    let diagnostics = lint(&[DANGLING_BIN, APP_MAIN, (".git/info/exclude", "bin/\n")], "");
+    assert_eq!(hints(&diagnostics), "");
+    assert_eq!(found(&diagnostics, "unused-dependencies"), Vec::<String>::new());
+}
+
+/// A `.gitignore` between the repository root and the analysed root hides the bin path too.
+#[test]
+fn a_bin_path_gitignored_above_the_analysed_root_keeps_the_package_unjudged() {
+    let files = [
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        (".gitignore", "app/bin/\n"),
+        ("app/package.json", DANGLING_BIN.1),
+        ("app/app/main.js", APP_MAIN.1),
+    ];
+    let diagnostics = lint_at("/repo", "/repo/app", &files, "");
+    assert_eq!(hints(&diagnostics), "");
+    assert_eq!(found(&diagnostics, "unused-dependencies"), Vec::<String>::new());
+    // Without the `.gitignore` the same path is reported, so the work tree above the root is what hides it.
+    let diagnostics = lint_at("/repo", "/repo/app", &[files[0], files[2], files[3]], "");
+    assert_eq!(
+        hints(&diagnostics),
+        "package.json: `bin/r2b.js` in `bin` of `package.json` names no file"
+    );
+}
+
+/// The `src/cli.ts` a build step bundles into `bin`, with no `bin` directory yet.
+const CLI_SOURCE: (&str, &str) = ("src/cli.ts", "console.log('cli');\n");
+
+/// A bin path a build step of the package may write is build output not built yet: a build script, a script that
+/// runs a bundler, a bundler configuration a plugin reads, or a `tsconfig` whose `outDir` is `bin`. Not reported, and
+/// the package stays unjudged.
+#[test]
+fn a_bin_path_a_build_step_may_write_keeps_the_package_unjudged() {
+    let manifest = |extra: &str| {
+        format!(
+            r#"{{"name":"r2b","private":true,"bin":{{"r2b":"bin/r2b.js"}},"dependencies":{{"left-pad":"1.3.0"}},{extra}}}"#
+        )
+    };
+    let build_script = manifest(r#""scripts":{"start":"node app/main.js","build":"node scripts/build.js"}"#);
+    let bundler_script = manifest(
+        r#""scripts":{"start":"node app/main.js","bundle":"esbuild src/cli.ts --bundle --outfile=bin/r2b.js"},
+           "devDependencies":{"esbuild":"0.25.0"}"#,
+    );
+    let tsup = manifest(r#""scripts":{"start":"node app/main.js"},"devDependencies":{"tsup":"8.0.0"}"#);
+    let tsc = manifest(r#""scripts":{"start":"node app/main.js"},"devDependencies":{"typescript":"5.0.0"}"#);
+    let cases: [(&str, Vec<(&str, &str)>); 4] = [
+        (
+            "build script",
+            vec![
+                ("package.json", build_script.as_str()),
+                ("scripts/build.js", "console.log('build');\n"),
+            ],
+        ),
+        ("bundler script", vec![("package.json", bundler_script.as_str())]),
+        (
+            "tsup config",
+            vec![
+                ("package.json", tsup.as_str()),
+                ("tsup.config.ts", "export default { entry: ['src/cli.ts'] };\n"),
+            ],
+        ),
+        (
+            "tsconfig outDir",
+            vec![
+                ("package.json", tsc.as_str()),
+                ("tsconfig.json", r#"{"compilerOptions":{"outDir":"bin","rootDir":"cli"}}"#),
+            ],
+        ),
+    ];
+    for (case, mut files) in cases {
+        files.extend([APP_MAIN, CLI_SOURCE]);
+        let diagnostics = lint(&files, "");
+        assert_eq!(hints(&diagnostics), "", "{case}");
+        assert_eq!(found(&diagnostics, "unused-dependencies"), Vec::<String>::new(), "{case}");
+        assert_eq!(found(&diagnostics, "unused-files"), Vec::<String>::new(), "{case}");
+    }
 }
 
 /// Build output is never a path into nothing: with its source present it maps, with neither the source nor the file

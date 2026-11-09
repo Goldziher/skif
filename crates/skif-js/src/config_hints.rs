@@ -308,9 +308,9 @@ fn widen_stars(path: &str) -> String {
     path.replacen("/*/", "/**/", 1)
 }
 
-/// The published paths that name no file ([`names_no_file`]) and are not a dependency's path. A bin file or other
-/// path outside a build output directory that names no file is reported too, though it should have a source behind
-/// it: no build makes it, so it is a path into nothing (ADR 0069).
+/// The published paths that name no file ([`names_no_file`]) and are not a dependency's path. A path in `bin` that
+/// names no file is reported too, though it should have a source behind it, unless a build step of the package may
+/// write it: nothing makes it, so it is a path into nothing (ADR 0069).
 fn package_entries(inputs: &HintInputs<'_>) -> Vec<ConfigHint> {
     let disk = Disk {
         fs: inputs.disk,
@@ -330,7 +330,7 @@ fn package_entries(inputs: &HintInputs<'_>) -> Vec<ConfigHint> {
             {
                 continue;
             }
-            if names_no_file(disk, &inputs.workspace.root, package_setup, &path) {
+            if names_no_file(disk, &inputs.workspace.root, package_setup, package.manifest.value(), &path) {
                 hints.push(ConfigHint {
                     kind: HintKind::PackageEntry,
                     key: field.to_owned(),
