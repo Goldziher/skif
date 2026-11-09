@@ -699,8 +699,12 @@ counterpart. These differences are deliberate:
   leaves it (`config.entry = { … }`), is read; what it reads from its argument's members is not known. It credits
   `@vue/cli-plugin-eslint` when a script runs `vue-cli-service lint`.
 - `serverless-framework` reads `${file(./x.yml)}` and `${file(./x.yml):a.b}` variables. In a `handler`, a
-  `${self:a.b}` variable is the string at `a.b` of the config, and any other variable (`${opt:stage}`, `${env:DIR}`)
-  is a `*` wildcard, as its value is known only when the CLI runs; a handler that is a glob is an entry glob.
+  `${self:a.b}` variable is the string at `a.b` of the config, else its quoted fallback (`${opt:stage, 'dev'}`), and
+  any other variable (`${opt:stage}`, `${env:DIR}`), whose value is known only when the CLI runs, is a wildcard: `**`
+  when it fills a path segment, as it may stand for several, and `*` within one. A wildcard is a trade-off: it can
+  still miss files (a variable within a segment that stands for a path) and makes a wider entry, which can keep an
+  unused file from being reported. A handler that is a glob is an entry glob, unless it names any file
+  (`${opt:file}.main`).
 - `github-action` leaves out the `dist/` and `build/` files an `action.yml` runs, as build output; knip also removes
   them from the project files.
 - `azure-pipelines` (the `script` and `bash` steps of `azure-pipelines.yml`, `.azure-pipelines/**` and the templates

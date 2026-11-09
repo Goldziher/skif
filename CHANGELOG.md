@@ -16,8 +16,8 @@ All notable changes to this project are documented here. The format follows
   [#103](https://github.com/Goldziher/skif/issues/103)):
   - `sst` reads the handler shorthand of SST 2 constructs in the stacks `sst.config.ts` imports (`routes`,
     `subscribers`, `notifications`, `targets`, and `function`, `job` and `consumer` strings).
-  - `serverless-framework` expands `${self:…}` variables in a `handler`, reads any other variable as a `*` wildcard
-    and takes a glob handler as an entry glob.
+  - `serverless-framework` expands `${self:…}` variables and quoted fallbacks in a `handler`, reads any other
+    variable as a `**` or `*` wildcard and takes a glob handler as an entry glob.
   - `vue` calls a function `configureWebpack` statically with a base config and reads its result.
   - `eleventy` reads `addPassthroughCopy` calls.
   - `rstest` applies `exclude` and negated `include` patterns as `!` entries, which the default test globs do not

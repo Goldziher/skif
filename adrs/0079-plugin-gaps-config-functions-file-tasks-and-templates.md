@@ -49,7 +49,9 @@ of that name, whatever object it is called on.
   include the stacks of `app.stack(…)`: the string values of `routes`, `subscribers`, `notifications` and `targets`,
   and a `function`, `job` or `consumer` string.
 * `serverless-framework` replaces a `${self:a.b}` variable of a handler with the string at `a.b` of the config,
-  expanded in turn up to eight levels, and any other variable with `*`; a handler that is a glob stays one.
+  expanded in turn up to eight levels, else with its quoted fallback (`${opt:stage, 'dev'}`), and any other variable
+  with `**` when it fills a path segment and `*` within one; a handler that is a glob stays one, and one that names
+  any file (`*.main`) is skipped.
 * `vue` calls a function `configureWebpack` with knip's base config (`mode`, empty `entry`, `resolve`, `plugins` and
   `module.rules`) and reads the result as a webpack config. A part the function changes in a way the evaluator does
   not follow does not mark the entries incomplete: Vue CLI takes its entries from `pages` and `src/main`.
@@ -79,8 +81,8 @@ of that name, whatever object it is called on.
 
 * Good, because the common forms of all nine configs are read without running anything.
 * Good, because the two extractions serve any plugin whose options a function or a method call holds.
-* Neutral, because a `*` for an unknown Serverless variable may match more files than the variable names; they are
-  entries, so nothing is reported for them.
+* Bad, because a wildcard for an unknown Serverless variable is a trade-off: a `*` within a segment misses files when
+  the variable stands for several path segments, and any wildcard makes a wider entry, which can hide unused files.
 * Bad, because a `configureWebpack` that reads its argument's members or a file task for another interpreter is
   still not read, and an `rstest` exclusion applies to the whole package, so a file one project excludes is no entry
   of another project with the same root that includes it.
