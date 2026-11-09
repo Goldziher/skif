@@ -15,6 +15,20 @@ All notable changes to this project are documented here. The format follows
   `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such
   as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
   ([#110](https://github.com/Goldziher/skif/issues/110)).
+
+### Added
+
+- `skif baseline write|prune|check` maintains a suppression baseline for a repository that adopts skif with findings it
+  cannot fix at once. `write` records every error and warning as an `[[ignore]]` entry (rule, package and dependency,
+  with `name@specifier` for version findings so only that version is silenced) in `skif.baseline.toml` (`--file`),
+  each with `reason = "baseline"` (`--reason`), and adds the file to the `extends` of the root's `skif.toml` without
+  changing the rest of it. `prune` removes the entries that match no finding, and `check --base <REF>` (or
+  `--base-file <FILE>`) exits `1` when the baseline gained entries. A finding in a root package without a name of
+  its own is not recorded, since no package pattern selects the root alone. All three take `--format json`
+  ([ADR 0071](adrs/0071-skif-baseline-a-suppression-baseline-that-can-only-shrink.md),
+  [#114](https://github.com/Goldziher/skif/issues/114)).
+- `ignore_matches` in the library returns the findings each `[[ignore]]` entry matches, judged by the code a lint run
+  suppresses with.
 - A published path that names nothing (a `bin` such as `bin/cli.js` with no file, no source behind it, outside a build
   output directory, not ignored by git and with no build step of the package that may write it) no longer marks its
   package `unmapped-published` and leaves it unjudged: it is no entry, the package is judged from its other entries,

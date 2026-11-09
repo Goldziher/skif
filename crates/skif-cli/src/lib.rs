@@ -10,6 +10,7 @@ use std::ffi::OsString;
 use clap::Parser;
 
 mod args;
+mod baseline;
 mod commands;
 mod config;
 mod config_toml;
@@ -72,6 +73,7 @@ fn run_with(args: impl IntoIterator<Item = OsString>, teardown: Teardown) -> u8 
         Some(Command::Config(args)) => config::run(&args),
         Some(Command::ExplainUsage(args)) => explain::run(&args),
         Some(Command::Migrate(args)) => migrate::run(&args),
+        Some(Command::Baseline(args)) => baseline::run(&args),
         Some(Command::Update(args)) => update::run(&args, Env::detect()),
         Some(Command::List(args)) => instances::list(&args),
         Some(Command::Json(args)) => instances::json(&args),

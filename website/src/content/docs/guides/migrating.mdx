@@ -256,6 +256,39 @@ yourself, and `off` values that came from a tool's own configuration (`ignoreRul
 case is only seen in a single run: when sherif ignores a rule that syncpack keeps checking, migrate both together so the
 rule stays on.
 
+## Adopting skif on an existing repository
+
+A repository rarely starts clean. Record what is there as a baseline, fix it over time, and keep CI from accepting new
+findings:
+
+```sh
+skif baseline write             # record every error and warning in skif.baseline.toml
+skif                            # clean: skif.toml now extends the baseline
+skif baseline prune             # after fixing some findings, drop the entries that match nothing
+skif baseline check --base origin/main   # in CI: fail when the baseline gained entries
+```
+
+`write` adds one `[[ignore]]` entry per finding, with the rule, the package and the dependency:
+
+```toml
+[[ignore]]
+rules = ["version-mismatch"]
+packages = ["@acme/web"]
+dependencies = ["react@^17.0.2"]
+reason = "baseline"
+```
+
+Version findings are recorded as `name@specifier`, so a baselined `react@^17.0.2` silences that version only; a
+package that moves to another version, or a new package, is reported again. This replaces a script that shrinks
+sherif's `ignoreDependency` to the variants still reported, and per-member `pinVersion` groups in syncpack. Edit a
+`reason` to say why an entry stays; later runs of `write` and `prune` keep it, and `--require-ignore-reasons` accepts
+the entries. `check` compares entries by what they suppress, so a reworded reason never fails it. A finding that has
+no package or dependency (a finding about the workspace as a whole) is not recorded, since its entry would
+turn the rule off; fix it or set the rule's level instead. Neither is a finding in a root `package.json` without a
+`name`, since no `[[ignore]]` package pattern selects the root alone; give the root a unique `name` to record it. Entries are as narrow as `[[ignore]]` allows: an
+`unused-exports` entry covers every unused export of its package until it is pruned. See the
+[CLI reference](../../reference/cli/#baseline) for the flags.
+
 ## What stays by hand
 
 - Values that are only known at run time, and everything the report marks `H` or `X`.
