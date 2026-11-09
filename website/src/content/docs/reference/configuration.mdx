@@ -67,10 +67,14 @@ fail-on-warnings = true          # exit non-zero when only warnings were reporte
 require-ignore-reasons = true    # fail when a suppression has no `reason`, as --require-ignore-reasons does
 ```
 
-`require-ignore-reasons` makes every suppression of the configuration say why it exists: an `[[ignore]]` entry, also
-one of an override, and an entry of a `[js]` ignore list. A run with one that has no `reason` fails with exit code 2,
-naming the entry (``js.ignore-dependencies[1] `left-pad`: no `reason` ``). The key and `--require-ignore-reasons` do
-the same; either one turns the check on.
+`require-ignore-reasons` makes the suppressions that can carry a `reason` say why they exist: an `[[ignore]]` entry,
+also one of an override, and an entry of the `[js]` lists `ignore-files`, `ignore-dependencies`, `ignore-binaries`,
+`ignore-unresolved`, `ignore-workspaces` and `ignore-members` and their `extend-` keys, at the top level, per workspace
+and in overrides. `[workspace] ignore-packages` and `[js] ignore` take plain globs and are not checked. A run with an
+entry that has no `reason` fails with exit code 2, naming the entry (``js.ignore-dependencies[1] `left-pad`: no
+`reason` ``). The check reads the merged configuration, so the key and position are those of the merged list: an entry
+added with `extend-ignore-dependencies` or inherited through `extends` is named by the list it was merged into, and its
+name finds it in the files. The key and `--require-ignore-reasons` do the same; either one turns the check on.
 
 ### `[rules]`
 
