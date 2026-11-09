@@ -204,8 +204,8 @@ Exit `0` when the file was produced (also when notes need a human, unless `--str
 Each entry names the rule, the package (its name, or its directory relative to the root when two packages share the
 name) and the dependency. A finding that carries the specifier as written, as every version rule's does, is recorded
 as `name@specifier`, so the entry silences only that version: a member moving to a third version, or a new member on
-another one, fails the run again. Glob characters in a name or specifier are written as one-character classes (`[*]`)
-so the entry matches literally. `info` findings are not recorded, and neither is a finding with neither a package nor
+another one, fails the run again. Glob characters in a name or specifier are written as one-character classes (`[*]`),
+and a leading `!` as `{!}` so it is not read as an exclusion, so the entry matches literally. `info` findings are not recorded, and neither is a finding with neither a package nor
 a dependency, which an entry could only cover by turning its rule off, nor one in a root package without a name of its
 own, which no package pattern selects alone; `write` lists those on stderr with the cause. Entries are
 sorted, each written once, and the file holds nothing but `[[ignore]]` entries: the commands rewrite it whole, so a

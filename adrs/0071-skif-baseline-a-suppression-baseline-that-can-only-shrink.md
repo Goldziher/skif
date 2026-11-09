@@ -60,8 +60,9 @@ reason = "baseline"
   another package has the same name. `dependencies` is
   `name@specifier` when the finding carries the specifier as written (every version rule does), so the entry silences
   that version and no other; otherwise the dependency name.
-* Characters that are glob syntax in a selector (`*?[]{}`) are written as one-character classes (`[*]`), so an entry
-  matches the written value literally.
+* Characters that are glob syntax in a selector (`*?[]{}`) are written as one-character classes (`[*]`), and a
+  leading `!`, which would make the pattern an exclusion, as `{!}` (a class cannot hold it: `[!` opens a negated
+  class), so an entry matches the written value literally.
 * `reason` is `baseline`, or the text of `--reason`. A reason edited by hand is kept by later writes.
 * Errors and warnings are recorded; `info` findings never fail a run and are left out. A finding with neither a
   package nor a dependency is not recorded either: an entry for it would turn its rule off for the whole workspace.
