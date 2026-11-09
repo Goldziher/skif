@@ -31,7 +31,10 @@ impl Plugin for Execa {
         for (source, text) in sources_containing(cx, "execa") {
             let path = cx.dir.join(&source);
             for call in extract_imported_calls(&text, &path, &["execa"], &[]) {
-                out.extend(execa_script(&call).map(PluginInput::Script));
+                out.extend(execa_script(&call).map(|script| PluginInput::SourceScript {
+                    file: source.clone(),
+                    script,
+                }));
             }
         }
         out
