@@ -2,6 +2,7 @@
 source: crates/skif-js/tests/config_hints.rs
 expression: "hints(&lint(&files, \"\"))"
 ---
+package.json: `./bin/run.js` in `exports` of `package.json` names no file
 package.json: `./index.js` in `exports` of `package.json` names no file
 package.json: `./types.d.ts` in `types` of `package.json` names no file
 package.json: `index.js` in `main` of `package.json` names no file
