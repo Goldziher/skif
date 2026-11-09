@@ -863,7 +863,10 @@ impl ModuleResolver {
             .ancestors()
             .skip(1)
             .take_while(|dir| dir.starts_with(&self.root))
-            .any(|dir| self.fs.is_file(&dir.join("node_modules").join(name).join("package.json")))
+            .any(|dir| {
+                self.fs
+                    .is_file(&dir.join("node_modules").join(name).join("package.json"))
+            })
     }
 
     /// What a specifier that names nothing is. A relative one is unknown when it points at an ignored path (also
