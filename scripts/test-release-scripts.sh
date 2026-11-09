@@ -256,7 +256,7 @@ fi
 expect "check-archive needs an archive" 2 bash scripts/check-archive.sh
 
 # ---------------------------------------------------------------- check-npm-tarballs
-platforms=(darwin-arm64 darwin-x64 linux-arm64-gnu linux-arm64-musl linux-x64-gnu linux-x64-musl)
+platforms=(darwin-arm64 darwin-x64 linux-arm64-gnu linux-arm64-musl linux-x64-gnu linux-x64-musl win32-arm64-msvc win32-x64-msvc)
 
 # pack_tarball <directory> <tarball name> <package.json content> <member...>: a tarball whose members all sit under package/.
 pack_tarball() {
@@ -272,7 +272,7 @@ pack_tarball() {
   tar czf "${out}/${name}" -C "$stage" package
 }
 
-# npm_fixture <directory> <version>: the complete umbrella plus the six platform packages.
+# npm_fixture <directory> <version>: the complete umbrella plus the eight platform packages.
 npm_fixture() {
   local out="$1" version="$2" optional platform
   mkdir -p "$out"
@@ -290,7 +290,12 @@ expect "check-npm-tarballs accepts the complete set" 0 bash scripts/check-npm-ta
 npm_fixture "${work}/npm-missing" 1.2.3
 rm "${work}/npm-missing/skif-linux-x64-musl-1.2.3.tgz"
 expect "check-npm-tarballs rejects a missing platform package" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-missing" 1.2.3
-expect_in_out "check-npm-tarballs missing platform" "not the umbrella plus the six platform packages"
+expect_in_out "check-npm-tarballs missing platform" "not the umbrella plus the eight platform packages"
+
+npm_fixture "${work}/npm-no-windows" 1.2.3
+rm "${work}/npm-no-windows/skif-win32-arm64-msvc-1.2.3.tgz"
+expect "check-npm-tarballs rejects a set without a Windows package" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-windows" 1.2.3
+expect_in_out "check-npm-tarballs missing Windows platform" "skif-win32-arm64-msvc-1.2.3.tgz"
 
 # GNU tar fails on a closed pipe (bsdtar exits 0), so a reader that stops at its first match reports a present member as
 # missing under pipefail. The stub keeps listing past the pipe buffer and dies the same way on every platform.
@@ -323,6 +328,11 @@ npm_fixture "${work}/npm-no-addon" 1.2.3
 pack_tarball "${work}/npm-no-addon" skif-linux-x64-gnu-1.2.3.tgz '{}' LICENSE ATTRIBUTIONS.md
 expect "check-npm-tarballs rejects a platform package without its addon" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-addon" 1.2.3
 expect_in_out "check-npm-tarballs missing addon" "skif.linux-x64-gnu.node"
+
+npm_fixture "${work}/npm-no-windows-addon" 1.2.3
+pack_tarball "${work}/npm-no-windows-addon" skif-win32-x64-msvc-1.2.3.tgz '{}' LICENSE ATTRIBUTIONS.md
+expect "check-npm-tarballs rejects a Windows package without its addon" 1 bash scripts/check-npm-tarballs.sh "${work}/npm-no-windows-addon" 1.2.3
+expect_in_out "check-npm-tarballs missing Windows addon" "skif.win32-x64-msvc.node"
 
 npm_fixture "${work}/npm-bad-optional" 1.2.3
 pack_tarball "${work}/npm-bad-optional" skif-cli-1.2.3.tgz '{"optionalDependencies": {"skif-darwin-arm64": "1.2.3"}}' \

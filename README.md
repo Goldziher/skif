@@ -165,7 +165,7 @@ pnpm add -D skif-cli     # or npm install -D, yarn add -D, bun add -D
 pnpm dlx skif-cli        # or npx skif-cli, yarn dlx skif-cli, bunx -p skif-cli skif
 ```
 
-Needs Node.js 22, 24 or 26, or Bun 1.x, on macOS or Linux. There are no npm packages for Windows; use Scoop or Cargo.
+Needs Node.js 22, 24 or 26, or Bun 1.x, on macOS, Linux or Windows (x64 or arm64).
 
 </details>
 
