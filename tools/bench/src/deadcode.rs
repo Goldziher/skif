@@ -5,7 +5,8 @@
 //! that is reached only through a pattern that has caused false findings in real repositories: namespace member reads,
 //! a namespace read as a bare value, `declare module` for a virtual module, test mocks, `typeof import()`, dynamic
 //! `import()`, re-export chains, `import.meta.glob`, files run by package scripts, tsconfig `paths` aliases, fixture
-//! directories, an optional dependency loaded in a `try`, and `#` subpath imports through the `imports` field.
+//! directories, an optional dependency loaded in a `try`, `#` subpath imports through the `imports` field, and a
+//! devDependency whose binary only a `vercel.json` command runs.
 //!
 //! [`build`] is pure and deterministic for a seed. Findings are keyed as in the knip parity harness: `<file>` for an
 //! unused file and `<file>|<name>` otherwise, within a knip issue type (`files`, `exports`, `types`, `dependencies`,
@@ -97,7 +98,7 @@ pub struct DeadCode {
 }
 
 /// The live patterns, by id, with what they exercise.
-pub const PATTERNS: [(&str, &str); 14] = [
+pub const PATTERNS: [(&str, &str); 15] = [
     (
         "namespace-member",
         "exports read as members of a namespace import (`ns.member`)",
@@ -142,7 +143,14 @@ pub const PATTERNS: [(&str, &str); 14] = [
         "an optional dependency loaded in a `try` with `import()`",
     ),
     ("subpath-import", "a `#` subpath import mapped by the `imports` field"),
+    (
+        "vercel-json-command",
+        "a devDependency whose binary only the `buildCommand` of `vercel.json` runs",
+    ),
 ];
+
+/// The devDependency the `buildCommand` of every package's `vercel.json` runs, by its binary of the same name.
+const BUILD_TOOL: &str = "dc-build-tool";
 
 /// Plain runtime libraries for the dependencies: none has a knip plugin or a skif tool mapping that could make it used
 /// by configuration, so whether it is used depends on the imports alone.
@@ -289,6 +297,7 @@ impl Package {
             .map(|name| ((*name).to_owned(), json!("^1.0.0")))
             .collect();
         dev_dependencies.insert("vitest".to_owned(), json!("^3.0.0"));
+        dev_dependencies.insert(BUILD_TOOL.to_owned(), json!("^1.0.0"));
         let optional_dependencies: BTreeMap<String, Value> = optional
             .iter()
             .map(|name| ((*name).to_owned(), json!("^1.0.0")))
@@ -465,6 +474,15 @@ impl Package {
             "export const internalHelper = (): string => \"internal\";\n".to_owned(),
         );
         self.live("subpath-import", self.path("src/internal/helper.ts"));
+        // vercel-json-command
+        self.file(
+            "vercel.json",
+            to_json(&json!({ "buildCommand": format!("pnpm {BUILD_TOOL} build") })),
+        );
+        self.live(
+            "vercel-json-command",
+            format!("{}|{BUILD_TOOL}", self.path("package.json")),
+        );
     }
 
     /// The entry, `src/index.ts`: reaches everything live and nothing dead.

@@ -394,9 +394,11 @@ attributed to its pattern:
 | `fixture-dir` | a file in a `fixtures` directory (test data) |
 | `optional-dependency` | an optional dependency loaded with `import()` in a `try` |
 | `subpath-import` | a `#` subpath import mapped by the `imports` field |
+| `vercel-json-command` | a devDependency whose binary only the `buildCommand` of `vercel.json` runs |
 
-The workspace is not installed, so nothing depends on `node_modules`: the only script runs `node`, and every import of
-a dependency names a listed package. The `skif-bench` unit tests run skif in process on the same workspace (two seeds,
+The workspace is not installed, so nothing depends on `node_modules`: the only `package.json` script runs `node`, the
+`vercel.json` command runs a listed devDependency named like its binary, and every import of a dependency names a
+listed package. The `skif-bench` unit tests run skif in process on the same workspace (two seeds,
 no binary, network or Node) and fail when it misses a seeded finding or reports a false one. CI exercises neither the `skif` binary invocation nor the knip side: `skif-bench`
 cannot depend on the `skif` binary in its tests, and knip needs Node and the npm registry. Run `deadcode` with `--knip`
 by hand to check them.

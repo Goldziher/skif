@@ -1543,7 +1543,7 @@ fn karma() {
     };"#;
     let results = resolve(&[("karma.conf.js", config)], &["karma"]);
     let out = output(&results, "karma");
-    assert_deps(out, &["karma-jasmine", "karma-chrome-launcher"]);
+    assert_deps(out, &["karma-jasmine", "jasmine-core", "karma-chrome-launcher"]);
     assert_entries(&out.entries, &["src/**/*.spec.ts", "src/assets/*.json"]);
 }
 
@@ -2194,7 +2194,7 @@ fn a_karma_config_function_gives_its_set_argument_to_the_plugin() {
                   basePath: 'src', files: ['**/*.spec.ts'] });\n};";
     let results = resolve(&[("karma.conf.js", config)], &["karma"]);
     let out = output(&results, "karma");
-    assert_deps(out, &["karma-jasmine", "karma-chrome-launcher"]);
+    assert_deps(out, &["karma-jasmine", "jasmine-core", "karma-chrome-launcher"]);
     assert_entries(&out.entries, &["src/**/*.spec.ts"]);
 }
 
@@ -3914,6 +3914,36 @@ fn sveltejs_package_maps_output_to_library_sources() {
     );
     let results = resolve(&[], &["@sveltejs/package"]);
     assert_eq!(output(&results, "sveltejs-package").build_dirs[0].out_dir, "dist");
+}
+
+#[test]
+fn vercel_json_commands_are_scripts() {
+    // A project with a `vercel.json` and no `@vercel/config` dependency: the build runs `turbo` through pnpm.
+    let results = resolve(
+        &[(
+            "vercel.json",
+            r#"{"buildCommand": "pnpm turbo build", "devCommand": "next dev --port 3001", "outputDirectory": "dist"}"#,
+        )],
+        &[],
+    );
+    let out = output(&results, "vercel");
+    for binary in ["turbo", "next"] {
+        assert!(
+            out.referenced_binaries.contains(&binary.to_owned()),
+            "{binary}: {:?}",
+            out.referenced_binaries
+        );
+    }
+    assert!(
+        !out.referenced_binaries.iter().any(|binary| binary == "dist"),
+        "{:?}",
+        out.referenced_binaries
+    );
+    let without = resolve(&[], &[]);
+    assert!(
+        !without.iter().any(|(id, _)| *id == "vercel"),
+        "no vercel.json, no plugin"
+    );
 }
 
 #[test]

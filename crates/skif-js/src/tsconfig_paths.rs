@@ -286,6 +286,11 @@ fn match_pattern<'a>(pattern: &str, specifier: &'a str) -> Option<(usize, &'a st
 }
 
 impl TsPaths {
+    /// The `rootDirs`, absolute, in the order of the config.
+    pub(crate) fn root_dirs(&self) -> &[PathBuf] {
+        &self.root_dirs
+    }
+
     /// The files a relative `specifier` written in `directory` may stand for through `rootDirs`: the same relative
     /// path below each of the other root directories, in the order of the config.
     pub(crate) fn root_dir_candidates(&self, directory: &Path, specifier: &str) -> Vec<PathBuf> {

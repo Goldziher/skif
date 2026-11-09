@@ -6,7 +6,7 @@ use std::hash::Hash;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, PoisonError, RwLock};
+use std::sync::{Arc, OnceLock, PoisonError, RwLock};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use oxc_resolver::{
@@ -18,6 +18,7 @@ use skif_core::{FileSystem, OsFs};
 use skif_js_syntax::is_stylesheet;
 use skif_workspace::Workspace;
 
+use crate::ancestors::is_repository_root;
 use crate::manifest_paths::{ENTRY_FIELDS, map_to_source, resolve_exports, resolve_imports};
 use crate::setup::Setup;
 use crate::specifier::{
@@ -316,6 +317,11 @@ pub(crate) struct ModuleResolver {
     tsconfigs: TsConfigs,
     /// Whether the nearest `package.json` declares `imports`, by the directory of the importer.
     declared_imports: Memo<PathBuf, bool>,
+    /// The highest directory whose `.gitignore` applies: the repository root above the workspace, else the workspace
+    /// root. Looked up on the first missing module.
+    ignore_ceiling: OnceLock<PathBuf>,
+    /// The `.gitignore` of any other directory up to `ignore_ceiling`, read when a missing module is looked up there.
+    dir_ignores: Memo<PathBuf, Option<Arc<Gitignore>>>,
 }
 
 /// Which language a specifier is written in.
@@ -754,6 +760,8 @@ impl ModuleResolver {
             nearest_paths: Memo::new(),
             tsconfigs,
             declared_imports: Memo::new(),
+            ignore_ceiling: OnceLock::new(),
+            dir_ignores: Memo::new(),
         }
     }
 
@@ -789,11 +797,38 @@ impl ModuleResolver {
         }
     }
 
-    /// Whether `path` is listed in a `.gitignore`, so it may be generated and absent from a fresh checkout.
+    /// Whether `path` is listed in a `.gitignore`, so it may be generated and absent from a fresh checkout: the one of
+    /// the root or of a package, or that of any directory between `path` and the repository root (a `src/temp/`
+    /// that ignores its own contents, a project folder above a nested root), as git reads them.
     fn is_generated(&self, path: &Path) -> bool {
-        self.ignores
+        if self
+            .ignores
             .iter()
             .any(|(dir, ignore)| path.starts_with(dir) && ignore.matched_path_or_any_parents(path, false).is_ignore())
+        {
+            return true;
+        }
+        let Some(parent) = path.parent() else {
+            return false;
+        };
+        let ceiling = self.ignore_ceiling.get_or_init(|| {
+            self.root
+                .ancestors()
+                .find(|dir| is_repository_root(self.fs.as_ref(), dir))
+                .unwrap_or(&self.root)
+                .to_path_buf()
+        });
+        parent
+            .ancestors()
+            .take_while(|dir| dir.starts_with(ceiling))
+            .filter(|dir| !self.ignores.iter().any(|(base, _)| base.as_path() == *dir))
+            .any(|dir| {
+                self.dir_ignores
+                    .get_or_compute(dir, || {
+                        read_gitignore(self.fs.as_ref(), dir).map(|(_, ignore)| Arc::new(ignore))
+                    })
+                    .is_some_and(|ignore| ignore.matched_path_or_any_parents(path, false).is_ignore())
+            })
     }
 
     /// Whether the nearest `package.json` above `importer` declares `imports`, the only place a `#` specifier can be
@@ -871,14 +906,17 @@ impl ModuleResolver {
 
     /// What a specifier that names nothing is. A relative one is unknown when it points at an ignored path (also
     /// through the source extensions its extension stands for, or, without a code extension, the files and directory
-    /// index it can name) or, in a script, at a JSON or foreign file. A `#` specifier is unknown when its package
+    /// index it can name, or below an ignored `rootDirs` directory not generated yet) or, in a script, at a JSON or
+    /// foreign file. A root-relative one (`/vite.svg`, served from a bundler's public directory) is unknown when it
+    /// names a JSON or foreign file in a script. A `#` specifier is unknown when its package
     /// declares no `imports` and no `paths` pattern maps it: a tool, not Node.js, resolves it. (A configured alias
     /// that maps it never gets here.) Anything else is unresolved.
     fn missing(&self, kind: Kind, importer: &Path, specifier: &str) -> Resolved {
         if specifier.starts_with('#') && !self.declares_imports(importer) && !self.ts_paths_map(importer, specifier) {
             return Resolved::Ignored;
         }
-        if !specifier.starts_with('.') {
+        let root_relative = specifier.starts_with('/');
+        if !specifier.starts_with('.') && !root_relative {
             return Resolved::Unresolved;
         }
         let extension = Path::new(specifier)
@@ -891,6 +929,9 @@ impl ModuleResolver {
                 .is_some_and(|extension| extension == ".json" || FOREIGN_FILE_EXTENSIONS.contains(&extension))
         {
             return Resolved::Ignored;
+        }
+        if root_relative {
+            return Resolved::Unresolved;
         }
         let Some(dir) = importer.parent() else {
             return Resolved::Unresolved;
@@ -924,8 +965,29 @@ impl ModuleResolver {
         match generated {
             Some(_) if kind == Kind::Style => Resolved::Ignored,
             Some(file) => self.generated_scope(importer, &candidate, &file),
+            None if kind == Kind::Script && self.generated_in_root_dir(dir, specifier) => Resolved::Ignored,
             None => Resolved::Unresolved,
         }
+    }
+
+    /// Whether `specifier`, written in `directory`, names an ignored path below another of the `rootDirs` of the
+    /// nearest `tsconfig.json` that does not exist yet: the types a tool generates into a virtual directory
+    /// (`./+types/root` of a React Router route, from `.react-router/types`) before the code is type-checked. Once
+    /// the directory is generated, what it lacks is unresolved like any other missing file.
+    fn generated_in_root_dir(&self, directory: &Path, specifier: &str) -> bool {
+        self.nearest_paths
+            .get_or_compute(directory, || self.tsconfigs.nearest(directory).map(Arc::new))
+            .is_some_and(|config| {
+                config.root_dir_candidates(directory, specifier).iter().any(|path| {
+                    let absent_root = config
+                        .root_dirs()
+                        .iter()
+                        .filter(|root| path.starts_with(root))
+                        .max_by_key(|root| root.components().count())
+                        .is_some_and(|root| !self.fs.is_dir(root));
+                    absent_root && self.is_generated(path)
+                })
+            })
     }
 
     /// The source files a generated module may import, from the path a specifier names (`named`) and the ignored
@@ -1649,6 +1711,23 @@ mod tests {
     }
 
     #[test]
+    fn missing_root_relative_files_of_foreign_types_are_not_unresolved() {
+        // `/vite.svg` is served from the public directory of the bundler.
+        let r = resolver(&[("package.json", ROOT), ("src/a.ts", "")]);
+        let importer = Path::new("/ws/src/a.ts");
+        for specifier in ["/vite.svg", "/data/x.json"] {
+            assert_eq!(r.resolve(importer, specifier).target, Resolved::Ignored, "{specifier}");
+        }
+        for specifier in ["/content/where", "/src/missing.ts"] {
+            assert_eq!(
+                r.resolve(importer, specifier).target,
+                Resolved::Unresolved,
+                "{specifier}"
+            );
+        }
+    }
+
+    #[test]
     fn missing_relative_files_ignored_by_git_are_not_unresolved_through_extension_aliases() {
         let r = resolver(&[
             ("package.json", ROOT),
@@ -1668,6 +1747,53 @@ mod tests {
         assert_eq!(r.resolve(importer, "./schema.gen.js").target, Resolved::Ignored);
         assert_eq!(r.resolve(importer, "./schema.gen.ts").target, Resolved::Ignored);
         assert_eq!(r.resolve(importer, "./schema.js").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn missing_files_a_gitignore_of_a_directory_below_the_package_lists_are_not_unresolved() {
+        // `src/temp/.gitignore` ignores the generated files beside it.
+        let r = resolver(&[
+            ("package.json", ROOT),
+            ("src/temp/.gitignore", "*\n!.gitignore\n"),
+            ("src/a.ts", ""),
+        ]);
+        let importer = Path::new("/ws/src/a.ts");
+        assert_eq!(
+            r.resolve(importer, "./temp/config").target,
+            Resolved::Generated {
+                dir: PathBuf::from("/ws/src/temp"),
+                recursive: false
+            }
+        );
+        assert_eq!(r.resolve(importer, "./other/config").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn missing_files_a_gitignore_above_the_root_lists_are_not_unresolved_up_to_the_repository_root() {
+        // A project nested in a `frontend` folder whose `.gitignore` lists the `.next` output; the `.gitignore` above
+        // the repository root does not apply.
+        let fs = MemoryFs::new()
+            .with_file("/.gitignore", "*.ts\n")
+            .with_file("/repo/.git/HEAD", "")
+            .with_file("/repo/frontend/.gitignore", ".next\n")
+            .with_file("/repo/frontend/app/package.json", r#"{"name":"app","private":true}"#)
+            .with_file("/repo/frontend/app/next-env.d.ts", "");
+        let root = Path::new("/repo/frontend/app");
+        let config = Config::from_toml_str("").unwrap();
+        let workspace = Workspace::discover_with_fs(root, &config, &fs).unwrap();
+        let fs: Arc<dyn FileSystem> = Arc::new(fs);
+        let sources: Vec<Arc<dyn InputSource>> = vec![Arc::new(RootInputs(WorkspaceInputs::default()))];
+        let setup = Setup::new(&workspace, &config, &fs, &sources, true);
+        let r = ModuleResolver::new(fs, &workspace, &setup);
+        let importer = Path::new("/repo/frontend/app/next-env.d.ts");
+        assert_eq!(
+            r.resolve(importer, "./.next/types/routes.d.ts").target,
+            Resolved::Generated {
+                dir: PathBuf::from("/repo/frontend/app/.next/types"),
+                recursive: false
+            }
+        );
+        assert_eq!(r.resolve(importer, "./missing.ts").target, Resolved::Unresolved);
     }
 
     #[test]
@@ -1773,6 +1899,39 @@ generated/index.ts
             Resolved::File(PathBuf::from("/ws/packages/a/bazel-out/bin/src/ui/generated.ts"))
         );
         assert_eq!(r.resolve(importer, "./absent").target, Resolved::Unresolved);
+    }
+
+    #[test]
+    fn relative_imports_into_an_ignored_root_dir_are_generated_types() {
+        // React Router's typegen writes `./+types/root` below the ignored `.react-router/types` root directory.
+        let r = resolver(&[
+            ("package.json", r#"{"name":"app","private":true}"#),
+            (".gitignore", "/node_modules/\n/.react-router/\n"),
+            (
+                "tsconfig.json",
+                r#"{"compilerOptions":{"rootDirs":[".","./.react-router/types"]}}"#,
+            ),
+            ("app/root.tsx", ""),
+        ]);
+        let importer = Path::new("/ws/app/root.tsx");
+        assert_eq!(r.resolve(importer, "./+types/root").target, Resolved::Ignored);
+
+        // Once the types are generated, a path missing from them is unresolved.
+        let r = resolver(&[
+            ("package.json", r#"{"name":"app","private":true}"#),
+            (".gitignore", "/node_modules/\n/.react-router/\n"),
+            (
+                "tsconfig.json",
+                r#"{"compilerOptions":{"rootDirs":[".","./.react-router/types"]}}"#,
+            ),
+            ("app/root.tsx", ""),
+            (".react-router/types/app/+types/root.ts", ""),
+        ]);
+        assert_eq!(
+            r.resolve(importer, "./+types/root").target,
+            Resolved::File(PathBuf::from("/ws/.react-router/types/app/+types/root.ts"))
+        );
+        assert_eq!(r.resolve(importer, "./+types/home").target, Resolved::Unresolved);
     }
 
     #[test]
