@@ -360,3 +360,8 @@ blake3 = "33557f4edc8cb573b09ff0710a1f0b37bba6149504bafd2403ee42fe0382a65c"
 number = 72
 status = "accepted"
 blake3 = "be3c661d0f5b7752708bb3fc149df73bf3411ad4ba24389431e4a005f2673685"
+
+[adrs."adrs/0073-stale-mocks-test-runner-mocks-of-missing-modules-under-their-own-rule.md"]
+number = 73
+status = "accepted"
+blake3 = "558b715ede45fe2cc182b73013f46be4647c5fec4cf926d5783be1fc42753019"

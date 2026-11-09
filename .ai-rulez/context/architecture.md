@@ -30,7 +30,7 @@ All crates except `skif-node` publish to crates.io as `skif-*`. `skif` is the em
 | `skif-js-syntax` | The oxc boundary: file to module info. No oxc types exported. |
 | `skif-js-plugins` | The plugin table (entry patterns, config readers) and script parsing. |
 | `skif-migrate` | `skif migrate`: pure translation of sherif, syncpack and knip config into a `skif.toml`, with a report of what needs a human. |
-| `skif-js` | Module graph and the 17 JS analysis rules (`RuleProvider`). |
+| `skif-js` | Module graph and the 18 JS analysis rules (`RuleProvider`). |
 | `skif-report` | human, json, sarif, github, codeclimate, compact, markdown and codeowners renderers. |
 | `skif` | The facade: discover, lint and plan fixes without I/O side effects. |
 | `skif-cli` | The `skif` binary: clap, terminal output, file writes, exit codes. |

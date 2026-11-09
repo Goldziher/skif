@@ -1,0 +1,8 @@
+{
+  "name": "stale-mocks",
+  "private": true,
+  "main": "src/a.ts",
+  "devDependencies": {
+    "vitest": "3.0.0"
+  }
+}

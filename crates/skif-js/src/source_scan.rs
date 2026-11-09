@@ -96,6 +96,7 @@ pub(crate) fn add_textual_imports(info: &mut ModuleInfo, source: &str) {
             specifier,
             kind,
             names: Vec::new(),
+            call: None,
             span: span(source, start, end),
         });
     }
@@ -132,6 +133,7 @@ mod tests {
             specifier: "./a.ts".to_owned(),
             kind: ImportKind::Static,
             names: Vec::new(),
+            call: None,
             span: span(source, 0, 26),
         });
         add_textual_imports(&mut info, source);
