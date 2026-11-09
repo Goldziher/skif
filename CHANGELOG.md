@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The `engines` of a package that encloses another one provide their runtime's module there too: the client and
+  server packages inside an editor extension that declares `engines.vscode` may import `vscode` without
+  `unlisted-dependencies` reporting it ([#96](https://github.com/Goldziher/skif/issues/96)).
 - A bare `@import` in a plain `.css` file is looked up beside the stylesheet first, as `postcss-import` and the CSS
   URL rules do, and as a package only when no file there matches: `@import '_code'` next to `_code.css` is no longer
   an unlisted dependency `_code` ([#96](https://github.com/Goldziher/skif/issues/96)).
