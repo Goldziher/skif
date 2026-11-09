@@ -15,9 +15,6 @@ All notable changes to this project are documented here. The format follows
   `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such
   as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
   ([#110](https://github.com/Goldziher/skif/issues/110)).
-- A Playwright `testMatch` regular expression with an optional character, such as `/.*\.e2e\.tsx?/`, names the
-  matching test files instead of every script below `testDir`, so the other files there are no longer entries and
-  their unused exports, types, members and duplicate exports are reported.
 - `const [{ a }, ns] = await Promise.all([import("./x"), import("./y")])` uses only what each element of the array
   pattern reads: `a` of `./x` and the members read through `ns` of `./y`, instead of both modules as a whole, so
   their other exports are reported. An import after a spread element or without an element at its position is

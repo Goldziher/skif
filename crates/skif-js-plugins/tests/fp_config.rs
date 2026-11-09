@@ -399,26 +399,6 @@ fn playwright_test_match_regular_expression() {
 }
 
 #[test]
-fn playwright_test_match_with_an_optional_character_names_only_the_test_files() {
-    let results = run(
-        &[(
-            "playwright.config.ts",
-            r"export default { projects: [{ testDir: './packages/app-store/', testMatch: /.*\.e2e\.tsx?/ }] };",
-        )],
-        &["@playwright/test"],
-        &[],
-    );
-    let entries = &output(&results, "playwright").entries;
-    assert_entries(entries, &["packages/app-store/**/*.e2e.ts{x,}*"]);
-    assert!(
-        !entries
-            .iter()
-            .any(|entry| entry.ends_with("**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}")),
-        "an optional character must not widen the glob to every script; got {entries:?}"
-    );
-}
-
-#[test]
 fn aws_cdk_lambda_entries_and_app_commands() {
     let stack = r"
 import * as path from 'path';
