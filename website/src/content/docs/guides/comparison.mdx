@@ -44,7 +44,7 @@ A low share means the tools differ, and either one could be right. Some differen
 skif makes test files entries, does not report files in `fixtures` directories
 ([ADR 0050](https://github.com/Goldziher/skif/blob/main/adrs/0050-fixture-directories-in-the-js-analysis.md)), reads a
 namespace import differently. Findings in packages skif does not judge (see below) and in packages where knip could not
-load a config are counted apart too. The method is in the
+load a config are counted apart too. It also sets apart what follows from where each tool looks, decided from paths and manifests: projects with their own `package.json` that are not knip workspaces (knip neither judges their dependencies nor uses their entry files, while skif lints them as roots of their own), directories skif's file discovery skips, and TypeScript sources whose built path a package publishes, which skif makes entries. The method is in the
 [benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md).
 
 The remaining differences each have an issue:
