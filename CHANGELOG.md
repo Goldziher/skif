@@ -27,6 +27,10 @@ All notable changes to this project are documented here. The format follows
   rules from judging it. Every branch is read: the lists each branch sets (`include`, `setupFiles`, …) are credited,
   and only a branch that is not known statically leaves the spread unknown
   ([#108](https://github.com/Goldziher/skif/issues/108)).
+- The GitHub Action, pre-commit and Poly examples in the README and the docs pin the 0.2 line (`Goldziher/skif@v0.2`,
+  `v0.2.0`) instead of 0.1. `scripts/release-bump.sh` now rewrites these pins on every final release, and
+  `scripts/check-doc-pins.sh` fails CI when one is not on the workspace version's release line
+  ([#94](https://github.com/Goldziher/skif/issues/94)).
 
 ## [0.2.0] - 2026-11-08
 
