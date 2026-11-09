@@ -787,6 +787,71 @@ fn syncpack_runs_that_lint_different_types_are_combined_with_a_note() {
 }
 
 #[test]
+fn syncpack_runs_that_exclude_different_types_are_united_by_what_they_select() {
+    let mut input = ToolInput::new(Tool::Syncpack);
+    input.package_json = Some(text(
+        "package.json",
+        &package(&[
+            ("a", "syncpack lint --dependency-types !dev,!peer"),
+            ("b", "syncpack lint --dependency-types !peer,!local"),
+        ]),
+    ));
+    let migration = migrate(&[input], &options(Profile::Full)).unwrap();
+    assert_eq!(
+        strings(&table(&migration)["policy"]["dependency-types"]),
+        ["!peer"],
+        "{}",
+        migration.toml
+    );
+    assert_eq!(
+        class(&migration, "scripts.a, scripts.b: --dependency-types"),
+        NoteClass::Approximate
+    );
+}
+
+#[test]
+fn syncpack_runs_whose_union_no_list_says_keep_the_default_scope_and_the_groups() {
+    let mut input = ToolInput::new(Tool::Syncpack);
+    input.config = Some(text(
+        ".syncpackrc.json",
+        r#"{ "semverGroups": [{ "dependencyTypes": ["!local"], "range": "~" }] }"#,
+    ));
+    input.package_json = Some(text(
+        "package.json",
+        &package(&[
+            ("a", "syncpack lint --dependency-types !dev"),
+            ("b", "syncpack lint --dependency-types dev"),
+        ]),
+    ));
+    let migration = migrate(&[input], &options(Profile::Full)).unwrap();
+    let parsed = table(&migration);
+    assert_eq!(
+        strings(&parsed["policy"]["dependency-types"]),
+        [
+            "prod",
+            "dev",
+            "peer",
+            "local",
+            "resolutions",
+            "overrides",
+            "pnpm-overrides"
+        ],
+        "{}",
+        migration.toml
+    );
+    assert_eq!(
+        strings(&parsed["semver-groups"][0]["dependency-types"]),
+        ["!local"],
+        "{}",
+        migration.toml
+    );
+    assert_eq!(
+        class(&migration, "scripts.a, scripts.b: --dependency-types"),
+        NoteClass::Human
+    );
+}
+
+#[test]
 fn knip_dependencies_include_the_catalog_types_and_the_dev_dependencies() {
     let migration = knip(None, &[("k", "knip --dependencies")]);
     let parsed = table(&migration);
