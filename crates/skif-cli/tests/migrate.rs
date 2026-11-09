@@ -102,14 +102,19 @@ fn a_sherif_migration_does_not_compare_dependents_with_the_version_of_a_workspac
              "scripts": { "check": "sherif" } }"#,
     );
     for (name, manifest) in [
-        ("a", r#"{ "name": "@x/a", "version": "1.0.0", "dependencies": { "@x/b": "1.0.0" } }"#),
+        (
+            "a",
+            r#"{ "name": "@x/a", "version": "1.0.0", "dependencies": { "@x/b": "1.0.0" } }"#,
+        ),
         ("b", r#"{ "name": "@x/b", "version": "1.0.1" }"#),
     ] {
         let package = dir.path().join("packages").join(name);
         fs::create_dir_all(&package).unwrap();
         fs::write(package.join("package.json"), manifest).unwrap();
     }
-    let unmigrated = run(skif().args(["--no-js", "--no-config", "--format", "json"]).arg(dir.path()));
+    let unmigrated = run(skif()
+        .args(["--no-js", "--no-config", "--format", "json"])
+        .arg(dir.path()));
     assert_eq!(
         version_mismatches(&unmigrated.json()),
         ["packages/a/package.json"],
@@ -143,7 +148,10 @@ fn merge_keeps_the_comments_of_the_existing_file() {
         text.starts_with("# mine\n[workspace]\nignore-packages = [\"legacy\"]\n"),
         "{text}"
     );
-    assert!(text.contains("[policy]\nprefer = \"lowest\""), "{text}");
+    assert!(
+        text.contains("[policy]\ndependency-types = [\"prod\", \"dev\"]\nprefer = \"lowest\""),
+        "{text}"
+    );
 }
 
 #[test]

@@ -320,10 +320,7 @@ fn emit_ignored_packages(state: &mut State<'_>, src: &Src, setting: &Setting) {
         .filter(|value| !value.starts_with("./") && !value.starts_with('@') && value.contains('/'))
         .map(String::as_str)
         .collect();
-    state
-        .doc
-        .table(&["workspace"])
-        .extend_strs("ignore-packages", values);
+    state.doc.table(&["workspace"]).extend_strs("ignore-packages", values);
     state.note(
         src,
         NoteClass::Exact,
@@ -351,7 +348,11 @@ fn package_pattern(value: &str) -> String {
     while let Some(stripped) = rest.strip_prefix("./") {
         rest = stripped;
     }
-    if rest.is_empty() { ".".to_owned() } else { rest.to_owned() }
+    if rest.is_empty() {
+        ".".to_owned()
+    } else {
+        rest.to_owned()
+    }
 }
 
 fn emit_dependencies(state: &mut State<'_>, src: &Src, setting: &Setting) {

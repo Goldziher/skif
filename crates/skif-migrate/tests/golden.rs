@@ -79,7 +79,7 @@ fn sherif_package_json_key_and_script_flags() {
         .iter()
         .map(String::as_str)
         .collect();
-    assert_eq!(ignored, ["@demo/legacy", "./apps/legacy"]);
+    assert_eq!(ignored, ["@demo/legacy", "apps/legacy"]);
     assert_eq!(migration.config.ignore.len(), 1);
 }
 
@@ -422,7 +422,8 @@ fn sherif_leaves_the_own_versions_out_of_the_scope_and_syncpack_brings_them_back
     ];
     for inputs in [[sherif(), syncpack.clone()], [syncpack.clone(), sherif()]] {
         let both = migrate(&inputs, &options(Profile::Exact)).unwrap();
-        let mut scope = strings(&table(&both)["policy"]["dependency-types"]);
+        let both_table = table(&both);
+        let mut scope = strings(&both_table["policy"]["dependency-types"]);
         scope.sort_unstable();
         let mut expected = default_scope.to_vec();
         expected.sort_unstable();
@@ -455,7 +456,9 @@ fn sherif_package_paths_lose_their_dot_slash_prefix() {
     assert!(!has_note(&migration, NoteClass::Approximate, "look like paths"));
 
     let bare = migrate(
-        &[sherif_input(r#"{ "name": "demo", "sherif": { "ignorePackage": ["apps/c"] } }"#)],
+        &[sherif_input(
+            r#"{ "name": "demo", "sherif": { "ignorePackage": ["apps/c"] } }"#,
+        )],
         &options(Profile::Full),
     )
     .unwrap();
@@ -658,12 +661,21 @@ fn a_catalog_policy_group_does_not_widen_to_every_dependency() {
         r#"{ "versionGroups": [{ "dependencies": ["**"], "packages": ["**"], "policy": "catalog" }] }"#,
         Profile::Full,
     );
-    assert_eq!(table(&star)["catalog"]["mode"].as_str(), Some("prefer"), "{}", star.toml);
+    assert_eq!(
+        table(&star)["catalog"]["mode"].as_str(),
+        Some("prefer"),
+        "{}",
+        star.toml
+    );
 
     let global = syncpack(r#"{ "versionGroups": [{ "policy": "catalog" }] }"#, Profile::Full);
     assert_eq!(table(&global)["catalog"]["mode"].as_str(), Some("prefer"));
     assert_eq!(class(&global, "versionGroups[0].policy"), NoteClass::Approximate);
-    assert!(note(&global, "versionGroups[0].policy").message.contains("min-packages"));
+    assert!(
+        note(&global, "versionGroups[0].policy")
+            .message
+            .contains("min-packages")
+    );
 }
 
 #[test]
@@ -732,7 +744,10 @@ fn a_named_policy_wins_over_snap_to_and_prefer_version_under_same_minor_is_noted
     assert!(groups[0].get("snap-to").is_none(), "{}", migration.toml);
     assert_eq!(groups[1]["policy"].as_str(), Some("same-minor"));
     assert!(groups[1].get("prefer").is_none());
-    assert_eq!(class(&migration, "versionGroups[1].preferVersion"), NoteClass::Approximate);
+    assert_eq!(
+        class(&migration, "versionGroups[1].preferVersion"),
+        NoteClass::Approximate
+    );
     assert_eq!(groups[2]["policy"].as_str(), Some("snapped-to"));
 }
 
@@ -925,7 +940,12 @@ fn a_script_that_runs_the_knip_script_is_not_a_second_run() {
         None,
         &[("knip", "knip --production"), ("ci", "pnpm run knip && pnpm test")],
     );
-    assert_eq!(table(&migration)["js"]["production"].as_bool(), Some(true), "{}", migration.toml);
+    assert_eq!(
+        table(&migration)["js"]["production"].as_bool(),
+        Some(true),
+        "{}",
+        migration.toml
+    );
     assert!(
         !migration.notes.iter().any(|note| note.path.contains("scripts.ci")),
         "{:#?}",
@@ -1179,7 +1199,7 @@ fn merging_adds_new_tables_after_the_existing_ones() {
     assert_eq!(
         merged.toml,
         format!(
-            "{existing}\n# Added by `skif migrate --merge` from sherif (profile: full).\n\n[lint]\nfail-on-warnings = true\n# skif migrate: sources = [\"sherif\"]\n"
+            "{existing}\n# Added by `skif migrate --merge` from sherif (profile: full).\n\n[lint]\nfail-on-warnings = true\n\n[policy]\ndependency-types = [\"prod\", \"dev\"]\n# skif migrate: sources = [\"sherif\"]\n"
         )
     );
 }

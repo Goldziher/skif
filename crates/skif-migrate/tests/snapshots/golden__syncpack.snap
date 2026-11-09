@@ -49,20 +49,9 @@ policy = "same-range"
 [[version-groups]]
 label = "Follow core"
 dependencies = ["@demo/*"]
-dependency-types = ["!local"]
+dependency-types = ["prod", "dev"]
 policy = "snapped-to"
 snap-to = ["@demo/core"]
-
-# syncpack versionGroups[5]: Overrides only
-[[version-groups]]
-label = "Overrides only"
-dependency-types = ["overrides"]
-
-# syncpack versionGroups[6]: Engines in sync
-[[version-groups]]
-label = "Engines in sync"
-dependency-types = ["engines"]
-prefer = "lowest"
 
 # syncpack versionGroups[7]: Ranges only for plugins
 [[version-groups]]
@@ -76,15 +65,9 @@ label = "Exact in prod"
 dependency-types = ["prod"]
 range = ""
 
-# syncpack semverGroups[1]: Leave peers alone
-[[semver-groups]]
-label = "Leave peers alone"
-dependency-types = ["peer"]
-ignored = true
-
 # syncpack semverGroups[2]
 [[semver-groups]]
-dependency-types = ["!dev", "!optional"]
+dependency-types = ["prod"]
 range = "^"
 
 # syncpack updateGroups[0]
