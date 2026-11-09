@@ -3597,6 +3597,49 @@ fn sst_handlers_in_the_config_and_the_modules_it_imports() {
 }
 
 #[test]
+fn sst_reads_the_stacks_of_sst_2() {
+    let results = resolve(
+        &[
+            (
+                "sst.config.ts",
+                r#"import { SSTConfig } from "sst";
+                import { API } from "./stacks/API";
+                export default {
+                  config() { return { name: "app", region: "us-east-1" }; },
+                  stacks(app) { app.stack(API); },
+                } satisfies SSTConfig;"#,
+            ),
+            (
+                "stacks/API.ts",
+                r#"import { StackContext, Api, Cron, Queue, Topic } from "sst/constructs";
+                export function API({ stack }: StackContext) {
+                  const api = new Api(stack, "api", {
+                    routes: {
+                      "GET /": "packages/functions/src/list.main",
+                      "POST /": { function: "packages/functions/src/create.main", authorizer: "iam" },
+                      "PUT /": { function: { handler: "packages/functions/src/update.main" } },
+                    },
+                  });
+                  new Cron(stack, "cron", { schedule: "rate(1 day)", job: "packages/functions/src/cron.main" });
+                  new Queue(stack, "queue", { consumer: "packages/functions/src/consume.main" });
+                  new Topic(stack, "topic", { subscribers: { audit: "packages/functions/src/audit.main" } });
+                  stack.addOutputs({ url: api.url });
+                }"#,
+            ),
+        ],
+        &["sst"],
+    );
+    let out = output(&results, "sst");
+    let any = "{ts,tsx,mts,cts,js,jsx,mjs,cjs}";
+    let expected: BTreeSet<String> = ["list", "create", "update", "cron", "consume", "audit"]
+        .iter()
+        .map(|name| format!("packages/functions/src/{name}.{any}"))
+        .collect();
+    let actual: BTreeSet<String> = out.production_entries.iter().cloned().collect();
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn qwik_entries_follow_src_dir_and_routes_dir() {
     let results = resolve(
         &[(
