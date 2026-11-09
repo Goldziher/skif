@@ -1070,8 +1070,9 @@ impl ModuleResolver {
 
     /// Resolves `specifier` as written in the stylesheet `importer`.
     ///
-    /// A bare specifier is looked up next to the stylesheet first when the language resolves it that way (Sass, Less
-    /// and Stylus) or it names a stylesheet file (`@import "reset.css"`), and as a package otherwise.
+    /// A bare specifier is looked up next to the stylesheet first, and as a package when no file there matches: the
+    /// URL of a CSS `@import` is relative to the stylesheet, `postcss-import` tries `./<name>` before `node_modules`,
+    /// and Sass, Less and Stylus resolve against the importing file first too (`@import "_code"` is `./_code.css`).
     pub(crate) fn resolve_style(&self, importer: &Path, specifier: &str) -> Outcome {
         let outcome = |target, package| Outcome { target, package };
         if has_foreign_scheme(specifier) {
@@ -1081,27 +1082,16 @@ impl ModuleResolver {
             return outcome(self.root_relative_style(importer, specifier), None);
         }
         let relative = specifier.starts_with('.');
-        let preprocessed = importer
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| {
-                matches!(
-                    extension.to_ascii_lowercase().as_str(),
-                    "scss" | "sass" | "less" | "styl" | "stylus"
-                )
-            });
-        if relative || preprocessed || is_stylesheet(Path::new(specifier)) {
-            let local = if relative {
-                specifier.to_owned()
-            } else {
-                format!("./{specifier}")
-            };
-            if let Some(path) = self.local_style(importer, &local) {
-                return outcome(self.classify(path), None);
-            }
-            if relative {
-                return outcome(self.missing(Kind::Style, importer, specifier), None);
-            }
+        let local = if relative {
+            specifier.to_owned()
+        } else {
+            format!("./{specifier}")
+        };
+        if let Some(path) = self.local_style(importer, &local) {
+            return outcome(self.classify(path), None);
+        }
+        if relative {
+            return outcome(self.missing(Kind::Style, importer, specifier), None);
         }
         self.resolve_module(Kind::Style, importer, specifier)
     }

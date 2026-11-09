@@ -101,3 +101,27 @@ fn a_node_modules_bin_path_names_no_package() {
     assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
     assert_eq!(found(&diagnostics, "unresolved-imports"), none());
 }
+
+/// A bare `@import` in a plain stylesheet names the file beside it when one matches (`postcss-import` and the CSS URL
+/// rules look there first), and a package otherwise.
+#[test]
+fn bare_imports_in_plain_stylesheets_are_looked_up_beside_the_file_first() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"theme","version":"1.0.0","main":"src/index.js","devDependencies":{"tailwindcss":"4.0.0"}}"#,
+        ),
+        ("src/index.js", "import './css/main.css';\n"),
+        (
+            "src/css/main.css",
+            "@import '_code';\n@import 'social';\n@import 'tailwindcss';\n@import 'missing-theme';\n",
+        ),
+        ("src/css/_code.css", "code { color: red; }\n"),
+        ("src/css/_social.css", ".social { color: blue; }\n"),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        ["src/css/main.css: missing-theme"]
+    );
+    assert_eq!(found(&diagnostics, "unused-files"), none());
+}
