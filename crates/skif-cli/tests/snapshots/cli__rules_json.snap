@@ -210,6 +210,13 @@ expression: json.stdout
       "summary": "An import specifier does not resolve to a file or a package."
     },
     {
+      "id": "stale-mocks",
+      "category": "js",
+      "default": "warning",
+      "fixable": "none",
+      "summary": "A test-runner mock names a relative or aliased module that does not exist."
+    },
+    {
       "id": "unlisted-binaries",
       "category": "js",
       "default": "warning",
