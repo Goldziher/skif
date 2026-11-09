@@ -48,12 +48,16 @@ impl Comments {
             .map(|comment| comment.text.as_str())
     }
 
-    /// The comment on the element `index` of the array under the key `key`, wherever that array is.
+    /// The comment on the element `index` of the array under the key `key`, wherever that array is. `index` is a
+    /// position in the evaluated array, where spreads are expanded, so a comment on a spread or on an element after
+    /// one is never returned: its position in the literal is not its position in the value.
     pub(crate) fn on_element(&self, key: &str, index: usize) -> Option<&str> {
         self.elements
             .iter()
             .find(|comment| {
-                comment.index == index && matches!(comment.array.last(), Some(PathSegment::Key(last)) if last == key)
+                comment.index == index
+                    && !comment.after_spread
+                    && matches!(comment.array.last(), Some(PathSegment::Key(last)) if last == key)
             })
             .map(|comment| comment.text.as_str())
     }
@@ -246,6 +250,19 @@ mod tests {
         assert_eq!(scalar("a#b"), (Some("a#b".to_owned()), None));
         assert_eq!(scalar("'a # b' # c"), (Some("a # b".to_owned()), Some("c".to_owned())));
         assert_eq!(scalar("[a, b] # c"), (None, None));
+    }
+
+    #[test]
+    fn a_comment_after_a_spread_is_not_paired_by_position() {
+        let js = Input::new(
+            "syncpack.config.js",
+            "const shared = [{ isIgnored: true }, { isIgnored: true }];\nmodule.exports = {\n  versionGroups: [\n    // first\n    { isIgnored: true },\n    ...shared, // the shared groups\n    // pinned\n    { isIgnored: true },\n  ],\n};\n",
+        );
+        let comments = Comments::read(&js);
+        assert_eq!(comments.on_element("versionGroups", 0), Some("first"));
+        assert_eq!(comments.on_element("versionGroups", 1), None);
+        assert_eq!(comments.on_element("versionGroups", 2), None);
+        assert_eq!(comments.on_element("versionGroups", 3), None);
     }
 
     #[test]

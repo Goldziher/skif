@@ -77,11 +77,14 @@ the lines directly above it with no blank line in between, or after it on the li
 line where the previous element ends belongs to that element, one on the line of the opening bracket to none, and tool
 directives (`// eslint-disable-next-line`, `// @ts-expect-error`) are not reasons. `skif-js-syntax` finds these
 comments with oxc (`extract_array_comments`) and returns, for each, the path of keys from the outermost literal to the
-array, the element's position and its string or pattern, without exposing oxc types. The translation pairs an entry with
-a comment by that string and by the workspace key of the path, so a spread in the list does not shift reasons onto the
-wrong entries. Entries without a comment stay plain strings. syncpack's ignores are groups, which have no `reason`; a
-comment above a group in a YAML or JSON-with-comments `.syncpackrc` is written as a comment above the group's
-`[[version-groups]]`, `[[semver-groups]]` or `[[update-groups]]` entry. YAML is read line by line for its block style,
+array, the element's position, whether it is a spread or follows one, and its string or pattern, without exposing oxc
+types. The translation pairs a knip entry with a comment by that string and by the workspace key of the path, so a
+spread in the list does not shift reasons onto the wrong entries. Entries without a comment stay plain strings.
+syncpack's ignores are groups, which have no `reason`; a comment above a group in a YAML, JSON-with-comments or
+JavaScript syncpack configuration is written as a comment above the group's `[[version-groups]]`, `[[semver-groups]]`
+or `[[update-groups]]` entry. Groups are objects with no string to pair by, so they are paired by position, and
+position is only sound before the first spread: the evaluated list expands `...shared`, so the comment on a spread or
+on a group after one is not carried over rather than written above the wrong group. YAML is read line by line for its block style,
 without a new dependency. sherif's configuration is a `package.json` key, and JSON has no comments.
 
 ### Consequences

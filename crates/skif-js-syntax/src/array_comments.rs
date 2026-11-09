@@ -1,10 +1,14 @@
 //! The comments written next to the elements of array literals, for a tool that carries them over into another
 //! format (`skif migrate` turns the comment on a knip ignore entry into its `reason`).
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{ArrayExpression, Comment, Expression, ObjectExpression, ObjectPropertyKind};
+use oxc_ast::ast::{
+    ArrayExpression, ArrayExpressionElement, Comment, Declaration, Expression, ObjectExpression, ObjectPropertyKind,
+    Program, Statement,
+};
 use oxc_ast_visit::Visit;
 use oxc_parser::{ParseOptions as OxcParseOptions, Parser};
 use oxc_span::{GetSpan, SourceType};
@@ -82,6 +86,9 @@ pub struct ElementComment {
     pub array: Vec<PathSegment>,
     /// The position of the element in the array literal; a spread counts as one element.
     pub index: usize,
+    /// Whether the element is a spread or comes after one. An evaluator that expands spreads puts such an element at
+    /// a position that `index` does not give, so pairing by position is only sound when this is `false`.
+    pub after_spread: bool,
     /// The element when it is a string (its value) or a regular expression literal (its pattern).
     pub value: Option<String>,
     /// The comment text without its delimiters, its lines joined by single spaces. Comments both above and after
@@ -96,15 +103,26 @@ impl ElementComment {
         Self {
             array,
             index,
+            after_spread: false,
             value,
             text: text.into(),
         }
+    }
+
+    /// This comment, recording that its element is a spread or comes after one.
+    #[must_use]
+    pub fn after_spread(mut self) -> Self {
+        self.after_spread = true;
+        self
     }
 }
 
 /// The comments next to the elements of the array literals of `source`, a JavaScript or TypeScript file whose
 /// extension (in `path`) selects the dialect. Paths start at each outermost object or array literal, so the object
 /// a config file exports, directly or through a constant or a call such as `defineConfig({ ... })`, is the root. A
+/// property or element whose value is the name of a top-level `const` bound to an object or array literal is followed
+/// into that literal, so `const deps = [...]; export default { ignoreDependencies: deps }` puts the comments of `deps`
+/// under `ignoreDependencies` (they are also reported under `deps` as a root of its own). A spread is not followed. A
 /// comment that is a tool directive (`// eslint-disable-next-line`, `// @ts-expect-error`) is left out.
 ///
 /// `None` when the file does not parse; nothing is executed.
@@ -124,20 +142,53 @@ pub fn extract_array_comments(source: &str, path: &Path) -> Option<Vec<ElementCo
     let mut roots = Roots {
         source,
         comments: &ret.program.comments,
+        constants: constants(&ret.program),
+        following: Vec::new(),
         out: Vec::new(),
     };
     roots.visit_program(&ret.program);
     Some(roots.out)
 }
 
+/// The object and array literals bound to the top-level constants of `program`, exported or not, by name.
+fn constants<'s, 'a>(program: &'s Program<'a>) -> HashMap<&'s str, &'s Expression<'a>> {
+    program
+        .body
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::VariableDeclaration(declaration) => Some(&**declaration),
+            Statement::ExportNamedDeclaration(export) => match &export.declaration {
+                Some(Declaration::VariableDeclaration(declaration)) => Some(&**declaration),
+                _ => None,
+            },
+            _ => None,
+        })
+        .filter(|declaration| declaration.kind.is_const())
+        .flat_map(|declaration| declaration.declarations.iter())
+        .filter_map(|declarator| {
+            let name = declarator.id.get_binding_identifier()?.name.as_str();
+            let init = declarator.init.as_ref()?;
+            matches!(
+                init.get_inner_expression(),
+                Expression::ObjectExpression(_) | Expression::ArrayExpression(_)
+            )
+            .then_some((name, init))
+        })
+        .collect()
+}
+
 /// Walks the outermost literals; the literals inside them are walked by [`Roots::value`], which keeps the path.
-struct Roots<'s> {
+struct Roots<'s, 'a> {
     source: &'s str,
     comments: &'s [Comment],
+    /// The literals a property or element can name, from [`constants`].
+    constants: HashMap<&'s str, &'s Expression<'a>>,
+    /// The constants being followed, innermost last, so that a cycle (`const a = [b]; const b = [a];`) ends.
+    following: Vec<&'s str>,
     out: Vec<ElementComment>,
 }
 
-impl<'a> Visit<'a> for Roots<'_> {
+impl<'a> Visit<'a> for Roots<'_, '_> {
     fn visit_object_expression(&mut self, it: &ObjectExpression<'a>) {
         self.object(it, &mut Vec::new());
     }
@@ -147,11 +198,21 @@ impl<'a> Visit<'a> for Roots<'_> {
     }
 }
 
-impl Roots<'_> {
+impl Roots<'_, '_> {
     fn value(&mut self, expression: &Expression<'_>, path: &mut Vec<PathSegment>) {
         match expression.get_inner_expression() {
             Expression::ObjectExpression(object) => self.object(object, path),
             Expression::ArrayExpression(array) => self.array(array, path),
+            Expression::Identifier(identifier) => {
+                let Some((&name, &bound)) = self.constants.get_key_value(identifier.name.as_str()) else {
+                    return;
+                };
+                if !self.following.contains(&name) {
+                    self.following.push(name);
+                    self.value(bound, path);
+                    self.following.pop();
+                }
+            }
             _ => {}
         }
     }
@@ -176,7 +237,9 @@ impl Roots<'_> {
             .iter()
             .map(|element| (element.span().start, element.span().end))
             .collect();
+        let mut after_spread = false;
         for (index, element) in array.elements.iter().enumerate() {
+            after_spread |= matches!(element, ArrayExpressionElement::SpreadElement(_));
             let previous_end = index
                 .checked_sub(1)
                 .and_then(|previous| spans.get(previous))
@@ -190,7 +253,8 @@ impl Roots<'_> {
                         Expression::RegExpLiteral(regex) => Some(regex.regex.pattern.text.as_str().to_owned()),
                         other => static_string(other),
                     });
-                self.out.push(ElementComment::new(path.clone(), index, value, text));
+                let comment = ElementComment::new(path.clone(), index, value, text);
+                self.out.push(if after_spread { comment.after_spread() } else { comment });
             }
             if let Some(expression) = element.as_expression() {
                 path.push(PathSegment::Index(index));
@@ -378,6 +442,41 @@ mod tests {
                 None,
                 "react is pinned until the upgrade"
             )]
+        );
+    }
+
+    #[test]
+    fn a_spread_and_the_elements_after_it_are_marked() {
+        let found = comments(
+            "export default {\n  versionGroups: [\n    // first\n    { isIgnored: true },\n    ...shared, // the shared groups\n    // pinned\n    { isIgnored: true },\n  ],\n};\n",
+        );
+        assert_eq!(
+            found,
+            [
+                ElementComment::new(vec![key("versionGroups")], 0, None, "first"),
+                ElementComment::new(vec![key("versionGroups")], 1, None, "the shared groups").after_spread(),
+                ElementComment::new(vec![key("versionGroups")], 2, None, "pinned").after_spread(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_list_behind_a_constant_is_followed_from_the_key_that_names_it() {
+        let found = comments(
+            "const deps = [\n  // loaded by the bundler\n  'some-loader',\n];\nexport const shared = { ignoreBinaries: ['make' /* from the image */] };\nconst loop = [loop];\nexport default {\n  ignoreDependencies: deps,\n  workspaces: { 'packages/app': shared },\n  ignore: loop,\n};\n",
+        );
+        let loader = |array: Vec<PathSegment>| {
+            ElementComment::new(array, 0, Some("some-loader".to_owned()), "loaded by the bundler")
+        };
+        let make = |array: Vec<PathSegment>| ElementComment::new(array, 0, Some("make".to_owned()), "from the image");
+        assert_eq!(
+            found,
+            [
+                loader(vec![]),
+                make(vec![key("ignoreBinaries")]),
+                loader(vec![key("ignoreDependencies")]),
+                make(vec![key("workspaces"), key("packages/app"), key("ignoreBinaries")]),
+            ]
         );
     }
 
