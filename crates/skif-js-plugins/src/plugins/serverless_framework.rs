@@ -106,7 +106,11 @@ fn expand_variables(text: &str, root: &ConfigValue, depth: u8, bounds: Bounds) -
             return out;
         };
         rest = &after[end + 1..];
-        let ends_segment = if rest.is_empty() { bounds.1 } else { rest.starts_with('/') };
+        let ends_segment = if rest.is_empty() {
+            bounds.1
+        } else {
+            rest.starts_with('/')
+        };
         let segment = (starts_segment, ends_segment);
         let value = variable_value(&after[..end], root, depth, segment);
         out.push_str(&value.unwrap_or_else(|| String::from(if segment == WHOLE { "**" } else { "*" })));
@@ -145,7 +149,9 @@ fn variable_value(inner: &str, root: &ConfigValue, depth: u8, bounds: Bounds) ->
 
 /// The text of a quoted string (`'dev'`, `"dev"`); `None` for anything else.
 fn quoted(text: &str) -> Option<&str> {
-    ['\'', '"'].into_iter().find_map(|quote| text.strip_prefix(quote)?.strip_suffix(quote))
+    ['\'', '"']
+        .into_iter()
+        .find_map(|quote| text.strip_prefix(quote)?.strip_suffix(quote))
 }
 
 /// The production entry of a `handler` (`src/handler.main`): the module before the last `.`, with a source extension
