@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use globset::{Glob, GlobBuilder, GlobMatcher};
 use indexmap::IndexMap;
-use skif_config::{Config, IgnoreExportsUsedInFile, JsWorkspace, PackageJs};
+use skif_config::{Config, IgnoreExportsUsedInFile, IgnoreItem, JsWorkspace, PackageJs};
 use skif_core::FileSystem;
 use skif_js_syntax::{Export, ExportKind, Registration};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
@@ -80,6 +80,11 @@ struct Configured {
     paths: IndexMap<String, Vec<String>>,
 }
 
+/// The names of the entries of an ignore list, without their reasons.
+fn names(items: &[IgnoreItem]) -> Vec<String> {
+    items.iter().map(|item| item.name.clone()).collect()
+}
+
 fn normalize_dir(dir: &str) -> &str {
     let dir = dir.trim_start_matches("./").trim_end_matches('/');
     if dir.is_empty() { "." } else { dir }
@@ -93,18 +98,21 @@ impl Configured {
                 target.clone_from(value);
             }
         };
+        let replace_names = |target: &mut Vec<String>, value: &Option<Vec<IgnoreItem>>| {
+            if let Some(value) = value {
+                *target = names(value);
+            }
+        };
         replace(&mut self.entry, &js.entry);
         replace(&mut self.project, &js.project);
         replace(&mut self.ignore, &js.ignore);
-        replace(&mut self.ignore_dependencies, &js.ignore_dependencies);
-        replace(&mut self.ignore_binaries, &js.ignore_binaries);
-        replace(&mut self.ignore_unresolved, &js.ignore_unresolved);
-        self.ignore_unresolved
-            .extend(js.extend_ignore_unresolved.iter().cloned());
+        replace_names(&mut self.ignore_dependencies, &js.ignore_dependencies);
+        replace_names(&mut self.ignore_binaries, &js.ignore_binaries);
+        replace_names(&mut self.ignore_unresolved, &js.ignore_unresolved);
+        self.ignore_unresolved.extend(names(&js.extend_ignore_unresolved));
         self.ignore.extend(js.extend_ignore.iter().cloned());
-        self.ignore_dependencies
-            .extend(js.extend_ignore_dependencies.iter().cloned());
-        self.ignore_binaries.extend(js.extend_ignore_binaries.iter().cloned());
+        self.ignore_dependencies.extend(names(&js.extend_ignore_dependencies));
+        self.ignore_binaries.extend(names(&js.extend_ignore_binaries));
     }
 }
 
@@ -114,11 +122,11 @@ impl From<&JsWorkspace> for Configured {
             entry: workspace.entry.clone(),
             project: workspace.project.clone(),
             ignore: workspace.ignore.clone(),
-            ignore_files: workspace.ignore_files.clone(),
-            ignore_dependencies: workspace.ignore_dependencies.clone(),
-            ignore_binaries: workspace.ignore_binaries.clone(),
-            ignore_unresolved: workspace.ignore_unresolved.clone(),
-            ignore_members: workspace.ignore_members.clone(),
+            ignore_files: names(&workspace.ignore_files),
+            ignore_dependencies: names(&workspace.ignore_dependencies),
+            ignore_binaries: names(&workspace.ignore_binaries),
+            ignore_unresolved: names(&workspace.ignore_unresolved),
+            ignore_members: names(&workspace.ignore_members),
             include_entry_exports: workspace.include_entry_exports,
             ignore_exports_used_in_file: workspace.ignore_exports_used_in_file.clone(),
             paths: workspace.paths.clone(),
