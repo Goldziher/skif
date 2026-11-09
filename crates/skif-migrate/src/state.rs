@@ -323,12 +323,20 @@ fn united_scope(a: &[String], b: &[String]) -> Vec<String> {
         }
         ((true, plain), (false, excluded)) | ((false, excluded), (true, plain)) => {
             let kept: Vec<&String> = excluded.iter().filter(|name| !plain.contains(*name)).collect();
-            let kept = if kept.is_empty() { excluded.iter().collect() } else { kept };
+            let kept = if kept.is_empty() {
+                excluded.iter().collect()
+            } else {
+                kept
+            };
             out.extend(kept.into_iter().map(|name| format!("!{name}")));
         }
         ((false, first), (false, second)) => {
             let common: Vec<&String> = first.iter().filter(|name| second.contains(*name)).collect();
-            let kept = if common.is_empty() { first.iter().collect() } else { common };
+            let kept = if common.is_empty() {
+                first.iter().collect()
+            } else {
+                common
+            };
             out.extend(kept.into_iter().map(|name| format!("!{name}")));
         }
     }
@@ -422,7 +430,8 @@ mod tests {
 
     #[test]
     fn intersected_scopes_select_what_both_select() {
-        let cases: [(&[&str], &[&str], Option<&[&str]>); 5] = [
+        type Case<'a> = (&'a [&'a str], &'a [&'a str], Option<&'a [&'a str]>);
+        let cases: [Case<'_>; 5] = [
             (&["optional"], &["prod", "dev"], None),
             (&["dev", "peer"], &["prod", "dev"], Some(&["dev"])),
             (&["prod", "local"], &["!local"], Some(&["prod"])),

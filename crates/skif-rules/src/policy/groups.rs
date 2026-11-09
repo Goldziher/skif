@@ -76,11 +76,10 @@ impl<'c> Selectors<'c> {
 /// sections and the custom types: the scope has to name them.
 fn in_default_scope(scope: &DependencyTypes, ty: &DependencyType) -> bool {
     match ty {
-        DependencyType::Local => scope.matches(ty),
         DependencyType::Section(kind) if scope.is_empty() => {
             matches!(kind, DependencyKind::Dependencies | DependencyKind::DevDependencies)
         }
-        DependencyType::Section(_) => scope.matches(ty),
+        DependencyType::Local | DependencyType::Section(_) => scope.matches(ty),
         _ => scope.names(ty),
     }
 }

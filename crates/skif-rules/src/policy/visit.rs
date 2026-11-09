@@ -706,7 +706,10 @@ mod tests {
         );
         assert_eq!(states("[policy]\ndependency-types = [\"!local\"]\n", &members), none);
         assert_eq!(
-            states("[policy]\ndependency-types = [\"prod\", \"dev\", \"local\"]\n", &members),
+            states(
+                "[policy]\ndependency-types = [\"prod\", \"dev\", \"local\"]\n",
+                &members
+            ),
             [one("app", "lib", "DiffersToLocal")]
         );
         assert_eq!(

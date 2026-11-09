@@ -1220,20 +1220,16 @@ fn narrow_groups(state: &mut State<'_>, src: &Src, scope: &[String]) {
             let Some(types) = section.get("dependency-types").map(str_list) else {
                 return true;
             };
-            match intersected_scope(&types, scope) {
-                Some(narrowed) => {
-                    if narrowed != types {
-                        section.set("dependency-types", Val::strs(narrowed));
-                    }
-                    true
-                }
-                None => {
-                    let origin = section.comments.first().map_or("", String::as_str);
-                    let origin = origin.strip_prefix("syncpack ").unwrap_or(origin);
-                    dropped.push(origin.split(": ").next().unwrap_or(origin).to_owned());
-                    false
-                }
+            let Some(narrowed) = intersected_scope(&types, scope) else {
+                let origin = section.comments.first().map_or("", String::as_str);
+                let origin = origin.strip_prefix("syncpack ").unwrap_or(origin);
+                dropped.push(origin.split(": ").next().unwrap_or(origin).to_owned());
+                return false;
+            };
+            if narrowed != types {
+                section.set("dependency-types", Val::strs(narrowed));
             }
+            true
         });
     }
     for path in dropped {
