@@ -126,25 +126,48 @@ fn collect_ambient_modules(
     names
 }
 
-/// Records on every unlisted import whose specifier the `paths` of another package's TypeScript configuration map, but
-/// not those of the configuration the importing file follows, which config and pattern map it. The patterns of all
-/// packages are indexed once, and only when an import is unlisted.
+/// Records on every unlisted import whose specifier the `paths` of another package's TypeScript configuration map to
+/// a source file of the workspace, but not those of the configuration the importing file follows, which config and
+/// pattern map it. The patterns of all packages are indexed once, and only when an import is unlisted.
+///
+/// An import keeps the `package.json` advice when that is the fix: it resolved to a module of the graph, names a
+/// workspace package or one a manifest lists, or names an installed package.
 fn mark_foreign_paths(resolver: &ModuleResolver, graph: &ModuleGraph, dependencies: &mut DependencyUsage) {
     if dependencies.unlisted.is_empty() {
         return;
     }
     let foreign = resolver.package_paths();
-    for unlisted in &mut dependencies.unlisted {
-        let importer = &graph.module(unlisted.module).abs;
-        if resolver.ts_paths_map(importer, &unlisted.specifier) {
-            continue;
-        }
-        unlisted.foreign_paths = foreign
-            .lookup(&unlisted.specifier)
-            .map(|(config, pattern)| ForeignMapping {
-                config: config.to_owned(),
-                pattern: pattern.to_owned(),
-            });
+    let marks: Vec<(usize, ForeignMapping)> = dependencies
+        .unlisted
+        .iter()
+        .enumerate()
+        .filter_map(|(index, unlisted)| {
+            let importer = &graph.module(unlisted.module).abs;
+            let unresolved = matches!(
+                unlisted.target,
+                None | Some(Target::External(_) | Target::Unresolved)
+            );
+            if !unresolved
+                || dependencies.known_package(&unlisted.name)
+                || resolver.installed(importer, &unlisted.name)
+                || resolver.ts_paths_map(importer, &unlisted.specifier)
+            {
+                return None;
+            }
+            let (config, pattern) = foreign.lookup(&unlisted.specifier, |config, pattern| {
+                resolver.maps_to_source(config, pattern, &unlisted.specifier)
+            })?;
+            Some((
+                index,
+                ForeignMapping {
+                    config: config.to_owned(),
+                    pattern: pattern.to_owned(),
+                },
+            ))
+        })
+        .collect();
+    for (index, mark) in marks {
+        dependencies.unlisted[index].foreign_paths = Some(mark);
     }
 }
 

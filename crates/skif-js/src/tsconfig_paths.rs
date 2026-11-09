@@ -28,7 +28,7 @@ type PathEntries = Vec<(String, Vec<String>)>;
 #[derive(Clone, Default)]
 struct Options {
     base_url: Option<PathBuf>,
-    /// The directory of the config that set `paths`, and the entries.
+    /// The config file that set `paths` (the config itself or one it extends), and the entries.
     paths: Option<(PathBuf, PathEntries)>,
     /// Directories that are merged into one virtual directory for relative imports.
     root_dirs: Vec<PathBuf>,
@@ -38,6 +38,8 @@ struct Options {
 pub(crate) struct TsPaths {
     /// The config file found at or above the directory.
     config: PathBuf,
+    /// The config file that declares `paths`: `config` or a config it extends.
+    paths_config: PathBuf,
     base_url: Option<PathBuf>,
     paths_dir: PathBuf,
     paths: PathEntries,
@@ -237,7 +239,7 @@ impl TsConfigs {
                         (pattern.clone(), targets)
                     })
                     .collect();
-                options.paths = Some((dir.to_path_buf(), entries));
+                options.paths = Some((file.to_path_buf(), entries));
             }
         }
         Some(options)
@@ -256,12 +258,11 @@ impl TsConfigs {
                     if options.base_url.is_none() && options.paths.is_none() && options.root_dirs.is_empty() {
                         return None;
                     }
-                    let (paths_dir, paths) = options
-                        .paths
-                        .clone()
-                        .unwrap_or_else(|| (ancestor.to_path_buf(), Vec::new()));
+                    let (paths_config, paths) = options.paths.clone().unwrap_or_else(|| (file.clone(), Vec::new()));
+                    let paths_dir = paths_config.parent().unwrap_or(ancestor).to_path_buf();
                     Some(TsPaths {
                         config: file.clone(),
+                        paths_config,
                         base_url: options.base_url.clone(),
                         paths_dir,
                         paths,
@@ -309,17 +310,12 @@ impl TsPaths {
     /// The paths `specifier` may stand for, in the order TypeScript tries them: `paths` patterns with the longest
     /// prefix first, then `baseUrl`.
     pub(crate) fn candidates(&self, specifier: &str) -> Vec<PathBuf> {
-        let base = self.base_url.as_deref().unwrap_or(&self.paths_dir);
         let mut matched: Vec<(usize, Vec<PathBuf>)> = self
             .paths
             .iter()
             .filter_map(|(pattern, targets)| {
                 let (prefix, captured) = match_pattern(pattern, specifier)?;
-                let paths = targets
-                    .iter()
-                    .map(|target| join_any(base, &target.replacen('*', captured, 1)))
-                    .collect();
-                Some((prefix, paths))
+                Some((prefix, self.expand(targets, captured)))
             })
             .collect();
         matched.sort_by_key(|(prefix, _)| Reverse(*prefix));
@@ -330,6 +326,29 @@ impl TsPaths {
                 .map(|base_url| join_normalized(base_url, specifier)),
         );
         candidates
+    }
+
+    /// The paths the `paths` pattern `pattern` maps `specifier` to, in the order of its targets; empty when the pattern
+    /// is not declared or does not match. `baseUrl` does not count.
+    pub(crate) fn pattern_candidates(&self, pattern: &str, specifier: &str) -> Vec<PathBuf> {
+        self.paths
+            .iter()
+            .filter(|(declared, _)| declared == pattern)
+            .filter_map(|(_, targets)| {
+                let (_, captured) = match_pattern(pattern, specifier)?;
+                Some(self.expand(targets, captured))
+            })
+            .flatten()
+            .collect()
+    }
+
+    /// The paths `targets` stand for with `captured` in place of their `*`.
+    fn expand(&self, targets: &[String], captured: &str) -> Vec<PathBuf> {
+        let base = self.base_url.as_deref().unwrap_or(&self.paths_dir);
+        targets
+            .iter()
+            .map(|target| join_any(base, &target.replacen('*', captured, 1)))
+            .collect()
     }
 
     /// Whether a `paths` pattern matches `specifier`; `baseUrl`, which every bare specifier falls back to, does not
@@ -348,8 +367,9 @@ impl TsPaths {
 /// wildcard pattern with no literal prefix (`*`, `*.svg`) matches every specifier and says nothing about where one
 /// resolves, so it is left out.
 pub(crate) struct ForeignPaths {
-    /// The config files, relative to the workspace root with `/` separators, sorted.
-    configs: Vec<String>,
+    /// The configs with `paths`, sorted and deduplicated by the config file found for a directory, each with the file
+    /// that declares its `paths` (itself or a config it extends), relative to the workspace root with `/` separators.
+    configs: Vec<(String, Arc<TsPaths>)>,
     /// Exact patterns: the positions in `configs` of the configs that declare each, ascending.
     exact: HashMap<String, Vec<usize>>,
     /// Wildcard patterns by the text before `*`: the text after it, the pattern and the position of the config, by
@@ -357,16 +377,21 @@ pub(crate) struct ForeignPaths {
     wildcards: HashMap<String, Vec<(String, String, usize)>>,
 }
 
+/// `path` relative to `root`, with `/` separators.
+fn relative_to(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
 impl ForeignPaths {
     /// Indexes the `paths` of `configs`; a config found for several directories counts once.
     pub(crate) fn new(root: &Path, configs: &[Arc<TsPaths>]) -> Self {
-        let mut by_file: Vec<(String, &TsPaths)> = configs
+        let mut by_file: Vec<(String, &Arc<TsPaths>)> = configs
             .iter()
             .filter(|config| !config.paths.is_empty())
-            .map(|config| {
-                let rel = config.config.strip_prefix(root).unwrap_or(config.config.as_path());
-                (rel.to_string_lossy().replace('\\', "/"), &**config)
-            })
+            .map(|config| (relative_to(root, &config.config), config))
             .collect();
         by_file.sort_by(|a, b| a.0.cmp(&b.0));
         by_file.dedup_by(|a, b| a.0 == b.0);
@@ -386,22 +411,28 @@ impl ForeignPaths {
             }
         }
         Self {
-            configs: by_file.into_iter().map(|(file, _)| file).collect(),
+            configs: by_file
+                .into_iter()
+                .map(|(_, config)| (relative_to(root, &config.paths_config), Arc::clone(config)))
+                .collect(),
             exact,
             wildcards,
         }
     }
 
-    /// The config, relative to the workspace root, and the pattern that map `specifier`, as TypeScript ranks
-    /// patterns: an exact pattern first, then the wildcard with the longest prefix. Among equally specific patterns
-    /// the first config by path wins.
-    pub(crate) fn lookup(&self, specifier: &str) -> Option<(&str, &str)> {
-        if let Some((pattern, position)) = self
-            .exact
-            .get_key_value(specifier)
-            .and_then(|(pattern, positions)| Some((pattern, positions.first()?)))
+    /// The file that declares the pattern, relative to the workspace root, and the pattern that map `specifier`
+    /// among the patterns `accept` takes (given the config and the pattern), as TypeScript ranks patterns: an exact
+    /// pattern first, then the wildcard with the longest prefix. Among equally specific patterns the first config by
+    /// path wins.
+    pub(crate) fn lookup(&self, specifier: &str, accept: impl Fn(&TsPaths, &str) -> bool) -> Option<(&str, &str)> {
+        let found = |pattern: &str, position: usize| {
+            let (file, config) = &self.configs[position];
+            accept(config, pattern).then_some(file.as_str())
+        };
+        if let Some((pattern, positions)) = self.exact.get_key_value(specifier)
+            && let Some(file) = positions.iter().find_map(|position| found(pattern, *position))
         {
-            return Some((self.configs[*position].as_str(), pattern.as_str()));
+            return Some((file, pattern.as_str()));
         }
         (1..=specifier.len())
             .rev()
@@ -412,8 +443,9 @@ impl ForeignPaths {
                     .get(prefix)?
                     .iter()
                     .filter(|(suffix, _, _)| rest.ends_with(suffix.as_str()))
-                    .min_by_key(|(_, _, position)| *position)
-                    .map(|(_, pattern, position)| (self.configs[*position].as_str(), pattern.as_str()))
+                    .filter_map(|(_, pattern, position)| Some((*position, found(pattern, *position)?, pattern)))
+                    .min_by_key(|(position, _, _)| *position)
+                    .map(|(_, file, pattern)| (file, pattern.as_str()))
             })
     }
 }
@@ -429,6 +461,7 @@ mod tests {
     fn wildcard_and_exact_patterns_rank_by_prefix() {
         let paths = TsPaths {
             config: PathBuf::from("/ws/packages/tsconfig.json"),
+            paths_config: PathBuf::from("/ws/packages/tsconfig.json"),
             base_url: None,
             paths_dir: PathBuf::from("/ws/packages"),
             root_dirs: Vec::new(),
@@ -451,6 +484,7 @@ mod tests {
     fn declaring(config: &str, patterns: &[&str]) -> Arc<TsPaths> {
         Arc::new(TsPaths {
             config: PathBuf::from(config),
+            paths_config: PathBuf::from(config),
             base_url: None,
             paths_dir: PathBuf::from("/ws"),
             root_dirs: Vec::new(),
@@ -472,24 +506,83 @@ mod tests {
             declaring("/ws/packages/none/tsconfig.json", &[]),
         ];
         let foreign = ForeignPaths::new(Path::new("/ws"), &configs);
+        let any = |specifier: &str| foreign.lookup(specifier, |_, _| true);
         assert_eq!(foreign.configs.len(), 3);
+        assert_eq!(any("shared/value"), Some(("packages/app/tsconfig.json", "shared/*")));
+        assert_eq!(any("shared/deep/x"), Some(("packages/web/tsconfig.json", "shared/deep/*")));
+        assert_eq!(any("exact"), Some(("packages/web/tsconfig.json", "exact")));
+        assert_eq!(any("@ui/button/index"), Some(("packages/app/tsconfig.json", "@ui/*/index")));
+        assert_eq!(any("@ui/button"), None);
+        // Catch-all patterns match everything and are left out.
+        assert_eq!(any("left-pad"), None);
+        assert_eq!(any("icon.svg"), None);
+    }
+
+    #[test]
+    fn foreign_paths_skip_the_patterns_the_caller_rejects() {
+        let configs = [
+            declaring("/ws/packages/app/tsconfig.json", &["shared/*", "exact"]),
+            declaring("/ws/packages/zeta/tsconfig.json", &["shared/*", "exact", "shared/deep/*"]),
+        ];
+        let foreign = ForeignPaths::new(Path::new("/ws"), &configs);
+        let not_app = |config: &TsPaths, _: &str| !config.config.starts_with("/ws/packages/app");
         assert_eq!(
-            foreign.lookup("shared/value"),
+            foreign.lookup("shared/value", not_app),
+            Some(("packages/zeta/tsconfig.json", "shared/*"))
+        );
+        assert_eq!(
+            foreign.lookup("exact", not_app),
+            Some(("packages/zeta/tsconfig.json", "exact"))
+        );
+        // A rejected longer prefix falls back to a shorter one.
+        assert_eq!(
+            foreign.lookup("shared/deep/x", |_, pattern| pattern != "shared/deep/*"),
             Some(("packages/app/tsconfig.json", "shared/*"))
         );
+        assert_eq!(foreign.lookup("shared/value", |_, _| false), None);
+    }
+
+    #[test]
+    fn foreign_paths_name_the_config_that_declares_inherited_paths() {
+        let fs = MemoryFs::new()
+            .with_file(
+                "/ws/tsconfig.base.json",
+                r#"{"compilerOptions":{"paths":{"shared/*":["./packages/lib/src/*"]}}}"#,
+            )
+            .with_file(
+                "/ws/packages/app/tsconfig.json",
+                r#"{"extends":"../../tsconfig.base.json"}"#,
+            );
+        let app = configs(fs, &[]).nearest(Path::new("/ws/packages/app/src")).unwrap();
+        let foreign = ForeignPaths::new(Path::new("/ws"), &[Arc::new(app)]);
         assert_eq!(
-            foreign.lookup("shared/deep/x"),
-            Some(("packages/web/tsconfig.json", "shared/deep/*"))
+            foreign.lookup("shared/value", |_, _| true),
+            Some(("tsconfig.base.json", "shared/*"))
         );
-        assert_eq!(foreign.lookup("exact"), Some(("packages/web/tsconfig.json", "exact")));
+    }
+
+    #[test]
+    fn pattern_candidates_expand_only_the_named_pattern() {
+        let paths = TsPaths {
+            config: PathBuf::from("/ws/app/tsconfig.json"),
+            paths_config: PathBuf::from("/ws/app/tsconfig.json"),
+            base_url: Some(PathBuf::from("/ws/app")),
+            paths_dir: PathBuf::from("/ws/app"),
+            root_dirs: Vec::new(),
+            paths: vec![
+                ("lodash/*".to_owned(), vec!["./shims/lodash/*".to_owned(), "./vendor/*".to_owned()]),
+                ("lodash/merge".to_owned(), vec!["./merge.ts".to_owned()]),
+            ],
+        };
         assert_eq!(
-            foreign.lookup("@ui/button/index"),
-            Some(("packages/app/tsconfig.json", "@ui/*/index"))
+            paths.pattern_candidates("lodash/*", "lodash/merge"),
+            [
+                PathBuf::from("/ws/app/shims/lodash/merge"),
+                PathBuf::from("/ws/app/vendor/merge")
+            ]
         );
-        assert_eq!(foreign.lookup("@ui/button"), None);
-        // Catch-all patterns match everything and are left out.
-        assert_eq!(foreign.lookup("left-pad"), None);
-        assert_eq!(foreign.lookup("icon.svg"), None);
+        assert_eq!(paths.pattern_candidates("lodash/*", "react"), Vec::<PathBuf>::new());
+        assert_eq!(paths.pattern_candidates("unknown/*", "unknown/x"), Vec::<PathBuf>::new());
     }
 
     #[test]
