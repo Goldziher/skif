@@ -311,7 +311,7 @@ fn selection(list: &[String]) -> (bool, Vec<String>) {
 
 /// The `dependency-types` list that selects what `a` or `b` selects. A negation-only list that would lose every
 /// negation selects everything, which no list but the empty default says; it then keeps its negations.
-fn united_scope(a: &[String], b: &[String]) -> Vec<String> {
+pub(crate) fn united_scope(a: &[String], b: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     match (selection(a), selection(b)) {
         ((true, first), (true, second)) => {

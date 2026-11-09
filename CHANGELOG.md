@@ -25,6 +25,9 @@ All notable changes to this project are documented here. The format follows
 - `skif migrate` drops the `./` prefix of sherif's `ignorePackage` paths, which never matched a package in skif.
 - `skif migrate` cuts each syncpack group's `dependencyTypes` to the `--dependency-types` of the lint script, and drops
   a group left with none, since syncpack never gave it an instance.
+- `skif migrate` unites syncpack scripts that lint different `--dependency-types`, `!` negations included, by what they
+  select (`!dev,!peer` and `!peer,!local` give `["!peer"]`); when no list selects what they select together, it writes
+  the default scope and leaves the groups' `dependencyTypes` as they are.
 - `skif migrate` no longer counts `"ci": "pnpm run knip"` next to a `knip` script as a second run of knip without
   flags, reads `node ./node_modules/knip/bin/knip.js`, and takes `--production=false` as off.
 - `skif migrate` lets a syncpack `policy` win over `snapTo` as syncpack does, notes a `preferVersion` it drops under

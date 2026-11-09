@@ -9,7 +9,7 @@ use crate::doc::Val;
 use crate::keys;
 use crate::notes::{NoteClass, Tool};
 use crate::scripts::{self, Invocation};
-use crate::state::{Level, Src, State, intersected_scope, str_list};
+use crate::state::{Level, Src, State, intersected_scope, str_list, united_scope};
 use crate::tables;
 use crate::value::{at, boolean, entries, join, read, string, string_list};
 use crate::{MigrateError, ToolInput};
@@ -1144,17 +1144,19 @@ fn read_flags(state: &mut State<'_>, src: &Src, invocation: &Invocation, workspa
     }
 }
 
-/// The tokens of every scope in `scopes`, united in order; a run without `--dependency-types` counts as `default`.
-fn union_scope(scopes: &[(String, Option<Vec<String>>)], default: &[String]) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for (_, scope) in scopes {
-        for token in scope.as_deref().unwrap_or(default) {
-            if !out.contains(token) {
-                out.push(token.clone());
-            }
-        }
-    }
-    out
+/// The scope that selects what any run in `scopes` selects, a run without `--dependency-types` counting as
+/// `default`, or `None` when no list says it: the runs together select a type that the united list excludes.
+fn united_runs(scopes: &[(String, Option<Vec<String>>)], default: &[String]) -> Option<Vec<String>> {
+    let lists: Vec<Vec<String>> = scopes
+        .iter()
+        .map(|(_, scope)| scope.clone().unwrap_or_else(|| default.to_vec()))
+        .collect();
+    let united = lists.iter().cloned().reduce(|a, b| united_scope(&a, &b))?;
+    let lost = united.iter().filter_map(|token| token.strip_prefix('!')).any(|name| {
+        let name = [name.to_owned()];
+        lists.iter().any(|list| intersected_scope(list, &name).is_some())
+    });
+    (!lost).then_some(united)
 }
 
 fn emit_scope(state: &mut State<'_>, src: &Src, run: &Run) {
@@ -1167,35 +1169,32 @@ fn emit_scope(state: &mut State<'_>, src: &Src, run: &Run) {
         .collect::<Vec<&str>>()
         .join(", ");
     let narrowed = run.scopes.iter().any(|(_, scope)| scope.is_some());
-    let tokens = if !narrowed {
-        default
+    let (tokens, from_scripts) = if !narrowed {
+        (default, false)
     } else if !differ {
-        run.scopes[0].1.clone().unwrap_or(default)
+        (run.scopes[0].1.clone().unwrap_or(default), true)
+    } else if let Some(united) = united_runs(&run.scopes, &default) {
+        state.note_with(
+            src,
+            NoteClass::Approximate,
+            format!("{names}: --dependency-types"),
+            "these scripts lint different dependency types; skif has one scope, so [policy] dependency-types is \
+             their union",
+            "narrow single checks with `dependency-types` on a [[version-groups]] or [[semver-groups]] entry",
+        );
+        (united, true)
     } else {
-        let united = union_scope(&run.scopes, &default);
-        if united.iter().any(|token| token.starts_with('!')) {
-            state.note_with(
-                src,
-                NoteClass::Human,
-                format!("{names}: --dependency-types"),
-                "these scripts lint different dependency types and some of them exclude types with `!`; the default \
-                 scope was written",
-                "set [policy] dependency-types by hand, or list the types per [[version-groups]] entry",
-            );
-            default
-        } else {
-            state.note_with(
-                src,
-                NoteClass::Approximate,
-                format!("{names}: --dependency-types"),
-                "these scripts lint different dependency types; skif has one scope, so [policy] dependency-types is \
-                 their union",
-                "narrow single checks with `dependency-types` on a [[version-groups]] or [[semver-groups]] entry",
-            );
-            united
-        }
+        state.note_with(
+            src,
+            NoteClass::Human,
+            format!("{names}: --dependency-types"),
+            "these scripts lint different dependency types and together select types that no dependency-types list \
+             can name at once; the default scope was written",
+            "set [policy] dependency-types by hand, or list the types per [[version-groups]] entry",
+        );
+        (default, false)
     };
-    if narrowed {
+    if from_scripts {
         narrow_groups(state, src, &tokens);
     }
     state.widen_scope(tokens);
