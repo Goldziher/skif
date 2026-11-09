@@ -14,7 +14,7 @@ use skif_workspace::{PackageId, Workspace};
 use crate::analysis::workspace_key;
 use crate::discover::Candidate;
 use crate::entries::{Disk, names_no_file};
-use crate::resolve::{is_code_file, join_normalized};
+use crate::resolve::{is_read_file, join_normalized};
 use crate::setup::{Setup, WorkspaceKeys};
 use crate::specifier::package_name;
 
@@ -175,7 +175,7 @@ impl Scope<'_, '_> {
             .filter(|pattern| !pattern.starts_with('!'))
         {
             for extension in pattern_extensions(pattern) {
-                if !is_code_file(Path::new(&format!("x.{extension}"))) {
+                if !is_read_file(Path::new(&format!("x.{extension}"))) {
                     let identifier = format!(".{extension}");
                     hints.insert(self.hint(HintKind::ExtensionUnregistered, "project", Some(pattern), identifier));
                 }

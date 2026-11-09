@@ -11,6 +11,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`,
+  `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such
+  as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
+  ([#110](https://github.com/Goldziher/skif/issues/110)).
 - A published path that names nothing (a `bin` such as `bin/cli.js` with no file, no source behind it, outside a build
   output directory and not gitignored) no longer marks its package `unmapped-published` and leaves it unjudged: it is
   no entry, the package is judged from its other entries, and `stale-js-config` reports the path (`package-entry`)

@@ -525,6 +525,8 @@ The rest of knip's configuration hints are part of `stale-js-config` too:
 - `entry-top-level` and `project-top-level`: the top-level `entry` or `project` in a workspace with several packages,
   where they apply to the root package only; move them to the `[js.workspaces]` table they are meant for.
 - `project-extension-unregistered`: a `project` pattern selecting an extension skif does not analyse (`*.json`).
+  Stylesheets (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`, `.stylus`) are not reported: skif reads their
+  imports, so a knip `project` glob such as `src/**/*.{ts,css}` keeps working unchanged.
   `project-extension-excluded`: `project` patterns that name extensions but not `.vue`, `.svelte` or `.astro` while the
   package has such files, which then leave the project. knip ties both to its compilers; skif reads those component
   files without one, so the second is judged by the files present instead.
