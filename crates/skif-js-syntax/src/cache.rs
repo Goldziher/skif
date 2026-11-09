@@ -200,10 +200,10 @@ mod tests {
 
     use super::*;
 
-    /// One source per language the parsers know, plus the bench corpus: the probe whose parse output the schema
-    /// digest pins.
+    /// One source per language the parsers know and one of test-runner mocks, plus the bench corpus: the probe whose
+    /// parse output the schema digest pins.
     fn probe_corpus() -> Vec<(PathBuf, String)> {
-        let inline: [(&str, &str); 12] = [
+        let inline: [(&str, &str); 13] = [
             (
                 "a.ts",
                 "import { a, type B } from './b';\nimport * as ns from 'ns';\nexport const c = a + ns.x;\n\
@@ -257,6 +257,11 @@ mod tests {
             (
                 "l.scss",
                 "@use 'sass:math';\n@use './vars' as v;\n@forward './mixins';\n.a { b: v.$c; }\n",
+            ),
+            (
+                "m.test.ts",
+                "vi.mock('./x');\nvi.mock(import('./y'), () => ({}));\njest.requireActual('./z');\n\
+                 jest.mock('v', () => ({}), { virtual: true });\n",
             ),
         ];
         let mut corpus: Vec<(PathBuf, String)> = inline

@@ -32,6 +32,110 @@ pub enum ImportKind {
     Mock,
 }
 
+/// A test-runner call that names a module, recorded on an [`ImportKind::Mock`] import. It serializes as the call is
+/// written (`"vi.mock"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum MockCall {
+    /// `vi.mock("x")`.
+    #[serde(rename = "vi.mock")]
+    ViMock,
+    /// `vi.doMock("x")`.
+    #[serde(rename = "vi.doMock")]
+    ViDoMock,
+    /// `vi.unmock("x")`.
+    #[serde(rename = "vi.unmock")]
+    ViUnmock,
+    /// `vi.doUnmock("x")`.
+    #[serde(rename = "vi.doUnmock")]
+    ViDoUnmock,
+    /// `vi.importActual("x")`.
+    #[serde(rename = "vi.importActual")]
+    ViImportActual,
+    /// `vi.importMock("x")`.
+    #[serde(rename = "vi.importMock")]
+    ViImportMock,
+    /// `jest.mock("x")`.
+    #[serde(rename = "jest.mock")]
+    JestMock,
+    /// `jest.doMock("x")`.
+    #[serde(rename = "jest.doMock")]
+    JestDoMock,
+    /// `jest.unmock("x")`.
+    #[serde(rename = "jest.unmock")]
+    JestUnmock,
+    /// `jest.dontMock("x")`.
+    #[serde(rename = "jest.dontMock")]
+    JestDontMock,
+    /// `jest.requireActual("x")`.
+    #[serde(rename = "jest.requireActual")]
+    JestRequireActual,
+    /// `jest.requireMock("x")`.
+    #[serde(rename = "jest.requireMock")]
+    JestRequireMock,
+    /// `jest.createMockFromModule("x")`.
+    #[serde(rename = "jest.createMockFromModule")]
+    JestCreateMockFromModule,
+    /// `jest.genMockFromModule("x")`.
+    #[serde(rename = "jest.genMockFromModule")]
+    JestGenMockFromModule,
+}
+
+impl MockCall {
+    /// Every call: the `vi` ones, then the `jest` ones.
+    pub const ALL: [Self; 14] = [
+        Self::ViMock,
+        Self::ViDoMock,
+        Self::ViUnmock,
+        Self::ViDoUnmock,
+        Self::ViImportActual,
+        Self::ViImportMock,
+        Self::JestMock,
+        Self::JestDoMock,
+        Self::JestUnmock,
+        Self::JestDontMock,
+        Self::JestRequireActual,
+        Self::JestRequireMock,
+        Self::JestCreateMockFromModule,
+        Self::JestGenMockFromModule,
+    ];
+
+    /// The call as written: `vi.mock`, `jest.requireActual`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ViMock => "vi.mock",
+            Self::ViDoMock => "vi.doMock",
+            Self::ViUnmock => "vi.unmock",
+            Self::ViDoUnmock => "vi.doUnmock",
+            Self::ViImportActual => "vi.importActual",
+            Self::ViImportMock => "vi.importMock",
+            Self::JestMock => "jest.mock",
+            Self::JestDoMock => "jest.doMock",
+            Self::JestUnmock => "jest.unmock",
+            Self::JestDontMock => "jest.dontMock",
+            Self::JestRequireActual => "jest.requireActual",
+            Self::JestRequireMock => "jest.requireMock",
+            Self::JestCreateMockFromModule => "jest.createMockFromModule",
+            Self::JestGenMockFromModule => "jest.genMockFromModule",
+        }
+    }
+
+    /// The call `object.property`, when it is one.
+    #[must_use]
+    pub fn find(object: &str, property: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|call| call.as_str().split_once('.') == Some((object, property)))
+    }
+}
+
+impl std::fmt::Display for MockCall {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Which export of the target module a binding refers to.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -72,10 +176,9 @@ pub struct Import {
     pub kind: ImportKind,
     /// Bindings it brings in.
     pub names: Vec<ImportedName>,
-    /// The test-runner call of an [`ImportKind::Mock`] as written (`vi.mock`, `jest.requireActual`); `None` for every
-    /// other kind.
+    /// The test-runner call of an [`ImportKind::Mock`] (`vi.mock`, `jest.requireActual`); `None` for every other kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub call: Option<String>,
+    pub call: Option<MockCall>,
     /// Location of the whole statement or call.
     pub span: Span,
 }

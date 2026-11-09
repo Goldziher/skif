@@ -1,4 +1,5 @@
 use skif_core::{Category, Fixability, RuleMeta, Severity, diagnostic};
+use skif_js_syntax::MockCall;
 use skif_lint::Emitter;
 
 use super::JsRule;
@@ -28,7 +29,7 @@ impl JsRule for StaleMocks {
 
     fn check(&self, analysis: &JsAnalysis<'_>, out: &mut Emitter<'_>) {
         for (module, import) in unresolved_imports(analysis, true) {
-            let call = import.call.as_deref().unwrap_or("mock");
+            let call = import.call.map_or("mock", MockCall::as_str);
             let mut builder = diagnostic(
                 &META,
                 format!("`{call}('{}')` mocks a module that does not exist", import.specifier),
