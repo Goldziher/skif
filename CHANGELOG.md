@@ -9,6 +9,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`stale-mocks` rule** (js, warning): reports a `vi.mock`, `vi.doMock`, `vi.unmock`, `vi.importActual`, `jest.mock`,
+  `jest.doMock`, `jest.requireActual` or other test-runner mock whose relative or aliased specifier names a module that
+  does not exist ("`` `vi.mock('./gone')` mocks a module that does not exist ``"). The specifier resolves as an import
+  does, so a query such as `?react` is dropped first; a package name that resolves to nothing is not reported.
+  `ignore-unresolved` and `ignore-dependencies` silence it. knip does not read mock specifiers, so
+  `skif migrate --profile exact` turns it off. There are 43 rules, 18 of them `js` rules
+  ([ADR 0073](adrs/0073-stale-mocks-test-runner-mocks-of-missing-modules-under-their-own-rule.md),
+  [#111](https://github.com/Goldziher/skif/issues/111)).
+
+### Changed
+
+- `unresolved-imports` no longer reports test-runner mocks; a mock of a missing module is a `stale-mocks` warning
+  instead of an `unresolved-imports` error ([#111](https://github.com/Goldziher/skif/issues/111)).
+- The module cache schema is raised: a mock import records its call (`Import::call` in `skif-js-syntax`), so a cache
+  written by an earlier build is discarded.
+
 ## [0.2.0] - 2026-11-08
 
 ### Added
