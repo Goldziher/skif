@@ -33,7 +33,7 @@ unused-dev-dependencies            js         warning  unsafe     A package in `
 unlisted-dependencies              js         error    none       A file imports a package that neither its `package.json` nor any `package.json` above it lists. An import that only the tsconfig `paths` of another package map has the detail `ForeignTsconfigPaths`: it needs a mapping, not a dependency.
 unresolved-imports                 js         error    none       An import specifier does not resolve to a file or a package.
 stale-mocks                        js         error    none       A test-runner mock names a relative or aliased module that does not exist.
-unlisted-binaries                  js         warning  none       A script runs a binary that no listed dependency provides.
+unlisted-binaries                  js         warning  none       A script, or a command in a workflow, tool config or source file, runs a binary that no listed dependency provides.
 unused-optional-peer-dependencies  js         warning  none       An optional peer dependency is imported but not installed as a dependency or dev dependency.
 unused-files                       js         warning  unsafe     A project file is not reachable from any entry file.
 unused-exports                     js         warning  unsafe     An exported value is not imported by any other module.
