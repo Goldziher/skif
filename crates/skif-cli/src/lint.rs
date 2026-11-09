@@ -385,23 +385,21 @@ fn write_and_relint(
     }
     // The written files are stale in the cache; the re-lint must read them from disk.
     fs.clear();
-    Ok(
-        match lint_once(linter, &workspace, inputs, fs, filter) {
-            Ok((workspace, report)) => {
-                let changed: Vec<&Path> = plan.paths().collect();
-                let install = install_step(args, &changed, &workspace);
-                (
-                    FixRun {
-                        plan,
-                        install,
-                        preview: None,
-                    },
-                    Ok((workspace, report)),
-                )
-            }
-            Err(error) => (FixRun::relint_failed(plan), Err(error)),
-        },
-    )
+    Ok(match lint_once(linter, &workspace, inputs, fs, filter) {
+        Ok((workspace, report)) => {
+            let changed: Vec<&Path> = plan.paths().collect();
+            let install = install_step(args, &changed, &workspace);
+            (
+                FixRun {
+                    plan,
+                    install,
+                    preview: None,
+                },
+                Ok((workspace, report)),
+            )
+        }
+        Err(error) => (FixRun::relint_failed(plan), Err(error)),
+    })
 }
 
 /// What fixing every root left behind: the re-linted roots with their fix runs, or the exit code of a run that

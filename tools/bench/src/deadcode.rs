@@ -479,7 +479,10 @@ impl Package {
             "vercel.json",
             to_json(&json!({ "buildCommand": format!("pnpm {BUILD_TOOL} build") })),
         );
-        self.live("vercel-json-command", format!("{}|{BUILD_TOOL}", self.path("package.json")));
+        self.live(
+            "vercel-json-command",
+            format!("{}|{BUILD_TOOL}", self.path("package.json")),
+        );
     }
 
     /// The entry, `src/index.ts`: reaches everything live and nothing dead.

@@ -207,9 +207,10 @@ pub fn credit_nested_uses(report: Report, uses: &NestedUses) -> Report {
     }
     report.retain(|diagnostic| {
         !(UNUSED_DEPENDENCY_RULES.contains(&diagnostic.rule.as_str())
-            && diagnostic.dependency.as_ref().is_some_and(|name| {
-                uses.contains(&(diagnostic.location.path.clone(), name.clone()))
-            }))
+            && diagnostic
+                .dependency
+                .as_ref()
+                .is_some_and(|name| uses.contains(&(diagnostic.location.path.clone(), name.clone()))))
     })
 }
 

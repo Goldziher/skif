@@ -785,7 +785,12 @@ fn unused_dependencies(report: &Value) -> Vec<String> {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|d| matches!(d["rule"].as_str(), Some("unused-dependencies" | "unused-dev-dependencies")))
+        .filter(|d| {
+            matches!(
+                d["rule"].as_str(),
+                Some("unused-dependencies" | "unused-dev-dependencies")
+            )
+        })
         .map(|d| {
             format!(
                 "{}: {}",
