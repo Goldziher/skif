@@ -29,7 +29,9 @@ for it. skif resolves an import with the configuration the importing file follow
 is reported by `unlisted-dependencies` with the detail `ForeignTsconfigPaths`, a message that names the config whose
 `paths` map it, and no advice to add a dependency. The fix is to add the mapping to the importing package's tsconfig,
 or to import the module by the name of the package that exports it. A pattern with no literal prefix (`*`) is not
-counted, as it maps every specifier.
+counted, as it maps every specifier, and neither is a pattern whose targets are no source file of the workspace (one
+into `node_modules`, or to missing files). An import of a workspace package, of a package a manifest lists or of an
+installed package keeps the advice to add it to `package.json`.
 
 ## Configuration
 
