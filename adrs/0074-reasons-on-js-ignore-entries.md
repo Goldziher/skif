@@ -65,17 +65,29 @@ a table entry that matches nothing is reported by its name, as a string entry is
 **Requiring reasons.** `--require-ignore-reasons` fails a run with exit code 2 on the first suppression of a
 configuration file without a reason: an `[[ignore]]` entry, also one in an override, or an entry of a `[js]` ignore
 list. The message names the entry (``js.workspaces."packages/app".ignore-dependencies[1] `some-loader`: no `reason`,
-which --require-ignore-reasons requires``). `[lint] require-ignore-reasons = true` turns on the same check from the
+which --require-ignore-reasons requires``). The check runs on the merged configuration, so the key and position are
+those of the merged list, and the entry's name is what finds it in the file that wrote it; a blank `reason` is
+rejected while each file is read, so that error names the file and the key written there
+(`js.extend-ignore-dependencies[0]`). `[workspace] ignore-packages` and `[js] ignore` hold globs, not suppressions of
+a reported finding, and stay plain strings outside the check. `[lint] require-ignore-reasons = true` turns on the same check from the
 file; the flag and the key are or-ed, and the message names the flag when both are set. Entries that flags add stay
 exempt. The check is `Config::missing_ignore_reason`, so a library host can run it too; the CLI is the one consumer
 that fails on it.
 
-**Comments carried over by `skif migrate`.** In a knip configuration read statically (`knip.ts`, `knip.js`,
-`knip.json`, `knip.jsonc`), the comment on an entry of `ignoreDependencies`, `ignoreBinaries`, `ignoreUnresolved`,
+**Comments carried over by `skif migrate`.** In a knip configuration file read statically (any of the JSON, JSON with
+comments, JavaScript and TypeScript files `skif migrate` reads; the `knip` key of `package.json` is JSON and has no
+comments), the comment on an entry of `ignoreDependencies`, `ignoreBinaries`, `ignoreUnresolved`,
 `ignoreMembers`, `ignoreFiles` or `ignoreWorkspaces` becomes its `reason`. A comment belongs to an element when it is on
 the lines directly above it with no blank line in between, or after it on the line where it ends; a comment on the
 line where the previous element ends belongs to that element, one on the line of the opening bracket to none, and tool
-directives (`// eslint-disable-next-line`, `// @ts-expect-error`) are not reasons. `skif-js-syntax` finds these
+directives are not reasons. A directive is one of the words `eslint-disable`, `eslint-disable-next-line`,
+`eslint-disable-line`, `eslint-enable`, `eslint-env`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`, `@ts-check`,
+`istanbul ignore`, `c8 ignore`, `prettier-ignore`, `biome-ignore` (and its `-all`, `-start`, `-end` forms),
+`oxlint-disable`, `oxlint-disable-next-line`, `oxlint-disable-line` and `oxlint-enable` at the start of the comment
+and followed by its end, a space or a colon, or the block comment `/* eslint <rule>: ... */`; a reason that starts
+with a package name (`// eslint-plugin-foo is loaded by name`, `// @ts-rest/core is pulled in by codegen`) is kept. A
+property or element that names a top-level `const` bound to an object or array literal is followed into it, so a list
+written as a constant keeps its comments; a spread is not followed. `skif-js-syntax` finds these
 comments with oxc (`extract_array_comments`) and returns, for each, the path of keys from the outermost literal to the
 array, the element's position, whether it is a spread or follows one, and its string or pattern, without exposing oxc
 types. The translation pairs a knip entry with a comment by that string and by the workspace key of the path, so a
@@ -89,7 +101,12 @@ without a new dependency. sherif's configuration is a `package.json` key, and JS
 
 ### Consequences
 
-* Good, because every suppression skif reads can state its reason in the file, and one flag or key requires it.
+* Good, because every `[[ignore]]` entry and every entry of a `[js]` ignore list can state its reason in the file,
+  and one flag or key requires it.
+* Bad, because `[workspace] ignore-packages` and `[js] ignore` cannot carry a reason, and the check does not cover
+  them.
+* Bad, because a missing reason is named by its place in the merged list, which differs from its place in the file
+  when `extends` or an `extend-` key added entries before it.
 * Good, because a migrated knip configuration keeps the explanations its authors wrote and passes
   `--require-ignore-reasons` wherever they wrote one.
 * Good, because files without reasons load and serialize exactly as before.

@@ -11,21 +11,27 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- Every `[js]` ignore list (`ignore-dependencies`, `ignore-binaries`, `ignore-unresolved`, `ignore-files`,
+- The `[js]` ignore lists (`ignore-dependencies`, `ignore-binaries`, `ignore-unresolved`, `ignore-files`,
   `ignore-members`, `ignore-workspaces` and the `extend-` keys, at the top level, per workspace and in overrides) takes
   an inline table `{ name = "...", reason = "..." }` alongside plain strings, so an entry records why it exists
   ([ADR 0074](adrs/0074-reasons-on-js-ignore-entries.md), [#113](https://github.com/Goldziher/skif/issues/113)).
-- `--require-ignore-reasons` also fails on an entry of a `[js]` ignore list and on an override's `[[ignore]]` entry
-  without a `reason`, naming the list and the entry; `[lint] require-ignore-reasons = true` turns on the same check
-  from the file ([#113](https://github.com/Goldziher/skif/issues/113)).
-- `skif migrate` turns the comment above a knip ignore entry, or after it on its line, into the entry's `reason`, and
-  writes the comment above a syncpack group in `.syncpackrc` above its `[[version-groups]]`, `[[semver-groups]]` or
-  `[[update-groups]]` entry ([#113](https://github.com/Goldziher/skif/issues/113)).
+- `[lint] require-ignore-reasons = true` turns on the `--require-ignore-reasons` check from the file
+  ([#113](https://github.com/Goldziher/skif/issues/113)).
+- `skif migrate` turns the comment above a knip ignore entry, or after it on its line, into the entry's `reason` (also
+  in a list written as a top-level constant), and writes the comment above a syncpack group that no spread precedes
+  above its `[[version-groups]]`, `[[semver-groups]]` or `[[update-groups]]` entry
+  ([#113](https://github.com/Goldziher/skif/issues/113)).
 
 ### Changed
 
-- The `[js]` ignore-list fields of `skif_config::Js`, `JsWorkspace` and `PackageJs` hold `IgnoreItem`s (a `name` and
-  an optional `reason`) instead of strings; an `IgnoreItem` compares with a string by its name and converts from one.
+- **Breaking** for library consumers: the `[js]` ignore-list fields of `skif_config::Js`, `JsWorkspace` and
+  `PackageJs` change from `Vec<String>` to `Vec<IgnoreItem>` (a `name` and an optional `reason`); an `IgnoreItem`
+  compares with a string by its name and converts from one, and code that reads an entry as a string reads `name`
+  ([#113](https://github.com/Goldziher/skif/issues/113)).
+- **Breaking** for runs with `--require-ignore-reasons`: the flag now also fails on an `[[ignore]]` entry of an
+  override and on an entry of a `[js]` ignore list without a `reason`, so a configuration that passed before can fail
+  with exit code 2. The message names the list and the entry, by its place in the merged list
+  ([#113](https://github.com/Goldziher/skif/issues/113)).
 
 ## [0.2.0] - 2026-11-08
 

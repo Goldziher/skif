@@ -139,7 +139,8 @@ configuration yet, so a job that replaces sherif keeps its flags.
 
 A comment above a group in a YAML or JSON-with-comments `.syncpackrc` (or a JavaScript config) is written as a comment
 above its `[[version-groups]]`, `[[semver-groups]]` or `[[update-groups]]` entry, after the line naming where the group
-came from. sherif's configuration is a `package.json` key, and JSON has no comments, so there is nothing to carry over
+came from. Groups are matched to their comments by position, so the comment on a spread or on a group after one is not
+carried over, since the spread changes the positions. sherif's configuration is a `package.json` key, and JSON has no comments, so there is nothing to carry over
 from it.
 
 Without `--dependency-types`, `[policy] dependency-types` is set to the scope syncpack lints by default (`prod`, `dev`,
@@ -193,7 +194,11 @@ regular expression matching a superset of that.
 
 A comment on an entry of an ignore list (`ignoreDependencies`, `ignoreBinaries`, `ignoreUnresolved`, `ignoreMembers`,
 `ignoreFiles`, `ignoreWorkspaces`) becomes its `reason`: a comment on the lines directly above the entry, or after it
-on the line where it ends, in `knip.ts`, `knip.js` or `knip.jsonc`. Entries without a comment stay plain strings.
+on the line where it ends, in any knip configuration file (`knip.json`, `knip.jsonc`, `.knip.json`, `.knip.jsonc`,
+`knip.{js,ts,mjs,cjs,mts,cts}`, `knip.config.*`); the `knip` key of `package.json` is JSON and has none. A list
+written as a top-level constant and named by the key (`const deps = [...]; export default { ignoreDependencies: deps
+}`) keeps its comments too; the entries a spread (`...shared`) brings in do not. Entries without a comment stay plain
+strings.
 
 ```ts
 workspaces: {
