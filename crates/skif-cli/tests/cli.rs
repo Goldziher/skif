@@ -234,6 +234,52 @@ fn require_ignore_reasons_fails_only_on_entries_of_a_file_without_one() {
 }
 
 #[test]
+fn require_ignore_reasons_covers_the_js_ignore_lists_and_the_lint_key() {
+    let dir = fixture("dirty");
+    let toml = dir.path().join("skif.toml");
+    let output = |result: &support::Run| format!("{}{}", result.stdout, result.stderr);
+    let lint = |extra: &[&str]| run(skif().args(extra).arg(dir.path()));
+
+    std::fs::write(
+        &toml,
+        "[js.workspaces.\"packages/app\"]\nignore-dependencies = [{ name = \"left-pad\", reason = \"loaded by the bundler\" }, \"some-loader\"]\n",
+    )
+    .unwrap();
+    let flagged = lint(&["--require-ignore-reasons"]);
+    assert_eq!(flagged.code, 2, "{}", output(&flagged));
+    assert!(
+        output(&flagged).contains(
+            "js.workspaces.\"packages/app\".ignore-dependencies[1] `some-loader`: no `reason`, which --require-ignore-reasons requires"
+        ),
+        "{}",
+        output(&flagged)
+    );
+    let unflagged = lint(&[]);
+    assert_ne!(unflagged.code, 2, "{}", output(&unflagged));
+
+    std::fs::write(
+        &toml,
+        "[lint]\nrequire-ignore-reasons = true\n[js]\nignore-binaries = [\"docker\"]\n",
+    )
+    .unwrap();
+    let by_key = lint(&[]);
+    assert_eq!(by_key.code, 2, "{}", output(&by_key));
+    assert!(
+        output(&by_key).contains("js.ignore-binaries[0] `docker`: no `reason`, which [lint] require-ignore-reasons requires"),
+        "{}",
+        output(&by_key)
+    );
+
+    std::fs::write(
+        &toml,
+        "[lint]\nrequire-ignore-reasons = true\n[js]\nignore-binaries = [{ name = \"docker\", reason = \"installed on the CI image\" }]\n",
+    )
+    .unwrap();
+    let reasoned = lint(&["--require-ignore-reasons"]);
+    assert_ne!(reasoned.code, 2, "{}", output(&reasoned));
+}
+
+#[test]
 fn rule_levels_and_ignores_change_the_outcome() {
     let dir = fixture("dirty");
     let ignored = run(skif()

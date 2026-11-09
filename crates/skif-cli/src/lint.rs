@@ -160,12 +160,20 @@ pub fn overrides(args: &LintArgs) -> ConfigOverrides {
         .with_no_config(args.no_config)
 }
 
-/// Fails on the first `[[ignore]]` entry without a `reason`.
-fn require_reasons(config: &Config) -> Result<(), CliError> {
-    match config.ignore.iter().position(|entry| entry.reason.is_none()) {
-        Some(index) => Err(CliError::new(
+/// Fails on the first suppression without a `reason` (an `[[ignore]]` entry or an entry of a `[js]` ignore list) when
+/// `--require-ignore-reasons` or `[lint] require-ignore-reasons` asks for reasons; the flag is named when both do.
+fn require_reasons(args: &LintArgs, config: &Config) -> Result<(), CliError> {
+    let required_by = if args.require_ignore_reasons {
+        "--require-ignore-reasons"
+    } else if config.lint.require_ignore_reasons {
+        "[lint] require-ignore-reasons"
+    } else {
+        return Ok(());
+    };
+    match config.missing_ignore_reason() {
+        Some(entry) => Err(CliError::new(
             Kind::Config,
-            format!("ignore[{index}]: no `reason`, which --require-ignore-reasons requires"),
+            format!("{entry}: no `reason`, which {required_by} requires"),
         )),
         None => Ok(()),
     }
@@ -174,9 +182,7 @@ fn require_reasons(config: &Config) -> Result<(), CliError> {
 /// The flags that are not plain configuration overrides, applied over a loaded configuration.
 pub(crate) fn adjust(args: &LintArgs, config: &mut Config) -> Result<(), CliError> {
     // Before the flags add entries of their own, which have nowhere to carry a reason.
-    if args.require_ignore_reasons {
-        require_reasons(config)?;
-    }
+    require_reasons(args, config)?;
     for (rule, package) in &args.ignore_rule_for_package {
         config.ignore.push(
             IgnoreEntry::default()

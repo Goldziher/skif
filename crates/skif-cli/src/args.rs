@@ -516,7 +516,7 @@ pub struct LintArgs {
     #[arg(long, value_name = "RULE:PACKAGE", value_parser = parse_rule_package)]
     pub ignore_rule_for_package: Vec<(String, String)>,
 
-    /// Fail when an `[[ignore]]` entry of a configuration file has no `reason`.
+    /// Fail when an `[[ignore]]` entry or a `[js]` ignore-list entry of a configuration file has no `reason`.
     #[arg(long)]
     pub require_ignore_reasons: bool,
 
