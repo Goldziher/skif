@@ -71,12 +71,12 @@ impl<'c> Selectors<'c> {
 }
 
 /// Whether `[policy] dependency-types` (`scope`) puts the `ty` place under the policies by default: production and
-/// development dependencies unless it says otherwise, and always a package's own version. Peer and optional ranges
+/// development dependencies and a package's own version unless it says otherwise (ADR 0072). Peer and optional ranges
 /// state a compatibility window rather than a version to install, so aligning them is opt-in. So are the override
 /// sections and the custom types: the scope has to name them.
 fn in_default_scope(scope: &DependencyTypes, ty: &DependencyType) -> bool {
     match ty {
-        DependencyType::Local => true,
+        DependencyType::Local => scope.matches(ty),
         DependencyType::Section(kind) if scope.is_empty() => {
             matches!(kind, DependencyKind::Dependencies | DependencyKind::DevDependencies)
         }
