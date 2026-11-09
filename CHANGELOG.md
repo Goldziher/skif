@@ -9,6 +9,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A published path that names nothing (a `bin` such as `bin/cli.js` with no file, no source behind it, outside a build
+  output directory and not gitignored) no longer marks its package `unmapped-published` and leaves it unjudged: it is
+  no entry, the package is judged from its other entries, and `stale-js-config` reports the path (`package-entry`)
+  ([ADR 0069](adrs/0069-a-published-path-into-nothing-is-reported-not-an-incomplete-entry.md),
+  [#109](https://github.com/Goldziher/skif/issues/109)).
+
 ## [0.2.0] - 2026-11-08
 
 ### Added
