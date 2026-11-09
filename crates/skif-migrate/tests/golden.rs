@@ -1147,6 +1147,20 @@ fn a_knip_comment_above_an_ignore_entry_becomes_its_reason() {
 }
 
 #[test]
+fn a_knip_comment_on_a_list_behind_a_constant_becomes_its_reason() {
+    let migration = knip_file(
+        "knip.ts",
+        "const deps = [\n  // false positive: loaded by the bundler\n  'some-loader',\n];\nexport default { ignoreDependencies: deps };\n",
+    );
+    assert_eq!(
+        migration.config.js.ignore_dependencies,
+        vec![skif_config::IgnoreItem::new("some-loader").with_reason("false positive: loaded by the bundler")],
+        "{}",
+        migration.toml
+    );
+}
+
+#[test]
 fn a_trailing_knip_comment_is_kept_and_entries_without_one_stay_strings() {
     let migration = knip_file(
         "knip.ts",
@@ -1194,6 +1208,33 @@ fn knip_jsonc_comments_become_reasons_of_the_list_they_are_in() {
         "{}",
         migration.toml
     );
+}
+
+#[test]
+fn a_syncpack_comment_after_a_spread_is_not_written_above_the_wrong_group() {
+    let mut input = ToolInput::new(Tool::Syncpack);
+    input.config = Some(text(
+        "syncpack.config.js",
+        "const shared = [\n  { dependencies: ['lodash'], isIgnored: true },\n  { dependencies: ['chalk'], isIgnored: true },\n];\nmodule.exports = {\n  versionGroups: [\n    // first of all\n    { dependencies: ['react'], isIgnored: true },\n    ...shared,\n    // pinned\n    { dependencies: ['vue'], isIgnored: true },\n  ],\n};\n",
+    ));
+    let migration = migrate(&[input], &options(Profile::Full)).unwrap();
+    assert!(
+        migration
+            .toml
+            .contains("# syncpack versionGroups[0]\n# first of all\n[[version-groups]]\n"),
+        "{}",
+        migration.toml
+    );
+    for index in 1..=3 {
+        assert!(
+            migration
+                .toml
+                .contains(&format!("# syncpack versionGroups[{index}]\n[[version-groups]]\n")),
+            "{}",
+            migration.toml
+        );
+    }
+    assert!(!migration.toml.contains("pinned"), "{}", migration.toml);
 }
 
 #[test]
