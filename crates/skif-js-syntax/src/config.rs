@@ -191,8 +191,8 @@ pub trait ModuleLoader {
 /// and an unknown one makes the value what both returns share. A spread of a conditional with an unknown test
 /// (`...(tmp && { cacheDir: tmp })`, `...(ci ? { a } : {})`) adds every key a branch sets: a list gets the elements of
 /// every branch (a string counting as a list of one), a nested object merges the same way, and any other value the
-/// branches do not share is unknown; only a branch that is not an object (or `null`, a boolean or a number) leaves the
-/// spread unknown.
+/// branches do not share is unknown; only a branch that is not an object (or `null`, a boolean, a number or an empty
+/// string) leaves the spread unknown.
 ///
 /// Functions are followed: a returned config function may declare local `const`/`let` bindings and local functions,
 /// assign members of a local object, and call top-level or local functions with known arguments, a parameter not passed

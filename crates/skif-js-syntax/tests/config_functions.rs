@@ -496,6 +496,16 @@ fn a_spread_of_a_boolean_or_null_adds_nothing() {
 }
 
 #[test]
+fn a_spread_branch_of_an_empty_string_adds_nothing() {
+    let value = extract(
+        "vitest.config.ts",
+        "export default { ...(process.env.A ? '' : { test: { setupFiles: ['./s.ts'] } }) };",
+    );
+    assert!(value.get("...").is_none(), "{value:?}");
+    assert_eq!(get(&value, &["test", "setupFiles"]), &strings(&["./s.ts"]));
+}
+
+#[test]
 fn a_void_left_of_a_coalesce_reaches_its_object() {
     let value = extract(
         "vitest.config.ts",
