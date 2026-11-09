@@ -826,7 +826,7 @@ impl DependencyUsage {
                 }
             }
             for bin in &package_setup.referenced_binaries {
-                self.provide_binary(id, bin);
+                self.provide_binary_or_ancestor(id, bin);
             }
             for binary in &package_setup.scripts.ephemeral_binaries {
                 self.provide_binary(id, &binary.name);
@@ -842,14 +842,7 @@ impl DependencyUsage {
                 &package_setup.scripts.global_binaries
             };
             for binary in package_setup.scripts.binaries.iter().chain(global_binaries) {
-                if self.provide_binary(id, &binary.name) {
-                    continue;
-                }
-                if let Some(providers) = self.ancestor_bins.get(&binary.name) {
-                    self.external_used.extend(providers.iter().cloned());
-                    continue;
-                }
-                if !setup.ignores_binary(id, &binary.name) {
+                if !self.provide_binary_or_ancestor(id, &binary.name) && !setup.ignores_binary(id, &binary.name) {
                     self.unlisted_binaries.push(UnlistedBinary {
                         package: id,
                         name: binary.name.clone(),
@@ -858,6 +851,19 @@ impl DependencyUsage {
                 }
             }
         }
+    }
+
+    /// Marks the dependencies that provide binary `bin` as used by `id`, else those of the projects above the workspace
+    /// root that put it on the `PATH`. False when none does.
+    fn provide_binary_or_ancestor(&mut self, id: PackageId, bin: &str) -> bool {
+        if self.provide_binary(id, bin) {
+            return true;
+        }
+        let Some(providers) = self.ancestor_bins.get(bin) else {
+            return false;
+        };
+        self.external_used.extend(providers.iter().cloned());
+        true
     }
 
     /// Marks the dependencies that provide binary `bin` as used by `id`. False when none does.
