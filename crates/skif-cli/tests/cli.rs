@@ -281,6 +281,31 @@ fn require_ignore_reasons_covers_the_js_ignore_lists_and_the_lint_key() {
 }
 
 #[test]
+fn a_missing_reason_from_an_extend_key_is_named_in_the_merged_list() {
+    let dir = fixture("dirty");
+    std::fs::write(
+        dir.path().join("base.toml"),
+        "[js]\nignore-dependencies = [{ name = \"a\", reason = \"r\" }, { name = \"b\", reason = \"r\" }, { name = \"c\", reason = \"r\" }]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("skif.toml"),
+        "extends = [\"base.toml\"]\n[js]\nextend-ignore-dependencies = [\"left-pad\"]\n",
+    )
+    .unwrap();
+    let result = run(skif().arg("--require-ignore-reasons").arg(dir.path()));
+    let output = format!("{}{}", result.stdout, result.stderr);
+    assert_eq!(result.code, 2, "{output}");
+    assert!(
+        output.contains(
+            "js.ignore-dependencies[3] `left-pad`: no `reason`, which --require-ignore-reasons requires (the position is \
+             in the list merged from every config file and its `extend-*` keys)"
+        ),
+        "{output}"
+    );
+}
+
+#[test]
 fn rule_levels_and_ignores_change_the_outcome() {
     let dir = fixture("dirty");
     let ignored = run(skif()

@@ -265,6 +265,10 @@ impl Config {
     /// override: `overrides[1].ignore[0]`) or an entry of a `[js]` ignore list, with its name
     /// (``js.workspaces."apps/web".ignore-dependencies[2] `left-pad` ``). `None` when every one has a reason, which
     /// is what `--require-ignore-reasons` and `[lint] require-ignore-reasons` require.
+    ///
+    /// The check reads this configuration as it is, so on a merged one the key and position are those of the merged
+    /// list: an entry a file adds with `extend-ignore-dependencies`, or inherits through `extends`, is named by the
+    /// list it was merged into and its place there, and the name of the entry is what finds it in the files.
     #[must_use]
     pub fn missing_ignore_reason(&self) -> Option<String> {
         unreasoned_entry("ignore", &self.ignore)
