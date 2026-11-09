@@ -254,7 +254,9 @@ fn emit(state: &mut State<'_>, src: &Src, settings: &Settings) {
     if !settings.ignore_package.is_empty() {
         emit_ignored_packages(state, src, &settings.ignore_package);
     }
-    emit_scope(state, src);
+    if !settings.ignore_rule.values.iter().any(|id| id == VERSION_RULE) {
+        emit_scope(state, src);
+    }
     emit_dependencies(state, src, &settings.ignore_dependency);
     if !settings.fail_on_warnings.is_empty() {
         state.doc.table(&["lint"]).set("fail-on-warnings", Val::Bool(true));
@@ -293,6 +295,9 @@ fn emit(state: &mut State<'_>, src: &Src, settings: &Settings) {
         );
     }
 }
+
+/// The skif rule sherif's `multiple-dependency-versions` maps to.
+const VERSION_RULE: &str = "version-mismatch";
 
 /// The sections sherif compares versions in. It never compares a dependency with a package's own `version`, so the
 /// scope leaves `local` out (ADR 0072).
@@ -363,7 +368,7 @@ fn emit_dependencies(state: &mut State<'_>, src: &Src, setting: &Setting) {
         &["ignore"],
         vec!["migrated from sherif ignoreDependency, which only silenced its version check".to_owned()],
     );
-    element.set("rules", Val::strs(["version-mismatch"]));
+    element.set("rules", Val::strs([VERSION_RULE]));
     element.set("dependencies", Val::strs(setting.values.iter().cloned()));
     state.note(
         src,
