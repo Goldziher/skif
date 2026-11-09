@@ -9,6 +9,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The knip comparison sets apart findings that follow from where each tool looks, decided from paths and manifests:
+  unused dependencies and script binaries skif reports on a `package.json` that is not one of knip's workspaces
+  (`knip-unjudged-manifest`), unused files and listed unlisted dependencies knip reports below a project that is not
+  one of its workspaces (`non-member-project`), knip's findings below directories skif's file discovery skips
+  (`skipped-directory`), and TypeScript sources whose built path the package publishes (`published-source`).
+  `fixture-file` covers every issue type skif does not report in a fixture directory, not only unused files. The
+  parity baseline needs a refresh
+  ([ADR 0080](adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md),
+  [#27](https://github.com/Goldziher/skif/issues/27)).
+
 ### Added
 
 - Eight plugins read more of their configs, still without running them

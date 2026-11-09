@@ -395,3 +395,8 @@ blake3 = "6471642cfc88d7ac22591def79698a697902e801a81a8e380673297c9254a90c"
 number = 79
 status = "accepted"
 blake3 = "22ae44d47fcc639dcfbec4b034a96ceb19c5ec5a7e2b9a46c6a8fa1495e85c96"
+
+[adrs."adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md"]
+number = 80
+status = "accepted"
+blake3 = "146de07beffbb5df2477c3a90b9089e0d9359608487f601e147db5728d4e9a4b"
