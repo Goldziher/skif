@@ -188,7 +188,11 @@ pub trait ModuleLoader {
 /// objects, every key either has, unknown where they differ or only one has it). `a && b`, `a || b`, `a ?? b` and `!a`
 /// are followed when `a` is known, and `.length` of a known string or array is its length.
 /// An `if (test) return a;` before a function's last `return` is followed the same way: a known test takes its branch,
-/// and an unknown one makes the value what both returns share.
+/// and an unknown one makes the value what both returns share. A spread of a conditional with an unknown test
+/// (`...(tmp && { cacheDir: tmp })`, `...(ci ? { a } : {})`) adds every key a branch sets: a list gets the elements of
+/// every branch (a string counting as a list of one), a nested object merges the same way, and any other value the
+/// branches do not share is unknown; only a branch that is not an object (or `null`, a boolean, a number or an empty
+/// string) leaves the spread unknown.
 ///
 /// Functions are followed: a returned config function may declare local `const`/`let` bindings and local functions,
 /// assign members of a local object, and call top-level or local functions with known arguments, a parameter not passed
@@ -1009,6 +1013,9 @@ pub fn extract_imported_calls(
 /// program imports from `modules`, plus `globals`.
 type ImportedFunctions = HashMap<String, (String, Option<String>)>;
 
+/// The entries of one object literal, as a spread branch lists them.
+type Entries<'v> = &'v [(String, ConfigValue)];
+
 fn imported_functions(program: &Program<'_>, modules: &[&str], globals: &[(&str, &str)]) -> ImportedFunctions {
     let mut imported: ImportedFunctions = globals
         .iter()
@@ -1590,19 +1597,75 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
     /// `a && b`, `a || b` and `a ?? b`, when `a` decides which side is the value.
     fn logical(&self, logical: &'p LogicalExpression<'a>, depth: u32) -> ConfigValue {
         let left = self.expr(&logical.left, depth);
-        let left_is_value = match logical.operator {
-            LogicalOperator::And => truthiness(&left).map(|truthy| !truthy),
-            LogicalOperator::Or => truthiness(&left),
-            LogicalOperator::Coalesce => match left {
-                ConfigValue::Unknown => None,
-                ConfigValue::Null => Some(false),
-                _ => Some(true),
-            },
-        };
-        match left_is_value {
+        match left_is_value(logical.operator, &left) {
             Some(true) => left,
             Some(false) => self.expr(&logical.right, depth),
             None => ConfigValue::Unknown,
+        }
+    }
+
+    /// The values a spread argument may have: one for an expression whose value is known or not decided by a
+    /// condition, and one per branch for `test ? a : b`, `a && b`, `a || b` and `a ?? b` whose test is unknown
+    /// (parenthesised or not). A left side that adds nothing when spread is [`ConfigValue::Null`]: the falsy `a` of
+    /// `a && b`, and a comparison, negation or `void` on the left of `||` or `??`.
+    fn possibilities(&self, expr: &'p Expression<'a>, depth: u32) -> Vec<ConfigValue> {
+        if depth > MAX_DEPTH {
+            return vec![ConfigValue::Unknown];
+        }
+        match expr.get_inner_expression() {
+            Expression::LogicalExpression(logical) => {
+                let left = self.expr(&logical.left, depth);
+                let primitive = is_primitive(&logical.left);
+                let decided = match logical.operator {
+                    LogicalOperator::Coalesce if primitive && !is_void(&logical.left) => Some(true),
+                    operator => left_is_value(operator, &left),
+                };
+                // The left side as the value: a falsy `a` of `a && b`, a comparison, a negation and `void` add
+                // nothing.
+                let left = if primitive || logical.operator == LogicalOperator::And {
+                    ConfigValue::Null
+                } else {
+                    left
+                };
+                match decided {
+                    Some(true) => vec![left],
+                    Some(false) => self.possibilities(&logical.right, depth + 1),
+                    None => {
+                        let mut out = vec![left];
+                        out.extend(self.possibilities(&logical.right, depth + 1));
+                        out
+                    }
+                }
+            }
+            Expression::ConditionalExpression(conditional) => match truthiness(&self.expr(&conditional.test, depth)) {
+                Some(true) => self.possibilities(&conditional.consequent, depth + 1),
+                Some(false) => self.possibilities(&conditional.alternate, depth + 1),
+                None => {
+                    let mut out = self.possibilities(&conditional.consequent, depth + 1);
+                    out.extend(self.possibilities(&conditional.alternate, depth + 1));
+                    out
+                }
+            },
+            _ => vec![self.expr(expr, depth)],
+        }
+    }
+
+    /// Adds to `out` what spreading `argument` adds. A conditional spread whose branches are all known adds every key
+    /// a branch sets, with what the branches have in common (see [`any_of`]); a branch that is not known adds the
+    /// marker key `...`.
+    fn spread(&self, argument: &'p Expression<'a>, out: &mut Vec<(String, ConfigValue)>, depth: u32) {
+        let branches: Option<Vec<Vec<(String, ConfigValue)>>> = self
+            .possibilities(argument, depth)
+            .into_iter()
+            .map(spread_entries)
+            .collect();
+        match branches {
+            None => out.push(("...".to_owned(), ConfigValue::Unknown)),
+            Some(mut branches) if branches.len() == 1 => out.extend(branches.pop().unwrap_or_default()),
+            Some(branches) => {
+                let added = spread_any(out, &branches);
+                out.extend(added);
+            }
         }
     }
 
@@ -2282,10 +2345,7 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
         let mut out: Vec<(String, ConfigValue)> = Vec::new();
         for property in properties {
             match property {
-                ObjectPropertyKind::SpreadProperty(s) => match self.expr(&s.argument, depth) {
-                    ConfigValue::Object(entries) => out.extend(entries),
-                    _ => out.push(("...".to_string(), ConfigValue::Unknown)),
-                },
+                ObjectPropertyKind::SpreadProperty(s) => self.spread(&s.argument, &mut out, depth),
                 ObjectPropertyKind::ObjectProperty(p) => {
                     let Some(key) = p.key.static_name() else {
                         out.push(("...".to_string(), ConfigValue::Unknown));
@@ -2569,6 +2629,148 @@ fn unstable(value: ConfigValue, change: Change) -> ConfigValue {
         ) => value,
         (_, value) => changed(value),
     }
+}
+
+/// Whether the left side of `left <operator> right` is the value of the expression; `None` when that is not known.
+fn left_is_value(operator: LogicalOperator, left: &ConfigValue) -> Option<bool> {
+    match operator {
+        LogicalOperator::And => truthiness(left).map(|truthy| !truthy),
+        LogicalOperator::Or => truthiness(left),
+        LogicalOperator::Coalesce => match left {
+            ConfigValue::Unknown => None,
+            ConfigValue::Null => Some(false),
+            _ => Some(true),
+        },
+    }
+}
+
+/// Whether `expr` is a comparison, a negation or a `void`, whose value is `true`, `false` or `undefined` and so adds
+/// nothing when spread.
+fn is_primitive(expr: &Expression<'_>) -> bool {
+    match expr.get_inner_expression() {
+        Expression::BinaryExpression(binary) => {
+            binary.operator.is_equality() || binary.operator.is_compare() || binary.operator.is_relational()
+        }
+        Expression::UnaryExpression(unary) => matches!(unary.operator, UnaryOperator::LogicalNot | UnaryOperator::Void),
+        _ => false,
+    }
+}
+
+/// Whether `expr` is a `void`, whose value is `undefined`.
+fn is_void(expr: &Expression<'_>) -> bool {
+    matches!(expr.get_inner_expression(), Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::Void)
+}
+
+/// The entries spreading `value` adds to an object: those of an object, none for `null`, a boolean, a number or an
+/// empty string, and `None` for anything else, whose entries are not known.
+fn spread_entries(value: ConfigValue) -> Option<Vec<(String, ConfigValue)>> {
+    match value {
+        ConfigValue::Object(entries) => Some(entries),
+        ConfigValue::Null | ConfigValue::Bool(_) | ConfigValue::Number(_) => Some(Vec::new()),
+        ConfigValue::String(s) => s.is_empty().then(Vec::new),
+        ConfigValue::Array(_) | ConfigValue::Regex(_) | ConfigValue::Unknown => None,
+    }
+}
+
+/// The value of `key` in the entries of an object: the last entry for it, unknown when an unknown spread follows it,
+/// and `None` when the object has neither.
+fn entry_value(entries: &[(String, ConfigValue)], key: &str) -> Option<ConfigValue> {
+    entries
+        .iter()
+        .rev()
+        .find(|(name, _)| name == key || name == "...")
+        .map(|(name, value)| {
+            if name == "..." {
+                ConfigValue::Unknown
+            } else {
+                value.clone()
+            }
+        })
+}
+
+/// The entries a spread of one of `branches` adds after `before`; see [`any_entries`].
+fn spread_any(before: &[(String, ConfigValue)], branches: &[Vec<(String, ConfigValue)>]) -> Vec<(String, ConfigValue)> {
+    let objects: Vec<Option<&[(String, ConfigValue)]>> =
+        branches.iter().map(|branch| Some(branch.as_slice())).collect();
+    any_entries(&objects, before)
+}
+
+/// The entries of an object that is one of `objects`, `None` standing for a branch without the object: each key any
+/// of them has, with [`any_of`] what each leaves it (its own value, or the one in `before` when it does not have the
+/// key), and the marker key `...` last when one of them has an unknown spread.
+fn any_entries(
+    objects: &[Option<&[(String, ConfigValue)]>],
+    before: &[(String, ConfigValue)],
+) -> Vec<(String, ConfigValue)> {
+    let entries = || objects.iter().flatten().copied().flatten();
+    let mut keys: Vec<&str> = Vec::new();
+    for (key, _) in entries() {
+        if key != "..." && !keys.contains(&key.as_str()) {
+            keys.push(key);
+        }
+    }
+    let mut out: Vec<(String, ConfigValue)> = keys
+        .into_iter()
+        .map(|key| {
+            let values: Vec<Option<ConfigValue>> = objects
+                .iter()
+                .map(|object| {
+                    object
+                        .and_then(|object| entry_value(object, key))
+                        .or_else(|| entry_value(before, key))
+                })
+                .collect();
+            (key.to_owned(), any_of(&values))
+        })
+        .collect();
+    if entries().any(|(key, _)| key == "...") {
+        out.push(("...".to_owned(), ConfigValue::Unknown));
+    }
+    out
+}
+
+/// The value of a key that holds one of `values`, `None` standing for a branch that leaves it out: the value itself
+/// when every branch sets it alike; for lists, the elements of all of them, a string counting as a list of one, so
+/// that every file or package a branch names is credited; for objects, each key any of them has, merged the same way;
+/// anything else is unknown, such as two different strings or a string only some branches set.
+fn any_of(values: &[Option<ConfigValue>]) -> ConfigValue {
+    let present: Vec<&ConfigValue> = values.iter().flatten().collect();
+    let Some(&first) = present.first() else {
+        return ConfigValue::Unknown;
+    };
+    if present.len() == values.len() && present.iter().all(|value| *value == first) {
+        return first.clone();
+    }
+    let lists: Option<Vec<&[ConfigValue]>> = present
+        .iter()
+        .map(|&value| match value {
+            ConfigValue::Array(list) => Some(list.as_slice()),
+            ConfigValue::String(_) => Some(std::slice::from_ref(value)),
+            _ => None,
+        })
+        .collect();
+    if let Some(lists) = lists
+        && present.iter().any(|value| matches!(value, ConfigValue::Array(_)))
+    {
+        let mut items: Vec<ConfigValue> = Vec::new();
+        for item in lists.into_iter().flatten() {
+            if !items.contains(item) {
+                items.push(item.clone());
+            }
+        }
+        return ConfigValue::Array(items);
+    }
+    let objects: Option<Vec<Option<Entries<'_>>>> = values
+        .iter()
+        .map(|value| match value {
+            None => Some(None),
+            Some(ConfigValue::Object(entries)) => Some(Some(entries.as_slice())),
+            Some(_) => None,
+        })
+        .collect();
+    objects.map_or(ConfigValue::Unknown, |objects| {
+        ConfigValue::Object(any_entries(&objects, &[]))
+    })
 }
 
 /// Whether a value is truthy in JavaScript; `None` when it is unknown.

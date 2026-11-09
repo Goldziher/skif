@@ -22,6 +22,12 @@ All notable changes to this project are documented here. The format follows
   `.git/info/exclude` now count when telling build output from such a path
   ([ADR 0069](adrs/0069-a-published-path-into-nothing-is-reported-not-an-incomplete-entry.md),
   [#109](https://github.com/Goldziher/skif/issues/109)).
+- A spread of a conditional object literal in a config (`...(tmp && { cacheDir: tmp })`, `...(ci ? { … } : {})`) no
+  longer marks the package incomplete with `unknown-spread`, which kept `unused-dependencies` and the other package
+  rules from judging it. Every branch is read: the lists each branch sets (`include`, `setupFiles`, …) are credited,
+  and only a branch that is not known statically leaves the spread unknown
+  ([#108](https://github.com/Goldziher/skif/issues/108)).
+
 ### Added
 
 - Windows npm packages: `skif-win32-x64-msvc` and `skif-win32-arm64-msvc`, so `npx skif-cli`, `pnpm dlx skif-cli`
