@@ -63,6 +63,9 @@ struct Baseline {
 }
 
 /// The root at `PATH`, resolved as for linting, and the absolute path of its baseline file.
+/// Baseline entries paired with the indices of the findings each one matches.
+type Matched<'a> = Vec<(&'a IgnoreEntry, &'a Vec<usize>)>;
+
 fn locate(args: &BaselineFileArgs) -> Result<(Target, PathBuf), CliError> {
     let start = canonical(&args.path)?;
     let target = skif::find_target(&start, &CachedFs::new(OsFs), &ConfigOverrides::default())?;
@@ -106,7 +109,7 @@ fn read_baseline(path: &Path) -> Result<Option<Baseline>, CliError> {
 
 /// The `[[ignore]]` entries of a baseline file. Any other key is an error: the commands rewrite the file whole.
 fn parse_entries(text: &str) -> Result<Vec<IgnoreEntry>, String> {
-    let table = text.parse::<toml::Table>().map_err(ToString::to_string)?;
+    let table = text.parse::<toml::Table>().map_err(|error| error.to_string())?;
     if let Some(key) = table.keys().find(|key| *key != "ignore") {
         return Err(format!(
             "`{key}` is set, but a baseline file holds only `[[ignore]]` entries; move it to a configuration file"
@@ -114,7 +117,7 @@ fn parse_entries(text: &str) -> Result<Vec<IgnoreEntry>, String> {
     }
     Config::from_toml_str(text)
         .map(|config| config.ignore)
-        .map_err(ToString::to_string)
+        .map_err(|error| error.to_string())
 }
 
 /// Lints `target` with its configuration minus the entries of the baseline file, and returns the workspace and the
@@ -176,11 +179,7 @@ fn dependency_name(dependency: &str) -> &str {
 /// `None` for a root package without a name.
 fn package_pattern(workspace: &Workspace, diagnostic: &Diagnostic) -> Option<String> {
     let Some(package) = diagnostic.package_id.and_then(|id| workspace.package(id)) else {
-        return diagnostic
-            .package
-            .as_deref()
-            .filter(|name| *name != ".")
-            .map(literal);
+        return diagnostic.package.as_deref().filter(|name| *name != ".").map(literal);
     };
     let shared = |name: &str| {
         workspace
@@ -264,7 +263,7 @@ fn render(entries: &[IgnoreEntry]) -> String {
 fn with_extends(text: &str, entry: &str) -> Result<String, String> {
     let mut document = text
         .parse::<toml_edit::DocumentMut>()
-        .map_err(ToString::to_string)?;
+        .map_err(|error| error.to_string())?;
     let appended = match document.get_mut("extends") {
         Some(item) => {
             let array = item
@@ -282,7 +281,7 @@ fn with_extends(text: &str, entry: &str) -> Result<String, String> {
     };
     updated
         .parse::<toml_edit::DocumentMut>()
-        .map_err(ToString::to_string)?;
+        .map_err(|error| error.to_string())?;
     Ok(updated)
 }
 
@@ -408,7 +407,10 @@ fn write_baseline(args: &BaselineWriteArgs) -> Result<u8, CliError> {
     let root = target.root.clone();
     let extended_already = target.sources.iter().any(|source| source.path == file);
     let current = read_baseline(&file)?;
-    let existing = current.as_ref().map(|baseline| baseline.entries.clone()).unwrap_or_default();
+    let existing = current
+        .as_ref()
+        .map(|baseline| baseline.entries.clone())
+        .unwrap_or_default();
     let (workspace, diagnostics) = lint_without(target, &existing)?;
     let covered: BTreeSet<usize> = ignore_matches(&workspace, &existing, &diagnostics)
         .into_iter()
@@ -462,7 +464,11 @@ fn write_baseline(args: &BaselineWriteArgs) -> Result<u8, CliError> {
             }
             let mut out = String::new();
             if added.is_empty() {
-                let _ = writeln!(out, "{shown} is up to date ({})", counted(entries.len(), "entry", "entries"));
+                let _ = writeln!(
+                    out,
+                    "{shown} is up to date ({})",
+                    counted(entries.len(), "entry", "entries")
+                );
             } else {
                 let _ = writeln!(
                     out,
@@ -495,7 +501,7 @@ fn prune_baseline(args: &BaselineFileArgs) -> Result<u8, CliError> {
     };
     let (workspace, diagnostics) = lint_without(target, &current.entries)?;
     let matches = ignore_matches(&workspace, &current.entries, &diagnostics);
-    let (kept, removed): (Vec<(&IgnoreEntry, &Vec<usize>)>, Vec<(&IgnoreEntry, &Vec<usize>)>) = current
+    let (kept, removed): (Matched<'_>, Matched<'_>) = current
         .entries
         .iter()
         .zip(&matches)
@@ -553,10 +559,16 @@ fn at_revision(file: &Path, revision: &str) -> Result<Option<String>, CliError> 
     let (Some(dir), Some(name)) = (file.parent(), file.file_name().and_then(|name| name.to_str())) else {
         return Err(usage(format!("{} does not name a file", file.display())));
     };
-    let verified = git(dir, &["rev-parse", "--verify", "--quiet", &format!("{revision}^{{commit}}")])?;
+    let verified = git(
+        dir,
+        &["rev-parse", "--verify", "--quiet", &format!("{revision}^{{commit}}")],
+    )?;
     if !verified.status.success() {
         let detail = String::from_utf8_lossy(&verified.stderr).trim().to_owned();
-        let mut message = format!("--base: `{revision}` is not a commit of the git repository at {}", dir.display());
+        let mut message = format!(
+            "--base: `{revision}` is not a commit of the git repository at {}",
+            dir.display()
+        );
         if !detail.is_empty() {
             let _ = write!(message, " ({detail})");
         }
@@ -573,7 +585,11 @@ fn at_revision(file: &Path, revision: &str) -> Result<Option<String>, CliError> 
 
 fn check_baseline(args: &BaselineCheckArgs) -> Result<u8, CliError> {
     let (target, file) = locate(&args.common)?;
-    let current = sorted_unique(read_baseline(&file)?.map(|baseline| baseline.entries).unwrap_or_default());
+    let current = sorted_unique(
+        read_baseline(&file)?
+            .map(|baseline| baseline.entries)
+            .unwrap_or_default(),
+    );
     let (base, text) = match (&args.base, &args.base_file) {
         (Some(revision), _) => (revision.clone(), at_revision(&file, revision)?),
         (None, Some(path)) => (
@@ -583,9 +599,9 @@ fn check_baseline(args: &BaselineCheckArgs) -> Result<u8, CliError> {
         (None, None) => return Err(CliError::new(Kind::Usage, "give --base <REF> or --base-file <FILE>")),
     };
     let old = match text {
-        Some(text) => sorted_unique(parse_entries(&text).map_err(|message| {
-            CliError::new(Kind::Config, format!("{base}: {message}"))
-        })?),
+        Some(text) => sorted_unique(
+            parse_entries(&text).map_err(|message| CliError::new(Kind::Config, format!("{base}: {message}")))?,
+        ),
         None => Vec::new(),
     };
     let old_keys: BTreeSet<Key<'_>> = old.iter().map(key).collect();
@@ -696,7 +712,10 @@ mod tests {
     fn extends_is_added_at_the_top_after_a_schema_line() {
         let cases = [
             ("", "extends = [\"b.toml\"]\n"),
-            ("[js]\nenabled = false\n", "extends = [\"b.toml\"]\n\n[js]\nenabled = false\n"),
+            (
+                "[js]\nenabled = false\n",
+                "extends = [\"b.toml\"]\n\n[js]\nenabled = false\n",
+            ),
             (
                 "#:schema ./s.json\n\n# comment\n[lint]\n",
                 "#:schema ./s.json\nextends = [\"b.toml\"]\n\n# comment\n[lint]\n",

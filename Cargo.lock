@@ -2337,6 +2337,7 @@ dependencies = [
  "skif-report",
  "tempfile",
  "toml",
+ "toml_edit",
  "ureq",
  "which",
 ]

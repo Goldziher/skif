@@ -416,9 +416,14 @@ mod tests {
     #[test]
     fn ignore_matches_does_not_consult_ignored_packages() {
         let config = Config::from_toml_str("[workspace]\nignore-packages = [\"a\"]\n").unwrap();
-        let entries = Config::from_toml_str("[[ignore]]\nrules = [\"demo\"]\n").unwrap().ignore;
+        let entries = Config::from_toml_str("[[ignore]]\nrules = [\"demo\"]\n")
+            .unwrap()
+            .ignore;
         let diagnostics = [make(Some("a"), None), make(Some("b"), None)];
-        assert_eq!(ignore_matches(&workspace(&config), &entries, &diagnostics), [vec![0, 1]]);
+        assert_eq!(
+            ignore_matches(&workspace(&config), &entries, &diagnostics),
+            [vec![0, 1]]
+        );
     }
 
     #[test]
