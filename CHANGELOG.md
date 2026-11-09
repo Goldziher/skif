@@ -30,6 +30,11 @@ All notable changes to this project are documented here. The format follows
 - `skif-js-syntax` exports `extract_property_calls`, which calls a function property of a config statically, and
   `extract_method_calls`, which evaluates the arguments of method calls.
 
+### Changed
+
+- The parse cache schema is raised to 2, as `rs` and `rstest` mock calls are now mock imports: a `--cache` store
+  written by an earlier build is not trusted and is rebuilt on the next run.
+
 ### Fixed
 
 - `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`,
