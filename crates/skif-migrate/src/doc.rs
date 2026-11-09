@@ -142,6 +142,13 @@ impl Section {
 
     /// Appends the strings of `items` that `key` does not hold yet; the first call creates the list.
     pub(crate) fn extend_strs(&mut self, key: &str, items: impl IntoIterator<Item = String>) {
+        self.extend_entries(key, items.into_iter().map(|item| (item, None)));
+    }
+
+    /// Appends the ignore entries of `items` whose name `key` does not hold yet, each a string or, with a reason, a
+    /// `{ name, reason }` table; the first call creates the list. A reason given for a name the list holds as a
+    /// plain string is added to it.
+    pub(crate) fn extend_entries(&mut self, key: &str, items: impl IntoIterator<Item = (String, Option<String>)>) {
         let position = self.entries.iter().position(|entry| entry.key == key);
         let index = position.unwrap_or_else(|| {
             self.entries.push(Entry {
@@ -152,10 +159,25 @@ impl Section {
             self.entries.len() - 1
         });
         if let Val::List(list) = &mut self.entries[index].value {
-            for item in items {
-                let item = Val::Str(item);
-                if !list.contains(&item) {
-                    list.push(item);
+            for (name, reason) in items {
+                let held = list.iter().position(|held| match held {
+                    Val::Str(text) => *text == name,
+                    Val::Inline(fields) => fields.first() == Some(&("name".to_owned(), Val::Str(name.clone()))),
+                    _ => false,
+                });
+                let item = match reason {
+                    Some(reason) => Val::Inline(vec![
+                        ("name".to_owned(), Val::Str(name)),
+                        ("reason".to_owned(), Val::Str(reason)),
+                    ]),
+                    None => Val::Str(name),
+                };
+                match held {
+                    None => list.push(item),
+                    Some(position) if matches!(list[position], Val::Str(_)) && matches!(item, Val::Inline(_)) => {
+                        list[position] = item;
+                    }
+                    Some(_) => {}
                 }
             }
         }
@@ -324,6 +346,30 @@ mod tests {
             .set_commented("a", Val::str("off"), "why".to_owned());
         doc.table(&["rules"]).set("b", Val::str("error"));
         assert_eq!(doc.render(&[]), "\n[rules]\na = \"off\" # why\nb = \"error\"\n");
+    }
+
+    #[test]
+    fn entries_with_a_reason_are_tables_and_others_stay_strings() {
+        let mut doc = Doc::default();
+        let js = doc.table(&["js"]);
+        js.extend_entries(
+            "ignore-dependencies",
+            [
+                ("left-pad".to_owned(), None),
+                ("some-loader".to_owned(), Some("loaded by the bundler".to_owned())),
+            ],
+        );
+        js.extend_entries(
+            "ignore-dependencies",
+            [
+                ("left-pad".to_owned(), Some("kept for the old build".to_owned())),
+                ("some-loader".to_owned(), None),
+            ],
+        );
+        assert_eq!(
+            doc.render(&[]),
+            "\n[js]\nignore-dependencies = [\n  { name = \"left-pad\", reason = \"kept for the old build\" },\n  { name = \"some-loader\", reason = \"loaded by the bundler\" },\n]\n"
+        );
     }
 
     #[test]

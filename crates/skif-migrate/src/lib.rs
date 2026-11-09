@@ -14,6 +14,7 @@
 
 #![warn(missing_docs)]
 
+mod comments;
 mod doc;
 mod keys;
 mod knip;

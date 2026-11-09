@@ -1,17 +1,21 @@
 //! What the translators share: the document being built, the notes, and the rules the old tools ran.
 
+use std::sync::Arc;
+
 use skif_config::Config;
 
+use crate::comments::Comments;
 use crate::doc::{Doc, Val};
 use crate::keys;
 use crate::notes::{Note, NoteClass, Tool};
-use crate::{MigrateError, Migration, Options, Profile};
+use crate::{Input, MigrateError, Migration, Options, Profile};
 
-/// Where a translator is reading from, for the notes.
+/// Where a translator is reading from, for the notes, with the comments of that file.
 #[derive(Debug, Clone)]
 pub(crate) struct Src {
     pub tool: Tool,
     pub file: String,
+    pub comments: Arc<Comments>,
 }
 
 impl Src {
@@ -19,6 +23,15 @@ impl Src {
         Self {
             tool,
             file: file.into(),
+            comments: Arc::default(),
+        }
+    }
+
+    /// The source `input` of `tool`, with the comments it writes next to list elements.
+    pub(crate) fn read(tool: Tool, input: &Input) -> Self {
+        Self {
+            comments: Arc::new(Comments::read(input)),
+            ..Self::new(tool, input.path.clone())
         }
     }
 }
