@@ -154,3 +154,22 @@ fn a_runtime_in_the_engines_of_an_enclosing_package_provides_its_module() {
         ["ext/client/src/extension.js: other-runtime"]
     );
 }
+
+/// A dependency named like a binary is taken to provide it only while nothing says otherwise: the installed `stripe`
+/// SDK has no `bin`, so `stripe listen` runs the CLI, which no dependency provides.
+#[test]
+fn an_installed_dependency_without_the_binary_does_not_provide_it() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"web","version":"1.0.0","main":"index.js","scripts":{"listen":"stripe listen","serve":"server start"},"dependencies":{"server":"1.0.0","stripe":"9.0.0"}}"#,
+        ),
+        ("index.js", "module.exports = [require('stripe'), require('server')];\n"),
+        (
+            "node_modules/stripe/package.json",
+            r#"{"name":"stripe","version":"9.0.0","main":"index.js"}"#,
+        ),
+        ("node_modules/stripe/index.js", "module.exports = {};\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), ["package.json: stripe"]);
+}

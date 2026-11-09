@@ -855,11 +855,14 @@ impl DependencyUsage {
             if let Some(deps) = self.bins[scope.index()].get(bin) {
                 provided.extend(deps.iter().map(|dep| (Listed::Package(scope), dep.clone())));
             }
+            // A dependency named like the binary is assumed to provide it only while its manifest is unknown: an
+            // installed or locked one whose manifest lacks the binary (the `stripe` SDK, not the CLI) does not.
             provided.extend(
                 self.listed[scope.index()]
                     .iter()
                     .filter(|dep| {
-                        unscoped(dep) == bin || BINARY_PACKAGES.iter().any(|(b, package)| *b == bin && package == dep)
+                        (unscoped(dep) == bin && !self.known_bins[scope.index()].contains(*dep))
+                            || BINARY_PACKAGES.iter().any(|(b, package)| *b == bin && package == dep)
                     })
                     .map(|dep| (Listed::Package(scope), dep.clone())),
             );

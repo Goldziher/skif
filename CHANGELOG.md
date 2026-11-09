@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A dependency named like a binary is assumed to provide it only while its manifest is unknown: when the installed
+  or locked manifest has no such binary (the `stripe` SDK beside a `stripe listen` script), `unlisted-binaries`
+  reports the binary ([#97](https://github.com/Goldziher/skif/issues/97)).
 - The `engines` of a package that encloses another one provide their runtime's module there too: the client and
   server packages inside an editor extension that declares `engines.vscode` may import `vscode` without
   `unlisted-dependencies` reporting it ([#96](https://github.com/Goldziher/skif/issues/96)).
