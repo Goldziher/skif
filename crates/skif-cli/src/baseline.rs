@@ -14,7 +14,7 @@ use std::process::{Command, Output};
 use serde_json::{Map, Value, json};
 use skif::{
     CONFIG_FILE_NAMES, CachedFs, Config, ConfigOverrides, Diagnostic, IgnoreEntry, OsFs, Selector, Severity, Target,
-    Workspace, ignore_matches, slash,
+    Workspace, dependency_name, ignore_matches, slash,
 };
 
 use crate::args::{
@@ -165,14 +165,6 @@ fn literal(text: &str) -> String {
         }
     }
     escaped
-}
-
-/// The name of `dependency` without a `@specifier` it was recorded with.
-fn dependency_name(dependency: &str) -> &str {
-    match dependency.rfind('@') {
-        Some(index) if index > 0 => &dependency[..index],
-        _ => dependency,
-    }
 }
 
 /// The package pattern of a finding: the package's name, or its directory when another package has the same name;
@@ -661,14 +653,6 @@ mod tests {
         let selector = Selector::new([literal("x@*")]).unwrap();
         assert!(selector.matches("x@*", false));
         assert!(!selector.matches("x@1.0.0", false));
-    }
-
-    #[test]
-    fn dependency_names_drop_a_recorded_specifier() {
-        assert_eq!(dependency_name("react"), "react");
-        assert_eq!(dependency_name("react@18"), "react");
-        assert_eq!(dependency_name("@scope/x"), "@scope/x");
-        assert_eq!(dependency_name("@scope/x@1.0.0"), "@scope/x");
     }
 
     #[test]
