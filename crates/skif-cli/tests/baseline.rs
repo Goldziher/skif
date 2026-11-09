@@ -491,3 +491,23 @@ fn a_file_argument_that_names_no_file_is_a_usage_error() {
     assert_eq!(written.code, 2, "{}{}", written.stdout, written.stderr);
     assert_eq!(written.json()["error"]["kind"], "usage");
 }
+
+#[test]
+fn check_ignores_the_order_of_an_entry_s_patterns() {
+    let dir = fixture("mismatch");
+    let base = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        base.path(),
+        "[[ignore]]\nrules = [\"version-mismatch\", \"banned-dependency\"]\npackages = [\"@cli/a\", \"@cli/b\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(BASELINE),
+        "[[ignore]]\nrules = [\"banned-dependency\", \"version-mismatch\"]\npackages = [\"@cli/b\", \"@cli/a\"]\n",
+    )
+    .unwrap();
+    let checked = baseline(dir.path(), "check", &["--base-file", base.path().to_str().unwrap()]);
+    assert_eq!(checked.code, 0, "{}{}", checked.stdout, checked.stderr);
+    assert_eq!(checked.json()["added"], json!([]));
+    assert_eq!(checked.json()["removed"], json!([]));
+}
