@@ -138,7 +138,7 @@ A script runs a binary that no listed dependency provides.
 
 ## unlisted-dependencies
 
-A file imports a package that neither its `package.json` nor any `package.json` above it lists.
+A file imports a package that neither its `package.json` nor any `package.json` above it lists. An import that only the tsconfig `paths` of another package map has the detail `ForeignTsconfigPaths`: it needs a mapping, not a dependency.
 
 - Category: js
 - Default severity: error

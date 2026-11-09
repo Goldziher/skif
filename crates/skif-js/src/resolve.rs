@@ -24,7 +24,7 @@ use crate::specifier::{
     assumed_package, has_foreign_scheme, is_builtin, node_modules_package, node_modules_specifier_package,
     package_name, subpath,
 };
-use crate::tsconfig_paths::{TsConfigs, TsPaths};
+use crate::tsconfig_paths::{ForeignPaths, TsConfigs, TsPaths};
 
 /// Extensions that are parsed and followed.
 pub(crate) const CODE_EXTENSIONS: &[&str] = &[
@@ -818,13 +818,55 @@ impl ModuleResolver {
 
     /// Whether a `paths` pattern of the nearest `tsconfig.json` or `jsconfig.json` maps `specifier`, whether or not
     /// its targets exist.
-    fn ts_paths_map(&self, importer: &Path, specifier: &str) -> bool {
+    pub(crate) fn ts_paths_map(&self, importer: &Path, specifier: &str) -> bool {
         let Some(directory) = importer.parent() else {
             return false;
         };
         self.nearest_paths
             .get_or_compute(directory, || self.tsconfigs.nearest(directory).map(Arc::new))
             .is_some_and(|config| config.maps(specifier))
+    }
+
+    /// The `paths` patterns of the `tsconfig.json` or `jsconfig.json` that applies to the root and to each package,
+    /// read through the same per-directory cache as the resolution.
+    pub(crate) fn package_paths(&self) -> ForeignPaths {
+        let configs: Vec<Arc<TsPaths>> = self
+            .package_dirs
+            .iter()
+            .filter_map(|dir| {
+                self.nearest_paths
+                    .get_or_compute(dir.as_path(), || self.tsconfigs.nearest(dir).map(Arc::new))
+            })
+            .collect();
+        ForeignPaths::new(&self.root, &configs)
+    }
+
+    /// Whether a target of the `paths` pattern `pattern` of `config` that `specifier` matches is a source file of the
+    /// workspace outside `node_modules`. A pattern that points into `node_modules` names an installed package, as an
+    /// alias into it does, not a mapping to workspace code.
+    pub(crate) fn maps_to_source(&self, config: &TsPaths, pattern: &str, specifier: &str) -> bool {
+        config
+            .pattern_candidates(pattern, specifier)
+            .into_iter()
+            .filter(|path| node_modules_package(path).is_none())
+            .any(|path| {
+                let directory = path.parent().unwrap_or(&self.root);
+                self.resolve_path(Kind::Script, directory, &path).is_some_and(|found| {
+                    node_modules_package(&found).is_none() && matches!(self.classify(found), Resolved::File(_))
+                })
+            })
+    }
+
+    /// Whether a `node_modules` directory at or above `importer`, up to the workspace root, holds the package `name`.
+    pub(crate) fn installed(&self, importer: &Path, name: &str) -> bool {
+        importer
+            .ancestors()
+            .skip(1)
+            .take_while(|dir| dir.starts_with(&self.root))
+            .any(|dir| {
+                self.fs
+                    .is_file(&dir.join("node_modules").join(name).join("package.json"))
+            })
     }
 
     /// What a specifier that names nothing is. A relative one is unknown when it points at an ignored path (also
