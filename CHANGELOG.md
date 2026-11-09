@@ -9,6 +9,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`,
+  `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such
+  as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
+  ([#110](https://github.com/Goldziher/skif/issues/110)).
 ### Added
 
 - Windows npm packages: `skif-win32-x64-msvc` and `skif-win32-arm64-msvc`, so `npx skif-cli`, `pnpm dlx skif-cli`
