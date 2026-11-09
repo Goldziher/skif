@@ -105,6 +105,35 @@ fn project_extensions_skif_does_not_analyse_or_leaves_out() {
 }
 
 #[test]
+fn stylesheet_extensions_in_project_are_read_and_unknown_ones_are_not() {
+    let files = [
+        ("package.json", r#"{"name":"app"}"#),
+        ("src/index.ts", "import \"./app.css\";\nimport \"./theme.scss\";\n"),
+        ("src/app.css", "@import \"./base.less\";\n"),
+        ("src/base.less", "a { color: red; }\n"),
+        ("src/theme.scss", "a { color: blue; }\n"),
+        ("src/data.foo", "x\n"),
+    ];
+    // A migrated knip configuration that adds stylesheets to the project: skif reads them, so nothing is stale.
+    let migrated = lint(
+        &files,
+        "[js]\nentry = [\"src/index.ts!\"]\nproject = [\"src/**/*.{ts,css}!\"]\n",
+    );
+    assert_eq!(hints(&migrated), "");
+    let stylesheets = lint(
+        &files,
+        "[js]\nproject = [\"src/**/*.{ts,css,scss,sass,less,pcss,styl,stylus}\"]\n",
+    );
+    assert_eq!(hints(&stylesheets), "");
+    // An extension skif does not read is still reported, also next to stylesheets in the same pattern.
+    let unknown = lint(&files, "[js]\nproject = [\"src/**/*.{ts,css,foo}!\"]\n");
+    assert_eq!(
+        hints(&unknown),
+        "package.json: `.foo` files selected by `js.project` are not analysed"
+    );
+}
+
+#[test]
 fn published_paths_that_name_no_file() {
     let files = [
         (
