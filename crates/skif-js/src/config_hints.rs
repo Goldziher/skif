@@ -11,10 +11,9 @@ use skif_config::Config;
 use skif_core::FileSystem;
 use skif_workspace::{PackageId, Workspace};
 
-use crate::analysis::{on_disk, workspace_key};
-use crate::discover::{Candidate, is_ignored_path};
-use crate::entries::map_published;
-use crate::manifest_paths::{is_out_dir, should_have_source, source_patterns};
+use crate::analysis::workspace_key;
+use crate::discover::Candidate;
+use crate::entries::{Disk, names_no_file};
 use crate::resolve::{is_read_file, join_normalized};
 use crate::setup::{Setup, WorkspaceKeys};
 use crate::specifier::package_name;
@@ -309,16 +308,19 @@ fn widen_stars(path: &str) -> String {
     path.replacen("/*/", "/**/", 1)
 }
 
-/// The published paths that name no file: neither the path nor a source file behind it exists, it is not a
-/// dependency's path, no `.gitignore` hides it and it is not in a build output directory (a gitignored path or one in
-/// `dist` is build output that is simply not built yet).
+/// The published paths that name no file ([`names_no_file`]) and are not a dependency's path. A path in `bin` that
+/// names no file is reported too, though it should have a source behind it, unless a build step of the package may
+/// write it: nothing makes it, so it is a path into nothing (ADR 0069).
 fn package_entries(inputs: &HintInputs<'_>) -> Vec<ConfigHint> {
+    let disk = Disk {
+        fs: inputs.disk,
+        gitignore: !inputs.config.js.no_gitignore,
+    };
     let mut hints = Vec::new();
     for (id, package) in inputs.workspace.iter() {
         let Some(package_setup) = inputs.setup.package(id) else {
             continue;
         };
-        let dir = &package_setup.dir;
         for (field, path) in published_paths(package.manifest.value()) {
             if path.starts_with('!') {
                 continue;
@@ -328,29 +330,13 @@ fn package_entries(inputs: &HintInputs<'_>) -> Vec<ConfigHint> {
             {
                 continue;
             }
-            let rel = path.trim_start_matches("./");
-            if rel.starts_with("../") || rel.starts_with('/') {
-                continue;
-            }
-            // Build output (`dist/index.js`, `dist/style.css`) is missing until the package is built, and the
-            // `.gitignore` that hides it may lie above the analysed root, so it is never called missing.
-            if should_have_source(rel) || rel.split_once('/').is_some_and(|(first, _)| is_out_dir(first)) {
-                continue;
-            }
-            if !inputs.config.js.no_gitignore && is_ignored_path(inputs.disk, &inputs.workspace.root, &dir.join(rel)) {
-                continue;
-            }
-            let exists = if rel.contains('*') {
-                on_disk(inputs.disk, dir, rel)
-                    || source_patterns(rel)
-                        .iter()
-                        .any(|pattern| on_disk(inputs.disk, dir, pattern))
-            } else {
-                inputs.disk.is_file(&join_normalized(dir, rel))
-                    || inputs.disk.kind(&join_normalized(dir, rel)).is_dir
-                    || map_published(inputs.disk, package_setup, rel).is_some()
-            };
-            if !exists {
+            if names_no_file(
+                disk,
+                &inputs.workspace.root,
+                package_setup,
+                package.manifest.value(),
+                &path,
+            ) {
                 hints.push(ConfigHint {
                     kind: HintKind::PackageEntry,
                     key: field.to_owned(),
