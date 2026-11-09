@@ -376,7 +376,10 @@ fn destructured_parameters_take_their_defaults() {
     assert_eq!(get(&configs[1], &["mode"]), &s("dev"));
     // An unknown argument leaves its names unknown, not bound to the outer `pinCjs`.
     assert_eq!(get(&configs[2], &["mode"]), &ConfigValue::Unknown);
-    assert_eq!(configs[2].get("resolve"), Some(&ConfigValue::Unknown));
+    assert_eq!(
+        configs[2].get("resolve"),
+        Some(&ConfigValue::Object(vec![("alias".to_owned(), ConfigValue::Unknown)]))
+    );
 }
 
 #[test]
@@ -389,11 +392,95 @@ fn a_conditional_with_an_unknown_test_keeps_what_both_branches_share() {
     );
     assert_eq!(get(&value, &["build", "outDir"]), &s("dist"));
     assert_eq!(get(&value, &["test", "environment"]), &s("node"));
-    // A key only one branch has may be present or not.
-    assert_eq!(get(&value, &["test", "include"]), &ConfigValue::Unknown);
-    assert!(value.get("test").unwrap().get("include").is_some());
+    // A list only one spread branch sets is credited whole: the other branch adds nothing to it.
+    assert_eq!(get(&value, &["test", "include"]), &strings(&["a"]));
     // A branch that is not an object leaves the spread unknown.
     assert!(value.get("...").is_some());
+}
+
+#[test]
+fn a_spread_guarded_by_an_unknown_test_adds_the_keys_of_its_object() {
+    let value = extract(
+        "vitest.config.ts",
+        "const tmp = process.env.TEST_TMPDIR;\n\
+         export default { ...(tmp && { cacheDir: `${tmp}/vite` }), ...((process.env.A && { base: '/' })), \
+         test: { include: ['**/*.test.ts'] } };",
+    );
+    assert!(value.get("...").is_none(), "{value:?}");
+    // A key the falsy branch leaves out may be present or not.
+    assert_eq!(value.get("cacheDir"), Some(&ConfigValue::Unknown));
+    assert_eq!(value.get("base"), Some(&ConfigValue::Unknown));
+    assert_eq!(get(&value, &["test", "include"]), &strings(&["**/*.test.ts"]));
+}
+
+#[test]
+fn a_conditional_spread_credits_the_lists_of_every_branch() {
+    let value = extract(
+        "vitest.config.ts",
+        "export default {\n\
+           test: { include: ['src/**/*.test.ts'], environment: 'node' },\n\
+           ...(process.env.A ? { test: { include: ['a/**'], setupFiles: ['./setup-a.ts'], environment: 'node' } } \
+             : { test: { include: ['b/**'], environment: 'node' } }),\n\
+           ...(process.env.B && { build: { rollupOptions: { input: ['b.html'] } } }),\n\
+         };",
+    );
+    assert!(value.get("...").is_none(), "{value:?}");
+    assert_eq!(get(&value, &["test", "include"]), &strings(&["a/**", "b/**"]));
+    assert_eq!(get(&value, &["test", "setupFiles"]), &strings(&["./setup-a.ts"]));
+    assert_eq!(get(&value, &["test", "environment"]), &s("node"));
+    assert_eq!(get(&value, &["build", "rollupOptions", "input"]), &strings(&["b.html"]));
+}
+
+#[test]
+fn a_guarded_spread_keeps_what_its_object_does_not_replace() {
+    let value = extract(
+        "vitest.config.ts",
+        "export default { test: { include: ['x/**'] }, root: 'web', \
+         ...(process.env.A && { test: { setupFiles: ['./s.ts'] } }), ...(process.env.B ? { root: 'app' } : {}) };",
+    );
+    // The spread replaces `test` as a whole in one branch, so each branch's lists are credited.
+    assert_eq!(get(&value, &["test", "include"]), &strings(&["x/**"]));
+    assert_eq!(get(&value, &["test", "setupFiles"]), &strings(&["./s.ts"]));
+    // `root` is `web` or `app`.
+    assert_eq!(get(&value, &["root"]), &ConfigValue::Unknown);
+}
+
+#[test]
+fn a_spread_branch_that_is_not_known_leaves_the_marker() {
+    let cases = [
+        "export default { ...(process.env.BASE || { a: 1 }) };",
+        "export default { ...(process.env.BASE ?? { a: 1 }) };",
+        "export default { ...(process.env.A ? base() : {}) };",
+        "export default { ...(process.env.A && base()) };",
+        "export default { ...(process.env.A ? { ...base(), test: { include: ['a'] } } : {}) };",
+    ];
+    for source in cases {
+        let value = extract("vitest.config.ts", source);
+        assert!(value.get("...").is_some(), "{source}: {value:?}");
+    }
+    let value = extract(
+        "vitest.config.ts",
+        "export default { ...(process.env.A ? { ...base(), test: { include: ['a'] } } : {}) };",
+    );
+    assert_eq!(get(&value, &["test", "include"]), &strings(&["a"]));
+}
+
+#[test]
+fn a_spread_of_a_boolean_or_null_adds_nothing() {
+    let value = extract(
+        "vitest.config.ts",
+        "export default { ...(process.env.MODE === 'ci' || { a: [1] }), ...(!process.env.B ?? { b: [2] }), \
+         ...null, ...false };",
+    );
+    // A comparison is `true` or `false`, so `||` adds its object or nothing; a negation is never nullish, so `??`
+    // never reaches its object.
+    assert_eq!(
+        value,
+        ConfigValue::Object(vec![(
+            "a".to_owned(),
+            ConfigValue::Array(vec![ConfigValue::Number(1.0)])
+        )])
+    );
 }
 
 #[test]
