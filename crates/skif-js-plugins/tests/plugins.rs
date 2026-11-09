@@ -4066,16 +4066,19 @@ fn taskfile_tasks_and_includes() {
 fn mise_file_tasks_are_entries_and_scripts() {
     let results = resolve(
         &[
-            ("mise.toml", "[task_config]\nincludes = [\"tasks\", \"more.toml\"]\n"),
+            ("mise.toml", "[tools]\nnode = \"22\"\n"),
             ("mise-tasks/build", "#!/usr/bin/env bash\nset -e\nnode scripts/gen.js\n"),
-            ("mise-tasks/release.ts", "console.log(1);\n"),
+            ("mise-tasks/release.ts", "#!/usr/bin/env -S npx tsx\nconsole.log(1);\n"),
             ("mise-tasks/py", "#!/usr/bin/env python3\nimport os\n"),
+            ("mise-tasks/README", "Run node docs/readme.js\n"),
             ("mise-tasks/README.md", "Run node docs/not-a-task.js\n"),
+            ("mise-tasks/NOTES", "node docs/notes.js\n"),
+            ("mise-tasks/a.sh", "# [MISE] dir=\"a\"\nnode a.js\n"),
+            ("mise-tasks/b.sh", "# MISE dir=b\nnode b.js\n"),
             (
                 ".config/mise/tasks/lint/web.sh",
                 "#!/bin/sh\n#MISE dir=\"web\"\nnode check.js\n",
             ),
-            ("tasks/deploy", "node deploy.js\n"),
         ],
         &[],
     );
@@ -4083,8 +4086,35 @@ fn mise_file_tasks_are_entries_and_scripts() {
     let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
     assert_eq!(
         entries,
-        BTreeSet::from(["scripts/gen.js", "mise-tasks/release.ts", "web/check.js", "deploy.js"])
+        BTreeSet::from([
+            "scripts/gen.js",
+            "mise-tasks/release.ts",
+            "a/a.js",
+            "b/b.js",
+            "web/check.js"
+        ])
     );
+    assert!(
+        out.referenced_binaries.contains(&"tsx".to_owned()),
+        "the shebang runs the task with tsx: {:?}",
+        out.referenced_binaries
+    );
+}
+
+#[test]
+fn mise_task_includes_replace_the_default_file_task_dirs() {
+    let results = resolve(
+        &[
+            ("mise.toml", "[task_config]\nincludes = [\"tasks\", \"more.toml\"]\n"),
+            ("mise-tasks/build", "#!/usr/bin/env bash\nnode scripts/gen.js\n"),
+            ("tasks/deploy.sh", "node deploy.js\n"),
+            ("tasks/deploy", "node not-a-shell-file.js\n"),
+        ],
+        &[],
+    );
+    let out = output(&results, "mise");
+    let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
+    assert_eq!(entries, BTreeSet::from(["deploy.js"]));
 }
 
 #[test]
