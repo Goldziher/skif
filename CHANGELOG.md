@@ -15,6 +15,8 @@ All notable changes to this project are documented here. The format follows
   `/.*\.(spec|test)\.[jt]sx?$/`) becomes a glob of the test files it matches. It used to make every script below the
   project's `testDir` an entry, so no file there was reported by `unused-files`
   ([#100](https://github.com/Goldziher/skif/issues/100)).
+- The `jest` plugin makes a file named just `test.js` or `spec.ts` (any script extension) a test entry, as Jest's
+  default `testMatch` and knip do ([#100](https://github.com/Goldziher/skif/issues/100)).
 
 - `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`,
   `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such

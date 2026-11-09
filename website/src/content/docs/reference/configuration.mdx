@@ -620,7 +620,7 @@ the `@tsrx/*` packages its package lists. Like `.mdx`, `.tsrx` files are not in 
 
 Test files are entries when a test-runner plugin is enabled (Jest, Vitest, Mocha, Playwright, Cypress and the like),
 with the patterns of that plugin; a project without a runner reports unused test files like any other, as knip does.
-A Playwright `testMatch` regular expression becomes a
+Jest's defaults include files named just `test.js` or `spec.ts`. A Playwright `testMatch` regular expression becomes a
 glob when it is made of literals, `.*`, character classes (`[jt]`), the `?` quantifier, anchors and groups
 (`/.*\.e2e\.tsx?/` matches `**/*.e2e.ts{x,}*` below `testDir`); any other expression makes every script below
 `testDir` an entry.

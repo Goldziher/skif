@@ -743,6 +743,26 @@ fn entries_named_by_a_root_plugin_config_match_files_of_member_packages() {
 }
 
 #[test]
+fn files_named_test_or_spec_are_jest_tests_by_default() {
+    let diagnostics = lint_files(
+        &[
+            (
+                "package.json",
+                r#"{"name":"app","private":true,"main":"index.js","devDependencies":{"jest":"29"}}"#,
+            ),
+            ("index.js", "module.exports = {};\n"),
+            ("bench/test.js", "require('../src/sum');\n"),
+            ("lib/spec.ts", "import { add } from './add';\nadd();\n"),
+            ("lib/add.ts", "export const add = () => 1;\n"),
+            ("src/sum.js", "module.exports = 1;\n"),
+            ("src/latest.js", "module.exports = 1;\n"),
+        ],
+        "",
+    );
+    assert_eq!(found(&diagnostics, "unused-files"), ["src/latest.js: src/latest.js"]);
+}
+
+#[test]
 fn an_optional_character_in_a_playwright_test_match_does_not_make_every_file_an_entry() {
     let diagnostics = lint_files(
         &[
