@@ -12,7 +12,7 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - Eight plugins read more of their configs, still without running them
-  ([ADR 0079](adrs/0079-plugin-gaps-config-functions-file-tasks-and-templates.md),
+  ([ADR 0078](adrs/0078-plugin-gaps-config-functions-file-tasks-and-templates.md),
   [#103](https://github.com/Goldziher/skif/issues/103)):
   - `sst` reads the handler shorthand of SST 2 constructs in the stacks `sst.config.ts` imports (`routes`,
     `subscribers`, `notifications`, `targets`, and `function`, `job` and `consumer` strings).
