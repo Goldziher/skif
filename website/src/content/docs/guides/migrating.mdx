@@ -189,6 +189,12 @@ regular expression matching a superset of that.
 Settings that knip scopes to one workspace stay in that workspace's table. `--workspace` narrowed the old run to some
 workspaces; it is not written to the configuration, and the script can pass the same `--workspace` to skif.
 
+knip merges the tsconfig `paths` of every workspace, so a package could import through the `paths` of another one.
+`skif migrate` translates configuration and does not analyse the sources, so its report cannot list such imports; they
+appear on the first `skif` run as `unlisted-dependencies` findings with the detail `ForeignTsconfigPaths`, each naming
+the tsconfig whose `paths` map the import. Add the mapping to the importing package's tsconfig, or import the module
+by its package name; adding a dependency does not fix them.
+
 ## Several tools
 
 Migrate every tool in one run: `skif migrate --from sherif,syncpack,knip` (or the default `--from auto`). The `exact`

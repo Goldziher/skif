@@ -24,6 +24,13 @@ intended differences and counts them apart, as it does findings in packages skif
 cannot read) and in packages where knip could not load a config; see the
 [benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md).
 
+knip merges the tsconfig `paths` of every workspace, so an import that only another package's `paths` map resolves
+for it. skif resolves an import with the configuration the importing file follows, as TypeScript does: such an import
+is reported by `unlisted-dependencies` with the detail `ForeignTsconfigPaths`, a message that names the config whose
+`paths` map it, and no advice to add a dependency. The fix is to add the mapping to the importing package's tsconfig,
+or to import the module by the name of the package that exports it. A pattern with no literal prefix (`*`) is not
+counted, as it maps every specifier.
+
 ## Configuration
 
 skif reads `skif.toml` or `.skif.toml` only. It does not read `sherif`, `.syncpackrc` or `knip.json`
