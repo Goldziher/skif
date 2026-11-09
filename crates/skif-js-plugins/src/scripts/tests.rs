@@ -761,7 +761,7 @@ fn recursive_run_of_a_local_script_is_followed() {
 
 #[test]
 fn flags_and_subcommands_load_packages() {
-    let cases: [(&str, &[&str]); 5] = [
+    let cases: [(&str, &[&str]); 7] = [
         ("vitest --ui", &["@vitest/ui"]),
         (
             "vitest run --coverage",
@@ -772,6 +772,8 @@ fn flags_and_subcommands_load_packages() {
             &["@vitest/coverage-istanbul", "@vitest/coverage-v8"],
         ),
         ("webpack serve --mode development", &["webpack-dev-server"]),
+        ("next lint --dir src", &["eslint", "eslint-config-next"]),
+        ("next build", &[]),
         ("vitest run", &[]),
     ];
     for (script, expected_deps) in cases {

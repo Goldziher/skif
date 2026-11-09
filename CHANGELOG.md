@@ -25,6 +25,23 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The `jasmine` framework of a Karma config uses `jasmine-core` as well as `karma-jasmine`, as knip counts it
+  ([#98](https://github.com/Goldziher/skif/issues/98)).
+- `next lint` in a script uses `eslint` and `eslint-config-next`, which it runs
+  ([#98](https://github.com/Goldziher/skif/issues/98)).
+- `unresolved-imports` no longer reports a missing file that the `.gitignore` of a directory other than the root or
+  a package lists (any directory up to the git repository root, so also one above a nested root), an import of an
+  ignored path below another `rootDirs` directory that is not generated yet (React Router's `./+types/root`), or a
+  root-relative import of a JSON or other non-code file such as `/vite.svg`
+  ([#99](https://github.com/Goldziher/skif/issues/99)).
+- The `vercel` plugin is enabled by a `vercel.json` too and parses its `buildCommand`, `devCommand`,
+  `installCommand` and `ignoreCommand` as scripts, so `"buildCommand": "pnpm turbo build"` keeps `turbo` used
+  ([#98](https://github.com/Goldziher/skif/issues/98)).
+- In a multi-root run (`skif -r`) a dependency that only a nested root imports or runs, and that the nested root
+  does not list but a `package.json` above it does, is no longer reported unused in that outer manifest: Node.js
+  resolves it from the outer `node_modules`. Reports carry these uses in `Report::ancestor_dependency_uses`, and
+  `Report::retain` drops diagnostics while keeping the summary right
+  ([#98](https://github.com/Goldziher/skif/issues/98), [ADR 0077](adrs/0077-dependencies-nested-roots-use-count-for-the-enclosing-manifest.md)).
 - The script parser skips the bodies of here-documents, does not read `case` patterns as commands and does not
   report the functions a script defines as binaries; a command a source file runs follows the scripts of its package
   (`execSync('pnpm build')`); and more system and platform tools (`taskkill`, `xcode-select`, `sysctl`, `osascript`,

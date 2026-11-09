@@ -380,3 +380,8 @@ blake3 = "daa35a8e48c913e9edcfda5c2872efda2da9266207162c0d935ac07b6e8a2cb2"
 number = 76
 status = "accepted"
 blake3 = "fb1be06eeb0327b08046522ea964275d5b24ea3e4a0cdbe5baa9b273bee49913"
+
+[adrs."adrs/0077-dependencies-nested-roots-use-count-for-the-enclosing-manifest.md"]
+number = 77
+status = "accepted"
+blake3 = "7774fd0976ceed66731ac85519fa78e63ab64bf2dbd01209a76c17cd6bb9222e"

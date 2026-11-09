@@ -76,6 +76,7 @@ old one.
 | 0066 | [A Module Cache and Unsaved Buffers in the Language Server](0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md) | accepted |
 | 0067 | [No Editor Extension](0067-no-editor-extension.md) | accepted |
 | 0068 | [What the knip Comparison Sets Apart: Exports skif Does Not Judge, Configs knip Cannot Load, and Fixture Names](0068-what-the-knip-comparison-sets-apart.md) | accepted |
+| 0077 | [Dependencies Nested Roots Use Count for the Enclosing Manifest](0077-dependencies-nested-roots-use-count-for-the-enclosing-manifest.md) | accepted |
 | 0076 | [Binaries Run Outside Scripts: Commands of Tool Files and `child_process` Calls, and Corrections to Unlisted Dependencies](0076-binaries-run-outside-scripts-and-unlisted-corrections.md) | accepted |
 | 0075 | [Imports Only Another Package's tsconfig `paths` Map: Unlisted, With a Detail, Not Resolved Through Merged Paths](0075-imports-only-another-packages-tsconfig-paths-map.md) | accepted |
 | 0074 | [Reasons on `[js]` Ignore Entries, a `[lint] require-ignore-reasons` Key, and Comments Carried Over by `skif migrate`](0074-reasons-on-js-ignore-entries.md) | accepted |

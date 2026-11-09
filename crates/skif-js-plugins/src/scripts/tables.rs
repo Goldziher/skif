@@ -410,6 +410,8 @@ pub(super) const FLAG_DEPENDENCIES: &[(&str, &str, &[&str])] = &[
     ("webpack", "serve", &["webpack-dev-server"]),
     ("webpack", "server", &["webpack-dev-server"]),
     ("webpack", "s", &["webpack-dev-server"]),
+    // `next lint` runs ESLint with Next.js's shared config.
+    ("next", "lint", &["eslint", "eslint-config-next"]),
 ];
 
 pub(super) const WORKSPACE_FLAGS: &[&str] = &["workspace", "w", "workspaces", "ws", "prefix"];
