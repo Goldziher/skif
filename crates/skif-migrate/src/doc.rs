@@ -161,7 +161,6 @@ impl Section {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn get(&self, key: &str) -> Option<&Val> {
         self.entries
             .iter()
@@ -252,6 +251,13 @@ impl Doc {
         });
         let last = self.sections.len() - 1;
         &mut self.sections[last]
+    }
+
+    /// Applies `edit` to every `[[path]]` element and drops the elements it returns `false` for.
+    pub(crate) fn edit_elements(&mut self, path: &[&str], mut edit: impl FnMut(&mut Section) -> bool) {
+        self.sections.retain_mut(|section| {
+            !(section.array && section.path.iter().map(String::as_str).eq(path.iter().copied())) || edit(section)
+        });
     }
 
     /// The sections that have content, in the order they are written.

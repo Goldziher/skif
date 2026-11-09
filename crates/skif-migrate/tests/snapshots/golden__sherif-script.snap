@@ -14,6 +14,9 @@ ignore-packages = ["@demo/legacy"]
 [lint]
 fail-on-warnings = true
 
+[policy]
+dependency-types = ["prod", "dev"]
+
 [rules]
 unsorted-dependencies = "off"
 root-package-private-field = "off"
