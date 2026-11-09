@@ -90,7 +90,10 @@ fn a_node_modules_bin_path_names_no_package() {
             "src/index.js",
             "const tool = require('tool');\nexports.bin = require.resolve('.bin/tool');\nexports.tool = tool;\n",
         ),
-        ("node_modules/.bin/tool", "#!/bin/sh\nexec node \"$basedir/../tool/cli.js\" \"$@\"\n"),
+        (
+            "node_modules/.bin/tool",
+            "#!/bin/sh\nexec node \"$basedir/../tool/cli.js\" \"$@\"\n",
+        ),
         (
             "node_modules/tool/package.json",
             r#"{"name":"tool","version":"1.0.0","main":"index.js","bin":{"tool":"cli.js"}}"#,

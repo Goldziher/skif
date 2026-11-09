@@ -28,33 +28,34 @@ impl JsRule for UnlistedBinaries {
             let Some(package) = analysis.workspace.package(binary.package) else {
                 continue;
             };
-            let (message, location) = match &binary.file {
-                Some(file) => (
+            let (message, location) = if let Some(file) = &binary.file {
+                (
                     format!(
                         "`{}` runs `{}`, which no dependency provides",
-                        file.display(),
+                        file.to_string_lossy().replace('\\', "/"),
                         binary.name
                     ),
                     Location::new(file.clone(), None),
-                ),
-                None => {
-                    let span = package
-                        .manifest
-                        .field_span(&[PathSeg::Key("scripts".to_owned()), PathSeg::Key(binary.script.clone())]);
-                    (
-                        format!(
-                            "script `{}` runs `{}`, which no dependency provides",
-                            binary.script, binary.name
-                        ),
-                        Location::new(package.manifest.path.clone(), span),
-                    )
-                }
+                )
+            } else {
+                let span = package
+                    .manifest
+                    .field_span(&[PathSeg::Key("scripts".to_owned()), PathSeg::Key(binary.script.clone())]);
+                (
+                    format!(
+                        "script `{}` runs `{}`, which no dependency provides",
+                        binary.script, binary.name
+                    ),
+                    Location::new(package.manifest.path.clone(), span),
+                )
             };
             out.emit(
                 diagnostic(&META, message, location)
                     .package(package.display_name())
                     .dependency(binary.name.clone())
-                    .help("add the package that provides the binary to `devDependencies`, or add it to `ignore-binaries`")
+                    .help(
+                        "add the package that provides the binary to `devDependencies`, or add it to `ignore-binaries`",
+                    )
                     .build(),
             );
         }

@@ -121,7 +121,7 @@ A `[js]` setting matched nothing or is redundant, a published entry file is miss
 
 ## unlisted-binaries
 
-A script runs a binary that no listed dependency provides.
+A script, or a command in a workflow, tool config or source file, runs a binary that no listed dependency provides.
 
 - Category: js
 - Default severity: warning

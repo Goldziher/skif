@@ -214,7 +214,7 @@ expression: json.stdout
       "category": "js",
       "default": "warning",
       "fixable": "none",
-      "summary": "A script runs a binary that no listed dependency provides."
+      "summary": "A script, or a command in a workflow, tool config or source file, runs a binary that no listed dependency provides."
     },
     {
       "id": "unused-optional-peer-dependencies",
