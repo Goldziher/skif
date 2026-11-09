@@ -144,10 +144,12 @@ impl Roots<'_> {
             let next_start = spans.get(index + 1).map_or(array.span.end, |(start, _)| *start);
             let (start, end) = spans[index];
             if let Some(text) = self.text_around(previous_end, start, end, next_start) {
-                let value = element.as_expression().and_then(|expression| match expression.get_inner_expression() {
-                    Expression::RegExpLiteral(regex) => Some(regex.regex.pattern.text.as_str().to_owned()),
-                    other => static_string(other),
-                });
+                let value = element
+                    .as_expression()
+                    .and_then(|expression| match expression.get_inner_expression() {
+                        Expression::RegExpLiteral(regex) => Some(regex.regex.pattern.text.as_str().to_owned()),
+                        other => static_string(other),
+                    });
                 self.out.push(ElementComment::new(path.clone(), index, value, text));
             }
             if let Some(expression) = element.as_expression() {

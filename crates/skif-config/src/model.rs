@@ -2343,9 +2343,15 @@ impl PackageJs {
     /// The ignore lists under their keys; a key that is not set is an empty list.
     pub(crate) fn ignore_lists(&self) -> [(&'static str, &[IgnoreItem]); 6] {
         [
-            ("ignore-dependencies", self.ignore_dependencies.as_deref().unwrap_or_default()),
+            (
+                "ignore-dependencies",
+                self.ignore_dependencies.as_deref().unwrap_or_default(),
+            ),
             ("ignore-binaries", self.ignore_binaries.as_deref().unwrap_or_default()),
-            ("ignore-unresolved", self.ignore_unresolved.as_deref().unwrap_or_default()),
+            (
+                "ignore-unresolved",
+                self.ignore_unresolved.as_deref().unwrap_or_default(),
+            ),
             ("extend-ignore-dependencies", self.extend_ignore_dependencies.as_slice()),
             ("extend-ignore-binaries", self.extend_ignore_binaries.as_slice()),
             ("extend-ignore-unresolved", self.extend_ignore_unresolved.as_slice()),

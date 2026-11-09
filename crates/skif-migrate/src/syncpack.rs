@@ -145,7 +145,11 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
         .as_ref()
         .map_or("package.json", |file| file.path.as_str());
     let found = match (&input.config, &package) {
-        (Some(file), _) => Some((read(file, Tool::Syncpack)?, Src::read(Tool::Syncpack, file), String::new())),
+        (Some(file), _) => Some((
+            read(file, Tool::Syncpack)?,
+            Src::read(Tool::Syncpack, file),
+            String::new(),
+        )),
         (None, Some(package)) => scripts::config_key(Tool::Syncpack, package).map(|config| {
             let prefix = if package.get("syncpack").is_some() {
                 "syncpack"

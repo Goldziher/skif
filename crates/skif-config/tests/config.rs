@@ -988,7 +988,10 @@ fn js_ignore_lists_take_strings_and_tables_with_a_reason() {
     );
     assert_eq!(js.ignore_files, vec![IgnoreItem::new("src/legacy/**")]);
     let app = &js.workspaces["packages/app"];
-    assert_eq!(app.ignore_binaries, vec![IgnoreItem::new("vite").with_reason("run through npx")]);
+    assert_eq!(
+        app.ignore_binaries,
+        vec![IgnoreItem::new("vite").with_reason("run through npx")]
+    );
     assert_eq!(app.ignore_members, vec![IgnoreItem::new("Internal*")]);
     let scoped = &config.overrides[0].js;
     assert_eq!(
@@ -1012,9 +1015,15 @@ fn js_ignore_entries_without_a_reason_are_written_back_as_strings() {
 #[test]
 fn a_js_ignore_table_with_a_wrong_key_names_it() {
     for (toml, expected) in [
-        ("[js]\nignore-dependencies = [{ name = \"a\", reson = \"b\" }]\n", "reson"),
+        (
+            "[js]\nignore-dependencies = [{ name = \"a\", reson = \"b\" }]\n",
+            "reson",
+        ),
         ("[js]\nignore-binaries = [{ reason = \"b\" }]\n", "name"),
-        ("[js.workspaces.\"p\"]\nignore-files = [1]\n", "a string, or a table of `name` and `reason`"),
+        (
+            "[js.workspaces.\"p\"]\nignore-files = [1]\n",
+            "a string, or a table of `name` and `reason`",
+        ),
     ] {
         let error = Config::from_toml_str(toml).unwrap_err().to_string();
         assert!(error.contains(expected), "{toml}: {error}");
@@ -1076,7 +1085,12 @@ fn require_ignore_reasons_is_a_lint_key() {
     assert!(!Config::default().lint.require_ignore_reasons);
     let config = Config::from_toml_str("[lint]\nrequire-ignore-reasons = true\n").unwrap();
     assert!(config.lint.require_ignore_reasons);
-    assert!(config.to_toml_string().unwrap().contains("require-ignore-reasons = true"));
+    assert!(
+        config
+            .to_toml_string()
+            .unwrap()
+            .contains("require-ignore-reasons = true")
+    );
     assert!(
         !Config::default()
             .to_toml_string()
