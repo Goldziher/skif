@@ -4,15 +4,18 @@
 //! disagree where the tools model things differently, so the numbers are a measure of drift, not a verdict: the
 //! committed baselines say what the agreement was, and `--check` fails when it moves.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::rc::Rc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
+use skif_workspace::{OsFs, declared_member_dirs};
 
 use crate::corpus::{self, Repo, Tools};
 use crate::diff::{self, BASELINE_SCHEMA, Baseline, COMPARED, Counts, Deviation, Entry, Gate, Keys, Samples, Side};
@@ -64,6 +67,10 @@ pub const FIXTURE_FILE: &str = "fixture-file";
 pub const KNIP_UNREAD: &str = "knip-unread";
 pub const NOT_JUDGED: &str = "not-judged-by-skif";
 pub const KNIP_CONFIG_ERROR: &str = "knip-config-error";
+pub const KNIP_UNJUDGED_MANIFEST: &str = "knip-unjudged-manifest";
+pub const NON_MEMBER_PROJECT: &str = "non-member-project";
+pub const SKIPPED_DIRECTORY: &str = "skipped-directory";
+pub const PUBLISHED_SOURCE: &str = "published-source";
 
 /// The categories skif does not judge in a package whose entry files are not all known: files and dependencies
 /// (ADR 0053), and exports, types and members, which skif stopped reporting there with #48 (ADR 0068).
@@ -79,12 +86,43 @@ const NOT_JUDGED_CATEGORIES: [&str; 9] = [
     "namespaceMembers",
 ];
 
+/// The categories skif does not report in a fixture directory (ADR 0050): files, exports, types and members unless
+/// `[js] include-fixtures` is set, which the harness never sets, and unresolved imports and unlisted dependencies at
+/// all.
+const FIXTURE_CATEGORIES: [&str; 9] = [
+    "files",
+    "exports",
+    "types",
+    "nsExports",
+    "nsTypes",
+    "enumMembers",
+    "namespaceMembers",
+    "unresolved",
+    "unlisted",
+];
+
+/// The categories whose findings sit on a `package.json`: its dependencies, and the binaries its scripts run.
+const MANIFEST_CATEGORIES: [&str; 4] = [
+    "dependencies",
+    "devDependencies",
+    "optionalPeerDependencies",
+    "binaries",
+];
+
+/// The dependency fields of a manifest that list a package.
+const DEPENDENCY_FIELDS: [&str; 4] = [
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+];
+
 /// Categories that name the same thing, `<file>|<export>`, and differ only in how the tools label it: knip counts a
 /// `const enum` as a type and files an export under `nsExports` when any importer uses a namespace, skif when all do.
 const EXPORT_LABELS: [&str; 4] = ["exports", "types", "nsExports", "nsTypes"];
 
 /// The known differences between skif and knip.
-pub const KNIP_DEVIATIONS: [Deviation; 6] = [
+pub const KNIP_DEVIATIONS: [Deviation; 10] = [
     Deviation {
         id: NON_CODE_FILE,
         reason: "knip lists stylesheets, markup, data and docs as unused files; skif's project set is code files only",
@@ -95,7 +133,7 @@ pub const KNIP_DEVIATIONS: [Deviation; 6] = [
     },
     Deviation {
         id: FIXTURE_FILE,
-        reason: "skif does not report files below a `fixtures` or `__fixtures__` directory as unused unless `[js] include-fixtures` is set (ADR 0050); knip reports them. Other names of test data (`fixture`, `testdata`, `*-fixtures`) are judged like any other directory by skif and are not counted here",
+        reason: "knip reports these findings in files below a `fixtures` or `__fixtures__` directory, where skif reports no unused file, export, type or member unless `[js] include-fixtures` is set, and no unresolved import or unlisted dependency at all (ADR 0050). Other names of test data (`fixture`, `testdata`, `*-fixtures`) are judged like any other directory by skif and are not counted here",
     },
     Deviation {
         id: KNIP_UNREAD,
@@ -108,6 +146,22 @@ pub const KNIP_DEVIATIONS: [Deviation; 6] = [
     Deviation {
         id: KNIP_CONFIG_ERROR,
         reason: "knip could not load a configuration file of the package (it prints `ERROR: Error loading <file>` and exits with 2), so it ran without the entry files that configuration names; the errors are listed in `parity.json` under `knip_errors`",
+    },
+    Deviation {
+        id: KNIP_UNJUDGED_MANIFEST,
+        reason: "skif reports these unused dependencies, and binaries the scripts run, in a `package.json` that is not one of knip's workspaces: not the root manifest, not selected by the root's workspace patterns (`pnpm-workspace.yaml` or the `workspaces` of `package.json`, as skif's workspace discovery reads them) and not a file knip reports anything for. knip judges the dependencies and scripts of its workspaces only; a recursive skif run lints such a project as a root of its own (ADR 0022)",
+    },
+    Deviation {
+        id: NON_MEMBER_PROJECT,
+        reason: "knip reports these unused files, and these unlisted dependencies that the file's own `package.json` lists, below a directory with its own `package.json` (one with fields besides `type`, `sideEffects` and `imports`) that is not one of knip's workspaces (as in `knip-unjudged-manifest`). knip counts such files to an enclosing workspace, without the entry files, plugins and dependencies of their own manifest; skif's analysis of the enclosing workspace skips the directory, and a recursive run lints it as a root of its own when no workspace member encloses it (ADR 0022). The harness checks the manifests, not why skif has no finding for each one",
+    },
+    Deviation {
+        id: SKIPPED_DIRECTORY,
+        reason: "knip reports these findings in files below a directory that skif's file discovery skips by name, unless the directory is a workspace member: `node_modules`, `.git`, `dist`, `.next`, `.turbo`, `.svelte-kit`, `storybook-static`, `.yarn`, `.vercel` and `.nuxt`; `out`, `target` and `coverage` directly in the root or a package directory; and every hidden directory but `.github`, `.storybook`, `.rnstorybook`, `.config`, `.vitepress`, `.vuepress`, `.husky` and `.changeset`. skif reads no file there",
+    },
+    Deviation {
+        id: PUBLISHED_SOURCE,
+        reason: "knip reports these TypeScript files as unused, and the package that holds each one publishes its path with a built extension (`.js`, `.mjs`, `.cjs`, `.jsx` or a `.d.ts` variant) in `main`, `module`, `source`, `types`, `typings`, `browser`, `bin` or an `exports` leaf, where `*` matches any part of the path. skif makes the source beside a published path an entry; knip maps a published path to source only through a tsconfig `outDir`. The harness checks the published path, not why skif has no finding for each file",
     },
 ];
 
@@ -369,7 +423,7 @@ fn classify_file(path: &str, include_test_files: bool) -> Option<&'static str> {
     if include_test_files {
         return None;
     }
-    if directories.split('/').any(|p| FIXTURE_DIRECTORIES.contains(&p)) {
+    if in_fixture_directory(&normalized) {
         return Some(FIXTURE_FILE);
     }
     let in_test_directory = directories.split('/').any(|p| TEST_DIRECTORIES.contains(&p));
@@ -377,6 +431,359 @@ fn classify_file(path: &str, include_test_files: bool) -> Option<&'static str> {
         .iter()
         .any(|marker| name.contains(marker));
     (in_test_directory || test_name).then_some(TEST_FILE)
+}
+
+/// The file of a finding key (`<path>` or `<path>|<name>`).
+fn key_path(key: &str) -> &str {
+    key.split_once('|').map_or(key, |(path, _)| path)
+}
+
+/// Whether a directory of `path` (not its file name) is one skif treats as fixtures.
+fn in_fixture_directory(path: &str) -> bool {
+    path.rsplit_once('/')
+        .is_some_and(|(directories, _)| directories.split('/').any(|part| FIXTURE_DIRECTORIES.contains(&part)))
+}
+
+/// The package a bare specifier names: `@scope/name` or `name`, without a subpath.
+fn package_name(specifier: &str) -> &str {
+    let segments = if specifier.starts_with('@') { 2 } else { 1 };
+    specifier
+        .match_indices('/')
+        .nth(segments - 1)
+        .map_or(specifier, |(at, _)| &specifier[..at])
+}
+
+/// Directory names skif's file discovery never enters unless the directory is a workspace member (`SKIPPED_DIRS` in
+/// `crates/skif-js/src/discover.rs`).
+const SKIPPED_DIRECTORIES: [&str; 13] = [
+    "node_modules",
+    ".git",
+    "dist",
+    "coverage",
+    ".next",
+    "out",
+    ".turbo",
+    ".svelte-kit",
+    "storybook-static",
+    ".yarn",
+    ".vercel",
+    ".nuxt",
+    "target",
+];
+
+/// The names of [`SKIPPED_DIRECTORIES`] that are skipped only directly inside a package directory
+/// (`PACKAGE_ROOT_ONLY_DIRS` in `discover.rs`).
+const PACKAGE_ROOT_ONLY_DIRECTORIES: [&str; 3] = ["out", "target", "coverage"];
+
+/// The hidden directories skif's file discovery enters (`HIDDEN_DIRS` in `discover.rs`); it skips every other one.
+const TOOL_DIRECTORIES: [&str; 8] = [
+    ".storybook",
+    ".rnstorybook",
+    ".config",
+    ".vitepress",
+    ".vuepress",
+    ".husky",
+    ".github",
+    ".changeset",
+];
+
+/// Manifest fields that only mark a directory: a `package.json` with nothing else is not a project
+/// (`MARKER_FIELDS` in `discover.rs`).
+const MARKER_FIELDS: [&str; 3] = ["type", "sideEffects", "imports"];
+
+/// Manifest fields that publish one file each.
+const PUBLISHED_FIELDS: [&str; 6] = ["main", "module", "source", "types", "typings", "browser"];
+
+/// The extensions of a published (built) path and the TypeScript source extensions skif maps each one back to
+/// (`EXTENSION_PAIRS` in `crates/skif-js/src/manifest_paths.rs`, the TypeScript sources only).
+const PUBLISHED_EXTENSIONS: [(&str, &[&str]); 7] = [
+    (".d.mts", &["mts"]),
+    (".d.cts", &["cts"]),
+    (".d.ts", &["ts", "tsx"]),
+    (".mjs", &["mts", "ts", "tsx", "cts"]),
+    (".cjs", &["cts", "ts", "tsx", "mts"]),
+    (".jsx", &["tsx"]),
+    (".js", &["ts", "tsx", "mts", "cts"]),
+];
+
+/// The stem and extension of a TypeScript source file (`.ts`, `.tsx`, `.mts`, `.cts`, not a declaration file).
+fn typescript_source(path: &str) -> Option<(&str, &str)> {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    if [".d.ts", ".d.mts", ".d.cts"]
+        .iter()
+        .any(|suffix| name.ends_with(suffix))
+    {
+        return None;
+    }
+    let (stem, extension) = path.rsplit_once('.')?;
+    ["ts", "tsx", "mts", "cts"]
+        .contains(&extension)
+        .then_some((stem, extension))
+}
+
+/// Whether `text` matches `pattern`, where each `*` matches one or more characters, `/` included, as in the
+/// subpath patterns of `exports`.
+fn wildcard_match(pattern: &str, text: &str) -> bool {
+    match pattern.split_once('*') {
+        None => pattern == text,
+        Some((head, tail)) => text.strip_prefix(head).is_some_and(|rest| {
+            rest.char_indices()
+                .map(|(at, character)| at + character.len_utf8())
+                .any(|end| wildcard_match(tail, &rest[end..]))
+        }),
+    }
+}
+
+/// Whether the source file `stem.extension` (relative to its package) is the twin of the published path `target`.
+fn is_published_twin(target: &str, stem: &str, extension: &str) -> bool {
+    let clean = target.trim_start_matches("./");
+    PUBLISHED_EXTENSIONS
+        .iter()
+        .find_map(|(suffix, sources)| clean.strip_suffix(suffix).map(|published| (published, sources)))
+        .is_some_and(|(published, sources)| sources.contains(&extension) && wildcard_match(published, stem))
+}
+
+fn collect_strings(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::String(text) if !text.is_empty() => out.push(text.clone()),
+        Value::Array(items) => items.iter().for_each(|item| collect_strings(item, out)),
+        Value::Object(map) => map.values().for_each(|item| collect_strings(item, out)),
+        _ => {}
+    }
+}
+
+/// The file paths a manifest publishes: [`PUBLISHED_FIELDS`], every `bin` and every `exports` leaf but the catch-all
+/// `./*`.
+fn published_paths(manifest: &Value) -> Vec<String> {
+    let mut paths: Vec<String> = PUBLISHED_FIELDS
+        .iter()
+        .filter_map(|field| manifest.get(*field).and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect();
+    if let Some(bin) = manifest.get("bin") {
+        collect_strings(bin, &mut paths);
+    }
+    if let Some(exports) = manifest.get("exports") {
+        let mut leaves = Vec::new();
+        collect_strings(exports, &mut leaves);
+        paths.extend(
+            leaves
+                .into_iter()
+                .filter(|leaf| leaf.starts_with("./") && leaf != "./*"),
+        );
+    }
+    paths
+}
+
+/// The parsed `package.json` of a directory of the checkout (`""` is the root): `None` when there is none, `Null` when
+/// it cannot be read or parsed.
+type ManifestReader<'a> = dyn Fn(&str) -> Option<Rc<Value>> + 'a;
+
+/// What the classification reads of a checkout besides the two reports: knip's workspaces and the manifests.
+struct Layout<'a> {
+    /// The workspace member directories, relative with `/` separators; the root is a workspace without being listed.
+    members: BTreeSet<String>,
+    manifest: &'a ManifestReader<'a>,
+}
+
+impl<'a> Layout<'a> {
+    const fn new(members: BTreeSet<String>, manifest: &'a ManifestReader<'a>) -> Self {
+        Self { members, manifest }
+    }
+
+    fn is_package(&self, dir: &str) -> bool {
+        (self.manifest)(dir).is_some()
+    }
+
+    /// Whether `dir` holds a project manifest, as skif's file discovery decides it: an unreadable manifest or one with
+    /// a field besides [`MARKER_FIELDS`].
+    fn is_project(&self, dir: &str) -> bool {
+        (self.manifest)(dir).is_some_and(|manifest| {
+            manifest
+                .as_object()
+                .is_none_or(|fields| fields.keys().any(|key| !MARKER_FIELDS.contains(&key.as_str())))
+        })
+    }
+
+    /// Whether `dir` is one of knip's workspaces: the root or a member.
+    fn is_workspace(&self, dir: &str) -> bool {
+        dir.is_empty() || self.members.contains(dir)
+    }
+
+    /// The directory of the deepest project manifest above `path` when it is not one of knip's workspaces.
+    fn non_member_project(&self, path: &str) -> Option<String> {
+        let dir = owner_dir(path, &|dir: &str| self.is_project(dir));
+        (!self.is_workspace(&dir)).then_some(dir)
+    }
+
+    /// Whether the manifest of `dir` lists `name` in one of its [`DEPENDENCY_FIELDS`].
+    fn lists(&self, dir: &str, name: &str) -> bool {
+        (self.manifest)(dir).is_some_and(|manifest| {
+            DEPENDENCY_FIELDS.iter().any(|field| {
+                manifest
+                    .get(*field)
+                    .and_then(Value::as_object)
+                    .is_some_and(|dependencies| dependencies.contains_key(name))
+            })
+        })
+    }
+
+    /// Whether a directory of `path` is one skif's file discovery skips by name: [`SKIPPED_DIRECTORIES`] (those of
+    /// [`PACKAGE_ROOT_ONLY_DIRECTORIES`] directly in the root or a package directory) and hidden directories other
+    /// than [`TOOL_DIRECTORIES`], unless the directory is a workspace member.
+    fn in_skipped_directory(&self, path: &str) -> bool {
+        let Some((directories, _)) = path.rsplit_once('/') else {
+            return false;
+        };
+        let mut parent = "";
+        let mut start = 0;
+        for end in directories
+            .match_indices('/')
+            .map(|(at, _)| at)
+            .chain([directories.len()])
+        {
+            let name = &directories[start..end];
+            let dir = &directories[..end];
+            let by_name =
+                SKIPPED_DIRECTORIES.contains(&name) || (name.starts_with('.') && !TOOL_DIRECTORIES.contains(&name));
+            let here = !PACKAGE_ROOT_ONLY_DIRECTORIES.contains(&name) || parent.is_empty() || self.is_package(parent);
+            if by_name && here && !self.members.contains(dir) {
+                return true;
+            }
+            parent = dir;
+            start = end + 1;
+        }
+        false
+    }
+
+    /// Whether `path` is a TypeScript file whose package publishes its path with a built extension.
+    fn publishes_source_of(&self, path: &str) -> bool {
+        let Some((stem, extension)) = typescript_source(path) else {
+            return false;
+        };
+        let dir = owner_dir(path, &|dir: &str| self.is_package(dir));
+        let Some(manifest) = (self.manifest)(&dir) else {
+            return false;
+        };
+        let relative = if dir.is_empty() {
+            Some(stem)
+        } else {
+            stem.strip_prefix(dir.as_str()).and_then(|rest| rest.strip_prefix('/'))
+        };
+        relative.is_some_and(|stem| {
+            published_paths(&manifest)
+                .iter()
+                .any(|target| is_published_twin(target, stem, extension))
+        })
+    }
+}
+
+/// Decides which known deviation, if any, a one-sided finding is.
+struct Classifier<'a> {
+    knip_unread: &'a [String],
+    include_test_files: bool,
+    /// The packages skif did not judge (`not_judged_dirs`).
+    not_judged: &'a BTreeSet<String>,
+    /// The packages holding a configuration knip could not load.
+    knip_failed: &'a BTreeSet<String>,
+    /// The `package.json` files knip reports any finding on.
+    knip_manifests: &'a BTreeSet<String>,
+    layout: &'a Layout<'a>,
+}
+
+impl Classifier<'_> {
+    fn classify(&self, side: Side, category: &str, key: &str) -> Option<&'static str> {
+        if self.knip_unread.iter().any(|prefix| key.starts_with(prefix.as_str())) {
+            return Some(KNIP_UNREAD);
+        }
+        let path = key_path(key);
+        if side == Side::Skif {
+            return self.unjudged_manifest(category, path).then_some(KNIP_UNJUDGED_MANIFEST);
+        }
+        let is_package = |dir: &str| self.layout.is_package(dir);
+        (category == "files")
+            .then(|| classify_file(key, self.include_test_files))
+            .flatten()
+            .or_else(|| {
+                (category != "files" && FIXTURE_CATEGORIES.contains(&category) && in_fixture_directory(path))
+                    .then_some(FIXTURE_FILE)
+            })
+            .or_else(|| not_judged(category, key, self.not_judged, &is_package).then_some(NOT_JUDGED))
+            .or_else(|| self.layout.in_skipped_directory(path).then_some(SKIPPED_DIRECTORY))
+            .or_else(|| self.non_member_project(category, key).then_some(NON_MEMBER_PROJECT))
+            .or_else(|| (category == "files" && self.layout.publishes_source_of(path)).then_some(PUBLISHED_SOURCE))
+            .or_else(|| {
+                self.knip_failed
+                    .contains(&owner_dir(key, &is_package))
+                    .then_some(KNIP_CONFIG_ERROR)
+            })
+    }
+
+    /// Whether a finding only skif reports sits on a `package.json` that is not one of knip's workspaces.
+    fn unjudged_manifest(&self, category: &str, path: &str) -> bool {
+        MANIFEST_CATEGORIES.contains(&category)
+            && path
+                .strip_suffix("/package.json")
+                .is_some_and(|dir| !self.layout.is_workspace(dir))
+            && !self.knip_manifests.contains(path)
+    }
+
+    /// Whether a finding only knip reports is an unused file, or an unlisted dependency the file's own manifest lists,
+    /// below a project directory that is not one of knip's workspaces.
+    fn non_member_project(&self, category: &str, key: &str) -> bool {
+        if !matches!(category, "files" | "unlisted") {
+            return false;
+        }
+        let Some(dir) = self.layout.non_member_project(key_path(key)) else {
+            return false;
+        };
+        category == "files"
+            || key
+                .split_once('|')
+                .is_some_and(|(_, name)| self.layout.lists(&dir, package_name(name)))
+    }
+}
+
+/// The `package.json` files knip reports a finding on.
+fn knip_manifests(knip: &Keys) -> BTreeSet<String> {
+    knip.values()
+        .flatten()
+        .map(|key| key_path(key.as_str()))
+        .filter(|path| *path == "package.json" || path.ends_with("/package.json"))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Reads the manifests of a checkout, each once.
+fn manifest_reader(root: &Path) -> impl Fn(&str) -> Option<Rc<Value>> + '_ {
+    let cache: RefCell<BTreeMap<String, Option<Rc<Value>>>> = RefCell::default();
+    move |dir: &str| {
+        if let Some(known) = cache.borrow().get(dir) {
+            return known.clone();
+        }
+        let path = root.join(dir).join("package.json");
+        let manifest = path.is_file().then(|| {
+            Rc::new(
+                fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|text| serde_json::from_str(&text).ok())
+                    .unwrap_or(Value::Null),
+            )
+        });
+        cache.borrow_mut().insert(dir.to_owned(), manifest.clone());
+        manifest
+    }
+}
+
+/// The workspace member directories of a checkout as skif's workspace discovery reads the root's patterns, relative
+/// with `/` separators, the root left out.
+fn workspace_members(root: &Path) -> BTreeSet<String> {
+    declared_member_dirs(&OsFs, root)
+        .iter()
+        .filter_map(|dir| dir.strip_prefix(root).ok())
+        .map(|dir| dir.to_string_lossy().replace('\\', "/").trim_matches('/').to_owned())
+        .filter(|dir| !dir.is_empty() && dir != ".")
+        .collect()
 }
 
 /// The knip report in its stdout, which may carry banners or log lines around the JSON (dotenv, console output of
@@ -575,24 +982,23 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
     align_export_labels(&mut skif_found, &knip_found);
     let unjudged = not_judged_dirs(&skif_doc);
     let knip_errors = knip_config_errors(&knip_run.stderr, &root);
-    let is_package = |dir: &str| root.join(dir).join("package.json").is_file();
-    let knip_failed_dirs: BTreeSet<String> = knip_errors.iter().map(|file| owner_dir(file, &is_package)).collect();
+    let manifest = manifest_reader(&root);
+    let layout = Layout::new(workspace_members(&root), &manifest);
+    let knip_failed: BTreeSet<String> = knip_errors
+        .iter()
+        .map(|file| owner_dir(file, &|dir: &str| layout.is_package(dir)))
+        .collect();
+    let judged_manifests = knip_manifests(&knip_found);
+    let classifier = Classifier {
+        knip_unread: &repo.knip_unread,
+        include_test_files: options.include_test_files,
+        not_judged: &unjudged,
+        knip_failed: &knip_failed,
+        knip_manifests: &judged_manifests,
+        layout: &layout,
+    };
     let split = diff::split_known(&skif_found, &knip_found, &|side, category, key| {
-        if repo.knip_unread.iter().any(|prefix| key.starts_with(prefix.as_str())) {
-            return Some(KNIP_UNREAD);
-        }
-        if side == Side::Skif {
-            return None;
-        }
-        (category == "files")
-            .then(|| classify_file(key, options.include_test_files))
-            .flatten()
-            .or_else(|| not_judged(category, key, &unjudged, &is_package).then_some(NOT_JUDGED))
-            .or_else(|| {
-                knip_failed_dirs
-                    .contains(&owner_dir(key, &is_package))
-                    .then_some(KNIP_CONFIG_ERROR)
-            })
+        classifier.classify(side, category, key)
     });
     let (counts, samples) = diff::compare(&split.skif, &split.tool);
     let detail = json!({
@@ -604,6 +1010,7 @@ fn parity_repo(options: &Options, skif: &Path, tools: &Tools, repo: &Repo, dir: 
         "known_deviations": split.known,
         "known_samples": split.samples,
         "not_judged_packages": unjudged,
+        "workspace_members": layout.members.len(),
         "skif_ms": skif_run.elapsed.as_millis(),
         "knip_ms": knip_run.elapsed.as_millis(),
         "skif_total": total(&skif_found),
@@ -1225,5 +1632,332 @@ mod tests {
             "{table}"
         );
         assert!(table.contains("`not-judged-by-skif`"), "{table}");
+    }
+
+    fn strings(items: &[&str]) -> BTreeSet<String> {
+        items.iter().map(|item| (*item).to_owned()).collect()
+    }
+
+    /// Runs `check` with a classifier for a checkout with these workspace members, manifests (by directory) and
+    /// `package.json` files knip reports on, and no other facts.
+    fn with_classifier(
+        members: &[&str],
+        manifests: &[(&str, Value)],
+        judged_by_knip: &[&str],
+        check: impl FnOnce(&Classifier<'_>),
+    ) {
+        let read: BTreeMap<String, Rc<Value>> = manifests
+            .iter()
+            .map(|(dir, manifest)| ((*dir).to_owned(), Rc::new(manifest.clone())))
+            .collect();
+        let manifest = move |dir: &str| read.get(dir).cloned();
+        let layout = Layout::new(strings(members), &manifest);
+        let none = BTreeSet::new();
+        let judged = strings(judged_by_knip);
+        check(&Classifier {
+            knip_unread: &[],
+            include_test_files: false,
+            not_judged: &none,
+            knip_failed: &none,
+            knip_manifests: &judged,
+            layout: &layout,
+        });
+    }
+
+    #[test]
+    fn fixture_findings_cover_every_category_skif_is_silent_in_there() {
+        with_classifier(&[], &[], &[], |classifier| {
+            for category in [
+                "files",
+                "exports",
+                "types",
+                "nsExports",
+                "nsTypes",
+                "enumMembers",
+                "namespaceMembers",
+                "unresolved",
+                "unlisted",
+            ] {
+                let key = if category == "files" {
+                    "pkg/__fixtures__/a.ts"
+                } else {
+                    "pkg/__fixtures__/a.ts|x"
+                };
+                assert_eq!(
+                    classifier.classify(Side::Tool, category, key),
+                    Some(FIXTURE_FILE),
+                    "{category}"
+                );
+            }
+            for category in ["duplicates", "binaries", "dependencies"] {
+                assert_eq!(
+                    classifier.classify(Side::Tool, category, "pkg/fixtures/a.ts|x"),
+                    None,
+                    "{category}"
+                );
+            }
+            assert_eq!(
+                classifier.classify(Side::Tool, "unresolved", "pkg/fixture/a.ts|./b"),
+                None
+            );
+            assert_eq!(classifier.classify(Side::Tool, "unresolved", "fixtures.ts|./b"), None);
+            assert_eq!(
+                classifier.classify(Side::Skif, "unresolved", "pkg/fixtures/a.ts|./b"),
+                None
+            );
+        });
+    }
+
+    #[test]
+    fn findings_only_skif_reports_on_manifests_knip_does_not_judge_split_off() {
+        let manifests = [
+            ("", json!({ "name": "root", "workspaces": ["packages/*"] })),
+            ("packages/a", json!({ "name": "a" })),
+            (
+                "examples/app",
+                json!({ "name": "app", "dependencies": { "left-pad": "1" } }),
+            ),
+            ("judged", json!({ "name": "judged" })),
+        ];
+        with_classifier(&["packages/a"], &manifests, &["judged/package.json"], |classifier| {
+            for (category, key) in [
+                ("dependencies", "examples/app/package.json|left-pad"),
+                ("devDependencies", "examples/app/package.json|vitest"),
+                ("optionalPeerDependencies", "examples/app/package.json|react"),
+                ("binaries", "examples/app/package.json|turbo"),
+            ] {
+                assert_eq!(
+                    classifier.classify(Side::Skif, category, key),
+                    Some(KNIP_UNJUDGED_MANIFEST),
+                    "{key}"
+                );
+            }
+            for (category, key) in [
+                ("dependencies", "packages/a/package.json|left-pad"),
+                ("dependencies", "package.json|left-pad"),
+                ("dependencies", "judged/package.json|left-pad"),
+                ("unlisted", "examples/app/src/a.ts|react"),
+                ("binaries", "examples/app/.github/workflows/ci.yml|turbo"),
+            ] {
+                assert_eq!(classifier.classify(Side::Skif, category, key), None, "{key}");
+            }
+            assert_eq!(
+                classifier.classify(Side::Tool, "dependencies", "examples/app/package.json|left-pad"),
+                None,
+                "knip does not report on a manifest it does not judge"
+            );
+        });
+    }
+
+    #[test]
+    fn knip_only_files_and_listed_unlisted_below_non_member_projects_split_off() {
+        let manifests = [
+            ("", json!({ "name": "root", "workspaces": ["packages/*"] })),
+            ("packages/a", json!({ "name": "a" })),
+            ("packages/a/vendor/lib", json!({ "name": "vendored" })),
+            (
+                "examples/app",
+                json!({ "name": "app", "devDependencies": { "@mastra/core": "1" } }),
+            ),
+            ("examples/app/esm", json!({ "type": "module" })),
+        ];
+        with_classifier(&["packages/a"], &manifests, &[], |classifier| {
+            for key in [
+                "examples/app/src/index.ts",
+                "examples/app/esm/index.ts",
+                "packages/a/vendor/lib/index.js",
+            ] {
+                assert_eq!(
+                    classifier.classify(Side::Tool, "files", key),
+                    Some(NON_MEMBER_PROJECT),
+                    "{key}"
+                );
+            }
+            assert_eq!(
+                classifier.classify(Side::Tool, "unlisted", "examples/app/esm/a.ts|@mastra/core/agent"),
+                Some(NON_MEMBER_PROJECT),
+                "the project's own manifest lists the package"
+            );
+            for (category, key) in [
+                ("unlisted", "examples/app/src/a.ts|zod"),
+                ("exports", "examples/app/src/a.ts|unused"),
+                ("unresolved", "examples/app/src/a.ts|./gone"),
+                ("files", "packages/a/src/orphan.ts"),
+                ("files", "scripts/orphan.ts"),
+            ] {
+                assert_eq!(classifier.classify(Side::Tool, category, key), None, "{key}");
+            }
+            assert_eq!(
+                classifier.classify(Side::Skif, "files", "examples/app/src/index.ts"),
+                None
+            );
+        });
+    }
+
+    #[test]
+    fn knip_only_findings_below_directories_skif_discovery_skips_split_off() {
+        let manifests = [
+            ("", json!({ "name": "root" })),
+            ("packages/a", json!({ "name": "a" })),
+            (".tools", json!({ "name": "tools" })),
+        ];
+        with_classifier(&["packages/a", ".tools"], &manifests, &[], |classifier| {
+            for (category, key) in [
+                ("files", ".claude/skills/template/index.ts"),
+                ("files", "app/.vercel/output/functions/index.func/index.js"),
+                ("files", "out/main.js"),
+                ("files", "packages/a/coverage/report.js"),
+                ("files", "packages/a/src/dist/bundle.js"),
+                ("unresolved", ".eslint-plugin-local/rule.ts|./missing"),
+            ] {
+                assert_eq!(
+                    classifier.classify(Side::Tool, category, key),
+                    Some(SKIPPED_DIRECTORY),
+                    "{key}"
+                );
+            }
+            for key in [
+                ".github/scripts/release.ts",
+                ".storybook/main.ts",
+                ".tools/index.ts",
+                "packages/a/src/out/emit.ts",
+                "packages/a/src/target.ts",
+            ] {
+                assert_eq!(classifier.classify(Side::Tool, "files", key), None, "{key}");
+            }
+        });
+    }
+
+    #[test]
+    fn typescript_sources_of_published_paths_split_off() {
+        let manifests = [
+            ("", json!({ "name": "root", "bin": { "tool": "./cli.js" } })),
+            (
+                "packages/core",
+                json!({ "name": "core", "exports": {
+                    ".": { "types": "./index.d.ts", "default": "./bundles/index.js" },
+                    "./schematics/*": { "default": "./schematics/*.js" },
+                    "./*": "./*",
+                } }),
+            ),
+            (
+                "packages/common",
+                json!({ "name": "common", "exports": { "./locales/*": { "types": "./locales/*.d.ts" } } }),
+            ),
+        ];
+        with_classifier(&["packages/core", "packages/common"], &manifests, &[], |classifier| {
+            for key in [
+                "cli.ts",
+                "packages/core/index.ts",
+                "packages/core/bundles/index.ts",
+                "packages/core/schematics/migrations/model-output/index.ts",
+                "packages/common/locales/ff-CM.ts",
+            ] {
+                assert_eq!(
+                    classifier.classify(Side::Tool, "files", key),
+                    Some(PUBLISHED_SOURCE),
+                    "{key}"
+                );
+            }
+            for key in [
+                "packages/core/src/other.ts",
+                "packages/core/schematics.ts",
+                "packages/core/schematics/a.js",
+                "packages/core/schematics/types.d.ts",
+                "packages/common/locales/ff-CM.mts",
+                "packages/common/locale/ff-CM.ts",
+            ] {
+                assert_eq!(classifier.classify(Side::Tool, "files", key), None, "{key}");
+            }
+            assert_eq!(
+                classifier.classify(Side::Tool, "exports", "packages/core/index.ts|unused"),
+                None,
+                "only unused files"
+            );
+        });
+    }
+
+    #[test]
+    fn a_star_matches_one_or_more_characters_across_directories() {
+        assert!(wildcard_match("schematics/*", "schematics/a/b/index"));
+        assert!(wildcard_match("locales/*-x", "locales/ff-x"));
+        assert!(!wildcard_match("schematics/*", "schematics/"));
+        assert!(!wildcard_match("locales/*-x", "locales/ff-y"));
+        assert!(wildcard_match("index", "index"));
+        assert_eq!(package_name("@mastra/core/agent"), "@mastra/core");
+        assert_eq!(package_name("lodash/fp"), "lodash");
+        assert_eq!(package_name("react"), "react");
+    }
+
+    #[test]
+    fn the_harness_reads_members_and_manifests_from_the_checkout() {
+        let root = std::env::temp_dir().join(format!("skif-bench-parity-layout-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        for dir in ["packages/a", "packages/b", "examples/app"] {
+            fs::create_dir_all(root.join(dir)).unwrap();
+            fs::write(root.join(dir).join("package.json"), r#"{"name":"x"}"#).unwrap();
+        }
+        fs::create_dir_all(root.join("packages/no-manifest")).unwrap();
+        fs::create_dir_all(root.join("examples/broken")).unwrap();
+        fs::write(root.join("examples/broken/package.json"), "{ not json").unwrap();
+        fs::write(root.join("package.json"), r#"{"name":"root"}"#).unwrap();
+        fs::write(
+            root.join("pnpm-workspace.yaml"),
+            "packages:\n  - 'packages/*'\n  - '!packages/b'\n",
+        )
+        .unwrap();
+        let root = fs::canonicalize(&root).unwrap();
+        assert_eq!(workspace_members(&root), strings(&["packages/a"]));
+        let read = manifest_reader(&root);
+        assert_eq!(read("examples/app").as_deref(), Some(&json!({ "name": "x" })));
+        assert_eq!(
+            read("examples/broken").as_deref(),
+            Some(&Value::Null),
+            "an unparseable manifest is still a manifest"
+        );
+        assert!(read("packages/no-manifest").is_none());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn earlier_deviations_take_precedence_over_the_layout_ones() {
+        let manifests = [
+            ("", json!({ "name": "root" })),
+            ("examples/app", json!({ "name": "app" })),
+        ];
+        let read: BTreeMap<String, Rc<Value>> = manifests
+            .iter()
+            .map(|(dir, manifest)| ((*dir).to_owned(), Rc::new(manifest.clone())))
+            .collect();
+        let manifest = move |dir: &str| read.get(dir).cloned();
+        let layout = Layout::new(BTreeSet::new(), &manifest);
+        let unread = ["examples/app/docs/".to_owned()];
+        let not_judged_dirs = strings(&["examples/app"]);
+        let none = BTreeSet::new();
+        let classifier = Classifier {
+            knip_unread: &unread,
+            include_test_files: false,
+            not_judged: &not_judged_dirs,
+            knip_failed: &none,
+            knip_manifests: &none,
+            layout: &layout,
+        };
+        assert_eq!(
+            classifier.classify(Side::Tool, "files", "examples/app/docs/a.ts"),
+            Some(KNIP_UNREAD)
+        );
+        assert_eq!(
+            classifier.classify(Side::Tool, "files", "examples/app/test/a.ts"),
+            Some(TEST_FILE)
+        );
+        assert_eq!(
+            classifier.classify(Side::Tool, "files", "examples/app/src/a.ts"),
+            Some(NOT_JUDGED),
+            "skif names the package it did not judge"
+        );
+        assert_eq!(
+            classifier.classify(Side::Tool, "files", "examples/app/.cache/a.ts"),
+            Some(NOT_JUDGED)
+        );
     }
 }
