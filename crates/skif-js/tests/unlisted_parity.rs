@@ -77,3 +77,27 @@ fn test_environment_pragmas_use_the_environment_package() {
     );
     assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none());
 }
+
+/// `require.resolve('.bin/tool')` finds the package manager's link in `node_modules/.bin`, which is no package.
+#[test]
+fn a_node_modules_bin_path_names_no_package() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","main":"src/index.js","dependencies":{"tool":"1.0.0"}}"#,
+        ),
+        (
+            "src/index.js",
+            "const tool = require('tool');\nexports.bin = require.resolve('.bin/tool');\nexports.tool = tool;\n",
+        ),
+        ("node_modules/.bin/tool", "#!/bin/sh\nexec node \"$basedir/../tool/cli.js\" \"$@\"\n"),
+        (
+            "node_modules/tool/package.json",
+            r#"{"name":"tool","version":"1.0.0","main":"index.js","bin":{"tool":"cli.js"}}"#,
+        ),
+        ("node_modules/tool/index.js", "module.exports = 1;\n"),
+        ("node_modules/tool/cli.js", "#!/usr/bin/env node\n"),
+    ]);
+    assert_eq!(found(&diagnostics, "unlisted-dependencies"), none());
+    assert_eq!(found(&diagnostics, "unresolved-imports"), none());
+}
