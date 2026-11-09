@@ -71,6 +71,11 @@ The remaining differences each have an issue:
 - A bare import that resolves only through another workspace's tsconfig `paths` is reported as an unlisted dependency;
   knip merges the `paths` of every workspace and resolves it ([#112](https://github.com/Goldziher/skif/issues/112)).
 
+knip does not read the specifiers of test-runner mocks. skif does: a `vi.mock`, `jest.mock` or `jest.requireActual`
+keeps the file it names in use, and a relative or aliased mock of a file that does not exist is reported by
+`stale-mocks`, an error that knip has no counterpart for (`skif migrate --profile exact` turns it off). Such a mock
+is not an `unresolved-imports` finding, so unresolved imports compare with knip's `unresolved`.
+
 ## Configuration
 
 skif reads `skif.toml` or `.skif.toml` only. It does not read `sherif`, `.syncpackrc` or `knip.json`

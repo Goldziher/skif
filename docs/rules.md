@@ -13,6 +13,7 @@
 | [`circular-imports`](#circular-imports) | js | off | none |
 | [`duplicate-exports`](#duplicate-exports) | js | warning | none |
 | [`stale-js-config`](#stale-js-config) | js | warning | none |
+| [`stale-mocks`](#stale-mocks) | js | error | none |
 | [`unlisted-binaries`](#unlisted-binaries) | js | warning | none |
 | [`unlisted-dependencies`](#unlisted-dependencies) | js | error | none |
 | [`unparseable-files`](#unparseable-files) | js | warning | none |
@@ -117,6 +118,14 @@ A `[js]` setting matched nothing or is redundant, a published entry file is miss
 
 - Category: js
 - Default severity: warning
+- Fixable: none
+
+## stale-mocks
+
+A test-runner mock names a relative or aliased module that does not exist.
+
+- Category: js
+- Default severity: error
 - Fixable: none
 
 ## unlisted-binaries

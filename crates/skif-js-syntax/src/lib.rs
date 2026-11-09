@@ -54,8 +54,8 @@ pub use config::{
 };
 pub use error::SyntaxError;
 pub use model::{
-    Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, ModuleInfo, ParseIssue, ParseOptions,
-    Registration, Removal, RemovalKind, coalesce_ranges, is_source_query,
+    Export, ExportKind, Import, ImportKind, ImportedKind, ImportedName, Member, MockCall, ModuleInfo, ParseIssue,
+    ParseOptions, Registration, Removal, RemovalKind, coalesce_ranges, is_source_query,
 };
 pub use style::{is_stylesheet, parse_stylesheet};
 
@@ -288,6 +288,7 @@ fn add_style_and_source_imports(info: &mut ModuleInfo, blocks: &sfc::Blocks, sou
             specifier: reference.specifier.clone(),
             kind: ImportKind::SideEffect,
             names: Vec::new(),
+            call: None,
             span: lines.span(
                 u32::try_from(reference.start).unwrap_or(u32::MAX),
                 u32::try_from(reference.end).unwrap_or(u32::MAX),

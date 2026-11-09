@@ -16,6 +16,27 @@ All notable changes to this project are documented here. The format follows
   as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
   ([#110](https://github.com/Goldziher/skif/issues/110)).
 
+### Added
+
+- **`stale-mocks` rule** (js, error): reports a `vi.mock`, `vi.doMock`, `vi.unmock`, `vi.importActual`, `jest.mock`,
+  `jest.doMock`, `jest.requireActual` or other test-runner call whose relative or aliased specifier names a module that
+  does not exist ("`` `vi.mock('./gone')` names a module that does not exist ``"), including Vitest's typed
+  `vi.mock(import('./gone'))`. The specifier resolves as an import does, so a query such as `?react` is dropped
+  first; a package name that resolves to nothing is not reported, nor is a `{ virtual: true }` mock.
+  `ignore-unresolved` and `ignore-dependencies` silence it. knip does not read mock specifiers, so
+  `skif migrate --profile exact` turns it off. There are 43 rules, 18 of them `js` rules
+  ([ADR 0073](adrs/0073-stale-mocks-test-runner-mocks-of-missing-modules-under-their-own-rule.md),
+  [#111](https://github.com/Goldziher/skif/issues/111)).
+
+### Changed
+
+- `unresolved-imports` no longer reports test-runner mocks; a mock of a missing module is a `stale-mocks` error
+  instead, with the same default severity, so it can be triaged, baselined or turned off apart from broken imports
+  ([#111](https://github.com/Goldziher/skif/issues/111)).
+- **Breaking** for library users of `skif-js-syntax`: `Import` has a new public field `call` (an `Option<MockCall>`,
+  the test-runner call of a mock import), so code that builds an `Import` with a struct literal must set it. The
+  module cache schema is raised with it, so a cache written by an earlier build is discarded.
+
 ### Changed
 
 - A `[policy] dependency-types` list that does not select `local` (`["prod", "dev"]`, `["!local"]`) leaves the own

@@ -10,9 +10,10 @@
 //! 4. propagates usage through re-export chains and compares referenced packages and binaries with each manifest.
 //!
 //! The rules are `unused-dependencies`, `unused-dev-dependencies`, `unlisted-dependencies`, `unresolved-imports`,
-//! `unlisted-binaries`, `unused-optional-peer-dependencies`, `unused-files`, `unused-exports`, `unused-types`,
-//! `unused-namespace-exports`, `unused-namespace-types`, `unused-enum-members`, `unused-namespace-members`,
-//! `duplicate-exports`, `unparseable-files`, `stale-js-config` and `circular-imports` (off by default).
+//! `stale-mocks`, `unlisted-binaries`, `unused-optional-peer-dependencies`, `unused-files`, `unused-exports`,
+//! `unused-types`, `unused-namespace-exports`, `unused-namespace-types`, `unused-enum-members`,
+//! `unused-namespace-members`, `duplicate-exports`, `unparseable-files`, `stale-js-config` and `circular-imports`
+//! (off by default).
 //!
 //! No oxc type appears in the public API.
 
@@ -60,10 +61,10 @@ pub use input::{
 pub use plugin_source::PluginSource;
 pub use provider::{JsProvider, PROVIDER_ID};
 pub use rules::{
-    CircularImports, DuplicateExports, JsRule, StaleJsConfig, UnlistedBinaries, UnlistedDependencies, UnparseableFiles,
-    UnresolvedImports, UnusedDependencies, UnusedDevDependencies, UnusedEnumMembers, UnusedExports, UnusedFiles,
-    UnusedNamespaceExports, UnusedNamespaceMembers, UnusedNamespaceTypes, UnusedOptionalPeerDependencies, UnusedTypes,
-    rules,
+    CircularImports, DuplicateExports, JsRule, StaleJsConfig, StaleMocks, UnlistedBinaries, UnlistedDependencies,
+    UnparseableFiles, UnresolvedImports, UnusedDependencies, UnusedDevDependencies, UnusedEnumMembers, UnusedExports,
+    UnusedFiles, UnusedNamespaceExports, UnusedNamespaceMembers, UnusedNamespaceTypes, UnusedOptionalPeerDependencies,
+    UnusedTypes, rules,
 };
 /// The module cache of ADR 0066, re-exported for hosts that keep one.
 pub use skif_js_syntax::{CachedModule, MemoryModuleCache, ModuleCache, ModuleKey, cache_version};

@@ -73,6 +73,7 @@ pub fn parse_stylesheet(path: &Path, source: &str) -> ModuleInfo {
                 specifier,
                 kind: ImportKind::SideEffect,
                 names: Vec::new(),
+                call: None,
                 span: lines.span(start, end),
             })
         })
