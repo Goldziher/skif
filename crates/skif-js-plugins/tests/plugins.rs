@@ -3525,6 +3525,23 @@ fn react_email_preview_commands_and_dir() {
     assert_entries(&out.entries, &["emails/**/*.tsx", "src/mail/**/*.tsx"]);
     let results = resolve_with_scripts(&[], &["react-email"], &[("export", "email export")]);
     assert_absent(output(&results, "react-email"), &["@react-email/ui"]);
+    let dev = [("dev", "email dev")];
+    let installed = (
+        "node_modules/react-email/package.json",
+        r#"{"name":"react-email","version":"5.2.1"}"#,
+    );
+    let declared = (
+        "package.json",
+        r#"{"name":"app","devDependencies":{"react-email":"^6.0.0"}}"#,
+    );
+    let results = resolve_with_scripts(&[installed, declared], &["react-email"], &dev);
+    let out = output(&results, "react-email");
+    assert_deps(out, &["@react-email/preview-server"]);
+    assert_absent(out, &["@react-email/ui"]);
+    let results = resolve_with_scripts(&[declared], &["react-email"], &dev);
+    let out = output(&results, "react-email");
+    assert_deps(out, &["@react-email/ui"]);
+    assert_absent(out, &["@react-email/preview-server"]);
 }
 
 #[test]
