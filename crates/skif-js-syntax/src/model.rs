@@ -72,6 +72,10 @@ pub struct Import {
     pub kind: ImportKind,
     /// Bindings it brings in.
     pub names: Vec<ImportedName>,
+    /// The test-runner call of an [`ImportKind::Mock`] as written (`vi.mock`, `jest.requireActual`); `None` for every
+    /// other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call: Option<String>,
     /// Location of the whole statement or call.
     pub span: Span,
 }

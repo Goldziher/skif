@@ -652,6 +652,7 @@ pub(crate) fn collect(ctx: &Ctx<'_>, program: &Program<'_>, info: &mut ModuleInf
                         accessed_members: Vec::new(),
                         escapes: false,
                     }],
+                    call: None,
                     span,
                 });
             }
@@ -711,6 +712,7 @@ pub(crate) fn collect_import(ctx: &Ctx<'_>, d: &oxc_ast::ast::ImportDeclaration<
         specifier: crate::js_string(d.source.value),
         kind,
         names,
+        call: None,
         span: ctx.span(d.span),
     });
 }
@@ -835,6 +837,7 @@ fn collect_named_export(
             specifier: crate::js_string(source.value),
             kind: ImportKind::ExportFrom,
             names: from_names,
+            call: None,
             span: ctx.span(e.span),
         });
     }

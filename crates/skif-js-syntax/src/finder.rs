@@ -178,14 +178,16 @@ const MOCK_CALLS: &[(&str, &[&str])] = &[
     ),
 ];
 
-fn is_mock_call(member: &StaticMemberExpression<'_>) -> bool {
+/// The call as written (`vi.mock`, `jest.requireActual`) when `member` is one of [`MOCK_CALLS`].
+fn mock_call(member: &StaticMemberExpression<'_>) -> Option<String> {
     let Expression::Identifier(object) = &member.object else {
-        return false;
+        return None;
     };
     let property = member.property.name.as_str();
     MOCK_CALLS
         .iter()
         .any(|(runner, methods)| object.name.as_str() == *runner && methods.contains(&property))
+        .then(|| format!("{}.{property}", object.name))
 }
 
 /// `jest.mock("x", factory, { virtual: true })` mocks a module that does not exist.
@@ -331,6 +333,7 @@ impl Finder<'_, '_> {
                     specifier,
                     kind: ImportKind::SideEffect,
                     names: Vec::new(),
+                    call: None,
                     span: self.ctx.span(value.span()),
                 });
             }
@@ -391,6 +394,7 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
                 specifier,
                 kind: ImportKind::Dynamic,
                 names: names.unwrap_or_else(escaping_namespace),
+                call: None,
                 span,
             });
         } else {
@@ -433,6 +437,7 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
                     ImportKind::Require
                 },
                 names: vec![bound],
+                call: None,
                 span: self.ctx.span(it.span),
             });
         }
@@ -498,6 +503,7 @@ impl<'a> Visit<'a> for Finder<'_, '_> {
             specifier: crate::js_string(it.source.value),
             kind: ImportKind::TypeOnly,
             names: vec![bound],
+            call: None,
             span: self.ctx.span(it.span),
         });
         walk::walk_ts_import_type(self, it);
@@ -631,6 +637,7 @@ impl Finder<'_, '_> {
                         specifier,
                         kind: ImportKind::Require,
                         names,
+                        call: None,
                         span,
                     });
                 }
@@ -646,6 +653,7 @@ impl Finder<'_, '_> {
                             specifier,
                             kind: ImportKind::Require,
                             names: Vec::new(),
+                            call: None,
                             span,
                         }),
                         None => self.info.unresolved_dynamic.push(span),
@@ -653,7 +661,7 @@ impl Finder<'_, '_> {
                 } else if is_import_meta(&m.object) && (property == "glob" || property == "globEager") {
                     let options = it.arguments.get(1).and_then(Argument::as_expression);
                     self.glob(first, options, span);
-                } else if is_mock_call(m)
+                } else if let Some(call) = mock_call(m)
                     && !is_virtual_mock(it)
                     && let Some(specifier) = first.and_then(static_string).filter(|s| !s.is_empty())
                 {
@@ -661,6 +669,7 @@ impl Finder<'_, '_> {
                         specifier,
                         kind: ImportKind::Mock,
                         names: Vec::new(),
+                        call: Some(call),
                         span,
                     });
                 }
@@ -677,6 +686,7 @@ impl Finder<'_, '_> {
                 specifier,
                 kind: ImportKind::ImportMetaGlob,
                 names: escaping_namespace(),
+                call: None,
                 span,
             });
         } else {
@@ -706,6 +716,7 @@ impl Finder<'_, '_> {
                         specifier,
                         kind,
                         names: escaping_namespace(),
+                        call: None,
                         span,
                     });
                 }

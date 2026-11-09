@@ -228,6 +228,34 @@ fn test_runner_mocks_are_mock_imports_and_strings_are_not() {
     assert_eq!(mocks, ["./dep", "pkg"]);
 }
 
+/// A mock records the call as written, so a rule can name it (#111); other imports record none.
+#[test]
+fn mock_imports_record_the_call_as_written() {
+    let info = parse(
+        "a.test.ts",
+        "vi.mock('./a');\nvi.doMock('./b');\nvi.unmock('./c');\nvi.importActual('./d');\njest.mock('./e');\n\
+         jest.doMock('./f');\njest.requireActual('./g');\nimport './h';\n",
+    );
+    let calls: Vec<(&str, Option<&str>)> = info
+        .imports
+        .iter()
+        .map(|import| (import.specifier.as_str(), import.call.as_deref()))
+        .collect();
+    assert_eq!(
+        calls,
+        [
+            ("./a", Some("vi.mock")),
+            ("./b", Some("vi.doMock")),
+            ("./c", Some("vi.unmock")),
+            ("./d", Some("vi.importActual")),
+            ("./e", Some("jest.mock")),
+            ("./f", Some("jest.doMock")),
+            ("./g", Some("jest.requireActual")),
+            ("./h", None),
+        ]
+    );
+}
+
 #[test]
 fn imports_inside_declare_module_bodies_are_imports() {
     let info = parse(

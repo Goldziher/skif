@@ -288,6 +288,7 @@ fn add_style_and_source_imports(info: &mut ModuleInfo, blocks: &sfc::Blocks, sou
             specifier: reference.specifier.clone(),
             kind: ImportKind::SideEffect,
             names: Vec::new(),
+            call: None,
             span: lines.span(
                 u32::try_from(reference.start).unwrap_or(u32::MAX),
                 u32::try_from(reference.end).unwrap_or(u32::MAX),
