@@ -337,3 +337,47 @@ fn config_hints_as_errors_are_written_as_warn_unless_strict_hints_is_given() {
         strict.stdout
     );
 }
+
+/// The `stale-js-config` messages of a run over `dir`.
+fn stale_config(dir: &Path) -> Vec<String> {
+    let linted = run(skif().args(["--format", "json"]).arg(dir));
+    assert!(linted.code <= 1, "{}{}", linted.stdout, linted.stderr);
+    linted.json()["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == "stale-js-config")
+        .map(|diagnostic| diagnostic["message"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[test]
+fn stylesheets_in_a_migrated_knip_project_are_not_reported_stale() {
+    let migrated_run = |extensions: &str| {
+        let dir = project(r#"{ "name": "demo", "private": true }"#);
+        // `treatConfigHintsAsErrors` makes the migration write `stale-js-config = "warn"`.
+        let knip = format!(
+            "{{ \"entry\": [\"src/index.ts!\"], \"project\": [\"src/**/*.{{{extensions}}}!\"], \
+             \"treatConfigHintsAsErrors\": true }}"
+        );
+        fs::write(dir.path().join("knip.json"), knip).unwrap();
+        fs::create_dir(dir.path().join("src")).unwrap();
+        fs::write(dir.path().join("src/index.ts"), "import \"./app.css\";\n").unwrap();
+        fs::write(dir.path().join("src/app.css"), "a { color: red; }\n").unwrap();
+        fs::write(dir.path().join("src/data.foo"), "x\n").unwrap();
+        let result = run(migrate(dir.path()).args(["--from", "knip"]));
+        assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
+        let written = fs::read_to_string(dir.path().join("skif.toml")).unwrap();
+        assert!(
+            written.contains(&format!("project = [\"src/**/*.{{{extensions}}}!\"]")),
+            "the knip glob is kept verbatim: {written}"
+        );
+        assert!(written.contains("stale-js-config = \"warn\""), "{written}");
+        stale_config(dir.path())
+    };
+    assert_eq!(migrated_run("ts,css"), Vec::<String>::new());
+    assert_eq!(
+        migrated_run("ts,css,foo"),
+        ["`.foo` files selected by `js.project` are not analysed"]
+    );
+}
