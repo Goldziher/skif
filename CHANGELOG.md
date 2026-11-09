@@ -9,6 +9,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Every `[js]` ignore list (`ignore-dependencies`, `ignore-binaries`, `ignore-unresolved`, `ignore-files`,
+  `ignore-members`, `ignore-workspaces` and the `extend-` keys, at the top level, per workspace and in overrides) takes
+  an inline table `{ name = "...", reason = "..." }` alongside plain strings, so an entry records why it exists
+  ([ADR 0074](adrs/0074-reasons-on-js-ignore-entries.md), [#113](https://github.com/Goldziher/skif/issues/113)).
+- `--require-ignore-reasons` also fails on an entry of a `[js]` ignore list and on an override's `[[ignore]]` entry
+  without a `reason`, naming the list and the entry; `[lint] require-ignore-reasons = true` turns on the same check
+  from the file ([#113](https://github.com/Goldziher/skif/issues/113)).
+- `skif migrate` turns the comment above a knip ignore entry, or after it on its line, into the entry's `reason`, and
+  writes the comment above a syncpack group in `.syncpackrc` above its `[[version-groups]]`, `[[semver-groups]]` or
+  `[[update-groups]]` entry ([#113](https://github.com/Goldziher/skif/issues/113)).
+
+### Changed
+
+- The `[js]` ignore-list fields of `skif_config::Js`, `JsWorkspace` and `PackageJs` hold `IgnoreItem`s (a `name` and
+  an optional `reason`) instead of strings; an `IgnoreItem` compares with a string by its name and converts from one.
+
 ## [0.2.0] - 2026-11-08
 
 ### Added

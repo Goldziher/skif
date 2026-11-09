@@ -87,7 +87,7 @@ of a sherif or skif rule (`skif -r multiple-dependency-versions`), skif exits `2
 | `--ignore-package <NAME>` | Ignore a package by name or glob in every rule. Repeatable. The flags replace `[workspace] ignore-packages` from the configuration files instead of adding to it. |
 | `--ignore-dependency <NAME>` | Ignore a dependency in every rule. Repeatable. Adds to the `[[ignore]]` entries of the configuration files. sherif's `-i` only silenced its version check; for that scope write an `[[ignore]]` entry with `rules = ["version-mismatch"]`, as `skif migrate` does. |
 | `--ignore-rule-for-package <RULE:PACKAGE>` | Ignore one rule for one package. Repeatable. Adds to the `[[ignore]]` entries of the configuration files. |
-| `--require-ignore-reasons` | Fail with exit code 2 when an `[[ignore]]` entry of a configuration file has no `reason`. Entries from flags are exempt. |
+| `--require-ignore-reasons` | Fail with exit code 2 when an `[[ignore]]` entry or an entry of a `[js]` ignore list of a configuration file has no `reason`, naming the entry. Entries from flags are exempt. `[lint] require-ignore-reasons = true` does the same from the file. |
 | `--config <FILE>` | Use this configuration file (and the files it extends) for every root instead of discovering `skif.toml` files. Conflicts with `--no-config`. |
 | `--no-config` | Read no configuration file: the defaults plus the other flags. |
 | `--no-js` | Skip JavaScript analysis. Overrides `[js] enabled`. |
