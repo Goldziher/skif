@@ -1543,7 +1543,7 @@ fn karma() {
     };"#;
     let results = resolve(&[("karma.conf.js", config)], &["karma"]);
     let out = output(&results, "karma");
-    assert_deps(out, &["karma-jasmine", "karma-chrome-launcher"]);
+    assert_deps(out, &["karma-jasmine", "jasmine-core", "karma-chrome-launcher"]);
     assert_entries(&out.entries, &["src/**/*.spec.ts", "src/assets/*.json"]);
 }
 
@@ -2194,7 +2194,7 @@ fn a_karma_config_function_gives_its_set_argument_to_the_plugin() {
                   basePath: 'src', files: ['**/*.spec.ts'] });\n};";
     let results = resolve(&[("karma.conf.js", config)], &["karma"]);
     let out = output(&results, "karma");
-    assert_deps(out, &["karma-jasmine", "karma-chrome-launcher"]);
+    assert_deps(out, &["karma-jasmine", "jasmine-core", "karma-chrome-launcher"]);
     assert_entries(&out.entries, &["src/**/*.spec.ts"]);
 }
 

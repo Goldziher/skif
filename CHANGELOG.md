@@ -11,6 +11,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The `jasmine` framework of a Karma config uses `jasmine-core` as well as `karma-jasmine`, as knip counts it
+  ([#98](https://github.com/Goldziher/skif/issues/98)).
 - `next lint` in a script uses `eslint` and `eslint-config-next`, which it runs
   ([#98](https://github.com/Goldziher/skif/issues/98)).
 - `unresolved-imports` no longer reports a missing file that the `.gitignore` of a directory other than the root or
