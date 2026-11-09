@@ -1,6 +1,6 @@
 //! Cases where the corpus runs showed skif and knip disagreeing and skif was wrong: members read in their own file,
-//! types in destructured exports, `new URL` targets, `require` assertions, fixture directories,
-//! wildcard `exports`, same-name pairs and duplicate exports.
+//! types in destructured exports, `new URL` targets, `require` assertions, imports awaited together with
+//! `Promise.all`, fixture directories, wildcard `exports`, same-name pairs and duplicate exports.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -133,6 +133,33 @@ fn a_require_asserted_with_typeof_import_uses_only_what_it_destructures() {
         ("lazy.ts", "export function used() {}\nexport function unusedOne() {}\n"),
     ]);
     assert_eq!(found(&diagnostics, "unused-exports"), ["lazy.ts: unusedOne"]);
+}
+
+#[test]
+fn imports_awaited_together_use_only_what_their_bindings_read() {
+    let diagnostics = lint_files(&[
+        PACKAGE,
+        (
+            "index.ts",
+            "export async function load() {\n\
+               const [{ used }, helpers] = await Promise.all([import('./named'), import('./spaced')]);\n\
+               return [used(), helpers.read()];\n\
+             }\n",
+        ),
+        (
+            "named.ts",
+            "export function used() {}\nexport function unusedNamed() {}\n",
+        ),
+        (
+            "spaced.ts",
+            "export function read() {}\nexport function unusedSpaced() {}\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unused-exports"), ["named.ts: unusedNamed"]);
+    assert_eq!(
+        found(&diagnostics, "unused-namespace-exports"),
+        ["spaced.ts: unusedSpaced"]
+    );
 }
 
 #[test]

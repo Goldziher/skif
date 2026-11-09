@@ -18,6 +18,10 @@ All notable changes to this project are documented here. The format follows
 - A Playwright `testMatch` regular expression with an optional character, such as `/.*\.e2e\.tsx?/`, names the
   matching test files instead of every script below `testDir`, so the other files there are no longer entries and
   their unused exports, types, members and duplicate exports are reported.
+- `const [{ a }, ns] = await Promise.all([import("./x"), import("./y")])` uses only what each element of the array
+  pattern reads: `a` of `./x` and the members read through `ns` of `./y`, instead of both modules as a whole, so
+  their other exports are reported. An import after a spread element or without an element at its position is
+  still used as a whole.
 
 ## [0.2.0] - 2026-11-08
 
