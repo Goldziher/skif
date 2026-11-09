@@ -123,7 +123,10 @@ fn a_test_an_enclosing_package_names_is_an_entry_of_that_package() {
             "playwright.config.ts",
             "export default { testDir: './apps/web/e2e', testMatch: '**/*.e2e.ts' };\n",
         ),
-        ("apps/web/package.json", r#"{"name":"web","private":true,"main":"index.ts"}"#),
+        (
+            "apps/web/package.json",
+            r#"{"name":"web","private":true,"main":"index.ts"}"#,
+        ),
         ("apps/web/index.ts", "export {};\n"),
         ("apps/web/e2e/signup.e2e.ts", "export const signup = 1;\n"),
     ];
