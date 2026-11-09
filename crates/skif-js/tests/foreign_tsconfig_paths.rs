@@ -216,3 +216,135 @@ fn a_root_tsconfig_the_package_does_not_follow_is_foreign() {
         unlisted[0].message
     );
 }
+
+/// The repro with `app`'s tsconfig and `lib`'s index replaced.
+fn repro_with(app_tsconfig: &'static str, lib_index: &'static str) -> Vec<(&'static str, &'static str)> {
+    let mut files = repro();
+    files.retain(|(path, _)| !matches!(*path, "packages/app/tsconfig.json" | "packages/lib/src/index.ts"));
+    files.extend([
+        ("packages/app/tsconfig.json", app_tsconfig),
+        ("packages/lib/src/index.ts", lib_index),
+    ]);
+    files
+}
+
+/// The only `unlisted-dependencies` finding, which must keep the `package.json` advice for `name`.
+fn assert_package_json_advice(diagnostics: &[Diagnostic], name: &str) {
+    let unlisted = of_rule(diagnostics, RULE);
+    assert_eq!(unlisted.len(), 1, "{diagnostics:#?}");
+    assert_eq!(unlisted[0].detail, None, "{:#?}", unlisted[0]);
+    assert_eq!(
+        unlisted[0].message,
+        format!("`{name}` is imported but not listed in `package.json`")
+    );
+    assert!(unlisted[0].related.is_empty(), "{:#?}", unlisted[0].related);
+}
+
+#[test]
+fn a_workspace_package_another_package_maps_keeps_the_package_json_advice() {
+    let files = [
+        ("package.json", ROOT_MANIFEST),
+        ("packages/app/package.json", APP_MANIFEST),
+        (
+            "packages/app/tsconfig.json",
+            r#"{ "compilerOptions": { "paths": { "@acme/lib": ["../lib/src/index.ts"] } } }"#,
+        ),
+        ("packages/app/src/index.ts", "export const app = 1;\n"),
+        (
+            "packages/lib/package.json",
+            r#"{"name":"@acme/lib","version":"1.0.0","main":"src/index.ts"}"#,
+        ),
+        ("packages/lib/src/index.ts", VALUE),
+        (
+            "packages/web/package.json",
+            r#"{"name":"web","version":"1.0.0","main":"src/index.ts"}"#,
+        ),
+        (
+            "packages/web/src/index.ts",
+            "import { s } from '@acme/lib';\nexport const web = s;\n",
+        ),
+    ];
+    assert_package_json_advice(&lint(&files), "@acme/lib");
+}
+
+#[test]
+fn a_package_another_manifest_lists_keeps_the_package_json_advice() {
+    let mut files = repro_with(
+        r#"{ "compilerOptions": { "paths": { "left-pad": ["./shims/left-pad.ts"] } } }"#,
+        "import { x } from 'left-pad';\nexport const t = x;\n",
+    );
+    files.retain(|(path, _)| *path != "packages/app/package.json");
+    files.extend([
+        (
+            "packages/app/package.json",
+            r#"{"name":"app","version":"1.0.0","main":"src/index.ts","dependencies":{"left-pad":"1.0.0"}}"#,
+        ),
+        ("packages/app/shims/left-pad.ts", "export const x = 1;\n"),
+    ]);
+    assert_package_json_advice(&lint(&files), "left-pad");
+}
+
+#[test]
+fn an_import_that_resolves_through_hoisted_node_modules_keeps_the_package_json_advice() {
+    let mut files = repro_with(
+        r#"{ "compilerOptions": { "paths": { "lodash/*": ["./shims/lodash/*"] } } }"#,
+        "import merge from 'lodash/merge';\nexport const t = merge;\n",
+    );
+    files.extend([
+        ("packages/app/shims/lodash/merge.ts", "export default 1;\n"),
+        (
+            "node_modules/lodash/package.json",
+            r#"{"name":"lodash","version":"4.17.21","main":"lodash.js"}"#,
+        ),
+        ("node_modules/lodash/lodash.js", "module.exports = {};\n"),
+        ("node_modules/lodash/merge.js", "module.exports = function merge() {};\n"),
+    ]);
+    assert_package_json_advice(&lint(&files), "lodash");
+}
+
+#[test]
+fn a_foreign_pattern_into_node_modules_keeps_the_package_json_advice() {
+    let mut files = repro_with(
+        r#"{ "compilerOptions": { "paths": { "react": ["./node_modules/@types/react"] } } }"#,
+        "import { useState } from 'react';\nexport const t = useState;\n",
+    );
+    files.extend([
+        (
+            "packages/app/node_modules/@types/react/package.json",
+            r#"{"name":"@types/react","version":"18.0.0","types":"index.d.ts"}"#,
+        ),
+        (
+            "packages/app/node_modules/@types/react/index.d.ts",
+            "export declare function useState(): void;\n",
+        ),
+    ]);
+    assert_package_json_advice(&lint(&files), "react");
+}
+
+#[test]
+fn a_foreign_pattern_whose_targets_are_missing_keeps_the_package_json_advice() {
+    let files = repro_with(
+        r#"{ "compilerOptions": { "paths": { "shared/*": ["../missing/*"] } } }"#,
+        LIB_INDEX,
+    );
+    assert_package_json_advice(&lint(&files), "shared");
+}
+
+#[test]
+fn inherited_paths_name_the_config_that_declares_them() {
+    let mut files = repro_with(r#"{ "extends": "../../tsconfig.base.json" }"#, LIB_INDEX);
+    files.push((
+        "tsconfig.base.json",
+        r#"{ "compilerOptions": { "paths": { "shared/*": ["./packages/lib/src/*"] } } }"#,
+    ));
+    let diagnostics = lint(&files);
+    let unlisted = of_rule(&diagnostics, RULE);
+    assert_eq!(unlisted.len(), 1, "{diagnostics:#?}");
+    assert_eq!(unlisted[0].detail.as_deref(), Some(DETAIL));
+    assert!(
+        unlisted[0].message.contains("the `paths` of `tsconfig.base.json`"),
+        "{}",
+        unlisted[0].message
+    );
+    assert_eq!(unlisted[0].related[0].location.path, PathBuf::from("tsconfig.base.json"));
+}

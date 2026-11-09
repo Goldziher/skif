@@ -10,7 +10,7 @@ use skif_js_syntax::{ConfigValue, ImportKind, extract_config_object};
 use skif_workspace::{Package, PackageId, Workspace, map_ordered};
 
 use crate::ancestors::{external_manifests, listed_names};
-use crate::graph::{ModuleGraph, ModuleId};
+use crate::graph::{ModuleGraph, ModuleId, Target};
 use crate::lockfile;
 use crate::scripts::ScriptBinary;
 use crate::setup::Setup;
@@ -182,6 +182,8 @@ struct ImportSite<'s> {
     owner: PackageId,
     /// The specifier as written.
     specifier: &'s str,
+    /// What the specifier resolved to; `None` for a `@jsxImportSource` pragma, which is not resolved.
+    target: Option<&'s Target>,
     module: ModuleId,
     span: Option<Span>,
     /// It brings in types only and is not a re-export, so an `@types` package can stand in for the package.
@@ -201,6 +203,7 @@ fn is_declaration_file(path: &Path) -> bool {
 
 /// An import of a package the manifest does not list.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct UnlistedImport {
     /// The package whose file imports it.
     pub package: PackageId,
@@ -212,6 +215,9 @@ pub struct UnlistedImport {
     pub span: Option<Span>,
     /// The specifier as written, such as `name/subpath`.
     pub specifier: String,
+    /// What the specifier resolved to: a module of the graph, a package by name (installed or not) or nothing. `None`
+    /// for a `@jsxImportSource` pragma, which is not resolved.
+    pub target: Option<Target>,
     /// The `paths` pattern of another package's TypeScript configuration that maps the specifier, when the
     /// configuration the importing file follows maps it not.
     pub foreign_paths: Option<ForeignMapping>,
@@ -220,7 +226,8 @@ pub struct UnlistedImport {
 /// A `paths` pattern of a TypeScript configuration the importing file does not follow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForeignMapping {
-    /// The configuration file, relative to the workspace root with `/` separators.
+    /// The configuration file that declares the pattern (the one found for a package, or a configuration it
+    /// extends), relative to the workspace root with `/` separators.
     pub config: String,
     /// The pattern, as written.
     pub pattern: String,
@@ -647,6 +654,14 @@ impl DependencyUsage {
             .or_else(|| self.external_listed.contains(name).then_some(Listed::External))
     }
 
+    /// Whether `name` is a workspace package or a manifest of the workspace, or above it, lists it: an unlisted import
+    /// of it wants a `package.json` entry, whatever `paths` of another package also map it.
+    pub(crate) fn known_package(&self, name: &str) -> bool {
+        self.members.contains(name)
+            || self.external_listed.contains(name)
+            || self.listed.iter().any(|listed| listed.contains(name))
+    }
+
     fn reference(&mut self, listed: Listed, name: &str) {
         if let Listed::Package(id) = listed {
             self.reference_in(id, name);
@@ -697,6 +712,7 @@ impl DependencyUsage {
                     let site = ImportSite {
                         owner: module.owner,
                         specifier: import.map_or(name.as_str(), |import| import.specifier.as_str()),
+                        target: Some(&resolved.target),
                         module: module.id,
                         span: import.map(|import| import.span),
                         type_only,
@@ -735,6 +751,7 @@ impl DependencyUsage {
                 let site = ImportSite {
                     owner: module.owner,
                     specifier: pragma,
+                    target: None,
                     module: module.id,
                     span: module.info.jsx_import_source_span,
                     type_only: false,
@@ -817,6 +834,7 @@ impl DependencyUsage {
             module: site.module,
             span: site.span,
             specifier: site.specifier.to_owned(),
+            target: site.target.cloned(),
             foreign_paths: None,
         });
     }
