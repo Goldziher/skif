@@ -4017,6 +4017,28 @@ fn taskfile_tasks_and_includes() {
 }
 
 #[test]
+fn mise_file_tasks_are_entries_and_scripts() {
+    let results = resolve(
+        &[
+            ("mise.toml", "[task_config]\nincludes = [\"tasks\", \"more.toml\"]\n"),
+            ("mise-tasks/build", "#!/usr/bin/env bash\nset -e\nnode scripts/gen.js\n"),
+            ("mise-tasks/release.ts", "console.log(1);\n"),
+            ("mise-tasks/py", "#!/usr/bin/env python3\nimport os\n"),
+            ("mise-tasks/README.md", "Run node docs/not-a-task.js\n"),
+            (".config/mise/tasks/lint/web.sh", "#!/bin/sh\n#MISE dir=\"web\"\nnode check.js\n"),
+            ("tasks/deploy", "node deploy.js\n"),
+        ],
+        &[],
+    );
+    let out = output(&results, "mise");
+    let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
+    assert_eq!(
+        entries,
+        BTreeSet::from(["scripts/gen.js", "mise-tasks/release.ts", "web/check.js", "deploy.js"])
+    );
+}
+
+#[test]
 fn mise_tasks_run_in_their_directory() {
     let results = resolve(
         &[
