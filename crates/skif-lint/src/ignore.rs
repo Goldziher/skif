@@ -10,33 +10,78 @@ use skif_workspace::{PackageId, Workspace};
 ///
 /// Packages are resolved to [`PackageId`]s once; every per-diagnostic check afterwards is an index into a vector
 /// by the diagnostic's [`PackageId`], or, for diagnostics that only carry a display name, a lookup of that name.
+/// Entries are indexed by rule, so a diagnostic is checked only against the entries its rule reaches.
 #[derive(Debug)]
 pub struct Suppressions {
     /// Display name to the packages carrying it (names are not guaranteed unique).
     by_name: HashMap<String, Vec<PackageId>>,
     /// Indexed by package id.
     ignored: Vec<bool>,
-    entries: Vec<Entry>,
+    entries: Entries,
     /// The entries of each `[[overrides]]` block, by the block's index.
-    scoped: Vec<Vec<Entry>>,
+    scoped: Vec<Entries>,
 }
 
 #[derive(Debug)]
 struct Entry {
-    rules: HashSet<String>,
     /// Indexed by package id; `None` matches every package, including diagnostics without one.
     packages: Option<Vec<bool>>,
     dependencies: Selector,
 }
 
+/// A list of entries with the entries each rule reaches.
+#[derive(Debug, Default)]
+struct Entries {
+    entries: Vec<Entry>,
+    /// Rule id to the indices of the entries that name it, each index once.
+    by_rule: HashMap<String, Vec<usize>>,
+    /// The indices of the entries without rules, which every rule reaches.
+    any_rule: Vec<usize>,
+}
+
+impl Entries {
+    fn new(workspace: &Workspace, ignore: &[IgnoreEntry]) -> Self {
+        let mut list = Self::default();
+        for (index, entry) in ignore.iter().enumerate() {
+            let rules: HashSet<&str> = entry.rules.iter().map(String::as_str).collect();
+            if rules.is_empty() {
+                list.any_rule.push(index);
+            }
+            for rule in rules {
+                list.by_rule.entry(rule.to_owned()).or_default().push(index);
+            }
+            list.entries.push(Entry {
+                packages: (!entry.packages.is_empty()).then(|| {
+                    workspace
+                        .iter()
+                        .map(|(_, package)| package.is_selected_by(&entry.packages))
+                        .collect()
+                }),
+                dependencies: entry.dependencies.clone(),
+            });
+        }
+        list
+    }
+
+    /// The entries `rule` reaches, with their indices: those naming it, then those without rules.
+    fn candidates<'s>(&'s self, rule: &str) -> impl Iterator<Item = (usize, &'s Entry)> + use<'s> {
+        self.by_rule
+            .get(rule)
+            .into_iter()
+            .flatten()
+            .chain(&self.any_rule)
+            .filter_map(move |index| self.entries.get(*index).map(|entry| (*index, entry)))
+    }
+}
+
 impl Suppressions {
     pub fn new(workspace: &Workspace, config: &Config) -> Self {
         let ignored = workspace.package_ids().map(|id| workspace.is_ignored(id)).collect();
-        let entries = build_entries(workspace, &config.ignore);
+        let entries = Entries::new(workspace, &config.ignore);
         let scoped = config
             .overrides
             .iter()
-            .map(|scoped| build_entries(workspace, &scoped.ignore))
+            .map(|scoped| Entries::new(workspace, &scoped.ignore))
             .collect();
         Self {
             by_name: names(workspace),
@@ -51,11 +96,9 @@ impl Suppressions {
     pub fn suppressed_in_scope(&self, diagnostic: &Diagnostic, applicable: &[usize]) -> bool {
         let versioned = OnceCell::new();
         applicable.iter().any(|index| {
-            self.scoped.get(*index).is_some_and(|entries| {
-                entries
-                    .iter()
-                    .any(|entry| self.entry_matches(entry, diagnostic, &versioned))
-            })
+            self.scoped
+                .get(*index)
+                .is_some_and(|entries| self.any_matches(entries, diagnostic, &versioned))
         })
     }
 
@@ -64,9 +107,13 @@ impl Suppressions {
             return true;
         }
         let versioned = OnceCell::new();
-        self.entries
-            .iter()
-            .any(|entry| self.entry_matches(entry, diagnostic, &versioned))
+        self.any_matches(&self.entries, diagnostic, &versioned)
+    }
+
+    fn any_matches(&self, entries: &Entries, diagnostic: &Diagnostic, versioned: &OnceCell<Option<String>>) -> bool {
+        entries
+            .candidates(diagnostic.rule.as_str())
+            .any(|(_, entry)| self.entry_matches(entry, diagnostic, versioned))
     }
 
     /// Whether the diagnostic's package is flagged in `flags`. A diagnostic with a [`PackageId`] is looked up by it;
@@ -82,17 +129,17 @@ impl Suppressions {
             .is_some_and(|ids| !ids.is_empty() && ids.iter().all(|id| flags.get(id.index()).copied().unwrap_or(false)))
     }
 
+    /// Whether `entry`, one of the candidates of the diagnostic's rule, matches it: the package is checked before
+    /// the dependency, whose glob match costs the most.
     fn entry_matches(&self, entry: &Entry, diagnostic: &Diagnostic, versioned: &OnceCell<Option<String>>) -> bool {
-        let rule_ok = entry.rules.is_empty() || entry.rules.contains(diagnostic.rule.as_str());
-        let package_ok = entry
+        entry
             .packages
             .as_ref()
-            .is_none_or(|flags| self.package_flag(diagnostic, flags));
-        let dependency_ok = entry.dependencies.is_empty()
-            || diagnostic.dependency.as_deref().is_some_and(|dependency| {
-                self.dependency_matches(&entry.dependencies, dependency, versioned_name(diagnostic, versioned))
-            });
-        rule_ok && package_ok && dependency_ok
+            .is_none_or(|flags| self.package_flag(diagnostic, flags))
+            && (entry.dependencies.is_empty()
+                || diagnostic.dependency.as_deref().is_some_and(|dependency| {
+                    self.dependency_matches(&entry.dependencies, dependency, versioned_name(diagnostic, versioned))
+                }))
     }
 
     /// Matches `selector` against the dependency of `diagnostic`: its name, and `name@specifier` when the diagnostic
@@ -116,23 +163,21 @@ pub fn ignore_matches(workspace: &Workspace, entries: &[IgnoreEntry], diagnostic
     let suppressions = Suppressions {
         by_name: names(workspace),
         ignored: Vec::new(),
-        entries: build_entries(workspace, entries),
+        entries: Entries::new(workspace, entries),
         scoped: Vec::new(),
     };
-    let versioned: Vec<OnceCell<Option<String>>> = diagnostics.iter().map(|_| OnceCell::new()).collect();
-    suppressions
-        .entries
-        .iter()
-        .map(|entry| {
-            diagnostics
-                .iter()
-                .zip(&versioned)
-                .enumerate()
-                .filter(|(_, (diagnostic, cell))| suppressions.entry_matches(entry, diagnostic, cell))
-                .map(|(index, _)| index)
-                .collect()
-        })
-        .collect()
+    let mut matches: Vec<Vec<usize>> = vec![Vec::new(); entries.len()];
+    for (index, diagnostic) in diagnostics.iter().enumerate() {
+        let versioned = OnceCell::new();
+        for (entry_index, entry) in suppressions.entries.candidates(diagnostic.rule.as_str()) {
+            if suppressions.entry_matches(entry, diagnostic, &versioned)
+                && let Some(found) = matches.get_mut(entry_index)
+            {
+                found.push(index);
+            }
+        }
+    }
+    matches
 }
 
 /// Display name to the packages carrying it.
@@ -142,22 +187,6 @@ fn names(workspace: &Workspace) -> HashMap<String, Vec<PackageId>> {
         by_name.entry(package.display_name().to_owned()).or_default().push(id);
     }
     by_name
-}
-
-fn build_entries(workspace: &Workspace, ignore: &[IgnoreEntry]) -> Vec<Entry> {
-    ignore
-        .iter()
-        .map(|entry| Entry {
-            rules: entry.rules.iter().cloned().collect(),
-            packages: (!entry.packages.is_empty()).then(|| {
-                workspace
-                    .iter()
-                    .map(|(_, package)| package.is_selected_by(&entry.packages))
-                    .collect()
-            }),
-            dependencies: entry.dependencies.clone(),
-        })
-        .collect()
 }
 
 /// `name@specifier` of the diagnostic's dependency, built the first time an entry needs it and reused for the rest.
@@ -170,7 +199,10 @@ fn versioned_name<'c>(diagnostic: &Diagnostic, cell: &'c OnceCell<Option<String>
     .as_deref()
 }
 
-fn dependency_name(dependency: &str) -> &str {
+/// The name of `dependency` without the `@specifier` it may be written with: `react@18` is `react`, and the `@` of a
+/// scope is kept (`@scope/x@1.0.0` is `@scope/x`).
+#[must_use]
+pub fn dependency_name(dependency: &str) -> &str {
     match dependency.rfind('@') {
         Some(index) if index > 0 => &dependency[..index],
         _ => dependency,
@@ -182,7 +214,7 @@ fn dependency_name(dependency: &str) -> &str {
 mod tests {
     use std::path::Path;
 
-    use skif_core::{Category, Fixability, Location, RuleMeta, Severity, diagnostic};
+    use skif_core::{Category, Fixability, Location, RuleId, RuleMeta, Severity, diagnostic};
     use skif_workspace::MemoryFs;
 
     use super::*;
@@ -424,6 +456,67 @@ mod tests {
             ignore_matches(&workspace(&config), &entries, &diagnostics),
             [vec![0, 1]]
         );
+    }
+
+    #[test]
+    fn thousands_of_entries_match_as_each_entry_alone_would() {
+        let config = Config::default();
+        let workspace = workspace(&config);
+        let package = |index: usize| if index % 2 == 0 { "a" } else { "b" };
+        let mut toml = String::new();
+        for index in 0..3000 {
+            toml.push_str(&format!(
+                "[[ignore]]\nrules = [\"rule-{}\"]\npackages = [\"{}\"]\ndependencies = [\"dep-{index}\"]\n",
+                index % 50,
+                package(index)
+            ));
+        }
+        toml.push_str("[[ignore]]\ndependencies = [\"dep-7\"]\n");
+        toml.push_str("[[ignore]]\nrules = [\"rule-8\", \"rule-8\"]\npackages = [\"a\"]\n");
+        let entries = Config::from_toml_str(&toml).unwrap().ignore;
+        let diagnostics: Vec<Diagnostic> = (0..3000)
+            .map(|index| {
+                let mut diagnostic = make(Some(package(index)), Some(format!("dep-{index}").as_str()));
+                diagnostic.rule = RuleId::new(format!("rule-{}", index % 50)).unwrap();
+                diagnostic
+            })
+            .collect();
+
+        let matches = ignore_matches(&workspace, &entries, &diagnostics);
+        assert_eq!(matches.len(), 3002);
+        for (index, found) in matches.iter().take(3000).enumerate() {
+            assert_eq!(found, &[index], "entry {index}");
+        }
+        assert_eq!(matches[3000], [7], "an entry without rules reaches every rule");
+        let rule_8_in_a: Vec<usize> = (8..3000).step_by(50).collect();
+        assert_eq!(matches[3001], rule_8_in_a, "a rule named twice matches each finding once");
+
+        let suppressions = Suppressions {
+            by_name: names(&workspace),
+            ignored: Vec::new(),
+            entries: Entries::new(&workspace, &entries),
+            scoped: Vec::new(),
+        };
+        let each_alone: Vec<Vec<usize>> = entries
+            .iter()
+            .zip(&suppressions.entries.entries)
+            .map(|(written, entry)| {
+                diagnostics
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, diagnostic)| {
+                        (written.rules.is_empty() || written.rules.iter().any(|rule| rule == diagnostic.rule.as_str()))
+                            && suppressions.entry_matches(entry, diagnostic, &OnceCell::new())
+                    })
+                    .map(|(index, _)| index)
+                    .collect()
+            })
+            .collect();
+        assert_eq!(matches, each_alone);
+        assert!(diagnostics.iter().all(|diagnostic| suppressions.suppresses(diagnostic)));
+        let mut unmatched = make(Some("b"), Some("dep-0"));
+        unmatched.rule = RuleId::new("rule-0").unwrap();
+        assert!(!suppressions.suppresses(&unmatched), "dep-0 is recorded for package a only");
     }
 
     #[test]
