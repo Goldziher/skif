@@ -778,13 +778,20 @@ impl DependencyUsage {
         {
             return;
         }
-        if package
-            .manifest
-            .value()
-            .get("engines")
-            .and_then(|engines| engines.get(name))
-            .is_some()
-        {
+        // The runtime an `engines` entry names provides its module (`vscode` for an extension), also to the packages
+        // inside the one that declares it, such as the client and server of an extension.
+        let provided_by_engine = std::iter::once(owner)
+            .chain(self.ancestors[owner.index()].iter().copied())
+            .filter_map(|scope| workspace.package(scope))
+            .any(|scope| {
+                scope
+                    .manifest
+                    .value()
+                    .get("engines")
+                    .and_then(|engines| engines.get(name))
+                    .is_some()
+            });
+        if provided_by_engine {
             return;
         }
         if !self.strict && package.private && self.members.contains(name) {

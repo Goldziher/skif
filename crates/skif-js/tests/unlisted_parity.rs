@@ -125,3 +125,32 @@ fn bare_imports_in_plain_stylesheets_are_looked_up_beside_the_file_first() {
     );
     assert_eq!(found(&diagnostics, "unused-files"), none());
 }
+
+/// An editor extension declares the editor in `engines` and its client package, nested in it, imports the editor's
+/// module: the enclosing package's `engines` provides it as the package's own would.
+#[test]
+fn a_runtime_in_the_engines_of_an_enclosing_package_provides_its_module() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["ext","ext/client"]}"#,
+        ),
+        (
+            "ext/package.json",
+            r#"{"name":"ext","version":"1.0.0","engines":{"vscode":"^1.75.0"},"main":"index.js"}"#,
+        ),
+        ("ext/index.js", "module.exports = {};\n"),
+        (
+            "ext/client/package.json",
+            r#"{"name":"ext-client","version":"1.0.0","main":"src/extension.js"}"#,
+        ),
+        (
+            "ext/client/src/extension.js",
+            "const vscode = require('vscode');\nconst other = require('other-runtime');\nexports.activate = () => [vscode, other];\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        ["ext/client/src/extension.js: other-runtime"]
+    );
+}
