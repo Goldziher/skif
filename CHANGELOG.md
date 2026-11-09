@@ -20,7 +20,6 @@ All notable changes to this project are documented here. The format follows
 - `skif explain-usage` names the entry kind `enclosing-entry-glob` for a file that a plugin of a containing package
   makes an entry (a root `playwright.config.ts` whose `testDir` is in a member) instead of `unknown`
   ([#100](https://github.com/Goldziher/skif/issues/100)).
-
 - `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`,
   `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such
   as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
