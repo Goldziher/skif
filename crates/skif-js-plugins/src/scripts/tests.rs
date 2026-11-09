@@ -600,9 +600,14 @@ fn current_script_breaks_cycles() {
 fn ignored_binaries() {
     for name in [
         "cd", "echo", "rm", "cp", "mkdir", "exit", "break", "continue", "test", "[", "true", "false", "git", "jq",
-        "gh", "kubectl", "deno",
+        "gh", "kubectl", "deno", "taskkill", "taskkill.exe", "xcode-select", "sysctl", "service", "update-rc.d",
+        "c++", "signtool.exe", "powershell.exe", "osascript", "hg",
     ] {
         assert!(is_ignored_binary(name), "{name}");
+    }
+    // Tools that a base system lacks stay binaries.
+    for name in ["sqlite3", "stripe", "sentry-cli", "openssl", "relay-compiler"] {
+        assert!(!is_ignored_binary(name), "{name}");
     }
     for name in ["node", "tsc", "vite", "rimraf"] {
         assert!(!is_ignored_binary(name), "{name}");
