@@ -1,5 +1,9 @@
 //! Serverless Framework: the handler file of every function, local plugins and plugin packages, and the esbuild
 //! `inject` files of `serverless.yml`. A `${file(./x.yml)}` or `${file(./x.yml):key}` variable is read from that file.
+//! In a handler, a `${self:a.b}` variable is replaced by the string the config holds there, else by its quoted fallback
+//! (`${opt:stage, 'dev'}`), and any other variable (`${opt:stage}`, `${env:DIR}`), known only when the CLI runs, by a
+//! wildcard: `**` for a whole path segment, `*` within one. A handler may be a glob; one that names any file (`*.main`)
+//! is skipped.
 
 use std::borrow::Cow;
 
@@ -40,7 +44,7 @@ impl Plugin for ServerlessFramework {
                 for (_, function) in entries {
                     let function = file_variable(function, config, cx);
                     if let Some(handler) = function.get("handler").and_then(ConfigValue::as_str) {
-                        out.extend(handler_entry(handler, config));
+                        out.extend(handler_entry(&expand_variables(handler, value, 0, WHOLE), config));
                     }
                 }
             }
@@ -78,13 +82,88 @@ fn values_or_self(value: &ConfigValue) -> Vec<&ConfigValue> {
     }
 }
 
+/// How many `${self:…}` variables may lead to one another before the rest are wildcards.
+const MAX_VARIABLE_DEPTH: u8 = 8;
+
+/// Whether the text being expanded starts and ends a path segment: `(true, true)` for a whole handler.
+type Bounds = (bool, bool);
+
+const WHOLE: Bounds = (true, true);
+
+/// `text` with every `${…}` variable replaced: a `${self:a.b}` by the string at `a.b` of the config `root`, itself
+/// expanded, else by the variable's quoted fallback, and anything else (another source, a missing or non-string value,
+/// a nested variable) by a wildcard: `**` when the variable fills a path segment, as it may stand for several, and `*`
+/// within one. `bounds` says whether `text` itself starts and ends a segment.
+fn expand_variables(text: &str, root: &ConfigValue, depth: u8, bounds: Bounds) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("${") {
+        out.push_str(&rest[..start]);
+        let starts_segment = if out.is_empty() { bounds.0 } else { out.ends_with('/') };
+        let after = &rest[start + 2..];
+        let Some(end) = closing_brace(after) else {
+            out.push('*');
+            return out;
+        };
+        rest = &after[end + 1..];
+        let ends_segment = if rest.is_empty() {
+            bounds.1
+        } else {
+            rest.starts_with('/')
+        };
+        let segment = (starts_segment, ends_segment);
+        let value = variable_value(&after[..end], root, depth, segment);
+        out.push_str(&value.unwrap_or_else(|| String::from(if segment == WHOLE { "**" } else { "*" })));
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The byte index of the `}` that closes a variable whose text starts `text`.
+fn closing_brace(text: &str) -> Option<usize> {
+    let mut depth = 0_u32;
+    for (index, c) in text.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' if depth == 0 => return Some(index),
+            '}' => depth -= 1,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The value of the variable `inner` (the text between `${` and `}`), which lies within `bounds`; `None` when it is
+/// not known. See [`expand_variables`].
+fn variable_value(inner: &str, root: &ConfigValue, depth: u8, bounds: Bounds) -> Option<String> {
+    let (reference, fallback) = inner.split_once(',').unwrap_or((inner, ""));
+    let resolved = reference
+        .trim()
+        .strip_prefix("self:")
+        .filter(|path| depth < MAX_VARIABLE_DEPTH && !path.is_empty() && !path.contains(['$', '{']))
+        .and_then(|path| get_in(root, &path.split('.').collect::<Vec<_>>()))
+        .and_then(ConfigValue::as_str)
+        .map(|value| expand_variables(value, root, depth + 1, bounds));
+    resolved.or_else(|| quoted(fallback.trim()).map(str::to_owned))
+}
+
+/// The text of a quoted string (`'dev'`, `"dev"`); `None` for anything else.
+fn quoted(text: &str) -> Option<&str> {
+    ['\'', '"']
+        .into_iter()
+        .find_map(|quote| text.strip_prefix(quote)?.strip_suffix(quote))
+}
+
 /// The production entry of a `handler` (`src/handler.main`): the module before the last `.`, with a source extension
-/// when it has none. A handler holding a variable (`${self:custom.dir}/x.main`) or a pattern is not a path and is skipped.
+/// when it has none. Variables are already expanded; a glob stays a glob, unless it names any file (`*`, `**/*`).
 fn handler_entry(handler: &str, config: &ConfigAst<'_>) -> Option<PluginInput> {
-    if handler.contains(['$', '`', '*', '{', '}']) {
+    if handler.contains(['$', '`']) {
         return None;
     }
     let (file, _) = handler.rsplit_once('.')?;
+    if file.split('/').all(|segment| matches!(segment, "*" | "**")) {
+        return None;
+    }
     let has_extension = file
         .rsplit_once('.')
         .is_some_and(|(_, extension)| SOURCE_EXTENSIONS.contains(&extension));

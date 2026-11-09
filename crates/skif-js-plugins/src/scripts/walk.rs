@@ -6,7 +6,7 @@ use std::ops::Range;
 use super::args::{self, Parsed, Val};
 use super::tables::{self, Files, Runner, Wrapper};
 use super::tokenize::{Segment, Word, is_assignment_text, tokenize};
-use crate::support::join_rel;
+use crate::support::{below_node_modules, join_rel};
 
 use super::{
     BinaryUse, BinaryVia, DepRef, FileRef, FileTree, ScriptContext, ScriptInfo, is_ignored_binary, is_shell_builtin,
@@ -117,13 +117,7 @@ fn classify(text: &str) -> Target<'_> {
 
 /// The package a path below a `node_modules` directory belongs to (`node_modules/@scope/pkg/cli.js`).
 fn installed_package(path: &str) -> Option<&str> {
-    let rest = if let Some(rest) = path.strip_prefix("node_modules/") {
-        rest
-    } else {
-        let at = path.find("/node_modules/")?;
-        &path[at + "/node_modules/".len()..]
-    };
-    package_name(rest)
+    package_name(below_node_modules(path)?)
 }
 
 /// The package name of a module specifier, without version or subpath. `None` for paths, URLs

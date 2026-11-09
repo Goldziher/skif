@@ -1,7 +1,10 @@
 //! Taskfile: the commands of every task (`cmd`, `cmds`, deferred commands) are scripts; included Taskfiles are read
-//! too. A command or include holding a `{{…}}` template is skipped: what it runs is known only to `task`.
+//! too. A `{{.NAME}}` template is replaced by the string the task's or the Taskfile's `vars` give `NAME`, and by `.`
+//! for `ROOT_DIR` and the Taskfile's directory for `TASKFILE_DIR`; any other template (a dynamic `sh:` variable,
+//! `CLI_ARGS`, a function) stands for a word that is not known, as a shell variable does, so the rest of the command
+//! is still read. An include whose path holds such a template is skipped.
 
-use skif_js_syntax::ConfigValue;
+use skif_js_syntax::{ConfigValue, TEMPLATE_SUBSTITUTION};
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 
@@ -25,20 +28,26 @@ impl Plugin for Taskfile {
 
     fn resolve_config(&self, config: &ConfigAst<'_>, _cx: &PluginContext<'_>) -> Vec<PluginInput> {
         let mut out = Vec::new();
+        let taskfile_dir = if config.base.is_empty() { "." } else { config.base };
+        let globals = config.value.get("vars");
         if let Some(ConfigValue::Object(includes)) = config.value.get("includes") {
             for (_, include) in includes {
                 let path = include
                     .as_str()
                     .or_else(|| include.get("taskfile").and_then(ConfigValue::as_str));
-                if let Some(path) = path.filter(|path| !has_template(path)) {
-                    out.push(PluginInput::ConfigFile(config.join(path)));
+                let Some(path) = path.map(|path| expand(path, &[globals], taskfile_dir)) else {
+                    continue;
+                };
+                if !path.contains(TEMPLATE_SUBSTITUTION) {
+                    out.push(PluginInput::ConfigFile(config.join(&path)));
                 }
             }
         }
         if let Some(ConfigValue::Object(tasks)) = config.value.get("tasks") {
             for (_, task) in tasks {
-                for script in task_scripts(task).into_iter().filter(|script| !has_template(script)) {
-                    out.push(PluginInput::Script(script.to_owned()));
+                let scopes = [task.get("vars"), globals];
+                for script in task_scripts(task) {
+                    out.push(PluginInput::Script(expand(script, &scopes, taskfile_dir)));
                 }
             }
         }
@@ -46,9 +55,42 @@ impl Plugin for Taskfile {
     }
 }
 
-/// Whether `value` holds a Go template (`{{.CLI_ARGS}}`), which `task` expands before running it.
-fn has_template(value: &str) -> bool {
-    value.contains("{{")
+/// `value` with every Go template (`{{.SCRIPT}}`) that `task` expands before running it replaced: a `.NAME` by the
+/// first string `NAME` has in `scopes` (`vars` objects, the innermost first) or by the directory of a built-in
+/// variable, anything else by [`TEMPLATE_SUBSTITUTION`].
+fn expand(value: &str, scopes: &[Option<&ConfigValue>], taskfile_dir: &str) -> String {
+    let mut out = String::new();
+    let mut rest = value;
+    while let Some(start) = rest.find("{{") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else {
+            out.push_str(TEMPLATE_SUBSTITUTION);
+            return out;
+        };
+        let inner = after[..end].trim_start_matches('-').trim_end_matches('-').trim();
+        let known = inner.strip_prefix('.').and_then(|name| match name {
+            "ROOT_DIR" => Some("."),
+            "TASKFILE_DIR" => Some(taskfile_dir),
+            _ => scopes
+                .iter()
+                .flatten()
+                .find_map(|vars| vars.get(name))
+                .and_then(ConfigValue::as_str)
+                .filter(|value| !value.contains("{{")),
+        });
+        rest = &after[end + 2..];
+        // `{{.ROOT_DIR}}/scripts/a.js` names `scripts/a.js`, the same path a plain command would.
+        if known == Some(".")
+            && let Some(path) = rest.strip_prefix('/')
+        {
+            rest = path;
+            continue;
+        }
+        out.push_str(known.unwrap_or(TEMPLATE_SUBSTITUTION));
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The commands of a task: a string, a list of strings, or an object with `cmd` or `cmds`.

@@ -4,6 +4,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
+use std::sync::LazyLock;
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
@@ -921,32 +922,78 @@ pub fn extract_constructor_options(source: &str, path: &Path, constructor: &str,
 /// Returns nothing when the file does not parse.
 #[must_use]
 pub fn extract_property_values(source: &str, path: &Path, key: &str) -> Vec<ConfigValue> {
-    let Ok(source_type) = SourceType::from_path(path) else {
+    find_properties(source, path, key, None)
+}
+
+/// Statically calls every function that is the property `key` of an object literal in `source`, a method
+/// (`configureWebpack(config) { … }`) or a function or arrow value, with `argument` as its first parameter, in source
+/// order. Each result is the value the function returns or, when its body finishes without a `return`, what it leaves
+/// its first parameter as: a function that changes the object it is given (`config.entry = { … }`) yields the changed
+/// object. Calls are evaluated as in [`extract_config_object`]; a property that is not a function is left out.
+/// Returns nothing when the file does not parse.
+#[must_use]
+pub fn extract_property_calls(source: &str, path: &Path, key: &str, argument: &ConfigValue) -> Vec<ConfigValue> {
+    find_properties(source, path, key, Some(argument))
+}
+
+/// The values of the properties `key` in `source`, or the results of calling them with `call_with`.
+fn find_properties(source: &str, path: &Path, key: &str, call_with: Option<&ConfigValue>) -> Vec<ConfigValue> {
+    let allocator = Allocator::default();
+    let Some(program) = parse_program(&allocator, source, path) else {
         return Vec::new();
     };
+    let top = top_level(&program);
+    let bindings = module_bindings(&program);
+    let mut finder = PropertyFinder {
+        top: &top,
+        bindings: &bindings,
+        file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+        key,
+        call_with,
+        evaluated: HashMap::new(),
+        found: Vec::new(),
+    };
+    finder.visit_program(&program);
+    finder.found
+}
+
+/// Statically evaluates the arguments of every call of a method named `method` in `source`, whatever object it is
+/// called on (`eleventyConfig.addPassthroughCopy("img")`), in source order: one list of arguments per call. Arguments
+/// are evaluated as in [`extract_config_object`], so a top-level constant is known and a local of the enclosing
+/// function is not. Returns nothing when the file does not parse.
+#[must_use]
+pub fn extract_method_calls(source: &str, path: &Path, method: &str) -> Vec<Vec<ConfigValue>> {
     let allocator = Allocator::default();
-    let ret = Parser::new(&allocator, source, source_type)
+    let Some(program) = parse_program(&allocator, source, path) else {
+        return Vec::new();
+    };
+    let top = top_level(&program);
+    let bindings = module_bindings(&program);
+    let mut finder = MethodCallFinder {
+        top: &top,
+        bindings: &bindings,
+        file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
+        method,
+        found: Vec::new(),
+    };
+    finder.visit_program(&program);
+    finder.found
+}
+
+/// Parses `source` as the JavaScript or TypeScript file `path` names, without keeping parentheses; `None` for another
+/// kind of file or a file that does not parse.
+fn parse_program<'a>(allocator: &'a Allocator, source: &'a str, path: &Path) -> Option<Program<'a>> {
+    let source_type = SourceType::from_path(path).ok()?;
+    let ret = Parser::new(allocator, source, source_type)
         .with_options(OxcParseOptions {
             preserve_parens: false,
             ..OxcParseOptions::default()
         })
         .parse();
     if ret.diagnostics.errors().next().is_some() {
-        return Vec::new();
+        return None;
     }
-    let program = &ret.program;
-    let top = top_level(program);
-    let bindings = module_bindings(program);
-    let mut finder = PropertyFinder {
-        top: &top,
-        bindings: &bindings,
-        file: path.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
-        key,
-        evaluated: HashMap::new(),
-        found: Vec::new(),
-    };
-    finder.visit_program(program);
-    finder.found
+    Some(ret.program)
 }
 
 /// A call, or a tagged template, of a function a module exports; see [`extract_imported_calls`].
@@ -1252,11 +1299,43 @@ impl<'a> Visit<'a> for OptionFinder<'_, '_, 'a> {
     }
 }
 
+struct MethodCallFinder<'t, 'p, 'a> {
+    top: &'t TopLevel<'p, 'a>,
+    bindings: &'t ModuleBindings,
+    file: &'t str,
+    method: &'t str,
+    found: Vec<Vec<ConfigValue>>,
+}
+
+impl<'a> Visit<'a> for MethodCallFinder<'_, '_, 'a> {
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if let Expression::StaticMemberExpression(member) = it.callee.get_inner_expression()
+            && member.property.name.as_str() == self.method
+        {
+            let eval = Evaluator::in_file(self.top, self.bindings, self.file, HashMap::new());
+            let arguments = it
+                .arguments
+                .iter()
+                .map(|argument| {
+                    argument
+                        .as_expression()
+                        .map_or(ConfigValue::Unknown, |e| eval.expr(e, 0))
+                })
+                .collect();
+            self.found.push(arguments);
+        }
+        walk::walk_call_expression(self, it);
+    }
+}
+
 struct PropertyFinder<'t, 'p, 'a> {
     top: &'t TopLevel<'p, 'a>,
     bindings: &'t ModuleBindings,
     file: &'t str,
     key: &'t str,
+    /// When set, the property is a function called with this argument (see [`extract_property_calls`]) rather than a
+    /// value.
+    call_with: Option<&'t ConfigValue>,
     /// The top-level constants evaluated so far, carried from one property to the next so each is evaluated once.
     evaluated: HashMap<String, ConfigValue>,
     found: Vec<ConfigValue>,
@@ -1264,31 +1343,23 @@ struct PropertyFinder<'t, 'p, 'a> {
 
 impl<'a> Visit<'a> for PropertyFinder<'_, '_, 'a> {
     fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
-        if !it.method
+        let callable = self.call_with.and_then(|_| Callable::of_expression(&it.value));
+        let wanted = match self.call_with {
+            None => !it.method,
+            Some(_) => callable.is_some() && it.kind == oxc_ast::ast::PropertyKind::Init,
+        };
+        if wanted
             && it
                 .key
                 .static_name()
                 .is_some_and(|name| crate::js_string(name.as_js_str()) == self.key)
         {
-            let eval = Evaluator {
-                consts: &self.top.consts,
-                changed: &self.top.changed,
-                unstable: &self.top.unstable,
-                functions: &self.top.functions,
-                bindings: self.bindings,
-                file: self.file,
-                dir: ".",
-                path: Path::new(self.file),
-                imports: &HashMap::new(),
-                modules: None,
-                evaluated: RefCell::new(std::mem::take(&mut self.evaluated)),
-                chain: RefCell::new(Vec::new()),
-                frames: RefCell::new(Vec::new()),
-                calls: Cell::new(0),
-                config_setter: RefCell::new(None),
-                captured: RefCell::new(None),
+            let eval = Evaluator::in_file(self.top, self.bindings, self.file, std::mem::take(&mut self.evaluated));
+            let value = match (self.call_with, callable) {
+                (Some(argument), Some(callable)) => eval.call_with(callable, argument.clone(), 0),
+                _ => eval.expr(&it.value, 0),
             };
-            self.found.push(eval.expr(&it.value, 0));
+            self.found.push(value);
             self.evaluated = eval.evaluated.into_inner();
         }
         walk::walk_object_property(self, it);
@@ -1395,6 +1466,39 @@ struct Evaluator<'c, 'p, 'a> {
     config_setter: RefCell<Option<String>>,
     /// The argument of the last `<config_setter>.set(…)` call evaluated.
     captured: RefCell<Option<ConfigValue>>,
+}
+
+/// The imports of an evaluator that follows none.
+static NO_IMPORTS: LazyLock<HashMap<String, ImportBinding>> = LazyLock::new(HashMap::new);
+
+impl<'c, 'p, 'a> Evaluator<'c, 'p, 'a> {
+    /// An evaluator of the config file `file` alone, which follows no import; `evaluated` holds the top-level
+    /// constants evaluated so far.
+    fn in_file(
+        top: &'c TopLevel<'p, 'a>,
+        bindings: &'c ModuleBindings,
+        file: &'c str,
+        evaluated: HashMap<String, ConfigValue>,
+    ) -> Self {
+        Self {
+            consts: &top.consts,
+            changed: &top.changed,
+            unstable: &top.unstable,
+            functions: &top.functions,
+            bindings,
+            file,
+            dir: ".",
+            path: Path::new(file),
+            imports: &NO_IMPORTS,
+            modules: None,
+            evaluated: RefCell::new(evaluated),
+            chain: RefCell::new(Vec::new()),
+            frames: RefCell::new(Vec::new()),
+            calls: Cell::new(0),
+            config_setter: RefCell::new(None),
+            captured: RefCell::new(None),
+        }
+    }
 }
 
 impl<'p, 'a> Evaluator<'_, 'p, 'a> {
@@ -2036,6 +2140,36 @@ impl<'p, 'a> Evaluator<'_, 'p, 'a> {
             *self.frames.borrow_mut() = saved;
         }
         value
+    }
+
+    /// Calls `callable` with `argument` as its first parameter: the value it returns or, when a block body finishes
+    /// without a `return`, the value it leaves that parameter with.
+    fn call_with(&self, callable: Callable<'p, 'a>, argument: ConfigValue, depth: u32) -> ConfigValue {
+        let statements = match callable {
+            Callable::Arrow(f) => f.get_function_body().map(|body| &body.statements),
+            Callable::Function(f) => f.body.as_ref().map(|body| &body.statements),
+        };
+        let (Some(name), Some(statements)) = (first_parameter(callable), statements) else {
+            return self.invoke(callable, &[argument], false, depth);
+        };
+        let params = match callable {
+            Callable::Function(f) => &f.params,
+            Callable::Arrow(f) => &f.params,
+        };
+        self.frames.borrow_mut().push(Frame::new());
+        self.bind(&name, argument);
+        for param in params.items.iter().skip(1) {
+            self.bind_pattern(&param.pattern, ConfigValue::Unknown, depth);
+        }
+        if let Some(param) = &params.rest {
+            self.bind_pattern(&param.rest.argument, ConfigValue::Unknown, depth);
+        }
+        let returned = self.run(statements, depth);
+        let frame = self.frames.borrow_mut().pop();
+        returned.unwrap_or_else(|| match frame.and_then(|mut frame| frame.remove(&name)) {
+            Some(Binding::Value(value)) => value,
+            _ => ConfigValue::Unknown,
+        })
     }
 
     /// Binds the names `pattern` declares to the parts of `value` they take, in the innermost frame. A property of an

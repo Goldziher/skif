@@ -79,11 +79,47 @@ pub enum MockCall {
     /// `jest.genMockFromModule("x")`.
     #[serde(rename = "jest.genMockFromModule")]
     JestGenMockFromModule,
+    /// `rs.mock("x")` (also written `rstest.mock`).
+    #[serde(rename = "rs.mock")]
+    RsMock,
+    /// `rs.mockRequire("x")` (also written `rstest.mockRequire`).
+    #[serde(rename = "rs.mockRequire")]
+    RsMockRequire,
+    /// `rs.doMock("x")` (also written `rstest.doMock`).
+    #[serde(rename = "rs.doMock")]
+    RsDoMock,
+    /// `rs.doMockRequire("x")` (also written `rstest.doMockRequire`).
+    #[serde(rename = "rs.doMockRequire")]
+    RsDoMockRequire,
+    /// `rs.unmock("x")` (also written `rstest.unmock`).
+    #[serde(rename = "rs.unmock")]
+    RsUnmock,
+    /// `rs.doUnmock("x")` (also written `rstest.doUnmock`).
+    #[serde(rename = "rs.doUnmock")]
+    RsDoUnmock,
+    /// `rs.unmockRequire("x")` (also written `rstest.unmockRequire`).
+    #[serde(rename = "rs.unmockRequire")]
+    RsUnmockRequire,
+    /// `rs.doUnmockRequire("x")` (also written `rstest.doUnmockRequire`).
+    #[serde(rename = "rs.doUnmockRequire")]
+    RsDoUnmockRequire,
+    /// `rs.importActual("x")` (also written `rstest.importActual`).
+    #[serde(rename = "rs.importActual")]
+    RsImportActual,
+    /// `rs.importMock("x")` (also written `rstest.importMock`).
+    #[serde(rename = "rs.importMock")]
+    RsImportMock,
+    /// `rs.requireActual("x")` (also written `rstest.requireActual`).
+    #[serde(rename = "rs.requireActual")]
+    RsRequireActual,
+    /// `rs.requireMock("x")` (also written `rstest.requireMock`).
+    #[serde(rename = "rs.requireMock")]
+    RsRequireMock,
 }
 
 impl MockCall {
-    /// Every call: the `vi` ones, then the `jest` ones.
-    pub const ALL: [Self; 14] = [
+    /// Every call: the `vi` ones, then the `jest` ones, then rstest's (<https://rstest.rs/api/runtime-api/rstest/mock-modules>).
+    pub const ALL: [Self; 26] = [
         Self::ViMock,
         Self::ViDoMock,
         Self::ViUnmock,
@@ -98,6 +134,18 @@ impl MockCall {
         Self::JestRequireMock,
         Self::JestCreateMockFromModule,
         Self::JestGenMockFromModule,
+        Self::RsMock,
+        Self::RsMockRequire,
+        Self::RsDoMock,
+        Self::RsDoMockRequire,
+        Self::RsUnmock,
+        Self::RsDoUnmock,
+        Self::RsUnmockRequire,
+        Self::RsDoUnmockRequire,
+        Self::RsImportActual,
+        Self::RsImportMock,
+        Self::RsRequireActual,
+        Self::RsRequireMock,
     ];
 
     /// The call as written: `vi.mock`, `jest.requireActual`.
@@ -118,12 +166,25 @@ impl MockCall {
             Self::JestRequireMock => "jest.requireMock",
             Self::JestCreateMockFromModule => "jest.createMockFromModule",
             Self::JestGenMockFromModule => "jest.genMockFromModule",
+            Self::RsMock => "rs.mock",
+            Self::RsMockRequire => "rs.mockRequire",
+            Self::RsDoMock => "rs.doMock",
+            Self::RsDoMockRequire => "rs.doMockRequire",
+            Self::RsUnmock => "rs.unmock",
+            Self::RsDoUnmock => "rs.doUnmock",
+            Self::RsUnmockRequire => "rs.unmockRequire",
+            Self::RsDoUnmockRequire => "rs.doUnmockRequire",
+            Self::RsImportActual => "rs.importActual",
+            Self::RsImportMock => "rs.importMock",
+            Self::RsRequireActual => "rs.requireActual",
+            Self::RsRequireMock => "rs.requireMock",
         }
     }
 
-    /// The call `object.property`, when it is one.
+    /// The call `object.property`, when it is one. `rstest` is an alias of `rs`.
     #[must_use]
     pub fn find(object: &str, property: &str) -> Option<Self> {
+        let object = if object == "rstest" { "rs" } else { object };
         Self::ALL
             .into_iter()
             .find(|call| call.as_str().split_once('.') == Some((object, property)))

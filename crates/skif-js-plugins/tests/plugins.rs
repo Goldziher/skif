@@ -3082,18 +3082,13 @@ fn serverless_framework_handlers_plugins_and_file_variables() {
         &[
             (
                 "serverless.yml",
-                "service: api\nplugins:\n  - serverless-offline\n  - ./plugins/local.js\ncustom:\n  esbuild:\n    inject: [./shims.js]\nfunctions:\n  hello:\n    handler: src/hello.main\n  typed:\n    handler: src/typed.ts.handler\n  more: ${file(./functions.yml):extra}\n  dynamic:\n    handler: ${self:custom.dir}/dynamic.main\n  glob:\n    handler: src/dynamic/*.main\n",
+                "service: api\nplugins:\n  - serverless-offline\n  - ./plugins/local.js\ncustom:\n  esbuild:\n    inject: [./shims.js]\n  dir: ${self:custom.base}/handlers\n  base: src\nfunctions:\n  hello:\n    handler: src/hello.main\n  typed:\n    handler: src/typed.ts.handler\n  more: ${file(./functions.yml):extra}\n  dynamic:\n    handler: ${self:custom.dir}/dynamic.main\n  staged:\n    handler: src/${opt:stage, 'dev'}/staged.main\n  missing:\n    handler: ${self:custom.none}/missing.main\n  fallback:\n    handler: ${self:custom.none, 'lib'}/fallback.main\n  within:\n    handler: src/fn-${opt:stage}.main\n  glob:\n    handler: src/jobs/*.main\n  any:\n    handler: ${opt:file}.main\n  anywhere:\n    handler: ${opt:dir}/${opt:file}.main\n",
             ),
             ("functions.yml", "extra:\n  handler: src/extra.run\n"),
         ],
         &["serverless"],
     );
     let out = output(&results, "serverless-framework");
-    assert!(
-        !out.production_entries.iter().any(|e| e.contains("dynamic")),
-        "{:?}",
-        out.production_entries
-    );
     assert_deps(out, &["serverless-offline", "esbuild"]);
     assert_entries(
         &out.production_entries,
@@ -3103,8 +3098,21 @@ fn serverless_framework_handlers_plugins_and_file_variables() {
             "plugins/local.js",
             "shims.js",
             "src/extra.{js,ts}",
+            "src/handlers/dynamic.{js,ts}",
+            "src/dev/staged.{js,ts}",
+            "**/missing.{js,ts}",
+            "lib/fallback.{js,ts}",
+            "src/fn-*.{js,ts}",
+            "src/jobs/*.{js,ts}",
         ],
     );
+    for any_file in ["*.{js,ts}", "**/*.{js,ts}", "**.{js,ts}"] {
+        assert!(
+            !out.production_entries.iter().any(|entry| entry == any_file),
+            "{any_file}: {:?}",
+            out.production_entries
+        );
+    }
 }
 
 #[test]
@@ -3131,6 +3139,24 @@ fn vue_reads_configure_webpack_and_the_lint_script() {
     let out = output(&results, "vue");
     assert_entries(&out.entries, &["src/admin.ts"]);
     assert_deps(out, &["markdown-loader", "@vue/cli-plugin-eslint"]);
+    let config = (
+        "vue.config.js",
+        r#"module.exports = { configureWebpack(config) { return { module: { rules: [{ test: /\.md$/, loader: "markdown-loader" }] } }; } };"#,
+    );
+    assert_deps(output(&resolve(&[config], &["vue"]), "vue"), &["markdown-loader"]);
+    let config = (
+        "vue.config.js",
+        r#"module.exports = { configureWebpack: (config) => { config.entry = { admin: "./src/admin.ts" }; config.plugins.push(new Plugin()); } };"#,
+    );
+    let results = resolve(&[config], &["vue"]);
+    let out = output(&results, "vue");
+    assert_entries(&out.entries, &["src/admin.ts"]);
+    assert!(!out.entries_incomplete);
+    let config = (
+        "vue.config.js",
+        r"module.exports = { configureWebpack(config) { config.entry = computeEntries(); } };",
+    );
+    assert!(output(&resolve(&[config], &["vue"]), "vue").entries_incomplete);
     let results = resolve_with_scripts(&[], &["vue"], &[("build", "vue-cli-service build && eslint lint")]);
     assert_absent(output(&results, "vue"), &["@vue/cli-plugin-eslint"]);
     let results = resolve_with_scripts(&[], &["vue"], &[("build", "vue-cli-service build --skip lint")]);
@@ -3546,6 +3572,81 @@ fn react_email_preview_commands_and_dir() {
     assert_entries(&out.entries, &["emails/**/*.tsx", "src/mail/**/*.tsx"]);
     let results = resolve_with_scripts(&[], &["react-email"], &[("export", "email export")]);
     assert_absent(output(&results, "react-email"), &["@react-email/ui"]);
+    let dev = [("dev", "email dev")];
+    let installed = (
+        "node_modules/react-email/package.json",
+        r#"{"name":"react-email","version":"5.2.1"}"#,
+    );
+    let declared = (
+        "package.json",
+        r#"{"name":"app","devDependencies":{"react-email":"^6.0.0"}}"#,
+    );
+    let results = resolve_with_scripts(&[installed, declared], &["react-email"], &dev);
+    let out = output(&results, "react-email");
+    assert_deps(out, &["@react-email/preview-server"]);
+    assert_absent(out, &["@react-email/ui"]);
+    let results = resolve_with_scripts(&[declared], &["react-email"], &dev);
+    let out = output(&results, "react-email");
+    assert_deps(out, &["@react-email/ui"]);
+    assert_absent(out, &["@react-email/preview-server"]);
+}
+
+#[test]
+fn react_email_looks_for_the_installed_version_up_to_the_workspace_root() {
+    let resolve_in = |files: &[(&str, &str)], dir: &str, is_root: bool| {
+        let mut fs = MemoryFs::new();
+        for (path, content) in files {
+            fs.insert(*path, content);
+        }
+        let dependencies = vec!["react-email".to_owned()];
+        let scripts: IndexMap<String, String> = [("dev".to_owned(), "email dev".to_owned())].into_iter().collect();
+        let plugins = IndexMap::new();
+        let ctx = PluginContext {
+            dir: Path::new(dir),
+            is_root,
+            package_name: Some("web"),
+            dependencies: &dependencies,
+            inherited_dependencies: &[],
+            scripts: &scripts,
+            fs: &fs,
+            plugins: &plugins,
+            modules: None,
+        };
+        resolve_plugins(&ctx)
+    };
+    let declared = r#"{"name":"web","devDependencies":{"react-email":"^6.0.0"}}"#;
+    let outside = r#"{"name":"react-email","version":"5.2.1"}"#;
+    // An installation above the root package belongs to another project: the declared range decides.
+    let results = resolve_in(
+        &[
+            ("/ws/package.json", declared),
+            ("/node_modules/react-email/package.json", outside),
+        ],
+        "/ws",
+        true,
+    );
+    let out = output(&results, "react-email");
+    assert_deps(out, &["@react-email/ui"]);
+    assert_absent(out, &["@react-email/preview-server"]);
+    // A member package finds the installation at the workspace root, and nothing above it.
+    let files = [
+        ("/ws/pnpm-workspace.yaml", "packages: [packages/*]\n"),
+        ("/ws/packages/web/package.json", declared),
+        ("/ws/node_modules/react-email/package.json", outside),
+    ];
+    let results = resolve_in(&files, "/ws/packages/web", false);
+    let out = output(&results, "react-email");
+    assert_deps(out, &["@react-email/preview-server"]);
+    assert_absent(out, &["@react-email/ui"]);
+    let files = [
+        ("/ws/pnpm-workspace.yaml", "packages: [packages/*]\n"),
+        ("/ws/packages/web/package.json", declared),
+        ("/node_modules/react-email/package.json", outside),
+    ];
+    let results = resolve_in(&files, "/ws/packages/web", false);
+    let out = output(&results, "react-email");
+    assert_deps(out, &["@react-email/ui"]);
+    assert_absent(out, &["@react-email/preview-server"]);
 }
 
 #[test]
@@ -3627,6 +3728,49 @@ fn sst_handlers_in_the_config_and_the_modules_it_imports() {
         ],
     );
     assert!(!out.entries_incomplete);
+}
+
+#[test]
+fn sst_reads_the_stacks_of_sst_2() {
+    let results = resolve(
+        &[
+            (
+                "sst.config.ts",
+                r#"import { SSTConfig } from "sst";
+                import { API } from "./stacks/API";
+                export default {
+                  config() { return { name: "app", region: "us-east-1" }; },
+                  stacks(app) { app.stack(API); },
+                } satisfies SSTConfig;"#,
+            ),
+            (
+                "stacks/API.ts",
+                r#"import { StackContext, Api, Cron, Queue, Topic } from "sst/constructs";
+                export function API({ stack }: StackContext) {
+                  const api = new Api(stack, "api", {
+                    routes: {
+                      "GET /": "packages/functions/src/list.main",
+                      "POST /": { function: "packages/functions/src/create.main", authorizer: "iam" },
+                      "PUT /": { function: { handler: "packages/functions/src/update.main" } },
+                    },
+                  });
+                  new Cron(stack, "cron", { schedule: "rate(1 day)", job: "packages/functions/src/cron.main" });
+                  new Queue(stack, "queue", { consumer: "packages/functions/src/consume.main" });
+                  new Topic(stack, "topic", { subscribers: { audit: "packages/functions/src/audit.main" } });
+                  stack.addOutputs({ url: api.url });
+                }"#,
+            ),
+        ],
+        &["sst"],
+    );
+    let out = output(&results, "sst");
+    let any = "{ts,tsx,mts,cts,js,jsx,mjs,cjs}";
+    let expected: BTreeSet<String> = ["list", "create", "update", "cron", "consume", "audit"]
+        .iter()
+        .map(|name| format!("packages/functions/src/{name}.{any}"))
+        .collect();
+    let actual: BTreeSet<String> = out.production_entries.iter().cloned().collect();
+    assert_eq!(actual, expected);
 }
 
 #[test]
@@ -3718,13 +3862,19 @@ fn stencil_global_files_tsconfig_and_setup() {
 #[test]
 fn eleventy_input_and_data_directories() {
     let results = resolve(
-        &[(
-            "eleventy.config.js",
-            r#"module.exports = function (eleventyConfig) {
+        &[
+            (
+                "eleventy.config.js",
+                r#"module.exports = function (eleventyConfig) {
               eleventyConfig.addPassthroughCopy("img");
+              eleventyConfig.addPassthroughCopy({ "site/js": "js", "static/*.mjs": "static" });
+              eleventyConfig.addPassthroughCopy("./node_modules/@fontsource/inter/index.css");
               return { dir: { input: "site", data: "data" }, templateFormats: ["md", "11ty.js"] };
             };"#,
-        )],
+            ),
+            ("img/logo.svg", "<svg/>"),
+            ("site/js/menu.js", ""),
+        ],
         &["@11ty/eleventy"],
     );
     let out = output(&results, "eleventy");
@@ -3734,8 +3884,12 @@ fn eleventy_input_and_data_directories() {
             "site/data/**/*.{js,cjs,mjs}",
             "site/**/*.{md,11ty.js}",
             "site/**/*.11tydata.{js,cjs,mjs}",
+            "img/**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}",
+            "site/js/**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}",
+            "static/*.mjs",
         ],
     );
+    assert_deps(out, &["@fontsource/inter"]);
 }
 
 #[test]
@@ -3947,12 +4101,59 @@ fn vercel_json_commands_are_scripts() {
 }
 
 #[test]
+fn rstest_exclude_and_negated_include_are_negated_entries() {
+    let results = resolve(
+        &[
+            (
+                "rstest.config.ts",
+                r#"export default { projects: [
+                  { root: "app", include: ["src/**/*.test.ts", "!src/**/*.skip.test.ts"], exclude: ["src/legacy/**"] },
+                  { root: "web", exclude: { patterns: ["**/e2e/**"], override: false } },
+                ] };"#,
+            ),
+            ("app/src/a.test.ts", ""),
+            ("app/src/legacy/b.test.ts", ""),
+        ],
+        &["@rstest/core"],
+    );
+    let out = output(&results, "rstest");
+    let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
+    assert_eq!(
+        entries,
+        BTreeSet::from([
+            "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "**/__mocks__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "app/src/**/*.test.ts",
+            "!app/src/**/*.skip.test.ts",
+            "app/**/__mocks__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "!app/src/legacy/**",
+            "web/**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "web/**/__mocks__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+            "!web/**/e2e/**",
+        ])
+    );
+    let defaults = [
+        "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+        "**/__mocks__/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+    ];
+    let config = (
+        "rstest.config.ts",
+        r#"export default { include: ["tests/**/*.check.ts"] };"#,
+    );
+    let results = resolve(&[config], &["@rstest/core"]);
+    let out = output(&results, "rstest");
+    assert_entries(&out.entries, &["tests/**/*.check.ts"]);
+    assert_entries(&out.entries, &defaults);
+    assert_entries(&output(&resolve(&[], &["@rstest/core"]), "rstest").entries, &defaults);
+}
+
+#[test]
 fn taskfile_tasks_and_includes() {
     let results = resolve(
         &[
             (
                 "Taskfile.yml",
-                "version: '3'\nincludes:\n  docs: ./docs/Taskfile.yml\n  other:\n    taskfile: ./other.yml\ntasks:\n  build: tsc -b\n  release: '{{.TOOL}} publish'\n  fmt:\n    cmds:\n      - 'node {{.SCRIPT}}'\n  lint:\n    cmds:\n      - eslint .\n      - cmd: node scripts/check.js\n        defer: { cmd: node scripts/cleanup.js }\n",
+                "version: '3'\nvars:\n  SCRIPT: scripts/fmt.js\n  DYNAMIC:\n    sh: echo scripts/x.js\nincludes:\n  docs: ./docs/Taskfile.yml\n  other:\n    taskfile: ./other.yml\n  computed: '{{.DIR}}/Taskfile.yml'\ntasks:\n  build: tsc -b\n  release: '{{.TOOL}} publish'\n  fmt:\n    cmds:\n      - 'node {{.SCRIPT}}'\n      - 'node {{.DYNAMIC}}'\n  gen:\n    vars:\n      SCRIPT: scripts/gen.js\n    cmds:\n      - 'node {{ .ROOT_DIR }}/{{.SCRIPT}} --out {{.CLI_ARGS}}'\n  lint:\n    cmds:\n      - eslint .\n      - cmd: node scripts/check.js\n        defer: { cmd: node scripts/cleanup.js }\n",
             ),
             ("docs/Taskfile.yml", "version: '3'\ntasks:\n  docs:\n    cmd: typedoc\n"),
         ],
@@ -3966,21 +4167,89 @@ fn taskfile_tasks_and_includes() {
             out.referenced_binaries
         );
     }
-    assert_entries(&out.entries, &["scripts/check.js", "scripts/cleanup.js"]);
+    assert_entries(
+        &out.entries,
+        &[
+            "scripts/check.js",
+            "scripts/cleanup.js",
+            "scripts/fmt.js",
+            "scripts/gen.js",
+        ],
+    );
     assert!(
-        !out.referenced_binaries.iter().any(|binary| binary.contains("{{")),
+        !out.referenced_binaries
+            .iter()
+            .any(|binary| binary.contains("{{") || binary.contains('$')),
         "{:?}",
         out.referenced_binaries
     );
     assert!(
-        !out.entries.iter().any(|entry| entry.contains("{{")),
+        !out.entries
+            .iter()
+            .any(|entry| entry.contains("{{") || entry.contains('$') || entry.contains("x.js")),
         "{:?}",
         out.entries
     );
+    assert!(!out.config_files.iter().any(|file| file.to_string_lossy().contains('$')));
     let results = resolve(&[("taskfile.dist.yaml", "version: '3'\n")], &[]);
     output(&results, "taskfile");
     let nested = resolve_with(&[("Taskfile.yml", "version: '3'\n")], &[], false, &IndexMap::new());
     assert!(!nested.iter().any(|(id, _)| *id == "taskfile"), "root only");
+}
+
+#[test]
+fn mise_file_tasks_are_entries_and_scripts() {
+    let results = resolve(
+        &[
+            ("mise.toml", "[tools]\nnode = \"22\"\n"),
+            ("mise-tasks/build", "#!/usr/bin/env bash\nset -e\nnode scripts/gen.js\n"),
+            ("mise-tasks/release.ts", "#!/usr/bin/env -S npx tsx\nconsole.log(1);\n"),
+            ("mise-tasks/py", "#!/usr/bin/env python3\nimport os\n"),
+            ("mise-tasks/README", "Run node docs/readme.js\n"),
+            ("mise-tasks/README.md", "Run node docs/not-a-task.js\n"),
+            ("mise-tasks/NOTES", "node docs/notes.js\n"),
+            ("mise-tasks/a.sh", "# [MISE] dir=\"a\"\nnode a.js\n"),
+            ("mise-tasks/b.sh", "# MISE dir=b\nnode b.js\n"),
+            (
+                ".config/mise/tasks/lint/web.sh",
+                "#!/bin/sh\n#MISE dir=\"web\"\nnode check.js\n",
+            ),
+        ],
+        &[],
+    );
+    let out = output(&results, "mise");
+    let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
+    assert_eq!(
+        entries,
+        BTreeSet::from([
+            "scripts/gen.js",
+            "mise-tasks/release.ts",
+            "a/a.js",
+            "b/b.js",
+            "web/check.js"
+        ])
+    );
+    assert!(
+        out.referenced_binaries.contains(&"tsx".to_owned()),
+        "the shebang runs the task with tsx: {:?}",
+        out.referenced_binaries
+    );
+}
+
+#[test]
+fn mise_task_includes_replace_the_default_file_task_dirs() {
+    let results = resolve(
+        &[
+            ("mise.toml", "[task_config]\nincludes = [\"tasks\", \"more.toml\"]\n"),
+            ("mise-tasks/build", "#!/usr/bin/env bash\nnode scripts/gen.js\n"),
+            ("tasks/deploy.sh", "node deploy.js\n"),
+            ("tasks/deploy", "node not-a-shell-file.js\n"),
+        ],
+        &[],
+    );
+    let out = output(&results, "mise");
+    let entries: BTreeSet<&str> = out.entries.iter().map(String::as_str).collect();
+    assert_eq!(entries, BTreeSet::from(["deploy.js"]));
 }
 
 #[test]

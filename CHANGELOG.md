@@ -11,6 +11,29 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Eight plugins read more of their configs, still without running them
+  ([ADR 0078](adrs/0078-plugin-gaps-config-functions-file-tasks-and-templates.md),
+  [#103](https://github.com/Goldziher/skif/issues/103)):
+  - `sst` reads the handler shorthand of SST 2 constructs in the stacks `sst.config.ts` imports (`routes`,
+    `subscribers`, `notifications`, `targets`, and `function`, `job` and `consumer` strings).
+  - `serverless-framework` expands `${self:…}` variables and quoted fallbacks in a `handler`, reads any other
+    variable as a `**` or `*` wildcard and takes a glob handler as an entry glob.
+  - `vue` calls a function `configureWebpack` statically with a base config and reads its result.
+  - `eleventy` reads `addPassthroughCopy` calls.
+  - `rstest` applies `exclude` and negated `include` patterns as `!` entries, which the default test globs do not
+    override. `rs.mock()` and the other `rs` and `rstest` module calls are mock imports.
+  - `mise` reads file tasks (`mise-tasks/`, `.mise/tasks/`, `.config/mise/tasks/`, ..., or `task_config.includes`,
+    which replaces them).
+  - `taskfile` expands `{{.NAME}}` templates from `vars`, `ROOT_DIR` and `TASKFILE_DIR`, and reads the rest of a
+    command around any other template.
+  - `react-email` credits only the preview server package of the installed (else declared) major version.
+- `skif-js-syntax` exports `extract_property_calls`, which calls a function property of a config statically, and
+  `extract_method_calls`, which evaluates the arguments of method calls.
+
+### Changed
+
+- The parse cache schema is raised to 2, as `rs` and `rstest` mock calls are now mock imports: a `--cache` store
+  written by an earlier build is not trusted and is rebuilt on the next run.
 - `unlisted-binaries` judges the commands that plugins read from the files of their tools (workflow steps, Git
   hooks, `lint-staged` tasks and other configs that hold commands) and the calls of `execa`, `zx` and `nano-spawn`,
   and reports a binary no dependency provides at the file that runs it. The literal commands of `exec`, `execSync`,
