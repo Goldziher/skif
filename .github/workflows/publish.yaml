@@ -780,6 +780,11 @@ jobs:
           - { target: aarch64-pc-windows-msvc, os: windows-11-arm }
         # ADR 0027: every non-end-of-life Node line (22, 24 and 26) and the newest Bun 1.x.
         runtime: [node-22, node-24, node-26, bun]
+        # The Node line setup-node installs for each node-* runtime.
+        include:
+          - { runtime: node-22, node: "22" }
+          - { runtime: node-24, node: "24" }
+          - { runtime: node-26, node: "26" }
     defaults:
       run:
         shell: bash
@@ -801,18 +806,11 @@ jobs:
           name: bindings-${{ matrix.platform.target }}
           path: npm-package
 
-      - name: Select the Node.js line
-        id: node
-        if: ${{ matrix.runtime != 'bun' }}
-        env:
-          RUNTIME: ${{ matrix.runtime }}
-        run: echo "major=${RUNTIME#node-}" >> "$GITHUB_OUTPUT"
-
       - name: Setup Node.js
         if: ${{ matrix.runtime != 'bun' }}
         uses: actions/setup-node@v7
         with:
-          node-version: ${{ steps.node.outputs.major }}
+          node-version: ${{ matrix.node }}
 
       - name: Setup Bun
         if: ${{ matrix.runtime == 'bun' }}
@@ -960,6 +958,11 @@ jobs:
         os: [ubuntu-latest, windows-latest, windows-11-arm]
         # ADR 0027: every non-end-of-life Node line (22, 24 and 26) and the newest Bun 1.x.
         runtime: [node-22, node-24, node-26, bun]
+        # The Node line setup-node installs for each node-* runtime.
+        include:
+          - { runtime: node-22, node: "22" }
+          - { runtime: node-24, node: "24" }
+          - { runtime: node-26, node: "26" }
     defaults:
       run:
         shell: bash
@@ -978,18 +981,11 @@ jobs:
           tools: node
 
       # mise.lock has no windows-arm64 entry, so Windows takes the Node line from setup-node.
-      - name: Select the Node.js line
-        id: node
-        if: ${{ matrix.runtime != 'bun' && runner.os == 'Windows' }}
-        env:
-          RUNTIME: ${{ matrix.runtime }}
-        run: echo "major=${RUNTIME#node-}" >> "$GITHUB_OUTPUT"
-
       - name: Setup Node.js (Windows)
         if: ${{ matrix.runtime != 'bun' && runner.os == 'Windows' }}
         uses: actions/setup-node@v7
         with:
-          node-version: ${{ steps.node.outputs.major }}
+          node-version: ${{ matrix.node }}
 
       - name: Setup Bun
         if: ${{ matrix.runtime == 'bun' }}
