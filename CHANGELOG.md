@@ -11,6 +11,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`,
+  `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such
+  as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
+  ([#110](https://github.com/Goldziher/skif/issues/110)).
 - The GitHub Action, pre-commit and Poly examples in the README and the docs pin the 0.2 line (`Goldziher/skif@v0.2`,
   `v0.2.0`) instead of 0.1. `scripts/release-bump.sh` now rewrites these pins on every final release, and
   `scripts/check-doc-pins.sh` fails CI when one is not on the workspace version's release line
