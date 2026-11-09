@@ -111,6 +111,46 @@ sherif saw no mismatch. The report says so for each such entry. Where that matte
 The [GitHub Action](../integrations/#github-action) applies this translation on its own to a project that has no skif
 configuration yet, so a job that replaces sherif keeps its flags.
 
+### Fixed relative to sherif
+
+Porting the rules fixed these behaviours of sherif 1.13.0. The ones marked **changes results** can make a CI job that
+moves from sherif to skif report something sherif did not, or exit with a different code, on an unchanged repository.
+
+- **Prerelease ordering.** sherif lets the prerelease tag decide the order before the version numbers, so
+  `15.0.0-rc.0` ranks below `14.2.3` and `--fix --select highest` rewrites the prerelease to the older stable version
+  ([QuiiBz/sherif#164](https://github.com/QuiiBz/sherif/issues/164)). skif orders versions as npm does: a prerelease
+  ranks below its own release only, so `version-mismatch` aligns on `15.0.0-rc.0` and reports `14.2.3`.
+  **Changes results**: the package reported, and the version a fix writes, can differ.
+- **Ranges and dist-tags are compared.** sherif leaves out of `multiple-dependency-versions` every specifier its
+  parser rejects: npm ranges such as `>=1.2.0 <2.0.0` or `^1.0.0 || ^2.0.0`, and dist-tags such as `latest`. skif
+  parses npm's range syntax, so these take part in `version-mismatch`; `latest` or a dist-tag that differs from the
+  other specifiers is reported as a mismatch that has no fix. **Changes results**: new `version-mismatch` errors.
+- **Workspace patterns follow pnpm.** sherif expands `**` one level deep, reads a negation as a literal directory (so
+  `!**/test/**` excludes nothing), and matches a name prefix below the root (`packages/foo-*`) against the whole
+  pattern, so it finds nothing there. skif matches `**` at any depth (only directories with a `package.json`, so the
+  directories in between are not reported as missing a manifest;
+  [QuiiBz/sherif#161](https://github.com/QuiiBz/sherif/issues/161)), applies glob negations such as `!**/test/**`, and
+  matches `packages/foo-*`. **Changes results**: packages sherif skipped are linted.
+- **The install step.** After a fix sherif picks the package manager from the lockfiles of the current directory,
+  asks when there is none, and runs it in the current directory; on Windows it cannot start the `.cmd` shim corepack
+  installs ([QuiiBz/sherif#110](https://github.com/QuiiBz/sherif/issues/110)). skif takes the `packageManager` field
+  first, then the lockfiles of the workspace root, never asks, runs the install in the workspace root, and finds the
+  executable through `PATHEXT`.
+- **CI detection.** sherif refuses `--fix` whenever `CI` is set, including `CI=false`. skif refuses it only when `CI`
+  is truthy: set, not empty, and not `0`, `false`, `no` or `off`.
+- **Exit codes.** sherif exits `1` both for findings and when it cannot run (no workspace declaration, an invalid
+  `package.json`, a failed install). skif exits `1` for findings only and `2` when it cannot run (see
+  [Exit codes](../../reference/cli/#exit-codes)). **Changes results**: a script that tests for exit `1` misses a run
+  that failed.
+- **No workspace declaration.** sherif stops with an error when the root has neither `workspaces` nor
+  `pnpm-workspace.yaml`. skif lints such a package on its own (see
+  [Single packages](../workspaces/#single-packages)). **Changes results**: a run that failed now reports findings.
+
+skif also covers an open sherif request: `incompatible-peer-dependencies` (a warning by default) reports a
+`devDependencies` version outside the package's own `peerDependencies` range
+([QuiiBz/sherif#63](https://github.com/QuiiBz/sherif/issues/63)); with `fail-on-warnings` it fails the run. The rules
+skif adds beyond sherif's are listed under the [report](#the-report)'s extra checks.
+
 ## syncpack
 
 | syncpack | skif |
