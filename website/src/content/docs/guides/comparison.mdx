@@ -21,8 +21,11 @@ runs both tools on a pinned corpus of public repositories and compares the findi
 where they model things differently, for example in which files count as unused (skif makes test files entries and
 does not report files in `fixtures` directories), and in how a namespace import is read. The harness names the
 intended differences and counts them apart, as it does findings in packages skif does not judge (a tool config it
-cannot read) and in packages where knip could not load a config; see the
-[benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md).
+cannot read) and in packages where knip could not load a config. It also sets apart what follows from where each tool
+looks, decided from paths and manifests: projects with their own `package.json` that are not knip workspaces (knip
+neither judges their dependencies nor uses their entry files, while skif lints them as roots of their own),
+directories skif's file discovery skips, and TypeScript sources whose built path a package publishes, which skif
+makes entries; see the [benchmark harness](https://github.com/Goldziher/skif/blob/main/tools/bench/README.md).
 
 ## Configuration
 

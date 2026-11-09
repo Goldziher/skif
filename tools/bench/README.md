@@ -142,16 +142,46 @@ skif when all do. A skif finding knip has under another of these labels counts a
 **Known deviations.** Findings on one side below a path in a repository's `knip-unread` list are the `knip-unread`
 deviation: knip reads no files there, as npm's deny-all `.gitignore` hides its workspaces, so it reports every
 dependency there as unused and says nothing about the files. In `files`, a file only knip reports is not counted as a
-difference when it is outside skif's project set (`non-code-file`), below a `fixtures` or `__fixtures__` directory,
-which skif does not report unless `[js] include-fixtures` is set (`fixture-file`; other test-data names such as
-`testdata` or `*-fixtures` are judged by skif and not counted here), or a test file or any file below a test directory
-(`test-file`); those are reported in their own column and section, with the reason, and `--check` ignores them. Most
-`test-file` findings are test files, which skif's test-runner plugins make entries, or test helpers and setup files;
-in next.js thousands are the app files of test fixtures below test directories, which are not test entries. The
-harness sets them apart by path, without establishing why skif does not report each one.
-`--include-test-files` counts `fixture-file` and `test-file` as differences (not usable with a baseline, nor is
-`--repo-knip-config`). See [ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md) and
+difference when it is outside skif's project set (`non-code-file`) or a test file or any file below a test directory
+(`test-file`). A finding only knip reports below a `fixtures` or `__fixtures__` directory is `fixture-file` in the
+issue types skif does not report there: files, exports, types and members unless `[js] include-fixtures` is set, and
+unresolved imports and unlisted dependencies at all (other test-data names such as `testdata` or `*-fixtures` are
+judged by skif and not counted here). Those are reported in their own column and section, with the reason, and
+`--check` ignores them. Most `test-file` findings are test files, which skif's test-runner plugins make entries, or
+test helpers and setup files; in next.js thousands are the app files of test fixtures below test directories, which
+are not test entries. The harness sets them apart by path, without establishing why skif does not report each one.
+`--include-test-files` counts the `files` of `fixture-file` and `test-file` as differences (not usable with a
+baseline, nor is `--repo-knip-config`). See
+[ADR 0030](../../adrs/0030-harness-known-deviations-and-comparison-scope.md) and
 [ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart.md).
+
+**Where each tool looks.** knip's workspaces are the root and the members its patterns select (`pnpm-workspace.yaml`
+or the `workspaces` of `package.json`); the harness reads them with skif's workspace discovery and records their
+number in `parity.json` (`workspace_members`). A project directory is one whose `package.json` has a field besides
+`type`, `sideEffects` and `imports`. Four more known deviations follow from these facts, each decided by path and
+manifest, not by listing findings:
+
+- `knip-unjudged-manifest`: an unused dependency or a script binary only skif reports, on a `package.json` that is not
+  one of knip's workspaces and that knip reports nothing on. knip judges its workspaces' manifests only; skif's
+  recursive run lints a nested project as a root of its own.
+- `non-member-project`: an unused file only knip reports, or an unlisted dependency only knip reports that the file's
+  own manifest lists, below a project directory that is not one of knip's workspaces. knip counts those files to an
+  enclosing workspace without their own manifest's entries and dependencies; skif's analysis of the enclosing
+  workspace skips the directory.
+- `skipped-directory`: a finding only knip reports in a file below a directory skif's file discovery skips by name
+  (`node_modules`, `dist`, `.next`, `.vercel` and the other build output names, `out`, `target` and `coverage`
+  directly in a package directory, and hidden directories other than tool ones such as `.github`), unless the
+  directory is a workspace member.
+- `published-source`: an unused TypeScript file only knip reports whose path its package publishes with a built
+  extension (`main`, `module`, `types`, `bin`, an `exports` leaf with `*` patterns, as `.js`, `.mjs`, `.cjs`, `.jsx` or
+  a `.d.ts` variant). skif makes the source beside a published path an entry; knip maps a published path to source
+  only through a tsconfig `outDir`. Paths mapped through a build directory (`out/main.js` to `src/main.ts`) stay
+  compared.
+
+`non-member-project` and `published-source` check where a finding is, not why skif has no finding there. Unlisted
+dependencies a `declare module` satisfies, and npm's `lib/commands` files that skif reaches through a computed
+`require` in `lib/npm.js`, stay compared: the harness cannot check them from its data. See
+[ADR 0080](../../adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md).
 
 **Not judged by skif.** skif lists under `incomplete-packages` in its JSON report the packages whose entry files it
 cannot all know (a tool config it cannot read), and does not report their unused dependencies, exports, types and
@@ -212,7 +242,10 @@ the categories of [ADR 0068](../../adrs/0068-what-the-knip-comparison-sets-apart
 opencode and rules-js (whose installs fetch tarballs from `codeload.github.com`) and of vercel-examples and next-js
 (whose installs did not fit the disk) predate them, and the per-repository `entry` lists and recursive runs of
 [#27](https://github.com/Goldziher/skif/issues/27), so they still need a
-`mise run parity -- --install --write-baseline --only <name>` refresh before `--check` means anything for them. The
+`mise run parity -- --install --write-baseline --only <name>` refresh before `--check` means anything for them. Every
+entry predates the categories of
+[ADR 0080](../../adrs/0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md), so
+all of them need that refresh. The
 scheduled `corpus` workflow (`.github/workflows/corpus.yml`, weekly and on demand, never on pull requests) runs both
 checks. The decision is [ADR 0026](../../adrs/0026-parity-and-diff-tasks-on-a-pinned-corpus.md).
 
