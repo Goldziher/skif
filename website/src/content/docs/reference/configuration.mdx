@@ -398,8 +398,8 @@ ignored. `skif migrate` copies a knip pattern as written, so run `skif` once aft
 reported with the compiler's message. A pattern that does not compile is a configuration error. An entry ending in
 `!` applies in production mode only (`"left!"`).
 
-**`ignore-unresolved`** lists import specifiers that are never reported by `unresolved-imports`, at the top level and
-per workspace. `ignore-dependencies` also silences `unresolved-imports` for a matching specifier, because plugins
+**`ignore-unresolved`** lists import specifiers that are never reported by `unresolved-imports` or `stale-mocks`, at the
+top level and per workspace. `ignore-dependencies` also silences both for a matching specifier, because plugins
 declare virtual modules through it; use `ignore-unresolved` for your own. Two small differences from knip remain:
 an unresolved import is located at the start of its statement, not at the specifier, and `import "./dir"` of a
 directory with neither an index file nor a `package.json` is reported where knip is silent. A directory with a
@@ -632,7 +632,9 @@ as used, unless a parameter or local of the same name shadows it; the declaratio
 members. A file that another loads with `new URL("./x", import.meta.url)` is used as a whole. A module that a test mocks
 (`vi.mock("x")`, `jest.mock("x")`, `jest.requireActual("x")` and the like, read from the syntax tree, so a call written
 inside a string does not count) stays reachable, and a listed package it names is used, but mocking a package that no
-`package.json` lists is not an unlisted import; a `{ virtual: true }` mock is ignored. In an n8n node package the files
+`package.json` lists is not an unlisted import; a `{ virtual: true }` mock is ignored. A relative or aliased mock
+whose module does not exist (`vi.mock("./gone")`; a query such as `?react` is dropped before resolving) is reported by
+`stale-mocks` (a warning), not by `unresolved-imports`; a package name that resolves to nothing is not reported. In an n8n node package the files
 listed in `package.json` `n8n.nodes` and `n8n.credentials` are entries; a `dist/nodes/A.node.js` there maps to
 `nodes/A.node.ts`, since such packages compile without a `rootDir`. The `vite` and `vitest` plugins honour Vite's
 `root` (relative to the config file): `root: "src"` makes the scripts of `src/index.html` entries, and a `/`-rooted

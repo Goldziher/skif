@@ -542,7 +542,8 @@ fn rule_metadata_is_stable() {
     assert!(defaults.contains(&("unused-files", true)));
     assert!(defaults.contains(&("circular-imports", false)));
     assert!(defaults.contains(&("stale-js-config", true)));
-    assert_eq!(defaults.len(), 17);
+    assert!(defaults.contains(&("stale-mocks", true)));
+    assert_eq!(defaults.len(), 18);
 }
 
 #[test]
@@ -580,6 +581,74 @@ fn use_tsconfig_files_takes_the_project_from_the_tsconfig() {
 fn test_mocks_snapshot() {
     let diagnostics = Run::new("test-mocks", "").lint_with_plugins();
     insta::assert_json_snapshot!("test_mocks", diagnostics);
+}
+
+/// A test-runner mock of a module that does not exist is a `stale-mocks` warning, not an unresolved import: for the
+/// `vi` and `jest` calls, relative and aliased specifiers, and a `?react` specifier with its query dropped. A mock of a
+/// module that exists, a virtual mock and a mock of a package are not reported (#111).
+#[test]
+fn stale_mocks_snapshot() {
+    let diagnostics = Run::new("stale-mocks", "").lint_with_plugins();
+    insta::assert_json_snapshot!("stale_mocks", diagnostics);
+}
+
+#[test]
+fn a_mock_of_a_missing_module_is_a_stale_mock_not_an_unresolved_import() {
+    let diagnostics = Run::new("stale-mocks", "").lint_with_plugins();
+    assert_eq!(
+        found(&diagnostics, "stale-mocks"),
+        [
+            "src/a.test.ts: vi.mock('./gone')",
+            "src/legacy.test.ts: jest.mock('./gone-jest')",
+            "src/legacy.test.ts: jest.doMock('./gone-jest-do-mock')",
+            "src/legacy.test.ts: jest.requireActual('./gone-required')",
+            "src/variants.test.ts: vi.doMock('./gone-do-mock')",
+            "src/variants.test.ts: vi.unmock('./gone-unmock')",
+            "src/variants.test.ts: vi.mock('./missing-icon.svg?react')",
+            "src/variants.test.ts: vi.mock('@/lib/gone')",
+            "src/variants.test.ts: vi.importActual('./gone-actual')",
+        ],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        found(&diagnostics, "unresolved-imports"),
+        ["src/variants.test.ts: ./missing-import"],
+        "an import that resolves to nothing is still an unresolved import"
+    );
+    let repro = only(&diagnostics, "stale-mocks", "vi.mock('./gone')");
+    assert_eq!(repro.message, "`vi.mock('./gone')` mocks a module that does not exist");
+    assert_eq!(repro.severity, skif_core::Severity::Warning);
+    assert_eq!(
+        found(&diagnostics, "unlisted-dependencies"),
+        none(),
+        "a mocked package is not unlisted"
+    );
+    assert_eq!(
+        found(&diagnostics, "unused-files"),
+        none(),
+        "a mocked module stays reachable"
+    );
+}
+
+#[test]
+fn ignore_unresolved_silences_a_stale_mock() {
+    let diagnostics =
+        Run::new("stale-mocks", "[js]\nignore-unresolved = [\"./gone\", \"@/lib/gone\"]").lint_with_plugins();
+    let stale = found(&diagnostics, "stale-mocks");
+    assert!(!stale.iter().any(|d| d.ends_with("vi.mock('./gone')")), "{stale:?}");
+    assert!(!stale.iter().any(|d| d.contains("@/lib/gone")), "{stale:?}");
+    assert_eq!(stale.len(), 7, "{stale:?}");
+    assert_eq!(found(&diagnostics, "stale-js-config"), none(), "both entries matched");
+}
+
+#[test]
+fn stale_mocks_can_be_turned_off_without_bringing_the_mocks_back_as_unresolved_imports() {
+    let diagnostics = Run::new("stale-mocks", "[rules]\nstale-mocks = \"off\"").lint_with_plugins();
+    assert_eq!(found(&diagnostics, "stale-mocks"), none());
+    assert_eq!(
+        found(&diagnostics, "unresolved-imports"),
+        ["src/variants.test.ts: ./missing-import"]
+    );
 }
 
 /// Imports inside `declare module` bodies use the packages they name (#20).
