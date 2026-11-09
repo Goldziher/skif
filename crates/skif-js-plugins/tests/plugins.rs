@@ -3082,18 +3082,13 @@ fn serverless_framework_handlers_plugins_and_file_variables() {
         &[
             (
                 "serverless.yml",
-                "service: api\nplugins:\n  - serverless-offline\n  - ./plugins/local.js\ncustom:\n  esbuild:\n    inject: [./shims.js]\nfunctions:\n  hello:\n    handler: src/hello.main\n  typed:\n    handler: src/typed.ts.handler\n  more: ${file(./functions.yml):extra}\n  dynamic:\n    handler: ${self:custom.dir}/dynamic.main\n  glob:\n    handler: src/dynamic/*.main\n",
+                "service: api\nplugins:\n  - serverless-offline\n  - ./plugins/local.js\ncustom:\n  esbuild:\n    inject: [./shims.js]\n  dir: ${self:custom.base}/handlers\n  base: src\nfunctions:\n  hello:\n    handler: src/hello.main\n  typed:\n    handler: src/typed.ts.handler\n  more: ${file(./functions.yml):extra}\n  dynamic:\n    handler: ${self:custom.dir}/dynamic.main\n  staged:\n    handler: src/${opt:stage, 'dev'}/staged.main\n  missing:\n    handler: ${self:custom.none}/missing.main\n  glob:\n    handler: src/jobs/*.main\n",
             ),
             ("functions.yml", "extra:\n  handler: src/extra.run\n"),
         ],
         &["serverless"],
     );
     let out = output(&results, "serverless-framework");
-    assert!(
-        !out.production_entries.iter().any(|e| e.contains("dynamic")),
-        "{:?}",
-        out.production_entries
-    );
     assert_deps(out, &["serverless-offline", "esbuild"]);
     assert_entries(
         &out.production_entries,
@@ -3103,6 +3098,10 @@ fn serverless_framework_handlers_plugins_and_file_variables() {
             "plugins/local.js",
             "shims.js",
             "src/extra.{js,ts}",
+            "src/handlers/dynamic.{js,ts}",
+            "src/*/staged.{js,ts}",
+            "*/missing.{js,ts}",
+            "src/jobs/*.{js,ts}",
         ],
     );
 }

@@ -1,5 +1,7 @@
 //! Serverless Framework: the handler file of every function, local plugins and plugin packages, and the esbuild
 //! `inject` files of `serverless.yml`. A `${file(./x.yml)}` or `${file(./x.yml):key}` variable is read from that file.
+//! In a handler, a `${self:a.b}` variable is replaced by the string the config holds there, and any other variable
+//! (`${opt:stage}`, `${env:DIR}`), known only when the CLI runs, by a `*` wildcard; a handler may be a glob.
 
 use std::borrow::Cow;
 
@@ -40,7 +42,7 @@ impl Plugin for ServerlessFramework {
                 for (_, function) in entries {
                     let function = file_variable(function, config, cx);
                     if let Some(handler) = function.get("handler").and_then(ConfigValue::as_str) {
-                        out.extend(handler_entry(handler, config));
+                        out.extend(handler_entry(&expand_variables(handler, value, 0), config));
                     }
                 }
             }
@@ -78,10 +80,58 @@ fn values_or_self(value: &ConfigValue) -> Vec<&ConfigValue> {
     }
 }
 
+/// How many `${self:…}` variables may lead to one another before the rest are wildcards.
+const MAX_VARIABLE_DEPTH: u8 = 8;
+
+/// `text` with every `${…}` variable replaced: a `${self:a.b}` by the string at `a.b` of the config `root`, itself
+/// expanded, and anything else (another source, a missing or non-string value, a nested variable) by `*`.
+fn expand_variables(text: &str, root: &ConfigValue, depth: u8) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("${") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        let Some(end) = closing_brace(after) else {
+            out.push('*');
+            return out;
+        };
+        out.push_str(&variable_value(&after[..end], root, depth));
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The byte index of the `}` that closes a variable whose text starts `text`.
+fn closing_brace(text: &str) -> Option<usize> {
+    let mut depth = 0_u32;
+    for (index, c) in text.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' if depth == 0 => return Some(index),
+            '}' => depth -= 1,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The value of the variable `inner` (the text between `${` and `}`); see [`expand_variables`].
+fn variable_value(inner: &str, root: &ConfigValue, depth: u8) -> String {
+    let reference = inner.split(',').next().unwrap_or_default().trim();
+    let resolved = reference
+        .strip_prefix("self:")
+        .filter(|path| depth < MAX_VARIABLE_DEPTH && !path.is_empty() && !path.contains(['$', '{']))
+        .and_then(|path| get_in(root, &path.split('.').collect::<Vec<_>>()))
+        .and_then(ConfigValue::as_str)
+        .map(|value| expand_variables(value, root, depth + 1));
+    resolved.unwrap_or_else(|| "*".to_owned())
+}
+
 /// The production entry of a `handler` (`src/handler.main`): the module before the last `.`, with a source extension
-/// when it has none. A handler holding a variable (`${self:custom.dir}/x.main`) or a pattern is not a path and is skipped.
+/// when it has none. Variables are already expanded; a glob stays a glob.
 fn handler_entry(handler: &str, config: &ConfigAst<'_>) -> Option<PluginInput> {
-    if handler.contains(['$', '`', '*', '{', '}']) {
+    if handler.contains(['$', '`']) {
         return None;
     }
     let (file, _) = handler.rsplit_once('.')?;
