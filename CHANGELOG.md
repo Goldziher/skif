@@ -18,10 +18,18 @@ All notable changes to this project are documented here. The format follows
   read as well, as knip reads them ([ADR 0076](adrs/0076-binaries-run-outside-scripts-and-unlisted-corrections.md),
   [#97](https://github.com/Goldziher/skif/issues/97)). `ModuleInfo` gains `commands`, `PluginOutput` gains
   `run_binaries`, `PluginInput` gains `SourceScript`, `WorkspaceInputs` gains `run_binaries`, `UnlistedBinary`
-  gains `file`, and the module cache schema moves to 2.
+  gains `file`, and the module cache schema moves to 2. The commands of CI workflows, Git hooks and task runners
+  judge only the binaries they reach through a package manager or a `node_modules/.bin` path, as knip's
+  `optionalBinaries` does (`PluginSpec` gains `optional_binaries`, `BinaryUse` gains `bin_path`), and a GitHub
+  Actions step whose `shell` is not a POSIX shell is not read.
 
 ### Fixed
 
+- The script parser skips the bodies of here-documents, does not read `case` patterns as commands and does not
+  report the functions a script defines as binaries; a command a source file runs follows the scripts of its package
+  (`execSync('pnpm build')`); and more system and platform tools (`taskkill`, `xcode-select`, `sysctl`, `osascript`,
+  `powershell.exe`, compilers) count as global binaries
+  ([ADR 0076](adrs/0076-binaries-run-outside-scripts-and-unlisted-corrections.md)).
 - A dependency named like a binary is assumed to provide it only while its manifest is unknown: when the installed
   or locked manifest has no such binary (the `stripe` SDK beside a `stripe listen` script), `unlisted-binaries`
   reports the binary ([#97](https://github.com/Goldziher/skif/issues/97)).
