@@ -297,7 +297,10 @@ fn an_import_that_resolves_through_hoisted_node_modules_keeps_the_package_json_a
             r#"{"name":"lodash","version":"4.17.21","main":"lodash.js"}"#,
         ),
         ("node_modules/lodash/lodash.js", "module.exports = {};\n"),
-        ("node_modules/lodash/merge.js", "module.exports = function merge() {};\n"),
+        (
+            "node_modules/lodash/merge.js",
+            "module.exports = function merge() {};\n",
+        ),
     ]);
     assert_package_json_advice(&lint(&files), "lodash");
 }
@@ -346,5 +349,8 @@ fn inherited_paths_name_the_config_that_declares_them() {
         "{}",
         unlisted[0].message
     );
-    assert_eq!(unlisted[0].related[0].location.path, PathBuf::from("tsconfig.base.json"));
+    assert_eq!(
+        unlisted[0].related[0].location.path,
+        PathBuf::from("tsconfig.base.json")
+    );
 }

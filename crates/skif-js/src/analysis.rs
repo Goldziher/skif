@@ -143,10 +143,7 @@ fn mark_foreign_paths(resolver: &ModuleResolver, graph: &ModuleGraph, dependenci
         .enumerate()
         .filter_map(|(index, unlisted)| {
             let importer = &graph.module(unlisted.module).abs;
-            let unresolved = matches!(
-                unlisted.target,
-                None | Some(Target::External(_) | Target::Unresolved)
-            );
+            let unresolved = matches!(unlisted.target, None | Some(Target::External(_) | Target::Unresolved));
             if !unresolved
                 || dependencies.known_package(&unlisted.name)
                 || resolver.installed(importer, &unlisted.name)

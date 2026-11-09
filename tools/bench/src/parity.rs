@@ -1072,7 +1072,9 @@ mod tests {
             ["packages/lib/src/index.ts|shared"].map(str::to_owned).into(),
         )]);
         let split = diff::split_known(&skif, &Keys::new(), &|side, category, key| {
-            (side == Side::Skif).then(|| skif_only_deviation(category, key, &foreign)).flatten()
+            (side == Side::Skif)
+                .then(|| skif_only_deviation(category, key, &foreign))
+                .flatten()
         });
         let (counts, _) = diff::compare(&split.skif, &split.tool);
         assert_eq!(
@@ -1088,10 +1090,15 @@ mod tests {
         assert_eq!(split.known.len(), 1, "{:?}", split.known);
         // A finding both tools report is agreement, never a deviation.
         let both = diff::split_known(&skif, &knip, &|side, category, key| {
-            (side == Side::Skif).then(|| skif_only_deviation(category, key, &foreign)).flatten()
+            (side == Side::Skif)
+                .then(|| skif_only_deviation(category, key, &foreign))
+                .flatten()
         });
         assert!(both.known.is_empty(), "{:?}", both.known);
-        assert_eq!(skif_only_deviation("files", "packages/lib/src/index.ts|shared", &foreign), None);
+        assert_eq!(
+            skif_only_deviation("files", "packages/lib/src/index.ts|shared", &foreign),
+            None
+        );
     }
 
     #[test]

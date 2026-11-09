@@ -427,7 +427,7 @@ impl ForeignPaths {
     pub(crate) fn lookup(&self, specifier: &str, accept: impl Fn(&TsPaths, &str) -> bool) -> Option<(&str, &str)> {
         let found = |pattern: &str, position: usize| {
             let (file, config) = &self.configs[position];
-            accept(&**config, pattern).then_some(file.as_str())
+            accept(config, pattern).then_some(file.as_str())
         };
         if let Some((pattern, positions)) = self.exact.get_key_value(specifier)
             && let Some(file) = positions.iter().find_map(|position| found(pattern.as_str(), *position))
@@ -511,9 +511,15 @@ mod tests {
         let any = |specifier: &str| foreign.lookup(specifier, |_, _| true);
         assert_eq!(foreign.configs.len(), 3);
         assert_eq!(any("shared/value"), Some(("packages/app/tsconfig.json", "shared/*")));
-        assert_eq!(any("shared/deep/x"), Some(("packages/web/tsconfig.json", "shared/deep/*")));
+        assert_eq!(
+            any("shared/deep/x"),
+            Some(("packages/web/tsconfig.json", "shared/deep/*"))
+        );
         assert_eq!(any("exact"), Some(("packages/web/tsconfig.json", "exact")));
-        assert_eq!(any("@ui/button/index"), Some(("packages/app/tsconfig.json", "@ui/*/index")));
+        assert_eq!(
+            any("@ui/button/index"),
+            Some(("packages/app/tsconfig.json", "@ui/*/index"))
+        );
         assert_eq!(any("@ui/button"), None);
         // Catch-all patterns match everything and are left out.
         assert_eq!(any("left-pad"), None);
@@ -524,7 +530,10 @@ mod tests {
     fn foreign_paths_skip_the_patterns_the_caller_rejects() {
         let configs = [
             declaring("/ws/packages/app/tsconfig.json", &["shared/*", "exact"]),
-            declaring("/ws/packages/zeta/tsconfig.json", &["shared/*", "exact", "shared/deep/*"]),
+            declaring(
+                "/ws/packages/zeta/tsconfig.json",
+                &["shared/*", "exact", "shared/deep/*"],
+            ),
         ];
         let foreign = ForeignPaths::new(Path::new("/ws"), &configs);
         let not_app = |config: &TsPaths, _: &str| !config.config.starts_with("/ws/packages/app");
@@ -572,7 +581,10 @@ mod tests {
             paths_dir: PathBuf::from("/ws/app"),
             root_dirs: Vec::new(),
             paths: vec![
-                ("lodash/*".to_owned(), vec!["./shims/lodash/*".to_owned(), "./vendor/*".to_owned()]),
+                (
+                    "lodash/*".to_owned(),
+                    vec!["./shims/lodash/*".to_owned(), "./vendor/*".to_owned()],
+                ),
                 ("lodash/merge".to_owned(), vec!["./merge.ts".to_owned()]),
             ],
         };
@@ -584,7 +596,10 @@ mod tests {
             ]
         );
         assert_eq!(paths.pattern_candidates("lodash/*", "react"), Vec::<PathBuf>::new());
-        assert_eq!(paths.pattern_candidates("unknown/*", "unknown/x"), Vec::<PathBuf>::new());
+        assert_eq!(
+            paths.pattern_candidates("unknown/*", "unknown/x"),
+            Vec::<PathBuf>::new()
+        );
     }
 
     #[test]
