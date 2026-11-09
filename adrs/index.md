@@ -76,6 +76,7 @@ old one.
 | 0066 | [A Module Cache and Unsaved Buffers in the Language Server](0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md) | accepted |
 | 0067 | [No Editor Extension](0067-no-editor-extension.md) | accepted |
 | 0068 | [What the knip Comparison Sets Apart: Exports skif Does Not Judge, Configs knip Cannot Load, and Fixture Names](0068-what-the-knip-comparison-sets-apart.md) | accepted |
+| 0073 | [Stale Mocks: Test-Runner Mocks of Missing Modules Under Their Own Rule](0073-stale-mocks-test-runner-mocks-of-missing-modules-under-their-own-rule.md) | accepted |
 
 ## Effective statements
 
@@ -195,3 +196,4 @@ the lines below stay as written; this table says which record governs.
 | [0056](0056-editor-and-agent-integration-mcp-server-watch-mode-and-language-server.md), lines 119-120, [0064](0064-code-actions-in-the-language-server.md), line 60, and [0066](0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md), line 201 | a VS Code extension is a separate package, deferred or kept in a separate repository | [0067](0067-no-editor-extension.md): skif ships no editor extension; editors run `skif lsp` through their own language-server client |
 | [0053](0053-incomplete-packages-in-the-json-report.md), lines 71-78 | knip-only findings in `files`, `dependencies` and `devDependencies` of an incomplete package are `not-judged-by-skif`; exports, types and members there are still judged and stay differences | [0068](0068-what-the-knip-comparison-sets-apart.md): skif does not report exports, types and members there either, so knip-only findings in `exports`, `types`, `nsExports`, `nsTypes`, `enumMembers` and `namespaceMembers` are `not-judged-by-skif` too |
 | [0030](0030-harness-known-deviations-and-comparison-scope.md), line 49 | the knip deviations are `non-code-file`, `fixture-file` and `test-file`; `fixture-file` is a fixture directory skif skips | [0068](0068-what-the-knip-comparison-sets-apart.md): `fixture-file` is limited to `fixtures` and `__fixtures__`, and knip-only findings in a package with a configuration knip could not load are the `knip-config-error` deviation |
+| [0034](0034-js-configuration-parity-with-knip.md), line 34 | `ignore-unresolved` lists the specifiers that must not be reported as unresolved, and `ignore-dependencies` still silences `unresolved-imports` | [0073](0073-stale-mocks-test-runner-mocks-of-missing-modules-under-their-own-rule.md): a test-runner mock of a missing module is reported by `stale-mocks`, not `unresolved-imports`; both lists silence both rules |
