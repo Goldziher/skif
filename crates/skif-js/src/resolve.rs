@@ -45,6 +45,11 @@ pub(crate) fn is_code_file(path: &Path) -> bool {
         })
 }
 
+/// Whether a path is a file skif reads: a code file ([`is_code_file`]) or a stylesheet, whose imports are scanned.
+pub(crate) fn is_read_file(path: &Path) -> bool {
+    is_code_file(path) || is_stylesheet(path)
+}
+
 /// Adapts the host's file system to the resolver's, so resolution works on in-memory trees.
 struct ResolverFs {
     fs: Arc<dyn FileSystem>,
@@ -753,7 +758,7 @@ impl ModuleResolver {
     }
 
     fn classify(&self, path: PathBuf) -> Resolved {
-        if is_below(&path, &self.root) && (is_code_file(&path) || is_stylesheet(&path)) {
+        if is_below(&path, &self.root) && is_read_file(&path) {
             Resolved::File(path)
         } else {
             Resolved::Asset
