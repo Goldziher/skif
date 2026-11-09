@@ -268,18 +268,34 @@ impl Config {
     #[must_use]
     pub fn missing_ignore_reason(&self) -> Option<String> {
         unreasoned_entry("ignore", &self.ignore)
-            .or_else(|| unreasoned_item("js", &self.js.ignore_lists()))
             .or_else(|| {
-                self.js.workspaces.iter().find_map(|(dir, workspace)| {
-                    unreasoned_item(&format!("js.workspaces.\"{dir}\""), &workspace.ignore_lists())
+                self.js_ignore_lists().into_iter().find_map(|(key, items)| {
+                    items
+                        .iter()
+                        .enumerate()
+                        .find(|(_, item)| item.reason.is_none())
+                        .map(|(index, item)| format!("{key}[{index}] `{}`", item.name))
                 })
             })
             .or_else(|| {
-                self.overrides.iter().enumerate().find_map(|(index, scoped)| {
-                    unreasoned_entry(&format!("overrides[{index}].ignore"), &scoped.ignore)
-                        .or_else(|| unreasoned_item(&format!("overrides[{index}].js"), &scoped.js.ignore_lists()))
-                })
+                self.overrides
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, scoped)| unreasoned_entry(&format!("overrides[{index}].ignore"), &scoped.ignore))
             })
+    }
+
+    /// Every `[js]` ignore list under its full key: those of the top level, of each `[js.workspaces]` table and of
+    /// the `js` of each override.
+    fn js_ignore_lists(&self) -> Vec<(String, &[IgnoreItem])> {
+        let mut lists = keyed("js", &self.js.ignore_lists());
+        for (dir, workspace) in &self.js.workspaces {
+            lists.extend(keyed(&format!("js.workspaces.\"{dir}\""), &workspace.ignore_lists()));
+        }
+        for (index, scoped) in self.overrides.iter().enumerate() {
+            lists.extend(keyed(&format!("overrides[{index}].js"), &scoped.js.ignore_lists()));
+        }
+        lists
     }
 
     /// Serializes back to TOML.
@@ -338,6 +354,14 @@ impl Config {
             }
             if entry.reason.as_deref().is_some_and(|reason| reason.trim().is_empty()) {
                 return invalid(format!("ignore[{index}]: `reason` is empty; say why or remove it"));
+            }
+        }
+        for (key, items) in self.js_ignore_lists() {
+            let blank = items
+                .iter()
+                .position(|item| item.reason.as_deref().is_some_and(|reason| reason.trim().is_empty()));
+            if let Some(index) = blank {
+                return invalid(format!("{key}[{index}]: `reason` is empty; say why or remove it"));
             }
         }
         if let Some(message) = self.format.inconsistency() {
@@ -669,23 +693,20 @@ impl Workspace {
     }
 }
 
+/// The ignore lists `lists` under their keys prefixed with `prefix`.
+fn keyed<'c>(prefix: &str, lists: &[(&str, &'c [IgnoreItem])]) -> Vec<(String, &'c [IgnoreItem])> {
+    lists
+        .iter()
+        .map(|(key, items)| (format!("{prefix}.{key}"), *items))
+        .collect()
+}
+
 /// `key[index]` of the first entry of `entries` without a reason.
 fn unreasoned_entry(key: &str, entries: &[IgnoreEntry]) -> Option<String> {
     entries
         .iter()
         .position(|entry| entry.reason.is_none())
         .map(|index| format!("{key}[{index}]"))
-}
-
-/// ``prefix.key[index] `name` `` of the first entry of the ignore lists `lists` without a reason.
-fn unreasoned_item(prefix: &str, lists: &[(&str, &[IgnoreItem])]) -> Option<String> {
-    lists.iter().find_map(|(key, items)| {
-        items
-            .iter()
-            .enumerate()
-            .find(|(_, item)| item.reason.is_none())
-            .map(|(index, item)| format!("{prefix}.{key}[{index}] `{}`", item.name))
-    })
 }
 
 /// `[lint]`
