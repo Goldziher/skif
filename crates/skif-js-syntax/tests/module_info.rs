@@ -1074,6 +1074,26 @@ fn triple_slash_references_are_imports_only_in_the_header() {
 }
 
 #[test]
+fn test_environment_pragmas_are_imports_only_in_the_header() {
+    let source = "/**\n * @jest-environment jsdom\n */\n// @vitest-environment happy-dom\n\
+                  /* @vitest-environment edge-runtime */\n// @jest-environment node\n\
+                  // @jest-environment ./env/custom.js\n\
+                  export const a = 1;\n// @jest-environment late-env\n";
+    let info = parse("a.test.ts", source);
+    assert_eq!(
+        specifiers(&info),
+        [
+            ("jest-environment-jsdom", ImportKind::SideEffect),
+            ("happy-dom", ImportKind::SideEffect),
+            ("@edge-runtime/vm", ImportKind::SideEffect),
+            ("./env/custom.js", ImportKind::SideEffect),
+        ]
+    );
+    let span = info.imports[0].span;
+    assert_eq!(slice(source, span.start, span.end), "@jest-environment jsdom");
+}
+
+#[test]
 fn jsx_import_source_only_counts_in_leading_comments() {
     let leading = parse("a.jsx", "// @jsxImportSource preact\nexport const a = <b />;\n");
     assert_eq!(leading.jsx_import_source.as_deref(), Some("preact"));

@@ -11,6 +11,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A `@jest-environment <name>` or `@vitest-environment <name>` pragma in the comments before a file's first
+  statement is an import of the environment's package (`jsdom` is `jest-environment-jsdom` for Jest,
+  `edge-runtime` is `@edge-runtime/vm` for Vitest, `node` imports nothing, a path stays a path), as knip reads it:
+  a listed environment is no longer an unused dependency and an unlisted one is reported by
+  `unlisted-dependencies` ([#96](https://github.com/Goldziher/skif/issues/96)).
 - `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`,
   `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such
   as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
