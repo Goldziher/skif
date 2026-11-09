@@ -9,6 +9,7 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use skif_core::{DirEntry, FileSystem};
 use skif_workspace::{PackageId, Workspace, map_ordered};
 
+use crate::git_index::{common_dir, locate};
 use crate::resolve::is_code_file;
 
 /// Directories that never hold analysed sources: dependencies, VCS data and common build output.
@@ -130,11 +131,40 @@ fn is_ignored(matchers: &[Arc<Gitignore>], path: &Path, is_dir: bool) -> bool {
 /// Whether the ignore files (`.gitignore`, `.ignore`) from `root` down to the directory of `path` ignore `path` or
 /// one of its directories below `root`, as the walk of [`discover`] would. `path` is absolute and below `root`.
 pub(crate) fn is_ignored_path(fs: &dyn FileSystem, root: &Path, path: &Path) -> bool {
-    let Ok(rest) = path.strip_prefix(root) else {
+    ignored_below(fs, root, path, Vec::new())
+}
+
+/// Whether git ignores `path`, which is absolute and below `root`: the ignore files from the work tree `root` belongs
+/// to down to the directory of `path`, including those between the work tree and `root` that the walk of
+/// [`discover`] does not read, and the repository's `info/exclude`. Outside a work tree only the ignore files from
+/// `root` down count, as for [`is_ignored_path`]. The global excludes file (`core.excludesFile`) is not read.
+pub(crate) fn is_ignored_in_repository(fs: &dyn FileSystem, root: &Path, path: &Path) -> bool {
+    let Some((work_tree, git_dir)) = locate(fs, root) else {
+        return is_ignored_path(fs, root, path);
+    };
+    let exclude = common_dir(fs, &git_dir).join("info").join("exclude");
+    let mut builder = GitignoreBuilder::new(&work_tree);
+    let mut any = false;
+    if let Ok(text) = fs.read_to_string(&exclude) {
+        for line in text.lines() {
+            any |= builder.add_line(Some(exclude.clone()), line).is_ok();
+        }
+    }
+    let matchers = if any {
+        builder.build().ok().map(Arc::new).into_iter().collect()
+    } else {
+        Vec::new()
+    };
+    ignored_below(fs, &work_tree, path, matchers)
+}
+
+/// Whether `matchers` or the ignore files from `top` down to the directory of `path` ignore `path` or one of its
+/// directories below `top`.
+fn ignored_below(fs: &dyn FileSystem, top: &Path, path: &Path, mut matchers: Vec<Arc<Gitignore>>) -> bool {
+    let Ok(rest) = path.strip_prefix(top) else {
         return false;
     };
-    let mut matchers: Vec<Arc<Gitignore>> = Vec::new();
-    let mut dir = root.to_path_buf();
+    let mut dir = top.to_path_buf();
     let parts: Vec<_> = rest.components().collect();
     for (index, part) in parts.iter().enumerate() {
         if let Ok(entries) = fs.read_dir_shared(&dir)
