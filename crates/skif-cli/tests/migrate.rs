@@ -85,6 +85,49 @@ fn the_written_file_is_valid_and_is_not_overwritten_without_a_flag() {
     assert!(!linted.stderr.contains("error:"), "{}", linted.stderr);
 }
 
+fn version_mismatches(report: &serde_json::Value) -> Vec<String> {
+    report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == "version-mismatch")
+        .map(|diagnostic| diagnostic["location"]["path"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[test]
+fn a_sherif_migration_does_not_compare_dependents_with_the_version_of_a_workspace_package() {
+    let dir = project(
+        r#"{ "name": "demo", "private": true, "packageManager": "npm@10.9.0", "workspaces": ["packages/*"],
+             "scripts": { "check": "sherif" } }"#,
+    );
+    for (name, manifest) in [
+        ("a", r#"{ "name": "@x/a", "version": "1.0.0", "dependencies": { "@x/b": "1.0.0" } }"#),
+        ("b", r#"{ "name": "@x/b", "version": "1.0.1" }"#),
+    ] {
+        let package = dir.path().join("packages").join(name);
+        fs::create_dir_all(&package).unwrap();
+        fs::write(package.join("package.json"), manifest).unwrap();
+    }
+    let unmigrated = run(skif().args(["--no-js", "--no-config", "--format", "json"]).arg(dir.path()));
+    assert_eq!(
+        version_mismatches(&unmigrated.json()),
+        ["packages/a/package.json"],
+        "skif's default scope compares @x/b@1.0.0 with the workspace version: {}",
+        unmigrated.stdout
+    );
+
+    let written = run(&mut migrate(dir.path()));
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    let linted = run(skif().args(["--no-js", "--format", "json"]).arg(dir.path()));
+    assert_eq!(
+        version_mismatches(&linted.json()),
+        Vec::<String>::new(),
+        "sherif never compares a dependency with a package's own version: {}",
+        linted.stdout
+    );
+}
+
 #[test]
 fn merge_keeps_the_comments_of_the_existing_file() {
     let dir = project(SHERIF_PACKAGE);

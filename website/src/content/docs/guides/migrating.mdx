@@ -32,8 +32,11 @@ The flags matter because they change what the old tool checked: `knip --dependen
 `--from auto` (the default) migrates every tool that has a file, a `package.json` key or a script in the project.
 
 Scripts are found behind package-manager launchers (`pnpm exec knip`, `npx knip`, `npm run knip -- --include files`),
-environment prefixes (`CI=1 knip`, `cross-env`, `dotenv --`), `turbo run` and `nx exec`, and inside `concurrently "knip"
-"syncpack lint"` and `sh -c`. A script that names the tool in any other command is reported, because its flags were not
+environment prefixes (`CI=1 knip`, `cross-env`, `dotenv --`), `turbo run` and `nx exec`, as the package's entry file
+(`node ./node_modules/knip/bin/knip.js`), and inside `concurrently "knip" "syncpack lint"` and `sh -c`. A command that
+runs another script named like the tool (`"ci": "pnpm run knip"` next to a `knip` script) is not a run of its own; when
+it passes arguments on (`pnpm run knip -- --include files`), it is a run with that script's flags and those. A switch
+given as `--production=false` is off. A script that names the tool in any other command is reported, because its flags were not
 read. Each command of a script is one run of the old tool, but skif has one configuration: when two runs of a tool pass
 different flags, the result is their union (or, for `[js] production`, left out) and the report names both scripts.
 
@@ -93,7 +96,8 @@ Every construct that was not copied one to one has a note with the file, the key
 | sherif | skif |
 | --- | --- |
 | `ignoreRule`, `-r` | `[rules] <id> = "off"`, with the rule ids renamed (`multiple-dependency-versions` is `version-mismatch`, `unordered-dependencies` is `unsorted-dependencies`, ...). A rule that another migrated tool still checks stays on and the report says so (H): a repository that ignores `multiple-dependency-versions` in sherif because syncpack owns it keeps syncpack's version groups |
-| `ignorePackage`, `-p` | `[workspace] ignore-packages` |
+| `ignorePackage`, `-p` | `[workspace] ignore-packages`, a path without its `./` prefix (`./apps/*` is `apps/*`): skif matches a package's directory relative to the root. A path written without `./` matched no package in sherif and does in skif (A) |
+| `multiple-dependency-versions` | `[policy] dependency-types = ["prod", "dev"]`, the sections sherif compares. sherif never compares a dependency with the version of the workspace package it names, and skif does not either without `local` in the list ([ADR 0072](https://github.com/Goldziher/skif/blob/main/adrs/0072-a-policy-scope-without-local-leaves-the-own-versions-out.md)). Migrated with syncpack, the list is the union of both scopes |
 | `ignoreDependency`, `-i` | `[[ignore]]` with `rules = ["version-mismatch"]`, the only rule sherif applied it to |
 | `ignoreDependency` as `name@version` | the same entry, noted as approximate (below) |
 | `failOnWarnings`, `--fail-on-warnings` | `[lint] fail-on-warnings` |
@@ -116,14 +120,14 @@ configuration yet, so a job that replaces sherif keeps its flags.
 | syncpack | skif |
 | --- | --- |
 | `versionGroups[]` with `label`, `dependencies`, `packages`, `dependencyTypes`, `specifierTypes` | `[[version-groups]]` with the same keys |
-| `isBanned`, `isIgnored`, `pinVersion`, `snapTo`, `preferVersion`, `policy: sameRange`, `policy: sameMinor` | `policy = "banned"`, `"ignored"`, `"pinned"` with `pin`, `"snapped-to"` with `snap-to`, `prefer`, `"same-range"`, `"same-minor"` |
-| `policy: catalog` | `[catalog] mode = "prefer"` when the group selects every dependency. A group with `dependencies`, `packages`, `dependencyTypes` or `specifierTypes` is not written (H): the catalog setting is global, so writing it would check every dependency |
+| `isBanned`, `isIgnored`, `pinVersion`, `snapTo`, `preferVersion`, `policy: sameRange`, `policy: sameMinor` | `policy = "banned"`, `"ignored"`, `"pinned"` with `pin`, `"snapped-to"` with `snap-to`, `prefer`, `"same-range"`, `"same-minor"`. As in syncpack, a `policy` wins over `snapTo`; `preferVersion` with `policy: sameMinor` is not written (A), since a skif same-minor group picks no version to align on |
+| `policy: catalog` | `[catalog] mode = "prefer"` when the group selects every dependency (A: skif reports a dependency without `catalog:` as a warning, and only when at least `min-packages` packages use it; syncpack reports every instance as an error). A group with `dependencies`, `packages`, `dependencyTypes` or `specifierTypes` is not written (H): the catalog setting is global, so writing it would check every dependency |
 | `policy: semverRangeOnly` | `policy = "semver-range-only"` |
 | `severity` | none (H): levels are set per rule |
 | `semverGroups[]` with `range` | `[[semver-groups]]` |
 | `semverGroups[]` with `isIgnored` or `isDisabled` | `[[semver-groups]]` with `ignored = true` |
 | `dependencyTypes` with `prod`, `dev`, `peer`, `local`, `resolutions`, `overrides`, `pnpmOverrides` and `!` negation | the same tokens (`pnpmOverrides` is `pnpm-overrides`) |
-| `dependencyTypes: ["**"]` | no `dependency-types` key: every type |
+| `dependencyTypes: ["**"]` | no `dependency-types` key: every type (`dependencies` and `packages` of `["**"]` select everything too) |
 | `specifierTypes` | `specifier-types` with the types skif knows; `hosted-git` is `git` (A), `**` is no filter, and a type skif does not know (`delete`) is dropped (A) or, when the group selects only such types, the group is not written (X) |
 | `customTypes` with `strategy` `name@version`, `version`, `versionsByName` or `name~version` | `[[custom-types]]` with `name`, `path` and `strategy` (`"name@version"`, `"version"`, `"versions-by-name"`, `"name~version"` with `name-path` from `namePath`) |
 | a custom type whose name is a built-in token (`dev`, `overrides`, ...) | `[[custom-types]]` under `<name>-custom` (A); groups that name the token select the built-in type |
@@ -135,7 +139,7 @@ configuration yet, so a job that replaces sherif keeps its flags.
 | `updateGroups[]` with `target` or `isIgnored` | `[[update-groups]]` with `target` or `ignored = true`, and the same selectors; a group with both, neither, or another target is not written (H) |
 | `minimumReleaseAge`, `maxConcurrentRequests` | `[update] minimum-release-age`, `max-concurrent-requests` |
 | the override sections (`pnpmOverrides`, `overrides`, `resolutions`) | `[policy] override-reading = "syncpack"`: an override key is its own dependency, so `parent@4>child` is not compared with `child`; nested objects and `pnpm.overrides` of a `package.json` are not read, as in syncpack 15 (`pnpmOverrides` is the `overrides` of `pnpm-workspace.yaml`). Without it skif would compare them with the dependency they replace |
-| `--dependency-types` | `[policy] dependency-types` |
+| `--dependency-types` | `[policy] dependency-types`. syncpack filters every instance by it before a group sees one, so a group's `dependencyTypes` is cut to that scope, and a group left with no type is not written |
 
 Without `--dependency-types`, `[policy] dependency-types` is set to the scope syncpack lints by default (`prod`, `dev`,
 `peer`, `local`, `resolutions`, `overrides`, `pnpm-overrides` and your custom types; optional dependencies are not part

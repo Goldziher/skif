@@ -17,6 +17,20 @@ All notable changes to this project are documented here. The format follows
   `local` to a list to keep the comparison
   ([ADR 0072](adrs/0072-a-policy-scope-without-local-leaves-the-own-versions-out.md)).
 
+### Fixed
+
+- `skif migrate` writes `[policy] dependency-types = ["prod", "dev"]` for sherif, so a migrated sherif project is not
+  reported for a dependency that differs from a workspace package's own version, which sherif never compares; with
+  syncpack the list is the union of both scopes.
+- `skif migrate` drops the `./` prefix of sherif's `ignorePackage` paths, which never matched a package in skif.
+- `skif migrate` cuts each syncpack group's `dependencyTypes` to the `--dependency-types` of the lint script, and drops
+  a group left with none, since syncpack never gave it an instance.
+- `skif migrate` no longer counts `"ci": "pnpm run knip"` next to a `knip` script as a second run of knip without
+  flags, reads `node ./node_modules/knip/bin/knip.js`, and takes `--production=false` as off.
+- `skif migrate` lets a syncpack `policy` win over `snapTo` as syncpack does, notes a `preferVersion` it drops under
+  `policy: sameMinor`, treats `dependencies` and `packages` of `["**"]` as selecting everything, and marks the
+  `policy: catalog` translation approximate, naming how `[catalog] mode = "prefer"` is weaker.
+
 ## [0.2.0] - 2026-11-08
 
 ### Added
