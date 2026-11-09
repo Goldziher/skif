@@ -157,12 +157,28 @@ fn template_glob(expr: &Expression<'_>) -> Option<String> {
     relative.then(|| parts.join("*"))
 }
 
-/// Test-runner calls whose first argument names a module: `vi.mock("x")`, `jest.requireActual("x")`.
+/// Rstest's module mocking calls, on `rs` and on its alias `rstest`.
+const RSTEST_MOCKS: &[&str] = &[
+    "mock",
+    "mockRequire",
+    "doMock",
+    "doMockRequire",
+    "unmock",
+    "doUnmock",
+    "importActual",
+    "importMock",
+    "requireActual",
+    "requireMock",
+];
+
+/// Test-runner calls whose first argument names a module: `vi.mock("x")`, `jest.requireActual("x")`, `rs.mock("x")`.
 const MOCK_CALLS: &[(&str, &[&str])] = &[
     (
         "vi",
         &["mock", "doMock", "unmock", "doUnmock", "importActual", "importMock"],
     ),
+    ("rs", RSTEST_MOCKS),
+    ("rstest", RSTEST_MOCKS),
     (
         "jest",
         &[
