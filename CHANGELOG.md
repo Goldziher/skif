@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A bare `@import` in a plain `.css` file is looked up beside the stylesheet first, as `postcss-import` and the CSS
+  URL rules do, and as a package only when no file there matches: `@import '_code'` next to `_code.css` is no longer
+  an unlisted dependency `_code` ([#96](https://github.com/Goldziher/skif/issues/96)).
 - A path below `node_modules/.bin` (`require.resolve('.bin/tool')`) or another dot directory of `node_modules`
   names no package, so `unlisted-dependencies` no longer reports `.bin`
   ([#96](https://github.com/Goldziher/skif/issues/96)).
