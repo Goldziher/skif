@@ -63,8 +63,18 @@ file that governs the start directory and only affects root discovery in a recur
 
 ```toml
 [lint]
-fail-on-warnings = true    # exit non-zero when only warnings were reported
+fail-on-warnings = true          # exit non-zero when only warnings were reported
+require-ignore-reasons = true    # fail when a suppression has no `reason`, as --require-ignore-reasons does
 ```
+
+`require-ignore-reasons` makes the suppressions that can carry a `reason` say why they exist: an `[[ignore]]` entry,
+also one of an override, and an entry of the `[js]` lists `ignore-files`, `ignore-dependencies`, `ignore-binaries`,
+`ignore-unresolved`, `ignore-workspaces` and `ignore-members` and their `extend-` keys, at the top level, per workspace
+and in overrides. `[workspace] ignore-packages` and `[js] ignore` take plain globs and are not checked. A run with an
+entry that has no `reason` fails with exit code 2, naming the entry (``js.ignore-dependencies[1] `left-pad`: no
+`reason` ``). The check reads the merged configuration, so the key and position are those of the merged list: an entry
+added with `extend-ignore-dependencies` or inherited through `extends` is named by the list it was merged into, and its
+name finds it in the files. The key and `--require-ignore-reasons` do the same; either one turns the check on.
 
 ### `[rules]`
 
@@ -106,9 +116,11 @@ dependencies = ["left-pad"]
 reason = "pinned until the legacy importer is gone"
 ```
 
-`reason` is optional and records why the entry exists. `--require-ignore-reasons` fails a run on an entry without one,
-so a baseline of suppressions can be reviewed and ratcheted down. `skif baseline` writes such entries for the current
-findings into a file of their own and keeps it from growing (see the [CLI reference](../cli/#baseline)).
+`reason` is optional and records why the entry exists. `--require-ignore-reasons` and `[lint] require-ignore-reasons`
+fail a run on an entry without one, and on an entry of a `[js]` ignore list without one, so a baseline of
+suppressions can be reviewed and ratcheted down. Entries that flags add are exempt. `skif baseline` writes such
+entries for the current findings into a file of their own and keeps it from growing (see the
+[CLI reference](../cli/#baseline)).
 
 A `dependencies` pattern of the form `name@specifier` matches only the instances written with that specifier
 (`react@^17.0.2`); a bare name matches every version.
@@ -404,6 +416,24 @@ engine, not by JavaScript: look-ahead, look-behind and back-references (`/^(?!@t
 ignored. `skif migrate` copies a knip pattern as written, so run `skif` once afterwards: an unsupported pattern is
 reported with the compiler's message. A pattern that does not compile is a configuration error. An entry ending in
 `!` applies in production mode only (`"left!"`).
+
+**Reasons on ignore entries.** Every ignore list (`ignore-files`, `ignore-dependencies`, `ignore-binaries`,
+`ignore-unresolved`, `ignore-members`, `ignore-workspaces` and the `extend-` keys, at the top level, in
+`[js.workspaces."<dir>"]` and in the `js` of an override) takes an inline table in place of a string, so the entry
+records why it exists:
+
+```toml
+[js.workspaces."packages/app"]
+ignore-dependencies = [
+  "left-pad",
+  { name = "some-loader", reason = "false positive: loaded by the bundler from a config string" },
+]
+```
+
+`name` holds what the string form holds (a name, a glob or a slash-delimited regular expression, with the `!`
+production marker), and `reason` is optional. The two forms mix in one list and match the same. A blank `reason` is a
+configuration error, and `--require-ignore-reasons` or `[lint] require-ignore-reasons` fails a run on an entry without
+one. `stale-js-config` reports a table entry that matched nothing by its `name`.
 
 **`ignore-unresolved`** lists import specifiers that are never reported by `unresolved-imports` or `stale-mocks`, at the
 top level and per workspace. `ignore-dependencies` also silences both for a matching specifier, because plugins

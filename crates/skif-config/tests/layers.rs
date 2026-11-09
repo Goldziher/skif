@@ -980,3 +980,39 @@ fn a_layer_replaces_an_inherited_custom_type_of_the_same_name() {
     assert_eq!(config.custom_types.len(), 1);
     assert_eq!(config.custom_types[0].path, "volta.node");
 }
+
+#[test]
+fn a_blank_reason_is_reported_in_the_file_and_extend_key_that_wrote_it() {
+    let message = error(
+        &[
+            ("/r/.git/HEAD", ""),
+            (
+                "/r/skif.toml",
+                "[js]\nignore-dependencies = [{ name = \"a\", reason = \"r\" }]\n",
+            ),
+            (
+                "/r/p/skif.toml",
+                "[js]\nextend-ignore-dependencies = [{ name = \"left-pad\", reason = \" \" }]\n",
+            ),
+        ],
+        "/r/p",
+    )
+    .to_string();
+    assert!(message.contains("/r/p/skif.toml"), "{message}");
+    assert!(
+        message.contains("js.extend-ignore-dependencies[0]: `reason` is empty"),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_missing_reason_is_named_by_its_place_in_the_merged_list() {
+    let resolved = two(
+        "[js]\nignore-dependencies = [{ name = \"a\", reason = \"r\" }, { name = \"b\", reason = \"r\" }, { name = \"c\", reason = \"r\" }]\n",
+        "[js]\nextend-ignore-dependencies = [\"left-pad\"]\n",
+    );
+    assert_eq!(
+        resolved.config.missing_ignore_reason().as_deref(),
+        Some("js.ignore-dependencies[3] `left-pad`")
+    );
+}

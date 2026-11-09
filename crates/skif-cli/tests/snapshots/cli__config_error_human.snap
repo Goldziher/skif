@@ -2,4 +2,4 @@
 source: crates/skif-cli/tests/cli.rs
 expression: "redact(&human.stderr, dir.path())"
 ---
-error: [ROOT]/skif.toml:2:1: unknown field `bogus`, expected `fail-on-warnings` or `max-level`
+error: [ROOT]/skif.toml:2:1: unknown field `bogus`, expected one of `fail-on-warnings`, `max-level`, `require-ignore-reasons`

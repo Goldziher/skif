@@ -182,6 +182,12 @@ skif adds beyond sherif's are listed under the [report](#the-report)'s extra che
 | the override sections (`pnpmOverrides`, `overrides`, `resolutions`) | `[policy] override-reading = "syncpack"`: an override key is its own dependency, so `parent@4>child` is not compared with `child`; nested objects and `pnpm.overrides` of a `package.json` are not read, as in syncpack 15 (`pnpmOverrides` is the `overrides` of `pnpm-workspace.yaml`). Without it skif would compare them with the dependency they replace |
 | `--dependency-types` | `[policy] dependency-types`. syncpack filters every instance by it before a group sees one, so a group's `dependencyTypes` is cut to that scope, and a group left with no type is not written |
 
+A comment above a group in a YAML or JSON-with-comments `.syncpackrc` (or a JavaScript config) is written as a comment
+above its `[[version-groups]]`, `[[semver-groups]]` or `[[update-groups]]` entry, after the line naming where the group
+came from. Groups are matched to their comments by position, so the comment on a spread or on a group after one is not
+carried over, since the spread changes the positions. sherif's configuration is a `package.json` key, and JSON has no comments, so there is nothing to carry over
+from it.
+
 Without `--dependency-types`, `[policy] dependency-types` is set to the scope syncpack lints by default (`prod`, `dev`,
 `peer`, `local`, `resolutions`, `overrides`, `pnpm-overrides` and your custom types; optional dependencies are not part
 of it), because skif's own default is narrower. `--dependencies` and
@@ -230,6 +236,38 @@ regular expression literal in a JavaScript or TypeScript config, are written as 
 `"/^@org\\/.+$/"`. The two forms with an exact glob equivalent, `^literal` and `^literal$`, become the glob
 `literal*` and `literal`. A pattern that only ends in `*` (`@org/*`) stays a glob; knip would have compiled it as a
 regular expression matching a superset of that.
+
+A comment on an entry of an ignore list (`ignoreDependencies`, `ignoreBinaries`, `ignoreUnresolved`, `ignoreMembers`,
+`ignoreFiles`, `ignoreWorkspaces`) becomes its `reason`: a comment on the lines directly above the entry, or after it
+on the line where it ends, in any knip configuration file (`knip.json`, `knip.jsonc`, `.knip.json`, `.knip.jsonc`,
+`knip.{js,ts,mjs,cjs,mts,cts}`, `knip.config.*`); the `knip` key of `package.json` is JSON and has none. A list
+written as a top-level constant and named by the key (`const deps = [...]; export default { ignoreDependencies: deps
+}`) keeps its comments too; the entries a spread (`...shared`) brings in do not. Entries without a comment stay plain
+strings.
+
+```ts
+workspaces: {
+    'packages/app': {
+        ignoreDependencies: [
+            // false positive: loaded by the bundler from a config string
+            'some-loader',
+        ],
+    },
+},
+```
+
+becomes
+
+```toml
+[js.workspaces."packages/app"]
+ignore-dependencies = [
+  { name = "some-loader", reason = "false positive: loaded by the bundler from a config string" },
+]
+```
+
+so `skif --require-ignore-reasons` can enforce a reason on every entry from then on. A comment separated from the entry
+by a blank line, or on the line of the opening bracket, is not attached, and tool directives such as
+`// eslint-disable-next-line` are left out.
 
 Settings that knip scopes to one workspace stay in that workspace's table. `--workspace` narrowed the old run to some
 workspaces; it is not written to the configuration, and the script can pass the same `--workspace` to skif.

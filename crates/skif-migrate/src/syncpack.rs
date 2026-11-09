@@ -147,7 +147,7 @@ pub(crate) fn translate(input: &ToolInput, state: &mut State<'_>) -> Result<(), 
     let found = match (&input.config, &package) {
         (Some(file), _) => Some((
             read(file, Tool::Syncpack)?,
-            Src::new(Tool::Syncpack, file.path.clone()),
+            Src::read(Tool::Syncpack, file),
             String::new(),
         )),
         (None, Some(package)) => scripts::config_key(Tool::Syncpack, package).map(|config| {
@@ -509,13 +509,17 @@ impl Selectors {
         true
     }
 
-    fn comment(&self, path: &str) -> Vec<String> {
+    /// The comment lines written above the group: where it came from with its label, then the comment the
+    /// configuration file has on it, if any.
+    fn comment(&self, src: &Src, path: &str, list: &str, index: usize) -> Vec<String> {
         let origin = format!("syncpack {path}");
-        vec![
+        let mut lines = vec![
             self.label
                 .as_ref()
                 .map_or(origin.clone(), |label| format!("{origin}: {label}")),
-        ]
+        ];
+        lines.extend(src.comments.on_element(list, index).map(str::to_owned));
+        lines
     }
 
     /// Whether the group selects every dependency of every package, so its policy is not narrowed to anything.
@@ -679,11 +683,11 @@ fn version_groups(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigVa
         return;
     };
     for (index, group) in groups.iter().enumerate() {
-        version_group(state, src, &at(path, index), group, run);
+        version_group(state, src, &at(path, index), index, group, run);
     }
 }
 
-fn version_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigValue, run: &mut Run) {
+fn version_group(state: &mut State<'_>, src: &Src, path: &str, index: usize, group: &ConfigValue, run: &mut Run) {
     let mut selectors = Selectors::default();
     let mut options = GroupKeys::default();
     for (key, item) in entries(state, src, path, group) {
@@ -742,7 +746,7 @@ fn version_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigVal
         catalog_policy(state, src, path, &selectors);
         return;
     }
-    let comments = selectors.comment(path);
+    let comments = selectors.comment(src, path, "versionGroups", index);
     let element = state.doc.element(&["version-groups"], comments);
     selectors.write(element, &types, &specifiers);
     match policy {
@@ -857,11 +861,11 @@ fn semver_groups(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigVal
         return;
     };
     for (index, group) in groups.iter().enumerate() {
-        semver_group(state, src, &at(path, index), group, types);
+        semver_group(state, src, &at(path, index), index, group, types);
     }
 }
 
-fn semver_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigValue, types: &Types) {
+fn semver_group(state: &mut State<'_>, src: &Src, path: &str, index: usize, group: &ConfigValue, types: &Types) {
     let mut selectors = Selectors::default();
     let mut range = None;
     let mut ignored = false;
@@ -910,7 +914,7 @@ fn semver_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigValu
             }
         }
     }
-    let comments = selectors.comment(path);
+    let comments = selectors.comment(src, path, "semverGroups", index);
     let element = state.doc.element(&["semver-groups"], comments);
     selectors.write(element, &dependency_types, &specifiers);
     if ignored {
@@ -964,11 +968,11 @@ fn update_groups(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigVal
         );
     }
     for (index, group) in groups.iter().enumerate() {
-        update_group(state, src, &at(path, index), group, types);
+        update_group(state, src, &at(path, index), index, group, types);
     }
 }
 
-fn update_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigValue, types: &Types) {
+fn update_group(state: &mut State<'_>, src: &Src, path: &str, index: usize, group: &ConfigValue, types: &Types) {
     let mut selectors = Selectors::default();
     let mut target = None;
     let mut ignored = false;
@@ -1017,7 +1021,7 @@ fn update_group(state: &mut State<'_>, src: &Src, path: &str, group: &ConfigValu
             return;
         }
     };
-    let comments = selectors.comment(path);
+    let comments = selectors.comment(src, path, "updateGroups", index);
     let element = state.doc.element(&["update-groups"], comments);
     selectors.write(element, &dependency_types, &specifiers);
     match target {

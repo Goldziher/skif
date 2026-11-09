@@ -4,9 +4,9 @@
 //! through `Default`, constructors and `with_*` methods.
 
 use skif_config::{
-    Catalog, CatalogMode, Config, ConfigBuilder, DependencyFamily, DependencyTypes, IgnoreEntry, Js, Level, Lint,
-    PackageManager, PluginConfig, PluginOptions, Policy, Prefer, Selector, SemverGroup, SemverRange, VersionGroup,
-    VersionPolicy, Workspace, WorkspaceProtocol,
+    Catalog, CatalogMode, Config, ConfigBuilder, DependencyFamily, DependencyTypes, IgnoreEntry, IgnoreItem, Js, Level,
+    Lint, PackageManager, PluginConfig, PluginOptions, Policy, Prefer, Selector, SemverGroup, SemverRange,
+    VersionGroup, VersionPolicy, Workspace, WorkspaceProtocol,
 };
 
 #[test]
@@ -18,7 +18,12 @@ fn builds_every_section_from_outside_the_crate() {
                 .with_package_manager(PackageManager::Pnpm)
                 .with_discover_ignore(vec!["fixtures".to_string()]),
         )
-        .lint(Lint::default().with_fail_on_warnings(true).with_max_level(Level::Warn))
+        .lint(
+            Lint::default()
+                .with_fail_on_warnings(true)
+                .with_max_level(Level::Warn)
+                .with_require_ignore_reasons(true),
+        )
         .policy(
             Policy::default()
                 .with_prefer(Prefer::Lowest)
@@ -91,6 +96,7 @@ fn builds_every_section_from_outside_the_crate() {
     assert_eq!(config.workspace.discover_ignore, ["fixtures"]);
     assert!(config.lint.fail_on_warnings);
     assert_eq!(config.lint.max_level, Some(Level::Warn));
+    assert!(config.lint.require_ignore_reasons);
     assert_eq!(config.policy.prefer, Prefer::Lowest);
     assert_eq!(config.ignore[0].rules, ["unused-dependencies"]);
     assert_eq!(config.version_groups[0].pin.as_deref(), Some("18.3.1"));
@@ -122,6 +128,23 @@ fn builder_output_survives_a_toml_round_trip() {
         .dependency_family(DependencyFamily::new("react", ["react", "react-dom"]))
         .build()
         .unwrap();
+    let reparsed = Config::from_toml_str(&config.to_toml_string().unwrap()).unwrap();
+    assert_eq!(config, reparsed);
+}
+
+#[test]
+fn ignore_list_entries_are_built_from_strings_or_with_a_reason() {
+    let js = Js::default().with_ignore_dependencies([
+        IgnoreItem::from("left-pad"),
+        IgnoreItem::new("some-loader").with_reason("loaded by the bundler from a config string"),
+    ]);
+    let config = ConfigBuilder::new().js(js).build().unwrap();
+    assert_eq!(config.js.ignore_dependencies, ["left-pad", "some-loader"]);
+    assert_eq!(config.js.ignore_dependencies[0].reason, None);
+    assert_eq!(
+        config.js.ignore_dependencies[1].reason.as_deref(),
+        Some("loaded by the bundler from a config string")
+    );
     let reparsed = Config::from_toml_str(&config.to_toml_string().unwrap()).unwrap();
     assert_eq!(config, reparsed);
 }
