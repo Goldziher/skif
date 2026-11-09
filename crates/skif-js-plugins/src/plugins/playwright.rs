@@ -107,15 +107,20 @@ fn match_patterns(value: &ConfigValue) -> Vec<String> {
 }
 
 /// A glob matching at least the files a regular expression of file-name fragments matches: `.*\.setup\.js` becomes
-/// `**/*.setup.js*`. `None` when the expression uses more than literals, `.*`, anchors and alternation groups.
+/// `**/*.setup.js*` and `.*\.e2e\.tsx?$` becomes `**/*.e2e.ts{x,}`. `None` when the expression uses more than
+/// literals, `.*`, character classes (`[jt]`), the `?` quantifier, anchors and alternation groups.
 fn regex_glob(source: &str) -> Option<String> {
     let anchored_end = source.ends_with('$') && !source.ends_with("\\$");
     let body = source.strip_prefix('^').unwrap_or(source);
     let body = if anchored_end { body.strip_suffix('$')? } else { body };
     let mut glob = String::new();
-    let mut depth = 0_u32;
+    // Where the last atom (a character, a class or a group) starts in `glob`, for a `?` that follows it; `None` after
+    // `.*` and at the start, where `?` is lazy or has nothing to repeat.
+    let mut atom: Option<usize> = None;
+    let mut groups: Vec<usize> = Vec::new();
     let mut chars = body.chars().peekable();
     while let Some(c) = chars.next() {
+        let start = glob.len();
         match c {
             '\\' => {
                 let escaped = chars.next()?;
@@ -123,11 +128,28 @@ fn regex_glob(source: &str) -> Option<String> {
                     return None;
                 }
                 glob.push(escaped);
+                atom = Some(start);
             }
             '.' if chars.peek() == Some(&'*') => {
                 chars.next();
                 glob.push('*');
+                atom = None;
             }
+            '[' => {
+                glob.push_str(&class_glob(&mut chars)?);
+                atom = Some(start);
+            }
+            '?' => match atom.take() {
+                Some(optional) => {
+                    let repeated = glob.split_off(optional);
+                    glob.push('{');
+                    glob.push_str(&repeated);
+                    glob.push_str(",}");
+                }
+                // `.*?` is lazy and matches what `.*` does.
+                None if glob.ends_with('*') => {}
+                None => return None,
+            },
             '(' => {
                 if chars.peek() == Some(&'?') {
                     chars.next();
@@ -135,22 +157,58 @@ fn regex_glob(source: &str) -> Option<String> {
                         return None;
                     }
                 }
-                depth += 1;
+                groups.push(start);
                 glob.push('{');
+                atom = None;
             }
             ')' => {
-                depth = depth.checked_sub(1)?;
+                atom = Some(groups.pop()?);
                 glob.push('}');
             }
-            '|' if depth > 0 => glob.push(','),
-            c if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/') => glob.push(c),
+            '|' if !groups.is_empty() => {
+                glob.push(',');
+                atom = None;
+            }
+            c if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/') => {
+                glob.push(c);
+                atom = Some(start);
+            }
             _ => return None,
         }
     }
-    if depth != 0 || glob.is_empty() {
+    if !groups.is_empty() || glob.is_empty() {
         return None;
     }
     let tail = if anchored_end { "" } else { "*" };
     let head = if glob.starts_with('*') { "**/" } else { "**/*" };
     Some(format!("{head}{glob}{tail}"))
+}
+
+/// The glob class for a regular expression class whose `[` has been read: `[jt]` stays `[jt]` and `[^.]` becomes
+/// `[!.]`. `None` for an empty or unterminated class and for anything but letters, digits, `-`, `_`, `.` and escaped
+/// punctuation.
+fn class_glob(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+    let mut class = String::from("[");
+    if chars.peek() == Some(&'^') {
+        chars.next();
+        class.push('!');
+    }
+    let mut members = 0_usize;
+    loop {
+        match chars.next()? {
+            ']' if members > 0 => break,
+            '\\' => {
+                let escaped = chars.next()?;
+                if escaped.is_ascii_alphanumeric() || matches!(escaped, '[' | ']' | '\\' | '/' | '!' | '^') {
+                    return None;
+                }
+                class.push(escaped);
+            }
+            c if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') => class.push(c),
+            _ => return None,
+        }
+        members += 1;
+    }
+    class.push(']');
+    Some(class)
 }

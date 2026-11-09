@@ -33,6 +33,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A Playwright `testMatch` regular expression with a `?` quantifier or a character class (`/.*\.e2e\.tsx?/`,
+  `/.*\.(spec|test)\.[jt]sx?$/`) becomes a glob of the test files it matches. It used to make every script below the
+  project's `testDir` an entry, so no file there was reported by `unused-files`
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
+- The `jest` plugin makes a file named just `test.js` or `spec.ts` (any script extension) a test entry, as Jest's
+  default `testMatch` and knip do ([#100](https://github.com/Goldziher/skif/issues/100)).
+- `skif explain-usage` names the entry kind `enclosing-entry-glob` for a file that a plugin of a containing package
+  makes an entry (a root `playwright.config.ts` whose `testDir` is in a member) instead of `unknown`
+  ([#100](https://github.com/Goldziher/skif/issues/100)).
 - `stale-js-config` no longer reports stylesheet extensions (`.css`, `.scss`, `.sass`, `.less`, `.pcss`, `.styl`,
   `.stylus`) in `project` as files skif does not analyse: skif reads their imports, so a migrated knip glob such
   as `src/**/*.{ts,css}!` no longer warns. Other unknown extensions are still reported
