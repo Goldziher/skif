@@ -619,12 +619,14 @@ fn a_mock_of_a_missing_module_is_a_stale_mock_not_an_unresolved_import() {
     );
     let repro = only(&diagnostics, "stale-mocks", "vi.mock('./gone')");
     assert_eq!(repro.message, "`vi.mock('./gone')` names a module that does not exist");
-    assert_eq!(repro.help.as_deref(), Some("remove the call, or point it at the module's new path"));
+    assert_eq!(
+        repro.help.as_deref(),
+        Some("remove the call, or point it at the module's new path")
+    );
     assert_eq!(repro.severity, skif_core::Severity::Error);
     let actual = only(&diagnostics, "stale-mocks", "jest.requireActual('./gone-required')");
     assert_eq!(
-        actual.message,
-        "`jest.requireActual('./gone-required')` names a module that does not exist",
+        actual.message, "`jest.requireActual('./gone-required')` names a module that does not exist",
         "a call that loads the real module does not mock it"
     );
     assert_eq!(
