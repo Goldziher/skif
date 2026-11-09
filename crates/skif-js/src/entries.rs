@@ -3,14 +3,17 @@
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
+use serde_json::Value;
 use skif_core::FileSystem;
 use skif_workspace::{PackageId, Workspace};
 
+use crate::analysis::on_disk;
 use crate::ancestors::external_manifests;
-use crate::discover::{Candidate, relative};
+use crate::discover::{Candidate, is_ignored_in_repository, relative};
 use crate::globs::Globs;
 use crate::manifest_paths::{
-    bin_stub_sources, bin_targets, crossing_stars, manifest_targets, map_to_source, should_have_source, source_patterns,
+    bin_stub_sources, bin_targets, crossing_stars, is_out_dir, manifest_targets, map_to_source, should_have_source,
+    source_patterns,
 };
 use crate::resolve::{is_code_file, join_normalized};
 use crate::scripts;
@@ -23,13 +26,22 @@ pub(crate) struct EntryFiles {
     /// Packages whose real entries are unknown, so their files and dependencies cannot be judged unused: those that
     /// publish build output or bin files none of which maps back to a source file, and those with no source file at
     /// or below their directory, no entry and no script, whose manifest only lists what code elsewhere installs it
-    /// for.
+    /// for. A published path that names no file at all ([`names_no_file`]) is no entry and does not make a package's
+    /// entries unknown (ADR 0069).
     pub unknown: Vec<PackageId>,
     /// The entry files something other than the configured and default `entry` globs makes entries: plugins, the
     /// manifest, tool configuration files and scripts (with `include-entry-exports`, only plugin entry globs and the
     /// manifest, whose exports are judged like a configured entry's). A configured entry naming one of them is
     /// redundant (knip's `entry-redundant`).
     pub provided: HashSet<PathBuf>,
+}
+
+/// Where published paths are looked up to tell build output not built yet from a path into nothing: `fs` lists
+/// gitignored files too, and `gitignore` says whether `.gitignore` files apply.
+#[derive(Clone, Copy)]
+pub(crate) struct Disk<'a> {
+    pub fs: &'a dyn FileSystem,
+    pub gitignore: bool,
 }
 
 /// The entry files of every package. `extra` are files, relative to the workspace root, that other roots of a
@@ -40,6 +52,7 @@ pub(crate) fn entry_files(
     setup: &Setup,
     candidates: &[Candidate],
     extra: &[PathBuf],
+    disk: Disk<'_>,
 ) -> EntryFiles {
     let mut entries = BTreeSet::new();
     let mut unknown = Vec::new();
@@ -104,7 +117,9 @@ pub(crate) fn entry_files(
             {
                 mapped_any = true;
                 from_tools.insert(path);
-            } else if should_have_source(&target) {
+            } else if should_have_source(&target)
+                && !names_no_file(disk, &workspace.root, package_setup, package.manifest.value(), &target)
+            {
                 published_without_source = true;
             }
         }
@@ -336,6 +351,114 @@ pub(crate) fn map_published(fs: &dyn FileSystem, package_setup: &PackageSetup, t
         .iter()
         .find_map(|source| map_to_source(fs, dir, source))
         .or_else(|| map_to_source(fs, dir, target))
+}
+
+/// Whether the published path `target` of the package with `manifest` names no file: neither the path nor a source
+/// file behind it exists, git does not ignore it and it is not build output not built yet. A path in a build output
+/// directory (`dist`, `lib`, ...), a gitignored path (by an ignore file of the repository above or below the analysed
+/// root, or its `info/exclude`) and a path in `bin` of a package with a build step ([`may_build_bin`]) are build
+/// output. A path outside the package is never judged. Such a path is no entry, so it neither makes the package's
+/// entries unknown nor uses anything (ADR 0069); `stale-js-config` reports it (`package-entry`).
+pub(crate) fn names_no_file(
+    disk: Disk<'_>,
+    root: &Path,
+    package_setup: &PackageSetup,
+    manifest: &Value,
+    target: &str,
+) -> bool {
+    let rel = target.trim_start_matches("./");
+    if rel.starts_with("../") || rel.starts_with('/') {
+        return false;
+    }
+    // Build output (`dist/index.js`, `dist/style.css`) is missing until the package is built, and the `.gitignore`
+    // that hides it may lie above the analysed root, so it is never called missing.
+    let first = rel.split_once('/').map(|(first, _)| first);
+    if first.is_some_and(is_out_dir) {
+        return false;
+    }
+    if first == Some("bin") && may_build_bin(disk.fs, package_setup, manifest) {
+        return false;
+    }
+    let dir = &package_setup.dir;
+    if disk.gitignore && is_ignored_in_repository(disk.fs, root, &dir.join(rel)) {
+        return false;
+    }
+    if rel.contains('*') {
+        return !on_disk(disk.fs, dir, rel)
+            && !source_patterns(rel)
+                .iter()
+                .any(|pattern| on_disk(disk.fs, dir, pattern));
+    }
+    let path = join_normalized(dir, rel);
+    !disk.fs.is_file(&path) && !disk.fs.kind(&path).is_dir && map_published(disk.fs, package_setup, rel).is_none()
+}
+
+/// Scripts that build a package before it is run or published: `build`, `build:*`, `prepack` and `prepublishOnly`.
+/// `prepare` is left out, since it mostly installs git hooks; one that builds runs a builder or the `build` script.
+const BUILD_SCRIPTS: &[&str] = &["build", "prepack", "prepublishOnly"];
+
+/// Binaries that compile or bundle code into files a package publishes.
+const BUILDERS: &[&str] = &[
+    "babel",
+    "esbuild",
+    "ncc",
+    "rolldown",
+    "rollup",
+    "rslib",
+    "rspack",
+    "swc",
+    "tsc",
+    "tsdown",
+    "tsgo",
+    "tsup",
+    "tsup-node",
+    "unbuild",
+    "webpack",
+    "webpack-cli",
+];
+
+/// The file name prefixes of the bundler configurations the plugins read, which can write a package's bin files.
+const BUNDLER_CONFIGS: &[&str] = &[
+    "build.config.",
+    "esbuild.",
+    "rolldown.config.",
+    "rollup.config.",
+    "rslib",
+    "rspack.config.",
+    "tsdown.config.",
+    "tsup.config.",
+    "webpack.config.",
+];
+
+/// Whether a build step of the package may write its `bin` directory, so that a missing file there is build output
+/// not built yet rather than a path into nothing: a build script ([`BUILD_SCRIPTS`]), a script that runs a compiler
+/// or bundler ([`BUILDERS`]), a bundler configuration a plugin reads ([`BUNDLER_CONFIGS`]), or a build directory
+/// (`tsconfig` `outDir`) at or inside `bin`.
+fn may_build_bin(fs: &dyn FileSystem, package_setup: &PackageSetup, manifest: &Value) -> bool {
+    let build_script = manifest
+        .get("scripts")
+        .and_then(Value::as_object)
+        .is_some_and(|scripts| {
+            scripts
+                .keys()
+                .any(|name| BUILD_SCRIPTS.contains(&name.as_str()) || name.starts_with("build:"))
+        });
+    let builder = package_setup
+        .scripts
+        .binaries
+        .iter()
+        .any(|binary| BUILDERS.contains(&binary.name.as_str()));
+    let bundler_config = package_setup.config_files.iter().any(|path| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| BUNDLER_CONFIGS.iter().any(|prefix| name.starts_with(prefix)))
+            && fs.is_file(path)
+    });
+    let bin_build_dir = package_setup
+        .build_dirs
+        .iter()
+        .any(|build| build.out_dir == "bin" || build.out_dir.starts_with("bin/"));
+    build_script || builder || bundler_config || bin_build_dir
 }
 
 /// The source paths behind `rel`, a package-relative path inside the output directory of one of the package's build
