@@ -76,18 +76,18 @@ old one.
 | 0066 | [A Module Cache and Unsaved Buffers in the Language Server](0066-a-module-cache-and-unsaved-buffers-in-the-language-server.md) | accepted |
 | 0067 | [No Editor Extension](0067-no-editor-extension.md) | accepted |
 | 0068 | [What the knip Comparison Sets Apart: Exports skif Does Not Judge, Configs knip Cannot Load, and Fixture Names](0068-what-the-knip-comparison-sets-apart.md) | accepted |
-| 0080 | [knip Workspaces, Skipped Directories and Published Sources in the knip Comparison](0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md) | accepted |
-| 0079 | [Namespace Reads Through Test-Runner Spies and Imports Awaited Together](0079-namespace-reads-through-spies-and-imports-awaited-together.md) | accepted |
-| 0078 | [Plugin Gaps: Config Functions Called Statically, File Tasks, Templates and Installed Versions](0078-plugin-gaps-config-functions-file-tasks-and-templates.md) | accepted |
-| 0077 | [Dependencies Nested Roots Use Count for the Enclosing Manifest](0077-dependencies-nested-roots-use-count-for-the-enclosing-manifest.md) | accepted |
-| 0076 | [Binaries Run Outside Scripts: Commands of Tool Files and `child_process` Calls, and Corrections to Unlisted Dependencies](0076-binaries-run-outside-scripts-and-unlisted-corrections.md) | accepted |
-| 0075 | [Imports Only Another Package's tsconfig `paths` Map: Unlisted, With a Detail, Not Resolved Through Merged Paths](0075-imports-only-another-packages-tsconfig-paths-map.md) | accepted |
-| 0074 | [Reasons on `[js]` Ignore Entries, a `[lint] require-ignore-reasons` Key, and Comments Carried Over by `skif migrate`](0074-reasons-on-js-ignore-entries.md) | accepted |
-| 0073 | [Stale Mocks: Test-Runner Mocks of Missing Modules Under Their Own Rule](0073-stale-mocks-test-runner-mocks-of-missing-modules-under-their-own-rule.md) | accepted |
-| 0072 | [A Policy Scope Without `local` Leaves the Own Versions Out](0072-a-policy-scope-without-local-leaves-the-own-versions-out.md) | accepted |
-| 0071 | [`skif baseline`: A Suppression Baseline That Can Only Shrink](0071-skif-baseline-a-suppression-baseline-that-can-only-shrink.md) | accepted |
 | 0069 | [A Published Path Into Nothing Is Reported, Not an Incomplete Entry](0069-a-published-path-into-nothing-is-reported-not-an-incomplete-entry.md) | accepted |
 | 0070 | [Windows npm Packages](0070-windows-npm-packages.md) | accepted |
+| 0071 | [`skif baseline`: A Suppression Baseline That Can Only Shrink](0071-skif-baseline-a-suppression-baseline-that-can-only-shrink.md) | accepted |
+| 0072 | [A Policy Scope Without `local` Leaves the Own Versions Out](0072-a-policy-scope-without-local-leaves-the-own-versions-out.md) | accepted |
+| 0073 | [Stale Mocks: Test-Runner Mocks of Missing Modules Under Their Own Rule](0073-stale-mocks-test-runner-mocks-of-missing-modules-under-their-own-rule.md) | accepted |
+| 0074 | [Reasons on `[js]` Ignore Entries, a `[lint] require-ignore-reasons` Key, and Comments Carried Over by `skif migrate`](0074-reasons-on-js-ignore-entries.md) | accepted |
+| 0075 | [Imports Only Another Package's tsconfig `paths` Map: Unlisted, With a Detail, Not Resolved Through Merged Paths](0075-imports-only-another-packages-tsconfig-paths-map.md) | accepted |
+| 0076 | [Binaries Run Outside Scripts: Commands of Tool Files and `child_process` Calls, and Corrections to Unlisted Dependencies](0076-binaries-run-outside-scripts-and-unlisted-corrections.md) | accepted |
+| 0077 | [Dependencies Nested Roots Use Count for the Enclosing Manifest](0077-dependencies-nested-roots-use-count-for-the-enclosing-manifest.md) | accepted |
+| 0078 | [Plugin Gaps: Config Functions Called Statically, File Tasks, Templates and Installed Versions](0078-plugin-gaps-config-functions-file-tasks-and-templates.md) | accepted |
+| 0079 | [Namespace Reads Through Test-Runner Spies and Imports Awaited Together](0079-namespace-reads-through-spies-and-imports-awaited-together.md) | accepted |
+| 0080 | [knip Workspaces, Skipped Directories and Published Sources in the knip Comparison](0080-knip-workspaces-skipped-directories-and-published-sources-in-the-knip-comparison.md) | accepted |
 
 ## Effective statements
 
