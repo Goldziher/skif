@@ -78,8 +78,15 @@ fn expand(value: &str, scopes: &[Option<&ConfigValue>], taskfile_dir: &str) -> S
                 .and_then(ConfigValue::as_str)
                 .filter(|value| !value.contains("{{")),
         });
-        out.push_str(known.unwrap_or(TEMPLATE_SUBSTITUTION));
         rest = &after[end + 2..];
+        // `{{.ROOT_DIR}}/scripts/a.js` names `scripts/a.js`, the same path a plain command would.
+        if known == Some(".")
+            && let Some(path) = rest.strip_prefix('/')
+        {
+            rest = path;
+            continue;
+        }
+        out.push_str(known.unwrap_or(TEMPLATE_SUBSTITUTION));
     }
     out.push_str(rest);
     out

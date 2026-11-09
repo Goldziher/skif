@@ -77,7 +77,10 @@ fn passthrough_copy(path: &str, config: &ConfigAst<'_>, cx: &PluginContext<'_>) 
     }
     let file = config.join(path);
     if !path.contains('*') && cx.fs.is_dir(&cx.dir.join(&file)) {
-        return Some(PluginInput::ProductionEntry(join_rel(&file, &format!("**/*.{COPIED_EXTENSIONS}"))));
+        return Some(PluginInput::ProductionEntry(join_rel(
+            &file,
+            &format!("**/*.{COPIED_EXTENSIONS}"),
+        )));
     }
     Some(PluginInput::ProductionEntry(file))
 }

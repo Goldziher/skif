@@ -112,8 +112,8 @@ fn add_project(
             None => included.extend(entry_glob(root, pattern)),
         }
     }
-    let excludes = !excluded.is_empty();
-    if excludes {
+    let has_exclusions = !excluded.is_empty();
+    if has_exclusions {
         let excluded: Vec<GlobMatcher> = excluded.iter().filter_map(|pattern| matcher(pattern)).collect();
         out.extend(
             find_files(cx.fs, cx.dir, &included)
@@ -139,7 +139,7 @@ fn add_project(
     if let Some(alias) = get_in(project, &["resolve", "alias"]) {
         out.extend(alias_inputs(alias, config));
     }
-    excludes
+    has_exclusions
 }
 
 /// The default test and mock globs below `base`, unless `[js.plugins.rstest] entry` replaces them.

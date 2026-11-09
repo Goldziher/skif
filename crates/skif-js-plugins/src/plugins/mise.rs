@@ -44,7 +44,11 @@ impl Plugin for Mise {
             .map(strings)
             .unwrap_or_default()
             .into_iter()
-            .filter(|include| !include.ends_with(".toml"))
+            .filter(|include| {
+                !std::path::Path::new(include)
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("toml"))
+            })
             .filter_map(|include| resolve_dir(include, &root))
             .collect();
         let mut out = file_tasks(cx, &includes);
@@ -81,7 +85,13 @@ impl Plugin for Mise {
 }
 
 /// The directories mise looks for file tasks in by default, relative to the config root.
-const FILE_TASK_DIRS: [&str; 5] = ["mise-tasks", ".mise-tasks", "mise/tasks", ".mise/tasks", ".config/mise/tasks"];
+const FILE_TASK_DIRS: [&str; 5] = [
+    "mise-tasks",
+    ".mise-tasks",
+    "mise/tasks",
+    ".mise/tasks",
+    ".config/mise/tasks",
+];
 
 /// Extensions of the file tasks that are JavaScript or TypeScript modules.
 const SOURCE_EXTENSIONS: &[&str] = &["js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx"];
@@ -110,14 +120,13 @@ fn file_task(cx: &PluginContext<'_>, file: String) -> Option<PluginInput> {
         return Some(PluginInput::Entry(file));
     }
     let text = cx.fs.read_to_string(&cx.dir.join(&file)).ok()?;
-    let is_shell = match text.lines().next().and_then(|line| line.strip_prefix("#!")) {
-        Some(shebang) => interpreter(shebang).is_some_and(|name| SHELLS.contains(&name)),
+    let is_shell = if let Some(shebang) = text.lines().next().and_then(|line| line.strip_prefix("#!")) {
+        interpreter(shebang).is_some_and(|name| SHELLS.contains(&name))
+    } else {
         // Without a shebang, only a file named as a shell script is one (`build`, `build.sh`), not `README.md`.
-        None => {
-            let name = file.rsplit('/').next().unwrap_or(&file);
-            name.rsplit_once('.')
-                .is_none_or(|(stem, extension)| stem.is_empty() || SHELLS.contains(&extension))
-        }
+        let name = file.rsplit('/').next().unwrap_or(&file);
+        name.rsplit_once('.')
+            .is_none_or(|(stem, extension)| stem.is_empty() || SHELLS.contains(&extension))
     };
     if !is_shell {
         return None;
@@ -147,7 +156,12 @@ fn header_dir(text: &str) -> Option<&str> {
             .strip_prefix("#MISE")
             .or_else(|| line.strip_prefix("# [MISE]"))
             .or_else(|| line.strip_prefix("#[MISE]"))?;
-        let value = header.trim().strip_prefix("dir")?.trim_start().strip_prefix('=')?.trim();
+        let value = header
+            .trim()
+            .strip_prefix("dir")?
+            .trim_start()
+            .strip_prefix('=')?
+            .trim();
         Some(value.trim_matches(['"', '\'']))
     })
 }

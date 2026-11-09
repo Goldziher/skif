@@ -56,7 +56,12 @@ impl Plugin for Vue {
 /// entries, aliases, plugins or rules.
 fn base_config() -> ConfigValue {
     let object = |entries: Vec<(&str, ConfigValue)>| {
-        ConfigValue::Object(entries.into_iter().map(|(key, value)| (key.to_owned(), value)).collect())
+        ConfigValue::Object(
+            entries
+                .into_iter()
+                .map(|(key, value)| (key.to_owned(), value))
+                .collect(),
+        )
     };
     object(vec![
         ("mode", ConfigValue::String("development".to_owned())),
