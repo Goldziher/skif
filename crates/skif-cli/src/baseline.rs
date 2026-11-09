@@ -62,10 +62,10 @@ struct Baseline {
     entries: Vec<IgnoreEntry>,
 }
 
-/// The root at `PATH`, resolved as for linting, and the absolute path of its baseline file.
 /// Baseline entries paired with the indices of the findings each one matches.
 type Matched<'a> = Vec<(&'a IgnoreEntry, &'a Vec<usize>)>;
 
+/// The root at `PATH`, resolved as for linting, and the absolute path of its baseline file.
 fn locate(args: &BaselineFileArgs) -> Result<(Target, PathBuf), CliError> {
     let start = canonical(&args.path)?;
     let target = skif::find_target(&start, &CachedFs::new(OsFs), &ConfigOverrides::default())?;
@@ -166,10 +166,13 @@ fn sorted_unique(mut entries: Vec<IgnoreEntry>) -> Vec<IgnoreEntry> {
 }
 
 /// `text` with the characters that are glob syntax in a selector written as one-character classes, so a pattern made
-/// of it matches exactly that text.
+/// of it matches exactly that text. A leading `!`, which would make the pattern an exclusion, is written as the
+/// one-branch alternation `{!}`: a class cannot hold it, since `[!` opens a negated class.
 fn literal(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
-    for character in text.chars() {
+    let (negation, rest) = text.strip_prefix('!').map_or(("", text), |rest| ("{!}", rest));
+    escaped.push_str(negation);
+    for character in rest.chars() {
         if "*?[]{}".contains(character) {
             escaped.push('[');
             escaped.push(character);
@@ -715,6 +718,19 @@ mod tests {
         let selector = Selector::new([literal("x@*")]).unwrap();
         assert!(selector.matches("x@*", false));
         assert!(!selector.matches("x@1.0.0", false));
+    }
+
+    #[test]
+    fn a_leading_exclamation_mark_is_not_a_negation() {
+        assert_eq!(literal("!legacy"), "{!}legacy");
+        assert_eq!(literal("a!b"), "a!b");
+        let selector = Selector::new([literal("!legacy")]).unwrap();
+        assert!(selector.matches("!legacy", false));
+        assert!(!selector.matches("legacy", false));
+        assert!(!selector.matches("other", false), "not an exclusion, which would select everything else");
+        let both = Selector::new([literal("!{x}")]).unwrap();
+        assert!(both.matches("!{x}", false));
+        assert!(!both.matches("!x", false));
     }
 
     #[test]
