@@ -13,6 +13,7 @@ static SPEC: PluginSpec = PluginSpec {
     enablers: &[Enabler::File(".github/workflows/*.{yml,yaml}")],
     root_only: true,
     config: &[".github/workflows/*.{yml,yaml}", ".github/**/action.{yml,yaml}"],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 

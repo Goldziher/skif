@@ -3286,7 +3286,7 @@ fn execa_zx_and_nano_spawn_commands_are_scripts() {
 /// source file for a call of `execa`. On-demand fetches (`npx`) and system tools (`git`) are left out.
 #[test]
 fn run_binaries_name_the_file_whose_command_runs_them() {
-    let workflow = "name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: tsx scripts/check.ts && git status\n      - run: npx playwright test\n";
+    let workflow = "name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec tsx scripts/check.ts && git status\n      - run: npx playwright test\n";
     let files = [
         (".github/workflows/ci.yml", workflow),
         (
@@ -4842,4 +4842,33 @@ fn taskr_reads_the_taskfile_its_required_plugins_and_named_plugins() {
     assert!(out.provided_binaries.contains(&"taskr".to_string()));
     let none = resolve(&[], &["react"]);
     assert!(!none.iter().any(|(id, _)| *id == "taskr"));
+}
+
+#[test]
+fn ci_and_hook_commands_judge_only_binaries_reached_through_a_package_manager_or_a_bin_path() {
+    let workflow = concat!(
+        "name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n",
+        "      - run: shellcheck scripts/*.sh && swiftc main.swift\n",
+        "      - run: pnpm exec tsc -b && yarn release-tool check && ./node_modules/.bin/eslint .\n",
+    );
+    let files = [
+        (".github/workflows/ci.yml", workflow),
+        ("lefthook.yml", "pre-commit:\n  commands:\n    lint:\n      run: actionlint && pnpm exec oxlint\n"),
+        (".lintstagedrc.json", r#"{"*.rs": "rustfmt"}"#),
+    ];
+    let results = resolve(&files, &["lefthook", "lint-staged"]);
+    let runs = |id: &str| -> Vec<String> {
+        output(&results, id)
+            .run_binaries
+            .iter()
+            .map(|run| run.name.clone())
+            .collect()
+    };
+    assert_eq!(runs("github-actions"), ["tsc", "release-tool", "eslint"]);
+    assert_eq!(runs("lefthook"), ["oxlint"]);
+    // lint-staged tasks run like `package.json` scripts: a binary named directly is judged.
+    assert_eq!(runs("lint-staged"), ["rustfmt"]);
+    // Every binary is still a credit.
+    let referenced = &output(&results, "github-actions").referenced_binaries;
+    assert!(referenced.iter().any(|name| name == "shellcheck"), "{referenced:?}");
 }
