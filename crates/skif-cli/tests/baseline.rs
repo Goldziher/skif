@@ -419,3 +419,75 @@ fn human_output_says_why_an_unnamed_root_finding_is_not_recorded() {
         written.stderr
     );
 }
+
+#[test]
+fn packages_sharing_a_name_are_recorded_by_directory() {
+    let dir = fixture("mismatch");
+    let path = dir.path().join("packages").join("c").join("package.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        path,
+        "{\n  \"name\": \"@cli/b\",\n  \"version\": \"0.0.0\",\n  \"dependencies\": {\n    \"is-number\": \"5.0.0\"\n  }\n}\n",
+    )
+    .unwrap();
+
+    let written = baseline(dir.path(), "write", &[]);
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    let by_dir = |dir: &str, version: &str| {
+        json!({
+            "rules": ["version-mismatch"],
+            "packages": [dir],
+            "dependencies": [format!("is-number@{version}")],
+            "reason": "baseline",
+        })
+    };
+    assert_eq!(
+        written.json()["added"],
+        json!([by_dir("packages/b", "6.0.0"), by_dir("packages/c", "5.0.0")])
+    );
+    assert_eq!(lint(dir.path()).code, 0);
+
+    fs::write(
+        dir.path().join("packages").join("c").join("package.json"),
+        "{\n  \"name\": \"@cli/b\",\n  \"version\": \"0.0.0\",\n  \"dependencies\": {\n    \"is-number\": \"6.0.0\"\n  }\n}\n",
+    )
+    .unwrap();
+    let moved = lint(dir.path());
+    assert_eq!(
+        moved.code, 1,
+        "the entry of packages/b does not cover packages/c: {}",
+        moved.stdout
+    );
+}
+
+#[test]
+fn a_relative_file_resolves_from_the_working_directory() {
+    let dir = fixture("mismatch");
+    let member = dir.path().join("packages").join("a");
+    let written = run(skif()
+        .current_dir(&member)
+        .args(["baseline", "write", "--file", "../../debt.toml", "--format", "json"]));
+    assert_eq!(written.code, 0, "{}{}", written.stdout, written.stderr);
+    assert_eq!(written.json()["file"], "debt.toml");
+    assert_eq!(written.json()["extended"], "skif.toml");
+    assert!(dir.path().join("debt.toml").is_file());
+    assert!(!dir.path().join(BASELINE).exists());
+    let config = fs::read_to_string(dir.path().join("skif.toml")).unwrap();
+    assert!(config.starts_with("extends = [\"debt.toml\"]\n"), "{config}");
+
+    let again = run(skif()
+        .current_dir(dir.path())
+        .args(["baseline", "write", "--file", "debt.toml", "--format", "json"]));
+    assert_eq!(again.code, 0, "{}{}", again.stdout, again.stderr);
+    assert_eq!(again.json()["extended"], Value::Null, "already extended");
+    assert_eq!(again.json()["written"], false);
+    assert_eq!(fs::read_to_string(dir.path().join("skif.toml")).unwrap(), config);
+}
+
+#[test]
+fn a_file_argument_that_names_no_file_is_a_usage_error() {
+    let dir = fixture("mismatch");
+    let written = baseline(dir.path(), "write", &["--file", ".."]);
+    assert_eq!(written.code, 2, "{}{}", written.stdout, written.stderr);
+    assert_eq!(written.json()["error"]["kind"], "usage");
+}
