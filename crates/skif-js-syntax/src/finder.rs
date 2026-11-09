@@ -157,14 +157,17 @@ fn template_glob(expr: &Expression<'_>) -> Option<String> {
     relative.then(|| parts.join("*"))
 }
 
-/// Rstest's module mocking calls, on `rs` and on its alias `rstest`.
-const RSTEST_MOCKS: &[&str] = &[
+/// Rstest's module mocking calls (<https://rstest.rs/api/runtime-api/rstest/mock-modules>), on `rs` and on its alias
+/// `rstest`.
+const RSTEST_MOCK_CALLS: &[&str] = &[
     "mock",
     "mockRequire",
     "doMock",
     "doMockRequire",
     "unmock",
     "doUnmock",
+    "unmockRequire",
+    "doUnmockRequire",
     "importActual",
     "importMock",
     "requireActual",
@@ -177,8 +180,8 @@ const MOCK_CALLS: &[(&str, &[&str])] = &[
         "vi",
         &["mock", "doMock", "unmock", "doUnmock", "importActual", "importMock"],
     ),
-    ("rs", RSTEST_MOCKS),
-    ("rstest", RSTEST_MOCKS),
+    ("rs", RSTEST_MOCK_CALLS),
+    ("rstest", RSTEST_MOCK_CALLS),
     (
         "jest",
         &[

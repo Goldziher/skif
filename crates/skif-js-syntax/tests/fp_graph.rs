@@ -217,7 +217,7 @@ fn typeof_import_asserting_a_require_is_not_a_use_of_the_whole_module() {
 fn test_runner_mocks_are_mock_imports_and_strings_are_not() {
     let info = parse(
         "a.test.ts",
-        "vi.mock('./dep');\njest.requireActual<typeof import('x')>('pkg');\njest.mock('virtual', () => ({}), { virtual: true });\nconst code = `vi.mock('inv1')`;\nconst text = \"jest.mock('inv2')\";\nrs.mock('./rs-dep', () => ({}));\nrstest.importActual('rs-pkg');\n",
+        "vi.mock('./dep');\njest.requireActual<typeof import('x')>('pkg');\njest.mock('virtual', () => ({}), { virtual: true });\nconst code = `vi.mock('inv1')`;\nconst text = \"jest.mock('inv2')\";\nrs.mock('./rs-dep', () => ({}));\nrstest.importActual('rs-pkg');\nrs.doUnmockRequire('rs-cjs');\n",
     );
     let mocks: Vec<&str> = info
         .imports
@@ -225,7 +225,7 @@ fn test_runner_mocks_are_mock_imports_and_strings_are_not() {
         .filter(|import| import.kind == ImportKind::Mock)
         .map(|import| import.specifier.as_str())
         .collect();
-    assert_eq!(mocks, ["./dep", "pkg", "./rs-dep", "rs-pkg"]);
+    assert_eq!(mocks, ["./dep", "pkg", "./rs-dep", "rs-pkg", "rs-cjs"]);
 }
 
 #[test]
