@@ -10,12 +10,12 @@ use skif_js_syntax::ConfigValue;
 use crate::config_load::{from_json, load_config_with};
 use crate::files::find_files;
 use crate::plugin::{
-    BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, IncompleteScope, PathAlias, Plugin,
-    PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
+    BinaryRef, BuildDir, ConfigAst, DepRef, Enabler, IncompleteCause, IncompleteEntries, IncompleteScope, PathAlias,
+    Plugin, PluginContext, PluginId, PluginInput, PluginOutput, PluginSpec,
 };
 use crate::registry;
 use crate::script_config::{config_flags, config_paths, flag_values};
-use crate::scripts::{ScriptContext, parse_script};
+use crate::scripts::{BinaryVia, ScriptContext, is_ignored_binary, parse_script};
 use crate::support::{join_rel, looks_like_file};
 
 const MAX_CONFIG_DEPTH: u8 = 16;
@@ -143,6 +143,7 @@ impl Collector<'_, '_> {
         depth: u8,
     ) {
         let foreign = self.belongs_to_other_package(from);
+        let optional = registry::plugin(reader).is_some_and(|plugin| plugin.spec().optional_binaries);
         for input in inputs {
             if foreign
                 && matches!(
@@ -175,8 +176,12 @@ impl Collector<'_, '_> {
                 }
                 PluginInput::LinkedConfig { plugin, path } => self.linked_config(plugin, &path, depth),
                 PluginInput::VirtualModule(pattern) => push_unique(&mut self.out.virtual_modules, pattern),
-                PluginInput::Script(text) => self.script(&text, from),
+                PluginInput::Script(text) => self.script(&text, from, optional),
                 PluginInput::ScriptAt { dir, script } => self.script_at(&dir, &script),
+                PluginInput::SourceScript { file, script } => {
+                    let source = self.ctx.dir.join(&file);
+                    self.script(&script, &source, false);
+                }
                 PluginInput::Ignore(glob) => push_unique(&mut self.out.ignore, glob),
                 PluginInput::Alias { find, target } => {
                     let alias = PathAlias { find, target };
@@ -255,19 +260,33 @@ impl Collector<'_, '_> {
         }
     }
 
-    fn script(&mut self, text: &str, from: &Path) {
-        self.parse_script(text, from);
+    /// A command read from `from`. With `optional` (see [`PluginSpec::optional_binaries`]) a binary it runs by name is
+    /// only a credit.
+    fn script(&mut self, text: &str, from: &Path, optional: bool) {
+        self.parse_script(text, from, optional);
         // `cdk deploy -a "npx ts-node bin/app.ts"` runs the app command, which is a script of its own.
         for app in flag_values(text, &["cdk"], &["-a", "--app"]) {
-            self.parse_script(&app, from);
+            self.parse_script(&app, from, optional);
         }
     }
 
-    fn parse_script(&mut self, text: &str, from: &Path) {
+    fn parse_script(&mut self, text: &str, from: &Path, optional: bool) {
         let mut script_ctx = ScriptContext::new();
         script_ctx.scripts.clone_from(self.ctx.scripts);
         let info = parse_script(text, &script_ctx);
         for binary in info.binaries {
+            // As for the scripts of `package.json`: a binary fetched on demand, run in another workspace or that the
+            // script parser ignores is never unlisted here.
+            let judged = !optional || binary.via != BinaryVia::Direct || binary.bin_path;
+            if judged && !binary.filtered && !binary.via.is_ephemeral() && !is_ignored_binary(&binary.name) {
+                let run = BinaryRef {
+                    name: binary.name.clone(),
+                    from: from.to_path_buf(),
+                };
+                if !self.out.run_binaries.contains(&run) {
+                    self.out.run_binaries.push(run);
+                }
+            }
             push_unique(&mut self.out.referenced_binaries, binary.name);
         }
         for file in info.files {

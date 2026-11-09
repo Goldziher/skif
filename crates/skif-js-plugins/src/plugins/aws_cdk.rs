@@ -16,6 +16,7 @@ static SPEC: PluginSpec = PluginSpec {
     enablers: &[Enabler::Dependency("aws-cdk"), Enabler::Dependency("aws-cdk-lib")],
     config: &["cdk.json"],
     binaries: &["cdk"],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 

@@ -19,6 +19,7 @@ static SPEC: PluginSpec = PluginSpec {
     config: &["playwright.config.{js,cjs,mjs,ts,cts,mts}"],
     entry: &[TEST_FILES],
     binaries: &["playwright"],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 

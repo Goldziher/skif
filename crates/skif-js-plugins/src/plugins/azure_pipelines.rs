@@ -17,6 +17,7 @@ static SPEC: PluginSpec = PluginSpec {
     ],
     root_only: true,
     config: &["azure-pipelines.{yml,yaml}", ".azure-pipelines/**/*.{yml,yaml}"],
+    optional_binaries: true,
     ..PluginSpec::DEFAULT
 };
 

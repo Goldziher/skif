@@ -130,7 +130,7 @@ A test-runner mock names a relative or aliased module that does not exist.
 
 ## unlisted-binaries
 
-A script runs a binary that no listed dependency provides.
+A script, or a command in a workflow, tool config or source file, runs a binary that no listed dependency provides.
 
 - Category: js
 - Default severity: warning

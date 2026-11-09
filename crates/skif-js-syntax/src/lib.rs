@@ -19,6 +19,7 @@
 mod array_comments;
 mod cache;
 mod collect;
+mod commands;
 mod comments;
 mod config;
 mod custom_elements;
@@ -52,7 +53,7 @@ pub use cache::{
 };
 pub use config::{
     ConfigValue, ImportedCall, ModuleLoader, TEMPLATE_SUBSTITUTION, extract_config_object, extract_config_object_with,
-    extract_constructor_options, extract_imported_calls, extract_property_values,
+    extract_constructor_options, extract_imported_calls, extract_property_values, literal_command,
 };
 pub use error::SyntaxError;
 pub use model::{
@@ -176,6 +177,7 @@ fn parse_block(
         .collect();
     custom_elements::mark(&ret.program, &mut info);
     comments::collect(&ctx, &ret.program, &mut info);
+    info.commands = commands::child_process_commands(&ret.program, &info.imports);
     info
 }
 

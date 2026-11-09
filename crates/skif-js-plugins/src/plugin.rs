@@ -77,6 +77,11 @@ pub struct PluginSpec {
     pub ignore: &'static [&'static str],
     /// The custom element library of the tool, whose registered classes are used without an import.
     pub custom_elements: Option<CustomElements>,
+    /// The commands the tool runs (CI steps, Git hooks, task runner tasks) need not run a dependency's binary: one
+    /// they run by name may come from the machine, so only a binary reached through a package manager (`pnpm exec
+    /// x`, `yarn x`) or a `node_modules/.bin` path is judged by `unlisted-binaries`. Every binary still credits the
+    /// dependency that provides it. knip's `optionalBinaries`.
+    pub optional_binaries: bool,
     /// The knip commit the row was checked against.
     pub knip_commit: &'static str,
 }
@@ -95,6 +100,7 @@ impl PluginSpec {
         binaries: &[],
         ignore: &[],
         custom_elements: None,
+        optional_binaries: false,
         knip_commit: KNIP_COMMIT,
     };
 }
@@ -125,6 +131,14 @@ pub enum PluginInput {
     ScriptAt {
         /// The directory the script runs in, relative to the workspace directory.
         dir: String,
+        /// The script text.
+        script: String,
+    },
+    /// A shell script that a source file of the workspace runs (`execa('tsx', ['build.ts'])`), parsed with the script
+    /// parser like [`PluginInput::Script`]; the binaries it runs are recorded against `file` rather than the config.
+    SourceScript {
+        /// The source file, relative to the workspace directory.
+        file: String,
         /// The script text.
         script: String,
     },
@@ -333,10 +347,19 @@ pub struct DepRef {
     pub optional: bool,
 }
 
+/// A binary that a command read from a file runs; see [`PluginOutput::run_binaries`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BinaryRef {
+    /// The binary's name as the command spells it.
+    pub name: String,
+    /// The file the command is read from, absolute: a config, a workflow or a source file.
+    pub from: PathBuf,
+}
+
 /// Everything one enabled plugin contributes to a workspace.
 ///
-/// Globs and paths are relative to the workspace directory, except the absolute `config_files` and
-/// the `from` of each [`DepRef`].
+/// Globs and paths are relative to the workspace directory, except the absolute `config_files`, the `from` of each
+/// [`DepRef`] and the `from` of each [`BinaryRef`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PluginOutput {
     /// Entry files and globs, including the production ones.
@@ -351,6 +374,11 @@ pub struct PluginOutput {
     pub referenced_dependencies: Vec<DepRef>,
     /// Binaries the configs invoke (from embedded scripts).
     pub referenced_binaries: Vec<String>,
+    /// The binaries of `referenced_binaries` that a command read from a file runs, with that file, for
+    /// `unlisted-binaries`. Binaries fetched on demand (`npx x`), run in another workspace (`pnpm --filter web exec
+    /// x`), assumed installed globally or ignored by the script parser are left out; so are the binaries a plugin
+    /// names without a command (`PluginInput::Binary`).
+    pub run_binaries: Vec<BinaryRef>,
     /// Binaries the tool itself provides.
     pub provided_binaries: Vec<String>,
     /// Globs of files that must not be reported as unused.

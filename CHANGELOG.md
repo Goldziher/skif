@@ -11,6 +11,42 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `unlisted-binaries` judges the commands that plugins read from the files of their tools (workflow steps, Git
+  hooks, `lint-staged` tasks and other configs that hold commands) and the calls of `execa`, `zx` and `nano-spawn`,
+  and reports a binary no dependency provides at the file that runs it. The literal commands of `exec`, `execSync`,
+  `spawn`, `spawnSync`, `execFile` and `execFileSync` from `node:child_process` in files reachable from an entry are
+  read as well, as knip reads them ([ADR 0076](adrs/0076-binaries-run-outside-scripts-and-unlisted-corrections.md),
+  [#97](https://github.com/Goldziher/skif/issues/97)). `ModuleInfo` gains `commands`, `PluginOutput` gains
+  `run_binaries`, `PluginInput` gains `SourceScript`, `WorkspaceInputs` gains `run_binaries`, `UnlistedBinary`
+  gains `file`, and the module cache schema moves to 2. The commands of CI workflows, Git hooks and task runners
+  judge only the binaries they reach through a package manager or a `node_modules/.bin` path, as knip's
+  `optionalBinaries` does (`PluginSpec` gains `optional_binaries`, `BinaryUse` gains `bin_path`), and a GitHub
+  Actions step whose `shell` is not a POSIX shell is not read.
+
+### Fixed
+
+- The script parser skips the bodies of here-documents, does not read `case` patterns as commands and does not
+  report the functions a script defines as binaries; a command a source file runs follows the scripts of its package
+  (`execSync('pnpm build')`); and more system and platform tools (`taskkill`, `xcode-select`, `sysctl`, `osascript`,
+  `powershell.exe`, compilers) count as global binaries
+  ([ADR 0076](adrs/0076-binaries-run-outside-scripts-and-unlisted-corrections.md)).
+- A dependency named like a binary is assumed to provide it only while its manifest is unknown: when the installed
+  or locked manifest has no such binary (the `stripe` SDK beside a `stripe listen` script), `unlisted-binaries`
+  reports the binary ([#97](https://github.com/Goldziher/skif/issues/97)).
+- The `engines` of a package that encloses another one provide their runtime's module there too: the client and
+  server packages inside an editor extension that declares `engines.vscode` may import `vscode` without
+  `unlisted-dependencies` reporting it ([#96](https://github.com/Goldziher/skif/issues/96)).
+- A bare `@import` in a plain `.css` file is looked up beside the stylesheet first, as `postcss-import` and the CSS
+  URL rules do, and as a package only when no file there matches: `@import '_code'` next to `_code.css` is no longer
+  an unlisted dependency `_code` ([#96](https://github.com/Goldziher/skif/issues/96)).
+- A path below `node_modules/.bin` (`require.resolve('.bin/tool')`) or another dot directory of `node_modules`
+  names no package, so `unlisted-dependencies` no longer reports `.bin`
+  ([#96](https://github.com/Goldziher/skif/issues/96)).
+- A `@jest-environment <name>` or `@vitest-environment <name>` pragma in the comments before a file's first
+  statement is an import of the environment's package (`jsdom` is `jest-environment-jsdom` for Jest,
+  `edge-runtime` is `@edge-runtime/vm` for Vitest, `node` imports nothing, a path stays a path), as knip reads it:
+  a listed environment is no longer an unused dependency and an unlisted one is reported by
+  `unlisted-dependencies` ([#96](https://github.com/Goldziher/skif/issues/96)).
 - `skif migrate --from knip` notes, in a workspace of several packages, that knip merges the tsconfig `paths` of all
   workspaces and skif does not, so an import that only another package's `paths` map is reported as
   `unlisted-dependencies` with the detail `ForeignTsconfigPaths`
