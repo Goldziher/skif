@@ -42,7 +42,12 @@ impl JsRule for DuplicateExports {
                 {
                     continue;
                 }
-                if let Some(local) = export.alias_of.as_deref().or(export.local_name.as_deref()) {
+                // An export counts under the binding it exports and under the one it is initialised with, so
+                // `export const b = a; export const c = b;` makes `b` and `c` one binding even when `a` is not exported.
+                for local in [export.local_name.as_deref(), export.alias_of.as_deref()]
+                    .into_iter()
+                    .flatten()
+                {
                     by_binding.entry(local).or_default().push(export);
                 }
             }
@@ -53,9 +58,7 @@ impl JsRule for DuplicateExports {
                 let (Some(first), Some(second)) = (exports.first(), exports.get(1)) else {
                     continue;
                 };
-                let target_is_exported = exports
-                    .iter()
-                    .any(|export| export.alias_of.is_none() && export.local_name.as_deref() == Some(local));
+                let target_is_exported = exports.iter().any(|export| export.local_name.as_deref() == Some(local));
                 if names.len() < 2 || !target_is_exported {
                     continue;
                 }

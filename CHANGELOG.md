@@ -25,6 +25,8 @@ All notable changes to this project are documented here. The format follows
 - `vi.spyOn(ns, "a")`, `jest.spyOn(ns, "a")` and `spyOn(ns, "a")` read only member `a` of a namespace import
   instead of using the whole module, so its other exports are reported (under `unused-namespace-exports` and
   `unused-namespace-types` when nothing else imports the module).
+- `duplicate-exports` reports `export const b = a` when `a` is an exported constant initialised with another
+  binding (`export const a = base`); before, only an `a` exported under its own declaration counted.
 
 ## [0.2.0] - 2026-11-08
 
