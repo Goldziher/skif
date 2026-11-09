@@ -195,6 +195,11 @@ pub(crate) fn node_modules_package(path: &std::path::Path) -> Option<String> {
     let components: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
     let position = components.iter().rposition(|c| c == "node_modules")?;
     let first = components.get(position + 1)?;
+    // A package name never starts with a dot: `.bin` holds the package managers' binary links and `.vite` or `.cache`
+    // the files tools write, none of them a package.
+    if first.starts_with('.') {
+        return None;
+    }
     if first.starts_with('@') {
         let second = components.get(position + 2)?;
         Some(format!("{first}/{second}"))
@@ -292,5 +297,10 @@ mod tests {
             Some("@a/b")
         );
         assert_eq!(node_modules_package(Path::new("/r/src/a.ts")), None);
+        assert_eq!(node_modules_package(Path::new("/r/node_modules/.bin/tool")), None);
+        assert_eq!(
+            node_modules_package(Path::new("/r/node_modules/.vite/deps/react.js")),
+            None
+        );
     }
 }

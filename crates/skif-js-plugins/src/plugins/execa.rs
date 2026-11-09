@@ -3,7 +3,7 @@
 //! (`execa(…)`, `execa.sync(…)`, `execa.command(…)`, `execa.node(…)`). Only literal commands count: a computed argument
 //! is left out, and a call with a literal argument that is not a plain word is skipped.
 
-use skif_js_syntax::{ConfigValue, ImportedCall, extract_imported_calls};
+use skif_js_syntax::{ConfigValue, ImportedCall, extract_imported_calls, literal_command};
 
 use crate::plugin::{Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
 use crate::support::sources_containing;
@@ -31,7 +31,10 @@ impl Plugin for Execa {
         for (source, text) in sources_containing(cx, "execa") {
             let path = cx.dir.join(&source);
             for call in extract_imported_calls(&text, &path, &["execa"], &[]) {
-                out.extend(execa_script(&call).map(PluginInput::Script));
+                out.extend(execa_script(&call).map(|script| PluginInput::SourceScript {
+                    file: source.clone(),
+                    script,
+                }));
             }
         }
         out
@@ -58,24 +61,7 @@ fn execa_script(call: &ImportedCall) -> Option<String> {
     }
 }
 
-/// The command of a `(file, [arguments])` call: the file and its literal arguments, a computed argument left out. `None`
-/// when the file or a literal argument is not a plain word: dropping it would change what the command means.
+/// The command of a `(file, [arguments])` call; see [`literal_command`].
 pub(crate) fn safe_command(arguments: &[ConfigValue]) -> Option<String> {
-    let is_safe = |word: &str| {
-        !word.is_empty()
-            && word
-                .chars()
-                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '@' | '.' | ',' | ':' | '/' | '=' | '+' | '~' | '-'))
-    };
-    let file = arguments.first()?.as_str().filter(|file| is_safe(file))?;
-    let mut words = vec![file];
-    if let Some(ConfigValue::Array(items)) = arguments.get(1) {
-        for word in items.iter().filter_map(ConfigValue::as_str) {
-            if !is_safe(word) {
-                return None;
-            }
-            words.push(word);
-        }
-    }
-    Some(words.join(" "))
+    literal_command(arguments)
 }

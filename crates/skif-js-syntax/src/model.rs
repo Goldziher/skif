@@ -378,6 +378,10 @@ pub struct ModuleInfo {
     /// exist already and declares nothing on its own.
     #[serde(default)]
     pub augmented_modules: Vec<String>,
+    /// The command lines the file runs through `node:child_process` (`execSync('tsc -b')`, `spawn('eslint', ['.'])`),
+    /// in source order without duplicates; only literal commands. They are parsed like the scripts of `package.json`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<String>,
     /// Syntax errors the parser recovered from; the other fields describe the recovered program. For component
     /// files, the issues of every script block.
     pub parse_diagnostics: Vec<ParseIssue>,

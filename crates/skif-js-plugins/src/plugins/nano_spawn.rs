@@ -31,7 +31,10 @@ impl Plugin for NanoSpawn {
             let path = cx.dir.join(&source);
             for call in extract_imported_calls(&text, &path, &["nano-spawn"], &[]) {
                 if call.export == "default" && call.template.is_none() {
-                    out.extend(safe_command(&call.arguments).map(PluginInput::Script));
+                    out.extend(safe_command(&call.arguments).map(|script| PluginInput::SourceScript {
+                        file: source.clone(),
+                        script,
+                    }));
                 }
             }
         }

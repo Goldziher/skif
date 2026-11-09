@@ -375,3 +375,8 @@ blake3 = "e5221c6df9a4f9d014d42e9d5ca5b613e76323b7137acd3e40b232b03f8a7e1a"
 number = 75
 status = "accepted"
 blake3 = "daa35a8e48c913e9edcfda5c2872efda2da9266207162c0d935ac07b6e8a2cb2"
+
+[adrs."adrs/0076-binaries-run-outside-scripts-and-unlisted-corrections.md"]
+number = 76
+status = "accepted"
+blake3 = "fb1be06eeb0327b08046522ea964275d5b24ea3e4a0cdbe5baa9b273bee49913"

@@ -3282,6 +3282,39 @@ fn execa_zx_and_nano_spawn_commands_are_scripts() {
     );
 }
 
+/// The binaries a command read from a file runs are recorded with that file: the workflow for a workflow step, the
+/// source file for a call of `execa`. On-demand fetches (`npx`) and system tools (`git`) are left out.
+#[test]
+fn run_binaries_name_the_file_whose_command_runs_them() {
+    let workflow = "name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm exec tsx scripts/check.ts && git status\n      - run: npx playwright test\n";
+    let files = [
+        (".github/workflows/ci.yml", workflow),
+        (
+            "scripts/release.ts",
+            r#"import { execa } from "execa"; await execa("changeset", ["publish"]);"#,
+        ),
+    ];
+    let results = resolve(&files, &["execa"]);
+    let runs = |id: &str| -> Vec<(String, String)> {
+        output(&results, id)
+            .run_binaries
+            .iter()
+            .map(|run| {
+                let from = run.from.strip_prefix(DIR).unwrap_or(run.from.as_path());
+                (run.name.clone(), from.to_string_lossy().replace('\\', "/"))
+            })
+            .collect()
+    };
+    assert_eq!(
+        runs("github-actions"),
+        [("tsx".to_owned(), ".github/workflows/ci.yml".to_owned())]
+    );
+    assert_eq!(
+        runs("execa"),
+        [("changeset".to_owned(), "scripts/release.ts".to_owned())]
+    );
+}
+
 #[test]
 fn execa_default_import_and_zx_globals_are_read() {
     let files = [
@@ -4809,4 +4842,62 @@ fn taskr_reads_the_taskfile_its_required_plugins_and_named_plugins() {
     assert!(out.provided_binaries.contains(&"taskr".to_string()));
     let none = resolve(&[], &["react"]);
     assert!(!none.iter().any(|(id, _)| *id == "taskr"));
+}
+
+#[test]
+fn ci_and_hook_commands_judge_only_binaries_reached_through_a_package_manager_or_a_bin_path() {
+    let workflow = concat!(
+        "name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n",
+        "      - run: shellcheck scripts/*.sh && swiftc main.swift\n",
+        "      - run: pnpm exec tsc -b && yarn release-tool check && ./node_modules/.bin/eslint .\n",
+    );
+    let files = [
+        (".github/workflows/ci.yml", workflow),
+        (
+            "lefthook.yml",
+            "pre-commit:\n  commands:\n    lint:\n      run: actionlint && pnpm exec oxlint\n",
+        ),
+        (".lintstagedrc.json", r#"{"*.rs": "rustfmt"}"#),
+    ];
+    let results = resolve(&files, &["lefthook", "lint-staged"]);
+    let runs = |id: &str| -> Vec<String> {
+        output(&results, id)
+            .run_binaries
+            .iter()
+            .map(|run| run.name.clone())
+            .collect()
+    };
+    assert_eq!(runs("github-actions"), ["tsc", "release-tool", "eslint"]);
+    assert_eq!(runs("lefthook"), ["oxlint"]);
+    // lint-staged tasks run like `package.json` scripts: a binary named directly is judged.
+    assert_eq!(runs("lint-staged"), ["rustfmt"]);
+    // Every binary is still a credit.
+    let referenced = &output(&results, "github-actions").referenced_binaries;
+    assert!(referenced.iter().any(|name| name == "shellcheck"), "{referenced:?}");
+}
+
+#[test]
+fn github_actions_steps_in_a_shell_that_is_not_posix_are_skipped() {
+    let workflow = concat!(
+        "name: ci\non: [push]\ndefaults:\n  run:\n    shell: pwsh\njobs:\n",
+        "  win:\n    runs-on: windows-latest\n    steps:\n",
+        "      - run: Write-Host hi; pnpm exec wintool\n",
+        "      - run: pnpm exec bashtool\n        shell: bash\n",
+        "  linux:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n",
+        "        shell: bash --noprofile --norc -eo pipefail {0}\n    steps:\n",
+        "      - run: pnpm exec jobtool\n",
+        "      - run: import os\n        shell: python\n",
+        "      - run: pnpm exec cmdtool\n        shell: cmd\n",
+    );
+    let results = resolve(&[(".github/workflows/ci.yml", workflow)], &[]);
+    let out = output(&results, "github-actions");
+    let names: Vec<&str> = out.run_binaries.iter().map(|run| run.name.as_str()).collect();
+    assert_eq!(names, ["bashtool", "jobtool"]);
+    assert!(
+        !out.referenced_binaries
+            .iter()
+            .any(|name| name == "Write-Host" || name == "wintool"),
+        "{:?}",
+        out.referenced_binaries
+    );
 }

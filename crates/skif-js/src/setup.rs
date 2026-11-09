@@ -18,7 +18,7 @@ use crate::globs::{Globs, Names};
 use crate::graph::ModuleGraph;
 use crate::input::{
     BuildDir, CustomElementLibrary, IncompleteCause, IncompleteEntries, IncompleteScope, InputRequest, InputSource,
-    PathAlias, WorkspaceInputs,
+    PathAlias, RunBinary, WorkspaceInputs,
 };
 use crate::listed::{self, Listed};
 use crate::resolve::join_normalized;
@@ -373,6 +373,8 @@ pub(crate) struct PackageSetup {
     pub referenced_dependencies: Vec<String>,
     /// Binaries run by plugins.
     pub referenced_binaries: Vec<String>,
+    /// The binaries that commands in the files plugins read run, with the file.
+    pub run_binaries: Vec<RunBinary>,
     pub scripts: ScriptFacts,
     /// Tool configuration files, absolute.
     pub config_files: Vec<PathBuf>,
@@ -765,6 +767,7 @@ impl Setup {
                     .unwrap_or_else(|| js.ignore_exports_used_in_file.clone()),
                 referenced_dependencies,
                 referenced_binaries: plugin.binaries,
+                run_binaries: plugin.run_binaries,
                 scripts,
                 config_files: plugin.config_files,
                 aliases,
