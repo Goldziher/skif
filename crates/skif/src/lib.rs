@@ -181,7 +181,7 @@ pub use skif_core::{
 };
 pub use skif_lint::{
     Emitter, EnabledRules, Executor, ExecutorError, LintContext, LintError, ProviderError, RegistryError, Rule,
-    RuleProvider, RulesProvider,
+    RuleProvider, RulesProvider, ignore_matches,
 };
 pub use skif_workspace::{DiscoverOptions, Package, PackageId, RootKind, Workspace, WorkspaceError};
 
