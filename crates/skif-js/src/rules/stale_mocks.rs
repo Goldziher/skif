@@ -6,20 +6,21 @@ use super::JsRule;
 use super::support::{module_location, unresolved_imports};
 use crate::analysis::JsAnalysis;
 
-/// Metadata of `stale-mocks`. A warning: the test still runs, because the mock factory stands in for the module
-/// (ADR 0073).
+/// Metadata of `stale-mocks`. An error, as the same findings were under `unresolved-imports`: the test runners throw
+/// on most of these calls (ADR 0073).
 pub static META: RuleMeta = RuleMeta::new(
     "stale-mocks",
     Category::Js,
-    Some(Severity::Warning),
+    Some(Severity::Error),
     Fixability::None,
     "A test-runner mock names a relative or aliased module that does not exist.",
 );
 
 /// Reports `vi.mock`, `vi.doMock`, `vi.unmock`, `vi.importActual`, `jest.mock`, `jest.doMock`, `jest.requireActual`
-/// and the other calls of the test runners that name a module, when the relative, aliased or `#` specifier resolves to
-/// nothing. The specifier is resolved as an import is, query (`?react`, `?url`, `?raw`) dropped. A bare package name
-/// that resolves to nothing is taken for a dependency and is not reported here, nor as unlisted (#16).
+/// and the other calls of the test runners that name a module ([`MockCall`]), including Vitest's
+/// `vi.mock(import("x"))`, when the relative, aliased or `#` specifier resolves to nothing. The specifier is resolved
+/// as an import is, query (`?react`, `?url`, `?raw`) dropped. A bare package name that resolves to nothing is taken
+/// for a dependency and is not reported here, nor as unlisted (#16).
 pub struct StaleMocks;
 
 impl JsRule for StaleMocks {
@@ -32,10 +33,10 @@ impl JsRule for StaleMocks {
             let call = import.call.map_or("mock", MockCall::as_str);
             let mut builder = diagnostic(
                 &META,
-                format!("`{call}('{}')` mocks a module that does not exist", import.specifier),
+                format!("`{call}('{}')` names a module that does not exist", import.specifier),
                 module_location(module, Some(import.span)),
             )
-            .help("remove the mock, or point it at the module's new path");
+            .help("remove the call, or point it at the module's new path");
             if let Some(package) = analysis.workspace.package(module.owner) {
                 builder = builder.package(package.display_name());
             }

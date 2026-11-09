@@ -212,7 +212,7 @@ expression: json.stdout
     {
       "id": "stale-mocks",
       "category": "js",
-      "default": "warning",
+      "default": "error",
       "fixable": "none",
       "summary": "A test-runner mock names a relative or aliased module that does not exist."
     },

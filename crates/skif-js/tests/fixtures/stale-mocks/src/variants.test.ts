@@ -13,3 +13,4 @@ vi.mock("not-installed-package");
 test("variants", async () => {
   expect(await vi.importActual("./gone-actual")).toBeDefined();
 });
+vi.mock(import("./gone-typed"), () => ({}));

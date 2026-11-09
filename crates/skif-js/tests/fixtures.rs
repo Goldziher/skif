@@ -583,8 +583,9 @@ fn test_mocks_snapshot() {
     insta::assert_json_snapshot!("test_mocks", diagnostics);
 }
 
-/// A test-runner mock of a module that does not exist is a `stale-mocks` warning, not an unresolved import: for the
-/// `vi` and `jest` calls, relative and aliased specifiers, and a `?react` specifier with its query dropped. A mock of a
+/// A test-runner mock of a module that does not exist is a `stale-mocks` error, not an unresolved import: for the
+/// `vi` and `jest` calls, Vitest's `vi.mock(import("x"))`, relative and aliased specifiers, and a `?react` specifier
+/// with its query dropped. A mock of a
 /// module that exists, a virtual mock and a mock of a package are not reported (#111).
 #[test]
 fn stale_mocks_snapshot() {
@@ -607,6 +608,7 @@ fn a_mock_of_a_missing_module_is_a_stale_mock_not_an_unresolved_import() {
             "src/variants.test.ts: vi.mock('./missing-icon.svg?react')",
             "src/variants.test.ts: vi.mock('@/lib/gone')",
             "src/variants.test.ts: vi.importActual('./gone-actual')",
+            "src/variants.test.ts: vi.mock('./gone-typed')",
         ],
         "{diagnostics:#?}"
     );
@@ -616,8 +618,15 @@ fn a_mock_of_a_missing_module_is_a_stale_mock_not_an_unresolved_import() {
         "an import that resolves to nothing is still an unresolved import"
     );
     let repro = only(&diagnostics, "stale-mocks", "vi.mock('./gone')");
-    assert_eq!(repro.message, "`vi.mock('./gone')` mocks a module that does not exist");
-    assert_eq!(repro.severity, skif_core::Severity::Warning);
+    assert_eq!(repro.message, "`vi.mock('./gone')` names a module that does not exist");
+    assert_eq!(repro.help.as_deref(), Some("remove the call, or point it at the module's new path"));
+    assert_eq!(repro.severity, skif_core::Severity::Error);
+    let actual = only(&diagnostics, "stale-mocks", "jest.requireActual('./gone-required')");
+    assert_eq!(
+        actual.message,
+        "`jest.requireActual('./gone-required')` names a module that does not exist",
+        "a call that loads the real module does not mock it"
+    );
     assert_eq!(
         found(&diagnostics, "unlisted-dependencies"),
         none(),
@@ -637,7 +646,7 @@ fn ignore_unresolved_silences_a_stale_mock() {
     let stale = found(&diagnostics, "stale-mocks");
     assert!(!stale.iter().any(|d| d.ends_with("vi.mock('./gone')")), "{stale:?}");
     assert!(!stale.iter().any(|d| d.contains("@/lib/gone")), "{stale:?}");
-    assert_eq!(stale.len(), 7, "{stale:?}");
+    assert_eq!(stale.len(), 8, "{stale:?}");
     assert_eq!(found(&diagnostics, "stale-js-config"), none(), "both entries matched");
 }
 
