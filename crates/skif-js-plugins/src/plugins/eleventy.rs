@@ -6,7 +6,7 @@
 use skif_js_syntax::{ConfigValue, extract_method_calls};
 
 use crate::plugin::{ConfigAst, Enabler, Plugin, PluginContext, PluginInput, PluginSpec};
-use crate::support::{get_in, join_rel, package_name, strings};
+use crate::support::{below_node_modules, get_in, join_rel, package_name, strings};
 
 /// The `eleventy` plugin.
 pub struct Eleventy;
@@ -72,7 +72,7 @@ fn passthrough_copy(path: &str, config: &ConfigAst<'_>, cx: &PluginContext<'_>) 
     if path.is_empty() || path.starts_with('/') {
         return None;
     }
-    if let Some((_, installed)) = path.split_once("node_modules/") {
+    if let Some(installed) = below_node_modules(path) {
         return package_name(installed).map(PluginInput::Dependency);
     }
     let file = config.join(path);
