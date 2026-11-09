@@ -30,6 +30,7 @@ const LAUNCHERS: &[&str] = &[
     "env",
     "time",
     "nohup",
+    "node",
     "turbo",
     "nx",
 ];
@@ -82,11 +83,13 @@ impl Invocation {
             .filter(|word| !word.starts_with('-'))
     }
 
-    /// Whether `--long` (or the short form `-s`) is present.
+    /// Whether `--long` (or the short form `-s`) is present and not switched off with `--long=false`.
     pub(crate) fn has(&self, long: &str, short: Option<&str>) -> bool {
         self.args.iter().any(|arg| {
             arg == &format!("--{long}")
-                || arg.starts_with(&format!("--{long}="))
+                || arg
+                    .strip_prefix(&format!("--{long}="))
+                    .is_some_and(|value| !matches!(value, "false" | "0"))
                 || short.is_some_and(|short| arg == &format!("-{short}"))
         })
     }
@@ -130,7 +133,9 @@ fn is_tool_word(word: &str, tool: Tool) -> bool {
     if word == name || word.strip_prefix(name).is_some_and(|rest| rest.starts_with('@')) {
         return true;
     }
-    Path::new(word).file_name().is_some_and(|file| file == name) && word.contains('/')
+    word.contains('/')
+        && (Path::new(word).file_name().is_some_and(|file| file == name)
+            || word.contains(&format!("node_modules/{name}/")))
 }
 
 /// Whether `word` is a `NAME=value` environment assignment.
@@ -217,21 +222,66 @@ fn tool_args(prefix: &[String], rest: &[String]) -> Vec<String> {
     rest.iter().filter(|word| *word != "--").cloned().collect()
 }
 
+/// Package managers that run a script of the `package.json` when the word after them (or after their `run`) names
+/// one: `pnpm run knip`, `npm run knip`, `yarn knip`, `pnpm knip`, `bun run knip`.
+const SCRIPT_RUNNERS: &[&str] = &["npm", "pnpm", "yarn", "bun"];
+
+/// Whether the words before a script name make the package manager run that script rather than a binary.
+fn runs_script(prefix: &[String]) -> bool {
+    match prefix {
+        [.., manager, run] if run == "run" => SCRIPT_RUNNERS.contains(&manager.as_str()),
+        [.., manager] => SCRIPT_RUNNERS.contains(&manager.as_str()) && manager != "npm",
+        [] => false,
+    }
+}
+
 /// Every command of every script of `package_json` that runs `tool`.
+///
+/// A command that runs another script of the same name as the tool (`"ci": "pnpm run knip"` next to
+/// `"knip": "knip --production"`) is no run of its own: that script is read already. Only when the command passes
+/// arguments on (`pnpm run knip -- --include files`) is it a run, with the script's arguments and those.
 pub(crate) fn invocations(package_json: &ConfigValue, tool: Tool) -> Vec<Invocation> {
-    let mut out = Vec::new();
+    let defined = defined_scripts(package_json);
+    let mut out: Vec<Invocation> = Vec::new();
+    let mut forwarded: Vec<(String, String, Vec<String>)> = Vec::new();
     for (name, words) in script_commands(package_json) {
         let Some(position) = words.iter().position(|word| is_tool_word(word, tool)) else {
             continue;
         };
-        if launched(&words[..position]) {
+        let prefix = &words[..position];
+        if !launched(prefix) {
+            continue;
+        }
+        let args = tool_args(prefix, &words[position + 1..]);
+        let word = &words[position];
+        if *word != name && runs_script(prefix) && defined.contains(word) {
+            forwarded.push((name, word.clone(), args));
+        } else {
+            out.push(Invocation { script: name, args });
+        }
+    }
+    let direct = out.clone();
+    for (script, target, args) in forwarded {
+        if args.is_empty() {
+            continue;
+        }
+        for run in direct.iter().filter(|run| run.script == target) {
             out.push(Invocation {
-                script: name,
-                args: tool_args(&words[..position], &words[position + 1..]),
+                script: script.clone(),
+                args: run.args.iter().chain(&args).cloned().collect(),
             });
         }
     }
     out
+}
+
+/// The names of the scripts of `package_json`.
+fn defined_scripts(package_json: &ConfigValue) -> Vec<String> {
+    package_json
+        .get("scripts")
+        .and_then(ConfigValue::as_object)
+        .map(|scripts| scripts.iter().map(|(name, _)| name.clone()).collect())
+        .unwrap_or_default()
 }
 
 fn script_commands(package_json: &ConfigValue) -> Vec<(String, Vec<String>)> {
@@ -411,6 +461,56 @@ mod tests {
         let syncpack = invocations(&value, Tool::Syncpack);
         assert_eq!(syncpack.len(), 1);
         assert_eq!(syncpack[0].subcommand(), Some("lint"));
+    }
+
+    #[test]
+    fn a_script_that_runs_the_script_of_the_tool_is_no_run_of_its_own() {
+        let value = package(
+            r#"{
+                "knip": "knip --production",
+                "ci": "pnpm run knip && pnpm test",
+                "check": "yarn knip",
+                "files": "npm run knip -- --include files",
+                "bin": "pnpm exec knip"
+            }"#,
+        );
+        let found = invocations(&value, Tool::Knip);
+        let seen: Vec<(&str, Vec<&str>)> = found
+            .iter()
+            .map(|invocation| {
+                (
+                    invocation.script.as_str(),
+                    invocation.args.iter().map(String::as_str).collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            seen,
+            vec![
+                ("knip", vec!["--production"]),
+                ("bin", vec![]),
+                ("files", vec!["--production", "--include", "files"]),
+            ]
+        );
+        assert!(runs_script(&["pnpm".to_owned()]));
+        assert!(!runs_script(&["npm".to_owned()]));
+        assert!(!runs_script(&["pnpm".to_owned(), "exec".to_owned()]));
+    }
+
+    #[test]
+    fn the_entry_file_of_the_package_and_switched_off_flags_are_read() {
+        let value = package(
+            r#"{
+                "a": "node ./node_modules/knip/bin/knip.js --production=false",
+                "b": "node --max-old-space-size=8192 node_modules/.bin/knip --production=true",
+                "c": "node scripts/knip-report.js"
+            }"#,
+        );
+        let found = invocations(&value, Tool::Knip);
+        let scripts: Vec<&str> = found.iter().map(|invocation| invocation.script.as_str()).collect();
+        assert_eq!(scripts, ["a", "b"]);
+        assert!(!found[0].has("production", Some("p")));
+        assert!(found[1].has("production", Some("p")));
     }
 
     #[test]

@@ -9,7 +9,7 @@ use crate::doc::Val;
 use crate::keys;
 use crate::notes::{NoteClass, Tool};
 use crate::scripts::{self, Invocation};
-use crate::state::{Level, Src, State};
+use crate::state::{Level, Src, State, intersected_scope, str_list};
 use crate::tables;
 use crate::value::{at, boolean, entries, join, read, string, string_list};
 use crate::{MigrateError, ToolInput};
@@ -521,8 +521,8 @@ impl Selectors {
     /// Whether the group selects every dependency of every package, so its policy is not narrowed to anything.
     fn selects_everything(&self) -> bool {
         let filters = |tokens: &[String]| tokens.iter().any(|token| token != "**");
-        self.dependencies.is_empty()
-            && self.packages.is_empty()
+        !filters(&self.dependencies)
+            && !filters(&self.packages)
             && !self.dependency_types.as_deref().is_some_and(filters)
             && !filters(&self.specifier_types)
     }
@@ -775,11 +775,14 @@ fn catalog_policy(state: &mut State<'_>, src: &Src, path: &str, selectors: &Sele
     if selectors.selects_everything() {
         state.doc.table(&["catalog"]).set("mode", Val::str("prefer"));
         state.keep(Tool::Syncpack, tables::syncpack_rules("catalog-policy"));
-        state.note(
+        state.note_with(
             src,
-            NoteClass::Exact,
+            NoteClass::Approximate,
             join(path, "policy"),
-            "written to [catalog] mode = \"prefer\"; the group selected every dependency",
+            "written to [catalog] mode = \"prefer\"; the group selected every dependency. skif reports a dependency \
+             without `catalog:` as a warning, and only one used in at least `min-packages` packages (2 by default); \
+             syncpack reported every such instance as an error",
+            "set [catalog] mode = \"enforce\" and min-packages = 1 for syncpack's strictness",
         );
     } else {
         state.note_with(
@@ -815,12 +818,10 @@ fn group_policy(
     if let Some(pin) = &options.pin {
         return Some(Policy::Pinned(pin.clone()));
     }
-    if !options.snap_to.is_empty() {
-        return Some(Policy::Snapped(options.snap_to.clone()));
-    }
+    // syncpack reads `policy` before `snapTo`.
     let policy_path = join(path, "policy");
-    match named {
-        None => Some(Policy::Preferred),
+    let policy = match named {
+        None => None,
         Some("sameRange") => Some(Policy::SameRange),
         Some("sameMinor") => Some(Policy::SameMinor),
         Some("banned") => Some(Policy::Banned),
@@ -834,9 +835,20 @@ fn group_policy(
                 policy_path,
                 format!("`{other}` is not a policy skif knows; the group uses the default policy"),
             );
-            Some(Policy::Preferred)
+            None
         }
+    };
+    if matches!(policy, Some(Policy::SameMinor)) && options.prefer.is_some() {
+        state.note(
+            src,
+            NoteClass::Approximate,
+            join(path, "preferVersion"),
+            "not written: a skif same-minor group reports a mismatch without picking the version to align on",
+        );
     }
+    policy
+        .or_else(|| (!options.snap_to.is_empty()).then(|| Policy::Snapped(options.snap_to.clone())))
+        .or(Some(Policy::Preferred))
 }
 
 fn semver_groups(state: &mut State<'_>, src: &Src, path: &str, value: &ConfigValue, types: &Types) {
@@ -1183,7 +1195,10 @@ fn emit_scope(state: &mut State<'_>, src: &Src, run: &Run) {
             united
         }
     };
-    state.doc.table(&["policy"]).set("dependency-types", Val::strs(tokens));
+    if narrowed {
+        narrow_groups(state, src, &tokens);
+    }
+    state.widen_scope(tokens);
     if !narrowed {
         state.note(
             src,
@@ -1191,6 +1206,46 @@ fn emit_scope(state: &mut State<'_>, src: &Src, run: &Run) {
             "dependencyTypes",
             "[policy] dependency-types is the scope syncpack lints by default: prod, dev, peer, local, resolutions, \
              overrides, pnpm overrides and your custom types; optional dependencies are not part of it",
+        );
+    }
+}
+
+/// `syncpack lint --dependency-types` filters every instance before the groups see it, so a group that names a type
+/// outside the run's scope never got one. skif lets a group govern the types it names, so each group's list is cut to
+/// the scope, and a group left with no type is dropped.
+fn narrow_groups(state: &mut State<'_>, src: &Src, scope: &[String]) {
+    let mut dropped: Vec<String> = Vec::new();
+    for table in ["version-groups", "semver-groups"] {
+        state.doc.edit_elements(&[table], |section| {
+            let Some(types) = section.get("dependency-types").map(str_list) else {
+                return true;
+            };
+            match intersected_scope(&types, scope) {
+                Some(narrowed) => {
+                    if narrowed != types {
+                        section.set("dependency-types", Val::strs(narrowed));
+                    }
+                    true
+                }
+                None => {
+                    let origin = section.comments.first().map_or("", String::as_str);
+                    let origin = origin.strip_prefix("syncpack ").unwrap_or(origin);
+                    dropped.push(origin.split(": ").next().unwrap_or(origin).to_owned());
+                    false
+                }
+            }
+        });
+    }
+    for path in dropped {
+        state.note(
+            src,
+            NoteClass::Exact,
+            path,
+            format!(
+                "the group only covers dependency types outside --dependency-types {}, so syncpack never gave it an \
+                 instance; it was not written",
+                scope.join(",")
+            ),
         );
     }
 }

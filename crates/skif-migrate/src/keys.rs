@@ -67,6 +67,8 @@ pub(crate) const RULE_UNUSED_CATALOG_ENTRIES: &str = "unused-catalog-entries";
 
 /// `[policy]` key choosing how the override sections are read.
 pub(crate) const POLICY_OVERRIDE_READING: &str = "override-reading";
+pub(crate) const POLICY: &str = "policy";
+pub(crate) const POLICY_DEPENDENCY_TYPES: &str = "dependency-types";
 
 /// The rule that reports configuration that no longer matches anything (knip's configuration hints).
 pub(crate) const RULE_STALE_JS_CONFIG: &str = "stale-js-config";
