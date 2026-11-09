@@ -688,6 +688,48 @@ fn member_accesses_through_imports() {
 }
 
 #[test]
+fn imports_awaited_together_bind_the_element_of_the_array_pattern_at_their_position() {
+    let source = "async function f() {\n  const [{ a }, ns, , skipped, ...rest] = await Promise.all([\n    import('./x'),\n    import('./y'),\n    import('./hole'),\n    import('./skipped'),\n    import('./rest'),\n  ]);\n  ns.b;\n  use(a, rest);\n}\n";
+    let info = parse("a.ts", source);
+    let by_specifier = |specifier: &str| {
+        info.imports
+            .iter()
+            .find(|import| import.specifier == specifier)
+            .unwrap_or_else(|| panic!("no import of {specifier}"))
+    };
+    let x = &by_specifier("./x").names;
+    assert_eq!(x.len(), 1);
+    assert_eq!(x[0].kind, ImportedKind::Named("a".into()));
+    assert_eq!(x[0].local.as_deref(), Some("a"));
+    let y = &by_specifier("./y").names[0];
+    assert_eq!(y.kind, ImportedKind::Namespace);
+    assert_eq!(y.accessed_members, ["b"]);
+    assert!(!y.escapes, "`ns.b` reads one member");
+    let skipped = &by_specifier("./skipped").names[0];
+    assert_eq!(skipped.kind, ImportedKind::Namespace);
+    assert_eq!(skipped.local.as_deref(), Some("skipped"));
+    assert!(
+        skipped.accessed_members.is_empty() && !skipped.escapes,
+        "a binding never read uses nothing"
+    );
+    for whole in ["./hole", "./rest"] {
+        let names = &by_specifier(whole).names;
+        assert!(
+            names.len() == 1 && names[0].kind == ImportedKind::Namespace && names[0].escapes,
+            "{whole}: {names:?}"
+        );
+    }
+}
+
+#[test]
+fn imports_awaited_together_after_a_spread_are_used_as_a_whole() {
+    let source = "async function f() {\n  const [a, b] = await Promise.all([...others, import('./x')]);\n  a.c;\n}\n";
+    let info = parse("a.ts", source);
+    let names = &info.imports[0].names;
+    assert!(names.len() == 1 && names[0].escapes, "{names:?}");
+}
+
+#[test]
 fn namespace_that_escapes_is_flagged() {
     for source in [
         "import * as ns from 'x'; use(ns);",
