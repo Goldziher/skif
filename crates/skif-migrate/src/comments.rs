@@ -284,6 +284,9 @@ mod tests {
             Some("kept on the old major")
         );
         let json = Input::new("package.json", "{ \"knip\": { \"ignore\": [\"a\"] } }");
-        assert_eq!(Comments::read(&json).elements, [] as [skif_js_syntax::ElementComment; 0]);
+        assert_eq!(
+            Comments::read(&json).elements,
+            [] as [skif_js_syntax::ElementComment; 0]
+        );
     }
 }
