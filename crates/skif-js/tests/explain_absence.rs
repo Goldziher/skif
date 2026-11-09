@@ -110,6 +110,34 @@ fn a_declaration_file() {
     assert_eq!(absence(&files, "", "lib/generated.d.ts"), "not-discovered");
 }
 
+/// A root Playwright config whose `testDir` lies in a member package makes that member's tests entries; the reason
+/// names the enclosing package's glob rather than none.
+#[test]
+fn a_test_an_enclosing_package_names_is_an_entry_of_that_package() {
+    let files = [
+        (
+            "package.json",
+            r#"{"name":"root","private":true,"workspaces":["apps/*"],"devDependencies":{"@playwright/test":"1"}}"#,
+        ),
+        (
+            "playwright.config.ts",
+            "export default { testDir: './apps/web/e2e', testMatch: '**/*.e2e.ts' };\n",
+        ),
+        (
+            "apps/web/package.json",
+            r#"{"name":"web","private":true,"main":"index.ts"}"#,
+        ),
+        ("apps/web/index.ts", "export {};\n"),
+        ("apps/web/e2e/signup.e2e.ts", "export const signup = 1;\n"),
+    ];
+    let test = report(&files, "", "apps/web/e2e/signup.e2e.ts");
+    assert_eq!(
+        (&test["in-graph"], &test["entry"]),
+        (&json!(true), &json!("enclosing-entry-glob")),
+        "{test}"
+    );
+}
+
 #[test]
 fn a_file_outside_the_project_globs() {
     let files = [
