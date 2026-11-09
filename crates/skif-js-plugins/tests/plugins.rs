@@ -3985,7 +3985,7 @@ fn taskfile_tasks_and_includes() {
         &[
             (
                 "Taskfile.yml",
-                "version: '3'\nincludes:\n  docs: ./docs/Taskfile.yml\n  other:\n    taskfile: ./other.yml\ntasks:\n  build: tsc -b\n  release: '{{.TOOL}} publish'\n  fmt:\n    cmds:\n      - 'node {{.SCRIPT}}'\n  lint:\n    cmds:\n      - eslint .\n      - cmd: node scripts/check.js\n        defer: { cmd: node scripts/cleanup.js }\n",
+                "version: '3'\nvars:\n  SCRIPT: scripts/fmt.js\n  DYNAMIC:\n    sh: echo scripts/x.js\nincludes:\n  docs: ./docs/Taskfile.yml\n  other:\n    taskfile: ./other.yml\n  computed: '{{.DIR}}/Taskfile.yml'\ntasks:\n  build: tsc -b\n  release: '{{.TOOL}} publish'\n  fmt:\n    cmds:\n      - 'node {{.SCRIPT}}'\n      - 'node {{.DYNAMIC}}'\n  gen:\n    vars:\n      SCRIPT: scripts/gen.js\n    cmds:\n      - 'node {{ .ROOT_DIR }}/{{.SCRIPT}} --out {{.CLI_ARGS}}'\n  lint:\n    cmds:\n      - eslint .\n      - cmd: node scripts/check.js\n        defer: { cmd: node scripts/cleanup.js }\n",
             ),
             ("docs/Taskfile.yml", "version: '3'\ntasks:\n  docs:\n    cmd: typedoc\n"),
         ],
@@ -3999,17 +3999,21 @@ fn taskfile_tasks_and_includes() {
             out.referenced_binaries
         );
     }
-    assert_entries(&out.entries, &["scripts/check.js", "scripts/cleanup.js"]);
+    assert_entries(
+        &out.entries,
+        &["scripts/check.js", "scripts/cleanup.js", "scripts/fmt.js", "scripts/gen.js"],
+    );
     assert!(
-        !out.referenced_binaries.iter().any(|binary| binary.contains("{{")),
+        !out.referenced_binaries.iter().any(|binary| binary.contains("{{") || binary.contains('$')),
         "{:?}",
         out.referenced_binaries
     );
     assert!(
-        !out.entries.iter().any(|entry| entry.contains("{{")),
+        !out.entries.iter().any(|entry| entry.contains("{{") || entry.contains('$') || entry.contains("x.js")),
         "{:?}",
         out.entries
     );
+    assert!(!out.config_files.iter().any(|file| file.to_string_lossy().contains('$')));
     let results = resolve(&[("taskfile.dist.yaml", "version: '3'\n")], &[]);
     output(&results, "taskfile");
     let nested = resolve_with(&[("Taskfile.yml", "version: '3'\n")], &[], false, &IndexMap::new());
