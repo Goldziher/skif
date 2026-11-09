@@ -536,6 +536,14 @@ The rest of knip's configuration hints are part of `stale-js-config` too:
   as the files the analysis reached suggest missing entries, with knip's thresholds. A single-package workspace gets one hint; otherwise
   each package with more than one unused file gets one, largest first.
 
+**Where binaries are run.** `unlisted-binaries` reads the commands of the `package.json` scripts, the commands that
+plugins read from the files of their tools (workflow steps of `.github/workflows`, Git hooks, `lint-staged` tasks and the
+other configs that hold commands) and the literal commands that source files reachable from an entry run through
+`node:child_process` (`exec`, `execSync`, `spawn`, `spawnSync`, `execFile`, `execFileSync`), `execa`, `zx` and
+`nano-spawn`. A binary of a script is reported at the script in `package.json`; one of any other command at the file
+that holds the command. A binary fetched on demand (`npx x`, `pnpm dlx x`) is never reported, and a command whose
+arguments are computed is not read.
+
 **`ignore-global-binaries`** (default `true`, top level only) keeps `unlisted-binaries` quiet about the system and
 platform tools scripts run (`rm`, `curl`, `git`, `docker`), which are installed globally, like knip's
 `ignoreGlobalBinaries`. Set it to `false` to report each one that no dependency provides, unless `ignore-binaries`

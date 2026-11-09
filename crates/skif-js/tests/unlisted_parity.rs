@@ -173,3 +173,54 @@ fn an_installed_dependency_without_the_binary_does_not_provide_it() {
     ]);
     assert_eq!(found(&diagnostics, "unlisted-binaries"), ["package.json: stripe"]);
 }
+
+/// A source file that runs a command through `node:child_process` runs its binary as a script would: a listed
+/// provider is used, an unlisted binary is reported at the file, and on-demand fetches and system tools are not.
+#[test]
+fn child_process_commands_run_binaries_of_the_file() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","main":"src/index.ts","devDependencies":{"cowsay":"1.0.0","tsx":"4.0.0"}}"#,
+        ),
+        (
+            "src/index.ts",
+            "import { execFileSync, execSync } from 'node:child_process';\n\
+             execFileSync('sqlite3', ['db.sqlite']);\nexecSync('tsx scripts/seed.ts');\n\
+             execSync('git status');\nexecSync('npx cowsay hi');\nexport const done = true;\n",
+        ),
+        ("scripts/seed.ts", "export const seed = 1;\n"),
+        (
+            "src/unreached.ts",
+            "import { execSync } from 'node:child_process';\nexecSync('never-run');\n",
+        ),
+    ]);
+    assert_eq!(found(&diagnostics, "unlisted-binaries"), ["src/index.ts: sqlite3"]);
+    assert_eq!(found(&diagnostics, "unused-dev-dependencies"), none());
+}
+
+/// The commands of a workflow, and of a source file that runs them with `execa`, run binaries of that file.
+#[test]
+fn binaries_that_workflows_and_execa_calls_run_are_reported_at_the_file() {
+    let diagnostics = lint(&[
+        (
+            "package.json",
+            r#"{"name":"app","version":"1.0.0","main":"scripts/release.mjs","dependencies":{"execa":"9.0.0"},"devDependencies":{"vitest":"3.0.0"}}"#,
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: vitest run && release-tool publish\n      - run: npx playwright test\n",
+        ),
+        (
+            "scripts/release.mjs",
+            "import { execa } from 'execa';\nawait execa('changeset', ['publish']);\n",
+        ),
+    ]);
+    assert_eq!(
+        found(&diagnostics, "unlisted-binaries"),
+        [
+            ".github/workflows/ci.yml: release-tool",
+            "scripts/release.mjs: changeset"
+        ]
+    );
+}

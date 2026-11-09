@@ -9,6 +9,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `unlisted-binaries` judges the commands that plugins read from the files of their tools (workflow steps, Git
+  hooks, `lint-staged` tasks and other configs that hold commands) and the calls of `execa`, `zx` and `nano-spawn`,
+  and reports a binary no dependency provides at the file that runs it. The literal commands of `exec`, `execSync`,
+  `spawn`, `spawnSync`, `execFile` and `execFileSync` from `node:child_process` in files reachable from an entry are
+  read as well, as knip reads them ([ADR 0076](adrs/0076-binaries-run-outside-scripts-and-unlisted-corrections.md),
+  [#97](https://github.com/Goldziher/skif/issues/97)). `ModuleInfo` gains `commands`, `PluginOutput` gains
+  `run_binaries`, `PluginInput` gains `SourceScript`, `WorkspaceInputs` gains `run_binaries`, `UnlistedBinary`
+  gains `file`, and the module cache schema moves to 2.
+
 ### Fixed
 
 - A dependency named like a binary is assumed to provide it only while its manifest is unknown: when the installed
