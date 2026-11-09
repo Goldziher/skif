@@ -107,7 +107,11 @@ reason = "pinned until the legacy importer is gone"
 ```
 
 `reason` is optional and records why the entry exists. `--require-ignore-reasons` fails a run on an entry without one,
-so a baseline of suppressions can be reviewed and ratcheted down.
+so a baseline of suppressions can be reviewed and ratcheted down. `skif baseline` writes such entries for the current
+findings into a file of their own and keeps it from growing (see the [CLI reference](../cli/#baseline)).
+
+A `dependencies` pattern of the form `name@specifier` matches only the instances written with that specifier
+(`react@^17.0.2`); a bare name matches every version.
 
 ### `[policy]`
 

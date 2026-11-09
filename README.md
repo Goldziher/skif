@@ -29,7 +29,7 @@ npm · pnpm · yarn · bun · **42 rules** · **205 plugins** · format-preservi
 | **One tool** | Manifest hygiene, version policy and dead-code analysis in one run, one `skif.toml` and one report. |
 | **Fast** | 8 to 61 times faster than knip on real repositories. Manifest checks beat sherif and syncpack on every target, by 1.3 times or more at 2,000 generated packages. [See the numbers.](#benchmarks) |
 | **Safe** | Analysis is static: skif reads your code and configs without running them. Fixes keep key order, indentation and comments. |
-| **Easy to adopt** | `skif migrate` translates your sherif, syncpack and knip configuration in one step. |
+| **Easy to adopt** | `skif migrate` translates your sherif, syncpack and knip configuration in one step, and `skif baseline` records the findings you cannot fix yet so CI only accepts fewer. |
 | **Built for CI** | Human, JSON, SARIF, GitHub annotation, GitLab Code Quality, compact, Markdown and CODEOWNERS output, stable rule ids and a GitHub Action. |
 | **Embeddable** | The [`skif`](crates/skif/README.md) crate is a library that does no I/O of its own. |
 
